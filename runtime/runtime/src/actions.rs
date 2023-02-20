@@ -1197,9 +1197,9 @@ mod tests {
                 ],
                 nonce: 19000001,
                 max_block_height: 57,
-                public_key: "ed25519:HaYUbyeiNRnyHtQceRgT3gyMBigZFEW9EYYU1KTHtdR1".parse::<PublicKey>().unwrap(),
+                public_key: "ed25519:32LnPNBZQJ3uhY8yV6JqnNxtRW8E27Ps9YD1XeUNuA1m".parse::<PublicKey>().unwrap(),
             },
-            signature: "ed25519:2b1NHmrj7LVgA5H9aDtQmd6JgZqy4nPAYHtNQc88PiEY3xMjpkKMDN1wVWZaXMGx9tjWbXzp4jXSCyTPqUfPdRUB".parse().unwrap()
+            signature: "ed25519:5oswo6yH6u7xduXHEC4aWc8EGmWdbFz49DaHvAVioS9tbdrxpUtoNQUa8ST9Fxpk7zS2ogWvuKaL29JjMFDi3DLe".parse().unwrap()
         };
 
         let action_receipt = ActionReceipt {

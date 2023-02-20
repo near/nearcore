@@ -5,6 +5,7 @@
 
 pub use self::private_non_delegate_action::NonDelegateAction;
 use crate::hash::{hash, CryptoHash};
+use crate::signable_message::{SignableMessage, SignableMessageType};
 use crate::transaction::Action;
 use crate::types::{AccountId, Nonce};
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -54,7 +55,7 @@ impl borsh::de::BorshDeserialize for SignedDelegateAction {
 impl SignedDelegateAction {
     pub fn verify(&self) -> bool {
         let delegate_action = &self.delegate_action;
-        let hash = delegate_action.get_hash();
+        let hash = delegate_action.get_nep461_hash();
         let public_key = &delegate_action.public_key;
 
         self.signature.verify(hash.as_ref(), public_key)
@@ -73,8 +74,13 @@ impl DelegateAction {
         self.actions.iter().map(|a| a.clone().into()).collect()
     }
 
-    pub fn get_hash(&self) -> CryptoHash {
-        let bytes = self.try_to_vec().expect("Failed to deserialize");
+    /// Delegate action hash used for NEP-461 signature scheme which tags
+    /// different messages before hashing
+    ///
+    /// For more details, see: [NEP-461](https://github.com/near/NEPs/pull/461)
+    pub fn get_nep461_hash(&self) -> CryptoHash {
+        let signable = SignableMessage::new(&self, SignableMessageType::DelegateAction);
+        let bytes = signable.try_to_vec().expect("Failed to deserialize");
         hash(&bytes)
     }
 }
