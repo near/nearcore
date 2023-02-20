@@ -384,10 +384,14 @@ fn test_initial_copy_to_cold(batch_size: usize) {
         last_hash = *block.hash();
     }
 
+    let keep_going = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let keep_going_clone = keep_going.clone();
+
     copy_all_data_to_cold(
         (*store.cold_db().unwrap()).clone(),
         &env.clients[0].runtime_adapter.store(),
         batch_size,
+        keep_going_clone,
     )
     .unwrap();
 
