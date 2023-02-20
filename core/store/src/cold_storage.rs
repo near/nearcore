@@ -1,5 +1,5 @@
 use crate::columns::DBKeyType;
-use crate::db::{ColdDB, COLD_HEAD_KEY, HEAD_KEY};
+use crate::db::{ColdDB, COLD_HEAD_KEY};
 use crate::trie::TrieRefcountChange;
 use crate::{metrics, DBCol, DBTransaction, Database, Store, TrieChanges};
 
@@ -136,10 +136,18 @@ pub fn update_cold_head<D: Database>(
     let tip_header = &store.get_ser_or_err::<BlockHeader>(DBCol::BlockHeader, &block_hash_key)?;
     let tip = Tip::from_header(tip_header);
 
-    // Write HEAD to the cold db.
+    // TODO think if safe to remove and about any other usage of this
+    // // Write HEAD to the cold db.
+    // {
+    //     let mut transaction = DBTransaction::new();
+    //     transaction.set(DBCol::BlockMisc, HEAD_KEY.to_vec(), tip.try_to_vec()?);
+    //     cold_db.write(transaction)?;
+    // }
+
+    // Write COLD_HEAD to the cold db.
     {
         let mut transaction = DBTransaction::new();
-        transaction.set(DBCol::BlockMisc, HEAD_KEY.to_vec(), tip.try_to_vec()?);
+        transaction.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), tip.try_to_vec()?);
         cold_db.write(transaction)?;
     }
 

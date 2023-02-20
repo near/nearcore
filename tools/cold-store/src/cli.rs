@@ -340,7 +340,7 @@ impl PrepareHotCmd {
     /// Check that the DbKind of each of the stores is as expected.
     fn check_db_kind(
         hot_store: &Store,
-        cold_store: &Store,
+        _cold_store: &Store,
         rpc_store: &Store,
     ) -> anyhow::Result<()> {
         let hot_db_kind = hot_store.get_db_kind()?;
@@ -352,14 +352,17 @@ impl PrepareHotCmd {
             ));
         }
 
-        let cold_db_kind = cold_store.get_db_kind()?;
-        if cold_db_kind != Some(DbKind::Cold) {
-            return Err(anyhow::anyhow!(
-                "Unexpected cold_store DbKind, expected: {:?}, got: {:?}",
-                DbKind::Cold,
-                cold_db_kind,
-            ));
-        }
+        // TODO(wacban) the cold store is a ColdDB and it first reads from the hot store
+        // and returns the hot's db kind. Expose the underlying pure cold
+        // storage and uncomment that check.
+        // let cold_db_kind = cold_store.get_db_kind()?;
+        // if cold_db_kind != Some(DbKind::Cold) {
+        //     return Err(anyhow::anyhow!(
+        //         "Unexpected cold_store DbKind, expected: {:?}, got: {:?}",
+        //         DbKind::Cold,
+        //         cold_db_kind,
+        //     ));
+        // }
 
         let rpc_db_kind = rpc_store.get_db_kind()?;
         if rpc_db_kind != Some(DbKind::RPC) {

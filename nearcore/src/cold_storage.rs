@@ -3,11 +3,8 @@ use std::sync::{atomic::AtomicBool, Arc};
 use near_chain::types::Tip;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::{hash::CryptoHash, types::BlockHeight};
-use near_store::{
-    cold_storage::{update_cold_db, update_cold_head},
-    db::ColdDB,
-    DBCol, NodeStorage, Store, FINAL_HEAD_KEY, HEAD_KEY,
-};
+use near_store::cold_storage::{update_cold_db, update_cold_head};
+use near_store::{db::ColdDB, DBCol, NodeStorage, Store, COLD_HEAD_KEY, FINAL_HEAD_KEY};
 
 use crate::{metrics, NearConfig, NightshadeRuntime};
 
@@ -54,7 +51,9 @@ fn cold_store_copy(
     runtime: &Arc<NightshadeRuntime>,
 ) -> anyhow::Result<ColdStoreCopyResult> {
     // If COLD_HEAD is not set for hot storage we default it to genesis_height.
-    let cold_head = cold_store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)?;
+    // It's important to read the cold head from the cold store because it's not
+    // set right after migration is finished when the hot store has rcp backup data.
+    let cold_head = cold_store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY)?;
     let cold_head_height = cold_head.map_or(genesis_height, |tip| tip.height);
 
     // If FINAL_HEAD is not set for hot storage we default it to genesis_height.
@@ -189,6 +188,7 @@ pub fn spawn_cold_store_loop(
             return Ok(None);
         }
     };
+
     let cold_db = match storage.cold_db() {
         Some(cold_db) => cold_db.clone(),
         None => {

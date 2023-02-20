@@ -74,6 +74,16 @@ impl<D> ColdDB<D> {
             false
         }
     }
+
+    // Append a dummy rc. This is needed since we’ve stripped the reference
+    // count from the data stored in the database, we need to reintroduce it.
+    // In practice this should be never called in production since reading of rc
+    // columns is done with get_with_rc_stripped.
+    fn append_rc(data: DBSlice) -> DBSlice {
+        const ONE: [u8; 8] = 1i64.to_le_bytes();
+        let vec = [data.as_slice(), &ONE[..]].concat();
+        DBSlice::from_vec(vec)
+    }
 }
 
 impl<D: Database> ColdDB<D> {
@@ -90,32 +100,39 @@ impl<D: Database> ColdDB<D> {
     }
 }
 
-impl<D: Database> super::Database for ColdDB<D> {
+impl<D: Database> Database for ColdDB<D> {
+    // For hot columns read the data from the hot db. For cold columns try to
+    // read the data from the hot db and if it's missing read from the cold db.
     fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> std::io::Result<Option<DBSlice<'_>>> {
+        let hot_result = self.hot.get_raw_bytes(col, key)?;
+
         if Self::is_hot_column(col) {
-            return self.hot.get_raw_bytes(col, key);
+            return Ok(hot_result);
         }
+
+        if hot_result.is_some() {
+            return Ok(hot_result);
+        }
+
         match self.get_cold_impl(col, key) {
-            Ok(Some(value)) if col.is_rc() => {
-                // Since we’ve stripped the reference count from the data stored
-                // in the database, we need to reintroduce it.  In practice this
-                // should be never called in production since reading of rc
-                // columns is done with get_with_rc_stripped.
-                const ONE: [u8; 8] = 1i64.to_le_bytes();
-                let vec = [value.as_slice(), &ONE[..]].concat();
-                Ok(Some(DBSlice::from_vec(vec)))
-            }
+            Ok(Some(value)) if col.is_rc() => Ok(Some(Self::append_rc(value))),
             result => result,
         }
     }
 
     fn get_with_rc_stripped(&self, col: DBCol, key: &[u8]) -> std::io::Result<Option<DBSlice<'_>>> {
         assert!(col.is_rc());
+
+        let hot_result = self.hot.get_with_rc_stripped(col, key)?;
         if Self::is_hot_column(col) {
-            self.hot.get_with_rc_stripped(col, key)
-        } else {
-            self.get_cold_impl(col, key)
+            return Ok(hot_result);
         }
+
+        if hot_result.is_some() {
+            return Ok(hot_result);
+        }
+
+        self.get_cold_impl(col, key)
     }
 
     /// Iterates over all values in a column.
@@ -127,6 +144,8 @@ impl<D: Database> super::Database for ColdDB<D> {
     /// Furthermore, because key of ChunkHashesByHeight is modified in cold
     /// storage, the order of iteration of that column is different than if it
     /// would be in hot storage.
+    ///
+    /// TODO how should this method work in the hot first cold second approach?
     fn iter<'a>(&'a self, column: DBCol) -> DBIterator<'a> {
         match column {
             DBCol::BlockHeader | DBCol::EpochInfo => return self.hot.iter(column),

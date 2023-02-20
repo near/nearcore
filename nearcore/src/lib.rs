@@ -175,11 +175,16 @@ pub fn start_with_config_and_synchronization(
 ) -> anyhow::Result<NearNode> {
     let store = open_storage(home_dir, &mut config)?;
 
-    let runtime = Arc::new(NightshadeRuntime::from_config(
-        home_dir,
-        store.get_store(Temperature::Hot),
-        &config,
-    ));
+    // Create runtime and view_runtime for the client and view_client
+    // respectively. If the cold storage is present use the hot store for client
+    // and cold store for view client. Otherwise use the hot store for both.
+    let runtime =
+        Arc::new(NightshadeRuntime::from_config(home_dir, store.get_hot_store(), &config));
+    let view_runtime = if let Some(cold_store) = store.get_cold_store() {
+        Arc::new(NightshadeRuntime::from_config(home_dir, cold_store, &config))
+    } else {
+        runtime.clone()
+    };
 
     let cold_store_loop_handle = spawn_cold_store_loop(&config, &store, runtime.clone())?;
 
@@ -200,7 +205,7 @@ pub fn start_with_config_and_synchronization(
     let view_client = start_view_client(
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
         chain_genesis.clone(),
-        runtime.clone(),
+        view_runtime,
         network_adapter.clone().into(),
         config.client_config.clone(),
         adv.clone(),
@@ -220,6 +225,7 @@ pub fn start_with_config_and_synchronization(
     );
     client_adapter_for_shards_manager.bind(client_actor.clone().with_auto_span_context());
     let (shards_manager_actor, shards_manager_arbiter_handle) = start_shards_manager(
+        // TODO confirm which runtime should be used here.
         runtime,
         network_adapter.as_sender(),
         client_adapter_for_shards_manager.as_sender(),
@@ -233,8 +239,11 @@ pub fn start_with_config_and_synchronization(
     let mut rpc_servers = Vec::new();
     let network_actor = PeerManagerActor::spawn(
         time::Clock::real(),
+        // TODO confirm which store should be used here.
         store.into_inner(near_store::Temperature::Hot),
         config.network_config,
+        // TODO this uses the view client that is backed by cold store. May be
+        // worth having another view client with hot only for this use case.
         Arc::new(near_client::adapter::Adapter::new(client_actor.clone(), view_client.clone())),
         shards_manager_adapter.as_sender(),
         genesis_id,

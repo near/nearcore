@@ -249,13 +249,15 @@ class TestSplitStorage(unittest.TestCase):
         logger.info("Phase 3 - Preparing hot storage from rpc backup.")
         logger.info("")
 
+        # TODO Ideally we won't need to stop the node while running prepare-hot.
+        archival.kill(gentle=True)
+        # Need to kill the rpc node in order to force the db to be flushed to disk.
+        rpc.kill(gentle=True)
+
         rpc_src = path.join(rpc.node_dir, "data")
         rpc_dst = path.join(archival.node_dir, "hot_data")
         logger.info(f"Copying rpc backup from {rpc_src} to {rpc_dst}")
         shutil.copytree(rpc_src, rpc_dst)
-
-        # TODO Ideally we won't need to stop the node while running prepare-hot.
-        archival.kill(gentle=True)
 
         archival_dir = pathlib.Path(archival.node_dir)
         with open(archival_dir / 'prepare-hot-stdout', 'w') as stdout, \
@@ -286,6 +288,7 @@ class TestSplitStorage(unittest.TestCase):
         logger.info("Phase 4 - After migration.")
         logger.info("")
 
+        rpc.start()
         archival.start()
 
         # Wait for a few seconds to:
