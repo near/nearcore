@@ -1,6 +1,8 @@
+#[cfg(feature = "debug_types")]
 use near_client_primitives::debug::{
     DebugBlockStatusData, EpochInfoView, TrackedShardsView, ValidatorStatus,
 };
+#[cfg(feature = "debug_types")]
 use near_primitives::views::{
     CatchupStatusView, ChainProcessingInfo, NetworkGraphView, PeerStoreView,
     RecentOutboundConnectionsView, RequestedStatePartsView, SyncStatusView,
@@ -12,6 +14,7 @@ pub struct RpcStatusResponse {
     pub status_response: near_primitives::views::StatusResponse,
 }
 
+#[cfg(feature = "debug_types")]
 #[derive(serde::Serialize, Debug)]
 pub enum DebugStatusResponse {
     SyncStatus(SyncStatusView),
