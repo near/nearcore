@@ -84,7 +84,7 @@ impl Clock {
     pub fn real() -> Clock {
         Clock(ClockInner::Real)
     }
-    
+
     /// Current time according to the monotone clock.
     pub fn now(&self) -> Instant {
         match &self.0 {

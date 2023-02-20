@@ -129,15 +129,7 @@ impl<E: 'static> Inner<E> {
     pub fn new(ctx: &ctx::Ctx) -> (Arc<Self>, crossbeam_channel::Receiver<E>) {
         let ctx = ctx.sub(time::Deadline::Infinite);
         let (output, recv) = Output::new(ctx.clone());
-        (
-            Arc::new(Self {
-                ctx,
-                output,
-                _parent: None,
-                terminated: signal::Once::new(),
-            }),
-            recv,
-        )
+        (Arc::new(Self { ctx, output, _parent: None, terminated: signal::Once::new() }), recv)
     }
 
     pub fn new_subscope(self: Arc<Self>) -> Arc<Inner<E>> {
@@ -157,20 +149,20 @@ impl<E: 'static> Inner<E> {
 /// in the first place).
 /// In particular Service::spawn() doesn't return a JoinHandle,
 /// because it can be called outside of the scope that it belongs to.
-pub struct JoinHandle<'env,T>(
-    tokio::task::JoinHandle<Result<T,ErrTaskCanceled>>,
+pub struct JoinHandle<'env, T>(
+    tokio::task::JoinHandle<Result<T, ErrTaskCanceled>>,
     std::marker::PhantomData<fn(&'env ()) -> &'env ()>,
 );
 
-#[derive(thiserror::Error,Debug)]
+#[derive(thiserror::Error, Debug)]
 #[error("awaited task has been canceled")]
 pub struct ErrTaskCanceled;
 
-impl<'env,T> JoinHandle<'env,T> {
+impl<'env, T> JoinHandle<'env, T> {
     /// Awaits for a task to be completed and returns the result.
     /// Returns Err(ErrCanceled) if the awaiting (current task) has been canceled.
     /// Returns Ok(Err(ErrTaskCanceled) if the awaited (joined task) has been canceled.
-    pub async fn join(self) -> ctx::OrCanceled<Result<T,ErrTaskCanceled>> {
+    pub async fn join(self) -> ctx::OrCanceled<Result<T, ErrTaskCanceled>> {
         ctx::local().wait(async { self.0.await.unwrap() }).await
     }
 }
@@ -185,12 +177,9 @@ impl<E: 'static + Send> Inner<E> {
     fn spawn<M: 'static + Send + Sync + Borrow<Self>, T: 'static + Send>(
         m: Arc<M>,
         f: impl 'static + Send + Future<Output = Result<T, E>>,
-    ) -> tokio::task::JoinHandle<Result<T,ErrTaskCanceled>> {
+    ) -> tokio::task::JoinHandle<Result<T, ErrTaskCanceled>> {
         tokio::spawn(must_complete(async move {
-            match (ctx::CtxFuture{
-                ctx: m.as_ref().borrow().ctx.clone(),
-                inner: f,
-            }).await {
+            match (ctx::CtxFuture { ctx: m.as_ref().borrow().ctx.clone(), inner: f }).await {
                 Ok(v) => Ok(v),
                 Err(err) => {
                     m.as_ref().borrow().output.send(err);
@@ -251,7 +240,9 @@ impl<E: 'static + Send> Service<E> {
     /// Waits until the scope is terminated.
     ///
     /// Returns `ErrCanceled` iff `ctx` was canceled before that.
-    pub fn terminated<'a>(&'a self) -> impl Future<Output = ctx::OrCanceled<()>> + Send + Sync + 'a {
+    pub fn terminated<'a>(
+        &'a self,
+    ) -> impl Future<Output = ctx::OrCanceled<()>> + Send + Sync + 'a {
         let terminated = self.0.upgrade().map(|inner| inner.terminated.clone());
         async move {
             if let Some(t) = terminated {
@@ -287,7 +278,12 @@ impl<E: 'static + Send> Service<E> {
         &self,
         f: impl 'static + Send + Future<Output = Result<T, E>>,
     ) -> Result<(), ErrTerminated> {
-        self.0.upgrade().map(|m|{ Inner::spawn(m, f); }).ok_or(ErrTerminated)
+        self.0
+            .upgrade()
+            .map(|m| {
+                Inner::spawn(m, f);
+            })
+            .ok_or(ErrTerminated)
     }
 
     /// Spawns a service in this scope.
@@ -331,7 +327,7 @@ pub struct Scope<'env, E: 'static>(
     std::marker::PhantomData<fn(&'env ()) -> &'env ()>,
 );
 
-unsafe fn to_static<'env,T>(f:BoxFuture<'env,T>) -> BoxFuture<'static,T> {
+unsafe fn to_static<'env, T>(f: BoxFuture<'env, T>) -> BoxFuture<'static, T> {
     std::mem::transmute::<BoxFuture<'env, _>, BoxFuture<'static, _>>(f)
 }
 
@@ -339,9 +335,12 @@ impl<'env, E: 'static + Send> Scope<'env, E> {
     pub fn spawn<T: 'static + Send>(
         &self,
         f: impl 'env + Send + Future<Output = Result<T, E>>,
-    ) -> JoinHandle<'env,T> {
+    ) -> JoinHandle<'env, T> {
         match self.0.upgrade() {
-            Some(strong) => JoinHandle(Inner::spawn(strong, unsafe { to_static(f.boxed()) }),std::marker::PhantomData),
+            Some(strong) => JoinHandle(
+                Inner::spawn(strong, unsafe { to_static(f.boxed()) }),
+                std::marker::PhantomData,
+            ),
             None => self.spawn_bg(f),
         }
     }
@@ -349,8 +348,11 @@ impl<'env, E: 'static + Send> Scope<'env, E> {
     pub fn spawn_bg<T: 'static + Send>(
         &self,
         f: impl 'env + Send + Future<Output = Result<T, E>>,
-    ) -> JoinHandle<'env,T> {
-        JoinHandle(Inner::spawn(self.1.upgrade().unwrap(), unsafe { to_static(f.boxed()) }),std::marker::PhantomData)
+    ) -> JoinHandle<'env, T> {
+        JoinHandle(
+            Inner::spawn(self.1.upgrade().unwrap(), unsafe { to_static(f.boxed()) }),
+            std::marker::PhantomData,
+        )
     }
 
     /// Spawns a service.

@@ -131,7 +131,7 @@ pub(super) fn local() -> Ctx {
 impl Ctx {
     /// Awaits until f completes, or the context gets canceled.
     /// f is required to be cancellable.
-    pub(super) async fn wait<F:Future>(&self, f: F) -> OrCanceled<F::Output> {
+    pub(super) async fn wait<F: Future>(&self, f: F) -> OrCanceled<F::Output> {
         tokio::select! {
             v = f => Ok(v),
             _ = self.0.canceled.recv() => Err(ErrCanceled),
@@ -144,33 +144,39 @@ impl Ctx {
 // scope::run!.
 
 /// Equivalent to `with_deadline(now()+d,f)`.
-pub fn run_with_timeout<F:Future>(d: crate::time::Duration, f:F) -> impl Future<Output=F::Output> {
+pub fn run_with_timeout<F: Future>(
+    d: crate::time::Duration,
+    f: F,
+) -> impl Future<Output = F::Output> {
     let ctx = local();
-    let ctx = ctx.sub((ctx.0.clock.now()+d).into());
-    CtxFuture{ctx, inner:f}
+    let ctx = ctx.sub((ctx.0.clock.now() + d).into());
+    CtxFuture { ctx, inner: f }
 }
 
 /// Runs a future with a context restricted to be canceled at time `t`.
 /// It could be emulated via `scope::run!` with a background subtask
 /// returning an error after `sleep_until(t)`, but that would be more
 /// expensive and other tasks won't see the deadline via `ctx::get_deadline()`.
-pub fn run_with_deadline<F:Future>(t: crate::time::Instant, f:F) -> impl Future<Output=F::Output> {
+pub fn run_with_deadline<F: Future>(
+    t: crate::time::Instant,
+    f: F,
+) -> impl Future<Output = F::Output> {
     let ctx = local().sub(t.into());
-    CtxFuture{ctx, inner: f}
+    CtxFuture { ctx, inner: f }
 }
 
 /// Executes the future in a context that has been already canceled.
 /// Useful for tests (also outside of this crate).
-pub fn run_canceled<F:Future>(f:F) -> impl Future<Output=F::Output> {
+pub fn run_canceled<F: Future>(f: F) -> impl Future<Output = F::Output> {
     let ctx = local().sub(crate::time::Deadline::Infinite);
     ctx.cancel();
-    CtxFuture{ctx, inner:f}
+    CtxFuture { ctx, inner: f }
 }
 
 /// Executes the future with a given clock, which can be set to fake clock.
 /// Useful for tests.
-pub fn run_test<F:Future>(clock:crate::time::Clock, f:F) -> impl Future<Output=F::Output> {
-    CtxFuture{ctx: Ctx::new(clock), inner: f}
+pub fn run_test<F: Future>(clock: crate::time::Clock, f: F) -> impl Future<Output = F::Output> {
+    CtxFuture { ctx: Ctx::new(clock), inner: f }
 }
 
 #[pin_project::pin_project]

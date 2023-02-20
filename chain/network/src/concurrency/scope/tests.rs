@@ -145,10 +145,11 @@ async fn test_already_canceled() {
                 ctx::canceled().await;
                 R::Err(4)
             });
-            Ok(()) 
+            Ok(())
         })
-    }).await;
-    assert_eq!(Err(4),res);
+    })
+    .await;
+    assert_eq!(Err(4), res);
 }
 
 #[tokio::test]
