@@ -24,6 +24,7 @@ struct StoreWithCache<'a> {
 
 /// The BatchTransaction can be used to write multiple set operations to the cold db in batches.
 /// [`write`] is called every time `transaction_size` overgrows `threshold_transaction_size`.
+/// [`write`] should also be called manually before dropping BatchTransaction to write any leftovers.
 struct BatchTransaction<D: Database + 'static> {
     cold_db: std::sync::Arc<ColdDB<D>>,
     transaction: DBTransaction,
@@ -198,7 +199,9 @@ pub fn test_get_store_reads(column: DBCol) -> u64 {
 }
 
 pub fn test_get_store_initial_writes(column: DBCol) -> u64 {
-    crate::metrics::COLD_MIGRATION_INITIAL_WRITES.with_label_values(&[<&str>::from(column)]).get()
+    crate::metrics::COLD_STORE_MIGRATION_BATCH_WRITE_COUNT
+        .with_label_values(&[<&str>::from(column)])
+        .get()
 }
 
 /// Returns HashMap from DBKeyType to possible keys of that type for provided height.
@@ -472,8 +475,10 @@ impl<D: Database + 'static> BatchTransaction<D> {
 
         let column_label = [<&str>::from(self.transaction.ops[0].col())];
 
-        crate::metrics::COLD_MIGRATION_INITIAL_WRITES.with_label_values(&column_label).inc();
-        let _timer = crate::metrics::COLD_MIGRATION_INITIAL_WRITES_TIME
+        crate::metrics::COLD_STORE_MIGRATION_BATCH_WRITE_COUNT
+            .with_label_values(&column_label)
+            .inc();
+        let _timer = crate::metrics::COLD_STORE_MIGRATION_BATCH_WRITE_TIME
             .with_label_values(&column_label)
             .start_timer();
 

@@ -179,7 +179,8 @@ fn copy_next_block(store: &NodeStorage, config: &NearConfig, hot_runtime: &Arc<N
 }
 
 fn copy_all_blocks(store: &NodeStorage, batch_size: usize, check: bool) {
-    // If FINAL_HEAD is not set for hot storage though, we default it to 0.
+    // If FINAL_HEAD is not set for hot storage we default it to 0
+    // not genesis_height, because hot db needs to contain genesis block for that
     let hot_final_head = store
         .get_store(Temperature::Hot)
         .get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)
@@ -194,6 +195,8 @@ fn copy_all_blocks(store: &NodeStorage, batch_size: usize, check: bool) {
     )
     .expect("Failed to do migration to cold db");
 
+    // Setting cold head to hot_final_head captured BEFORE the start of initial migration.
+    // Doesn't really matter here, but very important in case of migration during `neard run`.
     update_cold_head(
         &*store.cold_db().unwrap(),
         &store.get_store(Temperature::Hot),
@@ -230,6 +233,9 @@ fn check_key(
     assert_eq!(first_res.unwrap(), second_res.unwrap());
 }
 
+/// Checks that `first_store`'s column `col` is fully included in `second_store`
+/// with same values for every key.
+/// Return number of checks performed == number of keys in column `col` of the `first_store`.
 fn check_iter(
     first_store: &near_store::Store,
     second_store: &near_store::Store,
