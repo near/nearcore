@@ -1,3 +1,7 @@
+use std::num::ParseIntError;
+
+use near_account_id::ParseAccountError;
+
 #[derive(Debug, strum::EnumIter)]
 pub(crate) enum ErrorKind {
     InvalidInput(String),
@@ -46,6 +50,18 @@ impl From<near_client::TxStatusError> for ErrorKind {
                 ))
             }
         }
+    }
+}
+
+impl From<ParseAccountError> for ErrorKind {
+    fn from(value: ParseAccountError) -> Self {
+        Self::InvalidInput(format!("Parse Account Error: kind {:?}", value.kind()))
+    }
+}
+
+impl From<ParseIntError> for ErrorKind {
+    fn from(value: ParseIntError) -> Self {
+        Self::InvalidInput(format!("Parse Int Error: kind {:?}", value.kind()))
     }
 }
 

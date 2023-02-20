@@ -1,10 +1,11 @@
-use crate::models::AccountIdentifier;
+use crate::models::{AccountIdentifier, Currency, FungibleTokenEvent};
 use actix::Addr;
 use near_account_id::AccountId;
 use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
-use near_primitives::views::SignedTransactionView;
+use near_primitives::views::{ExecutionOutcomeWithIdView, SignedTransactionView};
 use std::collections::HashMap;
+use std::str::FromStr;
 use std::string::ToString;
 
 pub(crate) struct ExecutionToReceipts {
@@ -18,6 +19,8 @@ pub(crate) struct ExecutionToReceipts {
     /// receipts map is needed to determine the initing account of the receipt
     /// and to determine if a receipt is a refund.
     receipts: HashMap<CryptoHash, AccountId>,
+    /// A vector of FungibleTokenEvents derived from logs in the ExecutionOutcomeWithIdView vector.
+    events: Vec<FungibleTokenEvent>,
 }
 impl ExecutionToReceipts {
     /// Fetches execution outcomes for given block and constructs a mapping from
@@ -54,14 +57,31 @@ impl ExecutionToReceipts {
         }
         let map = view_client_addr
             .send(near_client::GetExecutionOutcomesForBlock { block_hash }.with_span_context())
-            .await?
+            .await?;
+
+        let map_hash_to_receipts = map
+            .clone()
             .map_err(crate::errors::ErrorKind::InternalInvariantError)?
             .into_values()
             .flat_map(|outcomes| outcomes)
             .filter(|exec| !exec.outcome.receipt_ids.is_empty())
             .map(|exec| (exec.id, exec.outcome.receipt_ids))
             .collect();
-        Ok(Self { map, transactions, receipts })
+
+        let execution_outcomes: Vec<ExecutionOutcomeWithIdView> = map
+            .clone()
+            .map_err(crate::errors::ErrorKind::InternalInvariantError)?
+            .into_iter()
+            .flat_map(|(_k, v)| v)
+            .collect();
+
+        let events = crate::adapters::events::collect_nep141_events(
+            &execution_outcomes,
+            &block.header,
+            view_client_addr,
+        )
+        .await?;
+        Ok(Self { map: map_hash_to_receipts, transactions, receipts, events })
     }
 
     /// Creates an empty mapping.  This is useful for tests.
@@ -71,6 +91,7 @@ impl ExecutionToReceipts {
             map: Default::default(),
             transactions: Default::default(),
             receipts: Default::default(),
+            events: Default::default(),
         }
     }
 
@@ -230,6 +251,31 @@ impl<'a> RosettaTransactions<'a> {
         });
         Ok(tx)
     }
+    /// Returns a Rosetta transaction object for given fungible token event.
+    ///
+    /// `transaction_identifier`, `related_transactions` and `metadata` of the
+    /// object will be populated but initially the `operations` will be an empty
+    /// vector.  It’s caller’s responsibility to fill it out as required.
+    fn generate_transaction_for_fungible_token(
+        &mut self,
+        fungible_token_event: &FungibleTokenEvent,
+    ) -> crate::errors::Result<&mut crate::models::Transaction> {
+        let transaction_identifier = fungible_token_event.receipt_id.clone();
+        let related_transactions = self.exec_to_rx.get_related(transaction_identifier);
+        let tx = self.map.entry(transaction_identifier.to_string()).or_insert_with_key(|_hash| {
+            crate::models::Transaction {
+                transaction_identifier: crate::models::TransactionIdentifier::receipt(
+                    &transaction_identifier,
+                ),
+                operations: Vec::new(),
+                related_transactions,
+                metadata: crate::models::TransactionMetadata {
+                    type_: crate::models::TransactionType::Transaction,
+                },
+            }
+        });
+        Ok(tx)
+    }
 }
 
 /// Returns Rosetta transactions which map to given account changes.
@@ -310,6 +356,14 @@ pub(crate) async fn convert_block_changes_to_transactions(
                 )))
             }
         }
+    }
+    for fungible_token_event in transactions.exec_to_rx.events.clone() {
+        convert_fungible_token_balance_change_to_operations(
+            &fungible_token_event,
+            &mut transactions
+                .generate_transaction_for_fungible_token(&fungible_token_event)?
+                .operations,
+        )
     }
     Ok(transactions.map)
 }
@@ -529,4 +583,30 @@ fn convert_account_delete_to_operations(
             metadata: None,
         });
     }
+}
+
+fn convert_fungible_token_balance_change_to_operations(
+    fungible_token_event: &FungibleTokenEvent,
+    operations: &mut Vec<crate::models::Operation>,
+) {
+    operations.push(crate::models::Operation {
+        operation_identifier: crate::models::OperationIdentifier::new(&operations),
+        related_operations: None,
+        account: crate::models::AccountIdentifier::from_str(
+            &fungible_token_event.affected_account_id,
+        )
+        .unwrap(),
+        amount: Some(crate::models::Amount {
+            value: crate::utils::SignedDiff::from(fungible_token_event.delta_amount),
+            currency: Currency {
+                symbol: fungible_token_event.symbol.clone(),
+                decimals: fungible_token_event.decimals,
+            },
+        }),
+        type_: crate::models::OperationType::Transfer,
+        status: Some(crate::models::OperationStatusKind::Success),
+        metadata: crate::models::OperationMetadata::from_contract_address(
+            fungible_token_event.contract_account_id.clone(),
+        ),
+    });
 }

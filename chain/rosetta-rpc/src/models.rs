@@ -455,18 +455,13 @@ pub(crate) struct ConstructionHashRequest {
     pub signed_transaction: BorshInHexString<near_primitives::transaction::SignedTransaction>,
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
-pub(crate) enum CurrencySymbol {
-    NEAR,
-}
-
 /// Currency is composed of a canonical Symbol and Decimals. This Decimals value
 /// is used to convert an Amount.Value from atomic units (Satoshis) to standard
 /// units (Bitcoins).
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct Currency {
     /// Canonical symbol associated with a currency.
-    pub symbol: CurrencySymbol,
+    pub symbol: String,
 
     /// Number of decimal places in the standard unit representation of the
     /// amount.  For example, BTC has 8 decimals. Note that it is not possible
@@ -484,7 +479,10 @@ pub(crate) struct Currency {
 
 impl Currency {
     fn near() -> Self {
-        Self { symbol: CurrencySymbol::NEAR, decimals: 24 }
+        Self { symbol: String::from("NEAR"), decimals: 24 }
+    }
+    fn usdc() -> Self {
+        Self { symbol: String::from("USDC"), decimals: 6 }
     }
 }
 
@@ -785,6 +783,8 @@ pub(crate) struct OperationMetadata {
     pub attached_gas: Option<crate::utils::SignedDiff<near_primitives::types::Gas>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub predecessor_id: Option<AccountIdentifier>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub contract_address: Option<String>,
 }
 
 impl OperationMetadata {
@@ -793,6 +793,13 @@ impl OperationMetadata {
     ) -> Option<OperationMetadata> {
         predecessor_id.map(|predecessor_id| crate::models::OperationMetadata {
             predecessor_id: Some(predecessor_id),
+            ..Default::default()
+        })
+    }
+
+    pub(crate) fn from_contract_address(contract_address: String) -> Option<OperationMetadata> {
+        Some(crate::models::OperationMetadata {
+            contract_address: Some(contract_address),
             ..Default::default()
         })
     }
@@ -1246,4 +1253,87 @@ impl From<SignatureType> for near_crypto::KeyType {
             SignatureType::Ed25519 => Self::ED25519,
         }
     }
+}
+
+// *** NEP-141 FT ***
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+pub(crate) struct Nep141Event {
+    pub version: String,
+    #[serde(flatten)]
+    pub event_kind: Nep141EventKind,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[serde(tag = "event", content = "data")]
+#[serde(rename_all = "snake_case")]
+#[allow(clippy::enum_variant_names)]
+pub(crate) enum Nep141EventKind {
+    FtTransfer(Vec<FtTransferData>),
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+pub(crate) struct FtMintData {
+    pub owner_id: String,
+    pub amount: String,
+    pub memo: Option<String>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+pub(crate) struct FtTransferData {
+    pub old_owner_id: String,
+    pub new_owner_id: String,
+    pub amount: String,
+    pub memo: Option<String>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+pub(crate) struct FtBurnData {
+    pub owner_id: String,
+    pub amount: String,
+    pub memo: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FungibleTokenEvent {
+    pub standard: String,
+    pub receipt_id: CryptoHash,
+    pub block_height: u64,
+    pub block_timestamp: u64,
+    pub contract_account_id: String,
+    pub symbol: String,
+    pub decimals: u32,
+    pub affected_account_id: String,
+    pub involved_account_id: Option<String>,
+    pub delta_amount: i64,
+    pub cause: String,
+    pub status: String,
+    pub event_memo: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct EventBase {
+    pub standard: String,
+    pub receipt_id: CryptoHash,
+    pub block_height: u64,
+    pub block_timestamp: u64,
+    pub contract_account_id: AccountIdentifier,
+    pub status: near_primitives::views::ExecutionStatusView,
+}
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
+pub(crate) struct FtEvent {
+    pub affected_id: AccountIdentifier,
+    pub involved_id: Option<AccountIdentifier>,
+    pub delta: i64,
+    pub symbol: String,
+    pub decimals: u32,
+    pub cause: String,
+    pub memo: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
+pub(crate) struct FTMetadataResponse {
+    pub spec: String,
+    pub name: String,
+    pub symbol: String,
+    pub icon: Option<String>,
+    pub reference: Option<String>,
+    pub reference_hash: Option<String>,
+    pub decimals: u32,
 }

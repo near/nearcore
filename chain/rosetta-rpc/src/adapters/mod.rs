@@ -4,6 +4,7 @@ use near_client::ViewClientActor;
 use near_o11y::WithSpanContextExt;
 use validated_operations::ValidatedOperation;
 
+mod events;
 mod transactions;
 mod validated_operations;
 
