@@ -3442,22 +3442,24 @@ impl Chain {
 
     fn get_recursive_transaction_results(
         &self,
+        outcomes: &mut Vec<ExecutionOutcomeWithIdView>,
         id: &CryptoHash,
-    ) -> Result<Vec<ExecutionOutcomeWithIdView>, Error> {
-        let outcome: ExecutionOutcomeWithIdView = self.get_execution_outcome(id)?.into();
-        let receipt_ids = outcome.outcome.receipt_ids.clone();
-        let mut results = vec![outcome];
-        for receipt_id in &receipt_ids {
-            results.extend(self.get_recursive_transaction_results(receipt_id)?);
+    ) -> Result<(), Error> {
+        outcomes.push(ExecutionOutcomeWithIdView::from(self.get_execution_outcome(id)?));
+        let outcome_idx = outcomes.len() - 1;
+        for idx in 0..outcomes[outcome_idx].outcome.receipt_ids.len() {
+            let id = outcomes[outcome_idx].outcome.receipt_ids[idx];
+            self.get_recursive_transaction_results(outcomes, &id)?;
         }
-        Ok(results)
+        Ok(())
     }
 
     pub fn get_final_transaction_result(
         &self,
         transaction_hash: &CryptoHash,
     ) -> Result<FinalExecutionOutcomeView, Error> {
-        let mut outcomes = self.get_recursive_transaction_results(transaction_hash)?;
+        let mut outcomes = Vec::new();
+        self.get_recursive_transaction_results(&mut outcomes, transaction_hash)?;
         let mut looking_for_id = *transaction_hash;
         let num_outcomes = outcomes.len();
         let status = outcomes
