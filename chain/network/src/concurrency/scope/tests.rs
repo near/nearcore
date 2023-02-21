@@ -252,6 +252,27 @@ async fn test_scope_error_nonoverridable() {
     assert_eq!(Err(2), res);
 }
 
+// After all main tasks complete succesfully, the scope gets canceled.
+// Background tasks of the scope should still be able to spawn more tasks
+// both via `Scope::spawn()` and `Scope::spawn_bg` (although after scope
+// cancelation they behave exactly the same).
+#[tokio::test]
+async fn test_spawn_from_spawn_bg() {
+    abort_on_panic();
+    let res = scope::run!(|s| async {
+        s.spawn_bg(async {
+            ctx::canceled().await;
+            s.spawn(async {
+                assert!(ctx::is_canceled());
+                R::Err(3)
+            });
+            Ok(())
+        });
+        Ok(())
+    });
+    assert_eq!(Err(3), res);
+}
+
 #[tokio::test]
 async fn test_access_to_vars_outside_of_scope() {
     abort_on_panic();

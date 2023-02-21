@@ -328,6 +328,8 @@ unsafe fn to_static<'env, T>(f: BoxFuture<'env, T>) -> BoxFuture<'static, T> {
 }
 
 impl<'env, E: 'static + Send> Scope<'env, E> {
+    /// Spawns a "main" task in the scope.
+    /// Scope gets canceled as soon as all the "main" tasks complete.
     pub fn spawn<T: 'static + Send>(
         &self,
         f: impl 'env + Send + Future<Output = Result<T, E>>,
@@ -337,10 +339,19 @@ impl<'env, E: 'static + Send> Scope<'env, E> {
                 Inner::spawn(strong, unsafe { to_static(f.boxed()) }),
                 std::marker::PhantomData,
             ),
+            // Upgrade may fail only if all the "main" tasks have already completed
+            // so the caller is a "background" task. In that case we fall back
+            // to spawning a "background" task instead. It is ok, since the distinction
+            // between main task and background task disappears, once the scope is canceled.
             None => self.spawn_bg(f),
         }
     }
 
+    /// Spawns a "background" task in the scope.
+    /// It behaves just like a single-task Service, but
+    /// has the same lifetime as the Scope, so it can spawn
+    /// more tasks in the scope. It is not a "main" task, so
+    /// it doesn't prevent scope cancelation.
     pub fn spawn_bg<T: 'static + Send>(
         &self,
         f: impl 'env + Send + Future<Output = Result<T, E>>,
