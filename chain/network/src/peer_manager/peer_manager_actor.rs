@@ -15,9 +15,9 @@ use crate::store;
 use crate::tcp;
 use crate::time;
 use crate::types::{
-    ConnectedPeerInfo, GetNetworkInfo, HighestHeightPeerInfo, KnownProducer, NetworkInfo,
-    NetworkRequests, NetworkResponses, PeerInfo, PeerManagerMessageRequest,
-    PeerManagerMessageResponse, PeerType, SetChainInfo,
+    ConnectedPeerInfo, HighestHeightPeerInfo, KnownProducer, NetworkInfo, NetworkRequests,
+    NetworkResponses, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, PeerType,
+    SetChainInfo,
 };
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, AsyncContext as _};
@@ -993,26 +993,6 @@ impl PeerManagerActor {
                 PeerManagerMessageResponse::FetchRoutingTable(self.state.graph.routing_table.info())
             }
         }
-    }
-}
-
-/// Fetches NetworkInfo, which contains a bunch of stats about the
-/// P2P network state. Currently used only in tests.
-/// TODO(gprusak): In prod, NetworkInfo is pushed periodically from PeerManagerActor to ClientActor.
-/// It would be cleaner to replace the push loop in PeerManagerActor with a pull loop
-/// in the ClientActor.
-impl actix::Handler<WithSpanContext<GetNetworkInfo>> for PeerManagerActor {
-    type Result = NetworkInfo;
-    fn handle(
-        &mut self,
-        msg: WithSpanContext<GetNetworkInfo>,
-        _ctx: &mut Self::Context,
-    ) -> NetworkInfo {
-        let (_span, _msg) = handler_trace_span!(target: "network", msg);
-        let _timer = metrics::PEER_MANAGER_MESSAGES_TIME
-            .with_label_values(&["GetNetworkInfo"])
-            .start_timer();
-        self.get_network_info()
     }
 }
 

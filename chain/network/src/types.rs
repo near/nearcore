@@ -145,8 +145,6 @@ pub struct ChainInfo {
     // The lastest block on chain.
     pub block: Block,
     // Public keys of accounts participating in the BFT consensus
-    // (both accounts from current and next epoch are important, that's why
-    // the map is indexed by (EpochId,AccountId) pair).
     // It currently includes "block producers", "chunk producers" and "approvers".
     // They are collectively known as "validators".
     // Peers acting on behalf of these accounts have a higher
@@ -157,10 +155,6 @@ pub struct ChainInfo {
 #[derive(Debug, actix::Message)]
 #[rtype(result = "()")]
 pub struct SetChainInfo(pub ChainInfo);
-
-#[derive(Debug, actix::Message)]
-#[rtype(result = "NetworkInfo")]
-pub struct GetNetworkInfo;
 
 /// Public actix interface of `PeerManagerActor`.
 #[derive(actix::Message, Debug, strum::IntoStaticStr)]
@@ -208,7 +202,7 @@ impl PeerManagerMessageResponse {
         if let PeerManagerMessageResponse::NetworkResponses(item) = self {
             item
         } else {
-            panic!("expected PeerMessageRequest::NetworkResponses(");
+            panic!("expected PeerMessageRequest::NetworkResponses");
         }
     }
 }
