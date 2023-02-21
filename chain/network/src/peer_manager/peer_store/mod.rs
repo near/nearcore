@@ -538,7 +538,7 @@ impl PeerStore {
         .cloned()
     }
 
-    /// Return healthy known peers up to given amount.
+    /// Return healthy known peers up to given amount
     pub fn healthy_peers(&self, max_count: usize) -> Vec<PeerInfo> {
         self.0
             .lock()
