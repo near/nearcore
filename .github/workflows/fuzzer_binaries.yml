@@ -3,9 +3,7 @@ on:
   schedule:
     # Run once a day, at midnight
     - cron: "0 0 * * *"
-  push:
-    paths:
-      - "scripts/build_fuzzers.py"
+  workflow_dispatch:
 
 jobs:
   build_fuzzers:
