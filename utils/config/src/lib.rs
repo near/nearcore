@@ -53,6 +53,34 @@ impl ValidationErrors {
         self.0.push(error)
     }
 
+    pub fn push_config_semantics_error(&mut self, error_message: String) {
+        self.0.push(ValidationError::ConfigSemanticsError { error_message: error_message })
+    }
+
+    pub fn push_config_file_error(&mut self, error_message: String) {
+        self.0.push(ValidationError::ConfigFileError { error_message: error_message })
+    }
+
+    pub fn push_genesis_semantics_error(&mut self, error_message: String) {
+        self.0.push(ValidationError::GenesisSemanticsError { error_message: error_message })
+    }
+
+    pub fn push_genesis_file_error(&mut self, error_message: String) {
+        self.0.push(ValidationError::GenesisFileError { error_message: error_message })
+    }
+
+    pub fn push_node_key_file_error(&mut self, error_message: String) {
+        self.0.push(ValidationError::NodeKeyFileError { error_message: error_message })
+    }
+
+    pub fn push_validator_key_file_error(&mut self, error_message: String) {
+        self.0.push(ValidationError::ValidatorKeyFileError { error_message: error_message })
+    }
+
+    pub fn push_cross_file_semantics_error(&mut self, error_message: String) {
+        self.0.push(ValidationError::CrossFileSematicError { error_message: error_message })
+    }
+
     /// only to be used in panic_if_errors()
     fn generate_final_error_message(&self) -> Option<String> {
         if self.0.is_empty() {
@@ -62,21 +90,15 @@ impl ValidationErrors {
             for error in &self.0 {
                 final_error_message += "\n";
 
-                if let ValidationError::ConfigSemanticsError { error_message } = error {
-                    // the final ConfigSemanticsError.error_message is concatenation of ConfigSemanticsError's ever seen
-                    // not including the whole error.to_string() makes the final error message less confusing to read
-                    final_error_message += error_message;
-                    continue;
-                }
-
-                if let ValidationError::GenesisSemanticsError { error_message } = error {
-                    // the final GenesisSemanticsError.error_message is concatenation of GenesisSemanticsError's ever seen
-                    // not including the whole error.to_string() makes the final error message less confusing to read
-                    final_error_message += error_message;
-                    continue;
-                }
-
-                final_error_message += &error.to_string();
+                match error {
+                    ValidationError::ConfigSemanticsError { error_message }
+                    | ValidationError::GenesisSemanticsError { error_message } => {
+                        // the final error_message is concatenation of GenesisSemanticsError or ConfigSemanticsError's ever seen
+                        // not including the whole error.to_string() makes the final error message less confusing to read
+                        final_error_message += error_message
+                    }
+                    _ => final_error_message += &error.to_string(),
+                };
             }
             Some(final_error_message)
         }

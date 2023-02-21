@@ -30,8 +30,7 @@ impl<'a> ConfigValidator<'a> {
     fn validate_all_conditions(&mut self) {
         if self.config.archive == false && self.config.save_trie_changes == Some(false) {
             let error_message = format!("Configuration with archive = false and save_trie_changes = false is not supported because non-archival nodes must save trie changes in order to do do garbage collection.");
-            self.validation_errors
-                .push_errors(ValidationError::ConfigSemanticsError { error_message: error_message })
+            self.validation_errors.push_config_semantics_error(error_message)
         }
 
         if self.config.consensus.min_block_production_delay
@@ -42,8 +41,7 @@ impl<'a> ConfigValidator<'a> {
                 self.config.consensus.min_block_production_delay,
                 self.config.consensus.max_block_production_delay
             );
-            self.validation_errors
-                .push_errors(ValidationError::ConfigSemanticsError { error_message: error_message })
+            self.validation_errors.push_config_semantics_error(error_message)
         }
 
         if self.config.consensus.min_block_production_delay
@@ -58,23 +56,10 @@ impl<'a> ConfigValidator<'a> {
                 .push_errors(ValidationError::ConfigSemanticsError { error_message: error_message })
         }
 
-        if self.config.consensus.sync_height_threshold == 0 {
-            let error_message = format!("consensus.sync_height_threshold should not be 0");
-            self.validation_errors
-                .push_errors(ValidationError::ConfigSemanticsError { error_message: error_message })
-        }
-
         if self.config.consensus.header_sync_expected_height_per_second == 0 {
             let error_message =
                 format!("consensus.header_sync_expected_height_per_second should not be 0");
-            self.validation_errors
-                .push_errors(ValidationError::ConfigSemanticsError { error_message: error_message })
-        }
-
-        if self.config.consensus.min_num_peers == 0 {
-            let error_message = format!("consensus.min_num_peers should not be 0");
-            self.validation_errors
-                .push_errors(ValidationError::ConfigSemanticsError { error_message: error_message })
+            self.validation_errors.push_config_semantics_error(error_message)
         }
 
         if self.config.gc.gc_blocks_limit == 0
@@ -82,8 +67,7 @@ impl<'a> ConfigValidator<'a> {
             || self.config.gc.gc_num_epochs_to_keep == 0
         {
             let error_message = format!("gc config values should all be greater than 0, but gc_blocks_limit is {:?}, gc_fork_clean_step is {}, gc_num_epochs_to_keep is {}.", self.config.gc.gc_blocks_limit, self.config.gc.gc_fork_clean_step, self.config.gc.gc_num_epochs_to_keep);
-            self.validation_errors
-                .push_errors(ValidationError::ConfigSemanticsError { error_message: error_message })
+            self.validation_errors.push_config_semantics_error(error_message)
         }
     }
 
@@ -102,10 +86,10 @@ mod test {
     use super::*;
 
     #[test]
-    #[should_panic(expected = "min_num_peers should not be 0")]
-    fn test_total_supply_not_match() {
+    #[should_panic(expected = "gc config values should all be greater than 0")]
+    fn test_gc_config_value_nonzero() {
         let mut config = Config::default();
-        config.consensus.min_num_peers = 0;
+        config.gc.gc_blocks_limit = 0;
         // set tracked_shards to be non-empty
         config.tracked_shards.push(20);
         validate_config(&config).unwrap();
@@ -126,13 +110,13 @@ mod test {
 
     #[test]
     #[should_panic(
-        expected = "\\nconfig.json semantic issue: Configuration with archive = false and save_trie_changes = false is not supported because non-archival nodes must save trie changes in order to do do garbage collection.\\nconfig.json semantic issue: consensus.min_num_peers should not be 0\\n"
+        expected = "\\nconfig.json semantic issue: Configuration with archive = false and save_trie_changes = false is not supported because non-archival nodes must save trie changes in order to do do garbage collection.\\nconfig.json semantic issue: gc config values should all be greater than 0"
     )]
     fn test_multiple_config_validation_errors() {
         let mut config = Config::default();
         config.archive = false;
         config.save_trie_changes = Some(false);
-        config.consensus.min_num_peers = 0;
+        config.gc.gc_blocks_limit = 0;
         // set tracked_shards to be non-empty
         config.tracked_shards.push(20);
         validate_config(&config).unwrap();

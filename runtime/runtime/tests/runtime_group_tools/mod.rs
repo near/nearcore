@@ -68,7 +68,8 @@ impl StandaloneRuntime {
                 ..Default::default()
             },
             GenesisRecords(state_records.to_vec()),
-        );
+        )
+        .unwrap();
 
         let mut account_ids: HashSet<AccountId> = HashSet::new();
         genesis.for_each_record(|record: &StateRecord| {

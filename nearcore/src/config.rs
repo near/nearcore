@@ -11,7 +11,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use near_config_utils::{ValidationError, ValidationErrors};
-use serde::{Deserialize, Serialize};
 
 #[cfg(test)]
 use tempfile::tempdir;
@@ -202,7 +201,7 @@ fn default_trie_viewer_state_size_limit() -> Option<u64> {
     Some(50_000)
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct Consensus {
     /// Minimum number of peers to start syncing.
     pub min_num_peers: usize,
@@ -532,7 +531,7 @@ impl Genesis {
             shard_layout,
             ..Default::default()
         };
-        Genesis::new(config, records.into())
+        Genesis::new(config, records.into()).unwrap()
     }
 
     pub fn test(accounts: Vec<AccountId>, num_validator_seats: NumSeats) -> Self {
@@ -1009,16 +1008,17 @@ pub fn init_configs(
                 config.consensus.max_block_production_delay =
                     Duration::from_millis(FAST_MAX_BLOCK_PRODUCTION_DELAY);
             }
+
+            config.write_to_file(&dir.join(CONFIG_FILENAME)).with_context(|| {
+                format!("Error writing config to {}", dir.join(CONFIG_FILENAME).display())
+            })?;
+
             let account_id = account_id.unwrap_or_else(|| "test.near".parse().unwrap());
 
             let signer =
                 generate_or_load_key(dir, &config.validator_key_file, Some(account_id), test_seed)?
                     .unwrap();
             generate_or_load_key(dir, &config.node_key_file, Some("node".parse().unwrap()), None)?;
-
-            config.write_to_file(&dir.join(CONFIG_FILENAME)).with_context(|| {
-                format!("Error writing config to {}", dir.join(CONFIG_FILENAME).display())
-            })?;
 
             let mut records = vec![];
             add_account_with_key(
@@ -1082,7 +1082,7 @@ pub fn init_configs(
                 min_gas_price: MIN_GAS_PRICE,
                 ..Default::default()
             };
-            let genesis = Genesis::new(genesis_config, records.into());
+            let genesis = Genesis::new(genesis_config, records.into())?;
             genesis.to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.display());
         }
@@ -1305,7 +1305,7 @@ struct NodeKeyFile {
 
 impl NodeKeyFile {
     // the file can be JSON with comments
-    pub fn from_file(path: &Path) -> std::io::Result<Self> {
+    fn from_file(path: &Path) -> std::io::Result<Self> {
         let mut file = File::open(path)?;
         let mut json_str = String::new();
         file.read_to_string(&mut json_str)?;
@@ -1336,28 +1336,25 @@ pub fn load_config(
     dir: &Path,
     genesis_validation: GenesisValidationMode,
 ) -> anyhow::Result<NearConfig> {
-    let genesis_validation = match genesis_validation {
-        GenesisValidationMode::Full => GenesisValidationMode::Full,
-        GenesisValidationMode::UnsafeFast => GenesisValidationMode::UnsafeFast,
-    };
     let mut validation_errors = ValidationErrors::new();
 
     // if config.json has file issues, the program will directly panic
     let config = Config::from_file_skip_validation(&dir.join(CONFIG_FILENAME))?;
     // do config.json validation later so that genesis_file, validator_file and genesis_file can be validated before program panic
-    config.validate().map_or_else(|e| validation_errors.push_errors(e), |_| ());
+    if let Err(e) = config.validate() {
+        validation_errors.push_errors(e)
+    };
 
     let validator_file = dir.join(&config.validator_key_file);
     let validator_signer = if validator_file.exists() {
         match InMemoryValidatorSigner::from_file(&validator_file) {
             Ok(signer) => Some(Arc::new(signer) as Arc<dyn ValidatorSigner>),
             Err(_) => {
-                validation_errors.push_errors(ValidationError::ValidatorKeyFileError {
-                    error_message: format!(
-                        "Failed initializing validator signer from {}",
-                        validator_file.display()
-                    ),
-                });
+                let error_message = format!(
+                    "Failed initializing validator signer from {}",
+                    validator_file.display()
+                );
+                validation_errors.push_validator_key_file_error(error_message);
                 None
             }
         }
@@ -1370,12 +1367,9 @@ pub fn load_config(
     let network_signer = match network_signer_result {
         Ok(node_key_file) => Some(node_key_file),
         Err(_) => {
-            validation_errors.push_errors(ValidationError::NodeKeyFileError {
-                error_message: format!(
-                    "Failed reading node key file from {}",
-                    node_key_path.display()
-                ),
-            });
+            let error_message =
+                format!("Failed reading node key file from {}", node_key_path.display());
+            validation_errors.push_node_key_file_error(error_message);
             None
         }
     };
@@ -1394,9 +1388,9 @@ pub fn load_config(
 
     let genesis = match genesis_result {
         Ok(genesis) => {
-            genesis
-                .validate(genesis_validation)
-                .map_or_else(|e| validation_errors.push_errors(e), |_| ());
+            if let Err(e) = genesis.validate(genesis_validation) {
+                validation_errors.push_errors(e)
+            };
             if validator_signer.is_some()
                 && matches!(genesis.config.chain_id.as_ref(), "mainnet" | "testnet" | "betanet")
                 && config.tracked_shards.is_empty()
@@ -1404,9 +1398,7 @@ pub fn load_config(
                 // Make sure validators tracks all shards, see
                 // https://github.com/near/nearcore/issues/7388
                 let error_message = format!("The `chain_id` field specified in genesis is among mainnet/betanet/testnet, so validator must track all shards. Please change `tracked_shards` field in config.json to be any non-empty vector");
-                validation_errors.push_errors(ValidationError::CrossFileSematicError {
-                    error_message: error_message,
-                });
+                validation_errors.push_cross_file_semantics_error(error_message);
             }
             Some(genesis)
         }

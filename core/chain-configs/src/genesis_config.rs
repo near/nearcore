@@ -454,12 +454,15 @@ pub enum GenesisValidationMode {
 }
 
 impl Genesis {
-    pub fn new(config: GenesisConfig, records: GenesisRecords) -> Self {
-        Self::new_validated(config, records, GenesisValidationMode::Full).unwrap()
+    pub fn new(config: GenesisConfig, records: GenesisRecords) -> Result<Self, ValidationError> {
+        Self::new_validated(config, records, GenesisValidationMode::Full)
     }
 
-    pub fn new_with_path<P: AsRef<Path>>(config: GenesisConfig, records_file: P) -> Self {
-        Self::new_with_path_validated(config, records_file, GenesisValidationMode::Full).unwrap()
+    pub fn new_with_path<P: AsRef<Path>>(
+        config: GenesisConfig,
+        records_file: P,
+    ) -> Result<Self, ValidationError> {
+        Self::new_with_path_validated(config, records_file, GenesisValidationMode::Full)
     }
 
     /// Reads Genesis from a single JSON file, the file can be JSON with comments
@@ -468,8 +471,11 @@ impl Genesis {
         path: P,
         genesis_validation: GenesisValidationMode,
     ) -> Result<Self, ValidationError> {
-        let mut file = File::open(path).map_err(|_| ValidationError::GenesisFileError {
-            error_message: format!("Could not open genesis config file."),
+        let mut file = File::open(&path).map_err(|_| ValidationError::GenesisFileError {
+            error_message: format!(
+                "Could not open genesis config file at path {}.",
+                &path.as_ref().to_path_buf().display()
+            ),
         })?;
 
         let mut json_str = String::new();

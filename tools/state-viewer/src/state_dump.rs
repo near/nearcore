@@ -103,7 +103,7 @@ pub fn state_dump(
             genesis_config.total_supply = total_supply;
             change_genesis_config(&mut genesis_config, change_config);
             near_config.genesis =
-                Genesis::new_with_path(genesis_config, records_path.to_path_buf());
+                Genesis::new_with_path(genesis_config, records_path.to_path_buf()).unwrap();
             near_config.config.genesis_records_file =
                 Some(records_path.file_name().unwrap().to_str().unwrap().to_string());
         }
@@ -122,7 +122,7 @@ pub fn state_dump(
             // minting tokens every epoch.
             genesis_config.total_supply = total_supply;
             change_genesis_config(&mut genesis_config, change_config);
-            near_config.genesis = Genesis::new(genesis_config, records.into());
+            near_config.genesis = Genesis::new(genesis_config, records.into()).unwrap();
         }
     }
     near_config
