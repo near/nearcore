@@ -88,6 +88,16 @@ impl ColdDB {
         let key = get_cold_key(col, key, &mut buffer).unwrap_or(key);
         self.cold.get_raw_bytes(col, key)
     }
+
+    // Append a dummy rc. This is needed since we’ve stripped the reference
+    // count from the data stored in the database, we need to reintroduce it.
+    // In practice this should be never called in production since reading of rc
+    // columns is done with get_with_rc_stripped.
+    fn append_rc(data: DBSlice) -> DBSlice {
+        const ONE: [u8; 8] = 1i64.to_le_bytes();
+        let vec = [data.as_slice(), &ONE[..]].concat();
+        DBSlice::from_vec(vec)
+    }
 }
 
 impl Database for ColdDB {
@@ -96,15 +106,7 @@ impl Database for ColdDB {
             return self.hot.get_raw_bytes(col, key);
         }
         match self.get_cold_impl(col, key) {
-            Ok(Some(value)) if col.is_rc() => {
-                // Since we’ve stripped the reference count from the data stored
-                // in the database, we need to reintroduce it.  In practice this
-                // should be never called in production since reading of rc
-                // columns is done with get_with_rc_stripped.
-                const ONE: [u8; 8] = 1i64.to_le_bytes();
-                let vec = [value.as_slice(), &ONE[..]].concat();
-                Ok(Some(DBSlice::from_vec(vec)))
-            }
+            Ok(Some(value)) if col.is_rc() => Ok(Some(Self::append_rc(value))),
             result => result,
         }
     }
