@@ -131,7 +131,7 @@ fn cold_store_loop(
     genesis_height: BlockHeight,
     runtime: Arc<NightshadeRuntime>,
 ) {
-    tracing::info!(target: "cold_store", "starting cold store loop");
+    tracing::info!(target: "cold_store", "Starting the cold store loop");
 
     loop {
         if !keep_going.load(std::sync::atomic::Ordering::Relaxed) {
@@ -185,14 +185,14 @@ pub fn spawn_cold_store_loop(
     let cold_store = match storage.get_cold_store() {
         Some(cold_store) => cold_store,
         None => {
-            tracing::debug!(target:"cold_store", "Not spawning cold store loop because cold store is not configured");
+            tracing::debug!(target : "cold_store", "Not spawning the cold store loop because cold store is not configured");
             return Ok(None);
         }
     };
     let cold_db = match storage.cold_db() {
         Some(cold_db) => cold_db.clone(),
         None => {
-            tracing::debug!(target:"cold_store", "Not spawning cold store loop because cold store is not configured");
+            tracing::debug!(target:"cold_store", "Not spawning the cold store loop because cold store is not configured");
             return Ok(None);
         }
     };
@@ -201,7 +201,7 @@ pub fn spawn_cold_store_loop(
     let keep_going = Arc::new(AtomicBool::new(true));
     let keep_going_clone = keep_going.clone();
 
-    tracing::info!(target:"cold_store", "Spawning cold store loop");
+    tracing::info!(target:"cold_store", "Spawning the cold store loop");
     let join_handle =
         std::thread::Builder::new().name("cold_store_loop".to_string()).spawn(move || {
             cold_store_loop(

@@ -35,13 +35,13 @@ use crate::DBCol;
 /// Lastly, since no data is ever deleted from cold storage, trying to decrease
 /// reference of a value count or delete data is ignored and if debug assertions
 /// are enabled will cause a panic.
-pub struct ColdDB<D = crate::db::RocksDB> {
+pub struct ColdDB {
     hot: std::sync::Arc<dyn Database>,
-    cold: D,
+    cold: std::sync::Arc<dyn Database>,
 }
 
-impl<D> ColdDB<D> {
-    pub fn new(hot: std::sync::Arc<dyn Database>, cold: D) -> Self {
+impl ColdDB {
+    pub fn new(hot: std::sync::Arc<dyn Database>, cold: std::sync::Arc<dyn Database>) -> Self {
         Self { hot, cold }
     }
 
@@ -76,7 +76,7 @@ impl<D> ColdDB<D> {
     }
 }
 
-impl<D: Database> ColdDB<D> {
+impl ColdDB {
     /// Returns raw bytes from the underlying storage.
     ///
     /// Adjusts the key if necessary (see [`get_cold_key`]) and retrieves data
@@ -90,7 +90,7 @@ impl<D: Database> ColdDB<D> {
     }
 }
 
-impl<D: Database> super::Database for ColdDB<D> {
+impl Database for ColdDB {
     fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> std::io::Result<Option<DBSlice<'_>>> {
         if Self::is_hot_column(col) {
             return self.hot.get_raw_bytes(col, key);
@@ -313,9 +313,10 @@ mod test {
     const VALUE: &[u8] = "FooBar".as_bytes();
 
     /// Constructs test in-memory database.
-    fn create_test_db() -> ColdDB<crate::db::TestDB> {
-        let hot = crate::db::testdb::TestDB::default();
-        ColdDB::new(std::sync::Arc::new(hot), crate::db::testdb::TestDB::default())
+    fn create_test_db() -> ColdDB {
+        let hot = crate::db::testdb::TestDB::new();
+        let cold = crate::db::testdb::TestDB::new();
+        ColdDB::new(hot, cold)
     }
 
     fn set(col: DBCol, key: &[u8]) -> DBOp {
@@ -382,7 +383,7 @@ mod test {
         let mut result = Vec::<String>::new();
         let mut fetch = |col, key: &[u8], raw_only: bool| {
             result.push(format!("{col} {}", pretty_key(key)));
-            let dbs: [(bool, &dyn Database); 2] = [(false, &db), (true, &db.cold)];
+            let dbs: [(bool, &dyn Database); 2] = [(false, &db), (true, &*db.cold)];
             for (is_raw, db) in dbs {
                 if raw_only && !is_raw {
                     continue;
@@ -481,7 +482,7 @@ mod test {
         let mut result = Vec::<String>::new();
         for col in [DBCol::BlockHeader, DBCol::Block, DBCol::EpochInfo, DBCol::ChunkHashesByHeight]
         {
-            let dbs: [(bool, &dyn Database); 2] = [(false, &db), (true, &db.cold)];
+            let dbs: [(bool, &dyn Database); 2] = [(false, &db), (true, &*db.cold)];
             result.push(col.to_string());
             for (is_raw, db) in dbs {
                 let name = if is_raw { "raw " } else { "cold" };

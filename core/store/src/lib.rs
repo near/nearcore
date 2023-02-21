@@ -1,6 +1,5 @@
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
-use std::marker::PhantomData;
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -95,10 +94,9 @@ const STATE_FILE_END_MARK: u8 = 255;
 /// will provide interface to access hot and cold storage.  This is in contrast
 /// to [`Store`] which will abstract access to only one of the temperatures of
 /// the storage.
-pub struct NodeStorage<D = crate::db::RocksDB> {
+pub struct NodeStorage {
     hot_storage: Arc<dyn Database>,
-    cold_storage: Option<Arc<crate::db::ColdDB<D>>>,
-    _phantom: PhantomData<D>,
+    cold_storage: Option<Arc<crate::db::ColdDB>>,
 }
 
 /// Node’s single storage source.
@@ -132,9 +130,15 @@ impl NodeStorage {
         cold_storage: Option<crate::db::RocksDB>,
     ) -> Self {
         let hot_storage = Arc::new(hot_storage);
-        let cold_storage = cold_storage
-            .map(|cold_db| Arc::new(crate::db::ColdDB::new(hot_storage.clone(), cold_db)));
-        Self { hot_storage, cold_storage, _phantom: PhantomData {} }
+        let cold_storage = cold_storage.map(|storage| Arc::new(storage));
+
+        let cold_db = if let Some(cold_storage) = cold_storage {
+            Some(Arc::new(crate::db::ColdDB::new(hot_storage.clone(), cold_storage.clone())))
+        } else {
+            None
+        };
+
+        Self { hot_storage: hot_storage, cold_storage: cold_db }
     }
 
     /// Initialises an opener for a new temporary test store.
@@ -162,11 +166,11 @@ impl NodeStorage {
     /// possibly [`crate::test_utils::create_test_store`] (depending whether you
     /// need [`NodeStorage`] or [`Store`] object.
     pub fn new(storage: Arc<dyn Database>) -> Self {
-        Self { hot_storage: storage, cold_storage: None, _phantom: PhantomData {} }
+        Self { hot_storage: storage, cold_storage: None }
     }
 }
 
-impl<D: Database + 'static> NodeStorage<D> {
+impl NodeStorage {
     /// Returns storage for given temperature.
     ///
     /// Some data live only in hot and some only in cold storage (which is at
@@ -232,7 +236,7 @@ impl<D: Database + 'static> NodeStorage<D> {
     }
 }
 
-impl<D> NodeStorage<D> {
+impl NodeStorage {
     /// Returns whether the storage has a cold database.
     pub fn has_cold(&self) -> bool {
         self.cold_storage.is_some()
@@ -250,15 +254,14 @@ impl<D> NodeStorage<D> {
         })
     }
 
-    pub fn new_with_cold(hot: Arc<dyn Database>, cold: D) -> Self {
+    pub fn new_with_cold(hot: Arc<dyn Database>, cold: Arc<dyn Database>) -> Self {
         Self {
             hot_storage: hot.clone(),
-            cold_storage: Some(Arc::new(crate::db::ColdDB::<D>::new(hot, cold))),
-            _phantom: PhantomData::<D> {},
+            cold_storage: Some(Arc::new(crate::db::ColdDB::new(hot, cold))),
         }
     }
 
-    pub fn cold_db(&self) -> Option<&Arc<crate::db::ColdDB<D>>> {
+    pub fn cold_db(&self) -> Option<&Arc<crate::db::ColdDB>> {
         self.cold_storage.as_ref()
     }
 }
