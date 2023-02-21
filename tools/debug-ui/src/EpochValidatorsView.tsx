@@ -1,41 +1,41 @@
-import { useId } from "react";
-import { useQuery } from "react-query";
-import { Tooltip } from "react-tooltip";
-import { fetchEpochInfo, ValidatorKickoutReason } from "./api";
-import "./EpochValidatorsView.scss";
+import { useId } from 'react';
+import { useQuery } from 'react-query';
+import { Tooltip } from 'react-tooltip';
+import { ValidatorKickoutReason, fetchEpochInfo } from './api';
+import './EpochValidatorsView.scss';
 
 interface ProducedAndExpected {
-    produced: number,
-    expected: number,
+    produced: number;
+    expected: number;
 }
 
 type ValidatorRole = 'BlockProducer' | 'ChunkOnlyProducer' | 'None';
 
 interface CurrentValidatorInfo {
-    stake: number,
-    shards: number[],
-    blocks: ProducedAndExpected,
-    chunks: ProducedAndExpected,
+    stake: number;
+    shards: number[];
+    blocks: ProducedAndExpected;
+    chunks: ProducedAndExpected;
 }
 
 interface NextValidatorInfo {
-    stake: number,
-    shards: number[],
+    stake: number;
+    shards: number[];
 }
 
 interface ValidatorInfo {
-    accountId: string,
-    current: CurrentValidatorInfo | null,
-    next: NextValidatorInfo | null,
-    proposalStake: number | null,
-    kickoutReason: ValidatorKickoutReason | null,
-    roles: ValidatorRole[],
+    accountId: string;
+    current: CurrentValidatorInfo | null;
+    next: NextValidatorInfo | null;
+    proposalStake: number | null;
+    kickoutReason: ValidatorKickoutReason | null;
+    roles: ValidatorRole[];
 }
 
 class Validators {
     validators: Map<string, ValidatorInfo> = new Map();
 
-    constructor(private numEpochs: number) { }
+    constructor(private numEpochs: number) {}
 
     validator(accountId: string): ValidatorInfo {
         if (this.validators.has(accountId)) {
@@ -88,22 +88,26 @@ class Validators {
 }
 
 type EpochValidatorViewProps = {
-    addr: string,
+    addr: string;
 };
 
 export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
-    const { data: epochData, error: epochError, isLoading: epochIsLoading } =
-        useQuery(['epochInfo', addr], () => fetchEpochInfo(addr));
+    const {
+        data: epochData,
+        error: epochError,
+        isLoading: epochIsLoading,
+    } = useQuery(['epochInfo', addr], () => fetchEpochInfo(addr));
 
     if (epochIsLoading) {
         return <div>Loading...</div>;
     }
     if (epochError) {
-        return <div className="error">
-            {(epochError as Error).stack}
-        </div>;
+        return <div className="error">{(epochError as Error).stack}</div>;
     }
-    let maxStake = 0, totalStake = 0, maxExpectedBlocks = 0, maxExpectedChunks = 0;
+    let maxStake = 0,
+        totalStake = 0,
+        maxExpectedBlocks = 0,
+        maxExpectedChunks = 0;
     const epochs = epochData!.status_response.EpochInfo;
     const validators = new Validators(epochs.length);
     const currentValidatorInfo = epochData!.status_response.EpochInfo[1].validator_info;
@@ -151,61 +155,91 @@ export const EpochValidatorsView = ({ addr }: EpochValidatorViewProps) => {
         }
     });
 
-    return <table className="epoch-validators-table">
-        <thead>
-            <tr>
-                <th></th>
-                <th colSpan={4}>Next Epoch</th>
-                <th colSpan={5}>Current Epoch</th>
-                <th colSpan={1 + epochs.length - 2}>Past Epochs</th>
-            </tr>
-            <tr>
-                <th>Validator</th>
+    return (
+        <table className="epoch-validators-table">
+            <thead>
+                <tr>
+                    <th></th>
+                    <th colSpan={4}>Next Epoch</th>
+                    <th colSpan={5}>Current Epoch</th>
+                    <th colSpan={1 + epochs.length - 2}>Past Epochs</th>
+                </tr>
+                <tr>
+                    <th>Validator</th>
 
-                <th className="small-text">Role</th>
-                <th className="small-text">Shards</th>
-                <th>Stake</th>
-                <th>Proposal</th>
+                    <th className="small-text">Role</th>
+                    <th className="small-text">Shards</th>
+                    <th>Stake</th>
+                    <th>Proposal</th>
 
-                <th className="small-text">Role</th>
-                <th className="small-text">Shards</th>
-                <th>Stake</th>
-                <th>Blocks</th>
-                <th>Chunks</th>
+                    <th className="small-text">Role</th>
+                    <th className="small-text">Shards</th>
+                    <th>Stake</th>
+                    <th>Blocks</th>
+                    <th>Chunks</th>
 
-                <th>Kickout</th>
-                {epochs.slice(2).map(epoch => {
-                    return <th key={epoch.epoch_id} className="small-text">{epoch.epoch_id.substring(0, 4)}...</th>;
-                })}
-            </tr>
-        </thead>
-        <tbody>
-            {validators.sorted().map(validator => {
-                return <tr key={validator.accountId}>
-                    <td>{validator.accountId}</td>
-                    <td>{renderRole(validator.roles[0])}</td>
-                    <td>{validator.next?.shards?.join(',') ?? ''}</td>
-                    <td>{drawStakeBar(validator.next?.stake ?? null, maxStake, totalStake)}</td>
-                    <td>{drawStakeBar(validator.proposalStake, maxStake, totalStake)}</td>
-
-                    <td>{renderRole(validator.roles[1])}</td>
-                    <td>{validator.current?.shards?.join(',') ?? ''}</td>
-                    <td>{drawStakeBar(validator.current?.stake ?? null, maxStake, totalStake)}</td>
-                    <td>{drawProducedAndExpectedBar(validator.current?.blocks ?? null, maxExpectedBlocks)}</td>
-                    <td>{drawProducedAndExpectedBar(validator.current?.chunks ?? null, maxExpectedChunks)}</td>
-
-                    <td><KickoutReason reason={validator.kickoutReason} /></td>
-                    {validator.roles.slice(2).map((role, i) => {
-                        return <td key={i}>{renderRole(role)}</td>
+                    <th>Kickout</th>
+                    {epochs.slice(2).map((epoch) => {
+                        return (
+                            <th key={epoch.epoch_id} className="small-text">
+                                {epoch.epoch_id.substring(0, 4)}...
+                            </th>
+                        );
                     })}
-                </tr>;
-            })}
-        </tbody>
-    </table>
+                </tr>
+            </thead>
+            <tbody>
+                {validators.sorted().map((validator) => {
+                    return (
+                        <tr key={validator.accountId}>
+                            <td>{validator.accountId}</td>
+                            <td>{renderRole(validator.roles[0])}</td>
+                            <td>{validator.next?.shards?.join(',') ?? ''}</td>
+                            <td>
+                                {drawStakeBar(validator.next?.stake ?? null, maxStake, totalStake)}
+                            </td>
+                            <td>{drawStakeBar(validator.proposalStake, maxStake, totalStake)}</td>
 
+                            <td>{renderRole(validator.roles[1])}</td>
+                            <td>{validator.current?.shards?.join(',') ?? ''}</td>
+                            <td>
+                                {drawStakeBar(
+                                    validator.current?.stake ?? null,
+                                    maxStake,
+                                    totalStake
+                                )}
+                            </td>
+                            <td>
+                                {drawProducedAndExpectedBar(
+                                    validator.current?.blocks ?? null,
+                                    maxExpectedBlocks
+                                )}
+                            </td>
+                            <td>
+                                {drawProducedAndExpectedBar(
+                                    validator.current?.chunks ?? null,
+                                    maxExpectedChunks
+                                )}
+                            </td>
+
+                            <td>
+                                <KickoutReason reason={validator.kickoutReason} />
+                            </td>
+                            {validator.roles.slice(2).map((role, i) => {
+                                return <td key={i}>{renderRole(role)}</td>;
+                            })}
+                        </tr>
+                    );
+                })}
+            </tbody>
+        </table>
+    );
 };
 
-function drawProducedAndExpectedBar(producedAndExpected: ProducedAndExpected | null, maxExpected: number): JSX.Element {
+function drawProducedAndExpectedBar(
+    producedAndExpected: ProducedAndExpected | null,
+    maxExpected: number
+): JSX.Element {
     if (producedAndExpected === null) {
         return <></>;
     }
@@ -213,9 +247,9 @@ function drawProducedAndExpectedBar(producedAndExpected: ProducedAndExpected | n
     if (expected == 0) {
         return <div className="expects-zero">0</div>;
     }
-    const expectedWidth = expected / maxExpected * 100 + 10;
-    let producedWidth = expectedWidth * produced / expected;
-    let missedWidth = expectedWidth * (expected - produced) / expected;
+    const expectedWidth = (expected / maxExpected) * 100 + 10;
+    let producedWidth = (expectedWidth * produced) / expected;
+    let missedWidth = (expectedWidth * (expected - produced)) / expected;
     if (produced !== expected) {
         if (producedWidth < 5) {
             producedWidth = 5;
@@ -226,34 +260,45 @@ function drawProducedAndExpectedBar(producedAndExpected: ProducedAndExpected | n
             producedWidth = expectedWidth - missedWidth;
         }
     }
-    return <div className="produced-and-expected-bar">
-        <div className="produced-count">{produced}</div>
-        <div className="produced" style={{ width: producedWidth }}></div>
-        {produced !== expected && <>
-            <div className="missed" style={{ width: missedWidth }}></div>
-            <div className="missed-count">{expected - produced}</div>
-        </>}
-    </div>
+    return (
+        <div className="produced-and-expected-bar">
+            <div className="produced-count">{produced}</div>
+            <div className="produced" style={{ width: producedWidth }}></div>
+            {produced !== expected && (
+                <>
+                    <div className="missed" style={{ width: missedWidth }}></div>
+                    <div className="missed-count">{expected - produced}</div>
+                </>
+            )}
+        </div>
+    );
 }
 
 function drawStakeBar(stake: number | null, maxStake: number, totalStake: number): JSX.Element {
     if (stake === null) {
         return <></>;
     }
-    const width = stake / maxStake * 100 + 5;
+    const width = (stake / maxStake) * 100 + 5;
     const stakeText = Math.floor(stake / 1e24).toLocaleString('en-US');
-    const stakePercentage = (100 * stake / totalStake).toFixed(2) + '%';
-    return <div className="stake-bar">
-        <div className="bar" style={{ width }}></div>
-        <div className="text">{stakeText} ({stakePercentage})</div>
-    </div>;
+    const stakePercentage = ((100 * stake) / totalStake).toFixed(2) + '%';
+    return (
+        <div className="stake-bar">
+            <div className="bar" style={{ width }}></div>
+            <div className="text">
+                {stakeText} ({stakePercentage})
+            </div>
+        </div>
+    );
 }
 
 function renderRole(role: ValidatorRole): JSX.Element {
     switch (role) {
-        case 'BlockProducer': return <span className="role-block-producer">BP</span>;
-        case 'ChunkOnlyProducer': return <span className="role-chunk-only-producer">CP</span>;
-        default: return <></>;
+        case 'BlockProducer':
+            return <span className="role-block-producer">BP</span>;
+        case 'ChunkOnlyProducer':
+            return <span className="role-chunk-only-producer">CP</span>;
+        default:
+            return <></>;
     }
 }
 
@@ -286,8 +331,12 @@ const KickoutReason = ({ reason }: { reason: ValidatorKickoutReason | null }) =>
         kickoutSummary = 'Other';
         kickoutReason = JSON.stringify(reason);
     }
-    return <>
-        <span className="kickout-reason" id={id}>{kickoutSummary}</span>
-        <Tooltip anchorId={id} content={kickoutReason} />
-    </>
+    return (
+        <>
+            <span className="kickout-reason" id={id}>
+                {kickoutSummary}
+            </span>
+            <Tooltip anchorId={id} content={kickoutReason} />
+        </>
+    );
 };
