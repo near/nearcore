@@ -36,6 +36,9 @@ use tracing::Instrument as _;
 
 mod routing;
 mod tier1;
+mod background;
+
+pub use background::Event;
 
 /// Limit number of pending Peer actors to avoid OOM.
 pub(crate) const LIMIT_PENDING_PEERS: usize = 60;
@@ -88,7 +91,8 @@ pub(crate) struct NetworkState {
     /// as it will be automatically closed only when the NetworkState is dropped.
     /// WARNING: actix actors can be spawned only when actix::System::current() is set.
     /// DO NOT spawn actors from a task on this runtime.
-    runtime: Runtime,
+    service: scope::Service,
+
     /// PeerManager config.
     pub config: config::VerifiedConfig,
     /// When network state has been constructed.
@@ -148,8 +152,7 @@ pub(crate) struct NetworkState {
 }
 
 impl NetworkState {
-    pub fn new(
-        clock: &time::Clock,
+    pub(crate) fn new(
         store: store::Store,
         peer_store: peer_store::PeerStore,
         config: config::VerifiedConfig,
