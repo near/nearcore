@@ -3,7 +3,7 @@
 <blockquote style="background: rgba(255, 200, 0, 0.1); border: 5px solid rgba(255, 200, 0, 0.4);">
 
 The intended audience of the information presented here is developers working
-on the implementation of NEAR.
+on the implementation of the NEAR protocol.
 
 Are you a security researcher? Please report security vulnerabilities to
 [security@near.org](mailto:security@near.org).
