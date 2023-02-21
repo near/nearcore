@@ -387,18 +387,6 @@ pub enum NetworkResponses {
     RouteNotFound,
 }
 
-#[cfg(feature = "test_features")]
-#[derive(actix::Message, Debug)]
-#[rtype(result = "Option<u64>")]
-pub enum NetworkAdversarialMessage {
-    AdvProduceBlocks(u64, bool),
-    AdvSwitchToHeight(u64),
-    AdvDisableHeaderSync,
-    AdvDisableDoomslug,
-    AdvGetSavedBlocks,
-    AdvCheckStorageConsistency,
-}
-
 // TODO: remove trait and all related traits once migration is complete.
 pub trait MsgRecipient<M: actix::Message>: Send + Sync + 'static {
     fn send(&self, msg: M) -> BoxFuture<'static, Result<M::Result, actix::MailboxError>>;
@@ -565,8 +553,7 @@ mod tests {
     }
 }
 
-// Don't need Borsh ?
-#[derive(Debug, Clone, PartialEq, Eq, borsh::BorshSerialize, borsh::BorshDeserialize, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 /// Defines the destination for a network request.
 /// The request should be sent either to the `account_id` as a routed message, or directly to
 /// any peer that tracks the shard.
