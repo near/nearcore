@@ -2,14 +2,19 @@ use std::io;
 
 use crate::DBCol;
 
-mod colddb;
-pub mod refcount;
 pub(crate) mod rocksdb;
+
+mod colddb;
+mod splitdb;
+
+pub mod refcount;
 mod slice;
 mod testdb;
 
 pub use self::colddb::ColdDB;
 pub use self::rocksdb::RocksDB;
+pub use self::splitdb::SplitDB;
+
 pub use self::slice::DBSlice;
 pub use self::testdb::TestDB;
 

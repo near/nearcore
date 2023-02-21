@@ -90,10 +90,8 @@ const STATE_FILE_END_MARK: u8 = 255;
 
 /// Node’s storage holding chain and all other necessary data.
 ///
-/// The eventual goal is to implement cold storage at which point this structure
-/// will provide interface to access hot and cold storage.  This is in contrast
-/// to [`Store`] which will abstract access to only one of the temperatures of
-/// the storage.
+/// Provides access to hot storage, cold storage and split storage. Typically
+/// users will want to use one of the above via the Store abstraction.
 pub struct NodeStorage {
     hot_storage: Arc<dyn Database>,
     cold_storage: Option<Arc<crate::db::ColdDB>>,
@@ -101,12 +99,10 @@ pub struct NodeStorage {
 
 /// Node’s single storage source.
 ///
-/// Currently, this is somewhat equivalent to [`NodeStorage`] in that for given
-/// node storage you can get only a single [`Store`] object.  This will change
-/// as we implement cold storage in which case this structure will provide an
-/// interface to access either hot or cold data.  At that point, [`NodeStorage`]
-/// will map to one of two [`Store`] objects depending on the temperature of the
-/// data.
+/// The Store holds one of the possible databases:
+/// - The hot database - access to the hot database only
+/// - The cold database - access to the cold database only
+/// - The split database - access to both hot and cold databases
 #[derive(Clone)]
 pub struct Store {
     storage: Arc<dyn Database>,
@@ -204,6 +200,15 @@ impl NodeStorage {
         }
     }
 
+    pub fn get_split_store(&self) -> Option<Store> {
+        match &self.cold_storage {
+            Some(cold_storage) => Some(Store {
+                storage: crate::db::SplitDB::new(self.hot_storage.clone(), cold_storage.clone()),
+            }),
+            None => None,
+        }
+    }
+
     /// Returns underlying database for given temperature.
     ///
     /// This allows accessing underlying hot and cold databases directly
@@ -225,14 +230,6 @@ impl NodeStorage {
             Temperature::Hot => self.hot_storage,
             Temperature::Cold => self.cold_storage.unwrap(),
         }
-    }
-
-    pub fn set_version(&self, version: DbVersion) -> std::io::Result<()> {
-        self.get_hot_store().set_db_version(version)?;
-        if let Some(cold_store) = self.get_cold_store() {
-            cold_store.set_db_version(version)?;
-        }
-        Ok(())
     }
 }
 

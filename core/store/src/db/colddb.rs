@@ -89,7 +89,7 @@ impl Database for ColdDB {
     }
 
     fn get_with_rc_stripped(&self, col: DBCol, key: &[u8]) -> std::io::Result<Option<DBSlice<'_>>> {
-        assert!(col.is_rc());
+        assert!(col.is_rc(), "Column {col:#?} is not reference counted");
 
         Self::check_is_in_colddb(col)?;
 
@@ -146,9 +146,9 @@ impl Database for ColdDB {
     }
 
     /// Unimplemented; always panics.
-    fn iter_raw_bytes<'a>(&'a self, _column: DBCol) -> DBIterator<'a> {
+    fn iter_raw_bytes<'a>(&'a self, column: DBCol) -> DBIterator<'a> {
         // We’re actually never call iter_raw_bytes on cold store.
-        unreachable!();
+        unreachable!("iter_raw_bytes is not allowed in the ColdDB, col: {column}");
     }
 
     /// Atomically applies operations in given transaction.
