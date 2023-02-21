@@ -33,7 +33,7 @@ def main() -> None:
     crates = [
         i for i in toml.load('nightly/fuzz.toml')['target']
         # temporary limit for fuzz targets building
-        if i['runner'] in ['borsh', 'serde']
+        if i['runner'] in ['borsh', 'serde', 'runner']
     ]
     logger.debug(f"Crates from nightly/fuzz.toml: \n{crates}")
 
