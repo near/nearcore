@@ -4,13 +4,6 @@ use crate::testonly::abort_on_panic;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-// drop a trivial future without completion => panic (in debug mode at least).
-#[tokio::test]
-#[should_panic]
-async fn must_complete_should_panic() {
-    let _ = scope::must_complete(async move { 6 });
-}
-
 // run a trivial future until completion => OK
 #[tokio::test]
 async fn must_complete_ok() {

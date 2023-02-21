@@ -13,6 +13,22 @@ thread_local! {
     ));
 }
 
+/// Ensures that the local ctx is rolled back even when stack unwinding happens.
+struct SetLocalCtx<'a>(&'a mut Ctx);
+
+impl<'a> SetLocalCtx<'a> {
+    fn new(ctx: &'a mut Ctx) -> Self {
+        CTX.with(|x| std::mem::swap(unsafe { &mut *x.get() }, ctx));
+        Self(ctx)
+    }
+}
+
+impl<'a> Drop for SetLocalCtx<'a> {
+    fn drop(&mut self) {
+        CTX.with(|x| std::mem::swap(unsafe { &mut *x.get() }, self.0));
+    }
+}
+
 /// Inner representation of a context.
 struct Inner {
     canceled: signal::Once,
@@ -198,9 +214,7 @@ impl<F: Future> Future for CtxFuture<F> {
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Self::Output> {
         let this = self.project();
-        CTX.with(|x| std::mem::swap(unsafe { &mut *x.get() }, this.ctx));
-        let res = this.inner.poll(cx);
-        CTX.with(|x| std::mem::swap(unsafe { &mut *x.get() }, this.ctx));
-        res
+        let _guard = SetLocalCtx::new(this.ctx);
+        this.inner.poll(cx)
     }
 }

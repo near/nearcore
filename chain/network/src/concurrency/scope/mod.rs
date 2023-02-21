@@ -1,6 +1,5 @@
 #![cfg(not(doctest))]
 //! Asynchronous scope.
-//! WARNING: this module assumes that [panic=abort] is enabled.
 //!
 //! You can think of the scope as a lifetime 'env within a rust future, such that:
 //! * within 'env you can spawn subtasks, which may return an error E.
@@ -360,14 +359,14 @@ impl<'env, E: 'static + Send> Scope<'env, E> {
     }
 }
 
-/// must_complete wraps a future, so that it panic if it is dropped before completion.
+/// must_complete wraps a future, so that it aborts if it is dropped before completion.
 ///
-/// Possibility of future abort at every await makes the control flow unnecessarily complicated.
+/// Possibility that a future can be dropped/aborted at every await makes the control flow unnecessarily complicated.
 /// In fact, only few basic futures (like io primitives) actually need to be abortable, so
 /// that they can be put together into a tokio::select block. All the higher level logic
 /// would greatly benefit (in terms of readability and bug-resistance) from being non-abortable.
 /// Rust doesn't support linear types as of now, so best we can do is a runtime check.
-pub fn must_complete<Fut: Future>(fut: Fut) -> impl Future<Output = Fut::Output> {
+fn must_complete<Fut: Future>(fut: Fut) -> impl Future<Output = Fut::Output> {
     let guard = MustCompleteGuard;
     async move {
         let res = fut.await;
@@ -380,7 +379,10 @@ struct MustCompleteGuard;
 
 impl Drop for MustCompleteGuard {
     fn drop(&mut self) {
-        panic!("dropped a non-abortable future before completion");
+        // We always abort here, no matter if compiled with panic=abort or panic=unwind.
+        eprintln!("dropped a non-abortable future before completion");
+        eprintln!("backtrace:\n{}", std::backtrace::Backtrace::force_capture());
+        std::process::abort();
     }
 }
 
@@ -426,8 +428,9 @@ pub mod internal {
 /// A future running a task within a scope (see `Scope`).
 ///
 /// `await` is called within the macro instantiation, so `run!` can be called only in an async context.
-/// Dropping this future while incomplete will panic (immediate-await doesn't prevent that: it can happen
-/// if you drop the outer future).
+/// Dropping this future while incomplete will ABORT (not panic, since the future is not
+/// UnwindSafe).
+/// Note that immediate-await doesn't prevent dropping the future, as the outer future still can be dropped.
 #[macro_export]
 macro_rules! run {
     ($f:expr) => {{
