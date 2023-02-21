@@ -79,14 +79,14 @@ fn test_unknown_vs_not_connected() {
     assert_eq!(get_in_memory_status(&peer_store), [None, None, Some(Unknown)]);
 
     // Add the remaining peers.
-    peer_store.add_direct_peer(&clock.clock(), peer_info_a.clone()).unwrap();
-    peer_store.add_direct_peer(&clock.clock(), peer_info_b.clone()).unwrap();
+    peer_store.add_direct_peer(&clock.clock(), peer_info_a.clone());
+    peer_store.add_direct_peer(&clock.clock(), peer_info_b.clone());
 
     assert_eq!(get_in_memory_status(&peer_store), [Some(Unknown), Some(Unknown), Some(Unknown)]);
 
     // Connect to both nodes
     for peer_info in [peer_info_a.clone(), peer_info_b.clone()] {
-        peer_store.peer_connected(&clock.clock(), &peer_info).unwrap();
+        peer_store.peer_connected(&clock.clock(), &peer_info);
     }
     assert_eq!(
         get_in_memory_status(&peer_store),
@@ -144,8 +144,8 @@ fn test_unconnected_peer_only_boot_nodes() {
         let peer_store =
             PeerStore::new(&clock.clock(), make_config(&boot_nodes, Blacklist::default(), false))
                 .unwrap();
-        peer_store.add_direct_peer(&clock.clock(), peer_in_store.clone()).unwrap();
-        peer_store.peer_connected(&clock.clock(), &peer_info_a).unwrap();
+        peer_store.add_direct_peer(&clock.clock(), peer_in_store.clone());
+        peer_store.peer_connected(&clock.clock(), &peer_info_a);
         assert_eq!(peer_store.unconnected_peer(|_| false, false), Some(peer_in_store.clone()));
     }
 
@@ -156,8 +156,8 @@ fn test_unconnected_peer_only_boot_nodes() {
         let peer_store =
             PeerStore::new(&clock.clock(), make_config(&boot_nodes, Default::default(), true))
                 .unwrap();
-        peer_store.add_direct_peer(&clock.clock(), peer_in_store).unwrap();
-        peer_store.peer_connected(&clock.clock(), &peer_info_a).unwrap();
+        peer_store.add_direct_peer(&clock.clock(), peer_in_store);
+        peer_store.peer_connected(&clock.clock(), &peer_info_a);
         assert_eq!(peer_store.unconnected_peer(|_| false, false), None);
     }
 
@@ -169,7 +169,7 @@ fn test_unconnected_peer_only_boot_nodes() {
             make_config(&boot_nodes, Default::default(), connect_to_boot_nodes),
         )
         .unwrap();
-        peer_store.add_direct_peer(&clock.clock(), peer_info_a.clone()).unwrap();
+        peer_store.add_direct_peer(&clock.clock(), peer_info_a.clone());
         assert_eq!(peer_store.unconnected_peer(|_| false, false), Some(peer_info_a.clone()));
     }
 }
@@ -225,11 +225,11 @@ fn handle_peer_id_change() {
     let addr = get_addr(0);
 
     let peer_aa = get_peer_info(peers_id[0].clone(), Some(addr));
-    peer_store.peer_connected(&clock.clock(), &peer_aa).unwrap();
+    peer_store.peer_connected(&clock.clock(), &peer_aa);
     assert!(check_exist(&peer_store, &peers_id[0], Some((addr, TrustLevel::Signed))));
 
     let peer_ba = get_peer_info(peers_id[1].clone(), Some(addr));
-    peer_store.add_direct_peer(&clock.clock(), peer_ba).unwrap();
+    peer_store.add_direct_peer(&clock.clock(), peer_ba);
 
     assert!(check_exist(&peer_store, &peers_id[0], None));
     assert!(check_exist(&peer_store, &peers_id[1], Some((addr, TrustLevel::Direct))));
@@ -249,11 +249,11 @@ fn dont_handle_address_change() {
     let addrs = (0..2).map(get_addr).collect::<Vec<_>>();
 
     let peer_aa = get_peer_info(peers_id[0].clone(), Some(addrs[0]));
-    peer_store.peer_connected(&clock.clock(), &peer_aa).unwrap();
+    peer_store.peer_connected(&clock.clock(), &peer_aa);
     assert!(check_exist(&peer_store, &peers_id[0], Some((addrs[0], TrustLevel::Signed))));
 
     let peer_ba = get_peer_info(peers_id[0].clone(), Some(addrs[1]));
-    peer_store.add_direct_peer(&clock.clock(), peer_ba).unwrap();
+    peer_store.add_direct_peer(&clock.clock(), peer_ba);
     assert!(check_exist(&peer_store, &peers_id[0], Some((addrs[0], TrustLevel::Signed))));
     assert!(check_integrity(&peer_store));
 }
@@ -271,60 +271,60 @@ fn check_add_peers_overriding() {
 
     // Create signed connection A - #A
     let peer_00 = get_peer_info(peers_id[0].clone(), Some(addrs[0]));
-    peer_store.peer_connected(&clock.clock(), &peer_00).unwrap();
+    peer_store.peer_connected(&clock.clock(), &peer_00);
     assert!(check_exist(&peer_store, &peers_id[0], Some((addrs[0], TrustLevel::Signed))));
     assert!(check_integrity(&peer_store));
 
     // Create direct connection B - #B
     let peer_11 = get_peer_info(peers_id[1].clone(), Some(addrs[1]));
-    peer_store.add_direct_peer(&clock.clock(), peer_11.clone()).unwrap();
+    peer_store.add_direct_peer(&clock.clock(), peer_11.clone());
     assert!(check_exist(&peer_store, &peers_id[1], Some((addrs[1], TrustLevel::Direct))));
     assert!(check_integrity(&peer_store));
 
     // Create signed connection B - #B
-    peer_store.peer_connected(&clock.clock(), &peer_11).unwrap();
+    peer_store.peer_connected(&clock.clock(), &peer_11);
     assert!(check_exist(&peer_store, &peers_id[1], Some((addrs[1], TrustLevel::Signed))));
     assert!(check_integrity(&peer_store));
 
     // Create indirect connection C - #C
     let peer_22 = get_peer_info(peers_id[2].clone(), Some(addrs[2]));
-    peer_store.add_indirect_peers(&clock.clock(), [peer_22.clone()].into_iter()).unwrap();
+    peer_store.add_indirect_peers(&clock.clock(), [peer_22.clone()].into_iter());
     assert!(check_exist(&peer_store, &peers_id[2], Some((addrs[2], TrustLevel::Indirect))));
     assert!(check_integrity(&peer_store));
 
     // Create signed connection C - #C
-    peer_store.peer_connected(&clock.clock(), &peer_22).unwrap();
+    peer_store.peer_connected(&clock.clock(), &peer_22);
     assert!(check_exist(&peer_store, &peers_id[2], Some((addrs[2], TrustLevel::Signed))));
     assert!(check_integrity(&peer_store));
 
     // Create signed connection C - #B
     // This overrides C - #C and B - #B
     let peer_21 = get_peer_info(peers_id[2].clone(), Some(addrs[1]));
-    peer_store.peer_connected(&clock.clock(), &peer_21).unwrap();
+    peer_store.peer_connected(&clock.clock(), &peer_21);
     assert!(check_exist(&peer_store, &peers_id[1], None));
     assert!(check_exist(&peer_store, &peers_id[2], Some((addrs[1], TrustLevel::Signed))));
     assert!(check_integrity(&peer_store));
 
     // Create indirect connection D - #D
     let peer_33 = get_peer_info(peers_id[3].clone(), Some(addrs[3]));
-    peer_store.add_indirect_peers(&clock.clock(), [peer_33].into_iter()).unwrap();
+    peer_store.add_indirect_peers(&clock.clock(), [peer_33].into_iter());
     assert!(check_exist(&peer_store, &peers_id[3], Some((addrs[3], TrustLevel::Indirect))));
     assert!(check_integrity(&peer_store));
 
     // Try to create indirect connection A - #X but fails since A - #A exists
     let peer_04 = get_peer_info(peers_id[0].clone(), Some(addrs[4]));
-    peer_store.add_indirect_peers(&clock.clock(), [peer_04].into_iter()).unwrap();
+    peer_store.add_indirect_peers(&clock.clock(), [peer_04].into_iter());
     assert!(check_exist(&peer_store, &peers_id[0], Some((addrs[0], TrustLevel::Signed))));
     assert!(check_integrity(&peer_store));
 
     // Try to create indirect connection X - #D but fails since D - #D exists
     let peer_43 = get_peer_info(peers_id[4].clone(), Some(addrs[3]));
-    peer_store.add_indirect_peers(&clock.clock(), [peer_43.clone()].into_iter()).unwrap();
+    peer_store.add_indirect_peers(&clock.clock(), [peer_43.clone()].into_iter());
     assert!(check_exist(&peer_store, &peers_id[3], Some((addrs[3], TrustLevel::Indirect))));
     assert!(check_integrity(&peer_store));
 
     // Create Direct connection X - #D and succeed removing connection D - #D
-    peer_store.add_direct_peer(&clock.clock(), peer_43).unwrap();
+    peer_store.add_direct_peer(&clock.clock(), peer_43);
     assert!(check_exist(&peer_store, &peers_id[4], Some((addrs[3], TrustLevel::Direct))));
     // D should still exist, but without any addr
     assert!(check_exist(&peer_store, &peers_id[3], None));
@@ -332,7 +332,7 @@ fn check_add_peers_overriding() {
 
     // Try to create indirect connection A - #T but fails since A - #A (signed) exists
     let peer_05 = get_peer_info(peers_id[0].clone(), Some(addrs[5]));
-    peer_store.add_direct_peer(&clock.clock(), peer_05).unwrap();
+    peer_store.add_direct_peer(&clock.clock(), peer_05);
     assert!(check_exist(&peer_store, &peers_id[0], Some((addrs[0], TrustLevel::Signed))));
     assert!(check_integrity(&peer_store));
 }
@@ -368,7 +368,7 @@ fn test_delete_peers() {
     let peer_store =
         PeerStore::new(&clock.clock(), make_config(&[], Default::default(), false)).unwrap();
 
-    peer_store.add_indirect_peers(&clock.clock(), peer_infos.into_iter()).unwrap();
+    peer_store.add_indirect_peers(&clock.clock(), peer_infos.into_iter());
     assert_peers_in_cache(&peer_store, &peer_ids, &peer_addresses);
 
     peer_store.0.lock().delete_peers(&peer_ids).unwrap();

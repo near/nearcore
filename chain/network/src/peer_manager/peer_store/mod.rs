@@ -81,21 +81,16 @@ impl Inner {
     /// to the peer ID thus we can be sure that they control the secret key.
     ///
     /// See also [`Self::add_indirect_peers`] and [`Self::add_direct_peer`].
-    fn add_signed_peer(&mut self, clock: &time::Clock, peer_info: PeerInfo) -> anyhow::Result<()> {
+    fn add_signed_peer(&mut self, clock: &time::Clock, peer_info: PeerInfo) {
         self.add_peer(clock, peer_info, TrustLevel::Signed)
     }
 
     /// Adds a peer into the store with given trust level.
-    fn add_peer(
-        &mut self,
-        clock: &time::Clock,
-        peer_info: PeerInfo,
-        trust_level: TrustLevel,
-    ) -> anyhow::Result<()> {
+    fn add_peer(&mut self, clock: &time::Clock, peer_info: PeerInfo, trust_level: TrustLevel) {
         if let Some(peer_addr) = peer_info.addr {
             match trust_level {
                 TrustLevel::Signed => {
-                    self.update_peer_info(clock, peer_info, peer_addr, TrustLevel::Signed)?;
+                    self.update_peer_info(clock, peer_info, peer_addr, TrustLevel::Signed);
                 }
                 TrustLevel::Direct => {
                     // If this peer already exists with a signed connection ignore this update.
@@ -108,9 +103,9 @@ impl Inner {
                         Some(verified_peer.trust_level)
                     })();
                     if trust_level == Some(TrustLevel::Signed) {
-                        return Ok(());
+                        return;
                     }
-                    self.update_peer_info(clock, peer_info, peer_addr, TrustLevel::Direct)?;
+                    self.update_peer_info(clock, peer_info, peer_addr, TrustLevel::Direct);
                 }
                 TrustLevel::Indirect => {
                     // We should only update an Indirect connection if we don't know anything about the peer
@@ -118,7 +113,7 @@ impl Inner {
                     if !self.peer_states.contains_key(&peer_info.id)
                         && !self.addr_peers.contains_key(&peer_addr)
                     {
-                        self.update_peer_info(clock, peer_info, peer_addr, TrustLevel::Indirect)?;
+                        self.update_peer_info(clock, peer_info, peer_addr, TrustLevel::Indirect);
                     }
                 }
             }
@@ -129,7 +124,6 @@ impl Inner {
                 .entry(peer_info.id.clone())
                 .or_insert_with(|| KnownPeerState::new(peer_info, clock.now_utc()));
         }
-        Ok(())
     }
 
     fn peer_unban(&mut self, peer_id: &PeerId) -> anyhow::Result<()> {
@@ -174,7 +168,7 @@ impl Inner {
         peer_info: PeerInfo,
         peer_addr: SocketAddr,
         trust_level: TrustLevel,
-    ) -> anyhow::Result<()> {
+    ) {
         let mut touch_other = None;
 
         // If there is a peer associated with current address remove the address from it.
@@ -203,8 +197,6 @@ impl Inner {
             .entry(peer_info.id.clone())
             .and_modify(|peer_state| peer_state.peer_info.addr = Some(peer_addr))
             .or_insert_with(|| KnownPeerState::new(peer_info.clone(), now));
-
-        Ok(())
     }
 
     /// Removes peers that are not responding for expiration period.
@@ -330,13 +322,12 @@ impl PeerStore {
         self.0.lock().peer_states.get(peer_id).cloned()
     }
 
-    pub fn peer_connected(&self, clock: &time::Clock, peer_info: &PeerInfo) -> anyhow::Result<()> {
+    pub fn peer_connected(&self, clock: &time::Clock, peer_info: &PeerInfo) {
         let mut inner = self.0.lock();
-        inner.add_signed_peer(clock, peer_info.clone())?;
+        inner.add_signed_peer(clock, peer_info.clone());
         let entry = inner.peer_states.get_mut(&peer_info.id).unwrap();
         entry.last_seen = clock.now_utc();
         entry.status = KnownPeerStatus::Connected;
-        Ok(())
     }
 
     pub fn peer_disconnected(&self, clock: &time::Clock, peer_id: &PeerId) -> anyhow::Result<()> {
@@ -370,6 +361,7 @@ impl PeerStore {
         } else {
             bail!("Peer {} is missing in the peer store", peer_id);
         }
+
         Ok(())
     }
 
@@ -454,11 +446,7 @@ impl PeerStore {
     /// are nodes there we haven’t received signatures of their peer ID.
     ///
     /// See also [`Self::add_direct_peer`] and [`Self::add_signed_peer`].
-    pub fn add_indirect_peers(
-        &self,
-        clock: &time::Clock,
-        peers: impl Iterator<Item = PeerInfo>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn add_indirect_peers(&self, clock: &time::Clock, peers: impl Iterator<Item = PeerInfo>) {
         let mut inner = self.0.lock();
         let mut total: usize = 0;
         let mut blacklisted: usize = 0;
@@ -469,14 +457,13 @@ impl PeerStore {
             if is_blacklisted {
                 blacklisted += 1;
             } else {
-                inner.add_peer(clock, peer_info, TrustLevel::Indirect)?;
+                inner.add_peer(clock, peer_info, TrustLevel::Indirect);
             }
         }
         if blacklisted != 0 {
             tracing::info!(target: "network", "Ignored {} blacklisted peers out of {} indirect peer(s)",
                   blacklisted, total);
         }
-        Ok(())
     }
 
     /// Adds a peer we’ve connected to but haven’t verified ID yet.
@@ -486,7 +473,7 @@ impl PeerStore {
     /// confirming that identity yet.
     ///
     /// See also [`Self::add_indirect_peers`] and [`Self::add_signed_peer`].
-    pub fn add_direct_peer(&self, clock: &time::Clock, peer_info: PeerInfo) -> anyhow::Result<()> {
+    pub fn add_direct_peer(&self, clock: &time::Clock, peer_info: PeerInfo) {
         self.0.lock().add_peer(clock, peer_info, TrustLevel::Direct)
     }
 
