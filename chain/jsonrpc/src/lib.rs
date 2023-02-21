@@ -1268,7 +1268,7 @@ impl JsonRpcHandler {
     }
 
     async fn adv_produce_blocks(&self, params: Value) -> Result<Value, RpcError> {
-        let (num_blocks, only_valid) = crate::api::parse_params::<(u64, bool)>(params)?;
+        let (num_blocks, only_valid) = crate::api::Params::parse(params)?;
         actix::spawn(
             self.client_addr
                 .send(
@@ -1283,7 +1283,7 @@ impl JsonRpcHandler {
     }
 
     async fn adv_switch_to_height(&self, params: Value) -> Result<Value, RpcError> {
-        let (height,) = crate::api::parse_params::<(u64,)>(params)?;
+        let (height,) = crate::api::Params::parse(params)?;
         actix::spawn(
             self.client_addr
                 .send(
