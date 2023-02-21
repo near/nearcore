@@ -1,32 +1,26 @@
-use std::collections::VecDeque;
-use std::sync::{Arc, Mutex, RwLock};
-
-use actix::MailboxError;
-use futures::future::BoxFuture;
-use futures::FutureExt;
-use near_network::shards_manager::ShardsManagerRequestFromNetwork;
-use near_network::types::MsgRecipient;
-use near_primitives::receipt::Receipt;
-use near_primitives::test_utils::create_test_signer;
-use near_primitives::time::Clock;
-
+use near_async::messaging::CanSend;
 use near_chain::test_utils::{KeyValueRuntime, ValidatorSchedule};
 use near_chain::types::{EpochManagerAdapter, RuntimeAdapter, Tip};
 use near_chain::{Chain, ChainStore};
+use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::test_utils::MockPeerManagerAdapter;
-use near_o11y::WithSpanContext;
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::{self, CryptoHash};
 use near_primitives::merkle::{self, MerklePath};
+use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkPart,
     PartialEncodedChunkV2, ReedSolomonWrapper, ShardChunkHeader,
 };
+use near_primitives::test_utils::create_test_signer;
+use near_primitives::time::Clock;
 use near_primitives::types::NumShards;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::types::{BlockHeight, MerkleHash};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::Store;
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex, RwLock};
 
 use crate::adapter::ShardsManagerRequestFromClient;
 use crate::client::ShardsManagerResponse;
@@ -373,17 +367,9 @@ pub struct MockClientAdapterForShardsManager {
     pub requests: Arc<RwLock<VecDeque<ShardsManagerResponse>>>,
 }
 
-impl MsgRecipient<WithSpanContext<ShardsManagerResponse>> for MockClientAdapterForShardsManager {
-    fn send(
-        &self,
-        msg: WithSpanContext<ShardsManagerResponse>,
-    ) -> BoxFuture<'static, Result<(), MailboxError>> {
-        self.do_send(msg);
-        futures::future::ok(()).boxed()
-    }
-
-    fn do_send(&self, msg: WithSpanContext<ShardsManagerResponse>) {
-        self.requests.write().unwrap().push_back(msg.msg);
+impl CanSend<ShardsManagerResponse> for MockClientAdapterForShardsManager {
+    fn send(&self, msg: ShardsManagerResponse) {
+        self.requests.write().unwrap().push_back(msg);
     }
 }
 
@@ -407,31 +393,15 @@ pub struct SynchronousShardsManagerAdapter {
     pub shards_manager: Arc<Mutex<ShardsManager>>,
 }
 
-impl MsgRecipient<ShardsManagerRequestFromClient> for SynchronousShardsManagerAdapter {
-    fn send(
-        &self,
-        msg: ShardsManagerRequestFromClient,
-    ) -> BoxFuture<'static, Result<(), MailboxError>> {
-        self.do_send(msg);
-        futures::future::ok(()).boxed()
-    }
-
-    fn do_send(&self, msg: ShardsManagerRequestFromClient) {
+impl CanSend<ShardsManagerRequestFromClient> for SynchronousShardsManagerAdapter {
+    fn send(&self, msg: ShardsManagerRequestFromClient) {
         let mut shards_manager = self.shards_manager.lock().unwrap();
         shards_manager.handle_client_request(msg);
     }
 }
 
-impl MsgRecipient<ShardsManagerRequestFromNetwork> for SynchronousShardsManagerAdapter {
-    fn send(
-        &self,
-        msg: ShardsManagerRequestFromNetwork,
-    ) -> BoxFuture<'static, Result<(), MailboxError>> {
-        self.do_send(msg);
-        futures::future::ok(()).boxed()
-    }
-
-    fn do_send(&self, msg: ShardsManagerRequestFromNetwork) {
+impl CanSend<ShardsManagerRequestFromNetwork> for SynchronousShardsManagerAdapter {
+    fn send(&self, msg: ShardsManagerRequestFromNetwork) {
         let mut shards_manager = self.shards_manager.lock().unwrap();
         shards_manager.handle_network_request(msg);
     }
@@ -441,17 +411,4 @@ impl SynchronousShardsManagerAdapter {
     pub fn new(shards_manager: ShardsManager) -> Self {
         Self { shards_manager: Arc::new(Mutex::new(shards_manager)) }
     }
-}
-
-pub struct NoopShardsManagerAdapterForClient {}
-
-impl MsgRecipient<ShardsManagerRequestFromClient> for NoopShardsManagerAdapterForClient {
-    fn send(
-        &self,
-        _msg: ShardsManagerRequestFromClient,
-    ) -> BoxFuture<'static, Result<(), MailboxError>> {
-        futures::future::ok(()).boxed()
-    }
-
-    fn do_send(&self, _msg: ShardsManagerRequestFromClient) {}
 }

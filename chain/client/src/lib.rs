@@ -14,6 +14,8 @@ pub use crate::adapter::{
     BlockApproval, BlockResponse, ProcessTxRequest, ProcessTxResponse, SetNetworkInfo,
 };
 pub use crate::client::Client;
+#[cfg(feature = "test_features")]
+pub use crate::client_actor::NetworkAdversarialMessage;
 pub use crate::client_actor::{start_client, ClientActor};
 pub use crate::config_updater::ConfigUpdater;
 pub use crate::view_client::{start_view_client, ViewClientActor};

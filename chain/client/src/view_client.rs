@@ -30,8 +30,6 @@ use near_client_primitives::types::{
     GetStateChangesWithCauseInBlockForTrackedShards, GetValidatorInfoError, Query, QueryError,
     TxStatus, TxStatusError,
 };
-#[cfg(feature = "test_features")]
-use near_network::types::NetworkAdversarialMessage;
 use near_network::types::{
     NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest, ReasonForBan,
     StateResponseInfo, StateResponseInfoV1, StateResponseInfoV2,
@@ -1058,6 +1056,9 @@ impl Handler<WithSpanContext<GetProtocolConfig>> for ViewClientActor {
         Ok(config.into())
     }
 }
+
+#[cfg(feature = "test_features")]
+use crate::NetworkAdversarialMessage;
 
 #[cfg(feature = "test_features")]
 impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ViewClientActor {

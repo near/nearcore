@@ -19,6 +19,7 @@ use crate::types::{
     ReasonForBan,
 };
 use crate::PeerManagerActor;
+use near_async::messaging::IntoSender;
 use near_o11y::WithSpanContextExt;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
@@ -364,12 +365,12 @@ impl ActorHandler {
         self.with_state(move |s| async move { s.peer_store.update(&clock) }).await;
     }
 
-    pub async fn send_ping(&self, nonce: u64, target: PeerId) {
-        self.actix
-            .addr
-            .send(PeerManagerMessageRequest::PingTo { nonce, target }.with_span_context())
-            .await
-            .unwrap();
+    pub async fn send_ping(&self, clock: &time::Clock, nonce: u64, target: PeerId) {
+        let clock = clock.clone();
+        self.with_state(move |s| async move {
+            s.send_ping(&clock, tcp::Tier::T2, nonce, target);
+        })
+        .await;
     }
 
     pub async fn announce_account(&self, aa: AnnounceAccount) {
@@ -513,7 +514,8 @@ pub(crate) async fn start(
             let genesis_id = chain.genesis_id.clone();
             let fc = Arc::new(fake_client::Fake { event_sink: send.sink().compose(Event::Client) });
             cfg.event_sink = send.sink().compose(Event::PeerManager);
-            PeerManagerActor::spawn(clock, store, cfg, fc.clone(), fc, genesis_id).unwrap()
+            PeerManagerActor::spawn(clock, store, cfg, fc.clone(), fc.as_sender(), genesis_id)
+                .unwrap()
         }
     })
     .await;

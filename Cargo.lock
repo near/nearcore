@@ -2453,7 +2453,7 @@ dependencies = [
  "near-performance-metrics",
  "near-primitives",
  "near-primitives-core",
- "near-stdx",
+ "near-stdx 0.16.0",
  "near-store",
  "near-telemetry",
  "near-test-contracts",
@@ -3147,6 +3147,7 @@ dependencies = [
  "borsh",
  "chrono",
  "delay-detector",
+ "derive_more",
  "futures",
  "itertools",
  "lru",
@@ -3216,10 +3217,11 @@ dependencies = [
  "curve25519-dalek",
  "derive_more",
  "ed25519-dalek",
+ "hex",
  "hex-literal",
  "near-account-id",
  "near-config-utils",
- "near-stdx",
+ "near-stdx 0.16.0",
  "once_cell",
  "primitive-types",
  "rand 0.7.3",
@@ -3621,7 +3623,7 @@ dependencies = [
  "near-o11y",
  "near-primitives-core",
  "near-rpc-error-macro",
- "near-stdx",
+ "near-stdx 0.16.0",
  "near-vm-errors",
  "num-rational",
  "once_cell",
@@ -3735,6 +3737,12 @@ name = "near-stdx"
 version = "0.0.0"
 
 [[package]]
+name = "near-stdx"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c05ded9a90c087aaebfafdf01f2801f5d31817f9a3514ce09aed270001d650e"
+
+[[package]]
 name = "near-store"
 version = "0.0.0"
 dependencies = [
@@ -3755,7 +3763,7 @@ dependencies = [
  "near-crypto",
  "near-o11y",
  "near-primitives",
- "near-stdx",
+ "near-stdx 0.16.0",
  "num_cpus",
  "once_cell",
  "rand 0.8.5",
@@ -3824,7 +3832,7 @@ dependencies = [
  "near-o11y",
  "near-primitives",
  "near-primitives-core",
- "near-stdx",
+ "near-stdx 0.16.0",
  "near-vm-errors",
  "ripemd",
  "serde",
@@ -5991,6 +5999,7 @@ dependencies = [
  "near-crypto",
  "near-primitives",
  "near-test-contracts",
+ "node-runtime",
  "once_cell",
 ]
 

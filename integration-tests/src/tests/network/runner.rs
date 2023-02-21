@@ -15,8 +15,7 @@ use near_network::tcp;
 use near_network::test_utils::{expected_routing_tables, peer_id_from_seed, GetInfo};
 use near_network::time;
 use near_network::types::{
-    NetworkRecipient, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse,
-    ROUTED_MESSAGE_TTL,
+    PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, ROUTED_MESSAGE_TTL,
 };
 use near_network::PeerManagerActor;
 use near_o11y::testonly::init_test_logger;
@@ -70,7 +69,7 @@ fn setup_network_node(
         hash: *genesis_block.header().hash(),
     };
     let network_adapter = Arc::new(LateBoundSender::default());
-    let shards_manager_adapter = Arc::new(NetworkRecipient::default());
+    let shards_manager_adapter = Arc::new(LateBoundSender::default());
     let adv = near_client::adversarial::Controls::default();
     let client_actor = start_client(
         client_config.clone(),
@@ -78,7 +77,7 @@ fn setup_network_node(
         runtime.clone(),
         config.node_id(),
         network_adapter.clone().into(),
-        shards_manager_adapter.clone(),
+        shards_manager_adapter.as_sender(),
         Some(signer.clone()),
         telemetry_actor,
         None,
@@ -97,18 +96,18 @@ fn setup_network_node(
     let (shards_manager_actor, _) = start_shards_manager(
         runtime.clone(),
         network_adapter.as_sender(),
-        Arc::new(client_actor.clone()),
+        client_actor.clone().with_auto_span_context().into_sender(),
         Some(signer.validator_id().clone()),
         runtime.store().clone(),
         client_config.chunk_request_retry_period,
     );
-    shards_manager_adapter.set_recipient(shards_manager_actor);
+    shards_manager_adapter.bind(shards_manager_actor);
     let peer_manager = PeerManagerActor::spawn(
         time::Clock::real(),
         db.clone(),
         config,
         Arc::new(near_client::adapter::Adapter::new(client_actor, view_client_actor)),
-        shards_manager_adapter,
+        shards_manager_adapter.as_sender(),
         genesis_id,
     )
     .unwrap();
@@ -119,21 +118,12 @@ fn setup_network_node(
 // TODO: Deprecate this in favor of separate functions.
 #[derive(Debug, Clone)]
 pub(crate) enum Action {
-    AddEdge {
-        from: usize,
-        to: usize,
-        force: bool,
-    },
+    AddEdge { from: usize, to: usize, force: bool },
     CheckRoutingTable(usize, Vec<(usize, Vec<usize>)>),
     // Send stop signal to some node.
     Stop(usize),
     // Wait time in milliseconds
     Wait(time::Duration),
-    #[allow(dead_code)]
-    SetOptions {
-        target: usize,
-        max_num_peers: Option<u64>,
-    },
 }
 
 pub(crate) struct RunningInfo {
@@ -183,16 +173,6 @@ impl StateMachine {
         let num_prev_actions = self.actions.len();
         let action_clone = 0; // action.clone();
         match action {
-            #[allow(unused_variables)]
-            Action::SetOptions { target, max_num_peers } => {
-                self.actions.push(Box::new(move |info:&mut RunningInfo| Box::pin(async move {
-                    debug!(target: "test", num_prev_actions, action = ?action_clone, "runner.rs: Action");
-                    info.get_node(target)?.actix.addr.send(PeerManagerMessageRequest::SetAdvOptions(near_network::test_utils::SetAdvOptions {
-                        set_max_peers: max_num_peers,
-                    }).with_span_context()).await?;
-                    Ok(ControlFlow::Break(()))
-                })));
-            }
             Action::AddEdge { from, to, force } => {
                 self.actions.push(Box::new(move |info: &mut RunningInfo| Box::pin(async move {
                     debug!(target: "test", num_prev_actions, action = ?action_clone, "runner.rs: Action");

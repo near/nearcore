@@ -350,7 +350,7 @@ async fn ping_simple() {
     let mut pm1_ev = pm1.events.from_now();
 
     tracing::info!(target:"test", "send ping from {id0} to {id1}");
-    pm0.send_ping(0, id1.clone()).await;
+    pm0.send_ping(&clock.clock(), 0, id1.clone()).await;
 
     tracing::info!(target:"test", "await ping at {id1}");
     wait_for_ping(&mut pm1_ev, Ping { nonce: 0, source: id0.clone() }).await;
@@ -408,7 +408,7 @@ async fn ping_jump() {
     let mut pm2_ev = pm2.events.from_now();
 
     tracing::info!(target:"test", "send ping from {id0} to {id2}");
-    pm0.send_ping(0, id2.clone()).await;
+    pm0.send_ping(&clock.clock(), 0, id2.clone()).await;
 
     tracing::info!(target:"test", "await ping at {id2}");
     wait_for_ping(&mut pm2_ev, Ping { nonce: 0, source: id0.clone() }).await;
@@ -465,7 +465,7 @@ async fn test_dont_drop_after_ttl() {
     let mut pm2_ev = pm2.events.from_now();
 
     tracing::info!(target:"test", "send ping from {id0} to {id2}");
-    pm0.send_ping(0, id2.clone()).await;
+    pm0.send_ping(&clock.clock(), 0, id2.clone()).await;
 
     tracing::info!(target:"test", "await ping at {id2}");
     wait_for_ping(&mut pm2_ev, Ping { nonce: 0, source: id0.clone() }).await;
@@ -521,7 +521,7 @@ async fn test_drop_after_ttl() {
     let mut pm1_ev = pm1.events.from_now();
 
     tracing::info!(target:"test", "send ping from {id0} to {id2}");
-    pm0.send_ping(0, id2.clone()).await;
+    pm0.send_ping(&clock.clock(), 0, id2.clone()).await;
 
     tracing::info!(target:"test", "await message dropped at {id1}");
     wait_for_message_dropped(&mut pm1_ev).await;
@@ -575,20 +575,20 @@ async fn test_dropping_duplicate_messages() {
 
     // Send two identical messages. One will be dropped, because the delay between them was less than 50ms.
     tracing::info!(target:"test", "send ping from {id0} to {id2}");
-    pm0.send_ping(0, id2.clone()).await;
+    pm0.send_ping(&clock.clock(), 0, id2.clone()).await;
     tracing::info!(target:"test", "await ping at {id2}");
     wait_for_ping(&mut pm2_ev, Ping { nonce: 0, source: id0.clone() }).await;
     tracing::info!(target:"test", "await pong at {id0}");
     wait_for_pong(&mut pm0_ev, Pong { nonce: 0, source: id2.clone() }).await;
 
     tracing::info!(target:"test", "send ping from {id0} to {id2}");
-    pm0.send_ping(0, id2.clone()).await;
+    pm0.send_ping(&clock.clock(), 0, id2.clone()).await;
     tracing::info!(target:"test", "await message dropped at {id1}");
     wait_for_message_dropped(&mut pm1_ev).await;
 
     // Send two identical messages but with 300ms delay so they don't get dropped.
     tracing::info!(target:"test", "send ping from {id0} to {id2}");
-    pm0.send_ping(1, id2.clone()).await;
+    pm0.send_ping(&clock.clock(), 1, id2.clone()).await;
     tracing::info!(target:"test", "await ping at {id2}");
     wait_for_ping(&mut pm2_ev, Ping { nonce: 1, source: id0.clone() }).await;
     tracing::info!(target:"test", "await pong at {id0}");
@@ -597,15 +597,11 @@ async fn test_dropping_duplicate_messages() {
     clock.advance(DROP_DUPLICATED_MESSAGES_PERIOD + time::Duration::milliseconds(1));
 
     tracing::info!(target:"test", "send ping from {id0} to {id2}");
-    pm0.send_ping(1, id2.clone()).await;
+    pm0.send_ping(&clock.clock(), 1, id2.clone()).await;
     tracing::info!(target:"test", "await ping at {id2}");
     wait_for_ping(&mut pm2_ev, Ping { nonce: 1, source: id0.clone() }).await;
     tracing::info!(target:"test", "await pong at {id0}");
     wait_for_pong(&mut pm0_ev, Pong { nonce: 1, source: id2.clone() }).await;
-
-    drop(pm0);
-    drop(pm1);
-    drop(pm2);
 }
 
 /// Awaits until a ConnectionClosed event with the expected reason is seen in the event stream.

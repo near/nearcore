@@ -12,18 +12,20 @@ use near_client::test_utils::TestEnv;
 use near_crypto::{KeyType, PublicKey};
 use near_primitives::account::AccessKey;
 use near_primitives::config::ActionCosts;
-use near_primitives::errors::{ActionsValidationError, InvalidTxError, TxExecutionError};
-use near_primitives::test_utils::create_user_test_signer;
+use near_primitives::errors::{
+    ActionError, ActionErrorKind, ActionsValidationError, InvalidTxError, TxExecutionError,
+};
+use near_primitives::test_utils::{create_user_test_signer, implicit_test_account};
 use near_primitives::transaction::{
-    Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
-    FunctionCallAction, StakeAction, TransferAction,
+    Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
+    DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
 };
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{
     AccessKeyPermissionView, FinalExecutionOutcomeView, FinalExecutionStatus,
 };
-use near_test_contracts::smallest_rs_contract;
+use near_test_contracts::{ft_contract, smallest_rs_contract};
 use nearcore::config::GenesisExt;
 use nearcore::NEAR_BASE;
 use testlib::runtime_utils::{
@@ -117,15 +119,17 @@ fn check_meta_tx_execution(
 
     let sender_before = node_user.view_balance(&sender).unwrap();
     let relayer_before = node_user.view_balance(&relayer).unwrap();
-    let receiver_before = node_user.view_balance(&receiver).unwrap();
+    let receiver_before = node_user.view_balance(&receiver).unwrap_or(0);
     let relayer_nonce_before = node_user
         .get_access_key(&relayer, &PublicKey::from_seed(KeyType::ED25519, &relayer))
         .unwrap()
         .nonce;
-    let user_nonce_before = node_user
-        .get_access_key(&sender, &PublicKey::from_seed(KeyType::ED25519, &sender))
-        .unwrap()
-        .nonce;
+    let user_pubk = if sender.is_implicit() {
+        PublicKey::from_implicit_account(&sender)
+    } else {
+        PublicKey::from_seed(KeyType::ED25519, &sender)
+    };
+    let user_nonce_before = node_user.get_access_key(&sender, &user_pubk).unwrap().nonce;
 
     let tx_result = node_user
         .meta_tx(sender.clone(), receiver.clone(), relayer.clone(), actions.clone())
@@ -171,7 +175,7 @@ fn check_meta_tx_no_fn_call(
     receiver: AccountId,
 ) -> FinalExecutionOutcomeView {
     let fee_helper = fee_helper(node);
-    let gas_cost = normal_tx_cost + fee_helper.meta_tx_overhead_cost(&actions);
+    let gas_cost = normal_tx_cost + fee_helper.meta_tx_overhead_cost(&actions, &receiver);
 
     let (tx_result, sender_diff, relayer_diff, receiver_diff) =
         check_meta_tx_execution(node, actions, sender, relayer, receiver);
@@ -203,7 +207,7 @@ fn check_meta_tx_fn_call(
 ) -> FinalExecutionOutcomeView {
     let fee_helper = fee_helper(node);
     let num_fn_calls = actions.len();
-    let meta_tx_overhead_cost = fee_helper.meta_tx_overhead_cost(&actions);
+    let meta_tx_overhead_cost = fee_helper.meta_tx_overhead_cost(&actions, &receiver);
 
     let (tx_result, sender_diff, relayer_diff, receiver_diff) =
         check_meta_tx_execution(node, actions, sender, relayer, receiver);
@@ -401,8 +405,8 @@ fn meta_tx_delete_account() {
         vec![Action::DeleteAccount(DeleteAccountAction { beneficiary_id: relayer.clone() })];
 
     // special case balance check for deleting account
-    let gas_cost =
-        fee_helper.prepaid_delete_account_cost() + fee_helper.meta_tx_overhead_cost(&actions);
+    let gas_cost = fee_helper.prepaid_delete_account_cost()
+        + fee_helper.meta_tx_overhead_cost(&actions, &receiver);
     let (_tx_result, sender_diff, relayer_diff, receiver_diff) =
         check_meta_tx_execution(&node, actions, sender, relayer, receiver.clone());
 
@@ -571,4 +575,152 @@ fn assert_ft_balance(
         .expect("view call failed");
     let balance = std::str::from_utf8(&response.result).expect("invalid UTF8");
     assert_eq!(format!("\"{expected_balance}\""), balance);
+}
+
+/// Test account creation scenarios with meta transactions.
+///
+/// Named accounts aren't the primary use case for meta transactions but still
+/// worth a test case.
+#[test]
+fn meta_tx_create_named_account() {
+    let relayer = bob_account();
+    let sender = alice_account();
+    let new_account = eve_dot_alice_account();
+    let node = RuntimeNode::new(&relayer);
+
+    let fee_helper = fee_helper(&node);
+    let amount = NEAR_BASE;
+
+    let public_key = PublicKey::from_seed(KeyType::ED25519, &new_account);
+
+    // That's the minimum to create a (useful) account.
+    let actions = vec![
+        Action::CreateAccount(CreateAccountAction {}),
+        Action::Transfer(TransferAction { deposit: amount }),
+        Action::AddKey(AddKeyAction { public_key, access_key: AccessKey::full_access() }),
+    ];
+
+    // Check the account doesn't exist, yet. We want to create it.
+    node.view_account(&new_account).expect_err("account already exists");
+
+    let tx_cost = fee_helper.create_account_transfer_full_key_cost();
+    check_meta_tx_no_fn_call(&node, actions, tx_cost, amount, sender, relayer, new_account.clone());
+
+    // Check the account exists after we created it.
+    node.view_account(&new_account).expect("failed looking up account");
+}
+
+/// Try creating an implicit account with `CreateAction` which is not allowed in
+/// or outside meta transactions and must fail with `OnlyImplicitAccountCreationAllowed`.
+#[test]
+fn meta_tx_create_implicit_account_fails() {
+    let relayer = bob_account();
+    let sender = alice_account();
+    let new_account: AccountId = implicit_test_account();
+    let node = RuntimeNode::new(&relayer);
+
+    let actions = vec![Action::CreateAccount(CreateAccountAction {})];
+    let tx_result = node
+        .user()
+        .meta_tx(sender.clone(), new_account.clone(), relayer.clone(), actions.clone())
+        .unwrap();
+
+    let account_creation_result = &tx_result.receipts_outcome[1].outcome.status;
+    assert!(matches!(
+        account_creation_result,
+        near_primitives::views::ExecutionStatusView::Failure(TxExecutionError::ActionError(
+            ActionError { kind: ActionErrorKind::OnlyImplicitAccountCreationAllowed { .. }, .. }
+        )),
+    ));
+}
+
+/// Try creating an implicit account with a meta tx transfer and use the account
+/// in the same meta transaction.
+///
+/// This is expected to fail with `AccountDoesNotExist`, known limitation of NEP-366.
+/// It only works with accounts that already exists because it needs to do a
+/// nonce check against the access key, which can only exist if the account exists.
+#[test]
+fn meta_tx_create_and_use_implicit_account() {
+    let relayer = bob_account();
+    let sender = alice_account();
+    let new_account: AccountId = implicit_test_account();
+    let node = RuntimeNode::new(&relayer);
+
+    // Check the account doesn't exist, yet. We will attempt creating it.
+    node.view_account(&new_account).expect_err("account already exists");
+
+    let initial_amount = nearcore::NEAR_BASE;
+    let actions = vec![
+        Action::Transfer(TransferAction { deposit: initial_amount }),
+        Action::DeployContract(DeployContractAction { code: ft_contract().to_vec() }),
+    ];
+
+    // Execute and expect `AccountDoesNotExist`, as we try to call a meta
+    // transaction on a user that doesn't exist yet.
+    let tx_result =
+        node.user().meta_tx(sender.clone(), new_account.clone(), relayer.clone(), actions).unwrap();
+    let status = &tx_result.receipts_outcome[1].outcome.status;
+    assert!(matches!(
+        status,
+        near_primitives::views::ExecutionStatusView::Failure(TxExecutionError::ActionError(
+            ActionError { kind: ActionErrorKind::AccountDoesNotExist { account_id }, .. }
+        )) if *account_id == new_account,
+    ));
+}
+
+/// Creating an implicit account with a meta tx transfer and use the account in
+/// a second meta transaction.
+///
+/// Creation through a meta tx should work as normal, it's just that the relayer
+/// pays for the storage and the user could delete the account and cash in,
+/// hence this workflow is not ideal from all circumstances.
+#[test]
+fn meta_tx_create_implicit_account() {
+    let relayer = bob_account();
+    let sender = alice_account();
+    let new_account: AccountId = implicit_test_account();
+    let node = RuntimeNode::new(&relayer);
+
+    // Check account doesn't exist, yet
+    node.view_account(&new_account).expect_err("account already exists");
+
+    let fee_helper = fee_helper(&node);
+    let initial_amount = nearcore::NEAR_BASE;
+    let actions = vec![Action::Transfer(TransferAction { deposit: initial_amount })];
+    let tx_cost = fee_helper.create_account_transfer_full_key_cost();
+    check_meta_tx_no_fn_call(
+        &node,
+        actions,
+        tx_cost,
+        initial_amount,
+        sender.clone(),
+        relayer.clone(),
+        new_account.clone(),
+    );
+
+    // Check account exists with expected balance
+    node.view_account(&new_account).expect("failed looking up account");
+    let balance = node.view_balance(&new_account).expect("failed looking up balance");
+    assert_eq!(balance, initial_amount);
+
+    // Now test we can use this account in a meta transaction that sends back half the tokens to alice.
+    let transfer_amount = initial_amount / 2;
+    let actions = vec![Action::Transfer(TransferAction { deposit: transfer_amount })];
+    let tx_cost = fee_helper.transfer_cost();
+    check_meta_tx_no_fn_call(
+        &node,
+        actions,
+        tx_cost,
+        transfer_amount,
+        new_account.clone(),
+        relayer,
+        sender,
+    )
+    .assert_success();
+
+    // balance of the new account should NOT change, the relayer pays for it!
+    // (note: relayer balance checks etc are done in the shared checker function)
+    let balance = node.view_balance(&new_account).expect("failed looking up balance");
+    assert_eq!(balance, initial_amount);
 }
