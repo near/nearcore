@@ -29,6 +29,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
 use parking_lot::Mutex;
+use rand::seq::IteratorRandom;
+use rand::thread_rng;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -716,6 +718,32 @@ impl NetworkState {
         let polled = pending_reconnect.clone();
         pending_reconnect.clear();
         return polled;
+    }
+
+    /// Returns healthy known peers up to given amount.
+    /// First collects directly known peers from the tier2 connection pool.
+    /// Adds remaining peers from the peer store.
+    pub fn get_healthy_peers_preferring_connected(
+        self: &Arc<Self>,
+        max_count: usize,
+    ) -> Vec<PeerInfo> {
+        // Collect the PeerInfos for active TIER2 connections
+        let mut peer_infos: Vec<PeerInfo> =
+            self.tier2.load().ready.values().map(|c| c.peer_info.clone()).collect();
+
+        // If there are enough already, return a randomly selected subset
+        if peer_infos.len() >= max_count {
+            return peer_infos.into_iter().choose_multiple(&mut thread_rng(), max_count);
+        }
+
+        // Add healthy peers chosen at random from the PeerStore
+        peer_infos.append(&mut self.peer_store.healthy_peers(
+            max_count - peer_infos.len(),
+            // Ask the PeerStore to exclude the peers already included from TIER2 connections
+            peer_infos.iter().map(|p| p.id.clone()).collect(),
+        ));
+
+        return peer_infos;
     }
 
     /// Sets the chain info, and updates the set of TIER1 keys.

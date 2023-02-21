@@ -1117,10 +1117,9 @@ impl PeerActor {
                 tracing::debug!(target: "network", "Duplicate handshake from {}", self.peer_info);
             }
             PeerMessage::PeersRequest => {
-                let peers = self
-                    .network_state
-                    .peer_store
-                    .healthy_peers(self.network_state.config.max_send_peers as usize);
+                let peers = self.network_state.get_healthy_peers_preferring_connected(
+                    self.network_state.config.max_send_peers as usize,
+                );
                 if !peers.is_empty() {
                     tracing::debug!(target: "network", "Peers request from {}: sending {} peers.", self.peer_info, peers.len());
                     self.send_message_or_log(&PeerMessage::PeersResponse(peers));

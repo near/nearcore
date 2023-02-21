@@ -538,11 +538,19 @@ impl PeerStore {
         .cloned()
     }
 
-    /// Return healthy known peers up to given amount.
-    pub fn healthy_peers(&self, max_count: usize) -> Vec<PeerInfo> {
-        self.0
-            .lock()
-            .find_peers(|p| matches!(p.status, KnownPeerStatus::Banned(_, _)).not(), max_count)
+    /// Return healthy known peers up to given amount, excluding the specified PeerIds.
+    pub fn healthy_peers(
+        &self,
+        max_count: usize,
+        excluded_peer_ids: HashSet<PeerId>,
+    ) -> Vec<PeerInfo> {
+        self.0.lock().find_peers(
+            |p| {
+                matches!(p.status, KnownPeerStatus::Banned(_, _)).not()
+                    && !excluded_peer_ids.contains(&p.peer_info.id)
+            },
+            max_count,
+        )
     }
 
     /// Adds peers we’ve learned about from other peers.
