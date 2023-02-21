@@ -1,11 +1,9 @@
 use crate::db::{Db, EstimationRow};
 use anyhow::Context;
-use clap::Parser;
-use serde::Deserialize;
 use std::time::Duration;
 
 /// Additional information required for import
-#[derive(Debug, Parser)]
+#[derive(Debug, clap::Parser)]
 pub(crate) struct ImportConfig {
     /// Required for importing estimation results, which source code commit it
     /// should be associated with.
@@ -18,13 +16,13 @@ pub(crate) struct ImportConfig {
 }
 
 /// Estimation result as produced by the params-estimator
-#[derive(Deserialize, Debug, PartialEq)]
+#[derive(serde::Deserialize, Debug, PartialEq)]
 struct EstimatorOutput {
     name: String,
     result: EstimationResult,
     computed_in: Duration,
 }
-#[derive(Deserialize, Debug, PartialEq)]
+#[derive(serde::Deserialize, Debug, PartialEq)]
 struct EstimationResult {
     gas: f64,
     time_ns: Option<f64>,

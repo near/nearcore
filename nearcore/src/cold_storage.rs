@@ -9,7 +9,7 @@ use near_store::{
     DBCol, NodeStorage, Store, FINAL_HEAD_KEY, HEAD_KEY,
 };
 
-use crate::{NearConfig, NightshadeRuntime};
+use crate::{metrics, NearConfig, NightshadeRuntime};
 
 /// A handle that keeps the state of the cold store loop and can be used to stop it.
 pub struct ColdStoreLoopHandle {
@@ -19,7 +19,7 @@ pub struct ColdStoreLoopHandle {
 
 impl ColdStoreLoopHandle {
     pub fn stop(self) {
-        self.keep_going.store(false, std::sync::atomic::Ordering::SeqCst);
+        self.keep_going.store(false, std::sync::atomic::Ordering::Relaxed);
         match self.join_handle.join() {
             Ok(_) => {
                 tracing::debug!(target:"cold_store", "Joined the cold store loop thread");
@@ -108,6 +108,15 @@ fn cold_store_copy(
     }
 }
 
+fn cold_store_copy_result_to_string(result: &anyhow::Result<ColdStoreCopyResult>) -> &str {
+    match result {
+        Err(_) => "error",
+        Ok(ColdStoreCopyResult::NoBlockCopied) => "no_block_copied",
+        Ok(ColdStoreCopyResult::LatestBlockCopied) => "latest_block_copied",
+        Ok(ColdStoreCopyResult::OtherBlockCopied) => "other_block_copied",
+    }
+}
+
 // This method will copy data from hot storage to cold storage in a loop.
 // It will try to copy blocks as fast as possible up until cold head = final head.
 // Once the cold head reaches the final head it will sleep for one second before
@@ -125,16 +134,20 @@ fn cold_store_loop(
     tracing::info!(target: "cold_store", "starting cold store loop");
 
     loop {
-        if !keep_going.load(std::sync::atomic::Ordering::SeqCst) {
+        if !keep_going.load(std::sync::atomic::Ordering::Relaxed) {
             tracing::debug!(target: "cold_store", "stopping the cold store loop");
             break;
         }
-        let status = cold_store_copy(&hot_store, &cold_store, &cold_db, genesis_height, &runtime);
+        let result = cold_store_copy(&hot_store, &cold_store, &cold_db, genesis_height, &runtime);
+
+        metrics::COLD_STORE_COPY_RESULT
+            .with_label_values(&[cold_store_copy_result_to_string(&result)])
+            .inc();
 
         let sleep_duration = std::time::Duration::from_secs(1);
-        match status {
+        match result {
             Err(err) => {
-                tracing::error!(target:"cold_store", "cold_store_copy failed with error : {err}");
+                tracing::error!(target : "cold_store", error = format!("{err:#?}"), "cold_store_copy failed");
                 std::thread::sleep(sleep_duration);
             }
             // If no block was copied the cold head is up to date with final head and

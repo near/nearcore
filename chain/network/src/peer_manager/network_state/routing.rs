@@ -86,36 +86,14 @@ impl NetworkState {
         clock: &time::Clock,
         edges: Vec<Edge>,
     ) -> Result<(), ReasonForBan> {
-        // TODO(gprusak): sending duplicate edges should be considered a malicious behavior
-        // instead, however that would be backward incompatible, so it can be introduced in
-        // PROTOCOL_VERSION 60 earliest.
-        let (edges, ok) = self.graph.verify(edges).await;
-        // Recompute if there are new edges which have been verified.
-        if !edges.is_empty() {
-            self.recompute_added_edges(clock.clone(), edges).await;
+        if edges.is_empty() {
+            return Ok(());
         }
-        // self.graph.verify() returns a partial result if it encountered an invalid edge:
-        // Edge verification is expensive, and it would be an attack vector if we dropped on the
-        // floor valid edges verified so far: an attacker could prepare a SyncRoutingTable
-        // containing a lot of valid edges, except for the last one, and send it repeatedly to a
-        // node. The node would then validate all the edges every time, then reject the whole set
-        // because just the last edge was invalid. Instead, we accept all the edges verified so
-        // far and return an error only afterwards.
-        if ok {
-            Ok(())
-        } else {
-            Err(ReasonForBan::InvalidEdge)
-        }
-    }
-
-    async fn recompute_added_edges(self: &Arc<Self>, clock: time::Clock, edges: Vec<Edge>) {
         let this = self.clone();
-        let _ = self
-            .add_edges_demux
+        let clock = clock.clone();
+        self.add_edges_demux
             .call(edges, |edges: Vec<Vec<Edge>>| async move {
-                let results: Vec<_> = edges.iter().map(|_| ()).collect();
-                let edges: Vec<_> = edges.into_iter().flatten().collect();
-                let mut edges = this.graph.update(&clock, edges).await;
+                let (mut edges, oks) = this.graph.update(&clock, edges).await;
                 // Don't send tombstones during the initial time.
                 // Most of the network is created during this time, which results
                 // in us sending a lot of tombstones to peers.
@@ -129,8 +107,15 @@ impl NetworkState {
                 // Broadcast new edges to all other peers.
                 this.config.event_sink.push(Event::EdgesAdded(edges.clone()));
                 this.broadcast_routing_table_update(RoutingTableUpdate::from_edges(edges));
-                results
+                // Retu
+                oks.iter()
+                    .map(|ok| match ok {
+                        true => Ok(()),
+                        false => Err(ReasonForBan::InvalidEdge),
+                    })
+                    .collect()
             })
-            .await;
+            .await
+            .unwrap_or(Ok(()))
     }
 }

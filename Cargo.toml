@@ -65,7 +65,7 @@ members = [
 ]
 
 [workspace.metadata.workspaces]
-version = "0.15.0"
+version = "0.16.0"
 exclude = [ "neard" ]
 
 [workspace.dependencies]
@@ -203,6 +203,7 @@ tracing-span-tree = "0.1"
 tracing-subscriber = { version = "0.3.15", features = ["env-filter", "fmt", "registry", "std"] }
 turn = "0.6"
 validator = "0.12"
+rkyv = { version = "0.7", features = ["strict"] }
 wasm-encoder = "0.11.0"
 wasm-smith = "0.10"
 wasmparser = "0.78"
@@ -213,7 +214,12 @@ webrtc-util = "0.7"
 xshell = "0.2.1"
 xz2 = "0.1.6"
 
-stdx = { package = "near-stdx", path = "utils/stdx" }
+# Polyfill crate introduced in https://github.com/near/nearcore/pull/8087
+# Because public crates depend on it, we have to also publish this.
+# When changing the workspace version, set this back to a local dependency and
+# then update again to the higher published version once we release crates again.
+# TODO(#8604): Fix this process.
+stdx = { package = "near-stdx", version = "0.16.0" }
 
 [patch.crates-io]
 
@@ -250,4 +256,4 @@ opt-level = 3
 [workspace.package]
 edition = "2021"
 authors = ["Near Inc <hello@nearprotocol.com>"]
-rust-version = "1.66.1"
+rust-version = "1.67.1"

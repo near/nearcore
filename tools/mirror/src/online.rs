@@ -1,4 +1,4 @@
-use crate::{ChainError, SourceChunk};
+use crate::{ChainError, SourceBlock, SourceChunk};
 use actix::Addr;
 use anyhow::Context;
 use async_trait::async_trait;
@@ -32,7 +32,7 @@ impl ChainAccess {
             nearcore::config::load_config(home.as_ref(), GenesisValidationMode::UnsafeFast)
                 .with_context(|| format!("Error loading config from {:?}", home.as_ref()))?;
 
-        let node = nearcore::start_with_config(home.as_ref(), config.clone())
+        let node = nearcore::start_with_config(home.as_ref(), config)
             .context("failed to start NEAR node")?;
         Ok(Self { view_client: node.view_client })
     }
@@ -92,6 +92,16 @@ impl crate::ChainAccess for ChainAccess {
         }
     }
 
+    async fn block_height_to_hash(&self, height: BlockHeight) -> Result<CryptoHash, ChainError> {
+        Ok(self
+            .view_client
+            .send(GetBlock(BlockReference::BlockId(BlockId::Height(height))).with_span_context())
+            .await
+            .unwrap()?
+            .header
+            .hash)
+    }
+
     async fn head_height(&self) -> Result<BlockHeight, ChainError> {
         Ok(self
             .view_client
@@ -106,7 +116,8 @@ impl crate::ChainAccess for ChainAccess {
         &self,
         height: BlockHeight,
         shards: &[ShardId],
-    ) -> Result<Vec<SourceChunk>, ChainError> {
+    ) -> Result<SourceBlock, ChainError> {
+        let block_hash = self.block_height_to_hash(height).await?;
         let mut chunks = Vec::new();
         for shard_id in shards.iter() {
             let chunk = match self
@@ -136,7 +147,7 @@ impl crate::ChainAccess for ChainAccess {
             }
         }
 
-        Ok(chunks)
+        Ok(SourceBlock { hash: block_hash, chunks })
     }
 
     async fn get_next_block_height(
@@ -187,7 +198,7 @@ impl crate::ChainAccess for ChainAccess {
 
     async fn get_receipt(&self, id: &CryptoHash) -> Result<Arc<Receipt>, ChainError> {
         self.view_client
-            .send(GetReceipt { receipt_id: id.clone() }.with_span_context())
+            .send(GetReceipt { receipt_id: *id }.with_span_context())
             .await
             .unwrap()?
             .map(|r| Arc::new(r.try_into().unwrap()))
@@ -204,7 +215,7 @@ impl crate::ChainAccess for ChainAccess {
             .view_client
             .send(
                 Query {
-                    block_reference: BlockReference::BlockId(BlockId::Hash(block_hash.clone())),
+                    block_reference: BlockReference::BlockId(BlockId::Hash(*block_hash)),
                     request: QueryRequest::ViewAccessKeyList { account_id: account_id.clone() },
                 }
                 .with_span_context(),

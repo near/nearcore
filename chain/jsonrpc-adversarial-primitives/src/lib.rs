@@ -1,7 +1,6 @@
 use near_primitives::network::PeerId;
-use serde::Deserialize;
 
-#[derive(Deserialize)]
+#[derive(serde::Deserialize)]
 pub struct StartRoutingTableSyncRequest {
     pub peer_id: PeerId,
 }

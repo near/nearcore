@@ -1,9 +1,3 @@
-use borsh::BorshDeserialize;
-use serde::{Deserialize, Serialize};
-use std::fmt::{Display, Formatter};
-
-use near_crypto::PublicKey;
-
 use crate::account::{AccessKey, Account};
 use crate::hash::{hash, CryptoHash};
 use crate::receipt::{Receipt, ReceivedData};
@@ -16,9 +10,12 @@ use crate::trie_key::trie_key_parsers::{
     parse_data_key_from_contract_data_key, parse_public_key_from_access_key_key,
 };
 use crate::types::AccountId;
+use borsh::BorshDeserialize;
+use near_crypto::PublicKey;
+use std::fmt::{Display, Formatter};
 
 /// Record in the state storage.
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub enum StateRecord {
     /// Account information.
     Account { account_id: AccountId, account: Account },

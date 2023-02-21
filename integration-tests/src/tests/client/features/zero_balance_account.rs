@@ -3,13 +3,14 @@ use std::sync::Arc;
 
 use assert_matches::assert_matches;
 
+use borsh::BorshSerialize;
 use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::adapter::ProcessTxResponse;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_primitives::account::id::AccountId;
-use near_primitives::account::AccessKey;
+use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::config::ExtCostsConfig;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidTxError, TxExecutionError};
 use near_primitives::runtime::config::RuntimeConfig;
@@ -18,13 +19,14 @@ use near_primitives::runtime::fees::StorageUsageConfig;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::transaction::Action::AddKey;
 use near_primitives::transaction::{Action, AddKeyAction, DeleteKeyAction, SignedTransaction};
-use near_primitives::version::ProtocolFeature;
+use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives::views::{FinalExecutionStatus, QueryRequest, QueryResponseKind};
 use near_store::test_utils::create_test_store;
 use nearcore::config::GenesisExt;
 use nearcore::{NightshadeRuntime, TrackedConfig};
 
 use crate::tests::client::runtimes::create_nightshade_runtimes;
+use node_runtime::ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT;
 
 /// Assert that an account exists and has zero balance
 fn assert_zero_balance_account(env: &mut TestEnv, account_id: &AccountId) {
@@ -46,14 +48,14 @@ fn assert_zero_balance_account(env: &mut TestEnv, account_id: &AccountId) {
     match response.kind {
         QueryResponseKind::ViewAccount(view) => {
             assert_eq!(view.amount, 0);
+            assert!(view.storage_usage <= ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT)
         }
         _ => panic!("wrong query response"),
     }
 }
 
 /// Test 2 things: 1) a valid zero balance account can be created and 2) a nonzero balance account
-/// (one with a contract deployed) cannot be created without maintaining an initial balance
-#[cfg(feature = "nightly_protocol")]
+/// (one with a nontrivial contract deployed) cannot be created without maintaining an initial balance
 #[test]
 fn test_zero_balance_account_creation() {
     let epoch_length = 1000;
@@ -90,11 +92,12 @@ fn test_zero_balance_account_creation() {
 
     // create a zero balance account with contract deployed. The transaction should fail
     let new_account_id: AccountId = "hell.test0".parse().unwrap();
+    let contract = near_test_contracts::sized_contract(ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT as usize);
     let create_account_tx = SignedTransaction::create_contract(
         2,
         signer0.account_id.clone(),
         new_account_id.clone(),
-        vec![1, 2, 3],
+        contract.to_vec(),
         0,
         new_signer.public_key.clone(),
         &signer0,
@@ -119,7 +122,6 @@ fn test_zero_balance_account_creation() {
 /// Test that if a zero balance account becomes a regular account (through adding more keys),
 /// it has to pay for storage cost of the account structure and the keys that
 /// it didn't have to pay while it was a zero balance account.
-#[cfg(feature = "nightly_protocol")]
 #[test]
 fn test_zero_balance_account_add_key() {
     let epoch_length = 1000;
@@ -168,9 +170,32 @@ fn test_zero_balance_account_add_key() {
         env.produce_block(0, i);
     }
 
-    // add two more keys so that the account is no longer a zero balance account
-    let new_key1 = PublicKey::from_seed(KeyType::ED25519, "random1");
-    let new_key2 = PublicKey::from_seed(KeyType::ED25519, "random2");
+    // add four more full access keys and 2 more function call access keys
+    // so that the account is no longer a zero balance account
+    let mut actions = vec![];
+    let mut keys = vec![];
+    for i in 1..5 {
+        let new_key = PublicKey::from_seed(KeyType::ED25519, format!("{}", i).as_str());
+        keys.push(new_key.clone());
+        actions.push(AddKey(AddKeyAction {
+            public_key: new_key,
+            access_key: AccessKey::full_access(),
+        }));
+    }
+    for i in 0..2 {
+        let new_key = PublicKey::from_seed(KeyType::ED25519, format!("{}", i + 5).as_str());
+        actions.push(AddKey(AddKeyAction {
+            public_key: new_key,
+            access_key: AccessKey {
+                nonce: 0,
+                permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                    allowance: Some(10u128.pow(12)),
+                    receiver_id: "a".repeat(64),
+                    method_names: vec![],
+                }),
+            },
+        }));
+    }
 
     let head = env.clients[0].chain.head().unwrap();
     let nonce = head.height * AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER + 1;
@@ -179,13 +204,7 @@ fn test_zero_balance_account_add_key() {
         new_account_id.clone(),
         new_account_id.clone(),
         &new_signer,
-        vec![
-            AddKey(AddKeyAction { public_key: new_key1, access_key: AccessKey::full_access() }),
-            AddKey(AddKeyAction {
-                public_key: new_key2.clone(),
-                access_key: AccessKey::full_access(),
-            }),
-        ],
+        actions,
         *genesis_block.hash(),
     );
     let res = env.clients[0].process_tx(add_key_tx, false, false);
@@ -212,7 +231,7 @@ fn test_zero_balance_account_add_key() {
         new_account_id.clone(),
         new_account_id.clone(),
         &new_signer,
-        vec![Action::DeleteKey(DeleteKeyAction { public_key: new_key2 })],
+        vec![Action::DeleteKey(DeleteKeyAction { public_key: keys.last().unwrap().clone() })],
         *genesis_block.hash(),
     );
     env.clients[0].process_tx(delete_key_tx, false, false);
@@ -229,7 +248,6 @@ fn test_zero_balance_account_add_key() {
 
 /// Test that zero balance accounts cannot be created before the upgrade but can succeed after
 /// the protocol upgrade
-#[cfg(feature = "nightly_protocol")]
 #[test]
 fn test_zero_balance_account_upgrade() {
     let epoch_length = 5;
@@ -287,4 +305,40 @@ fn test_zero_balance_account_upgrade() {
     }
     let outcome = env.clients[0].chain.get_final_transaction_result(&tx_hash2).unwrap();
     assert_matches!(outcome.status, FinalExecutionStatus::SuccessValue(_));
+}
+
+#[test]
+fn test_storage_usage_components() {
+    // confirm these numbers don't change, as the zero balance limit is derived from them
+    const PUBLIC_KEY_STORAGE_USAGE: usize = 33;
+    const FULL_ACCESS_PERMISSION_STORAGE_USAGE: usize = 9;
+    const FUNCTION_ACCESS_PERMISSION_STORAGE_USAGE: usize = 98;
+
+    let edwards_public_key = PublicKey::from_seed(KeyType::ED25519, "seed");
+    assert_eq!(PUBLIC_KEY_STORAGE_USAGE, edwards_public_key.try_to_vec().unwrap().len());
+
+    let full_access_key = AccessKey::full_access();
+    assert_eq!(FULL_ACCESS_PERMISSION_STORAGE_USAGE, full_access_key.try_to_vec().unwrap().len());
+
+    let fn_access_key = AccessKey {
+        nonce: u64::MAX,
+        permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+            allowance: Some(u128::MAX),
+            receiver_id: "a".repeat(64),
+            method_names: vec![],
+        }),
+    };
+    assert_eq!(FUNCTION_ACCESS_PERMISSION_STORAGE_USAGE, fn_access_key.try_to_vec().unwrap().len());
+
+    let config_store = RuntimeConfigStore::new(None);
+    let config = config_store.get_config(PROTOCOL_VERSION);
+    let account_overhead = config.fees.storage_usage_config.num_bytes_account as usize;
+    let record_overhead = config.fees.storage_usage_config.num_extra_bytes_record as usize;
+    // The NEP proposes to fit 4 full access keys + 2 fn access keys in an zero balance account
+    let full_access =
+        PUBLIC_KEY_STORAGE_USAGE + FULL_ACCESS_PERMISSION_STORAGE_USAGE + record_overhead;
+    let fn_access =
+        PUBLIC_KEY_STORAGE_USAGE + FUNCTION_ACCESS_PERMISSION_STORAGE_USAGE + record_overhead;
+    let total = account_overhead + 4 * full_access + 2 * fn_access;
+    assert_eq!(total as u64, ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT);
 }

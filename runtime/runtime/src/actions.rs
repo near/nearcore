@@ -1,4 +1,7 @@
-use crate::config::{safe_add_gas, RuntimeConfig};
+use crate::config::{
+    safe_add_gas, total_prepaid_exec_fees, total_prepaid_gas, total_prepaid_send_fees,
+    RuntimeConfig,
+};
 use crate::ext::{ExternalError, RuntimeExt};
 use crate::{metrics, ActionResult, ApplyState};
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -7,7 +10,8 @@ use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::checked_feature;
 use near_primitives::config::ViewConfig;
 use near_primitives::contract::ContractCode;
-use near_primitives::errors::{ActionError, ActionErrorKind, RuntimeError};
+use near_primitives::delegate_action::{DelegateAction, SignedDelegateAction};
+use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::runtime::config::AccountCreationConfig;
@@ -17,7 +21,7 @@ use near_primitives::transaction::{
     FunctionCallAction, StakeAction, TransferAction,
 };
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::{AccountId, BlockHeight, EpochInfoProvider, TrieCacheMode};
+use near_primitives::types::{AccountId, BlockHeight, EpochInfoProvider, Gas, TrieCacheMode};
 use near_primitives::utils::create_random_seed;
 use near_primitives::version::{
     is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
@@ -32,19 +36,8 @@ use near_vm_errors::{
     VMRunnerError,
 };
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{VMContext, VMOutcome};
+use near_vm_logic::{ActionCosts, VMContext, VMOutcome};
 use near_vm_runner::precompile_contract;
-
-#[cfg(feature = "protocol_feature_nep366_delegate_action")]
-use crate::config::{total_prepaid_exec_fees, total_prepaid_gas, total_prepaid_send_fees};
-#[cfg(feature = "protocol_feature_nep366_delegate_action")]
-use near_primitives::errors::InvalidAccessKeyError;
-#[cfg(feature = "protocol_feature_nep366_delegate_action")]
-use near_primitives::transaction::{DelegateAction, SignedDelegateAction};
-#[cfg(feature = "protocol_feature_nep366_delegate_action")]
-use near_primitives::types::Gas;
-#[cfg(feature = "protocol_feature_nep366_delegate_action")]
-use near_vm_logic::ActionCosts;
 
 /// Runs given function call with given context / apply state.
 pub(crate) fn execute_function_call(
@@ -635,7 +628,6 @@ pub(crate) fn action_add_key(
     Ok(())
 }
 
-#[cfg(feature = "protocol_feature_nep366_delegate_action")]
 pub(crate) fn apply_delegate_action(
     state_update: &mut TrieUpdate,
     apply_state: &ApplyState,
@@ -710,7 +702,6 @@ pub(crate) fn apply_delegate_action(
 }
 
 /// Returns Gas amount is required to execute Receipt and all actions it contains
-#[cfg(feature = "protocol_feature_nep366_delegate_action")]
 fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<Gas, RuntimeError> {
     Ok(match &receipt.receipt {
         ReceiptEnum::Action(action_receipt) => {
@@ -739,7 +730,6 @@ fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<G
 /// - Checks whether the access key is present fo given public_key and sender_id.
 /// - Validates nonce and updates it if it's ok.
 /// - Validates access key permissions.
-#[cfg(feature = "protocol_feature_nep366_delegate_action")]
 fn validate_delegate_action_key(
     state_update: &mut TrieUpdate,
     apply_state: &ApplyState,
@@ -883,7 +873,6 @@ pub(crate) fn check_actor_permissions(
             }
         }
         Action::CreateAccount(_) | Action::FunctionCall(_) | Action::Transfer(_) => (),
-        #[cfg(feature = "protocol_feature_nep366_delegate_action")]
         Action::Delegate(_) => (),
     };
     Ok(())
@@ -959,7 +948,6 @@ pub(crate) fn check_account_existence(
                 .into());
             }
         }
-        #[cfg(feature = "protocol_feature_nep366_delegate_action")]
         Action::Delegate(_) => {
             if account.is_none() {
                 return Err(ActionErrorKind::AccountDoesNotExist {
@@ -975,26 +963,18 @@ pub(crate) fn check_account_existence(
 #[cfg(test)]
 mod tests {
 
-    use near_primitives::hash::hash;
-    use near_primitives::trie_key::TrieKey;
-    use near_store::test_utils::create_tries;
-
     use super::*;
     use crate::near_primitives::shard_layout::ShardUId;
-
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     use near_primitives::account::FunctionCallPermission;
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    use near_primitives::delegate_action::NonDelegateAction;
     use near_primitives::errors::InvalidAccessKeyError;
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    use near_primitives::hash::hash;
     use near_primitives::runtime::migration_data::MigrationFlags;
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
-    use near_primitives::transaction::{CreateAccountAction, NonDelegateAction};
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    use near_primitives::transaction::CreateAccountAction;
+    use near_primitives::trie_key::TrieKey;
     use near_primitives::types::{EpochId, StateChangeCause};
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     use near_store::set_account;
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
+    use near_store::test_utils::create_tries;
     use std::sync::Arc;
 
     fn test_action_create_account(
@@ -1175,14 +1155,13 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     fn create_delegate_action_receipt() -> (ActionReceipt, SignedDelegateAction) {
         let signed_delegate_action = SignedDelegateAction {
             delegate_action: DelegateAction {
                 sender_id: "bob.test.near".parse().unwrap(),
                 receiver_id: "token.test.near".parse().unwrap(),
                 actions: vec![
-                    NonDelegateAction(
+                    non_delegate_action(
                         Action::FunctionCall(
                             FunctionCallAction {
                                  method_name: "ft_transfer".parse().unwrap(),
@@ -1195,9 +1174,9 @@ mod tests {
                 ],
                 nonce: 19000001,
                 max_block_height: 57,
-                public_key: "ed25519:HaYUbyeiNRnyHtQceRgT3gyMBigZFEW9EYYU1KTHtdR1".parse::<PublicKey>().unwrap(),
+                public_key: "ed25519:32LnPNBZQJ3uhY8yV6JqnNxtRW8E27Ps9YD1XeUNuA1m".parse::<PublicKey>().unwrap(),
             },
-            signature: "ed25519:2b1NHmrj7LVgA5H9aDtQmd6JgZqy4nPAYHtNQc88PiEY3xMjpkKMDN1wVWZaXMGx9tjWbXzp4jXSCyTPqUfPdRUB".parse().unwrap()
+            signature: "ed25519:5oswo6yH6u7xduXHEC4aWc8EGmWdbFz49DaHvAVioS9tbdrxpUtoNQUa8ST9Fxpk7zS2ogWvuKaL29JjMFDi3DLe".parse().unwrap()
         };
 
         let action_receipt = ActionReceipt {
@@ -1212,7 +1191,6 @@ mod tests {
         (action_receipt, signed_delegate_action)
     }
 
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     fn create_apply_state(block_height: BlockHeight) -> ApplyState {
         ApplyState {
             block_height,
@@ -1233,7 +1211,6 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     fn setup_account(
         account_id: &AccountId,
         public_key: &PublicKey,
@@ -1254,9 +1231,12 @@ mod tests {
 
         tries.new_trie_update(ShardUId::single_shard(), root)
     }
+    fn non_delegate_action(action: Action) -> NonDelegateAction {
+        NonDelegateAction::try_from(action)
+            .expect("cannot violate type invariants, not even in test")
+    }
 
     #[test]
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     fn test_delegate_action() {
         let mut result = ActionResult::default();
         let (action_receipt, signed_delegate_action) = create_delegate_action_receipt();
@@ -1298,7 +1278,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     fn test_delegate_action_signature_verification() {
         let mut result = ActionResult::default();
         let (action_receipt, mut signed_delegate_action) = create_delegate_action_receipt();
@@ -1327,7 +1306,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     fn test_delegate_action_max_height() {
         let mut result = ActionResult::default();
         let (action_receipt, signed_delegate_action) = create_delegate_action_receipt();
@@ -1354,7 +1332,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     fn test_delegate_action_validate_sender_account() {
         let mut result = ActionResult::default();
         let (action_receipt, signed_delegate_action) = create_delegate_action_receipt();
@@ -1401,7 +1378,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     fn test_validate_delegate_action_key_update_nonce() {
         let (_, signed_delegate_action) = create_delegate_action_receipt();
         let sender_id = signed_delegate_action.delegate_action.sender_id.clone();
@@ -1456,7 +1432,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     fn test_delegate_action_key_doesnt_exist() {
         let mut result = ActionResult::default();
         let (_, signed_delegate_action) = create_delegate_action_receipt();
@@ -1492,7 +1467,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     fn test_delegate_action_key_incorrect_nonce() {
         let mut result = ActionResult::default();
         let (_, signed_delegate_action) = create_delegate_action_receipt();
@@ -1525,7 +1499,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     fn test_delegate_action_key_nonce_too_large() {
         let mut result = ActionResult::default();
         let (_, signed_delegate_action) = create_delegate_action_receipt();
@@ -1553,7 +1526,6 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     fn test_delegate_action_key_permissions(
         access_key: &AccessKey,
         delegate_action: &DelegateAction,
@@ -1577,7 +1549,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     fn test_delegate_action_key_permissions_fncall() {
         let (_, signed_delegate_action) = create_delegate_action_receipt();
         let access_key = AccessKey {
@@ -1591,7 +1562,7 @@ mod tests {
 
         let mut delegate_action = signed_delegate_action.delegate_action.clone();
         delegate_action.actions =
-            vec![NonDelegateAction(Action::FunctionCall(FunctionCallAction {
+            vec![non_delegate_action(Action::FunctionCall(FunctionCallAction {
                 args: Vec::new(),
                 deposit: 0,
                 gas: 300,
@@ -1602,7 +1573,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     fn test_delegate_action_key_permissions_incorrect_action() {
         let (_, signed_delegate_action) = create_delegate_action_receipt();
         let access_key = AccessKey {
@@ -1616,7 +1586,7 @@ mod tests {
 
         let mut delegate_action = signed_delegate_action.delegate_action.clone();
         delegate_action.actions =
-            vec![NonDelegateAction(Action::CreateAccount(CreateAccountAction {}))];
+            vec![non_delegate_action(Action::CreateAccount(CreateAccountAction {}))];
 
         let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
 
@@ -1630,7 +1600,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     fn test_delegate_action_key_permissions_actions_number() {
         let (_, signed_delegate_action) = create_delegate_action_receipt();
         let access_key = AccessKey {
@@ -1644,13 +1613,13 @@ mod tests {
 
         let mut delegate_action = signed_delegate_action.delegate_action.clone();
         delegate_action.actions = vec![
-            NonDelegateAction(Action::FunctionCall(FunctionCallAction {
+            non_delegate_action(Action::FunctionCall(FunctionCallAction {
                 args: Vec::new(),
                 deposit: 0,
                 gas: 300,
                 method_name: "test_method".parse().unwrap(),
             })),
-            NonDelegateAction(Action::FunctionCall(FunctionCallAction {
+            non_delegate_action(Action::FunctionCall(FunctionCallAction {
                 args: Vec::new(),
                 deposit: 0,
                 gas: 300,
@@ -1670,7 +1639,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     fn test_delegate_action_key_permissions_fncall_deposit() {
         let (_, signed_delegate_action) = create_delegate_action_receipt();
         let access_key = AccessKey {
@@ -1684,7 +1652,7 @@ mod tests {
 
         let mut delegate_action = signed_delegate_action.delegate_action.clone();
         delegate_action.actions =
-            vec![NonDelegateAction(Action::FunctionCall(FunctionCallAction {
+            vec![non_delegate_action(Action::FunctionCall(FunctionCallAction {
                 args: Vec::new(),
                 deposit: 1,
                 gas: 300,
@@ -1703,7 +1671,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     fn test_delegate_action_key_permissions_receiver_id() {
         let (_, signed_delegate_action) = create_delegate_action_receipt();
         let access_key = AccessKey {
@@ -1717,7 +1684,7 @@ mod tests {
 
         let mut delegate_action = signed_delegate_action.delegate_action.clone();
         delegate_action.actions =
-            vec![NonDelegateAction(Action::FunctionCall(FunctionCallAction {
+            vec![non_delegate_action(Action::FunctionCall(FunctionCallAction {
                 args: Vec::new(),
                 deposit: 0,
                 gas: 300,
@@ -1739,7 +1706,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     fn test_delegate_action_key_permissions_method() {
         let (_, signed_delegate_action) = create_delegate_action_receipt();
         let access_key = AccessKey {
@@ -1753,7 +1719,7 @@ mod tests {
 
         let mut delegate_action = signed_delegate_action.delegate_action.clone();
         delegate_action.actions =
-            vec![NonDelegateAction(Action::FunctionCall(FunctionCallAction {
+            vec![non_delegate_action(Action::FunctionCall(FunctionCallAction {
                 args: Vec::new(),
                 deposit: 0,
                 gas: 300,

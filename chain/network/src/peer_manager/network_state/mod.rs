@@ -15,7 +15,7 @@ use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_store;
 use crate::private_actix::RegisterPeerError;
 use crate::routing::route_back_cache::RouteBackCache;
-use crate::shards_manager::ShardsManagerAdapterForNetwork;
+use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
@@ -23,6 +23,7 @@ use crate::time;
 use crate::types::{ChainInfo, PeerType, ReasonForBan};
 use anyhow::Context;
 use arc_swap::ArcSwap;
+use near_async::messaging::Sender;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
@@ -62,7 +63,7 @@ impl WhitelistNode {
         Ok(Self {
             id: pi.id.clone(),
             addr: if let Some(addr) = pi.addr {
-                addr.clone()
+                addr
             } else {
                 anyhow::bail!("addess is missing");
             },
@@ -95,7 +96,7 @@ pub(crate) struct NetworkState {
     /// GenesisId of the chain.
     pub genesis_id: GenesisId,
     pub client: Arc<dyn client::Client>,
-    pub shards_manager_adapter: Arc<dyn ShardsManagerAdapterForNetwork>,
+    pub shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
 
     /// Network-related info about the chain.
     pub chain_info: ArcSwap<Option<ChainInfo>>,
@@ -145,7 +146,7 @@ pub(crate) struct NetworkState {
     /// Mutex which prevents overlapping calls to tier1_advertise_proxies.
     tier1_advertise_proxies_mutex: tokio::sync::Mutex<()>,
     /// Demultiplexer aggregating calls to add_edges().
-    add_edges_demux: demux::Demux<Vec<Edge>, ()>,
+    add_edges_demux: demux::Demux<Vec<Edge>, Result<(), ReasonForBan>>,
 
     /// Mutex serializing calls to set_chain_info(), which mutates a bunch of stuff non-atomically.
     /// TODO(gprusak): make it use synchronization primitives in some more canonical way.
@@ -160,7 +161,7 @@ impl NetworkState {
         config: config::VerifiedConfig,
         genesis_id: GenesisId,
         client: Arc<dyn client::Client>,
-        shards_manager_adapter: Arc<dyn ShardsManagerAdapterForNetwork>,
+        shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
         whitelist_nodes: Vec<WhitelistNode>,
     ) -> Self {
         Self {
@@ -181,7 +182,7 @@ impl NetworkState {
             tier1: connection::Pool::new(config.node_id()),
             inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
             peer_store,
-            connection_store: connection_store::ConnectionStore::new(store.clone()).unwrap(),
+            connection_store: connection_store::ConnectionStore::new(store).unwrap(),
             pending_reconnect: Mutex::new(Vec::<PeerInfo>::new()),
             accounts_data: Arc::new(accounts_data::Cache::new()),
             tier1_route_back: Mutex::new(RouteBackCache::default()),
@@ -300,8 +301,7 @@ impl NetworkState {
                             return Err(RegisterPeerError::NotTier1Peer);
                         }
                     }
-                    let (_, ok) = this.graph.verify(vec![edge]).await;
-                    if !ok {
+                    if !edge.verify() {
                         return Err(RegisterPeerError::InvalidEdge);
                     }
                     this.tier1.insert_ready(conn).map_err(RegisterPeerError::PoolError)?;
@@ -735,7 +735,7 @@ impl NetworkState {
         if self.config.tier1.is_none() {
             return false;
         }
-        let has_changed = self.accounts_data.set_keys(info.tier1_accounts.clone());
+        let has_changed = self.accounts_data.set_keys(info.tier1_accounts);
         // The set of TIER1 accounts has changed, so we might be missing some accounts_data
         // that our peers know about.
         if has_changed {

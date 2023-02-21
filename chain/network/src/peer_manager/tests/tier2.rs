@@ -134,6 +134,51 @@ async fn test_reconnect_after_restart_outbound_side() {
 }
 
 #[tokio::test]
+async fn test_skip_reconnect_after_restart_outbound_side() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    let pm0_db = TestDB::new();
+    let mut pm0_cfg = chain.make_config(rng);
+    pm0_cfg.connect_to_reliable_peers_on_startup = false;
+
+    let pm0 = start_pm(clock.clock(), pm0_db.clone(), pm0_cfg.clone(), chain.clone()).await;
+    let pm1 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+
+    let id1 = pm1.cfg.node_id();
+
+    tracing::info!(target:"test", "connect pm0 to pm1");
+    pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
+    clock.advance(STORED_CONNECTIONS_MIN_DURATION);
+
+    tracing::info!(target:"test", "check that pm0 stores the outbound connection to pm1");
+    pm0.update_connection_store(&clock.clock()).await;
+    check_recent_outbound_connections(&pm0, vec![id1.clone()]).await;
+
+    tracing::info!(target:"test", "drop pm0 and start it again with the same db");
+    drop(pm0);
+    let pm0 = start_pm(clock.clock(), pm0_db.clone(), pm0_cfg.clone(), chain.clone()).await;
+
+    tracing::info!(target:"test", "check that pm0 starts without attempting to reconnect to pm1");
+    let mut pm0_ev = pm0.events.clone();
+    pm0_ev
+        .recv_until(|ev| match &ev {
+            Event::PeerManager(PME::ReconnectLoopSpawned(_)) => {
+                panic!("PeerManager spawned a reconnect loop during startup");
+            }
+            Event::PeerManager(PME::PeerManagerStarted) => Some(()),
+            _ => None,
+        })
+        .await;
+
+    tracing::info!(target:"test", "check that pm0 has pm1 as a recent connection");
+    check_recent_outbound_connections(&pm0, vec![id1.clone()]).await;
+}
+
+#[tokio::test]
 async fn test_reconnect_after_restart_inbound_side() {
     init_test_logger();
     let mut rng = make_rng(921853233);

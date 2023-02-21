@@ -28,6 +28,8 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     // set read_cached_trie_node cost, decrease storage key limit
     (53, include_config!("53.yaml")),
     (57, include_config!("57.yaml")),
+    // Introduce Zero Balance Account and increase account creation cost to 7.7Tgas
+    (59, include_config!("59.yaml")),
 ];
 
 /// Testnet parameters for versions <= 29, which (incorrectly) differed from mainnet parameters

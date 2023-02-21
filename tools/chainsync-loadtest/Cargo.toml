@@ -23,6 +23,7 @@ parking_lot.workspace = true
 rand.workspace = true
 tokio.workspace = true
 
+near-async = { path = "../../core/async" }
 near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
