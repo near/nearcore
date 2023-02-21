@@ -5,7 +5,7 @@ use derive_enum_from_into::{EnumFrom, EnumTryInto};
 use crate::{
     messaging::{CanSend, IntoSender},
     test_loop::{
-        event_handler::{capture_events, LoopEventHandler, LoopEventHandlerHelpers},
+        event_handler::{capture_events, LoopEventHandler},
         TestLoopBuilder,
     },
 };
@@ -30,9 +30,13 @@ enum TestEvent {
 pub struct ForwardSumRequest;
 
 impl LoopEventHandler<SumNumbersComponent, SumRequest> for ForwardSumRequest {
-    fn handle(&mut self, event: SumRequest, data: &mut SumNumbersComponent) -> Option<SumRequest> {
+    fn handle(
+        &mut self,
+        event: SumRequest,
+        data: &mut SumNumbersComponent,
+    ) -> Result<(), SumRequest> {
         data.handle(event);
-        None
+        Ok(())
     }
 }
 

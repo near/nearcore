@@ -4,9 +4,7 @@ use derive_enum_from_into::{EnumFrom, EnumTryInto};
 
 use crate::{
     messaging::IntoSender,
-    test_loop::event_handler::{
-        capture_events, periodic_timer, LoopEventHandler, LoopEventHandlerHelpers,
-    },
+    test_loop::event_handler::{capture_events, periodic_interval, LoopEventHandler},
 };
 
 use super::timed_component::TimedComponent;
@@ -30,9 +28,9 @@ struct TestData {
 struct ForwardSendMessage;
 
 impl LoopEventHandler<TimedComponent, String> for ForwardSendMessage {
-    fn handle(&mut self, event: String, data: &mut TimedComponent) -> Option<String> {
+    fn handle(&mut self, event: String, data: &mut TimedComponent) -> Result<(), String> {
         data.send_message(event);
-        None
+        Ok(())
     }
 }
 
@@ -47,8 +45,10 @@ fn test_timed_component() {
     let mut test = builder.build(data);
     test.register_handler(ForwardSendMessage.widen());
     test.register_handler(
-        periodic_timer(Duration::from_millis(100), Flush, |data: &mut TimedComponent| data.flush())
-            .widen(),
+        periodic_interval(Duration::from_millis(100), Flush, |data: &mut TimedComponent| {
+            data.flush()
+        })
+        .widen(),
     );
     test.register_handler(capture_events::<Vec<String>>().widen());
 

@@ -68,10 +68,7 @@ use std::{collections::BinaryHeap, fmt::Debug, sync, time::Duration};
 use near_o11y::{testonly::init_test_logger, tracing::log::info};
 use serde::Serialize;
 
-use self::{
-    delay_sender::{CanSendWithDelay, DelaySender},
-    event_handler::LoopEventHandler,
-};
+use self::{delay_sender::DelaySender, event_handler::LoopEventHandler};
 
 /// Main struct for the Test Loop framework.
 /// The `Data` type should contain all the business logic state that is relevant
@@ -164,8 +161,8 @@ impl<Event: Debug + Send + 'static> TestLoopBuilder<Event> {
         let (pending_events_sender, pending_events) = sync::mpsc::sync_channel(65536);
         Self {
             pending_events,
-            pending_events_sender: DelaySender::new(LoopSender {
-                event_sender: pending_events_sender,
+            pending_events_sender: DelaySender::new(move |event, delay| {
+                pending_events_sender.send(EventInFlight { event, delay }).unwrap();
             }),
         }
     }
@@ -177,17 +174,6 @@ impl<Event: Debug + Send + 'static> TestLoopBuilder<Event> {
 
     pub fn build<Data>(self, data: Data) -> TestLoop<Data, Event> {
         TestLoop::new(self.pending_events, self.pending_events_sender, data)
-    }
-}
-
-/// Implementation of DelaySender that sends events to the test loop.
-struct LoopSender<Event: Send + 'static> {
-    event_sender: sync::mpsc::SyncSender<EventInFlight<Event>>,
-}
-
-impl<Event: Send + 'static> CanSendWithDelay<Event> for LoopSender<Event> {
-    fn send_with_delay(&self, event: Event, delay: Duration) {
-        self.event_sender.send(EventInFlight { event, delay }).unwrap();
     }
 }
 
@@ -280,7 +266,7 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
 
             let mut current_event = event.event;
             for handler in &mut self.handlers {
-                if let Some(event) = handler.handle(current_event, &mut self.data) {
+                if let Err(event) = handler.handle(current_event, &mut self.data) {
                     current_event = event;
                 } else {
                     continue 'outer;

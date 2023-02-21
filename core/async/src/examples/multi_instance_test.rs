@@ -7,7 +7,7 @@ use crate::{
     messaging::{CanSend, IntoSender},
     test_loop::{
         delay_sender::DelaySender,
-        event_handler::{capture_events, LoopEventHandler, LoopEventHandlerHelpers},
+        event_handler::{capture_events, LoopEventHandler},
         TestLoopBuilder,
     },
 };
@@ -48,7 +48,7 @@ impl LoopEventHandler<Vec<TestData>, (usize, TestEvent)> for ForwardRemoteReques
         &mut self,
         event: (usize, TestEvent),
         data: &mut Vec<TestData>,
-    ) -> Option<(usize, TestEvent)> {
+    ) -> Result<(), (usize, TestEvent)> {
         if let TestEvent::RemoteRequest(number) = event.1 {
             for i in 0..data.len() {
                 if i != event.0 {
@@ -58,15 +58,15 @@ impl LoopEventHandler<Vec<TestData>, (usize, TestEvent)> for ForwardRemoteReques
                         .send((i, TestEvent::LocalRequest(SumRequest::Number(number))))
                 }
             }
-            None
+            Ok(())
         } else {
-            Some(event)
+            Err(event)
         }
     }
 }
 
 #[test]
-fn test_simple() {
+fn test_multi_instance() {
     let builder = TestLoopBuilder::<(usize, TestEvent)>::new();
     // Build the SumNumberComponents so that it sends messages back to the test loop.
     let mut data = vec![];

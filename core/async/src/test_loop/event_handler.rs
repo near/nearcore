@@ -10,36 +10,30 @@ pub trait LoopEventHandler<Data, Event> {
     fn init(&mut self, _sender: DelaySender<Event>) {}
 
     /// Handles an event. If this handler indeed handles the event, it should
-    /// return None after handling it. Otherwise, it should return Some with
+    /// return Ok after handling it. Otherwise, it should return Err with
     /// the same event that was passed in, so that it can be given to the next
     /// event handler.
-    fn handle(&mut self, event: Event, data: &mut Data) -> Option<Event>;
-}
+    fn handle(&mut self, event: Event, data: &mut Data) -> Result<(), Event>;
 
-/// Functions that can be called on LoopEventHandler to adapt it to different
-/// situations.
-pub trait LoopEventHandlerHelpers<Data, Event> {
     /// Adapts this handler to a handler whose data is a superset of our data
     /// and whose event is a superset of our event.
     ///   For data, A is a superset of B if A implements AsRef<B> and AsMut<B>.
     ///   For event, A is a superset of B if A implements From<B> and
     ///     TryIntoOrSelf<B>.
-    fn widen(self) -> WideningEventHandler<Data, Event>;
+    fn widen(self) -> WideningEventHandler<Data, Event>
+    where
+        Self: Sized + 'static,
+    {
+        WideningEventHandler { inner: Box::new(self) }
+    }
 
     /// Adapts this handler to a handler whose data is a vector of our data,
     /// and whose event is a is the tuple (index, our event), for a specific
     /// index.
-    fn for_index(self, index: usize) -> IndexedLoopEventHandler<Data, Event>;
-}
-
-impl<Data, Event, T: LoopEventHandler<Data, Event> + Sized + 'static>
-    LoopEventHandlerHelpers<Data, Event> for T
-{
-    fn widen(self) -> WideningEventHandler<Data, Event> {
-        WideningEventHandler { inner: Box::new(self) }
-    }
-
-    fn for_index(self, index: usize) -> IndexedLoopEventHandler<Data, Event> {
+    fn for_index(self, index: usize) -> IndexedLoopEventHandler<Data, Event>
+    where
+        Self: Sized + 'static,
+    {
         IndexedLoopEventHandler::new(Box::new(self), index)
     }
 }
@@ -72,12 +66,11 @@ impl<
         self.inner.init(sender.narrow())
     }
 
-    fn handle(&mut self, event: OuterEvent, data: &mut OuterData) -> Option<OuterEvent> {
+    fn handle(&mut self, event: OuterEvent, data: &mut OuterData) -> Result<(), OuterEvent> {
         let mut inner_data = data.as_mut();
-        match event.try_into_or_self() {
-            Ok(e) => self.inner.handle(e, &mut inner_data).map(|e| e.into()),
-            Err(e) => Some(e),
-        }
+        let inner_event = event.try_into_or_self()?;
+        self.inner.handle(inner_event, &mut inner_data)?;
+        Ok(())
     }
 }
 
@@ -85,9 +78,9 @@ impl<
 struct CaptureEvents;
 
 impl<Event> LoopEventHandler<Vec<Event>, Event> for CaptureEvents {
-    fn handle(&mut self, event: Event, data: &mut Vec<Event>) -> Option<Event> {
+    fn handle(&mut self, event: Event, data: &mut Vec<Event>) -> Result<(), Event> {
         data.push(event);
-        None
+        Ok(())
     }
 }
 
@@ -100,36 +93,40 @@ pub fn capture_events<Event>() -> impl LoopEventHandler<Vec<Event>, Event> {
     CaptureEvents
 }
 
-/// Implements periodic_timer().
-struct PeriodicTimer<Data, Event: Clone + PartialEq> {
+/// Implements periodic_interval().
+struct PeriodicInterval<Data, Event: Clone + PartialEq> {
     interval: Duration,
     event: Event,
     delay_sender: Option<DelaySender<Event>>,
     func: Box<dyn Fn(&mut Data) + 'static>,
 }
 
-impl<Data, Event: Clone + PartialEq> LoopEventHandler<Data, Event> for PeriodicTimer<Data, Event> {
+impl<Data, Event: Clone + PartialEq> LoopEventHandler<Data, Event>
+    for PeriodicInterval<Data, Event>
+{
     fn init(&mut self, sender: DelaySender<Event>) {
         self.delay_sender = Some(sender);
         self.delay_sender.as_ref().unwrap().send_with_delay(self.event.clone(), self.interval);
     }
 
-    fn handle(&mut self, event: Event, data: &mut Data) -> Option<Event> {
+    fn handle(&mut self, event: Event, data: &mut Data) -> Result<(), Event> {
         if event == self.event {
             (self.func)(data);
             self.delay_sender.as_ref().unwrap().send_with_delay(self.event.clone(), self.interval);
+            Ok(())
+        } else {
+            Err(event)
         }
-        None
     }
 }
 
 /// Periodically sends to the event loop the given event by the given interval.
 /// Each time this event is handled, the given function is called.
 /// The first invocation is triggered after the interval, not immediately.
-pub fn periodic_timer<Data, Event: Clone + PartialEq>(
+pub fn periodic_interval<Data, Event: Clone + PartialEq>(
     interval: Duration,
     event: Event,
     func: impl Fn(&mut Data) + 'static,
 ) -> impl LoopEventHandler<Data, Event> {
-    PeriodicTimer { interval, event, delay_sender: None, func: Box::new(func) }
+    PeriodicInterval { interval, event, delay_sender: None, func: Box::new(func) }
 }
