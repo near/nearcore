@@ -757,5 +757,5 @@ impl crate::runner::VM for NearVmVM {
 
 #[test]
 fn test_memory_like() {
-    crate::tests::test_memory_like(|| Box::new(NearVmMemory::new(1, 1).unwrap()));
+    near_vm_logic::test_utils::test_memory_like(|| Box::new(NearVmMemory::new(1, 1).unwrap()));
 }

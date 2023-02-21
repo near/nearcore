@@ -1,5 +1,7 @@
 use assert_matches::assert_matches;
 use borsh::BorshSerialize;
+use near_async::messaging::CanSend;
+use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_primitives::test_utils::create_test_signer;
 
 use crate::tests::client::process_blocks::create_nightshade_runtimes;
@@ -25,6 +27,7 @@ use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, EpochId};
+use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
 use near_store::Trie;
@@ -380,7 +383,12 @@ fn test_verify_chunk_invalid_state_challenge() {
 
     // Receive invalid chunk to the validator.
     client
-        .persist_and_distribute_encoded_chunk(invalid_chunk.clone(), merkle_paths, vec![])
+        .persist_and_distribute_encoded_chunk(
+            invalid_chunk.clone(),
+            merkle_paths,
+            vec![],
+            validator_signer.validator_id().clone(),
+        )
         .unwrap();
 
     match &mut invalid_chunk {
@@ -498,7 +506,12 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
     let (chunk, merkle_paths, receipts, block) = create_invalid_proofs_chunk(&mut env.clients[0]);
     let client = &mut env.clients[0];
     assert!(client
-        .persist_and_distribute_encoded_chunk(chunk.clone(), merkle_paths.clone(), receipts.clone())
+        .persist_and_distribute_encoded_chunk(
+            chunk.clone(),
+            merkle_paths.clone(),
+            receipts.clone(),
+            client.validator_signer.as_ref().unwrap().validator_id().clone()
+        )
         .is_err());
     let result = client.process_block_test(block.clone().into(), Provenance::NONE);
     // We have declined block with invalid chunk.
@@ -522,10 +535,8 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
         one_part_receipt_proofs,
         &[merkle_paths[0].clone()],
     );
-    assert!(env.clients[1]
-        .shards_mgr
-        .process_partial_encoded_chunk(partial_encoded_chunk.into())
-        .is_ok());
+    env.shards_manager_adapters[1]
+        .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(partial_encoded_chunk));
     env.process_block(1, block, Provenance::NONE);
 
     // At this point we should create a challenge and send it out.

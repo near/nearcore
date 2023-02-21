@@ -1,1 +1,0 @@
-max_stack_height: 16_384 -> 262_144

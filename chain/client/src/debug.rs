@@ -5,7 +5,7 @@ use actix::{Context, Handler};
 use borsh::BorshSerialize;
 use itertools::Itertools;
 use near_chain::crypto_hash_timer::CryptoHashTimer;
-use near_chain::{near_chain_primitives, Chain, ChainStoreAccess, RuntimeAdapter};
+use near_chain::{near_chain_primitives, Chain, ChainStoreAccess, RuntimeWithEpochManagerAdapter};
 use near_client_primitives::debug::{
     ApprovalAtHeightStatus, BlockProduction, ChunkCollection, DebugBlockStatusData, DebugStatus,
     DebugStatusResponse, MissedHeightInfo, ProductionAtHeight, ValidatorStatus,
@@ -119,14 +119,14 @@ impl BlockProductionTracker {
         epoch_id: &EpochId,
         num_shards: ShardId,
         new_chunks: &HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>, AccountId)>,
-        runtime_adapter: &dyn RuntimeAdapter,
+        runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
     ) -> Result<Vec<ChunkCollection>, Error> {
         let mut chunk_collection_info = vec![];
         for shard_id in 0..num_shards {
             if let Some((_, chunk_time, chunk_producer)) = new_chunks.get(&shard_id) {
                 chunk_collection_info.push(ChunkCollection {
                     chunk_producer: chunk_producer.clone(),
-                    received_time: Some(chunk_time.clone()),
+                    received_time: Some(*chunk_time),
                     chunk_included: true,
                 });
             } else {
@@ -226,7 +226,7 @@ impl ClientActor {
         let epoch_start_height =
             self.client.runtime_adapter.get_epoch_start_height(&current_block)?;
 
-        let block = self.client.chain.get_block_by_height(epoch_start_height)?.clone();
+        let block = self.client.chain.get_block_by_height(epoch_start_height)?;
         let epoch_id = block.header().epoch_id();
         let (validators, chunk_only_producers) =
             self.get_producers_for_epoch(&epoch_id, &current_block)?;
@@ -277,7 +277,7 @@ impl ClientActor {
         let shards_size_and_parts = shards_size_and_parts
             .iter()
             .zip(state_header_exists.iter())
-            .map(|((a, b), c)| (a.clone(), b.clone(), c.clone()))
+            .map(|((a, b), c)| (*a, *b, *c))
             .collect();
 
         let validator_info = if is_current_block_head {
@@ -293,7 +293,7 @@ impl ClientActor {
             EpochInfoView {
                 epoch_id: epoch_id.0,
                 height: block.header().height(),
-                first_block: Some((block.header().hash().clone(), block.header().timestamp())),
+                first_block: Some((*block.header().hash(), block.header().timestamp())),
                 block_producers: validators.to_vec(),
                 chunk_only_producers,
                 validator_info: Some(validator_info),
@@ -432,8 +432,16 @@ impl ClientActor {
                 if blocks.contains_key(&block_hash) {
                     continue;
                 }
-                let block_header = self.client.chain.get_block_header(&block_hash)?;
-                let block = self.client.chain.get_block(&block_hash).ok();
+                let block_header = if block_hash == CryptoHash::default() {
+                    self.client.chain.genesis().clone()
+                } else {
+                    self.client.chain.get_block_header(&block_hash)?
+                };
+                let block = if block_hash == CryptoHash::default() {
+                    Some(self.client.chain.genesis_block().clone())
+                } else {
+                    self.client.chain.get_block(&block_hash).ok()
+                };
                 let is_on_canonical_chain =
                     match self.client.chain.get_block_by_height(block_header.height()) {
                         Ok(block) => block.hash() == &block_hash,

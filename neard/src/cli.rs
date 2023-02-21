@@ -1,20 +1,17 @@
 #[cfg(unix)]
-use crate::watchers::Watcher;
-use crate::watchers::{
-    dyn_config_watcher::DynConfig, log_config_watcher::LogConfig, UpdateBehavior,
-};
 use anyhow::Context;
-use clap::{Args, Parser};
 use near_amend_genesis::AmendGenesisCommand;
 use near_chain_configs::GenesisValidationMode;
-#[cfg(feature = "cold_store")]
+use near_client::ConfigUpdater;
 use near_cold_store_tool::ColdStoreCommand;
+use near_dyn_configs::{UpdateableConfigLoader, UpdateableConfigLoaderError, UpdateableConfigs};
 use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse;
 use near_mirror::MirrorCommand;
+use near_network::tcp;
 use near_o11y::tracing_subscriber::EnvFilter;
 use near_o11y::{
     default_subscriber, default_subscriber_with_opentelemetry, BuildEnvFilterError,
-    EnvFilterBuilder, OpenTelemetryLevel,
+    EnvFilterBuilder,
 };
 use near_ping::PingCommand;
 use near_primitives::hash::CryptoHash;
@@ -29,12 +26,13 @@ use std::fs::File;
 use std::io::BufReader;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use tokio::sync::oneshot;
-use tokio::sync::oneshot::Receiver;
+use std::sync::Arc;
+use tokio::sync::broadcast;
+use tokio::sync::broadcast::Receiver;
 use tracing::{debug, error, info, warn};
 
 /// NEAR Protocol Node
-#[derive(Parser)]
+#[derive(clap::Parser)]
 #[clap(version = crate::NEARD_VERSION_STRING.as_str())]
 #[clap(subcommand_required = true, arg_required_else_help = true)]
 pub(super) struct NeardCmd {
@@ -46,7 +44,7 @@ pub(super) struct NeardCmd {
 
 impl NeardCmd {
     pub(super) fn parse_and_run() -> anyhow::Result<()> {
-        let neard_cmd = Self::parse();
+        let neard_cmd: Self = clap::Parser::parse();
 
         // Enable logging of the current thread.
         let _subscriber_guard = default_subscriber(
@@ -83,7 +81,7 @@ impl NeardCmd {
         };
 
         match neard_cmd.subcmd {
-            NeardSubCommand::Init(cmd) => cmd.run(&home_dir),
+            NeardSubCommand::Init(cmd) => cmd.run(&home_dir)?,
             NeardSubCommand::Localnet(cmd) => cmd.run(&home_dir),
             NeardSubCommand::Run(cmd) => cmd.run(
                 &home_dir,
@@ -94,7 +92,7 @@ impl NeardCmd {
 
             NeardSubCommand::StateViewer(cmd) => {
                 let mode = if cmd.readwrite { Mode::ReadWrite } else { Mode::ReadOnly };
-                cmd.subcmd.run(&home_dir, genesis_validation, mode);
+                cmd.subcmd.run(&home_dir, genesis_validation, mode, cmd.store_temperature);
             }
 
             NeardSubCommand::RecompressStorage(cmd) => {
@@ -112,9 +110,8 @@ impl NeardCmd {
             NeardSubCommand::AmendGenesis(cmd) => {
                 cmd.run()?;
             }
-            #[cfg(feature = "cold_store")]
             NeardSubCommand::ColdStore(cmd) => {
-                cmd.run(&home_dir);
+                cmd.run(&home_dir)?;
             }
             NeardSubCommand::StateParts(cmd) => {
                 cmd.run()?;
@@ -124,18 +121,22 @@ impl NeardCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub(super) struct StateViewerCommand {
     /// By default state viewer opens rocks DB in the read only mode, which allows it to run
     /// multiple instances in parallel and be sure that no unintended changes get written to the DB.
     /// In case an operation needs to write to caches, a read-write mode may be needed.
     #[clap(long, short = 'w')]
     readwrite: bool,
+    /// What store temperature should the state viewer open. Allowed values are hot and cold but
+    /// cold is only available when cold_store feature is enabled.
+    #[clap(long, short = 't', default_value = "hot")]
+    store_temperature: near_store::Temperature,
     #[clap(subcommand)]
     subcmd: StateViewerSubCommand,
 }
 
-#[derive(Parser, Debug)]
+#[derive(clap::Parser, Debug)]
 struct NeardOpts {
     /// Sets verbose logging for the given target, or for all targets if no
     /// target is given.
@@ -163,7 +164,7 @@ impl NeardOpts {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub(super) enum NeardSubCommand {
     /// Initializes NEAR configuration
     Init(InitCmd),
@@ -219,7 +220,6 @@ pub(super) enum NeardSubCommand {
     /// Amend a genesis/records file created by `dump-state`.
     AmendGenesis(AmendGenesisCommand),
 
-    #[cfg(feature = "cold_store")]
     /// Testing tool for cold storage
     ColdStore(ColdStoreCommand),
 
@@ -227,7 +227,7 @@ pub(super) enum NeardSubCommand {
     StateParts(StatePartsCommand),
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub(super) struct InitCmd {
     /// Download the verified NEAR genesis file automatically.
     #[clap(long)]
@@ -308,17 +308,16 @@ fn check_release_build(chain: &str) {
 }
 
 impl InitCmd {
-    pub(super) fn run(self, home_dir: &Path) {
+    pub(super) fn run(self, home_dir: &Path) -> anyhow::Result<()> {
         // TODO: Check if `home` exists. If exists check what networks we already have there.
         if (self.download_genesis || self.download_genesis_url.is_some()) && self.genesis.is_some()
         {
-            error!("Please give either --genesis or --download-genesis, not both.");
-            return;
+            anyhow::bail!("Please give either --genesis or --download-genesis, not both.");
         }
 
         self.chain_id.as_ref().map(|chain| check_release_build(chain));
 
-        if let Err(e) = nearcore::init_configs(
+        nearcore::init_configs(
             home_dir,
             self.chain_id.as_deref(),
             self.account_id.and_then(|account_id| account_id.parse().ok()),
@@ -333,13 +332,12 @@ impl InitCmd {
             self.download_config_url.as_deref(),
             self.boot_nodes.as_deref(),
             self.max_gas_burnt_view,
-        ) {
-            error!("Failed to initialize configs: {:#}", e);
-        }
+        )
+        .context("Failed to initialize configs")
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub(super) struct RunCmd {
     /// Configure node to run as archival node which prevents deletion of old
     /// blocks.  This is a persistent setting; once client is started as
@@ -349,6 +347,9 @@ pub(super) struct RunCmd {
     /// Set the boot nodes to bootstrap network from.
     #[clap(long)]
     boot_nodes: Option<String>,
+    /// Whether to re-establish connections from the ConnectionStore on startup
+    #[clap(long)]
+    connect_to_reliable_peers_on_startup: Option<bool>,
     /// Minimum number of peers to start syncing/producing blocks
     #[clap(long)]
     min_peers: Option<usize>,
@@ -404,6 +405,12 @@ impl RunCmd {
         if let Some(produce_empty_blocks) = self.produce_empty_blocks {
             near_config.client_config.produce_empty_blocks = produce_empty_blocks;
         }
+        if let Some(connect_to_reliable_peers_on_startup) =
+            self.connect_to_reliable_peers_on_startup
+        {
+            near_config.network_config.connect_to_reliable_peers_on_startup =
+                connect_to_reliable_peers_on_startup;
+        }
         if let Some(boot_nodes) = self.boot_nodes {
             if !boot_nodes.is_empty() {
                 near_config.network_config.peer_store.boot_nodes = boot_nodes
@@ -416,14 +423,16 @@ impl RunCmd {
             near_config.client_config.min_num_peers = min_peers;
         }
         if let Some(network_addr) = self.network_addr {
-            near_config.network_config.node_addr = Some(network_addr);
+            near_config.network_config.node_addr =
+                Some(near_network::tcp::ListenerAddr::new(network_addr));
         }
         #[cfg(feature = "json_rpc")]
         if self.disable_rpc {
             near_config.rpc_config = None;
         } else {
             if let Some(rpc_addr) = self.rpc_addr {
-                near_config.rpc_config.get_or_insert(Default::default()).addr = rpc_addr;
+                near_config.rpc_config.get_or_insert(Default::default()).addr =
+                    tcp::ListenerAddr::new(rpc_addr.parse().unwrap());
             }
             if let Some(rpc_prometheus_addr) = self.rpc_prometheus_addr {
                 near_config.rpc_config.get_or_insert(Default::default()).prometheus_addr =
@@ -455,7 +464,9 @@ impl RunCmd {
             }
         }
 
-        let (tx, rx) = oneshot::channel::<()>();
+        let (tx_crash, mut rx_crash) = broadcast::channel::<()>(16);
+        let (tx_config_update, rx_config_update) =
+            broadcast::channel::<Result<UpdateableConfigs, Arc<UpdateableConfigLoaderError>>>(16);
         let sys = actix::System::new();
 
         sys.block_on(async move {
@@ -474,21 +485,42 @@ impl RunCmd {
             .await
             .global();
 
-            let nearcore::NearNode { rpc_servers, .. } =
-                nearcore::start_with_config_and_synchronization(home_dir, near_config, Some(tx))
-                    .expect("start_with_config");
+            let updateable_configs = nearcore::dyn_config::read_updateable_configs(home_dir)
+                .unwrap_or_else(|e| panic!("Error reading dynamic configs: {:#}", e));
+            let mut updateable_config_loader =
+                UpdateableConfigLoader::new(updateable_configs.clone(), tx_config_update);
+            let config_updater = ConfigUpdater::new(rx_config_update);
 
-            let sig = wait_for_interrupt_signal(home_dir, rx).await;
+            let nearcore::NearNode { rpc_servers, cold_store_loop_handle, .. } =
+                nearcore::start_with_config_and_synchronization(
+                    home_dir,
+                    near_config,
+                    Some(tx_crash),
+                    Some(config_updater),
+                )
+                .expect("start_with_config");
+
+            let sig = loop {
+                let sig = wait_for_interrupt_signal(home_dir, &mut rx_crash).await;
+                if sig == "SIGHUP" {
+                    let maybe_updateable_configs =
+                        nearcore::dyn_config::read_updateable_configs(home_dir);
+                    updateable_config_loader.reload(maybe_updateable_configs);
+                } else {
+                    break sig;
+                }
+            };
             warn!(target: "neard", "{}, stopping... this may take a few minutes.", sig);
+            cold_store_loop_handle.map(|handle| handle.stop());
             futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
                 server.stop(true).await;
                 debug!(target: "neard", "{} server stopped", name);
             }))
             .await;
             actix::System::current().stop();
-
             // Disable the subscriber to properly shutdown the tracer.
-            near_o11y::reload(Some("error"), None, Some(OpenTelemetryLevel::OFF)).unwrap();
+            near_o11y::reload(Some("error"), None, Some(near_o11y::OpenTelemetryLevel::OFF))
+                .unwrap();
         });
         sys.run().unwrap();
         info!(target: "neard", "Waiting for RocksDB to gracefully shutdown");
@@ -497,42 +529,28 @@ impl RunCmd {
 }
 
 #[cfg(not(unix))]
-async fn wait_for_interrupt_signal(_home_dir: &Path, mut _rx_crash: Receiver<()>) -> &str {
+async fn wait_for_interrupt_signal(_home_dir: &Path, mut _rx_crash: &Receiver<()>) -> &str {
     // TODO(#6372): Support graceful shutdown on windows.
     tokio::signal::ctrl_c().await.unwrap();
     "Ctrl+C"
 }
 
 #[cfg(unix)]
-fn update_watchers(home_dir: &Path, behavior: UpdateBehavior) {
-    LogConfig::update(home_dir.join("log_config.json"), &behavior);
-    DynConfig::update(home_dir.join("dyn_config.json"), &behavior);
-}
-
-#[cfg(unix)]
-async fn wait_for_interrupt_signal(home_dir: &Path, mut rx_crash: Receiver<()>) -> &str {
-    // Apply all watcher config file if it exists.
-    update_watchers(&home_dir, UpdateBehavior::UpdateOnlyIfExists);
-
+async fn wait_for_interrupt_signal(_home_dir: &Path, rx_crash: &mut Receiver<()>) -> &'static str {
     use tokio::signal::unix::{signal, SignalKind};
     let mut sigint = signal(SignalKind::interrupt()).unwrap();
     let mut sigterm = signal(SignalKind::terminate()).unwrap();
     let mut sighup = signal(SignalKind::hangup()).unwrap();
 
-    loop {
-        break tokio::select! {
-             _ = sigint.recv()  => "SIGINT",
-             _ = sigterm.recv() => "SIGTERM",
-             _ = sighup.recv() => {
-                update_watchers(&home_dir, UpdateBehavior::UpdateOrReset);
-                continue;
-             },
-             _ = &mut rx_crash => "ClientActor died",
-        };
+    tokio::select! {
+         _ = sigint.recv()  => "SIGINT",
+         _ = sigterm.recv() => "SIGTERM",
+         _ = sighup.recv() => "SIGHUP",
+         _ = rx_crash.recv() => "ClientActor died",
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub(super) struct LocalnetCmd {
     /// Number of non-validators to initialize the localnet with.
     #[clap(short = 'n', long, alias = "n", default_value = "0")]
@@ -590,7 +608,7 @@ impl LocalnetCmd {
     }
 }
 
-#[derive(Args)]
+#[derive(clap::Args)]
 #[clap(arg_required_else_help = true)]
 pub(super) struct RecompressStorageSubCommand {
     /// Directory where to save new storage.
@@ -639,7 +657,7 @@ pub enum VerifyProofError {
     InvalidBlockHashProof,
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct VerifyProofSubCommand {
     #[clap(long)]
     json_file_path: String,
@@ -668,7 +686,7 @@ impl VerifyProofSubCommand {
             "Verifying light client proof for txn id: {:?}",
             light_client_proof.outcome_proof.id
         );
-        let outcome_hashes = light_client_proof.outcome_proof.clone().to_hashes();
+        let outcome_hashes = light_client_proof.outcome_proof.to_hashes();
         println!("Hashes of the outcome are: {:?}", outcome_hashes);
 
         let outcome_hash = CryptoHash::hash_borsh(&outcome_hashes);
@@ -749,7 +767,8 @@ fn make_env_filter(verbose: Option<&str>) -> Result<EnvFilter, BuildEnvFilterErr
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{CryptoHash, NeardCmd, NeardSubCommand, VerifyProofError, VerifyProofSubCommand};
+    use clap::Parser;
     use std::str::FromStr;
 
     #[test]
@@ -793,7 +812,7 @@ mod tests {
             )
         );
 
-        // Proof with a wroing outcome (as user specified wrong shard).
+        // Proof with a wrong outcome (as user specified wrong shard).
         assert_eq!(
             VerifyProofSubCommand::verify_json(
                 serde_json::from_slice(include_bytes!("../res/invalid_proof.json")).unwrap()

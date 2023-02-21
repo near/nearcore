@@ -2,7 +2,7 @@ use crate::safe_add_balance_apply;
 
 use crate::config::{
     safe_add_balance, safe_add_gas, safe_gas_to_balance, total_deposit, total_prepaid_exec_fees,
-    total_prepaid_gas,
+    total_prepaid_gas, total_prepaid_send_fees,
 };
 use crate::{ApplyStats, DelayedReceiptIndices, ValidatorAccountsUpdate};
 use near_primitives::errors::{
@@ -55,6 +55,14 @@ fn receipt_cost(
                     )?,
                 )?;
                 total_gas = safe_add_gas(total_gas, total_prepaid_gas(&action_receipt.actions)?)?;
+                total_gas = safe_add_gas(
+                    total_gas,
+                    total_prepaid_send_fees(
+                        transaction_costs,
+                        &action_receipt.actions,
+                        current_protocol_version,
+                    )?,
+                )?;
                 let total_gas_cost = safe_gas_to_balance(action_receipt.gas_price, total_gas)?;
                 total_cost = safe_add_balance(total_cost, total_gas_cost)?;
             }
@@ -99,7 +107,7 @@ fn total_postponed_receipts_cost(
 ) -> Result<Balance, RuntimeError> {
     receipt_ids.iter().try_fold(0, |total, item| {
         let (account_id, receipt_id) = item;
-        let cost = match get_postponed_receipt(state, account_id, receipt_id.clone())? {
+        let cost = match get_postponed_receipt(state, account_id, *receipt_id)? {
             None => return Ok(total),
             Some(receipt) => receipt_cost(transaction_costs, current_protocol_version, &receipt)?,
         };

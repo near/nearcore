@@ -4,6 +4,7 @@ use crate::config;
 use crate::network_protocol::{
     Edge, PartialEdgeInfo, PeerInfo, RawRoutedMessage, RoutedMessageBody,
 };
+use crate::tcp;
 use crate::time;
 use crate::types::{AccountKeys, ChainInfo, Handshake, RoutingTableUpdate};
 use near_crypto::{InMemorySigner, KeyType, SecretKey};
@@ -303,9 +304,9 @@ impl Chain {
     }
 
     pub fn make_config<R: Rng>(&self, rng: &mut R) -> config::NetworkConfig {
-        let port = crate::test_utils::open_port();
         let seed = &rng.gen::<u64>().to_string();
-        let mut cfg = config::NetworkConfig::from_seed(&seed, port);
+        let mut cfg =
+            config::NetworkConfig::from_seed(&seed, tcp::ListenerAddr::reserve_for_test());
         // Currently, in unit tests PeerManagerActor is not allowed to try to establish
         // connections on its own.
         cfg.outbound_disabled = true;
@@ -351,7 +352,7 @@ pub fn make_handshake<R: Rng>(rng: &mut R, chain: &Chain) -> Handshake {
 pub fn make_routed_message<R: Rng>(rng: &mut R, body: RoutedMessageBody) -> RoutedMessageV2 {
     let signer = make_signer(rng);
     let peer_id = PeerId::new(signer.public_key);
-    RawRoutedMessage { target: PeerIdOrHash::PeerId(peer_id.clone()), body }.sign(
+    RawRoutedMessage { target: PeerIdOrHash::PeerId(peer_id), body }.sign(
         &signer.secret_key,
         /*ttl=*/ 1,
         None,
@@ -379,25 +380,27 @@ pub fn make_account_data(
     timestamp: time::Utc,
     account_key: PublicKey,
     peer_id: PeerId,
-) -> AccountData {
-    AccountData {
-        proxies: vec![
-            // Can't inline make_ipv4/ipv6 calls, because 2-phase borrow
-            // doesn't work.
-            {
-                let ip = make_ipv4(rng);
-                make_peer_addr(rng, ip)
-            },
-            {
-                let ip = make_ipv4(rng);
-                make_peer_addr(rng, ip)
-            },
-            {
-                let ip = make_ipv6(rng);
-                make_peer_addr(rng, ip)
-            },
-        ],
-        peer_id,
+) -> VersionedAccountData {
+    VersionedAccountData {
+        data: AccountData {
+            proxies: vec![
+                // Can't inline make_ipv4/ipv6 calls, because 2-phase borrow
+                // doesn't work.
+                {
+                    let ip = make_ipv4(rng);
+                    make_peer_addr(rng, ip)
+                },
+                {
+                    let ip = make_ipv4(rng);
+                    make_peer_addr(rng, ip)
+                },
+                {
+                    let ip = make_ipv6(rng);
+                    make_peer_addr(rng, ip)
+                },
+            ],
+            peer_id,
+        },
         account_key,
         version,
         timestamp,

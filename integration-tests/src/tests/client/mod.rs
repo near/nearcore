@@ -1,7 +1,6 @@
 mod benchmarks;
 mod challenges;
 mod chunks_management;
-#[cfg(feature = "cold_store")]
 mod cold_storage;
 mod features;
 mod flat_storage;
@@ -10,5 +9,3 @@ mod runtimes;
 #[cfg(feature = "sandbox")]
 mod sandbox;
 mod sharding_upgrade;
-#[cfg(feature = "test_features")]
-mod shards_manager;

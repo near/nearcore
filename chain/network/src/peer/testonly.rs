@@ -15,6 +15,7 @@ use crate::tcp;
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
 use crate::time;
+use near_async::messaging::IntoSender;
 use near_o11y::WithSpanContextExt;
 use near_primitives::network::PeerId;
 use std::sync::Arc;
@@ -106,7 +107,8 @@ impl PeerHandle {
                 .unwrap(),
             network_cfg.verify().unwrap(),
             cfg.chain.genesis_id.clone(),
-            fc,
+            fc.clone(),
+            fc.as_sender(),
             vec![],
         ));
         let actix = ActixSystem::spawn({

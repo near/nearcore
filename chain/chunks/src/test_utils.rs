@@ -1,32 +1,28 @@
-use std::collections::VecDeque;
-use std::sync::{Arc, RwLock};
-
-use actix::MailboxError;
-use futures::future::BoxFuture;
-use futures::FutureExt;
-use near_network::types::MsgRecipient;
-use near_primitives::receipt::Receipt;
-use near_primitives::test_utils::create_test_signer;
-use near_primitives::time::Clock;
-
+use near_async::messaging::CanSend;
 use near_chain::test_utils::{KeyValueRuntime, ValidatorSchedule};
 use near_chain::types::{EpochManagerAdapter, RuntimeAdapter, Tip};
 use near_chain::{Chain, ChainStore};
+use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::test_utils::MockPeerManagerAdapter;
-use near_o11y::WithSpanContext;
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::{self, CryptoHash};
 use near_primitives::merkle::{self, MerklePath};
+use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkPart,
     PartialEncodedChunkV2, ReedSolomonWrapper, ShardChunkHeader,
 };
+use near_primitives::test_utils::create_test_signer;
+use near_primitives::time::Clock;
 use near_primitives::types::NumShards;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::types::{BlockHeight, MerkleHash};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::Store;
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex, RwLock};
 
+use crate::adapter::ShardsManagerRequestFromClient;
 use crate::client::ShardsManagerResponse;
 use crate::{
     Seal, SealsManager, ShardsManager, ACCEPTING_SEAL_PERIOD_MS, PAST_SEAL_HEIGHT_HORIZON,
@@ -180,7 +176,7 @@ impl ChunkTestFixture {
         // This setup ensures that the chunk producer
         let vs = make_validators(6, 2, 3);
         let mock_runtime =
-            Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(store.clone(), vs, 5, false));
+            Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(store, vs, 5, false));
         Self::new_with_runtime(false, mock_runtime)
     }
 
@@ -228,8 +224,7 @@ impl ChunkTestFixture {
                 }
             })
             .cloned()
-            .unwrap()
-            .clone();
+            .unwrap();
         let mock_chunk_part_owner = validators
             .into_iter()
             .find(|v| v != &mock_chunk_producer && v != &mock_shard_tracker)
@@ -364,7 +359,7 @@ fn default_runtime() -> KeyValueRuntime {
     let store = near_store::test_utils::create_test_store();
     // 12 validators, 3 shards, 4 validators per shard
     let vs = make_validators(12, 0, 3);
-    KeyValueRuntime::new_with_validators(store.clone(), vs, 5)
+    KeyValueRuntime::new_with_validators(store, vs, 5)
 }
 // Mocked `PeerManager` adapter, has a queue of `PeerManagerMessageRequest` messages.
 #[derive(Default)]
@@ -372,17 +367,9 @@ pub struct MockClientAdapterForShardsManager {
     pub requests: Arc<RwLock<VecDeque<ShardsManagerResponse>>>,
 }
 
-impl MsgRecipient<WithSpanContext<ShardsManagerResponse>> for MockClientAdapterForShardsManager {
-    fn send(
-        &self,
-        msg: WithSpanContext<ShardsManagerResponse>,
-    ) -> BoxFuture<'static, Result<(), MailboxError>> {
-        self.do_send(msg);
-        futures::future::ok(()).boxed()
-    }
-
-    fn do_send(&self, msg: WithSpanContext<ShardsManagerResponse>) {
-        self.requests.write().unwrap().push_back(msg.msg);
+impl CanSend<ShardsManagerResponse> for MockClientAdapterForShardsManager {
+    fn send(&self, msg: ShardsManagerResponse) {
+        self.requests.write().unwrap().push_back(msg);
     }
 }
 
@@ -392,5 +379,36 @@ impl MockClientAdapterForShardsManager {
     }
     pub fn pop_most_recent(&self) -> Option<ShardsManagerResponse> {
         self.requests.write().unwrap().pop_back()
+    }
+}
+
+// Allows ShardsManagerActor-like behavior, except without having to spawn an actor,
+// and without having to manually route ShardsManagerRequest messages. This only works
+// for single-threaded (synchronous) tests. The ShardsManager is immediately called
+// upon receiving a ShardsManagerRequest message.
+#[derive(Clone)]
+pub struct SynchronousShardsManagerAdapter {
+    // Need a mutex here even though we only support single-threaded tests, because
+    // MsgRecipient requires Sync.
+    pub shards_manager: Arc<Mutex<ShardsManager>>,
+}
+
+impl CanSend<ShardsManagerRequestFromClient> for SynchronousShardsManagerAdapter {
+    fn send(&self, msg: ShardsManagerRequestFromClient) {
+        let mut shards_manager = self.shards_manager.lock().unwrap();
+        shards_manager.handle_client_request(msg);
+    }
+}
+
+impl CanSend<ShardsManagerRequestFromNetwork> for SynchronousShardsManagerAdapter {
+    fn send(&self, msg: ShardsManagerRequestFromNetwork) {
+        let mut shards_manager = self.shards_manager.lock().unwrap();
+        shards_manager.handle_network_request(msg);
+    }
+}
+
+impl SynchronousShardsManagerAdapter {
+    pub fn new(shards_manager: ShardsManager) -> Self {
+        Self { shards_manager: Arc::new(Mutex::new(shards_manager)) }
     }
 }

@@ -29,6 +29,7 @@ rand.workspace = true
 reed-solomon-erasure.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+serde_yaml.workspace = true
 smart-default.workspace = true
 stdx.workspace = true
 strum.workspace = true
@@ -47,19 +48,21 @@ dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
 protocol_feature_fix_staking_threshold = []
 protocol_feature_fix_contract_loading_cost = []
 protocol_feature_reject_blocks_with_outdated_protocol_version = []
-protocol_feature_ed25519_verify = [
-  "near-primitives-core/protocol_feature_ed25519_verify"
+protocol_feature_nep366_delegate_action = [
+  "near-primitives-core/protocol_feature_nep366_delegate_action"
 ]
 nightly = [
   "nightly_protocol",
   "protocol_feature_fix_staking_threshold",
   "protocol_feature_fix_contract_loading_cost",
   "protocol_feature_reject_blocks_with_outdated_protocol_version",
-  "protocol_feature_ed25519_verify",
+  "protocol_feature_nep366_delegate_action",
 ]
 
 nightly_protocol = []
 
+
+calimero_zero_storage = []
 
 [dev-dependencies]
 assert_matches.workspace = true

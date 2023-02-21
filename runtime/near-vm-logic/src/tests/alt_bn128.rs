@@ -1,4 +1,4 @@
-use super::{fixtures::get_context, vm_logic_builder::VMLogicBuilder};
+use super::vm_logic_builder::VMLogicBuilder;
 use near_vm_errors::{HostError, VMLogicError};
 use std::fmt::Write;
 
@@ -75,7 +75,7 @@ fn check_result<T, U>(
     match (actual, expected) {
         (Ok(actual), Ok(expected)) => Some((actual, expected)),
         (Err(VMLogicError::HostError(HostError::AltBn128InvalidInput { msg: err })), Err(msg)) => {
-            let err = err.to_string();
+            let err = err;
             assert!(err.contains(msg), "expected `{msg}` error, got {err}");
             None
         }
@@ -89,14 +89,13 @@ fn test_alt_bn128_g1_multiexp() {
     #[track_caller]
     fn check(input: &[u8], expected: Result<&[u8], &str>) {
         let mut logic_builder = VMLogicBuilder::default();
-        let mut logic = logic_builder.build(get_context(vec![], false));
+        let mut logic = logic_builder.build();
+        let input = logic.internal_mem_write(input);
 
-        let res = logic.alt_bn128_g1_multiexp(input.len() as _, input.as_ptr() as _, 0);
+        let res = logic.alt_bn128_g1_multiexp(input.len, input.ptr, 0);
         if let Some(((), expected)) = check_result(res, expected) {
-            let len = logic.register_len(0).unwrap();
-            let mut res = vec![0u8; len as usize];
-            logic.read_register(0, res.as_mut_ptr() as _).unwrap();
-            assert_eq!(res, expected)
+            let got = logic.registers().get_for_free(0).unwrap();
+            assert_eq_points(&expected, got);
         }
     }
     #[track_caller]
@@ -154,14 +153,13 @@ fn test_alt_bn128_g1_sum() {
     #[track_caller]
     fn check(input: &[u8], expected: Result<&[u8], &str>) {
         let mut logic_builder = VMLogicBuilder::default();
-        let mut logic = logic_builder.build(get_context(vec![], false));
+        let mut logic = logic_builder.build();
+        let input = logic.internal_mem_write(input);
 
-        let res = logic.alt_bn128_g1_sum(input.len() as _, input.as_ptr() as _, 0);
+        let res = logic.alt_bn128_g1_sum(input.len, input.ptr, 0);
         if let Some(((), expected)) = check_result(res, expected) {
-            let len = logic.register_len(0).unwrap();
-            let mut res = vec![0u8; len as usize];
-            logic.read_register(0, res.as_mut_ptr() as _).unwrap();
-            assert_eq_points(&res, expected)
+            let got = logic.registers().get_for_free(0).unwrap();
+            assert_eq_points(&expected, got);
         }
     }
     #[track_caller]
@@ -219,9 +217,10 @@ fn test_alt_bn128_pairing_check() {
     #[track_caller]
     fn check(input: &[u8], expected: Result<u64, &str>) {
         let mut logic_builder = VMLogicBuilder::default();
-        let mut logic = logic_builder.build(get_context(vec![], false));
+        let mut logic = logic_builder.build();
+        let input = logic.internal_mem_write(input);
 
-        let res = logic.alt_bn128_pairing_check(input.len() as _, input.as_ptr() as _);
+        let res = logic.alt_bn128_pairing_check(input.len, input.ptr);
         if let Some((res, expected)) = check_result(res, expected) {
             assert_eq!(res, expected)
         }

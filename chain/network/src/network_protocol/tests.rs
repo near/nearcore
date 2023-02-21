@@ -3,7 +3,7 @@ use crate::network_protocol::testonly as data;
 use crate::network_protocol::Encoding;
 use crate::testonly::make_rng;
 use crate::time;
-use crate::types::{HandshakeFailureReason, PeerMessage};
+use crate::types::{Disconnect, HandshakeFailureReason, PeerMessage};
 use crate::types::{PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
 use anyhow::{bail, Context as _};
 use itertools::Itertools as _;
@@ -39,15 +39,17 @@ fn bad_account_data_size() {
     // rule of thumb: 1000x IPv6 should be considered too much.
     let signer = data::make_validator_signer(&mut rng);
 
-    let ad = AccountData {
-        proxies: (0..1000)
-            .map(|_| {
-                let ip = data::make_ipv6(&mut rng);
-                data::make_peer_addr(&mut rng, ip)
-            })
-            .collect(),
+    let ad = VersionedAccountData {
+        data: AccountData {
+            proxies: (0..1000)
+                .map(|_| {
+                    let ip = data::make_ipv6(&mut rng);
+                    data::make_peer_addr(&mut rng, ip)
+                })
+                .collect(),
+            peer_id: data::make_peer_id(&mut rng),
+        },
         account_key: signer.public_key(),
-        peer_id: data::make_peer_id(&mut rng),
         version: rng.gen(),
         timestamp: clock.now_utc(),
     };
@@ -110,19 +112,19 @@ fn serialize_deserialize() -> anyhow::Result<()> {
             data::make_peer_info(&mut rng),
             HandshakeFailureReason::InvalidTarget,
         ),
-        PeerMessage::LastEdge(edge.clone()),
+        PeerMessage::LastEdge(edge),
         PeerMessage::SyncRoutingTable(data::make_routing_table(&mut rng)),
         PeerMessage::RequestUpdateNonce(data::make_partial_edge(&mut rng)),
         PeerMessage::PeersRequest,
         PeerMessage::PeersResponse((0..5).map(|_| data::make_peer_info(&mut rng)).collect()),
-        PeerMessage::BlockHeadersRequest(chain.blocks.iter().map(|b| b.hash().clone()).collect()),
+        PeerMessage::BlockHeadersRequest(chain.blocks.iter().map(|b| *b.hash()).collect()),
         PeerMessage::BlockHeaders(chain.get_block_headers()),
-        PeerMessage::BlockRequest(chain.blocks[5].hash().clone()),
+        PeerMessage::BlockRequest(*chain.blocks[5].hash()),
         PeerMessage::Block(chain.blocks[5].clone()),
         PeerMessage::Transaction(data::make_signed_transaction(&mut rng)),
         PeerMessage::Routed(routed_message1),
         PeerMessage::Routed(routed_message2),
-        PeerMessage::Disconnect,
+        PeerMessage::Disconnect(Disconnect { remove_from_connection_store: false }),
         PeerMessage::Challenge(data::make_challenge(&mut rng)),
     ];
 

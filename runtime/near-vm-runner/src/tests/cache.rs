@@ -108,23 +108,23 @@ fn test_near_vm_artifact_output_stability() {
     // fall through the cracks here, but hopefully it should catch most of the fish just fine.
     let seeds = [2, 3, 5, 7, 11, 13, 17];
     let prepared_hashes = [
-        17766149642667175174,
-        3069016640047146299,
-        2391221894477377591,
-        10341485621381387623,
-        5128695437974302969,
-        8253441003528399551,
-        15522603040998841545,
+        15237011375120738807,
+        3750594434467176559,
+        2196541628148102482,
+        1576495094908614397,
+        6394387219699970793,
+        18132026143745992229,
+        4095228008100475322,
     ];
     let mut got_prepared_hashes = Vec::with_capacity(seeds.len());
     let compiled_hashes = [
-        12551131314811786323,
-        13028504572602373907,
-        2580973929183801763,
-        13145300348935033331,
-        8634071806725552420,
-        701772735860447193,
-        12207675726963591095,
+        244044469030513689,
+        5237896941728381456,
+        1445436204390956418,
+        6268261877248038469,
+        16220196077572326609,
+        11663797245987968376,
+        17572197684302294358,
     ];
     let mut got_compiled_hashes = Vec::with_capacity(seeds.len());
     for seed in seeds {
@@ -145,9 +145,10 @@ fn test_near_vm_artifact_output_stability() {
         let serialized = artifact.serialize().unwrap();
         let mut hasher = StableHasher::new();
         serialized.hash(&mut hasher);
-        got_compiled_hashes.push(hasher.finish());
+        let this_hash = hasher.finish();
+        got_compiled_hashes.push(this_hash);
 
-        std::fs::write(format!("/tmp/artifact{}", got_compiled_hashes[0]), serialized).unwrap();
+        std::fs::write(format!("/tmp/artifact{}", this_hash), serialized).unwrap();
     }
     // These asserts have failed as a result of some change and the following text describes what
     // the implications of the change.

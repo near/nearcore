@@ -5,6 +5,8 @@ use crate::network_protocol::PeerInfo;
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_store;
 use crate::sink::Sink;
+use crate::stun;
+use crate::tcp;
 use crate::time;
 use crate::types::ROUTED_MESSAGE_TTL;
 use anyhow::Context;
@@ -14,7 +16,6 @@ use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::AccountId;
 use near_primitives::validator_signer::ValidatorSigner;
 use std::collections::HashSet;
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 
 /// How much height horizon to give to consider peer up to date.
@@ -25,10 +26,6 @@ pub const MAX_ROUTES_TO_STORE: usize = 5;
 
 /// Maximum number of PeerAddts in the ValidatorConfig::endpoints field.
 pub const MAX_PEER_ADDRS: usize = 10;
-
-/// Address of the format "<domain/ip>:<port>" of STUN servers.
-// TODO(gprusak): turn into a proper struct implementing Display and FromStr.
-pub type StunServerAddr = String;
 
 /// ValidatorProxies are nodes with public IP (aka proxies) that this validator trusts to be honest
 /// and willing to forward traffic to this validator. Whenever this node is a TIER1 validator
@@ -52,7 +49,7 @@ pub type StunServerAddr = String;
 #[derive(Clone)]
 pub enum ValidatorProxies {
     Static(Vec<PeerAddr>),
-    Dynamic(Vec<StunServerAddr>),
+    Dynamic(Vec<stun::ServerAddr>),
 }
 
 #[derive(Clone)]
@@ -91,7 +88,7 @@ pub struct Tier1 {
 /// Validated configuration for the peer-to-peer manager.
 #[derive(Clone)]
 pub struct NetworkConfig {
-    pub node_addr: Option<SocketAddr>,
+    pub node_addr: Option<tcp::ListenerAddr>,
     pub node_key: SecretKey,
     pub validator: Option<ValidatorConfig>,
 
@@ -99,6 +96,9 @@ pub struct NetworkConfig {
     pub whitelist_nodes: Vec<PeerInfo>,
     pub handshake_timeout: time::Duration,
 
+    /// Whether to re-establish connection to known reliable peers from previous neard run(s).
+    /// See near_network::peer_manager::connection_store for details.
+    pub connect_to_reliable_peers_on_startup: bool,
     /// Maximum time between refreshing the peer list.
     pub monitor_peers_max_period: time::Duration,
     /// Maximum number of active peers. Hard limit.
@@ -177,9 +177,6 @@ impl NetworkConfig {
                 cfg.public_addrs.len()
             );
         }
-        if cfg.public_addrs.len() > 0 && cfg.trusted_stun_servers.len() > 0 {
-            anyhow::bail!("you cannot specify both public_addrs and trusted_stun_servers");
-        }
         let mut proxies = HashSet::new();
         for proxy in &cfg.public_addrs {
             if proxies.contains(&proxy.peer_id) {
@@ -217,7 +214,9 @@ impl NetworkConfig {
             }),
             node_addr: match cfg.addr.as_str() {
                 "" => None,
-                addr => Some(addr.parse().context("Failed to parse SocketAddr")?),
+                addr => Some(tcp::ListenerAddr::new(
+                    addr.parse().context("Failed to parse SocketAddr")?,
+                )),
             },
             peer_store: peer_store::Config {
                 boot_nodes: if cfg.boot_nodes.is_empty() {
@@ -254,6 +253,7 @@ impl NetworkConfig {
                     .collect::<anyhow::Result<_>>()
                     .context("whitelist_nodes")?
             },
+            connect_to_reliable_peers_on_startup: true,
             handshake_timeout: cfg.handshake_timeout.try_into()?,
             monitor_peers_max_period: cfg.monitor_peers_max_period.try_into()?,
             max_num_peers: cfg.max_num_peers,
@@ -297,13 +297,12 @@ impl NetworkConfig {
     }
 
     /// TEST-ONLY: Returns network config with given seed used for peer id.
-    pub fn from_seed(seed: &str, port: u16) -> Self {
+    pub fn from_seed(seed: &str, node_addr: tcp::ListenerAddr) -> Self {
         let node_key = SecretKey::from_seed(KeyType::ED25519, seed);
-        let node_addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port));
         let validator = ValidatorConfig {
             signer: Arc::new(create_test_signer(seed)),
             proxies: ValidatorProxies::Static(vec![PeerAddr {
-                addr: node_addr,
+                addr: *node_addr,
                 peer_id: PeerId::new(node_key.public_key()),
             }]),
         };
@@ -320,6 +319,7 @@ impl NetworkConfig {
             },
             whitelist_nodes: vec![],
             handshake_timeout: time::Duration::seconds(5),
+            connect_to_reliable_peers_on_startup: true,
             monitor_peers_max_period: time::Duration::seconds(100),
             max_num_peers: 40,
             minimum_outbound_peers: 5,
@@ -426,28 +426,29 @@ mod test {
     use crate::config;
     use crate::network_protocol;
     use crate::network_protocol::testonly as data;
-    use crate::network_protocol::AccountData;
+    use crate::network_protocol::{AccountData, VersionedAccountData};
+    use crate::tcp;
     use crate::testonly::make_rng;
     use crate::time;
 
     #[test]
     fn test_network_config() {
-        let nc = config::NetworkConfig::from_seed("123", 213);
+        let nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
         assert!(nc.verify().is_ok());
 
-        let mut nc = config::NetworkConfig::from_seed("123", 213);
+        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
         nc.ideal_connections_lo = nc.ideal_connections_hi + 1;
         assert!(nc.verify().is_err());
 
-        let mut nc = config::NetworkConfig::from_seed("123", 213);
+        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
         nc.ideal_connections_hi = nc.max_num_peers + 1;
         assert!(nc.verify().is_err());
 
-        let mut nc = config::NetworkConfig::from_seed("123", 213);
+        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
         nc.safe_set_size = nc.minimum_outbound_peers;
         assert!(nc.verify().is_err());
 
-        let mut nc = config::NetworkConfig::from_seed("123", 213);
+        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
         nc.peer_recent_time_window = UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE;
         assert!(nc.verify().is_err());
     }
@@ -460,16 +461,18 @@ mod test {
         let clock = time::FakeClock::default();
         let signer = data::make_validator_signer(&mut rng);
 
-        let ad = AccountData {
-            proxies: (0..config::MAX_PEER_ADDRS)
-                .map(|_| {
-                    // Using IPv6 gives maximal size of the resulting config.
-                    let ip = data::make_ipv6(&mut rng);
-                    data::make_peer_addr(&mut rng, ip)
-                })
-                .collect(),
+        let ad = VersionedAccountData {
+            data: AccountData {
+                proxies: (0..config::MAX_PEER_ADDRS)
+                    .map(|_| {
+                        // Using IPv6 gives maximal size of the resulting config.
+                        let ip = data::make_ipv6(&mut rng);
+                        data::make_peer_addr(&mut rng, ip)
+                    })
+                    .collect(),
+                peer_id: data::make_peer_id(&mut rng),
+            },
             account_key: signer.public_key(),
-            peer_id: data::make_peer_id(&mut rng),
             version: 0,
             timestamp: clock.now_utc(),
         };

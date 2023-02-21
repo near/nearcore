@@ -62,7 +62,7 @@ pub fn process_block_sync(
     provenance: Provenance,
     block_processing_artifacts: &mut BlockProcessingArtifact,
 ) -> Result<Vec<AcceptedBlock>, Error> {
-    let block_hash = block.hash().clone();
+    let block_hash = *block.hash();
     chain.start_process_block_async(
         me,
         block,
