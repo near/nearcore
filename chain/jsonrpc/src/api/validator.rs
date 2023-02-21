@@ -5,28 +5,25 @@ use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::validator::{
     RpcValidatorError, RpcValidatorRequest, RpcValidatorsOrderedRequest,
 };
-use near_primitives::types::{EpochReference, MaybeBlockId};
+use near_primitives::types::EpochReference;
 
-use super::{parse_params, RpcFrom, RpcRequest};
+use super::{Params, RpcFrom, RpcRequest};
 
 impl RpcRequest for RpcValidatorRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {
-        let epoch_reference =
-            if let Ok((block_id,)) = parse_params::<(MaybeBlockId,)>(value.clone()) {
-                match block_id {
-                    Some(id) => EpochReference::BlockId(id),
-                    None => EpochReference::Latest,
-                }
-            } else {
-                parse_params::<EpochReference>(value)?
-            };
+        let epoch_reference = Params::new(value)
+            .try_singleton(|block_id| match block_id {
+                Some(id) => Ok(EpochReference::BlockId(id)),
+                None => Ok(EpochReference::Latest),
+            })
+            .unwrap_or_parse()?;
         Ok(Self { epoch_reference })
     }
 }
 
 impl RpcRequest for RpcValidatorsOrderedRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {
-        parse_params::<Self>(value)
+        Params::parse(value)
     }
 }
 

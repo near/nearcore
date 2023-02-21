@@ -347,6 +347,9 @@ pub(super) struct RunCmd {
     /// Set the boot nodes to bootstrap network from.
     #[clap(long)]
     boot_nodes: Option<String>,
+    /// Whether to re-establish connections from the ConnectionStore on startup
+    #[clap(long)]
+    connect_to_reliable_peers_on_startup: Option<bool>,
     /// Minimum number of peers to start syncing/producing blocks
     #[clap(long)]
     min_peers: Option<usize>,
@@ -401,6 +404,12 @@ impl RunCmd {
         // Override some parameters from command line.
         if let Some(produce_empty_blocks) = self.produce_empty_blocks {
             near_config.client_config.produce_empty_blocks = produce_empty_blocks;
+        }
+        if let Some(connect_to_reliable_peers_on_startup) =
+            self.connect_to_reliable_peers_on_startup
+        {
+            near_config.network_config.connect_to_reliable_peers_on_startup =
+                connect_to_reliable_peers_on_startup;
         }
         if let Some(boot_nodes) = self.boot_nodes {
             if !boot_nodes.is_empty() {
