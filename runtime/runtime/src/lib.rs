@@ -445,7 +445,6 @@ impl Runtime {
                     apply_state.current_protocol_version,
                 )?;
             }
-            #[cfg(feature = "protocol_feature_nep366_delegate_action")]
             Action::Delegate(signed_delegate_action) => {
                 apply_delegate_action(
                     state_update,
