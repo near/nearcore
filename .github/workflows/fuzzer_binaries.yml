@@ -27,6 +27,9 @@ jobs:
       - name: Install cargo fuzz subcommand crate
         run: cargo install cargo-fuzz
 
+      - name: Install wasm32
+        run: rustup target add --toolchain nightly wasm32-unknown-unknown
+
       - name: "Set up GCP SDK"
         uses: "google-github-actions/setup-gcloud@v1"
         with:
