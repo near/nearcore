@@ -36,54 +36,21 @@ use crate::DBCol;
 /// reference of a value count or delete data is ignored and if debug assertions
 /// are enabled will cause a panic.
 pub struct ColdDB {
-    hot: std::sync::Arc<dyn Database>,
     cold: std::sync::Arc<dyn Database>,
 }
 
 impl ColdDB {
-    pub fn new(hot: std::sync::Arc<dyn Database>, cold: std::sync::Arc<dyn Database>) -> Self {
-        Self { hot, cold }
+    pub fn new(cold: std::sync::Arc<dyn Database>) -> Self {
+        Self { cold }
     }
 
-    /// Checks which database columns should be accessed from.
-    ///
-    /// For columns present in cold database (see [`DBCol::is_in_colddb`],
-    /// returns false.  For [`DBCol::BlockHeader`] and [`DBCol::EpochInfo`]
-    /// returns true.  For other (hot) columns logs an error and returns false
-    /// (i.e. they are still read from cold database which will result in empty
-    /// read).
-    fn is_hot_column(col: DBCol) -> bool {
-        if matches!(col, DBCol::BlockHeader | DBCol::EpochInfo) {
-            // TODO(#3488): Remove BlockHeader from this case once it becomes
-            // garbage collected.
-            //
-            // Note that at that point it might be beneficial to rather than
-            // storing BlockHeader in cold database to translate all accesses to
-            // the column to read data from DBCol::Block instead (since headers
-            // are embedded within a block).
-            true
-        } else {
-            // TODO: Convert this to near_o11y::log_assert!(col.is_in_colddb(),
-            // ...)  once all cold columns are marked as such.
-            if !col.is_in_colddb() {
-                tracing::debug!(
-                    target: "store",
-                    %col, "Trying to read hot column from cold storage"
-                );
-            }
-            false
-        }
-    }
-}
-
-impl ColdDB {
     /// Returns raw bytes from the underlying storage.
     ///
     /// Adjusts the key if necessary (see [`get_cold_key`]) and retrieves data
     /// corresponding to it from the database and returns it as it resides in
     /// the database.  This is common code used by [`Self::get_raw_bytes`] and
     /// [`Self::get_with_rc_stripped`] methods.
-    fn get_cold_impl(&self, col: DBCol, key: &[u8]) -> std::io::Result<Option<DBSlice<'_>>> {
+    fn get_raw_bytes_impl(&self, col: DBCol, key: &[u8]) -> std::io::Result<Option<DBSlice<'_>>> {
         let mut buffer = [0; 32];
         let key = get_cold_key(col, key, &mut buffer).unwrap_or(key);
         self.cold.get_raw_bytes(col, key)
@@ -98,14 +65,24 @@ impl ColdDB {
         let vec = [data.as_slice(), &ONE[..]].concat();
         DBSlice::from_vec(vec)
     }
+
+    // Checks if the column is is the cold db and returns an error if not.
+    fn check_is_in_colddb(col: DBCol) -> std::io::Result<()> {
+        if !col.is_in_colddb() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Reading from column missing from cold storage. {:?}", col),
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl Database for ColdDB {
     fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> std::io::Result<Option<DBSlice<'_>>> {
-        if Self::is_hot_column(col) {
-            return self.hot.get_raw_bytes(col, key);
-        }
-        match self.get_cold_impl(col, key) {
+        Self::check_is_in_colddb(col)?;
+
+        match self.get_raw_bytes_impl(col, key) {
             Ok(Some(value)) if col.is_rc() => Ok(Some(Self::append_rc(value))),
             result => result,
         }
@@ -113,11 +90,10 @@ impl Database for ColdDB {
 
     fn get_with_rc_stripped(&self, col: DBCol, key: &[u8]) -> std::io::Result<Option<DBSlice<'_>>> {
         assert!(col.is_rc());
-        if Self::is_hot_column(col) {
-            self.hot.get_with_rc_stripped(col, key)
-        } else {
-            self.get_cold_impl(col, key)
-        }
+
+        Self::check_is_in_colddb(col)?;
+
+        self.get_raw_bytes_impl(col, key)
     }
 
     /// Iterates over all values in a column.
@@ -129,22 +105,22 @@ impl Database for ColdDB {
     /// Furthermore, because key of ChunkHashesByHeight is modified in cold
     /// storage, the order of iteration of that column is different than if it
     /// would be in hot storage.
-    fn iter<'a>(&'a self, column: DBCol) -> DBIterator<'a> {
-        match column {
-            DBCol::BlockHeader | DBCol::EpochInfo => return self.hot.iter(column),
+    fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
+        match col {
             // Those are the only columns we’re ever iterating over.
             DBCol::Block | DBCol::ChunkHashesByHeight => (),
-            _ => panic!("iter on cold storage is not supported for {column}"),
+            _ => panic!("iter on cold storage is not supported for {col}"),
         }
-        let it = self.cold.iter_raw_bytes(column);
-        if column == DBCol::ChunkHashesByHeight {
+        let it = self.cold.iter_raw_bytes(col);
+        if col == DBCol::ChunkHashesByHeight {
             // For the column we need to swap bytes in the key.
-            Box::new(it.map(|result| {
+            let it = it.map(|result| {
                 let (mut key, value) = result?;
                 let num = u64::from_le_bytes(key.as_ref().try_into().unwrap());
                 key.as_mut().copy_from_slice(&num.to_be_bytes());
                 Ok((key, value))
-            }))
+            });
+            Box::new(it)
         } else {
             it
         }
@@ -236,6 +212,8 @@ fn get_cold_key<'a>(col: DBCol, key: &[u8], buffer: &'a mut [u8; 32]) -> Option<
         | DBCol::BlockPerHeight
         | DBCol::ChunkHashesByHeight
         | DBCol::ProcessedBlockHeights
+        // TODO HeaderHashesByHeight is not a cold column (is_cold() == false)
+        // but it's handed here. Should it be added to the cold column list? 
         | DBCol::HeaderHashesByHeight => {
             // Key is `little_endian(height)`
             let num = u64::from_le_bytes(key.try_into().unwrap());
@@ -309,16 +287,14 @@ mod test {
     use super::*;
 
     const HEIGHT_LE: &[u8] = &42u64.to_le_bytes();
-    const HEIGHT_BE: &[u8] = &42u64.to_be_bytes();
     const SHARD: &[u8] = "ShardUId".as_bytes();
     const HASH: &[u8] = [0u8; 32].as_slice();
     const VALUE: &[u8] = "FooBar".as_bytes();
 
     /// Constructs test in-memory database.
     fn create_test_db() -> ColdDB {
-        let hot = crate::db::testdb::TestDB::new();
         let cold = crate::db::testdb::TestDB::new();
-        ColdDB::new(hot, cold)
+        ColdDB::new(cold)
     }
 
     fn set(col: DBCol, key: &[u8]) -> DBOp {
@@ -369,14 +345,7 @@ mod test {
         let db = create_test_db();
 
         // Populate data
-        let height_columns = [
-            DBCol::BlockHeight,
-            DBCol::BlockPerHeight,
-            DBCol::ChunkHashesByHeight,
-            DBCol::ProcessedBlockHeights,
-            DBCol::HeaderHashesByHeight,
-        ];
-        let mut ops: Vec<_> = height_columns.iter().map(|col| set(*col, HEIGHT_LE)).collect();
+        let mut ops = vec![];
         ops.push(set(DBCol::State, &[SHARD, HASH].concat()));
         ops.push(set(DBCol::Block, HASH));
         db.write(DBTransaction { ops }).unwrap();
@@ -406,10 +375,6 @@ mod test {
             }
         };
 
-        for col in height_columns {
-            fetch(col, HEIGHT_LE, false);
-            fetch(col, HEIGHT_BE, false);
-        }
         fetch(DBCol::State, &[SHARD, HASH].concat(), false);
         fetch(DBCol::State, &[HASH].concat(), true);
         fetch(DBCol::Block, HASH, false);
@@ -418,36 +383,6 @@ mod test {
         //     cargo install cargo-insta
         //     cargo insta test --accept -p near-store  -- db::colddb
         insta::assert_display_snapshot!(result.join("\n"), @r###"
-        BlockHeight le(42)
-            [cold] get_raw_bytes → FooBar
-            [raw ] get_raw_bytes → ∅
-        BlockHeight be(42)
-            [cold] get_raw_bytes → ∅
-            [raw ] get_raw_bytes → FooBar
-        BlockPerHeight le(42)
-            [cold] get_raw_bytes → FooBar
-            [raw ] get_raw_bytes → ∅
-        BlockPerHeight be(42)
-            [cold] get_raw_bytes → ∅
-            [raw ] get_raw_bytes → FooBar
-        ChunkHashesByHeight le(42)
-            [cold] get_raw_bytes → FooBar
-            [raw ] get_raw_bytes → ∅
-        ChunkHashesByHeight be(42)
-            [cold] get_raw_bytes → ∅
-            [raw ] get_raw_bytes → FooBar
-        ProcessedBlockHeights le(42)
-            [cold] get_raw_bytes → FooBar
-            [raw ] get_raw_bytes → ∅
-        ProcessedBlockHeights be(42)
-            [cold] get_raw_bytes → ∅
-            [raw ] get_raw_bytes → FooBar
-        HeaderHashesByHeight le(42)
-            [cold] get_raw_bytes → FooBar
-            [raw ] get_raw_bytes → ∅
-        HeaderHashesByHeight be(42)
-            [cold] get_raw_bytes → ∅
-            [raw ] get_raw_bytes → FooBar
         State `ShardUId || 11111111111111111111111111111111`
             [cold] get_raw_bytes → FooBar; rc: 1
             [cold] get_sans_rc   → FooBar
@@ -472,18 +407,8 @@ mod test {
         ops.push(set(DBCol::ChunkHashesByHeight, HEIGHT_LE));
         db.write(DBTransaction { ops }).unwrap();
 
-        fn hot(col: DBCol) -> DBOp {
-            let value = String::from("Hot FooBar").into();
-            DBOp::Set { col, key: HASH.to_vec(), value }
-        }
-
-        let ops: Vec<_> =
-            [DBCol::BlockHeader, DBCol::Block, DBCol::EpochInfo].into_iter().map(hot).collect();
-        db.hot.write(DBTransaction { ops }).unwrap();
-
         let mut result = Vec::<String>::new();
-        for col in [DBCol::BlockHeader, DBCol::Block, DBCol::EpochInfo, DBCol::ChunkHashesByHeight]
-        {
+        for col in [DBCol::Block, DBCol::ChunkHashesByHeight] {
             let dbs: [(bool, &dyn Database); 2] = [(false, &db), (true, &*db.cold)];
             result.push(col.to_string());
             for (is_raw, db) in dbs {
@@ -501,14 +426,8 @@ mod test {
         //     cargo install cargo-insta
         //     cargo insta test --accept -p near-store  -- db::colddb
         insta::assert_display_snapshot!(result.join("\n"), @r###"
-        BlockHeader
-        [cold] (11111111111111111111111111111111, Hot FooBar)
-        [raw ] (11111111111111111111111111111111, FooBar)
         Block
         [cold] (11111111111111111111111111111111, FooBar)
-        [raw ] (11111111111111111111111111111111, FooBar)
-        EpochInfo
-        [cold] (11111111111111111111111111111111, Hot FooBar)
         [raw ] (11111111111111111111111111111111, FooBar)
         ChunkHashesByHeight
         [cold] (le(42), FooBar)

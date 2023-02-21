@@ -133,7 +133,7 @@ impl NodeStorage {
         let cold_storage = cold_storage.map(|storage| Arc::new(storage));
 
         let cold_db = if let Some(cold_storage) = cold_storage {
-            Some(Arc::new(crate::db::ColdDB::new(hot_storage.clone(), cold_storage.clone())))
+            Some(Arc::new(crate::db::ColdDB::new(cold_storage)))
         } else {
             None
         };
@@ -255,10 +255,7 @@ impl NodeStorage {
     }
 
     pub fn new_with_cold(hot: Arc<dyn Database>, cold: Arc<dyn Database>) -> Self {
-        Self {
-            hot_storage: hot.clone(),
-            cold_storage: Some(Arc::new(crate::db::ColdDB::new(hot, cold))),
-        }
+        Self { hot_storage: hot, cold_storage: Some(Arc::new(crate::db::ColdDB::new(cold))) }
     }
 
     pub fn cold_db(&self) -> Option<&Arc<crate::db::ColdDB>> {
