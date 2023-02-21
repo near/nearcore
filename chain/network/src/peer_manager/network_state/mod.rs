@@ -1,6 +1,6 @@
 use crate::accounts_data;
 use crate::client;
-use crate::concurrency::demux;
+use crate::concurrency::{ctx,scope,demux};
 use crate::concurrency::runtime::Runtime;
 use crate::config;
 use crate::network_protocol::{
@@ -11,7 +11,6 @@ use crate::peer::peer_actor::PeerActor;
 use crate::peer::peer_actor::{ClosingReason, ConnectionClosedEvent};
 use crate::peer_manager::connection;
 use crate::peer_manager::connection_store;
-use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_store;
 use crate::private_actix::RegisterPeerError;
 use crate::routing::route_back_cache::RouteBackCache;
@@ -42,6 +41,9 @@ pub use background::Event;
 
 /// Limit number of pending Peer actors to avoid OOM.
 pub(crate) const LIMIT_PENDING_PEERS: usize = 60;
+
+/// Due to implementation limits of `Graph` in `near-network`, we support up to 128 client.
+pub const MAX_TIER2_PEERS: usize = 128;
 
 /// Send important messages three times.
 /// We send these messages multiple times to reduce the chance that they are lost
@@ -82,7 +84,7 @@ pub(crate) struct WhitelistNode {
     account_id: Option<AccountId>,
 }
 
-pub(crate) struct NetworkState {
+pub struct NetworkState {
     /// Dedicated runtime for `NetworkState` which runs in a separate thread.
     /// Async methods of NetworkState are not cancellable,
     /// so calling them from, for example, PeerActor is dangerous because
@@ -191,7 +193,7 @@ impl NetworkState {
             add_edges_demux: demux::Demux::new(config.routing_table_update_rate_limit),
             set_chain_info_mutex: Mutex::new(()),
             config,
-            created_at: clock.now(),
+            created_at: ctx::time::now(),
             tier1_advertise_proxies_mutex: tokio::sync::Mutex::new(()),
         }
     }
@@ -215,7 +217,6 @@ impl NetworkState {
     /// and then mark peer as banned in the peer store.
     pub fn disconnect_and_ban(
         &self,
-        clock: &time::Clock,
         peer_id: &PeerId,
         ban_reason: ReasonForBan,
     ) {
@@ -223,7 +224,7 @@ impl NetworkState {
         if let Some(peer) = tier2.ready.get(peer_id) {
             peer.stop(Some(ban_reason));
         } else {
-            if let Err(err) = self.peer_store.peer_ban(clock, peer_id, ban_reason) {
+            if let Err(err) = self.peer_store.peer_ban(peer_id, ban_reason) {
                 tracing::error!(target: "network", ?err, "Failed to save peer data");
             }
         }
@@ -264,71 +265,67 @@ impl NetworkState {
     /// Signature from this node is passed in `edge_info`
     /// Signature from the other node is passed in `full_peer_info.edge_info`.
     pub async fn register(
-        self: &Arc<Self>,
-        clock: &time::Clock,
+        self: &Self,
         edge: Edge,
         conn: Arc<connection::Connection>,
     ) -> Result<(), RegisterPeerError> {
-        let this = self.clone();
-        let clock = clock.clone();
-        self.spawn(async move {
-            let peer_info = &conn.peer_info;
-            // Check if this is a blacklisted peer.
-            if peer_info.addr.as_ref().map_or(true, |addr| this.peer_store.is_blacklisted(addr)) {
-                tracing::debug!(target: "network", peer_info = ?peer_info, "Dropping connection from blacklisted peer or unknown address");
-                return Err(RegisterPeerError::Blacklisted);
-            }
+        let peer_info = &conn.peer_info;
+        
+        // Check if this is a blacklisted peer.
+        if peer_info.addr.as_ref().map_or(true, |addr| self.peer_store.is_blacklisted(addr)) {
+            tracing::debug!(target: "network", peer_info = ?peer_info, "Dropping connection from blacklisted peer or unknown address");
+            return Err(RegisterPeerError::Blacklisted);
+        }
 
-            if this.peer_store.is_banned(&peer_info.id) {
-                tracing::debug!(target: "network", id = ?peer_info.id, "Dropping connection from banned peer");
-                return Err(RegisterPeerError::Banned);
-            }
+        if self.peer_store.is_banned(&peer_info.id) {
+            tracing::debug!(target: "network", id = ?peer_info.id, "Dropping connection from banned peer");
+            return Err(RegisterPeerError::Banned);
+        }
 
-            match conn.tier {
-                tcp::Tier::T1 => {
-                    if conn.peer_type == PeerType::Inbound {
-                        if !this.config.tier1.as_ref().map_or(false, |c| c.enable_inbound) {
-                            return Err(RegisterPeerError::Tier1InboundDisabled);
-                        }
-                        // Allow for inbound TIER1 connections only directly from a TIER1 peers.
-                        let owned_account = conn.owned_account.as_ref().ok_or(RegisterPeerError::NotTier1Peer)?;
-                        if !this.accounts_data.load().keys.contains(&owned_account.account_key) {
-                            return Err(RegisterPeerError::NotTier1Peer);
-                        }
+        match conn.tier {
+            tcp::Tier::T1 => {
+                if conn.peer_type == PeerType::Inbound {
+                    if !self.config.tier1.as_ref().map_or(false, |c| c.enable_inbound) {
+                        return Err(RegisterPeerError::Tier1InboundDisabled);
                     }
-                    if !edge.verify() {
-                        return Err(RegisterPeerError::InvalidEdge);
-                    }
-                    this.tier1.insert_ready(conn).map_err(RegisterPeerError::PoolError)?;
-                }
-                tcp::Tier::T2 => {
-                    if conn.peer_type == PeerType::Inbound {
-                        if !this.is_inbound_allowed(&peer_info) {
-                            // TODO(1896): Gracefully drop inbound connection for other peer.
-                            let tier2 = this.tier2.load();
-                            tracing::debug!(target: "network",
-                                tier2 = tier2.ready.len(), outgoing_peers = tier2.outbound_handshakes.len(),
-                                max_num_peers = this.config.max_num_peers,
-                                "Dropping handshake (network at max capacity)."
-                            );
-                            return Err(RegisterPeerError::ConnectionLimitExceeded);
-                        }
-                    }
-                    // First verify and broadcast the edge of the connection, so that in case
-                    // it is invalid, the connection is not added to the pool.
-                    // TODO(gprusak): consider actually banning the peer for consistency.
-                    this.add_edges(&clock, vec![edge])
-                        .await
-                        .map_err(|_: ReasonForBan| RegisterPeerError::InvalidEdge)?;
-                    this.tier2.insert_ready(conn.clone()).map_err(RegisterPeerError::PoolError)?;
-                    // Best effort write to DB.
-                    if let Err(err) = this.peer_store.peer_connected(&clock, peer_info) {
-                        tracing::error!(target: "network", ?err, "Failed to save peer data");
+                    // Allow for inbound TIER1 connections only directly from a TIER1 peers.
+                    let owned_account = conn.owned_account.as_ref().ok_or(RegisterPeerError::NotTier1Peer)?;
+                    if !self.accounts_data.load().keys.contains(&owned_account.account_key) {
+                        return Err(RegisterPeerError::NotTier1Peer);
                     }
                 }
+                if !edge.verify() {
+                    return Err(RegisterPeerError::InvalidEdge);
+                }
+                self.tier1.insert_ready(conn).map_err(RegisterPeerError::PoolError)?;
             }
-            Ok(())
-        }).await.unwrap()
+            tcp::Tier::T2 => {
+                if conn.peer_type == PeerType::Inbound {
+                    if !self.is_inbound_allowed(&peer_info) {
+                        // TODO(1896): Gracefully drop inbound connection for other peer.
+                        let tier2 = self.tier2.load();
+                        tracing::debug!(target: "network",
+                            tier2 = tier2.ready.len(), outgoing_peers = tier2.outbound_handshakes.len(),
+                            max_num_peers = self.config.max_num_peers,
+                            "Dropping handshake (network at max capacity)."
+                        );
+                        return Err(RegisterPeerError::ConnectionLimitExceeded);
+                    }
+                }
+                // First verify and broadcast the edge of the connection, so that in case
+                // it is invalid, the connection is not added to the pool.
+                // TODO(gprusak): consider actually banning the peer for consistency.
+                self.add_edges(&clock, vec![edge])
+                    .await
+                    .map_err(|_: ReasonForBan| RegisterPeerError::InvalidEdge)?;
+                self.tier2.insert_ready(conn.clone()).map_err(RegisterPeerError::PoolError)?;
+                // Best effort write to DB.
+                if let Err(err) = self.peer_store.peer_connected(&clock, peer_info) {
+                    tracing::error!(target: "network", ?err, "Failed to save peer data");
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Removes the connection from the state.
@@ -708,8 +705,8 @@ impl NetworkState {
         .unwrap()
     }
 
-    pub fn update_connection_store(self: &Arc<Self>, clock: &time::Clock) {
-        self.connection_store.update(clock, &self.tier2.load());
+    pub fn update_connection_store(self: &Arc<Self>) {
+        self.connection_store.update(&self.tier2.load());
     }
 
     /// Clears pending_reconnect and returns the cleared values

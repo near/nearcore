@@ -3,7 +3,6 @@ use crate::types::{
     NetworkInfo, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
     SetChainInfo,
 };
-use crate::PeerManagerActor;
 use actix::{Actor, ActorContext, Context, Handler};
 use futures::future::BoxFuture;
 use futures::{future, Future, FutureExt};
@@ -179,52 +178,6 @@ pub fn expected_routing_tables(
         }
     }
     true
-}
-
-/// `GetInfo` gets `NetworkInfo` from `PeerManager`.
-#[derive(actix::Message)]
-#[rtype(result = "NetworkInfo")]
-pub struct GetInfo {}
-
-impl Handler<WithSpanContext<GetInfo>> for PeerManagerActor {
-    type Result = crate::types::NetworkInfo;
-
-    fn handle(&mut self, msg: WithSpanContext<GetInfo>, _ctx: &mut Context<Self>) -> Self::Result {
-        let (_span, _msg) = handler_debug_span!(target: "network", msg);
-        self.get_network_info()
-    }
-}
-
-// `StopSignal is used to stop PeerManagerActor for unit tests
-#[derive(actix::Message, Default)]
-#[rtype(result = "()")]
-pub struct StopSignal {
-    pub should_panic: bool,
-}
-
-impl StopSignal {
-    pub fn should_panic() -> Self {
-        Self { should_panic: true }
-    }
-}
-
-impl Handler<WithSpanContext<StopSignal>> for PeerManagerActor {
-    type Result = ();
-
-    fn handle(
-        &mut self,
-        msg: WithSpanContext<StopSignal>,
-        ctx: &mut Self::Context,
-    ) -> Self::Result {
-        let (_span, msg) = handler_debug_span!(target: "network", msg);
-        debug!(target: "network", "Receive Stop Signal.");
-
-        if msg.should_panic {
-            panic!("Node crashed");
-        } else {
-            ctx.stop();
-        }
-    }
 }
 
 // Mocked `PeerManager` adapter, has a queue of `PeerManagerMessageRequest` messages.

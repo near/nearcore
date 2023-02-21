@@ -5,7 +5,7 @@ use crate::network_protocol::{
     AccountOrPeerIdOrHash, Disconnect, Edge, PeerIdOrHash, PeerMessage, Ping, Pong,
     RawRoutedMessage, RoutedMessageBody,
 };
-use crate::concurrency::scope;
+use crate::concurrency::{ctx,scope};
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::{NetworkState, WhitelistNode};
@@ -69,9 +69,6 @@ const REPORT_BANDWIDTH_THRESHOLD_COUNT: usize = 10_000;
 /// If we set this horizon too low (for example 2 blocks) - we're risking excluding a lot of peers in case of a short
 /// network issue.
 const UNRELIABLE_PEER_HORIZON: u64 = 60;
-
-/// Due to implementation limits of `Graph` in `near-network`, we support up to 128 client.
-pub const MAX_TIER2_PEERS: usize = 128;
 
 /// When picking a peer to connect to, we'll pick from the 'safer peers'
 /// (a.k.a. ones that we've been connected to in the past) with these odds.
@@ -160,7 +157,7 @@ impl NetworkState {
         // Start server if address provided.
         if let Some(server_addr) = &state.config.node_addr {
             tracing::debug!(target: "network", at = ?server_addr, "starting public server");
-            let mut listener = match server_addr.listener().context(
+            let mut listener = server_addr.listener().context(
                 "failed to start listening on server_addr={server_addr:?} e={e:?}"
             )?;
             state.service.spawn(async {
@@ -193,18 +190,18 @@ impl NetworkState {
                 if let Some(cfg) = state.config.tier1.clone() {
                     // Connect to TIER1 proxies and broadcast the list those connections periodically.
                     s.spawn(async {
-                        let mut interval = time::Interval::new(ctx::time::now(), cfg.advertise_proxies_interval);
-                        loop {
-                            ctx::wait(interval.tick()).await?;
+                        let mut interval = ctx::time::Interval::new(ctx::time::now(), cfg.advertise_proxies_interval);
+                        loop{
+                            interval.tick().await?;
                             state.tier1_request_full_sync();
                             state.tier1_advertise_proxies().await;
                         }
                     });
                     // Update TIER1 connections periodically.
                     s.spawn(async {
-                        let mut interval = time::Interval::new(ctx::time::now(), cfg.connect_interval);
+                        let mut interval = ctx::time::Interval::new(ctx::time::now(), cfg.connect_interval);
                         loop {
-                            ctx::wait(interval.tick()).await?;
+                            interval.tick().await?;
                             state.tier1_connect().await;
                         }
                     });
@@ -212,9 +209,9 @@ impl NetworkState {
 
                 // Periodically poll the connection store for connections we'd like to re-establish
                 s.spawn(async {
-                    let mut interval = time::Interval::new(ctx::time::now(), POLL_CONNECTION_STORE_INTERVAL);
+                    let mut interval = ctx::time::Interval::new(ctx::time::now(), POLL_CONNECTION_STORE_INTERVAL);
                     loop {
-                        ctx::wait(interval.tick()).await?;
+                        interval.tick().await?;
                         scope::run!(|s| async {
                             // Poll the NetworkState for all pending reconnect attempts
                             let pending_reconnect = state.poll_pending_reconnect();
@@ -232,36 +229,36 @@ impl NetworkState {
 
                 // Periodically push network information to client.
                 s.spawn(async {
-                    let mut interval = time::Interval::new(ctx::time::now(), state.config.push_info_period);
+                    let mut interval = ctx::time::Interval::new(ctx::time::now(), state.config.push_info_period);
                     loop {
-                        ctx::wait(interval.tick()).await?;
+                        interval.tick().await?;
                         state.client.network_info(self.get_network_info()).await;
                     }
-                ));
+                });
 
                 // Periodically fix local edges.
                 s.spawn(async {
-                    let mut interval = time::Interval::new(ctx::time::now(), FIX_LOCAL_EDGES_INTERVAL);
+                    let mut interval = ctx::time::Interval::new(ctx::time::now(), FIX_LOCAL_EDGES_INTERVAL);
                     loop {
-                        ctx::wait(interval.tick()).await?;
+                        interval.tick().await?;
                         state.fix_local_edges(FIX_LOCAL_EDGES_TIMEOUT).await;
                     }
-                }));
+                });
 
                 // Periodically update the connection store.
                 s.spawn(async {
-                    let mut interval = time::Interval::new(ctx::time::now(), UPDATE_CONNECTION_STORE_INTERVAL);
+                    let mut interval = ctx::time::Interval::new(ctx::time::now(), UPDATE_CONNECTION_STORE_INTERVAL);
                     loop {
-                        ctx::wait(interval.tick()).await?;
+                        interval.tick().await?;
                         state.update_connection_store();
                     }
-                }));
+                });
 
                 // Periodically prints bandwidth stats for each peer.
                 s.spawn(async {
-                    let mut interval = time::Interval::new(ctx::time::now(), REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL);
+                    let mut interval = ctx::time::Interval::new(ctx::time::now(), REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL);
                     loop {
-                        ctx::wait(interval.tick()).await?;
+                        interval.tick().await?;
                         Self::report_bandwidth_stats_trigger(&state);
                     }
                 });
@@ -269,6 +266,7 @@ impl NetworkState {
             state.tier2.broadcast_message(Arc::new(PeerMessage::Disconnect(Disconnect {
                 remove_from_connection_store: false,
             })));
+            Ok(())
         })?;
         Ok(state)
     }
@@ -903,7 +901,7 @@ impl NetworkState {
                 DebugStatus::PeerStore(PeerStoreView { peer_states: peer_states_view })
             }
             GetDebugStatus::Graph => DebugStatus::Graph(NetworkGraphView {
-                edges: self, 
+                edges: self 
                     .graph
                     .load()
                     .edges

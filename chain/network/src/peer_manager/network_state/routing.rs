@@ -1,6 +1,5 @@
-use super::NetworkState;
 use crate::network_protocol::{Edge, EdgeState, PartialEdgeInfo, PeerMessage, RoutingTableUpdate};
-use crate::peer_manager::peer_manager_actor::Event;
+use crate::peer_manager::network_state::{NetworkState,Event};
 use crate::stats::metrics;
 use crate::time;
 use crate::types::ReasonForBan;

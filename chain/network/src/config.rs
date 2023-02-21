@@ -2,7 +2,7 @@ use crate::blacklist;
 use crate::concurrency::rate;
 use crate::network_protocol::PeerAddr;
 use crate::network_protocol::PeerInfo;
-use crate::peer_manager::peer_manager_actor::Event;
+use crate::peer_manager::network_state::Event;
 use crate::peer_manager::peer_store;
 use crate::sink::Sink;
 use crate::stun;
