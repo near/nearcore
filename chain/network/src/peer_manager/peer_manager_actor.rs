@@ -394,7 +394,7 @@ impl PeerManagerActor {
                 + tier2.outbound_handshakes.len();
 
         (total_connections < self.state.config.ideal_connections_lo as usize
-            || (total_connections < self.state.max_num_peers.load(Ordering::Relaxed) as usize
+            || (total_connections < self.state.config.max_num_peers as usize
                 && potential_outbound_connections
                     < self.state.config.minimum_outbound_peers as usize))
             && !self.state.config.outbound_disabled
@@ -690,7 +690,7 @@ impl PeerManagerActor {
             connected_peers: tier2.ready.values().map(connected_peer).collect(),
             tier1_connections: tier1.ready.values().map(connected_peer).collect(),
             num_connected_peers: tier2.ready.len(),
-            peer_max_count: self.state.max_num_peers.load(Ordering::Relaxed),
+            peer_max_count: self.state.config.max_num_peers,
             highest_height_peers: self.highest_height_peers(),
             sent_bytes_per_sec: tier2
                 .ready
@@ -968,13 +968,6 @@ impl PeerManagerActor {
         }
     }
 
-    #[perf]
-    fn handle_msg_set_adv_options(&mut self, msg: crate::test_utils::SetAdvOptions) {
-        if let Some(set_max_peers) = msg.set_max_peers {
-            self.state.max_num_peers.store(set_max_peers as u32, Ordering::Relaxed);
-        }
-    }
-
     fn handle_peer_manager_message(
         &mut self,
         msg: PeerManagerMessageRequest,
@@ -996,18 +989,8 @@ impl PeerManagerActor {
                 PeerManagerMessageResponse::OutboundTcpConnect
             }
             // TEST-ONLY
-            PeerManagerMessageRequest::SetAdvOptions(msg) => {
-                self.handle_msg_set_adv_options(msg);
-                PeerManagerMessageResponse::SetAdvOptions
-            }
-            // TEST-ONLY
             PeerManagerMessageRequest::FetchRoutingTable => {
                 PeerManagerMessageResponse::FetchRoutingTable(self.state.graph.routing_table.info())
-            }
-            // TEST-ONLY
-            PeerManagerMessageRequest::PingTo { nonce, target } => {
-                self.state.send_ping(&self.clock, tcp::Tier::T2, nonce, target);
-                PeerManagerMessageResponse::PingTo
             }
         }
     }

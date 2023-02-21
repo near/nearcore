@@ -1251,16 +1251,14 @@ impl JsonRpcHandler {
         actix::spawn(
             self.client_addr
                 .send(
-                    near_client::NetworkAdversarialMessage::AdvDisableDoomslug
-                        .with_span_context(),
+                    near_client::NetworkAdversarialMessage::AdvDisableDoomslug.with_span_context(),
                 )
                 .map(|_| ()),
         );
         actix::spawn(
             self.view_client_addr
                 .send(
-                    near_client::NetworkAdversarialMessage::AdvDisableDoomslug
-                        .with_span_context(),
+                    near_client::NetworkAdversarialMessage::AdvDisableDoomslug.with_span_context(),
                 )
                 .map(|_| ()),
         );
@@ -1306,10 +1304,7 @@ impl JsonRpcHandler {
     async fn adv_get_saved_blocks(&self, _params: Value) -> Result<Value, RpcError> {
         match self
             .client_addr
-            .send(
-                near_client::NetworkAdversarialMessage::AdvGetSavedBlocks
-                    .with_span_context(),
-            )
+            .send(near_client::NetworkAdversarialMessage::AdvGetSavedBlocks.with_span_context())
             .await
         {
             Ok(result) => match result {

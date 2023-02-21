@@ -28,7 +28,7 @@ use std::sync::Arc;
 /// Exported types, which are part of network protocol.
 pub use crate::network_protocol::{
     Edge, PartialEdgeInfo, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
-    PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo, Ping, Pong, StateResponseInfo,
+    PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo, StateResponseInfo,
     StateResponseInfoV1, StateResponseInfoV2,
 };
 
@@ -171,16 +171,9 @@ pub enum PeerManagerMessageRequest {
     /// Used in tests and internally by PeerManager.
     /// TODO: replace it with AsyncContext::spawn/run_later for internal use.
     OutboundTcpConnect(crate::tcp::Stream),
-    /// TEST-ONLY
-    SetAdvOptions(crate::test_utils::SetAdvOptions),
     /// The following types of requests are used to trigger actions in the Peer Manager for testing.
     /// TEST-ONLY: Fetch current routing table.
     FetchRoutingTable,
-    /// TEST-ONLY Start ping to `PeerId` with `nonce`.
-    PingTo {
-        nonce: u64,
-        target: PeerId,
-    },
 }
 
 impl PeerManagerMessageRequest {
@@ -207,9 +200,7 @@ pub enum PeerManagerMessageResponse {
     NetworkResponses(NetworkResponses),
     /// TEST-ONLY
     OutboundTcpConnect,
-    SetAdvOptions,
     FetchRoutingTable(RoutingTableInfo),
-    PingTo,
 }
 
 impl PeerManagerMessageResponse {
@@ -383,7 +374,6 @@ pub struct NetworkInfo {
 #[derive(Debug, actix::MessageResponse, PartialEq, Eq)]
 pub enum NetworkResponses {
     NoResponse,
-    PingPongInfo { pings: Vec<Ping>, pongs: Vec<Pong> },
     RouteNotFound,
 }
 
@@ -483,8 +473,6 @@ mod tests {
         assert_size!(NetworkRequests);
         assert_size!(NetworkResponses);
         assert_size!(Handshake);
-        assert_size!(Ping);
-        assert_size!(Pong);
         assert_size!(RoutingTableUpdate);
         assert_size!(FullPeerInfo);
         assert_size!(NetworkInfo);
@@ -512,8 +500,6 @@ mod tests {
     fn test_struct_size() {
         assert_size!(PeerInfo);
         assert_size!(AnnounceAccount);
-        assert_size!(Ping);
-        assert_size!(Pong);
         assert_size!(RawRoutedMessage);
         assert_size!(RoutedMessage);
         assert_size!(KnownPeerState);
