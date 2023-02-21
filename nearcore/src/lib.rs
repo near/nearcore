@@ -1,4 +1,4 @@
-use crate::cold_storage::spawn_cold_store_loop;
+use crate::cold_storage::{spawn_cold_db_metrics_loop, spawn_cold_store_loop};
 pub use crate::config::{init_configs, load_config, load_test_config, NearConfig, NEAR_BASE};
 pub use crate::runtime::NightshadeRuntime;
 use crate::state_sync::{spawn_state_sync_dump, StateSyncDumpHandle};
@@ -218,6 +218,8 @@ pub fn start_with_config_and_synchronization(
     };
 
     let cold_store_loop_handle = spawn_cold_store_loop(&config, &store, runtime.clone())?;
+
+    let cold_db_metrics_handle = spawn_cold_db_metrics_loop(&store);
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
     let chain_genesis = ChainGenesis::new(&config.genesis);

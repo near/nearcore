@@ -353,3 +353,26 @@ pub fn spawn_cold_store_loop(
 
     Ok(Some(ColdStoreLoopHandle { join_handle, keep_going }))
 }
+
+pub fn spawn_cold_db_metrics_loop(
+    storage: &NodeStorage,
+) -> anyhow::Result<Option<actix_rt::ArbiterHandle>> {
+    let cold_store = match storage.get_cold_store() {
+        Some(cold_store) => cold_store,
+        None => {
+            tracing::debug!(target:"cold_store", "Not spawning cold db metrics loop because cold store is not configured");
+            return Ok(None);
+        }
+    };
+    let cold_db_metrics_arbiter = actix_rt::Arbiter::new();
+    let cold_db_metrics_arbiter_handle = cold_db_metrics_arbiter.handle();
+    cold_db_metrics_arbiter.spawn(async move {
+        let mut interval = actix_rt::time::interval(std::time::Duration::from_secs(60));
+        loop {
+            interval.tick().await;
+            let statistics = cold_store.get_store_statistics();
+            rocksdb_metrics::export_stats_as_metrics(statistics, Some(near_store::Temperature::Cold));
+        }
+    });
+    Ok(Some(cold_db_metrics_arbiter_handle))
+}

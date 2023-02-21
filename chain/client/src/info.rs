@@ -338,7 +338,7 @@ impl InfoHelper {
             info!(target: "stats", "Catchups\n{}", catchup_status_log);
         }
         if let Some(statistics) = statistics {
-            rocksdb_metrics::export_stats_as_metrics(statistics);
+            rocksdb_metrics::export_stats_as_metrics(statistics, None);
         }
         if let Some(config_updater) = &config_updater {
             config_updater.report_status();
