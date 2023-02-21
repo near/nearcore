@@ -15,6 +15,8 @@ use std::io::Write;
     derive_more::AsRef,
     derive_more::AsMut,
     arbitrary::Arbitrary,
+    borsh::BorshDeserialize,
+    borsh::BorshSerialize,
 )]
 #[as_ref(forward)]
 #[as_mut(forward)]
@@ -113,19 +115,6 @@ enum Decode58Result {
 impl Default for CryptoHash {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-impl borsh::BorshSerialize for CryptoHash {
-    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
-        writer.write_all(&self.0)?;
-        Ok(())
-    }
-}
-
-impl borsh::BorshDeserialize for CryptoHash {
-    fn deserialize(buf: &mut &[u8]) -> Result<Self, std::io::Error> {
-        Ok(CryptoHash(borsh::BorshDeserialize::deserialize(buf)?))
     }
 }
 
