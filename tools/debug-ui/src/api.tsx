@@ -41,7 +41,7 @@ export interface BuildInfo {
 
 export interface DetailedDebugStatus {
     network_info: NetworkInfoView,
-    sync_status: String,
+    sync_status: string,
     catchup_status: CatchupStatusView[],
     current_head_status: BlockStatusView,
     current_header_head_status: BlockStatusView,
@@ -53,6 +53,7 @@ export interface NetworkInfoView {
     num_connected_peers: number,
     connected_peers: PeerInfoView[],
     known_producers: KnownProducerView[],
+    tier1_accounts_keys?: string[],
     tier1_accounts_data?: AccountData[],
     tier1_connections?: PeerInfoView[],
 }
@@ -174,9 +175,9 @@ export interface EpochInfoView {
     first_block: null | [string, string],
     block_producers: ValidatorInfo[],
     chunk_only_producers: string[],
-    validator_info: EpochValidatorInfo[],
+    validator_info: EpochValidatorInfo,
     protocol_version: number,
-    shard_size_and_parts: [number, number, boolean][],
+    shards_size_and_parts: [number, number, boolean][],
 }
 
 export interface EpochValidatorInfo {
@@ -210,11 +211,10 @@ export interface NextEpochValidatorInfo {
 }
 
 export interface ValidatorStakeView {
-    V1: {
-        account_id: string,
-        public_key: string,
-        stake: string,
-    }
+    account_id: string,
+    public_key: string,
+    stake: string,
+    validator_stake_struct_version: 'V1',
 }
 
 export interface ValidatorKickoutView {
@@ -276,6 +276,23 @@ export interface PeerStoreResponse {
     }
 }
 
+export interface ConnectionInfoView {
+    peer_id: string,
+    addr: string,
+    time_established: number,
+    time_connected_until: number,
+}
+
+export interface RecentOutboundConnectionsView {
+    recent_outbound_connections: ConnectionInfoView[],
+}
+
+export interface RecentOutboundConnectionsResponse {
+    status_response: {
+        RecentOutboundConnections: RecentOutboundConnectionsView
+    }
+}
+
 export async function fetchBasicStatus(addr: string): Promise<StatusResponse> {
     const response = await fetch(`http://${addr}/status`);
     return await response.json();
@@ -309,5 +326,10 @@ export async function fetchEpochInfo(addr: string): Promise<EpochInfoResponse> {
 
 export async function fetchPeerStore(addr: string): Promise<PeerStoreResponse> {
     const response = await fetch(`http://${addr}/debug/api/peer_store`);
+    return await response.json();
+}
+
+export async function fetchRecentOutboundConnections(addr: string): Promise<RecentOutboundConnectionsResponse> {
+    const response = await fetch(`http://${addr}/debug/api/recent_outbound_connections`);
     return await response.json();
 }

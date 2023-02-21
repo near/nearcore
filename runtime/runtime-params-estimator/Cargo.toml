@@ -69,10 +69,6 @@ nightly = [
 nightly_protocol = [
   "near-primitives/nightly_protocol",
   "near-test-contracts/nightly",
-  "protocol_feature_nep366_delegate_action",
-]
-protocol_feature_nep366_delegate_action = [
-  "nearcore/protocol_feature_nep366_delegate_action",
 ]
 protocol_feature_flat_state = [
   "nearcore/protocol_feature_flat_state",
