@@ -85,7 +85,7 @@ impl FlatStorageCommand {
     pub fn run(&self, home_dir: &PathBuf) -> anyhow::Result<()> {
         let near_config =
             load_config(home_dir, near_chain_configs::GenesisValidationMode::Full).unwrap();
-        let opener = NodeStorage::opener(home_dir, &near_config.config.store, None);
+        let opener = NodeStorage::opener(home_dir, false, &near_config.config.store, None);
 
         match &self.subcmd {
             SubCommand::View => {
