@@ -869,10 +869,17 @@ fn generate_or_load_keys(
     Ok(())
 }
 
-/// Initializes genesis and client configs and stores in the given folder
+/// Initializes Genesis, client Config, node and validator keys, and stores in the specified folder.
+///
+/// This method supports the following use cases:
+/// * When no Config, Genesis or key files exist.
+/// * When Config and Genesis files exist, but no keys exist.
+/// * When all of Config, Genesis, and key files exist.
+///
+/// Note that this method does not support the case where the configuration file exists but the genesis file does not exist.
 pub fn init_configs(
     dir: &Path,
-    chain_id: Option<&str>,
+    chain_id: Option<String>,
     account_id: Option<AccountId>,
     test_seed: Option<&str>,
     num_shards: NumShards,
@@ -888,9 +895,11 @@ pub fn init_configs(
 ) -> anyhow::Result<()> {
     fs::create_dir_all(dir).with_context(|| anyhow!("Failed to create directory {:?}", dir))?;
 
-    let chain_id = chain_id
-        .and_then(|c| if c.is_empty() { None } else { Some(c.to_string()) })
-        .unwrap_or_else(random_chain_id);
+    assert_ne!(chain_id, Some("".to_string()));
+    let chain_id = match chain_id {
+        Some(chain_id) => chain_id,
+        None => random_chain_id(),
+    };
 
     // Check if config already exists in home dir.
     if dir.join(CONFIG_FILENAME).exists() {
@@ -1471,7 +1480,7 @@ fn test_init_config_localnet() {
     let temp_dir = tempdir().unwrap();
     init_configs(
         &temp_dir.path(),
-        Some("localnet"),
+        Some("localnet".to_string()),
         None,
         Some("seed1"),
         3,
@@ -1512,6 +1521,73 @@ fn test_init_config_localnet() {
         ),
         2
     );
+}
+
+#[test]
+// Tests that `init_configs()` works if both config and genesis file exists, but the node key and validator key files don't exist.
+// Test does the following:
+// * Initialize all config and key files
+// * Check that the key files exist
+// * Remove the key files
+// * Run the initialization again
+// * Check that the key files got created
+fn test_init_config_localnet_keep_config_create_node_key() {
+    let temp_dir = tempdir().unwrap();
+    // Initialize all config and key files.
+    init_configs(
+        &temp_dir.path(),
+        Some("localnet".to_string()),
+        Some(AccountId::from_str("account.near").unwrap()),
+        Some("seed1"),
+        3,
+        false,
+        None,
+        false,
+        None,
+        None,
+        false,
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+
+    // Check that the key files exist.
+    let _genesis =
+        Genesis::from_file(temp_dir.path().join("genesis.json"), GenesisValidationMode::Full)
+            .unwrap();
+    let config = Config::from_file(&temp_dir.path().join(CONFIG_FILENAME)).unwrap();
+    let node_key_file = temp_dir.path().join(config.node_key_file);
+    let validator_key_file = temp_dir.path().join(config.validator_key_file);
+    assert!(node_key_file.exists());
+    assert!(validator_key_file.exists());
+
+    // Remove the key files.
+    std::fs::remove_file(&node_key_file).unwrap();
+    std::fs::remove_file(&validator_key_file).unwrap();
+
+    // Run the initialization again.
+    init_configs(
+        &temp_dir.path(),
+        Some("localnet".to_string()),
+        Some(AccountId::from_str("account.near").unwrap()),
+        Some("seed1"),
+        3,
+        false,
+        None,
+        false,
+        None,
+        None,
+        false,
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+
+    // Check that the key files got created.
+    let _node_signer = InMemorySigner::from_file(&node_key_file).unwrap();
+    let _validator_signer = InMemorySigner::from_file(&validator_key_file).unwrap();
 }
 
 /// Tests that loading a config.json file works and results in values being
