@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 """
 Prober that is compatible with cloudprober.
 Prober verifies that any block since the genesis can be retrieved from a node.
@@ -24,7 +23,8 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 import configured_logger
 
-logger = configured_logger.new_logger("stderr", stderr = True)
+logger = configured_logger.new_logger("stderr", stderr=True)
+
 
 def json_rpc(method, params, url):
     try:
@@ -37,7 +37,9 @@ def json_rpc(method, params, url):
         start_time = time.time()
         r = requests.post(url, json=j, timeout=5)
         latency_ms = (time.time() - start_time)
-        print(f'prober_request_latency_ms{{method="{method}",url="{url}"}} {latency_ms:.2f}')
+        print(
+            f'prober_request_latency_ms{{method="{method}",url="{url}"}} {latency_ms:.2f}'
+        )
         result = json.loads(r.content)
         return result
     except Exception as e:
@@ -103,7 +105,9 @@ def main():
     genesis_height = get_genesis_height(url)
     head = get_head(url)
     if head < genesis_height:
-        logger.error(f'head must be higher than genesis. Got {head} and {genesis_height}')
+        logger.error(
+            f'head must be higher than genesis. Got {head} and {genesis_height}'
+        )
         sys.exit(1)
 
     # Pick a random number and then try to lookup a block at that height.
@@ -118,19 +122,24 @@ def main():
         # missing because the node doesn't have history, or because the block
         # was skipped.
         if random_height == genesis_height:
-            logger.error(f'Genesis block is missing. This is impossible {random_height}')
+            logger.error(
+                f'Genesis block is missing. This is impossible {random_height}')
 
         random_height -= 1
         attempt += 1
         # Limit the number of attempts.
         if attempt > 10:
-            logger.error(f'{attempt} consecutive blocks are missing. This is improbable. From {random_height + 1} to {random_height + attempt}')
+            logger.error(
+                f'{attempt} consecutive blocks are missing. This is improbable. From {random_height + 1} to {random_height + attempt}'
+            )
             sys.exit(1)
 
     # Lookup a chunk to make sure the node contains it.
     num_chunks = len(block['chunks'])
     logger.info(f'Block {random_height} contains {num_chunks} chunks')
-    logger.info(f'Block {random_height} timestamp {datetime.datetime.fromtimestamp(block["header"]["timestamp"]//10**9)}')
+    logger.info(
+        f'Block {random_height} timestamp {datetime.datetime.fromtimestamp(block["header"]["timestamp"]//10**9)}'
+    )
     if num_chunks > 0:
         chunk = random.choice(block['chunks'])
         get_chunk(chunk, url)
