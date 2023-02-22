@@ -9,11 +9,12 @@ use crate::tests::standard_cases::fee_helper;
 use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
-use near_crypto::{KeyType, PublicKey};
-use near_primitives::account::AccessKey;
+use near_crypto::{KeyType, PublicKey, Signer};
+use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::config::ActionCosts;
 use near_primitives::errors::{
-    ActionError, ActionErrorKind, ActionsValidationError, InvalidTxError, TxExecutionError,
+    ActionError, ActionErrorKind, ActionsValidationError, InvalidAccessKeyError, InvalidTxError,
+    TxExecutionError,
 };
 use near_primitives::test_utils::{create_user_test_signer, implicit_test_account};
 use near_primitives::transaction::{
@@ -23,14 +24,21 @@ use near_primitives::transaction::{
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{
-    AccessKeyPermissionView, FinalExecutionOutcomeView, FinalExecutionStatus,
+    AccessKeyPermissionView, ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus,
 };
 use near_test_contracts::{ft_contract, smallest_rs_contract};
 use nearcore::config::GenesisExt;
 use nearcore::NEAR_BASE;
 use testlib::runtime_utils::{
-    add_contract, alice_account, bob_account, carol_account, eve_dot_alice_account,
+    add_account_with_access_key, add_contract, add_test_contract, alice_account, bob_account,
+    carol_account, eve_dot_alice_account,
 };
+
+/// For test adding a function access key with allowance.
+const INITIAL_ALLOWANCE: Balance = NEAR_BASE;
+/// Commonly used method in the test contract.
+const TEST_METHOD: &str = "log_something";
+const TEST_METHOD_LEN: u64 = TEST_METHOD.len() as u64;
 
 fn exec_meta_transaction(
     actions: Vec<Action>,
@@ -274,21 +282,144 @@ fn meta_tx_fn_call() {
     let receiver = carol_account();
     let node = RuntimeNode::new(&relayer);
 
-    let method_name = "log_something".to_owned();
-    let method_name_len = method_name.len() as u64;
-    let actions = vec![Action::FunctionCall(FunctionCallAction {
-        method_name,
-        args: vec![],
-        gas: 30_000_000_000_000,
-        deposit: 0,
-    })];
-
+    let actions = vec![log_something_fn_call()];
     let outcome =
-        check_meta_tx_fn_call(&node, actions, method_name_len, 0, sender, relayer, receiver);
+        check_meta_tx_fn_call(&node, actions, TEST_METHOD_LEN, 0, sender, relayer, receiver);
 
     // Check that the function call was executed as expected
     let fn_call_logs = &outcome.receipts_outcome[1].outcome.logs;
     assert_eq!(fn_call_logs, &vec!["hello".to_owned()]);
+}
+
+/// Call a function in a meta tx where the user only has access through a
+/// function call access key.
+#[test]
+fn meta_tx_fn_call_access_key() {
+    let sender = bob_account();
+    let relayer = alice_account();
+    let receiver = carol_account();
+    let signer = create_user_test_signer(&sender);
+    let public_key = signer.public_key();
+
+    let node = setup_with_access_key(
+        &relayer,
+        &receiver,
+        &sender,
+        public_key.clone(),
+        INITIAL_ALLOWANCE,
+        TEST_METHOD,
+    );
+
+    // Check previous allowance is set as expected
+    let key =
+        node.user().get_access_key(&sender, &public_key).expect("failed looking up fn access key");
+    let AccessKeyPermissionView::FunctionCall { allowance, ..} = key.permission else {
+        panic!("should be function access key")
+    };
+    assert_eq!(allowance.unwrap(), INITIAL_ALLOWANCE);
+
+    let actions = vec![log_something_fn_call()];
+    let outcome = check_meta_tx_fn_call(
+        &node,
+        actions,
+        TEST_METHOD_LEN,
+        0,
+        sender.clone(),
+        relayer,
+        receiver,
+    );
+
+    // Check that the function call was executed as expected
+    let fn_call_logs = &outcome.receipts_outcome[1].outcome.logs;
+    assert_eq!(fn_call_logs, &vec!["hello".to_owned()]);
+
+    // Check allowance was not updated
+    let key = node
+        .user()
+        .get_access_key(&sender, &signer.public_key())
+        .expect("failed looking up fn access key");
+    let AccessKeyPermissionView::FunctionCall { allowance, ..} = key.permission else {
+        panic!("should be function access key")
+    };
+    assert_eq!(
+        allowance.unwrap(),
+        INITIAL_ALLOWANCE,
+        "allowance should not change, we used the relayer's fund not the sender's"
+    );
+}
+
+/// Call a function in a meta tx where the user only has access through a
+/// function call access that has too little allowance left.
+#[test]
+fn meta_tx_fn_call_access_key_insufficient_allowance() {
+    let sender = bob_account();
+    let relayer = alice_account();
+    let receiver = carol_account();
+
+    // 1 yocto near, that's less than 1 gas unit
+    let initial_allowance = 1;
+    let signer = create_user_test_signer(&sender);
+
+    let node = setup_with_access_key(
+        &relayer,
+        &receiver,
+        &sender,
+        signer.public_key(),
+        initial_allowance,
+        TEST_METHOD,
+    );
+
+    let actions = vec![log_something_fn_call()];
+    // this should still succeed because we use the gas of the relayer, not of the access key
+    let outcome =
+        check_meta_tx_fn_call(&node, actions, TEST_METHOD_LEN, 0, sender, relayer, receiver);
+
+    // Check that the function call was executed as expected
+    let fn_call_logs = &outcome.receipts_outcome[1].outcome.logs;
+    assert_eq!(fn_call_logs, &vec!["hello".to_owned()]);
+}
+
+/// Call a function in a meta tx where the user doesn't have the appropriate
+/// access key, which must fail.
+///
+/// This is quite to fail, method restricted access keys can give restricted
+/// access to a contract. If meta transactions can be used to circumvent this
+/// check, then someone with an access key could impersonate the account in
+/// unintended ways.
+#[test]
+fn meta_tx_fn_call_access_wrong_method() {
+    let sender = bob_account();
+    let relayer = alice_account();
+    let receiver = carol_account();
+    let signer = create_user_test_signer(&sender);
+
+    let access_key_method_name = "log_something_else";
+    let node = setup_with_access_key(
+        &relayer,
+        &receiver,
+        &sender,
+        signer.public_key(),
+        INITIAL_ALLOWANCE,
+        access_key_method_name,
+    );
+
+    let actions = vec![log_something_fn_call()];
+    let tx_result = node.user().meta_tx(sender, receiver, relayer, actions).unwrap();
+    // actual check has to be done in the receipt on the sender shard, not the
+    // relayer, so let's check the receipt is present with the appropriate error
+    let inner_status = &tx_result.receipts_outcome[0].outcome.status;
+    assert!(
+        matches!(
+            inner_status,
+            ExecutionStatusView::Failure(TxExecutionError::ActionError(ActionError {
+                kind: ActionErrorKind::DelegateActionAccessKeyError(
+                    InvalidAccessKeyError::MethodNameMismatch { .. }
+                ),
+                ..
+            })),
+        ),
+        "expected MethodNameMismatch but found {inner_status:?}"
+    );
 }
 
 #[test]
@@ -502,6 +633,16 @@ fn meta_tx_ft_transfer() {
     assert_ft_balance(&node, &ft_contract, &relayer, 1_000_000 - 10_000 + 10);
 }
 
+/// Call the function "log_something" in the test contract.
+fn log_something_fn_call() -> Action {
+    Action::FunctionCall(FunctionCallAction {
+        method_name: TEST_METHOD.to_owned(),
+        args: vec![],
+        gas: 30_000_000_000_000,
+        deposit: 0,
+    })
+}
+
 /// Construct an function call action with a FT transfer.
 ///
 /// Returns the action and the number of bytes for gas charges.
@@ -575,6 +716,38 @@ fn assert_ft_balance(
         .expect("view call failed");
     let balance = std::str::from_utf8(&response.result).expect("invalid UTF8");
     assert_eq!(format!("\"{expected_balance}\""), balance);
+}
+
+/// Create a test setup where a receiver has the general test contract
+/// deployed and the sender has an access key for it's test method.
+fn setup_with_access_key(
+    user: &AccountId,
+    receiver: &AccountId,
+    sender: &AccountId,
+    public_key: PublicKey,
+    allowance: Balance,
+    method: &str,
+) -> RuntimeNode {
+    let access_key = fn_access_key(allowance, receiver.to_string(), vec![method.to_owned()]);
+    let mut genesis = Genesis::test(vec![user.clone(), receiver.clone()], 3);
+    add_test_contract(&mut genesis, &receiver);
+    add_account_with_access_key(&mut genesis, sender.clone(), NEAR_BASE, public_key, access_key);
+    RuntimeNode::new_from_genesis(user, genesis)
+}
+
+fn fn_access_key(
+    initial_allowance: u128,
+    receiver_id: String,
+    method_names: Vec<String>,
+) -> AccessKey {
+    AccessKey {
+        nonce: 0,
+        permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+            allowance: Some(initial_allowance),
+            receiver_id,
+            method_names,
+        }),
+    }
 }
 
 /// Test account creation scenarios with meta transactions.
