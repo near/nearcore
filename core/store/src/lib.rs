@@ -295,8 +295,8 @@ impl Store {
         StoreUpdate::new(Arc::clone(&self.storage))
     }
 
-    pub fn iter<'a>(&'a self, column: DBCol) -> DBIterator<'a> {
-        self.storage.iter(column)
+    pub fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
+        self.storage.iter(col)
     }
 
     /// Fetches raw key/value pairs from the database.
@@ -305,21 +305,21 @@ impl Store {
     /// This method is a deliberate escape hatch, and shouldn't be used outside
     /// of auxilary code like migrations which wants to hack on the database
     /// directly.
-    pub fn iter_raw_bytes<'a>(&'a self, column: DBCol) -> DBIterator<'a> {
-        self.storage.iter_raw_bytes(column)
+    pub fn iter_raw_bytes<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
+        self.storage.iter_raw_bytes(col)
     }
 
-    pub fn iter_prefix<'a>(&'a self, column: DBCol, key_prefix: &'a [u8]) -> DBIterator<'a> {
-        self.storage.iter_prefix(column, key_prefix)
+    pub fn iter_prefix<'a>(&'a self, col: DBCol, key_prefix: &'a [u8]) -> DBIterator<'a> {
+        self.storage.iter_prefix(col, key_prefix)
     }
 
     pub fn iter_prefix_ser<'a, T: BorshDeserialize>(
         &'a self,
-        column: DBCol,
+        col: DBCol,
         key_prefix: &'a [u8],
     ) -> impl Iterator<Item = io::Result<(Box<[u8]>, T)>> + 'a {
         self.storage
-            .iter_prefix(column, key_prefix)
+            .iter_prefix(col, key_prefix)
             .map(|item| item.and_then(|(key, value)| Ok((key, T::try_from_slice(value.as_ref())?))))
     }
 

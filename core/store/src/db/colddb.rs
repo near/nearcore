@@ -146,9 +146,9 @@ impl Database for ColdDB {
     }
 
     /// Unimplemented; always panics.
-    fn iter_raw_bytes<'a>(&'a self, column: DBCol) -> DBIterator<'a> {
+    fn iter_raw_bytes<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
         // We’re actually never call iter_raw_bytes on cold store.
-        unreachable!("iter_raw_bytes is not allowed in the ColdDB, col: {column}");
+        unreachable!("iter_raw_bytes is not allowed in the ColdDB, col: {col}");
     }
 
     /// Atomically applies operations in given transaction.

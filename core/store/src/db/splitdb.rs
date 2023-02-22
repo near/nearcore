@@ -81,10 +81,10 @@ impl Database for SplitDB {
     /// may be behind by up to gc_num_epochs_to_keep epochs under acceptable
     /// conditions or more if the cold store loop is falling behind under
     /// erroneous conditions.
-    fn iter<'a>(&'a self, column: DBCol) -> DBIterator<'a> {
-        match column.is_cold() {
-            false => self.hot.iter(column),
-            true => self.cold.iter(column),
+    fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
+        match col.is_cold() {
+            false => self.hot.iter(col),
+            true => self.cold.iter(col),
         }
     }
 
@@ -102,9 +102,9 @@ impl Database for SplitDB {
     /// Iterate over items in given column bypassing reference count decoding if
     /// any. This method falls back to the hot iter_raw_bytes because ColdDB
     /// doesn't implement it.
-    fn iter_raw_bytes<'a>(&'a self, column: DBCol) -> DBIterator<'a> {
+    fn iter_raw_bytes<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
         log_assert!(false, "unexpected call to iter_raw_bytes on the split storage");
-        self.hot.iter_raw_bytes(column)
+        self.hot.iter_raw_bytes(col)
     }
 
     fn write(&self, batch: DBTransaction) -> io::Result<()> {
