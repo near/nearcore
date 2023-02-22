@@ -213,7 +213,7 @@ fn get_cold_key<'a>(col: DBCol, key: &[u8], buffer: &'a mut [u8; 32]) -> Option<
         | DBCol::ChunkHashesByHeight
         | DBCol::ProcessedBlockHeights
         // TODO HeaderHashesByHeight is not a cold column (is_cold() == false)
-        // but it's handed here. Should it be added to the cold column list? 
+        // but it's handled here. Should it be added to the cold column list? 
         | DBCol::HeaderHashesByHeight => {
             // Key is `little_endian(height)`
             let num = u64::from_le_bytes(key.try_into().unwrap());
