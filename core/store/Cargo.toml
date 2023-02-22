@@ -40,6 +40,7 @@ assert_matches.workspace = true
 bencher.workspace = true
 insta.workspace = true
 rand.workspace = true
+thiserror.workspace = true
 
 [[bench]]
 name = "trie_bench"
@@ -56,6 +57,7 @@ no_cache = []
 single_thread_rocksdb = [] # Deactivate RocksDB IO background threads
 test_features = []
 protocol_feature_flat_state = []
+serialize_all_state_changes = []
 
 nightly_protocol = []
 nightly = [

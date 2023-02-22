@@ -27,6 +27,7 @@ pub mod debug;
 mod info;
 mod metrics;
 mod rocksdb_metrics;
+pub mod state_changes;
 pub mod sync;
 pub mod test_utils;
 #[cfg(test)]

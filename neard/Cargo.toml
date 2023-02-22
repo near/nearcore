@@ -67,6 +67,7 @@ protocol_feature_nep366_delegate_action = [
   "nearcore/protocol_feature_nep366_delegate_action",
   "near-state-viewer/protocol_feature_nep366_delegate_action",
 ]
+serialize_all_state_changes = ["nearcore/serialize_all_state_changes"]
 
 nightly = [
   "nightly_protocol",
