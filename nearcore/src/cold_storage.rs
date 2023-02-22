@@ -235,7 +235,6 @@ fn cold_store_initial_migration_loop(
 
 // This method will copy data from hot storage to cold storage in a loop.
 // It will try to copy blocks as fast as possible up until cold head = final head.
-// That means that if cold db is not initialised, this method will invoke lengthy initial migration.
 // Once the cold head reaches the final head it will sleep for one second before
 // trying to copy data at the next height.
 // TODO clean up the interface, currently we need to pass hot store, cold store and
