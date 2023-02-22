@@ -269,7 +269,7 @@ pub fn amend_genesis(
     num_bytes_account: u64,
     num_extra_bytes_record: u64,
 ) -> anyhow::Result<()> {
-    let mut genesis = Genesis::from_file(genesis_file_in, GenesisValidationMode::UnsafeFast);
+    let mut genesis = Genesis::from_file(genesis_file_in, GenesisValidationMode::UnsafeFast)?;
 
     let shard_layout = if let Some(path) = shard_layout_file {
         let s = std::fs::read_to_string(path)
@@ -614,7 +614,7 @@ mod test {
                 tempfile::NamedTempFile::new().context("failed creating tmp file")?;
             serde_json::to_writer(&mut records_file_in, &records_in)
                 .context("failed writing to --records-file-in")?;
-            let genesis = Genesis::new_with_path(genesis_config, records_file_in.path());
+            let genesis = Genesis::new_with_path(genesis_config, records_file_in.path())?;
 
             Ok(ParsedTestCase {
                 genesis,
