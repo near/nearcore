@@ -1,0 +1,17 @@
+FROM ubuntu:20.04
+
+COPY . .
+
+RUN apt-get install -y build-essential curl
+
+RUN curl https://sh.rustup.rs -sSf | sh -s -- --default-toolchain nightly -y
+
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+RUN cargo install cargo-fuzz
+
+RUN rustup target add --toolchain nightly wasm32-unknown-unknown
+
+RUN pip install -r scripts/build_fuzzers_requirements.txt
+
+CMD ["python3", "scripts/build_fuzzers.py"]
