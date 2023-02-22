@@ -37,6 +37,7 @@ near-cold-store-tool = { path = "../tools/cold-store", package = "cold-store-too
 near-config-utils = { path = "../utils/config" }
 near-crypto = { path = "../core/crypto" }
 near-dyn-configs = { path = "../core/dyn-configs" }
+near-flat-storage = { path = "../tools/flat-storage" }
 near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }
 near-mirror = { path = "../tools/mirror" }
 near-network = { path = "../chain/network" }
@@ -64,12 +65,13 @@ delay_detector = ["nearcore/delay_detector"]
 rosetta_rpc = ["nearcore/rosetta_rpc"]
 json_rpc = ["nearcore/json_rpc"]
 protocol_feature_fix_staking_threshold = ["nearcore/protocol_feature_fix_staking_threshold"]
-protocol_feature_flat_state = ["nearcore/protocol_feature_flat_state"]
+protocol_feature_flat_state = ["nearcore/protocol_feature_flat_state", "near-flat-storage/protocol_feature_flat_state"]
 
 nightly = [
   "nightly_protocol",
   "nearcore/nightly",
   "near-state-viewer/nightly",
+  "protocol_feature_flat_state",
 ]
 nightly_protocol = ["nearcore/nightly_protocol"]
 
