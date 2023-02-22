@@ -151,6 +151,17 @@ impl Database for ColdDB {
         unreachable!("iter_raw_bytes is not allowed in the ColdDB, col: {col}");
     }
 
+    // Unimplemented: always panics.
+    fn iter_range<'a>(
+        &'a self,
+        _col: DBCol,
+        _lower_bound: Option<&'a [u8]>,
+        _upper_bound: Option<&'a [u8]>,
+    ) -> DBIterator<'a> {
+        // We should never try to iterate over cold storage.
+        unreachable!();
+    }
+
     /// Atomically applies operations in given transaction.
     ///
     /// If debug assertions are enabled, panics if there are any delete
