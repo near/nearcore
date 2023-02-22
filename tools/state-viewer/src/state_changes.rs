@@ -104,7 +104,7 @@ fn dump_state_changes(
             // Skip serializing state changes for a block if no state changes were found for this block.
             None
         } else {
-            Some(StateChangesForBlock { block_hash: block_hash.clone(), state_changes })
+            Some(StateChangesForBlock { block_hash: *block_hash, state_changes })
         }
     }).collect();
 
@@ -135,7 +135,7 @@ fn apply_state_changes(
     let runtime: NightshadeRuntime =
         NightshadeRuntime::from_config(home_dir, store.clone(), &near_config);
     let mut chain_store = ChainStore::new(
-        store.clone(),
+        store,
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
     );
@@ -170,14 +170,14 @@ fn apply_state_changes(
                 .unwrap();
 
             tracing::info!(target: "state-change", block_height, ?block_hash, ?shard_uid, old_state_root = ?trie_update.old_root, new_state_root = ?trie_update.new_root, "Applied state changes");
-            state_root = trie_update.new_root.clone();
+            state_root = trie_update.new_root;
 
             let wrapped_trie_changes = WrappedTrieChanges::new(
                 runtime.get_tries(),
                 shard_uid,
                 trie_update,
                 state_changes,
-                block_hash.clone(),
+                *block_hash,
             );
             let mut store_update = chain_store.store_update();
             store_update.save_trie_changes(wrapped_trie_changes);
