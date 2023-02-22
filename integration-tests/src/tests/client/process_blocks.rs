@@ -7,10 +7,10 @@ use std::sync::{Arc, RwLock};
 use actix::System;
 use assert_matches::assert_matches;
 use futures::{future, FutureExt};
+use near_async::messaging::{IntoSender, Sender};
 use near_chain::test_utils::ValidatorSchedule;
-use near_chunks::test_utils::{
-    MockClientAdapterForShardsManager, NoopShardsManagerAdapterForClient,
-};
+use near_chunks::test_utils::MockClientAdapterForShardsManager;
+
 use near_primitives::config::{ActionCosts, ExtCosts};
 use near_primitives::num_rational::{Ratio, Rational32};
 
@@ -75,7 +75,6 @@ use near_primitives::views::{
     BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
 };
 use near_store::cold_storage::{update_cold_db, update_cold_head};
-use near_store::db::TestDB;
 use near_store::metadata::DbKind;
 use near_store::metadata::DB_VERSION;
 use near_store::test_utils::create_test_node_storage_with_cold;
@@ -1132,7 +1131,7 @@ fn test_time_attack() {
         Some("test1".parse().unwrap()),
         false,
         network_adapter.into(),
-        client_adapter,
+        client_adapter.as_sender(),
         chain_genesis,
         TEST_SEED,
         false,
@@ -1168,7 +1167,7 @@ fn test_invalid_approvals() {
         Some("test1".parse().unwrap()),
         false,
         network_adapter.into(),
-        client_adapter,
+        client_adapter.as_sender(),
         chain_genesis,
         TEST_SEED,
         false,
@@ -1216,7 +1215,7 @@ fn test_invalid_gas_price() {
         Some("test1".parse().unwrap()),
         false,
         network_adapter.into(),
-        client_adapter,
+        client_adapter.as_sender(),
         chain_genesis,
         TEST_SEED,
         false,
@@ -1377,7 +1376,7 @@ fn test_bad_chunk_mask() {
                 Some(account_id.clone()),
                 false,
                 Arc::new(MockPeerManagerAdapter::default()).into(),
-                Arc::new(MockClientAdapterForShardsManager::default()),
+                MockClientAdapterForShardsManager::default().into_sender(),
                 chain_genesis.clone(),
                 TEST_SEED,
                 false,
@@ -1579,7 +1578,7 @@ fn test_archival_save_trie_changes() {
 }
 
 fn test_archival_gc_common(
-    storage: NodeStorage<TestDB>,
+    storage: NodeStorage,
     epoch_length: u64,
     max_height: BlockHeight,
     max_cold_head_height: BlockHeight,
@@ -2158,7 +2157,7 @@ fn test_incorrect_validator_key_produce_block() {
         chain_genesis,
         runtime_adapter,
         Arc::new(MockPeerManagerAdapter::default()).into(),
-        Arc::new(NoopShardsManagerAdapterForClient {}),
+        Sender::noop(),
         Some(signer),
         false,
         TEST_SEED,

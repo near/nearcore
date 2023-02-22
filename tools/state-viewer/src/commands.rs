@@ -127,7 +127,7 @@ pub(crate) fn apply_block_at_height(
     home_dir: &Path,
     near_config: NearConfig,
     store: Store,
-) {
+) -> anyhow::Result<()> {
     let mut chain_store = ChainStore::new(
         store.clone(),
         near_config.genesis.config.genesis_height,
@@ -138,13 +138,13 @@ pub(crate) fn apply_block_at_height(
     let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
     let (block, apply_result) =
         apply_block(block_hash, shard_id, runtime_adapter.as_ref(), &mut chain_store);
-    print_apply_block_result(
+    check_apply_block_result(
         &block,
         &apply_result,
         runtime_adapter.as_ref(),
         &mut chain_store,
         shard_id,
-    );
+    )
 }
 
 pub(crate) fn apply_chunk(
@@ -423,30 +423,40 @@ pub(crate) fn peers(db: Arc<dyn Database>) {
     })
 }
 
-pub(crate) fn print_apply_block_result(
+pub(crate) fn check_apply_block_result(
     block: &Block,
     apply_result: &ApplyTransactionResult,
     runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
     chain_store: &mut ChainStore,
     shard_id: ShardId,
-) {
+) -> anyhow::Result<()> {
     let height = block.header().height();
     let block_hash = block.header().hash();
+    let new_chunk_extra =
+        resulting_chunk_extra(apply_result, block.chunks()[shard_id as usize].gas_limit());
     println!(
         "apply chunk for shard {} at height {}, resulting chunk extra {:?}",
-        shard_id,
-        height,
-        resulting_chunk_extra(apply_result, block.chunks()[shard_id as usize].gas_limit())
+        shard_id, height, &new_chunk_extra,
     );
     let shard_uid = runtime_adapter.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
     if block.chunks()[shard_id as usize].height_included() == height {
-        if let Ok(chunk_extra) = chain_store.get_chunk_extra(&block_hash, &shard_uid) {
-            println!("Existing chunk extra: {:?}", chunk_extra);
+        if let Ok(old_chunk_extra) = chain_store.get_chunk_extra(&block_hash, &shard_uid) {
+            if &new_chunk_extra == old_chunk_extra.as_ref() {
+                println!("new chunk extra matches old chunk extra");
+                Ok(())
+            } else {
+                Err(anyhow::anyhow!(
+                    "mismatch in resulting chunk extra.\nold: {:?}\nnew: {:?}",
+                    &old_chunk_extra,
+                    &new_chunk_extra
+                ))
+            }
         } else {
-            println!("No existing chunk extra available");
+            Err(anyhow::anyhow!("No existing chunk extra available"))
         }
     } else {
         println!("No existing chunk extra available");
+        Ok(())
     }
 }
 
