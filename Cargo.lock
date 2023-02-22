@@ -3248,7 +3248,10 @@ dependencies = [
 name = "near-config-utils"
 version = "0.0.0"
 dependencies = [
+ "anyhow",
  "json_comments",
+ "thiserror",
+ "tracing",
 ]
 
 [[package]]
@@ -4019,6 +4022,8 @@ dependencies = [
  "near-amend-genesis",
  "near-chain-configs",
  "near-client",
+ "near-config-utils",
+ "near-crypto",
  "near-dyn-configs",
  "near-jsonrpc-primitives",
  "near-mirror",
@@ -5871,6 +5876,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 name = "storage-usage-delta-calculator"
 version = "0.0.0"
 dependencies = [
+ "anyhow",
  "near-chain-configs",
  "near-o11y",
  "near-primitives",
