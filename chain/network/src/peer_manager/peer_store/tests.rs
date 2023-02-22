@@ -40,6 +40,21 @@ fn make_config(
 }
 
 #[test]
+fn ban_store() {
+    let clock = time::FakeClock::default();
+    let peer_info_a = gen_peer_info(0);
+    let peer_info_to_ban = gen_peer_info(1);
+    let boot_nodes = vec![peer_info_a, peer_info_to_ban.clone()];
+
+    let peer_store =
+        PeerStore::new(&clock.clock(), make_config(&boot_nodes, Blacklist::default(), false))
+            .unwrap();
+    assert_eq!(peer_store.healthy_peers(3).len(), 2);
+    peer_store.peer_ban(&clock.clock(), &peer_info_to_ban.id, ReasonForBan::Abusive).unwrap();
+    assert_eq!(peer_store.healthy_peers(3).len(), 1);
+}
+
+#[test]
 fn test_unconnected_peer() {
     let clock = time::FakeClock::default();
     let peer_info_a = gen_peer_info(0);
