@@ -5,7 +5,11 @@ env:
 steps:
   - label: "protobuf backward compatibility"
     command: |
-      buf breaking --against ".git#ref=`git merge-base master HEAD`"
+      # We need to manually fetch the latest commit of master to
+      # correctly compute the commit at which we should diff the proto
+      # files. Apparently the pipeline doesn't do that for us.
+      git fetch origin
+      buf breaking --against ".git#ref=`git merge-base origin/master HEAD`"
 
     timeout: 30
     agents:
@@ -14,7 +18,8 @@ steps:
   - label: "cargo test integration-tests*"
     command: |
       source ~/.cargo/env && set -eux
-      cargo test --locked -p 'integration-tests'
+      cargo install cargo-nextest
+      cargo nextest run --locked -p 'integration-tests'
 
     timeout: 60
     agents:
@@ -24,7 +29,8 @@ steps:
   - label: "cargo test not integration-tests*"
     command: |
       source ~/.cargo/env && set -eux
-      cargo test --locked --workspace -p '*' --exclude 'integration-tests*'
+      cargo install cargo-nextest
+      cargo nextest run --locked --workspace -p '*' --exclude 'integration-tests*'
 
     timeout: 60
     agents:
@@ -34,7 +40,8 @@ steps:
   - label: "cargo test nightly integration-tests*"
     command: |
       source ~/.cargo/env && set -eux
-      cargo test --features nightly,test_features -p 'integration-tests'
+      cargo install cargo-nextest
+      cargo nextest run --features nightly,test_features -p 'integration-tests'
 
     timeout: 60
     agents:
@@ -44,7 +51,9 @@ steps:
   - label: "cargo test nightly not integration-tests*"
     command: |
       source ~/.cargo/env && set -eux
-      cargo test --workspace --features nightly,test_features,mock_node -p '*' --exclude 'integration-tests*'
+      cargo install cargo-nextest
+      cargo nextest run --workspace --features nightly,test_features,mock_node -p '*' --exclude 'integration-tests*'
+      cargo test --doc
 
     timeout: 60
     agents:
@@ -80,6 +89,8 @@ steps:
       python3 scripts/check_fuzzing.py
 
       ./scripts/formatting --check
+
+      ./scripts/run_clippy.sh
 
       rm target/rpc_errors_schema.json
       cargo check -p near-jsonrpc --features dump_errors_schema
@@ -129,27 +140,3 @@ steps:
     timeout: 30
     agents:
     - "distro=amazonlinux"
-
-  #- label: "near-sdk-rs tests"
-  #  trigger: "near-sdk-rs"
-  #  branches: "!master"
-
-  # Disable rainbow bridge tests as they are temporary broken
-  # - label: "rainbow-bridge test"
-  #   command: |
-  #    source ~/.cargo/env && set -eux
-  #    source ~/.nvm/nvm.sh
-
-  #    git clone https://github.com/near/rainbow-bridge
-  #    cd rainbow-bridge
-  #    source ci/e2e_ci_prepare_env.sh
-  #    source ci/e2e_ci_prepare_log.sh
-
-  #    LOCAL_CORE_SRC=.. ci/e2e.sh
-
-  #  timeout: 60
-  #  agents:
-  #  - "queue=default"
-  #  branches: "!master"
-  #  artifact_paths:
-  #  - "rainbow-bridge/logs/**/*.log"

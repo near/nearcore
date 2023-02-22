@@ -3,8 +3,6 @@ name = "near-network"
 version = "0.0.0"
 authors.workspace = true
 edition.workspace = true
-# Please update rust-toolchain.toml as well when changing version here:
-rust-version.workspace = true
 publish = false
 
 [build-dependencies]
@@ -22,12 +20,12 @@ bytes.workspace = true
 bytesize.workspace = true
 chrono.workspace = true
 crossbeam-channel.workspace = true
+derive_more.workspace = true
 futures-util.workspace = true
 futures.workspace = true
 im.workspace = true
 itertools.workspace = true
 lru.workspace = true
-near-rust-allocator-proxy = { workspace = true, optional = true }
 once_cell.workspace = true
 opentelemetry.workspace = true
 parking_lot.workspace = true
@@ -38,6 +36,7 @@ rayon.workspace = true
 serde.workspace = true
 smart-default.workspace = true
 strum.workspace = true
+stun.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
@@ -46,6 +45,7 @@ tracing.workspace = true
 time.workspace = true
 
 delay-detector = { path = "../../tools/delay-detector" }
+near-async = { path = "../../core/async" }
 near-o11y = { path = "../../core/o11y" }
 near-crypto = { path = "../../core/crypto" }
 near-performance-metrics = { path = "../../utils/near-performance-metrics" }
@@ -58,21 +58,13 @@ near-store = { path = "../../core/store" }
 criterion.workspace = true
 pretty_assertions.workspace = true
 tempfile.workspace = true
+rlimit.workspace = true
+turn.workspace = true
+webrtc-util.workspace = true
 
 [features]
 delay_detector = ["delay-detector/delay_detector"]
 performance_stats = [
     "near-performance-metrics/performance_stats",
-    "near-rust-allocator-proxy",
 ]
 test_features = []
-
-shardnet = []
-
-[[bench]]
-name = "graph"
-harness = false
-
-[[bench]]
-name = "routing_table_actor"
-harness = false

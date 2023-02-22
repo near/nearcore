@@ -5,31 +5,94 @@ use near_primitives::types::TrieNodesCount;
 use near_primitives_core::types::{AccountId, Balance};
 use near_vm_errors::VMLogicError;
 
+use std::borrow::Cow;
+
+/// Representation of the address slice of guest memory.
+#[derive(Clone, Copy)]
+pub struct MemSlice {
+    /// Offset within guest memory at which the slice starts.
+    pub ptr: u64,
+    /// Length of the slice.
+    pub len: u64,
+}
+
+impl MemSlice {
+    #[inline]
+    pub fn len<T: TryFrom<u64>>(&self) -> Result<T, ()> {
+        T::try_from(self.len).map_err(|_| ())
+    }
+
+    #[inline]
+    pub fn end<T: TryFrom<u64>>(&self) -> Result<T, ()> {
+        T::try_from(self.ptr.checked_add(self.len).ok_or(())?).map_err(|_| ())
+    }
+
+    #[inline]
+    pub fn range<T: TryFrom<u64>>(&self) -> Result<std::ops::Range<T>, ()> {
+        let end = self.end()?;
+        let start = T::try_from(self.ptr).map_err(|_| ())?;
+        Ok(start..end)
+    }
+}
+
 /// An abstraction over the memory of the smart contract.
 pub trait MemoryLike {
-    /// Returns whether the memory interval is completely inside the smart contract memory.
-    fn fits_memory(&self, offset: u64, len: u64) -> bool;
+    /// Returns success if the memory interval is completely inside smart
+    /// contract’s memory.
+    ///
+    /// You often don’t need to use this method since other methods will perform
+    /// the check, however it may be necessary to prevent potential denial of
+    /// service attacks.  See [`Self::read_memory`] for description.
+    fn fits_memory(&self, slice: MemSlice) -> Result<(), ()>;
+
+    /// Returns view of the content of the given memory interval.
+    ///
+    /// Not all implementations support borrowing the memory directly.  In those
+    /// cases, the data is copied into a vector.
+    fn view_memory(&self, slice: MemSlice) -> Result<Cow<[u8]>, ()>;
 
     /// Reads the content of the given memory interval.
     ///
-    /// # Panics
+    /// Returns error if the memory interval isn’t completely inside the smart
+    /// contract memory.
     ///
-    /// If memory interval is outside the smart contract memory.
-    fn read_memory(&self, offset: u64, buffer: &mut [u8]);
-
-    /// Reads a single byte from the memory.
+    /// # Potential denial of service
     ///
-    /// # Panics
+    /// Note that improper use of this function may lead to denial of service
+    /// attacks.  For example, consider the following function:
     ///
-    /// If pointer is outside the smart contract memory.
-    fn read_memory_u8(&self, offset: u64) -> u8;
+    /// ```
+    /// # use near_vm_logic::{MemoryLike, MemSlice};
+    ///
+    /// fn read_vec(mem: &dyn MemoryLike, slice: MemSlice) -> Result<Vec<u8>, ()> {
+    ///     let mut vec = vec![0; slice.len()?];
+    ///     mem.read_memory(slice.ptr, &mut vec[..])?;
+    ///     Ok(vec)
+    /// }
+    /// ```
+    ///
+    /// If attacker controls length argument, it may cause attempt at allocation
+    /// of arbitrarily-large buffer and crash the program.  In situations like
+    /// this, it’s necessary to use [`Self::fits_memory`] method to verify that
+    /// the length is valid.  For example:
+    ///
+    /// ```
+    /// # use near_vm_logic::{MemoryLike, MemSlice};
+    ///
+    /// fn read_vec(mem: &dyn MemoryLike, slice: MemSlice) -> Result<Vec<u8>, ()> {
+    ///     mem.fits_memory(slice)?;
+    ///     let mut vec = vec![0; slice.len()?];
+    ///     mem.read_memory(slice.ptr, &mut vec[..])?;
+    ///     Ok(vec)
+    /// }
+    /// ```
+    fn read_memory(&self, offset: u64, buffer: &mut [u8]) -> Result<(), ()>;
 
     /// Writes the buffer into the smart contract memory.
     ///
-    /// # Panics
-    ///
-    /// If `offset + buffer.len()` is outside the smart contract memory.
-    fn write_memory(&mut self, offset: u64, buffer: &[u8]);
+    /// Returns error if the memory interval isn’t completely inside the smart
+    /// contract memory.
+    fn write_memory(&mut self, offset: u64, buffer: &[u8]) -> Result<(), ()>;
 }
 
 /// This enum represents if a storage_get call will be performed through flat storage or trie
@@ -38,7 +101,7 @@ pub enum StorageGetMode {
     Trie,
 }
 
-pub type Result<T> = ::std::result::Result<T, VMLogicError>;
+pub type Result<T, E = VMLogicError> = ::std::result::Result<T, E>;
 
 /// Logical pointer to a value in storage.
 /// Allows getting value length before getting the value itself. This is needed so that runtime

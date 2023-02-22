@@ -1,11 +1,10 @@
+use crate::time;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{KeyType, SecretKey, Signature};
 use near_primitives::borsh::maybestd::sync::Arc;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use once_cell::sync::Lazy;
-
-use crate::time;
 
 // We'd treat all nonces that are below this values as 'old style' (without any expiration time).
 // And all nonces above this value as new style (that would expire after some time).
@@ -136,6 +135,16 @@ impl Edge {
         }
     }
 
+    /// Create a fresh nonce (based on the current time).
+    pub fn create_fresh_nonce(clock: &time::Clock) -> u64 {
+        let mut nonce = clock.now_utc().unix_timestamp() as u64;
+        // Even nonce means that the edge should be removed, so if the timestamp is even, add one to get the odd value.
+        if nonce % 2 == 0 {
+            nonce += 1;
+        }
+        nonce
+    }
+
     /// Create the remove edge change from an added edge change.
     pub fn remove_edge(&self, my_peer_id: PeerId, sk: &SecretKey) -> Edge {
         assert_eq!(self.edge_type(), EdgeState::Active);
@@ -148,7 +157,7 @@ impl Edge {
         Edge(Arc::new(edge))
     }
 
-    fn hash(&self) -> CryptoHash {
+    pub(crate) fn hash(&self) -> CryptoHash {
         Edge::build_hash(&self.key().0, &self.key().1, self.nonce())
     }
 
@@ -247,6 +256,13 @@ impl Edge {
         } else {
             Err(InvalidNonceError::NonceOutOfBoundsError { nonce })
         }
+    }
+
+    // Returns a single edge with the highest nonce for each key of the input edges.
+    pub fn deduplicate<'a>(mut edges: Vec<Edge>) -> Vec<Edge> {
+        edges.sort_by(|a, b| (b.key(), b.nonce()).cmp(&(a.key(), a.nonce())));
+        edges.dedup_by_key(|e| e.key().clone());
+        edges
     }
 }
 

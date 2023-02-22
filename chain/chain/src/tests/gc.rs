@@ -2,16 +2,15 @@ use std::sync::Arc;
 
 use crate::chain::Chain;
 use crate::test_utils::{KeyValueRuntime, ValidatorSchedule};
-use crate::types::{ChainGenesis, Tip};
+use crate::types::{ChainConfig, ChainGenesis, Tip};
 use crate::DoomslugThresholdMode;
 
 use near_chain_configs::GCConfig;
-use near_crypto::KeyType;
 use near_primitives::block::Block;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::shard_layout::ShardUId;
+use near_primitives::test_utils::{create_test_signer, TestBlockBuilder};
 use near_primitives::types::{NumBlocks, NumShards, StateRoot};
-use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_store::test_utils::{create_test_store, gen_changes};
 use near_store::{ShardTries, Trie, WrappedTrieChanges};
 use rand::Rng;
@@ -30,7 +29,13 @@ fn get_chain_with_epoch_length_and_num_shards(
         .block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]])
         .num_shards(num_shards);
     let runtime_adapter = Arc::new(KeyValueRuntime::new_with_validators(store, vs, epoch_length));
-    Chain::new(runtime_adapter, &chain_genesis, DoomslugThresholdMode::NoApprovals, true).unwrap()
+    Chain::new(
+        runtime_adapter,
+        &chain_genesis,
+        DoomslugThresholdMode::NoApprovals,
+        ChainConfig::test(),
+    )
+    .unwrap()
 }
 
 // Build a chain of num_blocks on top of prev_block
@@ -54,11 +59,7 @@ fn do_fork(
         );
     }
     let mut rng = rand::thread_rng();
-    let signer = Arc::new(InMemoryValidatorSigner::from_seed(
-        "test1".parse().unwrap(),
-        KeyType::ED25519,
-        "test1",
-    ));
+    let signer = Arc::new(create_test_signer("test1"));
     let num_shards = prev_state_roots.len() as u64;
     let runtime_adapter = chain.runtime_adapter.clone();
     for i in 0..num_blocks {
@@ -66,7 +67,7 @@ fn do_fork(
             .get_next_epoch_id_from_prev_block(prev_block.hash())
             .expect("block must exist");
         let block = if next_epoch_id == *prev_block.header().next_epoch_id() {
-            Block::empty(&prev_block, &*signer)
+            TestBlockBuilder::new(&prev_block, signer.clone()).build()
         } else {
             let prev_hash = prev_block.hash();
             let epoch_id = prev_block.header().next_epoch_id().clone();
@@ -84,15 +85,11 @@ fn do_fork(
                 &prev_hash,
             )
             .unwrap();
-            Block::empty_with_epoch(
-                &prev_block,
-                prev_block.header().height() + 1,
-                epoch_id,
-                next_epoch_id,
-                next_bp_hash,
-                &*signer,
-                &mut PartialMerkleTree::default(),
-            )
+            TestBlockBuilder::new(&prev_block, signer.clone())
+                .epoch_id(epoch_id)
+                .next_epoch_id(next_epoch_id)
+                .next_bp_hash(next_bp_hash)
+                .build()
         };
 
         if verbose {
@@ -123,7 +120,7 @@ fn do_fork(
             let shard_uid = ShardUId { version: 0, shard_id: shard_id as u32 };
             let trie_changes_data = gen_changes(&mut rng, max_changes);
             let state_root = prev_state_roots[shard_id as usize];
-            let trie = tries.get_trie_for_shard(shard_uid, state_root.clone());
+            let trie = tries.get_trie_for_shard(shard_uid, state_root);
             let trie_changes = trie.update(trie_changes_data.iter().cloned()).unwrap();
             if verbose {
                 println!("state new {:?} {:?}", block.header().height(), trie_changes_data);
@@ -226,14 +223,14 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
 
         let mut state_root2 = state_roots2[simple_chain.from as usize];
         let state_root1 = states1[simple_chain.from as usize].1[shard_to_check_trie as usize];
-        tries1.get_trie_for_shard(shard_uid, state_root1.clone()).iter().unwrap();
+        tries1.get_trie_for_shard(shard_uid, state_root1).iter().unwrap();
         assert_eq!(state_root1, state_root2);
 
         for i in start_index..start_index + simple_chain.length {
             let (block1, state_root1, changes1) = states1[i as usize].clone();
             // Apply to Trie 2 the same changes (changes1) as applied to Trie 1
             let trie_changes2 = tries2
-                .get_trie_for_shard(shard_uid, state_root2.clone())
+                .get_trie_for_shard(shard_uid, state_root2)
                 .update(changes1[shard_to_check_trie as usize].iter().cloned())
                 .unwrap();
             // i == gc_height is the only height should be processed here
@@ -281,13 +278,13 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
                     block1.header().height()
                 );
                 let a = tries1
-                    .get_trie_for_shard(shard_uid, state_root1.clone())
+                    .get_trie_for_shard(shard_uid, state_root1)
                     .iter()
                     .unwrap()
                     .map(|item| item.unwrap().0)
                     .collect::<Vec<_>>();
                 let b = tries2
-                    .get_trie_for_shard(shard_uid, state_root1.clone())
+                    .get_trie_for_shard(shard_uid, state_root1)
                     .iter()
                     .unwrap()
                     .map(|item| item.unwrap().0)

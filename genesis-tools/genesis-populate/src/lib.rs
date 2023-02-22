@@ -4,8 +4,8 @@ pub mod state_dump;
 
 use crate::state_dump::StateDump;
 use indicatif::{ProgressBar, ProgressStyle};
-use near_chain::types::BlockHeaderInfo;
-use near_chain::{Block, Chain, ChainStore, RuntimeAdapter};
+use near_chain::types::{BlockHeaderInfo, RuntimeAdapter};
+use near_chain::{Block, Chain, ChainStore};
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::{AccessKey, Account};
@@ -23,11 +23,29 @@ use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+/// Deterministically construct an account ID by index.
+///
+/// This is used by the estimator to fill a DB with many accounts for which the
+/// name can be constructed again during estimations.
+///
+/// The ids are constructed to form a somewhat interesting shape in the trie. It
+/// starts with a hash that will be different for each account, followed by a
+/// string that is sufficiently long. The hash is supposed to produces a bunch
+/// of branches, whereas the string after that will produce an extension.
+///
+/// If anyone has a reason to change the format, there is no strong reason to
+/// keep it exactly as it is. But keeping the length of the accounts the same
+/// would be desired to avoid breaking tests and estimations.
+///
+/// Note that existing estimator DBs need to be reconstructed when the format
+/// changes. Daily estimations are not affected by this.
 pub fn get_account_id(account_index: u64) -> AccountId {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     account_index.hash(&mut hasher);
     let hash = hasher.finish();
-    AccountId::try_from(format!("{hash}_near_{account_index}_{account_index}")).unwrap()
+    // Some estimations rely on the account ID length being constant.
+    // Pad booth numbers to length 20, the longest decimal representation of an u64.
+    AccountId::try_from(format!("{hash:020}_near_{account_index:020}")).unwrap()
 }
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -158,14 +176,19 @@ impl GenesisBuilder {
         }
         let tries = self.runtime.get_tries();
         state_update.commit(StateChangeCause::InitialState);
-        let trie_changes = state_update.finalize()?.0;
+        let (trie_changes, state_changes) = state_update.finalize()?;
         let genesis_shard_version = self.genesis.config.shard_layout.version();
         let shard_uid = ShardUId { version: genesis_shard_version, shard_id: shard_idx as u32 };
         let mut store_update = tries.store_update();
         let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+        #[cfg(feature = "protocol_feature_flat_state")]
+        near_store::FlatStateDelta::from_state_changes(&state_changes)
+            .apply_to_flat_state(&mut store_update);
+        // silence unused variable warning when protocol_feature_flat_state feature is disabled
+        drop(state_changes);
         store_update.commit()?;
 
-        self.roots.insert(shard_idx, root.clone());
+        self.roots.insert(shard_idx, root);
         self.state_updates.insert(shard_idx, tries.new_trie_update(shard_uid, root));
         Ok(())
     }
@@ -219,7 +242,7 @@ impl GenesisBuilder {
                     CryptoHash::default(),
                     vec![],
                     0,
-                    self.genesis.config.gas_limit.clone(),
+                    self.genesis.config.gas_limit,
                     0,
                 ),
             );

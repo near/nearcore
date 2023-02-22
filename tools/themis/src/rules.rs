@@ -24,12 +24,15 @@ pub fn has_publish_spec(workspace: &Workspace) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Ensure all crates specify a MSRV
+/// Ensure all crates specify a MSRV if they are publishable
 pub fn has_rust_version(workspace: &Workspace) -> anyhow::Result<()> {
     let outliers: Vec<_> = workspace
         .members
         .iter()
-        .filter(|pkg| pkg.parsed.rust_version.is_none())
+        .filter(|pkg| {
+            pkg.parsed.rust_version.is_none()
+                && pkg.raw["package"].get("publish") != Some(&toml::Value::Boolean(false))
+        })
         .map(|pkg| Outlier { path: pkg.parsed.manifest_path.clone(), found: None, extra: None })
         .collect();
 
@@ -60,7 +63,7 @@ pub fn rust_version_matches_toolchain(workspace: &Workspace) -> anyhow::Result<(
 
     if toolchain_version != workspace_version {
         bail!(ComplianceError {
-            msg: format!("rust-version in rust-toolchain.toml and workspace Cargo.toml differ"),
+            msg: "rust-version in rust-toolchain.toml and workspace Cargo.toml differ".to_string(),
             expected: None,
             outliers: Vec::new(),
         });

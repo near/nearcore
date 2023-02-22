@@ -7,8 +7,11 @@ use std::sync::{Arc, RwLock};
 use actix::System;
 use assert_matches::assert_matches;
 use futures::{future, FutureExt};
+use near_async::messaging::{IntoSender, Sender};
 use near_chain::test_utils::ValidatorSchedule;
 use near_chunks::test_utils::MockClientAdapterForShardsManager;
+
+use near_primitives::config::{ActionCosts, ExtCosts};
 use near_primitives::num_rational::{Ratio, Rational32};
 
 use near_actix_test_utils::run_actix;
@@ -17,23 +20,26 @@ use near_chain::types::LatestKnown;
 use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{
     Block, BlockProcessingArtifact, ChainGenesis, ChainStore, ChainStoreAccess, Error, Provenance,
-    RuntimeAdapter,
+    RuntimeWithEpochManagerAdapter,
 };
 use near_chain_configs::{ClientConfig, Genesis, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_chunks::{ChunkStatus, ShardsManager};
 use near_client::test_utils::{
-    create_chunk_on_height, setup_client, setup_mock, setup_mock_all_validators, TestEnv,
+    create_chunk_on_height, setup_client_with_synchronous_shards_manager, setup_mock,
+    setup_mock_all_validators, TestEnv,
 };
-use near_client::{Client, GetBlock, GetBlockWithMerkleTree};
+use near_client::{
+    BlockApproval, BlockResponse, Client, GetBlock, GetBlockWithMerkleTree, ProcessTxRequest,
+    ProcessTxResponse, SetNetworkInfo,
+};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_network::test_utils::{wait_or_panic, MockPeerManagerAdapter};
 use near_network::types::{
-    ConnectedPeerInfo, NetworkInfo, PeerManagerMessageRequest, PeerManagerMessageResponse,
+    BlockInfo, ConnectedPeerInfo, HighestHeightPeerInfo, NetworkInfo, PeerChainInfo,
+    PeerManagerMessageRequest, PeerManagerMessageResponse, PeerType,
 };
-use near_network::types::{
-    FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
-};
-use near_network::types::{PeerChainInfoV2, PeerInfo, ReasonForBan};
+use near_network::types::{FullPeerInfo, NetworkRequests, NetworkResponses};
+use near_network::types::{PeerInfo, ReasonForBan};
 use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_o11y::WithSpanContextExt;
 use near_primitives::block::{Approval, ApprovalInner};
@@ -46,13 +52,15 @@ use near_primitives::merkle::{verify_hash, PartialMerkleTree};
 use near_primitives::receipt::DelayedReceiptIndices;
 use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
-use near_primitives::shard_layout::ShardUId;
+use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
 use near_primitives::sharding::{
     EncodedShardChunk, ReedSolomonWrapper, ShardChunkHeader, ShardChunkHeaderInner,
     ShardChunkHeaderV3,
 };
 use near_primitives::state_part::PartId;
 use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponseHeader, StatePartKey};
+use near_primitives::test_utils::create_test_signer;
+use near_primitives::test_utils::TestBlockBuilder;
 use near_primitives::transaction::{
     Action, DeployContractAction, ExecutionStatus, FunctionCallAction, SignedTransaction,
     Transaction,
@@ -66,8 +74,14 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
 };
+use near_store::cold_storage::{update_cold_db, update_cold_head};
+use near_store::db::TestDB;
+use near_store::metadata::DbKind;
+use near_store::metadata::DB_VERSION;
+use near_store::test_utils::create_test_node_storage_with_cold;
 use near_store::test_utils::create_test_store;
-use near_store::{get, DBCol};
+use near_store::{get, DBCol, Store, TrieChanges};
+use near_store::{NodeStorage, Temperature};
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use nearcore::NEAR_BASE;
 use rand::prelude::StdRng;
@@ -78,25 +92,25 @@ pub fn set_block_protocol_version(
     block_producer: AccountId,
     protocol_version: ProtocolVersion,
 ) {
-    let validator_signer = InMemoryValidatorSigner::from_seed(
-        block_producer.clone(),
-        KeyType::ED25519,
-        block_producer.as_ref(),
-    );
+    let validator_signer = create_test_signer(block_producer.as_str());
+
     block.mut_header().set_latest_protocol_version(protocol_version);
     block.mut_header().resign(&validator_signer);
 }
 
-pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
-    (0..n)
-        .map(|_| {
-            Arc::new(nearcore::NightshadeRuntime::test(
-                Path::new("../../../.."),
-                create_test_store(),
-                genesis,
-            )) as Arc<dyn RuntimeAdapter>
-        })
-        .collect()
+pub fn create_nightshade_runtimes(
+    genesis: &Genesis,
+    n: usize,
+) -> Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> {
+    (0..n).map(|_| create_nightshade_runtime_with_store(genesis, &create_test_store())).collect()
+}
+
+pub fn create_nightshade_runtime_with_store(
+    genesis: &Genesis,
+    store: &Store,
+) -> Arc<dyn RuntimeWithEpochManagerAdapter> {
+    Arc::new(nearcore::NightshadeRuntime::test(Path::new("../../../.."), store.clone(), genesis))
+        as Arc<dyn RuntimeWithEpochManagerAdapter>
 }
 
 /// Produce `blocks_number` block in the given environment, starting from the given height.
@@ -275,7 +289,7 @@ fn produce_blocks_with_tx() {
     let mut encoded_chunks: Vec<EncodedShardChunk> = vec![];
     init_test_logger();
     run_actix(async {
-        let (client, view_client) = setup_mock(
+        let actor_handles = setup_mock(
             vec!["test".parse().unwrap()],
             "test".parse().unwrap(),
             true,
@@ -322,11 +336,11 @@ fn produce_blocks_with_tx() {
             }),
         );
         near_network::test_utils::wait_or_panic(5000);
-        let actor = view_client.send(GetBlock::latest().with_span_context());
+        let actor = actor_handles.view_client_actor.send(GetBlock::latest().with_span_context());
         let actor = actor.then(move |res| {
             let block_hash = res.unwrap().unwrap().header.hash;
-            client.do_send(
-                NetworkClientMessages::Transaction {
+            actor_handles.client_actor.do_send(
+                ProcessTxRequest {
                     transaction: SignedTransaction::empty(block_hash),
                     is_forwarded: false,
                     check_only: false,
@@ -348,7 +362,7 @@ fn receive_network_block() {
         // The first header announce will be when the block is received. We don't immediately endorse
         // it. The second header announce will happen with the endorsement a little later.
         let first_header_announce = Arc::new(RwLock::new(true));
-        let (client, view_client) = setup_mock(
+        let actor_handles = setup_mock(
             vec!["test2".parse().unwrap(), "test1".parse().unwrap(), "test3".parse().unwrap()],
             "test2".parse().unwrap(),
             true,
@@ -365,16 +379,14 @@ fn receive_network_block() {
                 PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
             }),
         );
-        let actor = view_client.send(GetBlockWithMerkleTree::latest().with_span_context());
+        let actor = actor_handles
+            .view_client_actor
+            .send(GetBlockWithMerkleTree::latest().with_span_context());
         let actor = actor.then(move |res| {
             let (last_block, block_merkle_tree) = res.unwrap().unwrap();
             let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
             block_merkle_tree.insert(last_block.header.hash);
-            let signer = InMemoryValidatorSigner::from_seed(
-                "test1".parse().unwrap(),
-                KeyType::ED25519,
-                "test1",
-            );
+            let signer = create_test_signer("test1");
             let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
             let block = Block::produce(
                 PROTOCOL_VERSION,
@@ -402,8 +414,8 @@ fn receive_network_block() {
                 block_merkle_tree.root(),
                 None,
             );
-            client.do_send(
-                NetworkClientMessages::Block(block, PeerInfo::random().id, false)
+            actor_handles.client_actor.do_send(
+                BlockResponse { block, peer_id: PeerInfo::random().id, was_requested: false }
                     .with_span_context(),
             );
             future::ready(())
@@ -420,7 +432,7 @@ fn produce_block_with_approvals() {
     let validators: Vec<_> =
         (1..=10).map(|i| AccountId::try_from(format!("test{}", i)).unwrap()).collect();
     run_actix(async {
-        let (client, view_client) = setup_mock(
+        let actor_handles = setup_mock(
             validators.clone(),
             "test1".parse().unwrap(),
             true,
@@ -448,16 +460,14 @@ fn produce_block_with_approvals() {
                 PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
             }),
         );
-        let actor = view_client.send(GetBlockWithMerkleTree::latest().with_span_context());
+        let actor = actor_handles
+            .view_client_actor
+            .send(GetBlockWithMerkleTree::latest().with_span_context());
         let actor = actor.then(move |res| {
             let (last_block, block_merkle_tree) = res.unwrap().unwrap();
             let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
             block_merkle_tree.insert(last_block.header.hash);
-            let signer1 = InMemoryValidatorSigner::from_seed(
-                "test2".parse().unwrap(),
-                KeyType::ED25519,
-                "test2",
-            );
+            let signer1 = create_test_signer("test2");
             let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
             let block = Block::produce(
                 PROTOCOL_VERSION,
@@ -485,9 +495,13 @@ fn produce_block_with_approvals() {
                 block_merkle_tree.root(),
                 None,
             );
-            client.do_send(
-                NetworkClientMessages::Block(block.clone(), PeerInfo::random().id, false)
-                    .with_span_context(),
+            actor_handles.client_actor.do_send(
+                BlockResponse {
+                    block: block.clone(),
+                    peer_id: PeerInfo::random().id,
+                    was_requested: false,
+                }
+                .with_span_context(),
             );
 
             for i in 3..11 {
@@ -497,18 +511,16 @@ fn produce_block_with_approvals() {
                     format!("test{}", i)
                 })
                 .unwrap();
-                let signer =
-                    InMemoryValidatorSigner::from_seed(s.clone(), KeyType::ED25519, s.as_ref());
+                let signer = create_test_signer(s.as_str());
                 let approval = Approval::new(
                     *block.hash(),
                     block.header().height(),
                     10, // the height at which "test1" is producing
                     &signer,
                 );
-                client.do_send(
-                    NetworkClientMessages::BlockApproval(approval, PeerInfo::random().id)
-                        .with_span_context(),
-                );
+                actor_handles
+                    .client_actor
+                    .do_send(BlockApproval(approval, PeerInfo::random().id).with_span_context());
             }
 
             future::ready(())
@@ -556,14 +568,14 @@ fn produce_block_with_approvals_arrived_early() {
                     match msg {
                         NetworkRequests::Block { block } => {
                             if block.header().height() == 3 {
-                                for (i, (client, _)) in conns.iter().enumerate() {
+                                for (i, actor_handles) in conns.iter().enumerate() {
                                     if i > 0 {
-                                        client.do_send(
-                                            NetworkClientMessages::Block(
-                                                block.clone(),
-                                                PeerInfo::random().id,
-                                                false,
-                                            )
+                                        actor_handles.client_actor.do_send(
+                                            BlockResponse {
+                                                block: block.clone(),
+                                                peer_id: PeerInfo::random().id,
+                                                was_requested: false,
+                                            }
                                             .with_span_context(),
                                         )
                                     }
@@ -583,12 +595,12 @@ fn produce_block_with_approvals_arrived_early() {
                             }
                             if approval_counter == 3 {
                                 let block = block_holder.read().unwrap().clone().unwrap();
-                                conns[0].0.do_send(
-                                    NetworkClientMessages::Block(
-                                        block,
-                                        PeerInfo::random().id,
-                                        false,
-                                    )
+                                conns[0].client_actor.do_send(
+                                    BlockResponse {
+                                        block: block,
+                                        peer_id: PeerInfo::random().id,
+                                        was_requested: false,
+                                    }
                                     .with_span_context(),
                                 );
                             }
@@ -610,7 +622,7 @@ fn invalid_blocks_common(is_requested: bool) {
     init_test_logger();
     run_actix(async move {
         let mut ban_counter = 0;
-        let (client, view_client) = setup_mock(
+        let actor_handles = setup_mock(
             vec!["test".parse().unwrap()],
             "other".parse().unwrap(),
             true,
@@ -660,16 +672,14 @@ fn invalid_blocks_common(is_requested: bool) {
                 PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
             }),
         );
-        let actor = view_client.send(GetBlockWithMerkleTree::latest().with_span_context());
+        let actor = actor_handles
+            .view_client_actor
+            .send(GetBlockWithMerkleTree::latest().with_span_context());
         let actor = actor.then(move |res| {
             let (last_block, block_merkle_tree) = res.unwrap().unwrap();
             let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
             block_merkle_tree.insert(last_block.header.hash);
-            let signer = InMemoryValidatorSigner::from_seed(
-                "test".parse().unwrap(),
-                KeyType::ED25519,
-                "test",
-            );
+            let signer = create_test_signer("test");
             let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
             let valid_block = Block::produce(
                 PROTOCOL_VERSION,
@@ -701,9 +711,13 @@ fn invalid_blocks_common(is_requested: bool) {
             let mut block = valid_block.clone();
             block.mut_header().get_mut().inner_rest.chunk_mask = vec![];
             block.mut_header().get_mut().init();
-            client.do_send(
-                NetworkClientMessages::Block(block.clone(), PeerInfo::random().id, is_requested)
-                    .with_span_context(),
+            actor_handles.client_actor.do_send(
+                BlockResponse {
+                    block: block.clone(),
+                    peer_id: PeerInfo::random().id,
+                    was_requested: is_requested,
+                }
+                .with_span_context(),
             );
 
             // Send blocks with invalid protocol version
@@ -713,12 +727,12 @@ fn invalid_blocks_common(is_requested: bool) {
                 block.mut_header().get_mut().inner_rest.latest_protocol_version =
                     PROTOCOL_VERSION - 1;
                 block.mut_header().get_mut().init();
-                client.do_send(
-                    NetworkClientMessages::Block(
-                        block.clone(),
-                        PeerInfo::random().id,
-                        is_requested,
-                    )
+                actor_handles.client_actor.do_send(
+                    BlockResponse {
+                        block: block.clone(),
+                        peer_id: PeerInfo::random().id,
+                        was_requested: is_requested,
+                    }
                     .with_span_context(),
                 );
             }
@@ -739,27 +753,35 @@ fn invalid_blocks_common(is_requested: bool) {
                 }
             };
             block.set_chunks(chunks);
-            client.do_send(
-                NetworkClientMessages::Block(block.clone(), PeerInfo::random().id, is_requested)
-                    .with_span_context(),
+            actor_handles.client_actor.do_send(
+                BlockResponse {
+                    block: block.clone(),
+                    peer_id: PeerInfo::random().id,
+                    was_requested: is_requested,
+                }
+                .with_span_context(),
             );
 
             // Send proper block.
             let block2 = valid_block;
-            client.do_send(
-                NetworkClientMessages::Block(block2.clone(), PeerInfo::random().id, is_requested)
-                    .with_span_context(),
+            actor_handles.client_actor.do_send(
+                BlockResponse {
+                    block: block2.clone(),
+                    peer_id: PeerInfo::random().id,
+                    was_requested: is_requested,
+                }
+                .with_span_context(),
             );
             if is_requested {
                 let mut block3 = block2;
                 block3.mut_header().get_mut().inner_rest.chunk_headers_root = hash(&[1]);
                 block3.mut_header().get_mut().init();
-                client.do_send(
-                    NetworkClientMessages::Block(
-                        block3.clone(),
-                        PeerInfo::random().id,
-                        is_requested,
-                    )
+                actor_handles.client_actor.do_send(
+                    BlockResponse {
+                        block: block3.clone(),
+                        peer_id: PeerInfo::random().id,
+                        was_requested: is_requested,
+                    }
                     .with_span_context(),
                 );
             }
@@ -828,11 +850,7 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                                 let block_producer_idx =
                                     block.header().height() as usize % validators.len();
                                 let block_producer = &validators[block_producer_idx];
-                                let validator_signer1 = InMemoryValidatorSigner::from_seed(
-                                    block_producer.clone(),
-                                    KeyType::ED25519,
-                                    block_producer.as_ref(),
-                                );
+                                let validator_signer1 = create_test_signer(block_producer.as_str());
                                 sent_bad_blocks = true;
                                 let mut block_mut = block.clone();
                                 match mode {
@@ -869,14 +887,14 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                                     }
                                 }
 
-                                for (i, (client, _)) in conns.clone().into_iter().enumerate() {
+                                for (i, actor_handles) in conns.clone().into_iter().enumerate() {
                                     if i != block_producer_idx {
-                                        client.do_send(
-                                            NetworkClientMessages::Block(
-                                                block_mut.clone(),
-                                                PeerInfo::random().id,
-                                                false,
-                                            )
+                                        actor_handles.client_actor.do_send(
+                                            BlockResponse {
+                                                block: block_mut.clone(),
+                                                peer_id: PeerInfo::random().id,
+                                                was_requested: false,
+                                            }
                                             .with_span_context(),
                                         )
                                     }
@@ -993,7 +1011,7 @@ fn client_sync_headers() {
     run_actix(async {
         let peer_info1 = PeerInfo::random();
         let peer_info2 = peer_info1.clone();
-        let (client, _) = setup_mock(
+        let actor_handles = setup_mock(
             vec!["test".parse().unwrap()],
             "other".parse().unwrap(),
             false,
@@ -1010,34 +1028,42 @@ fn client_sync_headers() {
                 _ => PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse),
             }),
         );
-        client.do_send(
-            NetworkClientMessages::NetworkInfo(NetworkInfo {
-                connected_peers: vec![ConnectedPeerInfo::from(&FullPeerInfo {
-                    peer_info: peer_info2.clone(),
-                    chain_info: PeerChainInfoV2 {
-                        genesis_id: Default::default(),
-                        height: 5,
-                        tracked_shards: vec![],
-                        archival: false,
+        actor_handles.client_actor.do_send(
+            SetNetworkInfo(NetworkInfo {
+                connected_peers: vec![ConnectedPeerInfo {
+                    full_peer_info: FullPeerInfo {
+                        peer_info: peer_info2.clone(),
+                        chain_info: PeerChainInfo {
+                            genesis_id: Default::default(),
+                            last_block: Some(BlockInfo { height: 5, hash: hash(&[5]) }),
+                            tracked_shards: vec![],
+                            archival: false,
+                        },
                     },
-                    partial_edge_info: near_network::types::PartialEdgeInfo::default(),
-                })],
+                    received_bytes_per_sec: 0,
+                    sent_bytes_per_sec: 0,
+                    last_time_peer_requested: near_network::time::Instant::now(),
+                    last_time_received_message: near_network::time::Instant::now(),
+                    connection_established_time: near_network::time::Instant::now(),
+                    peer_type: PeerType::Outbound,
+                    nonce: 1,
+                }],
                 num_connected_peers: 1,
                 peer_max_count: 1,
-                highest_height_peers: vec![FullPeerInfo {
+                highest_height_peers: vec![HighestHeightPeerInfo {
                     peer_info: peer_info2,
-                    chain_info: PeerChainInfoV2 {
-                        genesis_id: Default::default(),
-                        height: 5,
-                        tracked_shards: vec![],
-                        archival: false,
-                    },
-                    partial_edge_info: near_network::types::PartialEdgeInfo::default(),
+                    genesis_id: Default::default(),
+                    highest_block_height: 5,
+                    highest_block_hash: hash(&[5]),
+                    tracked_shards: vec![],
+                    archival: false,
                 }],
                 sent_bytes_per_sec: 0,
                 received_bytes_per_sec: 0,
                 known_producers: vec![],
-                tier1_accounts: vec![],
+                tier1_connections: vec![],
+                tier1_accounts_keys: vec![],
+                tier1_accounts_data: vec![],
             })
             .with_span_context(),
         );
@@ -1071,7 +1097,7 @@ fn test_process_invalid_tx() {
     }
     assert_eq!(
         env.clients[0].process_tx(tx, false, false),
-        NetworkClientResponses::InvalidTx(InvalidTxError::Expired)
+        ProcessTxResponse::InvalidTx(InvalidTxError::Expired)
     );
     let tx2 = SignedTransaction::new(
         Signature::empty(KeyType::ED25519),
@@ -1086,7 +1112,7 @@ fn test_process_invalid_tx() {
     );
     assert_eq!(
         env.clients[0].process_tx(tx2, false, false),
-        NetworkClientResponses::InvalidTx(InvalidTxError::Expired)
+        ProcessTxResponse::InvalidTx(InvalidTxError::Expired)
     );
 }
 
@@ -1100,23 +1126,24 @@ fn test_time_attack() {
     let chain_genesis = ChainGenesis::test();
     let vs =
         ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]]);
-    let mut client = setup_client(
+    let mut client = setup_client_with_synchronous_shards_manager(
         store,
         vs,
         Some("test1".parse().unwrap()),
         false,
-        network_adapter,
-        client_adapter,
+        network_adapter.into(),
+        client_adapter.as_sender(),
         chain_genesis,
         TEST_SEED,
+        false,
+        true,
     );
-    let signer =
-        InMemoryValidatorSigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+    let signer = Arc::new(create_test_signer("test1"));
     let genesis = client.chain.get_block_by_height(0).unwrap();
-    let mut b1 = Block::empty_with_height(&genesis, 1, &signer);
+    let mut b1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
     b1.mut_header().get_mut().inner_lite.timestamp =
         to_timestamp(b1.header().timestamp() + chrono::Duration::seconds(60));
-    b1.mut_header().resign(&signer);
+    b1.mut_header().resign(&*signer);
 
     let _ = client.process_block_test(b1.into(), Provenance::NONE).unwrap();
 
@@ -1135,34 +1162,31 @@ fn test_invalid_approvals() {
     let chain_genesis = ChainGenesis::test();
     let vs =
         ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]]);
-    let mut client = setup_client(
+    let mut client = setup_client_with_synchronous_shards_manager(
         store,
         vs,
         Some("test1".parse().unwrap()),
         false,
-        network_adapter,
-        client_adapter,
+        network_adapter.into(),
+        client_adapter.as_sender(),
         chain_genesis,
         TEST_SEED,
+        false,
+        true,
     );
-    let signer =
-        InMemoryValidatorSigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+    let signer = Arc::new(create_test_signer("test1"));
     let genesis = client.chain.get_block_by_height(0).unwrap();
-    let mut b1 = Block::empty_with_height(&genesis, 1, &signer);
+    let mut b1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
     b1.mut_header().get_mut().inner_rest.approvals = (0..100)
         .map(|i| {
             let account_id = AccountId::try_from(format!("test{}", i)).unwrap();
             Some(
-                InMemoryValidatorSigner::from_seed(
-                    account_id.clone(),
-                    KeyType::ED25519,
-                    account_id.as_ref(),
-                )
-                .sign_approval(&ApprovalInner::Endorsement(*genesis.hash()), 1),
+                create_test_signer(account_id.as_str())
+                    .sign_approval(&ApprovalInner::Endorsement(*genesis.hash()), 1),
             )
         })
         .collect();
-    b1.mut_header().resign(&signer);
+    b1.mut_header().resign(&*signer);
 
     let result = client.process_block_test(b1.into(), Provenance::NONE);
     assert_matches!(result.unwrap_err(), Error::InvalidApprovals);
@@ -1186,22 +1210,23 @@ fn test_invalid_gas_price() {
     chain_genesis.min_gas_price = 100;
     let vs =
         ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]]);
-    let mut client = setup_client(
+    let mut client = setup_client_with_synchronous_shards_manager(
         store,
         vs,
         Some("test1".parse().unwrap()),
         false,
-        network_adapter,
-        client_adapter,
+        network_adapter.into(),
+        client_adapter.as_sender(),
         chain_genesis,
         TEST_SEED,
+        false,
+        true,
     );
-    let signer =
-        InMemoryValidatorSigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+    let signer = Arc::new(create_test_signer("test1"));
     let genesis = client.chain.get_block_by_height(0).unwrap();
-    let mut b1 = Block::empty_with_height(&genesis, 1, &signer);
+    let mut b1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
     b1.mut_header().get_mut().inner_rest.gas_price = 0;
-    b1.mut_header().resign(&signer);
+    b1.mut_header().resign(&*signer);
 
     let res = client.process_block_test(b1.into(), Provenance::NONE);
     assert_matches!(res.unwrap_err(), Error::InvalidGasPrice);
@@ -1212,9 +1237,8 @@ fn test_invalid_height_too_large() {
     let mut env = TestEnv::builder(ChainGenesis::test()).build();
     let b1 = env.clients[0].produce_block(1).unwrap().unwrap();
     let _ = env.clients[0].process_block_test(b1.clone().into(), Provenance::PRODUCED).unwrap();
-    let signer =
-        InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-    let b2 = Block::empty_with_height(&b1, u64::MAX, &signer);
+    let signer = Arc::new(create_test_signer("test0"));
+    let b2 = TestBlockBuilder::new(&b1, signer).height(u64::MAX).build();
     let res = env.clients[0].process_block_test(b2.into(), Provenance::NONE);
     assert_matches!(res.unwrap_err(), Error::InvalidBlockHeight(_));
 }
@@ -1347,15 +1371,17 @@ fn test_bad_chunk_mask() {
             let vs = ValidatorSchedule::new()
                 .num_shards(2)
                 .block_producers_per_epoch(vec![validators.clone()]);
-            setup_client(
+            setup_client_with_synchronous_shards_manager(
                 create_test_store(),
                 vs,
                 Some(account_id.clone()),
                 false,
-                Arc::new(MockPeerManagerAdapter::default()),
-                Arc::new(MockClientAdapterForShardsManager::default()),
+                Arc::new(MockPeerManagerAdapter::default()).into(),
+                MockClientAdapterForShardsManager::default().into_sender(),
                 chain_genesis.clone(),
                 TEST_SEED,
+                false,
+                true,
             )
         })
         .collect();
@@ -1371,6 +1397,7 @@ fn test_bad_chunk_mask() {
                     encoded_chunk.clone(),
                     merkle_paths.clone(),
                     receipts.clone(),
+                    client.validator_signer.as_ref().unwrap().validator_id().clone(),
                 )
                 .unwrap();
         }
@@ -1484,6 +1511,186 @@ fn test_gc_with_epoch_length() {
 #[test]
 fn test_gc_long_epoch() {
     test_gc_with_epoch_length_common(200);
+}
+
+/// Test that producing blocks works in archival mode with save_trie_changes enabled.
+/// In that case garbage collection should not happen but trie changes should be saved to the store.
+#[test]
+fn test_archival_save_trie_changes() {
+    let epoch_length = 10;
+
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    genesis.config.epoch_length = epoch_length;
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.epoch_length = epoch_length;
+    let mut env = TestEnv::builder(chain_genesis)
+        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+        .archive(true)
+        .save_trie_changes(true)
+        .build();
+
+    env.clients[0].chain.store().store().set_db_kind(DbKind::Archive).unwrap();
+
+    let mut blocks = vec![];
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    blocks.push(genesis_block);
+    for i in 1..=epoch_length * (DEFAULT_GC_NUM_EPOCHS_TO_KEEP + 1) {
+        let block = env.clients[0].produce_block(i).unwrap().unwrap();
+        env.process_block(0, block.clone(), Provenance::PRODUCED);
+        blocks.push(block);
+    }
+    // Go through all of the blocks and verify that the block are stored and that the trie changes were stored too.
+    for i in 0..=epoch_length * (DEFAULT_GC_NUM_EPOCHS_TO_KEEP + 1) {
+        let client = &env.clients[0];
+        let chain = &client.chain;
+        let store = chain.store();
+        let block = &blocks[i as usize];
+        let header = block.header();
+        let epoch_id = header.epoch_id();
+        let runtime_adapter = &client.runtime_adapter;
+        let shard_layout = runtime_adapter.get_shard_layout(epoch_id).unwrap();
+
+        assert!(chain.get_block(block.hash()).is_ok());
+        assert!(chain.get_block_by_height(i).is_ok());
+        assert!(chain.store().get_all_block_hashes_by_height(i as BlockHeight).is_ok());
+
+        // The genesis block does not contain trie changes.
+        if i == 0 {
+            continue;
+        }
+
+        // Go through chunks and test that trie changes were correctly saved to the store.
+        let chunks = block.chunks();
+        for chunk in chunks.iter() {
+            let shard_id = chunk.shard_id() as u32;
+            let version = shard_layout.version();
+
+            let shard_uid = ShardUId { version, shard_id };
+            let key = get_block_shard_uid(&block.hash(), &shard_uid);
+            let trie_changes: Option<TrieChanges> =
+                store.store().get_ser(DBCol::TrieChanges, &key).unwrap();
+
+            if let Some(trie_changes) = trie_changes {
+                // We don't do any transactions in this test so the root should remain unchanged.
+                assert_eq!(trie_changes.old_root, trie_changes.new_root);
+            }
+        }
+    }
+}
+
+fn test_archival_gc_common(
+    storage: NodeStorage<TestDB>,
+    epoch_length: u64,
+    max_height: BlockHeight,
+    max_cold_head_height: BlockHeight,
+    legacy: bool,
+) {
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    genesis.config.epoch_length = epoch_length;
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.epoch_length = epoch_length;
+
+    let hot_store = &storage.get_store(Temperature::Hot);
+
+    let runtime_adapter = create_nightshade_runtime_with_store(&genesis, &hot_store);
+    let mut env = TestEnv::builder(chain_genesis)
+        .runtime_adapters(vec![runtime_adapter])
+        .archive(true)
+        .save_trie_changes(true)
+        .build();
+
+    let mut blocks = vec![];
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    blocks.push(genesis_block);
+
+    for i in 1..=max_height {
+        let block = env.clients[0].produce_block(i).unwrap().unwrap();
+        env.process_block(0, block.clone(), Provenance::PRODUCED);
+
+        let header = block.header();
+        let epoch_id = header.epoch_id();
+        let runtime_adapter = &env.clients[0].runtime_adapter;
+        let shard_layout = runtime_adapter.get_shard_layout(epoch_id).unwrap();
+
+        blocks.push(block);
+
+        if i <= max_cold_head_height {
+            update_cold_db(storage.cold_db().unwrap(), hot_store, &shard_layout, &i).unwrap();
+            update_cold_head(storage.cold_db().unwrap(), &hot_store, &i).unwrap();
+        }
+    }
+
+    // All blocks up until max_gc_height, exclusively, should be garbage collected.
+    // In the '_current' test this will be max_height - 5 epochs
+    // In the '_behind' test this will be the cold head height.
+    // In the '_migration' test this will be 0.
+    let mut max_gc_height = 0;
+    if !legacy {
+        max_gc_height = std::cmp::min(
+            max_height - epoch_length * DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
+            max_cold_head_height,
+        );
+    };
+
+    for i in 0..=max_height {
+        let client = &env.clients[0];
+        let chain = &client.chain;
+        let block = &blocks[i as usize];
+
+        if i < max_gc_height {
+            assert!(chain.get_block(block.hash()).is_err());
+            assert!(chain.get_block_by_height(i).is_err());
+        } else {
+            assert!(chain.get_block(block.hash()).is_ok());
+            assert!(chain.get_block_by_height(i).is_ok());
+            assert!(chain.store().get_all_block_hashes_by_height(i as BlockHeight).is_ok());
+        }
+    }
+}
+
+/// This test verifies that archival node in split storage mode that is up to
+/// date on the hot -> cold block copying is correctly garbage collecting
+/// blocks older than 5 epochs.
+#[test]
+fn test_archival_gc_migration() {
+    // Split storage in the middle of migration has hot store kind set to archive.
+    let storage = create_test_node_storage_with_cold(DB_VERSION, DbKind::Archive);
+
+    let epoch_length = 10;
+    let max_height = epoch_length * (DEFAULT_GC_NUM_EPOCHS_TO_KEEP + 2);
+    let max_cold_head_height = 5;
+
+    test_archival_gc_common(storage, epoch_length, max_height, max_cold_head_height, true);
+}
+
+/// This test verifies that archival node in split storage mode that is up to
+/// date on the hot -> cold block copying is correctly garbage collecting
+/// blocks older than 5 epochs.
+#[test]
+fn test_archival_gc_split_storage_current() {
+    // Fully migrated split storage has each store configured with kind = temperature.
+    let storage = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
+
+    let epoch_length = 10;
+    let max_height = epoch_length * (DEFAULT_GC_NUM_EPOCHS_TO_KEEP + 2);
+    let max_cold_head_height = max_height - 2 * epoch_length;
+
+    test_archival_gc_common(storage, epoch_length, max_height, max_cold_head_height, false);
+}
+
+/// This test verifies that archival node in split storage mode that is behind
+/// on the hot -> cold block copying is correctly garbage collecting blocks
+/// older than the cold head.
+#[test]
+fn test_archival_gc_split_storage_behind() {
+    // Fully migrated split storage has each store configured with kind = temperature.
+    let storage = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
+
+    let epoch_length = 10;
+    let max_height = epoch_length * (DEFAULT_GC_NUM_EPOCHS_TO_KEEP + 2);
+    let max_cold_head_height = 5;
+
+    test_archival_gc_common(storage, epoch_length, max_height, max_cold_head_height, false);
 }
 
 #[test]
@@ -1838,13 +2045,12 @@ fn test_gas_price_change() {
     init_test_logger();
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let target_num_tokens_left = NEAR_BASE / 10 + 1;
-    let transaction_costs = RuntimeConfig::test().transaction_costs;
+    let transaction_costs = RuntimeConfig::test().fees;
 
-    let send_money_total_gas =
-        transaction_costs.action_creation_config.transfer_cost.send_fee(false)
-            + transaction_costs.action_receipt_creation_config.send_fee(false)
-            + transaction_costs.action_creation_config.transfer_cost.exec_fee()
-            + transaction_costs.action_receipt_creation_config.exec_fee();
+    let send_money_total_gas = transaction_costs.fee(ActionCosts::transfer).send_fee(false)
+        + transaction_costs.fee(ActionCosts::new_action_receipt).send_fee(false)
+        + transaction_costs.fee(ActionCosts::transfer).exec_fee()
+        + transaction_costs.fee(ActionCosts::new_action_receipt).exec_fee();
     let min_gas_price = target_num_tokens_left / send_money_total_gas as u128;
     let gas_limit = 1000000000000;
     let gas_price_adjustment_rate = Ratio::new(1, 10);
@@ -1926,8 +2132,7 @@ fn test_gas_price_overflow() {
 fn test_invalid_block_root() {
     let mut env = TestEnv::builder(ChainGenesis::test()).build();
     let mut b1 = env.clients[0].produce_block(1).unwrap().unwrap();
-    let signer =
-        InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let signer = create_test_signer("test0");
     b1.mut_header().get_mut().inner_lite.block_merkle_root = CryptoHash::default();
     b1.mut_header().resign(&signer);
     let res = env.clients[0].process_block_test(b1.into(), Provenance::NONE);
@@ -1938,24 +2143,22 @@ fn test_invalid_block_root() {
 fn test_incorrect_validator_key_produce_block() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 2);
     let chain_genesis = ChainGenesis::new(&genesis);
-    let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(nearcore::NightshadeRuntime::test(
-        Path::new("../../../.."),
-        create_test_store(),
-        &genesis,
-    ));
+    let runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter> = Arc::new(
+        nearcore::NightshadeRuntime::test(Path::new("../../../.."), create_test_store(), &genesis),
+    );
     let signer = Arc::new(InMemoryValidatorSigner::from_seed(
         "test0".parse().unwrap(),
         KeyType::ED25519,
         "seed",
     ));
-    let mut config = ClientConfig::test(true, 10, 20, 2, false, true);
+    let mut config = ClientConfig::test(true, 10, 20, 2, false, true, true);
     config.epoch_length = chain_genesis.epoch_length;
     let mut client = Client::new(
         config,
         chain_genesis,
         runtime_adapter,
-        Arc::new(MockPeerManagerAdapter::default()),
-        Arc::new(MockClientAdapterForShardsManager::default()),
+        Arc::new(MockPeerManagerAdapter::default()).into(),
+        Sender::noop(),
         Some(signer),
         false,
         TEST_SEED,
@@ -2128,34 +2331,12 @@ fn test_sync_hash_validity() {
     }
 }
 
-/// Only process one block per height
-/// Temporarily disable this test because the is_height_processed check is moved to client actor
-/// TODO (Min): refactor client actor receive_block code to move it to client
-#[ignore]
-#[test]
-fn test_not_process_height_twice() {
-    let mut env = TestEnv::builder(ChainGenesis::test()).build();
-    let block = env.clients[0].produce_block(1).unwrap().unwrap();
-    let mut invalid_block = block.clone();
-    env.process_block(0, block, Provenance::PRODUCED);
-    let validator_signer =
-        InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-    let proposals =
-        vec![ValidatorStake::new("test1".parse().unwrap(), PublicKey::empty(KeyType::ED25519), 0)];
-    invalid_block.mut_header().get_mut().inner_rest.validator_proposals = proposals;
-    invalid_block.mut_header().resign(&validator_signer);
-    let accepted_blocks =
-        env.clients[0].process_block_test(invalid_block.into(), Provenance::NONE).unwrap();
-    assert!(accepted_blocks.is_empty());
-}
-
 #[test]
 fn test_block_height_processed_orphan() {
     let mut env = TestEnv::builder(ChainGenesis::test()).build();
     let block = env.clients[0].produce_block(1).unwrap().unwrap();
     let mut orphan_block = block;
-    let validator_signer =
-        InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let validator_signer = create_test_signer("test0");
     orphan_block.mut_header().get_mut().prev_hash = hash(&[1]);
     orphan_block.mut_header().resign(&validator_signer);
     let block_height = orphan_block.header().height();
@@ -2223,8 +2404,7 @@ fn test_validate_chunk_extra() {
     }
 
     // Construct two blocks that contain the same chunk and make the chunk unavailable.
-    let validator_signer =
-        InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let validator_signer = create_test_signer("test0");
     let next_height = last_block.header().height() + 1;
     let (encoded_chunk, merkle_paths, receipts) =
         create_chunk_on_height(&mut env.clients[0], next_height);
@@ -2262,8 +2442,9 @@ fn test_validate_chunk_extra() {
     let mut chain_store =
         ChainStore::new(env.clients[0].chain.store().store().clone(), genesis_height, true);
     let chunk_header = encoded_chunk.cloned_header();
+    let validator_id = env.clients[0].validator_signer.as_ref().unwrap().validator_id().clone();
     env.clients[0]
-        .persist_and_distribute_encoded_chunk(encoded_chunk, merkle_paths, receipts)
+        .persist_and_distribute_encoded_chunk(encoded_chunk, merkle_paths, receipts, validator_id)
         .unwrap();
     env.clients[0].chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
     env.clients[0].process_blocks_with_missing_chunks(Arc::new(|_| {}));
@@ -2274,7 +2455,8 @@ fn test_validate_chunk_extra() {
     assert_eq!(accepted_blocks.len(), 1);
 
     // About to produce a block on top of block1. Validate that this chunk is legit.
-    let chunks = env.clients[0].shards_mgr.prepare_chunks(block1.hash());
+    let chunks = env.clients[0]
+        .get_chunk_headers_ready_for_inclusion(block1.header().epoch_id(), &block1.hash());
     let chunk_extra =
         env.clients[0].chain.get_chunk_extra(block1.hash(), &ShardUId::single_shard()).unwrap();
     assert!(validate_chunk_with_chunk_extra(
@@ -2304,8 +2486,7 @@ fn test_gas_price_change_no_chunk() {
     let mut env = TestEnv::builder(chain_genesis)
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
-    let validator_signer =
-        InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let validator_signer = create_test_signer("test0");
     for i in 1..=20 {
         let mut block = env.clients[0].produce_block(i).unwrap().unwrap();
         if i <= 5 || (i > 10 && i <= 15) {
@@ -2655,10 +2836,9 @@ fn test_execution_metadata() {
     let config = RuntimeConfigStore::test().get_config(PROTOCOL_VERSION).clone();
 
     // Total costs for creating a function call receipt.
-    let expected_receipt_cost = config.transaction_costs.action_receipt_creation_config.execution
-        + config.transaction_costs.action_creation_config.function_call_cost.exec_fee()
-        + config.transaction_costs.action_creation_config.function_call_cost_per_byte.exec_fee()
-            * "main".len() as u64;
+    let expected_receipt_cost = config.fees.fee(ActionCosts::new_action_receipt).execution
+        + config.fees.fee(ActionCosts::function_call_base).exec_fee()
+        + config.fees.fee(ActionCosts::function_call_byte).exec_fee() * "main".len() as u64;
 
     // Profile for what's happening *inside* wasm vm during function call.
     let expected_profile = serde_json::json!([
@@ -2666,13 +2846,13 @@ fn test_execution_metadata() {
       {
         "cost_category": "WASM_HOST_COST",
         "cost": "BASE",
-        "gas_used": config.wasm_config.ext_costs.base.to_string()
+        "gas_used": config.wasm_config.ext_costs.cost(ExtCosts::base).to_string()
       },
       // We include compilation costs into running the function.
       {
         "cost_category": "WASM_HOST_COST",
         "cost": "CONTRACT_LOADING_BASE",
-        "gas_used": config.wasm_config.ext_costs.contract_loading_base.to_string()
+        "gas_used": config.wasm_config.ext_costs.cost(ExtCosts::contract_loading_base).to_string()
       },
       {
         "cost_category": "WASM_HOST_COST",
@@ -2730,11 +2910,14 @@ fn test_epoch_protocol_version_change() {
             create_chunk_on_height(&mut env.clients[index], i);
 
         for j in 0..2 {
+            let validator_id =
+                env.clients[j].validator_signer.as_ref().unwrap().validator_id().clone();
             env.clients[j]
                 .persist_and_distribute_encoded_chunk(
                     encoded_chunk.clone(),
                     merkle_paths.clone(),
                     receipts.clone(),
+                    validator_id,
                 )
                 .unwrap();
         }
@@ -2854,7 +3037,7 @@ fn test_query_final_state() {
     }
 
     let query_final_state = |chain: &mut near_chain::Chain,
-                             runtime_adapter: Arc<dyn RuntimeAdapter>,
+                             runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
                              account_id: AccountId| {
         let final_head = chain.store().final_head().unwrap();
         let last_final_block = chain.get_block(&final_head.last_block_hash).unwrap();
@@ -2919,8 +3102,7 @@ fn test_fork_receipt_ids() {
     env.process_block(0, produced_block.clone(), Provenance::PRODUCED);
 
     // Construct two blocks that contain the same chunk and make the chunk unavailable.
-    let validator_signer =
-        InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let validator_signer = create_test_signer("test0");
     let next_height = produced_block.header().height() + 1;
     let (encoded_chunk, _, _) = create_chunk_on_height(&mut env.clients[0], next_height);
     let mut block1 = env.clients[0].produce_block(next_height).unwrap().unwrap();
@@ -2967,8 +3149,7 @@ fn test_fork_execution_outcome() {
     }
 
     // Construct two blocks that contain the same chunk and make the chunk unavailable.
-    let validator_signer =
-        InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let validator_signer = create_test_signer("test0");
     let next_height = last_height + 1;
     let (encoded_chunk, _, _) = create_chunk_on_height(&mut env.clients[0], next_height);
     let mut block1 = env.clients[0].produce_block(next_height).unwrap().unwrap();
@@ -3070,8 +3251,7 @@ fn test_header_version_downgrade() {
     let mut env = TestEnv::builder(chain_genesis)
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
-    let validator_signer =
-        InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let validator_signer = create_test_signer("test0");
     for i in 1..10 {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         env.process_block(0, block, Provenance::NONE);
@@ -3118,8 +3298,7 @@ fn test_node_shutdown_with_old_protocol_version() {
     let mut env = TestEnv::builder(ChainGenesis::test())
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
-    let validator_signer =
-        InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let validator_signer = create_test_signer("test0");
     for i in 1..=5 {
         let mut block = env.clients[0].produce_block(i).unwrap().unwrap();
         block.mut_header().get_mut().inner_rest.latest_protocol_version = PROTOCOL_VERSION + 1;
@@ -3306,6 +3485,7 @@ fn test_catchup_no_sharding_change() {
     }
 }
 
+/// These tests fail on aarch because the WasmtimeVM::precompile method doesn't populate the cache.
 mod contract_precompilation_tests {
     use super::*;
     use near_primitives::contract::ContractCode;
@@ -3344,6 +3524,7 @@ mod contract_precompilation_tests {
     }
 
     #[test]
+    #[cfg_attr(all(target_arch = "aarch64", target_vendor = "apple"), ignore)]
     fn test_sync_and_call_cached_contract() {
         let num_clients = 2;
         let stores: Vec<Store> = (0..num_clients).map(|_| create_test_store()).collect();
@@ -3357,7 +3538,7 @@ mod contract_precompilation_tests {
                     Path::new("../../../.."),
                     store.clone(),
                     &genesis,
-                )) as Arc<dyn RuntimeAdapter>
+                )) as Arc<dyn RuntimeWithEpochManagerAdapter>
             })
             .collect();
 
@@ -3446,6 +3627,7 @@ mod contract_precompilation_tests {
     }
 
     #[test]
+    #[cfg_attr(all(target_arch = "aarch64", target_vendor = "apple"), ignore)]
     fn test_two_deployments() {
         let num_clients = 2;
         let stores: Vec<Store> = (0..num_clients).map(|_| create_test_store()).collect();
@@ -3459,7 +3641,7 @@ mod contract_precompilation_tests {
                     Path::new("../../../.."),
                     store.clone(),
                     &genesis,
-                )) as Arc<dyn RuntimeAdapter>
+                )) as Arc<dyn RuntimeWithEpochManagerAdapter>
             })
             .collect();
 
@@ -3527,6 +3709,7 @@ mod contract_precompilation_tests {
     }
 
     #[test]
+    #[cfg_attr(all(target_arch = "aarch64", target_vendor = "apple"), ignore)]
     fn test_sync_after_delete_account() {
         let num_clients = 3;
         let stores: Vec<Store> = (0..num_clients).map(|_| create_test_store()).collect();
@@ -3542,7 +3725,7 @@ mod contract_precompilation_tests {
                     Path::new("../../../.."),
                     store.clone(),
                     &genesis,
-                )) as Arc<dyn RuntimeAdapter>
+                )) as Arc<dyn RuntimeWithEpochManagerAdapter>
             })
             .collect();
 

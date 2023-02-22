@@ -11,7 +11,6 @@ repository = "https://github.com/near/nearcore"
 description = "This is an internal crate for common cryptographic types"
 
 [dependencies]
-arrayref.workspace = true
 blake2.workspace = true
 borsh.workspace = true
 bs58.workspace = true
@@ -19,6 +18,7 @@ c2-chacha.workspace = true
 curve25519-dalek.workspace = true
 derive_more.workspace = true
 ed25519-dalek.workspace = true
+hex.workspace = true
 near-account-id = { path = "../account-id" }
 once_cell.workspace = true
 primitive-types.workspace = true
@@ -26,8 +26,10 @@ rand = "0.7"
 secp256k1.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+stdx.workspace = true
 subtle.workspace = true
 thiserror.workspace = true
+near-config-utils = { path = "../../utils/config" }
 
 [dev-dependencies]
 hex-literal = "0.2"

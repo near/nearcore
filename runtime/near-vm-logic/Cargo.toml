@@ -17,12 +17,12 @@ This crate implements the specification of the interface that Near blockchain ex
 [dependencies]
 bn.workspace = true
 borsh.workspace = true
-byteorder.workspace = true
 ed25519-dalek.workspace = true
 ripemd.workspace = true
 serde.workspace = true
 sha2.workspace = true
 sha3.workspace = true
+stdx.workspace = true
 tracing = { workspace = true, optional = true }
 
 near-crypto = { path = "../../core/crypto" }
@@ -35,14 +35,12 @@ near-vm-errors = { path = "../near-vm-errors" }
 [dev-dependencies]
 hex.workspace = true
 serde_json = { workspace = true, features = ["preserve_order"] }
+expect-test.workspace = true
 
 [features]
 default = []
 protocol_feature_fix_contract_loading_cost = [
     "near-primitives/protocol_feature_fix_contract_loading_cost",
-]
-protocol_feature_ed25519_verify = [
-    "near-primitives/protocol_feature_ed25519_verify"
 ]
 protocol_feature_flat_state = []
 

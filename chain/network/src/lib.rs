@@ -9,6 +9,7 @@ mod peer_manager;
 mod private_actix;
 mod stats;
 mod store;
+mod stun;
 
 pub mod actix;
 pub mod blacklist;
@@ -16,7 +17,9 @@ pub mod client;
 pub mod config;
 pub mod config_json;
 pub mod debug;
+pub mod raw;
 pub mod routing;
+pub mod shards_manager;
 pub mod tcp;
 pub mod test_utils;
 pub mod time;

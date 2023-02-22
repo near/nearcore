@@ -20,8 +20,8 @@ fn check_method(module: &Module, method_name: &str) -> Result<(), FunctionCallEr
     let info = module.info();
     use wasmer_runtime_core::module::ExportIndex::Func;
     if let Some(Func(index)) = info.exports.map.get(method_name) {
-        let func = info.func_assoc.get(index.clone()).unwrap();
-        let sig = info.signatures.get(func.clone()).unwrap();
+        let func = info.func_assoc.get(*index).unwrap();
+        let sig = info.signatures.get(*func).unwrap();
         if sig.params().is_empty() && sig.returns().is_empty() {
             Ok(())
         } else {
@@ -332,15 +332,10 @@ impl Wasmer0VM {
                     }
                 };
 
-                let module = match stored_module {
-                    Some(it) => it,
-                    None => match self.compile_and_cache(code, cache)? {
-                        Ok(it) => it,
-                        Err(it) => return Ok(Err(it)),
-                    },
-                };
-
-                Ok(Ok(module))
+                Ok(match stored_module {
+                    Some(it) => Ok(it),
+                    None => self.compile_and_cache(code, cache)?,
+                })
             };
 
         #[cfg(feature = "no_cache")]

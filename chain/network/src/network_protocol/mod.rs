@@ -19,10 +19,14 @@ mod _proto {
 
 pub use _proto::network as proto;
 
+use crate::network_protocol::proto_conv::trace_context::{
+    extract_span_context, inject_trace_context,
+};
 use crate::time;
 use borsh::{BorshDeserialize as _, BorshSerialize as _};
 use near_crypto::PublicKey;
 use near_crypto::Signature;
+use near_o11y::OpenTelemetrySpanExt;
 use near_primitives::block::{Approval, Block, BlockHeader, GenesisId};
 use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
@@ -33,14 +37,16 @@ use near_primitives::sharding::{
 };
 use near_primitives::syncing::{ShardStateSyncResponse, ShardStateSyncResponseV1};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, EpochId};
+use near_primitives::types::AccountId;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::views::FinalExecutionOutcomeView;
 use protobuf::Message as _;
 use std::collections::HashSet;
 use std::fmt;
+use std::fmt::Debug;
 use std::sync::Arc;
+use tracing::Span;
 
 #[derive(PartialEq, Eq, Clone, Debug, Hash)]
 pub struct PeerAddr {
@@ -84,20 +90,55 @@ impl std::str::FromStr for PeerAddr {
     }
 }
 
-#[derive(PartialEq, Eq, Debug, Hash)]
+/// AccountData is a piece of global state that a validator
+/// signs and broadcasts to the network. It is essentially
+/// the data that a validator wants to share with the network.
+/// All the nodes in the network are collecting the account data
+/// broadcasted by the validators.
+/// Since the number of the validators is bounded and their
+/// identity is known (and the maximal size of allowed AccountData is bounded)
+/// the global state that is distributed in the form of AccountData is bounded
+/// as well.
+#[derive(Clone, PartialEq, Eq, Debug, Hash)]
 pub struct AccountData {
-    pub peers: Vec<PeerAddr>,
-    pub account_id: AccountId,
-    pub epoch_id: EpochId,
+    /// ID of the node that handles the account key (aka validator key).
+    pub peer_id: PeerId,
+    /// Proxy nodes that are directly connected to the validator node
+    /// (this list may include the validator node itself).
+    /// TIER1 nodes should connect to one of the proxies to sent TIER1
+    /// messages to the validator.
+    pub proxies: Vec<PeerAddr>,
+}
+
+/// Wrapper of the AccountData which adds metadata to it.
+/// It allows to decide which AccountData is newer (authoritative)
+/// and discard the older versions.
+#[derive(PartialEq, Eq, Debug, Hash)]
+pub struct VersionedAccountData {
+    /// The wrapped account data.
+    pub data: AccountData,
+    /// Account key of the validator signing this AccountData.
+    pub account_key: PublicKey,
+    /// Version of the AccountData. Each network node stores only
+    /// the newest version of the data per validator. The newest AccountData
+    /// is the one with the lexicographically biggest (version,timestamp) tuple:
+    /// * version is a manually incremented version counter. In case a validator
+    ///   (after a restart/crash/state loss) learns from the network that it has
+    ///   already published AccountData with some version, it can immediately
+    ///   override it by signing and broadcasting AccountData with a higher version.
+    /// * timestamp is a version tie breaker, introduced only to minimize
+    ///   the risk of version collision (see accounts_data/mod.rs).
+    pub version: u64,
+    /// UTC timestamp of when the AccountData has been signed.
     pub timestamp: time::Utc,
 }
 
-// Limit on the size of the serialized AccountData message.
-// It is important to have such a constraint on the serialized proto,
-// because it may contain many unknown fields (which are dropped during parsing).
+/// Limit on the size of the serialized AccountData message.
+/// It is important to have such a constraint on the serialized proto,
+/// because it may contain many unknown fields (which are dropped during parsing).
 pub const MAX_ACCOUNT_DATA_SIZE_BYTES: usize = 10000; // 10kB
 
-impl AccountData {
+impl VersionedAccountData {
     /// Serializes AccountData to proto and signs it using `signer`.
     /// Panics if AccountData.account_id doesn't match signer.validator_id(),
     /// as this would likely be a bug.
@@ -109,9 +150,9 @@ impl AccountData {
     /// consistute a cleaner never-panicking interface.
     pub fn sign(self, signer: &dyn ValidatorSigner) -> anyhow::Result<SignedAccountData> {
         assert_eq!(
-            &self.account_id,
-            signer.validator_id(),
-            "AccountData.account_id doesn't match the signer's account_id"
+            self.account_key,
+            signer.public_key(),
+            "AccountData.account_key doesn't match the signer's account_key"
         );
         let payload = proto::AccountKeyPayload::from(&self).write_to_bytes().unwrap();
         if payload.len() > MAX_ACCOUNT_DATA_SIZE_BYTES {
@@ -129,7 +170,14 @@ impl AccountData {
     }
 }
 
-#[derive(PartialEq, Eq, Debug, Hash)]
+impl std::ops::Deref for VersionedAccountData {
+    type Target = AccountData;
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Hash)]
 pub struct AccountKeySignedPayload {
     payload: Vec<u8>,
     signature: near_crypto::Signature,
@@ -155,19 +203,67 @@ impl AccountKeySignedPayload {
 // SignedAccountData for tests may get a little tricky).
 #[derive(PartialEq, Eq, Debug, Hash)]
 pub struct SignedAccountData {
-    account_data: AccountData,
+    account_data: VersionedAccountData,
     // Serialized and signed AccountData.
     payload: AccountKeySignedPayload,
 }
 
 impl std::ops::Deref for SignedAccountData {
-    type Target = AccountData;
+    type Target = VersionedAccountData;
     fn deref(&self) -> &Self::Target {
         &self.account_data
     }
 }
 
 impl SignedAccountData {
+    pub fn payload(&self) -> &AccountKeySignedPayload {
+        &self.payload
+    }
+}
+
+/// Proof that a given peer owns the account key.
+/// Included in every handshake sent by a validator node.
+#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+pub struct OwnedAccount {
+    pub(crate) account_key: PublicKey,
+    pub(crate) peer_id: PeerId,
+    pub(crate) timestamp: time::Utc,
+}
+
+impl OwnedAccount {
+    /// Serializes OwnedAccount to proto and signs it using `signer`.
+    /// Panics if OwnedAccount.account_key doesn't match signer.public_key(),
+    /// as this would likely be a bug.
+    pub fn sign(self, signer: &dyn ValidatorSigner) -> SignedOwnedAccount {
+        assert_eq!(
+            self.account_key,
+            signer.public_key(),
+            "OwnedAccount.account_key doesn't match the signer's account_key"
+        );
+        let payload = proto::AccountKeyPayload::from(&self).write_to_bytes().unwrap();
+        let signature = signer.sign_account_key_payload(&payload);
+        SignedOwnedAccount {
+            owned_account: self,
+            payload: AccountKeySignedPayload { payload, signature },
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+pub struct SignedOwnedAccount {
+    owned_account: OwnedAccount,
+    // Serialized and signed OwnedAccount.
+    payload: AccountKeySignedPayload,
+}
+
+impl std::ops::Deref for SignedOwnedAccount {
+    type Target = OwnedAccount;
+    fn deref(&self) -> &Self::Target {
+        &self.owned_account
+    }
+}
+
+impl SignedOwnedAccount {
     pub fn payload(&self) -> &AccountKeySignedPayload {
         &self.payload
     }
@@ -209,6 +305,8 @@ pub struct Handshake {
     pub(crate) sender_chain_info: PeerChainInfoV2,
     /// Represents new `edge`. Contains only `none` and `Signature` from the sender.
     pub(crate) partial_edge_info: PartialEdgeInfo,
+    /// Account owned by the sender.
+    pub(crate) owned_account: Option<SignedOwnedAccount>,
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, strum::IntoStaticStr)]
@@ -226,17 +324,25 @@ pub struct SyncAccountsData {
     pub incremental: bool,
 }
 
+/// Message sent when gracefully disconnecting from the other peer.
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct Disconnect {
+    /// Advises the other peer to remove the connection from storage
+    /// Used when it is not expected that a reconnect attempt would succeed
+    pub remove_from_connection_store: bool,
+}
+
 #[derive(PartialEq, Eq, Clone, Debug, strum::IntoStaticStr, strum::EnumVariantNames)]
 #[allow(clippy::large_enum_variant)]
 pub enum PeerMessage {
-    Handshake(Handshake),
+    Tier1Handshake(Handshake),
+    Tier2Handshake(Handshake),
     HandshakeFailure(PeerInfo, HandshakeFailureReason),
     /// When a failed nonce is used by some peer, this message is sent back as evidence.
     LastEdge(Edge),
     /// Contains accounts and edge information.
     SyncRoutingTable(RoutingTableUpdate),
     RequestUpdateNonce(PartialEdgeInfo),
-    ResponseUpdateNonce(Edge),
 
     SyncAccountsData(SyncAccountsData),
 
@@ -253,7 +359,7 @@ pub enum PeerMessage {
     Routed(Box<RoutedMessageV2>),
 
     /// Gracefully disconnect from other peer.
-    Disconnect,
+    Disconnect(Disconnect),
     Challenge(Challenge),
 }
 
@@ -282,10 +388,17 @@ pub enum ParsePeerMessageError {
 }
 
 impl PeerMessage {
+    /// Serializes a message in the given encoding.
+    /// If the encoding is `Proto`, then also attaches current Span's context to the message.
     pub(crate) fn serialize(&self, enc: Encoding) -> Vec<u8> {
         match enc {
             Encoding::Borsh => borsh_::PeerMessage::from(self).try_to_vec().unwrap(),
-            Encoding::Proto => proto::PeerMessage::from(self).write_to_bytes().unwrap(),
+            Encoding::Proto => {
+                let mut msg = proto::PeerMessage::from(self);
+                let cx = Span::current().context();
+                msg.trace_context = inject_trace_context(&cx);
+                msg.write_to_bytes().unwrap()
+            }
         }
     }
 
@@ -293,15 +406,20 @@ impl PeerMessage {
         enc: Encoding,
         data: &[u8],
     ) -> Result<PeerMessage, ParsePeerMessageError> {
+        let span = tracing::trace_span!(target: "network", "deserialize").entered();
         Ok(match enc {
             Encoding::Borsh => (&borsh_::PeerMessage::try_from_slice(data)
                 .map_err(ParsePeerMessageError::BorshDecode)?)
                 .try_into()
                 .map_err(ParsePeerMessageError::BorshConv)?,
-            Encoding::Proto => (&proto::PeerMessage::parse_from_bytes(data)
-                .map_err(ParsePeerMessageError::ProtoDecode)?)
-                .try_into()
-                .map_err(ParsePeerMessageError::ProtoConv)?,
+            Encoding::Proto => {
+                let proto_msg: proto::PeerMessage = proto::PeerMessage::parse_from_bytes(data)
+                    .map_err(ParsePeerMessageError::ProtoDecode)?;
+                if let Ok(extracted_span_context) = extract_span_context(&proto_msg.trace_context) {
+                    span.clone().or_current().add_link(extracted_span_context);
+                }
+                (&proto_msg).try_into().map_err(|err| ParsePeerMessageError::ProtoConv(err))?
+            }
         })
     }
 
@@ -342,6 +460,10 @@ pub enum RoutedMessageBody {
 
     StateRequestHeader(ShardId, CryptoHash),
     StateRequestPart(ShardId, CryptoHash, u64),
+    /// StateResponse in not produced since protocol version 58.
+    /// We can remove the support for it in protocol version 60.
+    /// It has been obsoleted by VersionedStateResponse which
+    /// is a superset of StateResponse values.
     StateResponse(StateResponseInfoV1),
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg),
     PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg),
@@ -459,6 +581,9 @@ pub struct RoutedMessageV2 {
     pub msg: RoutedMessage,
     /// The time the Routed message was created by `author`.
     pub created_at: Option<time::Utc>,
+    /// Number of peers this routed message travelled through.
+    /// Doesn't include the peers that are the source and the destination of the message.
+    pub num_hops: Option<i32>,
 }
 
 impl std::ops::Deref for RoutedMessageV2 {
@@ -567,7 +692,7 @@ impl PartialEncodedChunkForwardMsg {
             inner_header_hash: header.inner_header_hash(),
             merkle_root: header.encoded_merkle_root(),
             signature: header.signature().clone(),
-            prev_block_hash: header.prev_block_hash().clone(),
+            prev_block_hash: *header.prev_block_hash(),
             height_created: header.height_created(),
             shard_id: header.shard_id(),
             parts,
@@ -642,9 +767,9 @@ impl StateResponseInfo {
     Clone,
     PartialEq,
     Eq,
+    Hash,
     borsh::BorshSerialize,
     borsh::BorshDeserialize,
-    Hash,
     serde::Serialize,
 )]
 pub enum AccountOrPeerIdOrHash {
@@ -679,6 +804,7 @@ impl RawRoutedMessage {
                 body: self.body,
             },
             created_at: now,
+            num_hops: Some(0),
         }
     }
 }

@@ -1,5 +1,5 @@
 use assert_matches::assert_matches;
-use near_chain::{ChainGenesis, Provenance, RuntimeAdapter};
+use near_chain::{ChainGenesis, Provenance, RuntimeWithEpochManagerAdapter};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType, Signer};
@@ -42,21 +42,21 @@ fn protocol_upgrade() {
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = old_protocol_version;
         let chain_genesis = ChainGenesis::new(&genesis);
-        let runtimes: Vec<Arc<dyn RuntimeAdapter>> =
+        let runtimes: Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> =
             vec![Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(
                 Path::new("."),
                 create_test_store(),
                 &genesis,
                 TrackedConfig::AllShards,
                 RuntimeConfigStore::new(None),
-            )) as Arc<dyn RuntimeAdapter>];
+            )) as Arc<dyn RuntimeWithEpochManagerAdapter>];
         let mut env = TestEnv::builder(chain_genesis).runtime_adapters(runtimes).build();
 
         deploy_test_contract_with_protocol_version(
             &mut env,
             "test0".parse().unwrap(),
             near_test_contracts::base_rs_contract(),
-            epoch_length.clone(),
+            epoch_length,
             1,
             old_protocol_version,
         );
@@ -85,7 +85,7 @@ fn protocol_upgrade() {
         let signed_tx =
             Transaction { nonce: tip.height + 1, block_hash: tip.last_block_hash, ..tx.clone() }
                 .sign(&signer);
-        let tx_hash = signed_tx.get_hash().clone();
+        let tx_hash = signed_tx.get_hash();
         env.clients[0].process_tx(signed_tx, false, false);
         produce_blocks_from_height_with_protocol_version(
             &mut env,
@@ -105,7 +105,7 @@ fn protocol_upgrade() {
         let signed_tx =
             Transaction { nonce: tip.height + 1, block_hash: tip.last_block_hash, ..tx }
                 .sign(&signer);
-        let tx_hash = signed_tx.get_hash().clone();
+        let tx_hash = signed_tx.get_hash();
         env.clients[0].process_tx(signed_tx, false, false);
         for i in 0..epoch_length {
             let block = env.clients[0].produce_block(tip.height + i + 1).unwrap().unwrap();
@@ -142,7 +142,7 @@ fn protocol_upgrade() {
         let signed_tx =
             Transaction { nonce: tip.height + 1, block_hash: tip.last_block_hash, ..tx }
                 .sign(&signer);
-        let tx_hash = signed_tx.get_hash().clone();
+        let tx_hash = signed_tx.get_hash();
         env.clients[0].process_tx(signed_tx, false, false);
         for i in 0..epoch_length {
             let block = env.clients[0].produce_block(tip.height + i + 1).unwrap().unwrap();

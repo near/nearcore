@@ -1,3 +1,7 @@
+use anyhow::{anyhow, bail, Context};
+use near_primitives::test_utils::create_test_signer;
+use near_primitives::time::Clock;
+use num_rational::Rational32;
 use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -6,23 +10,22 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{anyhow, bail, Context};
-use near_primitives::time::Clock;
-use num_rational::Rational32;
-use serde::{Deserialize, Serialize};
+use near_config_utils::{ValidationError, ValidationErrors};
+
 #[cfg(test)]
 use tempfile::tempdir;
 use tracing::{info, warn};
 
+use crate::download_file::{run_download_file, FileDownloadError};
 use near_chain_configs::{
     get_initial_supply, ClientConfig, GCConfig, Genesis, GenesisConfig, GenesisValidationMode,
-    LogSummaryStyle,
+    LogSummaryStyle, MutableConfigValue,
 };
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 #[cfg(feature = "json_rpc")]
 use near_jsonrpc::RpcConfig;
 use near_network::config::NetworkConfig;
-use near_network::test_utils::open_port;
+use near_network::tcp;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
 #[cfg(test)]
@@ -30,8 +33,8 @@ use near_primitives::shard_layout::account_id_to_shard_id;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockHeightDelta, EpochHeight, Gas, NumBlocks, NumSeats,
-    NumShards, ShardId,
+    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, EpochHeight, Gas, NumBlocks,
+    NumSeats, NumShards, ShardId,
 };
 use near_primitives::utils::{generate_random_string, get_num_seats_per_shard};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
@@ -39,8 +42,6 @@ use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
 use near_telemetry::TelemetryConfig;
-
-use crate::download_file::{run_download_file, FileDownloadError};
 
 /// Initial balance used in tests.
 pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
@@ -53,9 +54,6 @@ pub const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
 
 /// Millinear, 1/1000 of NEAR.
 pub const MILLI_NEAR: Balance = NEAR_BASE / 1000;
-
-/// Attonear, 1/10^18 of NEAR.
-pub const ATTO_NEAR: Balance = 1;
 
 /// Block production tracking delay.
 pub const BLOCK_PRODUCTION_TRACKING_DELAY: u64 = 100;
@@ -203,7 +201,7 @@ fn default_trie_viewer_state_size_limit() -> Option<u64> {
     Some(50_000)
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct Consensus {
     /// Minimum number of peers to start syncing.
     pub min_num_peers: usize,
@@ -287,7 +285,7 @@ impl Default for Consensus {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 #[serde(default)]
 pub struct Config {
     pub genesis_file: String,
@@ -307,6 +305,14 @@ pub struct Config {
     pub tracked_shards: Vec<ShardId>,
     #[serde(skip_serializing_if = "is_false")]
     pub archive: bool,
+    /// If save_trie_changes is not set it will get inferred from the `archive` field as follows:
+    /// save_trie_changes = !archive
+    /// save_trie_changes should be set to true iff
+    /// - archive if false - non-archival nodes need trie changes to perform garbage collection
+    /// - archive is true, cold_store is configured and migration to split_storage is finished - node
+    /// working in split storage mode needs trie changes in order to do garbage collection on hot.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub save_trie_changes: Option<bool>,
     pub log_summary_style: LogSummaryStyle,
     /// Garbage collection configuration.
     #[serde(default, flatten)]
@@ -321,8 +327,12 @@ pub struct Config {
     /// If set, overrides value in genesis configuration.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_gas_burnt_view: Option<Gas>,
-    /// Different parameters to configure/optimize underlying storage.
+    /// Different parameters to configure underlying storage.
     pub store: near_store::StoreConfig,
+    /// Different parameters to configure underlying cold storage.
+    /// This feature is under development, do not use in production.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cold_store: Option<near_store::StoreConfig>,
 
     // TODO(mina86): Remove those two altogether at some point.  We need to be
     // somewhat careful though and make sure that we don’t start silently
@@ -335,12 +345,13 @@ pub struct Config {
     /// Deprecated; use `store.migration_snapshot` instead.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub db_migration_snapshot_path: Option<PathBuf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_shutdown: Option<BlockHeight>,
 }
 
 fn is_false(value: &bool) -> bool {
     !*value
 }
-
 impl Default for Config {
     fn default() -> Self {
         Config {
@@ -358,6 +369,7 @@ impl Default for Config {
             tracked_accounts: vec![],
             tracked_shards: vec![],
             archive: false,
+            save_trie_changes: None,
             log_summary_style: LogSummaryStyle::Colored,
             gc: GCConfig::default(),
             epoch_sync_enabled: true,
@@ -368,17 +380,38 @@ impl Default for Config {
             db_migration_snapshot_path: None,
             use_db_migration_snapshot: None,
             store: near_store::StoreConfig::default(),
+            cold_store: None,
+            expected_shutdown: None,
         }
     }
 }
 
 impl Config {
-    pub fn from_file(path: &Path) -> anyhow::Result<Self> {
-        let contents = std::fs::read_to_string(path)
-            .with_context(|| format!("Failed to read config from {}", path.display()))?;
+    /// load Config from config.json without panic. Do semantic validation on field values.
+    /// If config file issues occur, a ValidationError::ConfigFileError will be returned;
+    /// If config semantic checks failed, a ValidationError::ConfigSemanticError will be returned
+    pub fn from_file(path: &Path) -> Result<Self, ValidationError> {
+        Self::from_file_skip_validation(path).and_then(|config| {
+            config.validate()?;
+            Ok(config)
+        })
+    }
+
+    /// load Config from config.json without panic.
+    /// Skips semantic validation on field values.
+    /// This function should only return error for file issues.
+    pub fn from_file_skip_validation(path: &Path) -> Result<Self, ValidationError> {
+        let json_str =
+            std::fs::read_to_string(path).map_err(|_| ValidationError::ConfigFileError {
+                error_message: format!("Failed to read config from {}", path.display()),
+            })?;
         let mut unrecognised_fields = Vec::new();
-        let config = serde_ignored::deserialize(
-            &mut serde_json::Deserializer::from_str(&contents),
+        let json_str_without_comments = near_config_utils::strip_comments_from_json_str(&json_str)
+            .map_err(|_| ValidationError::ConfigFileError {
+                error_message: format!("Failed to strip comments from {}", path.display()),
+            })?;
+        let config: Config = serde_ignored::deserialize(
+            &mut serde_json::Deserializer::from_str(&json_str_without_comments),
             |field| {
                 let field = field.to_string();
                 // TODO(mina86): Remove this deprecation notice some time by the
@@ -394,7 +427,10 @@ impl Config {
                 }
             },
         )
-        .with_context(|| format!("Failed to deserialize config from {}", path.display()))?;
+        .map_err(|_| ValidationError::ConfigFileError {
+            error_message: format!("Failed to deserialize config from {}", path.display()),
+        })?;
+
         if !unrecognised_fields.is_empty() {
             let s = if unrecognised_fields.len() > 1 { "s" } else { "" };
             let fields = unrecognised_fields.join(", ");
@@ -404,7 +440,12 @@ impl Config {
                 path.display(),
             );
         }
+
         Ok(config)
+    }
+
+    fn validate(&self) -> Result<(), ValidationError> {
+        crate::config_validate::validate_config(self)
     }
 
     pub fn write_to_file(&self, path: &Path) -> std::io::Result<()> {
@@ -413,16 +454,16 @@ impl Config {
         file.write_all(str.as_bytes())
     }
 
-    pub fn rpc_addr(&self) -> Option<&str> {
+    pub fn rpc_addr(&self) -> Option<String> {
         #[cfg(feature = "json_rpc")]
         if let Some(rpc) = &self.rpc {
-            return Some(&rpc.addr);
+            return Some(rpc.addr.to_string());
         }
         None
     }
 
     #[allow(unused_variables)]
-    pub fn set_rpc_addr(&mut self, addr: String) {
+    pub fn set_rpc_addr(&mut self, addr: tcp::ListenerAddr) {
         #[cfg(feature = "json_rpc")]
         {
             self.rpc.get_or_insert(Default::default()).addr = addr;
@@ -490,7 +531,7 @@ impl Genesis {
             shard_layout,
             ..Default::default()
         };
-        Genesis::new(config, records.into())
+        Genesis::new(config, records.into()).unwrap()
     }
 
     pub fn test(accounts: Vec<AccountId>, num_validator_seats: NumSeats) -> Self {
@@ -557,7 +598,11 @@ impl NearConfig {
             client_config: ClientConfig {
                 version: Default::default(),
                 chain_id: genesis.config.chain_id.clone(),
-                rpc_addr: config.rpc_addr().map(|addr| addr.to_owned()),
+                rpc_addr: config.rpc_addr().map(|addr| addr),
+                expected_shutdown: MutableConfigValue::new(
+                    config.expected_shutdown,
+                    "expected_shutdown",
+                ),
                 block_production_tracking_delay: config.consensus.block_production_tracking_delay,
                 min_block_production_delay: config.consensus.min_block_production_delay,
                 max_block_production_delay: config.consensus.max_block_production_delay,
@@ -591,6 +636,7 @@ impl NearConfig {
                 tracked_accounts: config.tracked_accounts,
                 tracked_shards: config.tracked_shards,
                 archive: config.archive,
+                save_trie_changes: config.save_trie_changes.unwrap_or(!config.archive),
                 log_summary_style: config.log_summary_style,
                 gc: config.gc,
                 view_client_threads: config.view_client_threads,
@@ -599,14 +645,14 @@ impl NearConfig {
                 trie_viewer_state_size_limit: config.trie_viewer_state_size_limit,
                 max_gas_burnt_view: config.max_gas_burnt_view,
                 enable_statistics_export: config.store.enable_statistics_export,
+                client_background_migration_threads: config.store.background_migration_threads,
+                flat_storage_creation_period: config.store.flat_storage_creation_period,
             },
             network_config: NetworkConfig::new(
                 config.network,
                 network_key_pair.secret_key,
                 validator_signer.clone(),
                 config.archive,
-                // Enable tier1 (currently tier1 discovery only).
-                near_network::config::Features { enable_tier1: true },
             )?,
             telemetry_config: config.telemetry,
             #[cfg(feature = "json_rpc")]
@@ -618,10 +664,10 @@ impl NearConfig {
         })
     }
 
-    pub fn rpc_addr(&self) -> Option<&str> {
+    pub fn rpc_addr(&self) -> Option<String> {
         #[cfg(feature = "json_rpc")]
         if let Some(rpc) = &self.rpc_config {
-            return Some(&rpc.addr);
+            return Some(rpc.addr.to_string());
         }
         None
     }
@@ -808,6 +854,7 @@ pub fn init_configs(
     genesis: Option<&str>,
     should_download_genesis: bool,
     download_genesis_url: Option<&str>,
+    download_records_url: Option<&str>,
     should_download_config: bool,
     download_config_url: Option<&str>,
     boot_nodes: Option<&str>,
@@ -877,7 +924,7 @@ pub fn init_configs(
             genesis.to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated mainnet genesis file in {}", dir.display());
         }
-        "testnet" | "betanet" | "shardnet" => {
+        "testnet" | "betanet" => {
             if test_seed.is_some() {
                 bail!("Test seed is not supported for {chain_id}");
             }
@@ -893,6 +940,19 @@ pub fn init_configs(
 
             generate_or_load_key(dir, &config.validator_key_file, account_id, None)?;
             generate_or_load_key(dir, &config.node_key_file, Some("node".parse().unwrap()), None)?;
+
+            if let Some(ref filename) = config.genesis_records_file {
+                let records_path = dir.join(filename);
+
+                if let Some(url) = download_records_url {
+                    download_records(&url.to_string(), &records_path)
+                        .context(format!("Failed to download the records file from {}", url))?;
+                } else if should_download_genesis {
+                    let url = get_records_url(&chain_id);
+                    download_records(&url, &records_path)
+                        .context(format!("Failed to download the records file from {}", url))?;
+                }
+            }
 
             // download genesis from s3
             let genesis_path = dir.join("genesis.json");
@@ -919,7 +979,21 @@ pub fn init_configs(
                 };
             }
 
-            let mut genesis = Genesis::from_file(&genesis_path_str, GenesisValidationMode::Full);
+            let mut genesis = match &config.genesis_records_file {
+                Some(records_file) => {
+                    let records_path = dir.join(records_file);
+                    let records_path_str = records_path
+                        .to_str()
+                        .with_context(|| "Records path must be initialized")?;
+                    Genesis::from_files(
+                        &genesis_path_str,
+                        &records_path_str,
+                        GenesisValidationMode::Full,
+                    )
+                }
+                None => Genesis::from_file(&genesis_path_str, GenesisValidationMode::Full),
+            }?;
+
             genesis.config.chain_id = chain_id.clone();
 
             genesis.to_file(&dir.join(config.genesis_file));
@@ -934,11 +1008,13 @@ pub fn init_configs(
                 config.consensus.max_block_production_delay =
                     Duration::from_millis(FAST_MAX_BLOCK_PRODUCTION_DELAY);
             }
+
             config.write_to_file(&dir.join(CONFIG_FILENAME)).with_context(|| {
                 format!("Error writing config to {}", dir.join(CONFIG_FILENAME).display())
             })?;
 
             let account_id = account_id.unwrap_or_else(|| "test.near".parse().unwrap());
+
             let signer =
                 generate_or_load_key(dir, &config.validator_key_file, Some(account_id), test_seed)?
                     .unwrap();
@@ -1006,7 +1082,7 @@ pub fn init_configs(
                 min_gas_price: MIN_GAS_PRICE,
                 ..Default::default()
             };
-            let genesis = Genesis::new(genesis_config, records.into());
+            let genesis = Genesis::new(genesis_config, records.into())?;
             genesis.to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.display());
         }
@@ -1021,14 +1097,11 @@ pub fn create_testnet_configs_from_seeds(
     local_ports: bool,
     archive: bool,
     fixed_shards: Option<Vec<String>>,
+    tracked_shards: Vec<u64>,
 ) -> (Vec<Config>, Vec<InMemoryValidatorSigner>, Vec<InMemorySigner>, Genesis) {
     let num_validator_seats = (seeds.len() - num_non_validator_seats as usize) as NumSeats;
-    let validator_signers = seeds
-        .iter()
-        .map(|seed| {
-            InMemoryValidatorSigner::from_seed(seed.parse().unwrap(), KeyType::ED25519, seed)
-        })
-        .collect::<Vec<_>>();
+    let validator_signers =
+        seeds.iter().map(|seed| create_test_signer(seed.as_str())).collect::<Vec<_>>();
     let network_signers = seeds
         .iter()
         .map(|seed| InMemorySigner::from_seed("node".parse().unwrap(), KeyType::ED25519, seed))
@@ -1062,24 +1135,28 @@ pub fn create_testnet_configs_from_seeds(
         shard_layout,
     );
     let mut configs = vec![];
-    let first_node_port = open_port();
+    let first_node_addr = tcp::ListenerAddr::reserve_for_test();
     for i in 0..seeds.len() {
         let mut config = Config::default();
         config.rpc.get_or_insert(Default::default()).enable_debug_rpc = true;
         config.consensus.min_block_production_delay = Duration::from_millis(600);
         config.consensus.max_block_production_delay = Duration::from_millis(2000);
         if local_ports {
-            config.network.addr =
-                format!("127.0.0.1:{}", if i == 0 { first_node_port } else { open_port() });
-            config.set_rpc_addr(format!("127.0.0.1:{}", open_port()));
+            config.network.addr = if i == 0 {
+                first_node_addr.to_string()
+            } else {
+                tcp::ListenerAddr::reserve_for_test().to_string()
+            };
+            config.set_rpc_addr(tcp::ListenerAddr::reserve_for_test());
             config.network.boot_nodes = if i == 0 {
                 "".to_string()
             } else {
-                format!("{}@127.0.0.1:{}", network_signers[0].public_key, first_node_port)
+                format!("{}@{}", network_signers[0].public_key, first_node_addr)
             };
             config.network.skip_sync_wait = num_validator_seats == 1;
         }
         config.archive = archive;
+        config.tracked_shards = tracked_shards.clone();
         config.consensus.min_num_peers =
             std::cmp::min(num_validator_seats as usize - 1, config.consensus.min_num_peers);
         configs.push(config);
@@ -1097,6 +1174,7 @@ pub fn create_testnet_configs(
     local_ports: bool,
     archive: bool,
     fixed_shards: bool,
+    tracked_shards: Vec<u64>,
 ) -> (Vec<Config>, Vec<InMemoryValidatorSigner>, Vec<InMemorySigner>, Genesis, Vec<InMemorySigner>)
 {
     let fixed_shards = if fixed_shards {
@@ -1122,6 +1200,7 @@ pub fn create_testnet_configs(
         local_ports,
         archive,
         fixed_shards,
+        tracked_shards,
     );
 
     (configs, validator_signers, network_signers, genesis, shard_keys)
@@ -1133,17 +1212,20 @@ pub fn init_testnet_configs(
     num_validator_seats: NumSeats,
     num_non_validator_seats: NumSeats,
     prefix: &str,
+    local_ports: bool,
     archive: bool,
     fixed_shards: bool,
+    tracked_shards: Vec<u64>,
 ) {
     let (configs, validator_signers, network_signers, genesis, shard_keys) = create_testnet_configs(
         num_shards,
         num_validator_seats,
         num_non_validator_seats,
         prefix,
-        false,
+        local_ports,
         archive,
         fixed_shards,
+        tracked_shards,
     );
     for i in 0..(num_validator_seats + num_non_validator_seats) as usize {
         let node_dir = dir.join(format!("{}{}", prefix, i));
@@ -1173,6 +1255,13 @@ pub fn get_genesis_url(chain_id: &str) -> String {
     )
 }
 
+pub fn get_records_url(chain_id: &str) -> String {
+    format!(
+        "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/{}/records.json.xz",
+        chain_id,
+    )
+}
+
 pub fn get_config_url(chain_id: &str) -> String {
     format!(
         "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/{}/config.json",
@@ -1189,6 +1278,15 @@ pub fn download_genesis(url: &str, path: &Path) -> Result<(), FileDownloadError>
     result
 }
 
+pub fn download_records(url: &str, path: &Path) -> Result<(), FileDownloadError> {
+    info!(target: "near", "Downloading records file from: {} ...", url);
+    let result = run_download_file(url, path);
+    if result.is_ok() {
+        info!(target: "near", "Saved the records file to: {} ...", path.display());
+    }
+    result
+}
+
 pub fn download_config(url: &str, path: &Path) -> Result<(), FileDownloadError> {
     info!(target: "near", "Downloading config file from: {} ...", url);
     let result = run_download_file(url, path);
@@ -1198,7 +1296,7 @@ pub fn download_config(url: &str, path: &Path) -> Result<(), FileDownloadError> 
     result
 }
 
-#[derive(Deserialize)]
+#[derive(serde::Deserialize)]
 struct NodeKeyFile {
     account_id: String,
     public_key: PublicKey,
@@ -1206,11 +1304,15 @@ struct NodeKeyFile {
 }
 
 impl NodeKeyFile {
+    // the file can be JSON with comments
     fn from_file(path: &Path) -> std::io::Result<Self> {
         let mut file = File::open(path)?;
-        let mut content = String::new();
-        file.read_to_string(&mut content)?;
-        Ok(serde_json::from_str(&content)?)
+        let mut json_str = String::new();
+        file.read_to_string(&mut json_str)?;
+
+        let json_str_without_comments = near_config_utils::strip_comments_from_json_str(&json_str)?;
+
+        Ok(serde_json::from_str(&json_str_without_comments)?)
     }
 }
 
@@ -1234,43 +1336,96 @@ pub fn load_config(
     dir: &Path,
     genesis_validation: GenesisValidationMode,
 ) -> anyhow::Result<NearConfig> {
-    let config = Config::from_file(&dir.join(CONFIG_FILENAME))?;
-    let genesis_file = dir.join(&config.genesis_file);
+    let mut validation_errors = ValidationErrors::new();
+
+    // if config.json has file issues, the program will directly panic
+    let config = Config::from_file_skip_validation(&dir.join(CONFIG_FILENAME))?;
+    // do config.json validation later so that genesis_file, validator_file and genesis_file can be validated before program panic
+    if let Err(e) = config.validate() {
+        validation_errors.push_errors(e)
+    };
+
     let validator_file = dir.join(&config.validator_key_file);
     let validator_signer = if validator_file.exists() {
-        let signer = InMemoryValidatorSigner::from_file(&validator_file).with_context(|| {
-            format!("Failed initializing validator signer from {}", validator_file.display())
-        })?;
-        Some(Arc::new(signer) as Arc<dyn ValidatorSigner>)
+        match InMemoryValidatorSigner::from_file(&validator_file) {
+            Ok(signer) => Some(Arc::new(signer) as Arc<dyn ValidatorSigner>),
+            Err(_) => {
+                let error_message = format!(
+                    "Failed initializing validator signer from {}",
+                    validator_file.display()
+                );
+                validation_errors.push_validator_key_file_error(error_message);
+                None
+            }
+        }
     } else {
         None
     };
-    let node_key_path = dir.join(&config.node_key_file);
-    let network_signer = NodeKeyFile::from_file(&node_key_path).with_context(|| {
-        format!("Failed reading node key file from {}", node_key_path.display())
-    })?;
 
-    let genesis = match &config.genesis_records_file {
-        Some(records_file) => {
-            Genesis::from_files(&genesis_file, &dir.join(records_file), genesis_validation)
+    let node_key_path = dir.join(&config.node_key_file);
+    let network_signer_result = NodeKeyFile::from_file(&node_key_path);
+    let network_signer = match network_signer_result {
+        Ok(node_key_file) => Some(node_key_file),
+        Err(_) => {
+            let error_message =
+                format!("Failed reading node key file from {}", node_key_path.display());
+            validation_errors.push_node_key_file_error(error_message);
+            None
         }
-        None => Genesis::from_file(&genesis_file, genesis_validation),
     };
 
-    if matches!(genesis.config.chain_id.as_ref(), "mainnet" | "testnet" | "betanet" | "shardnet") {
-        // Make sure validators tracks all shards, see
-        // https://github.com/near/nearcore/issues/7388
-        anyhow::ensure!(!config.tracked_shards.is_empty(),
-                        "Validator must track all shards. Please change `tracked_shards` field in config.json to be any non-empty vector");
-    }
+    let genesis_file = dir.join(&config.genesis_file);
+    let genesis_result = match &config.genesis_records_file {
+        // only load Genesis from file. Skip test for now.
+        // this allows us to know the chain_id in order to check tracked_shards even if semantics checks fail.
+        Some(records_file) => Genesis::from_files(
+            &genesis_file,
+            &dir.join(records_file),
+            GenesisValidationMode::UnsafeFast,
+        ),
+        None => Genesis::from_file(&genesis_file, GenesisValidationMode::UnsafeFast),
+    };
 
-    NearConfig::new(config, genesis, network_signer.into(), validator_signer)
+    let genesis = match genesis_result {
+        Ok(genesis) => {
+            if let Err(e) = genesis.validate(genesis_validation) {
+                validation_errors.push_errors(e)
+            };
+            if validator_signer.is_some()
+                && matches!(genesis.config.chain_id.as_ref(), "mainnet" | "testnet" | "betanet")
+                && config.tracked_shards.is_empty()
+            {
+                // Make sure validators tracks all shards, see
+                // https://github.com/near/nearcore/issues/7388
+                let error_message = format!("The `chain_id` field specified in genesis is among mainnet/betanet/testnet, so validator must track all shards. Please change `tracked_shards` field in config.json to be any non-empty vector");
+                validation_errors.push_cross_file_semantics_error(error_message);
+            }
+            Some(genesis)
+        }
+        Err(error) => {
+            validation_errors.push_errors(error);
+            None
+        }
+    };
+
+    validation_errors.return_ok_or_error()?;
+
+    if genesis.is_none() || network_signer.is_none() {
+        panic!("Genesis and network_signer should not be None by now.")
+    }
+    let near_config = NearConfig::new(
+        config,
+        genesis.unwrap(),
+        network_signer.unwrap().into(),
+        validator_signer,
+    )?;
+    Ok(near_config)
 }
 
-pub fn load_test_config(seed: &str, port: u16, genesis: Genesis) -> NearConfig {
+pub fn load_test_config(seed: &str, addr: tcp::ListenerAddr, genesis: Genesis) -> NearConfig {
     let mut config = Config::default();
-    config.network.addr = format!("0.0.0.0:{}", port);
-    config.set_rpc_addr(format!("0.0.0.0:{}", open_port()));
+    config.network.addr = addr.to_string();
+    config.set_rpc_addr(tcp::ListenerAddr::reserve_for_test());
     config.consensus.min_block_production_delay =
         Duration::from_millis(FAST_MIN_BLOCK_PRODUCTION_DELAY);
     config.consensus.max_block_production_delay =
@@ -1282,11 +1437,7 @@ pub fn load_test_config(seed: &str, port: u16, genesis: Genesis) -> NearConfig {
     } else {
         let signer =
             Arc::new(InMemorySigner::from_seed(seed.parse().unwrap(), KeyType::ED25519, seed));
-        let validator_signer = Arc::new(InMemoryValidatorSigner::from_seed(
-            seed.parse().unwrap(),
-            KeyType::ED25519,
-            seed,
-        )) as Arc<dyn ValidatorSigner>;
+        let validator_signer = Arc::new(create_test_signer(seed)) as Arc<dyn ValidatorSigner>;
         (signer, Some(validator_signer))
     };
     NearConfig::new(config, genesis, signer.into(), validator_signer).unwrap()
@@ -1306,6 +1457,7 @@ fn test_init_config_localnet() {
         None,
         false,
         None,
+        None,
         false,
         None,
         None,
@@ -1313,7 +1465,8 @@ fn test_init_config_localnet() {
     )
     .unwrap();
     let genesis =
-        Genesis::from_file(temp_dir.path().join("genesis.json"), GenesisValidationMode::UnsafeFast);
+        Genesis::from_file(temp_dir.path().join("genesis.json"), GenesisValidationMode::UnsafeFast)
+            .unwrap();
     assert_eq!(genesis.config.chain_id, "localnet");
     assert_eq!(genesis.config.shard_layout.num_shards(), 3);
     assert_eq!(
@@ -1341,8 +1494,9 @@ fn test_init_config_localnet() {
 
 /// Tests that loading a config.json file works and results in values being
 /// correctly parsed and defaults being applied correctly applied.
+/// We skip config validation since we only care about Config being correctly loaded from file.
 #[test]
-fn test_config_from_file() {
+fn test_config_from_file_skip_validation() {
     let base = Path::new(env!("CARGO_MANIFEST_DIR"));
 
     for (has_gc, path) in
@@ -1353,7 +1507,7 @@ fn test_config_from_file() {
         let tmp = tempfile::NamedTempFile::new().unwrap();
         tmp.as_file().write_all(&data).unwrap();
 
-        let config = Config::from_file(&tmp.into_temp_path()).unwrap();
+        let config = Config::from_file_skip_validation(&tmp.into_temp_path()).unwrap();
 
         // TODO(mina86): We might want to add more checks.  Looking at all
         // values is probably not worth it but there may be some other defaults
@@ -1370,4 +1524,68 @@ fn test_config_from_file() {
             config.telemetry.endpoints
         );
     }
+}
+
+#[test]
+fn test_create_testnet_configs() {
+    let num_shards = 4;
+    let num_validator_seats = 4;
+    let num_non_validator_seats = 8;
+    let prefix = "node";
+    let local_ports = true;
+
+    // Set all supported options to true and verify config and genesis.
+
+    let archive = true;
+    let fixed_shards = true;
+    let tracked_shards: Vec<u64> = vec![0, 1, 3];
+
+    let (configs, _validator_signers, _network_signers, genesis, _shard_keys) =
+        create_testnet_configs(
+            num_shards,
+            num_validator_seats,
+            num_non_validator_seats,
+            prefix,
+            local_ports,
+            archive,
+            fixed_shards,
+            tracked_shards.clone(),
+        );
+
+    assert_eq!(configs.len() as u64, num_validator_seats + num_non_validator_seats);
+
+    for config in configs {
+        assert_eq!(config.archive, true);
+        assert_eq!(config.tracked_shards, tracked_shards);
+    }
+
+    assert_eq!(genesis.config.validators.len(), num_shards as usize);
+    assert_eq!(genesis.config.shard_layout.num_shards(), num_shards);
+
+    // Set all supported options to false and verify config and genesis.
+
+    let archive = false;
+    let fixed_shards = false;
+    let tracked_shards: Vec<u64> = vec![];
+
+    let (configs, _validator_signers, _network_signers, genesis, _shard_keys) =
+        create_testnet_configs(
+            num_shards,
+            num_validator_seats,
+            num_non_validator_seats,
+            prefix,
+            local_ports,
+            archive,
+            fixed_shards,
+            tracked_shards.clone(),
+        );
+    assert_eq!(configs.len() as u64, num_validator_seats + num_non_validator_seats);
+
+    for config in configs {
+        assert_eq!(config.archive, false);
+        assert_eq!(config.tracked_shards, tracked_shards);
+    }
+
+    assert_eq!(genesis.config.validators.len() as u64, num_shards);
+    assert_eq!(genesis.config.shard_layout.num_shards(), num_shards);
 }

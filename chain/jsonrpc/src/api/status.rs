@@ -29,6 +29,9 @@ impl RpcFrom<near_client_primitives::debug::DebugStatusResponse>
             near_client_primitives::debug::DebugStatusResponse::CatchupStatus(x) => {
                 near_jsonrpc_primitives::types::status::DebugStatusResponse::CatchupStatus(x)
             }
+            near_client_primitives::debug::DebugStatusResponse::RequestedStateParts(x) => {
+                near_jsonrpc_primitives::types::status::DebugStatusResponse::RequestedStateParts(x)
+            }
             near_client_primitives::debug::DebugStatusResponse::TrackedShards(x) => {
                 near_jsonrpc_primitives::types::status::DebugStatusResponse::TrackedShards(x)
             }
@@ -41,6 +44,11 @@ impl RpcFrom<near_client_primitives::debug::DebugStatusResponse>
             near_client_primitives::debug::DebugStatusResponse::ValidatorStatus(x) => {
                 near_jsonrpc_primitives::types::status::DebugStatusResponse::ValidatorStatus(x)
             }
+            near_client_primitives::debug::DebugStatusResponse::ChainProcessingStatus(x) => {
+                near_jsonrpc_primitives::types::status::DebugStatusResponse::ChainProcessingStatus(
+                    x,
+                )
+            }
         }
     }
 }
@@ -52,6 +60,12 @@ impl RpcFrom<near_network::debug::DebugStatus>
         match response {
             near_network::debug::DebugStatus::PeerStore(x) => {
                 near_jsonrpc_primitives::types::status::DebugStatusResponse::PeerStore(x)
+            }
+            near_network::debug::DebugStatus::Graph(x) => {
+                near_jsonrpc_primitives::types::status::DebugStatusResponse::NetworkGraph(x)
+            }
+            near_network::debug::DebugStatus::RecentOutboundConnections(x) => {
+                near_jsonrpc_primitives::types::status::DebugStatusResponse::RecentOutboundConnections(x)
             }
         }
     }

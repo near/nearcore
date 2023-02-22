@@ -56,21 +56,32 @@ impl<T: Clone + Send> Receiver<T> {
         Self { channel: self.channel.clone(), next: self.channel.stream.read().unwrap().len() }
     }
 
+    /// recv() extracts a value from the channel.
+    /// If channel is empty, awaits until a value is pushed to the channel.
     pub async fn recv(&mut self) -> T {
         self.next += 1;
-        let l = self.channel.stream.read().unwrap();
-        let n = self.channel.notify.notified();
-        let v = if l.len() > self.next - 1 { Some(l[self.next - 1].clone()) } else { None };
-        if let Some(v) = v {
-            return v;
-        }
-        drop(l);
-        n.await;
+        let new_value_pushed = {
+            // The lock has to be inside a block without await,
+            // because otherwise recv() is not Send.
+            let l = self.channel.stream.read().unwrap();
+            let new_value_pushed = self.channel.notify.notified();
+            // Synchronically check if the channel is non-empty.
+            // If so, pop a value and return immediately.
+            if let Some(v) = l.get(self.next - 1) {
+                return v.clone();
+            }
+            new_value_pushed
+        };
+        // Channel was empty, so we wait for the new value.
+        new_value_pushed.await;
         let v = self.channel.stream.read().unwrap()[self.next - 1].clone();
         v
     }
 
-    pub async fn recv_until<U>(&mut self, pred: impl Fn(T) -> Option<U>) -> U {
+    /// Calls recv() in a loop until the returned value satisfies the predicate `pred`
+    /// (predicate is satisfied iff it returns `Some(u)`). Returns `u`.
+    /// All the values popped from the channel in the process are dropped silently.
+    pub async fn recv_until<U>(&mut self, mut pred: impl FnMut(T) -> Option<U>) -> U {
         loop {
             if let Some(u) = pred(self.recv().await) {
                 return u;
@@ -78,6 +89,8 @@ impl<T: Clone + Send> Receiver<T> {
         }
     }
 
+    /// Non-blocking version of recv(): pops a value from the channel,
+    /// or returns None if channel is empty.
     pub fn try_recv(&mut self) -> Option<T> {
         let l = self.channel.stream.read().unwrap();
         if l.len() <= self.next {

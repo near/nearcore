@@ -1,12 +1,12 @@
 //! Structs in this module are used for debug purposes, and might change at any time
 //! without backwards compatibility of JSON encoding.
-
-use std::collections::HashMap;
-
 use crate::types::StatusError;
-use actix::Message;
 use chrono::DateTime;
-use near_primitives::views::{CatchupStatusView, EpochValidatorInfo, SyncStatusView};
+use near_primitives::types::EpochId;
+use near_primitives::views::{
+    CatchupStatusView, ChainProcessingInfo, EpochValidatorInfo, RequestedStatePartsView,
+    SyncStatusView,
+};
 use near_primitives::{
     block_header::ApprovalInner,
     hash::CryptoHash,
@@ -14,15 +14,15 @@ use near_primitives::{
     types::{AccountId, BlockHeight},
     views::ValidatorInfo,
 };
-use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct TrackedShardsView {
     pub shards_tracked_this_epoch: Vec<bool>,
     pub shards_tracked_next_epoch: Vec<bool>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct EpochInfoView {
     pub epoch_id: CryptoHash,
     pub height: BlockHeight,
@@ -34,7 +34,7 @@ pub struct EpochInfoView {
     pub shards_size_and_parts: Vec<(u64, u64, bool)>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct DebugChunkStatus {
     pub shard_id: u64,
     pub chunk_hash: ChunkHash,
@@ -44,23 +44,39 @@ pub struct DebugChunkStatus {
     pub processing_time_ms: Option<u64>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct DebugBlockStatus {
     pub block_hash: CryptoHash,
+    pub prev_block_hash: CryptoHash,
     pub block_height: u64,
+    pub block_timestamp: u64,
     pub block_producer: Option<AccountId>,
+    pub full_block_missing: bool, // only header available
+    pub is_on_canonical_chain: bool,
     pub chunks: Vec<DebugChunkStatus>,
     // Time that was spent processing a given block.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub processing_time_ms: Option<u64>,
-    // Time between this block and the next one in chain.
-    pub timestamp_delta: u64,
     pub gas_price_ratio: f64,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+pub struct MissedHeightInfo {
+    pub block_height: u64,
+    pub block_producer: Option<AccountId>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+pub struct DebugBlockStatusData {
+    pub blocks: Vec<DebugBlockStatus>,
+    pub missed_heights: Vec<MissedHeightInfo>,
+    pub head: CryptoHash,
+    pub header_head: CryptoHash,
 }
 
 // Information about the approval created by this node.
 // Used for debug purposes only.
-#[derive(Serialize, Debug, Clone)]
+#[derive(serde::Serialize, Debug, Clone)]
 pub struct ApprovalHistoryEntry {
     // If target_height == base_height + 1  - this is endorsement.
     // Otherwise this is a skip.
@@ -76,7 +92,7 @@ pub struct ApprovalHistoryEntry {
 
 // Information about chunk produced by this node.
 // For debug purposes only.
-#[derive(Serialize, Debug, Default, Clone)]
+#[derive(serde::Serialize, Debug, Default, Clone)]
 pub struct ChunkProduction {
     // Time when we produced the chunk.
     pub chunk_production_time: Option<DateTime<chrono::Utc>>,
@@ -86,7 +102,7 @@ pub struct ChunkProduction {
 }
 // Information about the block produced by this node.
 // For debug purposes only.
-#[derive(Serialize, Debug, Clone, Default)]
+#[derive(serde::Serialize, Debug, Clone, Default)]
 pub struct BlockProduction {
     // Approvals that we received.
     pub approvals: ApprovalAtHeightStatus,
@@ -99,7 +115,7 @@ pub struct BlockProduction {
     pub block_included: bool,
 }
 
-#[derive(Serialize, Debug, Clone)]
+#[derive(serde::Serialize, Debug, Clone)]
 pub struct ChunkCollection {
     // Chunk producer of the chunk
     pub chunk_producer: AccountId,
@@ -113,7 +129,7 @@ pub struct ChunkCollection {
 // Information about things related to block/chunk production
 // at given height.
 // For debug purposes only.
-#[derive(Serialize, Debug, Default)]
+#[derive(serde::Serialize, Debug, Default)]
 pub struct ProductionAtHeight {
     // Stores information about block production is we are responsible for producing this block,
     // None if we are not responsible for producing this block.
@@ -123,7 +139,7 @@ pub struct ProductionAtHeight {
 }
 
 // Infromation about the approvals that we received.
-#[derive(Serialize, Debug, Default, Clone)]
+#[derive(serde::Serialize, Debug, Default, Clone)]
 pub struct ApprovalAtHeightStatus {
     // Map from validator id to the type of approval that they sent and timestamp.
     pub approvals: HashMap<AccountId, (ApprovalInner, DateTime<chrono::Utc>)>,
@@ -131,7 +147,7 @@ pub struct ApprovalAtHeightStatus {
     pub ready_at: Option<DateTime<chrono::Utc>>,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(serde::Serialize, Debug)]
 pub struct ValidatorStatus {
     pub validator_name: Option<AccountId>,
     // Current number of shards
@@ -146,6 +162,8 @@ pub struct ValidatorStatus {
     // Sorted by block height inversely (high to low)
     // The range of heights are controlled by constants in client_actor.rs
     pub production: Vec<(BlockHeight, ProductionAtHeight)>,
+    // Chunk producers that this node has banned.
+    pub banned_chunk_producers: Vec<(EpochId, Vec<AccountId>)>,
 }
 
 // Different debug requests that can be sent by HTML pages, via GET.
@@ -157,18 +175,22 @@ pub enum DebugStatus {
     // Detailed information about last couple epochs.
     EpochInfo,
     // Detailed information about last couple blocks.
-    BlockStatus,
+    BlockStatus(Option<BlockHeight>),
     // Consensus related information.
     ValidatorStatus,
     // Request for the current catchup status
     CatchupStatus,
+    // Request for the current state of chain processing (blocks in progress etc).
+    ChainProcessingStatus,
+    // The state parts already requested.
+    RequestedStateParts,
 }
 
-impl Message for DebugStatus {
+impl actix::Message for DebugStatus {
     type Result = Result<DebugStatusResponse, StatusError>;
 }
 
-#[derive(Serialize, Debug)]
+#[derive(serde::Serialize, Debug)]
 pub enum DebugStatusResponse {
     SyncStatus(SyncStatusView),
     CatchupStatus(Vec<CatchupStatusView>),
@@ -176,7 +198,11 @@ pub enum DebugStatusResponse {
     // List of epochs - in descending order (next epoch is first).
     EpochInfo(Vec<EpochInfoView>),
     // Detailed information about blocks.
-    BlockStatus(Vec<DebugBlockStatus>),
+    BlockStatus(DebugBlockStatusData),
     // Detailed information about the validator (approvals, block & chunk production etc.)
     ValidatorStatus(ValidatorStatus),
+    // Detailed information about chain processing (blocks in progress etc).
+    ChainProcessingStatus(ChainProcessingInfo),
+    // The state parts already requested.
+    RequestedStateParts(Vec<RequestedStatePartsView>),
 }

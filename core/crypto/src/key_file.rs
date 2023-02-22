@@ -1,15 +1,11 @@
+use crate::{PublicKey, SecretKey};
+use near_account_id::AccountId;
 use std::fs::File;
 use std::io;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::Path;
 
-use serde::{Deserialize, Serialize};
-
-use crate::{PublicKey, SecretKey};
-
-use near_account_id::AccountId;
-
-#[derive(Serialize, Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct KeyFile {
     pub account_id: AccountId,
     pub public_key: PublicKey,
@@ -39,8 +35,13 @@ impl KeyFile {
     }
 
     pub fn from_file(path: &Path) -> io::Result<Self> {
-        let content = std::fs::read_to_string(path)?;
-        Ok(serde_json::from_str(&content)?)
+        let mut file = File::open(path)?;
+        let mut json_config_str = String::new();
+        file.read_to_string(&mut json_config_str)?;
+        let json_str_without_comments: String =
+            near_config_utils::strip_comments_from_json_str(&json_config_str)?;
+
+        Ok(serde_json::from_str(&json_str_without_comments)?)
     }
 }
 
@@ -48,9 +49,9 @@ impl KeyFile {
 mod test {
     use super::*;
 
-    const ACCOUNT_ID: &'static str = "example";
-    const SECRET_KEY: &'static str = "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr";
-    const KEY_FILE_CONTENTS: &'static str = r#"{
+    const ACCOUNT_ID: &str = "example";
+    const SECRET_KEY: &str = "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr";
+    const KEY_FILE_CONTENTS: &str = r#"{
   "account_id": "example",
   "public_key": "ed25519:6DSjZ8mvsRZDvFqFxo8tCKePG96omXW7eVYVSySmDk8e",
   "secret_key": "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr"
@@ -63,7 +64,7 @@ mod test {
 
         let account_id = ACCOUNT_ID.parse().unwrap();
         let secret_key: SecretKey = SECRET_KEY.parse().unwrap();
-        let public_key = secret_key.public_key().clone();
+        let public_key = secret_key.public_key();
         let key = KeyFile { account_id, public_key, secret_key };
         key.write_to_file(&path).unwrap();
 
@@ -90,7 +91,6 @@ mod test {
                 let secret_key: SecretKey = SECRET_KEY.parse().unwrap();
                 assert_eq!(secret_key, key.secret_key);
                 assert_eq!(secret_key.public_key(), key.public_key);
-                ()
             })
         }
 

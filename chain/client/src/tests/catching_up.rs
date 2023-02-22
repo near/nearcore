@@ -6,16 +6,15 @@ use actix::{Addr, System};
 use borsh::{BorshDeserialize, BorshSerialize};
 use futures::{future, FutureExt};
 
-use crate::test_utils::setup_mock_all_validators;
-use crate::{ClientActor, Query, ViewClientActor};
+use crate::adapter::ProcessTxRequest;
+use crate::test_utils::{setup_mock_all_validators, ActorHandlesForTesting};
+use crate::{ClientActor, Query};
 use near_actix_test_utils::run_actix;
 use near_chain::test_utils::{account_id_to_shard_id, ValidatorSchedule};
 use near_chain_configs::TEST_STATE_SYNC_TIMEOUT;
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::types::{AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, PeerInfo};
-use near_network::types::{
-    NetworkClientMessages, NetworkRequests, NetworkResponses, PeerManagerMessageRequest,
-};
+use near_network::types::{NetworkRequests, NetworkResponses, PeerManagerMessageRequest};
 use near_o11y::testonly::init_integration_logger;
 use near_o11y::WithSpanContextExt;
 use near_primitives::hash::{hash as hash_func, CryptoHash};
@@ -72,7 +71,7 @@ fn send_tx(
 ) {
     let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
     connector.do_send(
-        NetworkClientMessages::Transaction {
+        ProcessTxRequest {
             transaction: SignedTransaction::send_money(
                 nonce, from, to, &signer, amount, block_hash,
             ),
@@ -134,8 +133,7 @@ fn test_catchup_receipts_sync_distant_epoch() {
 fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool) {
     init_integration_logger();
     run_actix(async move {
-        let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
-            Arc::new(RwLock::new(vec![]));
+        let connectors: Arc<RwLock<Vec<ActorHandlesForTesting>>> = Arc::new(RwLock::new(vec![]));
 
         let (vs, key_pairs) = get_validators_and_key_pairs();
         let archive = vec![true; vs.all_block_producers().count()];
@@ -192,7 +190,7 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
                                 );
                                 for i in 0..16 {
                                     send_tx(
-                                        &connectors1.write().unwrap()[i].0,
+                                        &connectors1.write().unwrap()[i].client_actor,
                                         account_from.clone(),
                                         account_to.clone(),
                                         111,
@@ -321,15 +319,16 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
                             }
                             if block.header().height() == wait_till + 10 {
                                 for i in 0..16 {
-                                    let actor = connectors1.write().unwrap()[i].1.send(
-                                        Query::new(
-                                            BlockReference::latest(),
-                                            QueryRequest::ViewAccount {
-                                                account_id: account_to.clone(),
-                                            },
-                                        )
-                                        .with_span_context(),
-                                    );
+                                    let actor =
+                                        connectors1.write().unwrap()[i].view_client_actor.send(
+                                            Query::new(
+                                                BlockReference::latest(),
+                                                QueryRequest::ViewAccount {
+                                                    account_id: account_to.clone(),
+                                                },
+                                            )
+                                            .with_span_context(),
+                                        );
                                     let actor = actor.then(move |res| {
                                         let res_inner = res.unwrap();
                                         if let Ok(query_response) = res_inner {
@@ -409,8 +408,7 @@ fn test_catchup_random_single_part_sync_height_6() {
 fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, height: u64) {
     init_integration_logger();
     run_actix(async move {
-        let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
-            Arc::new(RwLock::new(vec![]));
+        let connectors: Arc<RwLock<Vec<ActorHandlesForTesting>>> = Arc::new(RwLock::new(vec![]));
 
         let (vs, key_pairs) = get_validators_and_key_pairs();
         let vs = vs.validator_groups(2);
@@ -490,7 +488,7 @@ fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, he
                                         );
                                         for conn in 0..validators.len() {
                                             send_tx(
-                                                &connectors1.write().unwrap()[conn].0,
+                                                &connectors1.write().unwrap()[conn].client_actor,
                                                 validator1.clone(),
                                                 validator2.clone(),
                                                 amount,
@@ -517,15 +515,16 @@ fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, he
                                     for j in 0..16 {
                                         let amounts1 = amounts.clone();
                                         let validator = validators[j].clone();
-                                        let actor = connectors1.write().unwrap()[i].1.send(
-                                            Query::new(
-                                                BlockReference::latest(),
-                                                QueryRequest::ViewAccount {
-                                                    account_id: validators[j].clone(),
-                                                },
-                                            )
-                                            .with_span_context(),
-                                        );
+                                        let actor =
+                                            connectors1.write().unwrap()[i].view_client_actor.send(
+                                                Query::new(
+                                                    BlockReference::latest(),
+                                                    QueryRequest::ViewAccount {
+                                                        account_id: validators[j].clone(),
+                                                    },
+                                                )
+                                                .with_span_context(),
+                                            );
                                         let actor = actor.then(move |res| {
                                             let res_inner = res.unwrap();
                                             if let Ok(query_response) = res_inner {
@@ -576,7 +575,7 @@ fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, he
                         {
                             if partial_encoded_chunk.header.height_created() == 22 {
                                 seen_heights_same_block
-                                    .insert(partial_encoded_chunk.header.prev_block_hash().clone());
+                                    .insert(*partial_encoded_chunk.header.prev_block_hash());
                             }
                             if skip_15 {
                                 if partial_encoded_chunk.header.height_created() == 14
@@ -607,14 +606,13 @@ fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, he
 fn test_catchup_sanity_blocks_produced() {
     init_integration_logger();
     run_actix(async move {
-        let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
-            Arc::new(RwLock::new(vec![]));
+        let connectors: Arc<RwLock<Vec<ActorHandlesForTesting>>> = Arc::new(RwLock::new(vec![]));
 
         let heights = Arc::new(RwLock::new(HashMap::new()));
         let heights1 = heights;
 
         let check_height =
-            move |hash: CryptoHash, height| match heights1.write().unwrap().entry(hash.clone()) {
+            move |hash: CryptoHash, height| match heights1.write().unwrap().entry(hash) {
                 Entry::Occupied(entry) => {
                     assert_eq!(*entry.get(), height);
                 }
@@ -681,8 +679,7 @@ enum ChunkGrievingPhases {
 fn test_chunk_grieving() {
     init_integration_logger();
     run_actix(async move {
-        let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
-            Arc::new(RwLock::new(vec![]));
+        let connectors: Arc<RwLock<Vec<ActorHandlesForTesting>>> = Arc::new(RwLock::new(vec![]));
 
         let (vs, key_pairs) = get_validators_and_key_pairs();
         let archive = vec![false; vs.all_block_producers().count()];
@@ -847,8 +844,7 @@ fn test_all_chunks_accepted_common(
 ) {
     init_integration_logger();
     run_actix(async move {
-        let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
-            Arc::new(RwLock::new(vec![]));
+        let connectors: Arc<RwLock<Vec<ActorHandlesForTesting>>> = Arc::new(RwLock::new(vec![]));
 
         let (vs, key_pairs) = get_validators_and_key_pairs();
         let archive = vec![false; vs.all_block_producers().count()];
@@ -917,14 +913,14 @@ fn test_all_chunks_accepted_common(
                 if let NetworkRequests::PartialEncodedChunkResponse { route_back, response } = msg {
                     if verbose {
                         if responded.contains(&(
-                            route_back.clone(),
+                            *route_back,
                             response.parts.iter().map(|x| x.part_ord).collect(),
                             response.chunk_hash.clone(),
                         )) {
                             println!("=== SAME RESPONSE AGAIN!");
                         }
                         responded.insert((
-                            route_back.clone(),
+                            *route_back,
                             response.parts.iter().map(|x| x.part_ord).collect(),
                             response.chunk_hash.clone(),
                         ));

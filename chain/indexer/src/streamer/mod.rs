@@ -82,7 +82,7 @@ async fn build_streamer_message(
     let mut state_changes = fetch_state_changes(
         &client,
         block.header.hash,
-        near_primitives::types::EpochId(block.header.epoch_id.clone()),
+        near_primitives::types::EpochId(block.header.epoch_id),
     )
     .await?;
     let mut indexer_shards = (0..num_shards)
@@ -98,7 +98,7 @@ async fn build_streamer_message(
         let views::ChunkView { transactions, author, header, receipts: chunk_non_local_receipts } =
             chunk;
 
-        let shard_id = header.shard_id.clone() as usize;
+        let shard_id = header.shard_id as usize;
 
         let mut outcomes = shards_outcomes
             .remove(&header.shard_id)
@@ -287,12 +287,14 @@ pub(crate) async fn start(
     client: Addr<near_client::ClientActor>,
     indexer_config: IndexerConfig,
     store_config: near_store::StoreConfig,
+    archive: bool,
     blocks_sink: mpsc::Sender<StreamerMessage>,
 ) {
     info!(target: INDEXER, "Starting Streamer...");
-    let indexer_db_path = near_store::NodeStorage::opener(&indexer_config.home_dir, &store_config)
-        .path()
-        .join("indexer");
+    let indexer_db_path =
+        near_store::NodeStorage::opener(&indexer_config.home_dir, archive, &store_config, None)
+            .path()
+            .join("indexer");
 
     // TODO: implement proper error handling
     let db = DB::open_default(indexer_db_path).unwrap();

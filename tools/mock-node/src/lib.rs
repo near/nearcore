@@ -1,41 +1,44 @@
 //! Implements `ChainHistoryAccess` and `MockPeerManagerActor`, which is the main
 //! components of the mock network.
 
-use actix::{Actor, Context, Handler, Recipient};
+use actix::{Actor, Context, Handler};
 use anyhow::{anyhow, Context as AnyhowContext};
+use near_async::messaging::Sender;
 use near_chain::{Block, BlockHeader, Chain, ChainStoreAccess, Error};
 use near_chain_configs::GenesisConfig;
-use near_client::sync;
+use near_client::sync::header::MAX_BLOCK_HEADERS;
+use near_network::shards_manager::ShardsManagerRequestFromNetwork;
+use near_network::time;
 use near_network::types::{
-    FullPeerInfo, NetworkClientMessages, NetworkInfo, NetworkRequests, NetworkResponses,
-    PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo,
+    BlockInfo, ConnectedPeerInfo, FullPeerInfo, NetworkInfo, NetworkRequests, NetworkResponses,
+    PeerManagerMessageRequest, PeerManagerMessageResponse, PeerType, SetChainInfo,
 };
 use near_network::types::{
-    PartialEdgeInfo, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerInfo,
+    PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerInfo,
 };
-use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
+use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext};
 use near_performance_metrics::actix::run_later;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::time::Clock;
 use near_primitives::types::{BlockHeight, ShardId};
-use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
 pub mod setup;
 
 // For now this is a simple struct with one field just to leave the door
 // open for adding stuff and/or having different configs for different message types later.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize)]
 pub struct MockIncomingRequestConfig {
     // How long we wait between sending each incoming request
     interval: Duration,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize)]
 pub struct MockIncomingRequestsConfig {
     // Options for sending unrequested blocks
     block: Option<MockIncomingRequestConfig>,
@@ -43,7 +46,7 @@ pub struct MockIncomingRequestsConfig {
     chunk_request: Option<MockIncomingRequestConfig>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize)]
 pub struct MockNetworkConfig {
     #[serde(default = "default_delay")]
     // How long we'll wait until sending replies to the client
@@ -193,7 +196,8 @@ impl IncomingRequests {
 /// - Simulates block production and sends the most "recent" block to ClientActor
 pub struct MockPeerManagerActor {
     /// Client address for the node that we are testing
-    client_addr: Recipient<WithSpanContext<NetworkClientMessages>>,
+    client: Arc<dyn near_network::client::Client>,
+    shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
     /// Access a pre-generated chain history from storage
     chain_history_access: ChainHistoryAccess,
     /// Current network state for the simulated network
@@ -209,7 +213,8 @@ pub struct MockPeerManagerActor {
 
 impl MockPeerManagerActor {
     fn new(
-        client_addr: Recipient<WithSpanContext<NetworkClientMessages>>,
+        client: Arc<dyn near_network::client::Client>,
+        shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
         genesis_config: &GenesisConfig,
         mut chain: Chain,
         client_start_height: BlockHeight,
@@ -218,30 +223,44 @@ impl MockPeerManagerActor {
         block_production_delay: Duration,
         network_config: &MockNetworkConfig,
     ) -> Self {
+        let start_block_hash = chain.get_block_hash_by_height(network_start_height).unwrap();
         // for now, we only simulate one peer
         // we will add more complicated network config in the future
         let peer = FullPeerInfo {
             peer_info: PeerInfo::random(),
-            chain_info: near_network::types::PeerChainInfoV2 {
+            chain_info: near_network::types::PeerChainInfo {
                 genesis_id: GenesisId {
                     chain_id: genesis_config.chain_id.clone(),
                     hash: *chain.genesis().hash(),
                 },
-                height: network_start_height,
                 tracked_shards: (0..genesis_config.shard_layout.num_shards()).collect(),
                 archival: false,
+                last_block: Some(BlockInfo {
+                    height: network_start_height,
+                    hash: start_block_hash,
+                }),
             },
-            partial_edge_info: PartialEdgeInfo::default(),
         };
         let network_info = NetworkInfo {
-            connected_peers: vec![(&peer).into()],
+            connected_peers: vec![ConnectedPeerInfo {
+                full_peer_info: peer.clone(),
+                received_bytes_per_sec: 0,
+                sent_bytes_per_sec: 0,
+                last_time_peer_requested: time::Instant::now(),
+                last_time_received_message: time::Instant::now(),
+                connection_established_time: time::Instant::now(),
+                peer_type: PeerType::Outbound,
+                nonce: 1,
+            }],
             num_connected_peers: 1,
             peer_max_count: 1,
-            highest_height_peers: vec![peer],
+            highest_height_peers: vec![<FullPeerInfo as Into<Option<_>>>::into(peer).unwrap()],
             sent_bytes_per_sec: 0,
             received_bytes_per_sec: 0,
             known_producers: vec![],
-            tier1_accounts: vec![],
+            tier1_connections: vec![],
+            tier1_accounts_keys: vec![],
+            tier1_accounts_data: vec![],
         };
         let incoming_requests = IncomingRequests::new(
             &network_config.incoming_requests,
@@ -250,7 +269,8 @@ impl MockPeerManagerActor {
             target_height,
         );
         Self {
-            client_addr,
+            client,
+            shards_manager_adapter,
             chain_history_access: ChainHistoryAccess { chain, target_height },
             network_info,
             block_production_delay,
@@ -264,26 +284,42 @@ impl MockPeerManagerActor {
     /// When it is called, it increments peer heights by 1 and sends the block at that height
     /// to ClientActor. In a way, it simulates peers that broadcast new blocks
     fn update_peers(&mut self, ctx: &mut Context<MockPeerManagerActor>) {
-        let _response = self.client_addr.do_send(
-            NetworkClientMessages::NetworkInfo(self.network_info.clone()).with_span_context(),
-        );
+        actix::spawn({
+            let client = self.client.clone();
+            let info = self.network_info.clone();
+            async move { client.network_info(info).await }
+        });
         for connected_peer in self.network_info.connected_peers.iter_mut() {
             let peer = &mut connected_peer.full_peer_info;
-            let current_height = peer.chain_info.height;
+            let current_height = peer.chain_info.last_block.unwrap().height;
             if current_height <= self.target_height {
                 if let Ok(block) =
                     self.chain_history_access.retrieve_block_by_height(current_height)
                 {
-                    let _response = self.client_addr.do_send(
-                        NetworkClientMessages::Block(block, peer.peer_info.id.clone(), false)
-                            .with_span_context(),
-                    );
+                    actix::spawn({
+                        let client = self.client.clone();
+                        let peer_id = peer.peer_info.id.clone();
+                        async move { client.block(block, peer_id, false).await }
+                    });
                 }
-                peer.chain_info.height = current_height + 1;
+                let next_height = current_height + 1;
+                while next_height <= self.target_height {
+                    if let Ok(next_block) =
+                        self.chain_history_access.retrieve_block_by_height(next_height)
+                    {
+                        peer.chain_info.last_block =
+                            Some(BlockInfo { height: next_height, hash: *next_block.hash() });
+                        break;
+                    }
+                }
             }
         }
-        self.network_info.highest_height_peers =
-            self.network_info.connected_peers.iter().map(|it| it.full_peer_info.clone()).collect();
+        self.network_info.highest_height_peers = self
+            .network_info
+            .connected_peers
+            .iter()
+            .filter_map(|it| it.full_peer_info.clone().into())
+            .collect();
         near_performance_metrics::actix::run_later(
             ctx,
             self.block_production_delay,
@@ -295,14 +331,13 @@ impl MockPeerManagerActor {
 
     fn send_unrequested_block(&mut self, ctx: &mut Context<MockPeerManagerActor>) {
         if let Some((interval, block)) = &self.incoming_requests.block {
-            let _response = self.client_addr.do_send(
-                NetworkClientMessages::Block(
-                    block.clone(),
-                    self.network_info.connected_peers[0].full_peer_info.peer_info.id.clone(),
-                    false,
-                )
-                .with_span_context(),
-            );
+            actix::spawn({
+                let client = self.client.clone();
+                let block = block.clone();
+                let peer_id =
+                    self.network_info.connected_peers[0].full_peer_info.peer_info.id.clone();
+                async move { client.block(block, peer_id, false).await }
+            });
 
             run_later(ctx, *interval, move |act, ctx| {
                 act.send_unrequested_block(ctx);
@@ -312,15 +347,11 @@ impl MockPeerManagerActor {
 
     fn send_chunk_request(&mut self, ctx: &mut Context<MockPeerManagerActor>) {
         if let Some((interval, request)) = &self.incoming_requests.chunk_request {
-            let _response = self.client_addr.do_send(
-                NetworkClientMessages::PartialEncodedChunkRequest(
-                    request.clone(),
-                    // this can just be nonsense since the PeerManager is mocked out anyway. If/when we update the mock node
-                    // to exercise the PeerManager code as well, then this won't matter anyway since the mock code won't be
-                    // responsible for it.
-                    CryptoHash::default(),
-                )
-                .with_span_context(),
+            self.shards_manager_adapter.send(
+                ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
+                    partial_encoded_chunk_request: request.clone(),
+                    route_back: CryptoHash::default(),
+                },
             );
 
             run_later(ctx, *interval, move |act, ctx| {
@@ -361,55 +392,52 @@ impl Handler<WithSpanContext<PeerManagerMessageRequest>> for MockPeerManagerActo
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "mock-node", msg);
         match msg {
-            PeerManagerMessageRequest::NetworkRequests(request) => match request {
-                NetworkRequests::BlockRequest { hash, peer_id } => {
-                    run_later(ctx, self.network_delay, move |act, _ctx| {
-                        let block = act.chain_history_access.retrieve_block(&hash).unwrap();
-                        let _response = act.client_addr.do_send(
-                            NetworkClientMessages::Block(block, peer_id, true).with_span_context(),
-                        );
-                    });
-                }
-                NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
-                    run_later(ctx, self.network_delay, move |act, _ctx| {
-                        let headers = act
-                            .chain_history_access
-                            .retrieve_block_headers(hashes.clone())
-                            .unwrap();
-                        let _response = act.client_addr.do_send(
-                            NetworkClientMessages::BlockHeaders(headers, peer_id)
-                                .with_span_context(),
-                        );
-                    });
-                }
-                NetworkRequests::PartialEncodedChunkRequest { request, .. } => {
-                    run_later(ctx, self.network_delay, move |act, _ctx| {
-                        let response = act
-                            .chain_history_access
-                            .retrieve_partial_encoded_chunk(&request)
-                            .unwrap();
-                        let _response = act.client_addr.do_send(
-                            NetworkClientMessages::PartialEncodedChunkResponse(
-                                response,
-                                Clock::instant(),
-                            )
-                            .with_span_context(),
-                        );
-                    });
-                }
-                NetworkRequests::PartialEncodedChunkResponse { .. } => {}
-                NetworkRequests::Block { .. } => {}
-                NetworkRequests::StateRequestHeader { .. } => {
-                    panic!(
-                        "MockPeerManagerActor receives state sync request. \
+            PeerManagerMessageRequest::NetworkRequests(request) => {
+                match request {
+                    NetworkRequests::BlockRequest { hash, peer_id } => {
+                        run_later(ctx, self.network_delay, move |act, _ctx| {
+                            let block = act.chain_history_access.retrieve_block(&hash).unwrap();
+                            actix::spawn({
+                                let client = act.client.clone();
+                                async move { client.block(block, peer_id, true).await }
+                            });
+                        });
+                    }
+                    NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
+                        run_later(ctx, self.network_delay, move |act, _ctx| {
+                            let headers = act
+                                .chain_history_access
+                                .retrieve_block_headers(hashes.clone())
+                                .unwrap();
+                            actix::spawn({
+                                let client = act.client.clone();
+                                async move { client.block_headers(headers, peer_id).await }
+                            });
+                        });
+                    }
+                    NetworkRequests::PartialEncodedChunkRequest { request, .. } => {
+                        run_later(ctx, self.network_delay, move |act, _ctx| {
+                            let response = act
+                                .chain_history_access
+                                .retrieve_partial_encoded_chunk(&request)
+                                .unwrap();
+                            act.shards_manager_adapter.send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse { partial_encoded_chunk_response: response, received_time: Clock::instant().into() });
+                        });
+                    }
+                    NetworkRequests::PartialEncodedChunkResponse { .. } => {}
+                    NetworkRequests::Block { .. } => {}
+                    NetworkRequests::StateRequestHeader { .. } => {
+                        panic!(
+                            "MockPeerManagerActor receives state sync request. \
                             It doesn't support state sync now. Try setting start_height \
                             and target_height to be at the same epoch to avoid state sync"
-                    );
+                        );
+                    }
+                    _ => {
+                        panic!("MockPeerManagerActor receives unexpected message {:?}", request);
+                    }
                 }
-                _ => {
-                    panic!("MockPeerManagerActor receives unexpected message {:?}", request);
-                }
-            },
+            }
             _ => {
                 panic!("MockPeerManagerActor receives unexpected message {:?}", msg);
             }
@@ -429,7 +457,7 @@ impl ChainHistoryAccess {
         &mut self,
         hashes: Vec<CryptoHash>,
     ) -> Result<Vec<BlockHeader>, Error> {
-        self.chain.retrieve_headers(hashes, sync::MAX_BLOCK_HEADERS, Some(self.target_height))
+        self.chain.retrieve_headers(hashes, MAX_BLOCK_HEADERS, Some(self.target_height))
     }
 
     fn retrieve_block_by_height(&mut self, block_height: BlockHeight) -> Result<Block, Error> {
@@ -484,7 +512,7 @@ impl ChainHistoryAccess {
 mod test {
     use crate::ChainHistoryAccess;
     use near_chain::ChainGenesis;
-    use near_chain::{Chain, RuntimeAdapter};
+    use near_chain::{Chain, RuntimeWithEpochManagerAdapter};
     use near_chain_configs::Genesis;
     use near_client::test_utils::TestEnv;
     use near_network::types::PartialEncodedChunkRequestMsg;
@@ -503,7 +531,7 @@ mod test {
             Path::new("../../../.."),
             create_test_store(),
             &genesis,
-        )) as Arc<dyn RuntimeAdapter>];
+        )) as Arc<dyn RuntimeWithEpochManagerAdapter>];
         let mut env = TestEnv::builder(chain_genesis.clone())
             .validator_seats(1)
             .runtime_adapters(runtimes.clone())

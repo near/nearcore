@@ -1,8 +1,6 @@
 #![doc = include_str!("../README.md")]
+#![deny(clippy::integer_arithmetic)]
 
-pub use {backtrace, tracing, tracing_appender, tracing_subscriber};
-
-use clap::Parser;
 pub use context::*;
 use near_crypto::PublicKey;
 use near_primitives_core::types::AccountId;
@@ -11,7 +9,6 @@ use opentelemetry::sdk::trace::{self, IdGenerator, Sampler, Tracer};
 use opentelemetry::sdk::Resource;
 use opentelemetry::KeyValue;
 use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
-use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::path::PathBuf;
 use tracing::level_filters::LevelFilter;
@@ -23,10 +20,12 @@ use tracing_subscriber::filter::{Filtered, ParseError};
 use tracing_subscriber::layer::{Layered, SubscriberExt};
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::{fmt, reload, EnvFilter, Layer, Registry};
+pub use {tracing, tracing_appender, tracing_subscriber};
 
 /// Custom tracing subscriber implementation that produces IO traces.
 pub mod context;
 mod io_tracer;
+pub mod log_config;
 pub mod macros;
 pub mod metrics;
 pub mod pretty;
@@ -79,7 +78,8 @@ type TracingLayer<Inner> = Layered<
 static DEFAULT_OTLP_LEVEL: OnceCell<OpenTelemetryLevel> = OnceCell::new();
 
 /// The default value for the `RUST_LOG` environment variable if one isn't specified otherwise.
-pub const DEFAULT_RUST_LOG: &'static str = "tokio_reactor=info,\
+pub const DEFAULT_RUST_LOG: &str = "tokio_reactor=info,\
+     config=info,\
      near=info,\
      recompress=info,\
      stats=info,\
@@ -87,7 +87,6 @@ pub const DEFAULT_RUST_LOG: &'static str = "tokio_reactor=info,\
      db=info,\
      delay_detector=info,\
      near-performance-metrics=info,\
-     near-rust-allocator-proxy=info,\
      warn";
 
 /// The resource representing a registered subscriber.
@@ -112,7 +111,7 @@ pub struct DefaultSubscriberGuard<S> {
 }
 
 // Doesn't define WARN and ERROR, because the highest verbosity of spans is INFO.
-#[derive(Copy, Clone, Debug, clap::ArgEnum, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, clap::ArgEnum, serde::Serialize, serde::Deserialize)]
 pub enum OpenTelemetryLevel {
     OFF,
     INFO,
@@ -128,7 +127,7 @@ impl Default for OpenTelemetryLevel {
 
 /// Configures exporter of span and trace data.
 // Currently empty, but more fields will be added in the future.
-#[derive(Debug, Default, Parser)]
+#[derive(Debug, Default, clap::Parser)]
 pub struct Options {
     /// Enables export of span data using opentelemetry exporters.
     #[clap(long, arg_enum, default_value = "off")]
@@ -258,13 +257,18 @@ where
     let (filter, handle) = reload::Layer::<LevelFilter, S>::new(filter);
 
     let mut resource = vec![
-        KeyValue::new(SERVICE_NAME, "neard"),
         KeyValue::new("chain_id", chain_id),
         KeyValue::new("node_id", node_public_key.to_string()),
     ];
-    if let Some(account_id) = account_id {
+    // Prefer account name as the node name.
+    // Fallback to a node public key if a validator key is unavailable.
+    let service_name = if let Some(account_id) = account_id {
         resource.push(KeyValue::new("account_id", account_id.to_string()));
-    }
+        format!("neard:{}", account_id)
+    } else {
+        format!("neard:{}", node_public_key)
+    };
+    resource.push(KeyValue::new(SERVICE_NAME, service_name));
 
     let tracer = opentelemetry_otlp::new_pipeline()
         .tracing()
@@ -314,8 +318,12 @@ fn use_color_output(options: &Options) -> bool {
     match options.color {
         ColorOutput::Always => true,
         ColorOutput::Never => false,
-        ColorOutput::Auto => std::env::var_os("NO_COLOR").is_none() && is_terminal(),
+        ColorOutput::Auto => use_color_auto(),
     }
+}
+
+fn use_color_auto() -> bool {
+    std::env::var_os("NO_COLOR").is_none() && is_terminal()
 }
 
 /// Constructs a subscriber set to the option appropriate for the NEAR code.
@@ -342,12 +350,30 @@ pub fn default_subscriber(
     let subscriber = tracing_subscriber::registry();
     let subscriber = add_simple_log_layer(env_filter, make_writer, color_output, subscriber);
 
+    #[allow(unused_mut)]
+    let mut io_trace_guard = None;
+    #[cfg(feature = "io_trace")]
+    let subscriber = subscriber.with(options.record_io_trace.as_ref().map(|output_path| {
+        let (sub, guard) = make_io_tracing_layer(
+            std::fs::File::create(output_path)
+                .expect("unable to create or truncate IO trace output file"),
+        );
+        io_trace_guard = Some(guard);
+        sub
+    }));
+
     DefaultSubscriberGuard {
         subscriber: Some(subscriber),
         local_subscriber_guard: None,
         writer_guard: None,
-        io_trace_guard: None,
+        io_trace_guard,
     }
+}
+
+pub fn set_default_otlp_level(options: &Options) {
+    // Record the initial tracing level specified as a command-line flag. Use this recorded value to
+    // reset opentelemetry filter when the LogConfig file gets deleted.
+    DEFAULT_OTLP_LEVEL.set(options.opentelemetry).unwrap();
 }
 
 /// Constructs a subscriber set to the option appropriate for the NEAR code.
@@ -370,9 +396,7 @@ pub async fn default_subscriber_with_opentelemetry(
 
     let subscriber = tracing_subscriber::registry();
 
-    // Record the initial tracing level specified as a command-line flag. Use this recorded value to
-    // reset opentelemetry filter when the LogConfig file gets deleted.
-    DEFAULT_OTLP_LEVEL.set(options.opentelemetry).unwrap();
+    set_default_otlp_level(options);
 
     let (subscriber, handle) = add_non_blocking_log_layer(
         env_filter,
@@ -430,6 +454,20 @@ pub enum ReloadError {
     ReloadOpentelemetryLayer(#[source] reload::Error),
     #[error("could not create the log filter")]
     Parse(#[source] BuildEnvFilterError),
+}
+
+pub fn reload_log_config(config: Option<&log_config::LogConfig>) -> Result<(), Vec<ReloadError>> {
+    if let Some(config) = config {
+        reload(
+            config.rust_log.as_ref().map(|s| s.as_str()),
+            config.verbose_module.as_ref().map(|s| s.as_str()),
+            config.opentelemetry_level,
+        )
+    } else {
+        // When the LOG_CONFIG_FILENAME is not available, reset to the tracing and logging config
+        // when the node was started.
+        reload(None, None, None)
+    }
 }
 
 /// Constructs new filters for the logging and opentelemetry layers.
@@ -562,7 +600,7 @@ impl<'a> EnvFilterBuilder<'a> {
 ///
 /// This is intended as a printf-debugging aid.
 pub fn print_backtrace() {
-    let bt = backtrace::Backtrace::new();
+    let bt = std::backtrace::Backtrace::force_capture();
     eprintln!("{bt:?}")
 }
 

@@ -3,8 +3,6 @@ name = "mock-node"
 version = "0.0.0"
 authors.workspace = true
 publish = false
-# Please update rust-toolchain.toml as well when changing version here:
-rust-version.workspace = true
 edition.workspace = true
 
 [dependencies]
@@ -25,10 +23,12 @@ tokio.workspace = true
 tracing.workspace = true
 
 near-actix-test-utils = { path = "../../test-utils/actix-test-utils" }
+near-async = { path = "../../core/async" }
 near-chain = { path = "../../chain/chain" }
 near-chain-configs = { path = "../../core/chain-configs" }
 near-client = { path = "../../chain/client" }
 near-crypto = { path = "../../core/crypto" }
+near-chunks = { path = "../../chain/chunks" }
 near-epoch-manager = { path = "../../chain/epoch-manager"}
 near-jsonrpc = { path = "../../chain/jsonrpc" }
 near-network = { path = "../../chain/network" }

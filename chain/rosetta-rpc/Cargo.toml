@@ -3,8 +3,6 @@ name = "near-rosetta-rpc"
 version = "0.0.0"
 authors.workspace = true
 publish = false
-# Please update rust-toolchain.toml as well when changing version here:
-rust-version.workspace = true
 edition.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -38,3 +36,6 @@ near-o11y = { path = "../../core/o11y" }
 [dev-dependencies]
 insta = "1"
 near-actix-test-utils = { path = "../../test-utils/actix-test-utils" }
+
+[features]
+nightly = []

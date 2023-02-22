@@ -142,6 +142,11 @@ pub(crate) static PROTOCOL_UPGRADE_BLOCK_HEIGHT: Lazy<IntGauge> = Lazy::new(|| {
     .unwrap()
 });
 
+pub(crate) static PEERS_WITH_INVALID_HASH: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge("near_peers_with_invalid_hash", "Number of peers that are on invalid hash")
+        .unwrap()
+});
+
 pub(crate) static CHUNK_SKIPPED_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_chunk_skipped_total",
@@ -151,13 +156,23 @@ pub(crate) static CHUNK_SKIPPED_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     .unwrap()
 });
 
-pub(crate) static PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY: Lazy<Histogram> = Lazy::new(|| {
-    try_create_histogram(
-        "near_partial_encoded_chunk_response_delay",
-        "Delay between when a partial encoded chunk response is sent from PeerActor and when it is received by ClientActor",
+pub(crate) static CHUNK_PRODUCER_BANNED_FOR_EPOCH: Lazy<IntCounter> = Lazy::new(|| {
+    try_create_int_counter(
+        "near_chunk_producer_banned_for_epoch",
+        "Number of times we have banned a chunk producer for an epoch",
     )
-        .unwrap()
+    .unwrap()
 });
+
+pub(crate) static CHUNK_DROPPED_BECAUSE_OF_BANNED_CHUNK_PRODUCER: Lazy<IntCounter> =
+    Lazy::new(|| {
+        try_create_int_counter(
+            "near_chunk_dropped_because_of_banned_chunk_producer",
+            "Number of chunks we, as a block producer, 
+                dropped, because the chunk is produced by a banned chunk producer",
+        )
+        .unwrap()
+    });
 
 pub(crate) static CLIENT_MESSAGES_COUNT: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(

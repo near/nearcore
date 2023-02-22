@@ -266,7 +266,6 @@ mod tests {
     use std::convert::Infallible;
     use std::sync::Arc;
 
-    #[track_caller]
     async fn check_file_download(payload: &[u8], expected: Result<&[u8], &str>) {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();

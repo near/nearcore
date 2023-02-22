@@ -1,16 +1,21 @@
+#[cfg(feature = "debug_types")]
 use near_client_primitives::debug::{
-    DebugBlockStatus, EpochInfoView, TrackedShardsView, ValidatorStatus,
+    DebugBlockStatusData, EpochInfoView, TrackedShardsView, ValidatorStatus,
 };
-use near_primitives::views::{CatchupStatusView, PeerStoreView, SyncStatusView};
-use serde::{Deserialize, Serialize};
+#[cfg(feature = "debug_types")]
+use near_primitives::views::{
+    CatchupStatusView, ChainProcessingInfo, NetworkGraphView, PeerStoreView,
+    RecentOutboundConnectionsView, RequestedStatePartsView, SyncStatusView,
+};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct RpcStatusResponse {
     #[serde(flatten)]
     pub status_response: near_primitives::views::StatusResponse,
 }
 
-#[derive(Serialize, Debug)]
+#[cfg(feature = "debug_types")]
+#[derive(serde::Serialize, Debug)]
 pub enum DebugStatusResponse {
     SyncStatus(SyncStatusView),
     CatchupStatus(Vec<CatchupStatusView>),
@@ -18,22 +23,27 @@ pub enum DebugStatusResponse {
     // List of epochs - in descending order (next epoch is first).
     EpochInfo(Vec<EpochInfoView>),
     // Detailed information about blocks.
-    BlockStatus(Vec<DebugBlockStatus>),
+    BlockStatus(DebugBlockStatusData),
     // Detailed information about the validator (approvals, block & chunk production etc.)
     ValidatorStatus(ValidatorStatus),
     PeerStore(PeerStoreView),
+    ChainProcessingStatus(ChainProcessingInfo),
+    // The state parts already requested.
+    RequestedStateParts(Vec<RequestedStatePartsView>),
+    NetworkGraph(NetworkGraphView),
+    RecentOutboundConnections(RecentOutboundConnectionsView),
 }
 
 #[cfg(feature = "debug_types")]
-#[derive(Debug, Serialize)]
+#[derive(Debug, serde::Serialize)]
 pub struct RpcDebugStatusResponse {
     pub status_response: DebugStatusResponse,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct RpcHealthResponse;
 
-#[derive(thiserror::Error, Debug, Serialize, Deserialize)]
+#[derive(thiserror::Error, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcStatusError {
     #[error("Node is syncing")]

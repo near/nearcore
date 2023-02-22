@@ -19,11 +19,13 @@ pub(crate) async fn convert_transactions_sir_into_local_receipts(
     let prev_block = fetch_block(&client, block.header.prev_hash).await?;
     let prev_block_gas_price = prev_block.header.gas_price;
 
+    let runtime_config =
+        node_runtime::config::RuntimeConfig::from(protocol_config.runtime_config.clone());
     let local_receipts: Vec<views::ReceiptView> =
         txs.into_iter()
             .map(|tx| {
                 let cost = tx_cost(
-                    &protocol_config.runtime_config.transaction_costs,
+                    &runtime_config.fees,
                     &near_primitives::transaction::Transaction {
                         signer_id: tx.transaction.signer_id.clone(),
                         public_key: tx.transaction.public_key.clone(),
@@ -42,7 +44,7 @@ pub(crate) async fn convert_transactions_sir_into_local_receipts(
                     },
                     prev_block_gas_price,
                     true,
-                    protocol_config.protocol_version.clone(),
+                    protocol_config.protocol_version,
                 );
                 views::ReceiptView {
                     predecessor_id: tx.transaction.signer_id.clone(),

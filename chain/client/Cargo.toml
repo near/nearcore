@@ -3,8 +3,6 @@ name = "near-client"
 version = "0.0.0"
 authors.workspace = true
 publish = false
-# Please update rust-toolchain.toml as well when changing version here:
-rust-version.workspace = true
 edition.workspace = true
 
 [dependencies]
@@ -14,6 +12,7 @@ ansi_term.workspace = true
 async-trait.workspace = true
 borsh.workspace = true
 chrono.workspace = true
+derive_more.workspace = true
 futures.workspace = true
 itertools.workspace = true
 lru.workspace = true
@@ -28,6 +27,7 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
+near-async = { path = "../../core/async" }
 near-chain-primitives = { path = "../chain-primitives" }
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
@@ -35,6 +35,7 @@ near-store = { path = "../../core/store" }
 near-chain-configs = { path = "../../core/chain-configs" }
 near-chain = { path = "../chain" }
 near-client-primitives = { path = "../client-primitives" }
+near-dyn-configs = { path = "../../core/dyn-configs" }
 near-network = { path = "../network" }
 near-pool = { path = "../pool" }
 near-chunks = { path = "../chunks" }
@@ -42,6 +43,7 @@ near-telemetry = { path = "../telemetry" }
 near-o11y = { path = "../../core/o11y" }
 near-performance-metrics = { path = "../../utils/near-performance-metrics" }
 near-performance-metrics-macros = { path = "../../utils/near-performance-metrics-macros" }
+near-epoch-manager = { path = "../epoch-manager" }
 delay-detector = { path = "../../tools/delay-detector" }
 
 [dev-dependencies]
@@ -65,11 +67,11 @@ delay_detector = [
 nightly_protocol = []
 nightly = [
   "nightly_protocol",
+  "protocol_feature_flat_state",
   "near-chain/nightly",
 ]
 sandbox = [
   "near-client-primitives/sandbox",
   "near-chain/sandbox",
 ]
-# Shardnet is the experimental network that we deploy for chunk-only producer testing.
-shardnet = ["near-network/shardnet"]
+protocol_feature_flat_state = ["near-store/protocol_feature_flat_state", "near-chain/protocol_feature_flat_state"]

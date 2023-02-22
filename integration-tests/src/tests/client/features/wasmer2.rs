@@ -7,6 +7,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, FunctionCallAction, Transaction};
 use nearcore::config::GenesisExt;
 
+// This test fails on aarch because wasmer0 and wasmer2 are not available.
+#[cfg_attr(all(target_arch = "aarch64", target_vendor = "apple"), ignore)]
 #[test]
 fn test_wasmer2_upgrade() {
     let mut capture = near_o11y::testonly::TracingCapture::enable();

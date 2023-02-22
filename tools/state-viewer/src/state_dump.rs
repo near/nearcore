@@ -1,5 +1,5 @@
 use borsh::BorshSerialize;
-use near_chain::RuntimeAdapter;
+use near_chain::types::RuntimeAdapter;
 use near_chain_configs::{Genesis, GenesisChangeConfig, GenesisConfig};
 use near_crypto::PublicKey;
 use near_epoch_manager::EpochManagerAdapter;
@@ -103,7 +103,7 @@ pub fn state_dump(
             genesis_config.total_supply = total_supply;
             change_genesis_config(&mut genesis_config, change_config);
             near_config.genesis =
-                Genesis::new_with_path(genesis_config, records_path.to_path_buf());
+                Genesis::new_with_path(genesis_config, records_path.to_path_buf()).unwrap();
             near_config.config.genesis_records_file =
                 Some(records_path.file_name().unwrap().to_str().unwrap().to_string());
         }
@@ -122,7 +122,7 @@ pub fn state_dump(
             // minting tokens every epoch.
             genesis_config.total_supply = total_supply;
             change_genesis_config(&mut genesis_config, change_config);
-            near_config.genesis = Genesis::new(genesis_config, records.into());
+            near_config.genesis = Genesis::new(genesis_config, records.into()).unwrap();
         }
     }
     near_config
@@ -142,12 +142,7 @@ pub fn state_dump_redis(
 
     for (shard_id, state_root) in state_roots.iter().enumerate() {
         let trie = runtime
-            .get_trie_for_shard(
-                shard_id as u64,
-                last_block_header.prev_hash(),
-                state_root.clone(),
-                false,
-            )
+            .get_trie_for_shard(shard_id as u64, last_block_header.prev_hash(), *state_root, false)
             .unwrap();
         for item in trie.iter().unwrap() {
             let (key, value) = item.unwrap();
@@ -238,12 +233,7 @@ fn iterate_over_records(
     let mut total_supply = 0;
     for (shard_id, state_root) in state_roots.iter().enumerate() {
         let trie = runtime
-            .get_trie_for_shard(
-                shard_id as u64,
-                last_block_header.prev_hash(),
-                state_root.clone(),
-                false,
-            )
+            .get_trie_for_shard(shard_id as u64, last_block_header.prev_hash(), *state_root, false)
             .unwrap();
         for item in trie.iter().unwrap() {
             let (key, value) = item.unwrap();
@@ -438,7 +428,7 @@ mod test {
         );
         let new_genesis = new_near_config.genesis;
         assert_eq!(new_genesis.config.validators.len(), 2);
-        validate_genesis(&new_genesis);
+        validate_genesis(&new_genesis).unwrap();
     }
 
     /// Test that we respect the specified account ID list in dump_state.
@@ -513,7 +503,7 @@ mod test {
         let new_genesis = new_near_config.genesis;
         let mut expected_accounts: HashSet<AccountId> =
             new_genesis.config.validators.iter().map(|v| v.account_id.clone()).collect();
-        expected_accounts.extend(select_account_ids.clone());
+        expected_accounts.extend(select_account_ids);
         expected_accounts.insert(new_genesis.config.protocol_treasury_account.clone());
         let mut actual_accounts: HashSet<AccountId> = HashSet::new();
         new_genesis.for_each_record(|record| {
@@ -522,7 +512,7 @@ mod test {
             }
         });
         assert_eq!(expected_accounts, actual_accounts);
-        validate_genesis(&new_genesis);
+        validate_genesis(&new_genesis).unwrap();
     }
 
     /// Test that we preserve the validators from the epoch of the state dump.
@@ -569,7 +559,7 @@ mod test {
         );
         let new_genesis = new_near_config.genesis;
         assert_eq!(new_genesis.config.validators.len(), 2);
-        validate_genesis(&new_genesis);
+        validate_genesis(&new_genesis).unwrap();
     }
 
     /// Test that we return locked tokens for accounts that are not validators.
@@ -618,7 +608,7 @@ mod test {
                 .collect::<Vec<_>>(),
             vec!["test0".parse().unwrap()]
         );
-        validate_genesis(&new_genesis);
+        validate_genesis(&new_genesis).unwrap();
     }
 
     // TODO (#7327): enable test when flat storage will support resharding.
@@ -809,7 +799,7 @@ mod test {
         let new_genesis = new_near_config.genesis;
 
         assert_eq!(new_genesis.config.validators.len(), 2);
-        validate_genesis(&new_genesis);
+        validate_genesis(&new_genesis).unwrap();
     }
 
     #[test]
@@ -879,6 +869,6 @@ mod test {
 
         assert_eq!(stake.get("test0").unwrap_or(&(0 as Balance)), &(0 as Balance));
 
-        validate_genesis(&new_genesis);
+        validate_genesis(&new_genesis).unwrap();
     }
 }

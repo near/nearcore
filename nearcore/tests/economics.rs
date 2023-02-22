@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use num_rational::Ratio;
 
-use near_chain::{ChainGenesis, RuntimeAdapter};
+use near_chain::{ChainGenesis, RuntimeWithEpochManagerAdapter};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType};
@@ -37,7 +37,7 @@ fn setup_env(genesis: &Genesis) -> TestEnv {
             Path::new("."),
             store1,
             genesis,
-        )) as Arc<dyn RuntimeAdapter>])
+        )) as Arc<dyn RuntimeWithEpochManagerAdapter>])
         .build()
 }
 
@@ -62,7 +62,7 @@ fn test_burn_mint() {
         .get_protocol_config(&EpochId::default())
         .unwrap()
         .runtime_config
-        .transaction_costs;
+        .fees;
     let fee_helper = FeeHelper::new(transaction_costs, genesis.config.min_gas_price);
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let initial_total_supply = env.chain_genesis.total_supply;

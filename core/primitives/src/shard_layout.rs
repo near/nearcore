@@ -1,15 +1,9 @@
-use std::cmp::Ordering::Greater;
-
-use byteorder::{LittleEndian, ReadBytesExt};
-use serde::{Deserialize, Serialize};
-
-use near_primitives_core::hash::hash;
-use near_primitives_core::types::ShardId;
-
-use crate::borsh::maybestd::io::Cursor;
 use crate::hash::CryptoHash;
 use crate::types::{AccountId, NumShards};
+use near_primitives_core::types::ShardId;
+use std::cmp::Ordering::Greater;
 use std::collections::HashMap;
+use std::{fmt, str};
 
 /// This file implements two data structure `ShardLayout` and `ShardUId`
 ///
@@ -53,7 +47,7 @@ use std::collections::HashMap;
 
 pub type ShardVersion = u32;
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum ShardLayout {
     V0(ShardLayoutV0),
     V1(ShardLayoutV1),
@@ -64,7 +58,7 @@ pub enum ShardLayout {
 /// to keep backward compatibility for some existing tests.
 /// `parent_shards` for `ShardLayoutV1` is always `None`, meaning it can only be the first shard layout
 /// a chain uses.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ShardLayoutV0 {
     /// Map accounts evenly across all shards
     num_shards: NumShards,
@@ -78,7 +72,7 @@ pub struct ShardLayoutV0 {
 /// will be `[[0, 1, 2, 3]]`
 type ShardSplitMap = Vec<Vec<ShardId>>;
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ShardLayoutV1 {
     /// num_shards = fixed_shards.len() + boundary_accounts.len() + 1
     /// Each account and all sub-accounts map to the shard of position in this array.
@@ -165,18 +159,6 @@ impl ShardLayout {
         )
     }
 
-    pub fn shardnet_upgrade_shard_layout() -> ShardLayout {
-        ShardLayout::v1(
-            vec!["v3sweat.shardnet.near".parse().unwrap()],
-            vec!["fffffffffffff", "mmmmmmmmmmmmm", "uuuuuuuuuuuuu"]
-                .into_iter()
-                .map(|s| s.parse().unwrap())
-                .collect(),
-            Some(vec![vec![1], vec![2], vec![3], vec![0, 4]]),
-            2,
-        )
-    }
-
     /// Given a parent shard id, return the shard uids for the shards in the current shard layout that
     /// are split from this parent shard. If this shard layout has no parent shard layout, return None
     pub fn get_split_shard_uids(&self, parent_shard_id: ShardId) -> Option<Vec<ShardUId>> {
@@ -250,8 +232,9 @@ impl ShardLayout {
 pub fn account_id_to_shard_id(account_id: &AccountId, shard_layout: &ShardLayout) -> ShardId {
     match shard_layout {
         ShardLayout::V0(ShardLayoutV0 { num_shards, .. }) => {
-            let mut cursor = Cursor::new(hash(account_id.as_ref().as_bytes()).0);
-            cursor.read_u64::<LittleEndian>().expect("Must not happened") % (num_shards)
+            let hash = CryptoHash::hash_bytes(account_id.as_ref().as_bytes());
+            let (bytes, _) = stdx::split_array::<32, 8, 24>(hash.as_bytes());
+            u64::from_le_bytes(*bytes) % num_shards
         }
         ShardLayout::V1(ShardLayoutV1 { fixed_shards, boundary_accounts, .. }) => {
             for (shard_id, fixed_account) in fixed_shards.iter().enumerate() {
@@ -287,7 +270,7 @@ fn is_top_level_account(top_account: &AccountId, account: &AccountId) -> bool {
 }
 
 /// ShardUId is an unique representation for shards from different shard layout
-#[derive(Serialize, Deserialize, Hash, Clone, Debug, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Hash, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ShardUId {
     pub version: ShardVersion,
     pub shard_id: u32,
@@ -353,6 +336,105 @@ pub fn get_block_shard_uid_rev(
     let block_hash = CryptoHash::try_from(&key[..32])?;
     let shard_id = ShardUId::try_from(&key[32..])?;
     Ok((block_hash, shard_id))
+}
+
+impl fmt::Display for ShardUId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "s{}.v{}", self.shard_id, self.version)
+    }
+}
+
+impl fmt::Debug for ShardUId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(self, f)
+    }
+}
+
+impl str::FromStr for ShardUId {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let (shard_str, version_str) = s
+            .split_once(".")
+            .ok_or_else(|| "shard version and number must be separated by \".\"".to_string())?;
+
+        let version = version_str
+            .strip_prefix("v")
+            .ok_or_else(|| "shard version must start with \"v\"".to_string())?
+            .parse::<ShardVersion>()
+            .map_err(|e| format!("shard version after \"v\" must be a number, {e}"))?;
+
+        let shard_str = shard_str
+            .strip_prefix("s")
+            .ok_or_else(|| "shard id must start with \"s\"".to_string())?;
+        let shard_id = shard_str
+            .parse::<u32>()
+            .map_err(|e| format!("shard id after \"s\" must be a number, {e}"))?;
+
+        Ok(ShardUId { shard_id, version })
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for ShardUId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_any(ShardUIdVisitor)
+    }
+}
+
+impl serde::Serialize for ShardUId {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+struct ShardUIdVisitor;
+impl<'de> serde::de::Visitor<'de> for ShardUIdVisitor {
+    type Value = ShardUId;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            formatter,
+            "either string format of `ShardUId` like s0v1 for shard 0 version 1, or a map"
+        )
+    }
+
+    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        v.parse().map_err(|e| E::custom(e))
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where
+        A: serde::de::MapAccess<'de>,
+    {
+        // custom struct deserialization for backwards compatibility
+        // TODO(#7894): consider removing this code after checking
+        // `ShardUId` is nowhere serialized in the old format
+        let mut version = None;
+        let mut shard_id = None;
+
+        while let Some((field, value)) = map.next_entry()? {
+            match field {
+                "version" => version = Some(value),
+                "shard_id" => shard_id = Some(value),
+                _ => return Err(serde::de::Error::unknown_field(field, &["version", "shard_id"])),
+            }
+        }
+
+        match (version, shard_id) {
+            (None, _) => Err(serde::de::Error::missing_field("version")),
+            (_, None) => Err(serde::de::Error::missing_field("shard_id")),
+            (Some(version), Some(shard_id)) => Ok(ShardUId { version, shard_id }),
+        }
+    }
 }
 
 #[cfg(test)]

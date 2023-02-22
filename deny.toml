@@ -14,14 +14,12 @@ deny = [
     { name = "keccak-hash", version = "<0.4.1" },
     { name = "primitive-types", version = "<0.10.1" },
     { name = "uint", version = "<0.8.2" },
+
+    # https://github.com/near/nearcore/pull/8562
+    { name = "borsh", version = "0.10, <0.10.2" },
 ]
 
 skip = [
-    # See https://github.com/camshaft/bolero/issues/85
-    { name = "crossbeam-channel", version = "=0.4.4" },
-    { name = "crossbeam-utils", version = "=0.7.2" },
-    { name = "strsim", version = "=0.8.0" },
-
     { name = "clap", version = "=2.34.0" },
     # criterion uses clap=2.34.0 which relies on an older textwrap
     { name = "textwrap", version = "=0.11.0" },
@@ -41,8 +39,6 @@ skip = [
 
     # near-vm-runner and wasmer-compiler-near use 0.78.2
     { name = "wasmparser", version = "=0.78.2" },
-    # Wasmer 2.0 uses both region 2.2.0 and 3.0.0 via dependencies
-    { name = "region", version = "=2.2.0" },
     # Need this specific version of pwasm-utils for backwards-compatible
     # stack limiting.
     { name = "pwasm-utils", version = "=0.12.0" },
@@ -50,6 +46,7 @@ skip = [
 
     # wasmer and wasmtime
     { name = "target-lexicon", version = "=0.10.0" },
+    { name = "wasmparser", version = "=0.84.0" },
 
     # chain and param estimator
     { name = "num-rational", version = "=0.3.2" },
@@ -59,6 +56,13 @@ skip = [
     { name = "parking_lot_core", version = "=0.7.2" },
     { name = "lock_api", version = "=0.3.4" },
     { name = "digest", version = "=0.8.1" },
+
+    # wasmer 0.18
+    { name = "nix", version = "=0.15.0" },
+
+    # old version of tokio, parking_lot
+    { name = "windows-sys", version = "=0.36.1" },
+    { name = "windows_x86_64_msvc", version = "=0.36.1" },
 
     # chrono uses old time crate
     { name = "time", version = "=0.1.44" },
@@ -100,4 +104,21 @@ skip = [
 
     # redis we’re using uses ancient sha
     { name = "sha1", version = "=0.6.1" },
+
+    # rust-s3 is using an old version of smartstring
+    { name = "smartstring", version = "=0.2.10" },
+
+    # validator 0.12 ~ 0.16 is still using an old version of idna
+    { name = "idna", version = "=0.2.3" },
+
+    # v0.0.0 is the local code, whereas the published crate must depend on a
+    # published crate when they are published.
+    # TODO(#8604) Remove this skip entry.
+    { name = "near-stdx", version = "0.0.0" },
+
+    # zeropool-bn uses borsh 0.9
+    { name = "borsh", version = "=0.9.3" },
+    { name = "borsh-derive", version = "=0.9.3" },
+    { name = "borsh-derive-internal", version = "=0.9.3" },
+    { name = "borsh-schema-derive-internal", version = "=0.9.3" },
 ]

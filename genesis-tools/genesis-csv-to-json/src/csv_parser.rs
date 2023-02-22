@@ -1,21 +1,18 @@
 //! Constructs state of token holders from the csv file.
-use std::fs::File;
-use std::io::Read;
-use std::path::PathBuf;
-
 use chrono::DateTime;
 use csv::ReaderBuilder;
-use near_primitives::time::Utc;
-use serde::{Deserialize, Serialize};
-
 use near_crypto::{KeyType, PublicKey};
 use near_network::types::PeerInfo;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::state_record::StateRecord;
+use near_primitives::time::Utc;
 use near_primitives::transaction::{Action, FunctionCallAction};
 use near_primitives::types::{AccountId, AccountInfo, Balance, Gas};
+use std::fs::File;
+use std::io::Read;
+use std::path::PathBuf;
 
 /// Methods that can be called by a non-privileged access key.
 const REGULAR_METHOD_NAMES: &[&str] = &["stake", "transfer"];
@@ -94,7 +91,7 @@ impl Row {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 struct Row {
     genesis_time: Option<DateTime<Utc>>,
     account_id: AccountId,

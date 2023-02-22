@@ -35,25 +35,67 @@ use crate::DBCol;
 /// Lastly, since no data is ever deleted from cold storage, trying to decrease
 /// reference of a value count or delete data is ignored and if debug assertions
 /// are enabled will cause a panic.
-struct ColdDatabase<D: Database = crate::db::RocksDB>(D);
+pub struct ColdDB<D = crate::db::RocksDB> {
+    hot: std::sync::Arc<dyn Database>,
+    cold: D,
+}
 
-impl<D: Database> ColdDatabase<D> {
+impl<D> ColdDB<D> {
+    pub fn new(hot: std::sync::Arc<dyn Database>, cold: D) -> Self {
+        Self { hot, cold }
+    }
+
+    /// Checks which database columns should be accessed from.
+    ///
+    /// For columns present in cold database (see [`DBCol::is_in_colddb`],
+    /// returns false.  For [`DBCol::BlockHeader`] and [`DBCol::EpochInfo`]
+    /// returns true.  For other (hot) columns logs an error and returns false
+    /// (i.e. they are still read from cold database which will result in empty
+    /// read).
+    fn is_hot_column(col: DBCol) -> bool {
+        if matches!(col, DBCol::BlockHeader | DBCol::EpochInfo) {
+            // TODO(#3488): Remove BlockHeader from this case once it becomes
+            // garbage collected.
+            //
+            // Note that at that point it might be beneficial to rather than
+            // storing BlockHeader in cold database to translate all accesses to
+            // the column to read data from DBCol::Block instead (since headers
+            // are embedded within a block).
+            true
+        } else {
+            // TODO: Convert this to near_o11y::log_assert!(col.is_in_colddb(),
+            // ...)  once all cold columns are marked as such.
+            if !col.is_in_colddb() {
+                tracing::debug!(
+                    target: "store",
+                    %col, "Trying to read hot column from cold storage"
+                );
+            }
+            false
+        }
+    }
+}
+
+impl<D: Database> ColdDB<D> {
     /// Returns raw bytes from the underlying storage.
     ///
     /// Adjusts the key if necessary (see [`get_cold_key`]) and retrieves data
     /// corresponding to it from the database and returns it as it resides in
     /// the database.  This is common code used by [`Self::get_raw_bytes`] and
     /// [`Self::get_with_rc_stripped`] methods.
-    fn get_impl(&self, col: DBCol, key: &[u8]) -> std::io::Result<Option<DBSlice<'_>>> {
+    fn get_cold_impl(&self, col: DBCol, key: &[u8]) -> std::io::Result<Option<DBSlice<'_>>> {
         let mut buffer = [0; 32];
         let key = get_cold_key(col, key, &mut buffer).unwrap_or(key);
-        self.0.get_raw_bytes(col, key)
+        self.cold.get_raw_bytes(col, key)
     }
 }
 
-impl<D: Database> super::Database for ColdDatabase<D> {
+impl<D: Database> super::Database for ColdDB<D> {
     fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> std::io::Result<Option<DBSlice<'_>>> {
-        match self.get_impl(col, key) {
+        if Self::is_hot_column(col) {
+            return self.hot.get_raw_bytes(col, key);
+        }
+        match self.get_cold_impl(col, key) {
             Ok(Some(value)) if col.is_rc() => {
                 // Since we’ve stripped the reference count from the data stored
                 // in the database, we need to reintroduce it.  In practice this
@@ -69,28 +111,30 @@ impl<D: Database> super::Database for ColdDatabase<D> {
 
     fn get_with_rc_stripped(&self, col: DBCol, key: &[u8]) -> std::io::Result<Option<DBSlice<'_>>> {
         assert!(col.is_rc());
-        self.get_impl(col, key)
+        if Self::is_hot_column(col) {
+            self.hot.get_with_rc_stripped(col, key)
+        } else {
+            self.get_cold_impl(col, key)
+        }
     }
 
     /// Iterates over all values in a column.
     ///
     /// This is implemented only for a few columns.  Specifically for Block,
-    /// BlockHeader, ChunkHashesByHeight and EpochInfo.  It’ll
-    /// panic if used for any other column.
+    /// BlockHeader, ChunkHashesByHeight and EpochInfo.  It’ll panic if used for
+    /// any other column.
     ///
     /// Furthermore, because key of ChunkHashesByHeight is modified in cold
     /// storage, the order of iteration of that column is different than if it
     /// would be in hot storage.
     fn iter<'a>(&'a self, column: DBCol) -> DBIterator<'a> {
-        // Those are the only columns we’re ever iterating over.
-        assert!(
-            matches!(
-                column,
-                DBCol::BlockHeader | DBCol::Block | DBCol::ChunkHashesByHeight | DBCol::EpochInfo
-            ),
-            "iter on cold storage is not supported for {column}"
-        );
-        let it = self.0.iter_raw_bytes(column);
+        match column {
+            DBCol::BlockHeader | DBCol::EpochInfo => return self.hot.iter(column),
+            // Those are the only columns we’re ever iterating over.
+            DBCol::Block | DBCol::ChunkHashesByHeight => (),
+            _ => panic!("iter on cold storage is not supported for {column}"),
+        }
+        let it = self.cold.iter_raw_bytes(column);
         if column == DBCol::ChunkHashesByHeight {
             // For the column we need to swap bytes in the key.
             Box::new(it.map(|result| {
@@ -120,7 +164,7 @@ impl<D: Database> super::Database for ColdDatabase<D> {
         // StateChanges is neither reference counted, nor do we do any
         // adjustments to that column’s keys so we can pass the iter_prefix
         // request directly to the underlying database.
-        self.0.iter_prefix(col, key_prefix)
+        self.cold.iter_prefix(col, key_prefix)
     }
 
     /// Unimplemented; always panics.
@@ -150,19 +194,19 @@ impl<D: Database> super::Database for ColdDatabase<D> {
                 transaction.ops.swap_remove(idx);
             }
         }
-        self.0.write(transaction)
+        self.cold.write(transaction)
     }
 
     fn compact(&self) -> std::io::Result<()> {
-        self.0.compact()
+        self.cold.compact()
     }
 
     fn flush(&self) -> std::io::Result<()> {
-        self.0.flush()
+        self.cold.flush()
     }
 
     fn get_store_statistics(&self) -> Option<crate::StoreStatistics> {
-        self.0.get_store_statistics()
+        self.cold.get_store_statistics()
     }
 }
 
@@ -248,6 +292,13 @@ fn adjust_op(op: &mut DBOp) -> bool {
             near_o11y::log_assert!(false, "Unexpected delete of {col} in cold store");
             false
         }
+        DBOp::DeleteRange { col, from, to } => {
+            near_o11y::log_assert!(
+                false,
+                "Unexpected delete range from {col} in cold store: {from:?} {to:?}"
+            );
+            false
+        }
     }
 }
 
@@ -262,12 +313,13 @@ mod test {
     const VALUE: &[u8] = "FooBar".as_bytes();
 
     /// Constructs test in-memory database.
-    fn create_test_db() -> ColdDatabase<crate::db::TestDB> {
-        ColdDatabase(crate::db::testdb::TestDB::default())
+    fn create_test_db() -> ColdDB<crate::db::TestDB> {
+        let hot = crate::db::testdb::TestDB::default();
+        ColdDB::new(std::sync::Arc::new(hot), crate::db::testdb::TestDB::default())
     }
 
     fn set(col: DBCol, key: &[u8]) -> DBOp {
-        DBOp::Set { col: col, key: key.to_vec(), value: VALUE.to_vec() }
+        DBOp::Set { col, key: key.to_vec(), value: VALUE.to_vec() }
     }
 
     /// Prettifies raw key for display.
@@ -330,7 +382,7 @@ mod test {
         let mut result = Vec::<String>::new();
         let mut fetch = |col, key: &[u8], raw_only: bool| {
             result.push(format!("{col} {}", pretty_key(key)));
-            let dbs: [(bool, &dyn Database); 2] = [(false, &db), (true, &db.0)];
+            let dbs: [(bool, &dyn Database); 2] = [(false, &db), (true, &db.cold)];
             for (is_raw, db) in dbs {
                 if raw_only && !is_raw {
                     continue;
@@ -338,8 +390,8 @@ mod test {
 
                 let name = if is_raw { "raw " } else { "cold" };
                 let value = db.get_raw_bytes(col, &key).unwrap();
-                // When fetching reference counted column ColdDatabase adds
-                // reference count to it.
+                // When fetching reference counted column ColdDB adds reference
+                // count to it.
                 let value = pretty_value(value.as_deref(), col.is_rc() && !is_raw);
                 result.push(format!("    [{name}] get_raw_bytes → {value}"));
 
@@ -411,16 +463,25 @@ mod test {
         let db = create_test_db();
 
         let mut ops: Vec<_> = [DBCol::BlockHeader, DBCol::Block, DBCol::EpochInfo]
-            .iter()
-            .map(|col| set(*col, HASH))
+            .into_iter()
+            .map(|col| set(col, HASH))
             .collect();
         ops.push(set(DBCol::ChunkHashesByHeight, HEIGHT_LE));
         db.write(DBTransaction { ops }).unwrap();
 
+        fn hot(col: DBCol) -> DBOp {
+            let value = String::from("Hot FooBar").into();
+            DBOp::Set { col, key: HASH.to_vec(), value }
+        }
+
+        let ops: Vec<_> =
+            [DBCol::BlockHeader, DBCol::Block, DBCol::EpochInfo].into_iter().map(hot).collect();
+        db.hot.write(DBTransaction { ops }).unwrap();
+
         let mut result = Vec::<String>::new();
         for col in [DBCol::BlockHeader, DBCol::Block, DBCol::EpochInfo, DBCol::ChunkHashesByHeight]
         {
-            let dbs: [(bool, &dyn Database); 2] = [(false, &db), (true, &db.0)];
+            let dbs: [(bool, &dyn Database); 2] = [(false, &db), (true, &db.cold)];
             result.push(col.to_string());
             for (is_raw, db) in dbs {
                 let name = if is_raw { "raw " } else { "cold" };
@@ -438,13 +499,13 @@ mod test {
         //     cargo insta test --accept -p near-store  -- db::colddb
         insta::assert_display_snapshot!(result.join("\n"), @r###"
         BlockHeader
-        [cold] (11111111111111111111111111111111, FooBar)
+        [cold] (11111111111111111111111111111111, Hot FooBar)
         [raw ] (11111111111111111111111111111111, FooBar)
         Block
         [cold] (11111111111111111111111111111111, FooBar)
         [raw ] (11111111111111111111111111111111, FooBar)
         EpochInfo
-        [cold] (11111111111111111111111111111111, FooBar)
+        [cold] (11111111111111111111111111111111, Hot FooBar)
         [raw ] (11111111111111111111111111111111, FooBar)
         ChunkHashesByHeight
         [cold] (le(42), FooBar)
@@ -464,7 +525,7 @@ mod test {
         db.write(DBTransaction { ops: vec![op] }).unwrap();
 
         // Refcount is not kept in the underlying database.
-        let got = db.0.get_raw_bytes(col, key).unwrap();
+        let got = db.cold.get_raw_bytes(col, key).unwrap();
         assert_eq!(Some(VALUE), got.as_deref());
 
         // When fetching raw bytes, refcount of 1 is returned.

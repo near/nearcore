@@ -1,0 +1,37 @@
+.header-bar {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    background-color: #eee;
+    border-bottom: 1px solid gray;
+    padding: 4px;
+    box-sizing: border-box;
+
+    .loading {
+        color: gray;
+        font-style: italic;
+    }
+
+    .error {
+        color: red;
+    }
+
+    .label {
+        margin: -4px 4px -4px 4px;
+        padding: 4px 8px;
+        border-left: 1px solid gray;
+        border-right: 1px solid gray;
+        background-color: #666;
+        color: white;
+    }
+
+    .label:first-child {
+        border-left: none;
+        margin-left: -4px;
+    }
+
+    .value {
+        margin-right: 20px;
+        margin-left: 4px;
+    }
+}

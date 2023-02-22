@@ -1,18 +1,16 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, RwLock, RwLockWriteGuard};
 
-use actix::{Addr, System};
+use actix::System;
 use near_chain::test_utils::ValidatorSchedule;
 use rand::{thread_rng, Rng};
 
-use crate::test_utils::setup_mock_all_validators;
-use crate::{ClientActor, ViewClientActor};
+use crate::adapter::{BlockApproval, BlockResponse};
+use crate::test_utils::{setup_mock_all_validators, ActorHandlesForTesting};
 use near_actix_test_utils::run_actix;
 use near_chain::Block;
 use near_network::types::PeerInfo;
-use near_network::types::{
-    NetworkClientMessages, NetworkRequests, NetworkResponses, PeerManagerMessageRequest,
-};
+use near_network::types::{NetworkRequests, NetworkResponses, PeerManagerMessageRequest};
 use near_o11y::testonly::init_integration_logger;
 use near_o11y::WithSpanContextExt;
 use near_primitives::block::{Approval, ApprovalInner};
@@ -31,8 +29,7 @@ fn test_consensus_with_epoch_switches() {
     const HEIGHT_GOAL: u64 = 120;
 
     run_actix(async move {
-        let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
-            Arc::new(RwLock::new(vec![]));
+        let connectors: Arc<RwLock<Vec<ActorHandlesForTesting>>> = Arc::new(RwLock::new(vec![]));
         let connectors1 = connectors.clone();
 
         let validators: Vec<Vec<AccountId>> = [
@@ -155,12 +152,12 @@ fn test_consensus_with_epoch_switches() {
                             }
                             if delayed_block.header().height() <= block.header().height() + 2 {
                                 for target_ord in 0..24 {
-                                    connectors1.write().unwrap()[target_ord].0.do_send(
-                                        NetworkClientMessages::Block(
-                                            delayed_block.clone(),
-                                            key_pairs[0].clone().id,
-                                            true,
-                                        )
+                                    connectors1.write().unwrap()[target_ord].client_actor.do_send(
+                                        BlockResponse {
+                                            block: delayed_block.clone(),
+                                            peer_id: key_pairs[0].clone().id,
+                                            was_requested: true,
+                                        }
                                         .with_span_context(),
                                     );
                                 }
@@ -174,7 +171,7 @@ fn test_consensus_with_epoch_switches() {
                         let mut cur_hash = *block.hash();
                         while let Some(height) = block_to_height.get(&cur_hash) {
                             heights.push(height);
-                            cur_hash = block_to_prev_block.get(&cur_hash).unwrap().clone();
+                            cur_hash = *block_to_prev_block.get(&cur_hash).unwrap();
                             if heights.len() > 10 {
                                 break;
                             }
@@ -256,13 +253,10 @@ fn test_consensus_with_epoch_switches() {
                             );
                             connectors1.write().unwrap()
                                 [epoch_id * 8 + (destination_ord + delta) % 8]
-                                .0
+                                .client_actor
                                 .do_send(
-                                    NetworkClientMessages::BlockApproval(
-                                        approval,
-                                        key_pairs[my_ord].id.clone(),
-                                    )
-                                    .with_span_context(),
+                                    BlockApproval(approval, key_pairs[my_ord].id.clone())
+                                        .with_span_context(),
                                 );
                             // Do not send the endorsement for couple block producers in each epoch
                             // This is needed because otherwise the block with enough endorsements

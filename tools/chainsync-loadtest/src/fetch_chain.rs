@@ -22,7 +22,7 @@ pub async fn run(
 ) -> anyhow::Result<()> {
     info!("SYNC start");
     let peers = network.info(&ctx).await?;
-    let target_height = peers.highest_height_peers[0].chain_info.height as i64;
+    let target_height = peers.highest_height_peers[0].highest_block_height as i64;
     info!("SYNC target_height = {}", target_height);
 
     let start_time = time::Instant::now();
@@ -48,7 +48,7 @@ pub async fn run(
                 let mut headers = network.fetch_block_headers(&ctx, &last_hash).await?;
                 headers.sort_by_key(|h| h.height());
                 let last_header = headers.last().context("no headers")?;
-                last_hash = last_header.hash().clone();
+                last_hash = *last_header.hash();
                 last_height = last_header.height() as i64;
                 info!(
                     "SYNC last_height = {}, {} headers left",

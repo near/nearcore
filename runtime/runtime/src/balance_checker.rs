@@ -2,7 +2,7 @@ use crate::safe_add_balance_apply;
 
 use crate::config::{
     safe_add_balance, safe_add_gas, safe_gas_to_balance, total_deposit, total_prepaid_exec_fees,
-    total_prepaid_gas,
+    total_prepaid_gas, total_prepaid_send_fees,
 };
 use crate::{ApplyStats, DelayedReceiptIndices, ValidatorAccountsUpdate};
 use near_primitives::errors::{
@@ -15,6 +15,7 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::version::ProtocolVersion;
 use near_store::{get, get_account, get_postponed_receipt, TrieAccess, TrieUpdate};
+use near_vm_logic::ActionCosts;
 use std::collections::HashSet;
 
 /// Returns delayed receipts with given range of indices.
@@ -45,7 +46,7 @@ fn receipt_cost(
             let mut total_cost = total_deposit(&action_receipt.actions)?;
             if !AccountId::is_system(&receipt.predecessor_id) {
                 let mut total_gas = safe_add_gas(
-                    transaction_costs.action_receipt_creation_config.exec_fee(),
+                    transaction_costs.fee(ActionCosts::new_action_receipt).exec_fee(),
                     total_prepaid_exec_fees(
                         transaction_costs,
                         &action_receipt.actions,
@@ -54,6 +55,14 @@ fn receipt_cost(
                     )?,
                 )?;
                 total_gas = safe_add_gas(total_gas, total_prepaid_gas(&action_receipt.actions)?)?;
+                total_gas = safe_add_gas(
+                    total_gas,
+                    total_prepaid_send_fees(
+                        transaction_costs,
+                        &action_receipt.actions,
+                        current_protocol_version,
+                    )?,
+                )?;
                 let total_gas_cost = safe_gas_to_balance(action_receipt.gas_price, total_gas)?;
                 total_cost = safe_add_balance(total_cost, total_gas_cost)?;
             }
@@ -98,7 +107,7 @@ fn total_postponed_receipts_cost(
 ) -> Result<Balance, RuntimeError> {
     receipt_ids.iter().try_fold(0, |total, item| {
         let (account_id, receipt_id) = item;
-        let cost = match get_postponed_receipt(state, account_id, receipt_id.clone())? {
+        let cost = match get_postponed_receipt(state, account_id, *receipt_id)? {
             None => return Ok(total),
             Some(receipt) => receipt_cost(transaction_costs, current_protocol_version, &receipt)?,
         };
@@ -384,10 +393,10 @@ mod tests {
         let deposit = 500_000_000;
         let gas_price = 100;
         let cfg = RuntimeFeesConfig::test();
-        let exec_gas = cfg.action_receipt_creation_config.exec_fee()
-            + cfg.action_creation_config.transfer_cost.exec_fee();
-        let send_gas = cfg.action_receipt_creation_config.send_fee(false)
-            + cfg.action_creation_config.transfer_cost.send_fee(false);
+        let exec_gas = cfg.fee(ActionCosts::new_action_receipt).exec_fee()
+            + cfg.fee(ActionCosts::transfer).exec_fee();
+        let send_gas = cfg.fee(ActionCosts::new_action_receipt).send_fee(false)
+            + cfg.fee(ActionCosts::transfer).send_fee(false);
         let contract_reward = send_gas as u128 * *cfg.burnt_gas_reward.numer() as u128 * gas_price
             / (*cfg.burnt_gas_reward.denom() as u128);
         let total_validator_reward = send_gas as Balance * gas_price - contract_reward;

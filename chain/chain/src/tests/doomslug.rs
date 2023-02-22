@@ -1,3 +1,4 @@
+use near_primitives::test_utils::create_test_signer;
 use near_primitives::time::Clock;
 use rand::{thread_rng, Rng};
 use std::collections::{HashMap, HashSet};
@@ -9,7 +10,6 @@ use near_crypto::{KeyType, SecretKey};
 use near_primitives::block::Approval;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{ApprovalStake, BlockHeight};
-use near_primitives::validator_signer::InMemoryValidatorSigner;
 
 fn block_hash(height: BlockHeight, ord: usize) -> CryptoHash {
     hash(([height.to_le_bytes(), ord.to_le_bytes()].concat()).as_ref())
@@ -48,13 +48,7 @@ fn one_iter(
         .collect::<Vec<_>>();
     let signers = account_ids
         .iter()
-        .map(|account_id| {
-            Arc::new(InMemoryValidatorSigner::from_seed(
-                account_id.parse().unwrap(),
-                KeyType::ED25519,
-                account_id,
-            ))
-        })
+        .map(|account_id| Arc::new(create_test_signer(account_id)))
         .collect::<Vec<_>>();
     let mut doomslugs = signers
         .iter()
@@ -228,7 +222,7 @@ fn one_iter(
 
                         if is_final && target_height != 2 {
                             blocks_with_finality.push((
-                                hash_to_prev_hash.get(&parent_hash).unwrap().clone(),
+                                *hash_to_prev_hash.get(&parent_hash).unwrap(),
                                 target_height - 2,
                             ));
                         }
@@ -280,7 +274,7 @@ fn one_iter(
     // doomslug final blocks
     for (block_hash, (block_height, _, _)) in hash_to_block_info.iter() {
         let mut seen_hashes = HashSet::new();
-        let mut block_hash = block_hash.clone();
+        let mut block_hash = *block_hash;
         seen_hashes.insert(block_hash);
 
         loop {

@@ -1,0 +1,126 @@
+.latest-blocks-view {
+    padding: 10px;
+
+    .height-controller {
+        margin-bottom: 10px;
+
+        .prompt {
+            font-weight: bold;
+            margin-right: 20px;
+        }
+    }
+
+    .explanation {
+        color: gray;
+    }
+
+    .missed-blocks,
+    .missed-chunks {
+        margin-top: 10px;
+        margin-bottom: 10px;
+    }
+
+    button {
+        margin-right: 8px;
+    }
+
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 10px;
+    }
+
+    table,
+    th,
+    td {
+        border: 1px solid black;
+    }
+
+    td {
+        text-align: left;
+        padding: 8px;
+        vertical-align: middle;
+    }
+
+    .graph-node-cell {
+        border: none;
+        text-align: center;
+    }
+
+    th {
+        text-align: center;
+        vertical-align: middle;
+        padding: 8px;
+        background-color: lightgrey;
+    }
+
+    .skipped-chunk {
+        background-color: lightgray;
+    }
+
+    .hash-element {
+        font-family: monospace;
+        cursor: pointer;
+    }
+
+    .validator-unavailable {
+        color: red;
+    }
+
+    .error {
+        color: red;
+        white-space: pre;
+    }
+
+    .not-on-canonical-chain {
+        color: gray;
+    }
+
+    .missed-height {
+        color: gray;
+    }
+
+    .hidden {
+        display: none;
+    }
+
+    .graph-dot {
+        width: 12px;
+        height: 12px;
+        background-color: black;
+        border-radius: 100%;
+        display: inline-block;
+    }
+
+    .graph-dot-col-1 {
+        margin-left: 24px;
+    }
+
+    .graph-dot-col-0.graph-dot-total-2 {
+        margin-right: 24px;
+    }
+
+    .not-on-canonical-chain .graph-dot {
+        background-color: gray;
+    }
+
+    .head-label,
+    .header-head-label {
+        font-size: 10px;
+        font-family: Arial, Helvetica, sans-serif;
+        font-weight: bold;
+        color: white;
+        border-radius: 4px;
+        text-align: center;
+        padding: 4px;
+        margin-top: 2px;
+    }
+
+    .head-label {
+        background-color: rgb(76, 208, 0);
+    }
+
+    .header-head-label {
+        background-color: rgb(235, 215, 0);
+    }
+}

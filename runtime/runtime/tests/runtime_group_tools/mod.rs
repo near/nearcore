@@ -12,6 +12,7 @@ use near_primitives::types::{AccountId, AccountInfo, Balance};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_tries;
 use near_store::ShardTries;
+use near_vm_logic::ActionCosts;
 use node_runtime::{ApplyState, Runtime};
 use random_config::random_config;
 use std::collections::{HashMap, HashSet};
@@ -53,9 +54,9 @@ impl StandaloneRuntime {
         let mut runtime_config = random_config();
         // Bumping costs to avoid inflation overflows.
         runtime_config.wasm_config.limit_config.max_total_prepaid_gas = 10u64.pow(15);
-        runtime_config.transaction_costs.action_receipt_creation_config.execution =
+        runtime_config.fees.action_fees[ActionCosts::new_action_receipt].execution =
             runtime_config.wasm_config.limit_config.max_total_prepaid_gas / 64;
-        runtime_config.transaction_costs.data_receipt_creation_config.base_cost.execution =
+        runtime_config.fees.action_fees[ActionCosts::new_data_receipt_base].execution =
             runtime_config.wasm_config.limit_config.max_total_prepaid_gas / 64;
 
         let runtime = Runtime::new();
@@ -63,10 +64,12 @@ impl StandaloneRuntime {
             GenesisConfig {
                 validators,
                 total_supply: get_initial_supply(state_records),
+                epoch_length: 60,
                 ..Default::default()
             },
             GenesisRecords(state_records.to_vec()),
-        );
+        )
+        .unwrap();
 
         let mut account_ids: HashSet<AccountId> = HashSet::new();
         genesis.for_each_record(|record: &StateRecord| {
@@ -117,7 +120,7 @@ impl StandaloneRuntime {
         let apply_result = self
             .runtime
             .apply(
-                self.tries.get_trie_for_shard(ShardUId::single_shard(), self.root.clone()),
+                self.tries.get_trie_for_shard(ShardUId::single_shard(), self.root),
                 &None,
                 &self.apply_state,
                 receipts,
@@ -147,7 +150,7 @@ pub struct RuntimeMailbox {
 }
 
 impl RuntimeMailbox {
-    pub fn is_emtpy(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.incoming_receipts.is_empty() && self.incoming_transactions.is_empty()
     }
 }
@@ -272,10 +275,10 @@ impl RuntimeGroup {
 
                 let mut mailboxes = group.mailboxes.0.lock().unwrap();
                 loop {
-                    if !mailboxes.get(&account_id).unwrap().is_emtpy() {
+                    if !mailboxes.get(&account_id).unwrap().is_empty() {
                         break;
                     }
-                    if mailboxes.values().all(|m| m.is_emtpy()) {
+                    if mailboxes.values().all(|m| m.is_empty()) {
                         return;
                     }
                     mailboxes = group.mailboxes.1.wait(mailboxes).unwrap();

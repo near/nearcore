@@ -1,10 +1,9 @@
-use crate::{DBCol, NodeStorage, Temperature};
-
 /// Database version type.
 pub type DbVersion = u32;
 
 /// Current version of the database.
-pub const DB_VERSION: DbVersion = 34;
+pub const DB_VERSION: DbVersion =
+    if cfg!(feature = "protocol_feature_flat_state") { 35 } else { 34 };
 
 /// Database version at which point DbKind was introduced.
 const DB_VERSION_WITH_KIND: DbVersion = 34;
@@ -35,26 +34,12 @@ pub enum DbKind {
     /// The database is an archive database meaning that it is not garbage
     /// collected and stores all chain data.
     Archive,
-}
-
-pub(super) fn set_store_version(storage: &NodeStorage, version: DbVersion) -> std::io::Result<()> {
-    set_store_metadata(storage, DbMetadata { version, kind: None })
-}
-
-pub(super) fn set_store_metadata(
-    storage: &NodeStorage,
-    metadata: DbMetadata,
-) -> std::io::Result<()> {
-    let version = metadata.version.to_string().into_bytes();
-    let kind = metadata.kind.map(|kind| <&str>::from(kind).as_bytes());
-    let mut store_update = storage.get_store(Temperature::Hot).store_update();
-    store_update.set(DBCol::DbVersion, VERSION_KEY, &version);
-    if metadata.version >= DB_VERSION_WITH_KIND {
-        if let Some(kind) = kind {
-            store_update.set(DBCol::DbVersion, KIND_KEY, kind);
-        }
-    }
-    store_update.commit()
+    /// The database is Hot meaning that the node runs in archival mode with
+    /// a paired Cold database.
+    Hot,
+    /// The database is Cold meaning that the node runs in archival mode with
+    /// a paired Hot database.
+    Cold,
 }
 
 /// Metadata about a database.
@@ -71,7 +56,8 @@ pub(super) struct DbMetadata {
 }
 
 impl DbMetadata {
-    /// Reads metadata from the database.
+    /// Reads metadata from the database. This method enforces the invariant
+    /// that version and kind must alwasy be set.
     ///
     /// If the database version is not present, returns an error.  Similarly, if
     /// database version is ≥ [`DB_VERSION_WITH_KIND`] but the kind is not
@@ -87,18 +73,51 @@ impl DbMetadata {
         };
         Ok(Self { version, kind })
     }
+
+    /// Reads the version from the db. If version is not set returns None. This
+    /// method doesn't enforce the invariant that version must always be set so
+    /// it should only be used when setting the version for the first time.
+    pub(super) fn maybe_read_version(
+        db: &dyn crate::Database,
+    ) -> std::io::Result<Option<DbVersion>> {
+        maybe_read("DbVersion", db, VERSION_KEY)
+    }
+
+    /// Reads the kind from the db. If kind is not set returns None. This method
+    /// doesn't enforce the invariant that kind must always be set so it should
+    /// only be used when setting the kind for the first time.
+    pub(super) fn maybe_read_kind(db: &dyn crate::Database) -> std::io::Result<Option<DbKind>> {
+        maybe_read("DbKind", db, KIND_KEY)
+    }
+}
+
+/// Reads value from DbVersion column and parses it using `FromStr`.
+///
+/// Same as maybe_read but this method returns an error if the value is not set.
+fn read<T: std::str::FromStr>(
+    what: &str,
+    db: &dyn crate::Database,
+    key: &[u8],
+) -> std::io::Result<T> {
+    let msg = "it’s not a neard database or database is corrupted";
+    let result = maybe_read::<T>(what, db, key)?;
+
+    match result {
+        Some(value) => Ok(value),
+        None => Err(other_error(format!("missing {what}; {msg}"))),
+    }
 }
 
 /// Reads value from DbVersion column and parses it using `FromStr`.
 ///
 /// Reads raw bytes for given `key` from [`DBCol::DbVersion`], verifies that
 /// they’re valid UTF-8 and then converts into `T` using `from_str`.  If the
-/// value is missing or parsing fails returns an error.
-fn read<T: std::str::FromStr>(
+/// value is missing or parsing fails returns None.
+fn maybe_read<T: std::str::FromStr>(
     what: &str,
     db: &dyn crate::Database,
     key: &[u8],
-) -> std::io::Result<T> {
+) -> std::io::Result<Option<T>> {
     let msg = "it’s not a neard database or database is corrupted";
     if let Some(bytes) = db.get_raw_bytes(crate::DBCol::DbVersion, key)? {
         let value = std::str::from_utf8(&bytes)
@@ -107,9 +126,9 @@ fn read<T: std::str::FromStr>(
         let value = T::from_str(value)
             .map_err(|_err| format!("invalid {what}: ‘{value}’; {msg}"))
             .map_err(other_error)?;
-        Ok(value)
+        Ok(Some(value))
     } else {
-        Err(other_error(format!("missing {what}; {msg}")))
+        Ok(None)
     }
 }
 

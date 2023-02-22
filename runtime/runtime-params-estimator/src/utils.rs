@@ -46,6 +46,7 @@ pub(crate) fn transaction_cost_ext(
     make_transaction: &mut dyn FnMut(&mut TransactionBuilder) -> SignedTransaction,
     block_latency: usize,
 ) -> (GasCost, HashMap<ExtCosts, u64>) {
+    let verbose = ctx.config.debug;
     let measurement_overhead = overhead_per_measured_block(ctx, block_latency);
 
     let mut testbed = ctx.testbed();
@@ -64,6 +65,20 @@ pub(crate) fn transaction_cost_ext(
     };
 
     let measurements = testbed.measure_blocks(blocks, block_latency);
+    if verbose {
+        // prints individual block measurements (without division by number of
+        // inner items) which helps understanding issue with high variance
+        eprint!("|warmup|");
+        for (gas, _ext) in &measurements[..testbed.config.warmup_iters_per_block] {
+            eprint!(" {gas:>#7.2?}");
+        }
+        eprintln!();
+        eprint!("|proper|");
+        for (gas, _ext) in &measurements[testbed.config.warmup_iters_per_block..] {
+            eprint!(" {gas:>#7.2?}");
+        }
+        eprintln!();
+    }
     let measurements =
         measurements.into_iter().skip(testbed.config.warmup_iters_per_block).collect::<Vec<_>>();
 
@@ -105,7 +120,7 @@ pub(crate) fn fn_cost_count(
     ext_cost: ExtCosts,
     block_latency: usize,
 ) -> (GasCost, u64) {
-    let block_size = 2;
+    let block_size = 20;
     let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
         let sender = tb.random_unused_account();
         tb.transaction_from_function_call(sender, method, Vec::new())
@@ -188,6 +203,25 @@ pub(crate) fn fn_cost_with_setup(
 
         let (gas_cost, ext_costs) =
             aggregate_per_block_measurements(block_size, measurements, Some(overhead));
+
+        // flat storage check: we only expect TTN costs for writes
+        #[cfg(feature = "protocol_feature_flat_state")]
+        // TODO(#7327): This assertion is ignored, we know flat storage doesn't
+        // work for the estimator. Remove cfg once it once it works.
+        #[cfg(ignore)]
+        {
+            let is_write = [ExtCosts::storage_write_base, ExtCosts::storage_remove_base]
+                .iter()
+                .any(|cost| *ext_costs.get(cost).unwrap_or(&0) > 0);
+            if !is_write {
+                assert_eq!(
+                    0,
+                    *ext_costs.get(&ExtCosts::touching_trie_node).unwrap_or(&0),
+                    "flat storage not working"
+                );
+            }
+        }
+
         (gas_cost, ext_costs[&ext_cost])
     };
     assert_eq!(measured_count, count);

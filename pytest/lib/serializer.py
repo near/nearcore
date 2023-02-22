@@ -115,14 +115,21 @@ class BinarySerializer:
         structSchema = self.schema[type(obj)]
         if structSchema['kind'] == 'struct':
             for fieldName, fieldType in structSchema['fields']:
-                self.serialize_field(getattr(obj, fieldName), fieldType)
+                try:
+                    self.serialize_field(getattr(obj, fieldName), fieldType)
+                except AssertionError as exc:
+                    raise AssertionError(f"Error in field {fieldName}") from exc
         elif structSchema['kind'] == 'enum':
             name = getattr(obj, structSchema['field'])
             for idx, (fieldName,
                       fieldType) in enumerate(structSchema['values']):
                 if fieldName == name:
                     self.serialize_num(idx, 1)
-                    self.serialize_field(getattr(obj, fieldName), fieldType)
+                    try:
+                        self.serialize_field(getattr(obj, fieldName), fieldType)
+                    except AssertionError as exc:
+                        raise AssertionError(
+                            f"Error in field {fieldName}") from exc
                     break
             else:
                 assert False, name

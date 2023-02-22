@@ -1,0 +1,118 @@
+.epoch-validators-table {
+    td {
+        vertical-align: middle;
+    }
+
+    .produced-and-expected-bar {
+        display: flex;
+        align-items: center;
+
+        .produced {
+            background-color: green;
+            height: 6px;
+        }
+
+        .missed {
+            background-color: red;
+            height: 6px;
+        }
+
+        .produced-count {
+            color: green;
+            font-size: 12px;
+            margin-right: 4px;
+        }
+
+        .missed-count {
+            color: red;
+            font-size: 12px;
+            margin-left: 4px;
+        }
+    }
+
+    .stake-bar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+
+        .bar {
+            background-color: rgb(14, 14, 188);
+            height: 6px;
+            margin-right: 4px;
+        }
+
+        .text {
+            font-size: 12px;
+        }
+    }
+
+    .kickout-reason {
+        color: red;
+    }
+
+    $current-border: 4px solid #3bda26;
+    $next-border: 3px solid gray;
+
+    th.small-text {
+        font-size: 12px;
+    }
+
+    thead tr:first-child {
+        th {
+            background: none;
+            border: none;
+        }
+
+        th:nth-child(3) {
+            border-left: $current-border;
+            border-top: $current-border;
+            border-right: $current-border;
+        }
+
+        th:nth-child(2) {
+            border-left: $next-border;
+        }
+    }
+
+    thead tr:nth-child(2) th,
+    tbody td {
+        &:nth-child(2) {
+            border-left: $next-border;
+        }
+
+        &:nth-child(2),
+        &:nth-child(3),
+        &:nth-child(4),
+        &:nth-child(5) {
+            opacity: 0.5;
+        }
+
+        &:nth-child(6) {
+            border-left: $current-border;
+        }
+
+        &:nth-child(10) {
+            border-right: $current-border;
+        }
+    }
+
+    thead tr:nth-child(2) th {
+        &:nth-child(6),
+        &:nth-child(7),
+        &:nth-child(8),
+        &:nth-child(9),
+        &:nth-child(10) {
+            background-color: #d6ffd0;
+        }
+    }
+
+    tbody tr:last-child td {
+        &:nth-child(6),
+        &:nth-child(7),
+        &:nth-child(8),
+        &:nth-child(9),
+        &:nth-child(10) {
+            border-bottom: $current-border;
+        }
+    }
+}

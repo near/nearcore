@@ -3,8 +3,6 @@ name = "chainsync-loadtest"
 version = "0.0.0"
 authors.workspace = true
 publish = false
-# Please update rust-toolchain.toml as well when changing version here:
-rust-version.workspace = true
 edition.workspace = true
 default-run = "chainsync-loadtest"
 
@@ -25,6 +23,7 @@ parking_lot.workspace = true
 rand.workspace = true
 tokio.workspace = true
 
+near-async = { path = "../../core/async" }
 near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }

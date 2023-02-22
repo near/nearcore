@@ -2,6 +2,8 @@ use std::io;
 
 use ::rocksdb::checkpoint::Checkpoint;
 
+use crate::Temperature;
+
 /// Representation of a RocksDB checkpoint.
 ///
 /// Serves as kind of RAII type which logs information about the checkpoint when
@@ -71,9 +73,14 @@ impl Snapshot {
     /// error.  (More specifically, if the path already exists since the method
     /// does not make any more sophisticated checks whether the path contains
     /// a snapshot or not).
+    ///
+    /// `temp` specifies whether the database is cold or hot which affects
+    /// whether refcount merge operator is configured on reference counted
+    /// column.
     pub fn new(
         db_path: &std::path::Path,
         config: &crate::StoreConfig,
+        temp: Temperature,
     ) -> Result<Self, SnapshotError> {
         let snapshot_path = match config.migration_snapshot.get_path(db_path) {
             Some(snapshot_path) => snapshot_path,
@@ -86,7 +93,7 @@ impl Snapshot {
             return Err(SnapshotError::AlreadyExists(snapshot_path));
         }
 
-        let db = super::RocksDB::open(db_path, config, crate::Mode::ReadWriteExisting)?;
+        let db = super::RocksDB::open(db_path, config, crate::Mode::ReadWriteExisting, temp)?;
         let cp = Checkpoint::new(&db.db).map_err(super::into_other)?;
         cp.create_checkpoint(&snapshot_path)?;
 
@@ -131,7 +138,7 @@ fn test_snapshot_creation() {
     use assert_matches::assert_matches;
 
     let (_tmpdir, opener) = crate::NodeStorage::test_opener();
-    let new = || Snapshot::new(&opener.path(), &opener.config());
+    let new = || Snapshot::new(&opener.path(), &opener.config(), Temperature::Hot);
 
     // Creating snapshot fails if database doesn’t exist.
     let err = format!("{:?}", new().unwrap_err());
@@ -173,7 +180,7 @@ fn test_snapshot_recovery() {
     }
 
     // Create snapshot
-    let snapshot = Snapshot::new(&opener.path(), &opener.config()).unwrap();
+    let snapshot = Snapshot::new(&opener.path(), &opener.config(), Temperature::Hot).unwrap();
     let path = snapshot.0.clone().unwrap();
 
     // Delete the data from the database.
@@ -190,7 +197,7 @@ fn test_snapshot_recovery() {
     {
         let mut config = opener.config().clone();
         config.path = Some(path);
-        let opener = crate::NodeStorage::opener(tmpdir.path(), &config);
+        let opener = crate::NodeStorage::opener(tmpdir.path(), false, &config, None);
         let store = opener.open().unwrap().get_store(crate::Temperature::Hot);
         assert_eq!(Some(&b"value"[..]), store.get(COL, KEY).unwrap().as_deref());
     }

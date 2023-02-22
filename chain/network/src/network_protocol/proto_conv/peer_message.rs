@@ -3,7 +3,7 @@ use super::*;
 
 use crate::network_protocol::proto;
 use crate::network_protocol::proto::peer_message::Message_type as ProtoMT;
-use crate::network_protocol::{PeerMessage, RoutingTableUpdate, SyncAccountsData};
+use crate::network_protocol::{Disconnect, PeerMessage, RoutingTableUpdate, SyncAccountsData};
 use crate::network_protocol::{RoutedMessage, RoutedMessageV2};
 use crate::time::error::ComponentRange;
 use borsh::{BorshDeserialize as _, BorshSerialize as _};
@@ -81,7 +81,8 @@ impl From<&PeerMessage> for proto::PeerMessage {
     fn from(x: &PeerMessage) -> Self {
         Self {
             message_type: Some(match x {
-                PeerMessage::Handshake(h) => ProtoMT::Handshake(h.into()),
+                PeerMessage::Tier1Handshake(h) => ProtoMT::Tier1Handshake(h.into()),
+                PeerMessage::Tier2Handshake(h) => ProtoMT::Tier2Handshake(h.into()),
                 PeerMessage::HandshakeFailure(pi, hfr) => {
                     ProtoMT::HandshakeFailure((pi, hfr).into())
                 }
@@ -93,12 +94,6 @@ impl From<&PeerMessage> for proto::PeerMessage {
                 PeerMessage::RequestUpdateNonce(pei) => {
                     ProtoMT::UpdateNonceRequest(proto::UpdateNonceRequest {
                         partial_edge_info: MF::some(pei.into()),
-                        ..Default::default()
-                    })
-                }
-                PeerMessage::ResponseUpdateNonce(e) => {
-                    ProtoMT::UpdateNonceResponse(proto::UpdateNonceResponse {
-                        edge: MF::some(e.into()),
                         ..Default::default()
                     })
                 }
@@ -146,9 +141,13 @@ impl From<&PeerMessage> for proto::PeerMessage {
                 PeerMessage::Routed(r) => ProtoMT::Routed(proto::RoutedMessage {
                     borsh: r.msg.try_to_vec().unwrap(),
                     created_at: MF::from_option(r.created_at.as_ref().map(utc_to_proto)),
+                    num_hops: r.num_hops,
                     ..Default::default()
                 }),
-                PeerMessage::Disconnect => ProtoMT::Disconnect(proto::Disconnect::new()),
+                PeerMessage::Disconnect(r) => ProtoMT::Disconnect(proto::Disconnect {
+                    remove_from_connection_store: r.remove_from_connection_store,
+                    ..Default::default()
+                }),
                 PeerMessage::Challenge(r) => ProtoMT::Challenge(proto::Challenge {
                     borsh: r.try_to_vec().unwrap(),
                     ..Default::default()
@@ -205,8 +204,11 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
     type Error = ParsePeerMessageError;
     fn try_from(x: &proto::PeerMessage) -> Result<Self, Self::Error> {
         Ok(match x.message_type.as_ref().ok_or(Self::Error::Empty)? {
-            ProtoMT::Handshake(h) => {
-                PeerMessage::Handshake(h.try_into().map_err(Self::Error::Handshake)?)
+            ProtoMT::Tier1Handshake(h) => {
+                PeerMessage::Tier1Handshake(h.try_into().map_err(Self::Error::Handshake)?)
+            }
+            ProtoMT::Tier2Handshake(h) => {
+                PeerMessage::Tier2Handshake(h.try_into().map_err(Self::Error::Handshake)?)
             }
             ProtoMT::HandshakeFailure(hf) => {
                 let (pi, hfr) = hf.try_into().map_err(Self::Error::HandshakeFailure)?;
@@ -222,9 +224,14 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
                 try_from_required(&unr.partial_edge_info)
                     .map_err(Self::Error::UpdateNonceRequest)?,
             ),
-            ProtoMT::UpdateNonceResponse(unr) => PeerMessage::ResponseUpdateNonce(
-                try_from_required(&unr.edge).map_err(Self::Error::UpdateNonceResponse)?,
-            ),
+            ProtoMT::UpdateNonceResponse(unr) => {
+                PeerMessage::SyncRoutingTable(RoutingTableUpdate {
+                    edges: vec![
+                        try_from_required(&unr.edge).map_err(Self::Error::UpdateNonceResponse)?
+                    ],
+                    accounts: vec![],
+                })
+            }
             ProtoMT::SyncAccountsData(msg) => PeerMessage::SyncAccountsData(SyncAccountsData {
                 accounts_data: try_from_slice(&msg.accounts_data)
                     .map_err(Self::Error::SyncAccountsData)?
@@ -261,8 +268,11 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
                     .map(utc_from_proto)
                     .transpose()
                     .map_err(Self::Error::RoutedCreatedAtTimestamp)?,
+                num_hops: r.num_hops,
             })),
-            ProtoMT::Disconnect(_) => PeerMessage::Disconnect,
+            ProtoMT::Disconnect(d) => PeerMessage::Disconnect(Disconnect {
+                remove_from_connection_store: d.remove_from_connection_store,
+            }),
             ProtoMT::Challenge(c) => PeerMessage::Challenge(
                 Challenge::try_from_slice(&c.borsh).map_err(Self::Error::Challenge)?,
             ),

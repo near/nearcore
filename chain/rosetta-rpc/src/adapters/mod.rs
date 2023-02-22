@@ -419,6 +419,8 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                     );
                     operations.push(deploy_contract_operation);
                 }
+                // TODO(#8469): Implement delegate action support, for now they are ignored.
+                near_primitives::transaction::Action::Delegate(_) => (),
             }
         }
         operations
@@ -694,12 +696,14 @@ mod tests {
     use actix::System;
     use near_actix_test_utils::run_actix;
     use near_client::test_utils::setup_no_network;
+    use near_primitives::runtime::config::RuntimeConfig;
+    use near_primitives::views::RuntimeConfigView;
 
     #[test]
     fn test_convert_block_changes_to_transactions() {
         run_actix(async {
-            let runtime_config = near_primitives::runtime::config::RuntimeConfig::test();
-            let (_client, view_client) = setup_no_network(
+            let runtime_config: RuntimeConfigView = RuntimeConfig::test().into();
+            let actor_handles = setup_no_network(
                 vec!["test".parse().unwrap()],
                 "other".parse().unwrap(),
                 true,
@@ -789,7 +793,7 @@ mod tests {
                 },
             );
             let transactions = super::transactions::convert_block_changes_to_transactions(
-                &view_client,
+                &actor_handles.view_client_actor,
                 &runtime_config,
                 &block_hash,
                 accounts_changes,

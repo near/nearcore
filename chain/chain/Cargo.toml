@@ -3,18 +3,18 @@ name = "near-chain"
 version = "0.0.0"
 authors.workspace = true
 publish = false
-# Please update rust-toolchain.toml as well when changing version here:
-rust-version.workspace = true
 edition.workspace = true
 
 [dependencies]
 actix.workspace = true
 ansi_term.workspace = true
+assert_matches.workspace = true
 borsh.workspace = true
 chrono.workspace = true
 crossbeam-channel.workspace = true
 enum-map.workspace = true
 itertools.workspace = true
+itoa.workspace = true
 lru.workspace = true
 num-rational.workspace = true
 once_cell.workspace = true
@@ -51,15 +51,14 @@ no_cache = ["near-store/no_cache"]
 protocol_feature_flat_state = ["near-store/protocol_feature_flat_state"]
 protocol_feature_reject_blocks_with_outdated_protocol_version = ["near-primitives/protocol_feature_reject_blocks_with_outdated_protocol_version"]
 
-shardnet = ["protocol_feature_reject_blocks_with_outdated_protocol_version"]
-
 nightly = [
   "nightly_protocol",
 ]
 nightly_protocol = [
   "near-store/nightly_protocol",
   "near-primitives/nightly_protocol",
-  "protocol_feature_reject_blocks_with_outdated_protocol_version"
+  "protocol_feature_reject_blocks_with_outdated_protocol_version",
+  "protocol_feature_flat_state",
 ]
 mock_node = []
 sandbox = ["near-primitives/sandbox"]

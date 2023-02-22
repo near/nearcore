@@ -1,17 +1,19 @@
 //! Provides functions for setting up a mock network from configs and home dirs.
 
 use crate::{MockNetworkConfig, MockPeerManagerActor};
-use actix::{Actor, Addr, Arbiter, Recipient};
+use actix::{Actor, Addr, Arbiter};
 use anyhow::Context;
+use near_async::actix::AddrWithAutoSpanContextExt;
+use near_async::messaging::{IntoSender, LateBoundSender, Sender};
+use near_chain::types::RuntimeAdapter;
 use near_chain::ChainStoreUpdate;
-use near_chain::{
-    Chain, ChainGenesis, ChainStore, ChainStoreAccess, DoomslugThresholdMode, RuntimeAdapter,
-};
+use near_chain::{Chain, ChainGenesis, ChainStore, ChainStoreAccess, DoomslugThresholdMode};
 use near_chain_configs::GenesisConfig;
+use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
-use near_network::types::{NetworkClientMessages, NetworkRecipient};
-use near_o11y::WithSpanContext;
+use near_network::shards_manager::ShardsManagerRequestFromNetwork;
+
 use near_primitives::state_part::PartId;
 use near_primitives::syncing::get_num_state_parts;
 use near_primitives::types::BlockHeight;
@@ -33,7 +35,7 @@ fn setup_runtime(
     let store = if in_memory_storage {
         create_test_store()
     } else {
-        near_store::NodeStorage::opener(home_dir, &config.config.store)
+        near_store::NodeStorage::opener(home_dir, config.config.archive, &config.config.store, None)
             .open()
             .unwrap()
             .get_store(near_store::Temperature::Hot)
@@ -44,7 +46,8 @@ fn setup_runtime(
 
 fn setup_mock_peer_manager_actor(
     chain: Chain,
-    client_addr: Recipient<WithSpanContext<NetworkClientMessages>>,
+    client: Arc<dyn near_network::client::Client>,
+    shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
     genesis_config: &GenesisConfig,
     block_production_delay: Duration,
     client_start_height: BlockHeight,
@@ -58,7 +61,8 @@ fn setup_mock_peer_manager_actor(
         Some(it) => it,
     };
     MockPeerManagerActor::new(
-        client_addr,
+        client,
+        shards_manager_adapter,
         genesis_config,
         chain,
         client_start_height,
@@ -112,7 +116,8 @@ pub fn setup_mock_node(
     let chain_genesis = ChainGenesis::new(&config.genesis);
 
     let node_id = config.network_config.node_id();
-    let network_adapter = Arc::new(NetworkRecipient::default());
+    let network_adapter = Arc::new(LateBoundSender::default());
+    let shards_manager_adapter = Arc::new(LateBoundSender::default());
     let adv = near_client::adversarial::Controls::default();
 
     // set up client dir to be ready to process blocks from client_start_height
@@ -121,12 +126,12 @@ pub fn setup_mock_node(
         let mut chain_store = ChainStore::new(
             client_runtime.store().clone(),
             config.genesis.config.genesis_height,
-            !config.client_config.archive,
+            config.client_config.save_trie_changes,
         );
         let mut network_chain_store = ChainStore::new(
             mock_network_runtime.store().clone(),
             config.genesis.config.genesis_height,
-            !config.client_config.archive,
+            config.client_config.save_trie_changes,
         );
 
         let network_tail_height = network_chain_store.tail().unwrap();
@@ -242,33 +247,45 @@ pub fn setup_mock_node(
         chain_genesis.clone(),
         client_runtime.clone(),
         node_id,
-        network_adapter.clone(),
+        network_adapter.clone().into(),
+        shards_manager_adapter.as_sender(),
         config.validator_signer.clone(),
         telemetry,
         None,
         adv.clone(),
+        None,
     );
 
     let view_client = start_view_client(
         None,
         chain_genesis.clone(),
-        client_runtime,
-        network_adapter.clone(),
+        client_runtime.clone(),
+        network_adapter.clone().into(),
         config.client_config.clone(),
         adv,
     );
 
+    let (shards_manager_actor, _) = start_shards_manager(
+        client_runtime.clone(),
+        network_adapter.as_sender(),
+        client.clone().with_auto_span_context().into_sender(),
+        config.validator_signer.map(|signer| signer.validator_id().clone()),
+        client_runtime.store().clone(),
+        config.client_config.chunk_request_retry_period,
+    );
+    shards_manager_adapter.bind(shards_manager_actor);
+
     let arbiter = Arbiter::new();
     let client1 = client.clone();
+    let view_client1 = view_client.clone();
     let genesis_config = config.genesis.config.clone();
-    let archival = config.client_config.archive;
     let network_config = network_config.clone();
 
     let chain = Chain::new_for_view_client(
         mock_network_runtime,
         &chain_genesis,
         DoomslugThresholdMode::NoApprovals,
-        !archival,
+        config.client_config.save_trie_changes,
     )
     .unwrap();
     let chain_height = chain.head().unwrap().height;
@@ -278,7 +295,8 @@ pub fn setup_mock_node(
         MockPeerManagerActor::start_in_arbiter(&arbiter.handle(), move |_ctx| {
             setup_mock_peer_manager_actor(
                 chain,
-                client1.recipient(),
+                Arc::new(near_client::adapter::Adapter::new(client1, view_client1)),
+                shards_manager_adapter.as_sender(),
                 &genesis_config,
                 block_production_delay,
                 client_start_height,
@@ -287,7 +305,7 @@ pub fn setup_mock_node(
                 target_height,
             )
         });
-    network_adapter.set_recipient(mock_network_actor);
+    network_adapter.bind(mock_network_actor.with_auto_span_context());
 
     let servers = config.rpc_config.map(|rpc_config| {
         near_jsonrpc::start_http(
@@ -310,10 +328,10 @@ mod tests {
     use futures::{future, FutureExt};
     use near_actix_test_utils::{run_actix, spawn_interruptible};
     use near_chain_configs::Genesis;
-    use near_client::GetBlock;
+    use near_client::{GetBlock, ProcessTxRequest};
     use near_crypto::{InMemorySigner, KeyType};
-    use near_network::test_utils::{open_port, WaitOrTimeoutActor};
-    use near_network::types::NetworkClientMessages;
+    use near_network::tcp;
+    use near_network::test_utils::WaitOrTimeoutActor;
     use near_o11y::testonly::init_integration_logger;
     use near_o11y::WithSpanContextExt;
     use near_primitives::hash::CryptoHash;
@@ -339,7 +357,8 @@ mod tests {
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = 10;
-        let mut near_config = load_test_config("test0", open_port(), genesis.clone());
+        let mut near_config =
+            load_test_config("test0", tcp::ListenerAddr::reserve_for_test(), genesis.clone());
         near_config.client_config.min_num_peers = 0;
 
         let dir = tempfile::Builder::new().prefix("test0").tempdir().unwrap();
@@ -384,7 +403,7 @@ mod tests {
                                         spawn_interruptible(
                                             client1
                                                 .send(
-                                                    NetworkClientMessages::Transaction {
+                                                    ProcessTxRequest {
                                                         transaction,
                                                         is_forwarded: false,
                                                         check_only: false,
@@ -419,7 +438,7 @@ mod tests {
         // start the mock network to simulate a new node "test1" to sync up
         // start the client at height 10 (end of the first epoch)
         let dir1 = tempfile::Builder::new().prefix("test1").tempdir().unwrap();
-        let mut near_config1 = load_test_config("", open_port(), genesis);
+        let mut near_config1 = load_test_config("", tcp::ListenerAddr::reserve_for_test(), genesis);
         near_config1.client_config.min_num_peers = 1;
         near_config1.client_config.tracked_shards =
             (0..near_config1.genesis.config.shard_layout.num_shards()).collect();

@@ -1,17 +1,11 @@
-use once_cell::sync::OnceCell;
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
-
 use actix::Message;
 use chrono::DateTime;
-use near_primitives::time::Utc;
-
-use near_chain_configs::ProtocolConfigView;
+use near_chain_configs::{ClientConfig, ProtocolConfigView};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::network::PeerId;
 use near_primitives::sharding::ChunkHash;
+use near_primitives::time::Utc;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockReference, EpochId, EpochReference, MaybeBlockId, ShardId,
     TransactionOrReceiptId,
@@ -20,11 +14,15 @@ use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, DownloadStatusView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
     FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockLiteView, LightClientBlockView,
-    QueryRequest, QueryResponse, ReceiptView, ShardSyncDownloadView, StateChangesKindsView,
-    StateChangesRequestView, StateChangesView, SyncStatusView,
+    MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView, ShardSyncDownloadView,
+    SplitStorageInfoView, StateChangesKindsView, StateChangesRequestView, StateChangesView,
+    SyncStatusView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
-use serde::Serialize;
+use once_cell::sync::OnceCell;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
 
 /// Combines errors coming from chain, tx pool and block producer.
 #[derive(Debug, thiserror::Error)]
@@ -41,14 +39,14 @@ pub enum Error {
     Other(String),
 }
 
-#[derive(Clone, Debug, serde::Serialize)]
+#[derive(Clone, Debug, serde::Serialize, PartialEq)]
 pub enum AccountOrPeerIdOrHash {
     AccountId(AccountId),
     PeerId(PeerId),
     Hash(CryptoHash),
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, serde::Serialize)]
 pub struct DownloadStatus {
     pub start_time: DateTime<Utc>,
     pub prev_update_time: DateTime<Utc>,
@@ -150,12 +148,35 @@ impl StateSplitApplyingStatus {
     }
 }
 
+/// Stores status of shard sync and statuses of downloading shards.
 #[derive(Clone, Debug)]
 pub struct ShardSyncDownload {
+    /// Stores all download statuses. If we are downloading state parts, its length equals the number of state parts.
+    /// Otherwise it is 1, since we have only one piece of data to download, like shard state header.
     pub downloads: Vec<DownloadStatus>,
     pub status: ShardSyncStatus,
 }
 
+impl ShardSyncDownload {
+    /// Creates a instance of self which includes initial statuses for shard sync and download at the given time.
+    pub fn new(now: DateTime<Utc>) -> Self {
+        Self {
+            downloads: vec![
+                DownloadStatus {
+                    start_time: now,
+                    prev_update_time: now,
+                    run_me: Arc::new(AtomicBool::new(true)),
+                    error: false,
+                    done: false,
+                    state_requests_count: 0,
+                    last_target: None,
+                };
+                1
+            ],
+            status: ShardSyncStatus::StateDownloadHeader,
+        }
+    }
+}
 /// Various status sync can be in, whether it's fast sync or archival.
 #[derive(Clone, Debug, strum::AsRefStr)]
 pub enum SyncStatus {
@@ -598,6 +619,12 @@ pub enum TxStatusError {
     TimeoutError,
 }
 
+impl From<near_chain_primitives::Error> for TxStatusError {
+    fn from(error: near_chain_primitives::Error) -> Self {
+        Self::ChainError(error)
+    }
+}
+
 impl Message for TxStatus {
     type Result = Result<Option<FinalExecutionOutcomeViewEnum>, TxStatusError>;
 }
@@ -883,6 +910,91 @@ impl From<near_chain_primitives::Error> for GetProtocolConfigError {
             near_chain_primitives::Error::DBNotFoundErr(s) => Self::UnknownBlock(s),
             _ => Self::Unreachable(error.to_string()),
         }
+    }
+}
+
+pub struct GetMaintenanceWindows {
+    pub account_id: AccountId,
+}
+
+impl Message for GetMaintenanceWindows {
+    type Result = Result<MaintenanceWindowsView, GetMaintenanceWindowsError>;
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum GetMaintenanceWindowsError {
+    #[error("IO Error: {0}")]
+    IOError(String),
+    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {0}")]
+    Unreachable(String),
+}
+
+impl From<near_chain_primitives::Error> for GetMaintenanceWindowsError {
+    fn from(error: near_chain_primitives::Error) -> Self {
+        match error {
+            near_chain_primitives::Error::IOErr(error) => Self::IOError(error.to_string()),
+            _ => Self::Unreachable(error.to_string()),
+        }
+    }
+}
+
+pub struct GetClientConfig {}
+
+impl Message for GetClientConfig {
+    type Result = Result<ClientConfig, GetClientConfigError>;
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum GetClientConfigError {
+    #[error("IO Error: {0}")]
+    IOError(String),
+    // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
+    // expected cases, we cannot statically guarantee that no other errors will be returned
+    // in the future.
+    // TODO #3851: Remove this variant once we can exhaustively match all the underlying errors
+    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {0}")]
+    Unreachable(String),
+}
+
+impl From<near_chain_primitives::Error> for GetClientConfigError {
+    fn from(error: near_chain_primitives::Error) -> Self {
+        match error {
+            near_chain_primitives::Error::IOErr(error) => Self::IOError(error.to_string()),
+            _ => Self::Unreachable(error.to_string()),
+        }
+    }
+}
+
+pub struct GetSplitStorageInfo {}
+
+impl Message for GetSplitStorageInfo {
+    type Result = Result<SplitStorageInfoView, GetSplitStorageInfoError>;
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum GetSplitStorageInfoError {
+    #[error("IO Error: {0}")]
+    IOError(String),
+    // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
+    // expected cases, we cannot statically guarantee that no other errors will be returned
+    // in the future.
+    // TODO #3851: Remove this variant once we can exhaustively match all the underlying errors
+    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {0}")]
+    Unreachable(String),
+}
+
+impl From<near_chain_primitives::Error> for GetSplitStorageInfoError {
+    fn from(error: near_chain_primitives::Error) -> Self {
+        match error {
+            near_chain_primitives::Error::IOErr(error) => Self::IOError(error.to_string()),
+            _ => Self::Unreachable(error.to_string()),
+        }
+    }
+}
+
+impl From<std::io::Error> for GetSplitStorageInfoError {
+    fn from(error: std::io::Error) -> Self {
+        Self::IOError(error.to_string())
     }
 }
 

@@ -35,7 +35,9 @@ pub enum DBCol {
     /// - *Rows*: block hash (CryptoHash)
     /// - *Content type*: [near_primitives::block_header::BlockHeader]
     BlockHeader,
-    /// Column that stores mapping from block height to block hash.
+    /// Column that stores mapping from block height to block hash on the current canonical chain.
+    /// (if you want to see all the blocks that we got for a given height, for example due to double signing etc,
+    /// look at BlockPerHeight column).
     /// - *Rows*: height (u64)
     /// - *Content type*: block hash (CryptoHash)
     BlockHeight,
@@ -63,6 +65,11 @@ pub enum DBCol {
     /// - *Rows*: peer_id (PublicKey)
     /// - *Content type*: [network_primitives::types::KnownPeerState]
     Peers,
+    /// List of recent outbound TIER2 connections. We'll attempt to re-establish
+    /// these connections after node restart or upon disconnection.
+    /// - *Rows*: single row (empty row name)
+    /// - *Content type*: Vec of [network_primitives::types::ConnectionInfo]
+    RecentOutboundConnections,
     /// Mapping from EpochId to EpochInfo
     /// - *Rows*: EpochId (CryptoHash)
     /// - *Content type*: [near_primitives::epoch_manager::epoch_info::EpochInfo]
@@ -105,6 +112,8 @@ pub enum DBCol {
     /// - *Content type*: BlockExtra
     BlockExtra,
     /// Store hash of all block per each height, to detect double signs.
+    /// In most cases, it is better to get the value from BlockHeight column instead (which
+    /// keeps the hash of the block from canonical chain)
     /// - *Rows*: int (height of the block)
     /// - *Content type*: Map: EpochId -> Set of BlockHash(CryptoHash)
     BlockPerHeight,
@@ -180,7 +189,12 @@ pub enum DBCol {
     /// - *Rows*: BlockHash || TrieKey (TrieKey is written via custom to_vec)
     /// - *Column type*: TrieKey, new value and reason for change (RawStateChangesWithTrieKey)
     StateChanges,
-    /// Mapping from Block to its refcount. (Refcounts are used in handling chain forks)
+    /// Mapping from Block to its refcount (number of blocks that use this block as a parent). (Refcounts are used in handling chain forks).
+    /// In following example:
+    ///     1 -> 2 -> 3 -> 5
+    ///           \ --> 4
+    /// The block '2' will have a refcount equal to 2.
+    ///
     /// - *Rows*: BlockHash (CryptoHash)
     /// - *Column type*: refcount (u64)
     BlockRefCount,
@@ -197,6 +211,8 @@ pub enum DBCol {
     /// - *Column type*: Vec<ChunkHash (CryptoHash)>
     ChunkHashesByHeight,
     /// Mapping from block ordinal number (number of the block in the chain) to the BlockHash.
+    /// Note: that it can be different than BlockHeight - if we have skipped some heights when creating the blocks.
+    ///       for example in chain 1->3, the second block has height 3, but ordinal 2.
     /// - *Rows*: ordinal (u64)
     /// - *Column type*: BlockHash (CryptoHash)
     BlockOrdinal,
@@ -215,7 +231,9 @@ pub enum DBCol {
     /// - *Rows*: height (u64)
     /// - *Column type*: empty
     ProcessedBlockHeights,
-    /// Mapping from receipt hash to Receipt.
+    /// Mapping from receipt hash to Receipt. Note that this doesn't store _all_
+    /// receipts. Some receipts are ephemeral and get processed after creation
+    /// without getting into the database at all.
     /// - *Rows*: receipt (CryptoHash)
     /// - *Column type*: Receipt
     Receipts,
@@ -250,12 +268,46 @@ pub enum DBCol {
     /// - *Column type*: `FlatStateDelta`
     #[cfg(feature = "protocol_feature_flat_state")]
     FlatStateDeltas,
-    /// Miscellaneous data for flat state. Currently stores flat state head for each shard.
-    /// - *Rows*: shard id
-    /// - *Column type*: block hash (CryptoHash)
+    /// Miscellaneous data for flat state. Stores intermediate flat storage creation statuses and flat
+    /// state heads for each shard.
+    /// - *Rows*: Unique key prefix (e.g. `FLAT_STATE_HEAD_KEY_PREFIX`) + ShardId
+    /// - *Column type*: FetchingStateStatus || flat storage catchup status (bool) || flat storage head (CryptoHash)
     // TODO (#7327): use only during testing, come up with proper format.
     #[cfg(feature = "protocol_feature_flat_state")]
     FlatStateMisc,
+}
+
+/// Defines different logical parts of a db key.
+/// To access a column you can use a concatenation of several key types.
+/// This is needed to define DBCol::key_type.
+/// Update this enum and DBCol::key_type accordingly when creating a new column.
+/// Currently only used in cold storage continuous migration.
+#[derive(PartialEq, Copy, Clone, Debug, Hash, Eq, strum::EnumIter)]
+pub enum DBKeyType {
+    /// Empty row name. Used in DBCol::LastComponentNonce and DBCol::RecentOutboundConnections
+    Empty,
+    /// Set of predetermined strings. Used, for example, in DBCol::BlockMisc
+    StringLiteral,
+    BlockHash,
+    /// Hash of the previous block. Logically different from BlockHash. Used fro DBCol::NextBlockHashes.
+    PreviousBlockHash,
+    BlockHeight,
+    BlockOrdinal,
+    ShardId,
+    ShardUId,
+    ChunkHash,
+    EpochId,
+    Nonce,
+    PeerId,
+    AccountId,
+    TrieNodeOrValueHash,
+    TrieKey,
+    ReceiptHash,
+    TransactionHash,
+    OutcomeId,
+    ContractCacheKey,
+    PartId,
+    ColumnId,
 }
 
 impl DBCol {
@@ -329,6 +381,103 @@ impl DBCol {
                 true
             }
             _ => false,
+        }
+    }
+
+    /// Whether this column should be copied to the cold storage.
+    ///
+    /// This doesn’t include DbVersion and BlockMisc columns which are present
+    /// int cold database but rather than being copied from hot database are
+    /// maintained separately.
+    pub const fn is_cold(&self) -> bool {
+        match self {
+            DBCol::Block
+            | DBCol::BlockExtra
+            | DBCol::BlockInfo
+            | DBCol::ChunkExtra
+            | DBCol::Chunks
+            | DBCol::IncomingReceipts
+            | DBCol::NextBlockHashes
+            | DBCol::OutcomeIds
+            | DBCol::OutgoingReceipts
+            | DBCol::ReceiptIdToShardId
+            | DBCol::Receipts
+            | DBCol::State
+            | DBCol::StateChanges
+            | DBCol::StateChangesForSplitStates
+            | DBCol::StateHeaders
+            | DBCol::TransactionResultForBlock
+            | DBCol::Transactions => true,
+            _ => false,
+        }
+    }
+
+    /// Whether this column exists in cold storage.
+    pub(crate) const fn is_in_colddb(&self) -> bool {
+        matches!(*self, DBCol::DbVersion | DBCol::BlockMisc) || self.is_cold()
+    }
+
+    /// Vector of DBKeyType s concatenation of which results in key for the column.
+    pub fn key_type(&self) -> &'static [DBKeyType] {
+        match self {
+            DBCol::DbVersion => &[DBKeyType::StringLiteral],
+            DBCol::BlockMisc => &[DBKeyType::StringLiteral],
+            DBCol::Block => &[DBKeyType::BlockHash],
+            DBCol::BlockHeader => &[DBKeyType::BlockHash],
+            DBCol::BlockHeight => &[DBKeyType::BlockHeight],
+            DBCol::State => &[DBKeyType::ShardUId, DBKeyType::TrieNodeOrValueHash],
+            DBCol::ChunkExtra => &[DBKeyType::BlockHash, DBKeyType::ShardUId],
+            DBCol::_TransactionResult => &[DBKeyType::OutcomeId],
+            DBCol::OutgoingReceipts => &[DBKeyType::BlockHash, DBKeyType::ShardId],
+            DBCol::IncomingReceipts => &[DBKeyType::BlockHash, DBKeyType::ShardId],
+            DBCol::Peers => &[DBKeyType::PeerId],
+            DBCol::RecentOutboundConnections => &[DBKeyType::Empty],
+            DBCol::EpochInfo => &[DBKeyType::EpochId],
+            DBCol::BlockInfo => &[DBKeyType::BlockHash],
+            DBCol::Chunks => &[DBKeyType::ChunkHash],
+            DBCol::PartialChunks => &[DBKeyType::ChunkHash],
+            DBCol::BlocksToCatchup => &[DBKeyType::BlockHash],
+            DBCol::StateDlInfos => &[DBKeyType::BlockHash],
+            DBCol::ChallengedBlocks => &[DBKeyType::BlockHash],
+            DBCol::StateHeaders => &[DBKeyType::ShardId, DBKeyType::BlockHash],
+            DBCol::InvalidChunks => &[DBKeyType::ChunkHash],
+            DBCol::BlockExtra => &[DBKeyType::BlockHash],
+            DBCol::BlockPerHeight => &[DBKeyType::BlockHeight],
+            DBCol::StateParts => &[DBKeyType::BlockHash, DBKeyType::ShardId, DBKeyType::PartId],
+            DBCol::EpochStart => &[DBKeyType::EpochId],
+            DBCol::AccountAnnouncements => &[DBKeyType::AccountId],
+            DBCol::NextBlockHashes => &[DBKeyType::PreviousBlockHash],
+            DBCol::EpochLightClientBlocks => &[DBKeyType::EpochId],
+            DBCol::ReceiptIdToShardId => &[DBKeyType::ReceiptHash],
+            DBCol::_NextBlockWithNewChunk => &[DBKeyType::BlockHash, DBKeyType::ShardId],
+            DBCol::_LastBlockWithNewChunk => &[DBKeyType::ShardId],
+            DBCol::PeerComponent => &[DBKeyType::PeerId],
+            DBCol::ComponentEdges => &[DBKeyType::Nonce],
+            DBCol::LastComponentNonce => &[DBKeyType::Empty],
+            DBCol::Transactions => &[DBKeyType::TransactionHash],
+            DBCol::_ChunkPerHeightShard => &[DBKeyType::BlockHeight, DBKeyType::ShardId],
+            DBCol::StateChanges => &[DBKeyType::BlockHash, DBKeyType::TrieKey],
+            DBCol::BlockRefCount => &[DBKeyType::BlockHash],
+            DBCol::TrieChanges => &[DBKeyType::BlockHash, DBKeyType::ShardUId],
+            DBCol::BlockMerkleTree => &[DBKeyType::BlockHash],
+            DBCol::ChunkHashesByHeight => &[DBKeyType::BlockHeight],
+            DBCol::BlockOrdinal => &[DBKeyType::BlockOrdinal],
+            DBCol::_GCCount => &[DBKeyType::ColumnId],
+            DBCol::OutcomeIds => &[DBKeyType::BlockHash, DBKeyType::ShardId],
+            DBCol::_TransactionRefCount => &[DBKeyType::TransactionHash],
+            DBCol::ProcessedBlockHeights => &[DBKeyType::BlockHeight],
+            DBCol::Receipts => &[DBKeyType::ReceiptHash],
+            DBCol::CachedContractCode => &[DBKeyType::ContractCacheKey],
+            DBCol::EpochValidatorInfo => &[DBKeyType::EpochId],
+            DBCol::HeaderHashesByHeight => &[DBKeyType::BlockHeight],
+            DBCol::StateChangesForSplitStates => &[DBKeyType::BlockHash, DBKeyType::ShardId],
+            DBCol::TransactionResultForBlock => &[DBKeyType::OutcomeId, DBKeyType::BlockHash],
+            #[cfg(feature = "protocol_feature_flat_state")]
+            DBCol::FlatState => &[DBKeyType::TrieKey],
+            #[cfg(feature = "protocol_feature_flat_state")]
+            DBCol::FlatStateDeltas => &[DBKeyType::ShardId, DBKeyType::BlockHash],
+            #[cfg(feature = "protocol_feature_flat_state")]
+            DBCol::FlatStateMisc => &[DBKeyType::ShardId],
         }
     }
 }

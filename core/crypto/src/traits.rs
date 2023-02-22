@@ -14,15 +14,15 @@ macro_rules! common_conversions {
             }
         }
 
-        impl Into<String> for $ty {
-            fn into(self) -> String {
-                bs58::encode(self).into_string()
+        impl From<$ty> for String {
+            fn from(v: $ty) -> String {
+                bs58::encode(v).into_string()
             }
         }
 
-        impl Into<String> for &$ty {
-            fn into(self) -> String {
-                bs58::encode(self).into_string()
+        impl From<&$ty> for String {
+            fn from(v: &$ty) -> String {
+                bs58::encode(v).into_string()
             }
         }
 
@@ -62,17 +62,6 @@ macro_rules! common_conversions {
 
 macro_rules! common_conversions_fixed {
     ($ty:ty, $l:literal, $bytes:expr, $what:literal) => {
-        impl ::std::convert::TryFrom<&[u8]> for $ty {
-            type Error = ();
-
-            fn try_from(value: &[u8]) -> Result<Self, ()> {
-                match value.len() {
-                    $l => Self::try_from(::arrayref::array_ref!(value, 0, $l)).or(Err(())),
-                    _ => Err(()),
-                }
-            }
-        }
-
         impl AsRef<[u8; $l]> for $ty {
             fn as_ref(&self) -> &[u8; $l] {
                 ::std::convert::identity::<fn(&$ty) -> &[u8; $l]>($bytes)(self)
@@ -85,15 +74,15 @@ macro_rules! common_conversions_fixed {
             }
         }
 
-        impl Into<[u8; $l]> for $ty {
-            fn into(self) -> [u8; $l] {
-                *self.as_ref()
+        impl From<$ty> for [u8; $l] {
+            fn from(v: $ty) -> [u8; $l] {
+                *v.as_ref()
             }
         }
 
-        impl Into<[u8; $l]> for &$ty {
-            fn into(self) -> [u8; $l] {
-                *self.as_ref()
+        impl From<&$ty> for [u8; $l] {
+            fn from(v: &$ty) -> [u8; $l] {
+                *v.as_ref()
             }
         }
 
@@ -127,10 +116,8 @@ macro_rules! eq {
 
 macro_rules! value_type {
     ($vis:vis, $ty:ident, $l:literal, $what:literal) => {
-        #[derive(Copy, Clone)]
+        #[derive(Copy, Clone, Eq, PartialEq, borsh::BorshDeserialize, borsh::BorshSerialize)]
         $vis struct $ty(pub [u8; $l]);
-
-        eq!($ty, |a, b| a.0[..] == b.0[..]);
 
         impl AsMut<[u8; $l]> for $ty {
             fn as_mut(&mut self) -> &mut [u8; $l] {
@@ -147,30 +134,6 @@ macro_rules! value_type {
         impl From<&[u8; $l]> for $ty {
             fn from(value: &[u8; $l]) -> Self {
                 Self(*value)
-            }
-        }
-
-        impl borsh::BorshSerialize for $ty {
-            #[inline]
-            fn serialize<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
-                writer.write_all(&self.0)
-            }
-        }
-
-        impl borsh::BorshDeserialize for $ty {
-            #[inline]
-            fn deserialize(buf: &mut &[u8]) -> Result<Self, std::io::Error> {
-                if buf.len() < $l {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::InvalidInput,
-                        "Unexpected length of input",
-                    ));
-                }
-
-                let mut data = [0u8; $l];
-                data.copy_from_slice(&buf[..$l]);
-                *buf = &buf[$l..];
-                Ok($ty(data))
             }
         }
 

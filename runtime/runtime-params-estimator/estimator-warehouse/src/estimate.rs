@@ -1,11 +1,9 @@
-use clap::Parser;
+use crate::{db::Db, import::ImportConfig};
 use nix::unistd::Uid;
 use xshell::{cmd, Shell};
 
-use crate::{db::Db, import::ImportConfig};
-
 /// Additional information required for estimation.
-#[derive(Debug, Parser)]
+#[derive(Debug, clap::Parser)]
 pub(crate) struct EstimateConfig {
     /// Specify the directory of a different repository, if not estimating the current one.
     #[clap(long)]
@@ -25,7 +23,7 @@ pub(crate) fn run_estimation(db: &Db, config: &EstimateConfig) -> anyhow::Result
     let mut _maybe_tmp = None;
 
     let estimator_home = match &config.home {
-        Some(home) => &home,
+        Some(home) => home,
         None => {
             _maybe_tmp = Some(tempfile::tempdir()?);
             _maybe_tmp.as_ref().unwrap().path().to_str().unwrap()
@@ -65,7 +63,7 @@ pub(crate) fn run_estimation(db: &Db, config: &EstimateConfig) -> anyhow::Result
             maybe_drop_cache.push("--drop-os-cache");
         }
 
-        if maybe_drop_cache.len() == 0 {
+        if maybe_drop_cache.is_empty() {
             eprintln!("Running as non-root, storage related costs might be inaccurate because OS caches cannot be dropped");
         };
 

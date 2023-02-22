@@ -169,7 +169,7 @@ impl TrieViewer {
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<Vec<u8>, errors::CallFunctionError> {
         let now = Instant::now();
-        let root = state_update.get_root().clone();
+        let root = *state_update.get_root();
         let mut account = get_account(&state_update, contract_id)?.ok_or_else(|| {
             errors::CallFunctionError::AccountDoesNotExist {
                 requested_account_id: contract_id.clone(),

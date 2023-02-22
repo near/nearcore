@@ -1,7 +1,3 @@
-pub fn to_base58<T: AsRef<[u8]>>(input: T) -> String {
-    bs58::encode(input).into_string()
-}
-
 pub fn to_base64<T: AsRef<[u8]>>(input: T) -> String {
     base64::encode(&input)
 }
@@ -38,16 +34,14 @@ pub mod base64_format {
     }
 }
 
+#[derive(PartialEq, Eq, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(transparent)]
+pub struct Base64Bytes(#[serde(with = "base64_format")] pub Vec<u8>);
+
 #[test]
 fn test_base64_format() {
-    #[derive(PartialEq, Debug, serde::Deserialize, serde::Serialize)]
-    struct Test {
-        #[serde(with = "base64_format")]
-        field: Vec<u8>,
-    }
-
-    assert_round_trip("{\"field\":\"Zm9v\"}", Test { field: b"foo".to_vec() });
-    assert_de_error::<Test>("{\"field\":null}");
+    assert_round_trip("\"Zm9v\"", Base64Bytes(b"foo".to_vec()));
+    assert_de_error::<Base64Bytes>("null");
 }
 
 pub mod option_base64_format {
@@ -102,6 +96,10 @@ pub mod dec_format {
     use serde::de;
     use serde::{Deserializer, Serializer};
 
+    #[derive(thiserror::Error, Debug)]
+    #[error("cannot parse from unit")]
+    pub struct ParseUnitError;
+
     /// Abstraction between integers that we serialise.
     pub trait DecType: Sized {
         /// Formats number as a decimal string; passes `None` as is.
@@ -109,8 +107,8 @@ pub mod dec_format {
 
         /// Constructs Self from a `null` value.  Returns error if this type
         /// does not accept `null` values.
-        fn try_from_unit() -> Result<Self, ()> {
-            Err(())
+        fn try_from_unit() -> Result<Self, ParseUnitError> {
+            Err(ParseUnitError)
         }
 
         /// Tries to parse decimal string as an integer.
@@ -148,7 +146,7 @@ pub mod dec_format {
         fn serialize(&self) -> Option<String> {
             self.as_ref().and_then(DecType::serialize)
         }
-        fn try_from_unit() -> Result<Self, ()> {
+        fn try_from_unit() -> Result<Self, ParseUnitError> {
             Ok(None)
         }
         fn try_from_str(value: &str) -> Result<Self, std::num::ParseIntError> {
@@ -169,7 +167,7 @@ pub mod dec_format {
         }
 
         fn visit_unit<E: de::Error>(self) -> Result<T, E> {
-            T::try_from_unit().map_err(|()| de::Error::invalid_type(de::Unexpected::Option, &self))
+            T::try_from_unit().map_err(|_| de::Error::invalid_type(de::Unexpected::Option, &self))
         }
 
         fn visit_u64<E: de::Error>(self, value: u64) -> Result<T, E> {
