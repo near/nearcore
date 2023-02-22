@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Prober that is compatible with cloudprober.
-Prober verifies that any block since the genesis can be retrieved from a node.
+Prober verifies that a random block since the genesis can be retrieved from a node.
 Makes 3 separate RPC requests: Get genesis height, get head, get a block.
 If the block contains chunks, then make one more RPC request to get a chunk.
 
