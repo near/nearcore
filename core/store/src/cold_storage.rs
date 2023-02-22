@@ -163,10 +163,6 @@ pub enum CopyAllDataToColdStatus {
 
 /// Copies all contents of all cold columns from `hot_store` to `cold_db`.
 /// Does it column by column, and because columns can be huge, writes in batches of ~`batch_size`.
-/// Returns:
-/// - Ok(`true`) if everything was copied;
-/// - Ok(`false`) if the process was interrupted via `keep_going` flag;
-/// - Err if iteration over hot or writing to cold failed.
 pub fn copy_all_data_to_cold<D: Database + 'static>(
     cold_db: std::sync::Arc<ColdDB<D>>,
     hot_store: &Store,
