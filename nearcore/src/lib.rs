@@ -219,7 +219,7 @@ pub fn start_with_config_and_synchronization(
 
     let cold_store_loop_handle = spawn_cold_store_loop(&config, &store, runtime.clone())?;
 
-    let cold_db_metrics_handle = spawn_cold_db_metrics_loop(&store);
+    let cold_db_metrics_arbiter_handle_option = spawn_cold_db_metrics_loop(&store)?;
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
     let chain_genesis = ChainGenesis::new(&config.genesis);
@@ -316,11 +316,16 @@ pub fn start_with_config_and_synchronization(
 
     tracing::trace!(target: "diagnostic", key = "log", "Starting NEAR node with diagnostic activated");
 
+    let mut arbiters = vec![client_arbiter_handle, shards_manager_arbiter_handle];
+    if let Some(cold_db_metrics_arbiter_handle) = cold_db_metrics_arbiter_handle_option {
+        arbiters.push(cold_db_metrics_arbiter_handle);
+    }
+
     Ok(NearNode {
         client: client_actor,
         view_client,
         rpc_servers,
-        arbiters: vec![client_arbiter_handle, shards_manager_arbiter_handle],
+        arbiters,
         cold_store_loop_handle,
         state_sync_dump_handle,
     })

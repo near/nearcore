@@ -9,11 +9,11 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use tracing::warn;
 
-pub(crate) fn export_stats_as_metrics(stats: StoreStatistics, temperature: Option<near_store::Temperature>) {
+pub fn export_stats_as_metrics(stats: StoreStatistics, temperature: near_store::Temperature) {
     match ROCKSDB_METRICS.lock().unwrap().export_stats_as_metrics(stats, temperature) {
         Ok(_) => {}
         Err(err) => {
-            warn!(target:"stats", "Failed to export store statistics: {:?}",err, %temperature=temp);
+            warn!(target:"stats", "Failed to export {:?} store statistics: {:?}", temperature, err);
         }
     }
 }
@@ -37,9 +37,10 @@ impl RocksDBMetrics {
     pub fn export_stats_as_metrics(
         &mut self,
         stats: StoreStatistics,
-        temperature: Option<near_store::Temperature>,
+        temperature: near_store::Temperature,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        for (stat_name, values) in stats.data {
+        for (stat_name_without_temperature, values) in stats.data {
+            let stat_name = stat_name_without_temperature + get_temperature_str(&temperature);
             if values.is_empty() {
                 continue;
             }
@@ -136,30 +137,29 @@ impl RocksDBMetrics {
     }
 }
 
-fn get_temperature_str(temperature: &Option<near_store::Temperature>) -> &'static str {
+fn get_temperature_str(temperature: &near_store::Temperature) -> &'static str {
     match temperature {
-        None => "",
-        Some(near_store::Temperature::Cold) => "cold_",
-        _ => unreachable!("Hot temperature is the default, pass None as temperature"),
+        near_store::Temperature::Hot => "",
+        near_store::Temperature::Cold => "_cold",
     }
 }
 
-fn get_prometheus_metric_name(stat_name: &str, temperature: &Option<near_store::Temperature>) -> String {
-    format!("near_{}{}", get_temperature_str(temperture), stat_name.replace(&['.', '-'], "_"))
+fn get_prometheus_metric_name(stat_name: &str) -> String {
+    format!("near_{}", stat_name.replace(&['.', '-'], "_"))
 }
 
-fn get_metric_name_summary_count_gauge(stat_name: &str, temperature: &Option<near_store::Temperature>) -> String {
-    format!("near_{}{}_count", get_temperature_str(temperture), stat_name.replace('.', "_"))
+fn get_metric_name_summary_count_gauge(stat_name: &str) -> String {
+    format!("near_{}_count", stat_name.replace('.', "_"))
 }
 
-fn get_metric_name_summary_sum_gauge(stat_name: &str, temperature: &Option<near_store::Temperature>) -> String {
-    format!("near_{}{}_sum", get_temperature_str(temperture), stat_name.replace('.', "_"))
+fn get_metric_name_summary_sum_gauge(stat_name: &str) -> String {
+    format!("near_{}_sum", stat_name.replace('.', "_"))
 }
 
-fn get_stats_summary_count_key(stat_name: &str, temperature: &Option<near_store::Temperature>) -> String {
+fn get_stats_summary_count_key(stat_name: &str) -> String {
     format!("{}.count", stat_name)
 }
 
-fn get_stats_summary_sum_key(stat_name: &str, temperature: &Option<near_store::Temperature>) -> String {
+fn get_stats_summary_sum_key(stat_name: &str) -> String {
     format!("{}.sum", stat_name)
 }

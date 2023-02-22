@@ -370,8 +370,9 @@ pub fn spawn_cold_db_metrics_loop(
         let mut interval = actix_rt::time::interval(std::time::Duration::from_secs(60));
         loop {
             interval.tick().await;
-            let statistics = cold_store.get_store_statistics();
-            rocksdb_metrics::export_stats_as_metrics(statistics, Some(near_store::Temperature::Cold));
+            if let Some(statistics) = cold_store.get_store_statistics() {
+                near_client::export_stats_as_metrics(statistics, near_store::Temperature::Cold);
+            }
         }
     });
     Ok(Some(cold_db_metrics_arbiter_handle))
