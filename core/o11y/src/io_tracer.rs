@@ -203,7 +203,6 @@ impl IoTraceLayer {
             Some(IoEventType::DbOp(db_op)) => {
                 let col = visitor.col.as_deref().unwrap_or("?");
                 let key = visitor.key.as_deref().unwrap_or("?");
-
                 let size = FormattedSize(visitor.size);
                 let output_line = format!("{db_op} {col} {key:?}{size}");
                 if let Some(span) = ctx.event_span(event) {
