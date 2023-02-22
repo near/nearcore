@@ -99,6 +99,23 @@ impl Database for SplitDB {
         }
     }
 
+    /// Iterate over items in given column whose keys are between [lower_bound, upper_bound)
+    ///
+    /// Upper_bound key is not included.
+    /// If lower_bound is None - the iterator starts from the first key.
+    /// If upper_bound is None - iterator continues to the last key.
+    fn iter_range<'a>(
+        &'a self,
+        col: DBCol,
+        lower_bound: Option<&'a [u8]>,
+        upper_bound: Option<&'a [u8]>,
+    ) -> DBIterator<'a> {
+        match col.is_cold() {
+            false => self.hot.iter_range(col, lower_bound, upper_bound),
+            true => self.cold.iter_range(col, lower_bound, upper_bound),
+        }
+    }
+
     /// Iterate over items in given column bypassing reference count decoding if
     /// any. This method falls back to the hot iter_raw_bytes because ColdDB
     /// doesn't implement it.
