@@ -182,6 +182,7 @@ fn test_storage_after_commit_of_cold_update() {
                 &no_check_rules,
             );
             // assert that this test actually checks something
+            // apart from StateChangesForSplitStates and StateHeaders, that are empty
             assert!(
                 col == DBCol::StateChangesForSplitStates
                     || col == DBCol::StateHeaders
@@ -331,6 +332,7 @@ fn test_cold_db_copy_with_height_skips() {
                 &no_check_rules,
             );
             // assert that this test actually checks something
+            // apart from StateChangesForSplitStates and StateHeaders, that are empty
             assert!(
                 col == DBCol::StateChangesForSplitStates
                     || col == DBCol::StateHeaders
@@ -404,6 +406,7 @@ fn test_initial_copy_to_cold(batch_size: usize) {
             col,
             &vec![],
         );
+        // StateChangesForSplitStates and StateHeaders are empty
         if col == DBCol::StateChangesForSplitStates || col == DBCol::StateHeaders {
             continue;
         }

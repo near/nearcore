@@ -156,6 +156,11 @@ pub fn update_cold_head<D: Database>(
     return Ok(());
 }
 
+pub enum CopyAllDataToColdStatus {
+    EverythingCopied,
+    Interrupted,
+}
+
 /// Copies all contents of all cold columns from `hot_store` to `cold_db`.
 /// Does it column by column, and because columns can be huge, writes in batches of ~`batch_size`.
 /// Returns:
@@ -167,14 +172,14 @@ pub fn copy_all_data_to_cold<D: Database + 'static>(
     hot_store: &Store,
     batch_size: usize,
     keep_going: std::sync::Arc<std::sync::atomic::AtomicBool>,
-) -> io::Result<bool> {
+) -> io::Result<CopyAllDataToColdStatus> {
     for col in DBCol::iter() {
         if col.is_cold() {
             let mut transaction = BatchTransaction::new(cold_db.clone(), batch_size);
             for result in hot_store.iter(col) {
                 if !keep_going.load(std::sync::atomic::Ordering::Relaxed) {
                     tracing::debug!(target: "cold_store", "stopping copy_all_data_to_cold");
-                    return Ok(false);
+                    return Ok(CopyAllDataToColdStatus::Interrupted);
                 }
                 let (key, value) = result?;
                 transaction.set(col, key.to_vec(), value.to_vec())?;
@@ -182,7 +187,7 @@ pub fn copy_all_data_to_cold<D: Database + 'static>(
             transaction.write()?;
         }
     }
-    Ok(true)
+    Ok(CopyAllDataToColdStatus::EverythingCopied)
 }
 
 pub fn test_cold_genesis_update<D: Database>(
