@@ -1,6 +1,5 @@
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
-use std::marker::PhantomData;
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -91,24 +90,19 @@ const STATE_FILE_END_MARK: u8 = 255;
 
 /// Node’s storage holding chain and all other necessary data.
 ///
-/// The eventual goal is to implement cold storage at which point this structure
-/// will provide interface to access hot and cold storage.  This is in contrast
-/// to [`Store`] which will abstract access to only one of the temperatures of
-/// the storage.
-pub struct NodeStorage<D = crate::db::RocksDB> {
+/// Provides access to hot storage, cold storage and split storage. Typically
+/// users will want to use one of the above via the Store abstraction.
+pub struct NodeStorage {
     hot_storage: Arc<dyn Database>,
-    cold_storage: Option<Arc<crate::db::ColdDB<D>>>,
-    _phantom: PhantomData<D>,
+    cold_storage: Option<Arc<crate::db::ColdDB>>,
 }
 
 /// Node’s single storage source.
 ///
-/// Currently, this is somewhat equivalent to [`NodeStorage`] in that for given
-/// node storage you can get only a single [`Store`] object.  This will change
-/// as we implement cold storage in which case this structure will provide an
-/// interface to access either hot or cold data.  At that point, [`NodeStorage`]
-/// will map to one of two [`Store`] objects depending on the temperature of the
-/// data.
+/// The Store holds one of the possible databases:
+/// - The hot database - access to the hot database only
+/// - The cold database - access to the cold database only
+/// - The split database - access to both hot and cold databases
 #[derive(Clone)]
 pub struct Store {
     storage: Arc<dyn Database>,
@@ -132,9 +126,15 @@ impl NodeStorage {
         cold_storage: Option<crate::db::RocksDB>,
     ) -> Self {
         let hot_storage = Arc::new(hot_storage);
-        let cold_storage = cold_storage
-            .map(|cold_db| Arc::new(crate::db::ColdDB::new(hot_storage.clone(), cold_db)));
-        Self { hot_storage, cold_storage, _phantom: PhantomData {} }
+        let cold_storage = cold_storage.map(|storage| Arc::new(storage));
+
+        let cold_db = if let Some(cold_storage) = cold_storage {
+            Some(Arc::new(crate::db::ColdDB::new(cold_storage)))
+        } else {
+            None
+        };
+
+        Self { hot_storage: hot_storage, cold_storage: cold_db }
     }
 
     /// Initialises an opener for a new temporary test store.
@@ -162,11 +162,11 @@ impl NodeStorage {
     /// possibly [`crate::test_utils::create_test_store`] (depending whether you
     /// need [`NodeStorage`] or [`Store`] object.
     pub fn new(storage: Arc<dyn Database>) -> Self {
-        Self { hot_storage: storage, cold_storage: None, _phantom: PhantomData {} }
+        Self { hot_storage: storage, cold_storage: None }
     }
 }
 
-impl<D: Database + 'static> NodeStorage<D> {
+impl NodeStorage {
     /// Returns storage for given temperature.
     ///
     /// Some data live only in hot and some only in cold storage (which is at
@@ -200,6 +200,15 @@ impl<D: Database + 'static> NodeStorage<D> {
         }
     }
 
+    pub fn get_split_store(&self) -> Option<Store> {
+        match &self.cold_storage {
+            Some(cold_storage) => Some(Store {
+                storage: crate::db::SplitDB::new(self.hot_storage.clone(), cold_storage.clone()),
+            }),
+            None => None,
+        }
+    }
+
     /// Returns underlying database for given temperature.
     ///
     /// This allows accessing underlying hot and cold databases directly
@@ -222,17 +231,9 @@ impl<D: Database + 'static> NodeStorage<D> {
             Temperature::Cold => self.cold_storage.unwrap(),
         }
     }
-
-    pub fn set_version(&self, version: DbVersion) -> std::io::Result<()> {
-        self.get_hot_store().set_db_version(version)?;
-        if let Some(cold_store) = self.get_cold_store() {
-            cold_store.set_db_version(version)?;
-        }
-        Ok(())
-    }
 }
 
-impl<D> NodeStorage<D> {
+impl NodeStorage {
     /// Returns whether the storage has a cold database.
     pub fn has_cold(&self) -> bool {
         self.cold_storage.is_some()
@@ -250,15 +251,11 @@ impl<D> NodeStorage<D> {
         })
     }
 
-    pub fn new_with_cold(hot: Arc<dyn Database>, cold: D) -> Self {
-        Self {
-            hot_storage: hot.clone(),
-            cold_storage: Some(Arc::new(crate::db::ColdDB::<D>::new(hot, cold))),
-            _phantom: PhantomData::<D> {},
-        }
+    pub fn new_with_cold(hot: Arc<dyn Database>, cold: Arc<dyn Database>) -> Self {
+        Self { hot_storage: hot, cold_storage: Some(Arc::new(crate::db::ColdDB::new(cold))) }
     }
 
-    pub fn cold_db(&self) -> Option<&Arc<crate::db::ColdDB<D>>> {
+    pub fn cold_db(&self) -> Option<&Arc<crate::db::ColdDB>> {
         self.cold_storage.as_ref()
     }
 }
@@ -298,8 +295,8 @@ impl Store {
         StoreUpdate::new(Arc::clone(&self.storage))
     }
 
-    pub fn iter<'a>(&'a self, column: DBCol) -> DBIterator<'a> {
-        self.storage.iter(column)
+    pub fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
+        self.storage.iter(col)
     }
 
     /// Fetches raw key/value pairs from the database.
@@ -308,12 +305,12 @@ impl Store {
     /// This method is a deliberate escape hatch, and shouldn't be used outside
     /// of auxilary code like migrations which wants to hack on the database
     /// directly.
-    pub fn iter_raw_bytes<'a>(&'a self, column: DBCol) -> DBIterator<'a> {
-        self.storage.iter_raw_bytes(column)
+    pub fn iter_raw_bytes<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
+        self.storage.iter_raw_bytes(col)
     }
 
-    pub fn iter_prefix<'a>(&'a self, column: DBCol, key_prefix: &'a [u8]) -> DBIterator<'a> {
-        self.storage.iter_prefix(column, key_prefix)
+    pub fn iter_prefix<'a>(&'a self, col: DBCol, key_prefix: &'a [u8]) -> DBIterator<'a> {
+        self.storage.iter_prefix(col, key_prefix)
     }
 
     /// Iterates over a range of keys. Upper bound key is not included.
@@ -328,11 +325,11 @@ impl Store {
 
     pub fn iter_prefix_ser<'a, T: BorshDeserialize>(
         &'a self,
-        column: DBCol,
+        col: DBCol,
         key_prefix: &'a [u8],
     ) -> impl Iterator<Item = io::Result<(Box<[u8]>, T)>> + 'a {
         self.storage
-            .iter_prefix(column, key_prefix)
+            .iter_prefix(col, key_prefix)
             .map(|item| item.and_then(|(key, value)| Ok((key, T::try_from_slice(value.as_ref())?))))
     }
 

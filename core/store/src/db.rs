@@ -2,9 +2,12 @@ use std::io;
 
 use crate::DBCol;
 
-mod colddb;
-pub mod refcount;
 pub(crate) mod rocksdb;
+
+mod colddb;
+mod splitdb;
+
+pub mod refcount;
 mod slice;
 mod testdb;
 
@@ -12,6 +15,8 @@ mod database_tests;
 
 pub use self::colddb::ColdDB;
 pub use self::rocksdb::RocksDB;
+pub use self::splitdb::SplitDB;
+
 pub use self::slice::DBSlice;
 pub use self::testdb::TestDB;
 
@@ -128,7 +133,7 @@ pub trait Database: Sync + Send {
     /// count will be treated as non-existing (i.e. they’re going to be
     /// skipped).  For all other columns, the value is returned directly from
     /// the database.
-    fn iter<'a>(&'a self, column: DBCol) -> DBIterator<'a>;
+    fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a>;
 
     /// Iterate over items in given column whose keys start with given prefix.
     ///
@@ -160,7 +165,7 @@ pub trait Database: Sync + Send {
     /// If in doubt, use [`Self::iter`] instead.  Unless you’re doing something
     /// low-level with the database (e.g. doing a migration), you probably don’t
     /// want this method.
-    fn iter_raw_bytes<'a>(&'a self, column: DBCol) -> DBIterator<'a>;
+    fn iter_raw_bytes<'a>(&'a self, col: DBCol) -> DBIterator<'a>;
 
     /// Atomically apply all operations in given batch at once.
     fn write(&self, batch: DBTransaction) -> io::Result<()>;
