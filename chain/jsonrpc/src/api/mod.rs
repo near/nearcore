@@ -1,9 +1,7 @@
-use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::errors::{RpcError, ServerError};
-use near_primitives::borsh::BorshDeserialize;
 
 mod blocks;
 mod changes;
@@ -80,17 +78,103 @@ impl RpcFrom<near_primitives::errors::InvalidTxError> for ServerError {
     }
 }
 
-pub(crate) fn parse_params<T: DeserializeOwned>(value: Value) -> Result<T, RpcParseError> {
-    serde_json::from_value(value)
-        .map_err(|err| RpcParseError(format!("Failed parsing args: {}", err)))
+mod params {
+    use serde::de::DeserializeOwned;
+    use serde_json::Value;
+
+    use near_jsonrpc_primitives::errors::RpcParseError;
+
+    /// Helper wrapper for parsing JSON value into expected request format.
+    ///
+    /// If you don’t need to handle legacy APIs you most likely just want to do
+    /// `Params::parse(params)` to convert JSON value into parameters format you
+    /// expect.
+    ///
+    /// This is over-engineered to help handle legacy API for some of the JSON
+    /// API requests.  For example, parameters for block request can be a block
+    /// request object (the new API) or a one-element array with block id
+    /// element (the old API).
+    pub(crate) struct Params<T>(
+        /// Regarding representation:
+        /// - `Ok(Ok(value))` means value has been parsed successfully.  No
+        ///   further parsing attempts will happen.
+        /// - `Ok(Err(err))` means value has been parsed unsuccessfully
+        ///   (resulting in a parse error).  No further parsing attempts will
+        ///   happen.
+        /// - `Err(value)` means value hasn’t been parsed yet and needs to be
+        ///   parsed with one of the methods.
+        Result<Result<T, RpcParseError>, Value>,
+    );
+
+    impl<T> Params<T> {
+        pub fn new(params: Value) -> Self {
+            Self(Err(params))
+        }
+
+        pub fn parse(value: Value) -> Result<T, RpcParseError>
+        where
+            T: DeserializeOwned,
+        {
+            serde_json::from_value(value)
+                .map_err(|e| RpcParseError(format!("Failed parsing args: {e}")))
+        }
+
+        /// If value hasn’t been parsed yet, tries to deserialise it directly
+        /// into `T`.
+        pub fn unwrap_or_parse(self) -> Result<T, RpcParseError>
+        where
+            T: DeserializeOwned,
+        {
+            self.0.unwrap_or_else(Self::parse)
+        }
+
+        /// If value hasn’t been parsed yet, tries to deserialise it directly
+        /// into `T` using given parse function.
+        pub fn unwrap_or_else(
+            self,
+            func: impl FnOnce(Value) -> Result<T, RpcParseError>,
+        ) -> Result<T, RpcParseError> {
+            self.0.unwrap_or_else(func)
+        }
+
+        /// If value hasn’t been parsed yet and it’s a one-element array
+        /// (i.e. singleton) deserialises the element and calls `func` on it.
+        ///
+        /// `try_singleton` and `try_pair` methods can be chained together
+        /// (though it doesn’t make sense to use the same method twice) before
+        /// a final `parse` call.
+        pub fn try_singleton<U: DeserializeOwned>(
+            self,
+            func: impl FnOnce(U) -> Result<T, RpcParseError>,
+        ) -> Self {
+            Self(match self.0 {
+                Err(Value::Array(mut array)) if array.len() == 1 => {
+                    Ok(Params::parse(array[0].take()).and_then(func))
+                }
+                x => x,
+            })
+        }
+
+        /// If value hasn’t been parsed yet and it’s a two-element array
+        /// (i.e. couple) deserialises the element and calls `func` on it.
+        ///
+        /// `try_singleton` and `try_pair` methods can be chained together
+        /// (though it doesn’t make sense to use the same method twice) before
+        /// a final `parse` call.
+        pub fn try_pair<U: DeserializeOwned, V: DeserializeOwned>(
+            self,
+            func: impl FnOnce(U, V) -> Result<T, RpcParseError>,
+        ) -> Self {
+            Self(match self.0 {
+                Err(Value::Array(mut array)) if array.len() == 2 => {
+                    Ok(Params::parse(array[0].take())
+                        .and_then(|u| Ok((u, Params::parse(array[1].take())?)))
+                        .and_then(|(u, v)| func(u, v)))
+                }
+                x => x,
+            })
+        }
+    }
 }
 
-fn parse_signed_transaction(
-    value: Value,
-) -> Result<near_primitives::transaction::SignedTransaction, RpcParseError> {
-    let (encoded,) = parse_params::<(String,)>(value)?;
-    let bytes = near_primitives::serialize::from_base64(&encoded)
-        .map_err(|err| RpcParseError(err.to_string()))?;
-    Ok(near_primitives::transaction::SignedTransaction::try_from_slice(&bytes)
-        .map_err(|err| RpcParseError(format!("Failed to decode transaction: {}", err)))?)
-}
+pub(crate) use params::Params;

@@ -3,8 +3,8 @@ use log::info;
 
 use near_async::messaging::CanSend;
 use near_network::types::{
-    AccountIdOrPeerTrackingShard, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
-    PartialEncodedChunkResponseMsg, ReasonForBan, StateResponseInfo,
+    AccountIdOrPeerTrackingShard, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
+    ReasonForBan, StateResponseInfo,
 };
 use near_network::types::{
     FullPeerInfo, NetworkInfo, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
@@ -329,33 +329,5 @@ impl near_network::client::Client for Network {
         accounts: Vec<(AnnounceAccount, Option<EpochId>)>,
     ) -> Result<Vec<AnnounceAccount>, ReasonForBan> {
         Ok(accounts.into_iter().map(|a| a.0).collect())
-    }
-}
-
-impl near_network::shards_manager::ShardsManagerAdapterForNetwork for Network {
-    fn process_partial_encoded_chunk(
-        &self,
-        _partial_encoded_chunk: near_primitives::sharding::PartialEncodedChunk,
-    ) {
-    }
-
-    fn process_partial_encoded_chunk_forward(
-        &self,
-        _partial_encoded_chunk_forward: PartialEncodedChunkForwardMsg,
-    ) {
-    }
-
-    fn process_partial_encoded_chunk_response(
-        &self,
-        _partial_encoded_chunk_response: PartialEncodedChunkResponseMsg,
-        _received_time: std::time::Instant,
-    ) {
-    }
-
-    fn process_partial_encoded_chunk_request(
-        &self,
-        _partial_encoded_chunk_request: PartialEncodedChunkRequestMsg,
-        _route_back: CryptoHash,
-    ) {
     }
 }

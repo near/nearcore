@@ -19,7 +19,7 @@ pub struct ColdStoreLoopHandle {
 
 impl ColdStoreLoopHandle {
     pub fn stop(self) {
-        self.keep_going.store(false, std::sync::atomic::Ordering::SeqCst);
+        self.keep_going.store(false, std::sync::atomic::Ordering::Relaxed);
         match self.join_handle.join() {
             Ok(_) => {
                 tracing::debug!(target:"cold_store", "Joined the cold store loop thread");
@@ -134,7 +134,7 @@ fn cold_store_loop(
     tracing::info!(target: "cold_store", "starting cold store loop");
 
     loop {
-        if !keep_going.load(std::sync::atomic::Ordering::SeqCst) {
+        if !keep_going.load(std::sync::atomic::Ordering::Relaxed) {
             tracing::debug!(target: "cold_store", "stopping the cold store loop");
             break;
         }

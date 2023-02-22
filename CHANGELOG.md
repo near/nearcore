@@ -9,6 +9,15 @@ ed25519 signatures efficiently.
 [NEP-364](https://github.com/near/NEPs/pull/364)
 * Added STUN-based self-discovery to make configuration of TIER1 network easier in the simplest validator setups.
   [#8472](https://github.com/near/nearcore/pull/8472)
+* Stabilize zero balance account feature: allows account to not hold balance under certain conditions
+and enables a more smooth onboarding experience where users don't have to first acquire NEAR tokens
+to pay for the storage of their accounts.
+[#8378](https://github.com/near/nearcore/pull/8378)
+[NEP-448](https://github.com/near/NEPs/pull/448)
+* Stabilize meta transactions on the protocol level.
+[NEP-366](https://github.com/near/NEPs/blob/master/neps/nep-0366.md),
+[Tracking issue #8075](https://github.com/near/nearcore/issues/8075),
+[Stabilization #8601](https://github.com/near/nearcore/pull/8601)
 
 ### Non-protocol Changes
 * `/debug` page now has client_config linked. You can also check your client_config directly at /debug/client_config
