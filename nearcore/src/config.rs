@@ -131,6 +131,10 @@ pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
 pub const NODE_KEY_FILE: &str = "node_key.json";
 pub const VALIDATOR_KEY_FILE: &str = "validator_key.json";
 
+pub const MAINNET: &str = "mainnet";
+pub const TESTNET: &str = "testnet";
+pub const BETANET: &str = "betanet";
+
 pub const MAINNET_TELEMETRY_URL: &str = "https://explorer.mainnet.near.org/api/nodes";
 pub const NETWORK_TELEMETRY_URL: &str = "https://explorer.{}.near.org/api/nodes";
 
@@ -843,6 +847,28 @@ fn test_generate_or_load_key() {
     test_err("bad_key", "fred", "");
 }
 
+/// Checks that validator and node keys exist.
+/// If a key is needed and doesn't exist, then it gets created.
+fn generate_or_load_keys(
+    dir: &Path,
+    config: &Config,
+    chain_id: &str,
+    account_id: Option<AccountId>,
+    test_seed: Option<&str>,
+) -> anyhow::Result<()> {
+    generate_or_load_key(dir, &config.node_key_file, Some("node".parse().unwrap()), None)?;
+    match chain_id {
+        MAINNET | TESTNET | BETANET => {
+            generate_or_load_key(dir, &config.validator_key_file, account_id, None)?;
+        }
+        _ => {
+            let account_id = account_id.unwrap_or_else(|| "test.near".parse().unwrap());
+            generate_or_load_key(dir, &config.validator_key_file, Some(account_id), test_seed)?;
+        }
+    }
+    Ok(())
+}
+
 /// Initializes genesis and client configs and stores in the given folder
 pub fn init_configs(
     dir: &Path,
@@ -862,25 +888,29 @@ pub fn init_configs(
 ) -> anyhow::Result<()> {
     fs::create_dir_all(dir).with_context(|| anyhow!("Failed to create directory {:?}", dir))?;
 
+    let chain_id = chain_id
+        .and_then(|c| if c.is_empty() { None } else { Some(c.to_string()) })
+        .unwrap_or_else(random_chain_id);
+
     // Check if config already exists in home dir.
     if dir.join(CONFIG_FILENAME).exists() {
         let config = Config::from_file(&dir.join(CONFIG_FILENAME))
             .with_context(|| anyhow!("Failed to read config {}", dir.display()))?;
-        let file_path = dir.join(&config.genesis_file);
-        let genesis = GenesisConfig::from_file(&file_path).with_context(move || {
-            anyhow!("Failed to read genesis config {}/{}", dir.display(), config.genesis_file)
+        let genesis_file = config.genesis_file.clone();
+        let file_path = dir.join(&genesis_file);
+        // Check that Genesis exists and can be read.
+        // If `config.json` exists, but `genesis.json` doesn't exist,
+        // that isn't supported by the `init` command.
+        let _genesis = GenesisConfig::from_file(&file_path).with_context(move || {
+            anyhow!("Failed to read genesis config {}/{}", dir.display(), genesis_file)
         })?;
-        bail!(
-            "Config is already downloaded to ‘{}’ with chain-id ‘{}’.",
-            file_path.display(),
-            genesis.chain_id
-        );
+        // Check that `node_key.json` and `validator_key.json` exist.
+        // Create if needed and they don't exist.
+        generate_or_load_keys(dir, &config, &chain_id, account_id, test_seed)?;
+        return Ok(());
     }
 
     let mut config = Config::default();
-    let chain_id = chain_id
-        .and_then(|c| if c.is_empty() { None } else { Some(c.to_string()) })
-        .unwrap_or_else(random_chain_id);
 
     if let Some(url) = download_config_url {
         download_config(&url.to_string(), &dir.join(CONFIG_FILENAME))
@@ -901,8 +931,10 @@ pub fn init_configs(
         config.max_gas_burnt_view = max_gas_burnt_view;
     }
 
+    // Before finalizing the Config and Genesis, make sure the node and validator keys exist.
+    generate_or_load_keys(dir, &config, &chain_id, account_id, test_seed)?;
     match chain_id.as_ref() {
-        "mainnet" => {
+        MAINNET => {
             if test_seed.is_some() {
                 bail!("Test seed is not supported for {chain_id}");
             }
@@ -918,13 +950,10 @@ pub fn init_configs(
 
             let genesis = near_mainnet_res::mainnet_genesis();
 
-            generate_or_load_key(dir, &config.validator_key_file, account_id, None)?;
-            generate_or_load_key(dir, &config.node_key_file, Some("node".parse().unwrap()), None)?;
-
             genesis.to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated mainnet genesis file in {}", dir.display());
         }
-        "testnet" | "betanet" => {
+        TESTNET | BETANET => {
             if test_seed.is_some() {
                 bail!("Test seed is not supported for {chain_id}");
             }
@@ -937,9 +966,6 @@ pub fn init_configs(
             config.write_to_file(&dir.join(CONFIG_FILENAME)).with_context(|| {
                 format!("Error writing config to {}", dir.join(CONFIG_FILENAME).display())
             })?;
-
-            generate_or_load_key(dir, &config.validator_key_file, account_id, None)?;
-            generate_or_load_key(dir, &config.node_key_file, Some("node".parse().unwrap()), None)?;
 
             if let Some(ref filename) = config.genesis_records_file {
                 let records_path = dir.join(filename);
@@ -1013,12 +1039,8 @@ pub fn init_configs(
                 format!("Error writing config to {}", dir.join(CONFIG_FILENAME).display())
             })?;
 
-            let account_id = account_id.unwrap_or_else(|| "test.near".parse().unwrap());
-
-            let signer =
-                generate_or_load_key(dir, &config.validator_key_file, Some(account_id), test_seed)?
-                    .unwrap();
-            generate_or_load_key(dir, &config.node_key_file, Some("node".parse().unwrap()), None)?;
+            let validator_file = dir.join(&config.validator_key_file);
+            let signer = InMemorySigner::from_file(&validator_file).unwrap();
 
             let mut records = vec![];
             add_account_with_key(
@@ -1392,7 +1414,7 @@ pub fn load_config(
                 validation_errors.push_errors(e)
             };
             if validator_signer.is_some()
-                && matches!(genesis.config.chain_id.as_ref(), "mainnet" | "testnet" | "betanet")
+                && matches!(genesis.config.chain_id.as_ref(), MAINNET | TESTNET | BETANET)
                 && config.tracked_shards.is_empty()
             {
                 // Make sure validators tracks all shards, see
