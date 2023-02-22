@@ -36,7 +36,7 @@
 //!       relationship, the exact contents of the event messages, and the log output
 //!       during the handling of each event. This is especially useful when debugging
 //!       multi-instance tests.
-//!       
+//!
 //!  - Determinism:
 //!     - Many tests, especially those that involve multiple instances, are most easily
 //!       written by spawning actual actors and threads. This however makes the tests
@@ -59,17 +59,16 @@
 //! timestamp are executed in FIFO order. For example, if the events are emitted in the
 //! following order: (A due 100ms), (B due 0ms), (C due 200ms), (D due 0ms), (E due 100ms)
 //! then the actual order of execution is B, D, A, E, C.
-use std::{
-    collections::BinaryHeap,
-    fmt::Debug,
-    sync::{self, Arc},
-    time::Duration,
-};
+pub mod delay_sender;
+pub mod event_handler;
+pub mod multi_instance;
+
+use std::{collections::BinaryHeap, fmt::Debug, sync, time::Duration};
 
 use near_o11y::{testonly::init_test_logger, tracing::log::info};
 use serde::Serialize;
 
-use crate::messaging;
+use self::{delay_sender::DelaySender, event_handler::LoopEventHandler};
 
 /// Main struct for the Test Loop framework.
 /// The `Data` type should contain all the business logic state that is relevant
@@ -162,9 +161,9 @@ impl<Event: Debug + Send + 'static> TestLoopBuilder<Event> {
         let (pending_events_sender, pending_events) = sync::mpsc::sync_channel(65536);
         Self {
             pending_events,
-            pending_events_sender: DelaySender {
-                im: Arc::new(LoopSender { event_sender: pending_events_sender }),
-            },
+            pending_events_sender: DelaySender::new(move |event, delay| {
+                pending_events_sender.send(EventInFlight { event, delay }).unwrap();
+            }),
         }
     }
 
@@ -176,20 +175,6 @@ impl<Event: Debug + Send + 'static> TestLoopBuilder<Event> {
     pub fn build<Data>(self, data: Data) -> TestLoop<Data, Event> {
         TestLoop::new(self.pending_events, self.pending_events_sender, data)
     }
-}
-
-/// An event handler registered on a test loop. Each event handler usually
-/// handles only some events, so we will usually have multiple event handlers
-/// registered to cover all event types.
-pub trait LoopEventHandler<Data, Event> {
-    /// Called once, when the loop runs for the first time.
-    fn init(&mut self, _sender: DelaySender<Event>) {}
-
-    /// Handles an event. If this handler indeed handles the event, it should
-    /// return None after handling it. Otherwise, it should return Some with
-    /// the same event that was passed in, so that it can be given to the next
-    /// event handler.
-    fn handle(&mut self, event: Event, data: &mut Data) -> Option<Event>;
 }
 
 /// The log output line that can be used to visualize the execution of a test.
@@ -281,7 +266,7 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
 
             let mut current_event = event.event;
             for handler in &mut self.handlers {
-                if let Some(event) = handler.handle(current_event, &mut self.data) {
+                if let Err(event) = handler.handle(current_event, &mut self.data) {
                     current_event = event;
                 } else {
                     continue 'outer;
@@ -289,93 +274,5 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
             }
             panic!("Unhandled event: {:?}", current_event);
         }
-    }
-}
-
-/// A convenient trait to TryInto, or else return the original object. It's useful
-/// for implementing event handlers.
-pub trait TryIntoOrSelf<R>: Sized {
-    fn try_into_or_self(self) -> Result<R, Self>;
-}
-
-impl<R, T: TryInto<R, Error = T>> TryIntoOrSelf<R> for T {
-    fn try_into_or_self(self) -> Result<R, Self> {
-        self.try_into()
-    }
-}
-
-/// An event handler that puts the event into a vector in the Data, as long as
-/// the Data contains a Vec<CapturedEvent>.
-///
-/// This is used on output events so that after the test loop finishes running
-/// we can assert on those events.
-pub struct CaptureEvents<CapturedEvent> {
-    // This is just to suppress a compiler error that CapturedEvent is not used
-    // in the struct's fields - and is what the compiler suggests to do. The
-    // type parameter is only used as an inference hint for which impl of
-    // LoopEventHandler we will convert to.
-    _marker: std::marker::PhantomData<CapturedEvent>,
-}
-
-impl<CapturedEvent> CaptureEvents<CapturedEvent> {
-    pub fn new() -> Self {
-        Self { _marker: std::marker::PhantomData }
-    }
-}
-
-impl<CapturedEvent, Data: AsMut<Vec<CapturedEvent>>, Event: TryIntoOrSelf<CapturedEvent>>
-    LoopEventHandler<Data, Event> for CaptureEvents<CapturedEvent>
-{
-    fn handle(&mut self, event: Event, data: &mut Data) -> Option<Event> {
-        match event.try_into_or_self() {
-            Ok(event) => {
-                data.as_mut().push(event);
-                None
-            }
-            Err(event) => Some(event),
-        }
-    }
-}
-
-/// Interface to send an event with a delay. It implements Sender for any
-/// message that can be converted into this event type.
-pub struct DelaySender<Event> {
-    // We use an impl object here because it makes the interop with other
-    // traits much easier.
-    im: Arc<dyn DelaySenderImpl<Event>>,
-}
-
-impl<Event> DelaySender<Event> {
-    pub fn send_with_delay(&self, event: Event, delay: Duration) {
-        self.im.send_with_delay(event, delay);
-    }
-}
-
-impl<Event> Clone for DelaySender<Event> {
-    fn clone(&self) -> Self {
-        Self { im: self.im.clone() }
-    }
-}
-
-/// Allows DelaySender to be used in contexts where we don't need a delay,
-/// such as being given to something that expects an actix recipient.
-impl<Message, Event: From<Message> + 'static> messaging::CanSend<Message> for DelaySender<Event> {
-    fn send(&self, message: Message) {
-        self.send_with_delay(message.into(), Duration::ZERO);
-    }
-}
-
-trait DelaySenderImpl<Event>: Send + Sync {
-    fn send_with_delay(&self, event: Event, delay: Duration);
-}
-
-/// Implementation of DelaySender that sends events to the test loop.
-pub struct LoopSender<Event: Send + 'static> {
-    event_sender: sync::mpsc::SyncSender<EventInFlight<Event>>,
-}
-
-impl<Event: Send + 'static> DelaySenderImpl<Event> for LoopSender<Event> {
-    fn send_with_delay(&self, event: Event, delay: Duration) {
-        self.event_sender.send(EventInFlight { event, delay }).unwrap();
     }
 }

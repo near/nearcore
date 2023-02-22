@@ -5,6 +5,8 @@ use near_chain_configs::GenesisValidationMode;
 use near_client::ConfigUpdater;
 use near_cold_store_tool::ColdStoreCommand;
 use near_dyn_configs::{UpdateableConfigLoader, UpdateableConfigLoaderError, UpdateableConfigs};
+#[cfg(feature = "protocol_feature_flat_state")]
+use near_flat_storage::commands::FlatStorageCommand;
 use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse;
 use near_mirror::MirrorCommand;
 use near_network::tcp;
@@ -116,6 +118,13 @@ impl NeardCmd {
             NeardSubCommand::StateParts(cmd) => {
                 cmd.run()?;
             }
+            #[cfg(feature = "protocol_feature_flat_state")]
+            NeardSubCommand::FlatStorage(cmd) => {
+                cmd.run(&home_dir)?;
+            }
+            NeardSubCommand::ValidateConfig(cmd) => {
+                cmd.run(&home_dir)?;
+            }
         };
         Ok(())
     }
@@ -145,7 +154,7 @@ struct NeardOpts {
     /// Directory for config and data.
     #[clap(long, parse(from_os_str), default_value_os = crate::DEFAULT_HOME.as_os_str())]
     home: PathBuf,
-    /// Skips consistency checks of the 'genesis.json' file upon startup.
+    /// Skips consistency checks of genesis.json (and records.json) upon startup.
     /// Let's you start `neard` slightly faster.
     #[clap(long)]
     unsafe_fast_startup: bool,
@@ -225,6 +234,13 @@ pub(super) enum NeardSubCommand {
 
     /// Connects to a NEAR node and sends state parts requests after the handshake is completed.
     StateParts(StatePartsCommand),
+
+    #[cfg(feature = "protocol_feature_flat_state")]
+    /// Flat storage related tooling.
+    FlatStorage(FlatStorageCommand),
+
+    /// validate config files including genesis.json and config.json
+    ValidateConfig(ValidateConfigCommand),
 }
 
 #[derive(clap::Parser)]
@@ -763,6 +779,16 @@ fn make_env_filter(verbose: Option<&str>) -> Result<EnvFilter, BuildEnvFilterErr
         env_filter
     };
     Ok(env_filter)
+}
+
+#[derive(clap::Parser)]
+pub(super) struct ValidateConfigCommand {}
+
+impl ValidateConfigCommand {
+    pub(super) fn run(&self, home_dir: &Path) -> anyhow::Result<()> {
+        nearcore::config::load_config(&home_dir, GenesisValidationMode::Full)?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
