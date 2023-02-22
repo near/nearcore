@@ -32,7 +32,7 @@ enum SubCommand {
     /// Init the flat storage state, by copying from trie
     Init(InitCmd),
 
-    /// Verify flat storage state
+    /// Verify flat storage state (it can take up to couple hours if flat storage is very large)
     Verify(VerifyCmd),
 
     /// Temporary command to set the store version (useful as long flat
@@ -208,7 +208,7 @@ impl FlatStorageCommand {
                     .get_view_trie_for_shard(verify_cmd.shard_id, &head_hash, state_root.clone())
                     .unwrap();
 
-                let all_entries = store_helper::iter_flat_state_entries(
+                let flat_state_entries_iter = store_helper::iter_flat_state_entries(
                     shard_layout,
                     verify_cmd.shard_id,
                     &hot_store,
@@ -216,6 +216,7 @@ impl FlatStorageCommand {
                     None,
                 );
 
+                // Trie iterator which skips all the 'delayed' keys - that don't contain the account_id as string.
                 let trie_iter = trie.iter().unwrap().filter(|entry| {
                     let result_copy = &entry.clone().unwrap().0;
                     let result = &result_copy[..];
@@ -224,14 +225,16 @@ impl FlatStorageCommand {
 
                 let mut verified = 0;
                 let mut success = true;
-                for (item_trie, item_flat) in tqdm(std::iter::zip(trie_iter, all_entries)) {
+                for (item_trie, item_flat) in
+                    tqdm(std::iter::zip(trie_iter, flat_state_entries_iter))
+                {
                     let value_ref = ValueRef::decode((*item_flat.1).try_into().unwrap());
                     verified += 1;
 
                     let item_trie = item_trie.unwrap();
                     if item_trie.0 != *item_flat.0 {
                         println!(
-                            "Different keys {:?} in trie, {:?} in flat. ",
+                            "Different keys {:?} in trie, {:?} in flat storage. ",
                             item_trie.0, item_flat.0
                         );
                         success = false;
@@ -239,7 +242,7 @@ impl FlatStorageCommand {
                     }
                     if item_trie.1.len() != value_ref.length as usize {
                         println!(
-                            "Wrong values for key: {:?} length trie: {:?} vs {:?}",
+                            "Different ValueRef::length for key: {:?}  in trie: {:?} vs flat storage: {:?}",
                             item_trie.0,
                             item_trie.1.len(),
                             value_ref.length
@@ -250,7 +253,7 @@ impl FlatStorageCommand {
 
                     if near_primitives::hash::hash(&item_trie.1) != value_ref.hash {
                         println!(
-                            "Wrong hash for key: {:?} length trie: {:?} vs {:?}",
+                            "Different ValueRef::hashfor key: {:?} in trie: {:?} vs flat storage: {:?}",
                             item_trie.0,
                             near_primitives::hash::hash(&item_trie.1),
                             value_ref.hash
