@@ -22,6 +22,7 @@ mod tests {
     fn test_db_iter() {
         for db in test_and_rocksdb() {
             let mut transaction = DBTransaction::new();
+            transaction.insert(DBCol::Block, "a".into(), "val_a".into());
             transaction.insert(DBCol::Block, "aa".into(), "val_aa".into());
             transaction.insert(DBCol::Block, "aa1".into(), "val_aa1".into());
             transaction.insert(DBCol::Block, "bb1".into(), "val_bb1".into());
@@ -32,7 +33,7 @@ mod tests {
                 .iter(DBCol::Block)
                 .map(|data| String::from_utf8(data.unwrap().0.to_vec()).unwrap())
                 .collect();
-            assert_eq!(keys, vec!["aa", "aa1", "bb1", "cc1"]);
+            assert_eq!(keys, vec!["a", "aa", "aa1", "bb1", "cc1"]);
 
             let keys: Vec<_> = db
                 .iter_range(DBCol::Block, Some("aa".as_bytes()), Some("bb1".as_bytes()))

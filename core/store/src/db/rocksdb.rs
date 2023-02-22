@@ -220,6 +220,9 @@ impl RocksDB {
     ) -> RocksDBIterator<'a> {
         let cf_handle = self.cf_handle(col).unwrap();
         let mut read_options = rocksdb_read_options();
+        if prefix.is_some() && (lower_bound.is_some() || upper_bound.is_some()) {
+            panic!("Cannot iterate both with prefix and lower/upper bounds at the same time.");
+        }
         if let Some(prefix) = prefix {
             read_options.set_iterate_range(::rocksdb::PrefixRange(prefix));
             // Note: prefix_same_as_start doesn’t do anything for us.  It takes
@@ -668,7 +671,7 @@ fn col_name(col: DBCol) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use crate::db::{self, Database, StatsValue};
+    use crate::db::{Database, StatsValue};
     use crate::{DBCol, NodeStorage, StoreStatistics};
     use assert_matches::assert_matches;
 
