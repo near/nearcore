@@ -474,7 +474,7 @@ impl Genesis {
         let mut file = File::open(&path).map_err(|_| ValidationError::GenesisFileError {
             error_message: format!(
                 "Could not open genesis config file at path {}.",
-                &path.as_ref().to_path_buf().display()
+                &path.as_ref().display()
             ),
         })?;
 

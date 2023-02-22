@@ -52,8 +52,7 @@ impl<'a> ConfigValidator<'a> {
                 self.config.consensus.min_block_production_delay,
                 self.config.consensus.max_block_wait_delay
             );
-            self.validation_errors
-                .push_errors(ValidationError::ConfigSemanticsError { error_message: error_message })
+            self.validation_errors.push_config_semantics_error(error_message)
         }
 
         if self.config.consensus.header_sync_expected_height_per_second == 0 {
