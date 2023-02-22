@@ -3350,7 +3350,7 @@ name = "near-flat-storage"
 version = "0.0.0"
 dependencies = [
  "anyhow",
- "borsh",
+ "borsh 0.10.2",
  "clap 3.1.18",
  "near-chain",
  "near-chain-configs",
