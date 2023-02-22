@@ -1,8 +1,8 @@
 use near_crypto::key_conversion::is_valid_staking_key;
 use near_primitives::checked_feature;
+use near_primitives::delegate_action::SignedDelegateAction;
 use near_primitives::runtime::config::RuntimeConfig;
-use near_primitives::types::BlockHeight;
-#[cfg(feature = "protocol_feature_nep366_delegate_action")]
+use near_primitives::types::{BlockHeight, StorageUsage};
 use near_primitives::version::ProtocolFeature;
 use near_primitives::{
     account::AccessKeyPermission,
@@ -24,10 +24,10 @@ use near_store::{
 };
 
 use crate::config::{total_prepaid_gas, tx_cost, TransactionCost};
-use crate::near_primitives::account::{Account, FunctionCallPermission};
-use crate::near_primitives::trie_key::trie_key_parsers;
+use crate::near_primitives::account::Account;
 use crate::VerificationResult;
-use near_primitives::hash::CryptoHash;
+
+pub const ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT: StorageUsage = 770;
 
 /// Possible errors when checking whether an account has enough tokens for storage staking
 /// Read details of state staking
@@ -44,10 +44,8 @@ pub enum StorageStakingError {
 ///  - Err(StorageStakingError::LackBalanceForStorageStaking(amount)) if account doesn't have enough and how much need to be added,
 ///  - Err(StorageStakingError::StorageError(err)) if account has invalid storage usage or amount/locked.
 pub fn check_storage_stake(
-    account_id: &AccountId,
     account: &Account,
     runtime_config: &RuntimeConfig,
-    state_update: &mut TrieUpdate,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageStakingError> {
     let required_amount = Balance::from(account.storage_usage())
@@ -70,14 +68,8 @@ pub fn check_storage_stake(
     if available_amount >= required_amount {
         Ok(())
     } else {
-        // Check if the account is a zero balance account. The check is delayed until here because
-        // it requires storage reads
-        if checked_feature!(
-            "protocol_feature_zero_balance_account",
-            ZeroBalanceAccount,
-            current_protocol_version
-        ) && is_zero_balance_account(account_id, account, state_update)
-            .map_err(|e| StorageStakingError::StorageError(e.to_string()))?
+        if checked_feature!("stable", ZeroBalanceAccount, current_protocol_version)
+            && is_zero_balance_account(account)
         {
             return Ok(());
         }
@@ -86,55 +78,10 @@ pub fn check_storage_stake(
 }
 
 /// Zero Balance Account introduced in NEP 448 https://github.com/near/NEPs/pull/448
-/// An account is a zero balance account if and only if the following holds:
-/// - it has at most 2 full access keys and at most 2 function call access keys
-/// - it does not have any contract deployed or store any contract data
-fn is_zero_balance_account(
-    account_id: &AccountId,
-    account: &Account,
-    state_update: &mut TrieUpdate,
-) -> Result<bool, StorageError> {
-    // Check whether the account has a contract deployed
-    if account.code_hash() != CryptoHash::default() {
-        return Ok(false);
-    }
-    // Check whether the account has any data in contract storage
-    if let Some(_) = state_update
-        .iter(&trie_key_parsers::get_raw_prefix_for_contract_data(account_id, &[]))?
-        .next()
-    {
-        return Ok(false);
-    }
-    // Check access keys. There can be at most 2 full access keys and at most 2 function call access keys.
-    // Function call access keys must not specify method names.
-    let mut full_access_key_count = 0;
-    let mut function_call_access_key_count = 0;
-    let raw_prefix = &trie_key_parsers::get_raw_prefix_for_access_keys(account_id);
-    for raw_key in state_update.iter(raw_prefix)? {
-        let raw_key = raw_key?;
-        let access_key =
-            near_store::get_access_key_raw(state_update, &raw_key)?.ok_or_else(|| {
-                StorageError::StorageInconsistentState("Missing access key".to_string())
-            })?;
-        match access_key.permission {
-            AccessKeyPermission::FullAccess => full_access_key_count += 1,
-            AccessKeyPermission::FunctionCall(FunctionCallPermission { method_names, .. }) => {
-                if !method_names.is_empty() {
-                    return Ok(false);
-                }
-                function_call_access_key_count += 1
-            }
-        }
-        if full_access_key_count > 2 || function_call_access_key_count > 2 {
-            return Ok(false);
-        }
-    }
-
-    Ok(true)
+/// An account is a zero balance account if and only if the account uses no more than `ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT` bytes
+fn is_zero_balance_account(account: &Account) -> bool {
+    account.storage_usage() <= ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT
 }
-
-#[cfg(feature = "protocol_feature_nep366_delegate_action")]
-use near_primitives::transaction::SignedDelegateAction;
 
 /// Validates the transaction without using the state. It allows any node to validate a
 /// transaction before forwarding it to the node that tracks the `signer_id` account.
@@ -266,7 +213,7 @@ pub fn verify_and_charge_transaction(
         }
     }
 
-    match check_storage_stake(signer_id, &signer, config, state_update, current_protocol_version) {
+    match check_storage_stake(&signer, config, current_protocol_version) {
         Ok(()) => {}
         Err(StorageStakingError::LackBalanceForStorageStaking(amount)) => {
             return Err(InvalidTxError::LackBalanceForState {
@@ -406,7 +353,6 @@ pub(crate) fn validate_actions(
         });
     }
 
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     let mut found_delegate_action = false;
     let mut iter = actions.iter().peekable();
     while let Some(action) = iter.next() {
@@ -415,13 +361,8 @@ pub(crate) fn validate_actions(
                 return Err(ActionsValidationError::DeleteActionMustBeFinal);
             }
         } else {
-            #[cfg(feature = "protocol_feature_nep366_delegate_action")]
             if let Action::Delegate(_) = action {
-                if !checked_feature!(
-                    "protocol_feature_nep366_delegate_action",
-                    DelegateAction,
-                    current_protocol_version
-                ) {
+                if !checked_feature!("stable", DelegateAction, current_protocol_version) {
                     return Err(ActionsValidationError::UnsupportedProtocolFeature {
                         protocol_feature: String::from("DelegateAction"),
                         version: ProtocolFeature::DelegateAction.protocol_version(),
@@ -452,7 +393,6 @@ pub(crate) fn validate_actions(
 pub fn validate_action(
     limit_config: &VMLimitConfig,
     action: &Action,
-    #[cfg_attr(not(feature = "protocol_feature_nep366_delegate_action"), allow(unused))]
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), ActionsValidationError> {
     match action {
@@ -464,12 +404,10 @@ pub fn validate_action(
         Action::AddKey(a) => validate_add_key_action(limit_config, a),
         Action::DeleteKey(_) => Ok(()),
         Action::DeleteAccount(_) => Ok(()),
-        #[cfg(feature = "protocol_feature_nep366_delegate_action")]
         Action::Delegate(a) => validate_delegate_action(limit_config, a, current_protocol_version),
     }
 }
 
-#[cfg(feature = "protocol_feature_nep366_delegate_action")]
 fn validate_delegate_action(
     limit_config: &VMLimitConfig,
     signed_delegate_action: &SignedDelegateAction,
@@ -607,8 +545,10 @@ fn test_truncate_string() {
 mod tests {
     use std::sync::Arc;
 
-    use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
-    use near_primitives::account::{AccessKey, Account, FunctionCallPermission};
+    use crate::near_primitives::borsh::BorshSerialize;
+    use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
+    use near_primitives::account::{AccessKey, FunctionCallPermission};
+    use near_primitives::delegate_action::{DelegateAction, NonDelegateAction};
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::test_utils::account_new;
     use near_primitives::transaction::{
@@ -625,11 +565,6 @@ mod tests {
     use crate::near_primitives::contract::ContractCode;
     use crate::near_primitives::trie_key::TrieKey;
     use near_store::{set, set_code};
-
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
-    use near_crypto::Signature;
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
-    use near_primitives::transaction::{DelegateAction, NonDelegateAction};
 
     /// Initial balance used in tests.
     const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
@@ -674,7 +609,6 @@ mod tests {
         {
             let mut initial_account = account_new(initial_balance, CryptoHash::default());
             initial_account.set_locked(initial_locked);
-            set_account(&mut initial_state, account_id.clone(), &initial_account);
             let mut key_count = 0;
             for access_key in access_keys {
                 let public_key = if key_count == 0 {
@@ -682,27 +616,53 @@ mod tests {
                 } else {
                     PublicKey::from_seed(KeyType::ED25519, format!("{}", key_count).as_str())
                 };
-                set_access_key(&mut initial_state, account_id.clone(), public_key, &access_key);
+                set_access_key(
+                    &mut initial_state,
+                    account_id.clone(),
+                    public_key.clone(),
+                    &access_key,
+                );
+                initial_account.set_storage_usage(
+                    initial_account
+                        .storage_usage()
+                        .checked_add(
+                            public_key.try_to_vec().unwrap().len() as u64
+                                + access_key.try_to_vec().unwrap().len() as u64
+                                + 40, // storage_config.num_extra_bytes_record,
+                        )
+                        .unwrap(),
+                );
                 key_count += 1;
             }
             if has_contract {
-                let code = vec![1, 2, 3];
+                let code = vec![0; 100];
                 let code_hash = hash(&code);
                 set_code(
                     &mut initial_state,
                     account_id.clone(),
-                    &ContractCode::new(code, Some(code_hash)),
+                    &ContractCode::new(code.clone(), Some(code_hash)),
                 );
                 initial_account.set_code_hash(code_hash);
-                set_account(&mut initial_state, account_id.clone(), &initial_account);
-            }
-            if has_data {
-                set(
-                    &mut initial_state,
-                    TrieKey::ContractData { account_id, key: b"test".to_vec() },
-                    &[1, 2, 3, 4, 5],
+                initial_account.set_storage_usage(
+                    initial_account.storage_usage().checked_add(code.len() as u64).unwrap(),
                 );
             }
+            if has_data {
+                let key = b"test".to_vec();
+                let value = vec![0u8; 100];
+                set(
+                    &mut initial_state,
+                    TrieKey::ContractData { account_id: account_id.clone(), key: key.clone() },
+                    &value,
+                );
+                initial_account.set_storage_usage(
+                    initial_account
+                        .storage_usage()
+                        .checked_add(key.len() as u64 + value.len() as u64 + 40)
+                        .unwrap(),
+                );
+            }
+            set_account(&mut initial_state, account_id.clone(), &initial_account);
         }
         initial_state.commit(StateChangeCause::InitialState);
         let trie_changes = initial_state.finalize().unwrap().0;
@@ -745,8 +705,8 @@ mod tests {
         use crate::near_primitives::account::{
             AccessKeyPermission, Account, FunctionCallPermission,
         };
-        use crate::verifier::is_zero_balance_account;
         use crate::verifier::tests::{setup_accounts, TESTING_INIT_BALANCE};
+        use crate::verifier::{is_zero_balance_account, ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT};
         use near_primitives::account::AccessKey;
         use near_store::{get_account, TrieUpdate};
         use testlib::runtime_utils::{alice_account, bob_account};
@@ -755,8 +715,6 @@ mod tests {
             account_id: &AccountId,
             num_full_access_keys: u64,
             num_function_call_access_keys: u64,
-            has_contract_code: bool,
-            has_contract_data: bool,
         ) -> (Account, TrieUpdate) {
             let mut access_keys = vec![];
             for _ in 0..num_full_access_keys {
@@ -767,7 +725,7 @@ mod tests {
                     nonce: 0,
                     permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
                         allowance: Some(100),
-                        receiver_id: bob_account().into(),
+                        receiver_id: "a".repeat(64),
                         method_names: vec![],
                     }),
                 };
@@ -778,61 +736,49 @@ mod tests {
                 TESTING_INIT_BALANCE,
                 0,
                 access_keys,
-                has_contract_code,
-                has_contract_data,
+                false,
+                false,
             )]);
             let account = get_account(&state_update, account_id).unwrap().unwrap();
             (account, state_update)
         }
 
-        /// Testing all combination of access keys and contract code/data deployed in this test
-        /// to make sure that an account is zero balance only if it has <=2 full access keys and
-        /// <= function call access keys and doesn't have contract code or contract data
+        /// Testing all combination of access keys in this test to make sure that an account
+        /// is zero balance only if it uses <= `ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT` bytes in storage
         #[test]
-        fn test_zero_balance_account_with_keys_and_contract() {
+        fn test_zero_balance_account_with_keys() {
             for num_full_access_key in 0..10 {
                 for num_function_call_access_key in 0..10 {
-                    for i in 0..=1 {
-                        for j in 0..=1 {
-                            let account_id: AccountId = format!(
-                                "alice{}.near",
-                                num_full_access_key * 1000
-                                    + num_function_call_access_key * 100
-                                    + i * 10
-                                    + j
-                            )
-                            .parse()
-                            .unwrap();
-                            let has_contract_code = i == 0;
-                            let has_contract_data = j == 0;
-                            let (account, mut state_update) = set_up_test_account(
-                                &account_id,
-                                num_full_access_key,
-                                num_function_call_access_key,
-                                has_contract_code,
-                                has_contract_data,
-                            );
-                            let res =
-                                is_zero_balance_account(&account_id, &account, &mut state_update);
-                            if num_full_access_key <= 2
-                                && num_function_call_access_key <= 2
-                                && !has_contract_code
-                                && !has_contract_data
-                            {
-                                assert_eq!(res, Ok(true));
-                            } else {
-                                assert_eq!(res, Ok(false));
-                            }
-                        }
-                    }
+                    let account_id: AccountId = format!(
+                        "alice{}.near",
+                        num_full_access_key * 1000 + num_function_call_access_key
+                    )
+                    .parse()
+                    .unwrap();
+                    let (account, _) = set_up_test_account(
+                        &account_id,
+                        num_full_access_key,
+                        num_function_call_access_key,
+                    );
+                    let res = is_zero_balance_account(&account);
+                    assert_eq!(
+                        res,
+                        num_full_access_key * 82
+                            + num_function_call_access_key * 171
+                            + std::mem::size_of::<Account>() as u64
+                            <= ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT
+                    );
                 }
             }
         }
 
+        /// A single function call access key that is too large (due to too many method names)
         #[test]
         fn test_zero_balance_account_with_invalid_access_key() {
             let account_id = alice_account();
-            let (_, mut state_update, _) = setup_accounts(vec![(
+            let method_names =
+                (0..30).map(|i| format!("long_method_name_{}", i)).collect::<Vec<_>>();
+            let (_, state_update, _) = setup_accounts(vec![(
                 account_id.clone(),
                 0,
                 0,
@@ -841,17 +787,14 @@ mod tests {
                     permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
                         allowance: Some(100),
                         receiver_id: bob_account().into(),
-                        method_names: vec!["hello".to_string()],
+                        method_names: method_names,
                     }),
                 }],
                 false,
                 false,
             )]);
             let account = get_account(&state_update, &account_id).unwrap().unwrap();
-            assert_eq!(
-                is_zero_balance_account(&account_id, &account, &mut state_update),
-                Ok(false)
-            );
+            assert!(!is_zero_balance_account(&account));
         }
     }
 
@@ -1198,24 +1141,10 @@ mod tests {
             None,
             PROTOCOL_VERSION,
         );
-
-        #[cfg(not(feature = "protocol_feature_zero_balance_account"))]
-        assert_eq!(
-            res.expect_err("expected an error"),
-            RuntimeError::InvalidTxError(InvalidTxError::LackBalanceForState {
-                signer_id: alice_account(),
-                amount: Balance::from(std::mem::size_of::<Account>() as u64)
-                    * config.storage_amount_per_byte()
-                    - (initial_balance - transfer_amount)
-            })
-        );
-        #[cfg(feature = "protocol_feature_zero_balance_account")]
-        {
-            let verification_result = res.unwrap();
-            assert_eq!(verification_result.gas_burnt, 0);
-            assert_eq!(verification_result.gas_remaining, 0);
-            assert_eq!(verification_result.burnt_amount, 0);
-        }
+        let verification_result = res.unwrap();
+        assert_eq!(verification_result.gas_burnt, 0);
+        assert_eq!(verification_result.gas_remaining, 0);
+        assert_eq!(verification_result.burnt_amount, 0);
     }
 
     #[test]
@@ -1225,7 +1154,7 @@ mod tests {
         let initial_balance = 1_000_000_000;
         let transfer_amount = 950_000_000;
         let account_id = alice_account();
-        let access_keys = vec![AccessKey::full_access(); 3];
+        let access_keys = vec![AccessKey::full_access(); 10];
         let (signer, mut state_update, gas_price) = setup_accounts(vec![(
             account_id.clone(),
             initial_balance,
@@ -1252,13 +1181,13 @@ mod tests {
             PROTOCOL_VERSION,
         )
         .expect_err("expected an error");
+        let account = get_account(&state_update, &account_id).unwrap().unwrap();
 
         assert_eq!(
             res,
             RuntimeError::InvalidTxError(InvalidTxError::LackBalanceForState {
                 signer_id: account_id.clone(),
-                amount: Balance::from(std::mem::size_of::<Account>() as u64)
-                    * config.storage_amount_per_byte()
+                amount: Balance::from(account.storage_usage()) * config.storage_amount_per_byte()
                     - (initial_balance - transfer_amount)
             })
         );
@@ -1899,13 +1828,15 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     fn test_delegate_action_must_be_only_one() {
         let signed_delegate_action = SignedDelegateAction {
             delegate_action: DelegateAction {
                 sender_id: "bob.test.near".parse().unwrap(),
                 receiver_id: "token.test.near".parse().unwrap(),
-                actions: vec![NonDelegateAction(Action::CreateAccount(CreateAccountAction {}))],
+                actions: vec![NonDelegateAction::try_from(Action::CreateAccount(
+                    CreateAccountAction {},
+                ))
+                .unwrap()],
                 nonce: 19000001,
                 max_block_height: 57,
                 public_key: PublicKey::empty(KeyType::ED25519),

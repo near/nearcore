@@ -1,7 +1,6 @@
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(thiserror::Error, Debug, Serialize, Deserialize)]
+#[derive(thiserror::Error, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcBlockError {
     #[error("Block not found: {error_message}")]
@@ -18,13 +17,13 @@ pub enum RpcBlockError {
     InternalError { error_message: String },
 }
 
-#[derive(Debug, Serialize, Deserialize, arbitrary::Arbitrary)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, arbitrary::Arbitrary)]
 pub struct RpcBlockRequest {
     #[serde(flatten)]
     pub block_reference: near_primitives::types::BlockReference,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct RpcBlockResponse {
     #[serde(flatten)]
     pub block_view: near_primitives::views::BlockView,

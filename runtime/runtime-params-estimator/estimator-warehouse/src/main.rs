@@ -1,5 +1,4 @@
 use check::{check, CheckConfig};
-use clap::{Parser, Subcommand};
 use db::{Db, EstimationRow, ParameterRow};
 use estimate::{run_estimation, EstimateConfig};
 use import::ImportConfig;
@@ -23,7 +22,7 @@ struct CliArgs {
     db: PathBuf,
 }
 
-#[derive(Subcommand, Debug)]
+#[derive(clap::Subcommand, Debug)]
 enum SubCommand {
     /// Call runtime-params-estimator for all metrics and import the results.
     Estimate(EstimateConfig),
@@ -38,7 +37,7 @@ enum SubCommand {
 }
 
 fn main() -> anyhow::Result<()> {
-    let cli_args = CliArgs::parse();
+    let cli_args: CliArgs = clap::Parser::parse();
     let db = Db::open(&cli_args.db)?;
 
     match cli_args.cmd {

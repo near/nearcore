@@ -189,10 +189,7 @@ impl super::NetworkState {
             clock,
             accounts_data::LocalData {
                 signer: vc.signer.clone(),
-                data: Arc::new(AccountData {
-                    peer_id: self.config.node_id(),
-                    proxies: my_proxies.clone(),
-                }),
+                data: Arc::new(AccountData { peer_id: self.config.node_id(), proxies: my_proxies }),
             },
         );
         // Early exit in case this node is not a TIER1 node any more.

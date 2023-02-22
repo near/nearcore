@@ -1,28 +1,25 @@
-use borsh::{BorshDeserialize, BorshSerialize};
-use derive_more::{AsRef as DeriveAsRef, From as DeriveFrom};
-use once_cell::sync::Lazy;
-use serde::{Deserialize, Serialize};
-
-use std::sync::Arc;
-
-use near_crypto::PublicKey;
-
 use crate::account::{AccessKey, Account};
 use crate::challenge::ChallengesResult;
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
+use crate::receipt::Receipt;
 use crate::serialize::dec_format;
 use crate::trie_key::TrieKey;
-
-use crate::receipt::Receipt;
+use borsh::{BorshDeserialize, BorshSerialize};
+use derive_more::{AsRef as DeriveAsRef, From as DeriveFrom};
+use near_crypto::PublicKey;
 /// Reexport primitive types
 pub use near_primitives_core::types::*;
+use once_cell::sync::Lazy;
+use std::sync::Arc;
 
 /// Hash used by to store state root.
 pub type StateRoot = CryptoHash;
 
 /// Different types of finality.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, arbitrary::Arbitrary)]
+#[derive(
+    serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq, arbitrary::Arbitrary,
+)]
 pub enum Finality {
     #[serde(rename = "optimistic")]
     None,
@@ -38,14 +35,14 @@ impl Default for Finality {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct AccountWithPublicKey {
     pub account_id: AccountId,
     pub public_key: PublicKey,
 }
 
 /// Account info for validators
-#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Eq, PartialEq)]
 pub struct AccountInfo {
     pub account_id: AccountId,
     pub public_key: PublicKey,
@@ -417,7 +414,7 @@ impl StateChanges {
     }
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, serde::Serialize)]
 pub struct StateRootNode {
     /// In Nightshade, data is the serialized TrieNodeWithSize.
     ///
@@ -452,8 +449,8 @@ impl StateRootNode {
     DeriveAsRef,
     BorshSerialize,
     BorshDeserialize,
-    Serialize,
-    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
     arbitrary::Arbitrary,
 )]
 #[as_ref(forward)]
@@ -462,7 +459,7 @@ pub struct EpochId(pub CryptoHash);
 /// Stores validator and its stake for two consecutive epochs.
 /// It is necessary because the blocks on the epoch boundary need to contain approvals from both
 /// epochs.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct ApprovalStake {
     /// Account that stakes money.
     pub account_id: AccountId,
@@ -628,7 +625,7 @@ pub mod validator_stake {
 }
 
 /// Stores validator and its stake.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct ValidatorStakeV1 {
     /// Account that stakes money.
     pub account_id: AccountId,
@@ -774,7 +771,9 @@ pub struct ChunkExtraV1 {
     pub balance_burnt: Balance,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, arbitrary::Arbitrary)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, arbitrary::Arbitrary,
+)]
 #[serde(untagged)]
 pub enum BlockId {
     Height(BlockHeight),
@@ -783,14 +782,18 @@ pub enum BlockId {
 
 pub type MaybeBlockId = Option<BlockId>;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, arbitrary::Arbitrary)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, arbitrary::Arbitrary,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum SyncCheckpoint {
     Genesis,
     EarliestAvailable,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, arbitrary::Arbitrary)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, arbitrary::Arbitrary,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum BlockReference {
     BlockId(BlockId),
@@ -828,7 +831,7 @@ pub struct BlockChunkValidatorStats {
     pub chunk_stats: ValidatorStats,
 }
 
-#[derive(Deserialize, Debug, arbitrary::Arbitrary)]
+#[derive(serde::Deserialize, Debug, arbitrary::Arbitrary)]
 #[serde(rename_all = "snake_case")]
 pub enum EpochReference {
     EpochId(EpochId),
@@ -836,7 +839,7 @@ pub enum EpochReference {
     Latest,
 }
 
-impl Serialize for EpochReference {
+impl serde::Serialize for EpochReference {
     fn serialize<S>(&self, s: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -867,7 +870,16 @@ pub enum ValidatorInfoIdentifier {
 }
 
 /// Reasons for removing a validator from the validator set.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+)]
 pub enum ValidatorKickoutReason {
     /// Slashed validators are kicked out.
     Slashed,
@@ -888,7 +900,7 @@ pub enum ValidatorKickoutReason {
     DidNotGetASeat,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum TransactionOrReceiptId {
     Transaction { transaction_hash: CryptoHash, sender_id: AccountId },

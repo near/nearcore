@@ -1,9 +1,6 @@
 #![doc = include_str!("../README.md")]
 #![deny(clippy::integer_arithmetic)]
 
-pub use {tracing, tracing_appender, tracing_subscriber};
-
-use clap::Parser;
 pub use context::*;
 use near_crypto::PublicKey;
 use near_primitives_core::types::AccountId;
@@ -12,7 +9,6 @@ use opentelemetry::sdk::trace::{self, IdGenerator, Sampler, Tracer};
 use opentelemetry::sdk::Resource;
 use opentelemetry::KeyValue;
 use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
-use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::path::PathBuf;
 use tracing::level_filters::LevelFilter;
@@ -24,6 +20,7 @@ use tracing_subscriber::filter::{Filtered, ParseError};
 use tracing_subscriber::layer::{Layered, SubscriberExt};
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::{fmt, reload, EnvFilter, Layer, Registry};
+pub use {tracing, tracing_appender, tracing_subscriber};
 
 /// Custom tracing subscriber implementation that produces IO traces.
 pub mod context;
@@ -114,7 +111,7 @@ pub struct DefaultSubscriberGuard<S> {
 }
 
 // Doesn't define WARN and ERROR, because the highest verbosity of spans is INFO.
-#[derive(Copy, Clone, Debug, clap::ArgEnum, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, clap::ArgEnum, serde::Serialize, serde::Deserialize)]
 pub enum OpenTelemetryLevel {
     OFF,
     INFO,
@@ -130,7 +127,7 @@ impl Default for OpenTelemetryLevel {
 
 /// Configures exporter of span and trace data.
 // Currently empty, but more fields will be added in the future.
-#[derive(Debug, Default, Parser)]
+#[derive(Debug, Default, clap::Parser)]
 pub struct Options {
     /// Enables export of span data using opentelemetry exporters.
     #[clap(long, arg_enum, default_value = "off")]
@@ -353,11 +350,23 @@ pub fn default_subscriber(
     let subscriber = tracing_subscriber::registry();
     let subscriber = add_simple_log_layer(env_filter, make_writer, color_output, subscriber);
 
+    #[allow(unused_mut)]
+    let mut io_trace_guard = None;
+    #[cfg(feature = "io_trace")]
+    let subscriber = subscriber.with(options.record_io_trace.as_ref().map(|output_path| {
+        let (sub, guard) = make_io_tracing_layer(
+            std::fs::File::create(output_path)
+                .expect("unable to create or truncate IO trace output file"),
+        );
+        io_trace_guard = Some(guard);
+        sub
+    }));
+
     DefaultSubscriberGuard {
         subscriber: Some(subscriber),
         local_subscriber_guard: None,
         writer_guard: None,
-        io_trace_guard: None,
+        io_trace_guard,
     }
 }
 

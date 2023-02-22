@@ -700,14 +700,23 @@ def spin_up_node(config,
     return node
 
 
-def init_cluster(num_nodes, num_observers, num_shards, config,
-                 genesis_config_changes, client_config_changes):
+def init_cluster(num_nodes,
+                 num_observers,
+                 num_shards,
+                 config,
+                 genesis_config_changes,
+                 client_config_changes,
+                 prefix="test"):
     """
     Create cluster configuration
     """
     if 'local' not in config and 'nodes' in config:
         logger.critical(
             "Attempt to launch a regular test with a mocknet config")
+        sys.exit(1)
+
+    if not prefix.startswith("test"):
+        logger.critical(f"The prefix must begin with 'test'. prefix = {prefix}")
         sys.exit(1)
 
     is_local = config['local']
@@ -718,22 +727,24 @@ def init_cluster(num_nodes, num_observers, num_shards, config,
                 ("LOCAL" if is_local else "REMOTE", num_nodes + num_observers))
 
     binary_path = os.path.join(near_root, binary_name)
-    process = subprocess.Popen([
-        binary_path,
-        "localnet",
-        "--validators",
-        str(num_nodes),
-        "--non-validators",
-        str(num_observers),
-        "--shards",
-        str(num_shards),
-        "--tracked-shards",
-        "none",
-        "--prefix",
-        "test",
-    ],
-                               stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE)
+    process = subprocess.Popen(
+        [
+            binary_path,
+            "localnet",
+            "--validators",
+            str(num_nodes),
+            "--non-validators",
+            str(num_observers),
+            "--shards",
+            str(num_shards),
+            "--tracked-shards",
+            "none",
+            "--prefix",
+            prefix,
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
     out, err = process.communicate()
     assert 0 == process.returncode, err
 
