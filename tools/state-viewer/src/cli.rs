@@ -406,9 +406,15 @@ pub struct DumpStatePartsCmd {
     /// Shard id.
     #[clap(long)]
     shard_id: ShardId,
-    /// State part id. Leave empty to go through every part in the shard.
+    /// Dump a single part id.
     #[clap(long)]
     part_id: Option<u64>,
+    /// Dump part ids starting from this part.
+    #[clap(long)]
+    part_from: Option<u64>,
+    /// Dump part ids up to this part (exclusive).
+    #[clap(long)]
+    part_to: Option<u64>,
     /// Where to write the state parts to.
     #[clap(long)]
     root_dir: Option<PathBuf>,
@@ -425,7 +431,8 @@ impl DumpStatePartsCmd {
         dump_state_parts(
             self.epoch_selection,
             self.shard_id,
-            self.part_id,
+            self.part_from.or(self.part_id),
+            self.part_to.or(self.part_id.map(|x| x + 1)),
             home_dir,
             near_config,
             store,
