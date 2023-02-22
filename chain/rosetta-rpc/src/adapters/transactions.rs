@@ -75,7 +75,7 @@ impl ExecutionToReceipts {
             .flat_map(|(_k, v)| v)
             .collect();
 
-        let events = crate::adapters::events::collect_nep141_events(
+        let events = crate::adapters::nep141::collect_nep141_events(
             &execution_outcomes,
             &block.header,
             view_client_addr,
@@ -601,6 +601,9 @@ fn convert_fungible_token_balance_change_to_operations(
             currency: Currency {
                 symbol: fungible_token_event.symbol.clone(),
                 decimals: fungible_token_event.decimals,
+                metadata: Some(crate::models::CurrenyMetadata {
+                    contract_address: fungible_token_event.contract_account_id.clone(),
+                }),
             },
         }),
         type_: crate::models::OperationType::Transfer,

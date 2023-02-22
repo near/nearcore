@@ -4,7 +4,7 @@ use near_client::ViewClientActor;
 use near_o11y::WithSpanContextExt;
 use validated_operations::ValidatedOperation;
 
-mod events;
+pub(crate) mod nep141;
 mod transactions;
 mod validated_operations;
 
@@ -204,7 +204,7 @@ pub(crate) async fn collect_transactions(
 /// has only a single "account" field, so to indicate "sender" and "receiver"
 /// we use two operations (e.g. InitiateAddKey and AddKey).
 #[derive(Debug, Clone)]
-pub struct NearActions {
+pub struct  NearActions {
     pub sender_account_id: near_primitives::types::AccountId,
     pub receiver_account_id: near_primitives::types::AccountId,
     pub actions: Vec<near_primitives::transaction::Action>,

@@ -16,6 +16,8 @@ pub(crate) struct AccountBalanceRequest {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub block_identifier: Option<PartialBlockIdentifier>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub currencies: Option<Vec<Currency>>,
 }
 
 /// An AccountBalanceResponse is returned on the /account/balance endpoint. If
@@ -143,6 +145,9 @@ impl Amount {
         amount: crate::utils::SignedDiff<near_primitives::types::Balance>,
     ) -> Self {
         Self { value: amount, currency: Currency::near() }
+    }
+    pub(crate) fn from_fungible_token(amount: u128, currency: Currency) -> Self {
+        Self { value: crate::utils::SignedDiff::from(amount), currency }
     }
 }
 
@@ -468,21 +473,26 @@ pub(crate) struct Currency {
     /// to represent the value of some currency in atomic units that is not base
     /// 10.
     pub decimals: u32,
-    /* Rosetta Spec also optionally provides:
-     *
-     * /// Any additional information related to the currency itself.  For example,
-     * /// it would be useful to populate this object with the contract address of
-     * /// an ERC-20 token.
-     * #[serde(skip_serializing_if = "Option::is_none")]
-     * pub metadata: Option<serde_json::Value>, */
+
+    /// Any additional information related to the currency itself.  For example,
+    /// it would be useful to populate this object with the contract address of
+    /// an ERC-20 token.
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<CurrenyMetadata>,
+}
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
+
+pub(crate) struct CurrenyMetadata {
+    pub contract_address: String,
 }
 
 impl Currency {
     fn near() -> Self {
-        Self { symbol: String::from("NEAR"), decimals: 24 }
+        Self { symbol: String::from("NEAR"), decimals: 24, metadata: None }
     }
     fn usdc() -> Self {
-        Self { symbol: String::from("USDC"), decimals: 6 }
+        Self { symbol: String::from("USDC"), decimals: 6, metadata: None }
     }
 }
 
@@ -1336,4 +1346,9 @@ pub(crate) struct FTMetadataResponse {
     pub reference: Option<String>,
     pub reference_hash: Option<String>,
     pub decimals: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
+pub(crate) struct FTAccountBalanceResponse {
+    pub amount: u128,
 }

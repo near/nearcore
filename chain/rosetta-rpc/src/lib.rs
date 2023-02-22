@@ -13,12 +13,11 @@ use paperclip::actix::{
 };
 use strum::IntoEnumIterator;
 
+pub use config::RosettaRpcConfig;
 use near_chain_configs::Genesis;
 use near_client::{ClientActor, ViewClientActor};
 use near_o11y::WithSpanContextExt;
 use near_primitives::borsh::BorshDeserialize;
-
-pub use config::RosettaRpcConfig;
 
 mod adapters;
 mod config;
@@ -325,6 +324,7 @@ async fn account_balance(
         network_identifier,
         block_identifier,
         account_identifier,
+        currencies,
     }) = body;
 
     check_network_identifier(&client_addr, network_identifier).await?;
@@ -347,6 +347,7 @@ async fn account_balance(
             .runtime_config;
 
     let account_id_for_access_key = account_identifier.address.clone();
+    let account_identifier_for_ft = account_identifier.clone();
     let account_id = account_identifier.address.into();
     let (block_hash, block_height, account_info) =
         match crate::utils::query_account(block_id, account_id, &view_client_addr).await {
@@ -384,11 +385,32 @@ async fn account_balance(
     } else {
         None
     };
-    Ok(Json(models::AccountBalanceResponse {
-        block_identifier: models::BlockIdentifier::new(block_height, &block_hash),
-        balances: vec![models::Amount::from_yoctonear(balance)],
-        metadata: nonces,
-    }))
+    match currencies {
+        Some(currencies) => {
+            let mut balances: Vec<models::Amount> = Vec::default();
+            for currency in currencies {
+                let ft_balance = crate::adapters::nep141::get_fungible_token_balance_for_account(
+                    &view_client_addr,
+                    &block.header,
+                    &currency.clone().metadata.unwrap().contract_address.clone(),
+                    &account_identifier_for_ft,
+                )
+                .await?;
+                balances.push(models::Amount::from_fungible_token(ft_balance, currency))
+            }
+            balances.push(models::Amount::from_yoctonear(balance));
+            Ok(Json(models::AccountBalanceResponse {
+                block_identifier: models::BlockIdentifier::new(block_height, &block_hash),
+                balances,
+                metadata: nonces,
+            }))
+        }
+        None => Ok(Json(models::AccountBalanceResponse {
+            block_identifier: models::BlockIdentifier::new(block_height, &block_hash),
+            balances: vec![models::Amount::from_yoctonear(balance)],
+            metadata: nonces,
+        })),
+    }
 }
 
 #[api_v2_operation]
