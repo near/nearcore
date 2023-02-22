@@ -7,7 +7,7 @@ use near_store::cold_storage::{copy_all_data_to_cold, CopyAllDataToColdStatus};
 use near_store::{
     cold_storage::{update_cold_db, update_cold_head},
     db::ColdDB,
-    DBCol, NodeStorage, Storeg, FINAL_HEAD_KEY, HEAD_KEY, TAIL_KEY,
+    DBCol, NodeStorage, Store, FINAL_HEAD_KEY, HEAD_KEY, TAIL_KEY,
 };
 
 use crate::{metrics, NearConfig, NightshadeRuntime};
