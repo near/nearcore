@@ -7,7 +7,7 @@ use near_client::ConfigUpdater;
 use near_cold_store_tool::ColdStoreCommand;
 use near_dyn_configs::{UpdateableConfigLoader, UpdateableConfigLoaderError, UpdateableConfigs};
 #[cfg(feature = "protocol_feature_flat_state")]
-use near_flat_storage::flat::FlatStorageCommand;
+use near_flat_storage::commands::FlatStorageCommand;
 use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse;
 use near_mirror::MirrorCommand;
 use near_network::tcp;
