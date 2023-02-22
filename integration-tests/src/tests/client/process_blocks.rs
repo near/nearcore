@@ -75,7 +75,6 @@ use near_primitives::views::{
     BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
 };
 use near_store::cold_storage::{update_cold_db, update_cold_head};
-use near_store::db::TestDB;
 use near_store::metadata::DbKind;
 use near_store::metadata::DB_VERSION;
 use near_store::test_utils::create_test_node_storage_with_cold;
@@ -1579,7 +1578,7 @@ fn test_archival_save_trie_changes() {
 }
 
 fn test_archival_gc_common(
-    storage: NodeStorage<TestDB>,
+    storage: NodeStorage,
     epoch_length: u64,
     max_height: BlockHeight,
     max_cold_head_height: BlockHeight,
