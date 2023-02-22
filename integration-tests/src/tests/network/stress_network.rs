@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use actix::{Actor, AsyncContext, System};
 use futures::FutureExt;
+use near_async::messaging::Sender;
 use tracing::info;
 
 use near_actix_test_utils::run_actix;
@@ -29,7 +30,7 @@ fn make_peer_manager(
         near_store::db::TestDB::new(),
         config,
         Arc::new(near_network::client::Noop),
-        Arc::new(near_network::client::Noop),
+        Sender::noop(),
         GenesisId::default(),
     )
     .unwrap()
@@ -69,7 +70,7 @@ fn stress_test() {
             .map(|ix| {
                 Arc::new(make_peer_manager(
                     format!("test{}", ix).as_str(),
-                    addrs[ix].clone(),
+                    addrs[ix],
                     boot_nodes.iter().map(|(acc, addr)| (acc.as_str(), *addr)).collect(),
                 ))
             })
@@ -124,7 +125,7 @@ fn stress_test() {
 
                     pms[0] = Arc::new(make_peer_manager(
                         "test0",
-                        addrs[0].clone(),
+                        addrs[0],
                         boot_nodes.iter().map(|(acc, addr)| (acc.as_str(), *addr)).collect(),
                     ));
 

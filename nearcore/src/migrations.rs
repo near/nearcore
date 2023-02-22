@@ -5,15 +5,11 @@ use near_primitives::types::Gas;
 use near_primitives::utils::index_to_bytes;
 use near_store::metadata::{DbVersion, DB_VERSION};
 use near_store::migrations::BatchedStoreUpdate;
-use near_store::{DBCol, NodeStorage, Temperature};
+use near_store::{DBCol, Store};
 
 /// Fix an issue with block ordinal (#5761)
 // This migration takes at least 3 hours to complete on mainnet
-pub fn migrate_30_to_31(
-    storage: &NodeStorage,
-    near_config: &crate::NearConfig,
-) -> anyhow::Result<()> {
-    let store = storage.get_store(Temperature::Hot);
+pub fn migrate_30_to_31(store: &Store, near_config: &crate::NearConfig) -> anyhow::Result<()> {
     if near_config.client_config.archive && &near_config.genesis.config.chain_id == "mainnet" {
         do_migrate_30_to_31(&store, &near_config.genesis.config)?;
     }
@@ -24,7 +20,7 @@ pub fn migrate_30_to_31(
 ///
 /// Recomputes block ordinal due to a bug fixed in #5761.
 pub fn do_migrate_30_to_31(
-    store: &near_store::Store,
+    store: &Store,
     genesis_config: &near_chain_configs::GenesisConfig,
 ) -> anyhow::Result<()> {
     let genesis_height = genesis_config.genesis_height;
@@ -136,7 +132,7 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
         }
     }
 
-    fn migrate(&self, storage: &NodeStorage, version: DbVersion) -> anyhow::Result<()> {
+    fn migrate(&self, store: &Store, version: DbVersion) -> anyhow::Result<()> {
         match version {
             0..=26 => unreachable!(),
             27 => {
@@ -149,13 +145,13 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
                 // don’t do anything here.
                 Ok(())
             }
-            28 => near_store::migrations::migrate_28_to_29(storage),
-            29 => near_store::migrations::migrate_29_to_30(storage),
-            30 => migrate_30_to_31(storage, &self.config),
-            31 => near_store::migrations::migrate_31_to_32(storage),
-            32 => near_store::migrations::migrate_32_to_33(storage),
+            28 => near_store::migrations::migrate_28_to_29(store),
+            29 => near_store::migrations::migrate_29_to_30(store),
+            30 => migrate_30_to_31(store, &self.config),
+            31 => near_store::migrations::migrate_31_to_32(store),
+            32 => near_store::migrations::migrate_32_to_33(store),
             33 => {
-                near_store::migrations::migrate_33_to_34(storage, self.config.client_config.archive)
+                near_store::migrations::migrate_33_to_34(store, self.config.client_config.archive)
             }
             #[cfg(feature = "protocol_feature_flat_state")]
             34 => {

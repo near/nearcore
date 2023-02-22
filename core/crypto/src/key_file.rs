@@ -1,13 +1,11 @@
-use serde::{Deserialize, Serialize};
+use crate::{PublicKey, SecretKey};
+use near_account_id::AccountId;
 use std::fs::File;
 use std::io;
 use std::io::{Read, Write};
 use std::path::Path;
 
-use crate::{PublicKey, SecretKey};
-use near_account_id::AccountId;
-
-#[derive(Serialize, Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct KeyFile {
     pub account_id: AccountId,
     pub public_key: PublicKey,

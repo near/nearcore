@@ -76,7 +76,7 @@ async fn test_peer_communication(
 
     tracing::info!(target:"test","BlockRequest");
     let mut events = inbound.events.from_now();
-    let want = PeerMessage::BlockRequest(chain.blocks[5].hash().clone());
+    let want = PeerMessage::BlockRequest(*chain.blocks[5].hash());
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
@@ -88,8 +88,7 @@ async fn test_peer_communication(
 
     tracing::info!(target:"test","BlockHeadersRequest");
     let mut events = inbound.events.from_now();
-    let want =
-        PeerMessage::BlockHeadersRequest(chain.blocks.iter().map(|b| b.hash().clone()).collect());
+    let want = PeerMessage::BlockHeadersRequest(chain.blocks.iter().map(|b| *b.hash()).collect());
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
@@ -168,7 +167,7 @@ async fn peer_communication() -> anyhow::Result<()> {
                     continue;
                 }
             }
-            test_peer_communication(outbound.clone(), inbound.clone())
+            test_peer_communication(*outbound, *inbound)
                 .await
                 .with_context(|| format!("(outbound={outbound:?},inbound={inbound:?})"))?;
         }
@@ -258,7 +257,7 @@ async fn handshake() -> anyhow::Result<()> {
                     continue;
                 }
             }
-            test_handshake(outbound.clone(), inbound.clone()).await;
+            test_handshake(*outbound, *inbound).await;
         }
     }
     Ok(())

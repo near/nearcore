@@ -221,7 +221,7 @@ fn test_state_request() {
             false,
             true,
             false,
-            Arc::new(MockPeerManagerAdapter::default()),
+            Arc::new(MockPeerManagerAdapter::default()).into(),
             100,
             Utc::now(),
         );

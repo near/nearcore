@@ -1,6 +1,5 @@
 #[cfg(unix)]
 use anyhow::Context;
-use clap::{Args, Parser};
 use near_amend_genesis::AmendGenesisCommand;
 use near_chain_configs::GenesisValidationMode;
 use near_client::ConfigUpdater;
@@ -35,7 +34,7 @@ use tokio::sync::broadcast::Receiver;
 use tracing::{debug, error, info, warn};
 
 /// NEAR Protocol Node
-#[derive(Parser)]
+#[derive(clap::Parser)]
 #[clap(version = crate::NEARD_VERSION_STRING.as_str())]
 #[clap(subcommand_required = true, arg_required_else_help = true)]
 pub(super) struct NeardCmd {
@@ -47,7 +46,7 @@ pub(super) struct NeardCmd {
 
 impl NeardCmd {
     pub(super) fn parse_and_run() -> anyhow::Result<()> {
-        let neard_cmd = Self::parse();
+        let neard_cmd: Self = clap::Parser::parse();
 
         // Enable logging of the current thread.
         let _subscriber_guard = default_subscriber(
@@ -114,7 +113,7 @@ impl NeardCmd {
                 cmd.run()?;
             }
             NeardSubCommand::ColdStore(cmd) => {
-                cmd.run(&home_dir);
+                cmd.run(&home_dir)?;
             }
             NeardSubCommand::StateParts(cmd) => {
                 cmd.run()?;
@@ -123,12 +122,15 @@ impl NeardCmd {
             NeardSubCommand::FlatStorage(cmd) => {
                 cmd.run(&home_dir)?;
             }
+            NeardSubCommand::ValidateConfig(cmd) => {
+                cmd.run(&home_dir)?;
+            }
         };
         Ok(())
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub(super) struct StateViewerCommand {
     /// By default state viewer opens rocks DB in the read only mode, which allows it to run
     /// multiple instances in parallel and be sure that no unintended changes get written to the DB.
@@ -143,7 +145,7 @@ pub(super) struct StateViewerCommand {
     subcmd: StateViewerSubCommand,
 }
 
-#[derive(Parser, Debug)]
+#[derive(clap::Parser, Debug)]
 struct NeardOpts {
     /// Sets verbose logging for the given target, or for all targets if no
     /// target is given.
@@ -152,7 +154,7 @@ struct NeardOpts {
     /// Directory for config and data.
     #[clap(long, parse(from_os_str), default_value_os = crate::DEFAULT_HOME.as_os_str())]
     home: PathBuf,
-    /// Skips consistency checks of the 'genesis.json' file upon startup.
+    /// Skips consistency checks of genesis.json (and records.json) upon startup.
     /// Let's you start `neard` slightly faster.
     #[clap(long)]
     unsafe_fast_startup: bool,
@@ -171,7 +173,7 @@ impl NeardOpts {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub(super) enum NeardSubCommand {
     /// Initializes NEAR configuration
     Init(InitCmd),
@@ -236,9 +238,12 @@ pub(super) enum NeardSubCommand {
     #[cfg(feature = "protocol_feature_flat_state")]
     /// Flat storage related tooling.
     FlatStorage(FlatStorageCommand),
+
+    /// validate config files including genesis.json and config.json
+    ValidateConfig(ValidateConfigCommand),
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub(super) struct InitCmd {
     /// Download the verified NEAR genesis file automatically.
     #[clap(long)]
@@ -348,7 +353,7 @@ impl InitCmd {
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub(super) struct RunCmd {
     /// Configure node to run as archival node which prevents deletion of old
     /// blocks.  This is a persistent setting; once client is started as
@@ -358,6 +363,9 @@ pub(super) struct RunCmd {
     /// Set the boot nodes to bootstrap network from.
     #[clap(long)]
     boot_nodes: Option<String>,
+    /// Whether to re-establish connections from the ConnectionStore on startup
+    #[clap(long)]
+    connect_to_reliable_peers_on_startup: Option<bool>,
     /// Minimum number of peers to start syncing/producing blocks
     #[clap(long)]
     min_peers: Option<usize>,
@@ -412,6 +420,12 @@ impl RunCmd {
         // Override some parameters from command line.
         if let Some(produce_empty_blocks) = self.produce_empty_blocks {
             near_config.client_config.produce_empty_blocks = produce_empty_blocks;
+        }
+        if let Some(connect_to_reliable_peers_on_startup) =
+            self.connect_to_reliable_peers_on_startup
+        {
+            near_config.network_config.connect_to_reliable_peers_on_startup =
+                connect_to_reliable_peers_on_startup;
         }
         if let Some(boot_nodes) = self.boot_nodes {
             if !boot_nodes.is_empty() {
@@ -552,7 +566,7 @@ async fn wait_for_interrupt_signal(_home_dir: &Path, rx_crash: &mut Receiver<()>
     }
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub(super) struct LocalnetCmd {
     /// Number of non-validators to initialize the localnet with.
     #[clap(short = 'n', long, alias = "n", default_value = "0")]
@@ -610,7 +624,7 @@ impl LocalnetCmd {
     }
 }
 
-#[derive(Args)]
+#[derive(clap::Args)]
 #[clap(arg_required_else_help = true)]
 pub(super) struct RecompressStorageSubCommand {
     /// Directory where to save new storage.
@@ -659,7 +673,7 @@ pub enum VerifyProofError {
     InvalidBlockHashProof,
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct VerifyProofSubCommand {
     #[clap(long)]
     json_file_path: String,
@@ -688,7 +702,7 @@ impl VerifyProofSubCommand {
             "Verifying light client proof for txn id: {:?}",
             light_client_proof.outcome_proof.id
         );
-        let outcome_hashes = light_client_proof.outcome_proof.clone().to_hashes();
+        let outcome_hashes = light_client_proof.outcome_proof.to_hashes();
         println!("Hashes of the outcome are: {:?}", outcome_hashes);
 
         let outcome_hash = CryptoHash::hash_borsh(&outcome_hashes);
@@ -767,9 +781,20 @@ fn make_env_filter(verbose: Option<&str>) -> Result<EnvFilter, BuildEnvFilterErr
     Ok(env_filter)
 }
 
+#[derive(clap::Parser)]
+pub(super) struct ValidateConfigCommand {}
+
+impl ValidateConfigCommand {
+    pub(super) fn run(&self, home_dir: &Path) -> anyhow::Result<()> {
+        nearcore::config::load_config(&home_dir, GenesisValidationMode::Full)?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{CryptoHash, NeardCmd, NeardSubCommand, VerifyProofError, VerifyProofSubCommand};
+    use clap::Parser;
     use std::str::FromStr;
 
     #[test]

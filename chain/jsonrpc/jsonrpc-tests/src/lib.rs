@@ -122,9 +122,9 @@ where
                         ))
                     })
                 }),
-                _ => Err(near_jsonrpc_primitives::errors::RpcError::parse_error(format!(
-                    "Failed to parse JSON RPC response"
-                ))),
+                _ => Err(near_jsonrpc_primitives::errors::RpcError::parse_error(
+                    "Failed to parse JSON RPC response".to_string(),
+                )),
             })
         })
         .boxed_local()

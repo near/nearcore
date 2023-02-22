@@ -6,29 +6,28 @@ use near_jsonrpc_primitives::types::transactions::{
     RpcBroadcastTransactionRequest, RpcTransactionError, RpcTransactionResponse,
     RpcTransactionStatusCommonRequest, TransactionInfo,
 };
-use near_primitives::hash::CryptoHash;
-use near_primitives::types::AccountId;
+use near_primitives::borsh::BorshDeserialize;
+use near_primitives::serialize::Base64Bytes;
+use near_primitives::transaction::SignedTransaction;
 use near_primitives::views::FinalExecutionOutcomeViewEnum;
 
-use super::{parse_params, parse_signed_transaction, RpcFrom, RpcRequest};
+use super::{Params, RpcFrom, RpcRequest};
 
 impl RpcRequest for RpcBroadcastTransactionRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {
-        let signed_transaction = parse_signed_transaction(value)?;
+        let signed_transaction = decode_signed_transaction(value)?;
         Ok(Self { signed_transaction })
     }
 }
 
 impl RpcRequest for RpcTransactionStatusCommonRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {
-        if let Ok((hash, account_id)) = parse_params::<(CryptoHash, AccountId)>(value.clone()) {
-            let transaction_info = TransactionInfo::TransactionId { hash, account_id };
-            Ok(Self { transaction_info })
-        } else {
-            let signed_transaction = parse_signed_transaction(value)?;
-            let transaction_info = TransactionInfo::Transaction(signed_transaction);
-            Ok(Self { transaction_info })
-        }
+        let transaction_info = Params::<TransactionInfo>::new(value)
+            .try_pair(|hash, account_id| Ok(TransactionInfo::TransactionId { hash, account_id }))
+            .unwrap_or_else(|value| {
+                decode_signed_transaction(value).map(TransactionInfo::Transaction)
+            })?;
+        Ok(Self { transaction_info })
     }
 }
 
@@ -57,4 +56,10 @@ impl RpcFrom<FinalExecutionOutcomeViewEnum> for RpcTransactionResponse {
     fn rpc_from(final_execution_outcome: FinalExecutionOutcomeViewEnum) -> Self {
         Self { final_execution_outcome }
     }
+}
+
+fn decode_signed_transaction(value: Value) -> Result<SignedTransaction, RpcParseError> {
+    let (bytes,) = Params::<(Base64Bytes,)>::parse(value)?;
+    SignedTransaction::try_from_slice(&bytes.0)
+        .map_err(|err| RpcParseError(format!("Failed to decode transaction: {}", err)))
 }
