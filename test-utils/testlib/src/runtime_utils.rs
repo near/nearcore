@@ -52,18 +52,18 @@ pub fn add_contract(genesis: &mut Genesis, account_id: &AccountId, code: Vec<u8>
     records.push(StateRecord::Contract { account_id: account_id.clone(), code });
 }
 
-/// Add an account with a specified access key to the genesis state records.
+/// Add an account with a specified access key & balance to the genesis state records.
 pub fn add_account_with_access_key(
     genesis: &mut Genesis,
-    sender: &AccountId,
+    account_id: AccountId,
     balance: Balance,
     public_key: PublicKey,
     access_key: AccessKey,
 ) {
     let records = genesis.force_read_records().as_mut();
     records.push(StateRecord::Account {
-        account_id: sender.clone(),
+        account_id: account_id.clone(),
         account: Account::new(balance, 0, Default::default(), 0),
     });
-    records.push(StateRecord::AccessKey { account_id: sender.clone(), public_key, access_key });
+    records.push(StateRecord::AccessKey { account_id, public_key, access_key });
 }

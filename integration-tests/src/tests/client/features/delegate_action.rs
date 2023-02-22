@@ -729,7 +729,7 @@ fn setup_with_access_key(
     let access_key = fn_access_key(allowance, receiver.to_string(), vec![method.to_owned()]);
     let mut genesis = Genesis::test(vec![user.clone(), receiver.clone()], 3);
     add_test_contract(&mut genesis, &receiver);
-    add_account_with_access_key(&mut genesis, &sender, NEAR_BASE, public_key, access_key);
+    add_account_with_access_key(&mut genesis, sender.clone(), NEAR_BASE, public_key, access_key);
     RuntimeNode::new_from_genesis(user, genesis)
 }
 
@@ -738,13 +738,12 @@ fn fn_access_key(
     receiver_id: String,
     method_names: Vec<String>,
 ) -> AccessKey {
-    let access_key = AccessKey {
+    AccessKey {
         nonce: 0,
         permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
             allowance: Some(initial_allowance),
             receiver_id,
             method_names,
         }),
-    };
-    access_key
+    }
 }
