@@ -8,6 +8,8 @@ pub(crate) mod rocksdb;
 mod slice;
 mod testdb;
 
+mod database_tests;
+
 pub use self::colddb::ColdDB;
 pub use self::rocksdb::RocksDB;
 pub use self::slice::DBSlice;
@@ -134,6 +136,18 @@ pub trait Database: Sync + Send {
     /// keys which do not start with given `key_prefix` (but faster).  The items
     /// are returned in lexicographical order sorted by the key.
     fn iter_prefix<'a>(&'a self, col: DBCol, key_prefix: &'a [u8]) -> DBIterator<'a>;
+
+    /// Iterate over items in given column whose keys are between [lower_bound, upper_bound)
+    ///
+    /// Upper_bound key is not included.
+    /// If lower_bound is None - the iterator starts from the first key.
+    /// If upper_bound is None - iterator continues to the last key.
+    fn iter_range<'a>(
+        &'a self,
+        col: DBCol,
+        lower_bound: Option<&'a [u8]>,
+        upper_bound: Option<&'a [u8]>,
+    ) -> DBIterator<'a>;
 
     /// Iterate over items in given column bypassing reference count decoding if
     /// any.

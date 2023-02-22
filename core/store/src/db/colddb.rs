@@ -173,6 +173,17 @@ impl<D: Database> super::Database for ColdDB<D> {
         unreachable!();
     }
 
+    // Unimplemented: always panics.
+    fn iter_range<'a>(
+        &'a self,
+        _col: DBCol,
+        _lower_bound: Option<&'a [u8]>,
+        _upper_bound: Option<&'a [u8]>,
+    ) -> DBIterator<'a> {
+        // We should never try to iterate over cold storage.
+        unreachable!();
+    }
+
     /// Atomically applies operations in given transaction.
     ///
     /// If debug assertions are enabled, panics if there are any delete
