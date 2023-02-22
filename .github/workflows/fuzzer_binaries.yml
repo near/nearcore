@@ -14,6 +14,11 @@ jobs:
       id-token: "write"
 
     steps:
+      - name: Set swap space
+        uses: pierotofy/set-swap-space@master
+        with:
+          swap-size-gb: 10
+
       - id: "auth"
         uses: "google-github-actions/auth@v1"
         with:
