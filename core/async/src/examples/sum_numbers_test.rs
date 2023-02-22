@@ -4,7 +4,10 @@ use derive_enum_from_into::{EnumFrom, EnumTryInto};
 
 use crate::{
     messaging::{CanSend, IntoSender},
-    test_loop::{CaptureEvents, LoopEventHandler, TestLoopBuilder, TryIntoOrSelf},
+    test_loop::{
+        event_handler::{capture_events, LoopEventHandler},
+        TestLoopBuilder,
+    },
 };
 
 use super::sum_numbers::{ReportSumMsg, SumNumbersComponent, SumRequest};
@@ -26,17 +29,14 @@ enum TestEvent {
 // be reused for any test that needs to send messages to this component.
 pub struct ForwardSumRequest;
 
-impl<Data: AsMut<SumNumbersComponent>, Event: TryIntoOrSelf<SumRequest>>
-    LoopEventHandler<Data, Event> for ForwardSumRequest
-{
-    fn handle(&mut self, event: Event, data: &mut Data) -> Option<Event> {
-        match event.try_into_or_self() {
-            Ok(request) => {
-                data.as_mut().handle(request);
-                None
-            }
-            Err(event) => Some(event),
-        }
+impl LoopEventHandler<SumNumbersComponent, SumRequest> for ForwardSumRequest {
+    fn handle(
+        &mut self,
+        event: SumRequest,
+        data: &mut SumNumbersComponent,
+    ) -> Result<(), SumRequest> {
+        data.handle(event);
+        Ok(())
     }
 }
 
@@ -48,8 +48,8 @@ fn test_simple() {
         TestData { summer: SumNumbersComponent::new(builder.sender().into_sender()), sums: vec![] };
     let sender = builder.sender();
     let mut test = builder.build(data);
-    test.register_handler(ForwardSumRequest);
-    test.register_handler(CaptureEvents::<ReportSumMsg>::new());
+    test.register_handler(ForwardSumRequest.widen());
+    test.register_handler(capture_events::<ReportSumMsg>().widen());
 
     sender.send(TestEvent::Request(SumRequest::Number(1)));
     sender.send(TestEvent::Request(SumRequest::Number(2)));
