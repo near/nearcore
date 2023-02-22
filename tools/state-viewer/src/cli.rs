@@ -148,7 +148,7 @@ pub struct ApplyCmd {
 
 impl ApplyCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
-        apply_block_at_height(self.height, self.shard_id, home_dir, near_config, store);
+        apply_block_at_height(self.height, self.shard_id, home_dir, near_config, store).unwrap();
     }
 }
 
