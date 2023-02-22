@@ -22,10 +22,10 @@ impl ColdStoreLoopHandle {
         self.keep_going.store(false, std::sync::atomic::Ordering::Relaxed);
         match self.join_handle.join() {
             Ok(_) => {
-                tracing::debug!(target:"cold_store", "Joined the cold store loop thread");
+                tracing::debug!(target : "cold_store", "Joined the cold store loop thread");
             }
             Err(_) => {
-                tracing::error!(target:"cold_store", "Failed to join the cold store loop thread");
+                tracing::error!(target : "cold_store", "Failed to join the cold store loop thread");
             }
         }
     }
@@ -61,7 +61,7 @@ fn cold_store_copy(
     let hot_final_head = hot_store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?;
     let hot_final_head_height = hot_final_head.map_or(genesis_height, |tip| tip.height);
 
-    tracing::debug!(target: "cold_store", "cold store loop, cold_head {}, hot_final_head {}", cold_head_height, hot_final_head_height);
+    tracing::debug!(target : "cold_store", "cold store loop, cold_head {}, hot_final_head {}", cold_head_height, hot_final_head_height);
 
     if cold_head_height > hot_final_head_height {
         return Err(anyhow::anyhow!(
@@ -131,11 +131,11 @@ fn cold_store_loop(
     genesis_height: BlockHeight,
     runtime: Arc<NightshadeRuntime>,
 ) {
-    tracing::info!(target: "cold_store", "starting cold store loop");
+    tracing::info!(target : "cold_store", "Starting the cold store loop");
 
     loop {
         if !keep_going.load(std::sync::atomic::Ordering::Relaxed) {
-            tracing::debug!(target: "cold_store", "stopping the cold store loop");
+            tracing::debug!(target : "cold_store", "Stopping the cold store loop");
             break;
         }
         let result = cold_store_copy(&hot_store, &cold_store, &cold_db, genesis_height, &runtime);
@@ -185,14 +185,14 @@ pub fn spawn_cold_store_loop(
     let cold_store = match storage.get_cold_store() {
         Some(cold_store) => cold_store,
         None => {
-            tracing::debug!(target:"cold_store", "Not spawning cold store loop because cold store is not configured");
+            tracing::debug!(target : "cold_store", "Not spawning the cold store loop because cold store is not configured");
             return Ok(None);
         }
     };
     let cold_db = match storage.cold_db() {
         Some(cold_db) => cold_db.clone(),
         None => {
-            tracing::debug!(target:"cold_store", "Not spawning cold store loop because cold store is not configured");
+            tracing::debug!(target : "cold_store", "Not spawning the cold store loop because cold store is not configured");
             return Ok(None);
         }
     };
@@ -201,7 +201,7 @@ pub fn spawn_cold_store_loop(
     let keep_going = Arc::new(AtomicBool::new(true));
     let keep_going_clone = keep_going.clone();
 
-    tracing::info!(target:"cold_store", "Spawning cold store loop");
+    tracing::info!(target : "cold_store", "Spawning the cold store loop");
     let join_handle =
         std::thread::Builder::new().name("cold_store_loop".to_string()).spawn(move || {
             cold_store_loop(
