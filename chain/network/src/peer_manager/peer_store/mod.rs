@@ -169,13 +169,10 @@ impl Inner {
         peer_addr: SocketAddr,
         trust_level: TrustLevel,
     ) {
-        let mut touch_other = None;
-
         // If there is a peer associated with current address remove the address from it.
         if let Some(verified_peer) = self.addr_peers.remove(&peer_addr) {
             self.peer_states.entry(verified_peer.peer_id).and_modify(|peer_state| {
                 peer_state.peer_info.addr = None;
-                touch_other = Some(peer_state.peer_info.id.clone());
             });
         }
 
