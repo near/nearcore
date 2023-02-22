@@ -1448,6 +1448,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "crossterm"
+version = "0.25.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e64e6c0fbe2c17357405f7c758c1ef960fce08bdfb2c03d88d2a18d7e09c4b67"
+dependencies = [
+ "bitflags",
+ "crossterm_winapi",
+ "libc",
+ "mio",
+ "parking_lot 0.12.1",
+ "signal-hook",
+ "signal-hook-mio",
+ "winapi",
+]
+
+[[package]]
+name = "crossterm_winapi"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2ae1b35a484aa10e07fe0638d02301c5ad24de82d310ccbd2f3693da5f09bf1c"
+dependencies = [
+ "winapi",
+]
+
+[[package]]
 name = "crunchy"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3321,6 +3346,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-flat-storage"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "borsh 0.10.2",
+ "clap 3.1.18",
+ "near-chain",
+ "near-chain-configs",
+ "near-epoch-manager",
+ "near-primitives",
+ "near-store",
+ "nearcore",
+ "rayon",
+ "tqdm",
+]
+
+[[package]]
 name = "near-indexer"
 version = "0.0.0"
 dependencies = [
@@ -4025,6 +4067,7 @@ dependencies = [
  "near-config-utils",
  "near-crypto",
  "near-dyn-configs",
+ "near-flat-storage",
  "near-jsonrpc-primitives",
  "near-mirror",
  "near-network",
@@ -5713,6 +5756,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "43b2853a4d09f215c24cc5489c992ce46052d359b5109343cbafbf26bc62f8a3"
 
 [[package]]
+name = "signal-hook"
+version = "0.3.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a253b5e89e2698464fc26b545c9edceb338e18a89effeeecfea192c3025be29d"
+dependencies = [
+ "libc",
+ "signal-hook-registry",
+]
+
+[[package]]
+name = "signal-hook-mio"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "29ad2e15f37ec9a6cc544097b78a1ec90001e9f71b81338ca39f430adaca99af"
+dependencies = [
+ "libc",
+ "mio",
+ "signal-hook",
+]
+
+[[package]]
 name = "signal-hook-registry"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6369,6 +6433,15 @@ name = "tower-service"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "360dfd1d6d30e05fda32ace2c8c70e9c0a9da713275777f5a4dbb8a1893930c6"
+
+[[package]]
+name = "tqdm"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6f056dcbe6bffd4595b23fba18affc5bd8c36ebd3199a112b1046f14f57b7323"
+dependencies = [
+ "crossterm",
+]
 
 [[package]]
 name = "tracing"

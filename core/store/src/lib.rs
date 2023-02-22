@@ -316,6 +316,16 @@ impl Store {
         self.storage.iter_prefix(column, key_prefix)
     }
 
+    /// Iterates over a range of keys. Upper bound key is not included.
+    pub fn iter_range<'a>(
+        &'a self,
+        col: DBCol,
+        lower_bound: Option<&'a [u8]>,
+        upper_bound: Option<&'a [u8]>,
+    ) -> DBIterator<'a> {
+        self.storage.iter_range(col, lower_bound, upper_bound)
+    }
+
     pub fn iter_prefix_ser<'a, T: BorshDeserialize>(
         &'a self,
         column: DBCol,
