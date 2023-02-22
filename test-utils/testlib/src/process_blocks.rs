@@ -4,6 +4,12 @@ use std::sync::Arc;
 
 pub fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
     let chunk_headers = vec![prev_block.chunks()[0].clone()];
+    let mut balance_burnt = 0;
+    for chunk in block.chunks().iter() {
+        if chunk.height_included() == block.header().height() {
+            balance_burnt += chunk.balance_burnt();
+        }
+    }
     block.set_chunks(chunk_headers.clone());
     match block.mut_header() {
         BlockHeader::BlockHeaderV1(header) => {
@@ -14,8 +20,10 @@ pub fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
             header.inner_rest.chunk_receipts_root =
                 Block::compute_chunk_receipts_root(&chunk_headers);
             header.inner_lite.prev_state_root = Block::compute_state_root(&chunk_headers);
+            header.inner_lite.outcome_root = Block::compute_outcome_root(&chunk_headers);
             header.inner_rest.chunk_mask = vec![false];
             header.inner_rest.gas_price = prev_block.header().gas_price();
+            header.inner_rest.total_supply += balance_burnt;
         }
         BlockHeader::BlockHeaderV2(header) => {
             let header = Arc::make_mut(header);
@@ -25,8 +33,10 @@ pub fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
             header.inner_rest.chunk_receipts_root =
                 Block::compute_chunk_receipts_root(&chunk_headers);
             header.inner_lite.prev_state_root = Block::compute_state_root(&chunk_headers);
+            header.inner_lite.outcome_root = Block::compute_outcome_root(&chunk_headers);
             header.inner_rest.chunk_mask = vec![false];
             header.inner_rest.gas_price = prev_block.header().gas_price();
+            header.inner_rest.total_supply += balance_burnt;
         }
         BlockHeader::BlockHeaderV3(header) => {
             let header = Arc::make_mut(header);
@@ -36,8 +46,10 @@ pub fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
             header.inner_rest.chunk_receipts_root =
                 Block::compute_chunk_receipts_root(&chunk_headers);
             header.inner_lite.prev_state_root = Block::compute_state_root(&chunk_headers);
+            header.inner_lite.outcome_root = Block::compute_outcome_root(&chunk_headers);
             header.inner_rest.chunk_mask = vec![false];
             header.inner_rest.gas_price = prev_block.header().gas_price();
+            header.inner_rest.total_supply += balance_burnt;
         }
     }
     let validator_signer = create_test_signer("test0");

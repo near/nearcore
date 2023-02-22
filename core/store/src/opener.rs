@@ -39,7 +39,7 @@ pub enum StoreOpenerError {
     /// Specifically, this happens if node is running with a single database and
     /// its kind is not RPC or Archive; or it’s running with two databases and
     /// their types aren’t Hot and Cold respectively.
-    #[error("{which} database kind should be {want} but got {got:?}. Did you forget to set expect_archive on your store opener?")]
+    #[error("{which} database kind should be {want} but got {got:?}. Did you forget to set archive on your store opener?")]
     DbKindMismatch { which: &'static str, got: Option<DbKind>, want: DbKind },
 
     /// Unable to create a migration snapshot because one already exists.
@@ -121,6 +121,34 @@ impl From<SnapshotRemoveError> for StoreOpenerError {
     }
 }
 
+fn get_default_kind(archive: bool, temp: Temperature) -> DbKind {
+    match (temp, archive) {
+        (Temperature::Hot, false) => DbKind::RPC,
+        (Temperature::Hot, true) => DbKind::Archive,
+        (Temperature::Cold, _) => DbKind::Cold,
+    }
+}
+
+fn is_valid_kind_temp(kind: DbKind, temp: Temperature) -> bool {
+    match (kind, temp) {
+        (DbKind::Cold, Temperature::Cold) => true,
+        (DbKind::RPC, Temperature::Hot) => true,
+        (DbKind::Hot, Temperature::Hot) => true,
+        (DbKind::Archive, Temperature::Hot) => true,
+        _ => false,
+    }
+}
+
+fn is_valid_kind_archive(kind: DbKind, archive: bool) -> bool {
+    match (kind, archive) {
+        (DbKind::Archive, true) => true,
+        (DbKind::Cold, true) => true,
+        (DbKind::Hot, true) => true,
+        (DbKind::RPC, _) => true,
+        _ => false,
+    }
+}
+
 /// Builder for opening node’s storage.
 ///
 /// Typical usage:
@@ -137,9 +165,8 @@ pub struct StoreOpener<'a> {
     /// Opener for an instance of Cold RocksDB store if one was configured.
     cold: Option<DBOpener<'a>>,
 
-    /// What kind of database we should expect; if `None`, the kind of the
-    /// database is not checked.
-    expected_kind: Option<DbKind>,
+    /// Whether the opener should expect archival db or not.
+    archive: bool,
 
     /// A migrator which performs database migration if the database has old
     /// version.
@@ -169,26 +196,16 @@ impl<'a> StoreOpener<'a> {
     /// Initialises a new opener with given home directory and store config.
     pub(crate) fn new(
         home_dir: &std::path::Path,
+        archive: bool,
         config: &'a StoreConfig,
         cold_config: Option<&'a StoreConfig>,
     ) -> Self {
         Self {
             hot: DBOpener::new(home_dir, config, Temperature::Hot),
             cold: cold_config.map(|config| DBOpener::new(home_dir, config, Temperature::Cold)),
-            expected_kind: None,
+            archive: archive,
             migrator: None,
         }
-    }
-
-    /// Configures whether archive or RPC storage is expected.
-    ///
-    /// If an archive database is expected (that is, if the argument is true)
-    /// but opened database is [`DbKind::RPC`], the database is changed to
-    /// [`DbKind::Archive`].  On the other hand, if RPC database is expected
-    /// but archive is opened, the opening will fail.
-    pub fn expect_archive(mut self, archive: bool) -> Self {
-        self.expected_kind = Some(if archive { DbKind::Archive } else { DbKind::RPC });
-        self
     }
 
     /// Configures the opener with specified [`StoreMigrator`].
@@ -228,17 +245,24 @@ impl<'a> StoreOpener<'a> {
     /// other hand, if mode is [`Mode::Create`], fails if the database already
     /// exists.
     pub fn open_in_mode(&self, mode: Mode) -> Result<crate::NodeStorage, StoreOpenerError> {
+        {
+            let hot_path = self.hot.path.display().to_string();
+            let cold_path = match &self.cold {
+                Some(cold) => cold.path.display().to_string(),
+                None => String::from("none"),
+            };
+            tracing::info!(target: "db_opener", path=hot_path, cold_path=cold_path, "Opening NodeStorage");
+        }
+
         let hot_snapshot = {
-            let kind = self.expected_kind.unwrap_or(DbKind::RPC);
             Self::ensure_created(mode, &self.hot)?;
-            Self::ensure_kind(mode, &self.hot, kind, "hot")?;
+            Self::ensure_kind(mode, &self.hot, self.archive, Temperature::Hot)?;
             Self::ensure_version(mode, &self.hot, &self.migrator)?
         };
 
         let cold_snapshot = if let Some(cold) = &self.cold {
-            let kind = DbKind::Cold;
             Self::ensure_created(mode, cold)?;
-            Self::ensure_kind(mode, cold, kind, "cold")?;
+            Self::ensure_kind(mode, cold, self.archive, Temperature::Cold)?;
             Self::ensure_version(mode, cold, &self.migrator)?
         } else {
             Snapshot::none()
@@ -290,28 +314,34 @@ impl<'a> StoreOpener<'a> {
     fn ensure_kind(
         mode: Mode,
         opener: &DBOpener,
-        kind: DbKind,
-        which: &'static str,
+        archive: bool,
+        temp: Temperature,
     ) -> Result<(), StoreOpenerError> {
+        let which: &'static str = temp.into();
+        tracing::debug!(target: "db_opener", path = %opener.path.display(), archive, which, "Ensure db kind is correct and set.");
         let store = Self::open_store_unsafe(mode, opener)?;
 
         let current_kind = store.get_db_kind()?;
+        let default_kind = get_default_kind(archive, temp);
         let err =
-            Err(StoreOpenerError::DbKindMismatch { which: which, got: current_kind, want: kind });
+            Err(StoreOpenerError::DbKindMismatch { which, got: current_kind, want: default_kind });
 
         // If kind is set check if it's the expected one.
         if let Some(current_kind) = current_kind {
-            if current_kind == kind {
-                return Ok(());
+            if !is_valid_kind_temp(current_kind, temp) {
+                return err;
             }
-            return err;
+            if !is_valid_kind_archive(current_kind, archive) {
+                return err;
+            }
+            return Ok(());
         }
 
         // Kind is not set, set it.
         if mode.read_write() {
-            tracing::info!(target: "db_opener", "Setting the {which} db DbKind to {kind:#?}");
+            tracing::info!(target: "db_opener", archive,  which, "Setting the db DbKind to {default_kind:#?}");
 
-            store.set_db_kind(kind)?;
+            store.set_db_kind(default_kind)?;
             return Ok(());
         }
 
@@ -326,6 +356,8 @@ impl<'a> StoreOpener<'a> {
         opener: &DBOpener,
         migrator: &Option<&dyn StoreMigrator>,
     ) -> Result<Snapshot, StoreOpenerError> {
+        tracing::debug!(target: "db_opener", path=%opener.path.display(), "Ensure db version");
+
         let metadata = opener.get_metadata()?;
         let metadata = metadata.ok_or(StoreOpenerError::DbDoesNotExist {})?;
         let DbMetadata { version, .. } = metadata;

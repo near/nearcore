@@ -34,9 +34,9 @@ pub struct RpcValidatorResponse {
 impl From<RpcValidatorError> for crate::errors::RpcError {
     fn from(error: RpcValidatorError) -> Self {
         let error_data = match &error {
-            RpcValidatorError::UnknownEpoch => Some(Value::String(format!("Unknown Epoch"))),
+            RpcValidatorError::UnknownEpoch => Some(Value::String("Unknown Epoch".to_string())),
             RpcValidatorError::ValidatorInfoUnavailable => {
-                Some(Value::String(format!("Validator info unavailable")))
+                Some(Value::String("Validator info unavailable".to_string()))
             }
             RpcValidatorError::InternalError { .. } => Some(Value::String(error.to_string())),
         };

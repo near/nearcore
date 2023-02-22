@@ -9,19 +9,20 @@ use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::{NetworkState, WhitelistNode};
 use crate::peer_manager::peer_store;
-use crate::shards_manager::ShardsManagerAdapterForNetwork;
+use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
 use crate::time;
 use crate::types::{
     ConnectedPeerInfo, GetNetworkInfo, HighestHeightPeerInfo, KnownProducer, NetworkInfo,
-    NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
-    PeerType, SetChainInfo,
+    NetworkRequests, NetworkResponses, PeerInfo, PeerManagerMessageRequest,
+    PeerManagerMessageResponse, PeerType, SetChainInfo,
 };
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, AsyncContext as _};
 use anyhow::Context as _;
+use near_async::messaging::Sender;
 use near_o11y::{handler_debug_span, handler_trace_span, OpenTelemetrySpanExt, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
@@ -100,6 +101,7 @@ pub struct PeerManagerActor {
 /// In particular prefer emitting a new event to polling for a state change.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Event {
+    PeerManagerStarted,
     ServerStarted,
     RoutedMessageDropped,
     AccountsAdded(Vec<AnnounceAccount>),
@@ -118,6 +120,8 @@ pub enum Event {
     // actually complete. Currently this event is reported only for some message types,
     // feel free to add support for more.
     MessageProcessed(tcp::Tier, PeerMessage),
+    // Reported when a reconnect loop is spawned.
+    ReconnectLoopSpawned(PeerInfo),
     // Reported when a handshake has been started.
     HandshakeStarted(crate::peer::peer_actor::HandshakeStartedEvent),
     // Reported when a handshake has been successfully completed.
@@ -134,7 +138,12 @@ impl actix::Actor for PeerManagerActor {
         self.push_network_info_trigger(ctx, self.state.config.push_info_period);
 
         // Attempt to reconnect to recent outbound connections from storage
-        self.bootstrap_outbound_from_recent_connections(ctx);
+        if self.state.config.connect_to_reliable_peers_on_startup {
+            tracing::debug!(target: "network", "Reconnecting to reliable peers from storage");
+            self.bootstrap_outbound_from_recent_connections(ctx);
+        } else {
+            tracing::debug!(target: "network", "Skipping reconnection to reliable peers");
+        }
 
         // Periodically starts peer monitoring.
         tracing::debug!(target: "network",
@@ -170,6 +179,8 @@ impl actix::Actor for PeerManagerActor {
 
         // Periodically prints bandwidth stats for each peer.
         self.report_bandwidth_stats_trigger(ctx, REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL);
+
+        self.state.config.event_sink.push(Event::PeerManagerStarted);
     }
 
     /// Try to gracefully disconnect from connected peers.
@@ -192,7 +203,7 @@ impl PeerManagerActor {
         store: Arc<dyn near_store::db::Database>,
         config: config::NetworkConfig,
         client: Arc<dyn client::Client>,
-        shards_manager_adapter: Arc<dyn ShardsManagerAdapterForNetwork>,
+        shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
         genesis_id: GenesisId,
     ) -> anyhow::Result<actix::Addr<Self>> {
         let config = config.verify().context("config")?;
@@ -215,12 +226,12 @@ impl PeerManagerActor {
         };
         let my_peer_id = config.node_id();
         let arbiter = actix::Arbiter::new().handle();
-        let clock = clock.clone();
+        let clock = clock;
         let state = Arc::new(NetworkState::new(
             &clock,
-            store.clone(),
+            store,
             peer_store,
-            config.clone(),
+            config,
             genesis_id,
             client,
             shards_manager_adapter,
@@ -307,10 +318,13 @@ impl PeerManagerActor {
                                 arbiter.spawn({
                                     let state = state.clone();
                                     let clock = clock.clone();
+                                    let peer_info = peer_info.clone();
                                     async move {
                                         state.reconnect(clock, peer_info, MAX_RECONNECT_ATTEMPTS).await;
                                     }
                                 });
+
+                                state.config.event_sink.push(Event::ReconnectLoopSpawned(peer_info));
                             }
                         }
                     }
@@ -620,10 +634,16 @@ impl PeerManagerActor {
             ctx.spawn(wrap_future({
                 let state = self.state.clone();
                 let clock = self.clock.clone();
+                let peer_info = conn_info.peer_info.clone();
                 async move {
-                    state.reconnect(clock, conn_info.peer_info, 1).await;
+                    state.reconnect(clock, peer_info, 1).await;
                 }
             }));
+
+            self.state
+                .config
+                .event_sink
+                .push(Event::ReconnectLoopSpawned(conn_info.peer_info.clone()));
         }
     }
 
@@ -638,7 +658,7 @@ impl PeerManagerActor {
                 return self.state.send_message_to_account(&self.clock, account_id, msg);
             }
             AccountOrPeerIdOrHash::PeerId(it) => PeerIdOrHash::PeerId(it.clone()),
-            AccountOrPeerIdOrHash::Hash(it) => PeerIdOrHash::Hash(it.clone()),
+            AccountOrPeerIdOrHash::Hash(it) => PeerIdOrHash::Hash(*it),
         };
 
         self.state.send_message_to_peer(

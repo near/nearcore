@@ -20,6 +20,7 @@ use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler, Message};
 use actix_rt::ArbiterHandle;
 use borsh::BorshSerialize;
 use chrono::DateTime;
+use near_async::messaging::{CanSend, Sender};
 use near_chain::chain::{
     do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
     BlockCatchUpResponse, StateSplitRequest, StateSplitResponse,
@@ -32,7 +33,7 @@ use near_chain::{
     ChainGenesis, DoneApplyChunkCallback, Provenance, RuntimeWithEpochManagerAdapter,
 };
 use near_chain_configs::ClientConfig;
-use near_chunks::adapter::ShardsManagerAdapterForClient;
+use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::logic::cares_about_shard_this_or_next_epoch;
 use near_client_primitives::types::{
@@ -85,7 +86,7 @@ pub struct ClientActor {
     // Address of this ClientActor. Can be used to send messages to self.
     my_address: Addr<ClientActor>,
     pub(crate) client: Client,
-    network_adapter: Arc<dyn PeerManagerAdapter>,
+    network_adapter: PeerManagerAdapter,
     network_info: NetworkInfo,
     /// Identity that represents this Client at the network level.
     /// It is used as part of the messages that identify this client.
@@ -147,7 +148,7 @@ impl ClientActor {
         address: Addr<ClientActor>,
         config: ClientConfig,
         node_id: PeerId,
-        network_adapter: Arc<dyn PeerManagerAdapter>,
+        network_adapter: PeerManagerAdapter,
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
         telemetry_actor: Addr<TelemetryActor>,
         ctx: &Context<ClientActor>,
@@ -157,7 +158,7 @@ impl ClientActor {
     ) -> Result<Self, Error> {
         let state_parts_arbiter = Arbiter::new();
         let self_addr = ctx.address();
-        let self_addr_clone = self_addr.clone();
+        let self_addr_clone = self_addr;
         let sync_jobs_actor_addr = SyncJobsActor::start_in_arbiter(
             &state_parts_arbiter.handle(),
             move |ctx: &mut Context<SyncJobsActor>| -> SyncJobsActor {
@@ -330,11 +331,10 @@ impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ClientActor {
                     }
                     let block = block.expect("block should exist after produced");
                     info!(target: "adversary", "Producing {} block out of {}, height = {}", blocks_produced, num_blocks, height);
-                    this.network_adapter.do_send(
+                    this.network_adapter.send(
                         PeerManagerMessageRequest::NetworkRequests(
                             NetworkRequests::Block { block: block.clone() },
                         )
-                        .with_span_context(),
                     );
                     let _ = this.client.start_process_block(
                         block.into(),
@@ -438,7 +438,7 @@ impl Handler<WithSpanContext<BlockResponse>> for ClientActor {
                 }
                 this.client.receive_block(
                     block,
-                    peer_id.clone(),
+                    peer_id,
                     was_requested,
                     this.get_apply_chunks_done_callback(),
                 );
@@ -656,7 +656,7 @@ impl Handler<WithSpanContext<Status>> for ClientActor {
 
         let node_public_key = self.node_id.public_key().clone();
         let (validator_account_id, validator_public_key) = match &self.client.validator_signer {
-            Some(vs) => (Some(vs.validator_id().clone()), Some(vs.public_key().clone())),
+            Some(vs) => (Some(vs.validator_id().clone()), Some(vs.public_key())),
             None => (None, None),
         };
         let node_key = validator_public_key.clone();
@@ -841,17 +841,14 @@ impl ClientActor {
                 &self.node_id,
                 &next_epoch_id,
             );
-            self.network_adapter.do_send(
-                PeerManagerMessageRequest::NetworkRequests(NetworkRequests::AnnounceAccount(
-                    AnnounceAccount {
-                        account_id: validator_signer.validator_id().clone(),
-                        peer_id: self.node_id.clone(),
-                        epoch_id: next_epoch_id,
-                        signature,
-                    },
-                ))
-                .with_span_context(),
-            );
+            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::AnnounceAccount(AnnounceAccount {
+                    account_id: validator_signer.validator_id().clone(),
+                    peer_id: self.node_id.clone(),
+                    epoch_id: next_epoch_id,
+                    signature,
+                }),
+            ));
         }
     }
 
@@ -939,7 +936,7 @@ impl ClientActor {
         let _span = tracing::debug_span!(target: "client", "handle_block_production").entered();
         // If syncing, don't try to produce blocks.
         if self.client.sync_status.is_syncing() {
-            debug!(target:"client", "Syncing - block production disabled");
+            debug!(target:"client", sync_status=?self.client.sync_status, "Syncing - block production disabled");
             return Ok(());
         }
 
@@ -1202,12 +1199,9 @@ impl ClientActor {
         let _span = tracing::debug_span!(target: "client", "produce_block", next_height).entered();
         if let Some(block) = self.client.produce_block(next_height)? {
             // If we produced the block, send it out before we apply the block.
-            self.network_adapter.do_send(
-                PeerManagerMessageRequest::NetworkRequests(NetworkRequests::Block {
-                    block: block.clone(),
-                })
-                .with_span_context(),
-            );
+            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::Block { block: block.clone() },
+            ));
             // We’ve produced the block so that counts as validated block.
             let block = MaybeValidated::from_validated(block);
             let res = self.client.start_process_block(
@@ -1893,8 +1887,8 @@ pub fn start_client(
     chain_genesis: ChainGenesis,
     runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
     node_id: PeerId,
-    network_adapter: Arc<dyn PeerManagerAdapter>,
-    shards_manager_adapter: Arc<dyn ShardsManagerAdapterForClient>,
+    network_adapter: PeerManagerAdapter,
+    shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     telemetry_actor: Addr<TelemetryActor>,
     sender: Option<broadcast::Sender<()>>,

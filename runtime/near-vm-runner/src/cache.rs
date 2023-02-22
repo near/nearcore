@@ -68,7 +68,7 @@ impl MockCompiledContractCache {
 
 impl CompiledContractCache for MockCompiledContractCache {
     fn put(&self, key: &CryptoHash, value: CompiledContract) -> std::io::Result<()> {
-        self.store.lock().unwrap().insert(key.clone(), value);
+        self.store.lock().unwrap().insert(*key, value);
         Ok(())
     }
 

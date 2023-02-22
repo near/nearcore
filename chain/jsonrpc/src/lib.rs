@@ -449,7 +449,7 @@ impl JsonRpcHandler {
         request_data: near_jsonrpc_primitives::types::transactions::RpcBroadcastTransactionRequest,
     ) -> CryptoHash {
         let tx = request_data.signed_transaction;
-        let hash = tx.get_hash().clone();
+        let hash = tx.get_hash();
         self.client_addr.do_send(
             ProcessTxRequest {
                 transaction: tx,
@@ -937,7 +937,7 @@ impl JsonRpcHandler {
         let block: near_primitives::views::BlockView =
             self.view_client_send(GetBlock(request.block_reference)).await?;
 
-        let block_hash = block.header.hash.clone();
+        let block_hash = block.header.hash;
         let changes = self.view_client_send(GetStateChangesInBlock { block_hash }).await?;
 
         Ok(near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockByTypeResponse {
@@ -956,7 +956,7 @@ impl JsonRpcHandler {
         let block: near_primitives::views::BlockView =
             self.view_client_send(GetBlock(request.block_reference)).await?;
 
-        let block_hash = block.header.hash.clone();
+        let block_hash = block.header.hash;
         let changes = self
             .view_client_send(GetStateChanges {
                 block_hash,
@@ -1268,7 +1268,7 @@ impl JsonRpcHandler {
     }
 
     async fn adv_produce_blocks(&self, params: Value) -> Result<Value, RpcError> {
-        let (num_blocks, only_valid) = crate::api::parse_params::<(u64, bool)>(params)?;
+        let (num_blocks, only_valid) = crate::api::Params::parse(params)?;
         actix::spawn(
             self.client_addr
                 .send(
@@ -1283,7 +1283,7 @@ impl JsonRpcHandler {
     }
 
     async fn adv_switch_to_height(&self, params: Value) -> Result<Value, RpcError> {
-        let (height,) = crate::api::parse_params::<(u64,)>(params)?;
+        let (height,) = crate::api::Params::parse(params)?;
         actix::spawn(
             self.client_addr
                 .send(

@@ -37,8 +37,12 @@ impl ChainAccess {
             nearcore::config::load_config(home.as_ref(), GenesisValidationMode::UnsafeFast)
                 .with_context(|| format!("Error loading config from {:?}", home.as_ref()))?;
         // leave it ReadWrite since otherwise there are problems with the compiled contract cache
-        let store_opener =
-            near_store::NodeStorage::opener(home.as_ref(), &config.config.store, None);
+        let store_opener = near_store::NodeStorage::opener(
+            home.as_ref(),
+            config.config.archive,
+            &config.config.store,
+            None,
+        );
         let store = store_opener
             .open()
             .with_context(|| format!("Error opening store in {:?}", home.as_ref()))?

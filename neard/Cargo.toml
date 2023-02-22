@@ -34,6 +34,8 @@ near-amend-genesis = { path = "../tools/amend-genesis" }
 near-chain-configs = { path = "../core/chain-configs" }
 near-client = { path = "../chain/client" }
 near-cold-store-tool = { path = "../tools/cold-store", package = "cold-store-tool" }
+near-config-utils = { path = "../utils/config" }
+near-crypto = { path = "../core/crypto" }
 near-dyn-configs = { path = "../core/dyn-configs" }
 near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }
 near-mirror = { path = "../tools/mirror" }
@@ -63,10 +65,6 @@ rosetta_rpc = ["nearcore/rosetta_rpc"]
 json_rpc = ["nearcore/json_rpc"]
 protocol_feature_fix_staking_threshold = ["nearcore/protocol_feature_fix_staking_threshold"]
 protocol_feature_flat_state = ["nearcore/protocol_feature_flat_state"]
-protocol_feature_nep366_delegate_action = [
-  "nearcore/protocol_feature_nep366_delegate_action",
-  "near-state-viewer/protocol_feature_nep366_delegate_action",
-]
 
 nightly = [
   "nightly_protocol",

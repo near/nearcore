@@ -491,7 +491,7 @@ mod test {
             let new_roots = (0..4)
                 .map(|i| {
                     let shard_uid = runtime.shard_id_to_uid(i, &epoch_id).unwrap();
-                    chain_store.get_chunk_extra(&hash, &shard_uid).unwrap().state_root().clone()
+                    *chain_store.get_chunk_extra(&hash, &shard_uid).unwrap().state_root()
                 })
                 .collect::<Vec<_>>();
 
@@ -573,7 +573,7 @@ mod test {
             let new_roots = (0..4)
                 .map(|i| {
                     let shard_uid = runtime.shard_id_to_uid(i, &epoch_id).unwrap();
-                    chain_store.get_chunk_extra(&hash, &shard_uid).unwrap().state_root().clone()
+                    *chain_store.get_chunk_extra(&hash, &shard_uid).unwrap().state_root()
                 })
                 .collect::<Vec<_>>();
             let shard_layout = runtime.get_shard_layout_from_prev_block(&prev_hash).unwrap();

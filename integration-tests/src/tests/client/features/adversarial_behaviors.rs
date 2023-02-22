@@ -1,9 +1,13 @@
 use std::{collections::HashSet, path::Path, sync::Arc};
 
+use near_async::messaging::CanSend;
 use near_chain::{ChainGenesis, Provenance, RuntimeWithEpochManagerAdapter};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
-use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
+use near_network::{
+    shards_manager::ShardsManagerRequestFromNetwork,
+    types::{NetworkRequests, PeerManagerMessageRequest},
+};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::{
     runtime::config_store::RuntimeConfigStore,
@@ -76,12 +80,16 @@ impl AdversarialBehaviorTestData {
                 );
             }
             NetworkRequests::PartialEncodedChunkMessage { account_id, partial_encoded_chunk } => {
-                self.env
-                    .shards_manager(&account_id)
-                    .process_partial_encoded_chunk(partial_encoded_chunk.into());
+                self.env.shards_manager(&account_id).send(
+                    ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
+                        partial_encoded_chunk.into(),
+                    ),
+                );
             }
             NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
-                self.env.shards_manager(&account_id).process_partial_encoded_chunk_forward(forward);
+                self.env.shards_manager(&account_id).send(
+                    ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(forward),
+                );
             }
             NetworkRequests::Challenge(_) => {
                 // challenges not enabled.
