@@ -14,11 +14,10 @@ use crate::peer_manager::testonly::Event;
 use crate::private_actix::RegisterPeerError;
 use crate::store;
 use crate::tcp;
-use crate::testonly::{make_rng, Rng};
+use crate::testonly::{abort_on_panic, make_rng, Rng};
 use crate::time;
 use crate::types::PeerMessage;
 use crate::types::{PeerInfo, ReasonForBan};
-use near_o11y::testonly::init_test_logger;
 use near_primitives::network::PeerId;
 use near_store::db::TestDB;
 use pretty_assertions::assert_eq;
@@ -27,30 +26,6 @@ use rand::Rng as _;
 use std::collections::HashSet;
 use std::net::Ipv6Addr;
 use std::sync::Arc;
-
-/// Initializes the test logger and then, iff the current process is executed under
-/// nextest in process-per-test mode, changes the behavior of the process to [panic=abort].
-/// In particular it doesn't enable [panic=abort] when run via "cargo test".
-/// Note that (unfortunately) some tests may expect a panic, so we cannot apply blindly
-/// [panic=abort] in compilation time to all tests.
-// TODO: investigate whether "-Zpanic-abort-tests" could replace this function once the flag
-// becomes stable: https://github.com/rust-lang/rust/issues/67650, so we don't use it.
-fn abort_on_panic() {
-    init_test_logger();
-    // I don't know a way to set panic=abort for nextest builds in compilation time, so we set it
-    // in runtime. https://nexte.st/book/env-vars.html#environment-variables-nextest-sets
-    let Ok(nextest) = std::env::var("NEXTEST") else { return };
-    let Ok(nextest_execution_mode) = std::env::var("NEXTEST_EXECUTION_MODE") else { return };
-    if nextest != "1" || nextest_execution_mode != "process-per-test" {
-        return;
-    }
-    tracing::info!(target:"test", "[panic=abort] enabled");
-    let orig_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |panic_info| {
-        orig_hook(panic_info);
-        std::process::abort();
-    }));
-}
 
 // test routing in a two-node network before and after connecting the nodes
 #[tokio::test]
