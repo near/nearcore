@@ -32,10 +32,6 @@ jobs:
         with:
           version: ">= 416.0.0"
 
-      - uses: actions/setup-python@v4
-        with:
-          python-version: "3.9"
-
       - uses: actions/checkout@master
 
       - run: pip install -r scripts/build_fuzzers_requirements.txt
