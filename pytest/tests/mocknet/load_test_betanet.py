@@ -116,8 +116,8 @@ def function_call_ft_transfer_call(account, node_account, base_block_hash=None):
         f'{account.key.account_id} ft_transfer to {dest_account_id} {tx_res}')
 
 
-# See https://near.github.io/nearcore/architecture/how/meta-tx.html to understand what is going on :)
-# Alice pays for Relayer to send 1 yoctoNear to Receiver
+# See https://near.github.io/nearcore/architecture/how/meta-tx.html to understand what is going on.
+# Alice pays the costs of Relayer sending 1 yoctoNear to Receiver
 def meta_transaction_transfer(alice_account, base_block_hash, base_block_height,
                               test_accounts):
     relayer_account = random.choice(test_accounts)
