@@ -429,7 +429,7 @@ impl DBCol {
             DBCol::_TransactionResult => &[DBKeyType::OutcomeId],
             DBCol::OutgoingReceipts => &[DBKeyType::BlockHash, DBKeyType::ShardId],
             DBCol::IncomingReceipts => &[DBKeyType::BlockHash, DBKeyType::ShardId],
-            DBCol::Peers => &[DBKeyType::PeerId],
+            DBCol::_Peers => &[DBKeyType::PeerId],
             DBCol::RecentOutboundConnections => &[DBKeyType::Empty],
             DBCol::EpochInfo => &[DBKeyType::EpochId],
             DBCol::BlockInfo => &[DBKeyType::BlockHash],
