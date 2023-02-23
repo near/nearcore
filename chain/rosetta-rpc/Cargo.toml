@@ -38,9 +38,4 @@ insta = "1"
 near-actix-test-utils = { path = "../../test-utils/actix-test-utils" }
 
 [features]
-protocol_feature_nep366_delegate_action = [
-  "near-primitives/protocol_feature_nep366_delegate_action"
-]
-nightly = [
-  "protocol_feature_nep366_delegate_action"
-]
+nightly = []

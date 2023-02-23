@@ -1,3 +1,4 @@
+use borsh::BorshDeserialize;
 use secp256k1::rand::SeedableRng;
 
 use crate::signature::{ED25519PublicKey, ED25519SecretKey, KeyType, PublicKey, SecretKey};
@@ -32,6 +33,19 @@ impl PublicKey {
             }
             _ => unimplemented!(),
         }
+    }
+
+    pub fn from_implicit_account(account_id: &AccountId) -> Self {
+        assert!(account_id.is_implicit());
+        let mut public_key_data = Vec::with_capacity(33);
+        public_key_data.push(KeyType::ED25519 as u8);
+        public_key_data.extend(
+            hex::decode(account_id.as_ref().as_bytes())
+                .expect("account id was a valid hex of length 64 resulting in 32 bytes"),
+        );
+        assert_eq!(public_key_data.len(), 33);
+        PublicKey::try_from_slice(&public_key_data)
+            .expect("we should be able to deserialize ED25519 public key")
     }
 }
 

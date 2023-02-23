@@ -5,6 +5,7 @@ mod network;
 use anyhow::{anyhow, Context};
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::messaging::LateBoundSender;
+use near_async::messaging::Sender;
 use near_chain_configs::Genesis;
 use near_network::concurrency::ctx;
 use near_network::concurrency::scope;
@@ -41,7 +42,7 @@ pub fn start_with_config(config: NearConfig, qps_limit: u32) -> anyhow::Result<A
         near_store::db::TestDB::new(),
         config.network_config,
         network.clone(),
-        network.clone(),
+        Sender::noop(),
         GenesisId {
             chain_id: config.client_config.chain_id.clone(),
             hash: genesis_hash(&config.client_config.chain_id),
