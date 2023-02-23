@@ -29,8 +29,9 @@ Transaction {
                 Amount {
                     value: SignedDiff(1000000000000000000),
                     currency: Currency {
-                        symbol: NEAR,
+                        symbol: "NEAR",
                         decimals: 24,
+                        metadata: None,
                     },
                 },
             ),
