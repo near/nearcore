@@ -1,7 +1,7 @@
 use std::io;
 
 use chrono::DateTime;
-use near_primitives::time::Utc;
+use chrono::Utc;
 
 use near_primitives::block::BlockValidityError;
 use near_primitives::challenge::{ChunkProofs, ChunkState};

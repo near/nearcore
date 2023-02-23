@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
+use chrono::Utc;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
-use near_primitives::time::Utc;
 use num_rational::Rational32;
 
 use crate::metrics;
@@ -593,8 +593,8 @@ pub struct LatestKnown {
 
 #[cfg(test)]
 mod tests {
+    use chrono::Utc;
     use near_primitives::test_utils::{create_test_signer, TestBlockBuilder};
-    use near_primitives::time::Utc;
 
     use near_primitives::block::{genesis_chunks, Approval};
     use near_primitives::hash::hash;
