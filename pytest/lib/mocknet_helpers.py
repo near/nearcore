@@ -57,10 +57,18 @@ def get_latest_block_hash(addr=LOCAL_ADDR, port=RPC_PORT):
     return base58.b58decode(last_block_hash.encode('utf-8'))
 
 
-def throttle_txns(send_txns, total_tx_sent, elapsed_time, max_tps_per_node,
-                  node_account, test_accounts):
+def throttle_txns(send_txns,
+                  total_tx_sent,
+                  elapsed_time,
+                  max_tps_per_node,
+                  node_account,
+                  test_accounts,
+                  rpc_infos=None):
     start_time = time.monotonic()
-    send_txns(node_account, test_accounts, max_tps_per_node)
+    send_txns(node_account,
+              test_accounts,
+              max_tps_per_node,
+              rpc_infos=rpc_infos)
     duration = time.monotonic() - start_time
     total_tx_sent += len(test_accounts)
 

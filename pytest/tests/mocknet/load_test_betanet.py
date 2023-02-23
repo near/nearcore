@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
+import base58
+import pathlib
 import random
 import sys
 import time
-import pathlib
 from rc import pmap
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
-import mocknet_helpers
 import account as account_mod
 import key as key_mod
+import mocknet_helpers
+import transaction
+
 from configured_logger import logger
 
 NUM_LETTERS = 26
@@ -29,10 +32,10 @@ def send_transfer(account, node_account, base_block_hash=None):
         dest_account_id, base_block_hash=base_block_hash))
 
 
-def function_call_set_delete_state(account,
-                                   i,
-                                   node_account,
-                                   base_block_hash=None):
+def function_call_set_state_then_delete_state(account,
+                                              i,
+                                              node_account,
+                                              base_block_hash=None):
     assert i < len(function_call_state)
 
     if not function_call_state[i]:
@@ -113,46 +116,88 @@ def function_call_ft_transfer_call(account, node_account, base_block_hash=None):
         f'{account.key.account_id} ft_transfer to {dest_account_id} {tx_res}')
 
 
+# See https://near.github.io/nearcore/architecture/how/meta-tx.html to understand what is going on :)
+# Alice pays for Relayer to send 1 yoctoNear to Receiver
+def meta_transaction_transfer(alice_account, base_block_hash, base_block_height,
+                              test_accounts):
+    relayer_account = random.choice(test_accounts)
+    receiver_account = random.choice(test_accounts)
+
+    yoctoNearAmount = 1
+    transfer_action = transaction.create_payment_action(yoctoNearAmount)
+    # Use (relayer_account.nonce + 2) as a nonce to deal with the case of Alice
+    # and Relayer being the same account. The outer transaction needs to have
+    # a lower nonce.
+    # Make the delegated action valid for 10**6 blocks to avoid DelegateActionExpired errors.
+    # Value of 10 should probably be enough.
+    # DelegateAction is signed with the keys of the Relayer.
+    signed_meta_tx = transaction.create_signed_delegated_action(
+        relayer_account.key.account_id, receiver_account.key.account_id,
+        [transfer_action], relayer_account.nonce + 2, base_block_height + 10**6,
+        relayer_account.key.decoded_pk(), relayer_account.key.decoded_sk())
+
+    # Outer transaction is signed with the keys of Alice.
+    meta_tx = transaction.sign_delegate_action(signed_meta_tx,
+                                               alice_account.key,
+                                               relayer_account.key.account_id,
+                                               alice_account.nonce + 1,
+                                               base_block_hash)
+    alice_account.send_tx(meta_tx)
+    alice_account.nonce += 1
+    relayer_account.nonce += 2
+
+    logger.info(
+        f'meta-transaction from {alice_account.key.account_id} to transfer {yoctoNearAmount} yoctoNear from {relayer_account.key.account_id} to {receiver_account.key.account_id}'
+    )
+
+
 def random_transaction(account,
                        i,
                        node_account,
                        max_tps_per_node,
-                       base_block_hash=None):
+                       base_block_hash=None,
+                       base_block_height=None,
+                       test_accounts=None):
     time.sleep(random.random() * NUM_ACCOUNTS / max_tps_per_node / 3)
-    choice = random.randint(0, 2)
+    choice = random.randint(0, 3)
     if choice == 0:
         logger.info(f'Account {i} transfers')
         send_transfer(account, node_account, base_block_hash=base_block_hash)
     elif choice == 1:
-        function_call_set_delete_state(account,
-                                       i,
-                                       node_account,
-                                       base_block_hash=base_block_hash)
+        function_call_set_state_then_delete_state(
+            account, i, node_account, base_block_hash=base_block_hash)
     elif choice == 2:
         function_call_ft_transfer_call(account,
                                        node_account,
                                        base_block_hash=base_block_hash)
+    elif choice == 3 and test_accounts and base_block_height and base_block_hash:
+        meta_transaction_transfer(account, base_block_hash, base_block_height,
+                                  test_accounts)
 
 
 def send_random_transactions(node_account,
                              test_accounts,
                              max_tps_per_node,
-                             rpc_nodes=None):
+                             rpc_infos=None):
     logger.info("===========================================")
     logger.info("New iteration of 'send_random_transactions'")
-    if rpc_nodes:
-        addr = random.choice(rpc_nodes)
+    if rpc_infos:
+        addr = random.choice(rpc_infos)[0]
     else:
         addr = None
-    base_block_hash = mocknet_helpers.get_latest_block_hash(addr=addr)
+    status = mocknet_helpers.get_status(addr=addr)
+    base_block_hash = base58.b58decode(
+        status['sync_info']['latest_block_hash'].encode('utf-8'))
+    base_block_height = status['sync_info']['latest_block_height']
     pmap(
-        lambda index_and_account: random_transaction(index_and_account[1],
-                                                     index_and_account[0],
-                                                     node_account,
-                                                     max_tps_per_node,
-                                                     base_block_hash=
-                                                     base_block_hash),
-        enumerate(test_accounts))
+        lambda index_and_account: random_transaction(
+            index_and_account[1],
+            index_and_account[0],
+            node_account,
+            max_tps_per_node,
+            base_block_hash=base_block_hash,
+            base_block_height=base_block_height,
+            test_accounts=test_accounts), enumerate(test_accounts))
 
 
 def init_ft(node_account):
@@ -247,13 +292,13 @@ def get_test_accounts_from_args(argv):
             )
             mocknet_helpers.wait_at_least_one_block()
 
-    return node_account, accounts, max_tps, rpc_nodes
+    return node_account, accounts, max_tps, rpc_infos
 
 
 def main(argv):
     logger.info(argv)
     (node_account, test_accounts, max_tps_per_node,
-     rpc_nodes) = get_test_accounts_from_args(argv)
+     rpc_infos) = get_test_accounts_from_args(argv)
 
     global function_call_state
     function_call_state = [[]] * NUM_ACCOUNTS
@@ -268,7 +313,7 @@ def main(argv):
                                                       max_tps_per_node,
                                                       node_account,
                                                       test_accounts,
-                                                      rpc_nodes=rpc_nodes)
+                                                      rpc_infos=rpc_infos)
 
 
 if __name__ == '__main__':
