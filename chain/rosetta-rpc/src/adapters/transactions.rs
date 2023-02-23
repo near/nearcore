@@ -29,6 +29,7 @@ impl ExecutionToReceipts {
     pub(crate) async fn for_block(
         view_client_addr: &Addr<near_client::ViewClientActor>,
         block_hash: CryptoHash,
+        currencies: &Option<Vec<Currency>>,
     ) -> crate::errors::Result<Self> {
         let block = view_client_addr
             .send(
@@ -78,7 +79,7 @@ impl ExecutionToReceipts {
         let events = crate::adapters::nep141::collect_nep141_events(
             &execution_outcomes,
             &block.header,
-            view_client_addr,
+            currencies,
         )
         .await?;
         Ok(Self { map: map_hash_to_receipts, transactions, receipts, events })

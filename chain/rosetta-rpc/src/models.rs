@@ -464,7 +464,7 @@ pub(crate) struct ConstructionHashRequest {
 /// is used to convert an Amount.Value from atomic units (Satoshis) to standard
 /// units (Bitcoins).
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
-pub(crate) struct Currency {
+pub struct Currency {
     /// Canonical symbol associated with a currency.
     pub symbol: String,
 
@@ -483,7 +483,7 @@ pub(crate) struct Currency {
 }
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 
-pub(crate) struct CurrenyMetadata {
+pub struct CurrenyMetadata {
     pub contract_address: String,
 }
 
@@ -491,11 +491,19 @@ impl Currency {
     fn near() -> Self {
         Self { symbol: String::from("NEAR"), decimals: 24, metadata: None }
     }
-    fn usdc() -> Self {
-        Self { symbol: String::from("USDC"), decimals: 6, metadata: None }
+}
+impl FromIterator<Currency> for std::collections::HashMap<String, Currency> {
+    fn from_iter<T: IntoIterator<Item = Currency>>(iter: T) -> Self {
+        let mut currency_map: std::collections::HashMap<String, Currency> =
+            std::collections::HashMap::new();
+        for i in iter {
+            if let Some(metadata) = &i.metadata {
+                currency_map.insert(metadata.contract_address.clone(), i);
+            }
+        }
+        currency_map
     }
 }
-
 /// Instead of utilizing HTTP status codes to describe node errors (which often
 /// do not have a good analog), rich errors are returned using this object.
 #[api_v2_errors(code = 500, description = "See the inner `code` value to get more details")]

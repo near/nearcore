@@ -1,23 +1,21 @@
-use std::str::FromStr;
+use std::{collections::HashMap, str::FromStr};
 
-use actix::Addr;
 use near_o11y::WithSpanContextExt;
 use near_primitives::{types::BlockId, views::ExecutionOutcomeWithIdView};
 
-use crate::models::{AccountIdentifier, FungibleTokenEvent};
+use crate::models::{AccountIdentifier, Currency, FungibleTokenEvent};
 
 pub(crate) async fn collect_nep141_events(
     receipt_execution_outcomes: &Vec<ExecutionOutcomeWithIdView>,
     block_header: &near_primitives::views::BlockHeaderView,
-    view_client_addr: &Addr<near_client::ViewClientActor>,
+    currencies: &Option<Vec<Currency>>,
 ) -> crate::errors::Result<Vec<FungibleTokenEvent>> {
     let mut res = Vec::new();
     for outcome in receipt_execution_outcomes {
         let events = extract_events(outcome);
         for event in events {
             res.extend(
-                compose_rosetta_nep141_events(&event, outcome, block_header, view_client_addr)
-                    .await?,
+                compose_rosetta_nep141_events(&event, outcome, block_header, currencies).await?,
             );
         }
     }
@@ -28,72 +26,58 @@ async fn compose_rosetta_nep141_events(
     events: &crate::models::Nep141Event,
     outcome: &ExecutionOutcomeWithIdView,
     block_header: &near_primitives::views::BlockHeaderView,
-    view_client_addr: &Addr<near_client::ViewClientActor>,
+    currencies: &Option<Vec<Currency>>,
 ) -> crate::errors::Result<Vec<FungibleTokenEvent>> {
     let mut ft_events = Vec::new();
     match &events.event_kind {
         crate::models::Nep141EventKind::FtTransfer(transfer_events) => {
-            for transfer_event in transfer_events {
-                let base = get_base(Event::Nep141, outcome, block_header)?;
+            if let Some(currencies) = currencies {
+                let currency_map: std::collections::HashMap<String, Currency> =
+                    currencies.clone().into_iter().collect::<HashMap<String, Currency>>();
+                for transfer_event in transfer_events {
+                    if let Some(currency) =
+                        currency_map.get(&outcome.outcome.executor_id.to_string())
+                    {
+                        let base = get_base(Event::Nep141, outcome, block_header)?;
+                        let custom = crate::models::FtEvent {
+                            affected_id: AccountIdentifier::from_str(&transfer_event.old_owner_id)?,
+                            involved_id: Some(AccountIdentifier::from_str(
+                                &transfer_event.new_owner_id,
+                            )?),
+                            delta: -transfer_event.amount.parse::<i64>()?,
+                            cause: "TRANSFER".to_string(),
+                            memo: transfer_event
+                                .memo
+                                .as_ref()
+                                .map(|s| s.escape_default().to_string()),
+                            symbol: currency.symbol.clone(),
+                            decimals: currency.decimals,
+                        };
+                        ft_events.push(build_event(base, custom).await?);
 
-                let custom = crate::models::FtEvent {
-                    affected_id: AccountIdentifier::from_str(&transfer_event.old_owner_id)?,
-                    involved_id: Some(AccountIdentifier::from_str(&transfer_event.new_owner_id)?),
-                    delta: -transfer_event.amount.parse::<i64>()?,
-                    cause: "TRANSFER".to_string(),
-                    memo: transfer_event.memo.as_ref().map(|s| s.escape_default().to_string()),
-                    symbol: "USDC".to_string(),
-                    decimals: 8,
-                };
-                ft_events.push(build_event(base, custom).await?);
-
-                let base = get_base(Event::Nep141, outcome, block_header)?;
-                let custom = crate::models::FtEvent {
-                    affected_id: AccountIdentifier::from_str(&transfer_event.new_owner_id)?,
-                    involved_id: Some(AccountIdentifier::from_str(&transfer_event.old_owner_id)?),
-                    delta: transfer_event.amount.parse::<i64>()?,
-                    cause: "TRANSFER".to_string(),
-                    memo: transfer_event.memo.as_ref().map(|s| s.escape_default().to_string()),
-                    symbol: "USDC".to_string(),
-                    decimals: 8,
-                };
-                ft_events.push(build_event(base, custom).await?);
+                        let base = get_base(Event::Nep141, outcome, block_header)?;
+                        let custom = crate::models::FtEvent {
+                            affected_id: AccountIdentifier::from_str(&transfer_event.new_owner_id)?,
+                            involved_id: Some(AccountIdentifier::from_str(
+                                &transfer_event.old_owner_id,
+                            )?),
+                            delta: transfer_event.amount.parse::<i64>()?,
+                            cause: "TRANSFER".to_string(),
+                            memo: transfer_event
+                                .memo
+                                .as_ref()
+                                .map(|s| s.escape_default().to_string()),
+                            symbol: currency.symbol.clone(),
+                            decimals: currency.decimals,
+                        };
+                        ft_events.push(build_event(base, custom).await?);
+                    }
+                }
             }
         }
     }
     Ok(ft_events)
 }
-
-// async fn get_fungible_token_metadata(
-//     view_client_addr: &actix::Addr<near_client::ViewClientActor>,
-//     block_header: &near_primitives::views::BlockHeaderView,
-//     contract_address: &String,
-// ) -> crate::errors::Result<crate::models::FTMetadataResponse> {
-//     let block_reference =
-//         near_primitives::types::BlockReference::BlockId(BlockId::Hash(block_header.hash));
-//     let request = near_primitives::views::QueryRequest::CallFunction {
-//         account_id: near_account_id::AccountId::from_str(contract_address)?,
-//         method_name: "ft_metadata".to_string(),
-//         args: vec![].into(),
-//     };
-//     let query_response = view_client_addr
-//         .send(near_client::Query { block_reference, request }.with_span_context())
-//         .await?
-//         .map_err(|e| crate::errors::ErrorKind::InternalInvariantError(e.to_string()))?;
-//     let call_result = if let near_primitives::views::QueryResponseKind::CallResult(result) =
-//         query_response.kind
-//     {
-//         result
-//     } else {
-//         return Err(crate::errors::ErrorKind::InternalInvariantError(format!(
-//             "Couldn't retrieve metadata from contract address",
-//         )));
-//         //todo!()
-//     };
-//     let serde_call_result: crate::models::FTMetadataResponse =
-//         serde_json::from_slice(&call_result.result).unwrap();
-//     Ok(serde_call_result)
-// }
 
 pub(crate) async fn get_fungible_token_balance_for_account(
     view_client_addr: &actix::Addr<near_client::ViewClientActor>,
@@ -130,9 +114,18 @@ pub(crate) async fn get_fungible_token_balance_for_account(
             contract_address.clone(),
         )));
     };
-    let serde_call_result = serde_json::from_slice(&call_result).unwrap();
-    let amount: String = serde_json::from_value(serde_call_result).unwrap();
-    let amount = amount.parse::<u128>().unwrap();
+    let serde_call_result = serde_json::from_slice(&call_result).or(Err(
+        crate::errors::ErrorKind::InternalInvariantError(format!(
+            "Couldn't read the value from the contract {:?}, for the account {:?}",
+            contract_address.clone(),
+            account_identifier.address.clone(),
+        )),
+    ))?;
+    let amount: String = match serde_json::from_value(serde_call_result) {
+        Ok(amount) => amount,
+        Err(err) => return Err(err.into()),
+    };
+    let amount = amount.parse::<u128>()?;
     Ok(amount)
 }
 
