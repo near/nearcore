@@ -97,7 +97,7 @@ bytesize = { version = "1.1", features = ["serde"] }
 c2-chacha = "0.3"
 cargo_metadata = "0.14.1"
 cfg-if = "1"
-chrono = { version = "0.4.19", features = ["serde"] }
+chrono = { version = "0.4.19", default_features=false, features = ["serde"] }
 clap = { version = "3.1.6", features = ["derive", "env"] }
 conqueue = "0.4.0"
 cpu-time = "1.0"
