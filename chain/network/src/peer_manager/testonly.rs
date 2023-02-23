@@ -368,7 +368,7 @@ impl ActorHandler {
     pub async fn peer_store_add_indirect_peers(&self, clock: &time::Clock, peers: Vec<PeerInfo>) {
         let clock = clock.clone();
         self.with_state(move |s| async move {
-            s.peer_store.add_indirect_peers(&clock, peers.into_iter()).unwrap()
+            s.peer_store.add_indirect_peers(&clock, peers.into_iter())
         })
         .await;
     }

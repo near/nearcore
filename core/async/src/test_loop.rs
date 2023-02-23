@@ -61,6 +61,7 @@
 //! then the actual order of execution is B, D, A, E, C.
 pub mod delay_sender;
 pub mod event_handler;
+pub mod futures;
 pub mod multi_instance;
 
 use std::{collections::BinaryHeap, fmt::Debug, sync, time::Duration};
