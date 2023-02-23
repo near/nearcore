@@ -12,6 +12,8 @@ use std::io;
 use std::sync::Arc;
 
 #[cfg(test)]
+mod testonly;
+#[cfg(test)]
 mod tests;
 
 pub struct AccountIdFormat;
@@ -22,82 +24,6 @@ impl Format for AccountIdFormat {
     }
     fn decode(a: &[u8]) -> Result<AccountId, Error> {
         std::str::from_utf8(a).map_err(invalid_data)?.parse().map_err(invalid_data)
-    }
-}
-
-#[derive(BorshSerialize, BorshDeserialize)]
-enum KnownPeerStatus {
-    Unknown,
-    NotConnected,
-    Connected,
-    /// UNIX timestamps in nanos.
-    Banned(primitives::ReasonForBan, u64),
-}
-
-impl From<primitives::KnownPeerStatus> for KnownPeerStatus {
-    fn from(s: primitives::KnownPeerStatus) -> Self {
-        match s {
-            primitives::KnownPeerStatus::Unknown => Self::Unknown,
-            primitives::KnownPeerStatus::NotConnected => Self::NotConnected,
-            primitives::KnownPeerStatus::Connected => Self::Connected,
-            primitives::KnownPeerStatus::Banned(r, t) => {
-                Self::Banned(r, t.unix_timestamp_nanos() as u64)
-            }
-        }
-    }
-}
-
-impl From<KnownPeerStatus> for primitives::KnownPeerStatus {
-    fn from(s: KnownPeerStatus) -> primitives::KnownPeerStatus {
-        match s {
-            KnownPeerStatus::Unknown => primitives::KnownPeerStatus::Unknown,
-            KnownPeerStatus::NotConnected => primitives::KnownPeerStatus::NotConnected,
-            KnownPeerStatus::Connected => primitives::KnownPeerStatus::Connected,
-            KnownPeerStatus::Banned(r, t) => primitives::KnownPeerStatus::Banned(
-                r,
-                time::Utc::from_unix_timestamp_nanos(t as i128).unwrap(),
-            ),
-        }
-    }
-}
-
-/// A Borsh representation of the primitives::KnownPeerState.
-/// TODO: Currently primitives::KnownPeerState implements Borsh serialization
-/// directly, but eventually direct serialization should be removed
-/// so that the storage format doesn't leak to the business logic.
-/// TODO: Currently primitives::KnownPeerState is identical
-/// to the KnownPeerStateRepr, but in the following PR the
-/// timestamp type (currently u64), will be replaced with time::Utc.
-#[derive(BorshSerialize, BorshDeserialize)]
-pub(super) struct KnownPeerStateRepr {
-    peer_info: primitives::PeerInfo,
-    status: KnownPeerStatus,
-    /// UNIX timestamps in nanos.
-    first_seen: u64,
-    last_seen: u64,
-}
-
-impl BorshRepr for KnownPeerStateRepr {
-    type T = primitives::KnownPeerState;
-    fn to_repr(s: &primitives::KnownPeerState) -> Self {
-        Self {
-            peer_info: s.peer_info.clone(),
-            status: s.status.clone().into(),
-            first_seen: s.first_seen.unix_timestamp_nanos() as u64,
-            last_seen: s.last_seen.unix_timestamp_nanos() as u64,
-        }
-    }
-
-    fn from_repr(s: Self) -> Result<primitives::KnownPeerState, Error> {
-        Ok(primitives::KnownPeerState {
-            peer_info: s.peer_info,
-            status: s.status.into(),
-            first_seen: time::Utc::from_unix_timestamp_nanos(s.first_seen as i128)
-                .map_err(invalid_data)?,
-            last_seen: time::Utc::from_unix_timestamp_nanos(s.last_seen as i128)
-                .map_err(invalid_data)?,
-            last_outbound_attempt: None,
-        })
     }
 }
 
@@ -168,13 +94,6 @@ impl Column for AccountAnnouncements {
     const COL: DBCol = DBCol::AccountAnnouncements;
     type Key = AccountIdFormat;
     type Value = Borsh<AnnounceAccount>;
-}
-
-pub(super) struct Peers;
-impl Column for Peers {
-    const COL: DBCol = DBCol::Peers;
-    type Key = Borsh<PeerId>;
-    type Value = KnownPeerStateRepr;
 }
 
 pub(super) struct RecentOutboundConnections;
@@ -313,15 +232,6 @@ impl Store {
         self.0.write(update.0)
     }
 
-    pub fn iter<C: Column>(
-        &self,
-    ) -> impl Iterator<Item = Result<(<C::Key as Format>::T, <C::Value as Format>::T), Error>> + '_
-    {
-        debug_assert!(!C::COL.is_rc());
-        self.0
-            .iter_raw_bytes(C::COL)
-            .map(|item| item.and_then(|(k, v)| Ok((C::Key::decode(&k)?, C::Value::decode(&v)?))))
-    }
     pub fn get<C: Column>(
         &self,
         k: &<C::Key as Format>::T,

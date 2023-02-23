@@ -103,8 +103,7 @@ impl PeerHandle {
         let network_state = Arc::new(NetworkState::new(
             &clock,
             store.clone(),
-            peer_store::PeerStore::new(&clock, network_cfg.peer_store.clone(), store.clone())
-                .unwrap(),
+            peer_store::PeerStore::new(&clock, network_cfg.peer_store.clone()).unwrap(),
             network_cfg.verify().unwrap(),
             cfg.chain.genesis_id.clone(),
             fc.clone(),

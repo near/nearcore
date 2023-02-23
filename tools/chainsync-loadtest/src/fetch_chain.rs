@@ -1,13 +1,12 @@
-use std::sync::Arc;
-
-use crate::concurrency::{Ctx, Scope};
 use crate::network;
 use anyhow::Context;
 use log::info;
-use std::sync::atomic::Ordering;
-use tokio::time;
-
+use near_network::concurrency::ctx;
+use near_network::concurrency::scope;
+use near_network::time;
 use near_primitives::hash::CryptoHash;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
 
 // run() fetches the chain (headers,blocks and chunks)
 // starting with block having hash = <start_block_hash> and
@@ -15,75 +14,58 @@ use near_primitives::hash::CryptoHash;
 // at the start of the routine, so that the amount of work
 // is bounded).
 pub async fn run(
-    ctx: Ctx,
-    network: Arc<network::Network>,
+    network: &Arc<network::Network>,
     start_block_hash: CryptoHash,
     block_limit: u64,
 ) -> anyhow::Result<()> {
     info!("SYNC start");
-    let peers = network.info(&ctx).await?;
+    let peers = network.info().await?;
     let target_height = peers.highest_height_peers[0].highest_block_height as i64;
     info!("SYNC target_height = {}", target_height);
 
-    let start_time = time::Instant::now();
-    let res = Scope::run(&ctx, {
-        let network = network.clone();
-        |ctx, s| async move {
-            s.spawn_weak({
-                let network = network.clone();
-                |ctx| async move {
-                    let ctx = ctx.with_label("stats");
-                    loop {
-                        info!("stats = {:?}", network.stats);
-                        ctx.wait(time::Duration::from_secs(2)).await?;
-                    }
-                }
-            });
-
-            let mut last_hash = start_block_hash;
-            let mut last_height = 0;
-            let mut blocks_count = 0;
-            while last_height < target_height {
-                // Fetch the next batch of headers.
-                let mut headers = network.fetch_block_headers(&ctx, &last_hash).await?;
-                headers.sort_by_key(|h| h.height());
-                let last_header = headers.last().context("no headers")?;
-                last_hash = *last_header.hash();
-                last_height = last_header.height() as i64;
-                info!(
-                    "SYNC last_height = {}, {} headers left",
-                    last_height,
-                    target_height - last_height
-                );
-                for h in headers {
-                    blocks_count += 1;
-                    if blocks_count == block_limit {
-                        return anyhow::Ok(());
-                    }
-                    s.spawn({
-                        let network = network.clone();
-                        |ctx, s| async move {
-                            let block = network.fetch_block(&ctx, h.hash()).await?;
-                            for ch in block.chunks().iter() {
-                                let ch = ch.clone();
-                                let network = network.clone();
-                                s.spawn(|ctx, _s| async move {
-                                    network.fetch_chunk(&ctx, &ch).await?;
-                                    anyhow::Ok(())
-                                });
-                            }
-                            anyhow::Ok(())
-                        }
-                    });
-                }
+    let start_time = ctx::time::now();
+    let res = scope::run!(|s| async move {
+        s.spawn_bg::<()>(async {
+            loop {
+                info!("stats = {:?}", network.stats);
+                ctx::time::sleep(time::Duration::seconds(2)).await?;
             }
-            anyhow::Ok(())
+        });
+        let mut last_hash = start_block_hash;
+        let mut last_height = 0;
+        let mut blocks_count = 0;
+        while last_height < target_height {
+            // Fetch the next batch of headers.
+            let mut headers = network.fetch_block_headers(last_hash).await?;
+            headers.sort_by_key(|h| h.height());
+            let last_header = headers.last().context("no headers")?;
+            last_hash = *last_header.hash();
+            last_height = last_header.height() as i64;
+            info!(
+                "SYNC last_height = {}, {} headers left",
+                last_height,
+                target_height - last_height
+            );
+            for h in headers {
+                blocks_count += 1;
+                if blocks_count == block_limit {
+                    return anyhow::Ok(());
+                }
+                let h = *h.hash();
+                s.spawn(async move {
+                    let block = network.fetch_block(h).await?;
+                    for ch in block.chunks().iter() {
+                        s.spawn(network.fetch_chunk(ch.clone()));
+                    }
+                    anyhow::Ok(())
+                });
+            }
         }
-    })
-    .await;
-    let stop_time = time::Instant::now();
+        anyhow::Ok(())
+    });
+    let stop_time = ctx::time::now();
     let total_time = stop_time - start_time;
-    let t = total_time.as_secs_f64();
+    let t = total_time.as_seconds_f64();
     let sent = network.stats.msgs_sent.load(Ordering::Relaxed);
     let headers = network.stats.header_done.load(Ordering::Relaxed);
     let blocks = network.stats.block_done.load(Ordering::Relaxed);
