@@ -352,6 +352,39 @@ fn check_add_peers_overriding() {
     assert!(check_integrity(&peer_store));
 }
 
+#[test]
+fn check_ignore_blacklisted_peers() {
+    let clock = time::FakeClock::default();
+
+    #[track_caller]
+    fn assert_peers(peer_store: &PeerStore, expected: &[&PeerId]) {
+        let inner = peer_store.0.lock();
+        let expected: HashSet<&PeerId> = HashSet::from_iter(expected.iter().cloned());
+        let got = HashSet::from_iter(inner.peer_states.keys());
+        assert_eq!(expected, got);
+    }
+
+    let ids = (0..3).map(|ix| get_peer_id(format!("node{}", ix))).collect::<Vec<_>>();
+
+    let blacklist: blacklist::Blacklist =
+        ["127.0.0.1:1"].iter().map(|e| e.parse().unwrap()).collect();
+
+    let peer_store = PeerStore::new(&clock.clock(), make_config(&[], blacklist, false)).unwrap();
+
+    peer_store.add_indirect_peers(
+        &clock.clock(),
+        [
+            get_peer_info(ids[0].clone(), None),
+            get_peer_info(ids[1].clone(), Some(get_addr(1))),
+            get_peer_info(ids[2].clone(), Some(get_addr(2))),
+        ]
+        .into_iter(),
+    );
+
+    // Peer 127.0.0.1:1 is ignored and never added.
+    assert_peers(&peer_store, &[&ids[0], &ids[2]]);
+}
+
 #[track_caller]
 fn assert_peers_in_cache(
     peer_store: &PeerStore,
