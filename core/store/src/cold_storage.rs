@@ -178,7 +178,7 @@ pub fn copy_all_data_to_cold(
                     return Ok(CopyAllDataToColdStatus::Interrupted);
                 }
                 let (key, value) = result?;
-                transaction.set(col, key.to_vec(), value.to_vec())?;
+                transaction.set_and_write_if_full(col, key.to_vec(), value.to_vec())?;
             }
             transaction.write()?;
         }
@@ -461,7 +461,12 @@ impl BatchTransaction {
 
     /// Adds a set DBOp to `self.transaction`. Updates `self.transaction_size`.
     /// If `self.transaction_size` becomes too big, calls for write.
-    pub fn set(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) -> io::Result<()> {
+    pub fn set_and_write_if_full(
+        &mut self,
+        col: DBCol,
+        key: Vec<u8>,
+        value: Vec<u8>,
+    ) -> io::Result<()> {
         let size = key.len() + value.len();
 
         self.transaction.set(col, key, value);
