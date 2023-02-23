@@ -215,7 +215,7 @@ def get_test_accounts_from_args(argv):
     node_account = account_mod.Account(node_account_key,
                                        mocknet_helpers.get_nonce_for_pk(
                                            node_account_key.account_id,
-                                           node_account_key.pk, addr=random.choice(rpc_infos)),
+                                           node_account_key.pk, addr=random.choice(rpc_nodes)),
                                        base_block_hash,
                                        rpc_infos=rpc_infos)
 
@@ -226,7 +226,7 @@ def get_test_accounts_from_args(argv):
     for key in test_account_keys:
         account = account_mod.Account(key,
                                       mocknet_helpers.get_nonce_for_pk(
-                                          key.account_id, key.pk, addr=random.choice(rpc_infos)),
+                                          key.account_id, key.pk, addr=random.choice(rpc_nodes)),
                                       base_block_hash,
                                       rpc_infos=rpc_infos)
         accounts.append(account)
@@ -240,13 +240,13 @@ def get_test_accounts_from_args(argv):
             )
             mocknet_helpers.wait_at_least_one_block()
 
-    return node_account, accounts, max_tps
+    return node_account, accounts, max_tps, rpc_nodes
 
 
 def main(argv):
     logger.info(argv)
     (node_account, test_accounts,
-     max_tps_per_node) = get_test_accounts_from_args(argv)
+     max_tps_per_node, rpc_nodes) = get_test_accounts_from_args(argv)
 
     global function_call_state
     function_call_state = [[]] * NUM_ACCOUNTS
@@ -257,7 +257,7 @@ def main(argv):
         elapsed_time = time.monotonic() - start_time
         total_tx_sent = mocknet_helpers.throttle_txns(
             send_random_transactions, total_tx_sent, elapsed_time,
-            max_tps_per_node, node_account, test_accounts)
+            max_tps_per_node, node_account, test_accounts, rpc_nodes=rpc_nodes)
 
 
 if __name__ == '__main__':
