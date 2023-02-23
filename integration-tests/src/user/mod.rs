@@ -5,11 +5,9 @@ use futures::{future::LocalBoxFuture, FutureExt};
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc_primitives::errors::ServerError;
 use near_primitives::account::AccessKey;
-#[cfg(feature = "protocol_feature_nep366_delegate_action")]
 use near_primitives::delegate_action::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
-#[cfg(feature = "protocol_feature_nep366_delegate_action")]
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
@@ -249,7 +247,6 @@ pub trait User {
     ///
     /// The signer signs the delegate action to be sent to the receiver. The
     /// relayer packs that in a transaction and signs it .
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     fn meta_tx(
         &self,
         signer_id: AccountId,

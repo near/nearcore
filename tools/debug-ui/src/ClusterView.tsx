@@ -26,7 +26,9 @@ export class DiscoveryNodes {
 
     sorted(): string[] {
         return Array.from(this.nodes).sort((a, b) => {
-            return sortingKeyForNode(a, this.addrToName).localeCompare(sortingKeyForNode(b, this.addrToName));
+            return sortingKeyForNode(a, this.addrToName).localeCompare(
+                sortingKeyForNode(b, this.addrToName)
+            );
         });
     }
 }
@@ -58,16 +60,18 @@ export const ClusterView = ({ initialAddr }: Props) => {
     }, []);
 
     return (
-        <div className='cluster-view'>
+        <div className="cluster-view">
             <div className="title">Discovered {sortedNodes.length} nodes in cluster</div>
             {sortedNodes.map((addr) => {
-                return <ClusterNodeView
-                    addr={addr}
-                    key={addr}
-                    highestHeight={highestHeight}
-                    basicStatusChanged={basicStatusCallback}
-                    newNodesDiscovered={newNodesDiscoveredCallback}
-                />;
+                return (
+                    <ClusterNodeView
+                        addr={addr}
+                        key={addr}
+                        highestHeight={highestHeight}
+                        basicStatusChanged={basicStatusCallback}
+                        newNodesDiscovered={newNodesDiscoveredCallback}
+                    />
+                );
             })}
         </div>
     );

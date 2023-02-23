@@ -467,7 +467,6 @@ pub enum ActionCosts {
     new_action_receipt = 12,
     new_data_receipt_base = 13,
     new_data_receipt_byte = 14,
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     delegate = 15,
 }
 

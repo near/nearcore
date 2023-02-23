@@ -1,32 +1,40 @@
-import React from "react";
-import { Navigate, NavLink, Route, Routes } from "react-router-dom";
-import { CurrentPeersView } from "./CurrentPeersView";
 import './NetworkInfoView.scss';
-import { PeerStorageView } from "./PeerStorageView";
-import { ConnectionStorageView } from "./ConnectionStorageView";
-import { Tier1View } from "./Tier1View";
+import { NavLink, Navigate, Route, Routes } from 'react-router-dom';
+import { CurrentPeersView } from './CurrentPeersView';
+import { PeerStorageView } from './PeerStorageView';
+import { ConnectionStorageView } from './ConnectionStorageView';
+import { Tier1View } from './Tier1View';
 
 type NetworkInfoViewProps = {
-    addr: string,
+    addr: string;
 };
 
 export const NetworkInfoView = ({ addr }: NetworkInfoViewProps) => {
-    return <div className="network-info-view">
-        <div className="navbar">
-            <NavLink to="current" className={navLinkClassName}>Current Peers</NavLink>
-            <NavLink to="peer_storage" className={navLinkClassName}>Detailed Peer Storage</NavLink>
-            <NavLink to="connection_storage" className={navLinkClassName}>Connection Storage</NavLink>
-            <NavLink to="tier1" className={navLinkClassName}>TIER1</NavLink>
-
+    return (
+        <div className="network-info-view">
+            <div className="navbar">
+                <NavLink to="current" className={navLinkClassName}>
+                    Current Peers
+                </NavLink>
+                <NavLink to="peer_storage" className={navLinkClassName}>
+                    Detailed Peer Storage
+                </NavLink>
+                <NavLink to="connection_storage" className={navLinkClassName}>
+                    Connection Storage
+                </NavLink>
+                <NavLink to="tier1" className={navLinkClassName}>
+                    TIER1
+                </NavLink>
+            </div>
+            <Routes>
+                <Route path="" element={<Navigate to="current" />} />
+                <Route path="current" element={<CurrentPeersView addr={addr} />} />
+                <Route path="peer_storage" element={<PeerStorageView addr={addr} />} />
+                <Route path="connection_storage" element={<ConnectionStorageView addr={addr} />} />
+                <Route path="tier1" element={<Tier1View addr={addr} />} />
+            </Routes>
         </div>
-        <Routes>
-            <Route path="" element={<Navigate to="current" />} />
-            <Route path="current" element={<CurrentPeersView addr={addr} />} />
-            <Route path="peer_storage" element={<PeerStorageView addr={addr} />} />
-            <Route path="connection_storage" element={<ConnectionStorageView addr={addr} />} />
-            <Route path="tier1" element={<Tier1View addr={addr} />} />
-        </Routes>
-    </div>;
+    );
 };
 
 function navLinkClassName({ isActive }: { isActive: boolean }) {
