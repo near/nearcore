@@ -215,7 +215,7 @@ def get_test_accounts_from_args(argv):
     node_account = account_mod.Account(node_account_key,
                                        mocknet_helpers.get_nonce_for_pk(
                                            node_account_key.account_id,
-                                           node_account_key.pk),
+                                           node_account_key.pk, addr=random.choice(rpc_infos)),
                                        base_block_hash,
                                        rpc_infos=rpc_infos)
 
@@ -226,7 +226,7 @@ def get_test_accounts_from_args(argv):
     for key in test_account_keys:
         account = account_mod.Account(key,
                                       mocknet_helpers.get_nonce_for_pk(
-                                          key.account_id, key.pk),
+                                          key.account_id, key.pk, addr=random.choice(rpc_infos)),
                                       base_block_hash,
                                       rpc_infos=rpc_infos)
         accounts.append(account)
