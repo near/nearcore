@@ -7,7 +7,7 @@ on:
 
 jobs:
   build_fuzzers:
-    runs-on: nayduck-worker7
+    runs-on: nayduck
 
     permissions:
       contents: "read"
