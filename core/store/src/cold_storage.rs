@@ -24,6 +24,7 @@ struct StoreWithCache<'a> {
 
 /// The BatchTransaction can be used to write multiple set operations to the cold db in batches.
 /// [`write`] is called every time `transaction_size` overgrows `threshold_transaction_size`.
+/// [`write`] should also be called manually before dropping BatchTransaction to write any leftovers.
 struct BatchTransaction {
     cold_db: std::sync::Arc<ColdDB>,
     transaction: DBTransaction,
@@ -155,24 +156,34 @@ pub fn update_cold_head(
     return Ok(());
 }
 
+pub enum CopyAllDataToColdStatus {
+    EverythingCopied,
+    Interrupted,
+}
+
 /// Copies all contents of all cold columns from `hot_store` to `cold_db`.
 /// Does it column by column, and because columns can be huge, writes in batches of ~`batch_size`.
 pub fn copy_all_data_to_cold(
     cold_db: std::sync::Arc<ColdDB>,
     hot_store: &Store,
     batch_size: usize,
-) -> io::Result<()> {
+    keep_going: std::sync::Arc<std::sync::atomic::AtomicBool>,
+) -> io::Result<CopyAllDataToColdStatus> {
     for col in DBCol::iter() {
         if col.is_cold() {
             let mut transaction = BatchTransaction::new(cold_db.clone(), batch_size);
             for result in hot_store.iter(col) {
+                if !keep_going.load(std::sync::atomic::Ordering::Relaxed) {
+                    tracing::debug!(target: "cold_store", "stopping copy_all_data_to_cold");
+                    return Ok(CopyAllDataToColdStatus::Interrupted);
+                }
                 let (key, value) = result?;
-                transaction.set(col, key.to_vec(), value.to_vec())?;
+                transaction.set_and_write_if_full(col, key.to_vec(), value.to_vec())?;
             }
             transaction.write()?;
         }
     }
-    Ok(())
+    Ok(CopyAllDataToColdStatus::EverythingCopied)
 }
 
 pub fn test_cold_genesis_update(cold_db: &ColdDB, hot_store: &Store) -> io::Result<()> {
@@ -195,7 +206,9 @@ pub fn test_get_store_reads(column: DBCol) -> u64 {
 }
 
 pub fn test_get_store_initial_writes(column: DBCol) -> u64 {
-    crate::metrics::COLD_MIGRATION_INITIAL_WRITES.with_label_values(&[<&str>::from(column)]).get()
+    crate::metrics::COLD_STORE_MIGRATION_BATCH_WRITE_COUNT
+        .with_label_values(&[<&str>::from(column)])
+        .get()
 }
 
 /// Returns HashMap from DBKeyType to possible keys of that type for provided height.
@@ -448,7 +461,12 @@ impl BatchTransaction {
 
     /// Adds a set DBOp to `self.transaction`. Updates `self.transaction_size`.
     /// If `self.transaction_size` becomes too big, calls for write.
-    pub fn set(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) -> io::Result<()> {
+    pub fn set_and_write_if_full(
+        &mut self,
+        col: DBCol,
+        key: Vec<u8>,
+        value: Vec<u8>,
+    ) -> io::Result<()> {
         let size = key.len() + value.len();
 
         self.transaction.set(col, key, value);
@@ -469,8 +487,10 @@ impl BatchTransaction {
 
         let column_label = [<&str>::from(self.transaction.ops[0].col())];
 
-        crate::metrics::COLD_MIGRATION_INITIAL_WRITES.with_label_values(&column_label).inc();
-        let _timer = crate::metrics::COLD_MIGRATION_INITIAL_WRITES_TIME
+        crate::metrics::COLD_STORE_MIGRATION_BATCH_WRITE_COUNT
+            .with_label_values(&column_label)
+            .inc();
+        let _timer = crate::metrics::COLD_STORE_MIGRATION_BATCH_WRITE_TIME
             .with_label_values(&column_label)
             .start_timer();
 

@@ -3588,6 +3588,7 @@ dependencies = [
  "once_cell",
  "opentelemetry",
  "parking_lot 0.12.1",
+ "pin-project",
  "pretty_assertions",
  "protobuf 3.0.2",
  "protobuf-codegen",

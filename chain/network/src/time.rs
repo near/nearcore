@@ -45,6 +45,19 @@ static FAKE_CLOCK_MONO_START: Lazy<Instant> = Lazy::new(Instant::now);
 // An arbitrary non-trivial deterministic Utc timestamp.
 const FAKE_CLOCK_UTC_START: Lazy<Utc> = Lazy::new(|| Utc::from_unix_timestamp(89108233).unwrap());
 
+// By the definition of derive(PartialEq), Finite(...) < Infinite.
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+pub enum Deadline {
+    Finite(Instant),
+    Infinite,
+}
+
+impl From<Instant> for Deadline {
+    fn from(t: Instant) -> Deadline {
+        Deadline::Finite(t)
+    }
+}
+
 #[derive(Clone)]
 enum ClockInner {
     Real,
@@ -71,18 +84,28 @@ impl Clock {
     pub fn real() -> Clock {
         Clock(ClockInner::Real)
     }
-    /// Current time according to the monotonic clock.
+
+    /// Current time according to the monotone clock.
     pub fn now(&self) -> Instant {
         match &self.0 {
             ClockInner::Real => Instant::now(),
             ClockInner::Fake(fake) => fake.now(),
         }
     }
+
     /// Current time according to the system/walltime clock.
     pub fn now_utc(&self) -> Utc {
         match &self.0 {
             ClockInner::Real => Utc::now_utc(),
             ClockInner::Fake(fake) => fake.now_utc(),
+        }
+    }
+
+    /// Cancellable.
+    pub async fn sleep_until_deadline(&self, t: Deadline) {
+        match t {
+            Deadline::Infinite => std::future::pending().await,
+            Deadline::Finite(t) => self.sleep_until(t).await,
         }
     }
 
