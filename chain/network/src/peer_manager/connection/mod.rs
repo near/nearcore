@@ -24,6 +24,8 @@ use std::future::Future;
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Weak};
 
+mod background;
+
 #[cfg(test)]
 mod tests;
 
@@ -50,23 +52,6 @@ impl tcp::Tier {
             _ => self == tcp::Tier::T2,
         }
     }
-}
-
-#[derive(Default)]
-pub(crate) struct Stats {
-    /// Number of messages received since the last reset of the counter.
-    pub received_messages: AtomicU64,
-    /// Number of bytes received since the last reset of the counter.
-    pub received_bytes: AtomicU64,
-    /// Avg received bytes/s, based on the last few minutes of traffic.
-    pub received_bytes_per_sec: AtomicU64,
-    /// Avg sent bytes/s, based on the last few minutes of traffic.
-    pub sent_bytes_per_sec: AtomicU64,
-
-    /// Number of messages in the buffer to send.
-    pub messages_to_send: AtomicU64,
-    /// Number of bytes (sum of message sizes) in the buffer to send.
-    pub bytes_to_send: AtomicU64,
 }
 
 /// Contains information relevant to a connected peer.

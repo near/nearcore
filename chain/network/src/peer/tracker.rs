@@ -41,10 +41,6 @@ impl CircularUniqueQueue {
 /// Keeps track of requests and received hashes of transactions and blocks.
 /// Also keeps track of number of bytes sent and received from this peer to prevent abuse.
 pub(crate) struct Tracker {
-    /// Bytes we've sent.
-    pub(crate) sent_bytes: TransferStats,
-    /// Bytes we've received.
-    pub(crate) received_bytes: TransferStats,
     /// Sent requests.
     requested: CircularUniqueQueue,
     /// Received elements.

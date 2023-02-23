@@ -315,7 +315,7 @@ impl NetworkState {
                 // First verify and broadcast the edge of the connection, so that in case
                 // it is invalid, the connection is not added to the pool.
                 // TODO(gprusak): consider actually banning the peer for consistency.
-                self.add_edges(&clock, vec![edge])
+                self.add_edges(vec![edge])
                     .await
                     .map_err(|_: ReasonForBan| RegisterPeerError::InvalidEdge)?;
                 self.tier2.insert_ready(conn.clone()).map_err(RegisterPeerError::PoolError)?;
@@ -334,73 +334,66 @@ impl NetworkState {
     /// even starting.
     pub fn unregister(
         self: &Arc<Self>,
-        clock: &time::Clock,
         conn: &Arc<connection::Connection>,
         stream_id: tcp::StreamId,
         reason: ClosingReason,
     ) {
-        let this = self.clone();
-        let clock = clock.clone();
-        let conn = conn.clone();
-        self.spawn(async move {
-            let peer_id = conn.peer_info.id.clone();
-            if conn.tier == tcp::Tier::T1 {
-                // There is no banning or routing table for TIER1.
-                // Just remove the connection from the network_state.
-                this.tier1.remove(&conn);
-                return;
-            }
-            this.tier2.remove(&conn);
+        let peer_id = conn.peer_info.id.clone();
+        if conn.tier == tcp::Tier::T1 {
+            // There is no banning or routing table for TIER1.
+            // Just remove the connection from the network_state.
+            self.tier1.remove(&conn);
+            return;
+        }
+        self.tier2.remove(&conn);
 
-            // If the last edge we have with this peer represent a connection addition, create the edge
-            // update that represents the connection removal.
-            if let Some(edge) = this.graph.load().local_edges.get(&peer_id) {
-                if edge.edge_type() == EdgeState::Active {
-                    let edge_update =
-                        edge.remove_edge(this.config.node_id(), &this.config.node_key);
-                    this.add_edges(&clock, vec![edge_update.clone()]).await.unwrap();
-                }
+        // If the last edge we have with this peer represent a connection addition, create the edge
+        // update that represents the connection removal.
+        if let Some(edge) = self.graph.load().local_edges.get(&peer_id) {
+            if edge.edge_type() == EdgeState::Active {
+                let edge_update =
+                    edge.remove_edge(this.config.node_id(), &this.config.node_key);
+                this.add_edges(&clock, vec![edge_update.clone()]).await.unwrap();
             }
+        }
 
-            // Save the fact that we are disconnecting to the PeerStore.
-            let res = match reason {
-                ClosingReason::Ban(ban_reason) => {
-                    this.peer_store.peer_ban(&clock, &conn.peer_info.id, ban_reason)
-                }
-                _ => this.peer_store.peer_disconnected(&clock, &conn.peer_info.id),
-            };
-            if let Err(err) = res {
-                tracing::error!(target: "network", ?err, "Failed to save peer data");
+        // Save the fact that we are disconnecting to the PeerStore.
+        let res = match reason {
+            ClosingReason::Ban(ban_reason) => {
+                self.peer_store.peer_ban(&clock, &conn.peer_info.id, ban_reason)
             }
+            _ => self.peer_store.peer_disconnected(&clock, &conn.peer_info.id),
+        };
+        if let Err(err) = res {
+            tracing::error!(target: "network", ?err, "Failed to save peer data");
+        }
 
-            // Save the fact that we are disconnecting to the ConnectionStore,
-            // and push a reconnect attempt, if applicable
-            if this.connection_store.connection_closed(&conn.peer_info, &conn.peer_type, &reason) {
-                this.pending_reconnect.lock().push(conn.peer_info.clone());
-            }
+        // Save the fact that we are disconnecting to the ConnectionStore,
+        // and push a reconnect attempt, if applicable
+        if self.connection_store.connection_closed(&conn.peer_info, &conn.peer_type, &reason) {
+            self.pending_reconnect.lock().push(conn.peer_info.clone());
+        }
 
-            this.config
-                .event_sink
-                .push(Event::ConnectionClosed(ConnectionClosedEvent { stream_id, reason }));
-        });
+        self.config
+            .event_sink
+            .push(Event::ConnectionClosed(ConnectionClosedEvent { stream_id, reason }));
     }
 
     /// Attempt to connect to the given peer until successful, up to max_attempts times
     pub async fn reconnect(
         self: &Arc<Self>,
-        clock: time::Clock,
         peer_info: PeerInfo,
         max_attempts: usize,
     ) {
-        let mut interval = time::Interval::new(clock.now(), RECONNECT_ATTEMPT_INTERVAL);
-        for _attempt in 0..max_attempts {
-            interval.tick(&clock).await;
+        let mut interval = ctx::time::Interval::new(ctx::time::now(), RECONNECT_ATTEMPT_INTERVAL);
+        for _ in 0..max_attempts {
+            interval.tick().await;
 
             let result = async {
                 let stream = tcp::Stream::connect(&peer_info, tcp::Tier::T2)
                     .await
                     .context("tcp::Stream::connect()")?;
-                PeerActor::spawn_and_handshake(clock.clone(), stream, None, self.clone())
+                PeerActor::spawn_and_handshake(stream, None, self.clone())
                     .await
                     .context("PeerActor::spawn()")?;
                 anyhow::Ok(())
@@ -413,7 +406,7 @@ impl NetworkState {
                 tracing::info!(target:"network", ?result, "Failed to connect to {peer_info}");
             }
 
-            if self.peer_store.peer_connection_attempt(&clock, &peer_info.id, result).is_err() {
+            if self.peer_store.peer_connection_attempt(&peer_info.id, result).is_err() {
                 tracing::error!(target: "network", ?peer_info, "Failed to store connection attempt.");
             }
 
@@ -435,29 +428,29 @@ impl NetworkState {
     }
 
     #[cfg(test)]
-    pub fn send_ping(&self, clock: &time::Clock, tier: tcp::Tier, nonce: u64, target: PeerId) {
+    pub fn send_ping(&self, tier: tcp::Tier, nonce: u64, target: PeerId) {
         let body = RoutedMessageBody::Ping(crate::network_protocol::Ping {
             nonce,
             source: self.config.node_id(),
         });
         let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target), body };
-        self.send_message_to_peer(clock, tier, self.sign_message(clock, msg));
+        self.send_message_to_peer(tier, self.sign_message(msg));
     }
 
-    pub fn send_pong(&self, clock: &time::Clock, tier: tcp::Tier, nonce: u64, target: CryptoHash) {
+    pub fn send_pong(&self, tier: tcp::Tier, nonce: u64, target: CryptoHash) {
         let body = RoutedMessageBody::Pong(crate::network_protocol::Pong {
             nonce,
             source: self.config.node_id(),
         });
         let msg = RawRoutedMessage { target: PeerIdOrHash::Hash(target), body };
-        self.send_message_to_peer(clock, tier, self.sign_message(clock, msg));
+        self.send_message_to_peer(tier, self.sign_message(msg));
     }
 
-    pub fn sign_message(&self, clock: &time::Clock, msg: RawRoutedMessage) -> Box<RoutedMessageV2> {
+    pub fn sign_message(&self, msg: RawRoutedMessage) -> Box<RoutedMessageV2> {
         Box::new(msg.sign(
             &self.config.node_key,
             self.config.routed_message_ttl,
-            Some(clock.now_utc()),
+            Some(ctx::time::now_utc()),
         ))
     }
 
@@ -465,7 +458,6 @@ impl NetworkState {
     /// Return whether the message is sent or not.
     pub fn send_message_to_peer(
         &self,
-        clock: &time::Clock,
         tier: tcp::Tier,
         msg: Box<RoutedMessageV2>,
     ) -> bool {
@@ -485,7 +477,7 @@ impl NetworkState {
                     // If a message is a response, we try to load the target from the route back
                     // cache.
                     PeerIdOrHash::Hash(hash) => {
-                        match self.tier1_route_back.lock().remove(clock, hash) {
+                        match self.tier1_route_back.lock().remove(hash) {
                             Some(peer_id) => peer_id,
                             None => return false,
                         }
@@ -494,12 +486,12 @@ impl NetworkState {
                 };
                 return self.tier1.send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
             }
-            tcp::Tier::T2 => match self.graph.routing_table.find_route(&clock, &msg.target) {
+            tcp::Tier::T2 => match self.graph.routing_table.find_route(&msg.target) {
                 Ok(peer_id) => {
                     // Remember if we expect a response for this message.
                     if msg.author == my_peer_id && msg.expect_response() {
                         tracing::trace!(target: "network", ?msg, "initiate route back");
-                        self.graph.routing_table.add_route_back(&clock, msg.hash(), my_peer_id);
+                        self.graph.routing_table.add_route_back(msg.hash(), my_peer_id);
                     }
                     return self.tier2.send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
                 }
@@ -526,7 +518,6 @@ impl NetworkState {
     /// The message might be sent over TIER1 and/or TIER2 connection depending on the message type.
     pub fn send_message_to_account(
         &self,
-        clock: &time::Clock,
         account_id: &AccountId,
         msg: RoutedMessageBody,
     ) -> bool {
@@ -549,7 +540,6 @@ impl NetworkState {
                 // TODO(gprusak): in case of PartialEncodedChunk, consider stripping everything
                 // but the header. This will bound the message size
                 conn.send_message(Arc::new(PeerMessage::Routed(self.sign_message(
-                    clock,
                     RawRoutedMessage {
                         target: PeerIdOrHash::PeerId(data.peer_id.clone()),
                         body: msg.clone(),
@@ -591,75 +581,59 @@ impl NetworkState {
         };
 
         let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target), body: msg };
-        let msg = self.sign_message(clock, msg);
+        let msg = self.sign_message(msg);
         if msg.body.is_important() {
             for _ in 0..IMPORTANT_MESSAGE_RESENT_COUNT {
-                success |= self.send_message_to_peer(clock, tcp::Tier::T2, msg.clone());
+                success |= self.send_message_to_peer(tcp::Tier::T2, msg.clone());
             }
         } else {
-            success |= self.send_message_to_peer(clock, tcp::Tier::T2, msg)
+            success |= self.send_message_to_peer(tcp::Tier::T2, msg)
         }
         success
     }
 
     pub async fn add_accounts_data(
         self: &Arc<Self>,
-        clock: &time::Clock,
         accounts_data: Vec<Arc<SignedAccountData>>,
     ) -> Option<accounts_data::Error> {
         let this = self.clone();
-        let clock = clock.clone();
-        self.spawn(async move {
-            // Verify and add the new data to the internal state.
-            let (new_data, err) = this.accounts_data.clone().insert(&clock, accounts_data).await;
-            // Broadcast any new data we have found, even in presence of an error.
-            // This will prevent a malicious peer from forcing us to re-verify valid
-            // datasets. See accounts_data::Cache documentation for details.
-            if new_data.len() > 0 {
-                let tier2 = this.tier2.load();
-                let tasks: Vec<_> = tier2
-                    .ready
-                    .values()
-                    .map(|p| this.spawn(p.send_accounts_data(new_data.clone())))
-                    .collect();
-                for t in tasks {
-                    t.await.unwrap();
-                }
-            }
-            err
-        })
-        .await
-        .unwrap()
+        // Verify and add the new data to the internal state.
+        let (new_data, err) = this.accounts_data.clone().insert(&clock, accounts_data).await;
+        // Broadcast any new data we have found, even in presence of an error.
+        // This will prevent a malicious peer from forcing us to re-verify valid
+        // datasets. See accounts_data::Cache documentation for details.
+        if new_data.len() > 0 {
+            scope::run!(|s| async {
+                self.tier2.load().ready.values().map(|p| s.spawn(p.send_accounts_data(new_data.clone())));
+                Ok(())
+            });
+        }
+        err
     }
 
     /// a) there is a peer we should be connected to, but we aren't
     /// b) there is an edge indicating that we should be disconnected from a peer, but we are connected.
     /// Try to resolve the inconsistency.
     /// We call this function every FIX_LOCAL_EDGES_INTERVAL from peer_manager_actor.rs.
-    pub async fn fix_local_edges(self: &Arc<Self>, clock: &time::Clock, timeout: time::Duration) {
-        let this = self.clone();
-        let clock = clock.clone();
-        self.spawn(async move {
-            let graph = this.graph.load();
-            let tier2 = this.tier2.load();
-            let mut tasks = vec![];
+    pub async fn fix_local_edges(&self, timeout: time::Duration) {
+        let graph = self.graph.load();
+        let tier2 = self.tier2.load();
+        scope::run!(|s| async {
             for edge in graph.local_edges.values() {
                 let edge = edge.clone();
-                let node_id = this.config.node_id();
+                let node_id = self.config.node_id();
                 let other_peer = edge.other(&node_id).unwrap();
-                match (tier2.ready.get(other_peer), edge.edge_type()) {
-                    // This is an active connection, while the edge indicates it shouldn't.
-                    (Some(conn), EdgeState::Removed) => tasks.push(this.spawn({
-                        let this = this.clone();
-                        let conn = conn.clone();
-                        let clock = clock.clone();
-                        async move {
+                // TODO(gprusak): spawn only if needed to minimize the cost.
+                s.spawn(async {
+                    match (tier2.ready.get(other_peer), edge.edge_type()) {
+                        // This is an active connection, while the edge indicates it shouldn't.
+                        (Some(conn), EdgeState::Removed) =>  {
                             conn.send_message(Arc::new(PeerMessage::RequestUpdateNonce(
                                 PartialEdgeInfo::new(
                                     &node_id,
                                     &conn.peer_info.id,
                                     std::cmp::max(Edge::create_fresh_nonce(&clock), edge.next()),
-                                    &this.config.node_key,
+                                    &self.config.node_key,
                                 ),
                             )));
                             // TODO(gprusak): here we should synchronically wait for the RequestUpdateNonce
@@ -670,39 +644,29 @@ impl NetworkState {
                                 Some(edge) if edge.edge_type() == EdgeState::Active => return,
                                 _ => conn.stop(None),
                             }
-                        }
-                    })),
-                    // We are not connected to this peer, but routing table contains
-                    // information that we do. We should wait and remove that peer
-                    // from routing table
-                    (None, EdgeState::Active) => tasks.push(this.spawn({
-                        let this = this.clone();
-                        let clock = clock.clone();
-                        let other_peer = other_peer.clone();
-                        async move {
+                        })),
+                        // We are not connected to this peer, but routing table contains
+                        // information that we do. We should wait and remove that peer
+                        // from routing table
+                        (None, EdgeState::Active) => {
                             // This edge says this is an connected peer, which is currently not in the set of connected peers.
                             // Wait for some time to let the connection begin or broadcast edge removal instead.
-                            clock.sleep(timeout).await;
-                            if this.tier2.load().ready.contains_key(&other_peer) {
+                            ctx::time::sleep(timeout).await?;
+                            if self.tier2.load().ready.contains_key(&other_peer) {
                                 return;
                             }
                             // Peer is still not connected after waiting a timeout.
                             // Unwrap is safe, because new_edge is always valid.
                             let new_edge =
-                                edge.remove_edge(this.config.node_id(), &this.config.node_key);
-                            this.add_edges(&clock, vec![new_edge.clone()]).await.unwrap()
-                        }
-                    })),
-                    // OK
-                    _ => {}
-                }
+                                edge.remove_edge(self.config.node_id(), &self.config.node_key);
+                            self.add_edges(vec![new_edge.clone()]).await.unwrap()
+                        })),
+                        // OK
+                        _ => {}
+                    }
+                });
             }
-            for t in tasks {
-                let _ = t.await;
-            }
-        })
-        .await
-        .unwrap()
+        });
     }
 
     pub fn update_connection_store(self: &Arc<Self>) {
