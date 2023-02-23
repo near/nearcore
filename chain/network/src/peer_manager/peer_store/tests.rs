@@ -386,6 +386,6 @@ fn test_delete_peers() {
     peer_store.add_indirect_peers(&clock.clock(), peer_infos.into_iter());
     assert_peers_in_cache(&peer_store, &peer_ids, &peer_addresses);
 
-    peer_store.0.lock().delete_peers(&peer_ids).unwrap();
+    peer_store.0.lock().delete_peers(&peer_ids);
     assert_peers_in_cache(&peer_store, &[], &[]);
 }

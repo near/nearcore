@@ -136,7 +136,7 @@ impl Inner {
     }
 
     /// Deletes peers from the internal cache
-    fn delete_peers(&mut self, peer_ids: &[PeerId]) -> anyhow::Result<()> {
+    fn delete_peers(&mut self, peer_ids: &[PeerId]) {
         for peer_id in peer_ids {
             if let Some(peer_state) = self.peer_states.remove(peer_id) {
                 if let Some(addr) = peer_state.peer_info.addr {
@@ -144,7 +144,6 @@ impl Inner {
                 }
             }
         }
-        Ok(())
     }
 
     /// Find a random subset of peers based on filter.
@@ -207,9 +206,7 @@ impl Inner {
                 to_remove.push(peer_id.clone());
             }
         }
-        if let Err(err) = self.delete_peers(&to_remove) {
-            tracing::error!(target: "network", ?err, "Failed to remove expired peers");
-        }
+        self.delete_peers(&to_remove);
     }
 
     fn unban(&mut self, now: time::Utc) {
