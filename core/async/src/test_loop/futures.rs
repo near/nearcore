@@ -66,17 +66,6 @@ impl<T: Debug, R> Debug for MessageExpectingResponse<T, R> {
     }
 }
 
-/// Function to create a pair of Future and MessageExpectingResponse, so that
-/// the future is resolved when the responder is called.
-fn create_future_for_message_response<T, R: Send + 'static>(
-    message: T,
-) -> (impl Future<Output = R>, MessageExpectingResponse<T, R>) {
-    let (sender, receiver) = oneshot::channel::<R>();
-    let future = async move { receiver.await.expect("Future was cancelled") };
-    let responder = Box::new(move |r| sender.send(r).ok().unwrap());
-    (future, MessageExpectingResponse { message, responder })
-}
-
 impl<
         Message: 'static,
         Response: Send + 'static,
@@ -84,8 +73,13 @@ impl<
     > messaging::CanSendAsync<Message, Response> for DelaySender<Event>
 {
     fn send_async(&self, message: Message) -> BoxFuture<'static, Response> {
-        let (future, responder) = create_future_for_message_response(message);
-        self.send_with_delay(responder.into(), Duration::ZERO);
+        let (sender, receiver) = oneshot::channel::<Response>();
+        let future = async move { receiver.await.expect("Future was cancelled") };
+        let responder = Box::new(move |r| sender.send(r).ok().unwrap());
+        self.send_with_delay(
+            MessageExpectingResponse { message, responder }.into(),
+            Duration::ZERO,
+        );
         future.boxed()
     }
 }
