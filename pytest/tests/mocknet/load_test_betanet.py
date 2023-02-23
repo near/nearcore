@@ -134,10 +134,14 @@ def random_transaction(account,
                                        base_block_hash=base_block_hash)
 
 
-def send_random_transactions(node_account, test_accounts, max_tps_per_node):
+def send_random_transactions(node_account, test_accounts, max_tps_per_node, rpc_nodes=None):
     logger.info("===========================================")
     logger.info("New iteration of 'send_random_transactions'")
-    base_block_hash = mocknet_helpers.get_latest_block_hash()
+    if rpc_nodes:
+        addr = random.choice(rpc_nodes)
+    else:
+        addr = None
+    base_block_hash = mocknet_helpers.get_latest_block_hash(addr=addr)
     pmap(
         lambda index_and_account: random_transaction(index_and_account[1],
                                                      index_and_account[0],
@@ -207,7 +211,7 @@ def get_test_accounts_from_args(argv):
         for i in range(NUM_ACCOUNTS)
     ]
 
-    base_block_hash = mocknet_helpers.get_latest_block_hash()
+    base_block_hash = mocknet_helpers.get_latest_block_hash(addr=random.choice(rpc_nodes))
     node_account = account_mod.Account(node_account_key,
                                        mocknet_helpers.get_nonce_for_pk(
                                            node_account_key.account_id,
