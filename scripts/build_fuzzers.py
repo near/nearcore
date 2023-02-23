@@ -17,14 +17,11 @@ TAR_NAME = f'nearcore-master-{BUILDER_START_TIME}.tar.gz'
 def push_to_google_bucket(archive_name: str) -> None:
     try:
         subprocess.run([
-            'gcloud',
-            'alpha',
-            'storage',
+            'gsutil',
             'cp',
             archive_name,
             G_BUCKET,
-        ],
-                       check=True)
+        ], check=True)
 
     except subprocess.CalledProcessError as e:
         logger.info(f"Failed to upload archive to Google Storage!")
