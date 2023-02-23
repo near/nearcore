@@ -61,10 +61,9 @@ pub enum DBCol {
     /// - *Rows*: (block, shard)
     /// - *Content type*: Vec of [near_primitives::sharding::ReceiptProof]
     IncomingReceipts,
-    /// Info about the peers that we are connected to. Mapping from peer_id to KnownPeerState.
-    /// - *Rows*: peer_id (PublicKey)
-    /// - *Content type*: [network_primitives::types::KnownPeerState]
-    Peers,
+    /// Deprecated.
+    #[strum(serialize = "Peers")]
+    _Peers,
     /// List of recent outbound TIER2 connections. We'll attempt to re-establish
     /// these connections after node restart or upon disconnection.
     /// - *Rows*: single row (empty row name)
