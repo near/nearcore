@@ -744,27 +744,27 @@ pub mod store_helper {
         shard_layout: ShardLayout,
         shard_id: u64,
         store: &'a Store,
-        from: Option<Vec<u8>>,
-        to: Option<Vec<u8>>,
+        from: Option<&'a Vec<u8>>,
+        to: Option<&'a Vec<u8>>,
     ) -> impl Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a {
-        store.iter(crate::DBCol::FlatState).filter_map(move |result| {
-            if let Ok((key, value)) = result {
-                // Currently all the data in flat storage is 'together' - so we have to parse the key,
-                // to see if this element belongs to this shard.
-                if let Ok(key_in_shard) = key_belongs_to_shard(&key, &shard_layout, shard_id) {
-                    if key_in_shard {
-                        // Right now this function is very slow, as we iterate over whole flat storage DB (and ignore most of the keys).
-                        // We should add support to our Database object to handle range iterators.
-                        if from.as_ref().map_or(true, |x| x.as_slice() <= key.as_ref())
-                            && to.as_ref().map_or(true, |x| x.as_slice() >= key.as_ref())
-                        {
+        store
+            .iter_range(
+                crate::DBCol::FlatState,
+                from.map(|x| x.as_slice()),
+                to.map(|x| x.as_slice()),
+            )
+            .filter_map(move |result| {
+                if let Ok((key, value)) = result {
+                    // Currently all the data in flat storage is 'together' - so we have to parse the key,
+                    // to see if this element belongs to this shard.
+                    if let Ok(key_in_shard) = key_belongs_to_shard(&key, &shard_layout, shard_id) {
+                        if key_in_shard {
                             return Some((key, value));
                         }
                     }
                 }
-            }
-            return None;
-        })
+                return None;
+            })
     }
 
     /// Currently all the data in flat storage is 'together' - so we have to parse the key,

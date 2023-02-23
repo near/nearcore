@@ -304,3 +304,14 @@ pub fn migrate_33_to_34(store: &Store, mut is_node_archival: bool) -> anyhow::Re
     update.commit()?;
     Ok(())
 }
+
+/// Migrates the database from version 35 to 36.
+///
+/// This involves deleting contents of Peers column which is now
+/// deprecated and no longer used.
+pub fn migrate_35_to_36(store: &Store) -> anyhow::Result<()> {
+    let mut update = store.store_update();
+    update.delete_all(DBCol::_Peers);
+    update.commit()?;
+    Ok(())
+}

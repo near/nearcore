@@ -149,6 +149,7 @@ paperclip = { version = "0.8.0", features = ["actix4"] }
 parity-wasm = { version = "0.42", default-features = false }
 parity-wasm_41 = { package = "parity-wasm", version = "0.41" }
 parking_lot = "0.12.1"
+pin-project = "1.0"
 pretty_assertions = "1.2"
 primitive-types = { version = "0.10", default-features = false }
 prometheus = "0.13.1"

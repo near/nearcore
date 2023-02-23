@@ -25,6 +25,7 @@ use tracing::{info, trace};
 pub mod append_only_map;
 mod cold_storage;
 pub mod config;
+mod config_validate;
 mod download_file;
 pub mod dyn_config;
 mod metrics;
