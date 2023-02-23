@@ -48,11 +48,11 @@ use near_primitives::sharding::{
     ShardChunkHeader, ShardInfo, ShardProof, StateSyncInfo,
 };
 use near_primitives::state_part::PartId;
+use near_primitives::static_clock::StaticClock;
 use near_primitives::syncing::{
     get_num_state_parts, ReceiptProofResponse, RootProof, ShardStateSyncResponseHeader,
     ShardStateSyncResponseHeaderV1, ShardStateSyncResponseHeaderV2, StateHeaderKey, StatePartKey,
 };
-use near_primitives::time::Clock;
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
 };
@@ -525,7 +525,7 @@ impl Chain {
             blocks_delay_tracker: BlocksDelayTracker::default(),
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
-            last_time_head_updated: Clock::instant(),
+            last_time_head_updated: StaticClock::instant(),
             invalid_blocks: LruCache::new(INVALID_CHUNKS_POOL_SIZE),
             pending_state_patch: Default::default(),
             requested_state_parts: StateRequestTracker::new(),
@@ -651,7 +651,7 @@ impl Chain {
         let block_header = store.get_block_header(&block_head.last_block_hash)?;
         metrics::BLOCK_ORDINAL_HEAD.set(block_header.block_ordinal() as i64);
         metrics::HEADER_HEAD_HEIGHT.set(header_head.height as i64);
-        metrics::BOOT_TIME_SECONDS.set(Clock::utc().timestamp());
+        metrics::BOOT_TIME_SECONDS.set(StaticClock::utc().timestamp());
 
         metrics::TAIL_HEIGHT.set(store.tail()? as i64);
         metrics::CHUNK_TAIL_HEIGHT.set(store.chunk_tail()? as i64);
@@ -675,7 +675,7 @@ impl Chain {
             blocks_delay_tracker: BlocksDelayTracker::default(),
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
-            last_time_head_updated: Clock::instant(),
+            last_time_head_updated: StaticClock::instant(),
             pending_state_patch: Default::default(),
             requested_state_parts: StateRequestTracker::new(),
         })
@@ -775,7 +775,7 @@ impl Chain {
             return Err(e);
         }
         self.orphans.add(
-            Orphan { block, provenance: Provenance::NONE, added: Clock::instant() },
+            Orphan { block, provenance: Provenance::NONE, added: StaticClock::instant() },
             requested_missing_chunks,
         );
         Ok(())
@@ -1170,7 +1170,7 @@ impl Chain {
         challenges: &mut Vec<ChallengeBody>,
     ) -> Result<(), Error> {
         // Refuse blocks from the too distant future.
-        if header.timestamp() > Clock::utc() + Duration::seconds(ACCEPTABLE_TIME_DIFFERENCE) {
+        if header.timestamp() > StaticClock::utc() + Duration::seconds(ACCEPTABLE_TIME_DIFFERENCE) {
             return Err(Error::InvalidBlockFutureTime(header.timestamp()));
         }
 
@@ -1630,7 +1630,7 @@ impl Chain {
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) -> Result<(), Error> {
-        let block_received_time = Clock::instant();
+        let block_received_time = StaticClock::instant();
         metrics::BLOCK_PROCESSING_ATTEMPTS_TOTAL.inc();
 
         let block_height = block.header().height();
@@ -1971,7 +1971,7 @@ impl Chain {
                                 false
                             };
 
-                            let time = Clock::instant();
+                            let time = StaticClock::instant();
                             self.blocks_delay_tracker.mark_block_orphaned(block.hash(), time);
                             let orphan = Orphan { block, provenance, added: time };
                             self.orphans.add(orphan, requested_missing_chunks);
@@ -1997,7 +1997,7 @@ impl Chain {
                             prev_hash: *block.header().prev_hash(),
                             missing_chunks: missing_chunks.clone(),
                         });
-                        let time = Clock::instant();
+                        let time = StaticClock::instant();
                         self.blocks_delay_tracker.mark_block_has_missing_chunks(block.hash(), time);
                         let orphan = Orphan { block, provenance, added: time };
                         self.blocks_with_missing_chunks
@@ -2249,12 +2249,14 @@ impl Chain {
                 metrics::VALIDATOR_ACTIVE_TOTAL.set(count);
             }
 
-            self.last_time_head_updated = Clock::instant();
+            self.last_time_head_updated = StaticClock::instant();
         };
 
         metrics::BLOCK_PROCESSED_TOTAL.inc();
         metrics::BLOCK_PROCESSING_TIME.observe(
-            Clock::instant().saturating_duration_since(block_start_processing_time).as_secs_f64(),
+            StaticClock::instant()
+                .saturating_duration_since(block_start_processing_time)
+                .as_secs_f64(),
         );
         self.blocks_delay_tracker.finish_block_processing(&block_hash, new_head.clone());
 
@@ -2596,7 +2598,7 @@ impl Chain {
         for block in blocks {
             let block_hash = *block.block.header().hash();
             let height = block.block.header().height();
-            let time = Clock::instant();
+            let time = StaticClock::instant();
             let res = self.start_process_block_async(
                 me,
                 block.block,
@@ -2650,7 +2652,8 @@ impl Chain {
             debug!(target: "chain", found_orphans = orphans.len(), "Check orphans");
             for orphan in orphans.into_iter() {
                 let block_hash = orphan.hash();
-                self.blocks_delay_tracker.mark_block_unorphaned(&block_hash, Clock::instant());
+                self.blocks_delay_tracker
+                    .mark_block_unorphaned(&block_hash, StaticClock::instant());
                 let res = self.start_process_block_async(
                     me,
                     orphan.block,

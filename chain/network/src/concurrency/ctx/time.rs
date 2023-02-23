@@ -1,5 +1,5 @@
 use crate::concurrency::ctx;
-use crate::time;
+use near_primitives::time;
 
 pub fn now() -> time::Instant {
     ctx::local().0.clock.now()

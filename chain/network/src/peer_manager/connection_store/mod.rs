@@ -2,9 +2,9 @@ use crate::concurrency::arc_mutex::ArcMutex;
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer_manager::connection;
 use crate::store;
-use crate::time;
 use crate::types::{ConnectionInfo, PeerInfo, PeerType};
 use near_primitives::network::PeerId;
+use near_primitives::time;
 use std::collections::HashSet;
 
 #[cfg(test)]

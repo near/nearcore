@@ -1,4 +1,3 @@
-use crate::time;
 use crate::types as primitives;
 /// Schema module defines a type-safe access to the DB.
 /// It is a concise definition of key and value types
@@ -7,6 +6,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;
 use near_primitives::account::id::AccountId;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::time;
 use near_store::DBCol;
 use std::io;
 use std::sync::Arc;
