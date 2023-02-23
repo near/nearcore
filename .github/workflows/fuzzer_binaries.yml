@@ -3,10 +3,11 @@ on:
   schedule:
     # Run once a day, at midnight
     - cron: "0 0 * * *"
+  push:
 
 jobs:
   build_fuzzers:
-    runs-on: "ubuntu-20.04"
+    runs-on: nayduck-worker7
 
     permissions:
       contents: "read"
