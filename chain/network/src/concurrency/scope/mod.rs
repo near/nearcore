@@ -143,8 +143,6 @@ impl<E: 'static> Inner<E> {
 /// the concurrency model (you can still implement a workaround by using a channel,
 /// if you really want to, but that might mean that Scope is not what you want
 /// in the first place).
-/// In particular Service::spawn() doesn't return a JoinHandle,
-/// because it can be called outside of the scope that it belongs to.
 pub struct JoinHandle<'env, T>(
     tokio::task::JoinHandle<Result<T, ErrTaskCanceled>>,
     std::marker::PhantomData<fn(&'env ()) -> &'env ()>,
@@ -273,13 +271,11 @@ impl<E: 'static + Send> Service<E> {
     pub fn spawn<T: 'static + Send>(
         &self,
         f: impl 'static + Send + Future<Output = Result<T, E>>,
-    ) -> Result<(), ErrTerminated> {
-        self.0
-            .upgrade()
-            .map(|m| {
-                Inner::spawn(m, f);
-            })
-            .ok_or(ErrTerminated)
+    ) -> Result<JoinHandle<'static, T>, ErrTerminated> {
+        match self.0.upgrade().map(|m| Inner::spawn(m, f)) {
+            Some(h) => Ok(JoinHandle(h, std::marker::PhantomData)),
+            None => Err(ErrTerminated),
+        }
     }
 
     /// Spawns a service in this scope.

@@ -27,6 +27,8 @@ use std::sync::{Arc, Weak};
 #[cfg(test)]
 mod tests;
 
+mod stream;
+
 impl tcp::Tier {
     /// Checks if the given message type is allowed on a connection of the given Tier.
     /// TIER1 is reserved exclusively for BFT consensus messages.
