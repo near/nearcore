@@ -24,12 +24,16 @@ def load_testing_account_id(node_account_id, i):
     return '%s%02d.%s' % (chr(ord('a') + letter), num, node_account_id)
 
 
-def send_transfer(account, node_account, base_block_hash=None):
-    next_id = random.randrange(NUM_ACCOUNTS)
-    dest_account_id = load_testing_account_id(node_account.key.account_id,
-                                              next_id)
-    mocknet_helpers.retry_and_ignore_errors(lambda: account.send_transfer_tx(
-        dest_account_id, base_block_hash=base_block_hash))
+def send_transfer(account, test_accounts, base_block_hash=None):
+    dest_account = random.choice(test_accounts)
+    amount = 1
+    mocknet_helpers.retry_and_ignore_errors(
+        lambda: account.send_transfer_tx(dest_account.key.account_id,
+                                         transfer_amount=amount,
+                                         base_block_hash=base_block_hash))
+    logger.info(
+        f'Account {account.key.account_id} transfers {amount} yoctoNear to {dest_account.key.account_id}'
+    )
 
 
 def function_call_set_state_then_delete_state(account,
@@ -95,15 +99,16 @@ def function_call_set_state_then_delete_state(account,
             )
 
 
-def function_call_ft_transfer_call(account, node_account, base_block_hash=None):
-    next_id = random.randint(0, NUM_ACCOUNTS - 1)
-    dest_account_id = load_testing_account_id(node_account.key.account_id,
-                                              next_id)
+def function_call_ft_transfer_call(account,
+                                   node_account,
+                                   test_accounts,
+                                   base_block_hash=None):
+    dest_account = random.choice(test_accounts)
     contract = node_account.key.account_id
 
-    s = f'{{"receiver_id": "{dest_account_id}", "amount": "3", "msg": "\\"hi\\""}}'
+    s = f'{{"receiver_id": "{dest_account.key.account_id}", "amount": "3", "msg": "\\"hi\\""}}'
     logger.info(
-        f'Calling function "ft_transfer_call" with arguments {s} on account {account.key.account_id} contract {contract} with destination {dest_account_id}'
+        f'Calling function "ft_transfer_call" with arguments {s} on account {account.key.account_id} contract {contract} with destination {dest_account.key.account_id}'
     )
     tx_res = mocknet_helpers.retry_and_ignore_errors(
         lambda: account.send_call_contract_raw_tx(contract,
@@ -113,7 +118,8 @@ def function_call_ft_transfer_call(account, node_account, base_block_hash=None):
                                                   base_block_hash=
                                                   base_block_hash))
     logger.info(
-        f'{account.key.account_id} ft_transfer to {dest_account_id} {tx_res}')
+        f'{account.key.account_id} ft_transfer to {dest_account.key.account_id} {tx_res}'
+    )
 
 
 # See https://near.github.io/nearcore/architecture/how/meta-tx.html to understand what is going on.
@@ -154,23 +160,23 @@ def meta_transaction_transfer(alice_account, base_block_hash, base_block_height,
 def random_transaction(account,
                        i,
                        node_account,
+                       test_accounts,
                        max_tps_per_node,
                        base_block_hash=None,
-                       base_block_height=None,
-                       test_accounts=None):
+                       base_block_height=None):
     time.sleep(random.random() * NUM_ACCOUNTS / max_tps_per_node / 3)
     choice = random.randint(0, 3)
     if choice == 0:
-        logger.info(f'Account {i} transfers')
-        send_transfer(account, node_account, base_block_hash=base_block_hash)
+        send_transfer(account, test_accounts, base_block_hash=base_block_hash)
     elif choice == 1:
         function_call_set_state_then_delete_state(
             account, i, node_account, base_block_hash=base_block_hash)
     elif choice == 2:
         function_call_ft_transfer_call(account,
                                        node_account,
+                                       test_accounts,
                                        base_block_hash=base_block_hash)
-    elif choice == 3 and test_accounts and base_block_height and base_block_hash:
+    elif choice == 3:
         meta_transaction_transfer(account, base_block_hash, base_block_height,
                                   test_accounts)
 
@@ -194,10 +200,10 @@ def send_random_transactions(node_account,
             index_and_account[1],
             index_and_account[0],
             node_account,
+            test_accounts,
             max_tps_per_node,
             base_block_hash=base_block_hash,
-            base_block_height=base_block_height,
-            test_accounts=test_accounts), enumerate(test_accounts))
+            base_block_height=base_block_height), enumerate(test_accounts))
 
 
 def init_ft(node_account):
