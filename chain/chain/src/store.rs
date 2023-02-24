@@ -3,8 +3,8 @@ use std::collections::{HashMap, HashSet};
 use std::io;
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use chrono::Utc;
 use near_cache::CellLruCache;
-use near_primitives::time::Utc;
 
 use near_chain_primitives::error::Error;
 use near_primitives::block::Tip;

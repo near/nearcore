@@ -7,12 +7,12 @@ use crate::peer_manager::peer_store;
 use crate::sink::Sink;
 use crate::stun;
 use crate::tcp;
-use crate::time;
 use crate::types::ROUTED_MESSAGE_TTL;
 use anyhow::Context;
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
+use near_primitives::time;
 use near_primitives::types::AccountId;
 use near_primitives::validator_signer::ValidatorSigner;
 use std::collections::HashSet;
@@ -429,7 +429,7 @@ mod test {
     use crate::network_protocol::{AccountData, VersionedAccountData};
     use crate::tcp;
     use crate::testonly::make_rng;
-    use crate::time;
+    use near_primitives::time;
 
     #[test]
     fn test_network_config() {

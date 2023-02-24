@@ -1,11 +1,11 @@
 use actix::Message;
 use chrono::DateTime;
+use chrono::Utc;
 use near_chain_configs::{ClientConfig, ProtocolConfigView};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::network::PeerId;
 use near_primitives::sharding::ChunkHash;
-use near_primitives::time::Utc;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockReference, EpochId, EpochReference, MaybeBlockId, ShardId,
     TransactionOrReceiptId,

@@ -13,7 +13,6 @@ use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
-use crate::time;
 use crate::types::{
     ConnectedPeerInfo, GetNetworkInfo, HighestHeightPeerInfo, KnownProducer, NetworkInfo,
     NetworkRequests, NetworkResponses, PeerInfo, PeerManagerMessageRequest,
@@ -27,6 +26,7 @@ use near_o11y::{handler_debug_span, handler_trace_span, OpenTelemetrySpanExt, Wi
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::time;
 use near_primitives::views::{
     ConnectionInfoView, EdgeView, KnownPeerStateView, NetworkGraphView, PeerStoreView,
     RecentOutboundConnectionsView,
