@@ -3090,6 +3090,7 @@ dependencies = [
  "derive_more",
  "futures",
  "near-o11y",
+ "near-performance-metrics",
  "once_cell",
  "serde",
  "serde_json",
