@@ -4,9 +4,9 @@ use crate::routing;
 use crate::routing::routing_table_view::*;
 use crate::test_utils::{random_epoch_id, random_peer_id};
 use crate::testonly::make_rng;
-use crate::time;
 use near_crypto::Signature;
 use near_primitives::network::AnnounceAccount;
+use near_primitives::time;
 use rand::seq::SliceRandom;
 use std::sync::Arc;
 

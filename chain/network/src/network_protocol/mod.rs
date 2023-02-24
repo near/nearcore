@@ -22,7 +22,6 @@ pub use _proto::network as proto;
 use crate::network_protocol::proto_conv::trace_context::{
     extract_span_context, inject_trace_context,
 };
-use crate::time;
 use borsh::{BorshDeserialize as _, BorshSerialize as _};
 use near_crypto::PublicKey;
 use near_crypto::Signature;
@@ -36,6 +35,7 @@ use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptProof, ShardChunkHeader,
 };
 use near_primitives::syncing::{ShardStateSyncResponse, ShardStateSyncResponseV1};
+use near_primitives::time;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::types::{BlockHeight, ShardId};

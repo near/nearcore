@@ -21,10 +21,10 @@ use near_network::types::{
     NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
 };
 
+use chrono::Utc;
 use near_o11y::testonly::init_test_logger;
 use near_o11y::WithSpanContextExt;
 use near_primitives::block::{Block, BlockHeader};
-use near_primitives::time::Utc;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{BlockId, BlockReference, EpochId};
 use near_primitives::utils::to_timestamp;

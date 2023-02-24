@@ -1,17 +1,12 @@
-use std::collections::{HashMap, HashSet};
-
-use std::time::Duration as TimeDuration;
-
-use chrono::{DateTime, Duration};
-
+use chrono::{DateTime, Duration, Utc};
 use near_network::types::PeerManagerAdapter;
-
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-
-use near_primitives::time::{Clock, Utc};
+use near_primitives::static_clock::StaticClock;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::EpochId;
+use std::collections::{HashMap, HashSet};
+use std::time::Duration as TimeDuration;
 
 /// Helper to keep track of the Epoch Sync
 // TODO #3488
@@ -72,7 +67,7 @@ impl EpochSync {
             next_epoch_id: genesis_next_epoch_id,
             next_block_producers: first_epoch_block_producers,
             requested_epoch_id: genesis_epoch_id,
-            last_request_time: Clock::utc(),
+            last_request_time: StaticClock::utc(),
             last_request_peer_id: None,
             request_timeout: Duration::from_std(request_timeout).unwrap(),
             peer_timeout: Duration::from_std(peer_timeout).unwrap(),

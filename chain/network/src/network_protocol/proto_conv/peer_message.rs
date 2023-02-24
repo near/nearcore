@@ -7,10 +7,10 @@ use crate::network_protocol::{
     Disconnect, PeerMessage, PeersResponse, RoutingTableUpdate, SyncAccountsData,
 };
 use crate::network_protocol::{RoutedMessage, RoutedMessageV2};
-use crate::time::error::ComponentRange;
 use borsh::{BorshDeserialize as _, BorshSerialize as _};
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::challenge::Challenge;
+use near_primitives::time::error::ComponentRange;
 use near_primitives::transaction::SignedTransaction;
 use protobuf::MessageField as MF;
 use std::sync::Arc;

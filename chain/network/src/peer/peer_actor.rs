@@ -16,7 +16,6 @@ use crate::routing::edge::verify_nonce;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::stats::metrics;
 use crate::tcp;
-use crate::time;
 use crate::types::{
     BlockInfo, Disconnect, Handshake, HandshakeFailureReason, PeerMessage, PeerType, ReasonForBan,
 };
@@ -28,6 +27,7 @@ use near_o11y::{handler_debug_span, log_assert, pretty, OpenTelemetrySpanExt, Wi
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::time;
 use near_primitives::types::EpochId;
 use near_primitives::utils::DisplayOption;
 use near_primitives::version::{

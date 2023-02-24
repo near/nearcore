@@ -10,9 +10,9 @@ use crate::peer_manager::testonly::Event;
 use crate::tcp;
 use crate::testonly::make_rng;
 use crate::testonly::AsSet;
-use crate::time;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::network::PeerId;
+use near_primitives::time;
 use near_store::db::TestDB;
 use std::sync::Arc;
 
