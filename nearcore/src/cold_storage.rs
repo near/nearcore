@@ -3,10 +3,11 @@ use std::sync::{atomic::AtomicBool, Arc};
 use near_chain::types::Tip;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::{hash::CryptoHash, types::BlockHeight};
+use near_store::cold_storage::{copy_all_data_to_cold, CopyAllDataToColdStatus};
 use near_store::{
     cold_storage::{update_cold_db, update_cold_head},
     db::ColdDB,
-    DBCol, NodeStorage, Store, FINAL_HEAD_KEY, HEAD_KEY,
+    DBCol, NodeStorage, Store, FINAL_HEAD_KEY, HEAD_KEY, TAIL_KEY,
 };
 
 use crate::{metrics, NearConfig, NightshadeRuntime};
@@ -61,13 +62,30 @@ fn cold_store_copy(
     let hot_final_head = hot_store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?;
     let hot_final_head_height = hot_final_head.map_or(genesis_height, |tip| tip.height);
 
-    tracing::debug!(target : "cold_store", "cold store loop, cold_head {}, hot_final_head {}", cold_head_height, hot_final_head_height);
+    // If TAIL is not set for hot storage we default it to genesis_height.
+    // TAIL not being set is not an error.
+    // Archive dbs don't have TAIL, that means that they have all data from genesis_height.
+    let hot_tail = hot_store.get_ser::<Tip>(DBCol::BlockMisc, TAIL_KEY)?;
+    let hot_tail_height = hot_tail.map_or(genesis_height, |tip| tip.height);
+
+    tracing::debug!(target: "cold_store", "cold store loop, cold_head {}, hot_final_head {}, hot_tail {}", cold_head_height, hot_final_head_height, hot_tail_height);
 
     if cold_head_height > hot_final_head_height {
         return Err(anyhow::anyhow!(
             "Cold head is ahead of final head. cold head height: {} final head height {}",
             cold_head_height,
             hot_final_head_height
+        ));
+    }
+
+    // Cold and Hot storages need to overlap.
+    // Without this check we would skip blocks from cold_head_height to hot_tail_height.
+    // This will result in corrupted cold storage.
+    if cold_head_height < hot_tail_height {
+        return Err(anyhow::anyhow!(
+            "Cold head is behind hot tail. cold head height: {} hot tail height {}",
+            cold_head_height,
+            hot_tail_height
         ));
     }
 
@@ -114,6 +132,104 @@ fn cold_store_copy_result_to_string(result: &anyhow::Result<ColdStoreCopyResult>
         Ok(ColdStoreCopyResult::NoBlockCopied) => "no_block_copied",
         Ok(ColdStoreCopyResult::LatestBlockCopied) => "latest_block_copied",
         Ok(ColdStoreCopyResult::OtherBlockCopied) => "other_block_copied",
+    }
+}
+
+#[derive(Debug)]
+enum ColdStoreInitialMigrationResult {
+    /// Cold storage was already initialized
+    NoNeedForMigration,
+    /// Performed a successful cold storage migration
+    SuccessfulMigration,
+    /// Migration was interrupted by keep_going flag
+    MigrationInterrupted,
+}
+
+/// This function performes intial population of cold storage if needed.
+/// Migration can be interrupted via `keep_going` flag.
+///
+/// First, checks that hot store is of kind `Archive`. If not, no migration needed.
+/// Then, captures hot final head BEFORE the migration, as migration is performed during normal neard run.
+/// If hot final head is not set, returns Err.
+/// Otherwise:
+/// 1. performed migration
+/// 2. updates head to saved hot final head
+///
+/// Any Ok status means that this function should not be retried:
+/// - either migration was performed (now or earlier)
+/// - or migration was interrupted, which means the `keep_going` flag was set to `false`
+///   which means that everything cold store thread related has to stop
+///
+/// Error status means that for some reason migration cannot be performed.
+fn cold_store_initial_migration(
+    keep_going: Arc<AtomicBool>,
+    hot_store: &Store,
+    cold_store: &Store,
+    cold_db: Arc<ColdDB>,
+) -> anyhow::Result<ColdStoreInitialMigrationResult> {
+    // We only need to perform the migration if hot store is of kind Archive and cold store doesn't have a head yet
+    if hot_store.get_db_kind()? != Some(near_store::metadata::DbKind::Archive)
+        || cold_store.get(DBCol::BlockMisc, HEAD_KEY)?.is_some()
+    {
+        return Ok(ColdStoreInitialMigrationResult::NoNeedForMigration);
+    }
+
+    tracing::info!(target: "cold_store", "Starting initial population of cold store");
+
+    // If FINAL_HEAD is not set for hot storage something isn't right and we will probably fail in `update_cold_head`.
+    // Let's fail early.
+    let hot_final_head = hot_store
+        .get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?
+        .ok_or_else(|| anyhow::anyhow!("FINAL_HEAD not found in hot storage"))?;
+    let hot_final_head_height = hot_final_head.height;
+
+    // TODO take batch_size from config
+    match copy_all_data_to_cold(cold_db.clone(), &hot_store, 500_000_000, keep_going)? {
+        CopyAllDataToColdStatus::EverythingCopied => {
+            tracing::info!(target: "cold_store", "Initial population was successful, writing cold head of height {}", hot_final_head_height);
+            update_cold_head(&cold_db, &hot_store, &hot_final_head_height)?;
+            Ok(ColdStoreInitialMigrationResult::SuccessfulMigration)
+        }
+        CopyAllDataToColdStatus::Interrupted => {
+            tracing::info!(target: "cold_store", "Initial population was interrupted");
+            Ok(ColdStoreInitialMigrationResult::MigrationInterrupted)
+        }
+    }
+}
+
+/// Runs a loop that tries to copy all data from hot store to cold (do initial migration).
+/// If migration fails sleeps for 30s and tries again.
+/// If migration returned any successful status (including interruption status) breaks the loop.
+fn cold_store_initial_migration_loop(
+    keep_going: Arc<AtomicBool>,
+    hot_store: &Store,
+    cold_store: &Store,
+    cold_db: Arc<ColdDB>,
+) {
+    tracing::info!(target: "cold_store", "starting initial migration loop");
+    loop {
+        if !keep_going.load(std::sync::atomic::Ordering::Relaxed) {
+            tracing::debug!(target: "cold_store", "stopping the initial migration loop");
+            break;
+        }
+        match cold_store_initial_migration(
+            keep_going.clone(),
+            hot_store,
+            cold_store,
+            cold_db.clone(),
+        ) {
+            // We can either stop the cold store thread or hope that next time migration will not fail.
+            // Here we pick the second option.
+            Err(err) => {
+                tracing::error!(target: "cold_store", "initial migration failed with error {err}, sleeping 30s and trying again");
+                std::thread::sleep(std::time::Duration::from_secs(30));
+            }
+            // Any Ok status from `cold_store_initial_migration` function means that we can proceed to regular run.
+            Ok(status) => {
+                tracing::info!(target: "cold_store", "Initial migration status: {:?}. Moving on.", status);
+                break;
+            }
+        }
     }
 }
 
@@ -181,6 +297,11 @@ pub fn spawn_cold_store_loop(
     storage: &NodeStorage,
     runtime: Arc<NightshadeRuntime>,
 ) -> anyhow::Result<Option<ColdStoreLoopHandle>> {
+    if config.config.save_trie_changes != Some(true) {
+        tracing::debug!(target:"cold_store", "Not spawning cold store because TrieChanges are not saved");
+        return Ok(None);
+    }
+
     let hot_store = storage.get_hot_store();
     let cold_store = match storage.get_cold_store() {
         Some(cold_store) => cold_store,
@@ -203,7 +324,13 @@ pub fn spawn_cold_store_loop(
 
     tracing::info!(target : "cold_store", "Spawning the cold store loop");
     let join_handle =
-        std::thread::Builder::new().name("cold_store_loop".to_string()).spawn(move || {
+        std::thread::Builder::new().name("cold_store_copy".to_string()).spawn(move || {
+            cold_store_initial_migration_loop(
+                keep_going_clone.clone(),
+                &hot_store,
+                &cold_store,
+                cold_db.clone(),
+            );
             cold_store_loop(
                 keep_going_clone,
                 hot_store,

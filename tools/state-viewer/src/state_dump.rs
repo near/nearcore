@@ -1,4 +1,5 @@
 use borsh::BorshSerialize;
+use chrono::Utc;
 use near_chain::types::RuntimeAdapter;
 use near_chain_configs::{Genesis, GenesisChangeConfig, GenesisConfig};
 use near_crypto::PublicKey;
@@ -7,7 +8,6 @@ use near_primitives::account::id::AccountId;
 use near_primitives::block::BlockHeader;
 use near_primitives::state_record::state_record_to_account_id;
 use near_primitives::state_record::StateRecord;
-use near_primitives::time::Utc;
 use near_primitives::types::{AccountInfo, Balance, StateRoot};
 use nearcore::config::NearConfig;
 use nearcore::NightshadeRuntime;

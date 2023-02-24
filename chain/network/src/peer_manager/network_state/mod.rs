@@ -19,7 +19,6 @@ use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
-use crate::time;
 use crate::types::{ChainInfo, PeerType, ReasonForBan};
 use anyhow::Context;
 use arc_swap::ArcSwap;
@@ -27,6 +26,7 @@ use near_async::messaging::Sender;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
+use near_primitives::time;
 use near_primitives::types::AccountId;
 use parking_lot::Mutex;
 use std::net::SocketAddr;
@@ -326,10 +326,8 @@ impl NetworkState {
                         .await
                         .map_err(|_: ReasonForBan| RegisterPeerError::InvalidEdge)?;
                     this.tier2.insert_ready(conn.clone()).map_err(RegisterPeerError::PoolError)?;
-                    // Best effort write to DB.
-                    if let Err(err) = this.peer_store.peer_connected(&clock, peer_info) {
-                        tracing::error!(target: "network", ?err, "Failed to save peer data");
-                    }
+                    // Write to the peer store
+                    this.peer_store.peer_connected(&clock, peer_info);
                 }
             }
             Ok(())

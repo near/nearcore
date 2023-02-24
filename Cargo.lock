@@ -3090,6 +3090,7 @@ dependencies = [
  "derive_more",
  "futures",
  "near-o11y",
+ "near-performance-metrics",
  "once_cell",
  "serde",
  "serde_json",
@@ -3588,6 +3589,7 @@ dependencies = [
  "once_cell",
  "opentelemetry",
  "parking_lot 0.12.1",
+ "pin-project",
  "pretty_assertions",
  "protobuf 3.0.2",
  "protobuf-codegen",
@@ -3725,6 +3727,8 @@ dependencies = [
  "smart-default",
  "strum",
  "thiserror",
+ "time 0.3.9",
+ "tokio",
  "tracing",
 ]
 
@@ -5902,6 +5906,7 @@ dependencies = [
  "ansi_term",
  "anyhow",
  "borsh 0.10.2",
+ "chrono",
  "clap 3.1.18",
  "insta",
  "near-chain",

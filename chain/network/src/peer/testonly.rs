@@ -14,10 +14,10 @@ use crate::store;
 use crate::tcp;
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
-use crate::time;
 use near_async::messaging::IntoSender;
 use near_o11y::WithSpanContextExt;
 use near_primitives::network::PeerId;
+use near_primitives::time;
 use std::sync::Arc;
 
 pub struct PeerConfig {
@@ -103,8 +103,7 @@ impl PeerHandle {
         let network_state = Arc::new(NetworkState::new(
             &clock,
             store.clone(),
-            peer_store::PeerStore::new(&clock, network_cfg.peer_store.clone(), store.clone())
-                .unwrap(),
+            peer_store::PeerStore::new(&clock, network_cfg.peer_store.clone()).unwrap(),
             network_cfg.verify().unwrap(),
             cfg.chain.genesis_id.clone(),
             fc.clone(),

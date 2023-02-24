@@ -16,7 +16,6 @@ use crate::routing::edge::verify_nonce;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::stats::metrics;
 use crate::tcp;
-use crate::time;
 use crate::types::{
     BlockInfo, Disconnect, Handshake, HandshakeFailureReason, PeerMessage, PeerType, ReasonForBan,
 };
@@ -28,6 +27,7 @@ use near_o11y::{handler_debug_span, log_assert, pretty, OpenTelemetrySpanExt, Wi
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::time;
 use near_primitives::types::EpochId;
 use near_primitives::utils::DisplayOption;
 use near_primitives::version::{
@@ -834,11 +834,7 @@ impl PeerActor {
                     }
                     HandshakeFailureReason::InvalidTarget => {
                         tracing::debug!(target: "network", "Peer found was not what expected. Updating peer info with {:?}", peer_info);
-                        if let Err(err) =
-                            self.network_state.peer_store.add_direct_peer(&self.clock, peer_info)
-                        {
-                            tracing::error!(target: "network", ?err, "Fail to update peer store");
-                        }
+                        self.network_state.peer_store.add_direct_peer(&self.clock, peer_info);
                         self.stop(ctx, ClosingReason::HandshakeFailed);
                     }
                 }
@@ -1133,12 +1129,10 @@ impl PeerActor {
             PeerMessage::PeersResponse(peers) => {
                 tracing::debug!(target: "network", "Received peers from {}: {} peers.", self.peer_info, peers.len());
                 let node_id = self.network_state.config.node_id();
-                if let Err(err) = self.network_state.peer_store.add_indirect_peers(
+                self.network_state.peer_store.add_indirect_peers(
                     &self.clock,
                     peers.into_iter().filter(|peer_info| peer_info.id != node_id),
-                ) {
-                    tracing::error!(target: "network", ?err, "Fail to update peer store");
-                };
+                );
                 self.network_state
                     .config
                     .event_sink

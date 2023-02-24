@@ -7,11 +7,11 @@ use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::tcp;
 use crate::testonly::make_rng;
 use crate::testonly::stream::Stream;
-use crate::time;
 use crate::types::{PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
 use anyhow::Context as _;
 use assert_matches::assert_matches;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::time;
 use near_primitives::version::{PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION};
 use std::sync::Arc;
 
