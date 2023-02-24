@@ -5,7 +5,6 @@ use std::sync::Arc;
 use crate::{
     messaging::{CanSend, IntoAsyncSender, IntoSender},
     test_loop::{
-        delay_sender::DelaySender,
         event_handler::{capture_events, LoopEventHandler},
         futures::{drive_futures, MessageExpectingResponse, TestLoopFutureSpawner, TestLoopTask},
         TestLoopBuilder,

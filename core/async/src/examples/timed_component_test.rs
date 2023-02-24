@@ -3,7 +3,7 @@ use near_primitives::time;
 
 use crate::{
     messaging::IntoSender,
-    test_loop::event_handler::{capture_events, periodic_interval, LoopEventHandler},
+    test_loop::event_handler::{capture_events, interval, LoopEventHandler},
 };
 
 use super::timed_component::TimedComponent;
@@ -41,7 +41,7 @@ fn test_timed_component() {
     let mut test = builder.build(data);
     test.register_handler(forward_send_message().widen());
     test.register_handler(
-        periodic_interval(time::Duration::milliseconds(100), Flush, |data: &mut TimedComponent| {
+        interval(time::Duration::milliseconds(100), Flush, |data: &mut TimedComponent| {
             data.flush()
         })
         .widen(),

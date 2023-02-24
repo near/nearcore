@@ -1,4 +1,4 @@
-use near_primitives::time::{self, Clock, Duration};
+use near_primitives::time;
 
 use super::{delay_sender::DelaySender, multi_instance::IndexedLoopEventHandler};
 
@@ -8,7 +8,7 @@ pub struct LoopHandlerContext<Event> {
     pub sender: DelaySender<Event>,
     /// The clock whose .now() returns the current virtual time maintained by
     /// the test loop.
-    pub clock: Clock,
+    pub clock: time::Clock,
 }
 
 /// An event handler registered on a test loop. Each event handler usually
@@ -48,7 +48,7 @@ impl<Data, Event> LoopEventHandler<Data, Event> {
     /// delay. See periodic_interval() for why this is useful.
     pub fn new_with_initial_event(
         initial_event: Event,
-        initial_delay: Duration,
+        initial_delay: time::Duration,
         handler: impl FnMut(Event, &mut Data, &LoopHandlerContext<Event>) -> Result<(), Event> + 'static,
     ) -> Self {
         Self {
@@ -102,7 +102,7 @@ pub(crate) trait LoopEventHandlerImpl<Data, Event> {
 /// upon receiving the init() call, so that we can pass a reference to the
 /// closure every time we receive the handle() call.
 struct LoopEventHandlerImplByFunction<Data, Event> {
-    initial_event: Option<(Event, Duration)>,
+    initial_event: Option<(Event, time::Duration)>,
     handler: Box<dyn FnMut(Event, &mut Data, &LoopHandlerContext<Event>) -> Result<(), Event>>,
     context: Option<LoopHandlerContext<Event>>,
 }
@@ -169,7 +169,7 @@ pub fn capture_events<Event>() -> LoopEventHandler<Vec<Event>, Event> {
 /// Periodically sends to the event loop the given event by the given interval.
 /// Each time this event is handled, the given function is called.
 /// The first invocation is triggered after the interval, not immediately.
-pub fn periodic_interval<Data, Event: Clone + PartialEq>(
+pub fn interval<Data, Event: Clone + PartialEq>(
     interval: time::Duration,
     event: Event,
     func: impl Fn(&mut Data) + 'static,
