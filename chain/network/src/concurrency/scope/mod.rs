@@ -61,9 +61,6 @@ use std::sync::{Arc, Weak};
 
 #[cfg(test)]
 mod tests;
-
-// TODO(gprusak): Consider making the context implicit by moving it to a thread_local storage.
-
 struct Output<E> {
     ctx: ctx::Ctx,
     send: crossbeam_channel::Sender<E>,
@@ -110,8 +107,6 @@ struct Inner<E: 'static> {
     ///   after the error is actually registered, so the awaiting task won't be able to cause a
     ///   race condition.
     output: Output<E>,
-    /// Parent scope. We keep it to prevent termination of the parent, until this scope terminates.
-    _parent: Option<Arc<Self>>,
 }
 
 impl<E: 'static> Drop for Inner<E> {
@@ -125,16 +120,7 @@ impl<E: 'static> Inner<E> {
     pub fn new(ctx: &ctx::Ctx) -> (Arc<Self>, crossbeam_channel::Receiver<E>) {
         let ctx = ctx.sub(time::Deadline::Infinite);
         let (output, recv) = Output::new(ctx.clone());
-        (Arc::new(Self { ctx, output, _parent: None, terminated: signal::Once::new() }), recv)
-    }
-
-    pub fn new_subscope(self: Arc<Self>) -> Arc<Inner<E>> {
-        Arc::new(Inner {
-            ctx: self.ctx.sub(time::Deadline::Infinite),
-            output: self.output.clone(),
-            _parent: Some(self),
-            terminated: signal::Once::new(),
-        })
+        (Arc::new(Self { ctx, output, terminated: signal::Once::new() }), recv)
     }
 }
 
@@ -181,22 +167,6 @@ impl<E: 'static + Send> Inner<E> {
                 }
             }
         }))
-    }
-
-    /// Spawns a new service in the scope.
-    ///
-    /// A service is a scope, which gets canceled when
-    /// its handler (`Service`) is dropped. Service belongs to a scope, in a sense that
-    /// a dedicated task is spawned on the scope which awaits for service to terminate and
-    /// returns the service's result.
-    pub fn new_service(self: Arc<Self>) -> Service<E> {
-        let subscope = self.new_subscope();
-        let service = Service(Arc::downgrade(&subscope));
-        // Spawn a guard task in the Service which will prevent termination of the Service
-        // until the context is not canceled. See `Service` for a list
-        // of events canceling the Service.
-        Inner::spawn(subscope, async move { Ok(ctx::canceled().await) });
-        service
     }
 }
 
@@ -281,8 +251,21 @@ impl<E: 'static + Send> Service<E> {
     /// Spawns a service in this scope.
     ///
     /// Returns ErrTerminated if the scope has already terminated.
-    pub fn new_service(&self) -> Result<Service<E>, ErrTerminated> {
-        self.0.upgrade().map(|m| Inner::new_service(m)).ok_or(ErrTerminated)
+    
+    pub async fn new_service(&self) -> Result<Service<E>,ErrTerminated> {
+        self.new_service_with(|x|x).await
+    }
+
+    pub async fn new_service_with<E2:'static + Send>(&self, conv: impl FnOnce(E2) -> E + Send + 'static) -> Result<Service<E2>,ErrTerminated> {
+        let (send,recv) = tokio::sync::oneshot::channel();
+        self.spawn(async {
+            run!(|s| async {
+                send.send(s.1.clone()).ok().unwrap();
+                let res = Ok(ctx::canceled().await);
+                res
+            }).map_err(conv)
+        })?;
+        Ok(Service(recv.await.unwrap()))
     }
 }
 
@@ -358,11 +341,28 @@ impl<'env, E: 'static + Send> Scope<'env, E> {
         )
     }
 
-    /// Spawns a service.
+    // ErrCancel<E> = 
+
+    pub async fn new_service(&self) -> Service<E> {
+        self.new_service_with(|x|x).await
+    }
+
+
+    /// Spawns a new service in the scope.
     ///
-    /// Returns a handle to the service, which allows spawning new tasks within the service.
-    pub fn new_service(&self) -> Service<E> {
-        Inner::new_service(self.0.upgrade().unwrap().0.clone())
+    /// A service is a scope, which gets canceled when
+    /// its handler (`Service`) is dropped. Service belongs to a scope, in a sense that
+    /// a dedicated task is spawned on the scope which awaits for service to terminate and
+    /// returns the service's result.
+    pub async fn new_service_with<E2:'static + Send>(&self, conv: impl FnOnce(E2) -> E + Send + 'env) -> Service<E2> {
+        let (send,recv) = tokio::sync::oneshot::channel();
+        self.spawn_bg(async {
+            run!(|s| async {
+                send.send(s.1.clone()).ok().unwrap();
+                Ok(ctx::canceled().await)
+            }).map_err(conv)
+        });
+        Service(recv.await.unwrap())
     }
 }
 
