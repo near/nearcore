@@ -32,11 +32,7 @@ def push_to_google_bucket(archive_name: str) -> None:
 def main() -> None:
     fuzz_bin_list = []
 
-    crates = [
-        i for i in toml.load('nightly/fuzz.toml')['target']
-        # temporary limit for fuzz targets building
-        if i['runner'] in ['borsh', 'serde', 'runner']
-    ]
+    crates = [i for i in toml.load('nightly/fuzz.toml')['target']]
     logger.debug(f"Crates from nightly/fuzz.toml: \n{crates}")
 
     for target in crates:
