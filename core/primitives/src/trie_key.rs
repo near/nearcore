@@ -1,8 +1,11 @@
+use std::mem::size_of;
+
+use borsh::{BorshDeserialize, BorshSerialize};
+
+use near_crypto::PublicKey;
+
 use crate::hash::CryptoHash;
 use crate::types::AccountId;
-use borsh::{BorshDeserialize, BorshSerialize};
-use near_crypto::PublicKey;
-use std::mem::size_of;
 
 pub(crate) const ACCOUNT_DATA_SEPARATOR: u8 = b',';
 
@@ -207,6 +210,22 @@ impl TrieKey {
         let mut buf = Vec::with_capacity(self.len());
         self.append_into(&mut buf);
         buf
+    }
+
+    /// Extracts account id from a TrieKey if available.
+    pub fn get_account_id(&self) -> Option<AccountId> {
+        match self {
+            TrieKey::Account { account_id, .. } => Some(account_id.clone()),
+            TrieKey::ContractCode { account_id, .. } => Some(account_id.clone()),
+            TrieKey::AccessKey { account_id, .. } => Some(account_id.clone()),
+            TrieKey::ReceivedData { receiver_id, .. } => Some(receiver_id.clone()),
+            TrieKey::PostponedReceiptId { receiver_id, .. } => Some(receiver_id.clone()),
+            TrieKey::PendingDataCount { receiver_id, .. } => Some(receiver_id.clone()),
+            TrieKey::PostponedReceipt { receiver_id, .. } => Some(receiver_id.clone()),
+            TrieKey::DelayedReceiptIndices => None,
+            TrieKey::DelayedReceipt { .. } => None,
+            TrieKey::ContractData { account_id, .. } => Some(account_id.clone()),
+        }
     }
 }
 
@@ -623,5 +642,63 @@ mod tests {
         let key = TrieKey::DelayedReceipt { index: 0 };
         let raw_key = key.to_vec();
         assert!(trie_key_parsers::parse_account_id_from_raw_key(&raw_key).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_account_id_from_trie_key() {
+        let account_id = OK_ACCOUNT_IDS[0].parse::<AccountId>().unwrap();
+
+        assert_eq!(
+            TrieKey::Account { account_id: account_id.clone() }.get_account_id(),
+            Some(account_id.clone())
+        );
+        assert_eq!(
+            TrieKey::ContractCode { account_id: account_id.clone() }.get_account_id(),
+            Some(account_id.clone())
+        );
+        assert_eq!(
+            TrieKey::AccessKey {
+                account_id: account_id.clone(),
+                public_key: PublicKey::empty(KeyType::ED25519)
+            }
+            .get_account_id(),
+            Some(account_id.clone())
+        );
+        assert_eq!(
+            TrieKey::ReceivedData { receiver_id: account_id.clone(), data_id: Default::default() }
+                .get_account_id(),
+            Some(account_id.clone())
+        );
+        assert_eq!(
+            TrieKey::PostponedReceiptId {
+                receiver_id: account_id.clone(),
+                data_id: Default::default()
+            }
+            .get_account_id(),
+            Some(account_id.clone())
+        );
+        assert_eq!(
+            TrieKey::PendingDataCount {
+                receiver_id: account_id.clone(),
+                receipt_id: Default::default()
+            }
+            .get_account_id(),
+            Some(account_id.clone())
+        );
+        assert_eq!(
+            TrieKey::PostponedReceipt {
+                receiver_id: account_id.clone(),
+                receipt_id: Default::default()
+            }
+            .get_account_id(),
+            Some(account_id.clone())
+        );
+        assert_eq!(TrieKey::DelayedReceipt { index: Default::default() }.get_account_id(), None);
+        assert_eq!(TrieKey::DelayedReceiptIndices.get_account_id(), None);
+        assert_eq!(
+            TrieKey::ContractData { account_id: account_id.clone(), key: Default::default() }
+                .get_account_id(),
+            Some(account_id.clone())
+        );
     }
 }

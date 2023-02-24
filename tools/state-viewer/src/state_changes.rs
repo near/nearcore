@@ -1,12 +1,14 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainStore, ChainStoreAccess};
-use near_client::state_changes::get_state_change_shard_id;
 use near_epoch_manager::EpochManagerAdapter;
+use near_primitives::hash::CryptoHash;
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
-    StateChangesForBlock, StateChangesForBlockRange, StateChangesForShard, StateRoot,
+    EpochId, ShardId, StateChangesForBlock, StateChangesForBlockRange, StateChangesForShard,
+    StateRoot,
 };
-use near_primitives_core::types::{BlockHeight, ShardId};
+use near_primitives_core::types::BlockHeight;
 use near_store::{KeyForStateChanges, Store, WrappedTrieChanges};
 use nearcore::{NearConfig, NightshadeRuntime};
 use std::path::{Path, PathBuf};
@@ -191,4 +193,26 @@ fn apply_state_changes(
     }
 
     tracing::info!(target: "state-changes", ?file, ?shard_id, ?state_root, "Done applying changes");
+}
+
+/// Determines the shard id which produced the StateChange based the row key,
+/// part of the value (TrieKey) and the block that resulted in this state change.
+pub fn get_state_change_shard_id(
+    row_key: &[u8],
+    trie_key: &TrieKey,
+    block_hash: &CryptoHash,
+    epoch_id: &EpochId,
+    epoch_manager: &dyn EpochManagerAdapter,
+) -> Result<ShardId, near_chain::near_chain_primitives::error::Error> {
+    if let Some(account_id) = trie_key.get_account_id() {
+        let shard_id = epoch_manager.account_id_to_shard_id(&account_id, epoch_id)?;
+        Ok(shard_id)
+    } else {
+        let shard_uid =
+            KeyForStateChanges::delayed_receipt_key_decode_shard_uid(row_key, block_hash, trie_key)
+                .map_err(|err| {
+                    near_chain::near_chain_primitives::error::Error::Other(err.to_string())
+                })?;
+        Ok(shard_uid.shard_id as ShardId)
+    }
 }
