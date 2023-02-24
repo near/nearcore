@@ -291,12 +291,12 @@ message SyncAccountsData {
 // See PeersResponse below for the response.
 message PeersRequest {}
 
-// Response to PeersRequest. Includes
-//  - peers: peers drawn from the PeerStore of the responding node,
-//           which includes peers learned transitively from other peers
-//  - direct_peers: peers directly connected to the responding node
+// Response to PeersRequest
 message PeersResponse {
+  // Peers drawn from the PeerStore of the responding node,
+  // which includes peers learned transitively from other peers
   repeated PeerInfo peers = 1;
+  // Peers directly connected to the responding node
   repeated PeerInfo direct_peers = 2;
 }
 

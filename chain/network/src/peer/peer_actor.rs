@@ -3,8 +3,8 @@ use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::network_protocol::{
     Edge, EdgeState, Encoding, OwnedAccount, ParsePeerMessageError, PartialEdgeInfo,
-    PeerChainInfoV2, PeerIdOrHash, PeerInfo, RawRoutedMessage, RoutedMessageBody, RoutedMessageV2,
-    RoutingTableUpdate, StateResponseInfo, SyncAccountsData,
+    PeerChainInfoV2, PeerIdOrHash, PeerInfo, PeersResponse, RawRoutedMessage, RoutedMessageBody,
+    RoutedMessageV2, RoutingTableUpdate, StateResponseInfo, SyncAccountsData,
 };
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
@@ -1120,14 +1120,17 @@ impl PeerActor {
                 let direct_peers = self.network_state.get_direct_peers();
                 if !peers.is_empty() || !direct_peers.is_empty() {
                     tracing::debug!(target: "network", "Peers request from {}: sending {} peers and {} direct peers.", self.peer_info, peers.len(), direct_peers.len());
-                    self.send_message_or_log(&PeerMessage::PeersResponse(peers, direct_peers));
+                    self.send_message_or_log(&PeerMessage::PeersResponse(PeersResponse {
+                        peers,
+                        direct_peers,
+                    }));
                 }
                 self.network_state
                     .config
                     .event_sink
                     .push(Event::MessageProcessed(conn.tier, peer_msg));
             }
-            PeerMessage::PeersResponse(peers, direct_peers) => {
+            PeerMessage::PeersResponse(PeersResponse { peers, direct_peers }) => {
                 tracing::debug!(target: "network", "Received peers from {}: {} peers and {} direct peers.", self.peer_info, peers.len(), direct_peers.len());
                 let node_id = self.network_state.config.node_id();
                 self.network_state.peer_store.add_indirect_peers(
