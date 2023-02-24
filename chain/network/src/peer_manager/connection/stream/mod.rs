@@ -1,4 +1,3 @@
-use crate::peer_manager::connection;
 use crate::stats::metrics;
 use crate::tcp;
 use actix::fut::future::wrap_future;

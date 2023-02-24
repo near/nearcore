@@ -25,6 +25,7 @@ use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Weak};
 
 mod background;
+mod stream;
 
 #[cfg(test)]
 mod tests;
