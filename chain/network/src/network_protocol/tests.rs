@@ -118,7 +118,7 @@ fn serialize_deserialize() -> anyhow::Result<()> {
         PeerMessage::PeersRequest,
         PeerMessage::PeersResponse(
             (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
-            vec![],
+            (0..3).map(|_| data::make_peer_info(&mut rng)).collect(),
         ),
         PeerMessage::BlockHeadersRequest(chain.blocks.iter().map(|b| *b.hash()).collect()),
         PeerMessage::BlockHeaders(chain.get_block_headers()),
