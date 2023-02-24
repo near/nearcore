@@ -261,8 +261,7 @@ impl<E: 'static + Send> Service<E> {
         self.spawn(async {
             run!(|s| async {
                 send.send(s.1.clone()).ok().unwrap();
-                let res = Ok(ctx::canceled().await);
-                res
+                Ok(ctx::canceled().await)
             }).map_err(conv)
         })?;
         Ok(Service(recv.await.unwrap()))

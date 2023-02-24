@@ -10,15 +10,23 @@ pub(crate) mod stats;
 type ReadHalf = tokio::io::BufReader<tokio::io::ReadHalf<tokio::net::TcpStream>>;
 type WriteHalf = tokio::io::BufWriter<tokio::io::WriteHalf<tokio::net::TcpStream>>;
 
-#[derive(thiserror::Error, Debug)]
-#[error("ErrStreamClosed")]
-pub(crate) struct ErrStreamClosed;
-
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub(crate) struct Frame(pub Vec<u8>);
 
+#[derive(thiserror::Error, Debug)]
+pub(crate) enum Error {
+    #[error(transparent)]
+    IO(#[from] std::io::Error),
+    #[error(transparent)]
+    Canceled(#[from] ctx::ErrCanceled),
+    #[error(transparent)]
+    Stats(#[from] stats::Error),
+    #[error("Stream has been closed")]
+    StreamClosed,
+}
+
 pub struct FrameStream {
-    service: scope::Service<anyhow::Error>,
+    service: scope::Service<Error>,
     stats: Arc<stats::Stats>,
     flusher: tokio::sync::Notify,
     send: Arc<tokio::sync::Mutex<Option<WriteHalf>>>,
@@ -27,7 +35,7 @@ pub struct FrameStream {
 
 impl FrameStream {
     fn new(
-        service: scope::Service<anyhow::Error>,
+        service: scope::Service<Error>,
         stream: tcp::Stream,
     ) -> anyhow::Result<Arc<FrameStream>> {
         let (tcp_recv, tcp_send) = tokio::io::split(stream.stream);
@@ -54,7 +62,7 @@ impl FrameStream {
             loop {
                 ctx::wait(self_.flusher.notified()).await?;
                 let mut send = ctx::wait(self_.send.lock()).await?;
-                let mut inner = send.take().ok_or(ErrStreamClosed)?;
+                let mut inner = send.take().ok_or(Error::StreamClosed)?;
                 ctx::wait(inner.flush()).await??;
                 // If loop iteration exits early, the stream becomes broken.
                 *send = Some(inner);
@@ -68,7 +76,7 @@ impl FrameStream {
     async fn send(self: &Arc<Self>, frame: Frame) -> anyhow::Result<()> {
         let guard = stats::SendGuard::new(self.stats.clone(), frame.0.len())?;
         let mut send = ctx::wait(self.send.clone().lock_owned()).await?;
-        let mut inner = send.take().ok_or(ErrStreamClosed)?;
+        let mut inner = send.take().ok_or(Error::StreamClosed)?;
         let self_ = self.clone();
         Ok(self
             .service
@@ -92,7 +100,7 @@ impl FrameStream {
     // reserve_owned() function will allow us to avoid receiving messages that are not awaited yet.
     async fn recv(self: &Arc<Self>) -> anyhow::Result<Frame> {
         let mut recv = ctx::wait(self.recv.clone().lock_owned()).await?;
-        let mut inner = recv.take().ok_or(ErrStreamClosed)?;
+        let mut inner = recv.take().ok_or(Error::StreamClosed)?;
         let stats = self.stats.clone();
         Ok(self
             .service
