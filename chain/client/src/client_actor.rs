@@ -19,7 +19,7 @@ use actix::dev::SendError;
 use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler, Message};
 use actix_rt::ArbiterHandle;
 use borsh::BorshSerialize;
-use chrono::DateTime;
+use chrono::{DateTime, Utc};
 use near_async::messaging::{CanSend, Sender};
 use near_chain::chain::{
     do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
@@ -54,8 +54,8 @@ use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::state_part::PartId;
+use near_primitives::static_clock::StaticClock;
 use near_primitives::syncing::StatePartKey;
-use near_primitives::time::{Clock, Utc};
 use near_primitives::types::BlockHeight;
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::{from_timestamp, MaybeValidated};
@@ -126,7 +126,7 @@ pub struct ClientActor {
 fn wait_until_genesis(genesis_time: &DateTime<Utc>) {
     loop {
         // Get chrono::Duration::num_seconds() by deducting genesis_time from now.
-        let duration = genesis_time.signed_duration_since(Clock::utc());
+        let duration = genesis_time.signed_duration_since(StaticClock::utc());
         let chrono_seconds = duration.num_seconds();
         // Check if number of seconds in chrono::Duration larger than zero.
         if chrono_seconds <= 0 {
@@ -695,7 +695,7 @@ impl Handler<WithSpanContext<Status>> for ClientActor {
         } else {
             None
         };
-        let uptime_sec = Clock::utc().timestamp() - self.info_helper.boot_time_seconds;
+        let uptime_sec = StaticClock::utc().timestamp() - self.info_helper.boot_time_seconds;
         Ok(StatusResponse {
             version: self.client.config.version.clone(),
             protocol_version,
@@ -813,7 +813,7 @@ impl ClientActor {
             Some(signer) => signer,
         };
 
-        let now = Clock::instant();
+        let now = StaticClock::instant();
         // Check that we haven't announced it too recently
         if let Some(last_validator_announce_time) = self.last_validator_announce_time {
             // Don't make announcement if have passed less than half of the time in which other peers
@@ -899,7 +899,7 @@ impl ClientActor {
         let delta_time = self.client.sandbox_delta_time();
         let new_latest_known = near_chain::types::LatestKnown {
             height: block_height + delta_height,
-            seen: near_primitives::utils::to_timestamp(Clock::utc() + delta_time),
+            seen: near_primitives::utils::to_timestamp(StaticClock::utc() + delta_time),
         };
 
         Ok(Some(new_latest_known))
@@ -1006,7 +1006,7 @@ impl ClientActor {
                         == self.client.runtime_adapter.num_shards(&epoch_id).unwrap();
 
                 if self.client.doomslug.ready_to_produce_block(
-                    Clock::instant(),
+                    StaticClock::instant(),
                     height,
                     have_all_chunks,
                     log_block_production_info,
@@ -1166,7 +1166,7 @@ impl ClientActor {
     fn try_doomslug_timer(&mut self, _: &mut Context<ClientActor>) {
         let _span = tracing::debug_span!(target: "client", "try_doomslug_timer").entered();
         let _ = self.client.check_and_update_doomslug_tip();
-        let approvals = self.client.doomslug.process_timer(Clock::instant());
+        let approvals = self.client.doomslug.process_timer(StaticClock::instant());
 
         // Important to save the largest approval target height before sending approvals, so
         // that if the node crashes in the meantime, we cannot get slashed on recovery

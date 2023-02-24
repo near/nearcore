@@ -1,9 +1,9 @@
 use anyhow::Context;
 use near_network::raw::{ConnectError, Connection, ReceivedMessage};
-use near_network::time;
 use near_network::types::HandshakeFailureReason;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
+use near_primitives::time;
 use near_primitives::types::{AccountId, BlockHeight, ShardId};
 use near_primitives::version::ProtocolVersion;
 use std::collections::HashMap;

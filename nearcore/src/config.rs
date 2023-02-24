@@ -1,6 +1,6 @@
 use anyhow::{anyhow, bail, Context};
+use near_primitives::static_clock::StaticClock;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::time::Clock;
 use num_rational::Rational32;
 use std::fs;
 use std::fs::File;
@@ -510,7 +510,7 @@ impl Genesis {
         add_protocol_account(&mut records);
         let config = GenesisConfig {
             protocol_version: PROTOCOL_VERSION,
-            genesis_time: Clock::utc(),
+            genesis_time: StaticClock::utc(),
             chain_id: random_chain_id(),
             num_block_producer_seats: num_validator_seats,
             num_block_producer_seats_per_shard: num_validator_seats_per_shard.clone(),
@@ -1078,7 +1078,7 @@ pub fn init_configs(
 
             let genesis_config = GenesisConfig {
                 protocol_version: PROTOCOL_VERSION,
-                genesis_time: Clock::utc(),
+                genesis_time: StaticClock::utc(),
                 chain_id,
                 genesis_height: 0,
                 num_block_producer_seats: NUM_BLOCK_PRODUCER_SEATS,

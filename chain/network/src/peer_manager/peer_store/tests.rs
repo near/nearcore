@@ -1,7 +1,7 @@
 use super::*;
 use crate::blacklist::Blacklist;
-use crate::time;
 use near_crypto::{KeyType, SecretKey};
+use near_primitives::time;
 use std::collections::HashSet;
 use std::net::{Ipv4Addr, SocketAddrV4};
 
