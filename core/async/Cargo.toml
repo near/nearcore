@@ -17,6 +17,8 @@ futures.workspace = true
 once_cell.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+tokio.workspace = true
 
+near-primitives = { path = "../primitives" }
 near-o11y = { path = "../o11y" }
 near-performance-metrics = { path = "../../utils/near-performance-metrics" }       

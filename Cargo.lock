@@ -3091,9 +3091,11 @@ dependencies = [
  "futures",
  "near-o11y",
  "near-performance-metrics",
+ "near-primitives",
  "once_cell",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]
