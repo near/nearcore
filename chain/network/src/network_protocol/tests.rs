@@ -1,6 +1,6 @@
 use super::*;
 use crate::network_protocol::testonly as data;
-use crate::network_protocol::Encoding;
+use crate::network_protocol::{Encoding, PeersResponse};
 use crate::testonly::make_rng;
 use crate::types::{Disconnect, HandshakeFailureReason, PeerMessage};
 use crate::types::{PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
@@ -116,7 +116,10 @@ fn serialize_deserialize() -> anyhow::Result<()> {
         PeerMessage::SyncRoutingTable(data::make_routing_table(&mut rng)),
         PeerMessage::RequestUpdateNonce(data::make_partial_edge(&mut rng)),
         PeerMessage::PeersRequest,
-        PeerMessage::PeersResponse((0..5).map(|_| data::make_peer_info(&mut rng)).collect()),
+        PeerMessage::PeersResponse(PeersResponse {
+            peers: (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
+            direct_peers: vec![], // TODO: populate this field once borsh support is dropped
+        }),
         PeerMessage::BlockHeadersRequest(chain.blocks.iter().map(|b| *b.hash()).collect()),
         PeerMessage::BlockHeaders(chain.get_block_headers()),
         PeerMessage::BlockRequest(*chain.blocks[5].hash()),
