@@ -110,10 +110,13 @@ impl From<&PeerMessage> for proto::PeerMessage {
                     })
                 }
                 PeerMessage::PeersRequest => ProtoMT::PeersRequest(proto::PeersRequest::new()),
-                PeerMessage::PeersResponse(pis) => ProtoMT::PeersResponse(proto::PeersResponse {
-                    peers: pis.iter().map(Into::into).collect(),
-                    ..Default::default()
-                }),
+                PeerMessage::PeersResponse(pis, dpis) => {
+                    ProtoMT::PeersResponse(proto::PeersResponse {
+                        peers: pis.iter().map(Into::into).collect(),
+                        direct_peers: dpis.iter().map(Into::into).collect(),
+                        ..Default::default()
+                    })
+                }
                 PeerMessage::BlockHeadersRequest(bhs) => {
                     ProtoMT::BlockHeadersRequest(proto::BlockHeadersRequest {
                         block_hashes: bhs.iter().map(Into::into).collect(),
@@ -244,6 +247,7 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
             ProtoMT::PeersRequest(_) => PeerMessage::PeersRequest,
             ProtoMT::PeersResponse(pr) => PeerMessage::PeersResponse(
                 try_from_slice(&pr.peers).map_err(Self::Error::PeersResponse)?,
+                try_from_slice(&pr.direct_peers).map_err(Self::Error::PeersResponse)?,
             ),
             ProtoMT::BlockHeadersRequest(bhr) => PeerMessage::BlockHeadersRequest(
                 try_from_slice(&bhr.block_hashes).map_err(Self::Error::BlockHeadersRequest)?,

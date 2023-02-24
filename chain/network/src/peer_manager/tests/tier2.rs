@@ -1,6 +1,5 @@
 use crate::broadcast;
 use crate::network_protocol::testonly as data;
-use crate::network_protocol::testonly::make_peer_info;
 use crate::peer_manager::connection_store::STORED_CONNECTIONS_MIN_DURATION;
 use crate::peer_manager::network_state::RECONNECT_ATTEMPT_INTERVAL;
 use crate::peer_manager::peer_manager_actor::Event as PME;
@@ -295,50 +294,4 @@ async fn test_reconnect_after_restart_outbound_side_multi() {
     pm0.wait_for_direct_connection(id2.clone()).await;
     pm0.wait_for_direct_connection(id3.clone()).await;
     pm0.wait_for_direct_connection(id4.clone()).await;
-}
-
-#[tokio::test]
-async fn test_get_healthy_peers_preferring_connected() {
-    init_test_logger();
-    let mut rng = make_rng(921853233);
-    let rng = &mut rng;
-    let mut clock = time::FakeClock::default();
-    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
-
-    let pm0 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
-    let pm1 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
-    let pm2 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
-    let pm3 = start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
-
-    let id1 = pm1.cfg.node_id();
-    let id2 = pm2.cfg.node_id();
-    let id3 = pm3.cfg.node_id();
-
-    tracing::info!(target:"test", "connect pm0 to other peer managers");
-    pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
-    pm0.connect_to(&pm2.peer_info(), tcp::Tier::T2).await;
-    pm0.connect_to(&pm3.peer_info(), tcp::Tier::T2).await;
-    pm0.wait_for_direct_connection(id1.clone()).await;
-    pm0.wait_for_direct_connection(id2.clone()).await;
-    pm0.wait_for_direct_connection(id3.clone()).await;
-
-    tracing::info!(target:"test", "add 100 more peers to pm0's peer store");
-    pm0.peer_store_add_indirect_peers(
-        &clock.clock(),
-        (0..100).map(|_| make_peer_info(rng)).collect(),
-    )
-    .await;
-
-    tracing::info!(target:"test", "request 5 healthy peers from pm0");
-    let selected = pm0
-        .get_healthy_peers_preferring_connected(5)
-        .await
-        .iter()
-        .map(|p| p.id.clone())
-        .collect::<Vec<PeerId>>();
-
-    tracing::info!(target:"test", "check that all connected peers are included");
-    assert!(selected.contains(&id1));
-    assert!(selected.contains(&id2));
-    assert!(selected.contains(&id3));
 }

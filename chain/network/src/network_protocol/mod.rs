@@ -347,7 +347,7 @@ pub enum PeerMessage {
     SyncAccountsData(SyncAccountsData),
 
     PeersRequest,
-    PeersResponse(Vec<PeerInfo>),
+    PeersResponse(Vec<PeerInfo>, Vec<PeerInfo>),
 
     BlockHeadersRequest(Vec<CryptoHash>),
     BlockHeaders(Vec<BlockHeader>),

@@ -365,19 +365,6 @@ impl ActorHandler {
         self.with_state(move |s| async move { s.peer_store.update(&clock) }).await;
     }
 
-    pub async fn peer_store_add_indirect_peers(&self, clock: &time::Clock, peers: Vec<PeerInfo>) {
-        let clock = clock.clone();
-        self.with_state(move |s| async move {
-            s.peer_store.add_indirect_peers(&clock, peers.into_iter())
-        })
-        .await;
-    }
-
-    pub async fn get_healthy_peers_preferring_connected(&self, max_count: usize) -> Vec<PeerInfo> {
-        self.with_state(move |s| async move { s.get_healthy_peers_preferring_connected(max_count) })
-            .await
-    }
-
     pub async fn send_ping(&self, nonce: u64, target: PeerId) {
         self.actix
             .addr

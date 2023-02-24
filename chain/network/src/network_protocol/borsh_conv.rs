@@ -119,7 +119,7 @@ impl TryFrom<&net::PeerMessage> for mem::PeerMessage {
                 return Err(Self::Error::DeprecatedResponseUpdateNonce)
             }
             net::PeerMessage::PeersRequest => mem::PeerMessage::PeersRequest,
-            net::PeerMessage::PeersResponse(pis) => mem::PeerMessage::PeersResponse(pis),
+            net::PeerMessage::PeersResponse(pis) => mem::PeerMessage::PeersResponse(pis, vec![]),
             net::PeerMessage::BlockHeadersRequest(bhs) => {
                 mem::PeerMessage::BlockHeadersRequest(bhs)
             }
@@ -179,7 +179,7 @@ impl From<&mem::PeerMessage> for net::PeerMessage {
             }
 
             mem::PeerMessage::PeersRequest => net::PeerMessage::PeersRequest,
-            mem::PeerMessage::PeersResponse(pis) => net::PeerMessage::PeersResponse(pis),
+            mem::PeerMessage::PeersResponse(pis, _) => net::PeerMessage::PeersResponse(pis),
             mem::PeerMessage::BlockHeadersRequest(bhs) => {
                 net::PeerMessage::BlockHeadersRequest(bhs)
             }

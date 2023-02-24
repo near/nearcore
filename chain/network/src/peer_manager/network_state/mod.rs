@@ -719,32 +719,9 @@ impl NetworkState {
         return polled;
     }
 
-    /// Returns healthy known peers up to given amount.
-    /// First collects directly known peers from the tier2 connection pool.
-    /// Adds remaining peers from the peer store.
-    pub fn get_healthy_peers_preferring_connected(
-        self: &Arc<Self>,
-        max_count: usize,
-    ) -> Vec<PeerInfo> {
-        // Collect the PeerInfos for active TIER2 connections
-        let mut peer_infos: Vec<PeerInfo> =
-            self.tier2.load().ready.values().map(|c| c.peer_info.clone()).collect();
-
-        // If there are enough already, return a randomly selected subset
-        if peer_infos.len() >= max_count {
-            return peer_infos.into_iter().choose_multiple(&mut thread_rng(), max_count);
-        }
-
-        // Get more healthy peers chosen at random from the PeerStore
-        let mut store_peer_infos = self.peer_store.healthy_peers(max_count);
-
-        // Drop those already included from active connections
-        let tier2_peer_ids: HashSet<PeerId> = peer_infos.iter().map(|p| p.id.clone()).collect();
-        store_peer_infos.retain(|p| !tier2_peer_ids.contains(&p.id));
-
-        peer_infos.append(&mut store_peer_infos);
-        peer_infos.truncate(max_count);
-        return peer_infos;
+    /// Collects and returns PeerInfos for all directly connected TIER2 peers.
+    pub fn get_direct_peers(self: &Arc<Self>) -> Vec<PeerInfo> {
+        return self.tier2.load().ready.values().map(|c| c.peer_info.clone()).collect();
     }
 
     /// Sets the chain info, and updates the set of TIER1 keys.
