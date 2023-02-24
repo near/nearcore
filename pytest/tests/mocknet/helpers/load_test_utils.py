@@ -9,6 +9,7 @@ from rc import pmap
 sys.path.append('lib')
 import mocknet_helpers
 import mocknet
+import transaction
 
 from configured_logger import logger
 
