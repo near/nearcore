@@ -7,7 +7,7 @@ on:
 
 jobs:
   build_fuzzers:
-    runs-on: nayduck
+    runs-on: "ubuntu-20.04"
 
     permissions:
       contents: "read"
@@ -23,6 +23,11 @@ jobs:
       - uses: hecrj/setup-rust-action@v1
         with:
           rust-version: nightly
+
+      - name: Set swap space to 10G
+        uses: pierotofy/set-swap-space@master
+        with:
+          swap-size-gb: 10
 
       - name: Install cargo fuzz subcommand crate
         run: cargo install cargo-fuzz

@@ -12,6 +12,8 @@ G_BUCKET = 'gs://fuzzer_targets/master/'
 ARCH_CONFIG_NAME = 'x86_64-unknown-linux-gnu'
 BUILDER_START_TIME = time.strftime('%Y%m%d%H%M%S', time.gmtime())
 TAR_NAME = f'nearcore-master-{BUILDER_START_TIME}.tar.gz'
+ENV = os.environ
+ENV.update({'RUSTFLAGS': "-C lto=thin"})
 
 
 def push_to_google_bucket(archive_name: str) -> None:
@@ -39,7 +41,7 @@ def main() -> None:
 
     for target in crates:
         logger.info(f"working on {target}")
-        runner = target['runner']
+        runner = target['borsh, serde', 'runner']
         try:
             subprocess.run(
                 [
@@ -51,6 +53,7 @@ def main() -> None:
                 ],
                 check=True,
                 cwd=target['crate'],
+                env=ENV,
             )
             fuzz_bin_list.append(f"target/{ARCH_CONFIG_NAME}/release/{runner}")
 
