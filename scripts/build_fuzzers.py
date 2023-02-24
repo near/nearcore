@@ -41,7 +41,7 @@ def main() -> None:
 
     for target in crates:
         logger.info(f"working on {target}")
-        runner = target['borsh, serde', 'runner']
+        runner = target['runner']
         try:
             subprocess.run(
                 [
