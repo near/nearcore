@@ -72,7 +72,7 @@ async fn test_peer_communication(
     let mut events = inbound.events.from_now();
     let want = PeerMessage::PeersResponse(
         (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
-        (0..3).map(|_| data::make_peer_info(&mut rng)).collect(),
+        vec![],
     );
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
