@@ -132,6 +132,7 @@ pub mod client;
 pub mod logic;
 pub mod metrics;
 pub mod shards_manager_actor;
+pub mod test_loop;
 pub mod test_utils;
 
 pub const CHUNK_REQUEST_RETRY: time::Duration = time::Duration::milliseconds(100);
