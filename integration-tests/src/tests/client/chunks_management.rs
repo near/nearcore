@@ -27,7 +27,7 @@ struct Test {
     chunk_only_producers: bool,
     drop_to_4_from: &'static [&'static str],
     drop_all_chunk_forward_msgs: bool,
-    block_timeout: u64,
+    block_timeout: i64,
 }
 
 impl Test {
@@ -103,7 +103,7 @@ impl Test {
             vs,
             key_pairs,
             true,
-            self.block_timeout,
+            self.block_timeout as u64,
             false,
             false,
             5,
