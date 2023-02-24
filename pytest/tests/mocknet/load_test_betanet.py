@@ -7,6 +7,7 @@ import time
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 import account as account_mod
 import key as key_mod
+import mocknet
 import mocknet_helpers
 from helpers import load_test_utils
 
