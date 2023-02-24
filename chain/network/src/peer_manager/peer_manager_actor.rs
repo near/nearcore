@@ -208,9 +208,8 @@ impl PeerManagerActor {
     ) -> anyhow::Result<actix::Addr<Self>> {
         let config = config.verify().context("config")?;
         let store = store::Store::from(store);
-        let peer_store =
-            peer_store::PeerStore::new(&clock, config.peer_store.clone(), store.clone())
-                .context("PeerStore::new")?;
+        let peer_store = peer_store::PeerStore::new(&clock, config.peer_store.clone())
+            .context("PeerStore::new")?;
         tracing::debug!(target: "network",
                len = peer_store.len(),
                boot_nodes = config.peer_store.boot_nodes.len(),

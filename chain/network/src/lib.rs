@@ -1,5 +1,4 @@
 pub use crate::peer_manager::peer_manager_actor::{Event, PeerManagerActor};
-pub use crate::peer_manager::peer_store::iter_peers_from_store;
 
 mod accounts_data;
 mod network_protocol;
