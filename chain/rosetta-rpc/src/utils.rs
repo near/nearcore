@@ -166,9 +166,9 @@ impl From<u128> for SignedDiff<u128> {
 impl From<i64> for SignedDiff<u128> {
     fn from(value: i64) -> Self {
         if value < 0 {
-            Self { is_positive: false, absolute_difference: value.abs() as u128 }
+            Self { is_positive: false, absolute_difference: value.unsigned_abs() as u128 }
         } else {
-            Self { is_positive: true, absolute_difference: value.abs() as u128 }
+            Self { is_positive: true, absolute_difference: value.unsigned_abs() as u128 }
         }
     }
 }
