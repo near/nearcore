@@ -89,6 +89,7 @@ def main(argv):
     start_time = time.monotonic()
     assert delay >= 1
     load_test_utils.init_ft(node_account)
+    load_test_utils.init_function_call_state(test_accounts)
     for i, account in enumerate(test_accounts):
         logger.info(f'Deploying contract for account {account.key.account_id}')
         mocknet_helpers.retry_and_ignore_errors(

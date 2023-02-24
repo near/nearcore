@@ -232,3 +232,8 @@ def init_ft_account(node_account, account):
     logger.info(
         f'{node_account.key.account_id} ft_transfer to {account.key.account_id} {tx_res}'
     )
+
+
+def init_function_call_state(test_accounts):
+    global function_call_state
+    function_call_state = [[]] * len(test_accounts)

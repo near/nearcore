@@ -79,8 +79,7 @@ def main(argv):
     (node_account, test_accounts, max_tps_per_node,
      rpc_infos) = get_test_accounts_from_args(argv)
 
-    global function_call_state
-    function_call_state = [[]] * NUM_ACCOUNTS
+    load_test_utils.init_function_call_state(test_accounts)
 
     total_tx_sent = 0
     start_time = time.monotonic()
