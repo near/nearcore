@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
-import base58
 import pathlib
 import random
 import sys
 import time
-from rc import pmap
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 import account as account_mod
 import key as key_mod
 import mocknet_helpers
-import transaction
 from helpers import load_test_utils
 
 from configured_logger import logger
@@ -36,8 +33,8 @@ def get_test_accounts_from_args(argv):
 
     node_account_key = key_mod.Key(node_account_id, pk, sk)
     test_account_keys = [
-        key_mod.Key(load_test_utils.load_testing_account_id(node_account_id, i),
-                    pk, sk) for i in range(NUM_ACCOUNTS)
+        key_mod.Key(mocknet.load_testing_account_id(node_account_id, i), pk, sk)
+        for i in range(NUM_ACCOUNTS)
     ]
 
     base_block_hash = mocknet_helpers.get_latest_block_hash(
