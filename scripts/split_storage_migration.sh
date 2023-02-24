@@ -3,7 +3,7 @@
 # Takes one argument -- chain_id (mainnet or testnet)
 # First, prepares config files using jq.
 # Restarts neard and waits for cold head to sync with final head
-# Downloads latest roc db in hot-data
+# Downloads latest rpc db in hot-data
 # Stops neard, prepares rpc db to be used as hot db, changes config to look at hot db instead of archival db
 # Restarts neard
 # After that node is running in split storage mode
