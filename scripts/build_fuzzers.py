@@ -51,7 +51,7 @@ def main() -> None:
             ],
             check=True,
             cwd=target['crate'],
-            env=ENV,
+            # env=ENV,
         )
         fuzz_bin_list.append(f"target/{ARCH_CONFIG_NAME}/release/{runner}")
 
