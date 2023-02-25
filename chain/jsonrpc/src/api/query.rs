@@ -45,15 +45,28 @@ fn parse_path_data(path: String, data: String) -> Result<RpcQueryRequest, RpcPar
         parse_bs58_data(max_len, data)
     };
 
+    //command=>account_id=>access_key
     let mut path_parts = path.splitn(3, '/');
+
     let make_err = || RpcParseError("Not enough query parameters provided".to_string());
+
+    // path_parts[0]
     let query_command = path_parts.next().ok_or_else(make_err)?;
+    // path_parts[1]
     let account_id = path_parts
         .next()
         .ok_or_else(make_err)?
         .parse()
         .map_err(|err| RpcParseError(format!("{}", err)))?;
+    // path_parts[2]
     let maybe_extra_arg = path_parts.next();
+    // path_parts[3]
+    let maybe_require_proof: bool = match path_parts.next() {
+        Some(val) => val.contains(&String::from("true")),
+        None => false
+    };
+
+    println!("Requires proof? {}", maybe_require_proof);
 
     let request = match query_command {
         "account" => QueryRequest::ViewAccount { account_id },
@@ -64,6 +77,7 @@ fn parse_path_data(path: String, data: String) -> Result<RpcQueryRequest, RpcPar
                 public_key: pk
                     .parse()
                     .map_err(|_| RpcParseError("Invalid public key".to_string()))?,
+                include_proof: maybe_require_proof
             },
         },
         "code" => QueryRequest::ViewCode { account_id },
@@ -82,7 +96,8 @@ fn parse_path_data(path: String, data: String) -> Result<RpcQueryRequest, RpcPar
         },
         _ => return Err(RpcParseError(format!("Unknown path {}", query_command))),
     };
-    // Use Finality::None here to make backward compatibility tests work
+
+   // Use Finality::None here to make backward compatibility tests work
     Ok(RpcQueryRequest { request, block_reference: BlockReference::latest() })
 }
 

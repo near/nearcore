@@ -197,6 +197,7 @@ impl User for RpcUser {
         let query = QueryRequest::ViewAccessKey {
             account_id: account_id.clone(),
             public_key: public_key.clone(),
+            include_proof: false,
         };
         match self.query(query)?.kind {
             near_jsonrpc_primitives::types::query::QueryResponseKind::AccessKey(access_key) => {

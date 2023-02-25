@@ -251,6 +251,7 @@ pub struct QueryError {
 pub struct AccessKeyInfoView {
     pub public_key: PublicKey,
     pub access_key: AccessKeyView,
+    pub proof: Vec<Arc<[u8]>>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
@@ -314,6 +315,7 @@ pub enum QueryRequest {
     ViewAccessKey {
         account_id: AccountId,
         public_key: PublicKey,
+        include_proof: bool,
     },
     ViewAccessKeyList {
         account_id: AccountId,

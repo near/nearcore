@@ -77,7 +77,10 @@ impl TrieViewer {
         state_update: &TrieUpdate,
         account_id: &AccountId,
         public_key: &PublicKey,
+        include_proof: bool,
     ) -> Result<AccessKey, errors::ViewAccessKeyError> {
+        let mut iter = state_update.trie().iter()?;
+
         get_access_key(state_update, account_id, public_key)?.ok_or_else(|| {
             errors::ViewAccessKeyError::AccessKeyDoesNotExist { public_key: public_key.clone() }
         })

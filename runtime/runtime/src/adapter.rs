@@ -49,6 +49,7 @@ pub trait ViewRuntimeAdapter {
         state_root: MerkleHash,
         account_id: &AccountId,
         public_key: &PublicKey,
+        include_proof: bool,
     ) -> Result<AccessKey, crate::state_viewer::errors::ViewAccessKeyError>;
 
     fn view_access_keys(
