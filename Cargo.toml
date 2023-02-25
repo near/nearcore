@@ -233,6 +233,7 @@ panic = 'abort'
 [profile.release]
 overflow-checks = true
 panic = 'abort'
+lto = "fat"
 codegen-units = 1
 
 # A much faster to compile version of `release`.
