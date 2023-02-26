@@ -206,11 +206,21 @@ impl From<AccessKey> for AccessKeyView {
     }
 }
 
+impl From<ViewAccessKeyResult> for AccessKeyView {
+    fn from(view: ViewAccessKeyResult) -> Self {
+        Self { 
+            nonce: view.access_key.nonce, 
+            permission: view.access_key.permission.into(),
+        }
+    }
+}
+
 impl From<AccessKeyView> for AccessKey {
     fn from(view: AccessKeyView) -> Self {
         Self { nonce: view.nonce, permission: view.permission.into() }
     }
 }
+
 
 /// Item of the state, key and value are serialized in base64 and proof for inclusion of given state item.
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
