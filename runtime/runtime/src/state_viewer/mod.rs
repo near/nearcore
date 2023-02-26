@@ -79,20 +79,26 @@ impl TrieViewer {
         public_key: &PublicKey,
         include_proof: bool,
     ) -> Result<ViewAccessKeyResult, errors::ViewAccessKeyError> {
+
+        println!("Setting  trie iterator");
+        let prefix = trie_key_parsers::get_raw_prefix_for_access_key(account_id, public_key);
+
         let mut iter = state_update.trie().iter()?;
         iter.remember_visited_nodes(include_proof);
+        iter.seek_prefix(&prefix)?;
 
-        let query = trie_key_parsers::get_raw_prefix_for_access_keys(account_id);
-
-        iter.seek_prefix(&query)?;
+        for _ in &mut iter {
+        }
 
         let access_key = get_access_key(state_update, account_id, public_key)?.ok_or_else(|| {
-            errors::ViewAccessKeyError::AccessKeyDoesNotExist { public_key: public_key.clone() }
-        })?;
+            errors::ViewAccessKeyError::AccessKeyDoesNotExist { public_key: public_key.clone() }})?;
+        
+        let visited_nodes = iter.into_visited_nodes();
+        println!("Visited nodes {:?}", visited_nodes);
 
-        let proof = iter.into_visited_nodes();
-
-
+        let proof = if include_proof {visited_nodes} else {vec![]};
+        
+        println!("Proof {:?}", proof);
         Ok(ViewAccessKeyResult{access_key: access_key, proof})
 
         

@@ -273,6 +273,7 @@ fn test_query_access_key() {
                     public_key: "ed25519:23vYngy8iL7q94jby3gszBnZ9JptpMf5Hgf7KVVa2yQ2"
                         .parse()
                         .unwrap(),
+                    include_proof: true,
                 },
             })
             .await
