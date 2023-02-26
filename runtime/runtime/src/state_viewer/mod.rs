@@ -94,11 +94,9 @@ impl TrieViewer {
             errors::ViewAccessKeyError::AccessKeyDoesNotExist { public_key: public_key.clone() }})?;
         
         let visited_nodes = iter.into_visited_nodes();
-        println!("Visited nodes {:?}", visited_nodes);
 
         let proof = if include_proof {visited_nodes} else {vec![]};
         
-        println!("Proof {:?}", proof);
         Ok(ViewAccessKeyResult{access_key: access_key, proof})
 
         
