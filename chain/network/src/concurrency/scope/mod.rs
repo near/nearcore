@@ -61,93 +61,80 @@ use std::sync::{Arc, Weak};
 
 #[cfg(test)]
 mod tests;
-struct Output<E> {
-    ctx: ctx::Ctx,
-    send: crossbeam_channel::Sender<E>,
-}
-
-impl<E> Clone for Output<E> {
-    fn clone(&self) -> Self {
-        Self { ctx: self.ctx.clone(), send: self.send.clone() }
-    }
-}
-
-impl<E> Output<E> {
-    pub fn new(ctx: ctx::Ctx) -> (Self, crossbeam_channel::Receiver<E>) {
-        let (send, recv) = crossbeam_channel::bounded(1);
-        (Self { ctx, send }, recv)
-    }
-
-    pub fn send(&self, err: E) {
-        if let Ok(_) = self.send.try_send(err) {
-            self.ctx.cancel();
-        }
-    }
-}
-
-/// Internal representation of a scope.
-struct Inner<E: 'static> {
-    /// Signal sent once the scope is terminated (i.e. when Inner is dropped).
-    ///
-    /// Since all tasks keep a reference to the scope they belong to, all the tasks
-    /// of the scope are complete when terminated is sent.
-    terminated: signal::Once,
+struct Inner<E> {
     /// Context of this scope.
     ///
     /// It is a child context of the parent scope.
     /// All tasks spawned in this scope are provided with this context.
     ctx: ctx::Ctx,
-    /// The channel over which the first error reported by any completed task is sent.
+    err: watch::Sender<Option<E>>,
+    /// Signal sent once the scope is terminated.
     ///
-    /// `output` channel has capacity 1, so that any subsequent attempts to send an error
-    /// will fail. The channel is created in `internal::run` and the value is received from
-    /// the channel only after the top-level scope has terminated.
-    /// Thanks to the fact that we have a single channel per top-level scope:
-    /// * if you await Service::terminate() from within some task, it will complete only
-    ///   after the error is actually registered, so the awaiting task won't be able to cause a
-    ///   race condition.
-    output: Output<E>,
+    /// Since all tasks keep a reference to the scope they belong to, all the tasks
+    /// of the scope are complete when terminated is sent.
+    terminated: signal::Once,
 }
 
-impl<E: 'static> Drop for Inner<E> {
-    fn drop(&mut self) {
-        self.terminated.send();
+impl<E> Clone for Inner<E> {
+    fn clone(&self) -> Self {
+        Self { ctx: self.ctx.clone(), send: self.send.clone() }
     }
 }
 
-impl<E: 'static> Inner<E> {
-    /// Creates a new scope with the given context.
-    pub fn new(ctx: &ctx::Ctx) -> (Arc<Self>, crossbeam_channel::Receiver<E>) {
-        let ctx = ctx.sub(time::Deadline::Infinite);
-        let (output, recv) = Output::new(ctx.clone());
-        (Arc::new(Self { ctx, output, terminated: signal::Once::new() }), recv)
+impl<E> Inner<E> {
+    pub fn new(ctx: ctx::Ctx) -> Arc<Self> {
+        Arc::new(Self {
+            ctx: ctx.sub(time::Deadline::Infinite), 
+            err: watch::channel(None).0,
+            terminated: signal::Once::new(),
+        })
+    }
+
+    fn register(&self, err: E) {
+        if self.send_if_modified(|w| {
+            if w.is_some() { return false; }
+            w = Some(err);
+            true
+        }) {
+            self.ctx.cancel();
+        }
+    }
+   
+    /// Cancel-safe.
+    async fn terminated_take(&self) -> Result<(),E> {
+        self.terminated.recv().await;
+        Ok(match self.err.swap(None) {
+            Some(err) => Err(err),
+            None => Ok(()),
+        })
     }
 }
 
-/// Represents a task that can be joined by another task within Scope<'env>.
-/// We do not support awaiting for tasks outside of the scope, to simplify
-/// the concurrency model (you can still implement a workaround by using a channel,
-/// if you really want to, but that might mean that Scope is not what you want
-/// in the first place).
-pub struct JoinHandle<'env, T>(
-    tokio::task::JoinHandle<Result<T, ErrTaskCanceled>>,
-    std::marker::PhantomData<fn(&'env ()) -> &'env ()>,
-);
+impl<E:Clone> Inner<E> {
+    /// Cancel-safe.
+    async fn terminated(&self) -> Result<(),E> {
+        self.terminated.recv().await;
+        Ok(match self.err.borrow().as_ref() {
+            Some(err) => Err(err.clone()),
+            None => Ok(()),
+        })
+    }
+}
+
+/// Internal representation of a scope.
+struct TerminateGuard<E: 'static>(Arc<Inner<E>>);
+}
+
+impl<E: 'static> Drop for TerminateGuard<E> {
+    fn drop(&mut self) { self.0.terminated.send(); }
+}
 
 #[derive(thiserror::Error, Debug)]
 #[error("awaited task has been canceled")]
 pub struct ErrTaskCanceled;
 
-impl<'env, T> JoinHandle<'env, T> {
-    /// Awaits for a task to be completed and returns the result.
-    /// Returns Err(ErrCanceled) if the awaiting (current task) has been canceled.
-    /// Returns Ok(Err(ErrTaskCanceled) if the awaited (joined task) has been canceled.
-    pub async fn join(self) -> ctx::OrCanceled<Result<T, ErrTaskCanceled>> {
-        ctx::wait(async { self.0.await.unwrap() }).await
-    }
-}
 
-impl<E: 'static + Send> Inner<E> {
+impl<E: 'static + Send> TerminateGuard<E> {
     /// Spawns a task in the scope, which owns a reference of to the scope, so that scope doesn't
     /// terminate before all tasks are completed.
     ///
@@ -159,14 +146,36 @@ impl<E: 'static + Send> Inner<E> {
         f: impl 'static + Send + Future<Output = Result<T, E>>,
     ) -> tokio::task::JoinHandle<Result<T, ErrTaskCanceled>> {
         tokio::spawn(must_complete(async move {
-            match (ctx::CtxFuture { ctx: m.as_ref().borrow().ctx.clone(), inner: f }).await {
+            match (ctx::CtxFuture { ctx: m.as_ref().borrow().0.ctx.clone(), inner: f }).await {
                 Ok(v) => Ok(v),
                 Err(err) => {
-                    m.as_ref().borrow().output.send(err);
-                    Err(ErrTaskCanceled)
+                    let m = m.as_ref().borrow();
+                    m.register(err);
+                    Err(m.0.clone())
                 }
             }
         }))
+    }
+
+    /// Spawns a new service in the scope.
+    ///
+    /// A service is a scope, which gets canceled when
+    /// its handler (`Service`) is dropped. Service belongs to a scope, in a sense that
+    /// a dedicated task is spawned on the scope which awaits for service to terminate and
+    /// returns the service's result.
+    pub fn new_service<E2:'static>(self: Arc<Self>) -> Service<E2> {
+        let sub = Arc::new(TerminateGuard(Inner::new(&self.0.ctx)));
+        let service = Service(Arc::downgrade(&sub), sub.0.clone());
+        TerminateGuard::spawn(self, async move {
+            let terminated = sub.0.terminated.clone();
+            // Spawn a guard task in the Service which will prevent termination of the Service
+            // until the context is not canceled. See `Service` for a list
+            // of events canceling the Service.
+            TerminateGuard::spawn(sub, async move { Ok(ctx::canceled().await) });
+            terminated.recv().await;
+            Ok(())
+        });
+        service
     }
 }
 
@@ -187,52 +196,16 @@ pub struct ErrTerminated;
 /// Service is NOT cancelled just when all tasks within the service complete - in particular
 /// a newly started service has no tasks.
 /// Service is terminated when it is cancelled AND all tasks within the service complete.
-pub struct Service<E: 'static>(Weak<Inner<E>>);
+pub struct Service<E: 'static>(Weak<TerminateGuard<E>>,Arc<Inner<E>>);
 
 impl<E: 'static> Drop for Service<E> {
-    fn drop(&mut self) {
-        self.0.upgrade().map(|inner| inner.ctx.cancel());
-    }
+    fn drop(&mut self) { self.1.ctx.cancel(); }
 }
 
 impl<E: 'static + Send> Service<E> {
     /// Checks if the referred scope has been terminated.
     pub fn is_terminated(&self) -> bool {
-        self.0.upgrade().is_none()
-    }
-
-    /// Waits until the scope is terminated.
-    ///
-    /// Returns `ErrCanceled` iff `ctx` was canceled before that.
-    pub fn terminated<'a>(
-        &'a self,
-    ) -> impl Future<Output = ctx::OrCanceled<()>> + Send + Sync + 'a {
-        let terminated = self.0.upgrade().map(|inner| inner.terminated.clone());
-        async move {
-            if let Some(t) = terminated {
-                ctx::wait(t.recv()).await
-            } else {
-                Ok(())
-            }
-        }
-    }
-
-    /// Cancels the scope's context and waits until the scope is terminated.
-    ///
-    /// Note that ErrCanceled is returned if the `ctx` passed as argument is canceled before that,
-    /// not when scope's context is cancelled.
-    pub fn terminate<'a>(&'a self) -> impl Future<Output = ctx::OrCanceled<()>> + Send + Sync + 'a {
-        let terminated = self.0.upgrade().map(|inner| {
-            inner.ctx.cancel();
-            inner.terminated.clone()
-        });
-        async move {
-            if let Some(t) = terminated {
-                ctx::wait(t.recv()).await
-            } else {
-                Ok(())
-            }
-        }
+        self.1.terminated.try_recv()
     }
 
     /// Spawns a task in this scope.
@@ -241,9 +214,9 @@ impl<E: 'static + Send> Service<E> {
     pub fn spawn<T: 'static + Send>(
         &self,
         f: impl 'static + Send + Future<Output = Result<T, E>>,
-    ) -> Result<JoinHandle<'static, T>, ErrTerminated> {
+    ) -> Result<JoinHandle<'static, T, E>, ErrTerminated> {
         match self.0.upgrade().map(|m| Inner::spawn(m, f)) {
-            Some(h) => Ok(JoinHandle(h, std::marker::PhantomData)),
+            Some(h) => Ok(JoinHandle(h)),
             None => Err(ErrTerminated),
         }
     }
@@ -251,20 +224,8 @@ impl<E: 'static + Send> Service<E> {
     /// Spawns a service in this scope.
     ///
     /// Returns ErrTerminated if the scope has already terminated.
-    
-    pub async fn new_service(&self) -> Result<Service<E>,ErrTerminated> {
-        self.new_service_with(|x|x).await
-    }
-
-    pub async fn new_service_with<E2:'static + Send>(&self, conv: impl FnOnce(E2) -> E + Send + 'static) -> Result<Service<E2>,ErrTerminated> {
-        let (send,recv) = tokio::sync::oneshot::channel();
-        self.spawn(async {
-            run!(|s| async {
-                send.send(s.1.clone()).ok().unwrap();
-                Ok(ctx::canceled().await)
-            }).map_err(conv)
-        })?;
-        Ok(Service(recv.await.unwrap()))
+    pub fn new_service<E2:'static>(&self) -> Result<Service<E2>,ErrTerminated> {
+        self.0.upgrade().map(|m| Inner::new_service(m)).ok_or(ErrTerminated)
     }
 }
 
@@ -272,17 +233,52 @@ impl<E: 'static + Send> Service<E> {
 ///
 /// Used by Scope to cancel the scope as soon as all tasks spawned via
 /// `Scope::spawn` complete.
-struct StrongService<E: 'static>(Arc<Inner<E>>);
+struct CancelGuard<E: 'static>(Arc<TerminateGuard<E>>);
 
-impl<E: 'static> Borrow<Inner<E>> for StrongService<E> {
-    fn borrow(&self) -> &Inner<E> {
-        &*self.0
+impl<E: 'static> Borrow<TerminateGuard<E>> for CancelGuard<E> {
+    fn borrow(&self) -> &Inner<E> { &*self.0 }
+}
+
+impl<E: 'static> Drop for CancelGuard<E> {
+    fn drop(&mut self) { self.0.0.ctx.cancel(); }
+}
+
+/// Represents a task that can be joined by another task within Scope<'env>.
+/// We do not support awaiting for tasks outside of the scope, to simplify
+/// the concurrency model (you can still implement a workaround by using a channel,
+/// if you really want to, but that might mean that Scope is not what you want
+/// in the first place).
+pub struct JoinHandle<'env, T, E>(
+    tokio::task::JoinHandle<Result<T, Arc<Inner<E>>>>,
+    std::marker::PhantomData<fn(&'env ()) -> &'env ()>,
+);
+
+impl<'env, T, E> JoinHandle<'env, T, E> {
+    /// Awaits for a task to be completed and returns the result.
+    /// Returns Err(ErrCanceled) if the awaiting (current task) has been canceled.
+    /// Returns Ok(Err(ErrTaskCanceled) if the awaited (joined task) has been canceled.
+    pub async fn join(self) -> ctx::OrCanceled<Result<T, ErrTaskCanceled>> {
+        match ctx::wait(async { self.0.await.unwrap() }).await? {
+            Ok(res) => Ok(res),
+            Err(inner) => {
+                ctx::wait(inner.terminated.recv())?;
+                Err(ErrTaskCanceled)
+            }
+        }
+    }
+
+    async fn join_raw(self) -> Result<T, ErrTaskCanceled> {
+        self.0.await.unwrap().map_err(ErrTaskCanceled)
     }
 }
 
-impl<E: 'static> Drop for StrongService<E> {
-    fn drop(&mut self) {
-        self.0.ctx.cancel()
+impl<'env, T, E:Clone> JoinHandle<'env, T, E> {
+    pub async fn join_err(self) -> ctx::OrCanceled<Result<T, E>> {
+        Ok(match ctx::wait(async { self.0.await.unwrap() }).await {
+            Ok(res) => res,
+            // Task returned an error so the terminated scope will also return an error.
+            Err(inner) => Err(ctx::wait(inner.terminated()).await?.err()),
+        })
     }
 }
 
@@ -295,8 +291,8 @@ impl<E: 'static> Drop for StrongService<E> {
 /// Scope is terminated when it is cancelled AND all tasks in the scope complete.
 pub struct Scope<'env, E: 'static>(
     /// Scope is equivalent to a strong service, but bounds
-    Weak<StrongService<E>>,
-    Weak<Inner<E>>,
+    Weak<CancelGuard<E>>,
+    Weak<TerminateGuard<E>>,
     /// Makes Scope<'env,E> invariant in 'env.
     std::marker::PhantomData<fn(&'env ()) -> &'env ()>,
 );
@@ -311,10 +307,10 @@ impl<'env, E: 'static + Send> Scope<'env, E> {
     pub fn spawn<T: 'static + Send>(
         &self,
         f: impl 'env + Send + Future<Output = Result<T, E>>,
-    ) -> JoinHandle<'env, T> {
+    ) -> JoinHandle<'env, T, E> {
         match self.0.upgrade() {
-            Some(strong) => JoinHandle(
-                Inner::spawn(strong, unsafe { to_static(f.boxed()) }),
+            Some(inner) => JoinHandle(
+                Inner::spawn(inner, unsafe { to_static(f.boxed()) }),
                 std::marker::PhantomData,
             ),
             // Upgrade may fail only if all the "main" tasks have already completed
@@ -333,35 +329,18 @@ impl<'env, E: 'static + Send> Scope<'env, E> {
     pub fn spawn_bg<T: 'static + Send>(
         &self,
         f: impl 'env + Send + Future<Output = Result<T, E>>,
-    ) -> JoinHandle<'env, T> {
+    ) -> JoinHandle<'env, T, E> {
         JoinHandle(
             Inner::spawn(self.1.upgrade().unwrap(), unsafe { to_static(f.boxed()) }),
             std::marker::PhantomData,
         )
     }
 
-    // ErrCancel<E> = 
-
-    pub async fn new_service(&self) -> Service<E> {
-        self.new_service_with(|x|x).await
-    }
-
-
-    /// Spawns a new service in the scope.
+    /// Spawns a service.
     ///
-    /// A service is a scope, which gets canceled when
-    /// its handler (`Service`) is dropped. Service belongs to a scope, in a sense that
-    /// a dedicated task is spawned on the scope which awaits for service to terminate and
-    /// returns the service's result.
-    pub async fn new_service_with<E2:'static + Send>(&self, conv: impl FnOnce(E2) -> E + Send + 'env) -> Service<E2> {
-        let (send,recv) = tokio::sync::oneshot::channel();
-        self.spawn_bg(async {
-            run!(|s| async {
-                send.send(s.1.clone()).ok().unwrap();
-                Ok(ctx::canceled().await)
-            }).map_err(conv)
-        });
-        Service(recv.await.unwrap())
+    /// Returns a handle to the service, which allows spawning new tasks within the service.
+    pub fn new_service(&self) -> Service<E> {
+        Inner::new_service(self.0.upgrade().unwrap().0.clone())
     }
 }
 
@@ -409,23 +388,16 @@ pub mod internal {
         Fut: 'env + Send + Future<Output = Result<T, E>>,
     {
         must_complete(async move {
-            let (inner, err) = Inner::new(&ctx::local());
-            let service = Arc::new(StrongService(inner));
-            let terminated = service.0.terminated.clone();
-            scope.0 = Arc::downgrade(&service);
-            scope.1 = Arc::downgrade(&service.0);
+            let inner = Inner::new(&ctx::local());
+            let guard = Arc::new(CancelGuard(Arc::new(TerminateGuard(inner.clone()))));
+            scope.0 = Arc::downgrade(&guard);
+            scope.1 = Arc::downgrade(&guard.0);
             let task = scope.spawn(f(scope));
-            // each task spawned on `scope` keeps its own reference to `service`.
+            // each task spawned on `scope` keeps its own reference to `guard` or `guard.0`.
             // As soon as all references to `service` are dropped, scope will be cancelled.
-            drop(service);
-            terminated.recv().await;
-            if let Ok(err) = err.try_recv() {
-                return Err(err);
-            }
-            // All tasks terminated, no errors have been returned.
-            // In particular `f` has returned an Ok(_), which we
-            // extract here.
-            Ok(task.0.await.unwrap().unwrap())
+            drop(guard);
+            inner.terminated_take().await?;
+            Ok(task.join_raw().await)
         })
         .await
     }

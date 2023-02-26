@@ -17,7 +17,7 @@ type R<E> = Result<(), E>;
 async fn test_drop_service() {
     abort_on_panic();
     let res = scope::run!(|s| async {
-        let service = s.new_service().await;
+        let service = s.new_service();
         service
             .spawn(async {
                 ctx::canceled().await;
@@ -52,7 +52,7 @@ async fn test_spawn_after_cancelling_scope() {
 async fn test_spawn_after_dropping_service() {
     abort_on_panic();
     let res = scope::run!(|s| async {
-        let service = Arc::new(s.new_service().await);
+        let service = Arc::new(s.new_service());
         service
             .spawn({
                 let service = service.clone();
@@ -78,7 +78,7 @@ async fn test_spawn_after_dropping_service() {
 async fn test_service_termination() {
     abort_on_panic();
     let res = scope::run!(|s| async {
-        let service = s.new_service().await;
+        let service = s.new_service();
         service.spawn(async { Ok(ctx::canceled().await) }).unwrap();
         service.spawn(async { Ok(ctx::canceled().await) }).unwrap();
         service.terminate().await.unwrap();
@@ -94,13 +94,13 @@ async fn test_nested_service() {
     abort_on_panic();
     let res = scope::run!(|s| async {
         let has_spawned = signal::Once::new();
-        let outer = Arc::new(s.new_service().await);
+        let outer = Arc::new(s.new_service());
         outer
             .spawn({
                 let has_spawned = has_spawned.clone();
                 let outer = outer.clone();
                 async move {
-                    let inner = outer.new_service().await.unwrap();
+                    let inner = outer.new_service().unwrap();
                     inner
                         .spawn(async move {
                             has_spawned.send();
@@ -158,7 +158,7 @@ async fn test_already_canceled() {
 async fn test_service_cancel() {
     abort_on_panic();
     scope::run!(|s| async {
-        let service = Arc::new(s.new_service().await);
+        let service = Arc::new(s.new_service());
         service
             .spawn({
                 let service = service.clone();
@@ -178,7 +178,7 @@ async fn test_service_cancel() {
 async fn test_service_error_before_cancel() {
     abort_on_panic();
     let res = scope::run!(|s| async {
-        let service = Arc::new(s.new_service().await);
+        let service = Arc::new(s.new_service());
 
         service
             .spawn({
@@ -199,7 +199,7 @@ async fn test_service_error_before_cancel() {
 async fn test_service_error_after_cancel() {
     abort_on_panic();
     let res = scope::run!(|s| async {
-        let service = Arc::new(s.new_service().await);
+        let service = Arc::new(s.new_service());
 
         service
             .spawn({
@@ -220,7 +220,7 @@ async fn test_service_error_after_cancel() {
 async fn test_scope_error() {
     abort_on_panic();
     let res = scope::run!(|s| async {
-        let service = Arc::new(s.new_service().await);
+        let service = Arc::new(s.new_service());
 
         service
             .spawn({
@@ -241,7 +241,7 @@ async fn test_scope_error() {
 async fn test_scope_error_nonoverridable() {
     abort_on_panic();
     let res = scope::run!(|s| async {
-        let service = Arc::new(s.new_service().await);
+        let service = Arc::new(s.new_service());
         service
             .spawn({
                 let service = service.clone();
