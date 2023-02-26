@@ -198,11 +198,12 @@ impl From<AccessKeyPermissionView> for AccessKeyPermission {
 pub struct AccessKeyView {
     pub nonce: Nonce,
     pub permission: AccessKeyPermissionView,
+    pub proof: Vec<Arc<[u8]>>,
 }
 
 impl From<AccessKey> for AccessKeyView {
     fn from(access_key: AccessKey) -> Self {
-        Self { nonce: access_key.nonce, permission: access_key.permission.into() }
+        Self { nonce: access_key.nonce, permission: access_key.permission.into(), proof: vec![]}
     }
 }
 
@@ -211,6 +212,7 @@ impl From<ViewAccessKeyResult> for AccessKeyView {
         Self { 
             nonce: view.access_key.nonce, 
             permission: view.access_key.permission.into(),
+            proof: view.proof,
         }
     }
 }

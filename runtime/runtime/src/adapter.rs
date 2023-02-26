@@ -7,7 +7,7 @@ use near_primitives::types::{
     AccountId, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, MerkleHash,
 };
 use near_primitives::version::ProtocolVersion;
-use near_primitives::views::ViewStateResult;
+use near_primitives::views::{ViewStateResult, ViewAccessKeyResult};
 
 /// Adapter for querying runtime.
 pub trait ViewRuntimeAdapter {
@@ -50,7 +50,7 @@ pub trait ViewRuntimeAdapter {
         account_id: &AccountId,
         public_key: &PublicKey,
         include_proof: bool,
-    ) -> Result<AccessKey, crate::state_viewer::errors::ViewAccessKeyError>;
+    ) -> Result<ViewAccessKeyResult, crate::state_viewer::errors::ViewAccessKeyError>;
 
     fn view_access_keys(
         &self,

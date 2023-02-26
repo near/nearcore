@@ -46,7 +46,7 @@ use near_primitives::types::{
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
     AccessKeyInfoView, CallResult, QueryRequest, QueryResponse, QueryResponseKind, ViewApplyState,
-    ViewStateResult,
+    ViewStateResult, ViewAccessKeyResult,
 };
 use near_store::flat_state::ChainAccessForFlatStorage;
 use near_store::flat_state::{
@@ -1523,11 +1523,11 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         account_id: &AccountId,
         public_key: &PublicKey,
         include_proof: bool,
-    ) -> Result<AccessKey, node_runtime::state_viewer::errors::ViewAccessKeyError> {
+    ) -> Result<ViewAccessKeyResult, node_runtime::state_viewer::errors::ViewAccessKeyError> {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
-        let key = self.trie_viewer.view_access_key(&state_update, account_id, public_key, include_proof)?;
+         
+        self.trie_viewer.view_access_key(&state_update, account_id, public_key, include_proof)
 
-        Ok(key.access_key)
     }
 
     fn view_access_keys(
