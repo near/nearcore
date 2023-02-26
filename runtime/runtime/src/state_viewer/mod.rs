@@ -85,7 +85,7 @@ impl TrieViewer {
         iter.remember_visited_nodes(include_proof);
         iter.seek_prefix(&prefix)?;
 
-        // Iterate over relevant trie nodes
+        // Iterate over relevant trie nodes (Account => Public Key)
         // TODO: Load access key directly using iterator
         for _ in &mut iter {}
 
@@ -93,11 +93,19 @@ impl TrieViewer {
             get_access_key(state_update, account_id, public_key)?.ok_or_else(|| {
                 errors::ViewAccessKeyError::AccessKeyDoesNotExist { public_key: public_key.clone() }
             })?;
+
+        /* 
+            NOTE: Question(s) for Near team / to answer.. 
+            What is considered sufficient for the MPT path (I.e, Account=>AccessKey, Trie Root =>Account=>AccessKey)?
+                - Is Account:AccessKey nested lookup key sufficient for generating Account->
+
+         */
         let proof = iter.into_visited_nodes();
 
         Ok(ViewAccessKeyResult { access_key, proof })
     }
 
+// TODO - Add proof boolean
     pub fn view_access_keys(
         &self,
         state_update: &TrieUpdate,
