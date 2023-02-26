@@ -825,7 +825,7 @@ async fn fetch_access_key_nonce(
                 QueryRequest::ViewAccessKey {
                     account_id: account_id.clone(),
                     public_key: public_key.clone(),
-                    include_proof: false, 
+                    include_proof: false,
                 },
             )
             .with_span_context(),
