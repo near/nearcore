@@ -7,7 +7,7 @@ use near_primitives::types::{
     AccountId, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, MerkleHash,
 };
 use near_primitives::version::ProtocolVersion;
-use near_primitives::views::{ViewStateResult, ViewAccessKeyResult};
+use near_primitives::views::{ViewAccessKeyResult, ViewStateResult};
 
 /// Adapter for querying runtime.
 pub trait ViewRuntimeAdapter {

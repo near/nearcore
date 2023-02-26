@@ -203,14 +203,14 @@ pub struct AccessKeyView {
 
 impl From<AccessKey> for AccessKeyView {
     fn from(access_key: AccessKey) -> Self {
-        Self { nonce: access_key.nonce, permission: access_key.permission.into(), proof: vec![]}
+        Self { nonce: access_key.nonce, permission: access_key.permission.into(), proof: vec![] }
     }
 }
 
 impl From<ViewAccessKeyResult> for AccessKeyView {
     fn from(view: ViewAccessKeyResult) -> Self {
-        Self { 
-            nonce: view.access_key.nonce, 
+        Self {
+            nonce: view.access_key.nonce,
             permission: view.access_key.permission.into(),
             proof: view.proof,
         }
@@ -222,7 +222,6 @@ impl From<AccessKeyView> for AccessKey {
         Self { nonce: view.nonce, permission: view.permission.into() }
     }
 }
-
 
 /// Item of the state, key and value are serialized in base64 and proof for inclusion of given state item.
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]

@@ -386,7 +386,11 @@ pub(crate) async fn query_access_key(
 > {
     let access_key_query = near_client::Query::new(
         block_id,
-        near_primitives::views::QueryRequest::ViewAccessKey { account_id, public_key, include_proof: false },
+        near_primitives::views::QueryRequest::ViewAccessKey {
+            account_id,
+            public_key,
+            include_proof: false,
+        },
     );
     let access_key_query_response =
         match view_client_addr.send(access_key_query.with_span_context()).await? {

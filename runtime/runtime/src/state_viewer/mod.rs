@@ -15,7 +15,7 @@ use near_primitives::{
     transaction::FunctionCallAction,
     trie_key::trie_key_parsers,
     types::{AccountId, EpochInfoProvider, Gas},
-    views::{StateItem, ViewApplyState, ViewStateResult, ViewAccessKeyResult},
+    views::{StateItem, ViewAccessKeyResult, ViewApplyState, ViewStateResult},
 };
 use near_store::{get_access_key, get_account, get_code, TrieUpdate};
 use near_vm_logic::{ReturnData, ViewConfig};
@@ -79,27 +79,23 @@ impl TrieViewer {
         public_key: &PublicKey,
         include_proof: bool,
     ) -> Result<ViewAccessKeyResult, errors::ViewAccessKeyError> {
-
-        println!("Setting  trie iterator");
         let prefix = trie_key_parsers::get_raw_prefix_for_access_key(account_id, public_key);
 
         let mut iter = state_update.trie().iter()?;
         iter.remember_visited_nodes(include_proof);
         iter.seek_prefix(&prefix)?;
 
-        for _ in &mut iter {
-        }
+        // Iterate over relevant trie nodes
+        // TODO: Load access key directly using iterator
+        for _ in &mut iter {}
 
-        let access_key = get_access_key(state_update, account_id, public_key)?.ok_or_else(|| {
-            errors::ViewAccessKeyError::AccessKeyDoesNotExist { public_key: public_key.clone() }})?;
-        
-        let visited_nodes = iter.into_visited_nodes();
+        let access_key =
+            get_access_key(state_update, account_id, public_key)?.ok_or_else(|| {
+                errors::ViewAccessKeyError::AccessKeyDoesNotExist { public_key: public_key.clone() }
+            })?;
+        let proof = iter.into_visited_nodes();
 
-        let proof = if include_proof {visited_nodes} else {vec![]};
-        
-        Ok(ViewAccessKeyResult{access_key: access_key, proof})
-
-        
+        Ok(ViewAccessKeyResult { access_key, proof })
     }
 
     pub fn view_access_keys(
