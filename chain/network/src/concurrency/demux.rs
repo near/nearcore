@@ -18,9 +18,9 @@
 //! (other handlers will be dropped).
 //!
 use crate::concurrency::rate;
-use crate::time;
 use futures::future::BoxFuture;
 use futures::FutureExt;
+use near_primitives::time;
 use std::future::Future;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;

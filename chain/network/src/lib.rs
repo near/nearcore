@@ -1,8 +1,6 @@
 pub use crate::peer_manager::peer_manager_actor::{Event, PeerManagerActor};
-pub use crate::peer_manager::peer_store::iter_peers_from_store;
 
 mod accounts_data;
-mod concurrency;
 mod network_protocol;
 mod peer;
 mod peer_manager;
@@ -14,6 +12,7 @@ mod stun;
 pub mod actix;
 pub mod blacklist;
 pub mod client;
+pub mod concurrency;
 pub mod config;
 pub mod config_json;
 pub mod debug;
@@ -22,7 +21,6 @@ pub mod routing;
 pub mod shards_manager;
 pub mod tcp;
 pub mod test_utils;
-pub mod time;
 pub mod types;
 
 #[cfg(test)]

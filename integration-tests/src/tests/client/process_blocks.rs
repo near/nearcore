@@ -75,7 +75,6 @@ use near_primitives::views::{
     BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
 };
 use near_store::cold_storage::{update_cold_db, update_cold_head};
-use near_store::db::TestDB;
 use near_store::metadata::DbKind;
 use near_store::metadata::DB_VERSION;
 use near_store::test_utils::create_test_node_storage_with_cold;
@@ -1042,9 +1041,9 @@ fn client_sync_headers() {
                     },
                     received_bytes_per_sec: 0,
                     sent_bytes_per_sec: 0,
-                    last_time_peer_requested: near_network::time::Instant::now(),
-                    last_time_received_message: near_network::time::Instant::now(),
-                    connection_established_time: near_network::time::Instant::now(),
+                    last_time_peer_requested: near_primitives::time::Instant::now(),
+                    last_time_received_message: near_primitives::time::Instant::now(),
+                    connection_established_time: near_primitives::time::Instant::now(),
                     peer_type: PeerType::Outbound,
                     nonce: 1,
                 }],
@@ -1579,7 +1578,7 @@ fn test_archival_save_trie_changes() {
 }
 
 fn test_archival_gc_common(
-    storage: NodeStorage<TestDB>,
+    storage: NodeStorage,
     epoch_length: u64,
     max_height: BlockHeight,
     max_cold_head_height: BlockHeight,

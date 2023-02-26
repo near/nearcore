@@ -1,4 +1,5 @@
 use borsh::BorshSerialize;
+use chrono::Utc;
 use near_chain::types::RuntimeAdapter;
 use near_chain_configs::{Genesis, GenesisChangeConfig, GenesisConfig};
 use near_crypto::PublicKey;
@@ -7,7 +8,6 @@ use near_primitives::account::id::AccountId;
 use near_primitives::block::BlockHeader;
 use near_primitives::state_record::state_record_to_account_id;
 use near_primitives::state_record::StateRecord;
-use near_primitives::time::Utc;
 use near_primitives::types::{AccountInfo, Balance, StateRoot};
 use nearcore::config::NearConfig;
 use nearcore::NightshadeRuntime;
@@ -103,7 +103,7 @@ pub fn state_dump(
             genesis_config.total_supply = total_supply;
             change_genesis_config(&mut genesis_config, change_config);
             near_config.genesis =
-                Genesis::new_with_path(genesis_config, records_path.to_path_buf());
+                Genesis::new_with_path(genesis_config, records_path.to_path_buf()).unwrap();
             near_config.config.genesis_records_file =
                 Some(records_path.file_name().unwrap().to_str().unwrap().to_string());
         }
@@ -122,7 +122,7 @@ pub fn state_dump(
             // minting tokens every epoch.
             genesis_config.total_supply = total_supply;
             change_genesis_config(&mut genesis_config, change_config);
-            near_config.genesis = Genesis::new(genesis_config, records.into());
+            near_config.genesis = Genesis::new(genesis_config, records.into()).unwrap();
         }
     }
     near_config
@@ -428,7 +428,7 @@ mod test {
         );
         let new_genesis = new_near_config.genesis;
         assert_eq!(new_genesis.config.validators.len(), 2);
-        validate_genesis(&new_genesis);
+        validate_genesis(&new_genesis).unwrap();
     }
 
     /// Test that we respect the specified account ID list in dump_state.
@@ -512,7 +512,7 @@ mod test {
             }
         });
         assert_eq!(expected_accounts, actual_accounts);
-        validate_genesis(&new_genesis);
+        validate_genesis(&new_genesis).unwrap();
     }
 
     /// Test that we preserve the validators from the epoch of the state dump.
@@ -559,7 +559,7 @@ mod test {
         );
         let new_genesis = new_near_config.genesis;
         assert_eq!(new_genesis.config.validators.len(), 2);
-        validate_genesis(&new_genesis);
+        validate_genesis(&new_genesis).unwrap();
     }
 
     /// Test that we return locked tokens for accounts that are not validators.
@@ -608,7 +608,7 @@ mod test {
                 .collect::<Vec<_>>(),
             vec!["test0".parse().unwrap()]
         );
-        validate_genesis(&new_genesis);
+        validate_genesis(&new_genesis).unwrap();
     }
 
     // TODO (#7327): enable test when flat storage will support resharding.
@@ -799,7 +799,7 @@ mod test {
         let new_genesis = new_near_config.genesis;
 
         assert_eq!(new_genesis.config.validators.len(), 2);
-        validate_genesis(&new_genesis);
+        validate_genesis(&new_genesis).unwrap();
     }
 
     #[test]
@@ -869,6 +869,6 @@ mod test {
 
         assert_eq!(stake.get("test0").unwrap_or(&(0 as Balance)), &(0 as Balance));
 
-        validate_genesis(&new_genesis);
+        validate_genesis(&new_genesis).unwrap();
     }
 }
