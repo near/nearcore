@@ -1192,6 +1192,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                     keys: vec![AccessKeyInfoView {
                         public_key: PublicKey::empty(KeyType::ED25519),
                         access_key: AccessKey::full_access().into(),
+                        proof: vec![],
                     }],
                 }),
                 block_height,

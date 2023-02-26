@@ -1191,7 +1191,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                             .map(|(public_key, access_key)| AccessKeyInfoView {
                                 public_key,
                                 access_key: access_key.into(),
-                                proof: None,
+                                proof: vec![],
                             })
                             .collect(),
                     ),
@@ -1525,7 +1525,9 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         include_proof: bool,
     ) -> Result<AccessKey, node_runtime::state_viewer::errors::ViewAccessKeyError> {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
-        self.trie_viewer.view_access_key(&state_update, account_id, public_key, include_proof)
+        let key = self.trie_viewer.view_access_key(&state_update, account_id, public_key, include_proof)?;
+
+        Ok(key.access_key)
     }
 
     fn view_access_keys(
