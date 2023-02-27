@@ -1,16 +1,11 @@
-use std::{
-    fmt::Debug,
-    sync::{Arc, Mutex},
-    task::Context,
-    time::Duration,
-};
-
-use futures::{
-    channel::oneshot,
-    future::BoxFuture,
-    task::{waker_ref, ArcWake},
-    FutureExt,
-};
+use futures::future::BoxFuture;
+use futures::task::{waker_ref, ArcWake};
+use futures::FutureExt;
+use near_primitives::time;
+use std::fmt::Debug;
+use std::sync::{Arc, Mutex};
+use std::task::Context;
+use tokio::sync::oneshot;
 
 use crate::{
     futures::FutureSpawner,
@@ -77,7 +72,7 @@ impl<
         let responder = Box::new(move |r| sender.send(r).ok().unwrap());
         self.send_with_delay(
             MessageExpectingResponse { message, responder }.into(),
-            Duration::ZERO,
+            time::Duration::ZERO,
         );
         future.boxed()
     }
@@ -104,10 +99,8 @@ impl Debug for TestLoopTask {
 
 /// Drives any Arc<TestLoopTask> events (futures spawned by our implementation
 /// of FutureSpawner) that are remaining in the loop.
-pub struct DriveFutures;
-
-impl LoopEventHandler<(), Arc<TestLoopTask>> for DriveFutures {
-    fn handle(&mut self, task: Arc<TestLoopTask>, _: &mut ()) -> Result<(), Arc<TestLoopTask>> {
+pub fn drive_futures() -> LoopEventHandler<(), Arc<TestLoopTask>> {
+    LoopEventHandler::new_simple(|task: Arc<TestLoopTask>, _| {
         // The following is copied from the Rust async book.
         // Take the future, and if it has not yet completed (is still Some),
         // poll it in an attempt to complete it.
@@ -121,13 +114,14 @@ impl LoopEventHandler<(), Arc<TestLoopTask>> for DriveFutures {
                 *future_slot = Some(future);
             }
         }
-        Ok(())
-    }
+    })
 }
 
 /// A DelaySender<Arc<TestLoopTask>> is a FutureSpawner that can be used to
-/// spawn futures into the test loop.
-impl FutureSpawner for DelaySender<Arc<TestLoopTask>> {
+/// spawn futures into the test loop. We give it a convenient alias.
+pub type TestLoopFutureSpawner = DelaySender<Arc<TestLoopTask>>;
+
+impl FutureSpawner for TestLoopFutureSpawner {
     fn spawn_boxed(&self, description: &str, f: BoxFuture<'static, ()>) {
         let task = Arc::new(TestLoopTask {
             future: Mutex::new(Some(f)),
