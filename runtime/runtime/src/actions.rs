@@ -431,9 +431,6 @@ pub(crate) fn action_implicit_account_creation_transfer(
     block_height: BlockHeight,
     current_protocol_version: ProtocolVersion,
 ) {
-    // NOTE: The account_id is hex like, because we've checked the permissions before.
-    debug_assert!(account_id.is_implicit());
-
     *actor_id = account_id.clone();
 
     let mut access_key = AccessKey::full_access();
@@ -444,7 +441,10 @@ pub(crate) fn action_implicit_account_creation_transfer(
             * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
     }
 
-    let public_key = PublicKey::from_implicit_account(account_id);
+    // NOTE: The account_id is hex like, because we've checked the permissions before.
+    debug_assert!(account_id.is_implicit());
+    // unwrap: Can only fail if `account_id` is not implicit.
+    let public_key = PublicKey::from_implicit_account(account_id).unwrap();
 
     *account = Some(Account::new(
         transfer.deposit,

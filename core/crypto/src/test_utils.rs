@@ -1,4 +1,3 @@
-use borsh::BorshDeserialize;
 use secp256k1::rand::SeedableRng;
 
 use crate::signature::{ED25519PublicKey, ED25519SecretKey, KeyType, PublicKey, SecretKey};
