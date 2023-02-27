@@ -1607,7 +1607,7 @@ mod tests {
     }
 
     #[test]
-    fn flat_storage_state_small_cache_cap() {
+    fn flat_storage_state_cache_eviction() {
         // 1. Create a simple chain and add single key-value deltas for 3 consecutive blocks.
         let chain = MockChain::linear_chain(4);
         let store = create_test_store();
