@@ -119,7 +119,7 @@ impl Stats {
             ),
             recv_msg_size_metric: metrics::MetricGuard::new(
                 &metrics::PEER_MSG_SIZE_BYTES,
-                labels.clone(),
+                labels,
             ),
         }
     }

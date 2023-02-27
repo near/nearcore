@@ -141,7 +141,6 @@ impl<E: 'static + Send> TerminateGuard<E> {
                     let guard = m.as_ref().borrow();
                     guard.register(err);
                     let inner = guard.0.clone();
-                    drop(guard);
                     drop(m);
                     inner.terminated.recv().await;
                     Err(inner)
