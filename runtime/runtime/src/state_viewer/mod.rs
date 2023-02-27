@@ -105,7 +105,7 @@ impl TrieViewer {
         Ok(ViewAccessKeyResult { access_key, proof })
     }
 
-// TODO - Add proof boolean
+// TODO - Add boolean proof parameter support
     pub fn view_access_keys(
         &self,
         state_update: &TrieUpdate,
@@ -113,6 +113,11 @@ impl TrieViewer {
     ) -> Result<Vec<(PublicKey, AccessKey)>, errors::ViewAccessKeyError> {
         let prefix = trie_key_parsers::get_raw_prefix_for_access_keys(account_id);
         let raw_prefix: &[u8] = prefix.as_ref();
+
+        // Use stateful iterator with multiline lifetime to remember visited nodes
+        let mut iter = state_update.trie().iter()?;
+        iter.remember_visited_nodes(true);
+
         let access_keys =
             state_update
                 .iter(&prefix)?
