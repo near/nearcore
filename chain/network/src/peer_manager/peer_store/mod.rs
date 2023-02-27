@@ -1,11 +1,11 @@
 use crate::blacklist;
 use crate::network_protocol::PeerInfo;
-use crate::time;
 use crate::types::{KnownPeerState, KnownPeerStatus, ReasonForBan};
 use anyhow::bail;
 use im::hashmap::Entry;
 use im::{HashMap, HashSet};
 use near_primitives::network::PeerId;
+use near_primitives::time;
 use parking_lot::Mutex;
 use rand::seq::IteratorRandom;
 use rand::thread_rng;

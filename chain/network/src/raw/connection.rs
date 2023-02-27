@@ -2,7 +2,6 @@ use crate::network_protocol::{
     Encoding, Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash,
     PeerMessage, Ping, RawRoutedMessage, RoutedMessageBody,
 };
-use crate::time::{Duration, Instant, Utc};
 use crate::types::StateResponseInfo;
 use bytes::buf::{Buf, BufMut};
 use bytes::BytesMut;
@@ -10,6 +9,7 @@ use near_crypto::{KeyType, SecretKey};
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
+use near_primitives::time::{Duration, Instant, Utc};
 use near_primitives::types::{AccountId, BlockHeight, EpochId, ShardId};
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use std::io;

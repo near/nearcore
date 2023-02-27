@@ -1,26 +1,23 @@
-use super::{delay_sender::DelaySender, event_handler::LoopEventHandler};
+use super::event_handler::{LoopEventHandler, LoopEventHandlerImpl, LoopHandlerContext};
 
 /// Event handler that handles a specific single instance in a multi-instance
 /// setup.
 ///
 /// To convert a single-instance handler to a multi-instance handler
 /// (for one instance), use handler.for_index(index).
-pub struct IndexedLoopEventHandler<Data, Event> {
-    inner: Box<dyn LoopEventHandler<Data, Event>>,
-    index: usize,
+pub(crate) struct IndexedLoopEventHandler<Data: 'static, Event: 'static> {
+    pub(crate) inner: LoopEventHandler<Data, Event>,
+    pub(crate) index: usize,
 }
 
-impl<Data, Event> IndexedLoopEventHandler<Data, Event> {
-    pub(crate) fn new(inner: Box<dyn LoopEventHandler<Data, Event>>, index: usize) -> Self {
-        Self { inner, index }
-    }
-}
-
-impl<Data, Event: 'static> LoopEventHandler<Vec<Data>, (usize, Event)>
+impl<Data, Event> LoopEventHandlerImpl<Vec<Data>, (usize, Event)>
     for IndexedLoopEventHandler<Data, Event>
 {
-    fn init(&mut self, sender: DelaySender<(usize, Event)>) {
-        self.inner.init(sender.for_index(self.index))
+    fn init(&mut self, context: LoopHandlerContext<(usize, Event)>) {
+        self.inner.init(LoopHandlerContext {
+            sender: context.sender.for_index(self.index),
+            clock: context.clock,
+        })
     }
 
     fn handle(

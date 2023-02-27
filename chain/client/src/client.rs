@@ -14,7 +14,7 @@ use near_chunks::logic::{
     cares_about_shard_this_or_next_epoch, decode_encoded_chunk, persist_chunk,
 };
 use near_client_primitives::debug::ChunkProduction;
-use near_primitives::time::Clock;
+use near_primitives::static_clock::StaticClock;
 use near_store::metadata::DbKind;
 use tracing::{debug, error, info, trace, warn};
 
@@ -293,7 +293,7 @@ impl Client {
             challenges: Default::default(),
             rs_for_chunk_production: ReedSolomonWrapper::new(data_parts, parity_parts),
             rebroadcasted_blocks: lru::LruCache::new(NUM_REBROADCAST_BLOCKS),
-            last_time_head_progress_made: Clock::instant(),
+            last_time_head_progress_made: StaticClock::instant(),
             block_production_info: BlockProductionTracker::new(),
             chunk_production_info: lru::LruCache::new(PRODUCTION_TIMES_CACHE_SIZE),
             tier1_accounts_cache: None,
@@ -304,14 +304,14 @@ impl Client {
     // Checks if it's been at least `stall_timeout` since the last time the head was updated, or
     // this method was called. If yes, rebroadcasts the current head.
     pub fn check_head_progress_stalled(&mut self, stall_timeout: Duration) -> Result<(), Error> {
-        if Clock::instant() > self.last_time_head_progress_made + stall_timeout
+        if StaticClock::instant() > self.last_time_head_progress_made + stall_timeout
             && !self.sync_status.is_syncing()
         {
             let block = self.chain.get_block(&self.chain.head()?.last_block_hash)?;
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::Block { block: block },
             ));
-            self.last_time_head_progress_made = Clock::instant();
+            self.last_time_head_progress_made = StaticClock::instant();
         }
         Ok(())
     }
@@ -610,7 +610,7 @@ impl Client {
         };
 
         #[cfg(feature = "sandbox")]
-        let timestamp_override = Some(Clock::utc() + self.sandbox_delta_time());
+        let timestamp_override = Some(StaticClock::utc() + self.sandbox_delta_time());
         #[cfg(not(feature = "sandbox"))]
         let timestamp_override = None;
 
@@ -833,7 +833,7 @@ impl Client {
         self.chunk_production_info.put(
             (next_height, shard_id),
             ChunkProduction {
-                chunk_production_time: Some(Clock::utc()),
+                chunk_production_time: Some(StaticClock::utc()),
                 chunk_production_duration_millis: Some(timer.elapsed().as_millis() as u64),
             },
         );
@@ -979,7 +979,11 @@ impl Client {
         was_requested: bool,
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) -> Result<(), near_chain::Error> {
-        self.chain.blocks_delay_tracker.mark_block_received(&block, Clock::instant(), Clock::utc());
+        self.chain.blocks_delay_tracker.mark_block_received(
+            &block,
+            StaticClock::instant(),
+            StaticClock::utc(),
+        );
         // To protect ourselves from spamming, we do some pre-check on block height before we do any
         // real processing.
         if !self.check_block_height(&block, was_requested)? {
@@ -1256,7 +1260,7 @@ impl Client {
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) {
         let chunk_header = partial_chunk.cloned_header();
-        self.chain.blocks_delay_tracker.mark_chunk_completed(&chunk_header, Clock::utc());
+        self.chain.blocks_delay_tracker.mark_chunk_completed(&chunk_header, StaticClock::utc());
         self.block_production_info
             .record_chunk_collected(partial_chunk.height_created(), partial_chunk.shard_id());
         persist_chunk(partial_chunk, shard_chunk, self.chain.mut_store())
@@ -1319,7 +1323,7 @@ impl Client {
                 self.chain.get_block_header(&last_final_hash)?.height()
             };
             self.doomslug.set_tip(
-                Clock::instant(),
+                StaticClock::instant(),
                 tip.last_block_hash,
                 tip.height,
                 last_final_height,
@@ -1340,7 +1344,12 @@ impl Client {
         } else {
             self.chain.get_block_header(&last_final_hash)?.height()
         };
-        self.doomslug.set_tip(Clock::instant(), tip.last_block_hash, height, last_final_height);
+        self.doomslug.set_tip(
+            StaticClock::instant(),
+            tip.last_block_hash,
+            height,
+            last_final_height,
+        );
 
         Ok(())
     }
@@ -1595,7 +1604,7 @@ impl Client {
         blocks_missing_chunks: Vec<BlockMissingChunks>,
         orphans_missing_chunks: Vec<OrphanMissingChunks>,
     ) {
-        let now = Clock::utc();
+        let now = StaticClock::utc();
         for BlockMissingChunks { prev_hash, missing_chunks } in blocks_missing_chunks {
             for chunk in &missing_chunks {
                 self.chain.blocks_delay_tracker.mark_chunk_requested(chunk, now);
@@ -1822,7 +1831,7 @@ impl Client {
                     return;
                 }
             };
-        self.doomslug.on_approval_message(Clock::instant(), approval, &block_producer_stakes);
+        self.doomslug.on_approval_message(StaticClock::instant(), approval, &block_producer_stakes);
     }
 
     /// Forwards given transaction to upcoming validators.

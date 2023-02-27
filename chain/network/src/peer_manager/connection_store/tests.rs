@@ -4,8 +4,8 @@ use crate::peer_manager::connection_store::OUTBOUND_CONNECTIONS_CACHE_SIZE;
 use crate::store;
 use crate::testonly::make_rng;
 use crate::testonly::AsSet;
-use crate::time;
 use crate::types::ConnectionInfo;
+use near_primitives::time;
 use rand::Rng;
 
 /// Returns a ConnectionInfo with the given value for time_connected_until,
