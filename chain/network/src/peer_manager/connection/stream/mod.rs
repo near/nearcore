@@ -7,6 +7,10 @@ use tokio::io::AsyncReadExt as _;
 use tokio::io::AsyncWriteExt as _;
 
 pub(crate) mod stats;
+
+#[cfg(test)]
+mod tests;
+
 type ReadHalf = tokio::io::BufReader<tokio::io::ReadHalf<tokio::net::TcpStream>>;
 type WriteHalf = tokio::io::BufWriter<tokio::io::WriteHalf<tokio::net::TcpStream>>;
 
