@@ -297,6 +297,14 @@ pub static FLAT_STORAGE_VALUE_REF_CACHE_TOTAL_KEY_SIZE: Lazy<IntGaugeVec> = Lazy
     )
     .unwrap()
 });
+pub static FLAT_STORAGE_VALUE_REF_CACHE_TOTAL_VALUE_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "flat_storage_value_ref_cache_total_value_size",
+        "Total size of all values in flat storage cache for its head",
+        &["shard_id"],
+    )
+        .unwrap()
+});
 
 pub mod flat_state_metrics {
     use super::*;

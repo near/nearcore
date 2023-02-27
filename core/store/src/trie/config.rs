@@ -65,7 +65,7 @@ impl TrieConfig {
             }
         }
 
-        this.flat_state_cache_capacity = config.flat_state_cache_capacity.clone();
+        this.flat_state_cache_capacity = config.flat_state_cache_capacity;
 
         this
     }

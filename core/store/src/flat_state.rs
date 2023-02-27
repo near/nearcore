@@ -83,28 +83,19 @@ mod imp {
         /// The block for which key-value pairs of its state will be retrieved. The flat state
         /// will reflect the state AFTER the block is applied.
         block_hash: CryptoHash,
-        /// In-memory cache for the key value pairs stored on disk.
-        #[allow(unused)]
-        cache: FlatStateCache,
         /// Stores the state of the flat storage, for example, where the head is at and which
         /// blocks' state are stored in flat storage.
         #[allow(unused)]
         flat_storage_state: FlatStorageState,
     }
 
-    #[derive(Clone)]
-    pub struct FlatStateCache {
-        // TODO: add implementation
-    }
-
     impl FlatState {
         pub fn new(
             store: Store,
             block_hash: CryptoHash,
-            cache: FlatStateCache,
             flat_storage_state: FlatStorageState,
         ) -> Self {
-            Self { store, block_hash, cache, flat_storage_state }
+            Self { store, block_hash, flat_storage_state }
         }
         /// Returns value reference using raw trie key, taken from the state
         /// corresponding to `FlatState::block_hash`.
@@ -126,7 +117,6 @@ mod imp {
 
     pub struct FlatStateFactoryInner {
         store: Store,
-        caches: Mutex<HashMap<ShardId, FlatStateCache>>,
         /// Here we store the flat_storage_state per shard. The reason why we don't use the same
         /// FlatStorageState for all shards is that there are two modes of block processing,
         /// normal block processing and block catchups. Since these are performed on different range
@@ -142,7 +132,6 @@ mod imp {
         pub fn new(store: Store) -> Self {
             Self(Arc::new(FlatStateFactoryInner {
                 store,
-                caches: Default::default(),
                 flat_storage_states: Default::default(),
             }))
         }
@@ -208,10 +197,6 @@ mod imp {
                 // ViewClient. Right now, we can get by by not enabling flat state for view trie
                 None
             } else {
-                let cache = {
-                    let mut caches = self.0.caches.lock().expect(POISONED_LOCK_ERR);
-                    caches.entry(shard_id).or_insert_with(|| FlatStateCache {}).clone()
-                };
                 let flat_storage_state = {
                     let flat_storage_states =
                         self.0.flat_storage_states.lock().expect(POISONED_LOCK_ERR);
@@ -225,7 +210,7 @@ mod imp {
                         }
                     }
                 };
-                Some(FlatState::new(self.0.store.clone(), block_hash, cache, flat_storage_state))
+                Some(FlatState::new(self.0.store.clone(), block_hash, flat_storage_state))
             }
         }
 
@@ -504,6 +489,8 @@ struct FlatStorageMetrics {
     value_ref_cache_len: IntGauge,
     #[allow(unused)]
     value_ref_cache_total_key_size: IntGauge,
+    #[allow(unused)]
+    value_ref_cache_total_value_size: IntGauge,
 }
 
 /// Number of traversed parts during a single step of fetching state.
@@ -883,16 +870,22 @@ impl FlatStorageStateInner {
 
     #[allow(unused)]
     fn put_value_ref_to_cache(&mut self, key: Vec<u8>, value: Option<ValueRef>) {
-        if let Some((key, _)) = self.value_ref_cache.push(key.to_vec(), value) {
+        let value_size = value.as_ref().map_or(1, |_| 37);
+        if let Some((key, old_value)) = self.value_ref_cache.push(key.to_vec(), value) {
             self.metrics.value_ref_cache_total_key_size.sub(key.len() as i64);
+            self.metrics.value_ref_cache_total_value_size.sub(old_value.map_or(1, |_| 37));
         }
         if self.value_ref_cache.cap() > 0 {
             self.metrics.value_ref_cache_total_key_size.add(key.len() as i64);
+            self.metrics.value_ref_cache_total_value_size.add(value_size);
         }
         self.metrics.value_ref_cache_len.set(self.value_ref_cache.len() as i64);
     }
 
-    /// Get cached `ValueRef` for flat storage head.
+    /// Get cached `ValueRef` for flat storage head. Possible results:
+    /// - None: no entry in cache;
+    /// - Some(None): entry None found in cache, meaning that there is no such key in state;
+    /// - Some(Some(value_ref)): entry found in cache.
     #[cfg(feature = "protocol_feature_flat_state")]
     fn get_cached_ref(&mut self, key: &[u8]) -> Option<Option<ValueRef>> {
         self.value_ref_cache.get(key).cloned()
@@ -943,6 +936,8 @@ impl FlatStorageState {
             value_ref_cache_len: metrics::FLAT_STORAGE_VALUE_REF_CACHE_LEN
                 .with_label_values(&[shard_id_label]),
             value_ref_cache_total_key_size: metrics::FLAT_STORAGE_VALUE_REF_CACHE_TOTAL_KEY_SIZE
+                .with_label_values(&[shard_id_label]),
+            value_ref_cache_total_value_size: metrics::FLAT_STORAGE_VALUE_REF_CACHE_TOTAL_VALUE_SIZE
                 .with_label_values(&[shard_id_label]),
         };
         metrics.flat_head_height.set(flat_head_height as i64);
@@ -1609,5 +1604,44 @@ mod tests {
     #[test]
     fn flat_storage_state_sanity_no_cache() {
         flat_storage_state_sanity(0);
+    }
+
+    #[test]
+    fn flat_storage_state_small_cache_cap() {
+        // 1. Create a simple chain and add single key-value deltas for 3 consecutive blocks.
+        let chain = MockChain::linear_chain(4);
+        let store = create_test_store();
+        let mut store_update = store.store_update();
+        store_helper::set_flat_head(&mut store_update, 0, &chain.get_block_hash(0));
+
+        let mut deltas: Vec<(BlockHeight, Vec<u8>, Option<ValueRef>)> = vec![
+            (1, vec![1], Some(ValueRef::new(&[1 as u8]))),
+            (2, vec![2], None),
+            (3, vec![3], Some(ValueRef::new(&[3 as u8]))),
+        ];
+        for (height, key, value) in deltas.drain(..) {
+            store_helper::set_delta(
+                &mut store_update,
+                0,
+                chain.get_block_hash(height),
+                &FlatStateDelta::from([(key, value)]),
+            ).unwrap();
+        }
+        store_update.commit().unwrap();
+
+        // 2. Create flat storage and apply 3 blocks to it.
+        let flat_storage_state = FlatStorageState::new(store.clone(), 0, 3, &chain, 2);
+        let flat_state_factory = FlatStateFactory::new(store.clone());
+        flat_state_factory.add_flat_storage_state_for_shard(0, flat_storage_state);
+        let flat_storage_state = flat_state_factory.get_flat_storage_state_for_shard(0).unwrap();
+        flat_storage_state.update_flat_head(&chain.get_block_hash(3)).unwrap();
+
+        let mut guard = flat_storage_state.0.write().unwrap();
+        // 1st key should be kicked out.
+        assert_eq!(guard.get_cached_ref(&[1]), None);
+        // For 2nd key, None should be cached.
+        assert_eq!(guard.get_cached_ref(&[2]), Some(None));
+        // For 3rd key, value should be cached.
+        assert_eq!(guard.get_cached_ref(&[3]), Some(Some(ValueRef::new(&[3 as u8]))));
     }
 }
