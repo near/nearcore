@@ -11,7 +11,7 @@ async fn must_complete_ok() {
     assert_eq!(5, scope::must_complete(async move { 5 }).await);
 }
 
-type R<E> = Result<(), E>;
+type R = Result<(), usize>;
 
 #[tokio::test]
 async fn test_drop_service() {
@@ -81,10 +81,10 @@ async fn test_service_termination() {
         let service = s.new_service();
         service.spawn(async { Ok(ctx::canceled().await) }).unwrap();
         service.spawn(async { Ok(ctx::canceled().await) }).unwrap();
-        service.terminate().await.unwrap();
+        service.terminate().await.unwrap().unwrap();
         // Spawning after service termination should fail.
         assert!(service.spawn(async { R::Err(1) }).is_err());
-        Ok(())
+        R::Ok(())
     });
     assert_eq!(Ok(()), res);
 }
@@ -92,33 +92,25 @@ async fn test_service_termination() {
 #[tokio::test]
 async fn test_nested_service() {
     abort_on_panic();
-    let res = scope::run!(|s| async {
-        let has_spawned = signal::Once::new();
-        let outer = Arc::new(s.new_service());
-        outer
-            .spawn({
-                let has_spawned = has_spawned.clone();
-                let outer = outer.clone();
+    let has_terminated = scope::run!(|s| async {
+        let outer = s.new_service::<()>();
+        let inner = outer.new_service().unwrap();
+        outer.spawn(async move {
+            let has_terminated = signal::Once::new();
+            inner.spawn({
+                let has_terminated = has_terminated.clone();
                 async move {
-                    let inner = outer.new_service().unwrap();
-                    inner
-                        .spawn(async move {
-                            has_spawned.send();
-                            ctx::canceled().await;
-                            R::Err(9)
-                        })
-                        .unwrap();
                     ctx::canceled().await;
-                    Ok(())
+                    has_terminated.send();
+                    R::Err(9)
                 }
-            })
-            .unwrap();
-        has_spawned.recv().await;
+            }).unwrap();
+            Ok(has_terminated)
+        }).unwrap().join_err().await.unwrap()
         // Scope (and all the transitive subservices) get cancelled once this task completes.
         // Scope won't be terminated until all the transitive subservices terminate.
-        Ok(())
-    });
-    assert_eq!(Err(9), res);
+    }).unwrap();
+    assert!(has_terminated.try_recv());
 }
 
 #[tokio::test]
@@ -165,11 +157,11 @@ async fn test_service_cancel() {
                 async move {
                     let _service = service;
                     ctx::canceled().await;
-                    Ok(())
+                    R::Ok(())
                 }
             })
             .unwrap();
-        Result::<(), ()>::Ok(())
+        R::Ok(())
     })
     .unwrap();
 }
@@ -195,12 +187,13 @@ async fn test_service_error_before_cancel() {
     assert_eq!(Err(1), res);
 }
 
+/// Service error is not forwarded automatically
+/// as the scope error.
 #[tokio::test]
-async fn test_service_error_after_cancel() {
+async fn test_service_non_awaited_error() {
     abort_on_panic();
     let res = scope::run!(|s| async {
         let service = Arc::new(s.new_service());
-
         service
             .spawn({
                 let service = service.clone();
@@ -211,9 +204,9 @@ async fn test_service_error_after_cancel() {
                 }
             })
             .unwrap();
-        Ok(())
+        R::Ok(())
     });
-    assert_eq!(Err(2), res);
+    assert_eq!(Ok(()), res);
 }
 
 #[tokio::test]
@@ -221,14 +214,13 @@ async fn test_scope_error() {
     abort_on_panic();
     let res = scope::run!(|s| async {
         let service = Arc::new(s.new_service());
-
         service
             .spawn({
                 let service = service.clone();
                 async move {
                     let _service = service;
                     ctx::canceled().await;
-                    Ok(())
+                    R::Ok(())
                 }
             })
             .unwrap();
@@ -293,27 +285,27 @@ async fn test_access_to_vars_outside_of_scope() {
             scope::run!(|s| async {
                 s.spawn(async {
                     a.fetch_add(1, Ordering::Relaxed);
-                    R::<()>::Ok(())
+                    R::Ok(())
                 });
-                Ok(())
+                R::Ok(())
             })
         });
 
         s.spawn(async {
             s.spawn(async {
                 a.fetch_add(1, Ordering::Relaxed);
-                Ok(())
+                R::Ok(())
             });
             a.fetch_add(1, Ordering::Relaxed);
-            Ok(())
+            R::Ok(())
         });
         a.fetch_add(1, Ordering::Relaxed);
         s.spawn(async {
             a.fetch_add(1, Ordering::Relaxed);
-            Ok(())
+            R::Ok(())
         });
         a.fetch_add(1, Ordering::Relaxed);
-        Ok(())
+        R::Ok(())
     })
     .unwrap();
     assert_eq!(6, a.load(Ordering::Relaxed));

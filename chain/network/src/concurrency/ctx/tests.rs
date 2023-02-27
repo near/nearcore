@@ -34,11 +34,14 @@ async fn test_run_with_timeout() {
     let clock = time::FakeClock::default();
     let res = ctx::run_test(clock.clock(), async {
         scope::run!(|s| async {
+            tracing::info!(target:"test", "scope starting");
             s.spawn(ctx::run_with_timeout(1000 * sec, async {
                 ctx::canceled().await;
+                tracing::info!(target:"test", "subtask terminating");
                 R::Err(9)
             }));
             clock.advance(1001 * sec);
+            tracing::info!(target:"test", "root task terminating");
             Ok(())
         })
     })

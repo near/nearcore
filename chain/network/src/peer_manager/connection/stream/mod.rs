@@ -13,16 +13,22 @@ type WriteHalf = tokio::io::BufWriter<tokio::io::WriteHalf<tokio::net::TcpStream
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub(crate) struct Frame(pub Vec<u8>);
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Clone, Debug)]
 pub(crate) enum Error {
     #[error(transparent)]
-    IO(#[from] std::io::Error),
+    IO(Arc<std::io::Error>),
     #[error(transparent)]
     Canceled(#[from] ctx::ErrCanceled),
     #[error(transparent)]
     Stats(#[from] stats::Error),
     #[error("Stream has been closed")]
     StreamClosed,
+}
+
+impl From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Error{
+        Error::IO(Arc::new(err))
+    }
 }
 
 pub struct FrameStream {
