@@ -94,18 +94,12 @@ impl TrieViewer {
                 errors::ViewAccessKeyError::AccessKeyDoesNotExist { public_key: public_key.clone() }
             })?;
 
-        /* 
-            NOTE: Question(s) for Near team / to answer.. 
-            What is considered sufficient for the MPT path (I.e, Account=>AccessKey, Trie Root =>Account=>AccessKey)?
-                - Is Account:AccessKey nested lookup key sufficient for generating Account->
-
-         */
         let proof = iter.into_visited_nodes();
 
         Ok(ViewAccessKeyResult { access_key, proof })
     }
 
-// TODO - Add boolean proof parameter support
+    // TODO - Add boolean proof parameter support
     pub fn view_access_keys(
         &self,
         state_update: &TrieUpdate,
