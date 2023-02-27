@@ -471,6 +471,7 @@ struct FlatStorageStateInner {
     /// Cache for the mapping from trie storage keys to value refs for `flat_head`.
     /// Must be equivalent to the mapping stored on disk only for `flat_head`. For
     /// other blocks, deltas have to be applied as usual.
+    // TODO (#8649): consider using RocksDB RowCache.
     #[allow(unused)]
     value_ref_cache: LruCache<Vec<u8>, Option<ValueRef>>,
     #[allow(unused)]
