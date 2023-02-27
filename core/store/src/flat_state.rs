@@ -1652,7 +1652,7 @@ mod tests {
         // After that, 1st key should be added back to LRU cache.
         {
             let mut guard = flat_storage_state.0.write().unwrap();
-            assert_eq!(guard.get_cached_ref(&[1]), Some(Some(ValueRef::new(&[1 as u8]))));
+            assert_eq!(guard.get_cached_ref(&[1]), Some(Some(ValueRef::new(&[2 as u8]))));
         }
     }
 }
