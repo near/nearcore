@@ -278,6 +278,9 @@ async fn test_spawn_from_spawn_bg() {
     assert_eq!(Err(3), res);
 }
 
+// TODO: spawn a service after all main tasks complete successfully.
+// TODO: whole service is terminated after joining a task which returned an error.
+
 #[tokio::test]
 async fn test_access_to_vars_outside_of_scope() {
     abort_on_panic();
