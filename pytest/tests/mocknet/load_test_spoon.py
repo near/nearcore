@@ -60,7 +60,6 @@ import pathlib
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from helpers import load_test_spoon_helper
-from helpers import load_testing_add_and_delete_helper
 import mocknet
 import data
 
