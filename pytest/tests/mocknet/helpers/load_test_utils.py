@@ -158,8 +158,8 @@ def meta_transaction_transfer(alice_account, test_state, base_block_hash,
     )
 
 
-def random_transaction(account, i, test_state, base_block_hash,
-                       base_block_height):
+def random_transaction(i, test_state, base_block_hash, base_block_height):
+    account = test_state.test_accounts[i]
     time.sleep(random.random() * test_state.num_test_accounts() /
                test_state.max_tps_per_node / 3)
     choice = random.randint(0, 3)
