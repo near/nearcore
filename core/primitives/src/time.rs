@@ -1,408 +1,261 @@
-/// Provides structs used for getting time.
-/// TODO: this module is deprecated and scheduled to be replaced with
-/// chain/network-primitives/time.
+//! Time module provides a non-global clock, which should be passed
+//! as an argument to functions which need to read the current time.
+//! In particular try to avoid storing the clock instances in the objects.
+//! Functions which use system clock directly are non-hermetic, which
+//! makes them effectively non-deterministic and hard to test.
+//!
+//! Clock provides 2 types of time reads:
+//! 1. now() (aka POSIX CLOCK_MONOTONIC, aka time::Instant)
+//!    time as perceived by the machine making the measurement.
+//!    The subsequent calls to now() are guaranteed to return monotonic
+//!    results. It should be used for measuring the latency of operations
+//!    as observed by the machine. The time::Instant itself doesn't
+//!    translate to any specific timestamp, so it is not meaningful for
+//!    anyone other than the machine doing the measurement.
+//! 2. now_utc() (aka POSIX CLOCK_REALTIME, aka time::Utc)
+//!    expected to approximate the (global) UTC time.
+//!    There is NO guarantee that the subsequent reads will be monotonic,
+//!    as CLOCK_REALTIME it configurable in the OS settings, or can be updated
+//!    during NTP sync. Should be used whenever you need to communicate a timestamp
+//!    over the network, or store it for later use. Remember that clocks
+//!    of different machines are not perfectly synchronized, and in extreme
+//!    cases can be totally skewed.
+use once_cell::sync::Lazy;
+use std::sync::{Arc, Mutex};
+pub use time::error;
+use tokio::sync::watch;
+
+// TODO: consider wrapping these types to prevent interactions
+// with other time libraries, especially to prevent the direct access
+// to the realtime (i.e. not through the Clock).
+pub type Instant = time::Instant;
+// TODO: OffsetDateTime stores the timestamp in a decomposed form of
+// (year,month,day,hour,...). If we find it inefficient, we should
+// probably migrate to a pure UNIX timestamp and convert is to datetime
+// only when needed.
+pub type Utc = time::OffsetDateTime;
+pub type Duration = time::Duration;
+
+// Instant doesn't have a deterministic contructor,
+// however since Instant is not convertible to an unix timestamp,
+// we can snapshot Instant::now() once and treat it as a constant.
+// All observable effects will be then deterministic.
+static FAKE_CLOCK_MONO_START: Lazy<Instant> = Lazy::new(Instant::now);
+
+// An arbitrary non-trivial deterministic Utc timestamp.
+const FAKE_CLOCK_UTC_START: Lazy<Utc> = Lazy::new(|| Utc::from_unix_timestamp(89108233).unwrap());
+
+// By the definition of derive(PartialEq), Finite(...) < Infinite.
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+pub enum Deadline {
+    Finite(Instant),
+    Infinite,
+}
+
+impl From<Instant> for Deadline {
+    fn from(t: Instant) -> Deadline {
+        Deadline::Finite(t)
+    }
+}
+
+#[derive(Clone)]
+enum ClockInner {
+    Real,
+    Fake(FakeClock),
+}
+
+/// Clock encapsulates a system clock, allowing to replace it
+/// with a fake in tests.
+/// Since system clock is a source of external information,
+/// it has to be replaced with a fake double, if we want our
+/// tests to be deterministic.
 ///
-/// WARNING WARNING WARNING
-/// WARNING WARNING WARNING
-/// Use at your own risk. The implementation is not complete, we have a places in code not mocked properly.
-/// For example, it's possible to call `::elapsed()` on `Instant` returned by `Instant::now()`.
-/// We use that that function, throughout the code, and the current mocking of `Instant` is not done properly.
-///
-/// Example:
-/// ```rust, ignore
-/// fn some_production_function() {
-///     let start = Clock::instant();
-///     // some computation
-///     let end = Clock::instant();
-///     assert!(end.duration_since(start) == Duration::from_secs(1));
-/// }
-///
-/// Test:
-/// fn test() {
-///     let mock_clock_guard = MockClockGuard::default();
-///     mock_clock_guard.add_instant(Instant::now());
-///     mock_clock_guard.add_instant(Instant::now() + Duration::from_secs(1));
-///
-///     // This won't crash anymore as long as mock works.
-///     some_production_function();
-/// }
-/// ```
-use chrono;
-use chrono::DateTime;
-pub use chrono::Utc;
-use std::cell::RefCell;
-use std::collections::VecDeque;
-use std::default::Default;
-pub use std::time::{Duration, Instant};
-pub use time::Time;
-
-#[derive(Default)]
-struct MockClockPerState {
-    /// List of timestamps, we will return one timestamp for each call of `Clock::utc()`.
-    utc_list: VecDeque<DateTime<Utc>>,
-    /// List of timestamps, we will return one timestamp to each call of `Clock::instant()`.
-    instant_list: VecDeque<Instant>,
-    /// Number of times `Clock::utc()` method was called since we started mocking.
-    utc_call_count: u64,
-    /// Number of times `Clock::instant()` method was called since we started mocking.
-    instant_call_count: u64,
-}
-
-/// Stores the mocking state.
-#[derive(Default)]
-struct MockClockPerThread {
-    mock: Option<MockClockPerState>,
-}
-
-impl MockClockPerThread {
-    fn with<F, T>(f: F) -> T
-    where
-        F: FnOnce(&mut MockClockPerThread) -> T,
-    {
-        thread_local! {
-            static INSTANCE: RefCell<MockClockPerThread> = RefCell::default()
-        }
-        INSTANCE.with(|it| f(&mut *it.borrow_mut()))
-    }
-}
-
-pub struct MockClockGuard {}
-
-impl MockClockGuard {
-    /// Adds timestamp to queue, it will be returned in `Self::utc()`.
-    pub fn add_utc(&self, mock_date: DateTime<chrono::Utc>) {
-        MockClockPerThread::with(|clock| match &mut clock.mock {
-            Some(clock) => {
-                clock.utc_list.push_back(mock_date);
-            }
-            None => {
-                panic!("Use MockClockGuard in your test");
-            }
-        });
-    }
-
-    /// Adds timestamp to queue, it will be returned in `Self::utc()`.
-    pub fn add_instant(&self, mock_date: Instant) {
-        MockClockPerThread::with(|clock| match &mut clock.mock {
-            Some(clock) => {
-                clock.instant_list.push_back(mock_date);
-            }
-            None => {
-                panic!("Use MockClockGuard in your test");
-            }
-        });
-    }
-
-    /// Returns number of calls  to `Self::utc` since `Self::mock()` was called.
-    pub fn utc_call_count(&self) -> u64 {
-        MockClockPerThread::with(|clock| match &mut clock.mock {
-            Some(clock) => clock.utc_call_count,
-            None => {
-                panic!("Use MockClockGuard in your test");
-            }
-        })
-    }
-
-    /// Returns number of calls  to `Self::instant` since `Self::mock()` was called.
-    pub fn instant_call_count(&self) -> u64 {
-        MockClockPerThread::with(|clock| match &mut clock.mock {
-            Some(clock) => clock.instant_call_count,
-            None => {
-                panic!("Use MockClockGuard in your test");
-            }
-        })
-    }
-}
-
-impl Default for MockClockGuard {
-    fn default() -> Self {
-        Clock::set_mock();
-        Self {}
-    }
-}
-
-impl Drop for MockClockGuard {
-    fn drop(&mut self) {
-        Clock::reset();
-    }
-}
-
-/// We switched to using `Clock` in production for time mocking.
-/// You are supposed to use `Clock` to get current time.
-pub struct Clock {}
+/// This is a reimplementation of primitives/src/time.rs
+/// with a more systematic approach.
+/// TODO: add tests, put it is some reusable package and use
+/// throughout the nearcore codebase.
+#[derive(Clone)]
+pub struct Clock(ClockInner);
 
 impl Clock {
-    /// Turns the mocking logic on.
-    fn set_mock() {
-        MockClockPerThread::with(|clock| {
-            assert!(clock.mock.is_none());
-            clock.mock = Some(MockClockPerState::default())
-        })
+    /// Constructor of the real clock. Use it in production code.
+    /// Preferrably construct it directly in the main() function,
+    /// so that it can be faked out in every other function.
+    pub fn real() -> Clock {
+        Clock(ClockInner::Real)
     }
 
-    /// Resets mocks to default state.
-    fn reset() {
-        MockClockPerThread::with(|clock| clock.mock = None);
+    /// Current time according to the monotone clock.
+    pub fn now(&self) -> Instant {
+        match &self.0 {
+            ClockInner::Real => Instant::now(),
+            ClockInner::Fake(fake) => fake.now(),
+        }
     }
 
-    /// This methods gets current time as `std::Instant`
-    /// unless it's mocked, then returns time added by `Self::add_utc(...)`
-    pub fn instant() -> Instant {
-        MockClockPerThread::with(|clock| match &mut clock.mock {
-            Some(clock) => {
-                clock.instant_call_count += 1;
-                let x = clock.instant_list.pop_front();
-                match x {
-                    Some(t) => t,
-                    None => {
-                        panic!("Mock clock run out of samples");
-                    }
-                }
-            }
-            None => Instant::now(),
-        })
+    /// Current time according to the system/walltime clock.
+    pub fn now_utc(&self) -> Utc {
+        match &self.0 {
+            ClockInner::Real => Utc::now_utc(),
+            ClockInner::Fake(fake) => fake.now_utc(),
+        }
     }
 
-    /// This methods gets current time as `std::Instant`
-    /// unless it's mocked, then returns time added by `Self::add_instant(...)`
-    pub fn utc() -> DateTime<chrono::Utc> {
-        MockClockPerThread::with(|clock| match &mut clock.mock {
-            Some(clock) => {
-                clock.utc_call_count += 1;
-                let x = clock.utc_list.pop_front();
-                match x {
-                    Some(t) => t,
-                    None => {
-                        panic!("Mock clock run out of samples");
-                    }
-                }
-            }
-            None => chrono::Utc::now(),
-        })
+    /// Cancellable.
+    pub async fn sleep_until_deadline(&self, t: Deadline) {
+        match t {
+            Deadline::Infinite => std::future::pending().await,
+            Deadline::Finite(t) => self.sleep_until(t).await,
+        }
+    }
+
+    /// Cancellable.
+    pub async fn sleep_until(&self, t: Instant) {
+        match &self.0 {
+            ClockInner::Real => tokio::time::sleep_until(t.into_inner().into()).await,
+            ClockInner::Fake(fake) => fake.sleep_until(t).await,
+        }
+    }
+
+    /// Cancellable.
+    pub async fn sleep(&self, d: Duration) {
+        match &self.0 {
+            ClockInner::Real => tokio::time::sleep(d.try_into().unwrap()).await,
+            ClockInner::Fake(fake) => fake.sleep(d).await,
+        }
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::ops::Add;
-    use std::thread;
-    use std::thread::sleep;
+struct FakeClockInner {
+    /// `mono` keeps the current time of the monotonic clock.
+    /// It is wrapped in watch::Sender, so that the value can
+    /// be observed from the clock::sleep() futures.
+    mono: watch::Sender<Instant>,
+    utc: Utc,
+    /// We need to keep it so that mono.send() always succeeds.
+    _mono_recv: watch::Receiver<Instant>,
+}
 
-    #[test]
-    #[should_panic]
-    fn test_clock_panic_utc() {
-        let _mock_clock_guard = MockClockGuard::default();
-        Clock::utc();
+impl FakeClockInner {
+    pub fn new(utc: Utc) -> Self {
+        let (mono, _mono_recv) = watch::channel(*FAKE_CLOCK_MONO_START);
+        Self { utc, mono, _mono_recv }
     }
 
-    #[test]
-    #[should_panic]
-    fn test_clock_panic_instant() {
-        let _mock_clock_guard = MockClockGuard::default();
-        Clock::instant();
+    pub fn now(&mut self) -> Instant {
+        *self.mono.borrow()
     }
-
-    #[test]
-    #[should_panic]
-    fn test_two_guards() {
-        let mock_clock_guard1 = MockClockGuard::default();
-        let mock_clock_guard2 = MockClockGuard::default();
-        assert_eq!(mock_clock_guard1.instant_call_count(), 0);
-        assert_eq!(mock_clock_guard2.instant_call_count(), 0);
+    pub fn now_utc(&mut self) -> Utc {
+        self.utc
     }
-
-    #[test]
-    fn test_clock_utc() {
-        let mock_clock_guard = MockClockGuard::default();
-
-        let utc_now = Utc::now();
-        mock_clock_guard.add_utc(
-            utc_now
-                .checked_add_signed(chrono::Duration::from_std(Duration::from_secs(1)).unwrap())
-                .unwrap(),
-        );
-        mock_clock_guard.add_utc(
-            utc_now
-                .checked_add_signed(chrono::Duration::from_std(Duration::from_secs(2)).unwrap())
-                .unwrap(),
-        );
-        mock_clock_guard.add_utc(
-            utc_now
-                .checked_add_signed(chrono::Duration::from_std(Duration::from_secs(3)).unwrap())
-                .unwrap(),
-        );
-        assert_eq!(
-            Clock::utc(),
-            utc_now
-                .checked_add_signed(chrono::Duration::from_std(Duration::from_secs(1)).unwrap())
-                .unwrap(),
-        );
-        assert_eq!(
-            Clock::utc(),
-            utc_now
-                .checked_add_signed(chrono::Duration::from_std(Duration::from_secs(2)).unwrap())
-                .unwrap(),
-        );
-        assert_eq!(
-            Clock::utc(),
-            utc_now
-                .checked_add_signed(chrono::Duration::from_std(Duration::from_secs(3)).unwrap())
-                .unwrap(),
-        );
-
-        assert_eq!(mock_clock_guard.utc_call_count(), 3);
-        drop(mock_clock_guard);
-
-        let mock_clock_guard = MockClockGuard::default();
-        assert_eq!(mock_clock_guard.utc_call_count(), 0);
+    pub fn advance(&mut self, d: Duration) {
+        assert!(d >= Duration::ZERO);
+        if d == Duration::ZERO {
+            return;
+        }
+        let now = *self.mono.borrow();
+        self.mono.send(now + d).unwrap();
+        self.utc += d;
     }
-
-    #[test]
-    fn test_clock_instant() {
-        let mock_clock_guard = MockClockGuard::default();
-
-        let instant_now = Instant::now();
-        mock_clock_guard.add_instant(instant_now.add(Duration::from_secs(1)));
-        mock_clock_guard.add_instant(instant_now.add(Duration::from_secs(2)));
-        mock_clock_guard.add_instant(instant_now.add(Duration::from_secs(3)));
-        assert_eq!(Clock::instant(), instant_now.add(Duration::from_secs(1)));
-        assert_eq!(Clock::instant(), instant_now.add(Duration::from_secs(2)));
-        assert_eq!(Clock::instant(), instant_now.add(Duration::from_secs(3)));
-
-        assert_eq!(mock_clock_guard.instant_call_count(), 3);
-        drop(mock_clock_guard);
-
-        let mock_clock_guard = MockClockGuard::default();
-        assert_eq!(mock_clock_guard.instant_call_count(), 0);
-    }
-
-    #[test]
-    fn test_threading() {
-        thread::spawn(|| {
-            for _i in 1..10 {
-                // This would panic if every thread used the same mocking.
-                let mock_clock_guard = MockClockGuard::default();
-                sleep(Duration::from_millis(100));
-                assert_eq!(mock_clock_guard.instant_call_count(), 0);
-            }
-        });
+    pub fn advance_until(&mut self, t: Instant) {
+        let now = *self.mono.borrow();
+        if t <= now {
+            return;
+        }
+        self.mono.send(t).unwrap();
+        self.utc += t - now;
     }
 }
 
-mod time {
-    use crate::time::{Clock, Duration, Utc};
-    use borsh::{BorshDeserialize, BorshSerialize};
-    use chrono::DateTime;
-    use std::ops::{Add, Sub};
-    use std::time::SystemTime;
+/// TEST-ONLY
+#[derive(Clone)]
+pub struct FakeClock(Arc<Mutex<FakeClockInner>>);
 
-    #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-    pub struct Time {
-        system_time: SystemTime,
+impl FakeClock {
+    /// Constructor of a fake clock. Use it in tests.
+    /// It supports manually moving time forward (via advance()).
+    /// You can also arbitrarly set the UTC time in runtime.
+    /// Use FakeClock::clock() when calling prod code from tests.
+    pub fn new(utc: Utc) -> Self {
+        Self(Arc::new(Mutex::new(FakeClockInner::new(utc))))
+    }
+    pub fn now(&self) -> Instant {
+        self.0.lock().unwrap().now()
     }
 
-    impl BorshSerialize for Time {
-        fn serialize<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
-            (self.to_unix_timestamp_nanos().as_nanos() as u64).serialize(writer)
-        }
+    pub fn now_utc(&self) -> Utc {
+        self.0.lock().unwrap().now_utc()
+    }
+    pub fn advance(&self, d: Duration) {
+        self.0.lock().unwrap().advance(d);
+    }
+    pub fn advance_until(&self, t: Instant) {
+        self.0.lock().unwrap().advance_until(t);
+    }
+    pub fn clock(&self) -> Clock {
+        Clock(ClockInner::Fake(self.clone()))
+    }
+    pub fn set_utc(&self, utc: Utc) {
+        self.0.lock().unwrap().utc = utc;
     }
 
-    impl BorshDeserialize for Time {
-        fn deserialize_reader<R: std::io::Read>(rd: &mut R) -> std::io::Result<Self> {
-            let nanos = u64::deserialize_reader(rd)?;
-            Ok(Time::from_unix_timestamp(Duration::from_nanos(nanos)))
-        }
-    }
-
-    impl From<SystemTime> for Time {
-        fn from(system_time: SystemTime) -> Self {
-            Self { system_time }
-        }
-    }
-
-    impl From<DateTime<Utc>> for Time {
-        fn from(utc: DateTime<Utc>) -> Self {
-            // utc.timestamp_nanos() returns i64
-            let nanos = utc.timestamp_nanos() as u64;
-
-            Self::UNIX_EPOCH + Duration::from_nanos(nanos)
-        }
-    }
-
-    impl Time {
-        pub const UNIX_EPOCH: Time = Time { system_time: SystemTime::UNIX_EPOCH };
-
-        pub fn now() -> Self {
-            Self::UNIX_EPOCH + Duration::from_nanos(Clock::utc().timestamp_nanos() as u64)
-        }
-
-        pub fn duration_since(&self, rhs: &Self) -> Duration {
-            self.system_time.duration_since(rhs.system_time).unwrap_or(Duration::from_millis(0))
-        }
-
-        pub fn elapsed(&self) -> Duration {
-            Self::now().duration_since(self)
-        }
-
-        pub fn from_unix_timestamp(duration: Duration) -> Self {
-            Self::UNIX_EPOCH + duration
-        }
-
-        pub fn to_unix_timestamp_nanos(&self) -> Duration {
-            // doesn't truncate, because self::UNIX_EPOCH is 0
-            self.duration_since(&Self::UNIX_EPOCH)
-        }
-
-        pub fn inner(self) -> SystemTime {
-            self.system_time
+    /// Cancel-safe.
+    pub async fn sleep(&self, d: Duration) {
+        let mut watch = self.0.lock().unwrap().mono.subscribe();
+        let t = *watch.borrow() + d;
+        while *watch.borrow() < t {
+            watch.changed().await.unwrap();
         }
     }
 
-    impl Add<Duration> for Time {
-        type Output = Self;
-
-        fn add(self, other: Duration) -> Self {
-            Self { system_time: self.system_time + other }
+    /// Cancel-safe.
+    pub async fn sleep_until(&self, t: Instant) {
+        let mut watch = self.0.lock().unwrap().mono.subscribe();
+        while *watch.borrow() < t {
+            watch.changed().await.unwrap();
         }
     }
+}
 
-    impl Sub for Time {
-        type Output = Duration;
+impl Default for FakeClock {
+    fn default() -> FakeClock {
+        Self::new(*FAKE_CLOCK_UTC_START)
+    }
+}
 
-        fn sub(self, other: Self) -> Self::Output {
-            self.system_time.duration_since(other.system_time).unwrap_or(Duration::from_millis(0))
-        }
+/// Interval equivalent to tokio::time::Interval with
+/// MissedTickBehavior::Skip.
+pub struct Interval {
+    next: time::Instant,
+    period: time::Duration,
+}
+
+impl Interval {
+    pub fn new(next: time::Instant, period: time::Duration) -> Self {
+        Self { next, period }
     }
 
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-        use borsh::{BorshDeserialize, BorshSerialize};
-
-        #[test]
-        fn test_operator() {
-            let now_st = SystemTime::now();
-
-            let now_nc: Time = now_st.into();
-
-            let t_nc = now_nc + Duration::from_nanos(123456);
-            let t_st = now_st + Duration::from_nanos(123456);
-
-            assert_eq!(t_nc.inner(), t_st);
-        }
-
-        #[test]
-        fn test_borsh() {
-            let now_nc = Time::now();
-
-            let mut v = Vec::new();
-            BorshSerialize::serialize(&now_nc, &mut v).unwrap();
-
-            let v2: &mut &[u8] = &mut v.as_slice();
-
-            let now2: Time = BorshDeserialize::deserialize(v2).unwrap();
-            assert_eq!(now_nc, now2);
-        }
+    /// Cancel-safe.
+    pub async fn tick(&mut self, clock: &Clock) {
+        clock.sleep_until(self.next).await;
+        let now = clock.now();
+        // Implementation of `tokio::time::MissedTickBehavior::Skip`.
+        // Please refer to https://docs.rs/tokio/latest/tokio/time/enum.MissedTickBehavior.html#
+        // for details. In essence, if more than `period` of time passes between consecutive
+        // calls to tick, then the second tick completes immediately and the next one will be
+        // aligned to the original schedule.
+        self.next = now + self.period
+            - Duration::nanoseconds(
+                ((now - self.next).whole_nanoseconds() % self.period.whole_nanoseconds())
+                    .try_into()
+                    // This operation is practically guaranteed not to
+                    // fail, as in order for it to fail, `period` would
+                    // have to be longer than `now - timeout`, and both
+                    // would have to be longer than 584 years.
+                    //
+                    // If it did fail, there's not a good way to pass
+                    // the error along to the user, so we just panic.
+                    .expect("too much time has elapsed since the interval was supposed to tick"),
+            );
     }
 }

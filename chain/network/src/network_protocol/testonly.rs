@@ -5,7 +5,6 @@ use crate::network_protocol::{
     Edge, PartialEdgeInfo, PeerInfo, RawRoutedMessage, RoutedMessageBody,
 };
 use crate::tcp;
-use crate::time;
 use crate::types::{AccountKeys, ChainInfo, Handshake, RoutingTableUpdate};
 use near_crypto::{InMemorySigner, KeyType, SecretKey};
 use near_primitives::block::{genesis_chunks, Block, BlockHeader, GenesisId};
@@ -17,6 +16,7 @@ use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, EncodedShardChunkBody, PartialEncodedChunkPart,
     ReedSolomonWrapper, ShardChunk,
 };
+use near_primitives::time;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, StateRoot};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};

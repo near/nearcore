@@ -172,6 +172,7 @@ if __name__ == '__main__':
                         validator_nodes)
         all_node_pks = pmap(lambda node: mocknet.get_node_keys(node)[0],
                             all_nodes)
+        pmap(lambda node: mocknet.init_validator_key(node), all_nodes)
         node_ips = [node.machine.ip for node in all_nodes]
         mocknet.create_and_upload_genesis(
             validator_nodes,

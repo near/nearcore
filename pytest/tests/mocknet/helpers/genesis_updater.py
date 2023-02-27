@@ -31,9 +31,9 @@ def main(argv):
     out_dir = argv[4]
 
     chain_id = argv[5]
-    validator_node_names = None
+    validator_keys = None
     if argv[6]:
-        validator_node_names = argv[6].split(',')
+        validator_keys = dict(map(lambda x: x.split('='), argv[6].split(',')))
     rpc_node_names = None
     if argv[7]:
         rpc_node_names = argv[7].split(',')
@@ -61,7 +61,7 @@ def main(argv):
     assert config_filename_in
     assert out_dir
     assert chain_id
-    assert validator_node_names
+    assert validator_keys
     assert done_filename
     assert epoch_length
     assert node_pks
@@ -70,7 +70,7 @@ def main(argv):
     assert all_node_pks
     assert node_ips
 
-    mocknet.create_genesis_file(validator_node_names,
+    mocknet.create_genesis_file(validator_keys,
                                 genesis_filename_in,
                                 records_filename_in,
                                 out_dir,

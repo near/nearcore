@@ -98,7 +98,7 @@ use near_async::messaging::Sender;
 use near_chain::chunks_store::ReadOnlyChunksStore;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 
-use near_primitives::time::Utc;
+use chrono::Utc;
 use rand::seq::{IteratorRandom, SliceRandom};
 use tracing::{debug, error, warn};
 
@@ -113,7 +113,7 @@ use near_primitives::sharding::{
     PartialEncodedChunkPart, PartialEncodedChunkV2, ReceiptList, ReceiptProof, ReedSolomonWrapper,
     ShardChunk, ShardChunkHeader, ShardProof,
 };
-use near_primitives::time::Clock;
+use near_primitives::static_clock::StaticClock;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
@@ -241,7 +241,7 @@ impl RequestPool {
                 continue;
             }
             if chunk_request.last_requested.elapsed() > self.retry_duration {
-                chunk_request.last_requested = Clock::instant();
+                chunk_request.last_requested = StaticClock::instant();
                 requests.push((chunk_hash.clone(), chunk_request.clone()));
             }
         }
@@ -695,7 +695,7 @@ impl ShardsManager {
                     NetworkRequests::PartialEncodedChunkRequest {
                         target,
                         request,
-                        create_time: Clock::instant().into(),
+                        create_time: StaticClock::instant().into(),
                     },
                 ));
             } else {
@@ -837,8 +837,8 @@ impl ShardsManager {
                 prev_block_hash,
                 ancestor_hash,
                 shard_id,
-                last_requested: Clock::instant(),
-                added: Clock::instant(),
+                last_requested: StaticClock::instant(),
+                added: StaticClock::instant(),
             },
         );
 
@@ -2309,7 +2309,7 @@ mod test {
             mock_tip.clone(),
             mock_tip,
         );
-        let added = Clock::instant();
+        let added = StaticClock::instant();
         shards_manager.requested_partial_encoded_chunks.insert(
             ChunkHash(hash(&[1])),
             ChunkRequestInfo {
@@ -2398,8 +2398,8 @@ mod test {
                 ancestor_hash: *prev_block_hash,
                 prev_block_hash: *prev_block_hash,
                 shard_id: header.shard_id(),
-                last_requested: Clock::instant(),
-                added: Clock::instant(),
+                last_requested: StaticClock::instant(),
+                added: StaticClock::instant(),
             },
         );
         shards_manager

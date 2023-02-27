@@ -1,17 +1,18 @@
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
-    Encoding, Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerMessage, RoutedMessageBody,
+    Encoding, Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerMessage, PeersResponse,
+    RoutedMessageBody,
 };
 use crate::peer::testonly::{Event, PeerConfig, PeerHandle};
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::tcp;
 use crate::testonly::make_rng;
 use crate::testonly::stream::Stream;
-use crate::time;
 use crate::types::{PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
 use anyhow::Context as _;
 use assert_matches::assert_matches;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::time;
 use near_primitives::version::{PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION};
 use std::sync::Arc;
 
@@ -70,7 +71,10 @@ async fn test_peer_communication(
 
     tracing::info!(target:"test","PeersResponse");
     let mut events = inbound.events.from_now();
-    let want = PeerMessage::PeersResponse((0..5).map(|_| data::make_peer_info(&mut rng)).collect());
+    let want = PeerMessage::PeersResponse(PeersResponse {
+        peers: (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
+        direct_peers: vec![],
+    });
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 

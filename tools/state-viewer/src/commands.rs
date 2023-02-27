@@ -16,7 +16,6 @@ use near_chain::{
 };
 use near_chain_configs::GenesisChangeConfig;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
-use near_network::iter_peers_from_store;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
@@ -27,7 +26,6 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{chunk_extra::ChunkExtra, BlockHeight, ShardId, StateRoot};
 use near_primitives_core::types::Gas;
-use near_store::db::Database;
 use near_store::test_utils::create_test_store;
 use near_store::TrieDBStorage;
 use near_store::{Store, Trie, TrieCache, TrieCachingStorage, TrieConfig};
@@ -415,12 +413,6 @@ pub(crate) fn get_receipt(receipt_id: CryptoHash, near_config: NearConfig, store
     );
     let receipt = chain_store.get_receipt(&receipt_id);
     println!("Receipt: {:#?}", receipt);
-}
-
-pub(crate) fn peers(db: Arc<dyn Database>) {
-    iter_peers_from_store(db, |(peer_id, peer_info)| {
-        println!("{} {:?}", peer_id, peer_info);
-    })
 }
 
 pub(crate) fn check_apply_block_result(

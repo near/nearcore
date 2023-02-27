@@ -13,7 +13,6 @@ use crate::tcp;
 use crate::test_utils;
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
-use crate::time;
 use crate::types::{
     AccountKeys, ChainInfo, KnownPeerStatus, NetworkRequests, PeerManagerMessageRequest,
     ReasonForBan,
@@ -22,6 +21,7 @@ use crate::PeerManagerActor;
 use near_async::messaging::IntoSender;
 use near_o11y::WithSpanContextExt;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::time;
 use near_primitives::types::AccountId;
 use std::collections::HashSet;
 use std::future::Future;

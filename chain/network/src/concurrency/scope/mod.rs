@@ -54,8 +54,8 @@
 //! We wrap these 2 steps into a macro "run!" to hide this hack and avoid incorrect use.
 use crate::concurrency::ctx;
 use crate::concurrency::signal;
-use crate::time;
 use futures::future::{BoxFuture, Future, FutureExt};
+use near_primitives::time;
 use std::borrow::Borrow;
 use std::sync::{Arc, Weak};
 

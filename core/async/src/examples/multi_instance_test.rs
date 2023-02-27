@@ -1,12 +1,10 @@
-use std::time::Duration;
-
 use derive_enum_from_into::{EnumFrom, EnumTryInto};
+use near_primitives::time;
 
 use crate::{
-    examples::sum_numbers_test::ForwardSumRequest,
+    examples::sum_numbers_test::forward_sum_request,
     messaging::{CanSend, IntoSender},
     test_loop::{
-        delay_sender::DelaySender,
         event_handler::{capture_events, LoopEventHandler},
         TestLoopBuilder,
     },
@@ -29,40 +27,20 @@ enum TestEvent {
 
 /// Let's pretend that when we send a remote request, the number gets sent to
 /// every other instance in the setup as a local request.
-pub struct ForwardRemoteRequestToOtherInstances {
-    sender: Option<DelaySender<(usize, TestEvent)>>,
-}
-
-impl ForwardRemoteRequestToOtherInstances {
-    pub fn new() -> Self {
-        Self { sender: None }
-    }
-}
-
-impl LoopEventHandler<Vec<TestData>, (usize, TestEvent)> for ForwardRemoteRequestToOtherInstances {
-    fn init(&mut self, sender: DelaySender<(usize, TestEvent)>) {
-        self.sender = Some(sender);
-    }
-
-    fn handle(
-        &mut self,
-        event: (usize, TestEvent),
-        data: &mut Vec<TestData>,
-    ) -> Result<(), (usize, TestEvent)> {
+fn forward_remote_request_to_other_instances() -> LoopEventHandler<Vec<TestData>, (usize, TestEvent)>
+{
+    LoopEventHandler::new(|event: (usize, TestEvent), data: &mut Vec<TestData>, context| {
         if let TestEvent::RemoteRequest(number) = event.1 {
             for i in 0..data.len() {
                 if i != event.0 {
-                    self.sender
-                        .as_ref()
-                        .unwrap()
-                        .send((i, TestEvent::LocalRequest(SumRequest::Number(number))))
+                    context.sender.send((i, TestEvent::LocalRequest(SumRequest::Number(number))))
                 }
             }
             Ok(())
         } else {
             Err(event)
         }
-    }
+    })
 }
 
 #[test]
@@ -80,10 +58,10 @@ fn test_multi_instance() {
     }
     let sender = builder.sender();
     let mut test = builder.build(data);
-    test.register_handler(ForwardRemoteRequestToOtherInstances::new());
+    test.register_handler(forward_remote_request_to_other_instances());
     for i in 0..5 {
         // Single-instance handlers can be reused for multi-instance tests.
-        test.register_handler(ForwardSumRequest.widen().for_index(i));
+        test.register_handler(forward_sum_request().widen().for_index(i));
         test.register_handler(capture_events::<ReportSumMsg>().widen().for_index(i));
     }
 
@@ -101,10 +79,10 @@ fn test_multi_instance() {
     for i in 0..5 {
         sender.send_with_delay(
             (i, TestEvent::LocalRequest(SumRequest::GetSum)),
-            Duration::from_millis(1),
+            time::Duration::milliseconds(1),
         );
     }
-    test.run(Duration::from_millis(2));
+    test.run(time::Duration::milliseconds(2));
     assert_eq!(test.data[0].sums, vec![ReportSumMsg(14)]);
     assert_eq!(test.data[1].sums, vec![ReportSumMsg(13)]);
     assert_eq!(test.data[2].sums, vec![ReportSumMsg(12)]);
