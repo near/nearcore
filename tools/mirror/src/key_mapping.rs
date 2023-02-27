@@ -1,4 +1,3 @@
-use borsh::BorshDeserialize;
 use hkdf::Hkdf;
 use near_crypto::{ED25519PublicKey, ED25519SecretKey, PublicKey, Secp256K1PublicKey, SecretKey};
 use near_primitives::types::AccountId;
@@ -94,17 +93,6 @@ pub(crate) fn map_key(
     }
 }
 
-// returns the public key encoded in this implicit account. panics if it's not
-// actually an implicit account
-// basically copy pasted from runtime/runtime/src/actions.rs
-pub(crate) fn implicit_account_key(account_id: &AccountId) -> PublicKey {
-    let mut public_key_data = Vec::with_capacity(33);
-    public_key_data.push(0u8);
-    public_key_data.extend(hex::decode(account_id.as_ref().as_bytes()).unwrap());
-    assert_eq!(public_key_data.len(), 33);
-    PublicKey::try_from_slice(&public_key_data).unwrap()
-}
-
 // If it's an implicit account, interprets it as an ed25519 public key, maps that and then returns
 // the resulting implicit account. Otherwise does nothing. We do this so that transactions creating
 // an implicit account by sending money will generate an account that we can control
@@ -113,7 +101,7 @@ pub(crate) fn map_account(
     secret: Option<&[u8; crate::secret::SECRET_LEN]>,
 ) -> AccountId {
     if account_id.is_implicit() {
-        let public_key = implicit_account_key(account_id);
+        let public_key = PublicKey::from_implicit_account(account_id).expect("must be implicit");
         let mapped_key = map_key(&public_key, secret);
         hex::encode(mapped_key.public_key().key_data()).parse().unwrap()
     } else {
