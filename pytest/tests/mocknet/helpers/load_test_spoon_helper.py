@@ -15,11 +15,11 @@ from rc import pmap
 
 # Don't use the pathlib magic because this file runs on a remote machine.
 sys.path.append('lib')
-import mocknet_helpers
 import account
 import key
+import load_test_utils
 import mocknet
-from helpers import load_test_utils
+import mocknet_helpers
 
 from configured_logger import logger
 
