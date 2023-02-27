@@ -1648,5 +1648,11 @@ mod tests {
 
         // Check that value for 1st key is correct, even though it is not in cache.
         assert_eq!(flat_storage_state.get_ref(&chain.get_block_hash(3), &[1]), Ok(Some(ValueRef::new(&[1 as u8]))));
+
+        // After that, 1st key should be added back to LRU cache.
+        {
+            let mut guard = flat_storage_state.0.write().unwrap();
+            assert_eq!(guard.get_cached_ref(&[1]), Some(Some(ValueRef::new(&[1 as u8]))));
+        }
     }
 }
