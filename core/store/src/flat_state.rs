@@ -1636,12 +1636,17 @@ mod tests {
         let flat_storage_state = flat_state_factory.get_flat_storage_state_for_shard(0).unwrap();
         flat_storage_state.update_flat_head(&chain.get_block_hash(3)).unwrap();
 
-        let mut guard = flat_storage_state.0.write().unwrap();
-        // 1st key should be kicked out.
-        assert_eq!(guard.get_cached_ref(&[1]), None);
-        // For 2nd key, None should be cached.
-        assert_eq!(guard.get_cached_ref(&[2]), Some(None));
-        // For 3rd key, value should be cached.
-        assert_eq!(guard.get_cached_ref(&[3]), Some(Some(ValueRef::new(&[3 as u8]))));
+        {
+            let mut guard = flat_storage_state.0.write().unwrap();
+            // 1st key should be kicked out.
+            assert_eq!(guard.get_cached_ref(&[1]), None);
+            // For 2nd key, None should be cached.
+            assert_eq!(guard.get_cached_ref(&[2]), Some(None));
+            // For 3rd key, value should be cached.
+            assert_eq!(guard.get_cached_ref(&[3]), Some(Some(ValueRef::new(&[3 as u8]))));
+        }
+
+        // Check that value for 1st key is correct, even though it is not in cache.
+        assert_eq!(flat_storage_state.get_ref(&chain.get_block_hash(3), &[1]), Ok(Some(ValueRef::new(&[1 as u8]))));
     }
 }
