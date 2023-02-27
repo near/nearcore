@@ -85,10 +85,6 @@ impl TrieViewer {
         iter.remember_visited_nodes(include_proof);
         iter.seek_prefix(&prefix)?;
 
-        // Iterate over relevant trie nodes (Account => Public Key)
-        // TODO: Load access key directly using iterator
-        for _ in &mut iter {}
-
         let access_key =
             get_access_key(state_update, account_id, public_key)?.ok_or_else(|| {
                 errors::ViewAccessKeyError::AccessKeyDoesNotExist { public_key: public_key.clone() }
