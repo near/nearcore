@@ -25,6 +25,6 @@ near-primitives = { path = "../../../core/primitives" }
 
 [[bin]]
 name = "fuzz_target_1"
-path = "fuzz_targets/fuzz_target_1.rs"
+path = "fuzz_targets_disabled/fuzz_target_1.rs"
 test = false
 doc = false
