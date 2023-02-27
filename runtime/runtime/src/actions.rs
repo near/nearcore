@@ -441,8 +441,8 @@ pub(crate) fn action_implicit_account_creation_transfer(
             * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
     }
 
-    // NOTE: The account_id is hex like, because we've checked the permissions before.
-    debug_assert!(account_id.is_implicit());
+    // Invariant: The account_id is hex like (implicit account id).
+    // It holds because in the only calling site, we've checked the permissions before.
     // unwrap: Can only fail if `account_id` is not implicit.
     let public_key = PublicKey::from_implicit_account(account_id).unwrap();
 
