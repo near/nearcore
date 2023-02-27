@@ -65,8 +65,8 @@ fn cold_store_copy(
     // If TAIL is not set for hot storage we default it to genesis_height.
     // TAIL not being set is not an error.
     // Archive dbs don't have TAIL, that means that they have all data from genesis_height.
-    let hot_tail = hot_store.get_ser::<Tip>(DBCol::BlockMisc, TAIL_KEY)?;
-    let hot_tail_height = hot_tail.map_or(genesis_height, |tip| tip.height);
+    let hot_tail = hot_store.get_ser::<u64>(DBCol::BlockMisc, TAIL_KEY)?;
+    let hot_tail_height = hot_tail.unwrap_or(genesis_height);
 
     tracing::debug!(target: "cold_store", "cold store loop, cold_head {}, hot_final_head {}, hot_tail {}", cold_head_height, hot_final_head_height, hot_tail_height);
 
