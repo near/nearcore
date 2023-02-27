@@ -197,11 +197,8 @@ if __name__ == '__main__':
     test_passed = True
 
     script, deploy_time, test_timeout = (None, None, None)
-    if args.script == 'skyward':
-        script = 'load_testing_add_and_delete_helper.py'
-        deploy_time = load_testing_add_and_delete_helper.CONTRACT_DEPLOY_TIME
-        test_timeout = load_testing_add_and_delete_helper.TEST_TIMEOUT
-    elif args.script == 'add_and_delete':
+    # The flag is no longer needed but is kept for backwards-compatibility reasons.
+    if args.script == 'add_and_delete':
         script = 'load_test_spoon_helper.py'
         deploy_time = load_test_spoon_helper.CONTRACT_DEPLOY_TIME
         test_timeout = load_test_spoon_helper.TEST_TIMEOUT

@@ -14,8 +14,25 @@ import transaction
 from configured_logger import logger
 
 
-def send_transfer(account, test_accounts, base_block_hash=None):
-    dest_account = random.choice(test_accounts)
+class TestState:
+
+    def __init__(self, node_account, test_accounts, max_tps_per_node,
+                 rpc_infos):
+        self.node_account = node_account
+        self.test_accounts = test_accounts
+        self.max_tps_per_node = max_tps_per_node
+        self.rpc_infos = rpc_infos
+        self.function_call_state = [[]] * len(self.test_accounts)
+
+    def random_account(self):
+        return random.choice(self.test_accounts)
+
+    def num_test_accounts(self):
+        return len(self.test_accounts)
+
+
+def send_transfer(account, test_state, base_block_hash=None):
+    dest_account = test_state.random_account()
     amount = 1
     mocknet_helpers.retry_and_ignore_errors(
         lambda: account.send_transfer_tx(dest_account.key.account_id,
@@ -26,25 +43,21 @@ def send_transfer(account, test_accounts, base_block_hash=None):
     )
 
 
-def function_call_set_state_then_delete_state(account,
-                                              i,
-                                              node_account,
-                                              test_accounts,
+def function_call_set_state_then_delete_state(i,
+                                              test_state,
                                               base_block_hash=None):
-    assert i < len(function_call_state)
-
-    if not function_call_state[i]:
+    if not test_state.function_call_state[i]:
         action = "add"
-    elif len(function_call_state[i]) >= 100:
+    elif len(test_state.function_call_state[i]) >= 100:
         action = "delete"
     else:
         action = random.choice(["add", "delete"])
 
     if action == "add":
-        next_id = random.randrange(len(test_accounts))
+        next_id = random.randrange(test_state.num_test_accounts())
         next_val = random.randint(0, 1000)
         next_account_id = mocknet.load_testing_account_id(
-            node_account.key.account_id, next_id)
+            test_state.node_account.key.account_id, next_id)
         s = f'{{"account_id": "account_{next_val}", "message":"{next_val}"}}'
         logger.info(
             f'Calling function "set_state" of account {next_account_id} with arguments {s} from account {account.key.account_id}'
@@ -58,13 +71,13 @@ def function_call_set_state_then_delete_state(account,
                                                       base_block_hash))
         logger.info(
             f'{account.key.account_id} set_state on {next_account_id} {tx_res}')
-        function_call_state[i].append((next_id, next_val))
+        test_state.function_call_state[i].append((next_id, next_val))
     else:
-        assert function_call_state[i]
-        item = random.choice(function_call_state[i])
+        assert test_state.function_call_state[i]
+        item = random.choice(test_state.function_call_state[i])
         next_id, next_val = item
         next_account_id = mocknet.load_testing_account_id(
-            node_account.key.account_id, next_id)
+            test_state.node_account.key.account_id, next_id)
         s = f'{{"account_id": "account_{next_val}"}}'
         logger.info(
             f'Calling function "delete_state" of account {next_account_id} with arguments {s} from account {account.key.account_id}'
@@ -79,23 +92,20 @@ def function_call_set_state_then_delete_state(account,
         logger.info(
             f'{account.key.account_id} delete_state on {next_account_id} {tx_res}'
         )
-        if item in function_call_state[i]:
-            function_call_state[i].remove(item)
+        if item in test_state.function_call_state[i]:
+            test_state.function_call_state[i].remove(item)
             logger.info(
-                f'Successfully removed {item} from function_call_state. New #items: {len(function_call_state[i])}'
+                f'Successfully removed {item} from function_call_state. New #items: {len(test_state.function_call_state[i])}'
             )
         else:
             logger.info(
-                f'{item} is not in function_call_state even though this is impossible. #Items: {len(function_call_state[i])}'
+                f'{item} is not in function_call_state even though this is impossible. #Items: {len(test_state.function_call_state[i])}'
             )
 
 
-def function_call_ft_transfer_call(account,
-                                   node_account,
-                                   test_accounts,
-                                   base_block_hash=None):
-    dest_account = random.choice(test_accounts)
-    contract = node_account.key.account_id
+def function_call_ft_transfer_call(account, test_state, base_block_hash=None):
+    dest_account = test_state.random_account()
+    contract = test_state.node_account.key.account_id
 
     s = f'{{"receiver_id": "{dest_account.key.account_id}", "amount": "3", "msg": "\\"hi\\""}}'
     logger.info(
@@ -115,13 +125,13 @@ def function_call_ft_transfer_call(account,
 
 # See https://near.github.io/nearcore/architecture/how/meta-tx.html to understand what is going on.
 # Alice pays the costs of Relayer sending 1 yoctoNear to Receiver
-def meta_transaction_transfer(alice_account, test_accounts, base_block_hash,
+def meta_transaction_transfer(alice_account, test_state, base_block_hash,
                               base_block_height):
-    relayer_account = random.choice(test_accounts)
-    receiver_account = random.choice(test_accounts)
+    relayer_account = test_state.random_account()
+    receiver_account = test_state.random_account()
 
-    yoctoNearAmount = 1
-    transfer_action = transaction.create_payment_action(yoctoNearAmount)
+    yocto_near_amount = 1
+    transfer_action = transaction.create_payment_action(yocto_near_amount)
     # Use (relayer_account.nonce + 2) as a nonce to deal with the case of Alice
     # and Relayer being the same account. The outer transaction needs to have
     # a lower nonce.
@@ -144,56 +154,44 @@ def meta_transaction_transfer(alice_account, test_accounts, base_block_hash,
     relayer_account.nonce += 2
 
     logger.info(
-        f'meta-transaction from {alice_account.key.account_id} to transfer {yoctoNearAmount} yoctoNear from {relayer_account.key.account_id} to {receiver_account.key.account_id}'
+        f'meta-transaction from {alice_account.key.account_id} to transfer {yocto_near_amount} yoctoNear from {relayer_account.key.account_id} to {receiver_account.key.account_id}'
     )
 
 
-def random_transaction(account, i, node_account, test_accounts,
-                       max_tps_per_node, base_block_hash, base_block_height):
-    time.sleep(random.random() * len(test_accounts) / max_tps_per_node / 3)
+def random_transaction(account, i, test_state, base_block_hash,
+                       base_block_height):
+    time.sleep(random.random() * test_state.num_test_accounts() /
+               test_state.max_tps_per_node / 3)
     choice = random.randint(0, 3)
     if choice == 0:
-        send_transfer(account, test_accounts, base_block_hash=base_block_hash)
+        send_transfer(account, test_state, base_block_hash=base_block_hash)
     elif choice == 1:
         function_call_set_state_then_delete_state(
-            account,
-            i,
-            node_account,
-            test_accounts,
-            base_block_hash=base_block_hash)
+            i, test_state, base_block_hash=base_block_hash)
     elif choice == 2:
         function_call_ft_transfer_call(account,
-                                       node_account,
-                                       test_accounts,
+                                       test_state,
                                        base_block_hash=base_block_hash)
     elif choice == 3:
-        meta_transaction_transfer(account, test_accounts, base_block_hash,
+        meta_transaction_transfer(account, test_state, base_block_hash,
                                   base_block_height)
 
 
-def send_random_transactions(node_account,
-                             test_accounts,
-                             max_tps_per_node,
-                             rpc_infos=None):
+def send_random_transactions(test_state):
     logger.info("===========================================")
     logger.info("New iteration of 'send_random_transactions'")
-    if rpc_infos:
-        addr = random.choice(rpc_infos)[0]
-    else:
-        addr = None
+    addr = random.choice(test_state.rpc_infos)[0]
     status = mocknet_helpers.get_status(addr=addr)
     base_block_hash = base58.b58decode(
         status['sync_info']['latest_block_hash'].encode('utf-8'))
     base_block_height = status['sync_info']['latest_block_height']
     pmap(
         lambda index_and_account: random_transaction(
-            index_and_account[1],
             index_and_account[0],
-            node_account,
-            test_accounts,
-            max_tps_per_node,
+            test_state,
             base_block_hash=base_block_hash,
-            base_block_height=base_block_height), enumerate(test_accounts))
+            base_block_height=base_block_height),
+        enumerate(test_state.test_accounts))
 
 
 def init_ft(node_account):
@@ -232,8 +230,3 @@ def init_ft_account(node_account, account):
     logger.info(
         f'{node_account.key.account_id} ft_transfer to {account.key.account_id} {tx_res}'
     )
-
-
-def init_function_call_state(test_accounts):
-    global function_call_state
-    function_call_state = [[]] * len(test_accounts)

@@ -48,10 +48,7 @@ def get_test_accounts_from_args(argv):
                                        base_block_hash,
                                        rpc_infos=rpc_infos)
 
-    if need_deploy:
-        load_test_utils.init_ft(node_account)
-
-    accounts = []
+    test_accounts = []
     for key in test_account_keys:
         account = account_mod.Account(key,
                                       mocknet_helpers.get_nonce_for_pk(
@@ -60,39 +57,36 @@ def get_test_accounts_from_args(argv):
                                           addr=random.choice(rpc_nodes)),
                                       base_block_hash,
                                       rpc_infos=rpc_infos)
-        accounts.append(account)
-        if need_deploy:
-            logger.info(f'Deploying contract for account {key.account_id}')
-            tx_res = account.send_deploy_contract_tx('betanet_state.wasm')
-            logger.info(f'Deploying result: {tx_res}')
-            load_test_utils.init_ft_account(node_account, account)
-            logger.info(
-                f'Account {key.account_id} balance after initialization: {account.get_amount_yoctonear()}'
-            )
-            mocknet_helpers.wait_at_least_one_block()
+        test_accounts.append(account)
 
-    return node_account, accounts, max_tps, rpc_infos
+    return load_test_utils.TestState(node_account, test_accounts, max_tps,
+                                     rpc_infos), need_deploy
 
 
 def main(argv):
     logger.info(argv)
-    (node_account, test_accounts, max_tps_per_node,
-     rpc_infos) = get_test_accounts_from_args(argv)
+    test_state, need_deploy = get_test_accounts_from_args(argv)
 
-    load_test_utils.init_function_call_state(test_accounts)
+    if need_deploy:
+        load_test_utils.init_ft(test_state.node_account)
+        for account in test_state.test_accounts:
+            logger.info(
+                f'Deploying contract for account {account.key.account_id}')
+            tx_res = account.send_deploy_contract_tx('betanet_state.wasm')
+            logger.info(f'Deploying result: {tx_res}')
+            load_test_utils.init_ft_account(test_state.node_account, account)
+            logger.info(
+                f'Account {account.key.account_id} balance after initialization: {account.get_amount_yoctonear()}'
+            )
+            mocknet_helpers.wait_at_least_one_block()
 
     total_tx_sent = 0
     start_time = time.monotonic()
     while True:
         elapsed_time = time.monotonic() - start_time
         total_tx_sent = mocknet_helpers.throttle_txns(
-            load_test_utils.send_random_transactions,
-            total_tx_sent,
-            elapsed_time,
-            max_tps_per_node,
-            node_account,
-            test_accounts,
-            rpc_infos=rpc_infos)
+            load_test_utils.send_random_transactions, total_tx_sent,
+            elapsed_time, test_state)
 
 
 if __name__ == '__main__':
