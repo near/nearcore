@@ -1,3 +1,5 @@
+use crate::{KeyType, PublicKey};
+use borsh::BorshDeserialize;
 use curve25519_dalek::ristretto::CompressedRistretto;
 use curve25519_dalek::traits::VartimeMultiscalarMul;
 
@@ -89,6 +91,25 @@ impl<
         *d2 = self.1.pack();
         *d3 = self.2.pack();
         res
+    }
+}
+
+impl PublicKey {
+    /// Create the implicit public key from an implicit account ID.
+    ///
+    /// Panics if the given account id is not a valid implicit account ID.
+    /// See [`near_account_id::AccountId#is_implicit`] for the definition.
+    pub fn from_implicit_account(account_id: &near_account_id::AccountId) -> Self {
+        debug_assert!(account_id.is_implicit());
+        let mut public_key_data = Vec::with_capacity(33);
+        public_key_data.push(KeyType::ED25519 as u8);
+        public_key_data.extend(
+            hex::decode(account_id.as_ref().as_bytes())
+                .expect("account id was a valid hex of length 64 resulting in 32 bytes"),
+        );
+        debug_assert_eq!(public_key_data.len(), 33);
+        PublicKey::try_from_slice(&public_key_data)
+            .expect("we should be able to deserialize ED25519 public key")
     }
 }
 
