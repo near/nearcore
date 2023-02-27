@@ -1,13 +1,12 @@
-use std::{sync::Arc, time::Duration};
-
 use derive_enum_from_into::{EnumFrom, EnumTryInto};
+use near_primitives::time;
+use std::sync::Arc;
 
 use crate::{
     messaging::{CanSend, IntoAsyncSender, IntoSender},
     test_loop::{
-        delay_sender::DelaySender,
         event_handler::{capture_events, LoopEventHandler},
-        futures::{DriveFutures, MessageExpectingResponse, TestLoopTask},
+        futures::{drive_futures, MessageExpectingResponse, TestLoopFutureSpawner, TestLoopTask},
         TestLoopBuilder,
     },
 };
@@ -34,40 +33,29 @@ enum TestEvent {
     Task(Arc<TestLoopTask>),
 }
 
-struct OuterRequestHandler {
-    future_spawner: DelaySender<Arc<TestLoopTask>>,
+fn outer_request_handler(
+    future_spawner: TestLoopFutureSpawner,
+) -> LoopEventHandler<OuterComponent, OuterRequest> {
+    LoopEventHandler::new_simple(move |event, data: &mut OuterComponent| {
+        data.process_request(event, &future_spawner);
+    })
 }
 
-impl LoopEventHandler<OuterComponent, OuterRequest> for OuterRequestHandler {
-    fn handle(
-        &mut self,
-        event: OuterRequest,
-        data: &mut OuterComponent,
-    ) -> Result<(), OuterRequest> {
-        data.process_request(event, &self.future_spawner);
-        Ok(())
-    }
-}
-
-struct InnerRequestHandler;
-
-impl LoopEventHandler<InnerComponent, MessageExpectingResponse<InnerRequest, InnerResponse>>
-    for InnerRequestHandler
-{
-    fn handle(
-        &mut self,
-        event: MessageExpectingResponse<InnerRequest, InnerResponse>,
-        data: &mut InnerComponent,
-    ) -> Result<(), MessageExpectingResponse<InnerRequest, InnerResponse>> {
-        (event.responder)(data.process_request(event.message));
-        Ok(())
-    }
+fn inner_request_handler(
+) -> LoopEventHandler<InnerComponent, MessageExpectingResponse<InnerRequest, InnerResponse>> {
+    LoopEventHandler::new_simple(
+        |event: MessageExpectingResponse<InnerRequest, InnerResponse>,
+         data: &mut InnerComponent| {
+            (event.responder)(data.process_request(event.message));
+        },
+    )
 }
 
 #[test]
 fn test_async_component() {
     let builder = TestLoopBuilder::<TestEvent>::new();
     let sender = builder.sender();
+    let future_spawner = builder.future_spawner();
     let mut test = builder.build(TestData {
         dummy: (),
         output: vec![],
@@ -77,12 +65,12 @@ fn test_async_component() {
             sender.clone().into_sender(),
         ),
     });
-    test.register_handler(DriveFutures.widen());
+    test.register_handler(drive_futures().widen());
     test.register_handler(capture_events::<OuterResponse>().widen());
-    test.register_handler(OuterRequestHandler { future_spawner: sender.clone().narrow() }.widen());
-    test.register_handler(InnerRequestHandler.widen());
+    test.register_handler(outer_request_handler(future_spawner).widen());
+    test.register_handler(inner_request_handler().widen());
 
     sender.send(OuterRequest("hello".to_string()));
-    test.run(Duration::from_secs(1));
+    test.run(time::Duration::seconds(1));
     assert_eq!(test.data.output, vec![OuterResponse("hello!hello!".to_string())]);
 }

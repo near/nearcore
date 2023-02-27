@@ -3,7 +3,9 @@ use super::*;
 
 use crate::network_protocol::proto;
 use crate::network_protocol::proto::peer_message::Message_type as ProtoMT;
-use crate::network_protocol::{Disconnect, PeerMessage, RoutingTableUpdate, SyncAccountsData};
+use crate::network_protocol::{
+    Disconnect, PeerMessage, PeersResponse, RoutingTableUpdate, SyncAccountsData,
+};
 use crate::network_protocol::{RoutedMessage, RoutedMessageV2};
 use borsh::{BorshDeserialize as _, BorshSerialize as _};
 use near_primitives::block::{Block, BlockHeader};
@@ -110,8 +112,9 @@ impl From<&PeerMessage> for proto::PeerMessage {
                     })
                 }
                 PeerMessage::PeersRequest => ProtoMT::PeersRequest(proto::PeersRequest::new()),
-                PeerMessage::PeersResponse(pis) => ProtoMT::PeersResponse(proto::PeersResponse {
-                    peers: pis.iter().map(Into::into).collect(),
+                PeerMessage::PeersResponse(pr) => ProtoMT::PeersResponse(proto::PeersResponse {
+                    peers: pr.peers.iter().map(Into::into).collect(),
+                    direct_peers: pr.direct_peers.iter().map(Into::into).collect(),
                     ..Default::default()
                 }),
                 PeerMessage::BlockHeadersRequest(bhs) => {
@@ -242,9 +245,11 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
                 requesting_full_sync: msg.requesting_full_sync,
             }),
             ProtoMT::PeersRequest(_) => PeerMessage::PeersRequest,
-            ProtoMT::PeersResponse(pr) => PeerMessage::PeersResponse(
-                try_from_slice(&pr.peers).map_err(Self::Error::PeersResponse)?,
-            ),
+            ProtoMT::PeersResponse(pr) => PeerMessage::PeersResponse(PeersResponse {
+                peers: try_from_slice(&pr.peers).map_err(Self::Error::PeersResponse)?,
+                direct_peers: try_from_slice(&pr.direct_peers)
+                    .map_err(Self::Error::PeersResponse)?,
+            }),
             ProtoMT::BlockHeadersRequest(bhr) => PeerMessage::BlockHeadersRequest(
                 try_from_slice(&bhr.block_hashes).map_err(Self::Error::BlockHeadersRequest)?,
             ),

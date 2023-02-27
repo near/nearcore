@@ -324,6 +324,16 @@ pub struct SyncAccountsData {
     pub incremental: bool,
 }
 
+/// Message sent as a response to PeersRequest
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct PeersResponse {
+    /// Peers drawn from the PeerStore of the responding node,
+    /// which includes peers learned transitively from other peers
+    pub peers: Vec<PeerInfo>,
+    /// Peers directly connected to the responding node
+    pub direct_peers: Vec<PeerInfo>,
+}
+
 /// Message sent when gracefully disconnecting from the other peer.
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct Disconnect {
@@ -347,7 +357,7 @@ pub enum PeerMessage {
     SyncAccountsData(SyncAccountsData),
 
     PeersRequest,
-    PeersResponse(Vec<PeerInfo>),
+    PeersResponse(PeersResponse),
 
     BlockHeadersRequest(Vec<CryptoHash>),
     BlockHeaders(Vec<BlockHeader>),

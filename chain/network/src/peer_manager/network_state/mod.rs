@@ -716,6 +716,11 @@ impl NetworkState {
         return polled;
     }
 
+    /// Collects and returns PeerInfos for all directly connected TIER2 peers.
+    pub fn get_direct_peers(self: &Arc<Self>) -> Vec<PeerInfo> {
+        return self.tier2.load().ready.values().map(|c| c.peer_info.clone()).collect();
+    }
+
     /// Sets the chain info, and updates the set of TIER1 keys.
     /// Returns true iff the set of TIER1 keys has changed.
     pub fn set_chain_info(self: &Arc<Self>, info: ChainInfo) -> bool {

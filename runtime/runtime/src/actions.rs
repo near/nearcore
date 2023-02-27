@@ -4,7 +4,7 @@ use crate::config::{
 };
 use crate::ext::{ExternalError, RuntimeExt};
 use crate::{metrics, ActionResult, ApplyState};
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::BorshSerialize;
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::checked_feature;
@@ -431,9 +431,6 @@ pub(crate) fn action_implicit_account_creation_transfer(
     block_height: BlockHeight,
     current_protocol_version: ProtocolVersion,
 ) {
-    // NOTE: The account_id is hex like, because we've checked the permissions before.
-    debug_assert!(account_id.is_implicit());
-
     *actor_id = account_id.clone();
 
     let mut access_key = AccessKey::full_access();
@@ -444,16 +441,10 @@ pub(crate) fn action_implicit_account_creation_transfer(
             * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
     }
 
-    // 0 for ED25519
-    let mut public_key_data = Vec::with_capacity(33);
-    public_key_data.push(0u8);
-    public_key_data.extend(
-        hex::decode(account_id.as_ref().as_bytes())
-            .expect("account id was a valid hex of length 64 resulting in 32 bytes"),
-    );
-    debug_assert_eq!(public_key_data.len(), 33);
-    let public_key = PublicKey::try_from_slice(&public_key_data)
-        .expect("we should be able to deserialize ED25519 public key");
+    // Invariant: The account_id is hex like (implicit account id).
+    // It holds because in the only calling site, we've checked the permissions before.
+    // unwrap: Can only fail if `account_id` is not implicit.
+    let public_key = PublicKey::from_implicit_account(account_id).unwrap();
 
     *account = Some(Account::new(
         transfer.deposit,
