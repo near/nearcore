@@ -171,7 +171,7 @@ fn test_consensus_with_epoch_switches() {
                         let mut cur_hash = *block.hash();
                         while let Some(height) = block_to_height.get(&cur_hash) {
                             heights.push(height);
-                            cur_hash = block_to_prev_block.get(&cur_hash).unwrap().clone();
+                            cur_hash = *block_to_prev_block.get(&cur_hash).unwrap();
                             if heights.len() > 10 {
                                 break;
                             }

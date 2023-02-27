@@ -1,13 +1,10 @@
-use std::io;
-use std::path::Path;
-use std::sync::Arc;
-
 use crate::key_conversion::convert_secret_key;
 use crate::key_file::KeyFile;
 use crate::{KeyType, PublicKey, SecretKey, Signature};
 use near_account_id::AccountId;
-
-use serde::{Deserialize, Serialize};
+use std::io;
+use std::path::Path;
+use std::sync::Arc;
 
 /// Generic signer trait, that can sign with some subset of supported curves.
 pub trait Signer: Sync + Send {
@@ -44,7 +41,7 @@ impl Signer for EmptySigner {
 }
 
 /// Signer that keeps secret key in memory.
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct InMemorySigner {
     pub account_id: AccountId,
     pub public_key: PublicKey,

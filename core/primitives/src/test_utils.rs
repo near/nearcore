@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use near_crypto::{EmptySigner, KeyType, PublicKey, Signature, Signer};
+use near_crypto::{EmptySigner, InMemorySigner, KeyType, PublicKey, SecretKey, Signature, Signer};
 use near_primitives_core::types::ProtocolVersion;
 
 use crate::account::{AccessKey, AccessKeyPermission, Account};
@@ -20,6 +20,7 @@ use crate::transaction::{
 use crate::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, Nonce};
 use crate::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use crate::version::PROTOCOL_VERSION;
+use crate::views::{ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus};
 
 pub fn account_new(amount: Balance, code_hash: CryptoHash) -> Account {
     Account::new(amount, 0, code_hash, std::mem::size_of::<Account>() as u64)
@@ -328,7 +329,7 @@ pub struct TestBlockBuilder {
 impl TestBlockBuilder {
     pub fn new(prev: &Block, signer: Arc<dyn ValidatorSigner>) -> Self {
         let mut tree = PartialMerkleTree::default();
-        tree.insert(prev.hash().clone());
+        tree.insert(*prev.hash());
 
         Self {
             prev: prev.clone(),
@@ -368,7 +369,7 @@ impl TestBlockBuilder {
 
     /// Updates the merkle tree by adding the previous hash, and updates the new block's merkle_root.
     pub fn block_merkle_tree(mut self, block_merkle_tree: &mut PartialMerkleTree) -> Self {
-        block_merkle_tree.insert(self.prev.hash().clone());
+        block_merkle_tree.insert(*self.prev.hash());
         self.block_merkle_root = block_merkle_tree.root();
         self
     }
@@ -486,4 +487,45 @@ pub fn create_test_signer(account_name: &str) -> InMemoryValidatorSigner {
         KeyType::ED25519,
         account_name,
     )
+}
+
+/// Helper function that creates a new signer for a given account, that uses the account name as seed.
+///
+/// This also works for predefined implicit accounts, where the signer will use the implicit key.
+///
+/// Should be used only in tests.
+pub fn create_user_test_signer(account_name: &str) -> InMemorySigner {
+    let account_id = account_name.parse().unwrap();
+    if account_id == implicit_test_account() {
+        InMemorySigner::from_secret_key(account_id, implicit_test_account_secret())
+    } else {
+        InMemorySigner::from_seed(account_id, KeyType::ED25519, account_name)
+    }
+}
+
+/// A fixed implicit account for which tests can know the private key.
+pub fn implicit_test_account() -> AccountId {
+    "061b1dd17603213b00e1a1e53ba060ad427cef4887bd34a5e0ef09010af23b0a".parse().unwrap()
+}
+
+/// Private key for the fixed implicit test account.
+pub fn implicit_test_account_secret() -> SecretKey {
+    "ed25519:5roj6k68kvZu3UEJFyXSfjdKGrodgZUfFLZFpzYXWtESNsLWhYrq3JGi4YpqeVKuw1m9R2TEHjfgWT1fjUqB1DNy".parse().unwrap()
+}
+
+impl FinalExecutionOutcomeView {
+    #[track_caller]
+    /// Check transaction and all transitive receipts for success status.
+    pub fn assert_success(&self) {
+        assert!(matches!(self.status, FinalExecutionStatus::SuccessValue(_)));
+        for (i, receipt) in self.receipts_outcome.iter().enumerate() {
+            assert!(
+                matches!(
+                    receipt.outcome.status,
+                    ExecutionStatusView::SuccessReceiptId(_) | ExecutionStatusView::SuccessValue(_),
+                ),
+                "receipt #{i} failed: {receipt:?}",
+            );
+        }
+    }
 }

@@ -6,17 +6,17 @@ use near_jsonrpc_primitives::types::sandbox::{
     RpcSandboxPatchStateRequest,
 };
 
-use super::{parse_params, RpcFrom, RpcRequest};
+use super::{Params, RpcFrom, RpcRequest};
 
 impl RpcRequest for RpcSandboxPatchStateRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {
-        parse_params::<Self>(value)
+        Params::parse(value)
     }
 }
 
 impl RpcRequest for RpcSandboxFastForwardRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {
-        parse_params::<Self>(value)
+        Params::parse(value)
     }
 }
 

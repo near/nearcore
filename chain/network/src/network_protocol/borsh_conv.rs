@@ -1,8 +1,7 @@
 /// Contains borsh <-> network_protocol conversions.
 use crate::network_protocol as mem;
 use crate::network_protocol::borsh_ as net;
-use crate::network_protocol::RoutedMessageV2;
-use thiserror::Error;
+use crate::network_protocol::{PeersResponse, RoutedMessageV2};
 
 impl From<&net::Handshake> for mem::Handshake {
     fn from(x: &net::Handshake) -> Self {
@@ -91,7 +90,7 @@ impl From<mem::RoutingTableUpdate> for net::RoutingTableUpdate {
 
 //////////////////////////////////////////
 
-#[derive(Error, Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum ParsePeerMessageError {
     #[error("HandshakeV2 is deprecated")]
     DeprecatedHandshakeV2,
@@ -120,7 +119,9 @@ impl TryFrom<&net::PeerMessage> for mem::PeerMessage {
                 return Err(Self::Error::DeprecatedResponseUpdateNonce)
             }
             net::PeerMessage::PeersRequest => mem::PeerMessage::PeersRequest,
-            net::PeerMessage::PeersResponse(pis) => mem::PeerMessage::PeersResponse(pis),
+            net::PeerMessage::PeersResponse(pis) => {
+                mem::PeerMessage::PeersResponse(PeersResponse { peers: pis, direct_peers: vec![] })
+            }
             net::PeerMessage::BlockHeadersRequest(bhs) => {
                 mem::PeerMessage::BlockHeadersRequest(bhs)
             }
@@ -180,7 +181,7 @@ impl From<&mem::PeerMessage> for net::PeerMessage {
             }
 
             mem::PeerMessage::PeersRequest => net::PeerMessage::PeersRequest,
-            mem::PeerMessage::PeersResponse(pis) => net::PeerMessage::PeersResponse(pis),
+            mem::PeerMessage::PeersResponse(pr) => net::PeerMessage::PeersResponse(pr.peers),
             mem::PeerMessage::BlockHeadersRequest(bhs) => {
                 net::PeerMessage::BlockHeadersRequest(bhs)
             }

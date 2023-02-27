@@ -269,7 +269,7 @@ pub fn amend_genesis(
     num_bytes_account: u64,
     num_extra_bytes_record: u64,
 ) -> anyhow::Result<()> {
-    let mut genesis = Genesis::from_file(genesis_file_in, GenesisValidationMode::UnsafeFast);
+    let mut genesis = Genesis::from_file(genesis_file_in, GenesisValidationMode::UnsafeFast)?;
 
     let shard_layout = if let Some(path) = shard_layout_file {
         let s = std::fs::read_to_string(path)
@@ -387,7 +387,7 @@ mod test {
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::state_record::StateRecord;
-    use near_primitives::time::Clock;
+    use near_primitives::static_clock::StaticClock;
     use near_primitives::types::{AccountId, AccountInfo};
     use near_primitives::utils;
     use near_primitives::version::PROTOCOL_VERSION;
@@ -572,7 +572,7 @@ mod test {
 
             let genesis_config = GenesisConfig {
                 protocol_version: PROTOCOL_VERSION,
-                genesis_time: Clock::utc(),
+                genesis_time: StaticClock::utc(),
                 chain_id: "rusttestnet".to_string(),
                 genesis_height: 0,
                 num_block_producer_seats: nearcore::config::NUM_BLOCK_PRODUCER_SEATS,
@@ -614,7 +614,7 @@ mod test {
                 tempfile::NamedTempFile::new().context("failed creating tmp file")?;
             serde_json::to_writer(&mut records_file_in, &records_in)
                 .context("failed writing to --records-file-in")?;
-            let genesis = Genesis::new_with_path(genesis_config, records_file_in.path());
+            let genesis = Genesis::new_with_path(genesis_config, records_file_in.path())?;
 
             Ok(ParsedTestCase {
                 genesis,

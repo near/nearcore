@@ -1,10 +1,9 @@
-use std::cmp::max;
 use std::sync::Arc;
 
-use crate::time::{Clock, Utc};
+use crate::static_clock::StaticClock;
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use chrono::DateTime;
+use chrono::{DateTime, Utc};
 use near_crypto::Signature;
 use primitive_types::U256;
 
@@ -240,7 +239,7 @@ impl Block {
         );
 
         let new_total_supply = prev.total_supply() + minted_amount.unwrap_or(0) - balance_burnt;
-        let now = to_timestamp(timestamp_override.unwrap_or_else(Clock::utc));
+        let now = to_timestamp(timestamp_override.unwrap_or_else(StaticClock::utc));
         let time = if now <= prev.raw_timestamp() { prev.raw_timestamp() + 1 } else { now };
 
         let (vrf_value, vrf_proof) = signer.compute_vrf_with_proof(prev.random_value().as_ref());
@@ -325,6 +324,9 @@ impl Block {
         self.header().gas_price() == expected_price
     }
 
+    /// Computes the new gas price according to the formula:
+    ///   gas_price = prev_gas_price * (1 + (gas_used/gas_limit - 1/2) * adjustment_rate)
+    /// and clamped between min_gas_price and max_gas_price.
     pub fn compute_new_gas_price(
         prev_gas_price: Balance,
         gas_used: Gas,
@@ -333,22 +335,26 @@ impl Block {
         min_gas_price: Balance,
         max_gas_price: Balance,
     ) -> Balance {
+        // If block was skipped, the price does not change.
         if gas_limit == 0 {
-            prev_gas_price
-        } else {
-            let numerator = 2 * *gas_price_adjustment_rate.denom() as u128 * u128::from(gas_limit)
-                - *gas_price_adjustment_rate.numer() as u128 * u128::from(gas_limit)
-                + 2 * *gas_price_adjustment_rate.numer() as u128 * u128::from(gas_used);
-            let denominator =
-                2 * *gas_price_adjustment_rate.denom() as u128 * u128::from(gas_limit);
-            let new_gas_price =
-                U256::from(prev_gas_price) * U256::from(numerator) / U256::from(denominator);
-            if new_gas_price > U256::from(max_gas_price) {
-                max_gas_price
-            } else {
-                max(new_gas_price.as_u128(), min_gas_price)
-            }
+            return prev_gas_price;
         }
+
+        let gas_used = u128::from(gas_used);
+        let gas_limit = u128::from(gas_limit);
+        let adjustment_rate_numer = *gas_price_adjustment_rate.numer() as u128;
+        let adjustment_rate_denom = *gas_price_adjustment_rate.denom() as u128;
+
+        // This number can never be negative as long as gas_used <= gas_limit and
+        // adjustment_rate_numer <= adjustment_rate_denom.
+        let numerator = 2 * adjustment_rate_denom * gas_limit
+            + 2 * adjustment_rate_numer * gas_used
+            - adjustment_rate_numer * gas_limit;
+        let denominator = 2 * adjustment_rate_denom * gas_limit;
+        let new_gas_price =
+            U256::from(prev_gas_price) * U256::from(numerator) / U256::from(denominator);
+
+        new_gas_price.clamp(U256::from(min_gas_price), U256::from(max_gas_price)).as_u128()
     }
 
     pub fn compute_state_root<'a, T: IntoIterator<Item = &'a ShardChunkHeader>>(

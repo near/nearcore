@@ -1,18 +1,22 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::genesis_config::{Genesis, GenesisConfig};
+use near_config_utils::{ValidationError, ValidationErrors};
 use near_crypto::key_conversion::is_valid_staking_key;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::AccountId;
 use num_rational::Rational32;
 
-/// Validate genesis config and records. Panics if genesis is ill-formed.
-pub fn validate_genesis(genesis: &Genesis) {
-    let mut genesis_validator = GenesisValidator::new(&genesis.config);
+/// Validate genesis config and records. Returns ValidationError if semantic checks of genesis failed.
+pub fn validate_genesis(genesis: &Genesis) -> Result<(), ValidationError> {
+    let mut validation_errors = ValidationErrors::new();
+    let mut genesis_validator = GenesisValidator::new(&genesis.config, &mut validation_errors);
+    tracing::info!(target: "config", "Validating Genesis config and records. This could take a few minutes...");
     genesis.for_each_record(|record: &StateRecord| {
         genesis_validator.process_record(record);
     });
-    genesis_validator.validate();
+    genesis_validator.validate_processed_records();
+    genesis_validator.result_with_full_error()
 }
 
 struct GenesisValidator<'a> {
@@ -22,10 +26,14 @@ struct GenesisValidator<'a> {
     account_ids: HashSet<AccountId>,
     access_key_account_ids: HashSet<AccountId>,
     contract_account_ids: HashSet<AccountId>,
+    validation_errors: &'a mut ValidationErrors,
 }
 
 impl<'a> GenesisValidator<'a> {
-    pub fn new(genesis_config: &'a GenesisConfig) -> Self {
+    pub fn new(
+        genesis_config: &'a GenesisConfig,
+        validation_errors: &'a mut ValidationErrors,
+    ) -> Self {
         Self {
             genesis_config,
             total_supply: 0,
@@ -33,6 +41,7 @@ impl<'a> GenesisValidator<'a> {
             account_ids: HashSet::new(),
             access_key_account_ids: HashSet::new(),
             contract_account_ids: HashSet::new(),
+            validation_errors: validation_errors,
         }
     }
 
@@ -40,7 +49,9 @@ impl<'a> GenesisValidator<'a> {
         match record {
             StateRecord::Account { account_id, account } => {
                 if self.account_ids.contains(account_id) {
-                    panic!("Duplicate account id {} in genesis records", account_id);
+                    let error_message =
+                        format!("Duplicate account id {} in genesis records", account_id);
+                    self.validation_errors.push_genesis_semantics_error(error_message)
                 }
                 self.total_supply += account.locked() + account.amount();
                 self.account_ids.insert(account_id.clone());
@@ -53,7 +64,9 @@ impl<'a> GenesisValidator<'a> {
             }
             StateRecord::Contract { account_id, .. } => {
                 if self.contract_account_ids.contains(account_id) {
-                    panic!("account {} has more than one contract deployed", account_id);
+                    let error_message =
+                        format!("account {} has more than one contract deployed", account_id);
+                    self.validation_errors.push_genesis_semantics_error(error_message)
                 }
                 self.contract_account_ids.insert(account_id.clone());
             }
@@ -61,74 +74,116 @@ impl<'a> GenesisValidator<'a> {
         }
     }
 
-    pub fn validate(&self) {
+    pub fn validate_processed_records(&mut self) {
         let validators = self
             .genesis_config
             .validators
             .clone()
             .into_iter()
             .map(|account_info| {
-                assert!(
-                    is_valid_staking_key(&account_info.public_key),
-                    "validator staking key is not valid"
-                );
+                if !is_valid_staking_key(&account_info.public_key) {
+                    let error_message = format!("validator staking key is not valid");
+                    self.validation_errors.push_genesis_semantics_error(error_message);
+                }
                 (account_info.account_id, account_info.amount)
             })
             .collect::<HashMap<_, _>>();
-        assert_eq!(
-            validators.len(),
-            self.genesis_config.validators.len(),
-            "Duplicate account in validators"
-        );
-        assert!(!validators.is_empty(), "no validators in genesis");
 
-        assert_eq!(self.total_supply, self.genesis_config.total_supply, "wrong total supply");
-        assert_eq!(
-            validators, self.staked_accounts,
-            "validator accounts do not match staked accounts"
-        );
+        if validators.len() != self.genesis_config.validators.len() {
+            let error_message = format!("Duplicate account in validators. The number of account_ids: {} does not match the number of validators: {}.", self.account_ids.len(), validators.len());
+            self.validation_errors.push_genesis_semantics_error(error_message)
+        }
+
+        if validators.is_empty() {
+            let error_message = format!("No validators in genesis");
+            self.validation_errors.push_genesis_semantics_error(error_message)
+        }
+
+        if self.total_supply != self.genesis_config.total_supply {
+            let error_message = format!("wrong total supply. account.locked() + account.amount() = {} is not equal to the total supply = {} specified in genesis config.", self.total_supply, self.genesis_config.total_supply);
+            self.validation_errors.push_genesis_semantics_error(error_message)
+        }
+
+        if validators != self.staked_accounts {
+            let error_message = format!("Validator accounts do not match staked accounts.");
+            self.validation_errors.push_genesis_semantics_error(error_message)
+        }
+
         for account_id in &self.access_key_account_ids {
-            assert!(
-                self.account_ids.contains(account_id),
-                "access key account {} does not exist",
-                account_id
-            );
+            if !self.account_ids.contains(account_id) {
+                let error_message = format!("access key account {} does not exist", account_id);
+                self.validation_errors.push_genesis_semantics_error(error_message)
+            }
         }
+
         for account_id in &self.contract_account_ids {
-            assert!(
-                self.account_ids.contains(account_id),
-                "contract account {} does not exist",
-                account_id
-            );
+            if !self.account_ids.contains(account_id) {
+                let error_message = format!("contract account {} does not exist,", account_id);
+                self.validation_errors.push_genesis_semantics_error(error_message)
+            }
         }
-        assert!(
-            self.genesis_config.online_max_threshold > self.genesis_config.online_min_threshold,
-            "Online max threshold smaller than min threshold"
-        );
-        assert!(
-            self.genesis_config.online_max_threshold <= Rational32::from_integer(1),
-            "Online max threshold must be less or equal than 1"
-        );
-        assert!(
-            *self.genesis_config.online_max_threshold.numer() < 10_000_000,
-            "Numerator is too large, may lead to overflow."
-        );
-        assert!(
-            *self.genesis_config.online_min_threshold.numer() < 10_000_000,
-            "Numerator is too large, may lead to overflow."
-        );
-        assert!(
-            *self.genesis_config.online_max_threshold.denom() < 10_000_000,
-            "Denominator is too large, may lead to overflow."
-        );
-        assert!(
-            *self.genesis_config.online_min_threshold.denom() < 10_000_000,
-            "Denominator is too large, may lead to overflow."
-        );
-        assert!(
-            self.genesis_config.gas_price_adjustment_rate < Rational32::from_integer(1),
-            "Gas price adjustment rate must be less than 1"
-        );
+
+        if self.genesis_config.online_max_threshold <= self.genesis_config.online_min_threshold {
+            let error_message = format!(
+                "Online max threshold {} smaller than min threshold {}",
+                self.genesis_config.online_max_threshold, self.genesis_config.online_min_threshold
+            );
+            self.validation_errors.push_genesis_semantics_error(error_message)
+        }
+
+        if self.genesis_config.online_max_threshold > Rational32::from_integer(1) {
+            let error_message = format!(
+                "Online max threshold must be less or equal than 1, but current value is {}",
+                self.genesis_config.online_max_threshold
+            );
+            self.validation_errors.push_genesis_semantics_error(error_message)
+        }
+
+        if *self.genesis_config.online_max_threshold.numer() >= 10_000_000 {
+            let error_message =
+                format!("online_max_threshold's numerator is too large, may lead to overflow.");
+            self.validation_errors.push_genesis_semantics_error(error_message)
+        }
+
+        if *self.genesis_config.online_min_threshold.numer() >= 10_000_000 {
+            let error_message =
+                format!("online_min_threshold's numerator is too large, may lead to overflow.");
+            self.validation_errors.push_genesis_semantics_error(error_message)
+        }
+
+        if *self.genesis_config.online_max_threshold.denom() >= 10_000_000 {
+            let error_message =
+                format!("online_max_threshold's denominator is too large, may lead to overflow.");
+            self.validation_errors.push_genesis_semantics_error(error_message)
+        }
+
+        if *self.genesis_config.online_min_threshold.denom() >= 10_000_000 {
+            let error_message =
+                format!("online_min_threshold's denominator is too large, may lead to overflow.");
+            self.validation_errors.push_genesis_semantics_error(error_message)
+        }
+
+        if self.genesis_config.gas_price_adjustment_rate >= Rational32::from_integer(1) {
+            let error_message = format!(
+                "Gas price adjustment rate must be less than 1, value in config is {}",
+                self.genesis_config.gas_price_adjustment_rate
+            );
+            self.validation_errors.push_genesis_semantics_error(error_message)
+        }
+
+        if self.genesis_config.epoch_length == 0 {
+            let error_message = format!("Epoch Length must be greater than 0");
+            self.validation_errors.push_genesis_semantics_error(error_message)
+        }
+    }
+
+    fn result_with_full_error(&self) -> Result<(), ValidationError> {
+        if self.validation_errors.is_empty() {
+            Ok(())
+        } else {
+            let full_error = self.validation_errors.generate_error_message_per_type().unwrap();
+            Err(ValidationError::GenesisSemanticsError { error_message: full_error })
+        }
     }
 }
 
@@ -160,7 +215,8 @@ mod test {
             account_id: "test".parse().unwrap(),
             account: create_account(),
         }]);
-        validate_genesis(&Genesis::new(config, records));
+        let genesis = &Genesis::new(config, records).unwrap();
+        validate_genesis(genesis).unwrap();
     }
 
     #[test]
@@ -176,11 +232,12 @@ mod test {
             account_id: "test".parse().unwrap(),
             account: create_account(),
         }]);
-        validate_genesis(&Genesis::new(config, records));
+        let genesis = &Genesis::new(config, records).unwrap();
+        validate_genesis(genesis).unwrap();
     }
 
     #[test]
-    #[should_panic(expected = "validator accounts do not match staked accounts")]
+    #[should_panic(expected = "Validator accounts do not match staked accounts")]
     fn test_validator_not_match() {
         let mut config = GenesisConfig::default();
         config.validators = vec![AccountInfo {
@@ -193,18 +250,20 @@ mod test {
             account_id: "test".parse().unwrap(),
             account: create_account(),
         }]);
-        validate_genesis(&Genesis::new(config, records));
+        let genesis = &Genesis::new(config, records).unwrap();
+        validate_genesis(genesis).unwrap();
     }
 
     #[test]
-    #[should_panic(expected = "no validators in genesis")]
+    #[should_panic(expected = "No validators in genesis")]
     fn test_empty_validator() {
         let config = GenesisConfig::default();
         let records = GenesisRecords(vec![StateRecord::Account {
             account_id: "test".parse().unwrap(),
             account: create_account(),
         }]);
-        validate_genesis(&Genesis::new(config, records));
+        let genesis = &Genesis::new(config, records).unwrap();
+        validate_genesis(genesis).unwrap();
     }
 
     #[test]
@@ -225,7 +284,8 @@ mod test {
                 access_key: AccessKey::full_access(),
             },
         ]);
-        validate_genesis(&Genesis::new(config, records));
+        let genesis = &Genesis::new(config, records).unwrap();
+        validate_genesis(genesis).unwrap();
     }
 
     #[test]
@@ -246,6 +306,7 @@ mod test {
                 code: [1, 2, 3, 4].to_vec(),
             },
         ]);
-        validate_genesis(&Genesis::new(config, records));
+        let genesis = &Genesis::new(config, records).unwrap();
+        validate_genesis(genesis).unwrap();
     }
 }

@@ -1,9 +1,4 @@
-use std::fs;
-use std::path::Path;
-use std::sync::Arc;
-
 use borsh::{BorshDeserialize, BorshSerialize};
-use clap::Parser;
 use near_chain::types::{ChainConfig, Tip};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::GenesisValidationMode;
@@ -19,24 +14,25 @@ use near_primitives::types::EpochId;
 use near_primitives::utils::index_to_bytes;
 use near_store::HEADER_HEAD_KEY;
 use near_store::{DBCol, Mode, NodeStorage, Store, StoreUpdate};
-
 use nearcore::NightshadeRuntime;
-use serde::Serialize;
+use std::fs;
+use std::path::Path;
+use std::sync::Arc;
 
-#[derive(Serialize, BorshSerialize, BorshDeserialize)]
+#[derive(serde::Serialize, BorshSerialize, BorshDeserialize)]
 pub struct BlockCheckpoint {
     pub header: BlockHeader,
     pub info: BlockInfo,
     pub merkle_tree: PartialMerkleTree,
 }
 
-#[derive(Serialize, BorshSerialize, BorshDeserialize)]
+#[derive(serde::Serialize, BorshSerialize, BorshDeserialize)]
 pub struct EpochCheckpoint {
     pub id: EpochId,
     pub info: EpochInfo,
 }
 
-#[derive(Serialize, BorshSerialize, BorshDeserialize)]
+#[derive(serde::Serialize, BorshSerialize, BorshDeserialize)]
 pub struct SpeedyCheckpoint {
     pub prev_epoch: EpochCheckpoint,
     pub current_epoch: EpochCheckpoint,
@@ -48,7 +44,7 @@ pub struct SpeedyCheckpoint {
     pub first_block: BlockCheckpoint,
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct CreateCmd {
     #[clap(long)]
     home: String,
@@ -57,7 +53,7 @@ pub struct CreateCmd {
     destination_dir: String,
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct LoadCmd {
     #[clap(long)]
     target_home: String,
@@ -66,13 +62,13 @@ pub struct LoadCmd {
     source_dir: String,
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 enum CliSubcmd {
     Create(CreateCmd),
     Load(LoadCmd),
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 #[clap(subcommand_required = true, arg_required_else_help = true)]
 struct Cli {
     #[clap(subcommand)]
@@ -128,7 +124,7 @@ fn write_epoch_checkpoint(store_update: &mut StoreUpdate, epoch_checkpoint: &Epo
 
 fn create_snapshot(create_cmd: CreateCmd) {
     let path = Path::new(&create_cmd.home);
-    let store = NodeStorage::opener(path, &Default::default(), None)
+    let store = NodeStorage::opener(path, false, &Default::default(), None)
         .open_in_mode(Mode::ReadOnly)
         .unwrap()
         .get_store(near_store::Temperature::Hot);
@@ -226,7 +222,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
 
     let config = nearcore::config::load_config(&home_dir, GenesisValidationMode::UnsafeFast)
         .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
-    let store = NodeStorage::opener(home_dir, &Default::default(), None)
+    let store = NodeStorage::opener(home_dir, config.config.archive, &Default::default(), None)
         .open()
         .unwrap()
         .get_store(near_store::Temperature::Hot);
@@ -234,7 +230,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
     let runtime = Arc::new(NightshadeRuntime::from_config(home_dir, store.clone(), &config));
     // This will initialize the database (add genesis block etc)
     let _chain = Chain::new(
-        runtime.clone(),
+        runtime,
         &chain_genesis,
         DoomslugThresholdMode::TwoThirds,
         ChainConfig {
@@ -270,8 +266,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
 }
 
 fn main() {
-    let args = Cli::parse();
-
+    let args: Cli = clap::Parser::parse();
     match args.subcmd {
         CliSubcmd::Create(create_cmd) => create_snapshot(create_cmd),
         CliSubcmd::Load(load_cmd) => load_snapshot(load_cmd),

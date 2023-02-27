@@ -27,6 +27,11 @@ expression: view
     },
     {
       "cost_category": "ACTION_COST",
+      "cost": "DELEGATE",
+      "gas_used": "1015"
+    },
+    {
+      "cost_category": "ACTION_COST",
       "cost": "DELETE_ACCOUNT",
       "gas_used": "1001"
     },

@@ -13,6 +13,7 @@ near-chain = { path = "../../chain/chain" }
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-test-contracts = { path = "../../runtime/near-test-contracts" }
+node-runtime = { path = "../../runtime/runtime" }
 
 [features]
 default = []

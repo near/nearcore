@@ -118,13 +118,13 @@ fn test_wasmer2_artifact_output_stability() {
     ];
     let mut got_prepared_hashes = Vec::with_capacity(seeds.len());
     let compiled_hashes = [
-        5827744486935367002,
-        3163481497450515654,
-        12932669301919595047,
-        4509630115775888919,
-        5285162149441033812,
-        15892844827657184765,
-        7871022777077203514,
+        9393269650223240896,
+        6124152160101285799,
+        8789306975506976814,
+        11819823914734034238,
+        5479892730668892774,
+        8176904529073798417,
+        345836015667433529,
     ];
     let mut got_compiled_hashes = Vec::with_capacity(seeds.len());
     for seed in seeds {
@@ -145,9 +145,10 @@ fn test_wasmer2_artifact_output_stability() {
         let serialized = artifact.serialize().unwrap();
         let mut hasher = StableHasher::new();
         serialized.hash(&mut hasher);
-        got_compiled_hashes.push(hasher.finish());
+        let this_hash = hasher.finish();
+        got_compiled_hashes.push(this_hash);
 
-        std::fs::write(format!("/tmp/artifact{}", got_compiled_hashes[0]), serialized).unwrap();
+        std::fs::write(format!("/tmp/artifact{}", this_hash), serialized).unwrap();
     }
     // These asserts have failed as a result of some change and the following text describes what
     // the implications of the change.

@@ -64,10 +64,12 @@ impl StandaloneRuntime {
             GenesisConfig {
                 validators,
                 total_supply: get_initial_supply(state_records),
+                epoch_length: 60,
                 ..Default::default()
             },
             GenesisRecords(state_records.to_vec()),
-        );
+        )
+        .unwrap();
 
         let mut account_ids: HashSet<AccountId> = HashSet::new();
         genesis.for_each_record(|record: &StateRecord| {
@@ -118,7 +120,7 @@ impl StandaloneRuntime {
         let apply_result = self
             .runtime
             .apply(
-                self.tries.get_trie_for_shard(ShardUId::single_shard(), self.root.clone()),
+                self.tries.get_trie_for_shard(ShardUId::single_shard(), self.root),
                 &None,
                 &self.apply_state,
                 receipts,

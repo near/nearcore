@@ -2,7 +2,6 @@ use crate::hash::CryptoHash;
 use crate::types::{AccountId, EpochId};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
-use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::hash::Hash;
 use std::sync::Arc;
@@ -17,8 +16,8 @@ use std::sync::Arc;
     PartialOrd,
     Ord,
     Hash,
-    Serialize,
-    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
 )]
 pub struct PeerId(Arc<PublicKey>);
 

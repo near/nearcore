@@ -1,23 +1,20 @@
 use std::cmp::min;
-use std::sync::Arc;
 use std::time::Duration as TimeDuration;
 
-use chrono::{DateTime, Duration};
-use rand::seq::SliceRandom;
-use rand::thread_rng;
-use tracing::{debug, warn};
-
+use chrono::{DateTime, Duration, Utc};
+use near_async::messaging::CanSend;
 use near_chain::{Chain, ChainStoreAccess};
+use near_client_primitives::types::SyncStatus;
+use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter};
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
-use near_primitives::time::{Clock, Utc};
+use near_primitives::static_clock::StaticClock;
 use near_primitives::types::BlockHeight;
 use near_primitives::utils::to_timestamp;
-
-use near_client_primitives::types::SyncStatus;
-use near_network::types::PeerManagerMessageRequest;
-use near_o11y::WithSpanContextExt;
+use rand::seq::SliceRandom;
+use rand::thread_rng;
+use tracing::{debug, warn};
 
 /// Maximum number of block headers send over the network.
 pub const MAX_BLOCK_HEADERS: u64 = 512;
@@ -30,7 +27,7 @@ pub const NS_PER_SECOND: u128 = 1_000_000_000;
 /// Helper to keep track of sync headers.
 /// Handles major re-orgs by finding closest header that matches and re-downloading headers from that point.
 pub struct HeaderSync {
-    network_adapter: Arc<dyn PeerManagerAdapter>,
+    network_adapter: PeerManagerAdapter,
     prev_header_sync: (DateTime<Utc>, BlockHeight, BlockHeight, BlockHeight),
     syncing_peer: Option<HighestHeightPeerInfo>,
     stalling_ts: Option<DateTime<Utc>>,
@@ -43,7 +40,7 @@ pub struct HeaderSync {
 
 impl HeaderSync {
     pub fn new(
-        network_adapter: Arc<dyn PeerManagerAdapter>,
+        network_adapter: PeerManagerAdapter,
         initial_timeout: TimeDuration,
         progress_timeout: TimeDuration,
         stall_ban_timeout: TimeDuration,
@@ -51,7 +48,7 @@ impl HeaderSync {
     ) -> Self {
         HeaderSync {
             network_adapter,
-            prev_header_sync: (Clock::utc(), 0, 0, 0),
+            prev_header_sync: (StaticClock::utc(), 0, 0, 0),
             syncing_peer: None,
             stalling_ts: None,
             initial_timeout: Duration::from_std(initial_timeout).unwrap(),
@@ -125,7 +122,7 @@ impl HeaderSync {
         header_head: &Tip,
         highest_height: BlockHeight,
     ) -> bool {
-        let now = Clock::utc();
+        let now = StaticClock::utc();
         let (timeout, old_expected_height, prev_height, prev_highest_height) =
             self.prev_header_sync;
 
@@ -170,15 +167,14 @@ impl HeaderSync {
                                 {
                                     warn!(target: "sync", "Sync: ban a fraudulent peer: {}, claimed height: {}",
                                         peer.peer_info, peer.highest_block_height);
-                                    self.network_adapter.do_send(
+                                    self.network_adapter.send(
                                         PeerManagerMessageRequest::NetworkRequests(
                                             NetworkRequests::BanPeer {
                                                 peer_id: peer.peer_info.id.clone(),
                                                 ban_reason:
                                                     near_network::types::ReasonForBan::HeightFraud,
                                             },
-                                        )
-                                        .with_span_context(),
+                                        ),
                                     );
                                     // This peer is fraudulent, let's skip this beat and wait for
                                     // the next one when this peer is not in the list anymore.
@@ -222,13 +218,12 @@ impl HeaderSync {
     ) -> Option<HighestHeightPeerInfo> {
         if let Ok(locator) = self.get_locator(chain) {
             debug!(target: "sync", "Sync: request headers: asking {} for headers, {:?}", peer.peer_info.id, locator);
-            self.network_adapter.do_send(
-                PeerManagerMessageRequest::NetworkRequests(NetworkRequests::BlockHeadersRequest {
+            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::BlockHeadersRequest {
                     hashes: locator,
                     peer_id: peer.peer_info.id.clone(),
-                })
-                .with_span_context(),
-            );
+                },
+            ));
             return Some(peer);
         }
         None
@@ -348,7 +343,7 @@ mod test {
     fn test_sync_headers_fork() {
         let mock_adapter = Arc::new(MockPeerManagerAdapter::default());
         let mut header_sync = HeaderSync::new(
-            mock_adapter.clone(),
+            mock_adapter.clone().into(),
             TimeDuration::from_secs(10),
             TimeDuration::from_secs(2),
             TimeDuration::from_secs(120),
@@ -434,7 +429,7 @@ mod test {
     fn test_sync_headers_fork_from_final_block() {
         let mock_adapter = Arc::new(MockPeerManagerAdapter::default());
         let mut header_sync = HeaderSync::new(
-            mock_adapter.clone(),
+            mock_adapter.clone().into(),
             TimeDuration::from_secs(10),
             TimeDuration::from_secs(2),
             TimeDuration::from_secs(120),
@@ -544,7 +539,7 @@ mod test {
 
         // Setup header_sync with expectation of 25 headers/second
         let mut header_sync = HeaderSync::new(
-            network_adapter.clone(),
+            network_adapter.clone().into(),
             TimeDuration::from_secs(1),
             TimeDuration::from_secs(1),
             TimeDuration::from_secs(3),
@@ -638,7 +633,7 @@ mod test {
     fn test_sync_from_very_behind() {
         let mock_adapter = Arc::new(MockPeerManagerAdapter::default());
         let mut header_sync = HeaderSync::new(
-            mock_adapter.clone(),
+            mock_adapter.clone().into(),
             TimeDuration::from_secs(10),
             TimeDuration::from_secs(2),
             TimeDuration::from_secs(120),
@@ -647,7 +642,7 @@ mod test {
 
         let vs = ValidatorSchedule::new()
             .block_producers_per_epoch(vec![vec!["test0".parse().unwrap()]]);
-        let genesis_time = Clock::utc();
+        let genesis_time = StaticClock::utc();
         // Don't bother with epoch switches. It's not relevant.
         let (mut chain, _, _) =
             setup_with_validators_and_start_time(vs.clone(), 10000, 100, genesis_time);

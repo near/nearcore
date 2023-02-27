@@ -1,16 +1,15 @@
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::BlockHeightDelta;
-use serde::{Deserialize, Serialize};
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(serde::Deserialize, serde::Serialize, Debug)]
 pub struct RpcSandboxPatchStateRequest {
     pub records: Vec<StateRecord>,
 }
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(serde::Deserialize, serde::Serialize, Debug)]
 pub struct RpcSandboxPatchStateResponse {}
 
-#[derive(thiserror::Error, Debug, Serialize, Deserialize)]
+#[derive(thiserror::Error, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcSandboxPatchStateError {
     #[error("The node reached its limits. Try again later. More details: {error_message}")]
@@ -32,15 +31,15 @@ impl From<RpcSandboxPatchStateError> for crate::errors::RpcError {
     }
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(serde::Deserialize, serde::Serialize)]
 pub struct RpcSandboxFastForwardRequest {
     pub delta_height: BlockHeightDelta,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(serde::Deserialize, serde::Serialize)]
 pub struct RpcSandboxFastForwardResponse {}
 
-#[derive(thiserror::Error, Debug, Serialize, Deserialize)]
+#[derive(thiserror::Error, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcSandboxFastForwardError {
     #[error("The node reached its limits. Try again later. More details: {error_message}")]

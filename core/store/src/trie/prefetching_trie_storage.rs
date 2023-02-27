@@ -230,7 +230,7 @@ impl TrieStorage for TriePrefetchingStorage {
 
         // If data is already being prefetched, wait for that instead of sending a new request.
         let prefetch_state =
-            self.prefetching.get_and_set_if_empty(hash.clone(), PrefetchSlot::PendingPrefetch);
+            self.prefetching.get_and_set_if_empty(*hash, PrefetchSlot::PendingPrefetch);
         // Keep lock until here to avoid race condition between shard cache insertion and reserving prefetch slot.
         std::mem::drop(shard_cache_guard);
 
@@ -241,7 +241,7 @@ impl TrieStorage for TriePrefetchingStorage {
                 match self.store.get(DBCol::State, key.as_ref()) {
                     Ok(Some(value)) => {
                         let value: Arc<[u8]> = value.into();
-                        self.prefetching.insert_fetched(hash.clone(), value.clone());
+                        self.prefetching.insert_fetched(*hash, value.clone());
                         Ok(value)
                     }
                     Ok(None) => {
@@ -265,7 +265,7 @@ impl TrieStorage for TriePrefetchingStorage {
                 // yield once before calling `block_get` that will check for data to be present again.
                 thread::yield_now();
                 self.prefetching
-                    .blocking_get(hash.clone())
+                    .blocking_get(*hash)
                     .or_else(|| {
                         // `blocking_get` will return None if the prefetch slot has been removed
                         // by the main thread and the value inserted into the shard cache.
@@ -422,7 +422,7 @@ impl PrefetchApi {
                 this.start_io_thread(
                     store.clone(),
                     shard_cache.clone(),
-                    shard_uid.clone(),
+                    shard_uid,
                     shutdown_rx.clone(),
                 )
             })

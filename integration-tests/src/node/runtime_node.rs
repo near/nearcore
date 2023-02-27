@@ -5,7 +5,7 @@ use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::types::AccountId;
 use nearcore::config::GenesisExt;
 use node_runtime::config::RuntimeConfig;
-use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
+use testlib::runtime_utils::{add_test_contract, alice_account, bob_account, carol_account};
 
 use crate::node::Node;
 use crate::runtime_utils::get_runtime_and_trie_from_genesis;
@@ -20,10 +20,10 @@ pub struct RuntimeNode {
 
 impl RuntimeNode {
     pub fn new(account_id: &AccountId) -> Self {
-        let mut genesis =
-            Genesis::test(vec![alice_account(), bob_account(), "carol.near".parse().unwrap()], 3);
+        let mut genesis = Genesis::test(vec![alice_account(), bob_account(), carol_account()], 3);
         add_test_contract(&mut genesis, &alice_account());
         add_test_contract(&mut genesis, &bob_account());
+        add_test_contract(&mut genesis, &carol_account());
         Self::new_from_genesis(account_id, genesis)
     }
 

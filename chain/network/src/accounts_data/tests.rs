@@ -2,8 +2,8 @@ use crate::accounts_data::*;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::SignedAccountData;
 use crate::testonly::{assert_is_superset, make_rng, AsSet as _, Rng};
-use crate::time;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::time;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use pretty_assertions::assert_eq;
 use std::sync::Arc;
@@ -278,6 +278,6 @@ async fn set_local() {
         signer: Arc::new(signers[0].clone()),
         data: Arc::new(make_account_data(rng, &clock.clock(), 1, &signers[0]).data.clone()),
     };
-    assert_eq!(None, cache.set_local(&clock.clock(), local.clone()));
+    assert_eq!(None, cache.set_local(&clock.clock(), local));
     assert_eq!([&a1, &got].as_set(), cache.load().data.values().collect());
 }

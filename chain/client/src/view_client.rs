@@ -2,9 +2,10 @@
 //! Useful for querying from RPC.
 
 use actix::{Actor, Addr, Handler, SyncArbiter, SyncContext};
+use near_async::messaging::CanSend;
 use near_chain::types::Tip;
 use near_primitives::receipt::Receipt;
-use near_primitives::time::Clock;
+use near_primitives::static_clock::StaticClock;
 use near_store::{DBCol, COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY};
 use std::cmp::Ordering;
 use std::collections::{HashMap, VecDeque};
@@ -97,7 +98,7 @@ pub struct ViewClientActor {
     validator_account_id: Option<AccountId>,
     chain: Chain,
     runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
-    network_adapter: Arc<dyn PeerManagerAdapter>,
+    network_adapter: PeerManagerAdapter,
     pub config: ClientConfig,
     request_manager: Arc<RwLock<ViewClientRequestManager>>,
     state_request_cache: Arc<Mutex<VecDeque<Instant>>>,
@@ -123,7 +124,7 @@ impl ViewClientActor {
         validator_account_id: Option<AccountId>,
         chain_genesis: &ChainGenesis,
         runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
-        network_adapter: Arc<dyn PeerManagerAdapter>,
+        network_adapter: PeerManagerAdapter,
         config: ClientConfig,
         request_manager: Arc<RwLock<ViewClientRequestManager>>,
         adv: crate::adversarial::Controls,
@@ -162,7 +163,7 @@ impl ViewClientActor {
     }
 
     fn need_request<K: Hash + Eq + Clone>(key: K, cache: &mut lru::LruCache<K, Instant>) -> bool {
-        let now = Clock::instant();
+        let now = StaticClock::instant();
         let need_request = match cache.get(&key) {
             Some(time) => now - *time > Duration::from_millis(REQUEST_WAIT_TIME),
             None => true,
@@ -340,7 +341,7 @@ impl ViewClientActor {
                         if !self.config.archive && header.height() < gc_stop_height {
                             QueryError::GarbageCollectedBlock {
                                 block_height: header.height(),
-                                block_hash: header.hash().clone(),
+                                block_hash: *header.hash(),
                             }
                         } else {
                             QueryError::UnavailableShard { requested_shard_id: shard_id }
@@ -473,14 +474,9 @@ impl ViewClientActor {
                     .map_err(|err| TxStatusError::InternalError(err.to_string()))?;
                 let validator = self.chain.find_validator_for_forwarding(target_shard_id)?;
 
-                self.network_adapter.do_send(
-                    PeerManagerMessageRequest::NetworkRequests(NetworkRequests::TxStatus(
-                        validator,
-                        signer_account_id,
-                        tx_hash,
-                    ))
-                    .with_span_context(),
-                );
+                self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                    NetworkRequests::TxStatus(validator, signer_account_id, tx_hash),
+                ));
             }
             Ok(None)
         }
@@ -513,7 +509,7 @@ impl ViewClientActor {
 
     fn check_state_sync_request(&self) -> bool {
         let mut cache = self.state_request_cache.lock().expect(POISONED_LOCK_ERR);
-        let now = Clock::instant();
+        let now = StaticClock::instant();
         while let Some(&instant) = cache.front() {
             if now.saturating_duration_since(instant) > self.config.view_client_throttle_period {
                 cache.pop_front();
@@ -1455,7 +1451,7 @@ pub fn start_view_client(
     validator_account_id: Option<AccountId>,
     chain_genesis: ChainGenesis,
     runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
-    network_adapter: Arc<dyn PeerManagerAdapter>,
+    network_adapter: PeerManagerAdapter,
     config: ClientConfig,
     adv: crate::adversarial::Controls,
 ) -> Addr<ViewClientActor> {

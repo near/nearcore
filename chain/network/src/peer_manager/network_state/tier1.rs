@@ -7,11 +7,11 @@ use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
 use crate::stun;
 use crate::tcp;
-use crate::time;
 use crate::types::PeerType;
 use near_crypto::PublicKey;
 use near_o11y::log_assert;
 use near_primitives::network::PeerId;
+use near_primitives::time;
 use rand::seq::IteratorRandom as _;
 use rand::seq::SliceRandom as _;
 use std::collections::{HashMap, HashSet};
@@ -189,10 +189,7 @@ impl super::NetworkState {
             clock,
             accounts_data::LocalData {
                 signer: vc.signer.clone(),
-                data: Arc::new(AccountData {
-                    peer_id: self.config.node_id(),
-                    proxies: my_proxies.clone(),
-                }),
+                data: Arc::new(AccountData { peer_id: self.config.node_id(), proxies: my_proxies }),
             },
         );
         // Early exit in case this node is not a TIER1 node any more.

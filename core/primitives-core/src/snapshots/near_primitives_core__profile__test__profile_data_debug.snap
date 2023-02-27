@@ -3,7 +3,7 @@ source: core/primitives-core/src/profile.rs
 expression: pretty_debug_str
 ---
 ------------------------------
-Action gas: 15105
+Action gas: 16120
 ------ Host functions --------
 contract_loading_base -> 1 [0% host]
 contract_loading_bytes -> 2 [0% host]
@@ -81,5 +81,6 @@ delete_key -> 1011
 new_action_receipt -> 1012
 new_data_receipt_base -> 1013
 new_data_receipt_byte -> 1014
+delegate -> 1015
 ------------------------------
 

@@ -28,10 +28,15 @@ fn read_trie_items(bench: &mut Bencher, shard_id: usize, mode: Mode) {
 
     bench.iter(move || {
         tracing::info!(target: "neard", "{:?}", home_dir);
-        let store = near_store::NodeStorage::opener(&home_dir, &near_config.config.store, None)
-            .open_in_mode(mode)
-            .unwrap()
-            .get_store(Temperature::Hot);
+        let store = near_store::NodeStorage::opener(
+            &home_dir,
+            near_config.config.archive,
+            &near_config.config.store,
+            None,
+        )
+        .open_in_mode(mode)
+        .unwrap()
+        .get_store(Temperature::Hot);
 
         let chain_store =
             ChainStore::new(store.clone(), near_config.genesis.config.genesis_height, true);

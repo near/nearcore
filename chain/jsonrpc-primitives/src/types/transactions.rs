@@ -1,4 +1,3 @@
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[derive(Debug, Clone)]
@@ -20,7 +19,7 @@ pub enum TransactionInfo {
     },
 }
 
-#[derive(thiserror::Error, Debug, Serialize, Deserialize)]
+#[derive(thiserror::Error, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcTransactionError {
     #[error("An error happened during transaction execution: {context:?}")]
@@ -40,13 +39,13 @@ pub enum RpcTransactionError {
     TimeoutError,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct RpcTransactionResponse {
     #[serde(flatten)]
     pub final_execution_outcome: near_primitives::views::FinalExecutionOutcomeViewEnum,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct RpcBroadcastTxSyncResponse {
     pub transaction_hash: near_primitives::hash::CryptoHash,
 }

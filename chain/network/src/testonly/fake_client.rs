@@ -1,18 +1,14 @@
-use std::time::Instant;
-
 use crate::client;
-use crate::network_protocol::{
-    PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
-    StateResponseInfo,
-};
-use crate::shards_manager::ShardsManagerAdapterForNetwork;
+use crate::network_protocol::StateResponseInfo;
+use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::sink::Sink;
 use crate::types::{NetworkInfo, ReasonForBan, StateResponseInfoV2};
+use near_async::messaging;
 use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::sharding::{ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart};
+use near_primitives::sharding::{ChunkHash, PartialEncodedChunkPart};
 use near_primitives::syncing::{ShardStateSyncResponse, ShardStateSyncResponseV2};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, EpochId, ShardId};
@@ -123,31 +119,22 @@ impl client::Client for Fake {
     }
 }
 
-impl ShardsManagerAdapterForNetwork for Fake {
-    fn process_partial_encoded_chunk(&self, _partial_encoded_chunk: PartialEncodedChunk) {
-        unimplemented!()
-    }
-
-    fn process_partial_encoded_chunk_forward(
-        &self,
-        _partial_encoded_chunk_forward: PartialEncodedChunkForwardMsg,
-    ) {
-        unimplemented!()
-    }
-
-    fn process_partial_encoded_chunk_response(
-        &self,
-        partial_encoded_chunk_response: PartialEncodedChunkResponseMsg,
-        _received_time: Instant,
-    ) {
-        self.event_sink.push(Event::Chunk(partial_encoded_chunk_response.parts));
-    }
-
-    fn process_partial_encoded_chunk_request(
-        &self,
-        partial_encoded_chunk_request: PartialEncodedChunkRequestMsg,
-        _route_back: CryptoHash,
-    ) {
-        self.event_sink.push(Event::ChunkRequest(partial_encoded_chunk_request.chunk_hash));
+impl messaging::CanSend<ShardsManagerRequestFromNetwork> for Fake {
+    fn send(&self, message: ShardsManagerRequestFromNetwork) {
+        match message {
+            ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
+                partial_encoded_chunk_request,
+                ..
+            } => {
+                self.event_sink.push(Event::ChunkRequest(partial_encoded_chunk_request.chunk_hash));
+            }
+            ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
+                partial_encoded_chunk_response,
+                ..
+            } => {
+                self.event_sink.push(Event::Chunk(partial_encoded_chunk_response.parts));
+            }
+            _ => {}
+        }
     }
 }

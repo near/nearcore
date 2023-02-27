@@ -178,8 +178,7 @@ impl Trie {
         trie_nodes: PartialState,
     ) -> Result<(), StorageError> {
         let num_nodes = trie_nodes.0.len();
-        let trie =
-            Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes }, state_root.clone());
+        let trie = Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes }, *state_root);
 
         trie.visit_nodes_for_state_part(part_id)?;
         let storage = trie.storage.as_partial_storage().unwrap();
@@ -204,10 +203,8 @@ impl Trie {
                 contract_codes: vec![],
             });
         }
-        let trie = Trie::from_recorded_storage(
-            PartialStorage { nodes: PartialState(part) },
-            state_root.clone(),
-        );
+        let trie =
+            Trie::from_recorded_storage(PartialStorage { nodes: PartialState(part) }, *state_root);
         let path_begin = trie.find_path_for_part_boundary(part_id.idx, part_id.total)?;
         let path_end = trie.find_path_for_part_boundary(part_id.idx + 1, part_id.total)?;
         let mut iterator = trie.iter()?;
@@ -287,7 +284,7 @@ mod tests {
             parts: &[Vec<StateItem>],
         ) -> Result<TrieChanges, StorageError> {
             let nodes = PartialState(parts.iter().flat_map(|part| part.iter()).cloned().collect());
-            let trie = Trie::from_recorded_storage(PartialStorage { nodes }, state_root.clone());
+            let trie = Trie::from_recorded_storage(PartialStorage { nodes }, *state_root);
             let mut insertions = <HashMap<CryptoHash, (Vec<u8>, u32)>>::new();
             trie.traverse_all_nodes(|hash| {
                 if let Some((_bytes, rc)) = insertions.get_mut(hash) {
@@ -325,7 +322,7 @@ mod tests {
             }
             let mut stack: Vec<(CryptoHash, TrieNodeWithSize, CrumbStatus)> = Vec::new();
             let root_node = self.retrieve_node(&self.root)?.1;
-            stack.push((self.root.clone(), root_node, CrumbStatus::Entering));
+            stack.push((self.root, root_node, CrumbStatus::Entering));
             while let Some((hash, node, position)) = stack.pop() {
                 if let CrumbStatus::Entering = position {
                     on_enter(&hash)?;

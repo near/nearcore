@@ -4,8 +4,8 @@ use crate::peer_manager::connection_store::OUTBOUND_CONNECTIONS_CACHE_SIZE;
 use crate::store;
 use crate::testonly::make_rng;
 use crate::testonly::AsSet;
-use crate::time;
 use crate::types::ConnectionInfo;
+use near_primitives::time;
 use rand::Rng;
 
 /// Returns a ConnectionInfo with the given value for time_connected_until,
@@ -43,7 +43,7 @@ fn test_reload_from_storage() {
     }
     {
         tracing::debug!(target:"test", "read connection info from storage");
-        let connection_store = ConnectionStore::new(store.clone()).unwrap();
+        let connection_store = ConnectionStore::new(store).unwrap();
         assert_eq!(connection_store.get_recent_outbound_connections(), vec![conn_info]);
     }
 }
@@ -65,11 +65,11 @@ fn test_overwrite_stored_connection() {
     clock.advance(time::Duration::seconds(123));
     let now_utc = clock.now_utc();
     let mut conn_info_b = make_connection_info(rng, now_utc);
-    conn_info_b.peer_info.id = conn_info_a.peer_info.id.clone();
+    conn_info_b.peer_info.id = conn_info_a.peer_info.id;
     connection_store.insert_outbound_connections(vec![conn_info_b.clone()]);
 
     tracing::debug!(target:"test", "check that precisely the second connection is present (and not the first)");
-    assert_eq!(connection_store.get_recent_outbound_connections(), vec![conn_info_b.clone()]);
+    assert_eq!(connection_store.get_recent_outbound_connections(), vec![conn_info_b]);
 }
 
 #[test]

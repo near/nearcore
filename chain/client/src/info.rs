@@ -6,10 +6,10 @@ use near_chain_configs::{ClientConfig, LogSummaryStyle};
 use near_network::types::NetworkInfo;
 use near_primitives::block::Tip;
 use near_primitives::network::PeerId;
+use near_primitives::static_clock::StaticClock;
 use near_primitives::telemetry::{
     TelemetryAgentInfo, TelemetryChainInfo, TelemetryInfo, TelemetrySystemInfo,
 };
-use near_primitives::time::{Clock, Instant};
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, Gas, NumBlocks, ShardId,
     ValidatorInfoIdentifier,
@@ -26,6 +26,7 @@ use near_telemetry::{telemetry, TelemetryActor};
 use std::cmp::min;
 use std::fmt::Write;
 use std::sync::Arc;
+use std::time::Instant;
 use sysinfo::{get_current_pid, set_open_files_limit, Pid, ProcessExt, System, SystemExt};
 use tracing::info;
 
@@ -75,14 +76,14 @@ impl InfoHelper {
             nearcore_version: client_config.version.clone(),
             sys: System::new(),
             pid: get_current_pid().ok(),
-            started: Clock::instant(),
+            started: StaticClock::instant(),
             num_blocks_processed: 0,
             num_chunks_in_blocks_processed: 0,
             gas_used: 0,
             telemetry_actor,
             validator_signer,
             log_summary_style: client_config.log_summary_style,
-            boot_time_seconds: Clock::utc().timestamp(),
+            boot_time_seconds: StaticClock::utc().timestamp(),
         }
     }
 
@@ -315,7 +316,7 @@ impl InfoHelper {
                 .set(stats.num_expected_chunks as i64));
         }
 
-        self.started = Clock::instant();
+        self.started = StaticClock::instant();
         self.num_blocks_processed = 0;
         self.num_chunks_in_blocks_processed = 0;
         self.gas_used = 0;
@@ -367,7 +368,7 @@ impl InfoHelper {
                 account_id: self.validator_signer.as_ref().map(|bp| bp.validator_id().clone()),
                 is_validator,
                 status: sync_status.as_variant_name().to_string(),
-                latest_block_hash: head.last_block_hash.clone(),
+                latest_block_hash: head.last_block_hash,
                 latest_block_height: head.height,
                 num_peers: network_info.num_connected_peers,
                 block_production_tracking_delay: client_config
@@ -490,7 +491,7 @@ pub fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
             }
             res
         }
-        SyncStatus::StateSyncDone => format!("State sync done"),
+        SyncStatus::StateSyncDone => "State sync done".to_string(),
     }
 }
 
@@ -697,7 +698,7 @@ mod tests {
         let runtime =
             Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(store, vs, 123, false));
         let chain_genesis = ChainGenesis {
-            time: Clock::utc(),
+            time: StaticClock::utc(),
             height: 0,
             gas_limit: 1_000_000,
             min_gas_price: 100,
@@ -709,13 +710,9 @@ mod tests {
             protocol_version: PROTOCOL_VERSION,
         };
         let doomslug_threshold_mode = DoomslugThresholdMode::TwoThirds;
-        let chain = Chain::new(
-            runtime.clone(),
-            &chain_genesis,
-            doomslug_threshold_mode,
-            ChainConfig::test(),
-        )
-        .unwrap();
+        let chain =
+            Chain::new(runtime, &chain_genesis, doomslug_threshold_mode, ChainConfig::test())
+                .unwrap();
 
         let telemetry = info_helper.telemetry_info(
             &chain.head().unwrap(),

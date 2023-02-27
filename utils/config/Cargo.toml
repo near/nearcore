@@ -11,4 +11,8 @@ repository = "https://github.com/near/nearcore"
 description = "This is an internal crate to provide utils for reading config files"
 
 [dependencies]
+anyhow.workspace = true
 json_comments.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+

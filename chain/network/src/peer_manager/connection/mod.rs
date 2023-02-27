@@ -10,13 +10,13 @@ use crate::peer::peer_actor::PeerActor;
 use crate::private_actix::SendMessage;
 use crate::stats::metrics;
 use crate::tcp;
-use crate::time;
 use crate::types::{BlockInfo, FullPeerInfo, PeerChainInfo, PeerType, ReasonForBan};
 use arc_swap::ArcSwap;
 use near_crypto::PublicKey;
 use near_o11y::WithSpanContextExt;
 use near_primitives::block::GenesisId;
 use near_primitives::network::PeerId;
+use near_primitives::time;
 use near_primitives::types::ShardId;
 use std::collections::{hash_map::Entry, HashMap};
 use std::fmt;
@@ -120,7 +120,7 @@ impl Connection {
     pub fn full_peer_info(&self) -> FullPeerInfo {
         let chain_info = PeerChainInfo {
             genesis_id: self.genesis_id.clone(),
-            last_block: self.last_block.load().as_ref().clone(),
+            last_block: *self.last_block.load().as_ref(),
             tracked_shards: self.tracked_shards.clone(),
             archival: self.archival,
         };
@@ -267,6 +267,8 @@ pub(crate) enum PoolError {
     AlreadyStartedConnecting,
     #[error("loop connections are not allowed")]
     UnexpectedLoopConnection,
+    #[error("OutboundHandshakePermit dropped before calling Pool.insert_ready()")]
+    PermitDropped,
 }
 
 impl Pool {
@@ -287,12 +289,12 @@ impl Pool {
     pub fn insert_ready(&self, peer: Arc<Connection>) -> Result<(), PoolError> {
         self.0.try_update(move |mut pool| {
             let id = peer.peer_info.id.clone();
-            // We support loopback connections for the purpose of 
+            // We support loopback connections for the purpose of
             // validating our own external IP. This is the only case
             // in which we allow 2 connections in a pool to have the same
             // PeerId. The outbound connection is added to the
             // `ready` set, the inbound connection is put into dedicated `loop_inbound` field.
-            if id==pool.me && peer.peer_type==PeerType::Inbound {
+            if id == pool.me && peer.peer_type == PeerType::Inbound {
                 if pool.loop_inbound.is_some() {
                     return Err(PoolError::AlreadyConnected);
                 }
@@ -303,7 +305,7 @@ impl Pool {
                     return Err(PoolError::UnexpectedLoopConnection);
                 }
                 pool.loop_inbound = Some(peer);
-                return Ok(((),pool));
+                return Ok(((), pool));
             }
             match peer.peer_type {
                 PeerType::Inbound => {
@@ -320,7 +322,7 @@ impl Pool {
                     // need a runtime check to verify that the permit comes
                     // from the same Pool instance and is for the right PeerId.
                     if !pool.outbound_handshakes.contains(&id) {
-                        panic!("bug detected: OutboundHandshakePermit dropped before calling Pool.insert_ready()")
+                        return Err(PoolError::PermitDropped);
                     }
                 }
             }
@@ -347,10 +349,13 @@ impl Pool {
                 // 4. allow overriding old connections by new connections, but that will require
                 //    a deeper thought to make sure that the connections will be eventually stable
                 //    and that incorrect setups will be detectable.
-                if let Some(conn) = pool.ready_by_account_key.insert(owned_account.account_key.clone(), peer.clone()) {
+                if let Some(conn) = pool
+                    .ready_by_account_key
+                    .insert(owned_account.account_key.clone(), peer.clone())
+                {
                     // Unwrap is safe, because pool.ready_by_account_key is an index on connections
                     // with owned_account present.
-                    let err = PoolError::AlreadyConnectedAccount{
+                    let err = PoolError::AlreadyConnectedAccount {
                         peer_id: conn.peer_info.id.clone(),
                         account_key: conn.owned_account.as_ref().unwrap().account_key.clone(),
                     };
@@ -364,7 +369,7 @@ impl Pool {
                     return Err(err);
                 }
             }
-            Ok(((),pool))
+            Ok(((), pool))
         })
     }
 

@@ -197,7 +197,7 @@ fn test_snapshot_recovery() {
     {
         let mut config = opener.config().clone();
         config.path = Some(path);
-        let opener = crate::NodeStorage::opener(tmpdir.path(), &config, None);
+        let opener = crate::NodeStorage::opener(tmpdir.path(), false, &config, None);
         let store = opener.open().unwrap().get_store(crate::Temperature::Hot);
         assert_eq!(Some(&b"value"[..]), store.get(COL, KEY).unwrap().as_deref());
     }

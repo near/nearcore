@@ -7,6 +7,8 @@ use std::sync::{Arc, RwLock};
 
 use actix::System;
 use futures::FutureExt;
+use near_async::messaging::CanSend;
+use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use rand::{thread_rng, Rng};
 
 use crate::adapter::{BlockApproval, BlockResponse, ProcessTxRequest};
@@ -89,11 +91,11 @@ fn repro_1183() {
                         {
                             for (i, name) in validators.iter().enumerate() {
                                 if name == account_id {
-                                    connectors1.write().unwrap()[i]
-                                        .shards_manager_adapter
-                                        .process_partial_encoded_chunk(
+                                    connectors1.write().unwrap()[i].shards_manager_adapter.send(
+                                        ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
                                             partial_encoded_chunk.clone().into(),
-                                        );
+                                        ),
+                                    );
                                 }
                             }
                         } else {

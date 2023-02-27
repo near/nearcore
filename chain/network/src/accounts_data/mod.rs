@@ -28,9 +28,9 @@ use crate::concurrency;
 use crate::concurrency::arc_mutex::ArcMutex;
 use crate::network_protocol;
 use crate::network_protocol::{AccountData, SignedAccountData, VersionedAccountData};
-use crate::time;
 use crate::types::AccountKeys;
 use near_crypto::PublicKey;
+use near_primitives::time;
 use near_primitives::validator_signer::ValidatorSigner;
 use rayon::iter::ParallelBridge;
 use std::collections::HashMap;
@@ -136,7 +136,7 @@ impl CacheSnapshot {
             Some(local) if d.account_key == local.signer.public_key() => Arc::new(
                 VersionedAccountData {
                     data: local.data.as_ref().clone(),
-                    account_key: local.signer.public_key().clone(),
+                    account_key: local.signer.public_key(),
                     version: d.version + 1,
                     timestamp: clock.now_utc(),
                 }

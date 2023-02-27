@@ -1478,8 +1478,8 @@ impl EpochManager {
     pub fn will_shard_layout_change(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError> {
         let epoch_id = self.get_epoch_id_from_prev_block(parent_hash)?;
         let next_epoch_id = self.get_next_epoch_id_from_prev_block(parent_hash)?;
-        let shard_layout = self.get_shard_layout(&epoch_id)?.clone();
-        let next_shard_layout = self.get_shard_layout(&next_epoch_id)?.clone();
+        let shard_layout = self.get_shard_layout(&epoch_id)?;
+        let next_shard_layout = self.get_shard_layout(&next_epoch_id)?;
         Ok(shard_layout != next_shard_layout)
     }
 
@@ -1676,7 +1676,7 @@ impl EpochManager {
         }
 
         if cfg!(debug) {
-            let agg_hash = self.epoch_info_aggregator.last_block_hash.clone();
+            let agg_hash = self.epoch_info_aggregator.last_block_hash;
             let agg_height = self.get_block_info(&agg_hash)?.height();
             let block_height = self.get_block_info(block_hash)?.height();
             assert!(

@@ -39,3 +39,9 @@ same keys are only fetched once.
 It's also helpful to understand at a high level how the react-router library works; this is used
 to support deep-linking in the URL (e.g. `/127.0.0.1/cluster` leads to the cluster page), allowing
 the UI to be served as a single application.
+
+### Linting & Formatting
+The project is configured to use ESLint (error-checking) and Prettier (consistent formatting).
+
+Run `npm run lint` to check for linting & formatting errors, and `npm run fix` to fix those that
+can be automatically fixed.

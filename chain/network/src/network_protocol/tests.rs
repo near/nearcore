@@ -1,12 +1,12 @@
 use super::*;
 use crate::network_protocol::testonly as data;
-use crate::network_protocol::Encoding;
+use crate::network_protocol::{Encoding, PeersResponse};
 use crate::testonly::make_rng;
-use crate::time;
 use crate::types::{Disconnect, HandshakeFailureReason, PeerMessage};
 use crate::types::{PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
 use anyhow::{bail, Context as _};
 use itertools::Itertools as _;
+use near_primitives::time;
 use rand::Rng as _;
 
 #[test]
@@ -112,14 +112,17 @@ fn serialize_deserialize() -> anyhow::Result<()> {
             data::make_peer_info(&mut rng),
             HandshakeFailureReason::InvalidTarget,
         ),
-        PeerMessage::LastEdge(edge.clone()),
+        PeerMessage::LastEdge(edge),
         PeerMessage::SyncRoutingTable(data::make_routing_table(&mut rng)),
         PeerMessage::RequestUpdateNonce(data::make_partial_edge(&mut rng)),
         PeerMessage::PeersRequest,
-        PeerMessage::PeersResponse((0..5).map(|_| data::make_peer_info(&mut rng)).collect()),
-        PeerMessage::BlockHeadersRequest(chain.blocks.iter().map(|b| b.hash().clone()).collect()),
+        PeerMessage::PeersResponse(PeersResponse {
+            peers: (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
+            direct_peers: vec![], // TODO: populate this field once borsh support is dropped
+        }),
+        PeerMessage::BlockHeadersRequest(chain.blocks.iter().map(|b| *b.hash()).collect()),
         PeerMessage::BlockHeaders(chain.get_block_headers()),
-        PeerMessage::BlockRequest(chain.blocks[5].hash().clone()),
+        PeerMessage::BlockRequest(*chain.blocks[5].hash()),
         PeerMessage::Block(chain.blocks[5].clone()),
         PeerMessage::Transaction(data::make_signed_transaction(&mut rng)),
         PeerMessage::Routed(routed_message1),

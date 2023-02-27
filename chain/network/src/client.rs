@@ -1,6 +1,7 @@
 use crate::network_protocol::StateResponseInfo;
-use crate::shards_manager::ShardsManagerAdapterForNetwork;
+
 use crate::types::{NetworkInfo, ReasonForBan};
+
 use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
@@ -127,33 +128,5 @@ impl Client for Noop {
         _accounts: Vec<(AnnounceAccount, Option<EpochId>)>,
     ) -> Result<Vec<AnnounceAccount>, ReasonForBan> {
         Ok(vec![])
-    }
-}
-
-impl ShardsManagerAdapterForNetwork for Noop {
-    fn process_partial_encoded_chunk(
-        &self,
-        _partial_encoded_chunk: near_primitives::sharding::PartialEncodedChunk,
-    ) {
-    }
-
-    fn process_partial_encoded_chunk_forward(
-        &self,
-        _partial_encoded_chunk_forward: crate::types::PartialEncodedChunkForwardMsg,
-    ) {
-    }
-
-    fn process_partial_encoded_chunk_response(
-        &self,
-        _partial_encoded_chunk_response: crate::types::PartialEncodedChunkResponseMsg,
-        _received_time: std::time::Instant,
-    ) {
-    }
-
-    fn process_partial_encoded_chunk_request(
-        &self,
-        _partial_encoded_chunk_request: crate::types::PartialEncodedChunkRequestMsg,
-        _route_back: CryptoHash,
-    ) {
     }
 }

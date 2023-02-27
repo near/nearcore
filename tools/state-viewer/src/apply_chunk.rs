@@ -188,7 +188,7 @@ fn apply_tx_in_block(
                     println!("Found tx in block {} shard {}. equivalent command:\nview_state apply --height {} --shard-id {}\n",
                              &block_hash, shard_id, chain_store.get_block_header(&block_hash)?.height(), shard_id);
                     let (block, apply_result) = crate::commands::apply_block(block_hash, shard_id, runtime, chain_store);
-                    crate::commands::print_apply_block_result(&block, &apply_result, runtime, chain_store, shard_id);
+                    crate::commands::check_apply_block_result(&block, &apply_result, runtime, chain_store, shard_id)?;
                     Ok(apply_result)
                 },
                 HashType::Receipt => {
@@ -292,7 +292,7 @@ fn apply_receipt_in_block(
                     println!("Found receipt in block {}. Receiver is in shard {}. equivalent command:\nview_state apply --height {} --shard-id {}\n",
                              &block_hash, shard_id, chain_store.get_block_header(&block_hash)?.height(), shard_id);
                     let (block, apply_result) = crate::commands::apply_block(block_hash, shard_id, runtime, chain_store);
-                    crate::commands::print_apply_block_result(&block, &apply_result, runtime, chain_store, shard_id);
+                    crate::commands::check_apply_block_result(&block, &apply_result, runtime, chain_store, shard_id)?;
                     Ok(apply_result)
                 },
             }
@@ -491,7 +491,7 @@ mod test {
             let new_roots = (0..4)
                 .map(|i| {
                     let shard_uid = runtime.shard_id_to_uid(i, &epoch_id).unwrap();
-                    chain_store.get_chunk_extra(&hash, &shard_uid).unwrap().state_root().clone()
+                    *chain_store.get_chunk_extra(&hash, &shard_uid).unwrap().state_root()
                 })
                 .collect::<Vec<_>>();
 
@@ -573,7 +573,7 @@ mod test {
             let new_roots = (0..4)
                 .map(|i| {
                     let shard_uid = runtime.shard_id_to_uid(i, &epoch_id).unwrap();
-                    chain_store.get_chunk_extra(&hash, &shard_uid).unwrap().state_root().clone()
+                    *chain_store.get_chunk_extra(&hash, &shard_uid).unwrap().state_root()
                 })
                 .collect::<Vec<_>>();
             let shard_layout = runtime.get_shard_layout_from_prev_block(&prev_hash).unwrap();

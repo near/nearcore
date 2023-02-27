@@ -3,24 +3,27 @@ use serde_json::Value;
 use near_client_primitives::types::{GetChunk, GetChunkError};
 use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::chunks::{ChunkReference, RpcChunkError, RpcChunkRequest};
-use near_primitives::hash::CryptoHash;
-use near_primitives::types::{BlockId, ShardId};
+use near_primitives::types::BlockId;
 
-use super::{parse_params, RpcFrom, RpcRequest};
+use super::{Params, RpcFrom, RpcRequest};
 
 impl RpcRequest for RpcChunkRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {
-        // Try to parse legacy positioned args and if it fails parse newer named args
-        let chunk_reference = if let Ok((chunk_id,)) = parse_params::<(CryptoHash,)>(value.clone())
-        {
-            ChunkReference::ChunkHash { chunk_id }
-        } else if let Ok(((block_id, shard_id),)) =
-            parse_params::<((BlockId, ShardId),)>(value.clone())
-        {
-            ChunkReference::BlockShardId { block_id, shard_id }
-        } else {
-            parse_params::<ChunkReference>(value)?
-        };
+        // params can be:
+        // - chunk_reference         (an object),
+        // - [[block_id, shard_id]]  (a one-element array with array element) or
+        // - [chunk_id]              (a one-element array with hash element).
+        let chunk_reference = Params::new(value)
+            .try_singleton(|value: Value| {
+                if value.is_array() {
+                    let (block_id, shard_id) = Params::parse(value)?;
+                    Ok(ChunkReference::BlockShardId { block_id, shard_id })
+                } else {
+                    let chunk_id = Params::parse(value)?;
+                    Ok(ChunkReference::ChunkHash { chunk_id })
+                }
+            })
+            .unwrap_or_parse()?;
         Ok(Self { chunk_reference })
     }
 }

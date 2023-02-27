@@ -125,7 +125,6 @@ pub fn total_send_fees(
             DeleteAccount(_) => {
                 config.fee(ActionCosts::delete_account).send_fee(sender_is_receiver)
             }
-            #[cfg(feature = "protocol_feature_nep366_delegate_action")]
             Delegate(signed_delegate_action) => {
                 let delegate_cost = config.fee(ActionCosts::delegate).send_fee(sender_is_receiver);
                 let delegate_action = &signed_delegate_action.delegate_action;
@@ -150,7 +149,6 @@ pub fn total_send_fees(
 /// This is only relevant for DelegateAction, where the send fees of the inner actions
 /// need to be prepaid. All other actions burn send fees directly, so calling this function
 /// with other actions will return 0.
-#[cfg(feature = "protocol_feature_nep366_delegate_action")]
 pub fn total_prepaid_send_fees(
     config: &RuntimeFeesConfig,
     actions: &[Action],
@@ -178,20 +176,6 @@ pub fn total_prepaid_send_fees(
         result = safe_add_gas(result, delta)?;
     }
     Ok(result)
-}
-
-/// Total sum of gas that needs to be burnt to send the inner actions of DelegateAction
-///
-/// This is only relevant for DelegateAction, where the send fees of the inner actions
-/// need to be prepaid. All other actions burn send fees directly, so calling this function
-/// with other actions will return 0.
-#[cfg(not(feature = "protocol_feature_nep366_delegate_action"))]
-pub fn total_prepaid_send_fees(
-    _config: &RuntimeFeesConfig,
-    _actions: &[Action],
-    _current_protocol_version: ProtocolVersion,
-) -> Result<Gas, IntegerOverflowError> {
-    Ok(0)
 }
 
 pub fn exec_fee(
@@ -239,7 +223,6 @@ pub fn exec_fee(
         },
         DeleteKey(_) => config.fee(ActionCosts::delete_key).exec_fee(),
         DeleteAccount(_) => config.fee(ActionCosts::delete_account).exec_fee(),
-        #[cfg(feature = "protocol_feature_nep366_delegate_action")]
         Delegate(_) => config.fee(ActionCosts::delegate).exec_fee(),
     }
 }
@@ -314,10 +297,8 @@ pub fn total_prepaid_exec_fees(
 ) -> Result<Gas, IntegerOverflowError> {
     let mut result = 0;
     for action in actions {
-        #[cfg_attr(not(feature = "protocol_feature_nep366_delegate_action"), allow(unused_mut))]
         let mut delta;
         // In case of Action::Delegate it's needed to add Gas which is required for the inner actions.
-        #[cfg(feature = "protocol_feature_nep366_delegate_action")]
         if let Action::Delegate(signed_delegate_action) = action {
             let actions = signed_delegate_action.delegate_action.get_actions();
             delta = total_prepaid_exec_fees(
@@ -339,10 +320,6 @@ pub fn total_prepaid_exec_fees(
         } else {
             delta = exec_fee(config, action, receiver_id, current_protocol_version);
         }
-        #[cfg(not(feature = "protocol_feature_nep366_delegate_action"))]
-        {
-            delta = exec_fee(config, action, receiver_id, current_protocol_version);
-        }
 
         result = safe_add_gas(result, delta)?;
     }
@@ -353,17 +330,12 @@ pub fn total_deposit(actions: &[Action]) -> Result<Balance, IntegerOverflowError
     let mut total_balance: Balance = 0;
     for action in actions {
         let action_balance;
-        #[cfg(feature = "protocol_feature_nep366_delegate_action")]
         if let Action::Delegate(signed_delegate_action) = action {
             // Note, here Relayer pays the deposit but if actions fail, the deposit is
             // refunded to Sender of DelegateAction
             let actions = signed_delegate_action.delegate_action.get_actions();
             action_balance = total_deposit(&actions)?;
         } else {
-            action_balance = action.get_deposit_balance();
-        }
-        #[cfg(not(feature = "protocol_feature_nep366_delegate_action"))]
-        {
             action_balance = action.get_deposit_balance();
         }
 
@@ -377,15 +349,10 @@ pub fn total_prepaid_gas(actions: &[Action]) -> Result<Gas, IntegerOverflowError
     let mut total_gas: Gas = 0;
     for action in actions {
         let action_gas;
-        #[cfg(feature = "protocol_feature_nep366_delegate_action")]
         if let Action::Delegate(signed_delegate_action) = action {
             let actions = signed_delegate_action.delegate_action.get_actions();
             action_gas = total_prepaid_gas(&actions)?;
         } else {
-            action_gas = action.get_prepaid_gas();
-        }
-        #[cfg(not(feature = "protocol_feature_nep366_delegate_action"))]
-        {
             action_gas = action.get_prepaid_gas();
         }
 

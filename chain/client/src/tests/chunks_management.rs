@@ -1,7 +1,9 @@
 use std::collections::HashSet;
 
 use crate::test_utils::TestEnv;
+use near_async::messaging::CanSend;
 use near_chain::ChainGenesis;
+use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::NetworkRequests;
 use near_network::types::PartialEncodedChunkRequestMsg;
 use near_o11y::testonly::init_integration_logger;
@@ -21,13 +23,21 @@ fn test_request_chunk_restart() {
         part_ords: vec![0],
         tracking_shards: HashSet::default(),
     };
-    env.shards_manager_adapters[0]
-        .process_partial_encoded_chunk_request(request.clone(), CryptoHash::default());
+    env.shards_manager_adapters[0].send(
+        ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
+            partial_encoded_chunk_request: request.clone(),
+            route_back: CryptoHash::default(),
+        },
+    );
     assert!(env.network_adapters[0].pop().is_some());
 
     env.restart(0);
-    env.shards_manager_adapters[0]
-        .process_partial_encoded_chunk_request(request, CryptoHash::default());
+    env.shards_manager_adapters[0].send(
+        ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
+            partial_encoded_chunk_request: request,
+            route_back: CryptoHash::default(),
+        },
+    );
     let response = env.network_adapters[0].pop().unwrap().as_network_requests();
 
     if let NetworkRequests::PartialEncodedChunkResponse { response: response_body, .. } = response {

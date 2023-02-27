@@ -1,5 +1,4 @@
 use borsh::BorshDeserialize;
-use clap::Subcommand;
 use core::ops::Range;
 use near_chain::{ChainStore, ChainStoreAccess, RuntimeWithEpochManagerAdapter};
 use near_epoch_manager::EpochManager;
@@ -12,7 +11,7 @@ use near_store::{DBCol, Store};
 use std::str::FromStr;
 use std::sync::Arc;
 
-#[derive(Subcommand, Debug, Clone)]
+#[derive(clap::Subcommand, Debug, Clone)]
 pub(crate) enum EpochSelection {
     /// Current epoch.
     Current,

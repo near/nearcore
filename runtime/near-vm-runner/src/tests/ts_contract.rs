@@ -77,7 +77,7 @@ pub fn test_ts_contract() {
             )
             .expect("execution failed");
 
-        if let ReturnData::Value(value) = outcome.return_data.clone() {
+        if let ReturnData::Value(value) = outcome.return_data {
             let value = String::from_utf8(value).unwrap();
             assert_eq!(value, "bar");
         } else {

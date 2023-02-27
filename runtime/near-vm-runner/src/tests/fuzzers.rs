@@ -64,7 +64,7 @@ pub fn create_context(input: Vec<u8>) -> VMContext {
 ///
 /// [`available_imports`]: wasm_smith::Config::available_imports
 /// [`ConfiguredModule`]: wasm_smith::ConfiguredModule
-#[derive(Arbitrary, Debug)]
+#[derive(arbitrary::Arbitrary, Debug)]
 pub struct ModuleConfig {}
 
 impl wasm_smith::Config for ModuleConfig {
@@ -75,6 +75,13 @@ impl wasm_smith::Config for ModuleConfig {
     /// [test contract]: near_test_contracts::rs_contract
     fn available_imports(&self) -> Option<std::borrow::Cow<'_, [u8]>> {
         Some(near_test_contracts::rs_contract().into())
+    }
+
+    /// Make sure to canonicalize the NaNs, as otherwise behavior differs
+    /// between wasmtime (that does not canonicalize) and near-vm (that
+    /// should canonicalize)
+    fn canonicalize_nans(&self) -> bool {
+        true
     }
 }
 

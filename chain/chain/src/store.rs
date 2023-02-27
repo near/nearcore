@@ -3,8 +3,8 @@ use std::collections::{HashMap, HashSet};
 use std::io;
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use chrono::Utc;
 use near_cache::CellLruCache;
-use near_primitives::time::Utc;
 
 use near_chain_primitives::error::Error;
 use near_primitives::block::Tip;
@@ -2394,7 +2394,7 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::BlockMisc
             | DBCol::_GCCount
             | DBCol::BlockHeight  // block sync needs it + genesis should be accessible
-            | DBCol::Peers
+            | DBCol::_Peers
             | DBCol::RecentOutboundConnections
             | DBCol::BlockMerkleTree
             | DBCol::AccountAnnouncements
@@ -2550,7 +2550,7 @@ impl<'a> ChainStoreUpdate<'a> {
         // other information not directly related to this block
         chain_store_update.chain_store_cache_update.height_to_hashes.insert(
             source_store.genesis_height,
-            Some(source_store.get_block_hash_by_height(source_store.genesis_height)?.clone()),
+            Some(source_store.get_block_hash_by_height(source_store.genesis_height)?),
         );
         Ok(chain_store_update)
     }
@@ -3099,7 +3099,7 @@ mod tests {
                 transaction_validity_period
             )
             .is_ok());
-        let new_block = TestBlockBuilder::new(&blocks.last().unwrap(), signer.clone())
+        let new_block = TestBlockBuilder::new(&blocks.last().unwrap(), signer)
             .height(transaction_validity_period + 3)
             .build();
 
@@ -3259,7 +3259,7 @@ mod tests {
         let mut store_update = chain.mut_store().store_update();
 
         let block = if next_epoch_id == *prev_block.header().next_epoch_id() {
-            TestBlockBuilder::new(&prev_block, signer.clone()).height(height).build()
+            TestBlockBuilder::new(&prev_block, signer).height(height).build()
         } else {
             let prev_hash = prev_block.hash();
             let epoch_id = prev_block.header().next_epoch_id().clone();
@@ -3270,7 +3270,7 @@ mod tests {
                 &prev_hash,
             )
             .unwrap();
-            TestBlockBuilder::new(&prev_block, signer.clone())
+            TestBlockBuilder::new(&prev_block, signer)
                 .height(height)
                 .epoch_id(epoch_id)
                 .next_epoch_id(next_epoch_id)

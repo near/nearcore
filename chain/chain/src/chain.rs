@@ -1,59 +1,3 @@
-use std::collections::{HashMap, HashSet};
-
-use std::sync::Arc;
-use std::time::{Duration as TimeDuration, Instant};
-
-use borsh::BorshSerialize;
-use chrono::Duration;
-use itertools::Itertools;
-use near_o11y::log_assert;
-use near_primitives::sandbox::state_patch::SandboxStatePatch;
-use near_primitives::time::Clock;
-use rand::seq::SliceRandom;
-use rand::SeedableRng;
-use rand_chacha::ChaCha20Rng;
-use tracing::{debug, error, info, warn, Span};
-
-use near_chain_primitives::error::{BlockKnownError, Error, LogTransientStorageError};
-use near_primitives::block::{genesis_chunks, Tip};
-use near_primitives::challenge::{
-    BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
-    MaybeEncodedShardChunk, PartialState, SlashedValidator,
-};
-use near_primitives::checked_feature;
-use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::merkle::{
-    combine_hash, merklize, verify_path, Direction, MerklePath, MerklePathItem, PartialMerkleTree,
-};
-use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{
-    ChunkHash, ChunkHashHeight, EncodedShardChunk, ReceiptList, ReceiptProof, ShardChunk,
-    ShardChunkHeader, ShardInfo, ShardProof, StateSyncInfo,
-};
-use near_primitives::state_part::PartId;
-use near_primitives::syncing::{
-    get_num_state_parts, ReceiptProofResponse, RootProof, ShardStateSyncResponseHeader,
-    ShardStateSyncResponseHeaderV1, ShardStateSyncResponseHeaderV2, StateHeaderKey, StatePartKey,
-};
-use near_primitives::transaction::{
-    ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
-};
-use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{
-    AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
-    NumBlocks, NumShards, ShardId, StateChangesForSplitStates, StateRoot,
-};
-use near_primitives::unwrap_or_return;
-use near_primitives::utils::MaybeValidated;
-use near_primitives::views::{
-    BlockStatusView, DroppedReason, ExecutionOutcomeWithIdView, ExecutionStatusView,
-    FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
-    LightClientBlockView, SignedTransactionView,
-};
-#[cfg(feature = "protocol_feature_flat_state")]
-use near_store::{flat_state, StorageError};
-use near_store::{DBCol, ShardTries, StoreUpdate, WrappedTrieChanges};
-
 use crate::block_processing_utils::{
     BlockPreprocessInfo, BlockProcessingArtifact, BlocksInProcessing, DoneApplyChunkCallback,
 };
@@ -75,20 +19,71 @@ use crate::validate::{
 };
 use crate::{byzantine_assert, create_light_client_block_view, Doomslug};
 use crate::{metrics, DoomslugThresholdMode};
-use actix::Message;
+use borsh::BorshSerialize;
+use chrono::Duration;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use delay_detector::DelayDetector;
+use itertools::Itertools;
 use lru::LruCache;
+use near_chain_primitives::error::{BlockKnownError, Error, LogTransientStorageError};
 use near_client_primitives::types::StateSplitApplyingStatus;
+use near_o11y::log_assert;
+use near_primitives::block::{genesis_chunks, Tip};
+use near_primitives::challenge::{
+    BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
+    MaybeEncodedShardChunk, PartialState, SlashedValidator,
+};
+use near_primitives::checked_feature;
+use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::merkle::{
+    combine_hash, merklize, verify_path, Direction, MerklePath, MerklePathItem, PartialMerkleTree,
+};
+use near_primitives::receipt::Receipt;
+use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::{
     account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
 };
+use near_primitives::sharding::{
+    ChunkHash, ChunkHashHeight, EncodedShardChunk, ReceiptList, ReceiptProof, ShardChunk,
+    ShardChunkHeader, ShardInfo, ShardProof, StateSyncInfo,
+};
+use near_primitives::state_part::PartId;
+use near_primitives::static_clock::StaticClock;
+use near_primitives::syncing::{
+    get_num_state_parts, ReceiptProofResponse, RootProof, ShardStateSyncResponseHeader,
+    ShardStateSyncResponseHeaderV1, ShardStateSyncResponseHeaderV2, StateHeaderKey, StatePartKey,
+};
+use near_primitives::transaction::{
+    ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
+};
+use near_primitives::types::chunk_extra::ChunkExtra;
+use near_primitives::types::{
+    AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
+    NumBlocks, NumShards, ShardId, StateChangesForSplitStates, StateRoot,
+};
+use near_primitives::unwrap_or_return;
+use near_primitives::utils::MaybeValidated;
 use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::views::{
+    BlockStatusView, DroppedReason, ExecutionOutcomeWithIdView, ExecutionStatusView,
+    FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
+    LightClientBlockView, SignedTransactionView,
+};
 #[cfg(feature = "protocol_feature_flat_state")]
 use near_store::flat_state::{store_helper, FlatStateDelta};
 use near_store::flat_state::{FlatStorageCreationStatus, FlatStorageError};
+#[cfg(feature = "protocol_feature_flat_state")]
+use near_store::{flat_state, StorageError};
+use near_store::{DBCol, ShardTries, StoreUpdate, WrappedTrieChanges};
 use once_cell::sync::OnceCell;
+use rand::seq::SliceRandom;
+use rand::SeedableRng;
+use rand_chacha::ChaCha20Rng;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use std::time::{Duration as TimeDuration, Instant};
+use tracing::{debug, error, info, warn, Span};
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
@@ -530,7 +525,7 @@ impl Chain {
             blocks_delay_tracker: BlocksDelayTracker::default(),
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
-            last_time_head_updated: Clock::instant(),
+            last_time_head_updated: StaticClock::instant(),
             invalid_blocks: LruCache::new(INVALID_CHUNKS_POOL_SIZE),
             pending_state_patch: Default::default(),
             requested_state_parts: StateRequestTracker::new(),
@@ -656,7 +651,7 @@ impl Chain {
         let block_header = store.get_block_header(&block_head.last_block_hash)?;
         metrics::BLOCK_ORDINAL_HEAD.set(block_header.block_ordinal() as i64);
         metrics::HEADER_HEAD_HEIGHT.set(header_head.height as i64);
-        metrics::BOOT_TIME_SECONDS.set(Clock::utc().timestamp());
+        metrics::BOOT_TIME_SECONDS.set(StaticClock::utc().timestamp());
 
         metrics::TAIL_HEIGHT.set(store.tail()? as i64);
         metrics::CHUNK_TAIL_HEIGHT.set(store.chunk_tail()? as i64);
@@ -680,7 +675,7 @@ impl Chain {
             blocks_delay_tracker: BlocksDelayTracker::default(),
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
-            last_time_head_updated: Clock::instant(),
+            last_time_head_updated: StaticClock::instant(),
             pending_state_patch: Default::default(),
             requested_state_parts: StateRequestTracker::new(),
         })
@@ -780,7 +775,7 @@ impl Chain {
             return Err(e);
         }
         self.orphans.add(
-            Orphan { block, provenance: Provenance::NONE, added: Clock::instant() },
+            Orphan { block, provenance: Provenance::NONE, added: StaticClock::instant() },
             requested_missing_chunks,
         );
         Ok(())
@@ -1175,7 +1170,7 @@ impl Chain {
         challenges: &mut Vec<ChallengeBody>,
     ) -> Result<(), Error> {
         // Refuse blocks from the too distant future.
-        if header.timestamp() > Clock::utc() + Duration::seconds(ACCEPTABLE_TIME_DIFFERENCE) {
+        if header.timestamp() > StaticClock::utc() + Duration::seconds(ACCEPTABLE_TIME_DIFFERENCE) {
             return Err(Error::InvalidBlockFutureTime(header.timestamp()));
         }
 
@@ -1333,6 +1328,9 @@ impl Chain {
             // TODO (#2445): Enable challenges when they are working correctly.
             if header.challenges_root() != &MerkleHash::default() {
                 return Err(Error::InvalidChallengeRoot);
+            }
+            if !header.challenges_result().is_empty() {
+                return Err(Error::InvalidChallenge);
             }
         }
 
@@ -1632,7 +1630,7 @@ impl Chain {
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) -> Result<(), Error> {
-        let block_received_time = Clock::instant();
+        let block_received_time = StaticClock::instant();
         metrics::BLOCK_PROCESSING_ATTEMPTS_TOTAL.inc();
 
         let block_height = block.header().height();
@@ -1973,7 +1971,7 @@ impl Chain {
                                 false
                             };
 
-                            let time = Clock::instant();
+                            let time = StaticClock::instant();
                             self.blocks_delay_tracker.mark_block_orphaned(block.hash(), time);
                             let orphan = Orphan { block, provenance, added: time };
                             self.orphans.add(orphan, requested_missing_chunks);
@@ -1999,7 +1997,7 @@ impl Chain {
                             prev_hash: *block.header().prev_hash(),
                             missing_chunks: missing_chunks.clone(),
                         });
-                        let time = Clock::instant();
+                        let time = StaticClock::instant();
                         self.blocks_delay_tracker.mark_block_has_missing_chunks(block.hash(), time);
                         let orphan = Orphan { block, provenance, added: time };
                         self.blocks_with_missing_chunks
@@ -2064,7 +2062,7 @@ impl Chain {
             let res = do_apply_chunks(block_hash, block_height, work);
             // If we encounter error here, that means the receiver is deallocated and the client
             // thread is already shut down. The node is already crashed, so we can unwrap here
-            sc.send((block_hash.clone(), res)).unwrap();
+            sc.send((block_hash, res)).unwrap();
             if let Err(_) = apply_chunks_done_marker.set(()) {
                 // This should never happen, if it does, it means there is a bug in our code.
                 log_assert!(false, "apply chunks are called twice for block {block_hash:?}");
@@ -2170,7 +2168,7 @@ impl Chain {
         let prev_head = self.store.head()?;
         let is_caught_up = block_preprocess_info.is_caught_up;
         let provenance = block_preprocess_info.provenance.clone();
-        let block_start_processing_time = block_preprocess_info.block_start_processing_time.clone();
+        let block_start_processing_time = block_preprocess_info.block_start_processing_time;
         // TODO(#8055): this zip relies on the ordering of the apply_results.
         for (apply_result, chunk) in apply_results.iter().zip(block.chunks().iter()) {
             if let Err(err) = apply_result {
@@ -2251,13 +2249,13 @@ impl Chain {
                 metrics::VALIDATOR_ACTIVE_TOTAL.set(count);
             }
 
-            self.last_time_head_updated = Clock::instant();
+            self.last_time_head_updated = StaticClock::instant();
         };
 
         metrics::BLOCK_PROCESSED_TOTAL.inc();
         metrics::BLOCK_PROCESSING_TIME.observe(
-            Clock::instant()
-                .saturating_duration_since(block_start_processing_time.clone())
+            StaticClock::instant()
+                .saturating_duration_since(block_start_processing_time)
                 .as_secs_f64(),
         );
         self.blocks_delay_tracker.finish_block_processing(&block_hash, new_head.clone());
@@ -2600,7 +2598,7 @@ impl Chain {
         for block in blocks {
             let block_hash = *block.block.header().hash();
             let height = block.block.header().height();
-            let time = Clock::instant();
+            let time = StaticClock::instant();
             let res = self.start_process_block_async(
                 me,
                 block.block,
@@ -2654,7 +2652,8 @@ impl Chain {
             debug!(target: "chain", found_orphans = orphans.len(), "Check orphans");
             for orphan in orphans.into_iter() {
                 let block_hash = orphan.hash();
-                self.blocks_delay_tracker.mark_block_unorphaned(&block_hash, Clock::instant());
+                self.blocks_delay_tracker
+                    .mark_block_unorphaned(&block_hash, StaticClock::instant());
                 let res = self.start_process_block_async(
                     me,
                     orphan.block,
@@ -3446,22 +3445,24 @@ impl Chain {
 
     fn get_recursive_transaction_results(
         &self,
+        outcomes: &mut Vec<ExecutionOutcomeWithIdView>,
         id: &CryptoHash,
-    ) -> Result<Vec<ExecutionOutcomeWithIdView>, Error> {
-        let outcome: ExecutionOutcomeWithIdView = self.get_execution_outcome(id)?.into();
-        let receipt_ids = outcome.outcome.receipt_ids.clone();
-        let mut results = vec![outcome];
-        for receipt_id in &receipt_ids {
-            results.extend(self.get_recursive_transaction_results(receipt_id)?);
+    ) -> Result<(), Error> {
+        outcomes.push(ExecutionOutcomeWithIdView::from(self.get_execution_outcome(id)?));
+        let outcome_idx = outcomes.len() - 1;
+        for idx in 0..outcomes[outcome_idx].outcome.receipt_ids.len() {
+            let id = outcomes[outcome_idx].outcome.receipt_ids[idx];
+            self.get_recursive_transaction_results(outcomes, &id)?;
         }
-        Ok(results)
+        Ok(())
     }
 
     pub fn get_final_transaction_result(
         &self,
         transaction_hash: &CryptoHash,
     ) -> Result<FinalExecutionOutcomeView, Error> {
-        let mut outcomes = self.get_recursive_transaction_results(transaction_hash)?;
+        let mut outcomes = Vec::new();
+        self.get_recursive_transaction_results(&mut outcomes, transaction_hash)?;
         let mut looking_for_id = *transaction_hash;
         let num_outcomes = outcomes.len();
         let status = outcomes
@@ -3771,7 +3772,7 @@ impl Chain {
                 if is_new_chunk {
                     let prev_chunk_height_included = prev_chunk_header.height_included();
                     // Validate state root.
-                    let prev_chunk_extra = self.get_chunk_extra(prev_hash, &shard_uid)?.clone();
+                    let prev_chunk_extra = self.get_chunk_extra(prev_hash, &shard_uid)?;
 
                     // Validate that all next chunk information matches previous chunk extra.
                     validate_chunk_with_chunk_extra(
@@ -3806,7 +3807,7 @@ impl Chain {
                     receipts.extend(collect_receipts_from_response(
                         &self.store().get_incoming_receipts_for_shard(
                             shard_id,
-                            prev_hash.clone(),
+                            *prev_hash,
                             prev_chunk_height_included,
                         )?,
                     ));
@@ -3866,7 +3867,7 @@ impl Chain {
                     let gas_price = prev_block.header().gas_price();
                     let random_seed = *block.header().random_value();
                     let height = chunk_header.height_included();
-                    let prev_block_hash = chunk_header.prev_block_hash().clone();
+                    let prev_block_hash = *chunk_header.prev_block_hash();
 
                     Ok(Some(Box::new(move |parent_span| -> Result<ApplyChunkResult, Error> {
                         let _span = tracing::debug_span!(
@@ -3919,7 +3920,7 @@ impl Chain {
                         }
                     })))
                 } else {
-                    let new_extra = self.get_chunk_extra(prev_block.hash(), &shard_uid)?.clone();
+                    let new_extra = self.get_chunk_extra(prev_block.hash(), &shard_uid)?;
 
                     let runtime_adapter = self.runtime_adapter.clone();
                     let block_hash = *block.hash();
@@ -5028,10 +5029,8 @@ impl<'a> ChainUpdate<'a> {
                 }
             }
             ApplyChunkResult::SplitState(SplitStateResult { shard_uid, results }) => {
-                self.chain_store_update.remove_state_changes_for_split_states(
-                    block_hash.clone(),
-                    shard_uid.shard_id(),
-                );
+                self.chain_store_update
+                    .remove_state_changes_for_split_states(block_hash, shard_uid.shard_id());
                 self.process_split_state(
                     &block_hash,
                     &prev_block_hash,
@@ -5073,7 +5072,7 @@ impl<'a> ChainUpdate<'a> {
 
         if !is_caught_up {
             debug!(target: "chain", %prev_hash, hash = %*block.hash(), "Add block to catch up");
-            self.chain_store_update.add_block_to_catchup(prev_hash.clone(), *block.hash());
+            self.chain_store_update.add_block_to_catchup(*prev_hash, *block.hash());
         }
 
         for (shard_id, receipt_proofs) in incoming_receipts {
@@ -5379,8 +5378,8 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update.save_chunk(chunk);
 
         self.save_flat_state_changes(
-            block_header.hash().clone(),
-            chunk_header.prev_block_hash().clone(),
+            *block_header.hash(),
+            *chunk_header.prev_block_hash(),
             chunk_header.height_included(),
             shard_id,
             &apply_result.trie_changes,
@@ -5465,8 +5464,8 @@ impl<'a> ChainUpdate<'a> {
             false,
         )?;
         self.save_flat_state_changes(
-            block_header.hash().clone(),
-            prev_block_header.hash().clone(),
+            *block_header.hash(),
+            *prev_block_header.hash(),
             height,
             shard_id,
             &apply_result.trie_changes,
@@ -5513,7 +5512,7 @@ pub fn collect_receipts_from_response(
     )
 }
 
-#[derive(Message)]
+#[derive(actix::Message)]
 #[rtype(result = "()")]
 pub struct ApplyStatePartsRequest {
     pub runtime: Arc<dyn RuntimeWithEpochManagerAdapter>,
@@ -5524,7 +5523,7 @@ pub struct ApplyStatePartsRequest {
     pub sync_hash: CryptoHash,
 }
 
-#[derive(Message)]
+#[derive(actix::Message)]
 #[rtype(result = "()")]
 pub struct ApplyStatePartsResponse {
     pub apply_result: Result<(), near_chain_primitives::error::Error>,
@@ -5532,7 +5531,7 @@ pub struct ApplyStatePartsResponse {
     pub sync_hash: CryptoHash,
 }
 
-#[derive(Message)]
+#[derive(actix::Message)]
 #[rtype(result = "()")]
 pub struct BlockCatchUpRequest {
     pub sync_hash: CryptoHash,
@@ -5541,7 +5540,7 @@ pub struct BlockCatchUpRequest {
     pub work: Vec<Box<dyn FnOnce(&Span) -> Result<ApplyChunkResult, Error> + Send>>,
 }
 
-#[derive(Message)]
+#[derive(actix::Message)]
 #[rtype(result = "()")]
 pub struct BlockCatchUpResponse {
     pub sync_hash: CryptoHash,
@@ -5549,7 +5548,7 @@ pub struct BlockCatchUpResponse {
     pub results: Vec<Result<ApplyChunkResult, Error>>,
 }
 
-#[derive(Message)]
+#[derive(actix::Message)]
 #[rtype(result = "()")]
 pub struct StateSplitRequest {
     pub runtime: Arc<dyn RuntimeWithEpochManagerAdapter>,
@@ -5561,7 +5560,7 @@ pub struct StateSplitRequest {
     pub state_split_status: Arc<StateSplitApplyingStatus>,
 }
 
-#[derive(Message)]
+#[derive(actix::Message)]
 #[rtype(result = "()")]
 pub struct StateSplitResponse {
     pub sync_hash: CryptoHash,

@@ -7,10 +7,10 @@ use crate::peer_manager::{self, peer_manager_actor};
 use crate::tcp;
 use crate::testonly::make_rng;
 use crate::testonly::stream;
-use crate::time;
 use crate::types::Edge;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::network::PeerId;
+use near_primitives::time;
 use near_primitives::version;
 use std::sync::Arc;
 
@@ -152,7 +152,7 @@ async fn test_nonce_refresh() {
     }
 
     // Check that the nonces were properly updates on both pm and pm2 states.
-    let pm_peer_info = pm.peer_info().id.clone();
+    let pm_peer_info = pm.peer_info().id;
     let pm2_nonce = pm2
         .with_state(
             |s| async move { s.graph.load().local_edges.get(&pm_peer_info).unwrap().nonce() },

@@ -56,7 +56,7 @@ fn protocol_upgrade() {
             &mut env,
             "test0".parse().unwrap(),
             near_test_contracts::base_rs_contract(),
-            epoch_length.clone(),
+            epoch_length,
             1,
             old_protocol_version,
         );
@@ -85,7 +85,7 @@ fn protocol_upgrade() {
         let signed_tx =
             Transaction { nonce: tip.height + 1, block_hash: tip.last_block_hash, ..tx.clone() }
                 .sign(&signer);
-        let tx_hash = signed_tx.get_hash().clone();
+        let tx_hash = signed_tx.get_hash();
         env.clients[0].process_tx(signed_tx, false, false);
         produce_blocks_from_height_with_protocol_version(
             &mut env,
@@ -105,7 +105,7 @@ fn protocol_upgrade() {
         let signed_tx =
             Transaction { nonce: tip.height + 1, block_hash: tip.last_block_hash, ..tx }
                 .sign(&signer);
-        let tx_hash = signed_tx.get_hash().clone();
+        let tx_hash = signed_tx.get_hash();
         env.clients[0].process_tx(signed_tx, false, false);
         for i in 0..epoch_length {
             let block = env.clients[0].produce_block(tip.height + i + 1).unwrap().unwrap();
@@ -142,7 +142,7 @@ fn protocol_upgrade() {
         let signed_tx =
             Transaction { nonce: tip.height + 1, block_hash: tip.last_block_hash, ..tx }
                 .sign(&signer);
-        let tx_hash = signed_tx.get_hash().clone();
+        let tx_hash = signed_tx.get_hash();
         env.clients[0].process_tx(signed_tx, false, false);
         for i in 0..epoch_length {
             let block = env.clients[0].produce_block(tip.height + i + 1).unwrap().unwrap();

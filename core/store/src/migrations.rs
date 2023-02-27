@@ -247,8 +247,8 @@ pub fn migrate_32_to_33(store: &Store) -> anyhow::Result<()> {
         // It appears that it was possible that the same entry in the original column contained
         // duplicate outcomes. We remove them here to avoid panicing due to issuing a
         // self-overwriting transaction.
-        outcomes.sort_by_key(|outcome| (outcome.id().clone(), outcome.block_hash.clone()));
-        outcomes.dedup_by_key(|outcome| (outcome.id().clone(), outcome.block_hash.clone()));
+        outcomes.sort_by_key(|outcome| (*outcome.id(), outcome.block_hash));
+        outcomes.dedup_by_key(|outcome| (*outcome.id(), outcome.block_hash));
         for outcome in outcomes {
             update.insert_ser(
                 DBCol::TransactionResultForBlock,
@@ -301,6 +301,17 @@ pub fn migrate_33_to_34(store: &Store, mut is_node_archival: bool) -> anyhow::Re
     let kind = if is_node_archival { DbKind::Archive } else { DbKind::RPC };
     update.set(DBCol::DbVersion, crate::metadata::KIND_KEY, <&str>::from(kind).as_bytes());
     update.delete_all(DBCol::_GCCount);
+    update.commit()?;
+    Ok(())
+}
+
+/// Migrates the database from version 35 to 36.
+///
+/// This involves deleting contents of Peers column which is now
+/// deprecated and no longer used.
+pub fn migrate_35_to_36(store: &Store) -> anyhow::Result<()> {
+    let mut update = store.store_update();
+    update.delete_all(DBCol::_Peers);
     update.commit()?;
     Ok(())
 }

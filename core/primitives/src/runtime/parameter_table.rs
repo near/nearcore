@@ -269,7 +269,7 @@ impl ParameterTable {
             let old_value = self.parameters.get(&key);
             if old_value != before.as_ref() {
                 if old_value.is_none() {
-                    return Err(InvalidConfigError::NoOldValueExists(key, before.unwrap().clone()));
+                    return Err(InvalidConfigError::NoOldValueExists(key, before.unwrap()));
                 }
                 if before.is_none() {
                     return Err(InvalidConfigError::OldValueExists(
@@ -280,7 +280,7 @@ impl ParameterTable {
                 return Err(InvalidConfigError::WrongOldValue(
                     key,
                     old_value.unwrap().clone(),
-                    before.unwrap().clone(),
+                    before.unwrap(),
                 ));
             }
 

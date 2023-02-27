@@ -420,22 +420,22 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
 
     fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, Error> {
         let epoch_manager = self.read();
-        Ok(epoch_manager.get_block_info(hash).map_err(Error::from)?.clone())
+        Ok(epoch_manager.get_block_info(hash).map_err(Error::from)?)
     }
 
     fn get_epoch_config(&self, epoch_id: &EpochId) -> Result<EpochConfig, Error> {
         let epoch_manager = self.read();
-        Ok(epoch_manager.get_epoch_config(epoch_id).map_err(Error::from)?.clone())
+        Ok(epoch_manager.get_epoch_config(epoch_id).map_err(Error::from)?)
     }
 
     fn get_epoch_info(&self, epoch_id: &EpochId) -> Result<Arc<EpochInfo>, Error> {
         let epoch_manager = self.read();
-        Ok(epoch_manager.get_epoch_info(epoch_id).map_err(Error::from)?.clone())
+        Ok(epoch_manager.get_epoch_info(epoch_id).map_err(Error::from)?)
     }
 
     fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error> {
         let epoch_manager = self.read();
-        Ok(epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?.clone())
+        Ok(epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?)
     }
 
     fn get_shard_config(&self, epoch_id: &EpochId) -> Result<ShardConfig, Error> {

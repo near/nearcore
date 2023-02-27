@@ -1,4 +1,4 @@
-use crate::time;
+use near_primitives::time;
 use std::sync::Arc;
 use stun::message::Getter as _;
 

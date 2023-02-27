@@ -3,27 +3,14 @@
 //! NOTE: chain-configs is not the best place for `GenesisConfig` since it
 //! contains `RuntimeConfig`, but we keep it here for now until we figure
 //! out the better place.
-use std::collections::HashSet;
-use std::fs::File;
-use std::io::{BufReader, Read};
-use std::path::{Path, PathBuf};
-use std::{fmt, io};
-
+use crate::genesis_validate::validate_genesis;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
-use near_primitives::views::RuntimeConfigView;
-use num_rational::Rational32;
-use serde::de::{self, DeserializeSeed, IgnoredAny, MapAccess, SeqAccess, Visitor};
-use serde::{Deserialize, Deserializer, Serialize};
-use serde_json::Serializer;
-use sha2::digest::Digest;
-use smart_default::SmartDefault;
-use tracing::warn;
-
-use crate::genesis_validate::validate_genesis;
+use near_config_utils::ValidationError;
 use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::validator_stake::ValidatorStake;
+use near_primitives::views::RuntimeConfigView;
 use near_primitives::{
     hash::CryptoHash,
     runtime::config::RuntimeConfig,
@@ -35,6 +22,18 @@ use near_primitives::{
     },
     version::ProtocolVersion,
 };
+use num_rational::Rational32;
+use serde::de::{self, DeserializeSeed, IgnoredAny, MapAccess, SeqAccess, Visitor};
+use serde::{Deserializer, Serialize};
+use serde_json::Serializer;
+use sha2::digest::Digest;
+use smart_default::SmartDefault;
+use std::collections::HashSet;
+use std::fs::File;
+use std::io::{BufReader, Read};
+use std::path::{Path, PathBuf};
+use std::{fmt, io};
+use tracing::warn;
 
 const MAX_GAS_PRICE: Balance = 10_000_000_000_000_000_000_000;
 
@@ -78,7 +77,7 @@ fn default_max_kickout_stake_threshold() -> u8 {
     100
 }
 
-#[derive(Debug, Clone, SmartDefault, Serialize, Deserialize)]
+#[derive(Debug, Clone, SmartDefault, serde::Serialize, serde::Deserialize)]
 pub struct GenesisConfig {
     /// Protocol version that this genesis works with.
     pub protocol_version: ProtocolVersion,
@@ -221,8 +220,7 @@ impl From<&GenesisConfig> for EpochConfig {
 impl From<&GenesisConfig> for AllEpochConfig {
     fn from(genesis_config: &GenesisConfig) -> Self {
         let initial_epoch_config = EpochConfig::from(genesis_config);
-        let epoch_config =
-            Self::new(genesis_config.use_production_config(), initial_epoch_config.clone());
+        let epoch_config = Self::new(genesis_config.use_production_config(), initial_epoch_config);
         epoch_config
     }
 }
@@ -235,15 +233,15 @@ impl From<&GenesisConfig> for AllEpochConfig {
     derive_more::AsRef,
     derive_more::AsMut,
     derive_more::From,
-    Serialize,
-    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
 )]
 pub struct GenesisRecords(pub Vec<StateRecord>);
 
 /// `Genesis` has an invariant that `total_supply` is equal to the supply seen in the records.
 /// However, we can't enfore that invariant. All fields are public, but the clients are expected to
 /// use the provided methods for instantiation, serialization and deserialization.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct Genesis {
     #[serde(flatten)]
     pub config: GenesisConfig,
@@ -456,27 +454,47 @@ pub enum GenesisValidationMode {
 }
 
 impl Genesis {
-    pub fn new(config: GenesisConfig, records: GenesisRecords) -> Self {
+    pub fn new(config: GenesisConfig, records: GenesisRecords) -> Result<Self, ValidationError> {
         Self::new_validated(config, records, GenesisValidationMode::Full)
     }
 
-    pub fn new_with_path<P: AsRef<Path>>(config: GenesisConfig, records_file: P) -> Self {
+    pub fn new_with_path<P: AsRef<Path>>(
+        config: GenesisConfig,
+        records_file: P,
+    ) -> Result<Self, ValidationError> {
         Self::new_with_path_validated(config, records_file, GenesisValidationMode::Full)
     }
 
-    /// Reads Genesis from a single file.
-    /// the file can be JSON with comments
-    pub fn from_file<P: AsRef<Path>>(path: P, genesis_validation: GenesisValidationMode) -> Self {
-        let mut file = File::open(path).expect("Could not open genesis config file.");
+    /// Reads Genesis from a single JSON file, the file can be JSON with comments
+    /// This function will collect all errors regarding genesis.json and push them to validation_errors
+    pub fn from_file<P: AsRef<Path>>(
+        path: P,
+        genesis_validation: GenesisValidationMode,
+    ) -> Result<Self, ValidationError> {
+        let mut file = File::open(&path).map_err(|_| ValidationError::GenesisFileError {
+            error_message: format!(
+                "Could not open genesis config file at path {}.",
+                &path.as_ref().display()
+            ),
+        })?;
+
         let mut json_str = String::new();
-        file.read_to_string(&mut json_str).expect("Failed to read genesis config file to string. ");
-        let json_str_without_comments: String =
-            near_config_utils::strip_comments_from_json_str(&json_str)
-                .expect("Failed to strip comments from Genesis config file.");
-        let genesis: Genesis = serde_json::from_str(&json_str_without_comments)
-            .expect("Failed to deserialize the genesis records.");
-        // As serde skips the `records_file` field, we can assume that `Genesis` has `records` and
-        // doesn't have `records_file`.
+        file.read_to_string(&mut json_str).map_err(|_| ValidationError::GenesisFileError {
+            error_message: format!("Failed to read genesis config file to string. "),
+        })?;
+
+        let json_str_without_comments = near_config_utils::strip_comments_from_json_str(&json_str)
+            .map_err(|_| ValidationError::GenesisFileError {
+                error_message: format!("Failed to strip comments from genesis config file"),
+            })?;
+
+        let genesis =
+            serde_json::from_str::<Genesis>(&json_str_without_comments).map_err(|_| {
+                ValidationError::GenesisFileError {
+                    error_message: format!("Failed to deserialize the genesis records."),
+                }
+            })?;
+
         Self::new_validated(genesis.config, genesis.records, genesis_validation)
     }
 
@@ -485,48 +503,55 @@ impl Genesis {
         config_path: P1,
         records_path: P2,
         genesis_validation: GenesisValidationMode,
-    ) -> Self
+    ) -> Result<Self, ValidationError>
     where
         P1: AsRef<Path>,
         P2: AsRef<Path>,
     {
-        let config = GenesisConfig::from_file(config_path).unwrap();
-        Self::new_with_path_validated(config, records_path, genesis_validation)
+        let genesis_config = GenesisConfig::from_file(config_path).map_err(|error| {
+            let error_message = error.to_string();
+            ValidationError::GenesisFileError { error_message: error_message }
+        })?;
+        Self::new_with_path_validated(genesis_config, records_path, genesis_validation)
     }
 
     fn new_validated(
         config: GenesisConfig,
         records: GenesisRecords,
         genesis_validation: GenesisValidationMode,
-    ) -> Self {
+    ) -> Result<Self, ValidationError> {
         let genesis = Self { config, records, records_file: PathBuf::new() };
-        genesis.validate(genesis_validation)
+        genesis.validate(genesis_validation)?;
+        Ok(genesis)
     }
 
     fn new_with_path_validated<P: AsRef<Path>>(
         config: GenesisConfig,
         records_file: P,
         genesis_validation: GenesisValidationMode,
-    ) -> Self {
+    ) -> Result<Self, ValidationError> {
         let genesis = Self {
             config,
             records: GenesisRecords(vec![]),
             records_file: records_file.as_ref().to_path_buf(),
         };
-        genesis.validate(genesis_validation)
+        genesis.validate(genesis_validation)?;
+        Ok(genesis)
     }
 
-    fn validate(self, genesis_validation: GenesisValidationMode) -> Self {
+    pub fn validate(
+        &self,
+        genesis_validation: GenesisValidationMode,
+    ) -> Result<(), ValidationError> {
         match genesis_validation {
-            GenesisValidationMode::Full => {
-                validate_genesis(&self);
-            }
+            GenesisValidationMode::Full => validate_genesis(self),
             GenesisValidationMode::UnsafeFast => {
                 warn!(target: "genesis", "Skipped genesis validation");
+                Ok(())
             }
         }
-        self
     }
+
     /// Writes Genesis to the file.
     pub fn to_file<P: AsRef<Path>>(&self, path: P) {
         std::fs::write(
@@ -618,7 +643,7 @@ impl GenesisChangeConfig {
 // Ideally we should create `RuntimeConfigView`, but given the deeply nested nature and the number of fields inside
 // `RuntimeConfig`, it should be its own endeavor.
 // TODO: This has changed, there is now `RuntimeConfigView`. Reconsider if moving this is possible now.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct ProtocolConfigView {
     /// Current Protocol Version
     pub protocol_version: ProtocolVersion,

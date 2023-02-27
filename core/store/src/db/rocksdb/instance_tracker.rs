@@ -217,7 +217,7 @@ fn test_ensure_max_open_files_limit() {
             if self.0 .0 == 666 {
                 Err(other_error("error"))
             } else {
-                Ok(self.0.clone())
+                Ok(*self.0)
             }
         }
 

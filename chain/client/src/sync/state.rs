@@ -20,38 +20,35 @@
 //!         here to depend more on local peers instead.
 //!
 
-use near_chain::{near_chain_primitives, Error};
-use near_primitives::state_part::PartId;
-use std::collections::HashMap;
-use std::ops::Add;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use std::time::Duration as TimeDuration;
-
 use ansi_term::Color::{Purple, Yellow};
-use chrono::{DateTime, Duration};
+use chrono::{DateTime, Duration, Utc};
 use futures::{future, FutureExt};
-use rand::seq::SliceRandom;
-use rand::{thread_rng, Rng};
-use tracing::{debug, error, info, warn};
-
-use near_chain::{Chain, RuntimeWithEpochManagerAdapter};
-use near_network::types::{
-    HighestHeightPeerInfo, NetworkRequests, NetworkResponses, PeerManagerAdapter,
-};
-use near_primitives::hash::CryptoHash;
-use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponse};
-use near_primitives::time::{Clock, Utc};
-use near_primitives::types::{AccountId, ShardId, StateRoot};
-
+use near_async::messaging::CanSendAsync;
 use near_chain::chain::{ApplyStatePartsRequest, StateSplitRequest};
+use near_chain::{near_chain_primitives, Error};
+use near_chain::{Chain, RuntimeWithEpochManagerAdapter};
 use near_client_primitives::types::{
     DownloadStatus, ShardSyncDownload, ShardSyncStatus, StateSplitApplyingStatus,
 };
 use near_network::types::AccountOrPeerIdOrHash;
 use near_network::types::PeerManagerMessageRequest;
-use near_o11y::WithSpanContextExt;
+use near_network::types::{
+    HighestHeightPeerInfo, NetworkRequests, NetworkResponses, PeerManagerAdapter,
+};
+use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
+use near_primitives::state_part::PartId;
+use near_primitives::static_clock::StaticClock;
+use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponse};
+use near_primitives::types::{AccountId, ShardId, StateRoot};
+use rand::seq::SliceRandom;
+use rand::{thread_rng, Rng};
+use std::collections::HashMap;
+use std::ops::Add;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::Duration as TimeDuration;
+use tracing::{debug, error, info, warn};
 
 /// Maximum number of state parts to request per peer on each round when node is trying to download the state.
 pub const MAX_STATE_PART_REQUEST: u64 = 16;
@@ -77,10 +74,10 @@ struct PendingRequestStatus {
 
 impl PendingRequestStatus {
     fn new(timeout: Duration) -> Self {
-        Self { missing_parts: 1, wait_until: Clock::utc().add(timeout) }
+        Self { missing_parts: 1, wait_until: StaticClock::utc().add(timeout) }
     }
     fn expired(&self) -> bool {
-        Clock::utc() > self.wait_until
+        StaticClock::utc() > self.wait_until
     }
 }
 
@@ -99,7 +96,7 @@ fn make_account_or_peer_id_or_hash(
 
 /// Helper to track state sync.
 pub struct StateSync {
-    network_adapter: Arc<dyn PeerManagerAdapter>,
+    network_adapter: PeerManagerAdapter,
 
     last_time_block_requested: Option<DateTime<Utc>>,
 
@@ -119,7 +116,7 @@ pub struct StateSync {
 }
 
 impl StateSync {
-    pub fn new(network_adapter: Arc<dyn PeerManagerAdapter>, timeout: TimeDuration) -> Self {
+    pub fn new(network_adapter: PeerManagerAdapter, timeout: TimeDuration) -> Self {
         StateSync {
             network_adapter,
             last_time_block_requested: None,
@@ -391,7 +388,7 @@ impl StateSync {
                       sync_hash,
                       match shard_sync_download.status {
                           ShardSyncStatus::StateDownloadHeader => format!("{} requests sent {}, last target {:?}",
-                                                                          Purple.bold().paint(format!("HEADER")),
+                                                                          Purple.bold().paint("HEADER".to_string()),
                                                                           shard_sync_download.downloads[0].state_requests_count,
                                                                           shard_sync_download.downloads[0].last_target),
                           ShardSyncStatus::StateDownloadParts => { let mut text = "".to_string();
@@ -606,12 +603,9 @@ impl StateSync {
                 near_performance_metrics::actix::spawn(
                     std::any::type_name::<Self>(),
                     self.network_adapter
-                        .send(
-                            PeerManagerMessageRequest::NetworkRequests(
-                                NetworkRequests::StateRequestHeader { shard_id, sync_hash, target },
-                            )
-                            .with_span_context(),
-                        )
+                        .send_async(PeerManagerMessageRequest::NetworkRequests(
+                            NetworkRequests::StateRequestHeader { shard_id, sync_hash, target },
+                        ))
                         .then(move |result| {
                             if let Ok(NetworkResponses::RouteNotFound) =
                                 result.map(|f| f.as_network_response())
@@ -651,17 +645,14 @@ impl StateSync {
                     near_performance_metrics::actix::spawn(
                         std::any::type_name::<Self>(),
                         self.network_adapter
-                            .send(
-                                PeerManagerMessageRequest::NetworkRequests(
-                                    NetworkRequests::StateRequestPart {
-                                        shard_id,
-                                        sync_hash,
-                                        part_id: part_id as u64,
-                                        target: target.clone(),
-                                    },
-                                )
-                                .with_span_context(),
-                            )
+                            .send_async(PeerManagerMessageRequest::NetworkRequests(
+                                NetworkRequests::StateRequestPart {
+                                    shard_id,
+                                    sync_hash,
+                                    part_id: part_id as u64,
+                                    target: target.clone(),
+                                },
+                            ))
                             .then(move |result| {
                                 // TODO: possible optimization - in the current code, even if one of the targets it not present in the network graph
                                 //       (so we keep getting RouteNotFound) - we'll still keep trying to assign parts to it.
@@ -703,7 +694,7 @@ impl StateSync {
         let _span = tracing::debug_span!(target: "sync", "run", sync = "StateSync").entered();
         debug!(target: "sync", %sync_hash, ?tracking_shards, "syncing state");
         let prev_hash = *chain.get_block_header(&sync_hash)?.prev_hash();
-        let now = Clock::utc();
+        let now = StaticClock::utc();
 
         // FIXME: it checks if the block exists.. but I have no idea why..
         // seems that we don't really use this block in case of catchup - we use it only for state sync.
@@ -896,7 +887,8 @@ mod test {
     // Start a new state sync - and check that it asks for a header.
     fn test_ask_for_header() {
         let mock_peer_manager = Arc::new(MockPeerManagerAdapter::default());
-        let mut state_sync = StateSync::new(mock_peer_manager.clone(), TimeDuration::from_secs(1));
+        let mut state_sync =
+            StateSync::new(mock_peer_manager.clone().into(), TimeDuration::from_secs(1));
         let mut new_shard_sync = HashMap::new();
 
         let (mut chain, kv, signer) = test_utils::setup();

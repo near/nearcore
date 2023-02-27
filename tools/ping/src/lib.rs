@@ -2,10 +2,10 @@ use actix_web::{web, App, HttpServer};
 use anyhow::Context;
 pub use cli::PingCommand;
 use near_network::raw::{ConnectError, Connection, ReceivedMessage};
-use near_network::time;
 use near_network::types::HandshakeFailureReason;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
+use near_primitives::time;
 use near_primitives::types::{AccountId, BlockHeight, EpochId};
 use near_primitives::version::ProtocolVersion;
 use std::cmp;
@@ -254,10 +254,7 @@ impl AppInfo {
 
         let pending_pings = self
             .requests
-            .get_mut(&PingTarget {
-                peer_id: t.peer_id.clone(),
-                last_pinged: state.last_pinged.clone(),
-            })
+            .get_mut(&PingTarget { peer_id: t.peer_id.clone(), last_pinged: state.last_pinged })
             .unwrap();
         assert!(pending_pings.remove(&t.nonce).is_some());
         println!(

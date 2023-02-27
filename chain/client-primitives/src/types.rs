@@ -1,12 +1,6 @@
-use once_cell::sync::OnceCell;
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
-
 use actix::Message;
 use chrono::DateTime;
-use near_primitives::time::Utc;
-
+use chrono::Utc;
 use near_chain_configs::{ClientConfig, ProtocolConfigView};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
@@ -25,7 +19,10 @@ use near_primitives::views::{
     SyncStatusView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
-use serde::Serialize;
+use once_cell::sync::OnceCell;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
 
 /// Combines errors coming from chain, tx pool and block producer.
 #[derive(Debug, thiserror::Error)]
@@ -49,7 +46,7 @@ pub enum AccountOrPeerIdOrHash {
     Hash(CryptoHash),
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, serde::Serialize)]
 pub struct DownloadStatus {
     pub start_time: DateTime<Utc>,
     pub prev_update_time: DateTime<Utc>,
