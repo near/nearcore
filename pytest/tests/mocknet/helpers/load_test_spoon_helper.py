@@ -4,14 +4,9 @@ Generates transactions on a mocknet node.
 This file is uploaded to each mocknet node and run there.
 """
 
-import json
 import random
 import sys
 import time
-
-import base58
-import requests
-from rc import pmap
 
 # Don't use the pathlib magic because this file runs on a remote machine.
 sys.path.append('lib')
