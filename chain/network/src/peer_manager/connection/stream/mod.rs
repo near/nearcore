@@ -26,7 +26,7 @@ pub(crate) enum Error {
 }
 
 impl From<std::io::Error> for Error {
-    fn from(err: std::io::Error) -> Error{
+    fn from(err: std::io::Error) -> Error {
         Error::IO(Arc::new(err))
     }
 }

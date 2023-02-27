@@ -54,7 +54,7 @@ impl Drop for Inner {
 }
 
 /// See `Ctx::wait`.
-#[derive(thiserror::Error, Debug, Clone, Copy)]
+#[derive(thiserror::Error, Debug, Clone, Copy, PartialEq, Eq)]
 #[error("task has been canceled")]
 pub struct ErrCanceled;
 

@@ -14,29 +14,6 @@ async fn must_complete_ok() {
 type R = Result<(), usize>;
 
 #[tokio::test]
-async fn test_drop_service() {
-    abort_on_panic();
-    let res = scope::run!(|s| async {
-        let service = s.new_service();
-        service
-            .spawn(async {
-                ctx::canceled().await;
-                R::Err(2)
-            })
-            .unwrap();
-        // Both scope task and service task await context cancellation.
-        // However, scope task drops the only reference to service before
-        // awaiting, which should cause service to cancel.
-        // The canceled service task returns an error which should cancel
-        // the whole scope.
-        drop(service);
-        ctx::canceled().await;
-        Ok(())
-    });
-    assert_eq!(Err(2), res);
-}
-
-#[tokio::test]
 async fn test_spawn_after_cancelling_scope() {
     abort_on_panic();
     let res = scope::run!(|s| async {
@@ -46,32 +23,6 @@ async fn test_spawn_after_cancelling_scope() {
         Ok(())
     });
     assert_eq!(R::Err(7), res);
-}
-
-#[tokio::test]
-async fn test_spawn_after_dropping_service() {
-    abort_on_panic();
-    let res = scope::run!(|s| async {
-        let service = Arc::new(s.new_service());
-        service
-            .spawn({
-                let service = service.clone();
-                async move {
-                    ctx::canceled().await;
-                    // Even though the service has been cancelled, you can spawn more tasks on it
-                    // until it is actually terminated. So it is always OK to spawn new tasks on
-                    // a service from another task running on this service.
-                    service.spawn(async { R::Err(5) }).unwrap();
-                    Ok(())
-                }
-            })
-            .unwrap();
-        // terminate() may get cancelled, because we expect the service to return an error.
-        // Error may or may not get propagated before terminate completes.
-        let _ = service.terminate().await;
-        Ok(())
-    });
-    assert_eq!(Err(5), res);
 }
 
 #[tokio::test]
@@ -92,25 +43,43 @@ async fn test_service_termination() {
 #[tokio::test]
 async fn test_nested_service() {
     abort_on_panic();
-    let has_terminated = scope::run!(|s| async {
-        let outer = s.new_service::<()>();
+    let inner_spawned = signal::Once::new();
+    scope::run!(|s| async {
+        let outer = s.new_service();
         let inner = outer.new_service().unwrap();
-        outer.spawn(async move {
-            let has_terminated = signal::Once::new();
-            inner.spawn({
-                let has_terminated = has_terminated.clone();
+        outer
+            .spawn({
+                let inner = inner.clone();
+                let inner_spawned = inner_spawned.clone();
                 async move {
-                    ctx::canceled().await;
-                    has_terminated.send();
-                    R::Err(9)
+                    let x = inner
+                        .spawn(async move {
+                            inner_spawned.send();
+                            // inner service task waits for cancelation, then returns an error.
+                            ctx::canceled().await;
+                            R::Err(8)
+                        })
+                        .unwrap()
+                        .join_err()
+                        .await
+                        .unwrap()
+                        .err()
+                        .unwrap();
+                    // outer service task waits for inner task to return an error,
+                    // then it returns its own error.
+                    R::Err(x + 1)
                 }
-            }).unwrap();
-            Ok(has_terminated)
-        }).unwrap().join_err().await.unwrap()
-        // Scope (and all the transitive subservices) get cancelled once this task completes.
-        // Scope won't be terminated until all the transitive subservices terminate.
-    }).unwrap();
-    assert!(has_terminated.try_recv());
+            })
+            .unwrap();
+        // Wait for the inner task to get spawned.
+        inner_spawned.recv().await;
+        // Terminate the inner service and await the service error.
+        assert_eq!(Err(8), inner.terminate().await.unwrap());
+        // Expect the outer service to return an error by itself.
+        assert_eq!(Err(9), outer.terminated().await.unwrap());
+        R::Ok(())
+    })
+    .unwrap();
 }
 
 #[tokio::test]
@@ -147,101 +116,107 @@ async fn test_already_canceled() {
 }
 
 #[tokio::test]
-async fn test_service_cancel() {
+async fn test_service_error_collected() {
     abort_on_panic();
-    scope::run!(|s| async {
+    let res = scope::run!(|s| async {
         let service = Arc::new(s.new_service());
+        service.spawn(async { R::Err(1) }).unwrap();
+        service.terminated().await.unwrap()
+    });
+    assert_eq!(Err(1), res);
+}
+
+#[tokio::test]
+async fn test_service_spawn_while_terminating() {
+    abort_on_panic();
+    let res = scope::run!(|s| async {
+        let service = s.new_service();
         service
             .spawn({
                 let service = service.clone();
                 async move {
-                    let _service = service;
                     ctx::canceled().await;
-                    R::Ok(())
+                    // Until service is terminated, you are still
+                    // able to spawn new tasks, but you cannot await them,
+                    // because the context is canceled at this point.
+                    //
+                    // `join()` and `join_err()` await the termination of the whole
+                    // service if the task returns an error. The fact that context
+                    // gets cancelled prevents a deadlock.
+                    let res = service.spawn(async { R::Err(7) }).unwrap().join_err().await;
+                    assert_eq!(Err(ctx::ErrCanceled), res);
+                    Ok(())
                 }
             })
             .unwrap();
+        assert_eq!(Err(7), service.terminate().await.unwrap());
+        // Service error doesn't affect the scope. We can return a different error, or even
+        // success.
+        R::Err(3)
+    });
+    assert_eq!(Err(3), res);
+}
+
+#[tokio::test]
+async fn test_service_join() {
+    abort_on_panic();
+    scope::run!(|s| async {
+        let service = s.new_service();
+        // Task which returns a success doesn't terminate the service (using `join_err`).
+        let res = service.spawn(async { Ok(3) }).unwrap().join_err().await.unwrap();
+        assert_eq!(Ok(3), res);
+        // Task which returns a success doesn't terminate the service (using `join`).
+        let res = service.spawn(async { Ok(2) }).unwrap().join().await.unwrap();
+        assert_eq!(Ok(2), res);
+        // Task which returns an error terminates the service.
+        let res = service.spawn(async { R::Err(7) }).unwrap().join_err().await.unwrap();
+        assert_eq!(Err(7), res);
+        // After the service is terminated, no new task can be spawned.
+        let res = service.spawn::<()>(async {
+            panic!("shouldn't be executed");
+        });
+        assert_eq!(scope::ErrTerminated, res.err().unwrap());
+        R::Ok(())
+    })
+    .unwrap();
+}
+
+// We treat all tasks within a service as a single error domain.
+// If more that one task returns an error, the first error is returned in every join.
+#[tokio::test]
+async fn test_service_join_error_override() {
+    abort_on_panic();
+    scope::run!(|s| async {
+        let s = s.new_service();
+        let t1 = s
+            .spawn(async {
+                ctx::canceled().await;
+                R::Err(1)
+            })
+            .unwrap();
+        let t2 = s
+            .spawn(async {
+                ctx::canceled().await;
+                R::Err(2)
+            })
+            .unwrap();
+        let res = s.terminate().await.unwrap();
+        assert_eq!(res, t1.join_err().await.unwrap());
+        assert_eq!(res, t2.join_err().await.unwrap());
         R::Ok(())
     })
     .unwrap();
 }
 
 #[tokio::test]
-async fn test_service_error_before_cancel() {
-    abort_on_panic();
-    let res = scope::run!(|s| async {
-        let service = Arc::new(s.new_service());
-
-        service
-            .spawn({
-                let service = service.clone();
-                async move {
-                    let _service = service;
-                    R::Err(1)
-                }
-            })
-            .unwrap();
-        ctx::canceled().await;
-        Ok(())
-    });
-    assert_eq!(Err(1), res);
-}
-
-/// Service error is not forwarded automatically
-/// as the scope error.
-#[tokio::test]
-async fn test_service_non_awaited_error() {
-    abort_on_panic();
-    let res = scope::run!(|s| async {
-        let service = Arc::new(s.new_service());
-        service
-            .spawn({
-                let service = service.clone();
-                async move {
-                    let _service = service;
-                    ctx::canceled().await;
-                    R::Err(2)
-                }
-            })
-            .unwrap();
-        R::Ok(())
-    });
-    assert_eq!(Ok(()), res);
-}
-
-#[tokio::test]
 async fn test_scope_error() {
     abort_on_panic();
     let res = scope::run!(|s| async {
-        let service = Arc::new(s.new_service());
+        let service = s.new_service();
         service
-            .spawn({
-                let service = service.clone();
-                async move {
-                    let _service = service;
-                    ctx::canceled().await;
-                    R::Ok(())
-                }
-            })
-            .unwrap();
-        R::Err(2)
-    });
-    assert_eq!(Err(2), res);
-}
-
-#[tokio::test]
-async fn test_scope_error_nonoverridable() {
-    abort_on_panic();
-    let res = scope::run!(|s| async {
-        let service = Arc::new(s.new_service());
-        service
-            .spawn({
-                let service = service.clone();
-                async {
-                    let _service = service;
-                    ctx::canceled().await;
-                    R::Err(3)
-                }
+            .spawn(async {
+                ctx::canceled().await;
+                R::Ok(())
             })
             .unwrap();
         R::Err(2)
@@ -263,6 +238,9 @@ async fn test_spawn_from_spawn_bg() {
                 assert!(ctx::is_canceled());
                 R::Err(3)
             });
+            // Service can be spawned, but we cannot do anything about it
+            // (within the canceled scope).
+            s.new_service::<()>();
             Ok(())
         });
         Ok(())
@@ -270,8 +248,22 @@ async fn test_spawn_from_spawn_bg() {
     assert_eq!(Err(3), res);
 }
 
-// TODO: spawn a service after all main tasks complete successfully.
-// TODO: whole service is terminated after joining a task which returned an error.
+#[tokio::test]
+async fn test_service_outside_of_the_scope() {
+    let service = scope::run!(|s| async { Result::<_, ()>::Ok(s.new_service::<()>()) }).unwrap();
+    // If the service object outlives the scope it is nested in, it should be already terminated.
+    assert!(service.is_terminated());
+    // Therefore spawning should fail.
+    assert_eq!(
+        scope::ErrTerminated,
+        service
+            .spawn::<()>(async {
+                panic!("unreachable");
+            })
+            .err()
+            .unwrap()
+    );
+}
 
 #[tokio::test]
 async fn test_access_to_vars_outside_of_scope() {
