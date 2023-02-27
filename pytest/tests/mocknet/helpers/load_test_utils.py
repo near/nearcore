@@ -53,6 +53,7 @@ def function_call_set_state_then_delete_state(i,
     else:
         action = random.choice(["add", "delete"])
 
+    account = test_state.test_accounts[i]
     if action == "add":
         next_id = random.randrange(test_state.num_test_accounts())
         next_val = random.randint(0, 1000)
