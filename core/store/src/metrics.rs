@@ -303,7 +303,7 @@ pub static FLAT_STORAGE_VALUE_REF_CACHE_TOTAL_VALUE_SIZE: Lazy<IntGaugeVec> = La
         "Total size of all values in flat storage cache for its head",
         &["shard_id"],
     )
-        .unwrap()
+    .unwrap()
 });
 
 pub mod flat_state_metrics {

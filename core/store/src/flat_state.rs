@@ -130,10 +130,7 @@ mod imp {
 
     impl FlatStateFactory {
         pub fn new(store: Store) -> Self {
-            Self(Arc::new(FlatStateFactoryInner {
-                store,
-                flat_storage_states: Default::default(),
-            }))
+            Self(Arc::new(FlatStateFactoryInner { store, flat_storage_states: Default::default() }))
         }
 
         /// When a node starts from an empty database, this function must be called to ensure
@@ -938,8 +935,9 @@ impl FlatStorageState {
                 .with_label_values(&[shard_id_label]),
             value_ref_cache_total_key_size: metrics::FLAT_STORAGE_VALUE_REF_CACHE_TOTAL_KEY_SIZE
                 .with_label_values(&[shard_id_label]),
-            value_ref_cache_total_value_size: metrics::FLAT_STORAGE_VALUE_REF_CACHE_TOTAL_VALUE_SIZE
-                .with_label_values(&[shard_id_label]),
+            value_ref_cache_total_value_size:
+                metrics::FLAT_STORAGE_VALUE_REF_CACHE_TOTAL_VALUE_SIZE
+                    .with_label_values(&[shard_id_label]),
         };
         metrics.flat_head_height.set(flat_head_height as i64);
 
@@ -1626,7 +1624,8 @@ mod tests {
                 0,
                 chain.get_block_hash(height),
                 &FlatStateDelta::from([(key, value)]),
-            ).unwrap();
+            )
+            .unwrap();
         }
         store_update.commit().unwrap();
 
@@ -1648,7 +1647,10 @@ mod tests {
         }
 
         // Check that value for 1st key is correct, even though it is not in cache.
-        assert_eq!(flat_storage_state.get_ref(&chain.get_block_hash(3), &[1]), Ok(Some(ValueRef::new(&[1 as u8]))));
+        assert_eq!(
+            flat_storage_state.get_ref(&chain.get_block_hash(3), &[1]),
+            Ok(Some(ValueRef::new(&[1 as u8])))
+        );
 
         // After that, 1st key should be added back to LRU cache.
         {
