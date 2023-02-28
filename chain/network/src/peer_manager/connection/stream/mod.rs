@@ -153,7 +153,7 @@ impl FrameStream {
                 // Flushing is implemented in a way that if multiple messages are sent at once
                 // flushing occurs only once. See implementation of `FramedStream::new`.
                 self_.flusher.notify_one();
-                // If this task exits early, the stream becomes broken.
+                // If sending the frame fails and exits early, the stream becomes broken.
                 *send = Some(inner);
                 Ok(())
             }))?
@@ -163,9 +163,6 @@ impl FrameStream {
 
     /// Receives a frame from the TCP connection.
     /// If error is returned, a message may or may not been received.
-    // TODO(gprusak): partially received message will be still received in the background and
-    // then dropped. If that semantics is not OK, we can use tokio::sync::mpsc channel instead.
-    // reserve_owned() function will allow us to avoid receiving messages that are not awaited yet.
     async fn recv(self: &Arc<Self>) -> anyhow::Result<Frame> {
         // Take ownership of the recv half of the TCP stream.
         // If the context is canceled before getting the stream, nothing gets received, as intended.
@@ -212,7 +209,7 @@ impl FrameStream {
                     ctx::wait(inner.read_exact(&mut buf[..])),
                 )
                 .await??;
-                // If loop iteration exits early, the stream becomes broken.
+                // If receiving the frame fails and exits early, the stream becomes broken.
                 *recv = Some(inner);
                 Ok(Frame(buf))
             })?
