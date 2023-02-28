@@ -42,6 +42,7 @@ impl ResetHeadToPrevCommand {
         // let runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter> = Arc::new(NightshadeRuntime::from_config(home_dir, store, &near_config));
 
         let head = chain_store.head().unwrap();
+        let current_final_head = chain_store.final_head().unwrap();
         // let head_height = head.height;
         let head_hash = head.last_block_hash;
         // let head_block = chain_store.get_block(&head_hash);
@@ -53,10 +54,13 @@ impl ResetHeadToPrevCommand {
         tracing::info!(target: "neard", "trying to update head from block hash {} to block hash {}", head_hash, prev_hash);
         tracing::info!(target: "neard", "current head height is {}, trying to update to height {}", head.height, prev_tip.height);
         let mut chain_store_update = ChainStoreUpdate::new(&mut chain_store);
-        
+
         // chain_store_update.dec_block_refcount(&prev_hash)?;
 
         chain_store_update.save_head(&prev_tip)?;
+        if current_final_head.height >= prev_tip.height {
+            chain_store_update.save_final_head(&prev_tip)?;
+        }
 
         chain_store_update.commit()?;
 
