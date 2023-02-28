@@ -276,7 +276,7 @@ impl ShardsManager {
     ) -> Self {
         Self {
             clock,
-            me: me.clone(),
+            me,
             store,
             runtime_adapter: runtime_adapter.clone(),
             peer_manager_adapter: network_adapter,
