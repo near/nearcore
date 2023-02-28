@@ -337,9 +337,7 @@ pub struct Config {
     /// This feature is under development, do not use in production.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cold_store: Option<near_store::StoreConfig>,
-    /// Configuration for the
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub split_storage: Option<SplitStorageConfig>,
+
     // TODO(mina86): Remove those two altogether at some point.  We need to be
     // somewhat careful though and make sure that we don’t start silently
     // ignoring this option without users setting corresponding store option.
@@ -354,7 +352,6 @@ pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expected_shutdown: Option<BlockHeight>,
     /// Options for dumping state of every epoch to S3.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub state_sync: Option<StateSyncConfig>,
 }
 
@@ -390,52 +387,8 @@ impl Default for Config {
             use_db_migration_snapshot: None,
             store: near_store::StoreConfig::default(),
             cold_store: None,
-            split_storage: None,
             expected_shutdown: None,
             state_sync: None,
-        }
-    }
-}
-
-fn default_enable_split_storage_view_client() -> bool {
-    false
-}
-
-fn default_cold_store_initial_migration_batch_size() -> usize {
-    500_000_000
-}
-
-fn default_cold_store_initial_migration_loop_sleep_duration() -> Duration {
-    Duration::from_secs(30)
-}
-
-fn default_cold_store_loop_sleep_duration() -> Duration {
-    Duration::from_secs(1)
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
-pub struct SplitStorageConfig {
-    #[serde(default = "default_enable_split_storage_view_client")]
-    pub enable_split_storage_view_client: bool,
-
-    #[serde(default = "default_cold_store_initial_migration_batch_size")]
-    pub cold_store_initial_migration_batch_size: usize,
-    #[serde(default = "default_cold_store_initial_migration_loop_sleep_duration")]
-    pub cold_store_initial_migration_loop_sleep_duration: Duration,
-
-    #[serde(default = "default_cold_store_loop_sleep_duration")]
-    pub cold_store_loop_sleep_duration: Duration,
-}
-
-impl Default for SplitStorageConfig {
-    fn default() -> Self {
-        SplitStorageConfig {
-            enable_split_storage_view_client: default_enable_split_storage_view_client(),
-            cold_store_initial_migration_batch_size:
-                default_cold_store_initial_migration_batch_size(),
-            cold_store_initial_migration_loop_sleep_duration:
-                default_cold_store_initial_migration_loop_sleep_duration(),
-            cold_store_loop_sleep_duration: default_cold_store_loop_sleep_duration(),
         }
     }
 }
@@ -701,22 +654,14 @@ impl NearConfig {
                 enable_statistics_export: config.store.enable_statistics_export,
                 client_background_migration_threads: config.store.background_migration_threads,
                 flat_storage_creation_period: config.store.flat_storage_creation_period,
-                state_sync_dump_enabled: config
-                    .state_sync
-                    .as_ref()
-                    .map_or(false, |x| x.dump_enabled.unwrap_or(false)),
                 state_sync_s3_bucket: config
                     .state_sync
                     .as_ref()
-                    .map_or(String::new(), |x| x.s3_bucket.clone()),
+                    .map_or(None, |x| Some(x.s3_bucket.clone())),
                 state_sync_s3_region: config
                     .state_sync
                     .as_ref()
-                    .map_or(String::new(), |x| x.s3_region.clone()),
-                state_sync_restart_dump_for_shards: config
-                    .state_sync
-                    .as_ref()
-                    .map_or(vec![], |x| x.drop_state_of_dump.clone().unwrap_or(vec![])),
+                    .map_or(None, |x| Some(x.s3_region.clone())),
             },
             network_config: NetworkConfig::new(
                 config.network,
@@ -1540,15 +1485,11 @@ pub fn load_test_config(seed: &str, addr: tcp::ListenerAddr, genesis: Genesis) -
     NearConfig::new(config, genesis, signer.into(), validator_signer).unwrap()
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 /// Options for dumping state to S3.
 pub struct StateSyncConfig {
     pub s3_bucket: String,
     pub s3_region: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub dump_enabled: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub drop_state_of_dump: Option<Vec<ShardId>>,
 }
 
 #[test]
