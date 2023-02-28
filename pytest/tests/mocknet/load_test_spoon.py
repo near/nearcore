@@ -214,8 +214,7 @@ if __name__ == '__main__':
                                         script,
                                         rpc_nodes,
                                         num_nodes,
-                                        max_tps,
-                                        get_node_key=True)
+                                        max_tps)
 
         initial_epoch_height = mocknet.get_epoch_height(rpc_nodes, -1)
         logger.info(f'initial_epoch_height: {initial_epoch_height}')

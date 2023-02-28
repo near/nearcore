@@ -176,20 +176,17 @@ def initialize_skyward_contract(node_account_id, pk, sk):
 
 def get_test_accounts_from_args(argv):
     node_account_id = argv[1]
-    pk = argv[2]
-    sk = argv[3]
-    assert argv[4]
-    rpc_nodes = argv[4].split(',')
+    rpc_nodes = argv[2].split(',')
     logger.info(f'rpc_nodes: {rpc_nodes}')
-    num_nodes = int(argv[5])
-    max_tps = float(argv[6])
-    leader_account_id = sys.argv[7]
-    upk = sys.argv[8]
-    usk = sys.argv[9]
+    num_nodes = int(argv[3])
+    max_tps = float(argv[4])
+    leader_account_id = sys.argv[5]
 
-    node_account_key = key.Key(node_account_id, pk, sk)
+    node_account_key = key.Key(node_account_id, mocknet.PUBLIC_KEY,
+                               mocknet.SECRET_KEY)
     test_account_keys = [
-        key.Key(mocknet.load_testing_account_id(node_account_id, i), pk, sk)
+        key.Key(mocknet.load_testing_account_id(node_account_id, i),
+                mocknet.PUBLIC_KEY, mocknet.SECRET_KEY)
         for i in range(mocknet.NUM_ACCOUNTS)
     ]
 
@@ -212,11 +209,14 @@ def get_test_accounts_from_args(argv):
     max_tps_per_node = max_tps / num_nodes
 
     special_account_keys = [
-        key.Key(mocknet.SKYWARD_ACCOUNT, upk, usk),
-        key.Key(mocknet.TOKEN1_ACCOUNT, upk, usk),
-        key.Key(mocknet.TOKEN2_ACCOUNT, upk, usk),
-        key.Key(mocknet.ACCOUNT1_ACCOUNT, upk, usk),
-        key.Key(mocknet.TOKEN2_OWNER_ACCOUNT, upk, usk),
+        key.Key(mocknet.SKYWARD_ACCOUNT, mocknet.PUBLIC_KEY,
+                mocknet.SECRET_KEY),
+        key.Key(mocknet.TOKEN1_ACCOUNT, mocknet.PUBLIC_KEY, mocknet.SECRET_KEY),
+        key.Key(mocknet.TOKEN2_ACCOUNT, mocknet.PUBLIC_KEY, mocknet.SECRET_KEY),
+        key.Key(mocknet.ACCOUNT1_ACCOUNT, mocknet.PUBLIC_KEY,
+                mocknet.SECRET_KEY),
+        key.Key(mocknet.TOKEN2_OWNER_ACCOUNT, mocknet.PUBLIC_KEY,
+                mocknet.SECRET_KEY),
     ]
     global special_accounts
     special_accounts = [
@@ -229,7 +229,8 @@ def get_test_accounts_from_args(argv):
 
     start_time = time.monotonic()
     if node_account_id == leader_account_id:
-        initialize_skyward_contract(node_account_id, pk, sk)
+        initialize_skyward_contract(node_account_id, mocknet.PUBLIC_KEY,
+                                    mocknet.SECRET_KEY)
         elapsed = time.monotonic() - start_time
         if elapsed < SKYWARD_INIT_TIME:
             logger.info(f'Leader sleeps for {SKYWARD_INIT_TIME-elapsed}sec')
