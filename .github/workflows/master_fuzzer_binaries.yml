@@ -3,8 +3,6 @@ on:
   schedule:
     # Run once a day, at midnight
     - cron: "0 0 * * *"
-  # TODO - remove. Used for testing WF
-  push:
 
 jobs:
   build_fuzzers:
