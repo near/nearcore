@@ -79,13 +79,9 @@
 //! at least "partially" validated by `validate_chunk_header` (see the comments there for what "partial"
 //! validation means).
 
-use std::cmp;
-use std::collections::{btree_map, hash_map, BTreeMap, HashMap, HashSet};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-
+use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
+use crate::logic::cares_about_shard_this_or_next_epoch;
 use adapter::ShardsManagerRequestFromClient;
-use chrono::DateTime;
 use client::ShardsManagerResponse;
 use logic::{
     decode_encoded_chunk, make_outgoing_receipts_proofs,
@@ -96,13 +92,14 @@ use metrics::{
 };
 use near_async::messaging::Sender;
 use near_chain::chunks_store::ReadOnlyChunksStore;
-use near_network::shards_manager::ShardsManagerRequestFromNetwork;
-
-use chrono::Utc;
-use rand::seq::{IteratorRandom, SliceRandom};
-use tracing::{debug, error, warn};
-
+use near_chain::near_chain_primitives::error::Error::DBNotFoundErr;
 use near_chain::{byzantine_assert, RuntimeWithEpochManagerAdapter};
+pub use near_chunks_primitives::Error;
+use near_network::shards_manager::ShardsManagerRequestFromNetwork;
+use near_network::types::{
+    AccountIdOrPeerTrackingShard, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
+    PartialEncodedChunkResponseMsg,
+};
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
@@ -113,7 +110,7 @@ use near_primitives::sharding::{
     PartialEncodedChunkPart, PartialEncodedChunkV2, ReceiptList, ReceiptProof, ReedSolomonWrapper,
     ShardChunk, ShardChunkHeader, ShardProof,
 };
-use near_primitives::static_clock::StaticClock;
+use near_primitives::time;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
@@ -123,16 +120,11 @@ use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::ProtocolVersion;
-
-use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
-use crate::logic::cares_about_shard_this_or_next_epoch;
-use near_chain::near_chain_primitives::error::Error::DBNotFoundErr;
-pub use near_chunks_primitives::Error;
-use near_network::types::{
-    AccountIdOrPeerTrackingShard, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
-    PartialEncodedChunkResponseMsg,
-};
+use rand::seq::IteratorRandom;
 use rand::Rng;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use tracing::{debug, error, warn};
 
 pub mod adapter;
 mod chunk_cache;
@@ -142,17 +134,11 @@ pub mod metrics;
 pub mod shards_manager_actor;
 pub mod test_utils;
 
-const CHUNK_PRODUCER_BLACKLIST_SIZE: usize = 100;
-pub const CHUNK_REQUEST_RETRY_MS: u64 = 100;
-pub const CHUNK_REQUEST_SWITCH_TO_OTHERS_MS: u64 = 400;
-pub const CHUNK_REQUEST_SWITCH_TO_FULL_FETCH_MS: u64 = 3_000;
-const CHUNK_REQUEST_RETRY_MAX_MS: u64 = 1_000_000;
+pub const CHUNK_REQUEST_RETRY: time::Duration = time::Duration::milliseconds(100);
+pub const CHUNK_REQUEST_SWITCH_TO_OTHERS: time::Duration = time::Duration::milliseconds(400);
+pub const CHUNK_REQUEST_SWITCH_TO_FULL_FETCH: time::Duration = time::Duration::seconds(3);
+const CHUNK_REQUEST_RETRY_MAX: time::Duration = time::Duration::seconds(1000);
 const CHUNK_FORWARD_CACHE_SIZE: usize = 1000;
-const ACCEPTING_SEAL_PERIOD_MS: i64 = 30_000;
-const NUM_PARTS_REQUESTED_IN_SEAL: usize = 3;
-// TODO(#3180): seals are disabled in single shard setting
-// const NUM_PARTS_LEFT_IN_SEAL: usize = 1;
-const PAST_SEAL_HEIGHT_HORIZON: BlockHeightDelta = 1024;
 // Only request chunks from peers whose latest height >= chunk_height - CHUNK_REQUEST_PEER_HORIZON
 const CHUNK_REQUEST_PEER_HORIZON: BlockHeightDelta = 5;
 
@@ -185,24 +171,24 @@ struct ChunkRequestInfo {
     // previous block hash of the chunk
     prev_block_hash: CryptoHash,
     shard_id: ShardId,
-    added: Instant,
-    last_requested: Instant,
+    added: time::Instant,
+    last_requested: time::Instant,
 }
 
 struct RequestPool {
-    retry_duration: Duration,
-    switch_to_others_duration: Duration,
-    switch_to_full_fetch_duration: Duration,
-    max_duration: Duration,
+    retry_duration: time::Duration,
+    switch_to_others_duration: time::Duration,
+    switch_to_full_fetch_duration: time::Duration,
+    max_duration: time::Duration,
     requests: HashMap<ChunkHash, ChunkRequestInfo>,
 }
 
 impl RequestPool {
     pub fn new(
-        retry_duration: Duration,
-        switch_to_others_duration: Duration,
-        switch_to_full_fetch_duration: Duration,
-        max_duration: Duration,
+        retry_duration: time::Duration,
+        switch_to_others_duration: time::Duration,
+        switch_to_full_fetch_duration: time::Duration,
+        max_duration: time::Duration,
     ) -> Self {
         Self {
             retry_duration,
@@ -231,17 +217,17 @@ impl RequestPool {
         self.requests.remove(chunk_hash);
     }
 
-    pub fn fetch(&mut self) -> Vec<(ChunkHash, ChunkRequestInfo)> {
+    pub fn fetch(&mut self, current_time: time::Instant) -> Vec<(ChunkHash, ChunkRequestInfo)> {
         let mut removed_requests = HashSet::<ChunkHash>::default();
         let mut requests = Vec::new();
         for (chunk_hash, mut chunk_request) in self.requests.iter_mut() {
-            if chunk_request.added.elapsed() > self.max_duration {
+            if current_time - chunk_request.added >= self.max_duration {
                 debug!(target: "chunks", "Evicted chunk requested that was never fetched {} (shard_id: {})", chunk_hash.0, chunk_request.shard_id);
                 removed_requests.insert(chunk_hash.clone());
                 continue;
             }
-            if chunk_request.last_requested.elapsed() > self.retry_duration {
-                chunk_request.last_requested = StaticClock::instant();
+            if current_time - chunk_request.last_requested >= self.retry_duration {
+                chunk_request.last_requested = current_time;
                 requests.push((chunk_hash.clone(), chunk_request.clone()));
             }
         }
@@ -252,236 +238,8 @@ impl RequestPool {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
-enum Seal<'a> {
-    Past,
-    Active(&'a mut ActiveSealDemur),
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct ActiveSealDemur {
-    part_ords: HashSet<u64>,
-    chunk_producer: AccountId,
-    sent: DateTime<Utc>,
-    height: BlockHeight,
-}
-
-impl Seal<'_> {
-    // TODO(#3180): seals are disabled in single shard setting
-    /*fn process(self, chunk_entry: &EncodedChunksCacheEntry) -> bool {
-        match self {
-            Seal::Past => true,
-            Seal::Active(demur) => {
-                let mut res = true;
-                demur.part_ords.retain(|part_ord| {
-                    if !chunk_entry.parts.contains_key(&part_ord) {
-                        res = false;
-                        true
-                    } else {
-                        false
-                    }
-                });
-                res
-            }
-        }
-    }*/
-
-    fn contains_part_ord(&self, part_ord: &u64) -> bool {
-        match self {
-            Seal::Past => false,
-            Seal::Active(demur) => demur.part_ords.contains(part_ord),
-        }
-    }
-}
-
-pub struct SealsManager {
-    me: Option<AccountId>,
-    runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
-
-    active_demurs: HashMap<ChunkHash, ActiveSealDemur>,
-    past_seals: BTreeMap<BlockHeight, HashSet<ChunkHash>>,
-    dont_include_chunks_from: lru::LruCache<AccountId, ()>,
-}
-
-impl SealsManager {
-    fn new(
-        me: Option<AccountId>,
-        runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
-    ) -> Self {
-        Self {
-            me,
-            runtime_adapter,
-            active_demurs: HashMap::new(),
-            past_seals: BTreeMap::new(),
-            dont_include_chunks_from: lru::LruCache::new(CHUNK_PRODUCER_BLACKLIST_SIZE),
-        }
-    }
-
-    fn get_seal(
-        &mut self,
-        chunk_hash: &ChunkHash,
-        parent_hash: &CryptoHash,
-        height: BlockHeight,
-        shard_id: ShardId,
-    ) -> Result<Seal, near_chain::Error> {
-        match self.past_seals.get(&height) {
-            Some(hashes) if hashes.contains(chunk_hash) => Ok(Seal::Past),
-
-            // None | Some(hashes) if !hashes.contains(chunk_hash)
-            _ => self
-                .get_active_seal(chunk_hash, parent_hash, height, shard_id)
-                .map(|demur| Seal::Active(demur)),
-        }
-    }
-
-    fn get_active_seal(
-        &mut self,
-        chunk_hash: &ChunkHash,
-        parent_hash: &CryptoHash,
-        height: BlockHeight,
-        shard_id: ShardId,
-    ) -> Result<&mut ActiveSealDemur, near_chain::Error> {
-        match self.active_demurs.entry(chunk_hash.clone()) {
-            hash_map::Entry::Occupied(entry) => Ok(entry.into_mut()),
-            hash_map::Entry::Vacant(entry) => {
-                let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(parent_hash)?;
-                let chunk_producer =
-                    self.runtime_adapter.get_chunk_producer(&epoch_id, height, shard_id)?;
-                let candidates = {
-                    let n = self.runtime_adapter.num_total_parts();
-                    // `n` is an upper bound for elements in the accumulator; declaring with
-                    // this capacity up front will mean no further allocations will occur
-                    // from `push` calls in the loop.
-                    let mut accumulator = Vec::with_capacity(n);
-
-                    for part_ord in 0..n {
-                        let part_ord = part_ord as u64;
-                        let part_owner =
-                            self.runtime_adapter.get_part_owner(&epoch_id, part_ord)?;
-                        if part_owner == chunk_producer || Some(&part_owner) == self.me.as_ref() {
-                            continue;
-                        }
-                        accumulator.push(part_ord);
-                    }
-
-                    accumulator
-                };
-
-                let chosen = Self::get_random_part_ords(candidates);
-                let demur =
-                    ActiveSealDemur { part_ords: chosen, chunk_producer, sent: Utc::now(), height };
-
-                Ok(entry.insert(demur))
-            }
-        }
-    }
-
-    fn get_random_part_ords(candidates: Vec<u64>) -> HashSet<u64> {
-        candidates
-            .choose_multiple(
-                &mut rand::thread_rng(),
-                cmp::min(NUM_PARTS_REQUESTED_IN_SEAL, candidates.len()),
-            )
-            .cloned()
-            .collect()
-    }
-
-    fn approve_chunk(&mut self, height: BlockHeight, chunk_hash: &ChunkHash) {
-        let maybe_seal = self.active_demurs.remove(chunk_hash);
-        match maybe_seal {
-            None => match self.past_seals.entry(height) {
-                btree_map::Entry::Vacant(vacant) => {
-                    // TODO(#3180): seals are disabled in single shard setting
-                    /*warn!(
-                        target: "chunks",
-                        "A chunk at height {} with hash {:?} was approved without an active seal demur and no past seals were found at the same height",
-                        height,
-                        chunk_hash
-                    );*/
-                    let mut hashes = HashSet::new();
-                    hashes.insert(chunk_hash.clone());
-                    vacant.insert(hashes);
-                }
-                btree_map::Entry::Occupied(mut occupied) => {
-                    let hashes = occupied.get_mut();
-                    if !hashes.contains(chunk_hash) {
-                        // TODO(#3180): seals are disabled in single shard setting
-                        /*warn!(
-                            target: "chunks",
-                            "Approved chunk at height {} with hash {:?} was not an active seal demur or a past seal",
-                            height,
-                            chunk_hash
-                        );*/
-                        hashes.insert(chunk_hash.clone());
-                    }
-                }
-            },
-            Some(seal) => {
-                Self::insert_past_seal(&mut self.past_seals, seal.height, chunk_hash.clone());
-            }
-        }
-    }
-
-    fn insert_past_seal(
-        past_seals: &mut BTreeMap<BlockHeight, HashSet<ChunkHash>>,
-        height: BlockHeight,
-        chunk_hash: ChunkHash,
-    ) {
-        let hashes_at_height = past_seals.entry(height).or_insert_with(HashSet::new);
-        hashes_at_height.insert(chunk_hash);
-    }
-
-    // TODO(#3180): seals are disabled in single shard setting
-    /*fn prune_past_seals(&mut self) {
-        let maybe_height_limits = {
-            let mut heights = self.past_seals.keys();
-            heights.next().and_then(|least_height| {
-                heights.next_back().map(|greatest_height| (*least_height, *greatest_height))
-            })
-        };
-
-        if let Some((least_height, greatest_height)) = maybe_height_limits {
-            let min_keep_height = greatest_height.saturating_sub(PAST_SEAL_HEIGHT_HORIZON);
-            if least_height < min_keep_height {
-                let remaining_seals = self.past_seals.split_off(&min_keep_height);
-                self.past_seals = remaining_seals;
-            }
-        }
-    }*/
-
-    // TODO(#3180): seals are disabled in single shard setting
-    /*fn track_seals(&mut self) {
-        let now = Utc::now();
-        let me = &self.me;
-        let dont_include_chunks_from = &mut self.dont_include_chunks_from;
-        let past_seals = &mut self.past_seals;
-
-        self.active_demurs.retain(|chunk_hash, seal| {
-            let accepting_period_over = (now - seal.sent).num_milliseconds() > ACCEPTING_SEAL_PERIOD_MS;
-            let parts_remain = seal.part_ords.len() > NUM_PARTS_LEFT_IN_SEAL;
-
-            // note chunk producers that failed to make parts available
-            if parts_remain && accepting_period_over {
-                warn!(target: "client", "Couldn't reconstruct chunk {:?} from {:?}, I'm {:?}", chunk_hash, seal.chunk_producer, me);
-                dont_include_chunks_from.cache_set(seal.chunk_producer.clone(), ());
-                Self::insert_past_seal(past_seals, seal.height, chunk_hash.clone());
-
-                // Do not retain this demur, it has expired
-                false
-            } else {
-                true
-            }
-        });
-
-        self.prune_past_seals();
-    }*/
-
-    fn should_trust_chunk_producer(&mut self, chunk_producer: &AccountId) -> bool {
-        self.dont_include_chunks_from.get(chunk_producer).is_none()
-    }
-}
-
 pub struct ShardsManager {
+    clock: time::Clock,
     me: Option<AccountId>,
     store: ReadOnlyChunksStore,
 
@@ -503,12 +261,11 @@ pub struct ShardsManager {
     // header_head is new, but we would only know that the older chunks are old because
     // header_head is much newer.
     chain_header_head: Tip,
-
-    seals_mgr: SealsManager,
 }
 
 impl ShardsManager {
     pub fn new(
+        clock: time::Clock,
         me: Option<AccountId>,
         runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
         network_adapter: Sender<PeerManagerMessageRequest>,
@@ -518,7 +275,8 @@ impl ShardsManager {
         initial_chain_header_head: Tip,
     ) -> Self {
         Self {
-            me: me.clone(),
+            clock,
+            me,
             store,
             runtime_adapter: runtime_adapter.clone(),
             peer_manager_adapter: network_adapter,
@@ -529,15 +287,14 @@ impl ShardsManager {
             ),
             encoded_chunks: EncodedChunksCache::new(),
             requested_partial_encoded_chunks: RequestPool::new(
-                Duration::from_millis(CHUNK_REQUEST_RETRY_MS),
-                Duration::from_millis(CHUNK_REQUEST_SWITCH_TO_OTHERS_MS),
-                Duration::from_millis(CHUNK_REQUEST_SWITCH_TO_FULL_FETCH_MS),
-                Duration::from_millis(CHUNK_REQUEST_RETRY_MAX_MS),
+                CHUNK_REQUEST_RETRY,
+                CHUNK_REQUEST_SWITCH_TO_OTHERS,
+                CHUNK_REQUEST_SWITCH_TO_FULL_FETCH,
+                CHUNK_REQUEST_RETRY_MAX,
             ),
             chunk_forwards_cache: lru::LruCache::new(CHUNK_FORWARD_CACHE_SIZE),
             chain_head: initial_chain_head,
             chain_header_head: initial_chain_header_head,
-            seals_mgr: SealsManager::new(me, runtime_adapter),
         }
     }
 
@@ -614,7 +371,6 @@ impl ShardsManager {
             self.get_random_target_tracking_shard(ancestor_hash, shard_id)?
         };
 
-        let seal = self.seals_mgr.get_seal(chunk_hash, ancestor_hash, height, shard_id)?;
         let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(ancestor_hash)?;
 
         for part_ord in 0..self.rs.total_shard_count() {
@@ -628,7 +384,7 @@ impl ShardsManager {
             // though unless you can think of a concise way to do it.
             let part_owner = self.runtime_adapter.get_part_owner(&epoch_id, part_ord)?;
             let we_own_part = Some(&part_owner) == me;
-            if !request_full && !we_own_part && !seal.contains_part_ord(&part_ord) {
+            if !request_full && !we_own_part {
                 continue;
             }
 
@@ -695,7 +451,7 @@ impl ShardsManager {
                     NetworkRequests::PartialEncodedChunkRequest {
                         target,
                         request,
-                        create_time: StaticClock::instant().into(),
+                        create_time: self.clock.now(),
                     },
                 ));
             } else {
@@ -837,8 +593,8 @@ impl ShardsManager {
                 prev_block_hash,
                 ancestor_hash,
                 shard_id,
-                last_requested: StaticClock::instant(),
-                added: StaticClock::instant(),
+                last_requested: self.clock.now().into(),
+                added: self.clock.now().into(),
             },
         );
 
@@ -932,7 +688,7 @@ impl ShardsManager {
             pool_size = self.requested_partial_encoded_chunks.len())
         .entered();
         // Process chunk one part requests.
-        let requests = self.requested_partial_encoded_chunks.fetch();
+        let requests = self.requested_partial_encoded_chunks.fetch(self.clock.now().into());
         for (chunk_hash, chunk_request) in requests {
             let fetch_from_archival = self.runtime_adapter
                 .chunk_needs_to_be_fetched_from_archival(&chunk_request.ancestor_hash, &self.chain_header_head.last_block_hash).unwrap_or_else(|err| {
@@ -948,11 +704,11 @@ impl ShardsManager {
                 &chunk_request.ancestor_hash,
                 chunk_request.shard_id,
                 &chunk_hash,
-                chunk_request.added.elapsed()
-                    > self.requested_partial_encoded_chunks.switch_to_full_fetch_duration,
+                self.clock.now() - chunk_request.added
+                    >= self.requested_partial_encoded_chunks.switch_to_full_fetch_duration,
                 old_block
-                    || chunk_request.added.elapsed()
-                        > self.requested_partial_encoded_chunks.switch_to_others_duration,
+                    || self.clock.now() - chunk_request.added
+                        >= self.requested_partial_encoded_chunks.switch_to_others_duration,
                 fetch_from_archival,
             ) {
                 Ok(()) => {}
@@ -1004,9 +760,9 @@ impl ShardsManager {
             shards = ?request.tracking_shards,
             account = ?self.me.as_ref());
 
-        let started = Instant::now();
+        let started = self.clock.now();
         let (source, response) = self.prepare_partial_encoded_chunk_response(request);
-        let elapsed = started.elapsed().as_secs_f64();
+        let elapsed = (self.clock.now() - started).as_seconds_f64();
         let labels = [
             source.name_for_metrics(),
             if response.parts.is_empty() && response.receipts.is_empty() { "failed" } else { "ok" },
@@ -1785,10 +1541,7 @@ impl ShardsManager {
             header.shard_id(),
         )?;
 
-        // TODO(#3180): seals are disabled in single shard setting
-        // self.seals_mgr.track_seals();
-
-        if have_all_parts && self.seals_mgr.should_trust_chunk_producer(&chunk_producer) {
+        if have_all_parts {
             if self.encoded_chunks.mark_chunk_for_inclusion(&chunk_hash) {
                 self.client_adapter.send(ShardsManagerResponse::ChunkHeaderReadyForInclusion {
                     chunk_header: header.clone(),
@@ -1798,15 +1551,6 @@ impl ShardsManager {
         }
         // we can safely unwrap here because we already checked that chunk_hash exist in encoded_chunks
         let entry = self.encoded_chunks.get(&chunk_hash).unwrap();
-
-        // TODO(#3180): seals are disabled in single shard setting
-        /*let seal = self.seals_mgr.get_seal(
-            &chunk_hash,
-            &prev_block_hash,
-            header.inner.height_created,
-            header.inner.shard_id,
-        )?;
-        let have_all_seal = seal.process(entry);*/
 
         let cares_about_shard = cares_about_shard_this_or_next_epoch(
             self.me.as_ref(),
@@ -1834,7 +1578,6 @@ impl ShardsManager {
         // If we can reconstruct the chunk, then all parts and receipts are available so we can
         // always complete the chunk.
         if can_reconstruct {
-            let height = header.height_created();
             let protocol_version = self.runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
             let mut encoded_chunk = EncodedShardChunk::from_header(
                 header.clone(),
@@ -1850,8 +1593,6 @@ impl ShardsManager {
             let (shard_chunk, partial_chunk) = self
                 .decode_encoded_chunk_if_complete(encoded_chunk)?
                 .expect("decoding shouldn't fail");
-
-            self.seals_mgr.approve_chunk(height, &chunk_hash);
 
             // For consistency, only persist shard_chunk if we actually care about the shard.
             // Don't persist if we don't care about the shard, even if we accidentally got enough
@@ -2213,7 +1954,8 @@ impl ShardsManager {
                 partial_encoded_chunk_response,
                 received_time,
             } => {
-                PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY.observe(received_time.elapsed().as_secs_f64());
+                PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY
+                    .observe((self.clock.now() - received_time).as_seconds_f64());
                 if let Err(e) =
                     self.process_partial_encoded_chunk_response(partial_encoded_chunk_response)
                 {
@@ -2261,25 +2003,19 @@ impl PartialEncodedChunkResponseSource {
 
 #[cfg(test)]
 mod test {
-
     use assert_matches::assert_matches;
     use near_async::messaging::IntoSender;
     use near_chain::types::EpochManagerAdapter;
-    use near_primitives::test_utils::create_test_signer;
+    use near_primitives::time::FakeClock;
     use std::sync::Arc;
-    use std::time::Duration;
 
-    use near_chain::test_utils::{KeyValueRuntime, ValidatorSchedule};
-    use near_chain::{Chain, ChainStore};
+    use near_chain::test_utils::KeyValueRuntime;
     use near_network::test_utils::MockPeerManagerAdapter;
     use near_network::types::NetworkRequests;
     use near_o11y::testonly::init_test_logger;
     use near_primitives::block::Tip;
     use near_primitives::hash::{hash, CryptoHash};
-    use near_primitives::merkle::merklize;
-    use near_primitives::sharding::ReedSolomonWrapper;
     use near_primitives::types::EpochId;
-    use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_test_store;
 
     use super::*;
@@ -2300,7 +2036,9 @@ mod test {
         let runtime_adapter = Arc::new(KeyValueRuntime::new(store.clone(), 5));
         let network_adapter = Arc::new(MockPeerManagerAdapter::default());
         let client_adapter = Arc::new(MockClientAdapterForShardsManager::default());
+        let clock = FakeClock::default();
         let mut shards_manager = ShardsManager::new(
+            clock.clock(),
             Some("test".parse().unwrap()),
             runtime_adapter,
             network_adapter.as_sender(),
@@ -2309,7 +2047,7 @@ mod test {
             mock_tip.clone(),
             mock_tip,
         );
-        let added = StaticClock::instant();
+        let added = clock.now().into();
         shards_manager.requested_partial_encoded_chunks.insert(
             ChunkHash(hash(&[1])),
             ChunkRequestInfo {
@@ -2317,11 +2055,11 @@ mod test {
                 ancestor_hash: Default::default(),
                 prev_block_hash: Default::default(),
                 shard_id: 0,
-                added: added,
+                added,
                 last_requested: added,
             },
         );
-        std::thread::sleep(Duration::from_millis(2 * CHUNK_REQUEST_RETRY_MS));
+        clock.advance(CHUNK_REQUEST_RETRY * 2);
         shards_manager.resend_chunk_requests();
 
         // For the chunks that would otherwise be requested from self we expect a request to be
@@ -2337,191 +2075,12 @@ mod test {
     }
 
     #[test]
-    #[cfg_attr(not(feature = "expensive_tests"), ignore)]
-    fn test_seal_removal() {
-        init_test_logger();
-        let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![vec![
-            "test".parse().unwrap(),
-            "test1".parse().unwrap(),
-            "test2".parse().unwrap(),
-            "test3".parse().unwrap(),
-        ]]);
-        let runtime_adapter =
-            Arc::new(KeyValueRuntime::new_with_validators(create_test_store(), vs, 5));
-        let network_adapter = Arc::new(MockPeerManagerAdapter::default());
-        let client_adapter = Arc::new(MockClientAdapterForShardsManager::default());
-        let chain_store = ChainStore::new(create_test_store(), 0, true);
-        let mock_tip = Tip {
-            height: 0,
-            last_block_hash: CryptoHash::default(),
-            prev_block_hash: CryptoHash::default(),
-            epoch_id: EpochId::default(),
-            next_epoch_id: EpochId::default(),
-        };
-        let mut shards_manager = ShardsManager::new(
-            Some("test".parse().unwrap()),
-            runtime_adapter.clone(),
-            network_adapter.as_sender(),
-            client_adapter.as_sender(),
-            chain_store.new_read_only_chunks_store(),
-            mock_tip.clone(),
-            mock_tip,
-        );
-        let signer = create_test_signer("test");
-        let mut rs = ReedSolomonWrapper::new(4, 10);
-        let shard_layout = runtime_adapter.get_shard_layout(&EpochId::default()).unwrap();
-        let (encoded_chunk, proof) = ShardsManager::create_encoded_shard_chunk(
-            CryptoHash::default(),
-            CryptoHash::default(),
-            CryptoHash::default(),
-            1,
-            0,
-            0,
-            0,
-            0,
-            vec![],
-            vec![],
-            &[],
-            merklize(&Chain::build_receipts_hashes(&[], &shard_layout)).0,
-            CryptoHash::default(),
-            &signer,
-            &mut rs,
-            PROTOCOL_VERSION,
-        )
-        .unwrap();
-        let header = encoded_chunk.cloned_header();
-        let prev_block_hash = header.prev_block_hash();
-        shards_manager.requested_partial_encoded_chunks.insert(
-            header.chunk_hash(),
-            ChunkRequestInfo {
-                height: header.height_created(),
-                ancestor_hash: *prev_block_hash,
-                prev_block_hash: *prev_block_hash,
-                shard_id: header.shard_id(),
-                last_requested: StaticClock::instant(),
-                added: StaticClock::instant(),
-            },
-        );
-        shards_manager
-            .request_partial_encoded_chunk(
-                header.height_created(),
-                &header.prev_block_hash(),
-                header.shard_id(),
-                &header.chunk_hash(),
-                false,
-                false,
-                false,
-            )
-            .unwrap();
-        let partial_encoded_chunk1 =
-            encoded_chunk.create_partial_encoded_chunk(vec![0, 1], vec![], &proof);
-        let partial_encoded_chunk2 =
-            encoded_chunk.create_partial_encoded_chunk(vec![2, 3, 4], vec![], &proof);
-        std::thread::sleep(Duration::from_millis(crate::ACCEPTING_SEAL_PERIOD_MS as u64 + 100));
-        for partial_encoded_chunk in vec![partial_encoded_chunk1, partial_encoded_chunk2] {
-            shards_manager
-                .process_partial_encoded_chunk(MaybeValidated::from(partial_encoded_chunk))
-                .unwrap();
-        }
-    }
-
-    #[test]
-    fn test_get_seal() {
-        let fixture = SealsManagerTestFixture::default();
-        let mut seals_manager = fixture.create_seals_manager();
-
-        let seal_assert = |seals_manager: &mut SealsManager| {
-            let seal = seals_manager
-                .get_seal(
-                    &fixture.mock_chunk_hash,
-                    &fixture.mock_parent_hash,
-                    fixture.mock_height,
-                    fixture.mock_shard_id,
-                )
-                .unwrap();
-            let demur = match seal {
-                Seal::Active(demur) => demur,
-                Seal::Past => panic!("Expected ActiveSealDemur"),
-            };
-            assert_eq!(demur.part_ords.len(), NUM_PARTS_REQUESTED_IN_SEAL);
-            assert_eq!(demur.height, fixture.mock_height);
-            assert_eq!(demur.chunk_producer, fixture.mock_chunk_producer);
-        };
-
-        // SealsManger::get_seal should:
-
-        // 1. return a new seal when one does not exist
-        assert!(seals_manager.active_demurs.is_empty());
-        seal_assert(&mut seals_manager);
-        assert_eq!(seals_manager.active_demurs.len(), 1);
-
-        // 2. return the same seal when it is already created
-        seal_assert(&mut seals_manager);
-        assert_eq!(seals_manager.active_demurs.len(), 1);
-    }
-
-    #[test]
-    fn test_approve_chunk() {
-        let fixture = SealsManagerTestFixture::default();
-        let mut seals_manager = fixture.create_seals_manager();
-
-        // SealsManager::approve_chunk should indicate all parts were retrieved and
-        // move the seal into the past seals map.
-        fixture.create_seal(&mut seals_manager);
-        seals_manager.approve_chunk(fixture.mock_height, &fixture.mock_chunk_hash);
-        assert!(seals_manager.active_demurs.is_empty());
-        assert!(seals_manager.should_trust_chunk_producer(&fixture.mock_chunk_producer));
-        assert!(seals_manager
-            .past_seals
-            .get(&fixture.mock_height)
-            .unwrap()
-            .contains(&fixture.mock_chunk_hash));
-    }
-
-    // TODO(#3180): seals are disabled in single shard setting
-    /*#[test]
-    fn test_track_seals() {
-        let fixture = SealsManagerTestFixture::default();
-        let mut seals_manager = fixture.create_seals_manager();
-
-        // create a seal with old timestamp
-        fixture.create_expired_seal(
-            &mut seals_manager,
-            &fixture.mock_chunk_hash,
-            &fixture.mock_parent_hash,
-            fixture.mock_height,
-        );
-
-        // SealsManager::track_seals should:
-
-        // 1. mark the chunk producer as faulty if the parts were not retrieved and
-        //    move the seal into the past seals map
-        seals_manager.track_seals();
-        assert!(!seals_manager.should_trust_chunk_producer(&fixture.mock_chunk_producer));
-        assert!(seals_manager.active_demurs.is_empty());
-        assert!(seals_manager
-            .past_seals
-            .get(&fixture.mock_height)
-            .unwrap()
-            .contains(&fixture.mock_chunk_hash));
-
-        // 2. remove seals older than the USED_SEAL_HEIGHT_HORIZON
-        fixture.create_expired_seal(
-            &mut seals_manager,
-            &fixture.mock_distant_chunk_hash,
-            &fixture.mock_distant_block_hash,
-            fixture.mock_height + PAST_SEAL_HEIGHT_HORIZON + 1,
-        );
-        seals_manager.track_seals();
-        assert!(seals_manager.active_demurs.is_empty());
-        assert!(seals_manager.past_seals.get(&fixture.mock_height).is_none());
-    }*/
-
-    #[test]
     fn test_resend_chunk_requests() {
         // Test that resending chunk requests won't request for parts the node already received
         let mut fixture = ChunkTestFixture::new(true);
+        let clock = FakeClock::default();
         let mut shards_manager = ShardsManager::new(
+            clock.clock(),
             Some(fixture.mock_shard_tracker.clone()),
             fixture.mock_runtime.clone(),
             fixture.mock_network.as_sender(),
@@ -2568,7 +2127,7 @@ mod test {
         assert_matches!(result, ProcessPartialEncodedChunkResult::NeedBlock);
 
         // resend request and check chunk part 0 and 1 are not requested again
-        std::thread::sleep(Duration::from_millis(2 * CHUNK_REQUEST_RETRY_MS));
+        clock.advance(CHUNK_REQUEST_RETRY * 2);
         shards_manager.resend_chunk_requests();
 
         let requested_parts = collect_request_parts(&mut fixture);
@@ -2586,6 +2145,7 @@ mod test {
         // Test that process_partial_encoded_chunk will reject invalid chunk
         let fixture = ChunkTestFixture::default();
         let mut shards_manager = ShardsManager::new(
+            FakeClock::default().clock(),
             Some(fixture.mock_shard_tracker.clone()),
             fixture.mock_runtime.clone(),
             fixture.mock_network.as_sender(),
@@ -2612,7 +2172,9 @@ mod test {
         // When ShardsManager receives parts it owns, it should forward them to the shard trackers
         // and not request any parts (yet).
         let fixture = ChunkTestFixture::default();
+        let clock = FakeClock::default();
         let mut shards_manager = ShardsManager::new(
+            clock.clock(),
             Some(fixture.mock_chunk_part_owner.clone()),
             fixture.mock_runtime.clone(),
             fixture.mock_network.as_sender(),
@@ -2653,7 +2215,7 @@ mod test {
 
         // After some time, we should send requests if we have not been forwarded the parts
         // we need.
-        std::thread::sleep(Duration::from_millis(2 * CHUNK_REQUEST_RETRY_MS));
+        clock.advance(CHUNK_REQUEST_RETRY * 2);
         shards_manager.resend_chunk_requests();
         let (_, requests_count) = count_forwards_and_requests(&fixture);
         assert!(requests_count > 0);
@@ -2664,6 +2226,7 @@ mod test {
         // Tests that we only forward a chunk if it's the first time we receive it.
         let fixture = ChunkTestFixture::default();
         let mut shards_manager = ShardsManager::new(
+            FakeClock::default().clock(),
             Some(fixture.mock_chunk_part_owner.clone()),
             fixture.mock_runtime.clone(),
             fixture.mock_network.as_sender(),
@@ -2728,7 +2291,9 @@ mod test {
         fixture: &mut ChunkTestFixture,
         account_id: Option<AccountId>,
     ) -> RequestChunksResult {
+        let clock = FakeClock::default();
         let mut shards_manager = ShardsManager::new(
+            clock.clock(),
             account_id,
             fixture.mock_runtime.clone(),
             fixture.mock_network.as_sender(),
@@ -2752,7 +2317,7 @@ mod test {
         while let Some(_) = fixture.mock_network.pop() {
             sent_request_message_immediately = true;
         }
-        std::thread::sleep(Duration::from_millis(2 * CHUNK_REQUEST_RETRY_MS));
+        clock.advance(CHUNK_REQUEST_RETRY * 2);
         shards_manager.resend_chunk_requests();
         let mut sent_request_message_after_timeout = false;
         while let Some(_) = fixture.mock_network.pop() {
@@ -2813,6 +2378,7 @@ mod test {
 
         let mut fixture = ChunkTestFixture::new_with_chunk_only_producers();
         let mut shards_manager = ShardsManager::new(
+            FakeClock::default().clock(),
             Some(fixture.mock_chunk_part_owner.clone()),
             fixture.mock_runtime.clone(),
             fixture.mock_network.as_sender(),
@@ -2895,7 +2461,9 @@ mod test {
         // We want to verify that the chunk forward can be stored and wait to be processed in this
         // case too
         let fixture = ChunkTestFixture::new(true);
+        let clock = FakeClock::default();
         let mut shards_manager = ShardsManager::new(
+            clock.clock(),
             Some(fixture.mock_shard_tracker.clone()),
             fixture.mock_runtime.clone(),
             fixture.mock_network.as_sender(),
@@ -2941,7 +2509,7 @@ mod test {
             &EpochId::default(),
             CryptoHash::default(),
         );
-        std::thread::sleep(Duration::from_millis(2 * CHUNK_REQUEST_RETRY_MS));
+        clock.advance(CHUNK_REQUEST_RETRY * 2);
         shards_manager.resend_chunk_requests();
         assert!(fixture
             .mock_network
@@ -2964,7 +2532,9 @@ mod test {
     // when it receives the header.
     fn test_receive_forward_before_chunk_header_from_block() {
         let fixture = ChunkTestFixture::default();
+        let clock = FakeClock::default();
         let mut shards_manager = ShardsManager::new(
+            clock.clock(),
             Some(fixture.mock_shard_tracker.clone()),
             fixture.mock_runtime.clone(),
             fixture.mock_network.as_sender(),
@@ -3006,7 +2576,7 @@ mod test {
             false,
         );
 
-        std::thread::sleep(Duration::from_millis(2 * CHUNK_REQUEST_RETRY_MS));
+        clock.advance(CHUNK_REQUEST_RETRY * 2);
         shards_manager.resend_chunk_requests();
         assert!(fixture
             .mock_network
@@ -3027,6 +2597,7 @@ mod test {
     fn test_chunk_cache_hit_for_produced_chunk() {
         let fixture = ChunkTestFixture::default();
         let mut shards_manager = ShardsManager::new(
+            FakeClock::default().clock(),
             Some(fixture.mock_shard_tracker.clone()),
             fixture.mock_runtime.clone(),
             fixture.mock_network.as_sender(),
@@ -3059,6 +2630,7 @@ mod test {
     fn test_chunk_cache_hit_for_received_chunk() {
         let fixture = ChunkTestFixture::default();
         let mut shards_manager = ShardsManager::new(
+            FakeClock::default().clock(),
             Some(fixture.mock_shard_tracker.clone()),
             fixture.mock_runtime.clone(),
             fixture.mock_network.as_sender(),
@@ -3088,6 +2660,7 @@ mod test {
     fn test_chunk_response_for_uncached_partial_chunk() {
         let mut fixture = ChunkTestFixture::default();
         let mut shards_manager = ShardsManager::new(
+            FakeClock::default().clock(),
             Some(fixture.mock_shard_tracker.clone()),
             fixture.mock_runtime.clone(),
             fixture.mock_network.as_sender(),
@@ -3118,6 +2691,7 @@ mod test {
     fn test_chunk_response_for_uncached_shard_chunk() {
         let mut fixture = ChunkTestFixture::default();
         let mut shards_manager = ShardsManager::new(
+            FakeClock::default().clock(),
             Some(fixture.mock_shard_tracker.clone()),
             fixture.mock_runtime.clone(),
             fixture.mock_network.as_sender(),
@@ -3147,6 +2721,7 @@ mod test {
     fn test_chunk_response_combining_cache_and_partial_chunks() {
         let mut fixture = ChunkTestFixture::default();
         let mut shards_manager = ShardsManager::new(
+            FakeClock::default().clock(),
             Some(fixture.mock_shard_tracker.clone()),
             fixture.mock_runtime.clone(),
             fixture.mock_network.as_sender(),
@@ -3184,6 +2759,7 @@ mod test {
     fn test_chunk_response_combining_cache_and_shard_chunks() {
         let mut fixture = ChunkTestFixture::default();
         let mut shards_manager = ShardsManager::new(
+            FakeClock::default().clock(),
             Some(fixture.mock_shard_tracker.clone()),
             fixture.mock_runtime.clone(),
             fixture.mock_network.as_sender(),
@@ -3225,6 +2801,7 @@ mod test {
     fn test_chunk_response_combining_cache_and_partial_chunks_with_some_missing() {
         let mut fixture = ChunkTestFixture::default();
         let mut shards_manager = ShardsManager::new(
+            FakeClock::default().clock(),
             Some(fixture.mock_shard_tracker.clone()),
             fixture.mock_runtime.clone(),
             fixture.mock_network.as_sender(),
@@ -3264,6 +2841,7 @@ mod test {
     fn test_chunk_response_empty_request() {
         let fixture = ChunkTestFixture::default();
         let mut shards_manager = ShardsManager::new(
+            FakeClock::default().clock(),
             Some(fixture.mock_shard_tracker.clone()),
             fixture.mock_runtime.clone(),
             fixture.mock_network.as_sender(),
@@ -3286,6 +2864,7 @@ mod test {
     fn test_chunk_response_for_nonexistent_chunk() {
         let fixture = ChunkTestFixture::default();
         let mut shards_manager = ShardsManager::new(
+            FakeClock::default().clock(),
             Some(fixture.mock_shard_tracker.clone()),
             fixture.mock_runtime.clone(),
             fixture.mock_network.as_sender(),
@@ -3308,6 +2887,7 @@ mod test {
     fn test_chunk_response_for_request_including_invalid_part_ord() {
         let mut fixture = ChunkTestFixture::default();
         let mut shards_manager = ShardsManager::new(
+            FakeClock::default().clock(),
             Some(fixture.mock_shard_tracker.clone()),
             fixture.mock_runtime.clone(),
             fixture.mock_network.as_sender(),
@@ -3338,6 +2918,7 @@ mod test {
         // We should not return any duplicates.
         let mut fixture = ChunkTestFixture::default();
         let mut shards_manager = ShardsManager::new(
+            FakeClock::default().clock(),
             Some(fixture.mock_shard_tracker.clone()),
             fixture.mock_runtime.clone(),
             fixture.mock_network.as_sender(),
@@ -3366,6 +2947,7 @@ mod test {
     fn test_report_chunk_for_inclusion_to_client() {
         let fixture = ChunkTestFixture::default();
         let mut shards_manager = ShardsManager::new(
+            FakeClock::default().clock(),
             Some(fixture.mock_chunk_part_owner.clone()),
             fixture.mock_runtime.clone(),
             fixture.mock_network.as_sender(),
