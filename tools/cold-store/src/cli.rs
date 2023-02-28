@@ -439,40 +439,49 @@ struct CheckStateRootCmd {
     #[clap(long)]
     height: near_primitives::types::BlockHeight,
     #[clap(long)]
+    hash: Option<CryptoHash>,
+    #[clap(long)]
     max_depth: Option<u64>,
 }
 
 impl CheckStateRootCmd {
     pub fn run(self, storage: &NodeStorage) -> anyhow::Result<()> {
-        let hash_key = {
-            let height_key = self.height.to_le_bytes();
-            storage
-                .get_hot_store()
-                .get(DBCol::BlockHeight, &height_key)?
-                .unwrap()
-                .as_slice()
-                .to_vec()
-        };
         let cold_store = storage.get_cold_store().expect("Cold storage is not configured");
-        let block = cold_store
-            .get_ser::<near_primitives::block::Block>(DBCol::Block, hash_key.as_ref())
-            .unwrap()
-            .unwrap();
-        for chunk in block.chunks().iter() {
-            Self::check_trie(
-                &cold_store,
-                &cold_store
-                    .get_ser::<near_primitives::sharding::ShardChunk>(
-                        DBCol::Chunks,
-                        chunk.chunk_hash().as_bytes(),
-                    )
+        match self.hash {
+            None => {
+                let hash_key = {
+                    let height_key = self.height.to_le_bytes();
+                    storage
+                        .get_hot_store()
+                        .get(DBCol::BlockHeight, &height_key)?
+                        .unwrap()
+                        .as_slice()
+                        .to_vec()
+                };
+                let block = cold_store
+                    .get_ser::<near_primitives::block::Block>(DBCol::Block, hash_key.as_ref())
                     .unwrap()
-                    .unwrap()
-                    .take_header()
-                    .prev_state_root(),
-                0,
-                &self.max_depth,
-            )?;
+                    .unwrap();
+                for chunk in block.chunks().iter() {
+                    Self::check_trie(
+                        &cold_store,
+                        &cold_store
+                            .get_ser::<near_primitives::sharding::ShardChunk>(
+                                DBCol::Chunks,
+                                chunk.chunk_hash().as_bytes(),
+                            )
+                            .unwrap()
+                            .unwrap()
+                            .take_header()
+                            .prev_state_root(),
+                        0,
+                        &self.max_depth,
+                    )?;
+                }
+            }
+            Some(state_root) => {
+                Self::check_trie(&cold_store, &state_root, 0, &self.max_depth)?;
+            }
         }
 
         Ok(())
@@ -490,7 +499,7 @@ impl CheckStateRootCmd {
             return Ok(());
         }
 
-        let bytes = Self::read_state_with_retries(store, hash.as_ref(), 5)
+        let bytes = Self::read_state_with_retries(store, hash.as_ref(), 20)
             .with_context(|| format!("Failed to read raw bytes for hash {:?}", hash))?
             .expect(format!("Failed to find raw bytes for hash {:?}", hash).as_str());
         match near_store::RawTrieNodeWithSize::decode(&bytes) {
@@ -526,7 +535,7 @@ impl CheckStateRootCmd {
         for _ in 0..retries {
             match store.get(DBCol::State, &cold_state_key) {
                 Ok(value) => return Ok(value),
-                Err(_) => std::thread::sleep(std::time::Duration::from_millis(500)),
+                Err(_) => std::thread::sleep(std::time::Duration::from_secs(10)),
             }
         }
         store.get(DBCol::State, &cold_state_key)
