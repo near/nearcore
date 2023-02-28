@@ -7,6 +7,7 @@
 ### Non-protocol Changes
 
 * Node can sync State from S3. [#8789](https://github.com/near/nearcore/pull/8789)
+* Node can sync State from local storage. [#8789](https://github.com/near/nearcore/pull/8789)
 
 ## 1.33.0
 

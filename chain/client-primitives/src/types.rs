@@ -63,7 +63,8 @@ pub struct DownloadStatus {
     pub state_requests_count: u64,
     pub last_target: Option<AccountOrPeerIdOrHash>,
     #[serde(skip_serializing, skip_deserializing)]
-    pub response: Arc<Mutex<Option<Result<(u16, Vec<u8>), String>>>>,
+    // Use type `String` as an error to avoid a dependency on the `rust-s3` crate.
+    pub response: Arc<Mutex<Option<Result<Vec<u8>, String>>>>,
 }
 
 impl DownloadStatus {

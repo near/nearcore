@@ -1,7 +1,9 @@
 use crate::epoch_info::iterate_and_filter;
 use borsh::BorshDeserialize;
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
-use near_client::sync::state::StateSync;
+use near_client::sync::state::{
+    get_num_parts_from_filename, is_part_filename, location_prefix, part_filename, StateSync,
+};
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::state_part::PartId;
 use near_primitives::state_record::StateRecord;
@@ -390,35 +392,6 @@ fn read_state_header(
 
 fn get_part_ids(part_from: Option<u64>, part_to: Option<u64>, num_parts: u64) -> Range<u64> {
     part_from.unwrap_or(0)..part_to.unwrap_or(num_parts)
-}
-
-// Needs to be in sync with `fn s3_location()`.
-fn location_prefix(chain_id: &str, epoch_height: u64, shard_id: u64) -> String {
-    format!("chain_id={}/epoch_height={}/shard_id={}", chain_id, epoch_height, shard_id)
-}
-
-fn match_filename(s: &str) -> Option<regex::Captures> {
-    let re = regex::Regex::new(r"^state_part_(\d{6})_of_(\d{6})$").unwrap();
-    re.captures(s)
-}
-
-fn is_part_filename(s: &str) -> bool {
-    match_filename(s).is_some()
-}
-
-fn get_num_parts_from_filename(s: &str) -> Option<u64> {
-    if let Some(captures) = match_filename(s) {
-        if let Some(num_parts) = captures.get(2) {
-            if let Ok(num_parts) = num_parts.as_str().parse::<u64>() {
-                return Some(num_parts);
-            }
-        }
-    }
-    None
-}
-
-fn part_filename(part_id: u64, num_parts: u64) -> String {
-    format!("state_part_{:06}_of_{:06}", part_id, num_parts)
 }
 
 trait StatePartWriter {

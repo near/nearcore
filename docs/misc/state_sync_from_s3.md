@@ -8,10 +8,12 @@ details) doesn't allow the nodes to reliably perform state sync for testnet or
 mainnet.
 
 That's why a new solution for state sync is being designed.
-This is a short-term solution that is needed to let nodes sync and let chunk
-only producers to switch tracked shards.
-The experimental code is will not be kept for long and will be replaced with a
-decentralized solution.
+The experimental code is likely going to be a part of solution to greatly
+improve both reliability and speed of state sync.
+
+The new solution will probably involve making the state available on external
+storage, making downloading the state both low latency and reliable process,
+thanks to the robust infrastructure of external storage such as S3.
 
 ## How-to
 
@@ -24,20 +26,52 @@ To enable, add this to your `config.json` file:
 ```json
 "state_sync_enabled": true,
 "state_sync": {
-  "s3_bucket": "my-bucket",
-  "s3_region": "eu-central-1",
-  "sync_from_s3_enabled": true
+  "sync": {
+    "ExternalStorage": {
+      "location": {
+        "S3": {
+          "bucket": "my-aws-bucket",
+          "region": "my-aws-region"
+        }
+      }
+    }
+  }
 }
 ```
 
-And run your node with environment variables `AWS_ACCESS_KEY_ID` and
-`AWS_SECRET_ACCESS_KEY`:
+You don't need any environment variables set, as the access to S3 is anonymous:
 ```shell
-AWS_ACCESS_KEY_ID="MY_ACCESS_KEY" AWS_SECRET_ACCESS_KEY="MY_AWS_SECRET_ACCESS_KEY" ./neard run
+./neard run
+```
+
+## Sync from a local filesystem
+
+To enable, add this to your `config.json` file:
+
+```json
+"state_sync_enabled": true,
+"state_sync": {
+  "sync": {
+    "ExternalStorage": {
+      "location": {
+        "Filesystem": {
+          "root_dir": "/tmp/state-parts"
+        }
+      }
+    }
+  }
+}
+```
+
+You don't need any environment variables set, as the access to S3 is anonymous:
+```shell
+./neard run
 ```
 
 ## Implementation Details
 
+The experimental option replaces how a node fetches state parts.
+The legacy implementation asks peer nodes to create and share a state part over network.
 The new implementation expects to find state parts as files on an S3 storage.
 
 The sync mechanism proceeds to download state parts mostly-sequentially from S3.

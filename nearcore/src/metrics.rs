@@ -41,15 +41,7 @@ pub(crate) static STATE_SYNC_DUMP_ITERATION_ELAPSED: Lazy<HistogramVec> = Lazy::
     )
     .unwrap()
 });
-pub(crate) static STATE_SYNC_DUMP_PUT_OBJECT_ELAPSED: Lazy<HistogramVec> = Lazy::new(|| {
-    try_create_histogram_vec(
-        "near_state_sync_dump_put_object_elapsed_sec",
-        "Time needed to write a part",
-        &["shard_id"],
-        Some(exponential_buckets(0.001, 1.6, 25).unwrap()),
-    )
-    .unwrap()
-});
+
 pub(crate) static STATE_SYNC_DUMP_NUM_PARTS_TOTAL: Lazy<IntGaugeVec> = Lazy::new(|| {
     try_create_int_gauge_vec(
         "near_state_sync_dump_num_parts_total",
@@ -58,6 +50,7 @@ pub(crate) static STATE_SYNC_DUMP_NUM_PARTS_TOTAL: Lazy<IntGaugeVec> = Lazy::new
     )
     .unwrap()
 });
+
 pub(crate) static STATE_SYNC_DUMP_NUM_PARTS_DUMPED: Lazy<IntGaugeVec> = Lazy::new(|| {
     try_create_int_gauge_vec(
         "near_state_sync_dump_num_parts_dumped",
@@ -66,6 +59,7 @@ pub(crate) static STATE_SYNC_DUMP_NUM_PARTS_DUMPED: Lazy<IntGaugeVec> = Lazy::ne
     )
     .unwrap()
 });
+
 pub(crate) static STATE_SYNC_DUMP_SIZE_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_state_sync_dump_size_total",
@@ -74,6 +68,7 @@ pub(crate) static STATE_SYNC_DUMP_SIZE_TOTAL: Lazy<IntCounterVec> = Lazy::new(||
     )
     .unwrap()
 });
+
 pub(crate) static STATE_SYNC_DUMP_EPOCH_HEIGHT: Lazy<IntGaugeVec> = Lazy::new(|| {
     try_create_int_gauge_vec(
         "near_state_sync_dump_epoch_height",
@@ -82,6 +77,7 @@ pub(crate) static STATE_SYNC_DUMP_EPOCH_HEIGHT: Lazy<IntGaugeVec> = Lazy::new(||
     )
     .unwrap()
 });
+
 pub static STATE_SYNC_APPLY_PART_DELAY: Lazy<near_o11y::metrics::HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
         "near_state_sync_apply_part_delay_sec",
@@ -91,6 +87,7 @@ pub static STATE_SYNC_APPLY_PART_DELAY: Lazy<near_o11y::metrics::HistogramVec> =
     )
     .unwrap()
 });
+
 pub static STATE_SYNC_OBTAIN_PART_DELAY: Lazy<near_o11y::metrics::HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
         "near_state_sync_obtain_part_delay_sec",

@@ -1,49 +1,57 @@
-use crate::{metrics, NearConfig, NightshadeRuntime};
+use crate::metrics;
 use borsh::BorshSerialize;
-use near_chain::types::RuntimeAdapter;
-use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error};
-use near_chain_configs::ClientConfig;
-use near_client::sync::state::{s3_location, StateSync};
-use near_epoch_manager::EpochManagerAdapter;
+use near_chain::{
+    Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error,
+    RuntimeWithEpochManagerAdapter,
+};
+use near_chain_configs::{ClientConfig, ExternalStorageLocation};
+use near_client::sync::state::{s3_location, ExternalConnection, StateSync};
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::PartId;
 use near_primitives::syncing::{get_num_state_parts, StatePartKey, StateSyncDumpProgress};
-use near_primitives::types::{EpochHeight, EpochId, ShardId, StateRoot};
+use near_primitives::types::{AccountId, EpochHeight, EpochId, ShardId, StateRoot};
 use near_store::DBCol;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::time::Duration;
 
 /// Starts one a thread per tracked shard.
 /// Each started thread will be dumping state parts of a single epoch to external storage.
 pub fn spawn_state_sync_dump(
-    config: &NearConfig,
+    client_config: &ClientConfig,
     chain_genesis: ChainGenesis,
-    runtime: Arc<NightshadeRuntime>,
+    runtime: Arc<dyn RuntimeWithEpochManagerAdapter>,
+    account_id: Option<AccountId>,
 ) -> anyhow::Result<Option<StateSyncDumpHandle>> {
-    if !config.client_config.state_sync_dump_enabled {
+    let dump_config = if let Some(dump_config) = client_config.state_sync_config_dump.clone() {
+        dump_config
+    } else {
+        // Dump is not configured, and therefore not enabled.
         return Ok(None);
-    }
-    if config.client_config.state_sync_s3_bucket.is_empty()
-        || config.client_config.state_sync_s3_region.is_empty()
-    {
-        panic!("Enabled dumps of state to external storage. Please specify state_sync.s3_bucket and state_sync.s3_region");
-    }
+    };
     tracing::info!(target: "state_sync_dump", "Spawning the state sync dump loop");
 
-    // Create a connection to S3.
-    let s3_bucket = config.client_config.state_sync_s3_bucket.clone();
-    let s3_region = config.client_config.state_sync_s3_region.clone();
-
-    // Credentials to establish a connection are taken from environment variables: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY.
-    let bucket = s3::Bucket::new(
-        &s3_bucket,
-        s3_region
-            .parse::<s3::Region>()
-            .map_err(|err| <std::str::Utf8Error as Into<anyhow::Error>>::into(err))?,
-        s3::creds::Credentials::default().map_err(|err| {
-            tracing::error!(target: "state_sync_dump", "Failed to create a connection to S3. Did you provide environment variables AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY?");
-            <s3::creds::error::CredentialsError as Into<anyhow::Error>>::into(err)
-        })?,
-    ).map_err(|err| <s3::error::S3Error as Into<anyhow::Error>>::into(err))?;
+    let external = match dump_config.location {
+        ExternalStorageLocation::S3 { bucket, region } => {
+            // Credentials to establish a connection are taken from environment variables:
+            // * `AWS_ACCESS_KEY_ID`
+            // * `AWS_SECRET_ACCESS_KEY`
+            let bucket = s3::Bucket::new(
+                &bucket,
+                region
+                    .parse::<s3::Region>()
+                    .map_err(|err| <std::str::Utf8Error as Into<anyhow::Error>>::into(err))?,
+                s3::creds::Credentials::default().map_err(|err| {
+                    tracing::error!(target: "state_sync_dump", "Failed to create a connection to S3. Did you provide environment variables AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY?");
+                    <s3::creds::error::CredentialsError as Into<anyhow::Error>>::into(err)
+                })?,
+            ).map_err(|err| <s3::error::S3Error as Into<anyhow::Error>>::into(err))?;
+            ExternalConnection::S3 { bucket: Arc::new(bucket) }
+        }
+        ExternalStorageLocation::Filesystem { root_dir } => {
+            ExternalConnection::Filesystem { root_dir }
+        }
+    };
 
     // Determine how many threads to start.
     // TODO: Handle the case of changing the shard layout.
@@ -59,10 +67,11 @@ pub fn spawn_state_sync_dump(
         runtime.num_shards(&epoch_id)
     }?;
 
+    let chain_id = client_config.chain_id.clone();
+    let keep_running = Arc::new(AtomicBool::new(true));
     // Start a thread for each shard.
     let handles = (0..num_shards as usize)
         .map(|shard_id| {
-            let client_config = config.client_config.clone();
             let runtime = runtime.clone();
             let chain_genesis = chain_genesis.clone();
             let chain = Chain::new_for_view_client(
@@ -77,30 +86,38 @@ pub fn spawn_state_sync_dump(
                 shard_id as ShardId,
                 chain,
                 runtime,
-                client_config,
-                bucket.clone(),
+                chain_id.clone(),
+                dump_config.restart_dump_for_shards.clone().unwrap_or_default(),
+                external.clone(),
+                dump_config.iteration_delay.unwrap_or(Duration::from_secs(10)).clone(),
+                account_id.clone(),
+                keep_running.clone(),
             )));
             arbiter_handle
         })
         .collect();
 
-    Ok(Some(StateSyncDumpHandle { handles }))
+    Ok(Some(StateSyncDumpHandle { handles, keep_running }))
 }
 
 /// Holds arbiter handles controlling the lifetime of the spawned threads.
 pub struct StateSyncDumpHandle {
     pub handles: Vec<actix_rt::ArbiterHandle>,
+    keep_running: Arc<AtomicBool>,
 }
 
 impl Drop for StateSyncDumpHandle {
     fn drop(&mut self) {
+        self.keep_running.store(false, std::sync::atomic::Ordering::Relaxed);
         self.stop()
     }
 }
 
 impl StateSyncDumpHandle {
     pub fn stop(&self) {
-        let _: Vec<bool> = self.handles.iter().map(|handle| handle.stop()).collect();
+        self.handles.iter().for_each(|handle| {
+            handle.stop();
+        });
     }
 }
 
@@ -110,21 +127,22 @@ impl StateSyncDumpHandle {
 async fn state_sync_dump(
     shard_id: ShardId,
     chain: Chain,
-    runtime: Arc<NightshadeRuntime>,
-    config: ClientConfig,
-    bucket: s3::Bucket,
+    runtime: Arc<dyn RuntimeWithEpochManagerAdapter>,
+    chain_id: String,
+    restart_dump_for_shards: Vec<ShardId>,
+    external: ExternalConnection,
+    iteration_delay: Duration,
+    account_id: Option<AccountId>,
+    keep_running: Arc<AtomicBool>,
 ) {
     tracing::info!(target: "state_sync_dump", shard_id, "Running StateSyncDump loop");
 
-    if config.state_sync_restart_dump_for_shards.contains(&shard_id) {
+    if restart_dump_for_shards.contains(&shard_id) {
         tracing::debug!(target: "state_sync_dump", shard_id, "Dropped existing progress");
         chain.store().set_state_sync_dump_progress(shard_id, None).unwrap();
     }
 
-    loop {
-        // Avoid a busy-loop when there is nothing to do.
-        std::thread::sleep(std::time::Duration::from_secs(10));
-
+    while keep_running.load(std::sync::atomic::Ordering::Relaxed) {
         let progress = chain.store().get_state_sync_dump_progress(shard_id);
         tracing::debug!(target: "state_sync_dump", shard_id, ?progress, "Running StateSyncDump loop iteration");
         // The `match` returns the next state of the state machine.
@@ -138,11 +156,12 @@ async fn state_sync_dump(
                     shard_id,
                     &chain,
                     &runtime,
+                    &account_id,
                 )
             }
             Err(Error::DBNotFoundErr(_)) | Ok(None) => {
                 // First invocation of this state-machine. See if at least one epoch is available for dumping.
-                check_new_epoch(None, None, None, shard_id, &chain, &runtime)
+                check_new_epoch(None, None, None, shard_id, &chain, &runtime, &account_id)
             }
             Err(err) => {
                 // Something went wrong, let's retry.
@@ -167,7 +186,7 @@ async fn state_sync_dump(
 
                         let mut res = None;
                         // The actual dumping of state to S3.
-                        tracing::info!(target: "state_sync_dump", shard_id, ?epoch_id, epoch_height, %sync_hash, parts_dumped, "Creating parts and dumping them");
+                        tracing::info!(target: "state_sync_dump", shard_id, ?epoch_id, epoch_height, %sync_hash, ?state_root, parts_dumped, "Creating parts and dumping them");
                         for part_id in parts_dumped..num_parts {
                             // Dump parts sequentially synchronously.
                             // TODO: How to make it possible to dump state more effectively using multiple nodes?
@@ -190,17 +209,12 @@ async fn state_sync_dump(
                                     break;
                                 }
                             };
-                            let location = s3_location(
-                                &config.chain_id,
-                                epoch_height,
-                                shard_id,
-                                part_id,
-                                num_parts,
-                            );
+                            let location =
+                                s3_location(&chain_id, epoch_height, shard_id, part_id, num_parts);
                             if let Err(err) =
-                                put_state_part(&location, &state_part, &shard_id, &bucket).await
+                                external.put_state_part(&state_part, shard_id, &location).await
                             {
-                                res = Some(err);
+                                res = Some(Error::Other(err.to_string()));
                                 break;
                             }
                             update_progress(
@@ -230,44 +244,36 @@ async fn state_sync_dump(
         };
 
         // Record the next state of the state machine.
-        match next_state {
+        let has_progress = match next_state {
             Ok(Some(next_state)) => {
                 tracing::debug!(target: "state_sync_dump", shard_id, ?next_state);
                 match chain.store().set_state_sync_dump_progress(shard_id, Some(next_state)) {
-                    Ok(_) => {}
+                    Ok(_) => true,
                     Err(err) => {
                         // This will be retried.
                         tracing::debug!(target: "state_sync_dump", shard_id, ?err, "Failed to set progress");
+                        false
                     }
                 }
             }
             Ok(None) => {
                 // Do nothing.
                 tracing::debug!(target: "state_sync_dump", shard_id, "Idle");
+                false
             }
             Err(err) => {
                 // Will retry.
                 tracing::debug!(target: "state_sync_dump", shard_id, ?err, "Failed to determine what to do");
+                false
             }
+        };
+
+        if !has_progress {
+            // Avoid a busy-loop when there is nothing to do.
+            std::thread::sleep(iteration_delay);
         }
     }
-}
-
-async fn put_state_part(
-    location: &str,
-    state_part: &[u8],
-    shard_id: &ShardId,
-    bucket: &s3::Bucket,
-) -> Result<s3::request_trait::ResponseData, Error> {
-    let _timer = metrics::STATE_SYNC_DUMP_PUT_OBJECT_ELAPSED
-        .with_label_values(&[&shard_id.to_string()])
-        .start_timer();
-    let put = bucket
-        .put_object(&location, &state_part)
-        .await
-        .map_err(|err| Error::Other(err.to_string()));
-    tracing::debug!(target: "state_sync_dump", shard_id, part_length = state_part.len(), ?location, "Wrote a state part to S3");
-    put
+    tracing::debug!(target: "state_sync_dump", shard_id, "DONE");
 }
 
 fn update_progress(
@@ -334,7 +340,7 @@ fn set_metrics(
 
 /// Obtains and then saves the part data.
 fn obtain_and_store_state_part(
-    runtime: &Arc<NightshadeRuntime>,
+    runtime: &Arc<dyn RuntimeWithEpochManagerAdapter>,
     shard_id: &ShardId,
     sync_hash: &CryptoHash,
     state_root: &StateRoot,
@@ -362,7 +368,8 @@ fn start_dumping(
     sync_hash: CryptoHash,
     shard_id: ShardId,
     chain: &Chain,
-    runtime: &Arc<NightshadeRuntime>,
+    runtime: &Arc<dyn RuntimeWithEpochManagerAdapter>,
+    account_id: &Option<AccountId>,
 ) -> Result<Option<StateSyncDumpProgress>, Error> {
     let epoch_info = runtime.get_epoch_info(&epoch_id)?;
     let epoch_height = epoch_info.epoch_height();
@@ -371,8 +378,8 @@ fn start_dumping(
 
     let state_header = chain.get_state_response_header(shard_id, sync_hash)?;
     let num_parts = get_num_state_parts(state_header.state_root_node().memory_usage);
-    if runtime.cares_about_shard(None, sync_prev_hash, shard_id, false) {
-        tracing::debug!(target: "state_sync_dump", shard_id, ?epoch_id, %sync_prev_hash, %sync_hash, "Initialize dumping state of Epoch");
+    if runtime.cares_about_shard(account_id.as_ref(), sync_prev_hash, shard_id, true) {
+        tracing::info!(target: "state_sync_dump", shard_id, ?epoch_id, %sync_prev_hash, %sync_hash, "Initialize dumping state of Epoch");
         // Note that first the state of the state machines gets changes to
         // `InProgress` and it starts dumping state after a short interval.
         set_metrics(&shard_id, Some(0), Some(num_parts), Some(epoch_height));
@@ -383,7 +390,7 @@ fn start_dumping(
             parts_dumped: 0,
         }))
     } else {
-        tracing::debug!(target: "state_sync_dump", shard_id, ?epoch_id, %sync_prev_hash, %sync_hash, "Shard is not tracked, skip the epoch");
+        tracing::info!(target: "state_sync_dump", shard_id, ?epoch_id, %sync_hash, "Shard is not tracked, skip the epoch");
         Ok(Some(StateSyncDumpProgress::AllDumped { epoch_id, epoch_height, num_parts: Some(0) }))
     }
 }
@@ -396,7 +403,8 @@ fn check_new_epoch(
     num_parts: Option<u64>,
     shard_id: ShardId,
     chain: &Chain,
-    runtime: &Arc<NightshadeRuntime>,
+    runtime: &Arc<dyn RuntimeWithEpochManagerAdapter>,
+    account_id: &Option<AccountId>,
 ) -> Result<Option<StateSyncDumpProgress>, Error> {
     let head = chain.head()?;
     if Some(&head.epoch_id) == epoch_id.as_ref() {
@@ -414,7 +422,116 @@ fn check_new_epoch(
             // Still in the latest dumped epoch. Do nothing.
             Ok(None)
         } else {
-            start_dumping(head.epoch_id, sync_hash, shard_id, &chain, runtime)
+            start_dumping(head.epoch_id, sync_hash, shard_id, &chain, runtime, account_id)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::state_sync::spawn_state_sync_dump;
+    use near_chain::{ChainGenesis, Provenance};
+    use near_chain_configs::{DumpConfig, ExternalStorageLocation};
+    use near_client::test_utils::TestEnv;
+    use near_network::test_utils::wait_or_timeout;
+    use near_o11y::testonly::init_test_logger;
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::state_part::PartId;
+    use near_primitives::types::BlockHeight;
+    use std::ops::ControlFlow;
+    use std::str::FromStr;
+    use std::time::Duration;
+
+    #[test]
+    /// Produce several blocks, wait for the state dump thread to notice and
+    /// write files to a temp dir.
+    fn test_state_dump() {
+        init_test_logger();
+
+        let mut chain_genesis = ChainGenesis::test();
+        chain_genesis.epoch_length = 5;
+        let mut env = TestEnv::builder(chain_genesis.clone()).build();
+        let chain = &env.clients[0].chain;
+        let runtime = chain.runtime_adapter();
+        let mut config = env.clients[0].config.clone();
+        let root_dir = tempfile::Builder::new().prefix("state_dump").tempdir().unwrap();
+        config.state_sync_config_dump = Some(DumpConfig {
+            location: ExternalStorageLocation::Filesystem {
+                root_dir: root_dir.path().to_path_buf(),
+            },
+            restart_dump_for_shards: None,
+            iteration_delay: Some(Duration::from_millis(250)),
+        });
+
+        const MAX_HEIGHT: BlockHeight = 15;
+
+        near_actix_test_utils::run_actix(async move {
+            let _state_sync_dump_handle = spawn_state_sync_dump(
+                &config,
+                chain_genesis,
+                runtime.clone(),
+                Some("test0".parse().unwrap()),
+            )
+            .unwrap();
+            let mut last_block = None;
+            for i in 1..=MAX_HEIGHT {
+                let block = env.clients[0].produce_block(i as u64).unwrap().unwrap();
+                last_block = Some(block.clone());
+                env.process_block(0, block, Provenance::PRODUCED);
+            }
+            let epoch_id = runtime.get_epoch_id(last_block.clone().unwrap().hash()).unwrap();
+            let epoch_info = runtime.get_epoch_info(&epoch_id).unwrap();
+            let epoch_height = epoch_info.epoch_height();
+
+            let num_shards = runtime.num_shards(&epoch_id).unwrap();
+            assert_eq!(num_shards, 1);
+            assert_eq!(epoch_height, 10);
+
+            wait_or_timeout(100, 10000, || async {
+                let mut all_parts_present = true;
+
+                assert_eq!(num_shards, 1);
+                for (part_id, path) in [
+                    root_dir.path().join(
+                        "chain_id=unittest/epoch_height=10/shard_id=0/state_part_000000_of_000003",
+                    ),
+                    root_dir.path().join(
+                        "chain_id=unittest/epoch_height=10/shard_id=0/state_part_000001_of_000003",
+                    ),
+                    root_dir.path().join(
+                        "chain_id=unittest/epoch_height=10/shard_id=0/state_part_000002_of_000003",
+                    ),
+                ]
+                .iter()
+                .enumerate()
+                {
+                    match std::fs::read(&path) {
+                        Ok(part) => {
+                            // KeyValueRuntime::validate_state_part() always returns true.
+                            assert!(runtime.validate_state_part(
+                                &CryptoHash::from_str(
+                                    "GqPgXpMYEGkvmGjdtEWygRUgYkaVQUfvwB7MfUi9jpZ2"
+                                )
+                                .unwrap(),
+                                PartId::new(part_id as u64, 3),
+                                &part
+                            ));
+                        }
+                        Err(err) => {
+                            println!("path: {:?}, err: {:?}", path, err);
+                            all_parts_present = false;
+                        }
+                    }
+                }
+                if all_parts_present {
+                    ControlFlow::Break(())
+                } else {
+                    ControlFlow::Continue(())
+                }
+            })
+            .await
+            .unwrap();
+            actix_rt::System::current().stop();
+        });
     }
 }
