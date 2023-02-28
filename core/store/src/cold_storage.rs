@@ -144,6 +144,13 @@ pub fn update_cold_head(
         cold_db.write(transaction)?;
     }
 
+    // Write COLD_HEAD_KEY to the cold db.
+    {
+        let mut transaction = DBTransaction::new();
+        transaction.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), tip.try_to_vec()?);
+        cold_db.write(transaction)?;
+    }
+
     // Write COLD_HEAD to the hot db.
     {
         let mut transaction = DBTransaction::new();
