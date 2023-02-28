@@ -109,6 +109,21 @@ receipts spawned from a single meta transaction. Only if the first succeeds,
 will the second start executing,and so on. But this quickly gets too complicated
 for the MVP and is therefore left open for future improvements.
 
+## Constraints on the actions inside a meta transaction
+
+A transaction is only allowed to contain one single delegate action. Nested
+delegate actions are disallowed and so are delegate actions next to each other
+in the same receipt.
+
+Nested delegate actions have no known use case and it would be complicated to
+implement. Consequently, it was omitted.
+
+For delegate actions beside each other, there was a bit of back and forth during
+the NEP-366 design phase. The potential use case here is essentially the same as
+having multiple receivers in a delegate action. Naturally, it runs into all the
+same complications (false sense of atomicity) and ends with the same conclusion:
+Omitted from the MVP and left open for future improvement.
+
 ## Limitation: Accounts must be initialized 
 
 Any transaction, including meta transactions, must use NONCEs to avoid replay
@@ -225,3 +240,27 @@ therefore she receives the token balance refunded, not the relayer. This is
 something relayer implementations must be aware of since there is a financial
 incentive for Alice to submit meta transactions that have high balances attached
 but will fail on Bob's shard.
+
+## Function access keys in meta transactions
+
+Assume alice sends a meta transaction and signs with a function access key.
+How exactly are permissions applied in this case?
+
+Function access keys can limit the allowance, the receiving contract, and the
+contract methods. The allowance limitation acts slightly strange with meta
+transactions.
+
+But first, both the methods and the receiver will be checked as expected. That
+is, when the delegate action is unwrapped on Alice's shard, the access key is
+loaded from the DB and compared to the function call. If the receiver or method
+is not allowed, the function call action fails.
+
+For allowance, however, there is no check. All costs have been covered by the
+relayer. Hence, even if the allowance of the key is insufficient to make the call
+directly, indirectly through meta transaction it will still work.
+
+This behavior is in the spirit of allowance limiting how much financial
+resources the user can use from a given account. But if someone were to limit a
+function access key to one trivial action by setting a very small allowance,
+that is circumventable by going through a relayer. An interesting twist that
+comes with the addition of meta transactions.
