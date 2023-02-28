@@ -526,7 +526,7 @@ impl CheckStateRootCmd {
         for _ in 0..retries {
             match store.get(DBCol::State, &cold_state_key) {
                 Ok(value) => return Ok(value),
-                Err(_) => std::thread::sleep(std::time::Duration::from_millis(50)),
+                Err(_) => std::thread::sleep(std::time::Duration::from_millis(500)),
             }
         }
         store.get(DBCol::State, &cold_state_key)
