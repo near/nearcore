@@ -16,7 +16,7 @@ use near_primitives::time;
 
 use near_network::PeerManagerActor;
 use near_primitives::block::GenesisId;
-use near_store::{DBCol, Mode, NodeStorage, StoreOpenerError, Temperature};
+use near_store::{DBCol, Mode, NodeStorage, StoreOpenerError};
 use near_telemetry::TelemetryActor;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -176,11 +176,8 @@ pub fn start_with_config_and_synchronization(
 ) -> anyhow::Result<NearNode> {
     let store = open_storage(home_dir, &mut config)?;
 
-    let runtime = Arc::new(NightshadeRuntime::from_config(
-        home_dir,
-        store.get_store(Temperature::Hot),
-        &config,
-    ));
+    let runtime =
+        Arc::new(NightshadeRuntime::from_config(home_dir, store.get_hot_store(), &config));
 
     let cold_store_loop_handle = spawn_cold_store_loop(&config, &store, runtime.clone())?;
 
@@ -225,7 +222,7 @@ pub fn start_with_config_and_synchronization(
         network_adapter.as_sender(),
         client_adapter_for_shards_manager.as_sender(),
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
-        store.get_store(Temperature::Hot),
+        store.get_hot_store(),
         config.client_config.chunk_request_retry_period,
     );
     shards_manager_adapter.bind(shards_manager_actor);
@@ -322,7 +319,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
           "Recompressing database");
 
     info!("Opening database at {}", src_path.display());
-    let src_store = src_opener.open_in_mode(Mode::ReadOnly)?.get_store(Temperature::Hot);
+    let src_store = src_opener.open_in_mode(Mode::ReadOnly)?.get_hot_store();
 
     let final_head_height = if skip_columns.contains(&DBCol::PartialChunks) {
         let tip: Option<near_primitives::block::Tip> =
@@ -339,7 +336,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     };
 
     info!("Creating database at {}", dst_path.display());
-    let dst_store = dst_opener.open_in_mode(Mode::Create)?.get_store(Temperature::Hot);
+    let dst_store = dst_opener.open_in_mode(Mode::Create)?.get_hot_store();
 
     const BATCH_SIZE_BYTES: u64 = 150_000_000;
 

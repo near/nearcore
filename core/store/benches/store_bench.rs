@@ -22,7 +22,7 @@ fn benchmark_write_then_read_successful(
     let store = NodeStorage::opener(tmp_dir.path(), false, &Default::default(), None)
         .open()
         .unwrap()
-        .get_store(Temperature::Hot);
+        .get_hot_store();
     let keys = generate_keys(num_keys, key_size);
     write_to_db(&store, &keys, max_value_size, col);
 

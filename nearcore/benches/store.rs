@@ -36,7 +36,7 @@ fn read_trie_items(bench: &mut Bencher, shard_id: usize, mode: Mode) {
         )
         .open_in_mode(mode)
         .unwrap()
-        .get_store(Temperature::Hot);
+        .get_hot_store();
 
         let chain_store =
             ChainStore::new(store.clone(), near_config.genesis.config.genesis_height, true);

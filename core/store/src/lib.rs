@@ -182,12 +182,12 @@ impl NodeStorage {
     ///
     /// This method panics if trying to access cold store but it wasn't configured.
     /// Please consider using the get_hot_store and get_cold_store methods to avoid panics.
-    pub fn get_store(&self, temp: Temperature) -> Store {
-        match temp {
-            Temperature::Hot => self.get_hot_store(),
-            Temperature::Cold => self.get_cold_store().unwrap(),
-        }
-    }
+    // pub fn get_store(&self, temp: Temperature) -> Store {
+    //     match temp {
+    //         Temperature::Hot => self.get_hot_store(),
+    //         Temperature::Cold => self.get_cold_store().unwrap(),
+    //     }
+    // }
 
     pub fn get_hot_store(&self) -> Store {
         Store { storage: self.hot_storage.clone() }
@@ -983,7 +983,7 @@ mod tests {
     #[test]
     fn clear_column_rocksdb() {
         let (_tmp_dir, opener) = NodeStorage::test_opener();
-        test_clear_column(opener.open().unwrap().get_store(Temperature::Hot));
+        test_clear_column(opener.open().unwrap().get_hot_store());
     }
 
     #[test]
@@ -1055,7 +1055,7 @@ mod tests {
     #[test]
     fn rocksdb_iter_order() {
         let (_tempdir, opener) = NodeStorage::test_opener();
-        test_iter_order_impl(opener.open().unwrap().get_store(Temperature::Hot));
+        test_iter_order_impl(opener.open().unwrap().get_hot_store());
     }
 
     #[test]
