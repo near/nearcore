@@ -1,8 +1,8 @@
-name: Build @master fuzzers
+name: Build Release fuzzers
 on:
-  schedule:
-    # Run once a day, at midnight
-    - cron: "0 0 * * *"
+  # Run when a new release is published
+  release:
+    types: [published]
 
 jobs:
   build_fuzzers:
@@ -42,4 +42,4 @@ jobs:
 
       - run: pip install -r scripts/build_fuzzers_requirements.txt
 
-      - run: python3 scripts/build_fuzzers.py
+      - run: python3 scripts/build_fuzzers.py release
