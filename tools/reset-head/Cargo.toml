@@ -1,0 +1,18 @@
+[package]
+name = "near-reset-head"
+version = "0.0.0"
+authors.workspace = true
+publish = false
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+
+near-chain = { path = "../../chain/chain" }
+near-chain-configs = { path = "../../core/chain-configs" }
+near-store = { path = "../../core/store" }
+nearcore = { path = "../../nearcore" }
+near-primitives = { path = "../../core/primitives" }

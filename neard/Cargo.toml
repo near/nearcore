@@ -48,6 +48,7 @@ near-primitives.workspace = true
 near-state-parts.workspace = true
 near-state-viewer.workspace = true
 near-store.workspace = true
+near-undo-block = { path = "../tools/undo-block" }
 
 [build-dependencies]
 anyhow.workspace = true
