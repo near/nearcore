@@ -229,27 +229,15 @@ pub fn get_num_state_parts(memory_usage: u64) -> u64 {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
-/// Represents the progress of dumps state of a shard.
+/// Represents the state of the state machine that dumps state.
 pub enum StateSyncDumpProgress {
-    /// Represents two cases:
-    /// * An epoch dump is complete
-    /// * The node is running its first epoch and there is nothing to dump.
-    AllDumped {
-        /// The dumped state corresponds to the state at the beginning of the specified epoch.
-        epoch_id: EpochId,
-        epoch_height: EpochHeight,
-        // Missing in case of a node running the first epoch.
-        num_parts: Option<u64>,
-    },
-    /// Represents the case of an epoch being partially dumped.
+    AllDumped(EpochId),
     InProgress {
-        /// The dumped state corresponds to the state at the beginning of the specified epoch.
         epoch_id: EpochId,
         epoch_height: EpochHeight,
-        /// Block hash of the first block of the epoch.
-        /// The dumped state corresponds to the state before applying this block.
         sync_hash: CryptoHash,
-        /// Progress made.
+        state_root: StateRoot,
         parts_dumped: u64,
+        num_parts: u64,
     },
 }
