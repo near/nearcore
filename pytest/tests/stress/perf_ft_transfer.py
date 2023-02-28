@@ -43,7 +43,9 @@ import mocknet_helpers
 from configured_logger import new_logger
 
 N_ACCOUNTS = 1000
-MAX_INFLIGHT_TXS = 100
+MAX_INFLIGHT_TXS = 1000 # aka. TXs per test iteration
+GAS_PER_BLOCK = 10E14
+TRANSACTIONS_PER_BLOCK = 101
 SEED = random.uniform(0, 0xFFFFFFFF)
 logger = new_logger(level = logging.INFO)
 
@@ -127,8 +129,19 @@ def ft_account_init_factory(node):
 
 def transfer_tokens_factory(node, sender):
     def do_it(to_whom):
-        s = f'{{"receiver_id": "{to_whom.key.account_id}", "amount": "{10**18}"}}'
-        result = sender.send_call_contract_raw_tx(node.key.account_id, "ft_transfer", s.encode('utf-8'), 1)
+        s = f'{{"receiver_id": "{to_whom.key.account_id}", "amount": "12349876"}}'
+        sender.prep_tx()
+        tx = transaction.sign_function_call_tx(
+            sender.key,
+            node.key.account_id,
+            "ft_transfer",
+            s.encode('utf-8'),
+            # About enough gas per call to fit N such transactions into an average block.
+            int(GAS_PER_BLOCK // TRANSACTIONS_PER_BLOCK),
+            1,
+            sender.nonce,
+            sender.base_block_hash)
+        result = sender.send_tx(tx)
         return result["result"], sender.key.account_id
     return do_it
 
