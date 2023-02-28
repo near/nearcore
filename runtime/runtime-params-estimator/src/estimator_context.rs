@@ -72,7 +72,7 @@ impl<'c> EstimatorContext<'c> {
         let shard_uids = [ShardUId { shard_id: 0, version: 0 }];
         let mut trie_config = near_store::TrieConfig::default();
         trie_config.enable_receipt_prefetching = true;
-        let flat_state_cache_capacity = trie_config.flat_state_cache_capacity.clone();
+        let flat_state_cache_capacity = trie_config.flat_state_cache_capacity;
 
         let tries = ShardTries::new(
             store.clone(),
@@ -183,7 +183,7 @@ impl<'c> EstimatorContext<'c> {
         store_update.commit().expect("failed to set flat head");
         let factory = FlatStateFactory::new(store.clone());
         let flat_storage_state = FlatStorageState::new(
-            store.clone(),
+            store,
             shard_id,
             BLOCK_HEIGHT,
             &ChainAccess {},
@@ -195,7 +195,7 @@ impl<'c> EstimatorContext<'c> {
 
     #[cfg(not(feature = "protocol_feature_flat_state"))]
     fn create_flat_state_factory(store: Store, _cache_capacity: u64) -> FlatStateFactory {
-        FlatStateFactory::new(store.clone())
+        FlatStateFactory::new(store)
     }
 }
 
