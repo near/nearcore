@@ -133,7 +133,7 @@ fn check_meta_tx_execution(
         .unwrap()
         .nonce;
     let user_pubk = if sender.is_implicit() {
-        PublicKey::from_implicit_account(&sender)
+        PublicKey::from_implicit_account(&sender).unwrap()
     } else {
         PublicKey::from_seed(KeyType::ED25519, &sender)
     };

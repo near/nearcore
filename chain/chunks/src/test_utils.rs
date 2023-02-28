@@ -12,8 +12,8 @@ use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkPart,
     PartialEncodedChunkV2, ReedSolomonWrapper, ShardChunkHeader,
 };
+use near_primitives::static_clock::StaticClock;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::time::Clock;
 use near_primitives::types::NumShards;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::types::{BlockHeight, MerkleHash};
@@ -69,7 +69,7 @@ impl Default for SealsManagerTestFixture {
             Default::default(),
             Default::default(),
             Default::default(),
-            Clock::utc(),
+            StaticClock::utc(),
             Default::default(),
             Default::default(),
             Default::default(),

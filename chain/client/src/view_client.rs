@@ -5,7 +5,7 @@ use actix::{Actor, Addr, Handler, SyncArbiter, SyncContext};
 use near_async::messaging::CanSend;
 use near_chain::types::Tip;
 use near_primitives::receipt::Receipt;
-use near_primitives::time::Clock;
+use near_primitives::static_clock::StaticClock;
 use near_store::{DBCol, COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY};
 use std::cmp::Ordering;
 use std::collections::{HashMap, VecDeque};
@@ -163,7 +163,7 @@ impl ViewClientActor {
     }
 
     fn need_request<K: Hash + Eq + Clone>(key: K, cache: &mut lru::LruCache<K, Instant>) -> bool {
-        let now = Clock::instant();
+        let now = StaticClock::instant();
         let need_request = match cache.get(&key) {
             Some(time) => now - *time > Duration::from_millis(REQUEST_WAIT_TIME),
             None => true,
@@ -509,7 +509,7 @@ impl ViewClientActor {
 
     fn check_state_sync_request(&self) -> bool {
         let mut cache = self.state_request_cache.lock().expect(POISONED_LOCK_ERR);
-        let now = Clock::instant();
+        let now = StaticClock::instant();
         while let Some(&instant) = cache.front() {
             if now.saturating_duration_since(instant) > self.config.view_client_throttle_period {
                 cache.pop_front();

@@ -620,7 +620,7 @@ fn col_name(col: DBCol) -> &'static str {
         DBCol::_TransactionResult => "col7",
         DBCol::OutgoingReceipts => "col8",
         DBCol::IncomingReceipts => "col9",
-        DBCol::Peers => "col10",
+        DBCol::_Peers => "col10",
         DBCol::EpochInfo => "col11",
         DBCol::BlockInfo => "col12",
         DBCol::Chunks => "col13",

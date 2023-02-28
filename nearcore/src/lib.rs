@@ -12,7 +12,7 @@ use near_async::messaging::{IntoSender, LateBoundSender};
 use near_chain::{Chain, ChainGenesis};
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::{start_client, start_view_client, ClientActor, ConfigUpdater, ViewClientActor};
-use near_network::time;
+use near_primitives::time;
 
 use near_network::PeerManagerActor;
 use near_primitives::block::GenesisId;

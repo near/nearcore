@@ -2,7 +2,7 @@
 /// All transactions should be implemented within this module,
 /// in particular schema::StoreUpdate is not exported.
 use crate::network_protocol::Edge;
-use crate::types::{ConnectionInfo, KnownPeerState};
+use crate::types::ConnectionInfo;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
 use std::collections::HashSet;
@@ -118,33 +118,8 @@ impl Store {
     }
 }
 
-// PeerStore storage.
+// ConnectionStore storage.
 impl Store {
-    /// Inserts (peer_id,peer_state) to Peers column.
-    pub fn set_peer_state(
-        &mut self,
-        peer_id: &PeerId,
-        peer_state: &KnownPeerState,
-    ) -> Result<(), Error> {
-        let mut update = self.0.new_update();
-        update.set::<schema::Peers>(peer_id, peer_state);
-        self.0.commit(update).map_err(Error)
-    }
-
-    /// Deletes rows with keys in <peers> from Peers column.
-    pub fn delete_peer_states(&mut self, peers: &[PeerId]) -> Result<(), Error> {
-        let mut update = self.0.new_update();
-        for p in peers {
-            update.delete::<schema::Peers>(p);
-        }
-        self.0.commit(update).map_err(Error)
-    }
-
-    /// Reads the whole Peers column.
-    pub fn list_peer_states(&self) -> Result<Vec<(PeerId, KnownPeerState)>, Error> {
-        self.0.iter::<schema::Peers>().collect::<Result<_, _>>().map_err(Error)
-    }
-
     pub fn set_recent_outbound_connections(
         &mut self,
         recent_outbound_connections: &Vec<ConnectionInfo>,

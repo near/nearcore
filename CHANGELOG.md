@@ -28,6 +28,7 @@ to pay for the storage of their accounts.
 * `ClientConfig` can be updated while the node is running.
   `dyn_config.json` is no longer needed as its contents were merged into `config.json`.
   [#8240](https://github.com/near/nearcore/pull/8240)
+* TIER2 network stabilization. Long-lasting active connections are persisted to DB and are re-established automatically if either node restarts. A new neard flag `--connect-to-reliable-peers-on-startup` is provided to toggle this behavior; it defaults to true. The PeerStore is no longer persisted to DB and is now kept in-memory. [#8579](https://github.com/near/nearcore/issues/8579), [#8580](https://github.com/near/nearcore/issues/8580).
 
 ## 1.31.0
 

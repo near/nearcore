@@ -4,7 +4,6 @@ pub use crate::network_protocol::{
     RoutingTableUpdate, SignedAccountData,
 };
 use crate::routing::routing_table_view::RoutingTableInfo;
-use crate::time;
 use near_async::messaging::{
     AsyncSender, CanSend, CanSendAsync, IntoAsyncSender, IntoSender, Sender,
 };
@@ -14,6 +13,7 @@ use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::PartialEncodedChunkWithArcReceipts;
+use near_primitives::time;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockHeight;
 use near_primitives::types::{AccountId, ShardId};
