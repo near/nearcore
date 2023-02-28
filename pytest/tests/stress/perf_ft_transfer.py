@@ -28,6 +28,8 @@ import pathlib
 import base58
 import itertools
 import requests
+import random
+import logging
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -38,11 +40,17 @@ import transaction
 import key
 import account
 import mocknet_helpers
-from configured_logger import logger
+from configured_logger import new_logger
 
-N_ACCOUNTS = 1
+N_ACCOUNTS = 1000
+MAX_INFLIGHT_TXS = 100
+SEED = random.uniform(0, 0xFFFFFFFF)
+logger = new_logger(level = logging.INFO)
 
 def main():
+    logger.warn(f"SEED is {SEED}")
+    rng = random.Random(SEED)
+
     config = cluster.load_config()
     nodes = cluster.start_cluster(2, 0, 4, config, [["epoch_length", 100]], {
         0: {
@@ -85,6 +93,23 @@ def main():
     for_each_account_until_all_succeed(nodes[0], accounts, 10, ft_account_init_factory(node0_acct))
     for_each_account_until_all_succeed(nodes[0], accounts, 10, transfer_tokens_factory(node0_acct, node0_acct))
     # Setup is complete at this point.
+
+    for iteration in itertools.count():
+        block_hash = nodes[0].get_latest_block().hash
+        block_hash = base58.b58decode(block_hash)
+        logger.info(f"TEST ITERATION {iteration}")
+        txs = set()
+        failed = 0
+        for i in range(MAX_INFLIGHT_TXS):
+            sender, receiver = None, None
+            while sender == receiver:
+                [sender, receiver] = rng.choices(accounts, k=2)
+            sender.base_block_hash = block_hash
+            receiver.base_block_hash = block_hash
+            txs.add(transfer_tokens_factory(node0_acct, sender)(receiver))
+        for (tx, recipient) in txs:
+            failed += int(not wait_tx(nodes[0], tx, recipient))
+        logger.info(f"{failed} tx failures")
 
 
 def ft_account_init_factory(node):
@@ -129,17 +154,24 @@ def for_each_account_until_all_succeed(node, accounts, limit, send_tx):
                 accounts_to_succeed.add(v)
 
 
+def wait_tx_once(node, tx_id, recipient):
+    logger.debug(f"checking for {tx_id} sent to {recipient}")
+    try:
+        tx_result = node.get_tx(tx_id, recipient)
+    except requests.exceptions.ReadTimeout:
+        return False
+    logger.debug(tx_result)
+    if 'error' in tx_result:
+        return False
+    else:
+        return True
+
+
 def wait_tx(node, tx_id, recipient):
+    if wait_tx_once(node, tx_id, recipient):
+        return True
     for height, hsh in itertools.islice(utils.poll_blocks(node, timeout=10**9), 10):
-        print(f"checking for {tx_id} sent to {recipient}")
-        try:
-            tx_result = node.get_tx(tx_id, recipient)
-        except requests.exceptions.ReadTimeout:
-            continue
-        print(tx_result)
-        if 'error' in tx_result:
-            pass
-        else:
+        if wait_tx_once(node, tx_id, recipient):
             return True
     return False
 
