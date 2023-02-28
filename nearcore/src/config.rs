@@ -351,6 +351,8 @@ pub struct Config {
     pub db_migration_snapshot_path: Option<PathBuf>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expected_shutdown: Option<BlockHeight>,
+    /// Options for dumping state of every epoch to S3.
+    pub state_sync: Option<StateSyncConfig>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -386,6 +388,7 @@ impl Default for Config {
             store: near_store::StoreConfig::default(),
             cold_store: None,
             expected_shutdown: None,
+            state_sync: None,
         }
     }
 }
@@ -651,6 +654,14 @@ impl NearConfig {
                 enable_statistics_export: config.store.enable_statistics_export,
                 client_background_migration_threads: config.store.background_migration_threads,
                 flat_storage_creation_period: config.store.flat_storage_creation_period,
+                state_sync_s3_bucket: config
+                    .state_sync
+                    .as_ref()
+                    .map_or(None, |x| Some(x.s3_bucket.clone())),
+                state_sync_s3_region: config
+                    .state_sync
+                    .as_ref()
+                    .map_or(None, |x| Some(x.s3_region.clone())),
             },
             network_config: NetworkConfig::new(
                 config.network,
@@ -1472,6 +1483,13 @@ pub fn load_test_config(seed: &str, addr: tcp::ListenerAddr, genesis: Genesis) -
         (signer, Some(validator_signer))
     };
     NearConfig::new(config, genesis, signer.into(), validator_signer).unwrap()
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+/// Options for dumping state to S3.
+pub struct StateSyncConfig {
+    pub s3_bucket: String,
+    pub s3_region: String,
 }
 
 #[test]

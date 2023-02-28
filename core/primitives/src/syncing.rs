@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_primitives_core::types::EpochHeight;
 
 use crate::block_header::BlockHeader;
 use crate::epoch_manager::block_info::BlockInfo;
@@ -10,7 +11,7 @@ use crate::merkle::{MerklePath, PartialMerkleTree};
 use crate::sharding::{
     ReceiptProof, ShardChunk, ShardChunkHeader, ShardChunkHeaderV1, ShardChunkV1,
 };
-use crate::types::{BlockHeight, ShardId, StateRoot, StateRootNode};
+use crate::types::{BlockHeight, EpochId, ShardId, StateRoot, StateRootNode};
 use crate::views::LightClientBlockView;
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
@@ -225,4 +226,18 @@ pub fn get_num_state_parts(memory_usage: u64) -> u64 {
     // several parts to make sure that partitioning always works.
     // TODO #1708
     memory_usage / STATE_PART_MEMORY_LIMIT.as_u64() + 3
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
+/// Represents the state of the state machine that dumps state.
+pub enum StateSyncDumpProgress {
+    AllDumped(EpochId),
+    InProgress {
+        epoch_id: EpochId,
+        epoch_height: EpochHeight,
+        sync_hash: CryptoHash,
+        state_root: StateRoot,
+        parts_dumped: u64,
+        num_parts: u64,
+    },
 }

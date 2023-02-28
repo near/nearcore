@@ -167,6 +167,10 @@ pub struct ClientConfig {
     pub client_background_migration_threads: usize,
     /// Duration to perform background flat storage creation step.
     pub flat_storage_creation_period: Duration,
+    /// S3 bucket for storing state dumps.
+    pub state_sync_s3_bucket: Option<String>,
+    /// S3 region for storing state dumps.
+    pub state_sync_s3_region: Option<String>,
 }
 
 impl ClientConfig {
@@ -237,6 +241,8 @@ impl ClientConfig {
             enable_statistics_export: true,
             client_background_migration_threads: 1,
             flat_storage_creation_period: Duration::from_secs(1),
+            state_sync_s3_bucket: None,
+            state_sync_s3_region: None,
         }
     }
 }
