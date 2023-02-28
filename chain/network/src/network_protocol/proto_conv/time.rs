@@ -1,5 +1,5 @@
 /// Conversion functions for the proto timestamp messages.
-use crate::time;
+use near_primitives::time;
 pub use protobuf::well_known_types::timestamp::Timestamp as ProtoTimestamp;
 
 pub type ParseTimestampError = time::error::ComponentRange;

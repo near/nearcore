@@ -1,9 +1,9 @@
 use crate::network_protocol::{Edge, EdgeState, PartialEdgeInfo, PeerMessage, RoutingTableUpdate};
 use crate::peer_manager::network_state::{NetworkState,Event};
 use crate::stats::metrics;
-use crate::time;
 use crate::types::ReasonForBan;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::time;
 use std::sync::Arc;
 
 impl NetworkState {

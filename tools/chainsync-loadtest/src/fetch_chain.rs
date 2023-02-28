@@ -3,8 +3,8 @@ use anyhow::Context;
 use log::info;
 use near_network::concurrency::ctx;
 use near_network::concurrency::scope;
-use near_network::time;
 use near_primitives::hash::CryptoHash;
+use near_primitives::time;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 

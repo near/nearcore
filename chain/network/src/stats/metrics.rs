@@ -1,7 +1,6 @@
 use crate::network_protocol::Encoding;
 use crate::network_protocol::{RoutedMessageBody, RoutedMessageV2};
 use crate::tcp;
-use crate::time;
 use crate::types::PeerType;
 use near_o11y::metrics::prometheus;
 use near_o11y::metrics::{
@@ -10,6 +9,7 @@ use near_o11y::metrics::{
     try_create_int_gauge, try_create_int_gauge_vec, Histogram, HistogramVec, IntCounter,
     IntCounterVec, IntGauge, IntGaugeVec, MetricVec, MetricVecBuilder,
 };
+use near_primitives::time;
 use once_cell::sync::Lazy;
 
 /// Labels represents a schema of an IntGaugeVec metric.
@@ -106,6 +106,7 @@ impl<M: prometheus::core::Metric> std::ops::Deref for MetricGuard<M> {
 }
 
 pub(crate) type IntGaugeGuard = MetricGuard<prometheus::IntGauge>;
+pub(crate) type HistogramGuard = MetricGuard<prometheus::Histogram>;
 
 pub static PEER_CONNECTIONS: Lazy<Gauge<Connection>> =
     Lazy::new(|| Gauge::new("near_peer_connections", "Number of connected peers").unwrap());

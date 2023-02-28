@@ -1,7 +1,7 @@
 use crate::concurrency::ctx;
 use crate::concurrency::scope;
 use crate::testonly::abort_on_panic;
-use crate::time;
+use near_primitives::time;
 
 #[tokio::test]
 async fn test_run_canceled() {
@@ -30,15 +30,18 @@ type R<E> = Result<(), E>;
 #[tokio::test]
 async fn test_run_with_timeout() {
     abort_on_panic();
-    let sec = crate::time::Duration::SECOND;
+    let sec = near_primitives::time::Duration::SECOND;
     let clock = time::FakeClock::default();
     let res = ctx::run_test(clock.clock(), async {
         scope::run!(|s| async {
+            tracing::info!(target:"test", "scope starting");
             s.spawn(ctx::run_with_timeout(1000 * sec, async {
                 ctx::canceled().await;
+                tracing::info!(target:"test", "subtask terminating");
                 R::Err(9)
             }));
             clock.advance(1001 * sec);
+            tracing::info!(target:"test", "root task terminating");
             Ok(())
         })
     })
@@ -49,7 +52,7 @@ async fn test_run_with_timeout() {
 #[tokio::test]
 async fn test_sleep_until() {
     abort_on_panic();
-    let sec = crate::time::Duration::SECOND;
+    let sec = near_primitives::time::Duration::SECOND;
     let clock = time::FakeClock::default();
     ctx::run_test(clock.clock(), async {
         let _ = scope::run!(|s| async {

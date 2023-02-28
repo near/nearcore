@@ -1,7 +1,8 @@
 use std::ops::RangeInclusive;
 
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::serialize::base64_display;
+use near_primitives_core::serialize::{base64_display, from_base64};
+use std::str::FromStr;
 
 /// A wrapper for bytes slice which tries to guess best way to format it.
 ///
@@ -34,6 +35,29 @@ pub struct Bytes<'a>(pub &'a [u8]);
 impl<'a> std::fmt::Display for Bytes<'a> {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         bytes_format(self.0, fmt, false)
+    }
+}
+
+impl<'a> Bytes<'a> {
+    /// Reverses `bytes_format` to allow decoding `Bytes` written with `Display`.
+    ///
+    /// This looks  similar to `FromStr` but due to lifetime constraints on
+    /// input and output, the trait cannot be implemented.
+    ///
+    /// Error: Returns an error when the input does not look like an output from
+    /// `bytes_format`.
+    pub fn from_str(s: &str) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+        if s.len() >= 2 && s.starts_with("`") && s.ends_with("`") {
+            // hash encoded as base58
+            let hash = CryptoHash::from_str(&s[1..s.len().checked_sub(1).expect("s.len() >= 2 ")])?;
+            Ok(hash.as_bytes().to_vec())
+        } else if s.len() >= 2 && s.starts_with("'") && s.ends_with("'") {
+            // plain string
+            Ok(s[1..s.len().checked_sub(1).expect("s.len() >= 2 ")].as_bytes().to_vec())
+        } else {
+            // encoded with base64
+            from_base64(s)
+        }
     }
 }
 
@@ -186,7 +210,10 @@ macro_rules! do_test_bytes_formatting {
     ($type:ident, $consider_hash:expr, $truncate:expr) => {{
         #[track_caller]
         fn test(want: &str, slice: &[u8]) {
-            assert_eq!(want, $type(slice).to_string())
+            assert_eq!(want, $type(slice).to_string(), "unexpected formatting");
+            if !$truncate {
+                assert_eq!(&Bytes::from_str(want).expect("decode fail"), slice, "wrong decoding");
+            }
         }
 
         #[track_caller]

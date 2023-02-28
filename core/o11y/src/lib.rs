@@ -350,11 +350,23 @@ pub fn default_subscriber(
     let subscriber = tracing_subscriber::registry();
     let subscriber = add_simple_log_layer(env_filter, make_writer, color_output, subscriber);
 
+    #[allow(unused_mut)]
+    let mut io_trace_guard = None;
+    #[cfg(feature = "io_trace")]
+    let subscriber = subscriber.with(options.record_io_trace.as_ref().map(|output_path| {
+        let (sub, guard) = make_io_tracing_layer(
+            std::fs::File::create(output_path)
+                .expect("unable to create or truncate IO trace output file"),
+        );
+        io_trace_guard = Some(guard);
+        sub
+    }));
+
     DefaultSubscriberGuard {
         subscriber: Some(subscriber),
         local_subscriber_guard: None,
         writer_guard: None,
-        io_trace_guard: None,
+        io_trace_guard,
     }
 }
 

@@ -1,6 +1,6 @@
 use anyhow::{anyhow, bail, Context};
+use near_primitives::static_clock::StaticClock;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::time::Clock;
 use num_rational::Rational32;
 use std::fs;
 use std::fs::File;
@@ -9,6 +9,9 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
+
+use near_config_utils::{ValidationError, ValidationErrors};
+
 #[cfg(test)]
 use tempfile::tempdir;
 use tracing::{info, warn};
@@ -128,6 +131,10 @@ pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
 pub const NODE_KEY_FILE: &str = "node_key.json";
 pub const VALIDATOR_KEY_FILE: &str = "validator_key.json";
 
+pub const MAINNET: &str = "mainnet";
+pub const TESTNET: &str = "testnet";
+pub const BETANET: &str = "betanet";
+
 pub const MAINNET_TELEMETRY_URL: &str = "https://explorer.mainnet.near.org/api/nodes";
 pub const NETWORK_TELEMETRY_URL: &str = "https://explorer.{}.near.org/api/nodes";
 
@@ -196,12 +203,6 @@ fn default_view_client_throttle_period() -> Duration {
 
 fn default_trie_viewer_state_size_limit() -> Option<u64> {
     Some(50_000)
-}
-
-#[derive(thiserror::Error, Debug)]
-pub enum ConfigValidationError {
-    #[error("Configuration with archive = false and save_trie_changes = false is not supported because non-archival nodes must save trie changes in order to do do garbage collection.")]
-    TrieChanges,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
@@ -355,7 +356,6 @@ pub struct Config {
 fn is_false(value: &bool) -> bool {
     !*value
 }
-
 impl Default for Config {
     fn default() -> Self {
         Config {
@@ -391,11 +391,29 @@ impl Default for Config {
 }
 
 impl Config {
-    pub fn from_file(path: &Path) -> anyhow::Result<Self> {
-        let json_str = std::fs::read_to_string(path)
-            .with_context(|| format!("Failed to read config from {}", path.display()))?;
+    /// load Config from config.json without panic. Do semantic validation on field values.
+    /// If config file issues occur, a ValidationError::ConfigFileError will be returned;
+    /// If config semantic checks failed, a ValidationError::ConfigSemanticError will be returned
+    pub fn from_file(path: &Path) -> Result<Self, ValidationError> {
+        Self::from_file_skip_validation(path).and_then(|config| {
+            config.validate()?;
+            Ok(config)
+        })
+    }
+
+    /// load Config from config.json without panic.
+    /// Skips semantic validation on field values.
+    /// This function should only return error for file issues.
+    pub fn from_file_skip_validation(path: &Path) -> Result<Self, ValidationError> {
+        let json_str =
+            std::fs::read_to_string(path).map_err(|_| ValidationError::ConfigFileError {
+                error_message: format!("Failed to read config from {}", path.display()),
+            })?;
         let mut unrecognised_fields = Vec::new();
-        let json_str_without_comments = near_config_utils::strip_comments_from_json_str(&json_str)?;
+        let json_str_without_comments = near_config_utils::strip_comments_from_json_str(&json_str)
+            .map_err(|_| ValidationError::ConfigFileError {
+                error_message: format!("Failed to strip comments from {}", path.display()),
+            })?;
         let config: Config = serde_ignored::deserialize(
             &mut serde_json::Deserializer::from_str(&json_str_without_comments),
             |field| {
@@ -413,7 +431,10 @@ impl Config {
                 }
             },
         )
-        .with_context(|| format!("Failed to deserialize config from {}", path.display()))?;
+        .map_err(|_| ValidationError::ConfigFileError {
+            error_message: format!("Failed to deserialize config from {}", path.display()),
+        })?;
+
         if !unrecognised_fields.is_empty() {
             let s = if unrecognised_fields.len() > 1 { "s" } else { "" };
             let fields = unrecognised_fields.join(", ");
@@ -424,21 +445,11 @@ impl Config {
             );
         }
 
-        config.validate()?;
         Ok(config)
     }
 
-    /// Does semantic config validation.
-    /// This is the place to check that all config values make sense and fit well together.
-    /// `validate()` is called every time `config.json` is read.
-    fn validate(&self) -> Result<(), ConfigValidationError> {
-        if self.archive == false && self.save_trie_changes == Some(false) {
-            Err(ConfigValidationError::TrieChanges)
-        } else {
-            Ok(())
-        }
-        // TODO: Add more config validation.
-        // TODO: Validate `ClientConfig` instead.
+    fn validate(&self) -> Result<(), ValidationError> {
+        crate::config_validate::validate_config(self)
     }
 
     pub fn write_to_file(&self, path: &Path) -> std::io::Result<()> {
@@ -499,7 +510,7 @@ impl Genesis {
         add_protocol_account(&mut records);
         let config = GenesisConfig {
             protocol_version: PROTOCOL_VERSION,
-            genesis_time: Clock::utc(),
+            genesis_time: StaticClock::utc(),
             chain_id: random_chain_id(),
             num_block_producer_seats: num_validator_seats,
             num_block_producer_seats_per_shard: num_validator_seats_per_shard.clone(),
@@ -524,7 +535,7 @@ impl Genesis {
             shard_layout,
             ..Default::default()
         };
-        Genesis::new(config, records.into())
+        Genesis::new(config, records.into()).unwrap()
     }
 
     pub fn test(accounts: Vec<AccountId>, num_validator_seats: NumSeats) -> Self {
@@ -836,10 +847,39 @@ fn test_generate_or_load_key() {
     test_err("bad_key", "fred", "");
 }
 
-/// Initializes genesis and client configs and stores in the given folder
+/// Checks that validator and node keys exist.
+/// If a key is needed and doesn't exist, then it gets created.
+fn generate_or_load_keys(
+    dir: &Path,
+    config: &Config,
+    chain_id: &str,
+    account_id: Option<AccountId>,
+    test_seed: Option<&str>,
+) -> anyhow::Result<()> {
+    generate_or_load_key(dir, &config.node_key_file, Some("node".parse().unwrap()), None)?;
+    match chain_id {
+        MAINNET | TESTNET | BETANET => {
+            generate_or_load_key(dir, &config.validator_key_file, account_id, None)?;
+        }
+        _ => {
+            let account_id = account_id.unwrap_or_else(|| "test.near".parse().unwrap());
+            generate_or_load_key(dir, &config.validator_key_file, Some(account_id), test_seed)?;
+        }
+    }
+    Ok(())
+}
+
+/// Initializes Genesis, client Config, node and validator keys, and stores in the specified folder.
+///
+/// This method supports the following use cases:
+/// * When no Config, Genesis or key files exist.
+/// * When Config and Genesis files exist, but no keys exist.
+/// * When all of Config, Genesis, and key files exist.
+///
+/// Note that this method does not support the case where the configuration file exists but the genesis file does not exist.
 pub fn init_configs(
     dir: &Path,
-    chain_id: Option<&str>,
+    chain_id: Option<String>,
     account_id: Option<AccountId>,
     test_seed: Option<&str>,
     num_shards: NumShards,
@@ -855,25 +895,31 @@ pub fn init_configs(
 ) -> anyhow::Result<()> {
     fs::create_dir_all(dir).with_context(|| anyhow!("Failed to create directory {:?}", dir))?;
 
+    assert_ne!(chain_id, Some("".to_string()));
+    let chain_id = match chain_id {
+        Some(chain_id) => chain_id,
+        None => random_chain_id(),
+    };
+
     // Check if config already exists in home dir.
     if dir.join(CONFIG_FILENAME).exists() {
         let config = Config::from_file(&dir.join(CONFIG_FILENAME))
             .with_context(|| anyhow!("Failed to read config {}", dir.display()))?;
-        let file_path = dir.join(&config.genesis_file);
-        let genesis = GenesisConfig::from_file(&file_path).with_context(move || {
-            anyhow!("Failed to read genesis config {}/{}", dir.display(), config.genesis_file)
+        let genesis_file = config.genesis_file.clone();
+        let file_path = dir.join(&genesis_file);
+        // Check that Genesis exists and can be read.
+        // If `config.json` exists, but `genesis.json` doesn't exist,
+        // that isn't supported by the `init` command.
+        let _genesis = GenesisConfig::from_file(&file_path).with_context(move || {
+            anyhow!("Failed to read genesis config {}/{}", dir.display(), genesis_file)
         })?;
-        bail!(
-            "Config is already downloaded to ‘{}’ with chain-id ‘{}’.",
-            file_path.display(),
-            genesis.chain_id
-        );
+        // Check that `node_key.json` and `validator_key.json` exist.
+        // Create if needed and they don't exist.
+        generate_or_load_keys(dir, &config, &chain_id, account_id, test_seed)?;
+        return Ok(());
     }
 
     let mut config = Config::default();
-    let chain_id = chain_id
-        .and_then(|c| if c.is_empty() { None } else { Some(c.to_string()) })
-        .unwrap_or_else(random_chain_id);
 
     if let Some(url) = download_config_url {
         download_config(&url.to_string(), &dir.join(CONFIG_FILENAME))
@@ -894,8 +940,10 @@ pub fn init_configs(
         config.max_gas_burnt_view = max_gas_burnt_view;
     }
 
+    // Before finalizing the Config and Genesis, make sure the node and validator keys exist.
+    generate_or_load_keys(dir, &config, &chain_id, account_id, test_seed)?;
     match chain_id.as_ref() {
-        "mainnet" => {
+        MAINNET => {
             if test_seed.is_some() {
                 bail!("Test seed is not supported for {chain_id}");
             }
@@ -911,13 +959,10 @@ pub fn init_configs(
 
             let genesis = near_mainnet_res::mainnet_genesis();
 
-            generate_or_load_key(dir, &config.validator_key_file, account_id, None)?;
-            generate_or_load_key(dir, &config.node_key_file, Some("node".parse().unwrap()), None)?;
-
             genesis.to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated mainnet genesis file in {}", dir.display());
         }
-        "testnet" | "betanet" => {
+        TESTNET | BETANET => {
             if test_seed.is_some() {
                 bail!("Test seed is not supported for {chain_id}");
             }
@@ -930,9 +975,6 @@ pub fn init_configs(
             config.write_to_file(&dir.join(CONFIG_FILENAME)).with_context(|| {
                 format!("Error writing config to {}", dir.join(CONFIG_FILENAME).display())
             })?;
-
-            generate_or_load_key(dir, &config.validator_key_file, account_id, None)?;
-            generate_or_load_key(dir, &config.node_key_file, Some("node".parse().unwrap()), None)?;
 
             if let Some(ref filename) = config.genesis_records_file {
                 let records_path = dir.join(filename);
@@ -985,7 +1027,7 @@ pub fn init_configs(
                     )
                 }
                 None => Genesis::from_file(&genesis_path_str, GenesisValidationMode::Full),
-            };
+            }?;
 
             genesis.config.chain_id = chain_id.clone();
 
@@ -1001,15 +1043,13 @@ pub fn init_configs(
                 config.consensus.max_block_production_delay =
                     Duration::from_millis(FAST_MAX_BLOCK_PRODUCTION_DELAY);
             }
+
             config.write_to_file(&dir.join(CONFIG_FILENAME)).with_context(|| {
                 format!("Error writing config to {}", dir.join(CONFIG_FILENAME).display())
             })?;
 
-            let account_id = account_id.unwrap_or_else(|| "test.near".parse().unwrap());
-            let signer =
-                generate_or_load_key(dir, &config.validator_key_file, Some(account_id), test_seed)?
-                    .unwrap();
-            generate_or_load_key(dir, &config.node_key_file, Some("node".parse().unwrap()), None)?;
+            let validator_file = dir.join(&config.validator_key_file);
+            let signer = InMemorySigner::from_file(&validator_file).unwrap();
 
             let mut records = vec![];
             add_account_with_key(
@@ -1038,7 +1078,7 @@ pub fn init_configs(
 
             let genesis_config = GenesisConfig {
                 protocol_version: PROTOCOL_VERSION,
-                genesis_time: Clock::utc(),
+                genesis_time: StaticClock::utc(),
                 chain_id,
                 genesis_height: 0,
                 num_block_producer_seats: NUM_BLOCK_PRODUCER_SEATS,
@@ -1073,7 +1113,7 @@ pub fn init_configs(
                 min_gas_price: MIN_GAS_PRICE,
                 ..Default::default()
             };
-            let genesis = Genesis::new(genesis_config, records.into());
+            let genesis = Genesis::new(genesis_config, records.into())?;
             genesis.to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.display());
         }
@@ -1327,39 +1367,90 @@ pub fn load_config(
     dir: &Path,
     genesis_validation: GenesisValidationMode,
 ) -> anyhow::Result<NearConfig> {
-    let config = Config::from_file(&dir.join(CONFIG_FILENAME))?;
-    let genesis_file = dir.join(&config.genesis_file);
+    let mut validation_errors = ValidationErrors::new();
+
+    // if config.json has file issues, the program will directly panic
+    let config = Config::from_file_skip_validation(&dir.join(CONFIG_FILENAME))?;
+    // do config.json validation later so that genesis_file, validator_file and genesis_file can be validated before program panic
+    if let Err(e) = config.validate() {
+        validation_errors.push_errors(e)
+    };
+
     let validator_file = dir.join(&config.validator_key_file);
     let validator_signer = if validator_file.exists() {
-        let signer = InMemoryValidatorSigner::from_file(&validator_file).with_context(|| {
-            format!("Failed initializing validator signer from {}", validator_file.display())
-        })?;
-        Some(Arc::new(signer) as Arc<dyn ValidatorSigner>)
+        match InMemoryValidatorSigner::from_file(&validator_file) {
+            Ok(signer) => Some(Arc::new(signer) as Arc<dyn ValidatorSigner>),
+            Err(_) => {
+                let error_message = format!(
+                    "Failed initializing validator signer from {}",
+                    validator_file.display()
+                );
+                validation_errors.push_validator_key_file_error(error_message);
+                None
+            }
+        }
     } else {
         None
     };
-    let node_key_path = dir.join(&config.node_key_file);
-    let network_signer = NodeKeyFile::from_file(&node_key_path).with_context(|| {
-        format!("Failed reading node key file from {}", node_key_path.display())
-    })?;
 
-    let genesis = match &config.genesis_records_file {
-        Some(records_file) => {
-            Genesis::from_files(&genesis_file, &dir.join(records_file), genesis_validation)
+    let node_key_path = dir.join(&config.node_key_file);
+    let network_signer_result = NodeKeyFile::from_file(&node_key_path);
+    let network_signer = match network_signer_result {
+        Ok(node_key_file) => Some(node_key_file),
+        Err(_) => {
+            let error_message =
+                format!("Failed reading node key file from {}", node_key_path.display());
+            validation_errors.push_node_key_file_error(error_message);
+            None
         }
-        None => Genesis::from_file(&genesis_file, genesis_validation),
     };
 
-    if validator_signer.is_some()
-        && matches!(genesis.config.chain_id.as_ref(), "mainnet" | "testnet" | "betanet")
-    {
-        // Make sure validators tracks all shards, see
-        // https://github.com/near/nearcore/issues/7388
-        anyhow::ensure!(!config.tracked_shards.is_empty(),
-                        "Validator must track all shards. Please change `tracked_shards` field in config.json to be any non-empty vector");
-    }
+    let genesis_file = dir.join(&config.genesis_file);
+    let genesis_result = match &config.genesis_records_file {
+        // only load Genesis from file. Skip test for now.
+        // this allows us to know the chain_id in order to check tracked_shards even if semantics checks fail.
+        Some(records_file) => Genesis::from_files(
+            &genesis_file,
+            &dir.join(records_file),
+            GenesisValidationMode::UnsafeFast,
+        ),
+        None => Genesis::from_file(&genesis_file, GenesisValidationMode::UnsafeFast),
+    };
 
-    NearConfig::new(config, genesis, network_signer.into(), validator_signer)
+    let genesis = match genesis_result {
+        Ok(genesis) => {
+            if let Err(e) = genesis.validate(genesis_validation) {
+                validation_errors.push_errors(e)
+            };
+            if validator_signer.is_some()
+                && matches!(genesis.config.chain_id.as_ref(), MAINNET | TESTNET | BETANET)
+                && config.tracked_shards.is_empty()
+            {
+                // Make sure validators tracks all shards, see
+                // https://github.com/near/nearcore/issues/7388
+                let error_message = format!("The `chain_id` field specified in genesis is among mainnet/betanet/testnet, so validator must track all shards. Please change `tracked_shards` field in config.json to be any non-empty vector");
+                validation_errors.push_cross_file_semantics_error(error_message);
+            }
+            Some(genesis)
+        }
+        Err(error) => {
+            validation_errors.push_errors(error);
+            None
+        }
+    };
+
+    validation_errors.return_ok_or_error()?;
+
+    if genesis.is_none() || network_signer.is_none() {
+        panic!("Genesis and network_signer should not be None by now.")
+    }
+    let near_config = NearConfig::new(
+        config,
+        genesis.unwrap(),
+        network_signer.unwrap().into(),
+        validator_signer,
+    )?;
+    Ok(near_config)
 }
 
 pub fn load_test_config(seed: &str, addr: tcp::ListenerAddr, genesis: Genesis) -> NearConfig {
@@ -1389,7 +1480,7 @@ fn test_init_config_localnet() {
     let temp_dir = tempdir().unwrap();
     init_configs(
         &temp_dir.path(),
-        Some("localnet"),
+        Some("localnet".to_string()),
         None,
         Some("seed1"),
         3,
@@ -1405,7 +1496,8 @@ fn test_init_config_localnet() {
     )
     .unwrap();
     let genesis =
-        Genesis::from_file(temp_dir.path().join("genesis.json"), GenesisValidationMode::UnsafeFast);
+        Genesis::from_file(temp_dir.path().join("genesis.json"), GenesisValidationMode::UnsafeFast)
+            .unwrap();
     assert_eq!(genesis.config.chain_id, "localnet");
     assert_eq!(genesis.config.shard_layout.num_shards(), 3);
     assert_eq!(
@@ -1431,10 +1523,78 @@ fn test_init_config_localnet() {
     );
 }
 
+#[test]
+// Tests that `init_configs()` works if both config and genesis file exists, but the node key and validator key files don't exist.
+// Test does the following:
+// * Initialize all config and key files
+// * Check that the key files exist
+// * Remove the key files
+// * Run the initialization again
+// * Check that the key files got created
+fn test_init_config_localnet_keep_config_create_node_key() {
+    let temp_dir = tempdir().unwrap();
+    // Initialize all config and key files.
+    init_configs(
+        &temp_dir.path(),
+        Some("localnet".to_string()),
+        Some(AccountId::from_str("account.near").unwrap()),
+        Some("seed1"),
+        3,
+        false,
+        None,
+        false,
+        None,
+        None,
+        false,
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+
+    // Check that the key files exist.
+    let _genesis =
+        Genesis::from_file(temp_dir.path().join("genesis.json"), GenesisValidationMode::Full)
+            .unwrap();
+    let config = Config::from_file(&temp_dir.path().join(CONFIG_FILENAME)).unwrap();
+    let node_key_file = temp_dir.path().join(config.node_key_file);
+    let validator_key_file = temp_dir.path().join(config.validator_key_file);
+    assert!(node_key_file.exists());
+    assert!(validator_key_file.exists());
+
+    // Remove the key files.
+    std::fs::remove_file(&node_key_file).unwrap();
+    std::fs::remove_file(&validator_key_file).unwrap();
+
+    // Run the initialization again.
+    init_configs(
+        &temp_dir.path(),
+        Some("localnet".to_string()),
+        Some(AccountId::from_str("account.near").unwrap()),
+        Some("seed1"),
+        3,
+        false,
+        None,
+        false,
+        None,
+        None,
+        false,
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+
+    // Check that the key files got created.
+    let _node_signer = InMemorySigner::from_file(&node_key_file).unwrap();
+    let _validator_signer = InMemorySigner::from_file(&validator_key_file).unwrap();
+}
+
 /// Tests that loading a config.json file works and results in values being
 /// correctly parsed and defaults being applied correctly applied.
+/// We skip config validation since we only care about Config being correctly loaded from file.
 #[test]
-fn test_config_from_file() {
+fn test_config_from_file_skip_validation() {
     let base = Path::new(env!("CARGO_MANIFEST_DIR"));
 
     for (has_gc, path) in
@@ -1445,7 +1605,7 @@ fn test_config_from_file() {
         let tmp = tempfile::NamedTempFile::new().unwrap();
         tmp.as_file().write_all(&data).unwrap();
 
-        let config = Config::from_file(&tmp.into_temp_path()).unwrap();
+        let config = Config::from_file_skip_validation(&tmp.into_temp_path()).unwrap();
 
         // TODO(mina86): We might want to add more checks.  Looking at all
         // values is probably not worth it but there may be some other defaults

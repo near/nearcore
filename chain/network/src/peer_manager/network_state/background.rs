@@ -14,7 +14,6 @@ use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
-use crate::time;
 use crate::types::{
     ConnectedPeerInfo, HighestHeightPeerInfo, KnownProducer, NetworkInfo, NetworkRequests,
     NetworkResponses, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, PeerType,
@@ -28,6 +27,7 @@ use near_o11y::{handler_debug_span, handler_trace_span, OpenTelemetrySpanExt, Wi
 use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::time;
 use near_primitives::views::{
     ConnectionInfoView, EdgeView, KnownPeerStateView, NetworkGraphView, PeerStoreView,
     RecentOutboundConnectionsView,
@@ -127,9 +127,8 @@ impl NetworkState {
     ) -> anyhow::Result<Arc<NetworkState>> {
         let config = config.verify().context("config")?;
         let store = store::Store::from(store);
-        let peer_store =
-            peer_store::PeerStore::new(config.peer_store.clone(), store.clone())
-                .context("PeerStore::new")?;
+        let peer_store = peer_store::PeerStore::new(&clock, config.peer_store.clone())
+            .context("PeerStore::new")?;
         tracing::debug!(target: "network",
                len = peer_store.len(),
                boot_nodes = config.peer_store.boot_nodes.len(),

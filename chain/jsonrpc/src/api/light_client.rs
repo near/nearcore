@@ -10,24 +10,21 @@ use near_jsonrpc_primitives::types::light_client::{
     RpcLightClientExecutionProofRequest, RpcLightClientNextBlockError,
     RpcLightClientNextBlockRequest, RpcLightClientNextBlockResponse, RpcLightClientProofError,
 };
-use near_primitives::hash::CryptoHash;
 use near_primitives::views::LightClientBlockView;
 
-use super::{parse_params, RpcFrom, RpcRequest};
+use super::{Params, RpcFrom, RpcRequest};
 
 impl RpcRequest for RpcLightClientExecutionProofRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {
-        Ok(parse_params::<Self>(value)?)
+        Params::parse(value)
     }
 }
 
 impl RpcRequest for RpcLightClientNextBlockRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {
-        if let Ok((last_block_hash,)) = parse_params::<(CryptoHash,)>(value.clone()) {
-            Ok(Self { last_block_hash })
-        } else {
-            Ok(parse_params::<Self>(value)?)
-        }
+        Params::new(value)
+            .try_singleton(|last_block_hash| Ok(Self { last_block_hash }))
+            .unwrap_or_parse()
     }
 }
 

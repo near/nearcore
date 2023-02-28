@@ -174,7 +174,9 @@ pub(crate) fn apply_state_parts(
         epoch.epoch_height(),
         shard_id,
     );
+
     let num_parts = part_storage.num_parts();
+    let part_ids = get_part_ids(part_id, part_id.map(|x| x + 1), num_parts);
     tracing::info!(
         target: "state-parts",
         epoch_height = epoch.epoch_height(),
@@ -182,12 +184,12 @@ pub(crate) fn apply_state_parts(
         shard_id,
         num_parts,
         ?sync_prev_hash,
-        part_id = format_part_id(part_id),
+        ?part_ids,
         "Applying state as seen at the beginning of the specified epoch.",
     );
 
     let timer = Instant::now();
-    for part_id in get_part_ids(part_id, num_parts) {
+    for part_id in part_ids {
         let timer = Instant::now();
         assert!(part_id < num_parts, "part_id: {}, num_parts: {}", part_id, num_parts);
         let part = part_storage.read(part_id);
@@ -208,7 +210,8 @@ pub(crate) fn apply_state_parts(
 pub(crate) fn dump_state_parts(
     epoch_selection: EpochSelection,
     shard_id: ShardId,
-    part_id: Option<u64>,
+    part_from: Option<u64>,
+    part_to: Option<u64>,
     home_dir: &Path,
     near_config: NearConfig,
     store: Store,
@@ -242,6 +245,8 @@ pub(crate) fn dump_state_parts(
         runtime_adapter.get_state_root_node(shard_id, &sync_prev_hash, &state_root).unwrap();
 
     let num_parts = get_num_state_parts(state_root_node.memory_usage);
+    let part_ids = get_part_ids(part_from, part_to, num_parts);
+
     tracing::info!(
         target: "state-parts",
         epoch_height = epoch.epoch_height(),
@@ -249,7 +254,7 @@ pub(crate) fn dump_state_parts(
         shard_id,
         num_parts,
         ?sync_prev_hash,
-        part_id = format_part_id(part_id),
+        ?part_ids,
         "Dumping state as seen at the beginning of the specified epoch.",
     );
 
@@ -261,7 +266,7 @@ pub(crate) fn dump_state_parts(
     );
 
     let timer = Instant::now();
-    for part_id in get_part_ids(part_id, num_parts) {
+    for part_id in part_ids {
         let timer = Instant::now();
         assert!(part_id < num_parts, "part_id: {}, num_parts: {}", part_id, num_parts);
         let state_part = runtime_adapter
@@ -278,18 +283,8 @@ pub(crate) fn dump_state_parts(
     tracing::info!(target: "state-parts", total_elapsed_sec = timer.elapsed().as_secs_f64(), "Wrote all requested state parts");
 }
 
-fn format_part_id(part_id: Option<u64>) -> String {
-    match part_id {
-        Some(part_id) => part_id.to_string(),
-        None => "<all_parts>".to_string(),
-    }
-}
-
-fn get_part_ids(part_id: Option<u64>, num_parts: u64) -> Range<u64> {
-    match part_id {
-        Some(part_id) => part_id..(part_id + 1),
-        None => 0..num_parts,
-    }
+fn get_part_ids(part_from: Option<u64>, part_to: Option<u64>, num_parts: u64) -> Range<u64> {
+    part_from.unwrap_or(0)..part_to.unwrap_or(num_parts)
 }
 
 fn location_prefix(chain_id: &str, epoch_height: u64, shard_id: u64) -> String {
