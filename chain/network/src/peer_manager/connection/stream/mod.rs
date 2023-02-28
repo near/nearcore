@@ -188,6 +188,13 @@ impl FrameStream {
                 // if the caller context cancels even before the first byte arrives.
                 // That's good enough - optimizing the implementation to avoid dropping
                 // before receiving the first byte doesn't give us any useful guarantees.
+                // NOTE: we intentionally do not cache a Frame in FrameStream if noone is
+                // awaiting recv() - this prevents memory leaks caused by caching large unwanted
+                // messages. Still, some improvement could be made, as currently we keep the buffer
+                // until the frame is received (or until RESPONSIVENESS_TIMEOUT).
+                // Alternatively we could drop the large buffer immediately as soon as
+                // the recv() caller cancels the context and just drop the remaining incoming bytes
+                // in the background.
                 // NOTE: read_* are not cancel safe, hence any error (including ErrCanceled)
                 // invalidates the stream (WAI). However, wrapping the whole task in ctx::wait
                 // would be equivalent in this specific case.
