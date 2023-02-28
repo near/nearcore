@@ -23,20 +23,23 @@ jobs:
         with:
           rust-version: nightly
 
+      - name: Set swap space to 10G
+        uses: pierotofy/set-swap-space@master
+        with:
+          swap-size-gb: 10
+
       - name: Install cargo fuzz subcommand crate
         run: cargo install cargo-fuzz
+
+      - run: rustup target add --toolchain nightly wasm32-unknown-unknown
 
       - name: "Set up GCP SDK"
         uses: "google-github-actions/setup-gcloud@v1"
         with:
           version: ">= 416.0.0"
 
-      - uses: actions/setup-python@v4
-        with:
-          python-version: "3.9"
-
       - uses: actions/checkout@master
 
       - run: pip install -r scripts/build_fuzzers_requirements.txt
 
-      - run: python scripts/build_fuzzers.py
+      - run: python3 scripts/build_fuzzers.py
