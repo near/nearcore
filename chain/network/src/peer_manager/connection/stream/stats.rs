@@ -117,10 +117,7 @@ impl Stats {
                 &metrics::PEER_DATA_READ_BUFFER_SIZE,
                 labels.clone(),
             ),
-            recv_msg_size_metric: metrics::MetricGuard::new(
-                &metrics::PEER_MSG_SIZE_BYTES,
-                labels,
-            ),
+            recv_msg_size_metric: metrics::MetricGuard::new(&metrics::PEER_MSG_SIZE_BYTES, labels),
         }
     }
 }
