@@ -842,7 +842,6 @@ impl ChainStore {
 
     /// Constructs key 'STATE_SYNC_DUMP:<ShardId>',
     /// for example 'STATE_SYNC_DUMP:2' for shard_id=2.
-    /// Doesn't contain epoch_id, because only one dump process per shard is allowed.
     fn state_sync_dump_progress_key(shard_id: ShardId) -> Vec<u8> {
         let mut key = b"STATE_SYNC_DUMP:".to_vec();
         key.extend(shard_id.to_le_bytes());
