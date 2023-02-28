@@ -27,6 +27,7 @@ import time
 import pathlib
 import base58
 import itertools
+import requests
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -35,68 +36,112 @@ import utils
 import account
 import transaction
 import key
+import account
+import mocknet_helpers
 from configured_logger import logger
 
-N_ACCOUNTS = 10000
+N_ACCOUNTS = 1
 
 def main():
     config = cluster.load_config()
-    nonce = 1
     nodes = cluster.start_cluster(2, 0, 4, config, [["epoch_length", 100]], {
         0: {
             "tracked_shards": [0, 1, 2, 3],
         }
     })
 
-    contract_path = os.environ["FUNGIBLE_TOKEN_WASM"]
-    contract_bytes = pathlib.Path(contract_path).read_bytes()
     block_hash = nodes[0].get_latest_block().hash
     block_hash = base58.b58decode(block_hash)
-    deploy_tx = transaction.sign_deploy_contract_tx(nodes[0].signer_key, contract_bytes, nonce, block_hash)
-    deploy_res = nodes[0].send_tx_and_wait(deploy_tx, 10**9)
-    nonce += 1
-    print(f'ft deployment {deploy_res}')
+    init_nonce = mocknet_helpers.get_nonce_for_pk(
+            nodes[0].signer_key.account_id,
+            nodes[0].signer_key.pk,
+            port = nodes[0].rpc_port
+        )
+    node0_acct = account.Account(nodes[0].signer_key,
+        init_nonce,
+        block_hash,
+        rpc_infos=[("127.0.0.1", nodes[0].rpc_port)])
 
-    block_hash = nodes[0].get_latest_block().hash
-    block_hash = base58.b58decode(block_hash)
-    s = f'{{"owner_id": "{nodes[0].signer_key.account_id}", "total_supply": "{10**33}"}}'
-    init_call_tx = transaction.sign_function_call_tx(nodes[0].signer_key, "test0", "new_default_meta", s.encode('utf-8'), int(300E12), 0, nonce, block_hash)
-    init_res = nodes[0].send_tx_and_wait(init_call_tx, 10**9)
-    print(f'ft new_default_meta {init_res}')
+    contract_path = os.environ["FUNGIBLE_TOKEN_WASM"]
+    contract_tx = node0_acct.send_deploy_contract_tx(contract_path)
+    assert wait_tx(nodes[0], contract_tx["result"], node0_acct.key.account_id)
 
     accounts = []
     for i in range(N_ACCOUNTS):
-        signer_key = nodes[0].signer_key
-        account = key.Key.implicit_account()
-        accounts.append(account)
+        k = key.Key.implicit_account()
+        accounts.append(account.Account(k, 0, block_hash, rpc_info=("127.0.0.1", nodes[0].rpc_port)))
+    for_each_account_until_all_succeed(nodes[0], accounts, 10, create_account_factory(node0_acct))
 
-    accounts_to_create = set(accounts)
+    s = f'{{"owner_id": "{node0_acct.key.account_id}", "total_supply": "{10**33}"}}'
+    tx = node0_acct.send_call_contract_tx("new_default_meta", s.encode('utf-8'))
+    assert wait_tx(nodes[0], tx["result"], node0_acct.key.account_id)
 
-    while accounts_to_create:
+    for acct in accounts:
+        acct.nonce = mocknet_helpers.get_nonce_for_pk(
+            acct.key.account_id,
+            acct.key.pk,
+            port = nodes[0].rpc_port
+        )
+    for_each_account_until_all_succeed(nodes[0], accounts, 10, ft_account_init_factory(node0_acct))
+    for_each_account_until_all_succeed(nodes[0], accounts, 10, transfer_tokens_factory(node0_acct, node0_acct))
+    # Setup is complete at this point.
+
+
+def ft_account_init_factory(node):
+    def init_ft_account(acct):
+        s = f'{{"account_id": "{acct.key.account_id}"}}'
+        result = acct.send_call_contract_raw_tx(
+            node.key.account_id,
+            "storage_deposit",
+            s.encode('utf-8'),
+            10**23,
+        )
+        return result["result"], node.key.account_id
+    return init_ft_account
+
+
+def transfer_tokens_factory(node, sender):
+    def do_it(to_whom):
+        s = f'{{"receiver_id": "{to_whom.key.account_id}", "amount": "{10**18}"}}'
+        result = sender.send_call_contract_raw_tx(node.key.account_id, "ft_transfer", s.encode('utf-8'), 1)
+        return result["result"], sender.key.account_id
+    return do_it
+
+
+def create_account_factory(sender):
+    def create_account(acct):
+        result = sender.send_transfer_tx(acct.key.account_id, 10**24)
+        return result["result"], acct.key.account_id
+    return create_account
+
+
+def for_each_account_until_all_succeed(node, accounts, limit, send_tx):
+    accounts_to_succeed = set(accounts)
+    while accounts_to_succeed:
         waitlist = dict()
-        while accounts_to_create:
-            account = accounts_to_create.pop()
-            print(f"Will attempt to create {account.account_id}")
-            block_hash = nodes[0].get_latest_block().hash
-            block_hash = base58.b58decode(block_hash)
-            tx = transaction.sign_payment_tx(nodes[0].signer_key, account.account_id, 10**24, nonce, block_hash)
-            result = nodes[0].send_tx(tx)
-            nonce += 1
-            waitlist[result["result"]] = account
+        while accounts_to_succeed:
+            account = accounts_to_succeed.pop()
+            (tx_id, recipient) = send_tx(account)
+            waitlist[(tx_id, recipient)] = account
+        while waitlist:
+            (tx_id, recipient), v = waitlist.popitem()
+            if not wait_tx(node, tx_id, recipient):
+                accounts_to_succeed.add(v)
 
-        for height, hsh in itertools.islice(utils.poll_blocks(nodes[0], timeout=10**9), 10):
-            new_waitlist = dict()
-            if not waitlist:
-                break
-            while waitlist:
-                k, v = waitlist.popitem()
-                tx_result = nodes[0].get_tx(k, v.account_id)
-                if 'error' in tx_result:
-                    new_waitlist[k] = v
-                else:
-                    print(f"{v.account_id} was created in {k}")
-            waitlist = new_waitlist
-        accounts_to_create.update(waitlist.values())
+
+def wait_tx(node, tx_id, recipient):
+    for height, hsh in itertools.islice(utils.poll_blocks(node, timeout=10**9), 10):
+        print(f"checking for {tx_id} sent to {recipient}")
+        try:
+            tx_result = node.get_tx(tx_id, recipient)
+        except requests.exceptions.ReadTimeout:
+            continue
+        print(tx_result)
+        if 'error' in tx_result:
+            pass
+        else:
+            return True
+    return False
 
 if __name__ == "__main__":
     main()
