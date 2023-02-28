@@ -94,7 +94,7 @@ impl Drop for StateSyncDumpHandle {
 }
 
 impl StateSyncDumpHandle {
-    pub fn stop(&mut self) {
+    pub fn stop(&self) {
         let _: Vec<bool> = self.handles.iter().map(|handle| handle.stop()).collect();
     }
 }
