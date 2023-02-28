@@ -20,6 +20,8 @@ to pay for the storage of their accounts.
 [Stabilization #8601](https://github.com/near/nearcore/pull/8601)
 
 ### Non-protocol Changes
+* Config validation can be done by following command: `./target/debug/neard --home {path_to_config_files} validate-config`. This will show error if there are file issues or semantic issues in `config.json`, `genesis.json`, `records.json`, `node_key.json` and `validator_key.json`. 
+* Comments are allowed in `config.json`, `genesis.json`, `node_key.json` and `validator_key.json`. You can use `//`, `#` and `/*...*/` for comments.
 * `/debug` page now has client_config linked. You can also check your client_config directly at /debug/client_config
 * Added cold store loop - a background thread that copies data from hot to cold storage and a new json rpc endpoing - split_storage_info - that
   exposes debug info about the split storage.
