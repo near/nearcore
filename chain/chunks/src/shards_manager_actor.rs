@@ -6,6 +6,7 @@ use near_chain::{chunks_store::ReadOnlyChunksStore, types::Tip, RuntimeWithEpoch
 use near_network::{
     shards_manager::ShardsManagerRequestFromNetwork, types::PeerManagerMessageRequest,
 };
+use near_primitives::time;
 use near_primitives::types::AccountId;
 use near_store::{DBCol, Store, HEADER_HEAD_KEY, HEAD_KEY};
 
@@ -81,6 +82,7 @@ pub fn start_shards_manager(
         .expect("ShardsManager must be initialized after the chain is initialized");
     let chunks_store = ReadOnlyChunksStore::new(store);
     let shards_manager = ShardsManager::new(
+        time::Clock::real(),
         me,
         runtime_adapter,
         network_adapter,
