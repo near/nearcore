@@ -1,4 +1,5 @@
 use anyhow;
+use anyhow::Context;
 use clap;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Tip;
@@ -15,6 +16,10 @@ use strum::IntoEnumIterator;
 
 #[derive(clap::Parser)]
 pub struct ColdStoreCommand {
+    /// By default state viewer opens rocks DB in the read only mode, which allows it to run
+    /// multiple instances in parallel and be sure that no unintended changes get written to the DB.
+    #[clap(long, short = 'w')]
+    readwrite: bool,
     #[clap(subcommand)]
     subcmd: SubCommand,
 }
@@ -39,10 +44,14 @@ enum SubCommand {
     /// - config.cold_store.path points to an existing database with kind Cold
     /// - store_relative_path points to an existing database with kind Rpc
     PrepareHot(PrepareHotCmd),
+    /// Traverse trie from state_root at given height and check that every node is in cold db.
+    CheckStateRoot(CheckStateRootCmd),
 }
 
 impl ColdStoreCommand {
     pub fn run(self, home_dir: &Path) -> anyhow::Result<()> {
+        let mode =
+            if self.readwrite { near_store::Mode::ReadWrite } else { near_store::Mode::ReadOnly };
         let near_config = nearcore::config::load_config(
             &home_dir,
             near_chain_configs::GenesisValidationMode::Full,
@@ -55,7 +64,8 @@ impl ColdStoreCommand {
             &near_config.config.store,
             near_config.config.cold_store.as_ref(),
         );
-        let storage = opener.open().unwrap_or_else(|e| panic!("Error opening storage: {:#}", e));
+        let storage =
+            opener.open_in_mode(mode).unwrap_or_else(|e| panic!("Error opening storage: {:#}", e));
 
         let hot_runtime = Arc::new(NightshadeRuntime::from_config(
             home_dir,
@@ -76,6 +86,7 @@ impl ColdStoreCommand {
                 Ok(())
             }
             SubCommand::PrepareHot(cmd) => cmd.run(&storage, &home_dir, &near_config),
+            SubCommand::CheckStateRoot(cmd) => cmd.run(&storage),
         }
     }
 }
@@ -382,5 +393,104 @@ impl PrepareHotCmd {
         }
 
         Ok(())
+    }
+}
+
+#[derive(clap::Parser)]
+struct CheckStateRootCmd {
+    #[clap(long)]
+    height: near_primitives::types::BlockHeight,
+    #[clap(long)]
+    max_depth: Option<u64>,
+}
+
+impl CheckStateRootCmd {
+    pub fn run(self, storage: &NodeStorage) -> anyhow::Result<()> {
+        let hash_key = {
+            let height_key = self.height.to_le_bytes();
+            storage
+                .get_hot_store()
+                .get(DBCol::BlockHeight, &height_key)?
+                .unwrap()
+                .as_slice()
+                .to_vec()
+        };
+        let cold_store = storage.get_cold_store().expect("Cold storage is not configured");
+        let block = cold_store
+            .get_ser::<near_primitives::block::Block>(DBCol::Block, hash_key.as_ref())
+            .unwrap()
+            .unwrap();
+        for chunk in block.chunks().iter() {
+            Self::check_trie(
+                &cold_store,
+                &cold_store
+                    .get_ser::<near_primitives::sharding::ShardChunk>(
+                        DBCol::Chunks,
+                        chunk.chunk_hash().as_bytes(),
+                    )
+                    .unwrap()
+                    .unwrap()
+                    .take_header()
+                    .prev_state_root(),
+                0,
+                &self.max_depth,
+            )?;
+        }
+
+        Ok(())
+    }
+
+    fn check_trie(
+        store: &Store,
+        hash: &CryptoHash,
+        depth: u64,
+        max_depth: &Option<u64>,
+    ) -> anyhow::Result<()> {
+        tracing::debug!(target: "check_trie", "Checking {:?} at depth {}", hash, depth);
+        if max_depth.map_or(false, |md| depth > md) {
+            tracing::debug!(target: "check_trie", "Reached max depth");
+            return Ok(());
+        }
+
+        let bytes = Self::read_state_with_retries(store, hash.as_ref(), 5)
+            .with_context(|| format!("Failed to read raw bytes for hash {:?}", hash))?
+            .expect(format!("Failed to find raw bytes for hash {:?}", hash).as_str());
+        match near_store::RawTrieNodeWithSize::decode(&bytes) {
+            Ok(node) => match node.node {
+                near_store::RawTrieNode::Leaf(..) => {
+                    return Ok(());
+                }
+                near_store::RawTrieNode::Branch(children, _optional_value) => {
+                    for (_idx, child) in children.iter().enumerate() {
+                        if let Some(child) = child {
+                            Self::check_trie(store, child, depth + 1, max_depth)?;
+                        }
+                    }
+                }
+                near_store::RawTrieNode::Extension(_key, child) => {
+                    Self::check_trie(store, &child, depth + 1, max_depth)?;
+                }
+            },
+            Err(_) => {
+                // This is Value node. We've reached the leaf.
+                return Ok(());
+            }
+        }
+        Ok(())
+    }
+
+    fn read_state_with_retries<'a>(
+        store: &'a Store,
+        key: &'a [u8],
+        retries: u8,
+    ) -> std::io::Result<Option<near_store::db::DBSlice<'a>>> {
+        let cold_state_key = [&[1; 8], key.as_ref()].concat();
+        for _ in 0..retries {
+            match store.get(DBCol::State, &cold_state_key) {
+                Ok(value) => return Ok(value),
+                Err(_) => std::thread::sleep(std::time::Duration::from_millis(50)),
+            }
+        }
+        store.get(DBCol::State, &cold_state_key)
     }
 }
