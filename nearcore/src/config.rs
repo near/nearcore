@@ -313,8 +313,8 @@ pub struct Config {
     /// save_trie_changes = !archive
     /// save_trie_changes should be set to true iff
     /// - archive if false - non-archival nodes need trie changes to perform garbage collection
-    /// - archive is true and cold_store is configured - node working in split storage mode
-    /// needs trie changes in order to do garbage collection on hot and populate cold State column.
+    /// - archive is true, cold_store is configured and migration to split_storage is finished - node
+    /// working in split storage mode needs trie changes in order to do garbage collection on hot.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub save_trie_changes: Option<bool>,
     pub log_summary_style: LogSummaryStyle,
@@ -337,9 +337,7 @@ pub struct Config {
     /// This feature is under development, do not use in production.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cold_store: Option<near_store::StoreConfig>,
-    /// Configuration for the
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub split_storage: Option<SplitStorageConfig>,
+
     // TODO(mina86): Remove those two altogether at some point.  We need to be
     // somewhat careful though and make sure that we don’t start silently
     // ignoring this option without users setting corresponding store option.
@@ -354,11 +352,7 @@ pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expected_shutdown: Option<BlockHeight>,
     /// Options for dumping state of every epoch to S3.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub state_sync: Option<StateSyncConfig>,
-    /// Whether to use state sync (unreliable and corrupts the DB if fails) or do a block sync instead.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub state_sync_enabled: Option<bool>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -393,53 +387,8 @@ impl Default for Config {
             use_db_migration_snapshot: None,
             store: near_store::StoreConfig::default(),
             cold_store: None,
-            split_storage: None,
             expected_shutdown: None,
             state_sync: None,
-            state_sync_enabled: None,
-        }
-    }
-}
-
-fn default_enable_split_storage_view_client() -> bool {
-    false
-}
-
-fn default_cold_store_initial_migration_batch_size() -> usize {
-    500_000_000
-}
-
-fn default_cold_store_initial_migration_loop_sleep_duration() -> Duration {
-    Duration::from_secs(30)
-}
-
-fn default_cold_store_loop_sleep_duration() -> Duration {
-    Duration::from_secs(1)
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
-pub struct SplitStorageConfig {
-    #[serde(default = "default_enable_split_storage_view_client")]
-    pub enable_split_storage_view_client: bool,
-
-    #[serde(default = "default_cold_store_initial_migration_batch_size")]
-    pub cold_store_initial_migration_batch_size: usize,
-    #[serde(default = "default_cold_store_initial_migration_loop_sleep_duration")]
-    pub cold_store_initial_migration_loop_sleep_duration: Duration,
-
-    #[serde(default = "default_cold_store_loop_sleep_duration")]
-    pub cold_store_loop_sleep_duration: Duration,
-}
-
-impl Default for SplitStorageConfig {
-    fn default() -> Self {
-        SplitStorageConfig {
-            enable_split_storage_view_client: default_enable_split_storage_view_client(),
-            cold_store_initial_migration_batch_size:
-                default_cold_store_initial_migration_batch_size(),
-            cold_store_initial_migration_loop_sleep_duration:
-                default_cold_store_initial_migration_loop_sleep_duration(),
-            cold_store_loop_sleep_duration: default_cold_store_loop_sleep_duration(),
         }
     }
 }
@@ -705,41 +654,14 @@ impl NearConfig {
                 enable_statistics_export: config.store.enable_statistics_export,
                 client_background_migration_threads: config.store.background_migration_threads,
                 flat_storage_creation_period: config.store.flat_storage_creation_period,
-                state_sync_dump_enabled: config
-                    .state_sync
-                    .as_ref()
-                    .map(|x| x.dump_enabled)
-                    .flatten()
-                    .unwrap_or(false),
                 state_sync_s3_bucket: config
                     .state_sync
                     .as_ref()
-                    .map(|x| x.s3_bucket.clone())
-                    .unwrap_or(String::new()),
+                    .map_or(None, |x| Some(x.s3_bucket.clone())),
                 state_sync_s3_region: config
                     .state_sync
                     .as_ref()
-                    .map(|x| x.s3_region.clone())
-                    .unwrap_or(String::new()),
-                state_sync_restart_dump_for_shards: config
-                    .state_sync
-                    .as_ref()
-                    .map(|x| x.restart_dump_for_shards.clone())
-                    .flatten()
-                    .unwrap_or(vec![]),
-                state_sync_from_s3_enabled: config
-                    .state_sync
-                    .as_ref()
-                    .map(|x| x.sync_from_s3_enabled)
-                    .flatten()
-                    .unwrap_or(false),
-                state_sync_num_concurrent_s3_requests: config
-                    .state_sync
-                    .as_ref()
-                    .map(|x| x.num_concurrent_s3_requests)
-                    .flatten()
-                    .unwrap_or(100),
-                state_sync_enabled: config.state_sync_enabled.unwrap_or(false),
+                    .map_or(None, |x| Some(x.s3_region.clone())),
             },
             network_config: NetworkConfig::new(
                 config.network,
@@ -1563,28 +1485,11 @@ pub fn load_test_config(seed: &str, addr: tcp::ListenerAddr, genesis: Genesis) -
     NearConfig::new(config, genesis, signer.into(), validator_signer).unwrap()
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 /// Options for dumping state to S3.
 pub struct StateSyncConfig {
-    /// Location of state dumps on S3.
     pub s3_bucket: String,
-    /// Region is very important on S3.
     pub s3_region: String,
-    /// Whether a node should dump state of each epoch to the external storage.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub dump_enabled: Option<bool>,
-    /// Use carefully in case a node that dumps state to the external storage
-    /// gets in trouble.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub restart_dump_for_shards: Option<Vec<ShardId>>,
-    /// If enabled, will download state parts from external storage and not from
-    /// the peers.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sync_from_s3_enabled: Option<bool>,
-    /// When syncing state from S3, throttle requests to this many concurrent
-    /// requests per shard.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub num_concurrent_s3_requests: Option<u64>,
 }
 
 #[test]
