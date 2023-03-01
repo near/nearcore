@@ -89,3 +89,11 @@ pub(crate) static STATE_SYNC_DUMP_NUM_PARTS_DUMPED: Lazy<IntGaugeVec> = Lazy::ne
     )
     .unwrap()
 });
+pub(crate) static STATE_SYNC_DUMP_SIZE_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_state_sync_dump_size_total",
+        "Total size of parts written to S3",
+        &["shard_id"],
+    )
+    .unwrap()
+});

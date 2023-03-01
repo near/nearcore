@@ -214,6 +214,9 @@ async fn state_sync_dump(
 
                     // Record that a part was obtained and dumped.
                     tracing::debug!(target: "state_sync_dump", shard_id, ?epoch_id, epoch_height, ?sync_hash, ?state_root, part_id, part_length = state_part.len(), ?location, "Wrote a state part to S3");
+                    metrics::STATE_SYNC_DUMP_SIZE_TOTAL
+                        .with_label_values(&[&shard_id.to_string()])
+                        .inc_by(state_part.len() as u64);
                     let next_progress = StateSyncDumpProgress::InProgress {
                         epoch_id: epoch_id.clone(),
                         epoch_height,
