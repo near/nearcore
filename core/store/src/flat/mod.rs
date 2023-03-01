@@ -1,6 +1,11 @@
-mod store_helper;
-mod storage;
+pub use manager::FlatStorageManager;
+pub use storage::FlatStorage;
+pub use types::BlockInfo;
+
 mod chunk_view;
-mod types;
+mod creation;
 mod delta;
-mod manager;
+pub mod manager;
+pub mod storage;
+mod store_helper;
+mod types;

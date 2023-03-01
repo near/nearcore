@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 
 use near_primitives::hash::CryptoHash;
-use near_primitives::state::ValueRef;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{RawStateChangesWithTrieKey, ShardId};
 
-use crate::Store;
+use crate::{Store, StoreUpdate};
 
 use super::chunk_view::FlatStorageChunkView;
 use super::delta::FlastStorageDelta;
@@ -18,9 +18,8 @@ pub struct FlatStorage {
 
 enum FlatStorageState {
     Disabled,
-    SavingDeltas,
-    FetchingState,
-    CatchingUp,
+    Empty,
+    Creation,
     Ready(ReadyState),
 }
 
@@ -32,6 +31,12 @@ struct ReadyState {
 enum CreateChunkViewError {
     Disabled,
     NotReady,
+    UnknownBlock,
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum AddBlockError {
+    #[error("unknown block")]
     UnknownBlock,
 }
 
@@ -48,14 +53,16 @@ impl FlatStorage {
         todo!("set flat head to genesis_block and return instance with ReadyState")
     }
 
-    fn add_block(&self, _block: BlockInfo, _changes: &[RawStateChangesWithTrieKey]) {
-        match self.state {
-            FlatStorageState::Disabled => {}
-            FlatStorageState::SavingDeltas
-            | FlatStorageState::FetchingState
-            | FlatStorageState::CatchingUp => todo!("save delta to the disk"),
-            FlatStorageState::Ready(ref _state) => todo!("add delta to the state"),
-        }
+    pub fn add_block(&self, _block: BlockInfo, _changes: &[RawStateChangesWithTrieKey]) -> Result<Option<StoreUpdate>, AddBlockError> {
+        todo!("impl")
+    }
+
+    pub fn update_flat_head(&self, block: BlockHash) {
+        todo!("chain/chain/src/chain.rs update_flat_storage_for_block")
+    }
+
+    pub fn clean(&self, shard_layout: ShardLayout) {
+        todo!("core/store/src/flat_state.rs clear_state")
     }
 
     fn chunk_view(&self, block: BlockHash) -> Result<FlatStorageChunkView, CreateChunkViewError> {

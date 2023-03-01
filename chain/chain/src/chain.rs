@@ -69,6 +69,7 @@ use near_primitives::views::{
     FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
     LightClientBlockView, SignedTransactionView,
 };
+use near_store::flat::FlatStorage;
 #[cfg(feature = "protocol_feature_flat_state")]
 use near_store::flat_state::{store_helper, FlatStateDelta};
 use near_store::flat_state::{FlatStorageCreationStatus, FlatStorageError};
@@ -2101,13 +2102,14 @@ impl Chain {
         block: &Block,
         shard_id: ShardId,
     ) -> Result<(), Error> {
+        let mut new_flat_head = *block.header().last_final_block();
+        if new_flat_head == CryptoHash::default() {
+            new_flat_head = *self.genesis.hash();
+        }
+        self.flat_storage(shard_id).update_flat_head(new_flat_head);
         if let Some(flat_storage_state) =
             self.runtime_adapter.get_flat_storage_state_for_shard(shard_id)
         {
-            let mut new_flat_head = *block.header().last_final_block();
-            if new_flat_head == CryptoHash::default() {
-                new_flat_head = *self.genesis.hash();
-            }
             // Try to update flat head.
             flat_storage_state.update_flat_head(&new_flat_head).unwrap_or_else(|err| {
                 match &err {
@@ -2138,6 +2140,10 @@ impl Chain {
             // debug_assert!(false, "Flat storage state for shard {shard_id} does not exist and its creation was not initiated");
         }
         Ok(())
+    }
+
+    fn flat_storage(&self, shard_id: ShardId) -> FlatStorage {
+        self.runtime_adapter.get_flat_storage_manager().instance(shard_id)
     }
 
     /// Run postprocessing on this block, which stores the block on chain.
@@ -3140,6 +3146,7 @@ impl Chain {
         // Before working with state parts, remove existing flat storage data.
         let epoch_id = self.get_block_header(&sync_hash)?.epoch_id().clone();
         self.runtime_adapter.remove_flat_storage_state_for_shard(shard_id, &epoch_id)?;
+        self.flat_storage(shard_id).clean(self.runtime_adapter.get_shard_layout(&epoch_id)?);
 
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let state_root = shard_state_header.chunk_prev_state_root();
@@ -3177,6 +3184,7 @@ impl Chain {
         // We synced shard state on top of _previous_ block for chunk in shard state header and applied state parts to
         // flat storage. Now we can set flat head to hash of this block and create flat storage.
         // TODO (#7327): ensure that no flat storage work is done for `KeyValueRuntime`.
+        // TODO(pugachag): flat storage state sync
         #[cfg(feature = "protocol_feature_flat_state")]
         {
             let mut store_update = self.runtime_adapter.store().store_update();
@@ -4900,7 +4908,6 @@ impl<'a> ChainUpdate<'a> {
         Ok(())
     }
 
-    #[allow(unused_variables)]
     fn save_flat_state_changes(
         &mut self,
         block_hash: CryptoHash,
@@ -4909,6 +4916,17 @@ impl<'a> ChainUpdate<'a> {
         shard_id: ShardId,
         trie_changes: &WrappedTrieChanges,
     ) -> Result<(), Error> {
+        let maybe_store_update = 
+            self.runtime_adapter.get_flat_storage_manager().instance(shard_id)
+            .add_block(near_store::flat::BlockInfo{
+                hash: block_hash,
+                height,
+                prev_hash,
+            }, trie_changes.state_changes()).unwrap();
+        if let Some(store_update) = maybe_store_update {
+            self.chain_store_update.merge(store_update);
+        }
+
         #[cfg(feature = "protocol_feature_flat_state")]
         {
             let delta = FlatStateDelta::from_state_changes(&trie_changes.state_changes());

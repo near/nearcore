@@ -1,7 +1,7 @@
-use crate::flat_state::{
-    FetchingStateStatus, FlatStorageCreationStatus, FlatStorageError, KeyForFlatStateDelta,
-};
-use crate::{FlatStateDelta, Store, StoreUpdate};
+use crate::flat::creation::{FetchingStateStatus, FlatStorageCreationStatus};
+use crate::flat::delta::{FlatStateDelta, KeyForFlatStateDelta};
+use crate::flat::types::FlatStorageError;
+use crate::{Store, StoreUpdate};
 use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::ReadBytesExt;
 use near_primitives::errors::StorageError;

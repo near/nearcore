@@ -53,7 +53,7 @@ mod opener;
 mod sync_utils;
 pub mod test_utils;
 mod trie;
-mod flat;
+pub mod flat;
 
 pub use crate::config::{Mode, StoreConfig};
 pub use crate::metrics::{flat_state_metrics, FLAT_STORAGE_HEAD_HEIGHT};
