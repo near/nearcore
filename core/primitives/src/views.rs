@@ -198,12 +198,12 @@ impl From<AccessKeyPermissionView> for AccessKeyPermission {
 pub struct AccessKeyView {
     pub nonce: Nonce,
     pub permission: AccessKeyPermissionView,
-    pub proof: Vec<Arc<[u8]>>,
+    pub proof: Option<Vec<Arc<[u8]>>>,
 }
 
 impl From<AccessKey> for AccessKeyView {
     fn from(access_key: AccessKey) -> Self {
-        Self { nonce: access_key.nonce, permission: access_key.permission.into(), proof: vec![] }
+        Self { nonce: access_key.nonce, permission: access_key.permission.into(), proof: None}
     }
 }
 
@@ -240,10 +240,8 @@ pub struct StateItem {
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ViewAccessKeyResult {
     pub access_key: AccessKey,
-    // TODO(mina86): Empty proof (i.e. sending proof when include_proof is not
-    // set in the request) was deprecated in 1.30.  Add
-    // `#[serde(skip(Vec::if_empty))` at 1.33 or something.
-    pub proof: Vec<Arc<[u8]>>,
+    // proof is a serialized array of nodes that make up a merkle path from the key to the root of the shard.
+    pub proof: Option<Vec<Arc<[u8]>>>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
@@ -271,7 +269,6 @@ pub struct QueryError {
 pub struct AccessKeyInfoView {
     pub public_key: PublicKey,
     pub access_key: AccessKeyView,
-    pub proof: Vec<Arc<[u8]>>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]

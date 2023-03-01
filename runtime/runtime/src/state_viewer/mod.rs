@@ -13,7 +13,7 @@ use near_primitives::{
         migration_data::{MigrationData, MigrationFlags},
     },
     transaction::FunctionCallAction,
-    trie_key::trie_key_parsers,
+    trie_key::{TrieKey, trie_key_parsers},
     types::{AccountId, EpochInfoProvider, Gas},
     views::{StateItem, ViewAccessKeyResult, ViewApplyState, ViewStateResult},
 };
@@ -79,23 +79,32 @@ impl TrieViewer {
         public_key: &PublicKey,
         include_proof: bool,
     ) -> Result<ViewAccessKeyResult, errors::ViewAccessKeyError> {
-        let prefix = trie_key_parsers::get_raw_prefix_for_access_key(account_id, public_key);
-
-        let mut iter = state_update.trie().iter()?;
-        iter.remember_visited_nodes(include_proof);
-        iter.seek_prefix(&prefix)?;
 
         let access_key =
-            get_access_key(state_update, account_id, public_key)?.ok_or_else(|| {
-                errors::ViewAccessKeyError::AccessKeyDoesNotExist { public_key: public_key.clone() }
-            })?;
+        get_access_key(state_update, account_id, public_key)?.ok_or_else(|| {
+            errors::ViewAccessKeyError::AccessKeyDoesNotExist { public_key: public_key.clone() }
+        })?;
 
-        let proof = iter.into_visited_nodes();
+        let mut view_result = ViewAccessKeyResult{access_key: access_key, proof: None};
 
-        Ok(ViewAccessKeyResult { access_key, proof })
+        if include_proof {
+            let key = TrieKey::AccessKey{
+                account_id: account_id.clone(), 
+                public_key: public_key.clone()}.to_vec();
+
+            let key = key.to_vec();
+
+            let mut iter = state_update.trie().iter()?;
+            iter.remember_visited_nodes(include_proof);
+            iter.seek_prefix(key)?;
+
+            let proof = iter.into_visited_nodes();
+            view_result.proof = Some(proof)
+        }
+        
+        Ok(view_result)
     }
 
-    // TODO - Add boolean proof parameter support
     pub fn view_access_keys(
         &self,
         state_update: &TrieUpdate,
