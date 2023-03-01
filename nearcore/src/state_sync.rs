@@ -1,14 +1,16 @@
 use crate::{metrics, NearConfig, NightshadeRuntime};
+use borsh::BorshSerialize;
 use near_chain::types::RuntimeAdapter;
-use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode, Error};
+use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error};
 use near_chain_configs::ClientConfig;
 use near_client::sync::state::StateSync;
 use near_crypto::PublicKey;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::PartId;
-use near_primitives::syncing::{get_num_state_parts, StateSyncDumpProgress};
+use near_primitives::syncing::{get_num_state_parts, StatePartKey, StateSyncDumpProgress};
 use near_primitives::types::{EpochHeight, EpochId, ShardId};
+use near_store::DBCol;
 use std::sync::Arc;
 
 pub fn spawn_state_sync_dump(
@@ -186,6 +188,19 @@ async fn state_sync_dump(
                             break;
                         }
                     };
+
+                    // Saving the part data
+                    let committed =
+                        StatePartKey(sync_hash, shard_id, part_id).try_to_vec().and_then(|key| {
+                            let mut store_update = chain.store().store().store_update();
+                            store_update.set(DBCol::StateParts, &key, &state_part);
+                            store_update.commit()
+                        });
+                    if let Err(err) = committed {
+                        res = Some(err.into());
+                        break;
+                    }
+
                     let location =
                         s3_location(&config.chain_id, epoch_height, shard_id, part_id, num_parts);
 
