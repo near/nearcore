@@ -339,11 +339,6 @@ impl<const N: usize> From<[(Vec<u8>, Option<ValueRef>); N]> for FlatStateDelta {
 }
 
 impl FlatStateDelta {
-    /// Assumed number of bytes used to store an entry in the cache.
-    ///
-    /// Based on 36 bytes for `ValueRef` + guessed overhead of 24 bytes for `Vec` and `HashMap`.
-    pub(crate) const PER_ENTRY_OVERHEAD: u64 = 60;
-
     /// Returns `Some(Option<ValueRef>)` from delta for the given key. If key is not present, returns None.
     pub fn get(&self, key: &[u8]) -> Option<Option<ValueRef>> {
         self.0.get(key).cloned()
