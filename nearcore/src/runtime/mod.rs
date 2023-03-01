@@ -1581,7 +1581,7 @@ mod test {
         AccountView, CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo,
         ValidatorKickoutView,
     };
-    use near_store::{flat_state, FlatStateDelta, NodeStorage, Temperature};
+    use near_store::{flat_state, FlatStateDelta, NodeStorage};
 
     use super::*;
 
