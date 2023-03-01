@@ -13,7 +13,7 @@ use near_primitives::{
         migration_data::{MigrationData, MigrationFlags},
     },
     transaction::FunctionCallAction,
-    trie_key::{TrieKey, trie_key_parsers},
+    trie_key::{trie_key_parsers, TrieKey},
     types::{AccountId, EpochInfoProvider, Gas},
     views::{StateItem, ViewAccessKeyResult, ViewApplyState, ViewStateResult},
 };
@@ -79,18 +79,19 @@ impl TrieViewer {
         public_key: &PublicKey,
         include_proof: bool,
     ) -> Result<ViewAccessKeyResult, errors::ViewAccessKeyError> {
-
         let access_key =
-        get_access_key(state_update, account_id, public_key)?.ok_or_else(|| {
-            errors::ViewAccessKeyError::AccessKeyDoesNotExist { public_key: public_key.clone() }
-        })?;
+            get_access_key(state_update, account_id, public_key)?.ok_or_else(|| {
+                errors::ViewAccessKeyError::AccessKeyDoesNotExist { public_key: public_key.clone() }
+            })?;
 
-        let mut view_result = ViewAccessKeyResult{access_key: access_key, proof: None};
+        let mut view_result = ViewAccessKeyResult { access_key: access_key, proof: None };
 
         if include_proof {
-            let key = TrieKey::AccessKey{
-                account_id: account_id.clone(), 
-                public_key: public_key.clone()}.to_vec();
+            let key = TrieKey::AccessKey {
+                account_id: account_id.clone(),
+                public_key: public_key.clone(),
+            }
+            .to_vec();
 
             let key = key.to_vec();
 
@@ -101,7 +102,6 @@ impl TrieViewer {
             let proof = iter.into_visited_nodes();
             view_result.proof = Some(proof)
         }
-        
         Ok(view_result)
     }
 
