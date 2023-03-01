@@ -50,8 +50,6 @@ pub(crate) struct Tracker {
 impl Default for Tracker {
     fn default() -> Self {
         Tracker {
-            sent_bytes: TransferStats::default(),
-            received_bytes: TransferStats::default(),
             requested: CircularUniqueQueue::new(MAX_TRACK_SIZE),
             received: CircularUniqueQueue::new(MAX_TRACK_SIZE),
         }
@@ -59,14 +57,6 @@ impl Default for Tracker {
 }
 
 impl Tracker {
-    pub(crate) fn increment_received(&mut self, clock: &time::Clock, size: u64) {
-        self.received_bytes.record(clock, size);
-    }
-
-    pub(crate) fn increment_sent(&mut self, clock: &time::Clock, size: u64) {
-        self.sent_bytes.record(clock, size);
-    }
-
     // TODO: uncomment this once we add a new message type to sync block height
     /*
     pub(crate) fn has_received(&self, hash: &CryptoHash) -> bool {

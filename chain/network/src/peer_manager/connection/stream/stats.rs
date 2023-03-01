@@ -178,12 +178,14 @@ impl RecvGuard {
 }
 
 impl Drop for RecvGuard {
-    fn drop(&mut self) {
-        metrics::PEER_MSG_READ_LATENCY
-            .observe((ctx::time::now() - self.start_time).as_seconds_f64());
+    fn drop(&mut self) { 
         self.stats.recv_buf_size_metric.set(0);
         self.stats.recv_msg_size_metric.observe(self.frame_size as f64);
         self.stats.received_messages.lock().unwrap().observe(1);
         self.stats.received_bytes.lock().unwrap().observe(self.frame_size as u64);
+        metrics::PEER_DATA_RECEIVED_BYTES.inc_by(self.frame_size as u64);
+        metrics::PEER_MESSAGE_RECEIVED_TOTAL.inc();
+        metrics::PEER_MSG_READ_LATENCY
+            .observe((ctx::time::now() - self.start_time).as_seconds_f64());
     }
 }

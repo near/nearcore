@@ -43,6 +43,7 @@ impl From<std::io::Error> for Error {
 }
 
 pub struct FrameStream {
+    info: tcp::StreamInfo,
     /// FrameStream acts as a microservice - it is running some tasks in the background.
     /// These tasks are executed within the "service" scope (therefore they will be canceled
     /// and terminated as soon as the outer scope terminates).
@@ -68,6 +69,11 @@ pub struct FrameStream {
     recv: Arc<tokio::sync::Mutex<Option<ReadHalf>>>,
 }
 
+impl std::ops::Deref for FrameStream {
+    type Target = tcp::StreamInfo;
+    fn deref(&self) -> &Self::Target { &self.info }
+}
+
 impl FrameStream {
     fn new(
         service: scope::Service<Error>,
@@ -78,6 +84,7 @@ impl FrameStream {
         const READ_BUFFER_CAPACITY: usize = 8 * 1024;
         const WRITE_BUFFER_CAPACITY: usize = 8 * 1024;
         let s = Arc::new(Self {
+            info: stream.info,
             service,
             stats: Arc::new(stats::Stats::new(&stream.peer_addr)),
             flusher: tokio::sync::Notify::new(),
