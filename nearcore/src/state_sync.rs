@@ -306,6 +306,14 @@ fn set_metrics(
             .set(num_parts as i64);
     }
     if let Some(epoch_height) = epoch_height {
+        assert!(
+            epoch_height < 10000,
+            "Impossible: {:?} {:?} {:?} {:?}",
+            shard_id,
+            parts_dumped,
+            num_parts,
+            epoch_height
+        );
         metrics::STATE_SYNC_DUMP_EPOCH_HEIGHT
             .with_label_values(&[&shard_id.to_string()])
             .set(epoch_height as i64);
