@@ -97,3 +97,11 @@ pub(crate) static STATE_SYNC_DUMP_SIZE_TOTAL: Lazy<IntCounterVec> = Lazy::new(||
     )
     .unwrap()
 });
+pub(crate) static STATE_SYNC_DUMP_EPOCH_HEIGHT: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_state_sync_dump_epoch_height",
+        "Epoch Height of an epoch being dumped",
+        &["shard_id"],
+    )
+    .unwrap()
+});

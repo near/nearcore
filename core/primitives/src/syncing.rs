@@ -233,6 +233,7 @@ pub fn get_num_state_parts(memory_usage: u64) -> u64 {
 pub enum StateSyncDumpProgress {
     AllDumped {
         epoch_id: EpochId,
+        epoch_height: EpochHeight,
         num_parts: Option<u64>,
     },
     InProgress {
