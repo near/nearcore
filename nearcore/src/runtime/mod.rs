@@ -1197,7 +1197,6 @@ impl RuntimeAdapter for NightshadeRuntime {
                             .map(|(public_key, access_key)| AccessKeyInfoView {
                                 public_key,
                                 access_key: access_key.into(),
-                                proof: vec![],
                             })
                             .collect(),
                     ),
