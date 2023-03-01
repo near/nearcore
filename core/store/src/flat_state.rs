@@ -406,9 +406,9 @@ impl From<FlatStateDelta> for CachedFlatStateDelta {
 }
 
 impl CachedFlatStateDelta {
-    /// Assumed overhead in bytes for the cache entry. Estimated as (69 bytes for `CryptoHash` and `Option<ValueRef>`) *
-    /// 70% per entry ~= 48 bytes.
-    pub(crate) const PER_ENTRY_OVERHEAD: u64 = 48;
+    /// Assumed size in bytes for the cache entry. Estimated as 69 bytes for `CryptoHash` and `Option<ValueRef>` +
+    /// 70% hashmap overhead per entry ~= 117 bytes.
+    const ENTRY_SIZE: u64 = 117;
 
     pub fn get(&self, key: &[u8]) -> Option<Option<ValueRef>> {
         self.0.get(&hash(key)).cloned()
@@ -419,10 +419,7 @@ impl CachedFlatStateDelta {
     }
 
     fn total_size(&self) -> u64 {
-        self.0
-            .values()
-            .map(|value| 32 + value.as_ref().map_or(1, |_| 37) as u64 + Self::PER_ENTRY_OVERHEAD)
-            .sum()
+        (self.0.len() as u64) * Self::ENTRY_SIZE
     }
 }
 
