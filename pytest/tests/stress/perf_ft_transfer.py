@@ -141,7 +141,12 @@ def transfer_tokens_factory(node, sender):
             1,
             sender.nonce,
             sender.base_block_hash)
-        result = sender.send_tx(tx)
+        while True:
+            try:
+                result = sender.send_tx(tx)
+                break
+            except requests.exceptions.ReadTimeout:
+                pass
         return result["result"], sender.key.account_id
     return do_it
 
@@ -181,12 +186,16 @@ def wait_tx_once(node, tx_id, recipient):
 
 
 def wait_tx(node, tx_id, recipient):
-    if wait_tx_once(node, tx_id, recipient):
-        return True
-    for height, hsh in itertools.islice(utils.poll_blocks(node, timeout=10**9), 10):
+    try:
         if wait_tx_once(node, tx_id, recipient):
             return True
-    return False
+        for height, hsh in itertools.islice(utils.poll_blocks(node, timeout=10**9), 10):
+            if wait_tx_once(node, tx_id, recipient):
+                return True
+        return False
+    except requests.exceptions.ReadTimeout:
+        # We can't communicate with the node, just say that the transaction failed...
+        return False
 
 if __name__ == "__main__":
     main()
