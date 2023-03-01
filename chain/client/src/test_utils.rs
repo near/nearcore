@@ -15,6 +15,7 @@ use near_chunks::ShardsManager;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::test_utils::create_test_signer;
+use near_primitives::time;
 use num_rational::Ratio;
 use once_cell::sync::OnceCell;
 use rand::{thread_rng, Rng};
@@ -1201,6 +1202,7 @@ pub fn setup_synchronous_shards_manager(
     let chain_head = chain.head().unwrap();
     let chain_header_head = chain.header_head().unwrap();
     let shards_manager = ShardsManager::new(
+        time::Clock::real(),
         account_id,
         runtime_adapter,
         network_adapter.request_sender,

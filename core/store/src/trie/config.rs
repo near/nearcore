@@ -31,6 +31,8 @@ pub struct TrieConfig {
     pub sweat_prefetch_receivers: Vec<AccountId>,
     /// List of allowed predecessor accounts for SWEAT prefetching.
     pub sweat_prefetch_senders: Vec<AccountId>,
+    /// Capacity of `ValueRef`s cache for flat storage head for each shard.
+    pub flat_state_cache_capacity: u64,
 }
 
 impl TrieConfig {
@@ -62,6 +64,8 @@ impl TrieConfig {
                 Err(e) => error!(target: "config", "invalid account id {account}: {e}"),
             }
         }
+
+        this.flat_state_cache_capacity = config.flat_state_cache_capacity;
 
         this
     }
