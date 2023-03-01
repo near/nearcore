@@ -1111,6 +1111,7 @@ dependencies = [
  "near-primitives",
  "near-store",
  "nearcore",
+ "rand 0.8.5",
  "strum",
  "tracing",
 ]
