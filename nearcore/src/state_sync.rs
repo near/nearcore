@@ -121,13 +121,13 @@ async fn state_sync_dump(
         tracing::debug!(target: "state_sync_dump", shard_id, ?progress, "Running StateSyncDump loop iteration");
         // The `match` returns the next state of the state machine.
         let next_state = match progress {
-            Ok(Some(StateSyncDumpProgress::AllDumped(epoch_id))) => {
+            Ok(Some(StateSyncDumpProgress::AllDumped { epoch_id, num_parts })) => {
                 // The latest epoch was dumped. Check if a newer epoch is available.
-                check_new_epoch(Some(epoch_id), shard_id, &chain, &runtime, &config)
+                check_new_epoch(Some(epoch_id), num_parts, shard_id, &chain, &runtime, &config)
             }
             Err(Error::DBNotFoundErr(_)) | Ok(None) => {
-                // First invokation of this state-machine. See if at least one epoch is available for dumping.
-                check_new_epoch(None, shard_id, &chain, &runtime, &config)
+                // First invocation of this state-machine. See if at least one epoch is available for dumping.
+                check_new_epoch(None, None, shard_id, &chain, &runtime, &config)
             }
             Err(err) => {
                 // Something went wrong, let's retry.
@@ -145,6 +145,9 @@ async fn state_sync_dump(
                 parts_dumped,
                 num_parts,
             })) => {
+                // TODO: Metric for num_parts per shard
+                // TODO: Metric for num_dumped per shard
+
                 // The actual dumping of state to S3.
                 tracing::info!(target: "state_sync_dump", shard_id, ?epoch_id, epoch_height, ?sync_hash, ?state_root, parts_dumped, num_parts, "Creating parts and dumping them");
                 let mut res = None;
@@ -198,6 +201,7 @@ async fn state_sync_dump(
                                     ("state_root", &format!("{:?}", state_root)),
                                     ("sync_hash", &format!("{:?}", sync_hash)),
                                     ("node_key", &format!("{:?}", node_key)),
+                                    ("num_parts", &format!("{}", num_parts)),
                                 ],
                             )
                             .await
@@ -229,11 +233,20 @@ async fn state_sync_dump(
                             tracing::debug!(target: "state_sync_dump", shard_id, ?err, "Failed to update dump progress, continue");
                         }
                     }
+                    metrics::STATE_SYNC_DUMP_NUM_PARTS_DUMPED
+                        .with_label_values(&[&shard_id.to_string()])
+                        .set(part_id as i64 + 1);
+                    metrics::STATE_SYNC_DUMP_NUM_PARTS_TOTAL
+                        .with_label_values(&[&shard_id.to_string()])
+                        .set(num_parts as i64);
                 }
                 if let Some(err) = res {
                     Err(err)
                 } else {
-                    Ok(Some(StateSyncDumpProgress::AllDumped(epoch_id)))
+                    Ok(Some(StateSyncDumpProgress::AllDumped {
+                        epoch_id,
+                        num_parts: Some(num_parts),
+                    }))
                 }
             }
         };
@@ -282,6 +295,12 @@ fn start_dumping(
         tracing::debug!(target: "state_sync_dump", shard_id, ?epoch_id, ?sync_hash, ?state_root, num_parts, "Initialize dumping state of Epoch");
         // Note that first the state of the state machines gets changes to
         // `InProgress` and it starts dumping state after a short interval.
+        metrics::STATE_SYNC_DUMP_NUM_PARTS_DUMPED
+            .with_label_values(&[&shard_id.to_string()])
+            .set(0);
+        metrics::STATE_SYNC_DUMP_NUM_PARTS_TOTAL
+            .with_label_values(&[&shard_id.to_string()])
+            .set(num_parts as i64);
         Ok(Some(StateSyncDumpProgress::InProgress {
             epoch_id,
             epoch_height,
@@ -292,7 +311,7 @@ fn start_dumping(
         }))
     } else {
         tracing::debug!(target: "state_sync_dump", shard_id, ?epoch_id, ?sync_hash, "Shard is not tracked, skip the epoch");
-        Ok(Some(StateSyncDumpProgress::AllDumped(epoch_id)))
+        Ok(Some(StateSyncDumpProgress::AllDumped { epoch_id, num_parts: Some(0) }))
     }
 }
 
@@ -300,6 +319,7 @@ fn start_dumping(
 /// `epoch_id` represents the last fully dumped epoch.
 fn check_new_epoch(
     epoch_id: Option<EpochId>,
+    num_parts: Option<u64>,
     shard_id: ShardId,
     chain: &Chain,
     runtime: &Arc<NightshadeRuntime>,
@@ -307,6 +327,14 @@ fn check_new_epoch(
 ) -> Result<Option<StateSyncDumpProgress>, Error> {
     let head = chain.head()?;
     if Some(&head.epoch_id) == epoch_id.as_ref() {
+        if let Some(num_parts) = num_parts {
+            metrics::STATE_SYNC_DUMP_NUM_PARTS_DUMPED
+                .with_label_values(&[&shard_id.to_string()])
+                .set(num_parts as i64);
+            metrics::STATE_SYNC_DUMP_NUM_PARTS_TOTAL
+                .with_label_values(&[&shard_id.to_string()])
+                .set(num_parts as i64);
+        }
         Ok(None)
     } else {
         tracing::info!(target: "state_sync_dump", shard_id, ?epoch_id, "Check if a new complete epoch is available");

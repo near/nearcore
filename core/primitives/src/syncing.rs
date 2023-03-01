@@ -231,7 +231,10 @@ pub fn get_num_state_parts(memory_usage: u64) -> u64 {
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
 /// Represents the state of the state machine that dumps state.
 pub enum StateSyncDumpProgress {
-    AllDumped(EpochId),
+    AllDumped {
+        epoch_id: EpochId,
+        num_parts: Option<u64>,
+    },
     InProgress {
         epoch_id: EpochId,
         epoch_height: EpochHeight,
