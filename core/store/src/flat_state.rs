@@ -358,10 +358,6 @@ impl FlatStateDelta {
         self.0.len()
     }
 
-    fn total_size(&self) -> u64 {
-        self.0.keys().map(|key| key.len() as u64 + Self::PER_ENTRY_OVERHEAD).sum()
-    }
-
     /// Merge two deltas. Values from `other` should override values from `self`.
     pub fn merge(&mut self, other: &Self) {
         self.0.extend(other.0.iter().map(|(k, v)| (k.clone(), v.clone())))
@@ -405,9 +401,40 @@ impl FlatStateDelta {
     pub fn apply_to_flat_state(self, _store_update: &mut StoreUpdate) {}
 }
 
+/// hash of trie key -> value ref or none.
+pub struct CachedFlatStateDelta(HashMap<CryptoHash, Option<ValueRef>>);
+
+impl From<FlatStateDelta> for CachedFlatStateDelta {
+    fn from(delta: FlatStateDelta) -> Self {
+        Self(delta.0.iter().map(|(key, value)| (hash(key), value.clone())).collect())
+    }
+}
+
+impl CachedFlatStateDelta {
+    /// Assumed overhead in bytes for the cache entry. Estimated as (69 bytes for `CryptoHash` and `Option<ValueRef>`) *
+    /// 70% per entry ~= 48 bytes.
+    pub(crate) const PER_ENTRY_OVERHEAD: u64 = 48;
+
+    pub fn get(&self, key: &[u8]) -> Option<Option<ValueRef>> {
+        self.0.get(&hash(key)).cloned()
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    fn total_size(&self) -> u64 {
+        self.0
+            .values()
+            .map(|value| 32 + value.as_ref().map_or(1, |_| 37) as u64 + Self::PER_ENTRY_OVERHEAD)
+            .sum()
+    }
+}
+
 use lru::LruCache;
 use near_o11y::metrics::IntGauge;
 use near_primitives::errors::StorageError;
+use near_primitives::hash::hash;
 use near_primitives::shard_layout::ShardLayout;
 use std::sync::{Arc, RwLock};
 #[cfg(feature = "protocol_feature_flat_state")]
@@ -464,7 +491,7 @@ struct FlatStorageStateInner {
     /// State deltas for all blocks supported by this flat storage.
     /// All these deltas here are stored on disk too.
     #[allow(unused)]
-    deltas: HashMap<CryptoHash, Arc<FlatStateDelta>>,
+    deltas: HashMap<CryptoHash, Arc<CachedFlatStateDelta>>,
     /// Cache for the mapping from trie storage keys to value refs for `flat_head`.
     /// Must be equivalent to the mapping stored on disk only for `flat_head`. For
     /// other blocks, deltas have to be applied as usual.
@@ -570,7 +597,6 @@ pub mod store_helper {
     use near_primitives::state::ValueRef;
     use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
     use near_primitives::types::ShardId;
-    use std::sync::Arc;
 
     /// Prefixes determining type of flat storage creation status stored in DB.
     /// Note that non-existent status is treated as SavingDeltas if flat storage
@@ -586,12 +612,11 @@ pub mod store_helper {
         store: &Store,
         shard_id: ShardId,
         block_hash: CryptoHash,
-    ) -> Result<Option<Arc<FlatStateDelta>>, FlatStorageError> {
+    ) -> Result<Option<FlatStateDelta>, FlatStorageError> {
         let key = KeyForFlatStateDelta { shard_id, block_hash };
         Ok(store
             .get_ser::<FlatStateDelta>(crate::DBCol::FlatStateDeltas, &key.try_to_vec().unwrap())
-            .map_err(|_| FlatStorageError::StorageInternalError)?
-            .map(|delta| Arc::new(delta)))
+            .map_err(|_| FlatStorageError::StorageInternalError)?)
     }
 
     pub fn set_delta(
@@ -785,7 +810,6 @@ pub mod store_helper {
     use crate::Store;
     use near_primitives::hash::CryptoHash;
     use near_primitives::types::ShardId;
-    use std::sync::Arc;
 
     pub fn get_flat_head(_store: &Store, _shard_id: ShardId) -> Option<CryptoHash> {
         None
@@ -795,7 +819,7 @@ pub mod store_helper {
         _store: &Store,
         _shard_id: ShardId,
         _block_hash: CryptoHash,
-    ) -> Result<Option<Arc<FlatStateDelta>>, FlatStorageError> {
+    ) -> Result<Option<FlatStateDelta>, FlatStorageError> {
         Err(FlatStorageError::StorageInternalError)
     }
 
@@ -823,7 +847,10 @@ impl FlatStorageStateInner {
     }
 
     /// Gets delta for the given block and shard `self.shard_id`.
-    fn get_delta(&self, block_hash: &CryptoHash) -> Result<Arc<FlatStateDelta>, FlatStorageError> {
+    fn get_delta(
+        &self,
+        block_hash: &CryptoHash,
+    ) -> Result<Arc<CachedFlatStateDelta>, FlatStorageError> {
         // TODO (#7327): add limitation on cached deltas number to limit RAM usage
         // and read single `ValueRef` from delta if it is not cached.
         Ok(self
@@ -954,15 +981,16 @@ impl FlatStorageState {
                 );
                 blocks.insert(hash, block_info);
                 metrics.cached_blocks.inc();
-                let delta = store_helper::get_delta(&store, shard_id, hash)
+                let delta: CachedFlatStateDelta = store_helper::get_delta(&store, shard_id, hash)
                     .expect(BORSH_ERR)
                     .unwrap_or_else(|| {
                         panic!("Cannot find block delta for block {:?} shard {}", hash, shard_id)
-                    });
+                    })
+                    .into();
                 metrics.cached_deltas.inc();
                 metrics.cached_deltas_num_items.add(delta.len() as i64);
                 metrics.cached_deltas_size.add(delta.total_size() as i64);
-                deltas.insert(hash, delta);
+                deltas.insert(hash, Arc::new(delta));
             }
         }
 
@@ -1046,7 +1074,8 @@ impl FlatStorageState {
         let blocks = guard.get_blocks_to_head(new_head)?;
         for block in blocks.into_iter().rev() {
             let mut store_update = StoreUpdate::new(guard.store.storage.clone());
-            let delta = guard.get_delta(&block)?.as_ref().clone();
+            // Because flat storage is locked and we could retrieve path from head to new head, delta must exist in DB.
+            let delta = store_helper::get_delta(&guard.store, guard.shard_id, block)?.unwrap();
             for (key, value) in delta.0.iter() {
                 guard.put_value_ref_to_cache(key.clone(), value.clone());
             }
@@ -1136,10 +1165,11 @@ impl FlatStorageState {
         }
         let mut store_update = StoreUpdate::new(guard.store.storage.clone());
         store_helper::set_delta(&mut store_update, guard.shard_id, block_hash.clone(), &delta)?;
+        let cached_delta: CachedFlatStateDelta = delta.into();
         guard.metrics.cached_deltas.inc();
-        guard.metrics.cached_deltas_num_items.add(delta.len() as i64);
-        guard.metrics.cached_deltas_size.add(delta.total_size() as i64);
-        guard.deltas.insert(*block_hash, Arc::new(delta));
+        guard.metrics.cached_deltas_num_items.add(cached_delta.len() as i64);
+        guard.metrics.cached_deltas_size.add(cached_delta.total_size() as i64);
+        guard.deltas.insert(*block_hash, Arc::new(cached_delta));
         guard.blocks.insert(*block_hash, block);
         guard.metrics.cached_blocks.inc();
         Ok(store_update)
