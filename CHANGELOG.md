@@ -20,11 +20,19 @@ to pay for the storage of their accounts.
 [Stabilization #8601](https://github.com/near/nearcore/pull/8601)
 
 ### Non-protocol Changes
-* `/debug` page now has client_config linked. You can also check your client_config directly at /debug/client_config
+* Config validation can be done by following command: 
+  `./target/debug/neard --home {path_to_config_files} validate-config`. 
+  This will show error if there are file issues or semantic issues in `config.json`, `genesis.json`, `records.json`, `node_key.json` and `validator_key.json`. 
+  [#8485](https://github.com/near/nearcore/pull/8485)
+* Comments are allowed in configs. This includes
+  `config.json`, `genesis.json`, `node_key.json` and `validator_key.json`. You can use `//`, `#` and `/*...*/` for comments.
+  [#8423](https://github.com/near/nearcore/pull/8423)
+* `/debug` page now has client_config linked. 
+  You can also check your client_config directly at /debug/client_config
+  [#8400](https://github.com/near/nearcore/pull/8400)
 * Added cold store loop - a background thread that copies data from hot to cold storage and a new json rpc endpoing - split_storage_info - that
   exposes debug info about the split storage.
   [#8432](https://github.com/near/nearcore/pull/8432)
-
 * `ClientConfig` can be updated while the node is running.
   `dyn_config.json` is no longer needed as its contents were merged into `config.json`.
   [#8240](https://github.com/near/nearcore/pull/8240)
