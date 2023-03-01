@@ -137,16 +137,16 @@ def write_tx_events(accounts_and_indices, filename):
 
 def get_test_accounts_from_args(argv):
     node_account_id = argv[1]
-    pk = argv[2]
-    sk = argv[3]
-    rpc_nodes = argv[4].split(',')
-    num_nodes = int(argv[5])
-    max_tps = float(argv[6])
+    rpc_nodes = argv[2].split(',')
+    num_nodes = int(argv[3])
+    max_tps = float(argv[4])
     logger.info(f'rpc_nodes: {rpc_nodes}')
 
-    node_account_key = key.Key(node_account_id, pk, sk)
+    node_account_key = key.Key(node_account_id, mocknet.PUBLIC_KEY,
+                               mocknet.SECRET_KEY)
     test_account_keys = [
-        key.Key(mocknet.load_testing_account_id(node_account_id, i), pk, sk)
+        key.Key(mocknet.load_testing_account_id(node_account_id, i),
+                mocknet.PUBLIC_KEY, mocknet.SECRET_KEY)
         for i in range(mocknet.NUM_ACCOUNTS)
     ]
 
