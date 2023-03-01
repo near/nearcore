@@ -352,6 +352,7 @@ pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expected_shutdown: Option<BlockHeight>,
     /// Options for dumping state of every epoch to S3.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub state_sync: Option<StateSyncConfig>,
 }
 
@@ -654,14 +655,22 @@ impl NearConfig {
                 enable_statistics_export: config.store.enable_statistics_export,
                 client_background_migration_threads: config.store.background_migration_threads,
                 flat_storage_creation_period: config.store.flat_storage_creation_period,
+                state_sync_dump_enabled: config
+                    .state_sync
+                    .as_ref()
+                    .map_or(false, |x| x.dump_enabled),
                 state_sync_s3_bucket: config
                     .state_sync
                     .as_ref()
-                    .map_or(None, |x| Some(x.s3_bucket.clone())),
+                    .map_or(String::new(), |x| x.s3_bucket.clone()),
                 state_sync_s3_region: config
                     .state_sync
                     .as_ref()
-                    .map_or(None, |x| Some(x.s3_region.clone())),
+                    .map_or(String::new(), |x| x.s3_region.clone()),
+                state_sync_dump_drop_state: config
+                    .state_sync
+                    .as_ref()
+                    .map_or(vec![], |x| x.drop_state_of_dump.clone()),
             },
             network_config: NetworkConfig::new(
                 config.network,
@@ -1485,11 +1494,13 @@ pub fn load_test_config(seed: &str, addr: tcp::ListenerAddr, genesis: Genesis) -
     NearConfig::new(config, genesis, signer.into(), validator_signer).unwrap()
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 /// Options for dumping state to S3.
 pub struct StateSyncConfig {
     pub s3_bucket: String,
     pub s3_region: String,
+    pub dump_enabled: bool,
+    pub drop_state_of_dump: Vec<ShardId>,
 }
 
 #[test]
