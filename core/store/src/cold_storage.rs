@@ -174,7 +174,7 @@ pub fn copy_all_data_to_cold(
     cold_db: std::sync::Arc<ColdDB>,
     hot_store: &Store,
     batch_size: usize,
-    keep_going: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    keep_going: &std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) -> io::Result<CopyAllDataToColdStatus> {
     for col in DBCol::iter() {
         if col.is_cold() {

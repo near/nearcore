@@ -392,7 +392,7 @@ fn test_initial_copy_to_cold(batch_size: usize) {
         (*store.cold_db().unwrap()).clone(),
         &env.clients[0].runtime_adapter.store(),
         batch_size,
-        keep_going,
+        &keep_going,
     )
     .unwrap();
 

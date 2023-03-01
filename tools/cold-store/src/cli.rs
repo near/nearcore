@@ -194,7 +194,7 @@ fn copy_all_blocks(storage: &NodeStorage, batch_size: usize, check: bool) {
         (*storage.cold_db().unwrap()).clone(),
         &storage.get_hot_store(),
         batch_size,
-        keep_going,
+        &keep_going,
     )
     .expect("Failed to do migration to cold db");
 
