@@ -3,6 +3,12 @@
 ## [unreleased]
 
 ### Protocol Changes
+
+### Non-protocol Changes
+
+## 1.32.0
+
+### Protocol Changes
 * Stabilize `ed25519_verify` feature: introducing a host function to verify
 ed25519 signatures efficiently.
 [#8098](https://github.com/near/nearcore/pull/8098)
