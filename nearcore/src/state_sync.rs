@@ -17,16 +17,17 @@ pub fn spawn_state_sync_dump(
     runtime: Arc<NightshadeRuntime>,
     node_key: &PublicKey,
 ) -> anyhow::Result<Option<StateSyncDumpHandle>> {
-    if config.client_config.state_sync_s3_bucket.is_none()
-        || config.client_config.state_sync_s3_region.is_none()
+    if !config.client_config.state_sync_dump_enabled
+        || config.client_config.state_sync_s3_bucket.is_empty()
+        || config.client_config.state_sync_s3_region.is_empty()
     {
         return Ok(None);
     }
     tracing::info!(target: "state_sync_dump", "Spawning the state sync dump loop");
 
     // Create a connection to S3.
-    let s3_bucket = config.client_config.state_sync_s3_bucket.as_ref().unwrap();
-    let s3_region = config.client_config.state_sync_s3_region.as_ref().unwrap();
+    let s3_bucket = config.client_config.state_sync_s3_bucket.clone();
+    let s3_region = config.client_config.state_sync_s3_region.clone();
     let bucket = s3::Bucket::new(
         &s3_bucket,
         s3_region
@@ -113,6 +114,11 @@ async fn state_sync_dump(
     tracing::info!(target: "state_sync_dump", shard_id, "Running StateSyncDump loop");
     let mut interval = actix_rt::time::interval(std::time::Duration::from_secs(10));
 
+    if config.state_sync_dump_drop_state.contains(&shard_id) {
+        tracing::debug!(target: "state_sync_dump", shard_id, "Dropped existing progress");
+        chain.store().set_state_sync_dump_progress(shard_id, None).unwrap();
+    }
+
     loop {
         // Avoid a busy-loop when there is nothing to do.
         interval.tick().await;
@@ -180,7 +186,8 @@ async fn state_sync_dump(
                             break;
                         }
                     };
-                    let location = s3_location(&config.chain_id, epoch_height, shard_id, part_id);
+                    let location =
+                        s3_location(&config.chain_id, epoch_height, shard_id, part_id, num_parts);
 
                     {
                         let _timer = metrics::STATE_SYNC_DUMP_PUT_OBJECT_ELAPSED
@@ -195,6 +202,7 @@ async fn state_sync_dump(
                             break;
                         }
 
+                        /*
                         // Optional, we probably don't need this.
                         let put = bucket
                             .put_object_tagging(
@@ -216,6 +224,7 @@ async fn state_sync_dump(
                             res = Some(err);
                             break;
                         }
+                         */
                     }
 
                     // Record that a part was obtained and dumped.
@@ -371,9 +380,15 @@ fn check_new_epoch(
     }
 }
 
-fn s3_location(chain_id: &str, epoch_height: u64, shard_id: u64, part_id: u64) -> String {
+fn s3_location(
+    chain_id: &str,
+    epoch_height: u64,
+    shard_id: u64,
+    part_id: u64,
+    num_parts: u64,
+) -> String {
     format!(
-        "chain_id={}/epoch_height={}/shard_id={}/state_part_{:06}",
-        chain_id, epoch_height, shard_id, part_id
+        "chain_id={}/epoch_height={}/shard_id={}/state_part_{:06}_of_{:06}",
+        chain_id, epoch_height, shard_id, part_id, num_parts
     )
 }
