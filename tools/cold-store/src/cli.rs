@@ -10,6 +10,7 @@ use near_store::metadata::DbKind;
 use near_store::{DBCol, NodeStorage, Store};
 use near_store::{COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY, TAIL_KEY};
 use nearcore::{NearConfig, NightshadeRuntime};
+use rand::seq::SliceRandom;
 use std::io::Result;
 use std::path::Path;
 use std::sync::Arc;
@@ -547,8 +548,9 @@ impl CheckStateRootCmd {
                 near_store::RawTrieNode::Leaf(..) => {
                     return Ok(());
                 }
-                near_store::RawTrieNode::Branch(children, _optional_value) => {
-                    for (_idx, child) in children.iter().enumerate() {
+                near_store::RawTrieNode::Branch(mut children, _optional_value) => {
+                    children.shuffle(&mut rand::thread_rng());
+                    for child in children.iter() {
                         if let Some(child) = child {
                             prune_state.down();
                             Self::check_trie(store, child, prune_state, prune_condition)?;
