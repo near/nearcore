@@ -109,7 +109,7 @@ async fn state_sync_dump(
     runtime: Arc<NightshadeRuntime>,
     config: ClientConfig,
     bucket: s3::Bucket,
-    node_key: PublicKey,
+    _node_key: PublicKey,
 ) {
     tracing::info!(target: "state_sync_dump", shard_id, "Running StateSyncDump loop");
     let mut interval = actix_rt::time::interval(std::time::Duration::from_secs(10));
