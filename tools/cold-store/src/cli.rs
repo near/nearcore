@@ -1,3 +1,4 @@
+use crate::cli::SubCommand::CheckStateRoot;
 use anyhow;
 use anyhow::Context;
 use clap;
@@ -52,18 +53,41 @@ impl ColdStoreCommand {
     pub fn run(self, home_dir: &Path) -> anyhow::Result<()> {
         let mode =
             if self.readwrite { near_store::Mode::ReadWrite } else { near_store::Mode::ReadOnly };
-        let near_config = nearcore::config::load_config(
+        let mut near_config = nearcore::config::load_config(
             &home_dir,
             near_chain_configs::GenesisValidationMode::Full,
         )
         .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
-        let opener = NodeStorage::opener(
-            home_dir,
-            true,
-            &near_config.config.store,
-            near_config.config.cold_store.as_ref(),
-        );
+        let opener = {
+            let opener = NodeStorage::opener(
+                home_dir,
+                true,
+                &near_config.config.store,
+                near_config.config.cold_store.as_ref(),
+            );
+            match self.subcmd {
+                CheckStateRoot(_) => {
+                    let (hot_snapshot, cold_snapshot) = opener
+                        .create_snapshots(near_store::Mode::ReadOnly)
+                        .expect("Failed to create snapshots");
+                    if let Some(_) = &hot_snapshot.0 {
+                        hot_snapshot.remove().expect("Failed to remove unnecessary hot snapshot");
+                    }
+                    if let Some(cold_store_config) = near_config.config.cold_store.as_mut() {
+                        cold_store_config.path =
+                            Some(cold_snapshot.0.clone().expect("cold_snapshot should be Some"));
+                    }
+                    NodeStorage::opener(
+                        home_dir,
+                        true,
+                        &near_config.config.store,
+                        near_config.config.cold_store.as_ref(),
+                    )
+                }
+                _ => opener,
+            }
+        };
         let storage =
             opener.open_in_mode(mode).unwrap_or_else(|e| panic!("Error opening storage: {:#}", e));
 
@@ -396,23 +420,70 @@ impl PrepareHotCmd {
     }
 }
 
-#[derive(clap::Parser)]
+#[derive(clap::Subcommand)]
+enum HeightOrHash {
+    Height { height: near_primitives::types::BlockHeight },
+    StateRoot { state_root: CryptoHash },
+}
+
+#[derive(Debug)]
+struct PruneCondition {
+    max_depth: Option<u8>,
+    max_count: Option<u64>,
+}
+
+#[derive(Debug)]
+struct PruneState {
+    depth: u8,
+    count: u64,
+}
+
+impl PruneState {
+    pub fn new() -> Self {
+        Self { depth: 0, count: 0 }
+    }
+
+    pub fn should_prune(&self, condition: &PruneCondition) -> bool {
+        if let Some(md) = condition.max_depth {
+            if self.depth > md {
+                return true;
+            }
+        }
+        if let Some(mc) = condition.max_count {
+            if self.count > mc {
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn down(&mut self) {
+        self.count += 1;
+        self.depth += 1;
+    }
+
+    pub fn up(&mut self) {
+        self.depth -= 1;
+    }
+}
+
+#[derive(clap::Args)]
 struct CheckStateRootCmd {
+    #[clap(subcommand)]
+    hash_from: HeightOrHash,
     #[clap(long)]
-    height: near_primitives::types::BlockHeight,
+    max_depth: Option<u8>,
     #[clap(long)]
-    hash: Option<CryptoHash>,
-    #[clap(long)]
-    max_depth: Option<u64>,
+    max_count: Option<u64>,
 }
 
 impl CheckStateRootCmd {
     pub fn run(self, storage: &NodeStorage) -> anyhow::Result<()> {
         let cold_store = storage.get_cold_store().expect("Cold storage is not configured");
-        match self.hash {
-            None => {
+        let hashes = match self.hash_from {
+            HeightOrHash::Height { height } => {
                 let hash_key = {
-                    let height_key = self.height.to_le_bytes();
+                    let height_key = height.to_le_bytes();
                     storage
                         .get_hot_store()
                         .get(DBCol::BlockHeight, &height_key)?
@@ -424,10 +495,11 @@ impl CheckStateRootCmd {
                     .get_ser::<near_primitives::block::Block>(DBCol::Block, hash_key.as_ref())
                     .unwrap()
                     .unwrap();
-                for chunk in block.chunks().iter() {
-                    Self::check_trie(
-                        &cold_store,
-                        &cold_store
+                block
+                    .chunks()
+                    .iter()
+                    .map(|chunk| {
+                        cold_store
                             .get_ser::<near_primitives::sharding::ShardChunk>(
                                 DBCol::Chunks,
                                 chunk.chunk_hash().as_bytes(),
@@ -435,15 +507,21 @@ impl CheckStateRootCmd {
                             .unwrap()
                             .unwrap()
                             .take_header()
-                            .prev_state_root(),
-                        0,
-                        &self.max_depth,
-                    )?;
-                }
+                            .prev_state_root()
+                    })
+                    .collect()
             }
-            Some(state_root) => {
-                Self::check_trie(&cold_store, &state_root, 0, &self.max_depth)?;
+            HeightOrHash::StateRoot { state_root } => {
+                vec![state_root]
             }
+        };
+        for hash in hashes.iter() {
+            Self::check_trie(
+                &cold_store,
+                &hash,
+                &mut PruneState::new(),
+                &PruneCondition { max_depth: self.max_depth, max_count: self.max_count },
+            )?;
         }
 
         Ok(())
@@ -452,16 +530,16 @@ impl CheckStateRootCmd {
     fn check_trie(
         store: &Store,
         hash: &CryptoHash,
-        depth: u64,
-        max_depth: &Option<u64>,
+        prune_state: &mut PruneState,
+        prune_condition: &PruneCondition,
     ) -> anyhow::Result<()> {
-        tracing::debug!(target: "check_trie", "Checking {:?} at depth {}", hash, depth);
-        if max_depth.map_or(false, |md| depth > md) {
-            tracing::debug!(target: "check_trie", "Reached max depth");
+        tracing::debug!(target: "check_trie", "Checking {:?} at {:?}", hash, prune_state);
+        if prune_state.should_prune(prune_condition) {
+            tracing::debug!(target: "check_trie", "Reached prune condition: {:?}", prune_condition);
             return Ok(());
         }
 
-        let bytes = Self::read_state_with_retries(store, hash.as_ref(), 20)
+        let bytes = Self::read_state(store, hash.as_ref())
             .with_context(|| format!("Failed to read raw bytes for hash {:?}", hash))?
             .expect(format!("Failed to find raw bytes for hash {:?}", hash).as_str());
         match near_store::RawTrieNodeWithSize::decode(&bytes) {
@@ -472,12 +550,16 @@ impl CheckStateRootCmd {
                 near_store::RawTrieNode::Branch(children, _optional_value) => {
                     for (_idx, child) in children.iter().enumerate() {
                         if let Some(child) = child {
-                            Self::check_trie(store, child, depth + 1, max_depth)?;
+                            prune_state.down();
+                            Self::check_trie(store, child, prune_state, prune_condition)?;
+                            prune_state.up();
                         }
                     }
                 }
                 near_store::RawTrieNode::Extension(_key, child) => {
-                    Self::check_trie(store, &child, depth + 1, max_depth)?;
+                    prune_state.down();
+                    Self::check_trie(store, &child, prune_state, prune_condition)?;
+                    prune_state.up();
                 }
             },
             Err(_) => {
@@ -488,18 +570,11 @@ impl CheckStateRootCmd {
         Ok(())
     }
 
-    fn read_state_with_retries<'a>(
+    fn read_state<'a>(
         store: &'a Store,
         key: &'a [u8],
-        retries: u8,
     ) -> std::io::Result<Option<near_store::db::DBSlice<'a>>> {
         let cold_state_key = [&[1; 8], key.as_ref()].concat();
-        for _ in 0..retries {
-            match store.get(DBCol::State, &cold_state_key) {
-                Ok(value) => return Ok(value),
-                Err(_) => std::thread::sleep(std::time::Duration::from_secs(10)),
-            }
-        }
         store.get(DBCol::State, &cold_state_key)
     }
 }
