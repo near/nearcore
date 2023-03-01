@@ -201,12 +201,13 @@ async fn state_sync_dump(
                                 &location,
                                 &[
                                     ("chain_id", &config.chain_id),
-                                    ("epoch_id", &format!("{:?}", epoch_id.0)),
                                     ("epoch_height", &epoch_height.to_string()),
-                                    ("state_root", &format!("{:?}", state_root)),
-                                    ("sync_hash", &format!("{:?}", sync_hash)),
+                                    ("epoch_id", &format!("{:?}", epoch_id.0)),
                                     ("node_key", &format!("{:?}", node_key)),
                                     ("num_parts", &format!("{}", num_parts)),
+                                    ("part_id", &format!("{}", part_id)),
+                                    ("state_root", &format!("{:?}", state_root)),
+                                    ("sync_hash", &format!("{:?}", sync_hash)),
                                 ],
                             )
                             .await
