@@ -203,7 +203,7 @@ pub struct AccessKeyView {
 
 impl From<AccessKey> for AccessKeyView {
     fn from(access_key: AccessKey) -> Self {
-        Self { nonce: access_key.nonce, permission: access_key.permission.into(), proof: None}
+        Self { nonce: access_key.nonce, permission: access_key.permission.into(), proof: None }
     }
 }
 
