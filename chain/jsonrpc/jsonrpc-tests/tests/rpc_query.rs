@@ -285,6 +285,7 @@ fn test_query_access_key() {
             panic!("queried access keys, but received something else: {:?}", query_response.kind);
         };
         assert_eq!(access_key.nonce, 0);
+        assert_eq!(Some(access_key.proof), None);
         assert_eq!(access_key.permission, AccessKeyPermission::FullAccess.into());
     });
 }

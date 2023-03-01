@@ -45,7 +45,8 @@ fn parse_path_data(path: String, data: String) -> Result<RpcQueryRequest, RpcPar
         parse_bs58_data(max_len, data)
     };
 
-    //command=>account_id=>access_key
+    // Request endpoint path is formatted like so:
+    // command/account_id/access_key/proof_boolean
     let mut path_parts = path.splitn(3, '/');
 
     let make_err = || RpcParseError("Not enough query parameters provided".to_string());
@@ -63,8 +64,6 @@ fn parse_path_data(path: String, data: String) -> Result<RpcQueryRequest, RpcPar
         Some(val) => val.contains(&String::from("true")),
         None => false,
     };
-
-    println!("Requires proof? {}", maybe_require_proof);
 
     let request = match query_command {
         "account" => QueryRequest::ViewAccount { account_id },
