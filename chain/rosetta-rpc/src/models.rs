@@ -709,6 +709,7 @@ pub(crate) enum OperationType {
     CreateAccount,
     InitiateDeleteAccount,
     DeleteAccount,
+    DelegateAction,
     RefundDeleteAccount,
     InitiateAddKey,
     AddKey,
@@ -763,7 +764,7 @@ pub(crate) struct OperationMetadata {
     /// Has to be specified for TRANSFER operations which represent gas prepayments or gas refunds
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transfer_fee_type: Option<OperationMetadataTransferFeeType>,
-    /// Has to be specified for ADD_KEY, REMOVE_KEY, and STAKE operations
+    /// Has to be specified for ADD_KEY, REMOVE_KEY, DELEGATE_ACTION and STAKE operations
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_key: Option<PublicKey>,
     // /// Has to be specified for ADD_KEY
@@ -785,6 +786,12 @@ pub(crate) struct OperationMetadata {
     pub attached_gas: Option<crate::utils::SignedDiff<near_primitives::types::Gas>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub predecessor_id: Option<AccountIdentifier>,
+    /// Has to be specified for DELEGATE_ACTION operation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_block_height: Option<near_primitives::types::BlockHeight>,
+    /// Has to be specified for DELEGATE_ACTION operation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub operations: Option<private_non_delegate_action::NonDelegateActionOperation>,
 }
 
 impl OperationMetadata {
@@ -842,6 +849,57 @@ pub(crate) struct Operation {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<OperationMetadata>,
+}
+/// A small private module to protect the private fields inside `NonDelegateAction`.
+mod private_non_delegate_action {
+    use super::*;
+
+    /// This is Action which mustn't contain DelegateAction.
+    ///
+    /// This struct is needed to avoid the recursion when Action/DelegateAction is deserialized.
+    ///
+    /// Important: Don't make the inner Action public, this must only be constructed
+    /// through the correct interface that ensures the inner Action is actually not
+    /// a delegate action. That would break an assumption of this type, which we use
+    /// in several places. For example, borsh de-/serialization relies on it. If the
+    /// invariant is broken, we may end up with a `Transaction` or `Receipt` that we
+    /// can serialize but deserializing it back causes a parsing error.
+    #[derive(serde::Serialize, serde::Deserialize, PartialEq, Clone, Debug)]
+    pub struct NonDelegateActionOperation(Operation);
+
+    impl From<NonDelegateActionOperation> for Operation {
+        fn from(action: NonDelegateActionOperation) -> Self {
+            action.0
+        }
+    }
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("attempted to construct NonDelegateAction from Action::Delegate")]
+    pub struct IsDelegateOperation;
+
+    impl TryFrom<Operation> for NonDelegateActionOperation {
+        type Error = IsDelegateOperation;
+
+        fn try_from(action: Operation) -> Result<Self, IsDelegateOperation> {
+            if matches!(action.type_, DelegateAction) {
+                Err(IsDelegateOperation)
+            } else {
+                Ok(Self(action))
+            }
+        }
+    }
+
+    // fn deserialize_reader<R: borsh::maybestd::io::Read>(
+    //     rd: &mut R,
+    // ) -> ::core::result::Result<Self, borsh::maybestd::io::Error> {
+    //     match u8::deserialize_reader(rd)? {
+    //         ACTION_DELEGATE_NUMBER => Err(Error::new(
+    //             ErrorKind::InvalidInput,
+    //             "DelegateAction mustn't contain a nested one",
+    //         )),
+    //         n => borsh::de::EnumExt::deserialize_variant(rd, n).map(Self),
+    //     }
+    // }
 }
 
 /// The operation_identifier uniquely identifies an operation within a

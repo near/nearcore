@@ -29,6 +29,7 @@ mod initiate_function_call;
 mod refund_delete_account;
 mod stake;
 mod transfer;
+pub mod delegate_action;
 
 pub(crate) trait ValidatedOperation:
     TryFrom<crate::models::Operation, Error = crate::errors::ErrorKind>
