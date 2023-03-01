@@ -3,7 +3,7 @@ extern crate bencher;
 
 use bencher::{black_box, Bencher};
 use near_primitives::errors::StorageError;
-use near_store::{DBCol, NodeStorage, Store, Temperature};
+use near_store::{DBCol, NodeStorage, Store};
 use std::time::{Duration, Instant};
 
 /// Run a benchmark to generate `num_keys` keys, each of size `key_size`, then write then

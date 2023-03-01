@@ -954,7 +954,7 @@ impl CompiledContractCache for StoreCompiledContractCache {
 mod tests {
     use near_primitives::hash::CryptoHash;
 
-    use super::{DBCol, NodeStorage, Store, Temperature};
+    use super::{DBCol, NodeStorage, Store};
 
     #[test]
     fn test_no_cache_disabled() {
