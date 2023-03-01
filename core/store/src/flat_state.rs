@@ -354,7 +354,7 @@ impl FlatStateDelta {
     }
 
     /// Merge two deltas. Values from `other` should override values from `self`.
-    pub fn merge(&mut self, other: &Self) {
+    pub fn merge(&mut self, other: Self) {
         self.0.extend(other.0.iter().map(|(k, v)| (k.clone(), v.clone())))
     }
 
@@ -1430,7 +1430,7 @@ mod tests {
             (vec![4], None),
             (vec![5], Some(ValueRef::new(&[9]))),
         ]);
-        delta.merge(&delta_new);
+        delta.merge(delta_new);
 
         assert_eq!(delta.get(&[1]), Some(Some(ValueRef::new(&[4]))));
         assert_eq!(delta.get(&[2]), Some(Some(ValueRef::new(&[7]))));
