@@ -484,8 +484,8 @@ struct FlatStorageStateInner {
     /// paths between the root block and a target block
     #[allow(unused)]
     blocks: HashMap<CryptoHash, BlockInfo>,
-    /// State deltas for all blocks supported by this flat storage.
-    /// All these deltas here are stored on disk too.
+    /// Cached deltas for all blocks supported by this flat storage.
+    /// Uncompressed deltas are stored on DB too, but are cached here for faster access.
     #[allow(unused)]
     deltas: HashMap<CryptoHash, Arc<CachedFlatStateDelta>>,
     /// Cache for the mapping from trie storage keys to value refs for `flat_head`.
