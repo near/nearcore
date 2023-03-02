@@ -54,7 +54,7 @@ pub fn route_shards_manager_network_messages<
                         NetworkRequests::PartialEncodedChunkRequest { target, request, .. } => {
                             let target_idx = data.index_for_account(&target.account_id.unwrap());
                             let route_back = CryptoHash::hash_borsh(next_hash);
-                            route_back_lookup.insert(route_back.clone(), idx);
+                            route_back_lookup.insert(route_back, idx);
                             next_hash += 1;
                             context.sender.send_with_delay(
                             (target_idx,
