@@ -134,10 +134,8 @@ impl Inner {
             // If doesn't have the address attached it is not verified and we add it
             // only if it is unknown to us.
             if !self.peer_states.contains(&peer_info.id) {
-                self.peer_states.push(
-                    peer_info.id.clone(),
-                    KnownPeerState::new(peer_info.clone(), clock.now_utc()),
-                );
+                self.peer_states
+                    .push(peer_info.id.clone(), KnownPeerState::new(peer_info, clock.now_utc()));
             }
         }
     }
