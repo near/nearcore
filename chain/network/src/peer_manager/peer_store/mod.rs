@@ -134,8 +134,16 @@ impl Inner {
             // If doesn't have the address attached it is not verified and we add it
             // only if it is unknown to us.
             if !self.peer_states.contains(&peer_info.id) {
-                self.peer_states
-                    .push(peer_info.id.clone(), KnownPeerState::new(peer_info, clock.now_utc()));
+                if let Some((_, popped_peer_state)) = self
+                    .peer_states
+                    .push(peer_info.id.clone(), KnownPeerState::new(peer_info, clock.now_utc()))
+                {
+                    // If a peer was evicted from peer_states due to the bounded cache size
+                    // and it has an address, remove the corresponding entry from addr_peers
+                    if let Some(popped_peer_addr) = popped_peer_state.peer_info.addr {
+                        self.addr_peers.remove(&popped_peer_addr);
+                    }
+                }
             }
         }
     }
@@ -203,8 +211,16 @@ impl Inner {
             peer_state.peer_info.addr = Some(peer_addr);
         } else {
             let now = clock.now_utc();
-            self.peer_states
-                .push(peer_info.id.clone(), KnownPeerState::new(peer_info.clone(), now));
+            if let Some((_, popped_peer_state)) = self
+                .peer_states
+                .push(peer_info.id.clone(), KnownPeerState::new(peer_info.clone(), now))
+            {
+                // If a peer was evicted from peer_states due to the bounded cache size
+                // and it has an address, remove the corresponding entry from addr_peers
+                if let Some(popped_peer_addr) = popped_peer_state.peer_info.addr {
+                    self.addr_peers.remove(&popped_peer_addr);
+                }
+            }
         }
     }
 
@@ -281,6 +297,14 @@ impl PeerStore {
         // In case of collision, we will choose the first one.
         let mut addr_2_peer = HashMap::default();
 
+        if boot_nodes.len() > (config.peer_states_cache_size as usize) {
+            tracing::error!(
+                "Num boot nodes is {} but the size of the peer store is limited to {}.",
+                boot_nodes.len(),
+                config.peer_states_cache_size
+            );
+        }
+
         let now = clock.now_utc();
         for peer_info in &config.boot_nodes {
             if peerid_2_state.contains(&peer_info.id) {
@@ -299,7 +323,16 @@ impl PeerStore {
                 Entry::Vacant(entry) => entry,
             };
             entry.insert(VerifiedPeer::signed(peer_info.id.clone()));
-            peerid_2_state.push(peer_info.id.clone(), KnownPeerState::new(peer_info.clone(), now));
+
+            if let Some((_, popped_peer_state)) = peerid_2_state
+                .push(peer_info.id.clone(), KnownPeerState::new(peer_info.clone(), now))
+            {
+                // If a peer was evicted from peer_states due to the bounded cache size
+                // and it has an address, remove the corresponding entry from addr_peers
+                if let Some(popped_peer_addr) = popped_peer_state.peer_info.addr {
+                    addr_2_peer.remove(&popped_peer_addr);
+                }
+            }
         }
 
         let inner =

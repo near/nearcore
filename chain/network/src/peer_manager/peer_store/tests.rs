@@ -33,7 +33,23 @@ fn make_config(
     Config {
         boot_nodes: boot_nodes.iter().cloned().collect(),
         blacklist,
-        peer_states_cache_size: 1000,
+        peer_states_cache_size: 10,
+        connect_only_to_boot_nodes,
+        ban_window: time::Duration::seconds(1),
+        peer_expiration_duration: time::Duration::days(1000),
+    }
+}
+
+fn make_config_with_cache_size(
+    boot_nodes: &[PeerInfo],
+    blacklist: blacklist::Blacklist,
+    connect_only_to_boot_nodes: bool,
+    peer_states_cache_size: u32,
+) -> Config {
+    Config {
+        boot_nodes: boot_nodes.iter().cloned().collect(),
+        blacklist,
+        peer_states_cache_size,
         connect_only_to_boot_nodes,
         ban_window: time::Duration::seconds(1),
         peer_expiration_duration: time::Duration::days(1000),
@@ -422,4 +438,28 @@ fn test_delete_peers() {
 
     peer_store.0.lock().delete_peers(&peer_ids);
     assert_peers_in_cache(&peer_store, &[], &[]);
+}
+
+#[test]
+fn test_lru_eviction() {
+    let clock = time::FakeClock::default();
+    let config = make_config_with_cache_size(&[], Default::default(), false, 10);
+    let peer_store = PeerStore::new(&clock.clock(), config).unwrap();
+
+    let (peer_ids, peer_infos): (Vec<_>, Vec<_>) = (0..15)
+        .map(|i| {
+            let id = get_peer_id(format!("node{}", i));
+            let info = get_peer_info(id.clone(), Some(get_addr(i as u16)));
+            (id, info)
+        })
+        .unzip();
+    let peer_addresses = peer_infos.iter().map(|info| info.addr.unwrap()).collect::<Vec<_>>();
+
+    // Fill the peer_store with the first peer_infos
+    peer_store.add_indirect_peers(&clock.clock(), peer_infos[0..10].iter().cloned());
+    assert_peers_in_cache(&peer_store, &peer_ids[0..10], &peer_addresses[0..10]);
+
+    // Push additional peers and check that the most recent peers are retained
+    peer_store.add_indirect_peers(&clock.clock(), peer_infos[10..].iter().cloned());
+    assert_peers_in_cache(&peer_store, &peer_ids[5..], &peer_addresses[5..]);
 }
