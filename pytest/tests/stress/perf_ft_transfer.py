@@ -57,7 +57,7 @@ def main():
         help='Path to the compiled Fungible Token contract')
     parser.add_argument('--setup-cluster', default=False,
         help='Whether to start a dedicated cluster instead of connecting to an existing local node',
-        action=argparse.BooleanOptionalAction)
+        action='store_true')
     args = parser.parse_args()
 
     logger.warn(f"SEED is {SEED}")
