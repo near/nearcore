@@ -655,10 +655,7 @@ impl NearConfig {
                 enable_statistics_export: config.store.enable_statistics_export,
                 client_background_migration_threads: config.store.background_migration_threads,
                 flat_storage_creation_period: config.store.flat_storage_creation_period,
-                state_sync_dump_enabled: config
-                    .state_sync
-                    .as_ref()
-                    .map_or(false, |x| x.dump_enabled),
+                state_dump_enabled: config.state_sync.as_ref().map_or(false, |x| x.dump_enabled),
                 state_sync_s3_bucket: config
                     .state_sync
                     .as_ref()
@@ -671,6 +668,10 @@ impl NearConfig {
                     .state_sync
                     .as_ref()
                     .map_or(vec![], |x| x.drop_state_of_dump.clone()),
+                state_sync_from_s3_enabled: config
+                    .state_sync
+                    .as_ref()
+                    .map_or(false, |x| x.sync_from_s3_enabled),
             },
             network_config: NetworkConfig::new(
                 config.network,
@@ -1501,6 +1502,7 @@ pub struct StateSyncConfig {
     pub s3_region: String,
     pub dump_enabled: bool,
     pub drop_state_of_dump: Vec<ShardId>,
+    pub sync_from_s3_enabled: bool,
 }
 
 #[test]

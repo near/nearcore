@@ -17,7 +17,7 @@ pub fn spawn_state_sync_dump(
     runtime: Arc<NightshadeRuntime>,
     node_key: &PublicKey,
 ) -> anyhow::Result<Option<StateSyncDumpHandle>> {
-    if !config.client_config.state_sync_dump_enabled
+    if !config.client_config.state_dump_enabled
         || config.client_config.state_sync_s3_bucket.is_empty()
         || config.client_config.state_sync_s3_region.is_empty()
     {
