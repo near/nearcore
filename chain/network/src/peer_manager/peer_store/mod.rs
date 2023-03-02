@@ -4,6 +4,7 @@ use crate::types::{KnownPeerState, KnownPeerStatus, ReasonForBan};
 use anyhow::bail;
 use im::hashmap::Entry;
 use im::{HashMap, HashSet};
+use lru::LruCache;
 use near_primitives::network::PeerId;
 use near_primitives::time;
 use parking_lot::Mutex;
@@ -66,6 +67,9 @@ pub struct Config {
     pub blacklist: blacklist::Blacklist,
     /// If true - connect only to the bootnodes.
     pub connect_only_to_boot_nodes: bool,
+    /// The maximum number of peers to store. If capacity is exceeded, the peers
+    /// with the earliest last_seen value will be evicted.
+    pub peer_states_cache_size: u32,
     /// Remove expired peers.
     pub peer_expiration_duration: time::Duration,
     /// Duration of the ban for misbehaving peers.
@@ -76,7 +80,10 @@ pub struct Config {
 struct Inner {
     config: Config,
     boot_nodes: HashSet<PeerId>,
-    peer_states: HashMap<PeerId, KnownPeerState>,
+    // LruCache of the known peer states, ordered by value of last_seen.
+    // Be sure to use peek/peek_mut if accessing without updating last_seen.
+    // Using the get/put methods modifies the cache order.
+    peer_states: LruCache<PeerId, KnownPeerState>,
     // This is a reverse index, from physical address to peer_id
     // It can happens that some peers don't have known address, so
     // they will not be present in this list, otherwise they will be present.
@@ -119,7 +126,7 @@ impl Inner {
                 TrustLevel::Indirect => {
                     // We should only update an Indirect connection if we don't know anything about the peer
                     // or about the address.
-                    if !self.peer_states.contains_key(&peer_info.id)
+                    if !self.peer_states.contains(&peer_info.id)
                         && !self.addr_peers.contains_key(&peer_addr)
                     {
                         self.update_peer_info(clock, peer_info, peer_addr, TrustLevel::Indirect);
@@ -129,9 +136,9 @@ impl Inner {
         } else {
             // If doesn't have the address attached it is not verified and we add it
             // only if it is unknown to us.
-            self.peer_states
-                .entry(peer_info.id.clone())
-                .or_insert_with(|| KnownPeerState::new(peer_info, clock.now_utc()));
+            self.peer_states.get_or_insert(peer_info.id.clone(), || {
+                KnownPeerState::new(peer_info.clone(), clock.now_utc())
+            });
         }
     }
 
@@ -147,7 +154,7 @@ impl Inner {
     /// Deletes peers from the internal cache
     fn delete_peers(&mut self, peer_ids: &[PeerId]) {
         for peer_id in peer_ids {
-            if let Some(peer_state) = self.peer_states.remove(peer_id) {
+            if let Some(peer_state) = self.peer_states.pop(peer_id) {
                 if let Some(addr) = peer_state.peer_info.addr {
                     self.addr_peers.remove(&addr);
                 }
@@ -160,7 +167,7 @@ impl Inner {
     where
         F: FnMut(&&KnownPeerState) -> bool,
     {
-        (self.peer_states.values())
+        (self.peer_states.iter().map(|(_, v)| v))
             .filter(filter)
             .choose_multiple(&mut thread_rng(), count)
             .into_iter()
@@ -179,9 +186,7 @@ impl Inner {
     ) {
         // If there is a peer associated with current address remove the address from it.
         if let Some(verified_peer) = self.addr_peers.remove(&peer_addr) {
-            self.peer_states.entry(verified_peer.peer_id).and_modify(|peer_state| {
-                peer_state.peer_info.addr = None;
-            });
+            self.peer_states.get_mut(&verified_peer.peer_id).unwrap().peer_info.addr = None;
         }
 
         // If this peer already has an address, remove that pair from the index.
@@ -195,13 +200,14 @@ impl Inner {
         self.addr_peers
             .insert(peer_addr, VerifiedPeer { peer_id: peer_info.id.clone(), trust_level });
 
-        let now = clock.now_utc();
-
-        // Update peer_id addr
-        self.peer_states
-            .entry(peer_info.id.clone())
-            .and_modify(|peer_state| peer_state.peer_info.addr = Some(peer_addr))
-            .or_insert_with(|| KnownPeerState::new(peer_info.clone(), now));
+        // Update or insert peer_id addr
+        if let Some(peer_state) = self.peer_states.peek_mut(&peer_info.id) {
+            peer_state.peer_info.addr = Some(peer_addr);
+        } else {
+            let now = clock.now_utc();
+            self.peer_states
+                .push(peer_info.id.clone(), KnownPeerState::new(peer_info.clone(), now));
+        }
     }
 
     /// Removes peers that are not responding for expiration period.
@@ -266,7 +272,7 @@ impl PeerStore {
     pub fn new(clock: &time::Clock, config: Config) -> anyhow::Result<Self> {
         let boot_nodes: HashSet<_> = config.boot_nodes.iter().map(|p| p.id.clone()).collect();
         // A mapping from `PeerId` to `KnownPeerState`.
-        let mut peerid_2_state = HashMap::default();
+        let mut peerid_2_state = LruCache::new(config.peer_states_cache_size as usize);
         // Stores mapping from `SocketAddr` to `VerifiedPeer`, which contains `PeerId`.
         // Only one peer can exist with given `PeerId` or `SocketAddr`.
         // In case of collision, we will choose the first one.
@@ -274,7 +280,7 @@ impl PeerStore {
 
         let now = clock.now_utc();
         for peer_info in &config.boot_nodes {
-            if peerid_2_state.contains_key(&peer_info.id) {
+            if peerid_2_state.contains(&peer_info.id) {
                 tracing::error!(id = ?peer_info.id, "There is a duplicated peer in boot_nodes");
                 continue;
             }
@@ -290,8 +296,7 @@ impl PeerStore {
                 Entry::Vacant(entry) => entry,
             };
             entry.insert(VerifiedPeer::signed(peer_info.id.clone()));
-            peerid_2_state
-                .insert(peer_info.id.clone(), KnownPeerState::new(peer_info.clone(), now));
+            peerid_2_state.push(peer_info.id.clone(), KnownPeerState::new(peer_info.clone(), now));
         }
 
         let inner =
@@ -312,7 +317,7 @@ impl PeerStore {
     }
 
     pub fn count_banned(&self) -> usize {
-        self.0.lock().peer_states.values().filter(|st| st.status.is_banned()).count()
+        self.0.lock().peer_states.iter().filter(|(_, st)| st.status.is_banned()).count()
     }
 
     pub fn update(&self, clock: &time::Clock) {
@@ -473,6 +478,6 @@ impl PeerStore {
     }
 
     pub fn load(&self) -> HashMap<PeerId, KnownPeerState> {
-        self.0.lock().peer_states.clone()
+        self.0.lock().peer_states.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
     }
 }
