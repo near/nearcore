@@ -27,9 +27,6 @@ mod tests;
 /// Contents of the PeerStore are not persisted to the database. Upon starting a node,
 /// the PeerStore is initialized from the boot nodes in its config.
 
-/// How often to update the KnownPeerState.last_seen in storage.
-const UPDATE_LAST_SEEN_INTERVAL: time::Duration = time::Duration::minutes(1);
-
 /// Level of trust we have about a new (PeerId, Addr) pair.
 #[derive(Eq, PartialEq, Debug, Clone, Copy)]
 enum TrustLevel {
@@ -247,12 +244,17 @@ impl Inner {
 
     /// Update the 'last_seen' time for all the peers that we're currently connected to.
     fn update_last_seen(&mut self, now: time::Utc) {
-        for (_peer_id, peer_state) in self.peer_states.iter_mut() {
-            if peer_state.status == KnownPeerStatus::Connected
-                && now > peer_state.last_seen + UPDATE_LAST_SEEN_INTERVAL
-            {
+        let mut connected_peer_ids = vec![];
+        for (peer_id, peer_state) in self.peer_states.iter_mut() {
+            if peer_state.status == KnownPeerStatus::Connected {
+                connected_peer_ids.push(peer_id.clone());
                 peer_state.last_seen = now;
             }
+        }
+
+        // Access the connected peers to move them to the head of the LruCache
+        for peer_id in connected_peer_ids {
+            self.peer_states.get(&peer_id);
         }
     }
 
