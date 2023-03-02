@@ -17,7 +17,7 @@ use super::FlatStorage;
 pub struct FlatStorageChunkView {
     /// Used to access flat state stored at the head of flat storage.
     /// It should store all trie keys and values/value refs for the state on top of
-    /// flat_storage_state.head, except for delayed receipt keys.
+    /// flat_storage.head, except for delayed receipt keys.
     #[allow(unused)]
     store: Store,
     /// The block for which key-value pairs of its state will be retrieved. The flat state
@@ -26,12 +26,12 @@ pub struct FlatStorageChunkView {
     /// Stores the state of the flat storage, for example, where the head is at and which
     /// blocks' state are stored in flat storage.
     #[allow(unused)]
-    flat_storage_state: FlatStorage,
+    flat_storage: FlatStorage,
 }
 
 impl FlatStorageChunkView {
-    pub fn new(store: Store, block_hash: CryptoHash, flat_storage_state: FlatStorage) -> Self {
-        Self { store, block_hash, flat_storage_state }
+    pub fn new(store: Store, block_hash: CryptoHash, flat_storage: FlatStorage) -> Self {
+        Self { store, block_hash, flat_storage }
     }
     /// Returns value reference using raw trie key, taken from the state
     /// corresponding to `FlatStorageChunkView::block_hash`.
@@ -41,6 +41,6 @@ impl FlatStorageChunkView {
     /// could charge users for the value length before loading the value.
     // TODO (#7327): consider inlining small values, so we could use only one db access.
     pub fn get_ref(&self, key: &[u8]) -> Result<Option<ValueRef>, crate::StorageError> {
-        self.flat_storage_state.get_ref(&self.block_hash, key)
+        self.flat_storage.get_ref(&self.block_hash, key)
     }
 }

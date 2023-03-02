@@ -126,14 +126,14 @@ impl FlatStorageCommand {
                 let tip = rw_chain_store.final_head().unwrap();
 
                 // TODO: there should be a method that 'loads' the current flat storage state based on Storage.
-                rw_hot_runtime.create_flat_storage_state_for_shard(
+                rw_hot_runtime.create_flat_storage_for_shard(
                     reset_cmd.shard_id,
                     tip.height,
                     &rw_chain_store,
                 );
 
                 rw_hot_runtime
-                    .remove_flat_storage_state_for_shard(reset_cmd.shard_id, &tip.epoch_id)?;
+                    .remove_flat_storage_for_shard(reset_cmd.shard_id, &tip.epoch_id)?;
             }
             SubCommand::Init(init_cmd) => {
                 let (_, rw_hot_runtime, rw_chain_store, rw_hot_store) = Self::get_db(
@@ -196,7 +196,7 @@ impl FlatStorageCommand {
                 println!("Verifying using the {:?} as state_root", state_root);
                 let tip = chain_store.final_head().unwrap();
 
-                hot_runtime.create_flat_storage_state_for_shard(
+                hot_runtime.create_flat_storage_for_shard(
                     verify_cmd.shard_id,
                     tip.height,
                     &chain_store,

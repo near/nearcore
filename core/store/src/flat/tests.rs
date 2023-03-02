@@ -222,30 +222,30 @@ fn block_not_supported_errors() {
     }
     store_update.commit().unwrap();
 
-    let flat_storage_state = FlatStorage::new(store.clone(), 0, 4, &chain, 0);
-    let flat_state_factory = FlatStorageManager::new(store.clone());
-    flat_state_factory.add_flat_storage_state_for_shard(0, flat_storage_state);
-    let flat_storage_state = flat_state_factory.get_flat_storage_state_for_shard(0).unwrap();
+    let flat_storage = FlatStorage::new(store.clone(), 0, 4, &chain, 0);
+    let flat_storage_manager = FlatStorageManager::new(store.clone());
+    flat_storage_manager.add_flat_storage_for_shard(0, flat_storage);
+    let flat_storage = flat_storage_manager.get_flat_storage_for_shard(0).unwrap();
 
     // Check that flat head can be moved to block 1.
     let flat_head_hash = chain.get_block_hash(1);
-    assert_eq!(flat_storage_state.update_flat_head(&flat_head_hash), Ok(()));
+    assert_eq!(flat_storage.update_flat_head(&flat_head_hash), Ok(()));
     // Check that attempt to move flat head to block 2 results in error because it lays in unreachable fork.
     let fork_block_hash = chain.get_block_hash(2);
     assert_eq!(
-        flat_storage_state.update_flat_head(&fork_block_hash),
+        flat_storage.update_flat_head(&fork_block_hash),
         Err(FlatStorageError::BlockNotSupported((flat_head_hash, fork_block_hash)))
     );
     // Check that attempt to move flat head to block 0 results in error because it is an unreachable parent.
     let parent_block_hash = chain.get_block_hash(0);
     assert_eq!(
-        flat_storage_state.update_flat_head(&parent_block_hash),
+        flat_storage.update_flat_head(&parent_block_hash),
         Err(FlatStorageError::BlockNotSupported((flat_head_hash, parent_block_hash)))
     );
     // Check that attempt to move flat head to non-existent block results in the same error.
     let not_existing_hash = hash(&[1, 2, 3]);
     assert_eq!(
-        flat_storage_state.update_flat_head(&not_existing_hash),
+        flat_storage.update_flat_head(&not_existing_hash),
         Err(FlatStorageError::BlockNotSupported((flat_head_hash, not_existing_hash)))
     );
 }
@@ -269,21 +269,21 @@ fn skipped_heights() {
     store_update.commit().unwrap();
 
     // Check that flat storage state is created correctly for chain which has skipped heights.
-    let flat_storage_state = FlatStorage::new(store.clone(), 0, 8, &chain, 0);
-    let flat_state_factory = FlatStorageManager::new(store.clone());
-    flat_state_factory.add_flat_storage_state_for_shard(0, flat_storage_state);
-    let flat_storage_state = flat_state_factory.get_flat_storage_state_for_shard(0).unwrap();
+    let flat_storage = FlatStorage::new(store.clone(), 0, 8, &chain, 0);
+    let flat_storage_manager = FlatStorageManager::new(store.clone());
+    flat_storage_manager.add_flat_storage_for_shard(0, flat_storage);
+    let flat_storage = flat_storage_manager.get_flat_storage_for_shard(0).unwrap();
 
     // Check that flat head can be moved to block 8.
     let flat_head_hash = chain.get_block_hash(8);
-    assert_eq!(flat_storage_state.update_flat_head(&flat_head_hash), Ok(()));
+    assert_eq!(flat_storage.update_flat_head(&flat_head_hash), Ok(()));
 }
 
 // This setup tests basic use cases for FlatStorageChunkView and FlatStorage.
 // We created a linear chain with no forks, start with flat head at the genesis block, then
 // moves the flat head forward, which checking that flat_state.get_ref() still returns the correct
 // values and the state is being updated in store.
-fn flat_storage_state_sanity(cache_capacity: usize) {
+fn flat_storage_sanity(cache_capacity: usize) {
     // 1. Create a chain with 10 blocks with no forks. Set flat head to be at block 0.
     //    Block i sets value for key &[1] to &[i].
     let mut chain = MockChain::linear_chain(10);
@@ -302,25 +302,25 @@ fn flat_storage_state_sanity(cache_capacity: usize) {
     }
     store_update.commit().unwrap();
 
-    let flat_storage_state = FlatStorage::new(store.clone(), 0, 9, &chain, cache_capacity);
-    let flat_state_factory = FlatStorageManager::new(store.clone());
-    flat_state_factory.add_flat_storage_state_for_shard(0, flat_storage_state);
-    let flat_storage_state = flat_state_factory.get_flat_storage_state_for_shard(0).unwrap();
+    let flat_storage = FlatStorage::new(store.clone(), 0, 9, &chain, cache_capacity);
+    let flat_storage_manager = FlatStorageManager::new(store.clone());
+    flat_storage_manager.add_flat_storage_for_shard(0, flat_storage);
+    let flat_storage = flat_storage_manager.get_flat_storage_for_shard(0).unwrap();
 
     // 2. Check that the flat_state at block i reads the value of key &[1] as &[i]
     for i in 0..10 {
         let block_hash = chain.get_block_hash(i);
-        let blocks = flat_storage_state.get_blocks_to_head(&block_hash).unwrap();
+        let blocks = flat_storage.get_blocks_to_head(&block_hash).unwrap();
         assert_eq!(blocks.len(), i as usize);
         let flat_state =
-            flat_state_factory.new_flat_state_for_shard(0, Some(block_hash), false).unwrap();
+            flat_storage_manager.new_flat_state_for_shard(0, Some(block_hash), false).unwrap();
         assert_eq!(flat_state.get_ref(&[1]).unwrap(), Some(ValueRef::new(&[i as u8])));
     }
 
     // 3. Create a new block that deletes &[1] and add a new value &[2]
     //    Add the block to flat storage.
     let hash = chain.create_block();
-    let store_update = flat_storage_state
+    let store_update = flat_storage
         .add_block(
             &hash,
             FlatStateDelta::from([(vec![1], None), (vec![2], Some(ValueRef::new(&[1])))]),
@@ -331,12 +331,12 @@ fn flat_storage_state_sanity(cache_capacity: usize) {
 
     // 4. Create a flat_state0 at block 10 and flat_state1 at block 4
     //    Verify that they return the correct values
-    let blocks = flat_storage_state.get_blocks_to_head(&chain.get_block_hash(10)).unwrap();
+    let blocks = flat_storage.get_blocks_to_head(&chain.get_block_hash(10)).unwrap();
     assert_eq!(blocks.len(), 10);
-    let flat_state0 = flat_state_factory
+    let flat_state0 = flat_storage_manager
         .new_flat_state_for_shard(0, Some(chain.get_block_hash(10)), false)
         .unwrap();
-    let flat_state1 = flat_state_factory
+    let flat_state1 = flat_storage_manager
         .new_flat_state_for_shard(0, Some(chain.get_block_hash(4)), false)
         .unwrap();
     assert_eq!(flat_state0.get_ref(&[1]).unwrap(), None);
@@ -348,9 +348,9 @@ fn flat_storage_state_sanity(cache_capacity: usize) {
 
     // 5. Move the flat head to block 5, verify that flat_state0 still returns the same values
     // and flat_state1 returns an error. Also check that DBCol::FlatState is updated correctly
-    flat_storage_state.update_flat_head(&chain.get_block_hash(5)).unwrap();
+    flat_storage.update_flat_head(&chain.get_block_hash(5)).unwrap();
     assert_eq!(store_helper::get_ref(&store, &[1]).unwrap(), Some(ValueRef::new(&[5])));
-    let blocks = flat_storage_state.get_blocks_to_head(&chain.get_block_hash(10)).unwrap();
+    let blocks = flat_storage.get_blocks_to_head(&chain.get_block_hash(10)).unwrap();
     assert_eq!(blocks.len(), 5);
     assert_eq!(flat_state0.get_ref(&[1]).unwrap(), None);
     assert_eq!(flat_state0.get_ref(&[2]).unwrap(), Some(ValueRef::new(&[1])));
@@ -360,8 +360,8 @@ fn flat_storage_state_sanity(cache_capacity: usize) {
 
     // 6. Move the flat head to block 10, verify that flat_state0 still returns the same values
     //    Also checks that DBCol::FlatState is updated correctly.
-    flat_storage_state.update_flat_head(&chain.get_block_hash(10)).unwrap();
-    let blocks = flat_storage_state.get_blocks_to_head(&chain.get_block_hash(10)).unwrap();
+    flat_storage.update_flat_head(&chain.get_block_hash(10)).unwrap();
+    let blocks = flat_storage.get_blocks_to_head(&chain.get_block_hash(10)).unwrap();
     assert_eq!(blocks.len(), 0);
     assert_eq!(store_helper::get_ref(&store, &[1]).unwrap(), None);
     assert_eq!(store_helper::get_ref(&store, &[2]).unwrap(), Some(ValueRef::new(&[1])));
@@ -371,17 +371,17 @@ fn flat_storage_state_sanity(cache_capacity: usize) {
 }
 
 #[test]
-fn flat_storage_state_sanity_cache() {
-    flat_storage_state_sanity(100);
+fn flat_storage_sanity_cache() {
+    flat_storage_sanity(100);
 }
 
 #[test]
-fn flat_storage_state_sanity_no_cache() {
-    flat_storage_state_sanity(0);
+fn flat_storage_sanity_no_cache() {
+    flat_storage_sanity(0);
 }
 
 #[test]
-fn flat_storage_state_cache_eviction() {
+fn flat_storage_cache_eviction() {
     // 1. Create a simple chain and add single key-value deltas for 3 consecutive blocks.
     let chain = MockChain::linear_chain(4);
     let store = create_test_store();
@@ -405,14 +405,14 @@ fn flat_storage_state_cache_eviction() {
     store_update.commit().unwrap();
 
     // 2. Create flat storage and apply 3 blocks to it.
-    let flat_storage_state = FlatStorage::new(store.clone(), 0, 3, &chain, 2);
-    let flat_state_factory = FlatStorageManager::new(store.clone());
-    flat_state_factory.add_flat_storage_state_for_shard(0, flat_storage_state);
-    let flat_storage_state = flat_state_factory.get_flat_storage_state_for_shard(0).unwrap();
-    flat_storage_state.update_flat_head(&chain.get_block_hash(3)).unwrap();
+    let flat_storage = FlatStorage::new(store.clone(), 0, 3, &chain, 2);
+    let flat_storage_manager = FlatStorageManager::new(store.clone());
+    flat_storage_manager.add_flat_storage_for_shard(0, flat_storage);
+    let flat_storage = flat_storage_manager.get_flat_storage_for_shard(0).unwrap();
+    flat_storage.update_flat_head(&chain.get_block_hash(3)).unwrap();
 
     {
-        let mut guard = flat_storage_state.0.write().unwrap();
+        let mut guard = flat_storage.0.write().unwrap();
         // 1st key should be kicked out.
         assert_eq!(guard.get_cached_ref(&[1]), None);
         // For 2nd key, None should be cached.
@@ -423,13 +423,13 @@ fn flat_storage_state_cache_eviction() {
 
     // Check that value for 1st key is correct, even though it is not in cache.
     assert_eq!(
-        flat_storage_state.get_ref(&chain.get_block_hash(3), &[1]),
+        flat_storage.get_ref(&chain.get_block_hash(3), &[1]),
         Ok(Some(ValueRef::new(&[1 as u8])))
     );
 
     // After that, 1st key should be added back to LRU cache.
     {
-        let mut guard = flat_storage_state.0.write().unwrap();
+        let mut guard = flat_storage.0.write().unwrap();
         assert_eq!(guard.get_cached_ref(&[1]), Some(Some(ValueRef::new(&[1 as u8]))));
     }
 }

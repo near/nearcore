@@ -630,7 +630,7 @@ impl Chain {
                 // Set the root block of flat state to be the genesis block. Later, when we
                 // init FlatStorageStates, we will read the from this column in storage, so it
                 // must be set here.
-                let tmp_store_update = runtime_adapter.set_flat_storage_state_for_genesis(
+                let tmp_store_update = runtime_adapter.set_flat_storage_for_genesis(
                     genesis.hash(),
                     genesis.header().epoch_id(),
                 )?;
@@ -2101,15 +2101,15 @@ impl Chain {
         block: &Block,
         shard_id: ShardId,
     ) -> Result<(), Error> {
-        if let Some(flat_storage_state) =
-            self.runtime_adapter.get_flat_storage_state_for_shard(shard_id)
+        if let Some(flat_storage) =
+            self.runtime_adapter.get_flat_storage_for_shard(shard_id)
         {
             let mut new_flat_head = *block.header().last_final_block();
             if new_flat_head == CryptoHash::default() {
                 new_flat_head = *self.genesis.hash();
             }
             // Try to update flat head.
-            flat_storage_state.update_flat_head(&new_flat_head).unwrap_or_else(|err| {
+            flat_storage.update_flat_head(&new_flat_head).unwrap_or_else(|err| {
                 match &err {
                     FlatStorageError::BlockNotSupported(_) => {
                         // It's possible that new head is not a child of current flat head, e.g. when we have a
@@ -2192,8 +2192,8 @@ impl Chain {
 
         // Update flat storage head to be the last final block. Note that this update happens
         // in a separate db transaction from the update from block processing. This is intentional
-        // because flat_storage_state need to be locked during the update of flat head, otherwise
-        // flat_storage_state is in an inconsistent state that could be accessed by the other
+        // because flat_storage need to be locked during the update of flat head, otherwise
+        // flat_storage is in an inconsistent state that could be accessed by the other
         // apply chunks processes. This means, the flat head is not always the same as
         // the last final block on chain, which is OK, because in the flat storage implementation
         // we don't assume that.
@@ -3140,7 +3140,7 @@ impl Chain {
     ) -> Result<(), Error> {
         // Before working with state parts, remove existing flat storage data.
         let epoch_id = self.get_block_header(&sync_hash)?.epoch_id().clone();
-        self.runtime_adapter.remove_flat_storage_state_for_shard(shard_id, &epoch_id)?;
+        self.runtime_adapter.remove_flat_storage_for_shard(shard_id, &epoch_id)?;
 
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let state_root = shard_state_header.chunk_prev_state_root();
@@ -3173,7 +3173,7 @@ impl Chain {
         let block_hash = chunk.prev_block();
 
         // Flat storage must not exist at this point because leftover keys corrupt its state.
-        assert!(self.runtime_adapter.get_flat_storage_state_for_shard(shard_id).is_none());
+        assert!(self.runtime_adapter.get_flat_storage_for_shard(shard_id).is_none());
 
         // We synced shard state on top of _previous_ block for chunk in shard state header and applied state parts to
         // flat storage. Now we can set flat head to hash of this block and create flat storage.
@@ -3194,7 +3194,7 @@ impl Chain {
             if *block_hash != CryptoHash::default() {
                 let block_height = self.get_block_header(block_hash)?.height();
 
-                self.runtime_adapter.create_flat_storage_state_for_shard(
+                self.runtime_adapter.create_flat_storage_for_shard(
                     shard_id,
                     block_height,
                     self.store(),
@@ -4917,7 +4917,7 @@ impl<'a> ChainUpdate<'a> {
             let delta = FlatStateDelta::from_state_changes(&trie_changes.state_changes());
 
             if let Some(chain_flat_storage) =
-                self.runtime_adapter.get_flat_storage_state_for_shard(shard_id)
+                self.runtime_adapter.get_flat_storage_for_shard(shard_id)
             {
                 // If flat storage exists, we add a block to it.
                 let block_info =

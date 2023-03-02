@@ -297,7 +297,7 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: StateRoot,
     ) -> Result<Trie, Error>;
 
-    fn get_flat_storage_state_for_shard(&self, shard_id: ShardId) -> Option<FlatStorage>;
+    fn get_flat_storage_for_shard(&self, shard_id: ShardId) -> Option<FlatStorage>;
 
     /// Gets status of flat storage state background creation.
     fn get_flat_storage_creation_status(&self, shard_id: ShardId) -> FlatStorageCreationStatus;
@@ -305,7 +305,7 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Creates flat storage state for given shard, assuming that all flat storage data
     /// is already stored in DB.
     /// TODO (#7327): consider returning flat storage creation errors here
-    fn create_flat_storage_state_for_shard(
+    fn create_flat_storage_for_shard(
         &self,
         shard_id: ShardId,
         latest_block_height: BlockHeight,
@@ -314,13 +314,13 @@ pub trait RuntimeAdapter: Send + Sync {
 
     /// Removes flat storage state for shard, if it exists.
     /// Used to clear old flat storage data from disk and memory before syncing to newer state.
-    fn remove_flat_storage_state_for_shard(
+    fn remove_flat_storage_for_shard(
         &self,
         shard_id: ShardId,
         epoch_id: &EpochId,
     ) -> Result<(), Error>;
 
-    fn set_flat_storage_state_for_genesis(
+    fn set_flat_storage_for_genesis(
         &self,
         genesis_block: &CryptoHash,
         genesis_epoch_id: &EpochId,

@@ -20,7 +20,7 @@ pub struct FlatStorageManager(Arc<FlatStorageManagerInner>);
 
 pub struct FlatStorageManagerInner {
     store: Store,
-    /// Here we store the flat_storage_state per shard. The reason why we don't use the same
+    /// Here we store the flat_storage per shard. The reason why we don't use the same
     /// FlatStorage for all shards is that there are two modes of block processing,
     /// normal block processing and block catchups. Since these are performed on different range
     /// of blocks, we need flat storage to be able to support different range of blocks
@@ -28,27 +28,27 @@ pub struct FlatStorageManagerInner {
     /// This may cause some overhead because the data like shards that the node is processing for
     /// this epoch can share the same `head` and `tail`, similar for shards for the next epoch,
     /// but such overhead is negligible comparing the delta sizes, so we think it's ok.
-    flat_storage_states: Mutex<HashMap<ShardId, FlatStorage>>,
+    flat_storages: Mutex<HashMap<ShardId, FlatStorage>>,
 }
 
 impl FlatStorageManager {
     pub fn new(store: Store) -> Self {
-        Self(Arc::new(FlatStorageManagerInner { store, flat_storage_states: Default::default() }))
+        Self(Arc::new(FlatStorageManagerInner { store, flat_storages: Default::default() }))
     }
 
     /// When a node starts from an empty database, this function must be called to ensure
     /// information such as flat head is set up correctly in the database.
-    /// Note that this function is different from `add_flat_storage_state_for_shard`,
-    /// it must be called before `add_flat_storage_state_for_shard` if the node starts from
+    /// Note that this function is different from `add_flat_storage_for_shard`,
+    /// it must be called before `add_flat_storage_for_shard` if the node starts from
     /// an empty database.
-    pub fn set_flat_storage_state_for_genesis(
+    pub fn set_flat_storage_for_genesis(
         &self,
         store_update: &mut StoreUpdate,
         shard_id: ShardId,
         genesis_block: &CryptoHash,
     ) {
-        let flat_storage_states = self.0.flat_storage_states.lock().expect(POISONED_LOCK_ERR);
-        assert!(!flat_storage_states.contains_key(&shard_id));
+        let flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
+        assert!(!flat_storages.contains_key(&shard_id));
         store_helper::set_flat_head(store_update, shard_id, genesis_block);
     }
 
@@ -56,13 +56,13 @@ impl FlatStorageManager {
     /// the shard's flat storage state hasn't been set before, otherwise it panics.
     /// TODO (#7327): this behavior may change when we implement support for state sync
     /// and resharding.
-    pub fn add_flat_storage_state_for_shard(
+    pub fn add_flat_storage_for_shard(
         &self,
         shard_id: ShardId,
-        flat_storage_state: FlatStorage,
+        flat_storage: FlatStorage,
     ) {
-        let mut flat_storage_states = self.0.flat_storage_states.lock().expect(POISONED_LOCK_ERR);
-        let original_value = flat_storage_states.insert(shard_id, flat_storage_state);
+        let mut flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
+        let original_value = flat_storages.insert(shard_id, flat_storage);
         // TODO (#7327): maybe we should propagate the error instead of assert here
         // assert is fine now because this function is only called at construction time, but we
         // will need to be more careful when we want to implement flat storage for resharding
@@ -96,20 +96,20 @@ impl FlatStorageManager {
             // ViewClient. Right now, we can get by by not enabling flat state for view trie
             None
         } else {
-            let flat_storage_state = {
-                let flat_storage_states =
-                    self.0.flat_storage_states.lock().expect(POISONED_LOCK_ERR);
+            let flat_storage = {
+                let flat_storages =
+                    self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
                 // It is possible that flat storage state does not exist yet because it is being created in
                 // background.
-                match flat_storage_states.get(&shard_id) {
-                    Some(flat_storage_state) => flat_storage_state.clone(),
+                match flat_storages.get(&shard_id) {
+                    Some(flat_storage) => flat_storage.clone(),
                     None => {
                         debug!(target: "chain", "FlatStorage is not ready");
                         return None;
                     }
                 }
             };
-            Some(FlatStorageChunkView::new(self.0.store.clone(), block_hash, flat_storage_state))
+            Some(FlatStorageChunkView::new(self.0.store.clone(), block_hash, flat_storage))
         }
     }
 
@@ -117,22 +117,22 @@ impl FlatStorageManager {
     // we stabilize feature protocol_feature_flat_state. We use option now to return None when
     // the feature is not enabled. Ideally, it should return an error because it is problematic
     // if the flat storage state does not exist
-    pub fn get_flat_storage_state_for_shard(&self, shard_id: ShardId) -> Option<FlatStorage> {
-        let flat_storage_states = self.0.flat_storage_states.lock().expect(POISONED_LOCK_ERR);
-        flat_storage_states.get(&shard_id).cloned()
+    pub fn get_flat_storage_for_shard(&self, shard_id: ShardId) -> Option<FlatStorage> {
+        let flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
+        flat_storages.get(&shard_id).cloned()
     }
 
-    pub fn remove_flat_storage_state_for_shard(
+    pub fn remove_flat_storage_for_shard(
         &self,
         shard_id: ShardId,
         shard_layout: ShardLayout,
     ) -> Result<(), StorageError> {
-        let mut flat_storage_states = self.0.flat_storage_states.lock().expect(POISONED_LOCK_ERR);
+        let mut flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
 
-        match flat_storage_states.remove(&shard_id) {
+        match flat_storages.remove(&shard_id) {
             None => {}
-            Some(flat_storage_state) => {
-                flat_storage_state.clear_state(shard_layout)?;
+            Some(flat_storage) => {
+                flat_storage.clear_state(shard_layout)?;
             }
         }
 

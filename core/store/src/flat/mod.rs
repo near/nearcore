@@ -114,18 +114,18 @@ pub mod manager {
             None
         }
 
-        pub fn get_flat_storage_state_for_shard(&self, _shard_id: ShardId) -> Option<FlatStorage> {
+        pub fn get_flat_storage_for_shard(&self, _shard_id: ShardId) -> Option<FlatStorage> {
             None
         }
 
-        pub fn add_flat_storage_state_for_shard(
+        pub fn add_flat_storage_for_shard(
             &self,
             _shard_id: ShardId,
-            _flat_storage_state: FlatStorage,
+            _flat_storage: FlatStorage,
         ) {
         }
 
-        pub fn remove_flat_storage_state_for_shard(
+        pub fn remove_flat_storage_for_shard(
             &self,
             _shard_id: ShardId,
             _shard_layout: ShardLayout,
@@ -133,7 +133,7 @@ pub mod manager {
             Ok(())
         }
 
-        pub fn set_flat_storage_state_for_genesis(
+        pub fn set_flat_storage_for_genesis(
             &self,
             _store_update: &mut StoreUpdate,
             _shard_id: ShardId,
