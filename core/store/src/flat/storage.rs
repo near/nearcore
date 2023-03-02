@@ -17,14 +17,14 @@ use super::delta::FlatStateDelta;
 use super::store_helper;
 use super::types::{BlockInfo, ChainAccessForFlatStorage, FlatStorageError};
 
-/// FlatStorageState stores information on which blocks flat storage current supports key lookups on.
+/// FlatStorage stores information on which blocks flat storage current supports key lookups on.
 /// Note that this struct is shared by multiple threads, the chain thread, threads that apply chunks,
 /// and view client, so the implementation here must be thread safe and must have interior mutability,
 /// thus all methods in this class are with &self instead of &mut self.
 #[derive(Clone)]
 pub struct FlatStorage(pub(crate) Arc<RwLock<FlatStorageInner>>);
 
-// FlatStorageState need to support concurrent access and be consistent if node crashes or restarts,
+// FlatStorage need to support concurrent access and be consistent if node crashes or restarts,
 // so we make sure to keep the following invariants in our implementation.
 // - `flat_head` is stored on disk. The value of flat_head in memory and on disk should always
 //   be consistent with the flat state stored in `DbCol::FlatState` on disk. This means, updates to
@@ -35,7 +35,7 @@ pub struct FlatStorage(pub(crate) Arc<RwLock<FlatStorageInner>>);
 //    also be in `blocks`.
 // - All deltas in `deltas` are stored on disk. And if a block is accepted by chain, its deltas
 //   must be stored on disk as well, if the block is children of `flat_head`.
-//   This makes sure that when a node restarts, FlatStorageState can load deltas for all blocks
+//   This makes sure that when a node restarts, FlatStorage can load deltas for all blocks
 //   after the `flat_head` block successfully.
 pub(crate) struct FlatStorageInner {
     #[allow(unused)]
@@ -157,9 +157,9 @@ impl FlatStorageInner {
 }
 
 impl FlatStorage {
-    /// Create a new FlatStorageState for `shard_id` using flat head if it is stored on storage.
+    /// Create a new FlatStorage for `shard_id` using flat head if it is stored on storage.
     /// We also load all blocks with height between flat head to `latest_block_height`
-    /// including those on forks into the returned FlatStorageState.
+    /// including those on forks into the returned FlatStorage.
     pub fn new(
         store: Store,
         shard_id: ShardId,
