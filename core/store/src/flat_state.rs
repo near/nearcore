@@ -396,7 +396,8 @@ impl FlatStateDelta {
     pub fn apply_to_flat_state(self, _store_update: &mut StoreUpdate) {}
 }
 
-/// hash of trie key -> value ref or none.
+/// `FlatStateDelta` which uses hash of raw `TrieKey`s instead of keys themselves.
+/// Used to reduce memory used by deltas and serves read queries.
 pub struct CachedFlatStateDelta(HashMap<CryptoHash, Option<ValueRef>>);
 
 impl From<FlatStateDelta> for CachedFlatStateDelta {
@@ -410,14 +411,17 @@ impl CachedFlatStateDelta {
     /// 70% hashmap overhead per entry ~= 117 bytes.
     const ENTRY_SIZE: u64 = 117;
 
+    /// Returns `Some(Option<ValueRef>)` from delta for the given key. If key is not present, returns None.
     pub fn get(&self, key: &[u8]) -> Option<Option<ValueRef>> {
         self.0.get(&hash(key)).cloned()
     }
 
+    /// Returns number of all entries.
     pub fn len(&self) -> usize {
         self.0.len()
     }
 
+    /// Size of all entries. May be changed if we implement inlining of `ValueRef`s.
     fn total_size(&self) -> u64 {
         (self.0.len() as u64) * Self::ENTRY_SIZE
     }
@@ -1066,7 +1070,8 @@ impl FlatStorageState {
         let blocks = guard.get_blocks_to_head(new_head)?;
         for block in blocks.into_iter().rev() {
             let mut store_update = StoreUpdate::new(guard.store.storage.clone());
-            // Because flat storage is locked and we could retrieve path from head to new head, delta must exist in DB.
+            // We unwrap here because flat storage is locked and we could retrieve path from old to new head, so delta
+            // must exist.
             let delta = store_helper::get_delta(&guard.store, guard.shard_id, block)?.unwrap();
             for (key, value) in delta.0.iter() {
                 guard.put_value_ref_to_cache(key.clone(), value.clone());
