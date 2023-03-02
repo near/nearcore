@@ -40,8 +40,6 @@ use near_client_primitives::types::{
     Error, GetClientConfig, GetClientConfigError, GetNetworkInfo, NetworkInfoResponse, Status,
     StatusError, StatusSyncInfo, SyncStatus,
 };
-#[cfg(feature = "test_features")]
-use near_network::types::NetworkAdversarialMessage;
 use near_network::types::ReasonForBan;
 use near_network::types::{
     NetworkInfo, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
@@ -290,6 +288,18 @@ impl ClientActor {
 }
 
 #[cfg(feature = "test_features")]
+#[derive(actix::Message, Debug)]
+#[rtype(result = "Option<u64>")]
+pub enum NetworkAdversarialMessage {
+    AdvProduceBlocks(u64, bool),
+    AdvSwitchToHeight(u64),
+    AdvDisableHeaderSync,
+    AdvDisableDoomslug,
+    AdvGetSavedBlocks,
+    AdvCheckStorageConsistency,
+}
+
+#[cfg(feature = "test_features")]
 impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ClientActor {
     type Result = Option<u64>;
 
@@ -299,19 +309,19 @@ impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ClientActor {
         ctx: &mut Context<Self>,
     ) -> Self::Result {
         self.wrap(msg, ctx, "NetworkAdversarialMessage", |this, msg| match msg {
-            near_network::types::NetworkAdversarialMessage::AdvDisableDoomslug => {
+            NetworkAdversarialMessage::AdvDisableDoomslug => {
                 info!(target: "adversary", "Turning Doomslug off");
                 this.adv.set_disable_doomslug(true);
                 this.client.doomslug.adv_disable();
                 this.client.chain.adv_disable_doomslug();
                 None
             }
-            near_network::types::NetworkAdversarialMessage::AdvDisableHeaderSync => {
+            NetworkAdversarialMessage::AdvDisableHeaderSync => {
                 info!(target: "adversary", "Blocking header sync");
                 this.adv.set_disable_header_sync(true);
                 None
             }
-            near_network::types::NetworkAdversarialMessage::AdvProduceBlocks(
+            NetworkAdversarialMessage::AdvProduceBlocks(
                 num_blocks,
                 only_valid,
             ) => {
@@ -348,7 +358,7 @@ impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ClientActor {
                 }
                 None
             }
-            near_network::types::NetworkAdversarialMessage::AdvSwitchToHeight(height) => {
+            NetworkAdversarialMessage::AdvSwitchToHeight(height) => {
                 info!(target: "adversary", "Switching to height {:?}", height);
                 let mut chain_store_update = this.client.chain.mut_store().store_update();
                 chain_store_update.save_largest_target_height(height);
@@ -358,7 +368,7 @@ impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ClientActor {
                 chain_store_update.commit().expect("adv method should not fail");
                 None
             }
-            near_network::types::NetworkAdversarialMessage::AdvGetSavedBlocks => {
+            NetworkAdversarialMessage::AdvGetSavedBlocks => {
                 info!(target: "adversary", "Requested number of saved blocks");
                 let store = this.client.chain.store().store();
                 let mut num_blocks = 0;
@@ -367,7 +377,7 @@ impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ClientActor {
                 }
                 Some(num_blocks)
             }
-            near_network::types::NetworkAdversarialMessage::AdvCheckStorageConsistency => {
+            NetworkAdversarialMessage::AdvCheckStorageConsistency => {
                 // timeout is set to 1.5 seconds to give some room as we wait in Nightly for 2 seconds
                 let timeout = 1500;
                 info!(target: "adversary", "Check Storage Consistency, timeout set to {:?} milliseconds", timeout);
