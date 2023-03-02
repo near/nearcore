@@ -33,9 +33,6 @@ pub mod manager;
 pub mod storage;
 #[cfg(feature = "protocol_feature_flat_state")]
 pub mod store_helper;
-#[cfg(test)]
-#[cfg(feature = "protocol_feature_flat_state")]
-mod tests;
 pub mod types;
 
 pub use chunk_view::FlatStorageChunkView;
