@@ -4,8 +4,7 @@ use futures::{future, FutureExt};
 use near_actix_test_utils::run_actix;
 use near_chain::test_utils::ValidatorSchedule;
 use near_chunks::{
-    CHUNK_REQUEST_RETRY_MS, CHUNK_REQUEST_SWITCH_TO_FULL_FETCH_MS,
-    CHUNK_REQUEST_SWITCH_TO_OTHERS_MS,
+    CHUNK_REQUEST_RETRY, CHUNK_REQUEST_SWITCH_TO_FULL_FETCH, CHUNK_REQUEST_SWITCH_TO_OTHERS,
 };
 use near_client::test_utils::{setup_mock_all_validators, ActorHandlesForTesting};
 use near_client::{GetBlock, ProcessTxRequest};
@@ -15,6 +14,7 @@ use near_network::types::{NetworkRequests, NetworkResponses};
 use near_o11y::testonly::init_test_logger;
 use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
+use near_primitives::time;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use std::collections::HashMap;
@@ -27,7 +27,7 @@ struct Test {
     chunk_only_producers: bool,
     drop_to_4_from: &'static [&'static str],
     drop_all_chunk_forward_msgs: bool,
-    block_timeout: u64,
+    block_timeout: time::Duration,
 }
 
 impl Test {
@@ -103,7 +103,7 @@ impl Test {
             vs,
             key_pairs,
             true,
-            self.block_timeout,
+            self.block_timeout.whole_milliseconds() as u64, // TODO: use Duration for callees
             false,
             false,
             5,
@@ -287,7 +287,7 @@ fn chunks_produced_and_distributed_all_in_all_shards() {
         chunk_only_producers: false,
         drop_to_4_from: &[],
         drop_all_chunk_forward_msgs: false,
-        block_timeout: 15 * CHUNK_REQUEST_RETRY_MS,
+        block_timeout: 15 * CHUNK_REQUEST_RETRY,
     }
     .run()
 }
@@ -299,7 +299,7 @@ fn chunks_produced_and_distributed_2_vals_per_shard() {
         chunk_only_producers: false,
         drop_to_4_from: &[],
         drop_all_chunk_forward_msgs: false,
-        block_timeout: 15 * CHUNK_REQUEST_RETRY_MS,
+        block_timeout: CHUNK_REQUEST_RETRY * 15,
     }
     .run()
 }
@@ -311,7 +311,7 @@ fn chunks_produced_and_distributed_one_val_per_shard() {
         chunk_only_producers: false,
         drop_to_4_from: &[],
         drop_all_chunk_forward_msgs: false,
-        block_timeout: 15 * CHUNK_REQUEST_RETRY_MS,
+        block_timeout: CHUNK_REQUEST_RETRY * 15,
     }
     .run()
 }
@@ -323,7 +323,7 @@ fn chunks_produced_and_distributed_all_in_all_shards_should_succeed_even_without
         chunk_only_producers: false,
         drop_to_4_from: &[],
         drop_all_chunk_forward_msgs: true,
-        block_timeout: 15 * CHUNK_REQUEST_RETRY_MS,
+        block_timeout: CHUNK_REQUEST_RETRY * 15,
     }
     .run()
 }
@@ -335,7 +335,7 @@ fn chunks_produced_and_distributed_2_vals_per_shard_should_succeed_even_without_
         chunk_only_producers: false,
         drop_to_4_from: &[],
         drop_all_chunk_forward_msgs: true,
-        block_timeout: 15 * CHUNK_REQUEST_RETRY_MS,
+        block_timeout: CHUNK_REQUEST_RETRY * 15,
     }
     .run()
 }
@@ -347,7 +347,7 @@ fn chunks_produced_and_distributed_one_val_per_shard_should_succeed_even_without
         chunk_only_producers: false,
         drop_to_4_from: &[],
         drop_all_chunk_forward_msgs: true,
-        block_timeout: 15 * CHUNK_REQUEST_RETRY_MS,
+        block_timeout: CHUNK_REQUEST_RETRY * 15,
     }
     .run()
 }
@@ -371,7 +371,7 @@ fn chunks_recovered_from_others() {
     //        chunk_only_producers: false,
     //        drop_to_4_from: &["test1"],
     //        drop_all_chunk_forward_msgs: true,
-    //        block_timeout: 4 * CHUNK_REQUEST_SWITCH_TO_OTHERS_MS,
+    //        block_timeout: CHUNK_REQUEST_SWITCH_TO_OTHERS * 4,
     //    }
     //    .run()
 }
@@ -389,7 +389,7 @@ fn chunks_recovered_from_full_timeout_too_short() {
         chunk_only_producers: false,
         drop_to_4_from: &["test1"],
         drop_all_chunk_forward_msgs: true,
-        block_timeout: 2 * CHUNK_REQUEST_SWITCH_TO_OTHERS_MS,
+        block_timeout: CHUNK_REQUEST_SWITCH_TO_OTHERS * 2,
     }
     .run()
 }
@@ -404,7 +404,7 @@ fn chunks_recovered_from_full() {
         chunk_only_producers: false,
         drop_to_4_from: &["test1"],
         drop_all_chunk_forward_msgs: true,
-        block_timeout: 2 * CHUNK_REQUEST_SWITCH_TO_FULL_FETCH_MS,
+        block_timeout: CHUNK_REQUEST_SWITCH_TO_FULL_FETCH * 2,
     }
     .run()
 }
@@ -419,7 +419,7 @@ fn chunks_produced_and_distributed_one_val_shard_cop() {
         chunk_only_producers: true,
         drop_to_4_from: &[],
         drop_all_chunk_forward_msgs: false,
-        block_timeout: 15 * CHUNK_REQUEST_RETRY_MS,
+        block_timeout: CHUNK_REQUEST_RETRY * 15,
     }
     .run()
 }
@@ -433,7 +433,7 @@ fn chunks_recovered_from_others_cop() {
         chunk_only_producers: true,
         drop_to_4_from: &["test1"],
         drop_all_chunk_forward_msgs: true,
-        block_timeout: 4 * CHUNK_REQUEST_SWITCH_TO_OTHERS_MS,
+        block_timeout: CHUNK_REQUEST_SWITCH_TO_OTHERS * 4,
     }
     .run()
 }
@@ -449,7 +449,7 @@ fn chunks_recovered_from_full_timeout_too_short_cop() {
         chunk_only_producers: true,
         drop_to_4_from: &["test1", "cop1"],
         drop_all_chunk_forward_msgs: true,
-        block_timeout: 2 * CHUNK_REQUEST_SWITCH_TO_OTHERS_MS,
+        block_timeout: CHUNK_REQUEST_SWITCH_TO_OTHERS * 2,
     }
     .run()
 }
@@ -463,7 +463,7 @@ fn chunks_recovered_from_full_cop() {
         chunk_only_producers: true,
         drop_to_4_from: &["test1", "cop1"],
         drop_all_chunk_forward_msgs: true,
-        block_timeout: 2 * CHUNK_REQUEST_SWITCH_TO_FULL_FETCH_MS,
+        block_timeout: CHUNK_REQUEST_SWITCH_TO_FULL_FETCH * 2,
     }
     .run()
 }

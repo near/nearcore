@@ -44,7 +44,7 @@ impl ShardTries {
         let caches = Self::create_initial_caches(&trie_config, &shard_uids, false);
         let view_caches = Self::create_initial_caches(&trie_config, &shard_uids, true);
         ShardTries(Arc::new(ShardTriesInner {
-            store: store,
+            store,
             trie_config,
             caches: RwLock::new(caches),
             view_caches: RwLock::new(view_caches),
@@ -325,6 +325,10 @@ impl ShardTries {
         store_update: &mut StoreUpdate,
     ) -> StateRoot {
         self.apply_all_inner(trie_changes, shard_uid, true, store_update)
+    }
+
+    pub fn flat_state_cache_capacity(&self) -> u64 {
+        self.0.trie_config.flat_state_cache_capacity
     }
 }
 
