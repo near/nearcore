@@ -77,8 +77,7 @@ pub struct Config {
 struct Inner {
     config: Config,
     boot_nodes: HashSet<PeerId>,
-    // LruCache of the known peer states, ordered by value of last_seen.
-    // Be sure to use peek/peek_mut if accessing without updating last_seen.
+    // LruCache of the known peer states. Be sure to use peek/peek_mut to access information.
     // Using the get/put methods modifies the cache order.
     peer_states: LruCache<PeerId, KnownPeerState>,
     // This is a reverse index, from physical address to peer_id
