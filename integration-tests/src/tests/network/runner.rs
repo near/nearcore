@@ -118,21 +118,12 @@ fn setup_network_node(
 // TODO: Deprecate this in favor of separate functions.
 #[derive(Debug, Clone)]
 pub(crate) enum Action {
-    AddEdge {
-        from: usize,
-        to: usize,
-        force: bool,
-    },
+    AddEdge { from: usize, to: usize, force: bool },
     CheckRoutingTable(usize, Vec<(usize, Vec<usize>)>),
     // Send stop signal to some node.
     Stop(usize),
     // Wait time in milliseconds
     Wait(time::Duration),
-    #[allow(dead_code)]
-    SetOptions {
-        target: usize,
-        max_num_peers: Option<u64>,
-    },
 }
 
 pub(crate) struct RunningInfo {
@@ -182,16 +173,6 @@ impl StateMachine {
         let num_prev_actions = self.actions.len();
         let action_clone = 0; // action.clone();
         match action {
-            #[allow(unused_variables)]
-            Action::SetOptions { target, max_num_peers } => {
-                self.actions.push(Box::new(move |info:&mut RunningInfo| Box::pin(async move {
-                    debug!(target: "test", num_prev_actions, action = ?action_clone, "runner.rs: Action");
-                    info.get_node(target)?.actix.addr.send(PeerManagerMessageRequest::SetAdvOptions(near_network::test_utils::SetAdvOptions {
-                        set_max_peers: max_num_peers,
-                    }).with_span_context()).await?;
-                    Ok(ControlFlow::Break(()))
-                })));
-            }
             Action::AddEdge { from, to, force } => {
                 self.actions.push(Box::new(move |info: &mut RunningInfo| Box::pin(async move {
                     debug!(target: "test", num_prev_actions, action = ?action_clone, "runner.rs: Action");
