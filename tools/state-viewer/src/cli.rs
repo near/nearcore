@@ -105,8 +105,7 @@ impl StateViewerSubCommand {
         let storage = store_opener.open_in_mode(mode).unwrap();
         let store = match temperature {
             Temperature::Hot => storage.get_hot_store(),
-            // Cold store on it's own is useless in majority of subcommands
-            Temperature::Cold => storage.get_split_store().unwrap(),
+            Temperature::Cold => storage.get_cold_store().unwrap(),
         };
 
         match self {
@@ -410,7 +409,7 @@ impl DumpTxCmd {
 #[derive(clap::Args)]
 pub struct EpochInfoCmd {
     #[clap(subcommand)]
-    epoch_selection: crate::epoch_info::EpochSelection,
+    epoch_selection: epoch_info::EpochSelection,
     /// Displays kickouts of the given validator and expected and missed blocks and chunks produced.
     #[clap(long)]
     validator_account_id: Option<String>,
