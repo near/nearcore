@@ -46,7 +46,7 @@ impl ChainAccess {
         let store = store_opener
             .open()
             .with_context(|| format!("Error opening store in {:?}", home.as_ref()))?
-            .get_store(near_store::Temperature::Hot);
+            .get_hot_store();
         let chain = ChainStore::new(
             store.clone(),
             config.genesis.config.genesis_height,

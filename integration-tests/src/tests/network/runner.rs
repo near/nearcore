@@ -51,11 +51,7 @@ fn setup_network_node(
     let num_validators = validators.len() as ValidatorId;
 
     let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![validators]);
-    let runtime = Arc::new(KeyValueRuntime::new_with_validators(
-        store.get_store(near_store::Temperature::Hot),
-        vs,
-        5,
-    ));
+    let runtime = Arc::new(KeyValueRuntime::new_with_validators(store.get_hot_store(), vs, 5));
     let signer = Arc::new(create_test_signer(account_id.as_str()));
     let telemetry_actor = TelemetryActor::new(TelemetryConfig::default()).start();
 

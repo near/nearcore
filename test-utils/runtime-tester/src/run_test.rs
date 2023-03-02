@@ -46,7 +46,7 @@ impl Scenario {
         } else {
             let (tempdir, opener) = near_store::NodeStorage::test_opener();
             let store = opener.open().unwrap();
-            (Some(tempdir), store.get_store(near_store::Temperature::Hot))
+            (Some(tempdir), store.get_hot_store())
         };
 
         let mut env = TestEnv::builder(ChainGenesis::new(&genesis))

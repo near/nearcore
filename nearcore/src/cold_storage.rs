@@ -10,6 +10,7 @@ use near_store::{
     DBCol, NodeStorage, Store, FINAL_HEAD_KEY, HEAD_KEY, TAIL_KEY,
 };
 
+use crate::config::SplitStorageConfig;
 use crate::{metrics, NearConfig, NightshadeRuntime};
 
 /// A handle that keeps the state of the cold store loop and can be used to stop it.
@@ -162,10 +163,11 @@ enum ColdStoreInitialMigrationResult {
 ///
 /// Error status means that for some reason migration cannot be performed.
 fn cold_store_initial_migration(
-    keep_going: Arc<AtomicBool>,
+    split_storage_config: &SplitStorageConfig,
+    keep_going: &Arc<AtomicBool>,
     hot_store: &Store,
     cold_store: &Store,
-    cold_db: Arc<ColdDB>,
+    cold_db: &Arc<ColdDB>,
 ) -> anyhow::Result<ColdStoreInitialMigrationResult> {
     // We only need to perform the migration if hot store is of kind Archive and cold store doesn't have a head yet
     if hot_store.get_db_kind()? != Some(near_store::metadata::DbKind::Archive)
@@ -183,8 +185,8 @@ fn cold_store_initial_migration(
         .ok_or_else(|| anyhow::anyhow!("FINAL_HEAD not found in hot storage"))?;
     let hot_final_head_height = hot_final_head.height;
 
-    // TODO take batch_size from config
-    match copy_all_data_to_cold(cold_db.clone(), &hot_store, 500_000_000, keep_going)? {
+    let batch_size = split_storage_config.cold_store_initial_migration_batch_size;
+    match copy_all_data_to_cold(cold_db.clone(), &hot_store, batch_size, keep_going)? {
         CopyAllDataToColdStatus::EverythingCopied => {
             tracing::info!(target: "cold_store", "Initial population was successful, writing cold head of height {}", hot_final_head_height);
             update_cold_head(&cold_db, &hot_store, &hot_final_head_height)?;
@@ -201,7 +203,8 @@ fn cold_store_initial_migration(
 /// If migration fails sleeps for 30s and tries again.
 /// If migration returned any successful status (including interruption status) breaks the loop.
 fn cold_store_initial_migration_loop(
-    keep_going: Arc<AtomicBool>,
+    split_storage_config: &SplitStorageConfig,
+    keep_going: &Arc<AtomicBool>,
     hot_store: &Store,
     cold_store: &Store,
     cold_db: Arc<ColdDB>,
@@ -213,16 +216,18 @@ fn cold_store_initial_migration_loop(
             break;
         }
         match cold_store_initial_migration(
-            keep_going.clone(),
+            split_storage_config,
+            &keep_going,
             hot_store,
             cold_store,
-            cold_db.clone(),
+            &cold_db,
         ) {
             // We can either stop the cold store thread or hope that next time migration will not fail.
             // Here we pick the second option.
             Err(err) => {
-                tracing::error!(target: "cold_store", "initial migration failed with error {err}, sleeping 30s and trying again");
-                std::thread::sleep(std::time::Duration::from_secs(30));
+                let dur = split_storage_config.cold_store_initial_migration_loop_sleep_duration;
+                tracing::error!(target: "cold_store", "initial migration failed with error {}, sleeping {}s and trying again", err, dur.as_secs());
+                std::thread::sleep(dur);
             }
             // Any Ok status from `cold_store_initial_migration` function means that we can proceed to regular run.
             Ok(status) => {
@@ -240,7 +245,8 @@ fn cold_store_initial_migration_loop(
 // TODO clean up the interface, currently we need to pass hot store, cold store and
 // cold_db which is redundant.
 fn cold_store_loop(
-    keep_going: Arc<AtomicBool>,
+    split_storage_config: &SplitStorageConfig,
+    keep_going: &Arc<AtomicBool>,
     hot_store: Store,
     cold_store: Store,
     cold_db: Arc<ColdDB>,
@@ -260,7 +266,7 @@ fn cold_store_loop(
             .with_label_values(&[cold_store_copy_result_to_string(&result)])
             .inc();
 
-        let sleep_duration = std::time::Duration::from_secs(1);
+        let sleep_duration = split_storage_config.cold_store_loop_sleep_duration;
         match result {
             Err(err) => {
                 tracing::error!(target : "cold_store", error = format!("{err:#?}"), "cold_store_copy failed");
@@ -322,17 +328,21 @@ pub fn spawn_cold_store_loop(
     let keep_going = Arc::new(AtomicBool::new(true));
     let keep_going_clone = keep_going.clone();
 
+    let split_storage_config = config.config.split_storage.clone().unwrap_or_default();
+
     tracing::info!(target : "cold_store", "Spawning the cold store loop");
     let join_handle =
         std::thread::Builder::new().name("cold_store_copy".to_string()).spawn(move || {
             cold_store_initial_migration_loop(
-                keep_going_clone.clone(),
+                &split_storage_config,
+                &keep_going_clone,
                 &hot_store,
                 &cold_store,
                 cold_db.clone(),
             );
             cold_store_loop(
-                keep_going_clone,
+                &split_storage_config,
+                &keep_going_clone,
                 hot_store,
                 cold_store,
                 cold_db,

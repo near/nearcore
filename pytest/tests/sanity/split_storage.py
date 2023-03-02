@@ -86,15 +86,23 @@ class TestSplitStorage(unittest.TestCase):
         config = load_config()
         client_config_changes = {
             0: {
-                'archive': True
+                'archive': True,
+                'save_trie_changes': True,
             },
         }
+
+        # Decrease the epoch length in order to speed up this test.
+        epoch_length = 5
+        genesis_config_changes = [
+            ("epoch_length", epoch_length),
+        ]
+
         near_root, [node_dir] = init_cluster(
             1,
             0,
             1,
             config,
-            [],
+            genesis_config_changes,
             client_config_changes,
             "test_base_case_",
         )
@@ -103,9 +111,13 @@ class TestSplitStorage(unittest.TestCase):
 
         node = spin_up_node(config, near_root, node_dir, 0, single_node=True)
 
-        # Wait until 20 blocks are produced so that we're guaranteed that
-        # cold head has enough time to move. cold_head <= final_head < head
-        n = 20
+        # Wait until enough blocks are produced so that we're guaranteed that
+        # cold head has enough time to move and initial migration is finished.
+        # The initial migration may fail at the beginning because FINAL_HEAD is
+        # not set. It will retry after 30s.
+        # TODO it would be better to configure the retry timeout above and set
+        # it to a lower value to speed up the test.
+        n = 50
         wait_for_blocks(node, target=n)
 
         self._check_split_storage_info(
@@ -157,6 +169,7 @@ class TestSplitStorage(unittest.TestCase):
             2: {
                 'archive': True,
                 'tracked_shards': [0],
+                'save_trie_changes': True,
             },
         }
 
@@ -249,13 +262,15 @@ class TestSplitStorage(unittest.TestCase):
         logger.info("Phase 3 - Preparing hot storage from rpc backup.")
         logger.info("")
 
+        # TODO Ideally we won't need to stop the node while running prepare-hot.
+        archival.kill(gentle=True)
+        # Stop the RPC node in order to dump the db to disk.
+        rpc.kill(gentle=True)
+
         rpc_src = path.join(rpc.node_dir, "data")
         rpc_dst = path.join(archival.node_dir, "hot_data")
         logger.info(f"Copying rpc backup from {rpc_src} to {rpc_dst}")
         shutil.copytree(rpc_src, rpc_dst)
-
-        # TODO Ideally we won't need to stop the node while running prepare-hot.
-        archival.kill(gentle=True)
 
         archival_dir = pathlib.Path(archival.node_dir)
         with open(archival_dir / 'prepare-hot-stdout', 'w') as stdout, \
@@ -287,6 +302,7 @@ class TestSplitStorage(unittest.TestCase):
         logger.info("")
 
         archival.start()
+        rpc.start()
 
         # Wait for a few seconds to:
         # - Give the node enough time to get started.
