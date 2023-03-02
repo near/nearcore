@@ -16,7 +16,8 @@ use near_primitives::time;
 
 use near_network::PeerManagerActor;
 use near_primitives::block::GenesisId;
-use near_store::{DBCol, Mode, NodeStorage, StoreOpenerError, Temperature};
+use near_store::metadata::DbKind;
+use near_store::{DBCol, Mode, NodeStorage, Store, StoreOpenerError};
 use near_telemetry::TelemetryActor;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -152,6 +153,33 @@ fn open_storage(home_dir: &Path, near_config: &mut NearConfig) -> anyhow::Result
     Ok(storage)
 }
 
+// Safely get the split store while checking that all conditions to use it are met.
+fn get_split_store(config: &NearConfig, storage: &NodeStorage) -> anyhow::Result<Option<Store>> {
+    // SplitStore should only be used on archival nodes.
+    if !config.config.archive {
+        return Ok(None);
+    }
+
+    // SplitStore should only be used if cold store is configured.
+    if config.config.cold_store.is_none() {
+        return Ok(None);
+    }
+
+    // SplitStore should only be used in the view client if it is enabled.
+    if !config.config.split_storage.as_ref().map_or(false, |c| c.enable_split_storage_view_client) {
+        return Ok(None);
+    }
+
+    // SplitStore should only be used if the migration is finished. The
+    // migration to cold store is finished when the db kind of the hot store is
+    // changed from Archive to Hot.
+    if storage.get_hot_store().get_db_kind()? != Some(DbKind::Hot) {
+        return Ok(None);
+    }
+
+    Ok(storage.get_split_store())
+}
+
 pub struct NearNode {
     pub client: Addr<ClientActor>,
     pub view_client: Addr<ViewClientActor>,
@@ -176,11 +204,17 @@ pub fn start_with_config_and_synchronization(
 ) -> anyhow::Result<NearNode> {
     let store = open_storage(home_dir, &mut config)?;
 
-    let runtime = Arc::new(NightshadeRuntime::from_config(
-        home_dir,
-        store.get_store(Temperature::Hot),
-        &config,
-    ));
+    let runtime =
+        Arc::new(NightshadeRuntime::from_config(home_dir, store.get_hot_store(), &config));
+
+    // Get the split store. If split store is some then create a new runtime for
+    // the view client. Otherwise just re-use the existing runtime.
+    let split_store = get_split_store(&config, &store)?;
+    let view_runtime = if let Some(split_store) = split_store {
+        Arc::new(NightshadeRuntime::from_config(home_dir, split_store, &config))
+    } else {
+        runtime.clone()
+    };
 
     let cold_store_loop_handle = spawn_cold_store_loop(&config, &store, runtime.clone())?;
 
@@ -201,7 +235,7 @@ pub fn start_with_config_and_synchronization(
     let view_client = start_view_client(
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
         chain_genesis.clone(),
-        runtime.clone(),
+        view_runtime,
         network_adapter.clone().into(),
         config.client_config.clone(),
         adv.clone(),
@@ -225,7 +259,7 @@ pub fn start_with_config_and_synchronization(
         network_adapter.as_sender(),
         client_adapter_for_shards_manager.as_sender(),
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
-        store.get_store(Temperature::Hot),
+        store.get_hot_store(),
         config.client_config.chunk_request_retry_period,
     );
     shards_manager_adapter.bind(shards_manager_actor);
@@ -322,7 +356,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
           "Recompressing database");
 
     info!("Opening database at {}", src_path.display());
-    let src_store = src_opener.open_in_mode(Mode::ReadOnly)?.get_store(Temperature::Hot);
+    let src_store = src_opener.open_in_mode(Mode::ReadOnly)?.get_hot_store();
 
     let final_head_height = if skip_columns.contains(&DBCol::PartialChunks) {
         let tip: Option<near_primitives::block::Tip> =
@@ -339,7 +373,7 @@ pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Resu
     };
 
     info!("Creating database at {}", dst_path.display());
-    let dst_store = dst_opener.open_in_mode(Mode::Create)?.get_store(Temperature::Hot);
+    let dst_store = dst_opener.open_in_mode(Mode::Create)?.get_hot_store();
 
     const BATCH_SIZE_BYTES: u64 = 150_000_000;
 
