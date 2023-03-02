@@ -118,12 +118,7 @@ pub mod manager {
             None
         }
 
-        pub fn add_flat_storage_for_shard(
-            &self,
-            _shard_id: ShardId,
-            _flat_storage: FlatStorage,
-        ) {
-        }
+        pub fn add_flat_storage_for_shard(&self, _shard_id: ShardId, _flat_storage: FlatStorage) {}
 
         pub fn remove_flat_storage_for_shard(
             &self,

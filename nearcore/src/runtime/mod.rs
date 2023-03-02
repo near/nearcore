@@ -1656,9 +1656,8 @@ mod test {
                         height,
                         prev_hash: *prev_block_hash,
                     };
-                    let new_store_update = flat_storage
-                        .add_block(&block_hash, flat_state_delta, block_info)
-                        .unwrap();
+                    let new_store_update =
+                        flat_storage.add_block(&block_hash, flat_state_delta, block_info).unwrap();
                     store_update.merge(new_store_update);
                 }
                 None => {}
@@ -1809,9 +1808,8 @@ mod test {
 
             // Create flat storage. Naturally it happens on Chain creation, but here we test only Runtime behaviour
             // and use a mock chain, so we need to initialize flat storage manually.
-            let store_update = runtime
-                .set_flat_storage_for_genesis(&genesis_hash, &EpochId::default())
-                .unwrap();
+            let store_update =
+                runtime.set_flat_storage_for_genesis(&genesis_hash, &EpochId::default()).unwrap();
             store_update.commit().unwrap();
             let mock_chain = MockChainForFlatStorage::new(0, genesis_hash);
             for shard_id in 0..runtime.num_shards(&EpochId::default()).unwrap() {

@@ -56,11 +56,7 @@ impl FlatStorageManager {
     /// the shard's flat storage state hasn't been set before, otherwise it panics.
     /// TODO (#7327): this behavior may change when we implement support for state sync
     /// and resharding.
-    pub fn add_flat_storage_for_shard(
-        &self,
-        shard_id: ShardId,
-        flat_storage: FlatStorage,
-    ) {
+    pub fn add_flat_storage_for_shard(&self, shard_id: ShardId, flat_storage: FlatStorage) {
         let mut flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
         let original_value = flat_storages.insert(shard_id, flat_storage);
         // TODO (#7327): maybe we should propagate the error instead of assert here
@@ -97,8 +93,7 @@ impl FlatStorageManager {
             None
         } else {
             let flat_storage = {
-                let flat_storages =
-                    self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
+                let flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
                 // It is possible that flat storage state does not exist yet because it is being created in
                 // background.
                 match flat_storages.get(&shard_id) {

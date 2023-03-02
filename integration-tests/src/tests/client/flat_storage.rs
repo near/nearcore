@@ -142,11 +142,7 @@ fn test_flat_storage_creation() {
 
         let block_hash = env.clients[0].chain.get_block_hash_by_height(START_HEIGHT - 1).unwrap();
         let epoch_id = env.clients[0].chain.runtime_adapter.get_epoch_id(&block_hash).unwrap();
-        env.clients[0]
-            .chain
-            .runtime_adapter
-            .remove_flat_storage_for_shard(0, &epoch_id)
-            .unwrap();
+        env.clients[0].chain.runtime_adapter.remove_flat_storage_for_shard(0, &epoch_id).unwrap();
     }
 
     // Create new chain and runtime using the same store. It should produce next blocks normally, but now it should
@@ -234,11 +230,7 @@ fn test_flat_storage_creation_two_shards() {
 
         let block_hash = env.clients[0].chain.get_block_hash_by_height(START_HEIGHT - 1).unwrap();
         let epoch_id = env.clients[0].chain.runtime_adapter.get_epoch_id(&block_hash).unwrap();
-        env.clients[0]
-            .chain
-            .runtime_adapter
-            .remove_flat_storage_for_shard(0, &epoch_id)
-            .unwrap();
+        env.clients[0].chain.runtime_adapter.remove_flat_storage_for_shard(0, &epoch_id).unwrap();
     }
 
     if !cfg!(feature = "protocol_feature_flat_state") {
@@ -392,11 +384,7 @@ fn test_cachup_succeeds_even_if_no_new_blocks() {
         // Remove flat storage.
         let block_hash = env.clients[0].chain.get_block_hash_by_height(START_HEIGHT - 1).unwrap();
         let epoch_id = env.clients[0].chain.runtime_adapter.get_epoch_id(&block_hash).unwrap();
-        env.clients[0]
-            .chain
-            .runtime_adapter
-            .remove_flat_storage_for_shard(0, &epoch_id)
-            .unwrap();
+        env.clients[0].chain.runtime_adapter.remove_flat_storage_for_shard(0, &epoch_id).unwrap();
     }
     let mut env = setup_env(&genesis, store.clone());
     assert!(env.clients[0].runtime_adapter.get_flat_storage_for_shard(0).is_none());

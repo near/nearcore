@@ -630,10 +630,8 @@ impl Chain {
                 // Set the root block of flat state to be the genesis block. Later, when we
                 // init FlatStorageStates, we will read the from this column in storage, so it
                 // must be set here.
-                let tmp_store_update = runtime_adapter.set_flat_storage_for_genesis(
-                    genesis.hash(),
-                    genesis.header().epoch_id(),
-                )?;
+                let tmp_store_update = runtime_adapter
+                    .set_flat_storage_for_genesis(genesis.hash(), genesis.header().epoch_id())?;
                 store_update.merge(tmp_store_update);
 
                 info!(target: "chain", "Init: saved genesis: #{} {} / {:?}", block_head.height, block_head.last_block_hash, state_roots);
@@ -2101,9 +2099,7 @@ impl Chain {
         block: &Block,
         shard_id: ShardId,
     ) -> Result<(), Error> {
-        if let Some(flat_storage) =
-            self.runtime_adapter.get_flat_storage_for_shard(shard_id)
-        {
+        if let Some(flat_storage) = self.runtime_adapter.get_flat_storage_for_shard(shard_id) {
             let mut new_flat_head = *block.header().last_final_block();
             if new_flat_head == CryptoHash::default() {
                 new_flat_head = *self.genesis.hash();
