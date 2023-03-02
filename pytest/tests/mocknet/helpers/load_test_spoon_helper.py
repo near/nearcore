@@ -117,7 +117,11 @@ def random_transaction(account, i, node_account, max_tps_per_node):
         function_call_ft_transfer_call(account, i, node_account)
 
 
-def send_random_transactions(node_account, test_accounts, max_tps_per_node):
+# rpc_infos is not needed in this file, but it's present here for compatibility with load_test_betanet.py.
+def send_random_transactions(node_account,
+                             test_accounts,
+                             max_tps_per_node,
+                             rpc_infos=None):
     pmap(
         lambda index_and_account: random_transaction(index_and_account[
             1], index_and_account[0], node_account, max_tps_per_node),
