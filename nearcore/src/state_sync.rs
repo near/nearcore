@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 pub fn spawn_state_sync_dump(
     config: &NearConfig,
-    chain_genesis: &ChainGenesis,
+    chain_genesis: ChainGenesis,
     runtime: Arc<NightshadeRuntime>,
     node_key: &PublicKey,
 ) -> anyhow::Result<Option<StateSyncDumpHandle>> {
@@ -47,7 +47,7 @@ pub fn spawn_state_sync_dump(
         // Sadly, `Chain` is not `Send` and each thread needs to create its own `Chain` instance.
         let chain = Chain::new_for_view_client(
             runtime.clone(),
-            chain_genesis,
+            &chain_genesis,
             DoomslugThresholdMode::TwoThirds,
             config.client_config.save_trie_changes,
         )?;
@@ -162,7 +162,7 @@ async fn state_sync_dump(
                 num_parts,
             })) => {
                 // The actual dumping of state to S3.
-                tracing::info!(target: "state_sync_dump", shard_id, ?epoch_id, epoch_height, ?sync_hash, ?state_root, parts_dumped, num_parts, "Creating parts and dumping them");
+                tracing::info!(target: "state_sync_dump", shard_id, ?epoch_id, epoch_height, %sync_hash, %state_root, parts_dumped, num_parts, "Creating parts and dumping them");
                 let mut res = None;
                 for part_id in parts_dumped..num_parts {
                     // Dump parts sequentially synchronously.
@@ -216,34 +216,10 @@ async fn state_sync_dump(
                             res = Some(err);
                             break;
                         }
-
-                        /*
-                        // Optional, we probably don't need this.
-                        let put = bucket
-                            .put_object_tagging(
-                                &location,
-                                &[
-                                    ("chain_id", &config.chain_id),
-                                    ("epoch_height", &epoch_height.to_string()),
-                                    ("epoch_id", &format!("{:?}", epoch_id.0)),
-                                    ("node_key", &format!("{:?}", node_key)),
-                                    ("num_parts", &format!("{}", num_parts)),
-                                    ("part_id", &format!("{}", part_id)),
-                                    ("state_root", &format!("{:?}", state_root)),
-                                    ("sync_hash", &format!("{:?}", sync_hash)),
-                                ],
-                            )
-                            .await
-                            .map_err(|err| Error::Other(err.to_string()));
-                        if let Err(err) = put {
-                            res = Some(err);
-                            break;
-                        }
-                         */
                     }
 
                     // Record that a part was obtained and dumped.
-                    tracing::debug!(target: "state_sync_dump", shard_id, ?epoch_id, epoch_height, ?sync_hash, ?state_root, part_id, part_length = state_part.len(), ?location, "Wrote a state part to S3");
+                    tracing::debug!(target: "state_sync_dump", shard_id, ?epoch_id, epoch_height, %sync_hash, %state_root, part_id, part_length = state_part.len(), ?location, "Wrote a state part to S3");
                     metrics::STATE_SYNC_DUMP_SIZE_TOTAL
                         .with_label_values(&[&shard_id.to_string()])
                         .inc_by(state_part.len() as u64);
@@ -352,7 +328,7 @@ fn start_dumping(
         let state_root = sync_hash_block.chunks()[shard_id as usize].prev_state_root();
         let state_root_node = runtime.get_state_root_node(shard_id, &sync_hash, &state_root)?;
         let num_parts = get_num_state_parts(state_root_node.memory_usage);
-        tracing::debug!(target: "state_sync_dump", shard_id, ?epoch_id, ?sync_hash, ?state_root, num_parts, "Initialize dumping state of Epoch");
+        tracing::debug!(target: "state_sync_dump", shard_id, ?epoch_id, %sync_hash, %state_root, num_parts, "Initialize dumping state of Epoch");
         // Note that first the state of the state machines gets changes to
         // `InProgress` and it starts dumping state after a short interval.
         set_metrics(shard_id, Some(0), Some(num_parts), Some(epoch_height));
@@ -365,7 +341,7 @@ fn start_dumping(
             num_parts,
         }))
     } else {
-        tracing::debug!(target: "state_sync_dump", shard_id, ?epoch_id, ?sync_hash, "Shard is not tracked, skip the epoch");
+        tracing::debug!(target: "state_sync_dump", shard_id, ?epoch_id, %sync_hash, "Shard is not tracked, skip the epoch");
         Ok(Some(StateSyncDumpProgress::AllDumped { epoch_id, epoch_height, num_parts: Some(0) }))
     }
 }

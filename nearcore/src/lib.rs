@@ -15,6 +15,7 @@ use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::{start_client, start_view_client, ClientActor, ConfigUpdater, ViewClientActor};
 use near_network::PeerManagerActor;
 use near_primitives::block::GenesisId;
+use near_primitives::time;
 use near_store::metadata::DbKind;
 use near_store::{DBCol, Mode, NodeStorage, Store, StoreOpenerError};
 use near_telemetry::TelemetryActor;
@@ -269,7 +270,7 @@ pub fn start_with_config_and_synchronization(
 
     let state_sync_dump_handle = spawn_state_sync_dump(
         &config,
-        &chain_genesis.clone(),
+        chain_genesis.clone(),
         runtime.clone(),
         config.network_config.node_id().public_key(),
     )?;
