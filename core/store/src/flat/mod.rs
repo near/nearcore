@@ -89,8 +89,8 @@ pub mod store_helper {
 
 #[cfg(not(feature = "protocol_feature_flat_state"))]
 pub mod manager {
-    use super::FlatStorageChunkView;
     use super::storage::FlatStorage;
+    use super::FlatStorageChunkView;
     use crate::{Store, StoreUpdate};
     use near_primitives::errors::StorageError;
     use near_primitives::hash::CryptoHash;

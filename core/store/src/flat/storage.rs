@@ -4,8 +4,8 @@ use std::sync::{Arc, RwLock};
 use lru::LruCache;
 use near_o11y::metrics::IntGauge;
 use near_primitives::errors::StorageError;
-use near_primitives::shard_layout::ShardLayout;
 use near_primitives::hash::CryptoHash;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state::ValueRef;
 use near_primitives::types::{BlockHeight, ShardId};
 #[cfg(feature = "protocol_feature_flat_state")]

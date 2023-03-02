@@ -9,8 +9,8 @@ use tracing::debug;
 
 use crate::{Store, StoreUpdate};
 
-use super::FlatStorage;
 use super::chunk_view::FlatStorageChunkView;
+use super::FlatStorage;
 
 /// `FlatStorageManager` provides a way to construct new flat state to pass to new tries.
 /// It is owned by NightshadeRuntime, and thus can be owned by multiple threads, so the implementation

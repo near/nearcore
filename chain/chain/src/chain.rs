@@ -70,10 +70,10 @@ use near_primitives::views::{
     LightClientBlockView, SignedTransactionView,
 };
 #[cfg(feature = "protocol_feature_flat_state")]
-use near_store::flat_state::{store_helper, FlatStateDelta};
-use near_store::flat_state::{FlatStorageCreationStatus, FlatStorageError};
+use near_store::flat::{store_helper, FlatStateDelta};
+use near_store::flat::{FlatStorageCreationStatus, FlatStorageError};
 #[cfg(feature = "protocol_feature_flat_state")]
-use near_store::{flat_state, StorageError};
+use near_store::StorageError;
 use near_store::{DBCol, ShardTries, StoreUpdate, WrappedTrieChanges};
 use once_cell::sync::OnceCell;
 use rand::seq::SliceRandom;
@@ -4920,7 +4920,8 @@ impl<'a> ChainUpdate<'a> {
                 self.runtime_adapter.get_flat_storage_state_for_shard(shard_id)
             {
                 // If flat storage exists, we add a block to it.
-                let block_info = flat_state::BlockInfo { hash: block_hash, height, prev_hash };
+                let block_info =
+                    near_store::flat::BlockInfo { hash: block_hash, height, prev_hash };
                 let store_update = chain_flat_storage
                     .add_block(&block_hash, delta, block_info)
                     .map_err(|e| StorageError::from(e))?;

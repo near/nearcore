@@ -1,6 +1,6 @@
 use crate::flat::delta::FlatStateDelta;
-use crate::flat::storage::FlatStorage;
 use crate::flat::manager::FlatStorageManager;
+use crate::flat::storage::FlatStorage;
 use crate::flat::store_helper;
 use crate::flat::types::{BlockInfo, ChainAccessForFlatStorage, FlatStorageError};
 use crate::test_utils::create_test_store;
