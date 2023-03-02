@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::io;
+use std::ops::Bound;
 use std::sync::{Arc, RwLock};
 
 use crate::db::{refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database};
@@ -42,6 +43,22 @@ impl Database for TestDB {
         let iterator = self.db.read().unwrap()[col]
             .range(key_prefix.to_vec()..)
             .take_while(move |(k, _)| k.starts_with(&key_prefix))
+            .map(|(k, v)| Ok((k.clone().into_boxed_slice(), v.clone().into_boxed_slice())))
+            .collect::<Vec<io::Result<_>>>();
+        refcount::iter_with_rc_logic(col, iterator.into_iter())
+    }
+
+    fn iter_range<'a>(
+        &'a self,
+        col: DBCol,
+        lower_bound: Option<&'a [u8]>,
+        upper_bound: Option<&'a [u8]>,
+    ) -> DBIterator<'a> {
+        let lower = lower_bound.map_or(Bound::Unbounded, |f| Bound::Included(f.to_vec()));
+        let upper = upper_bound.map_or(Bound::Unbounded, |f| Bound::Excluded(f.to_vec()));
+
+        let iterator = self.db.read().unwrap()[col]
+            .range((lower, upper))
             .map(|(k, v)| Ok((k.clone().into_boxed_slice(), v.clone().into_boxed_slice())))
             .collect::<Vec<io::Result<_>>>();
         refcount::iter_with_rc_logic(col, iterator.into_iter())

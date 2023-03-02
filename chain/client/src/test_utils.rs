@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::mem::swap;
 use std::ops::DerefMut;
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use actix::{Actor, Addr, AsyncContext, Context};
 use chrono::DateTime;
@@ -15,12 +15,14 @@ use near_chunks::ShardsManager;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::test_utils::create_test_signer;
+use near_primitives::time;
 use num_rational::Ratio;
 use once_cell::sync::OnceCell;
 use rand::{thread_rng, Rng};
 use tracing::info;
 
 use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
+use chrono::Utc;
 use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, StateSplitRequest};
 use near_chain::test_utils::{
     wait_for_all_blocks_in_processing, wait_for_block_in_processing, KeyValueRuntime,
@@ -61,8 +63,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{EncodedShardChunk, PartialEncodedChunk, ReedSolomonWrapper};
-use near_primitives::time::Utc;
-use near_primitives::time::{Clock, Instant};
+use near_primitives::static_clock::StaticClock;
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
 
 use near_primitives::types::{
@@ -420,7 +421,7 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
             false,
             network_adapter.clone().into(),
             transaction_validity_period,
-            Clock::utc(),
+            StaticClock::utc(),
             ctx,
         );
         vca = Some(view_client_addr);
@@ -458,7 +459,7 @@ impl BlockStats {
             hash2depth: HashMap::new(),
             num_blocks: 0,
             max_chain_length: 0,
-            last_check: Clock::instant(),
+            last_check: StaticClock::instant(),
             max_divergence: 0,
             last_hash: None,
             parent: HashMap::new(),
@@ -507,7 +508,7 @@ impl BlockStats {
     }
 
     pub fn check_stats(&mut self, force: bool) {
-        let now = Clock::instant();
+        let now = StaticClock::instant();
         let diff = now.duration_since(self.last_check);
         if !force && diff.lt(&Duration::from_secs(60)) {
             return;
@@ -636,7 +637,7 @@ pub fn setup_mock_all_validators(
     let key_pairs = key_pairs;
 
     let addresses: Vec<_> = (0..key_pairs.len()).map(|i| hash(vec![i as u8].as_ref())).collect();
-    let genesis_time = Clock::utc();
+    let genesis_time = StaticClock::utc();
     let mut ret = vec![];
 
     let connectors: Arc<OnceCell<Vec<ActorHandlesForTesting>>> = Default::default();
@@ -711,9 +712,9 @@ pub fn setup_mock_all_validators(
                                 },
                                 received_bytes_per_sec: 0,
                                 sent_bytes_per_sec: 0,
-                                last_time_peer_requested: near_network::time::Instant::now(),
-                                last_time_received_message: near_network::time::Instant::now(),
-                                connection_established_time: near_network::time::Instant::now(),
+                                last_time_peer_requested: near_primitives::time::Instant::now(),
+                                last_time_received_message: near_primitives::time::Instant::now(),
+                                connection_established_time: near_primitives::time::Instant::now(),
                                 peer_type: PeerType::Outbound,
                                 nonce: 3,
                             })
@@ -1201,6 +1202,7 @@ pub fn setup_synchronous_shards_manager(
     let chain_head = chain.head().unwrap();
     let chain_header_head = chain.header_head().unwrap();
     let shards_manager = ShardsManager::new(
+        time::Clock::real(),
         account_id,
         runtime_adapter,
         network_adapter.request_sender,

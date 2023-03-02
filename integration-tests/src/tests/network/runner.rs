@@ -13,7 +13,6 @@ use near_network::blacklist;
 use near_network::config;
 use near_network::tcp;
 use near_network::test_utils::{expected_routing_tables, peer_id_from_seed, GetInfo};
-use near_network::time;
 use near_network::types::{
     PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, ROUTED_MESSAGE_TTL,
 };
@@ -23,6 +22,7 @@ use near_o11y::WithSpanContextExt;
 use near_primitives::block::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
+use near_primitives::time;
 use near_primitives::types::{AccountId, ValidatorId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_telemetry::{TelemetryActor, TelemetryConfig};

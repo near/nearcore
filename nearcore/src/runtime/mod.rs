@@ -536,7 +536,7 @@ impl NightshadeRuntime {
             .observe(elapsed.as_secs_f64());
         if total_gas_burnt > 0 {
             metrics::SECONDS_PER_PETAGAS
-                .with_label_values(&[])
+                .with_label_values(&[&shard_id.to_string()])
                 .observe(elapsed.as_secs_f64() * 1e15 / total_gas_burnt as f64);
         }
         let total_balance_burnt = apply_result
@@ -747,8 +747,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         latest_block_height: BlockHeight,
         chain_access: &dyn ChainAccessForFlatStorage,
     ) {
-        let flat_storage_state =
-            FlatStorageState::new(self.store.clone(), shard_id, latest_block_height, chain_access);
+        let cache_capacity = self.tries.flat_state_cache_capacity() as usize;
+        let flat_storage_state = FlatStorageState::new(
+            self.store.clone(),
+            shard_id,
+            latest_block_height,
+            chain_access,
+            cache_capacity,
+        );
         self.flat_state_factory.add_flat_storage_state_for_shard(shard_id, flat_storage_state);
     }
 

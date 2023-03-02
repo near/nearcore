@@ -34,12 +34,9 @@ pub fn create_test_node_storage_default() -> NodeStorage {
     create_test_node_storage(DB_VERSION, DbKind::RPC)
 }
 
-/// Creates an in-memory node storage with ColdDB<TestDB>
-pub fn create_test_node_storage_with_cold(
-    version: DbVersion,
-    hot_kind: DbKind,
-) -> NodeStorage<TestDB> {
-    let storage = NodeStorage::new_with_cold(TestDB::new(), TestDB::default());
+/// Creates an in-memory node storage with ColdDB
+pub fn create_test_node_storage_with_cold(version: DbVersion, hot_kind: DbKind) -> NodeStorage {
+    let storage = NodeStorage::new_with_cold(TestDB::new(), TestDB::new());
 
     storage.get_store(Temperature::Hot).set_db_version(version).unwrap();
     storage.get_store(Temperature::Hot).set_db_kind(hot_kind).unwrap();

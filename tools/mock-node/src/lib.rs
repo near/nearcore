@@ -8,7 +8,6 @@ use near_chain::{Block, BlockHeader, Chain, ChainStoreAccess, Error};
 use near_chain_configs::GenesisConfig;
 use near_client::sync::header::MAX_BLOCK_HEADERS;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
-use near_network::time;
 use near_network::types::{
     BlockInfo, ConnectedPeerInfo, FullPeerInfo, NetworkInfo, NetworkRequests, NetworkResponses,
     PeerManagerMessageRequest, PeerManagerMessageResponse, PeerType, SetChainInfo,
@@ -21,7 +20,8 @@ use near_performance_metrics::actix::run_later;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
-use near_primitives::time::Clock;
+use near_primitives::static_clock::StaticClock;
+use near_primitives::time;
 use near_primitives::types::{BlockHeight, ShardId};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -421,7 +421,7 @@ impl Handler<WithSpanContext<PeerManagerMessageRequest>> for MockPeerManagerActo
                                 .chain_history_access
                                 .retrieve_partial_encoded_chunk(&request)
                                 .unwrap();
-                            act.shards_manager_adapter.send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse { partial_encoded_chunk_response: response, received_time: Clock::instant().into() });
+                            act.shards_manager_adapter.send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse { partial_encoded_chunk_response: response, received_time: StaticClock::instant().into() });
                         });
                     }
                     NetworkRequests::PartialEncodedChunkResponse { .. } => {}

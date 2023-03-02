@@ -1,6 +1,6 @@
 use crate::metrics;
 use chrono::{DateTime, Utc};
-use near_primitives::time::Clock;
+use near_primitives::static_clock::StaticClock;
 use near_primitives::types::BlockHeight;
 use serde::{Deserialize, Serialize, Serializer};
 use std::fmt::Debug;
@@ -41,7 +41,7 @@ impl<T: Copy + PartialEq + Debug> MutableConfigValue<T> {
         let res = Self {
             value: Arc::new(Mutex::new(val)),
             field_name: field_name.to_string(),
-            last_update: Clock::utc(),
+            last_update: StaticClock::utc(),
         };
         res.set_metric_value(val, 1);
         res

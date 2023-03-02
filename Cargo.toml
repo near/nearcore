@@ -89,7 +89,7 @@ bitflags = "1.2"
 blake2 = "0.9.1"
 bn = { package = "zeropool-bn", version = "0.5.11" }
 bolero = "0.8.0"
-borsh = { version = "0.9", features = ["rc"] }
+borsh = { version = "0.10.2", features = ["rc"] }
 bs58 = "0.4"
 byteorder = "1.3"
 bytes = "1"
@@ -149,6 +149,7 @@ paperclip = { version = "0.8.0", features = ["actix4"] }
 parity-wasm = { version = "0.42", default-features = false }
 parity-wasm_41 = { package = "parity-wasm", version = "0.41" }
 parking_lot = "0.12.1"
+pin-project = "1.0"
 pretty_assertions = "1.2"
 primitive-types = { version = "0.10", default-features = false }
 prometheus = "0.13.1"

@@ -67,8 +67,6 @@ pub enum StateViewerSubCommand {
     /// Looks up a certain partial chunk.
     #[clap(alias = "partial_chunks")]
     PartialChunks(PartialChunksCmd),
-    /// Prints stored peers information from the DB.
-    Peers,
     /// Looks up a certain receipt.
     Receipts(ReceiptsCmd),
     /// Replay headers from chain.
@@ -107,7 +105,6 @@ impl StateViewerSubCommand {
 
         let storage = store_opener.open_in_mode(mode).unwrap();
         let store = storage.get_store(temperature);
-        let db = storage.into_inner(temperature);
         match self {
             StateViewerSubCommand::Apply(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ApplyChunk(cmd) => cmd.run(home_dir, near_config, store),
@@ -127,7 +124,6 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::DumpTx(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::EpochInfo(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::PartialChunks(cmd) => cmd.run(near_config, store),
-            StateViewerSubCommand::Peers => peers(db),
             StateViewerSubCommand::Receipts(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::Replay(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::RocksDBStats(cmd) => cmd.run(store_opener.path()),
@@ -148,7 +144,7 @@ pub struct ApplyCmd {
 
 impl ApplyCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
-        apply_block_at_height(self.height, self.shard_id, home_dir, near_config, store);
+        apply_block_at_height(self.height, self.shard_id, home_dir, near_config, store).unwrap();
     }
 }
 
@@ -406,9 +402,15 @@ pub struct DumpStatePartsCmd {
     /// Shard id.
     #[clap(long)]
     shard_id: ShardId,
-    /// State part id. Leave empty to go through every part in the shard.
+    /// Dump a single part id.
     #[clap(long)]
     part_id: Option<u64>,
+    /// Dump part ids starting from this part.
+    #[clap(long)]
+    part_from: Option<u64>,
+    /// Dump part ids up to this part (exclusive).
+    #[clap(long)]
+    part_to: Option<u64>,
     /// Where to write the state parts to.
     #[clap(long)]
     root_dir: Option<PathBuf>,
@@ -425,7 +427,8 @@ impl DumpStatePartsCmd {
         dump_state_parts(
             self.epoch_selection,
             self.shard_id,
-            self.part_id,
+            self.part_from.or(self.part_id),
+            self.part_to.or(self.part_id.map(|x| x + 1)),
             home_dir,
             near_config,
             store,

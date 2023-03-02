@@ -1,7 +1,7 @@
-import React, { ReactElement, useCallback, useMemo, useState } from "react";
-import { useQuery } from "react-query";
-import Xarrow, { useXarrow, Xwrapper } from "react-xarrows";
-import { DebugBlockStatus, fetchBlockStatus, fetchFullStatus, MissedHeightInfo } from "./api";
+import { Fragment, ReactElement, useCallback, useMemo, useState } from 'react';
+import { useQuery } from 'react-query';
+import Xarrow, { Xwrapper, useXarrow } from 'react-xarrows';
+import { DebugBlockStatus, MissedHeightInfo, fetchBlockStatus, fetchFullStatus } from './api';
 import './LatestBlocksView.scss';
 
 function ellipsify(str: string, maxLen: number): string {
@@ -20,29 +20,31 @@ type HashElementProps = {
 
 // Makes an element that when clicked, expands or ellipsifies the hash and creator.
 const HashElement = ({ hashValue, creator, expandAll, knownProducers }: HashElementProps) => {
-    let [expanded, setExpanded] = useState(false);
-    let updateXarrow = useXarrow();
-    return <span
-        className={`hash-element ${knownProducers.has(creator) ? '' : 'validator-unavailable'}`}
-        onClick={() => {
-            setExpanded((value) => !value);
-            // xarrows need to be updated whenever graph dot positions may change.
-            updateXarrow();
-        }}>
-        {expanded || expandAll
-            ? `${hashValue} ${creator}`
-            : `${ellipsify(hashValue, 8)} ${ellipsify(creator, 13)}`}
-    </span>;
-}
+    const [expanded, setExpanded] = useState(false);
+    const updateXarrow = useXarrow();
+    return (
+        <span
+            className={`hash-element ${knownProducers.has(creator) ? '' : 'validator-unavailable'}`}
+            onClick={() => {
+                setExpanded((value) => !value);
+                // xarrows need to be updated whenever graph dot positions may change.
+                updateXarrow();
+            }}>
+            {expanded || expandAll
+                ? `${hashValue} ${creator}`
+                : `${ellipsify(hashValue, 8)} ${ellipsify(creator, 13)}`}
+        </span>
+    );
+};
 
 type BlockTableRowBlock = {
-    block: DebugBlockStatus,
-    parentIndex: number | null,  // the index of the parent block, or null if parent not included in the data
-    graphColumn: number | null,  // the column to display the graph node in
-    blockDelay: number | null,  // number of seconds since parent's block timestamp, or null if parent not included in the data
-    chunkSkipped: boolean[],  // for each chunk, whether the chunk is the same as that chunk of parent block
-    isHead: boolean,
-    isHeaderHead: boolean,
+    block: DebugBlockStatus;
+    parentIndex: number | null; // the index of the parent block, or null if parent not included in the data
+    graphColumn: number | null; // the column to display the graph node in
+    blockDelay: number | null; // number of seconds since parent's block timestamp, or null if parent not included in the data
+    chunkSkipped: boolean[]; // for each chunk, whether the chunk is the same as that chunk of parent block
+    isHead: boolean;
+    isHeaderHead: boolean;
 };
 type BlockTableRow = BlockTableRowBlock | { missedHeight: MissedHeightInfo };
 
@@ -51,9 +53,10 @@ function sortBlocksAndDetermineBlockGraphLayout(
     blocks: DebugBlockStatus[],
     missedHeights: MissedHeightInfo[],
     head: string,
-    headerHead: string): BlockTableRow[] {
+    headerHead: string
+): BlockTableRow[] {
     const rows: BlockTableRow[] = [];
-    for (let block of blocks) {
+    for (const block of blocks) {
         rows.push({
             block,
             parentIndex: null,
@@ -64,14 +67,14 @@ function sortBlocksAndDetermineBlockGraphLayout(
             isHeaderHead: headerHead === block.block_hash,
         });
     }
-    for (let missedHeight of missedHeights) {
+    for (const missedHeight of missedHeights) {
         rows.push({ missedHeight });
     }
 
     function sortingKey(row: BlockTableRow) {
         if ('block' in row) {
             // some lousy tie-breaking for same-height rows.
-            return row.block.block_height + (row.block.block_timestamp / 1e12 % 1);
+            return row.block.block_height + ((row.block.block_timestamp / 1e12) % 1);
         } else {
             return row.missedHeight.block_height;
         }
@@ -88,7 +91,7 @@ function sortBlocksAndDetermineBlockGraphLayout(
 
     let highestNodeOnFirstColumn = rows.length;
     for (let i = rows.length - 1; i >= 0; i--) {
-        let row = rows[i];
+        const row = rows[i];
         if ('missedHeight' in row) {
             continue;
         }
@@ -99,9 +102,7 @@ function sortBlocksAndDetermineBlockGraphLayout(
             row.parentIndex = rowIndexByHash.get(block.prev_block_hash)!;
             const parentBlock = (rows[row.parentIndex] as BlockTableRowBlock).block;
             row.blockDelay = (block.block_timestamp - parentBlock.block_timestamp) / 1e9;
-            for (let j = 0;
-                j < Math.min(block.chunks.length, parentBlock.chunks.length);
-                j++) {
+            for (let j = 0; j < Math.min(block.chunks.length, parentBlock.chunks.length); j++) {
                 row.chunkSkipped[j] =
                     block.chunks[j].chunk_hash === parentBlock.chunks[j].chunk_hash;
             }
@@ -114,9 +115,11 @@ function sortBlocksAndDetermineBlockGraphLayout(
         //
         // Not the best layout for a graph, but it's sufficient since we rarely have forks.
         let column = 0;
-        if (row.parentIndex !== null &&
+        if (
+            row.parentIndex !== null &&
             (rows[row.parentIndex] as BlockTableRowBlock).graphColumn === 0 &&
-            row.parentIndex > highestNodeOnFirstColumn) {
+            row.parentIndex > highestNodeOnFirstColumn
+        ) {
             column = 1;
         } else {
             highestNodeOnFirstColumn = i;
@@ -127,33 +130,38 @@ function sortBlocksAndDetermineBlockGraphLayout(
 }
 
 type BlocksTableProps = {
-    rows: BlockTableRow[],
-    knownProducers: Set<string>,
-    expandAll: boolean,
-    hideMissingHeights: boolean,
-}
+    rows: BlockTableRow[];
+    knownProducers: Set<string>;
+    expandAll: boolean;
+    hideMissingHeights: boolean;
+};
 
 const BlocksTable = ({ rows, knownProducers, expandAll, hideMissingHeights }: BlocksTableProps) => {
-    let numGraphColumns = 1;  // either 1 or 2; determines the width of leftmost td
+    let numGraphColumns = 1; // either 1 or 2; determines the width of leftmost td
     let numShards = 0;
-    for (let row of rows) {
+    for (const row of rows) {
         if ('block' in row) {
             numGraphColumns = Math.max(numGraphColumns, (row.graphColumn || 0) + 1);
-            for (let chunk of row.block.chunks) {
+            for (const chunk of row.block.chunks) {
                 numShards = Math.max(numShards, chunk.shard_id + 1);
             }
         }
     }
-    const header = <tr>
-        <th>Chain</th>
-        <th>Height</th>
-        <th>{'Hash & creator'}</th>
-        <th>Processing Time (ms)</th>
-        <th>Block Delay (s)</th>
-        <th>Gas price ratio</th>
-        {[...Array(numShards).keys()].map(i =>
-            <th key={i} colSpan={3}>Shard {i} (hash/gas(Tgas)/time(ms))</th>)}
-    </tr>;
+    const header = (
+        <tr>
+            <th>Chain</th>
+            <th>Height</th>
+            <th>{'Hash & creator'}</th>
+            <th>Processing Time (ms)</th>
+            <th>Block Delay (s)</th>
+            <th>Gas price ratio</th>
+            {[...Array(numShards).keys()].map((i) => (
+                <th key={i} colSpan={3}>
+                    Shard {i} (hash/gas(Tgas)/time(ms))
+                </th>
+            ))}
+        </tr>
+    );
 
     // One xarrow element per arrow (from block to block).
     const graphArrows = [] as ReactElement[];
@@ -164,38 +172,48 @@ const BlocksTable = ({ rows, knownProducers, expandAll, hideMissingHeights }: Bl
         const row = rows[i];
         if ('missedHeight' in row) {
             if (!hideMissingHeights) {
-                tableRows.push(<tr key={row.missedHeight.block_height} className="missed-height">
-                    <td className="graph-node-cell" />
-                    <td>{row.missedHeight.block_height}</td>
-                    <td colSpan={4 + numShards * 3}>{row.missedHeight.block_producer} missed block</td>
-                </tr>);
+                tableRows.push(
+                    <tr key={row.missedHeight.block_height} className="missed-height">
+                        <td className="graph-node-cell" />
+                        <td>{row.missedHeight.block_height}</td>
+                        <td colSpan={4 + numShards * 3}>
+                            {row.missedHeight.block_producer} missed block
+                        </td>
+                    </tr>
+                );
             }
             continue;
         }
-        let block = row.block;
+        const block = row.block;
 
         const chunkCells = [] as ReactElement[];
         block.chunks.forEach((chunk, shardId) => {
-            chunkCells.push(<React.Fragment key={shardId}>
-                <td className={row.chunkSkipped[shardId] ? 'skipped-chunk' : ''}>
-                    <HashElement
-                        hashValue={chunk.chunk_hash}
-                        creator={chunk.chunk_producer || ''}
-                        expandAll={expandAll}
-                        knownProducers={knownProducers} />
-                </td>
-                <td>{(chunk.gas_used / (1024 * 1024 * 1024 * 1024)).toFixed(1)}</td>
-                <td>{chunk.processing_time_ms}</td>
-            </React.Fragment>);
+            chunkCells.push(
+                <Fragment key={shardId}>
+                    <td className={row.chunkSkipped[shardId] ? 'skipped-chunk' : ''}>
+                        <HashElement
+                            hashValue={chunk.chunk_hash}
+                            creator={chunk.chunk_producer || ''}
+                            expandAll={expandAll}
+                            knownProducers={knownProducers}
+                        />
+                    </td>
+                    <td>{(chunk.gas_used / (1024 * 1024 * 1024 * 1024)).toFixed(1)}</td>
+                    <td>{chunk.processing_time_ms}</td>
+                </Fragment>
+            );
         });
 
         tableRows.push(
-            <tr key={block.block_hash}
-                className={`block-row ${row.block.is_on_canonical_chain ? '' : 'not-on-canonical-chain'}`}>
+            <tr
+                key={block.block_hash}
+                className={`block-row ${
+                    row.block.is_on_canonical_chain ? '' : 'not-on-canonical-chain'
+                }`}>
                 <td className="graph-node-cell">
-                    <div id={`graph-node-${i}`}
-                        className={`graph-dot graph-dot-col-${row.graphColumn} graph-dot-total-${numGraphColumns}`}>
-                    </div>
+                    <div
+                        id={`graph-node-${i}`}
+                        className={`graph-dot graph-dot-col-${row.graphColumn} graph-dot-total-${numGraphColumns}`}></div>
                 </td>
                 <td>
                     <span>{block.block_height}</span>
@@ -207,52 +225,64 @@ const BlocksTable = ({ rows, knownProducers, expandAll, hideMissingHeights }: Bl
                         hashValue={block.block_hash}
                         creator={block.block_producer || ''}
                         expandAll={expandAll}
-                        knownProducers={knownProducers} />
+                        knownProducers={knownProducers}
+                    />
                 </td>
                 <td>{block.processing_time_ms}</td>
                 <td>{row.blockDelay ?? ''}</td>
                 <td>{block.gas_price_ratio}</td>
                 {block.full_block_missing && <td colSpan={numShards * 3}>header only</td>}
                 {chunkCells}
-            </tr>);
+            </tr>
+        );
         if (row.parentIndex != null) {
-            graphArrows.push(<Xarrow
-                key={i}
-                start={`graph-node-${i}`}
-                end={`graph-node-${row.parentIndex}`}
-                color={row.block.is_on_canonical_chain ? 'black' : 'darkgray'}
-                strokeWidth={row.block.is_on_canonical_chain ? 3 : 1}
-                headSize={0}
-                path="straight" />);
+            graphArrows.push(
+                <Xarrow
+                    key={i}
+                    start={`graph-node-${i}`}
+                    end={`graph-node-${row.parentIndex}`}
+                    color={row.block.is_on_canonical_chain ? 'black' : 'darkgray'}
+                    strokeWidth={row.block.is_on_canonical_chain ? 3 : 1}
+                    headSize={0}
+                    path="straight"
+                />
+            );
         }
     }
-    return <div>
-        {graphArrows}
-        <table>
-            <tbody>
-                {header}
-                {tableRows}
-            </tbody>
-        </table>
-    </div>
-}
+    return (
+        <div>
+            {graphArrows}
+            <table>
+                <tbody>
+                    {header}
+                    {tableRows}
+                </tbody>
+            </table>
+        </div>
+    );
+};
 
 type LatestBlockViewProps = {
-    addr: string,
-}
+    addr: string;
+};
 
 export const LatestBlocksView = ({ addr }: LatestBlockViewProps) => {
-    const [height, setHeight] = React.useState<number | null>(null);
-    const [heightInInput, setHeightInInput] = React.useState<string>('');
-    const [expandAll, setExpandAll] = React.useState(false);
-    const [hideMissingHeights, setHideMissingHeights] = React.useState(false);
-    const [showMissingChunksStats, setShowMissingChunksStats] = React.useState(false);
+    const [height, setHeight] = useState<number | null>(null);
+    const [heightInInput, setHeightInInput] = useState<string>('');
+    const [expandAll, setExpandAll] = useState(false);
+    const [hideMissingHeights, setHideMissingHeights] = useState(false);
+    const [showMissingChunksStats, setShowMissingChunksStats] = useState(false);
     const updateXarrow = useXarrow();
 
-    const { data: status } =
-        useQuery(['fullStatus', addr], async () => await fetchFullStatus(addr));
-    const { data: blockData, error, isLoading } =
-        useQuery(['latestBlocks', addr, height], async () => await fetchBlockStatus(addr, height));
+    const { data: status } = useQuery(
+        ['fullStatus', addr],
+        async () => await fetchFullStatus(addr)
+    );
+    const {
+        data: blockData,
+        error,
+        isLoading,
+    } = useQuery(['latestBlocks', addr, height], async () => await fetchBlockStatus(addr, height));
 
     const { rows, knownProducerSet } = useMemo(() => {
         if (status && blockData) {
@@ -266,14 +296,15 @@ export const LatestBlocksView = ({ addr }: LatestBlockViewProps) => {
                 data.blocks,
                 data.missed_heights,
                 data.head,
-                data.header_head);
+                data.header_head
+            );
             return { rows, knownProducerSet };
         }
         return { rows: [], knownProducerSet: new Set<string>() };
     }, [status, blockData]);
 
     // Compute missing blocks and chunks statistics (whenever rows changes).
-    const { numCanonicalBlocks, canonicalHeightCount, numChunksSkipped } = React.useMemo(() => {
+    const { numCanonicalBlocks, canonicalHeightCount, numChunksSkipped } = useMemo(() => {
         let firstCanonicalHeight = 0;
         let lastCanonicalHeight = 0;
         let numCanonicalBlocks = 0;
@@ -312,65 +343,86 @@ export const LatestBlocksView = ({ addr }: LatestBlockViewProps) => {
         setHeight(height);
     }, [heightInInput]);
 
-    return <Xwrapper>
-        <div className="latest-blocks-view">
-            <div className="height-controller">
-                <span className="prompt">
-                    {height == null ? 'Displaying most recent blocks' : `Displaying blocks from height ${height}`}
-                </span>
-                <input
-                    type="text"
-                    placeholder="enter block number"
-                    value={heightInInput}
-                    onChange={(e) => setHeightInInput(e.target.value)} />
-                <button onClick={goToHeightCallback}>Go</button>
-                <button onClick={() => setHeight(null)}>Show HEADER_HEAD</button>
+    return (
+        <Xwrapper>
+            <div className="latest-blocks-view">
+                <div className="height-controller">
+                    <span className="prompt">
+                        {height == null
+                            ? 'Displaying most recent blocks'
+                            : `Displaying blocks from height ${height}`}
+                    </span>
+                    <input
+                        type="text"
+                        placeholder="enter block number"
+                        value={heightInInput}
+                        onChange={(e) => setHeightInInput(e.target.value)}
+                    />
+                    <button onClick={goToHeightCallback}>Go</button>
+                    <button onClick={() => setHeight(null)}>Show HEADER_HEAD</button>
+                </div>
+                <div className="explanation">Skipped chunks have grey background.</div>
+                <div className="explanation">
+                    Red text means that we don&apos;t know this producer (it&apos;s not present in
+                    our announce account list).
+                </div>
+                {!!error && <div className="error">{(error as Error).stack}</div>}
+                <div className="missed-blocks">
+                    Missing blocks: {canonicalHeightCount - numCanonicalBlocks} {}
+                    Produced: {numCanonicalBlocks} {}
+                    Missing Rate:{' '}
+                    {(
+                        ((canonicalHeightCount - numCanonicalBlocks) / canonicalHeightCount) *
+                        100
+                    ).toFixed(2)}
+                    %
+                </div>
+                <button
+                    onClick={() => {
+                        setExpandAll((value) => !value);
+                        updateXarrow();
+                    }}>
+                    {expandAll ? "Don't expand all" : 'Expand all'}
+                </button>
+                <button
+                    onClick={() => {
+                        setHideMissingHeights((value) => !value);
+                        updateXarrow();
+                    }}>
+                    {hideMissingHeights ? 'Show missing heights' : 'Hide missing heights'}
+                </button>
+                <button
+                    onClick={() => {
+                        setShowMissingChunksStats((value) => !value);
+                        updateXarrow();
+                    }}>
+                    {showMissingChunksStats
+                        ? 'Hide missing chunks stats'
+                        : 'Show missing chunks stats'}
+                </button>
+                {showMissingChunksStats && (
+                    <div className="missed-chunks">
+                        {numChunksSkipped.map((numSkipped, shardId) => (
+                            <div key={shardId}>
+                                Shard {shardId}: Missing chunks: {numSkipped} {}
+                                Produced: {numCanonicalBlocks - numSkipped} {}
+                                Missing Rate: {((numSkipped / numCanonicalBlocks) * 100).toFixed(2)}
+                                %
+                            </div>
+                        ))}
+                    </div>
+                )}
+                {isLoading ? (
+                    <div>Loading...</div>
+                ) : (
+                    <BlocksTable
+                        rows={rows}
+                        knownProducers={knownProducerSet}
+                        expandAll={expandAll}
+                        hideMissingHeights={hideMissingHeights}
+                    />
+                )}
             </div>
-            <div className="explanation">Skipped chunks have grey background.</div>
-            <div className="explanation">
-                Red text means that we don't know this producer
-                (it's not present in our announce account list).
-            </div>
-            {!!error && <div className="error">{(error as Error).stack}</div>}
-            <div className="missed-blocks">
-                Missing blocks: {canonicalHeightCount - numCanonicalBlocks} { }
-                Produced: {numCanonicalBlocks} { }
-                Missing Rate: {((canonicalHeightCount - numCanonicalBlocks) / canonicalHeightCount * 100).toFixed(2)}%
-            </div>
-            <button onClick={() => {
-                setExpandAll(value => !value);
-                updateXarrow();
-            }}>
-                {expandAll ? "Don't expand all" : 'Expand all'}
-            </button>
-            <button onClick={() => {
-                setHideMissingHeights(value => !value);
-                updateXarrow();
-            }}>
-                {hideMissingHeights ? 'Show missing heights' : 'Hide missing heights'}
-            </button>
-            <button onClick={() => {
-                setShowMissingChunksStats(value => !value);
-                updateXarrow();
-            }}>
-                {showMissingChunksStats ? 'Hide missing chunks stats' : 'Show missing chunks stats'}
-            </button>
-            {showMissingChunksStats && <div className="missed-chunks">
-                {numChunksSkipped.map((numSkipped, shardId) =>
-                    <div key={shardId}>
-                        Shard {shardId}: Missing chunks: {numSkipped} { }
-                        Produced: {numCanonicalBlocks - numSkipped} { }
-                        Missing Rate: {(numSkipped / numCanonicalBlocks * 100).toFixed(2)}%
-                    </div>)}
-            </div>}
-            {isLoading ?
-                <div>Loading...</div> :
-                <BlocksTable
-                    rows={rows}
-                    knownProducers={knownProducerSet}
-                    expandAll={expandAll}
-                    hideMissingHeights={hideMissingHeights} />
-            }
-        </div>
-    </Xwrapper>;
+        </Xwrapper>
+    );
 };

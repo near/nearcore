@@ -8,11 +8,11 @@ use near_network::tcp;
 use near_network::test_utils::{
     convert_boot_nodes, wait_or_timeout, GetInfo, StopSignal, WaitOrTimeoutActor,
 };
-use near_network::time;
 use near_network::PeerManagerActor;
 use near_o11y::testonly::init_test_logger;
 use near_o11y::WithSpanContextExt;
 use near_primitives::block::GenesisId;
+use near_primitives::time;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 

@@ -116,21 +116,15 @@ mod private_non_delegate_action {
     }
 
     impl borsh::de::BorshDeserialize for NonDelegateAction {
-        fn deserialize(
-            buf: &mut &[u8],
+        fn deserialize_reader<R: borsh::maybestd::io::Read>(
+            rd: &mut R,
         ) -> ::core::result::Result<Self, borsh::maybestd::io::Error> {
-            if buf.is_empty() {
-                return Err(Error::new(
-                    ErrorKind::InvalidInput,
-                    "Failed to deserialize DelegateAction",
-                ));
-            }
-            match buf[0] {
+            match u8::deserialize_reader(rd)? {
                 ACTION_DELEGATE_NUMBER => Err(Error::new(
                     ErrorKind::InvalidInput,
                     "DelegateAction mustn't contain a nested one",
                 )),
-                _ => Ok(Self(borsh::BorshDeserialize::deserialize(buf)?)),
+                n => borsh::de::EnumExt::deserialize_variant(rd, n).map(Self),
             }
         }
     }

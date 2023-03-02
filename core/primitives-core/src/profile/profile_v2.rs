@@ -219,8 +219,8 @@ impl Index<ExtCosts> for ProfileDataV2 {
 }
 
 impl BorshDeserialize for DataArray {
-    fn deserialize(buf: &mut &[u8]) -> Result<Self, std::io::Error> {
-        let data_vec: Vec<u64> = BorshDeserialize::deserialize(buf)?;
+    fn deserialize_reader<R: std::io::Read>(rd: &mut R) -> std::io::Result<Self> {
+        let data_vec: Vec<u64> = BorshDeserialize::deserialize_reader(rd)?;
         let mut data_array = [0; Self::LEN];
         let len = Self::LEN.min(data_vec.len());
         data_array[0..len].copy_from_slice(&data_vec[0..len]);
@@ -230,8 +230,7 @@ impl BorshDeserialize for DataArray {
 
 impl BorshSerialize for DataArray {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
-        let v: Vec<_> = self.0.as_ref().to_vec();
-        BorshSerialize::serialize(&v, writer)
+        (&self.0[..]).serialize(writer)
     }
 }
 
