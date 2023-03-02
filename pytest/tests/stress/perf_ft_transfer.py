@@ -12,8 +12,9 @@ instrumentation as needed.
 To run:
 
 ```
-env NEAR_ROOT=../target/release/ FUNGIBLE_TOKEN_WASM=$HOME/FT/res/fungible_token.wasm \
-    python3 tests/stress/perf_ft_transfer.py
+env NEAR_ROOT=../target/release/ \
+    python3 tests/stress/perf_ft_transfer.py \
+      --fungible-token-wasm=$HOME/FT/res/fungible_token.wasm
 ```
 """
 
@@ -21,6 +22,7 @@ env NEAR_ROOT=../target/release/ FUNGIBLE_TOKEN_WASM=$HOME/FT/res/fungible_token
 # TODO: add code to set up a network of nodes on GCP (see `GcpNode`)
 # TODO: see also pytest/tests/loadtest/loadtest.py
 
+import argparse
 import sys
 import os
 import time
@@ -50,30 +52,46 @@ SEED = random.uniform(0, 0xFFFFFFFF)
 logger = new_logger(level = logging.INFO)
 
 def main():
+    parser = argparse.ArgumentParser(description='FT transfer benchmark.')
+    parser.add_argument('--fungible-token-wasm', required=True,
+        help='Path to the compiled Fungible Token contract')
+    parser.add_argument('--setup-cluster', default=False,
+        help='Whether to start a dedicated cluster instead of connecting to an existing local node',
+        action=argparse.BooleanOptionalAction)
+    args = parser.parse_args()
+
     logger.warn(f"SEED is {SEED}")
     rng = random.Random(SEED)
 
-    config = cluster.load_config()
-    nodes = cluster.start_cluster(2, 0, 4, config, [["epoch_length", 100]], {
-        0: {
-            "tracked_shards": [0, 1, 2, 3],
-        }
-    })
+    if args.setup_cluster:
+        config = cluster.load_config()
+        nodes = cluster.start_cluster(2, 0, 4, config, [["epoch_length", 100]], {
+            0: {
+                "tracked_shards": [0, 1, 2, 3],
+            }
+        })
+        signer_key = nodes[0].signer_key
+    else:
+        nodes = [
+            cluster.RpcNode("127.0.0.1", 3030),
+        ]
+        # The `nearup` localnet setup stores the keys in this directory.
+        key_path = pathlib.Path.home() / ".near/localnet/node0/shard0_key.json"
+        signer_key = key.Key.from_json_file(key_path.resolve())
 
     block_hash = nodes[0].get_latest_block().hash
     block_hash = base58.b58decode(block_hash)
     init_nonce = mocknet_helpers.get_nonce_for_pk(
-            nodes[0].signer_key.account_id,
-            nodes[0].signer_key.pk,
+            signer_key.account_id,
+            signer_key.pk,
             port = nodes[0].rpc_port
         )
-    node0_acct = account.Account(nodes[0].signer_key,
+    node0_acct = account.Account(signer_key,
         init_nonce,
         block_hash,
         rpc_infos=[("127.0.0.1", nodes[0].rpc_port)])
 
-    contract_path = os.environ["FUNGIBLE_TOKEN_WASM"]
-    contract_tx = node0_acct.send_deploy_contract_tx(contract_path)
+    contract_tx = node0_acct.send_deploy_contract_tx(args.fungible_token_wasm)
     assert wait_tx(nodes[0], contract_tx["result"], node0_acct.key.account_id)
 
     accounts = []
