@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::types::StateRoot;
 use near_store::db::TestDB;
-use near_store::{Store, Temperature};
+use near_store::Store;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -24,7 +24,7 @@ impl StateDump {
                 .open()
                 .unwrap()
         };
-        let store = node_storage.get_store(Temperature::Hot);
+        let store = node_storage.get_hot_store();
         let state_file = dir.join(STATE_DUMP_FILE);
         store.load_state_from_file(state_file.as_path()).expect("Failed to read state dump");
         let roots_files = dir.join(GENESIS_ROOTS_FILE);

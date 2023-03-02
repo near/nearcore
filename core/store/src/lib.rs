@@ -167,32 +167,30 @@ impl NodeStorage {
 }
 
 impl NodeStorage {
-    /// Returns storage for given temperature.
+    /// Returns the hot store. The hot store is always available and it provides
+    /// direct access to the hot database.
     ///
-    /// Some data live only in hot and some only in cold storage (which is at
-    /// the moment not implemented but is planned soon).  Hot data is anything
-    /// at the head of the chain.  Cold data, if node is configured with split
-    /// storage, is anything archival.
+    /// For RPC nodes this is the only store available and it should be used for
+    /// all the use cases.
     ///
-    /// Based on block in whose context database access are going to be made,
-    /// you will either need to access hot or cold storage.  Temperature of the
-    /// data is, simplifying slightly, determined based on height of the block.
-    /// Anything above the tail of hot storage is hot and everything else is
-    /// cold.
+    /// For archival nodes that do not have split storage configured this is the
+    /// only store available and it should be used for all the use cases.
     ///
-    /// This method panics if trying to access cold store but it wasn't configured.
-    /// Please consider using the get_hot_store and get_cold_store methods to avoid panics.
-    pub fn get_store(&self, temp: Temperature) -> Store {
-        match temp {
-            Temperature::Hot => self.get_hot_store(),
-            Temperature::Cold => self.get_cold_store().unwrap(),
-        }
-    }
-
+    /// For archival nodes that do have split storage configured there are three
+    /// stores available: hot, cold and split. The client should use the hot
+    /// store, the view client should use the split store and the cold store
+    /// loop should use cold store.
     pub fn get_hot_store(&self) -> Store {
         Store { storage: self.hot_storage.clone() }
     }
 
+    /// Returns the cold store. The cold store is only available in archival
+    /// nodes with split storage configured.
+    ///
+    /// For archival nodes that do have split storage configured there are three
+    /// stores available: hot, cold and split. The client should use the hot
+    /// store, the view client should use the split store and the cold store
+    /// loop should use cold store.
     pub fn get_cold_store(&self) -> Option<Store> {
         match &self.cold_storage {
             Some(cold_storage) => Some(Store { storage: cold_storage.clone() }),
@@ -200,6 +198,13 @@ impl NodeStorage {
         }
     }
 
+    /// Returns the split store. The split store is only available in archival
+    /// nodes with split storage configured.
+    ///
+    /// For archival nodes that do have split storage configured there are three
+    /// stores available: hot, cold and split. The client should use the hot
+    /// store, the view client should use the split store and the cold store
+    /// loop should use cold store.
     pub fn get_split_store(&self) -> Option<Store> {
         match &self.cold_storage {
             Some(cold_storage) => Some(Store {
@@ -954,7 +959,7 @@ impl CompiledContractCache for StoreCompiledContractCache {
 mod tests {
     use near_primitives::hash::CryptoHash;
 
-    use super::{DBCol, NodeStorage, Store, Temperature};
+    use super::{DBCol, NodeStorage, Store};
 
     #[test]
     fn test_no_cache_disabled() {
@@ -983,7 +988,7 @@ mod tests {
     #[test]
     fn clear_column_rocksdb() {
         let (_tmp_dir, opener) = NodeStorage::test_opener();
-        test_clear_column(opener.open().unwrap().get_store(Temperature::Hot));
+        test_clear_column(opener.open().unwrap().get_hot_store());
     }
 
     #[test]
@@ -1055,7 +1060,7 @@ mod tests {
     #[test]
     fn rocksdb_iter_order() {
         let (_tempdir, opener) = NodeStorage::test_opener();
-        test_iter_order_impl(opener.open().unwrap().get_store(Temperature::Hot));
+        test_iter_order_impl(opener.open().unwrap().get_hot_store());
     }
 
     #[test]

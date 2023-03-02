@@ -26,6 +26,7 @@ NODE_USERNAME = 'ubuntu'
 NUM_ACCOUNTS = 26 * 2
 PROJECT = 'near-mocknet'
 PUBLIC_KEY = 'ed25519:76NVkDErhbP1LGrSAf5Db6BsFJ6LBw6YVA4BsfTBohmN'
+SECRET_KEY = 'ed25519:3cCk8KUWBySGCxBcn1syMoY5u73wx5eaPLRbQcMi23LwBA3aLsqEbA33Ww1bsJaFrchmDciGe9otdn45SrDSkow2'
 TX_OUT_FILE = '/home/ubuntu/tx_events'
 WASM_FILENAME = 'simple_contract.wasm'
 
@@ -153,61 +154,42 @@ def setup_python_environments(nodes, wasm_contract):
     pmap(lambda n: setup_python_environment(n, wasm_contract), nodes)
 
 
-def start_load_test_helper_script(script, node_account_id, pk, sk, rpc_nodes,
-                                  num_nodes, max_tps, leader_account_id, upk,
-                                  usk):
+def start_load_test_helper_script(script, node_account_id, rpc_nodes, num_nodes,
+                                  max_tps, leader_account_id):
     s = '''
         cd {dir}
-        nohup ./venv/bin/python {script} {node_account_id} {pk} {sk} {rpc_nodes} {num_nodes} {max_tps} {leader_account_id} {upk} {usk} 1>load_test.out 2>load_test.err < /dev/null &
+        nohup ./venv/bin/python {script} {node_account_id} {rpc_nodes} {num_nodes} {max_tps} {leader_account_id} 1>load_test.out 2>load_test.err < /dev/null &
     '''.format(dir=shlex.quote(PYTHON_DIR),
                script=shlex.quote(script),
                node_account_id=shlex.quote(node_account_id),
-               pk=shlex.quote(pk),
-               sk=shlex.quote(sk),
                rpc_nodes=shlex.quote(rpc_nodes),
                num_nodes=shlex.quote(str(num_nodes)),
                max_tps=shlex.quote(str(max_tps)),
-               leader_account_id=shlex.quote(leader_account_id),
-               upk=shlex.quote(upk),
-               usk=shlex.quote(usk))
+               leader_account_id=shlex.quote(leader_account_id))
     logger.info(f'Starting load test helper: {s}')
     return s
 
 
-def start_load_test_helper(node, script, pk, sk, rpc_nodes, num_nodes, max_tps,
-                           lead_account_id, get_node_key):
-    upk, usk = None, None
-    if get_node_key:
-        node_key_json = download_and_read_json(
-            node, '/home/ubuntu/.near/node_key.json')
-        upk = node_key_json['public_key']
-        usk = node_key_json['secret_key']
+def start_load_test_helper(node, script, rpc_nodes, num_nodes, max_tps,
+                           lead_account_id):
     logger.info(f'Starting load_test_helper on {node.instance_name}')
     rpc_node_ips = ','.join([rpc_node.ip for rpc_node in rpc_nodes])
     node.machine.run('bash',
                      input=start_load_test_helper_script(
-                         script, node_account_name(node.instance_name), pk, sk,
-                         rpc_node_ips, num_nodes, max_tps, lead_account_id, upk,
-                         usk))
+                         script, node_account_name(node.instance_name),
+                         rpc_node_ips, num_nodes, max_tps, lead_account_id))
 
 
-def start_load_test_helpers(nodes,
-                            script,
-                            rpc_nodes,
-                            num_nodes,
-                            max_tps,
-                            get_node_key=False):
+def start_load_test_helpers(nodes, script, rpc_nodes, num_nodes, max_tps):
     account = get_validator_account(nodes[0])
     pmap(
         lambda node: start_load_test_helper(node,
                                             script,
-                                            account.pk,
-                                            account.sk,
                                             rpc_nodes,
                                             num_nodes,
                                             max_tps,
-                                            lead_account_id=account.account_id,
-                                            get_node_key=get_node_key), nodes)
+                                            lead_account_id=account.account_id),
+        nodes)
 
 
 def get_log(node):

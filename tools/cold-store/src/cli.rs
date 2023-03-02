@@ -5,7 +5,7 @@ use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_store::cold_storage::{copy_all_data_to_cold, update_cold_db, update_cold_head};
 use near_store::metadata::DbKind;
-use near_store::{DBCol, NodeStorage, Store, Temperature};
+use near_store::{DBCol, NodeStorage, Store};
 use near_store::{COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY, TAIL_KEY};
 use nearcore::{NearConfig, NightshadeRuntime};
 use std::io::Result;
@@ -132,7 +132,8 @@ fn copy_next_block(store: &NodeStorage, config: &NearConfig, hot_runtime: &Arc<N
     // It should be set before the copying of a block in prod,
     // but we should default it to genesis height here.
     let cold_head_height = store
-        .get_store(Temperature::Cold)
+        .get_cold_store()
+        .unwrap()
         .get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)
         .unwrap_or_else(|e| panic!("Error reading cold HEAD: {:#}", e))
         .map_or(config.genesis.config.genesis_height, |t| t.height);
@@ -140,7 +141,7 @@ fn copy_next_block(store: &NodeStorage, config: &NearConfig, hot_runtime: &Arc<N
     // If FINAL_HEAD is not set for hot storage though, we default it to 0.
     // And subsequently fail in assert!(next_height <= hot_final_height).
     let hot_final_head = store
-        .get_store(Temperature::Hot)
+        .get_hot_store()
         .get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)
         .unwrap_or_else(|e| panic!("Error reading hot FINAL_HEAD: {:#}", e))
         .map(|t| t.height)
@@ -153,8 +154,7 @@ fn copy_next_block(store: &NodeStorage, config: &NearConfig, hot_runtime: &Arc<N
     // Here it should be sufficient to just read from hot storage.
     // Because BlockHeight is never garbage collectable and is not even copied to cold.
     let cold_head_hash = get_ser_from_store::<CryptoHash>(
-        store,
-        Temperature::Hot,
+        &store.get_hot_store(),
         DBCol::BlockHeight,
         &cold_head_height.to_le_bytes(),
     )
@@ -166,7 +166,7 @@ fn copy_next_block(store: &NodeStorage, config: &NearConfig, hot_runtime: &Arc<N
     // we use cold_head_hash.
     update_cold_db(
         &*store.cold_db().unwrap(),
-        &store.get_store(Temperature::Hot),
+        &store.get_hot_store(),
         &hot_runtime
             .get_shard_layout(&hot_runtime.get_epoch_id_from_prev_block(&cold_head_hash).unwrap())
             .unwrap(),
@@ -174,15 +174,15 @@ fn copy_next_block(store: &NodeStorage, config: &NearConfig, hot_runtime: &Arc<N
     )
     .expect(&std::format!("Failed to copy block at height {} to cold db", next_height));
 
-    update_cold_head(&*store.cold_db().unwrap(), &store.get_store(Temperature::Hot), &next_height)
+    update_cold_head(&*store.cold_db().unwrap(), &store.get_hot_store(), &next_height)
         .expect(&std::format!("Failed to update cold HEAD to {}", next_height));
 }
 
-fn copy_all_blocks(store: &NodeStorage, batch_size: usize, check: bool) {
+fn copy_all_blocks(storage: &NodeStorage, batch_size: usize, check: bool) {
     // If FINAL_HEAD is not set for hot storage we default it to 0
     // not genesis_height, because hot db needs to contain genesis block for that
-    let hot_final_head = store
-        .get_store(Temperature::Hot)
+    let hot_final_head = storage
+        .get_hot_store()
         .get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)
         .unwrap_or_else(|e| panic!("Error reading hot FINAL_HEAD: {:#}", e))
         .map(|t| t.height)
@@ -191,32 +191,24 @@ fn copy_all_blocks(store: &NodeStorage, batch_size: usize, check: bool) {
     let keep_going = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
 
     copy_all_data_to_cold(
-        (*store.cold_db().unwrap()).clone(),
-        &store.get_store(Temperature::Hot),
+        (*storage.cold_db().unwrap()).clone(),
+        &storage.get_hot_store(),
         batch_size,
-        keep_going,
+        &keep_going,
     )
     .expect("Failed to do migration to cold db");
 
     // Setting cold head to hot_final_head captured BEFORE the start of initial migration.
     // Doesn't really matter here, but very important in case of migration during `neard run`.
-    update_cold_head(
-        &*store.cold_db().unwrap(),
-        &store.get_store(Temperature::Hot),
-        &hot_final_head,
-    )
-    .expect(&std::format!("Failed to update cold HEAD to {}", hot_final_head));
+    update_cold_head(&*storage.cold_db().unwrap(), &storage.get_hot_store(), &hot_final_head)
+        .expect(&std::format!("Failed to update cold HEAD to {}", hot_final_head));
 
     if check {
         for col in DBCol::iter() {
             if col.is_cold() {
                 println!(
                     "Performed {} {:?} checks",
-                    check_iter(
-                        &store.get_store(Temperature::Hot),
-                        &store.get_store(Temperature::Cold),
-                        col,
-                    ),
+                    check_iter(&storage.get_hot_store(), &storage.get_cold_store().unwrap(), col),
                     col
                 );
             }
@@ -255,41 +247,11 @@ fn check_iter(
 /// Calls get_ser on Store with provided temperature from provided NodeStorage.
 /// Expects read to not result in errors.
 fn get_ser_from_store<T: near_primitives::borsh::BorshDeserialize>(
-    store: &NodeStorage,
-    temperature: Temperature,
+    store: &Store,
     col: DBCol,
     key: &[u8],
 ) -> Option<T> {
-    store.get_store(temperature).get_ser(col, key).expect(&std::format!(
-        "Error reading {} {:?} from {:?} store",
-        col,
-        key,
-        temperature
-    ))
-}
-
-/// First try to read col, key from hot storage.
-/// If resulted Option is None, try to read col, key from cold storage.
-/// Returns serialized inner value (not wrapped in option),
-/// or panics, if value isn't found even in cold.
-///
-/// Reads from database are expected to not result in errors.
-///
-/// This function is currently unused, but will be important in the future,
-/// when we start garbage collecting data from hot.
-/// For some columns you can understand the temperature by key.
-/// For others, though, read with fallback is the only working solution right now.
-fn _get_with_fallback<T: near_primitives::borsh::BorshDeserialize>(
-    store: &NodeStorage,
-    col: DBCol,
-    key: &[u8],
-) -> T {
-    let hot_option = get_ser_from_store(store, Temperature::Hot, col, key);
-    match hot_option {
-        Some(value) => value,
-        None => get_ser_from_store(store, Temperature::Cold, col, key)
-            .unwrap_or_else(|| panic!("No value for {} {:?} in any storage", col, key)),
-    }
+    store.get_ser(col, key).expect(&std::format!("Error reading {} {:?} from store", col, key,))
 }
 
 #[derive(clap::Parser)]
