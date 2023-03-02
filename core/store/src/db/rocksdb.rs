@@ -678,7 +678,7 @@ mod tests {
     #[test]
     fn rocksdb_merge_sanity() {
         let (_tmp_dir, opener) = NodeStorage::test_opener();
-        let store = opener.open().unwrap().get_store(crate::Temperature::Hot);
+        let store = opener.open().unwrap().get_hot_store();
         let ptr = (&*store.storage) as *const (dyn Database + 'static);
         let rocksdb = unsafe { &*(ptr as *const RocksDB) };
         assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
@@ -770,7 +770,7 @@ mod tests {
 
     #[test]
     fn test_delete_range() {
-        let store = NodeStorage::test_opener().1.open().unwrap().get_store(crate::Temperature::Hot);
+        let store = NodeStorage::test_opener().1.open().unwrap().get_hot_store();
         let keys = [vec![0], vec![1], vec![2], vec![3]];
         let column = DBCol::Block;
 

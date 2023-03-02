@@ -38,7 +38,7 @@ fn main() {
     )
     .open()
     .unwrap()
-    .get_store(near_store::Temperature::Hot);
+    .get_hot_store();
     let runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter> =
         Arc::new(nearcore::NightshadeRuntime::from_config(home_dir, store.clone(), &near_config));
 
