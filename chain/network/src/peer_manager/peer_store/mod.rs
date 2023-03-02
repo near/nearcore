@@ -136,9 +136,12 @@ impl Inner {
         } else {
             // If doesn't have the address attached it is not verified and we add it
             // only if it is unknown to us.
-            self.peer_states.get_or_insert(peer_info.id.clone(), || {
-                KnownPeerState::new(peer_info.clone(), clock.now_utc())
-            });
+            if !self.peer_states.contains(&peer_info.id) {
+                self.peer_states.push(
+                    peer_info.id.clone(),
+                    KnownPeerState::new(peer_info.clone(), clock.now_utc()),
+                );
+            }
         }
     }
 
@@ -186,7 +189,7 @@ impl Inner {
     ) {
         // If there is a peer associated with current address remove the address from it.
         if let Some(verified_peer) = self.addr_peers.remove(&peer_addr) {
-            self.peer_states.get_mut(&verified_peer.peer_id).unwrap().peer_info.addr = None;
+            self.peer_states.peek_mut(&verified_peer.peer_id).unwrap().peer_info.addr = None;
         }
 
         // If this peer already has an address, remove that pair from the index.
