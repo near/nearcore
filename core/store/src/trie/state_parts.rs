@@ -10,7 +10,8 @@ use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::{
     ApplyStatePartResult, NodeHandle, RawTrieNodeWithSize, TrieNode, TrieNodeWithSize,
 };
-use crate::{FlatStateDelta, PartialStorage, StorageError, Trie, TrieChanges};
+use crate::{PartialStorage, StorageError, Trie, TrieChanges};
+use crate::flat::FlatStateDelta;
 use near_primitives::contract::ContractCode;
 use near_primitives::state::ValueRef;
 use near_primitives::state_record::is_contract_code_key;

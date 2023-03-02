@@ -18,7 +18,7 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{StateRoot, StateRootNode};
 
-use crate::flat_state::FlatState;
+use crate::flat::{FlatStorageChunkView, FlatStateDelta};
 pub use crate::trie::config::TrieConfig;
 pub(crate) use crate::trie::config::DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT;
 use crate::trie::insert_delete::NodesStorage;
@@ -28,7 +28,7 @@ pub use crate::trie::prefetching_trie_storage::{PrefetchApi, PrefetchError};
 pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
 pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage, TrieStorage};
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieRecordingStorage};
-use crate::{FlatStateDelta, StorageError};
+use crate::StorageError;
 pub use near_primitives::types::TrieNodesCount;
 
 mod config;
@@ -472,7 +472,7 @@ impl RawTrieNodeWithSize {
 pub struct Trie {
     pub storage: Box<dyn TrieStorage>,
     root: StateRoot,
-    pub flat_state: Option<FlatState>,
+    pub flat_state: Option<FlatStorageChunkView>,
 }
 
 /// Trait for reading data from a trie.
@@ -572,7 +572,7 @@ impl Trie {
     pub fn new(
         storage: Box<dyn TrieStorage>,
         root: StateRoot,
-        flat_state: Option<FlatState>,
+        flat_state: Option<FlatStorageChunkView>,
     ) -> Self {
         Trie { storage, root, flat_state }
     }
