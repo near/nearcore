@@ -325,6 +325,9 @@ impl NetworkState {
                 }
             }
         }
+
+        let res = connection::run().await;
+        self.unregister().await;
         Ok(())
     }
 
