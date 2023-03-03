@@ -173,7 +173,7 @@ fn test_snapshot_recovery() {
 
     // Populate some data
     {
-        let store = opener.open().unwrap().get_store(crate::Temperature::Hot);
+        let store = opener.open().unwrap().get_hot_store();
         let mut update = store.store_update();
         update.set_raw_bytes(COL, KEY, b"value");
         update.commit().unwrap();
@@ -185,7 +185,7 @@ fn test_snapshot_recovery() {
 
     // Delete the data from the database.
     {
-        let store = opener.open().unwrap().get_store(crate::Temperature::Hot);
+        let store = opener.open().unwrap().get_hot_store();
         let mut update = store.store_update();
         update.delete(COL, KEY);
         update.commit().unwrap();
@@ -198,7 +198,7 @@ fn test_snapshot_recovery() {
         let mut config = opener.config().clone();
         config.path = Some(path);
         let opener = crate::NodeStorage::opener(tmpdir.path(), false, &config, None);
-        let store = opener.open().unwrap().get_store(crate::Temperature::Hot);
+        let store = opener.open().unwrap().get_hot_store();
         assert_eq!(Some(&b"value"[..]), store.get(COL, KEY).unwrap().as_deref());
     }
 

@@ -5,12 +5,13 @@ use near_primitives::state_part::PartId;
 use near_primitives::types::StateRoot;
 use tracing::error;
 
+use crate::flat::FlatStateDelta;
 use crate::trie::iterator::TrieTraversalItem;
 use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::{
     ApplyStatePartResult, NodeHandle, RawTrieNodeWithSize, TrieNode, TrieNodeWithSize,
 };
-use crate::{FlatStateDelta, PartialStorage, StorageError, Trie, TrieChanges};
+use crate::{PartialStorage, StorageError, Trie, TrieChanges};
 use near_primitives::contract::ContractCode;
 use near_primitives::state::ValueRef;
 use near_primitives::state_record::is_contract_code_key;

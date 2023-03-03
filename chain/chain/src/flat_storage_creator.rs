@@ -19,16 +19,15 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::ValueRef;
 use near_primitives::state_part::PartId;
 use near_primitives::types::{AccountId, BlockHeight, ShardId, StateRoot};
-use near_store::flat_state::FlatStorageCreationStatus;
+use near_store::flat::FlatStorageCreationStatus;
 #[cfg(feature = "protocol_feature_flat_state")]
-use near_store::flat_state::{store_helper, FetchingStateStatus};
-#[cfg(feature = "protocol_feature_flat_state")]
-use near_store::flat_state::{NUM_PARTS_IN_ONE_STEP, STATE_PART_MEMORY_LIMIT};
+use near_store::flat::{
+    store_helper, FetchingStateStatus, FlatStateDelta, NUM_PARTS_IN_ONE_STEP,
+    STATE_PART_MEMORY_LIMIT,
+};
 use near_store::migrations::BatchedStoreUpdate;
 #[cfg(feature = "protocol_feature_flat_state")]
 use near_store::DBCol;
-#[cfg(feature = "protocol_feature_flat_state")]
-use near_store::FlatStateDelta;
 use near_store::{Store, FLAT_STORAGE_HEAD_HEIGHT};
 use near_store::{Trie, TrieDBStorage, TrieTraversalItem};
 use std::collections::HashMap;
@@ -390,7 +389,7 @@ impl FlatStorageShardCreator {
                         );
                         store_helper::set_flat_head(&mut store_update, shard_id, &flat_head);
                         store_update.commit()?;
-                        self.runtime_adapter.create_flat_storage_state_for_shard(
+                        self.runtime_adapter.create_flat_storage_for_shard(
                             shard_id,
                             chain_store.head().unwrap().height,
                             chain_store,
@@ -440,7 +439,7 @@ impl FlatStorageCreator {
                 let status = runtime_adapter.get_flat_storage_creation_status(shard_id);
                 match status {
                     FlatStorageCreationStatus::Ready => {
-                        runtime_adapter.create_flat_storage_state_for_shard(
+                        runtime_adapter.create_flat_storage_for_shard(
                             shard_id,
                             chain_head.height,
                             chain_store,

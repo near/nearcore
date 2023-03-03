@@ -79,8 +79,8 @@ use near_store::metadata::DbKind;
 use near_store::metadata::DB_VERSION;
 use near_store::test_utils::create_test_node_storage_with_cold;
 use near_store::test_utils::create_test_store;
+use near_store::NodeStorage;
 use near_store::{get, DBCol, Store, TrieChanges};
-use near_store::{NodeStorage, Temperature};
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use nearcore::NEAR_BASE;
 use rand::prelude::StdRng;
@@ -1589,7 +1589,7 @@ fn test_archival_gc_common(
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
 
-    let hot_store = &storage.get_store(Temperature::Hot);
+    let hot_store = &storage.get_hot_store();
 
     let runtime_adapter = create_nightshade_runtime_with_store(&genesis, &hot_store);
     let mut env = TestEnv::builder(chain_genesis)
