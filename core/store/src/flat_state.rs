@@ -407,9 +407,9 @@ impl From<FlatStateDelta> for CachedFlatStateDelta {
 }
 
 impl CachedFlatStateDelta {
-    /// Assumed size in bytes for the cache entry. Estimated as 69 bytes for `CryptoHash` and `Option<ValueRef>` +
-    /// 70% hashmap overhead per entry ~= 117 bytes.
-    const ENTRY_SIZE: u64 = 117;
+    /// Size of cache entry in bytes.
+    const ENTRY_SIZE: usize =
+        std::mem::size_of::<CryptoHash>() + std::mem::size_of::<Option<ValueRef>>();
 
     /// Returns `Some(Option<ValueRef>)` from delta for the given key. If key is not present, returns None.
     pub fn get(&self, key: &[u8]) -> Option<Option<ValueRef>> {
@@ -421,9 +421,9 @@ impl CachedFlatStateDelta {
         self.0.len()
     }
 
-    /// Size of all entries. May be changed if we implement inlining of `ValueRef`s.
+    /// Total size in bytes consumed by delta. May be changed if we implement inlining of `ValueRef`s.
     fn total_size(&self) -> u64 {
-        (self.0.len() as u64) * Self::ENTRY_SIZE
+        (self.0.capacity() as u64) * (Self::ENTRY_SIZE as u64)
     }
 }
 
