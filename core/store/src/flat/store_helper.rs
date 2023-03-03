@@ -12,7 +12,6 @@ use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
 use near_primitives::state::ValueRef;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
 use near_primitives::types::ShardId;
-use std::sync::Arc;
 
 /// Prefixes determining type of flat storage creation status stored in DB.
 /// Note that non-existent status is treated as SavingDeltas if flat storage /// does not exist and Ready if it does.
