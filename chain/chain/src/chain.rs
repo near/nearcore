@@ -627,9 +627,13 @@ impl Chain {
                 // Set the root block of flat state to be the genesis block. Later, when we
                 // init FlatStorages, we will read the from this column in storage, so it
                 // must be set here.
-                let tmp_store_update = runtime_adapter
-                    .set_flat_storage_for_genesis(genesis.hash(), genesis.header().epoch_id())?;
-                store_update.merge(tmp_store_update);
+                if cfg!(feature = "protocol_feature_flat_state") {
+                    let tmp_store_update = runtime_adapter.set_flat_storage_for_genesis(
+                        genesis.hash(),
+                        genesis.header().epoch_id(),
+                    )?;
+                    store_update.merge(tmp_store_update);
+                }
 
                 info!(target: "chain", "Init: saved genesis: #{} {} / {:?}", block_head.height, block_head.last_block_hash, state_roots);
 

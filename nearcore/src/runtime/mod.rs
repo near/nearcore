@@ -1808,17 +1808,18 @@ mod test {
 
             // Create flat storage. Naturally it happens on Chain creation, but here we test only Runtime behaviour
             // and use a mock chain, so we need to initialize flat storage manually.
-            let store_update =
-                runtime.set_flat_storage_for_genesis(&genesis_hash, &EpochId::default()).unwrap();
-            store_update.commit().unwrap();
-            let mock_chain = MockChainForFlatStorage::new(0, genesis_hash);
-            for shard_id in 0..runtime.num_shards(&EpochId::default()).unwrap() {
-                let status = runtime.get_flat_storage_creation_status(shard_id);
-                if cfg!(feature = "protocol_feature_flat_state") {
-                    assert_eq!(status, FlatStorageCreationStatus::Ready);
+            if cfg!(feature = "protocol_feature_flat_state") {
+                let store_update = runtime
+                    .set_flat_storage_for_genesis(&genesis_hash, &EpochId::default())
+                    .unwrap();
+                store_update.commit().unwrap();
+                let mock_chain = MockChainForFlatStorage::new(0, genesis_hash);
+                for shard_id in 0..runtime.num_shards(&EpochId::default()).unwrap() {
+                    assert_eq!(
+                        runtime.get_flat_storage_creation_status(shard_id),
+                        FlatStorageCreationStatus::Ready
+                    );
                     runtime.create_flat_storage_for_shard(shard_id, 0, &mock_chain);
-                } else {
-                    assert_eq!(status, FlatStorageCreationStatus::DontCreate);
                 }
             }
 
