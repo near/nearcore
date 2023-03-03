@@ -2241,7 +2241,7 @@ updated using a custom merge operation <code>merge_refcounted_records</code>.</p
 We should implement a feature to state-viewer that’d allow better visualization of this data, but in the meantime this seems to work.</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div><p>Here we describe structures used for flat storage implementation.</p>
-<h2 id="flatstoragestate"><a class="header" href="#flatstoragestate">FlatStorageState</a></h2>
+<h2 id="flatstorage"><a class="header" href="#flatstorage">FlatStorage</a></h2>
 <p>This is the main structure which owns information about ValueRefs for all keys from some fixed 
 shard for some set of blocks. It is shared by multiple threads, so it is guarded by RwLock:</p>
 <ul>
@@ -2256,34 +2256,31 @@ shard for some set of blocks. It is shared by multiple threads, so it is guarded
 </ul>
 <p>Requires ChainAccessForFlatStorage on creation because it needs to know the tree of blocks after
 the flat storage head, to support get queries correctly.</p>
-<p>? - rename to FlatStorage</p>
-<h2 id="flatstatefactory"><a class="header" href="#flatstatefactory">FlatStateFactory</a></h2>
-<p>It holds all FlatStorageStates which NightshadeRuntime knows about and:</p>
+<h2 id="flatstoragemanager"><a class="header" href="#flatstoragemanager">FlatStorageManager</a></h2>
+<p>It holds all FlatStorages which NightshadeRuntime knows about and:</p>
 <ul>
 <li>provides views for flat storage for some fixed block - supported by new_flat_state_for_shard</li>
-<li>sets initial flat storage state for genesis block - set_flat_storage_state_for_genesis</li>
-<li>adds/removes/gets flat storage if we started/stopped tracking a shard or need to create a view - add_flat_storage_state_for_shard, etc.</li>
+<li>sets initial flat storage state for genesis block - set_flat_storage_for_genesis</li>
+<li>adds/removes/gets flat storage if we started/stopped tracking a shard or need to create a view - add_flat_storage_for_shard, etc.</li>
 </ul>
-<p>? - rename to FlatStorageManager</p>
-<h2 id="flatstate"><a class="header" href="#flatstate">FlatState</a></h2>
+<h2 id="flatstoragechunkview"><a class="header" href="#flatstoragechunkview">FlatStorageChunkView</a></h2>
 <p>Interface for getting ValueRefs from flat storage for some shard for some fixed block, supported
 by get_ref method.</p>
-<p>? - rename to FlatStorageSnapshot</p>
 <h2 id="flatstoragecreator"><a class="header" href="#flatstoragecreator">FlatStorageCreator</a></h2>
 <p>Creates flat storages for all tracked shards or initiates process of background flat storage creation if for some shard we have only Trie but not FlatStorage. Supports update_status which checks background job results and updates creation statuses and should create flat storage when all jobs are finished.</p>
 <h2 id="other-notes"><a class="header" href="#other-notes">Other notes</a></h2>
 <h3 id="chain-dependency"><a class="header" href="#chain-dependency">Chain dependency</a></h3>
-<p>If storage is fully empty, then we need to create flat storage from scratch. FlatStorageState is stored
+<p>If storage is fully empty, then we need to create flat storage from scratch. FlatStorage is stored
 inside NightshadeRuntime, and it itself is stored inside Chain, so we need to create them in the same order
 and dependency hierarchy should be the same. But at the same time, we parse genesis file only during Chain
-creation. That’s why FlatStateFactory has set_flat_storage_state_for_genesis method which is called 
+creation. That’s why FlatStorageManager has set_flat_storage_for_genesis method which is called 
 during Chain creation.</p>
 <h3 id="regular-block-processing-vs-catchups"><a class="header" href="#regular-block-processing-vs-catchups">Regular block processing vs. catchups</a></h3>
 <p>For these two usecases we have two different flows: first one is handled in Chain.postprocess_block,
 the second one in Chain.block_catch_up_postprocess. Both, when results of applying chunk are ready,
-should call Chain.process_apply_chunk_result → RuntimeAdapter.get_flat_storage_state_for_shard → 
-FlatStorageState.add_block, and when results of applying ALL processed/postprocessed chunks are ready,
-should call RuntimeAdapter.get_flat_storage_state_for_shard → FlatStorageState.update_flat_head.</p>
+should call Chain.process_apply_chunk_result → RuntimeAdapter.get_flat_storage_for_shard → 
+FlatStorage.add_block, and when results of applying ALL processed/postprocessed chunks are ready,
+should call RuntimeAdapter.get_flat_storage_for_shard → FlatStorage.update_flat_head.</p>
 <p>(because applying some chunk may result in error and we may need to exit there without updating flat head - ?)</p>
 <div style="break-before: page; page-break-before: always;"></div><p>This document describes how our network works. At this moment, it is known to be
 somewhat outdated, as we are in the process of refactoring the network protocol
