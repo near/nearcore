@@ -355,7 +355,7 @@ impl FlatStateDelta {
 
     /// Merge two deltas. Values from `other` should override values from `self`.
     pub fn merge(&mut self, other: Self) {
-        self.0.extend(other.0.iter().map(|(k, v)| (k.clone(), v.clone())))
+        self.0.extend(other.0.into_iter())
     }
 
     /// Creates delta using raw state changes for some block.
