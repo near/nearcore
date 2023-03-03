@@ -1,3 +1,6 @@
+//! This file contains helper functions for accessing flat storage data in DB
+//! TODO(#8577): remove this file and move functions to the corresponding structs
+
 use crate::flat::delta::{FlatStateDelta, KeyForFlatStateDelta};
 use crate::flat::types::{FetchingStateStatus, FlatStorageCreationStatus, FlatStorageError};
 use crate::{Store, StoreUpdate};
