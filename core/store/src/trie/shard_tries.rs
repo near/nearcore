@@ -11,7 +11,7 @@ use near_primitives::types::{
     NumShards, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
 };
 
-use crate::flat_state::FlatStateFactory;
+use crate::flat::FlatStorageManager;
 use crate::trie::config::TrieConfig;
 use crate::trie::prefetching_trie_storage::PrefetchingThreadsHandle;
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
@@ -26,7 +26,7 @@ struct ShardTriesInner {
     caches: RwLock<HashMap<ShardUId, TrieCache>>,
     /// Cache for readers.
     view_caches: RwLock<HashMap<ShardUId, TrieCache>>,
-    flat_state_factory: FlatStateFactory,
+    flat_storage_manager: FlatStorageManager,
     /// Prefetcher state, such as IO threads, per shard.
     prefetchers: RwLock<HashMap<ShardUId, (PrefetchApi, PrefetchingThreadsHandle)>>,
 }
@@ -39,7 +39,7 @@ impl ShardTries {
         store: Store,
         trie_config: TrieConfig,
         shard_uids: &[ShardUId],
-        flat_state_factory: FlatStateFactory,
+        flat_storage_manager: FlatStorageManager,
     ) -> Self {
         let caches = Self::create_initial_caches(&trie_config, &shard_uids, false);
         let view_caches = Self::create_initial_caches(&trie_config, &shard_uids, true);
@@ -48,7 +48,7 @@ impl ShardTries {
             trie_config,
             caches: RwLock::new(caches),
             view_caches: RwLock::new(view_caches),
-            flat_state_factory,
+            flat_storage_manager,
             prefetchers: Default::default(),
         }))
     }
@@ -66,7 +66,7 @@ impl ShardTries {
         let shard_uids: Vec<ShardUId> =
             (0..num_shards as u32).map(|shard_id| ShardUId { shard_id, version }).collect();
         let trie_config = TrieConfig::default();
-        ShardTries::new(store.clone(), trie_config, &shard_uids, FlatStateFactory::new(store))
+        ShardTries::new(store.clone(), trie_config, &shard_uids, FlatStorageManager::new(store))
     }
 
     /// Create caches for all shards according to the trie config.
@@ -143,13 +143,10 @@ impl ShardTries {
             is_view,
             prefetch_api,
         ));
-        let flat_state = self.0.flat_state_factory.new_flat_state_for_shard(
-            shard_uid.shard_id(),
-            block_hash,
-            is_view,
-        );
+        let flat_storage_chunk_view =
+            self.0.flat_storage_manager.chunk_view(shard_uid.shard_id(), block_hash, is_view);
 
-        Trie::new(storage, state_root, flat_state)
+        Trie::new(storage, state_root, flat_storage_chunk_view)
     }
 
     pub fn get_trie_for_shard(&self, shard_uid: ShardUId, state_root: StateRoot) -> Trie {

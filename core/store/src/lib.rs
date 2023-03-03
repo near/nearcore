@@ -38,13 +38,12 @@ pub use crate::trie::{
     TrieAccess, TrieCache, TrieCachingStorage, TrieChanges, TrieConfig, TrieDBStorage, TrieStorage,
     WrappedTrieChanges,
 };
-pub use flat_state::FlatStateDelta;
 
 pub mod cold_storage;
 mod columns;
 pub mod config;
 pub mod db;
-pub mod flat_state;
+pub mod flat;
 pub mod metadata;
 mod metrics;
 pub mod migrations;

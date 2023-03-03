@@ -869,8 +869,8 @@ pub(crate) fn contract_accounts(
         // Use simple non-caching storage, we don't expect many duplicate lookups while iterating.
         let storage = TrieDBStorage::new(store.clone(), shard_uid);
         // We don't need flat state to traverse all accounts.
-        let flat_state = None;
-        Trie::new(Box::new(storage), state_root, flat_state)
+        let flat_storage_chunk_view = None;
+        Trie::new(Box::new(storage), state_root, flat_storage_chunk_view)
     });
 
     filter.write_header(&mut std::io::stdout().lock())?;
