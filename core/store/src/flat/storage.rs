@@ -760,7 +760,7 @@ mod tests {
 
     // This setup tests basic use cases for FlatStorageChunkView and FlatStorage.
     // We created a linear chain with no forks, start with flat head at the genesis block, then
-    // moves the flat head forward, which checking that flat_state.get_ref() still returns the correct
+    // moves the flat head forward, which checking that chunk_view.get_ref() still returns the correct
     // values and the state is being updated in store.
     fn flat_storage_sanity(cache_capacity: usize) {
         // 1. Create a chain with 10 blocks with no forks. Set flat head to be at block 0.
@@ -786,14 +786,13 @@ mod tests {
         flat_storage_manager.add_flat_storage_for_shard(0, flat_storage);
         let flat_storage = flat_storage_manager.get_flat_storage_for_shard(0).unwrap();
 
-        // 2. Check that the flat_state at block i reads the value of key &[1] as &[i]
+        // 2. Check that the chunk_view at block i reads the value of key &[1] as &[i]
         for i in 0..10 {
             let block_hash = chain.get_block_hash(i);
             let blocks = flat_storage.get_blocks_to_head(&block_hash).unwrap();
             assert_eq!(blocks.len(), i as usize);
-            let flat_state =
-                flat_storage_manager.new_flat_state_for_shard(0, Some(block_hash), false).unwrap();
-            assert_eq!(flat_state.get_ref(&[1]).unwrap(), Some(ValueRef::new(&[i as u8])));
+            let chunk_view = flat_storage_manager.chunk_view(0, Some(block_hash), false).unwrap();
+            assert_eq!(chunk_view.get_ref(&[1]).unwrap(), Some(ValueRef::new(&[i as u8])));
         }
 
         // 3. Create a new block that deletes &[1] and add a new value &[2]
@@ -812,16 +811,14 @@ mod tests {
         //    Verify that they return the correct values
         let blocks = flat_storage.get_blocks_to_head(&chain.get_block_hash(10)).unwrap();
         assert_eq!(blocks.len(), 10);
-        let flat_state0 = flat_storage_manager
-            .new_flat_state_for_shard(0, Some(chain.get_block_hash(10)), false)
-            .unwrap();
-        let flat_state1 = flat_storage_manager
-            .new_flat_state_for_shard(0, Some(chain.get_block_hash(4)), false)
-            .unwrap();
-        assert_eq!(flat_state0.get_ref(&[1]).unwrap(), None);
-        assert_eq!(flat_state0.get_ref(&[2]).unwrap(), Some(ValueRef::new(&[1])));
-        assert_eq!(flat_state1.get_ref(&[1]).unwrap(), Some(ValueRef::new(&[4])));
-        assert_eq!(flat_state1.get_ref(&[2]).unwrap(), None);
+        let chunk_view0 =
+            flat_storage_manager.chunk_view(0, Some(chain.get_block_hash(10)), false).unwrap();
+        let chunk_view1 =
+            flat_storage_manager.chunk_view(0, Some(chain.get_block_hash(4)), false).unwrap();
+        assert_eq!(chunk_view0.get_ref(&[1]).unwrap(), None);
+        assert_eq!(chunk_view0.get_ref(&[2]).unwrap(), Some(ValueRef::new(&[1])));
+        assert_eq!(chunk_view1.get_ref(&[1]).unwrap(), Some(ValueRef::new(&[4])));
+        assert_eq!(chunk_view1.get_ref(&[2]).unwrap(), None);
         assert_matches!(
             store_helper::get_delta(&store, 0, chain.get_block_hash(5)).unwrap(),
             Some(_)
@@ -831,30 +828,30 @@ mod tests {
             Some(_)
         );
 
-        // 5. Move the flat head to block 5, verify that flat_state0 still returns the same values
-        // and flat_state1 returns an error. Also check that DBCol::FlatState is updated correctly
+        // 5. Move the flat head to block 5, verify that chunk_view0 still returns the same values
+        // and chunk_view1 returns an error. Also check that DBCol::FlatState is updated correctly
         flat_storage.update_flat_head(&chain.get_block_hash(5)).unwrap();
         assert_eq!(store_helper::get_ref(&store, &[1]).unwrap(), Some(ValueRef::new(&[5])));
         let blocks = flat_storage.get_blocks_to_head(&chain.get_block_hash(10)).unwrap();
         assert_eq!(blocks.len(), 5);
-        assert_eq!(flat_state0.get_ref(&[1]).unwrap(), None);
-        assert_eq!(flat_state0.get_ref(&[2]).unwrap(), Some(ValueRef::new(&[1])));
-        assert_matches!(flat_state1.get_ref(&[1]), Err(StorageError::FlatStorageError(_)));
+        assert_eq!(chunk_view0.get_ref(&[1]).unwrap(), None);
+        assert_eq!(chunk_view0.get_ref(&[2]).unwrap(), Some(ValueRef::new(&[1])));
+        assert_matches!(chunk_view1.get_ref(&[1]), Err(StorageError::FlatStorageError(_)));
         assert_matches!(store_helper::get_delta(&store, 0, chain.get_block_hash(5)).unwrap(), None);
         assert_matches!(
             store_helper::get_delta(&store, 0, chain.get_block_hash(10)).unwrap(),
             Some(_)
         );
 
-        // 6. Move the flat head to block 10, verify that flat_state0 still returns the same values
+        // 6. Move the flat head to block 10, verify that chunk_view0 still returns the same values
         //    Also checks that DBCol::FlatState is updated correctly.
         flat_storage.update_flat_head(&chain.get_block_hash(10)).unwrap();
         let blocks = flat_storage.get_blocks_to_head(&chain.get_block_hash(10)).unwrap();
         assert_eq!(blocks.len(), 0);
         assert_eq!(store_helper::get_ref(&store, &[1]).unwrap(), None);
         assert_eq!(store_helper::get_ref(&store, &[2]).unwrap(), Some(ValueRef::new(&[1])));
-        assert_eq!(flat_state0.get_ref(&[1]).unwrap(), None);
-        assert_eq!(flat_state0.get_ref(&[2]).unwrap(), Some(ValueRef::new(&[1])));
+        assert_eq!(chunk_view0.get_ref(&[1]).unwrap(), None);
+        assert_eq!(chunk_view0.get_ref(&[2]).unwrap(), Some(ValueRef::new(&[1])));
         assert_matches!(
             store_helper::get_delta(&store, 0, chain.get_block_hash(10)).unwrap(),
             None

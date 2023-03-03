@@ -472,7 +472,7 @@ impl RawTrieNodeWithSize {
 pub struct Trie {
     pub storage: Box<dyn TrieStorage>,
     root: StateRoot,
-    pub flat_state: Option<FlatStorageChunkView>,
+    pub flat_storage_chunk_view: Option<FlatStorageChunkView>,
 }
 
 /// Trait for reading data from a trie.
@@ -572,9 +572,9 @@ impl Trie {
     pub fn new(
         storage: Box<dyn TrieStorage>,
         root: StateRoot,
-        flat_state: Option<FlatStorageChunkView>,
+        flat_storage_chunk_view: Option<FlatStorageChunkView>,
     ) -> Self {
-        Trie { storage, root, flat_state }
+        Trie { storage, root, flat_storage_chunk_view }
     }
 
     pub fn recording_reads(&self) -> Self {
@@ -585,7 +585,7 @@ impl Trie {
             shard_uid: storage.shard_uid,
             recorded: RefCell::new(Default::default()),
         };
-        Trie { storage: Box::new(storage), root: self.root, flat_state: None }
+        Trie { storage: Box::new(storage), root: self.root, flat_storage_chunk_view: None }
     }
 
     pub fn recorded_storage(&self) -> Option<PartialStorage> {
@@ -963,8 +963,8 @@ impl Trie {
         {
             let is_delayed = is_delayed_receipt_key(key);
             if matches!(mode, KeyLookupMode::FlatStorage) && !is_delayed {
-                if let Some(flat_state) = &self.flat_state {
-                    let flat_result = flat_state.get_ref(&key);
+                if let Some(flat_storage_chunk_view) = &self.flat_storage_chunk_view {
+                    let flat_result = flat_storage_chunk_view.get_ref(&key);
                     assert_eq!(result, flat_result);
                 }
             }

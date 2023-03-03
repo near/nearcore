@@ -3086,13 +3086,16 @@ mod test {
             .runtime
             .get_trie_for_shard(0, &env.head.prev_block_hash, Trie::EMPTY_ROOT, true)
             .unwrap();
-        assert_eq!(trie.flat_state.is_some(), cfg!(feature = "protocol_feature_flat_state"));
+        assert_eq!(
+            trie.flat_storage_chunk_view.is_some(),
+            cfg!(feature = "protocol_feature_flat_state")
+        );
 
         let trie = env
             .runtime
             .get_view_trie_for_shard(0, &env.head.prev_block_hash, Trie::EMPTY_ROOT)
             .unwrap();
-        assert!(trie.flat_state.is_none());
+        assert!(trie.flat_storage_chunk_view.is_none());
     }
 
     /// Check that querying trie and flat state gives the same result.

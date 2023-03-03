@@ -143,13 +143,10 @@ impl ShardTries {
             is_view,
             prefetch_api,
         ));
-        let flat_state = self.0.flat_storage_manager.new_flat_state_for_shard(
-            shard_uid.shard_id(),
-            block_hash,
-            is_view,
-        );
+        let flat_storage_chunk_view =
+            self.0.flat_storage_manager.chunk_view(shard_uid.shard_id(), block_hash, is_view);
 
-        Trie::new(storage, state_root, flat_state)
+        Trie::new(storage, state_root, flat_storage_chunk_view)
     }
 
     pub fn get_trie_for_shard(&self, shard_uid: ShardUId, state_root: StateRoot) -> Trie {

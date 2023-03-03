@@ -74,7 +74,7 @@ impl FlatStorageManager {
     ///            for view client, so we simply return None if `is_view` is True.
     /// TODO (#7327): take block_hash as CryptoHash instead of Option<CryptoHash>
     /// TODO (#7327): implement support for view_client
-    pub fn new_flat_state_for_shard(
+    pub fn chunk_view(
         &self,
         shard_id: ShardId,
         block_hash: Option<CryptoHash>,

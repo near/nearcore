@@ -357,10 +357,10 @@ fn test_flat_storage_creation_start_from_state_part() {
             .runtime_adapter
             .get_trie_for_shard(0, &block_hash, state_root, true)
             .unwrap();
-        let flat_state = trie.flat_state.unwrap();
+        let chunk_view = trie.flat_storage_chunk_view.unwrap();
         for part_trie_keys in trie_keys.iter() {
             for trie_key in part_trie_keys.iter() {
-                assert_matches!(flat_state.get_ref(trie_key), Ok(Some(_)));
+                assert_matches!(chunk_view.get_ref(trie_key), Ok(Some(_)));
             }
         }
     }
