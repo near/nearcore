@@ -41,22 +41,28 @@ def get_test_accounts_from_args(argv):
     base_block_hash = mocknet_helpers.get_latest_block_hash()
 
     rpc_infos = [(rpc_addr, mocknet_helpers.RPC_PORT) for rpc_addr in rpc_nodes]
-    node_account = account.Account(node_account_key,
-                                   mocknet_helpers.get_nonce_for_pk(
-                                       node_account_key.account_id,
-                                       node_account_key.pk),
-                                   base_block_hash,
-                                   rpc_infos=rpc_infos)
+    node_account = account.Account(
+        node_account_key,
+        mocknet_helpers.get_nonce_for_pk(node_account_key.account_id,
+                                         node_account_key.pk),
+        base_block_hash,
+        rpc_infos=rpc_infos,
+    )
     accounts = [
-        account.Account(key,
-                        mocknet_helpers.get_nonce_for_pk(
-                            key.account_id, key.pk),
-                        base_block_hash,
-                        rpc_infos=rpc_infos) for key in test_account_keys
+        account.Account(
+            key,
+            mocknet_helpers.get_nonce_for_pk(key.account_id, key.pk),
+            base_block_hash,
+            rpc_infos=rpc_infos,
+        ) for key in test_account_keys
     ]
     max_tps_per_node = max_tps / num_nodes
-    return load_test_utils.TestState(node_account, accounts, max_tps_per_node,
-                                     rpc_infos)
+    return load_test_utils.TestState(
+        node_account,
+        accounts,
+        max_tps_per_node,
+        rpc_infos,
+    )
 
 
 def main(argv):
@@ -94,15 +100,20 @@ def main(argv):
     start_time = time.monotonic()
     while time.monotonic() - start_time < TEST_TIMEOUT:
         # Repeat the staking transactions in case the validator selection algorithm changes.
-        staked_time = mocknet.stake_available_amount(test_state.node_account,
-                                                     last_staking)
+        staked_time = mocknet.stake_available_amount(
+            test_state.node_account,
+            last_staking,
+        )
         if staked_time is not None:
             last_staking = staked_time
 
         elapsed_time = time.monotonic() - start_time
         total_tx_sent = mocknet_helpers.throttle_txns(
-            load_test_utils.send_random_transactions, total_tx_sent,
-            elapsed_time, test_state)
+            load_test_utils.send_random_transactions,
+            total_tx_sent,
+            elapsed_time,
+            test_state,
+        )
     logger.info('Stop the test')
 
 

@@ -117,6 +117,9 @@ def node_account_name(node_name):
     return f'{parts[-1]}-load-test.near'
 
 
+# Constructs an account name given the basic account name.
+# Accounts are generated in this order:
+# `a00.base`, `b00.base`, .., `z00.base`, `a01.base`, ...
 def load_testing_account_id(node_account_id, i):
     NUM_LETTERS = 26
     letter = i % NUM_LETTERS

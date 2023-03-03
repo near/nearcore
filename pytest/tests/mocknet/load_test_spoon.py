@@ -124,7 +124,8 @@ if __name__ == '__main__':
     parser.add_argument('--skip-setup', default=False, action='store_true')
     parser.add_argument('--skip-restart', default=False, action='store_true')
     parser.add_argument('--no-sharding', default=False, action='store_true')
-    parser.add_argument('--script', required=True)
+    # The flag is no longer needed but is kept for backwards-compatibility.
+    parser.add_argument('--script', required=False)
     parser.add_argument('--num-seats', type=int, required=True)
 
     args = parser.parse_args()
@@ -194,17 +195,12 @@ if __name__ == '__main__':
     logger.info(f'initial_validator_accounts: {initial_validator_accounts}')
     test_passed = True
 
-    script, deploy_time, test_timeout = (None, None, None)
-    # The flag is no longer needed but is kept for backwards-compatibility.
-    if args.script == 'add_and_delete':
-        script = 'load_test_spoon_helper.py'
-        # TODO: Get these constants from load_test_spoon_helper:
-        # deploy_time = load_test_spoon_helper.CONTRACT_DEPLOY_TIME
-        # test_timeout = load_test_spoon_helper.TEST_TIMEOUT
-        deploy_time = 10 * mocknet.NUM_ACCOUNTS
-        test_timeout = 12 * 60 * 60
-    else:
-        assert False, f'Unsupported --script={args.script}'
+    script = 'load_test_spoon_helper.py'
+    # TODO: Get these constants from load_test_spoon_helper:
+    # deploy_time = load_test_spoon_helper.CONTRACT_DEPLOY_TIME
+    # test_timeout = load_test_spoon_helper.TEST_TIMEOUT
+    deploy_time = 10 * mocknet.NUM_ACCOUNTS
+    test_timeout = 12 * 60 * 60
 
     if not args.skip_load:
         logger.info('Starting transaction spamming scripts.')
