@@ -102,7 +102,7 @@ mod manager {
             Self {}
         }
 
-        pub fn new_flat_state_for_shard(
+        pub fn chunk_view(
             &self,
             _shard_id: ShardId,
             _block_hash: Option<CryptoHash>,
