@@ -47,7 +47,7 @@ use crate::chunks_store::ReadOnlyChunksStore;
 use crate::types::{Block, BlockHeader, LatestKnown};
 use crate::{byzantine_assert, RuntimeWithEpochManagerAdapter};
 use near_store::db::StoreStatistics;
-use near_store::flat_state::{BlockInfo, ChainAccessForFlatStorage};
+use near_store::flat::{BlockInfo, ChainAccessForFlatStorage};
 use std::sync::Arc;
 
 /// lru cache size
