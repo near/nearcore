@@ -62,7 +62,6 @@ pub mod store_helper {
     use crate::Store;
     use near_primitives::hash::CryptoHash;
     use near_primitives::types::ShardId;
-    use std::sync::Arc;
 
     pub fn get_flat_head(_store: &Store, _shard_id: ShardId) -> Option<CryptoHash> {
         None

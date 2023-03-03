@@ -100,6 +100,7 @@ impl CachedFlatStateDelta {
         std::mem::size_of::<CryptoHash>() + std::mem::size_of::<Option<ValueRef>>();
 
     /// Returns `Some(Option<ValueRef>)` from delta for the given key. If key is not present, returns None.
+    #[allow(unused)]
     pub(crate) fn get(&self, key: &[u8]) -> Option<Option<ValueRef>> {
         self.0.get(&hash(key)).cloned()
     }
