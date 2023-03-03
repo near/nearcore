@@ -59,7 +59,6 @@ import pathlib
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
-from helpers import load_test_spoon_helper
 import mocknet
 import data
 
@@ -196,11 +195,14 @@ if __name__ == '__main__':
     test_passed = True
 
     script, deploy_time, test_timeout = (None, None, None)
-    # The flag is no longer needed but is kept for backwards-compatibility reasons.
+    # The flag is no longer needed but is kept for backwards-compatibility.
     if args.script == 'add_and_delete':
         script = 'load_test_spoon_helper.py'
-        deploy_time = load_test_spoon_helper.CONTRACT_DEPLOY_TIME
-        test_timeout = load_test_spoon_helper.TEST_TIMEOUT
+        # TODO: Get these constants from load_test_spoon_helper:
+        # deploy_time = load_test_spoon_helper.CONTRACT_DEPLOY_TIME
+        # test_timeout = load_test_spoon_helper.TEST_TIMEOUT
+        deploy_time = 10 * mocknet.NUM_ACCOUNTS
+        test_timeout = 12 * 60 * 60
     else:
         assert False, f'Unsupported --script={args.script}'
 
