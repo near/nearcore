@@ -26,14 +26,14 @@
 //!                     inside flat storage).
 
 #[cfg(feature = "protocol_feature_flat_state")]
-pub mod chunk_view;
-pub mod delta;
+mod chunk_view;
+mod delta;
 #[cfg(feature = "protocol_feature_flat_state")]
-pub mod manager;
-pub mod storage;
+mod manager;
+mod storage;
 #[cfg(feature = "protocol_feature_flat_state")]
 pub mod store_helper;
-pub mod types;
+mod types;
 
 pub use chunk_view::FlatStorageChunkView;
 pub use delta::FlatStateDelta;
@@ -85,7 +85,7 @@ pub mod store_helper {
 }
 
 #[cfg(not(feature = "protocol_feature_flat_state"))]
-pub mod manager {
+mod manager {
     use super::storage::FlatStorage;
     use super::FlatStorageChunkView;
     use crate::{Store, StoreUpdate};
@@ -136,7 +136,7 @@ pub mod manager {
 }
 
 #[cfg(not(feature = "protocol_feature_flat_state"))]
-pub mod chunk_view {
+mod chunk_view {
     /// Since this has no variants it can never be instantiated.
     ///
     /// To use flat state enable `protocol_feature_flat_state` cargo feature.
