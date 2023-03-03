@@ -150,9 +150,9 @@ impl<E: 'static + Send> TerminateGuard<E> {
     }
 
     /// Spawns a new service in the scope.
-    pub fn new_service<E2: 'static + Send>(self: Arc<Self>) -> Service<E2> {
+    pub fn new_service<S:ServiceTrait>(self: Arc<Self>, s:S) -> Service<S> {
         let sub = Arc::new(TerminateGuard::new(&self.0.ctx));
-        let service = Service(Arc::downgrade(&sub), sub.0.clone());
+        let service = Service(s, Arc::downgrade(&sub), sub.0.clone());
         // Spawn a guard task in `self` scope, so that it is not terminated
         // before `sub` scope is.
         TerminateGuard::spawn(self, async move {
@@ -168,13 +168,17 @@ impl<E: 'static + Send> TerminateGuard<E> {
     }
 }
 
-/// Error returned `Service::spawn()` and `Service::new_service()`
+/// Error returned `Service::try_spawn()`
 /// when spawning new things on the service scope is not allowed, because the
 /// service has been already terminated. Returned by `JoinHandle::join` when
 /// the task has returned an error and therefore the service has been terminated.
 #[derive(thiserror::Error, Debug, Clone, Copy, PartialEq, Eq)]
 #[error("service has been terminated")]
 pub struct ErrTerminated;
+
+pub trait ServiceTrait {
+    type E : 'static + Send + Clone;
+}
 
 /// A service is a subscope which doesn't keep the scope
 /// alive, i.e. if all tasks spawned via `Scope::spawn` complete, the scope will
@@ -187,60 +191,89 @@ pub struct ErrTerminated;
 /// Service is NOT cancelled just when all tasks within the service complete - in particular
 /// a newly started service has no tasks.
 /// Service is terminated when it is cancelled AND all tasks within the service complete.
-pub struct Service<E: 'static>(Weak<TerminateGuard<E>>, Arc<Inner<E>>);
+pub struct Service<S:ServiceTrait>(Arc<S>,Weak<TerminateGuard<S::E>>, Arc<Inner<S::E>>);
 
-impl<E> Clone for Service<E> {
-    fn clone(&self) -> Self {
-        Self(self.0.clone(), self.1.clone())
+impl<S:ServiceTrait> Clone for Service<S> {
+    fn clone(&self) -> Self { Self(self.0.clone(),self.1.clone(),self.2.clone()) }
+}
+
+impl<S:ServiceTrait> std::ops::Deref for Service<S> {
+    type Target = S;
+    fn deref(&self) -> &Self::Target { self.0.as_ref() }
+}
+
+pub struct ServiceScope<S:ServiceTrait>(Arc<S>,Arc<TerminateGuard<S::E>>);
+
+impl<S:ServiceTrait> std::ops::Deref for ServiceScope<S> {
+    type Target = S;
+    fn deref(&self) -> &Self::Target { self.0.as_ref() }
+}
+
+#[doc(hidden)]
+pub mod service_internal {
+    use super::*;
+
+    pub fn try_spawn<S:ServiceTrait, T:'static + Send>(s:&Service<S>, f: impl FnOnce(ServiceScope) -> BoxFuture<'static,Result<T,S::E>>) -> Result<JoinHandle<'static,T,S::E>,ErrTerminated> {
+        s.1.upgrade().map(|g|spawn(&ServiceScope(s.0.clone(),g),f).ok_or(ErrTerminated)
+    }
+
+    pub fn spawn<S:ServiceTrait, T:'static + Send>(s:&ServiceScope<S>, f:impl FnOnce(ServiceScope) -> BoxFuture<'static,Result<T,S::E>>) -> JoinHandle<'static,T,S::E> {
+        JoinHandle(
+            TerminateGuard::spawn(s.1.clone(), f(ServiceScope(s.0.clone(),s.1.clone()))),
+            std::marker::PhantomData,
+        )
     }
 }
 
-impl<E: 'static + Send + Clone> Service<E> {
+#[macro_export]
+macro_rules! try_spawn {
+    ($x:expr, $f:expr) => {{
+        fn apply<A,R>(a:A, f:impl FnOnce(A) -> R) -> R { f(a) }
+        $crate::concurrency::scope::service_internal::try_spawn($x, |x| async { let x = x; apply(&x, $f).await }.boxed())
+    }};
+}
+
+#[macro_export]
+macro_rules! spawn {
+    ($x:expr, $f:expr) => {{
+        fn apply<A,R>(a:A, f:impl FnOnce(A) -> R) -> R { f(a) }
+        $crate::concurrency::scope::service_internal::spawn($x, |x| async { let x = x; apply(&x, $f).await }.boxed())
+    }};
+}
+
+pub use spawn;
+pub use try_spawn;
+
+impl<S: ServiceTrait> Service<S> {
     /// Checks if the referred scope has been terminated.
     pub fn is_terminated(&self) -> bool {
-        self.1.terminated.try_recv()
+        self.2.terminated.try_recv()
     }
 
     /// Cancels the service, then awaits its termination.
-    pub async fn terminate(&self) -> ctx::OrCanceled<Result<(), E>> {
-        self.1.ctx.cancel();
-        self.terminated().await
-    }
+    pub fn terminate(&self) { self.2.ctx.cancel(); }
 
     /// Awaits termination of the service and returns the service error (if any).
-    pub async fn terminated(&self) -> ctx::OrCanceled<Result<(), E>> {
+    pub async fn terminated(&self) -> ctx::OrCanceled<Result<(), S::E>> {
         ctx::wait(async {
-            self.1.terminated.recv().await;
-            match self.1.err_clone() {
+            self.2.terminated.recv().await;
+            match self.2.err_clone() {
                 None => Ok(()),
                 Some(err) => Err(err),
             }
         })
         .await
     }
+}
 
-    /// Spawns a task in this scope.
-    ///
-    /// Returns ErrTerminated if service has already terminated.
-    pub fn spawn<T: 'static + Send>(
-        &self,
-        f: impl 'static + Send + Future<Output = Result<T, E>>,
-    ) -> Result<JoinHandle<'static, T, E>, ErrTerminated> {
-        match self.0.upgrade().map(|m| TerminateGuard::spawn(m, f)) {
-            Some(h) => Ok(JoinHandle(h, std::marker::PhantomData)),
-            None => Err(ErrTerminated),
-        }
-    }
-
+impl<S: ServiceTrait> ServiceScope<S> {
     /// Spawns a subservice.
     ///
     /// Returns ErrTerminated if the service has already terminated.
-    pub fn new_service<E2: 'static + Send>(&self) -> Result<Service<E2>, ErrTerminated> {
-        self.0.upgrade().map(|m| m.new_service()).ok_or(ErrTerminated)
+    pub fn new_service<S2:ServiceTrait>(&self, s2:S2) -> Service<S2> {
+        self.1.clone().new_service(s2)
     }
 }
-
-impl<E: 'static + Send + Clone> Service<E> {}
 
 /// Wrapper of a scope reference which cancels the scope when dropped.
 ///
@@ -356,8 +389,8 @@ impl<'env, E: 'static + Send> Scope<'env, E> {
     /// Spawns a service.
     ///
     /// Returns a handle to the service, which allows spawning new tasks within the service.
-    pub fn new_service<E2: 'static + Send>(&self) -> Service<E2> {
-        self.1.upgrade().unwrap().new_service()
+    pub fn new_service<S:ServiceTrait>(&self, s:S) -> Service<S> {
+        self.1.upgrade().unwrap().new_service(s)
     }
 }
 
