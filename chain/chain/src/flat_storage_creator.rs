@@ -368,7 +368,7 @@ impl FlatStorageShardCreator {
                     flat_head = chain_store.get_next_block_hash(&flat_head).unwrap();
                     let delta =
                         store_helper::get_delta(store, shard_id, flat_head).unwrap().unwrap();
-                    merged_delta.merge(delta.as_ref());
+                    merged_delta.merge(delta);
                 }
 
                 if (old_flat_head != &flat_head) || (flat_head == chain_final_head.last_block_hash)

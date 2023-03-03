@@ -1,5 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 
+use near_primitives::hash::hash;
 use near_primitives::state::ValueRef;
 use near_primitives::types::{RawStateChangesWithTrieKey, ShardId};
 use std::collections::HashMap;
@@ -26,11 +27,6 @@ impl<const N: usize> From<[(Vec<u8>, Option<ValueRef>); N]> for FlatStateDelta {
 }
 
 impl FlatStateDelta {
-    /// Assumed number of bytes used to store an entry in the cache.
-    ///
-    /// Based on 36 bytes for `ValueRef` + guessed overhead of 24 bytes for `Vec` and `HashMap`.
-    pub(crate) const PER_ENTRY_OVERHEAD: u64 = 60;
-
     /// Returns `Some(Option<ValueRef>)` from delta for the given key. If key is not present, returns None.
     pub fn get(&self, key: &[u8]) -> Option<Option<ValueRef>> {
         self.0.get(key).cloned()
@@ -45,13 +41,9 @@ impl FlatStateDelta {
         self.0.len()
     }
 
-    pub fn total_size(&self) -> u64 {
-        self.0.keys().map(|key| key.len() as u64 + Self::PER_ENTRY_OVERHEAD).sum()
-    }
-
     /// Merge two deltas. Values from `other` should override values from `self`.
-    pub fn merge(&mut self, other: &Self) {
-        self.0.extend(other.0.iter().map(|(k, v)| (k.clone(), v.clone())))
+    pub fn merge(&mut self, other: Self) {
+        self.0.extend(other.0.into_iter())
     }
 
     /// Creates delta using raw state changes for some block.
@@ -90,6 +82,38 @@ impl FlatStateDelta {
 
     #[cfg(not(feature = "protocol_feature_flat_state"))]
     pub fn apply_to_flat_state(self, _store_update: &mut StoreUpdate) {}
+}
+
+/// `FlatStateDelta` which uses hash of raw `TrieKey`s instead of keys themselves.
+/// Used to reduce memory used by deltas and serves read queries.
+pub struct CachedFlatStateDelta(HashMap<CryptoHash, Option<ValueRef>>);
+
+impl From<FlatStateDelta> for CachedFlatStateDelta {
+    fn from(delta: FlatStateDelta) -> Self {
+        Self(delta.0.into_iter().map(|(key, value)| (hash(&key), value)).collect())
+    }
+}
+
+impl CachedFlatStateDelta {
+    /// Size of cache entry in bytes.
+    const ENTRY_SIZE: usize =
+        std::mem::size_of::<CryptoHash>() + std::mem::size_of::<Option<ValueRef>>();
+
+    /// Returns `Some(Option<ValueRef>)` from delta for the given key. If key is not present, returns None.
+    #[allow(unused)]
+    pub(crate) fn get(&self, key: &[u8]) -> Option<Option<ValueRef>> {
+        self.0.get(&hash(key)).cloned()
+    }
+
+    /// Returns number of all entries.
+    pub(crate) fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Total size in bytes consumed by delta. May be changed if we implement inlining of `ValueRef`s.
+    pub(crate) fn total_size(&self) -> u64 {
+        (self.0.capacity() as u64) * (Self::ENTRY_SIZE as u64)
+    }
 }
 
 #[cfg(feature = "protocol_feature_flat_state")]
@@ -193,7 +217,7 @@ mod tests {
             (vec![4], None),
             (vec![5], Some(ValueRef::new(&[9]))),
         ]);
-        delta.merge(&delta_new);
+        delta.merge(delta_new);
 
         assert_eq!(delta.get(&[1]), Some(Some(ValueRef::new(&[4]))));
         assert_eq!(delta.get(&[2]), Some(Some(ValueRef::new(&[7]))));
