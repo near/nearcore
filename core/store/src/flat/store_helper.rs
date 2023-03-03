@@ -12,7 +12,6 @@ use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
 use near_primitives::state::ValueRef;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
 use near_primitives::types::ShardId;
-use std::sync::Arc;
 
 /// Prefixes determining type of flat storage creation status stored in DB.
 /// Note that non-existent status is treated as SavingDeltas if flat storage /// does not exist and Ready if it does.
@@ -27,12 +26,11 @@ pub fn get_delta(
     store: &Store,
     shard_id: ShardId,
     block_hash: CryptoHash,
-) -> Result<Option<Arc<FlatStateDelta>>, FlatStorageError> {
+) -> Result<Option<FlatStateDelta>, FlatStorageError> {
     let key = KeyForFlatStateDelta { shard_id, block_hash };
     Ok(store
         .get_ser::<FlatStateDelta>(crate::DBCol::FlatStateDeltas, &key.try_to_vec().unwrap())
-        .map_err(|_| FlatStorageError::StorageInternalError)?
-        .map(|delta| Arc::new(delta)))
+        .map_err(|_| FlatStorageError::StorageInternalError)?)
 }
 
 pub fn set_delta(

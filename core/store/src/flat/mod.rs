@@ -62,7 +62,6 @@ pub mod store_helper {
     use crate::Store;
     use near_primitives::hash::CryptoHash;
     use near_primitives::types::ShardId;
-    use std::sync::Arc;
 
     pub fn get_flat_head(_store: &Store, _shard_id: ShardId) -> Option<CryptoHash> {
         None
@@ -72,7 +71,7 @@ pub mod store_helper {
         _store: &Store,
         _shard_id: ShardId,
         _block_hash: CryptoHash,
-    ) -> Result<Option<Arc<FlatStateDelta>>, FlatStorageError> {
+    ) -> Result<Option<FlatStateDelta>, FlatStorageError> {
         Err(FlatStorageError::StorageInternalError)
     }
 
