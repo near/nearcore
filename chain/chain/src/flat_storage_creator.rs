@@ -10,7 +10,6 @@
 //! `Ready`: flat storage is created and it is up-to-date.
 
 use crate::{ChainStore, ChainStoreAccess, RuntimeWithEpochManagerAdapter};
-#[cfg(feature = "protocol_feature_flat_state")]
 use assert_matches::assert_matches;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use near_chain_primitives::Error;
@@ -19,37 +18,25 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::ValueRef;
 use near_primitives::state_part::PartId;
 use near_primitives::types::{AccountId, BlockHeight, ShardId, StateRoot};
-use near_store::flat::FlatStorageCreationStatus;
-#[cfg(feature = "protocol_feature_flat_state")]
 use near_store::flat::{
-    store_helper, FetchingStateStatus, FlatStateDelta, NUM_PARTS_IN_ONE_STEP,
-    STATE_PART_MEMORY_LIMIT,
+    store_helper, FetchingStateStatus, FlatStateDelta, FlatStorageCreationStatus,
+    NUM_PARTS_IN_ONE_STEP, STATE_PART_MEMORY_LIMIT,
 };
 use near_store::migrations::BatchedStoreUpdate;
-#[cfg(feature = "protocol_feature_flat_state")]
-use near_store::DBCol;
 use near_store::{Store, FLAT_STORAGE_HEAD_HEIGHT};
 use near_store::{Trie, TrieDBStorage, TrieTraversalItem};
 use std::collections::HashMap;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
-use tracing::debug;
-#[cfg(feature = "protocol_feature_flat_state")]
-use tracing::info;
+use tracing::{debug, info};
 
 /// Metrics reporting about flat storage creation progress on each status update.
 struct FlatStorageCreationMetrics {
-    #[allow(unused)]
     status: IntGauge,
-    #[allow(unused)]
     flat_head_height: IntGauge,
-    #[allow(unused)]
     remaining_state_parts: IntGauge,
-    #[allow(unused)]
     fetched_state_parts: IntCounter,
-    #[allow(unused)]
     fetched_state_items: IntCounter,
-    #[allow(unused)]
     threads_used: IntGauge,
 }
 
@@ -57,30 +44,22 @@ struct FlatStorageCreationMetrics {
 /// This struct is responsible for this process for the given shard.
 /// See doc comment on [`FlatStorageCreationStatus`] for the details of the process.
 pub struct FlatStorageShardCreator {
-    #[allow(unused)]
     shard_id: ShardId,
     /// Height on top of which this struct was created.
-    #[allow(unused)]
     start_height: BlockHeight,
-    #[allow(unused)]
     runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
     /// Tracks number of state parts which are not fetched yet during a single step.
     /// Stores Some(parts) if threads for fetching state were spawned and None otherwise.
-    #[allow(unused)]
     remaining_state_parts: Option<u64>,
     /// Used by threads which traverse state parts to tell that traversal is finished.
-    #[allow(unused)]
     fetched_parts_sender: Sender<u64>,
     /// Used by main thread to update the number of traversed state parts.
-    #[allow(unused)]
     fetched_parts_receiver: Receiver<u64>,
-    #[allow(unused)]
     metrics: FlatStorageCreationMetrics,
 }
 
 impl FlatStorageShardCreator {
     /// Maximal number of blocks which can be caught up during one step.
-    #[cfg(feature = "protocol_feature_flat_state")]
     const CATCH_UP_BLOCKS: usize = 50;
 
     pub fn new(
@@ -132,7 +111,6 @@ impl FlatStorageShardCreator {
     }
 
     /// Fetch state part, write all state items to flat storage and send the number of items to the given channel.
-    #[allow(unused)]
     fn fetch_state_part(
         store: Store,
         shard_uid: ShardUId,
@@ -159,12 +137,9 @@ impl FlatStorageShardCreator {
                 Some(key) => {
                     let value = trie.storage.retrieve_raw_bytes(&hash).unwrap();
                     let value_ref = ValueRef::new(&value);
-                    #[cfg(feature = "protocol_feature_flat_state")]
                     store_update
-                        .set_ser(DBCol::FlatState, &key, &value_ref)
+                        .set_ser(store_helper::FlatStateColumn::State.to_db_col(), &key, &value_ref)
                         .expect("Failed to put value in FlatState");
-                    #[cfg(not(feature = "protocol_feature_flat_state"))]
-                    let (_, _) = (key, value_ref);
 
                     num_items += 1;
                 }
@@ -186,7 +161,6 @@ impl FlatStorageShardCreator {
     /// Checks current flat storage creation status, execute work related to it and possibly switch to next status.
     /// Creates flat storage when all intermediate steps are finished.
     /// Returns boolean indicating if flat storage was created.
-    #[cfg(feature = "protocol_feature_flat_state")]
     pub fn update_status(
         &mut self,
         chain_store: &ChainStore,
@@ -474,23 +448,14 @@ impl FlatStorageCreator {
 
     /// Updates statuses of underlying flat storage creation processes. Returns boolean
     /// indicating if all flat storages are created.
-    pub fn update_status(
-        &mut self,
-        #[allow(unused)] chain_store: &ChainStore,
-    ) -> Result<bool, Error> {
+    pub fn update_status(&mut self, chain_store: &ChainStore) -> Result<bool, Error> {
         // TODO (#7327): If resharding happens, we may want to throw an error here.
         // TODO (#7327): If flat storage is created, the creator probably should be removed.
 
-        #[cfg(feature = "protocol_feature_flat_state")]
-        {
-            let mut all_created = true;
-            for shard_creator in self.shard_creators.values_mut() {
-                all_created &= shard_creator.update_status(chain_store, &self.pool)?;
-            }
-            Ok(all_created)
+        let mut all_created = true;
+        for shard_creator in self.shard_creators.values_mut() {
+            all_created &= shard_creator.update_status(chain_store, &self.pool)?;
         }
-
-        #[cfg(not(feature = "protocol_feature_flat_state"))]
-        Ok(true)
+        Ok(all_created)
     }
 }
