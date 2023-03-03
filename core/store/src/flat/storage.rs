@@ -11,6 +11,7 @@ use near_primitives::types::{BlockHeight, ShardId};
 #[cfg(feature = "protocol_feature_flat_state")]
 use tracing::info;
 
+use crate::flat::delta::CachedFlatStateDelta;
 use crate::{metrics, Store, StoreUpdate};
 
 use super::delta::FlatStateDelta;
@@ -51,10 +52,10 @@ pub(crate) struct FlatStorageInner {
     /// paths between the root block and a target block
     #[allow(unused)]
     blocks: HashMap<CryptoHash, BlockInfo>,
-    /// State deltas for all blocks supported by this flat storage.
-    /// All these deltas here are stored on disk too.
+    /// Cached deltas for all blocks supported by this flat storage.
+    /// Uncompressed deltas are stored on DB too, but are cached here for faster access.
     #[allow(unused)]
-    deltas: HashMap<CryptoHash, Arc<FlatStateDelta>>,
+    deltas: HashMap<CryptoHash, Arc<CachedFlatStateDelta>>,
     /// Cache for the mapping from trie storage keys to value refs for `flat_head`.
     /// Must be equivalent to the mapping stored on disk only for `flat_head`. For
     /// other blocks, deltas have to be applied as usual.
@@ -89,7 +90,10 @@ impl FlatStorageInner {
     }
 
     /// Gets delta for the given block and shard `self.shard_id`.
-    fn get_delta(&self, block_hash: &CryptoHash) -> Result<Arc<FlatStateDelta>, FlatStorageError> {
+    fn get_delta(
+        &self,
+        block_hash: &CryptoHash,
+    ) -> Result<Arc<CachedFlatStateDelta>, FlatStorageError> {
         // TODO (#7327): add limitation on cached deltas number to limit RAM usage
         // and read single `ValueRef` from delta if it is not cached.
         Ok(self
@@ -220,15 +224,16 @@ impl FlatStorage {
                 );
                 blocks.insert(hash, block_info);
                 metrics.cached_blocks.inc();
-                let delta = store_helper::get_delta(&store, shard_id, hash)
+                let delta: CachedFlatStateDelta = store_helper::get_delta(&store, shard_id, hash)
                     .expect("Borsh cannot fail")
                     .unwrap_or_else(|| {
                         panic!("Cannot find block delta for block {:?} shard {}", hash, shard_id)
-                    });
+                    })
+                    .into();
                 metrics.cached_deltas.inc();
                 metrics.cached_deltas_num_items.add(delta.len() as i64);
                 metrics.cached_deltas_size.add(delta.total_size() as i64);
-                deltas.insert(hash, delta);
+                deltas.insert(hash, Arc::new(delta));
             }
         }
 
@@ -312,7 +317,9 @@ impl FlatStorage {
         let blocks = guard.get_blocks_to_head(new_head)?;
         for block in blocks.into_iter().rev() {
             let mut store_update = StoreUpdate::new(guard.store.storage.clone());
-            let delta = guard.get_delta(&block)?.as_ref().clone();
+            // We unwrap here because flat storage is locked and we could retrieve path from old to new head, so delta
+            // must exist.
+            let delta = store_helper::get_delta(&guard.store, guard.shard_id, block)?.unwrap();
             for (key, value) in delta.0.iter() {
                 guard.put_value_ref_to_cache(key.clone(), value.clone());
             }
@@ -402,10 +409,11 @@ impl FlatStorage {
         }
         let mut store_update = StoreUpdate::new(guard.store.storage.clone());
         store_helper::set_delta(&mut store_update, guard.shard_id, block_hash.clone(), &delta)?;
+        let cached_delta: CachedFlatStateDelta = delta.into();
         guard.metrics.cached_deltas.inc();
-        guard.metrics.cached_deltas_num_items.add(delta.len() as i64);
-        guard.metrics.cached_deltas_size.add(delta.total_size() as i64);
-        guard.deltas.insert(*block_hash, Arc::new(delta));
+        guard.metrics.cached_deltas_num_items.add(cached_delta.len() as i64);
+        guard.metrics.cached_deltas_size.add(cached_delta.total_size() as i64);
+        guard.deltas.insert(*block_hash, Arc::new(cached_delta));
         guard.blocks.insert(*block_hash, block);
         guard.metrics.cached_blocks.inc();
         Ok(store_update)
@@ -674,7 +682,7 @@ mod tests {
             (vec![4], None),
             (vec![5], Some(ValueRef::new(&[9]))),
         ]);
-        delta.merge(&delta_new);
+        delta.merge(delta_new);
 
         assert_eq!(delta.get(&[1]), Some(Some(ValueRef::new(&[4]))));
         assert_eq!(delta.get(&[2]), Some(Some(ValueRef::new(&[7]))));
