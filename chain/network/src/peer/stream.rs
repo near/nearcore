@@ -78,7 +78,7 @@ where
         let (queue_send, queue_recv) = tokio::sync::mpsc::unbounded_channel();
         let send_buf_size_metric = Arc::new(metrics::MetricGuard::new(
             &*metrics::PEER_DATA_WRITE_BUFFER_SIZE,
-            vec![stream.peer_addr.to_string()],
+            vec![stream.info.peer_addr.to_string()],
         ));
         ctx.spawn(wrap_future({
             let addr = ctx.address();
@@ -95,7 +95,7 @@ where
             let stats = stats.clone();
             async move {
                 if let Err(err) =
-                    Self::run_recv_loop(stream.peer_addr, tcp_recv, addr.clone(), stats).await
+                    Self::run_recv_loop(stream.info.peer_addr, tcp_recv, addr.clone(), stats).await
                 {
                     addr.do_send(Error::Recv(err));
                 }
