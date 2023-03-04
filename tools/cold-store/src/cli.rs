@@ -46,7 +46,11 @@ enum SubCommand {
     /// - config.cold_store.path points to an existing database with kind Cold
     /// - store_relative_path points to an existing database with kind Rpc
     PrepareHot(PrepareHotCmd),
-    /// Traverse trie from state_root at given height and check that every node is in cold db.
+    /// Traverse trie and check that every node is in cold db.
+    /// Can start from given state_root or compute previous roots for every chunk in provided block
+    /// and use them as starting point.
+    /// You can provide maximum depth and/or maximum number of vertices to traverse for each root.
+    /// Trie is traversed using DFS with randomly shuffled kids for every node.
     CheckStateRoot(CheckStateRootCmd),
 }
 
@@ -444,6 +448,7 @@ impl PruneState {
         Self { depth: 0, count: 0 }
     }
 
+    /// Return `true` if node should be pruned.
     pub fn should_prune(&self, condition: &PruneCondition) -> bool {
         if let Some(md) = condition.max_depth {
             if self.depth > md {
@@ -458,11 +463,15 @@ impl PruneState {
         false
     }
 
+    /// Modify self to reflect going down a tree.
+    /// We increment node count, because we are visiting a new node.
     pub fn down(&mut self) {
         self.count += 1;
         self.depth += 1;
     }
 
+    /// Modify self to reflect going up a tree.
+    /// We do not change node count, because we already visited parent node before.
     pub fn up(&mut self) {
         self.depth -= 1;
     }
@@ -470,18 +479,20 @@ impl PruneState {
 
 #[derive(clap::Args)]
 struct CheckStateRootCmd {
-    #[clap(subcommand)]
-    hash_from: HeightOrHash,
     #[clap(long)]
     max_depth: Option<u8>,
     #[clap(long)]
     max_count: Option<u64>,
+    #[clap(subcommand)]
+    hash_from: HeightOrHash,
 }
 
 impl CheckStateRootCmd {
     pub fn run(self, storage: &NodeStorage) -> anyhow::Result<()> {
         let cold_store = storage.get_cold_store().expect("Cold storage is not configured");
+
         let hashes = match self.hash_from {
+            // If height is provided, calculate previous state roots for this block's chunks.
             HeightOrHash::Height { height } => {
                 let hash_key = {
                     let height_key = height.to_le_bytes();
@@ -493,7 +504,7 @@ impl CheckStateRootCmd {
                         .to_vec()
                 };
                 let block = cold_store
-                    .get_ser::<near_primitives::block::Block>(DBCol::Block, hash_key.as_ref())
+                    .get_ser::<near_primitives::block::Block>(DBCol::Block, &hash_key)
                     .unwrap()
                     .unwrap();
                 block
@@ -512,6 +523,7 @@ impl CheckStateRootCmd {
                     })
                     .collect()
             }
+            // If state root is provided, then just use it.
             HeightOrHash::StateRoot { state_root } => {
                 vec![state_root]
             }
@@ -528,6 +540,7 @@ impl CheckStateRootCmd {
         Ok(())
     }
 
+    /// Check that trie subtree of `hash` is fully present in `store`.
     fn check_trie(
         store: &Store,
         hash: &CryptoHash,
@@ -546,26 +559,33 @@ impl CheckStateRootCmd {
         match near_store::RawTrieNodeWithSize::decode(&bytes) {
             Ok(node) => match node.node {
                 near_store::RawTrieNode::Leaf(..) => {
+                    tracing::debug!(target: "check_trie", "Reached leaf node");
                     return Ok(());
                 }
-                near_store::RawTrieNode::Branch(mut children, _optional_value) => {
+                near_store::RawTrieNode::Branch(mut children, _) => {
                     children.shuffle(&mut rand::thread_rng());
                     for child in children.iter() {
                         if let Some(child) = child {
+                            // Record in prune state that we are visiting a child node
                             prune_state.down();
+                            // Visit a child node
                             Self::check_trie(store, child, prune_state, prune_condition)?;
+                            // Record in prune state that we are returning from a child node
                             prune_state.up();
                         }
                     }
                 }
-                near_store::RawTrieNode::Extension(_key, child) => {
+                near_store::RawTrieNode::Extension(_, child) => {
+                    // Record in prune state that we are visiting a child node
                     prune_state.down();
+                    // Visit a child node
                     Self::check_trie(store, &child, prune_state, prune_condition)?;
+                    // Record in prune state that we are returning from a child node
                     prune_state.up();
                 }
             },
             Err(_) => {
-                // This is Value node. We've reached the leaf.
+                tracing::debug!(target: "check_trie", "Reached leaf node");
                 return Ok(());
             }
         }
@@ -576,6 +596,7 @@ impl CheckStateRootCmd {
         store: &'a Store,
         key: &'a [u8],
     ) -> std::io::Result<Option<near_store::db::DBSlice<'a>>> {
+        // As cold db strips shard_uid at the beginning of State key, we can add any 8 u8s as prefix.
         let cold_state_key = [&[1; 8], key.as_ref()].concat();
         store.get(DBCol::State, &cold_state_key)
     }
