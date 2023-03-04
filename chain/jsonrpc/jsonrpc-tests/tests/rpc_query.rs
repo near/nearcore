@@ -222,7 +222,7 @@ fn test_query_access_keys() {
         let query_response = client
             .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
                 block_reference: BlockReference::latest(),
-                request: QueryRequest::ViewAccessKeyList { account_id: "test".parse().unwrap() },
+                request: QueryRequest::ViewAccessKeyList { account_id: "test".parse().unwrap(), include_proof: true},
             })
             .await
             .unwrap();
@@ -285,9 +285,7 @@ fn test_query_access_key() {
             panic!("queried access keys, but received something else: {:?}", query_response.kind);
         };
         assert_eq!(access_key.nonce, 0);
-        if let None = access_key.proof {
-            panic!("queried to include proof, but received nothing");
-        }
+        assert_eq!(access_key.proof, None);
         assert_eq!(access_key.permission, AccessKeyPermission::FullAccess.into());
     });
 }
