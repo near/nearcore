@@ -179,7 +179,7 @@ pub struct ErrTerminated;
 
 pub trait ServiceTrait: Sized {
     type E: 'static + Send + Clone;
-    fn start(this: &ServiceScope<Self>);
+    fn start(_this: &ServiceScope<Self>) {}
 }
 
 /// A service is a subscope which doesn't keep the scope

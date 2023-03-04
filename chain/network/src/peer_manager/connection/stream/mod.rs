@@ -175,7 +175,7 @@ impl SharedFrameSender {
 
     /// Sends a frame over the TCP connection.
     /// If an error is returned, the message may or may not have been sent.
-    async fn send(this: &scope::ServiceScope<Self>, frame: Frame) -> Result<(), Error> {
+    async fn send(this: &scope::Service<Self>, frame: Frame) -> Result<(), Error> {
         // Guard which increments the usage of resources in the stats object.
         // The usage will be decremented back as soon as the guard is dropped.
         // If creating the guard fails, it means that resource quota has been exceeded.
@@ -187,7 +187,7 @@ impl SharedFrameSender {
         // This way, even if the context gets canceled, we send the full message anyway
         // (since this is a TCP stream, sending part of the message and then giving up would
         // invalidate the stream).
-        Ok(scope::spawn!(this, |this| async move {
+        Ok(scope::try_spawn!(this, |this| async move {
             let inner = stream.as_mut().ok_or(Error::StreamClosed)?;
             let res = ctx::run_with_timeout(RESPONSIVENESS_TIMEOUT, async {
                 // Stats guard is moved into the sending task, so that the background resource
@@ -206,7 +206,7 @@ impl SharedFrameSender {
                 stream.take();
             }
             res
-        })
+        })?
         .join()
         .await??)
     }
