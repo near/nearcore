@@ -104,7 +104,7 @@ impl FlatStorageInner {
             .get(flat_head)
             .expect(&format!("Inconsistent flat storage state for shard {shard_id}: head {flat_head} not found in cached blocks"));
 
-        let mut block_hash = target_block_hash.clone();
+        let mut block_hash = *target_block_hash;
         let mut blocks = vec![];
         while block_hash != *flat_head {
             let block_info = self
@@ -367,7 +367,7 @@ impl FlatStorage {
             return Err(guard.create_block_not_supported_error(block_hash));
         }
         let mut store_update = StoreUpdate::new(guard.store.storage.clone());
-        store_helper::set_delta(&mut store_update, guard.shard_id, block_hash.clone(), &delta)?;
+        store_helper::set_delta(&mut store_update, guard.shard_id, *block_hash, &delta)?;
         let cached_delta: CachedFlatStateDelta = delta.into();
         guard.metrics.cached_deltas.inc();
         guard.metrics.cached_deltas_num_items.add(cached_delta.len() as i64);

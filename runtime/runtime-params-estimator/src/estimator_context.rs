@@ -156,11 +156,7 @@ impl<'c> EstimatorContext<'c> {
 
         impl ChainAccessForFlatStorage for ChainAccess {
             fn get_block_info(&self, block_hash: &CryptoHash) -> BlockInfo {
-                BlockInfo {
-                    hash: block_hash.clone(),
-                    prev_hash: Default::default(),
-                    height: BLOCK_HEIGHT,
-                }
+                BlockInfo { hash: *block_hash, prev_hash: Default::default(), height: BLOCK_HEIGHT }
             }
 
             fn get_block_hashes_at_height(

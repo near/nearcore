@@ -190,11 +190,7 @@ impl FlatStorageShardCreator {
                             for hash in hashes {
                                 debug!(target: "store", %shard_id, %height, %hash, "Checking delta existence");
                                 assert_matches!(
-                                    store_helper::get_delta(
-                                        chain_store.store(),
-                                        shard_id,
-                                        hash.clone(),
-                                    ),
+                                    store_helper::get_delta(chain_store.store(), shard_id, *hash,),
                                     Ok(Some(_))
                                 );
                             }
@@ -206,9 +202,9 @@ impl FlatStorageShardCreator {
                     let store = self.runtime_adapter.store().clone();
                     let epoch_id = self.runtime_adapter.get_epoch_id(&block_hash)?;
                     let shard_uid = self.runtime_adapter.shard_id_to_uid(shard_id, &epoch_id)?;
-                    let trie_storage = TrieDBStorage::new(store.clone(), shard_uid);
+                    let trie_storage = TrieDBStorage::new(store, shard_uid);
                     let state_root =
-                        chain_store.get_chunk_extra(&block_hash, &shard_uid)?.state_root().clone();
+                        *chain_store.get_chunk_extra(&block_hash, &shard_uid)?.state_root();
                     let trie = Trie::new(Box::new(trie_storage), state_root, None);
                     let root_node = trie.retrieve_root_node().unwrap();
                     let num_state_parts =
@@ -240,16 +236,14 @@ impl FlatStorageShardCreator {
                 let next_start_part_id = num_parts.min(start_part_id + num_parts_in_step);
                 self.metrics.remaining_state_parts.set((num_parts - start_part_id) as i64);
 
-                match self.remaining_state_parts.clone() {
+                match self.remaining_state_parts {
                     None => {
                         // We need to spawn threads to fetch state parts and fill flat storage data.
                         let epoch_id = self.runtime_adapter.get_epoch_id(&block_hash)?;
                         let shard_uid =
                             self.runtime_adapter.shard_id_to_uid(shard_id, &epoch_id)?;
-                        let state_root = chain_store
-                            .get_chunk_extra(&block_hash, &shard_uid)?
-                            .state_root()
-                            .clone();
+                        let state_root =
+                            *chain_store.get_chunk_extra(&block_hash, &shard_uid)?.state_root();
                         let progress = Arc::new(std::sync::atomic::AtomicU64::new(0));
                         debug!(
                             target: "store", %shard_id, %block_hash, %start_part_id, %next_start_part_id, %num_parts,
@@ -258,7 +252,6 @@ impl FlatStorageShardCreator {
 
                         for part_id in start_part_id..next_start_part_id {
                             let inner_store = store.clone();
-                            let inner_state_root = state_root.clone();
                             let inner_progress = progress.clone();
                             let inner_sender = self.fetched_parts_sender.clone();
                             let inner_threads_used = self.metrics.threads_used.clone();
@@ -267,7 +260,7 @@ impl FlatStorageShardCreator {
                                 Self::fetch_state_part(
                                     inner_store,
                                     shard_uid,
-                                    inner_state_root,
+                                    state_root,
                                     PartId::new(part_id, num_parts),
                                     inner_progress,
                                     inner_sender,
@@ -324,7 +317,7 @@ impl FlatStorageShardCreator {
             }
             FlatStorageCreationStatus::CatchingUp(old_flat_head) => {
                 let store = self.runtime_adapter.store();
-                let mut flat_head = old_flat_head.clone();
+                let mut flat_head = *old_flat_head;
                 let chain_final_head = chain_store.final_head()?;
                 let mut merged_delta = FlatStateDelta::default();
 
