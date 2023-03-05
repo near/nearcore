@@ -106,7 +106,7 @@ impl TryFrom<&net::PeerMessage> for mem::PeerMessage {
     type Error = ParsePeerMessageError;
     fn try_from(x: &net::PeerMessage) -> Result<Self, Self::Error> {
         Ok(match x.clone() {
-            net::PeerMessage::Handshake(h) => mem::PeerMessage::Tier2Handshake((&h).into()),
+            net::PeerMessage::Handshake(h) => mem::PeerMessage::Handshake((tcp::Tier::T2,&h).into()),
             net::PeerMessage::HandshakeFailure(pi, hfr) => {
                 mem::PeerMessage::HandshakeFailure(pi, (&hfr).into())
             }

@@ -158,6 +158,7 @@ impl Drop for SendGuard {
         self.stats.messages_to_send.fetch_sub(1, Ordering::Relaxed);
         self.stats.bytes_to_send.fetch_sub(self.frame_size as u64, Ordering::Relaxed);
         self.stats.sent_bytes.lock().unwrap().observe(self.frame_size as u64);
+        metrics::PEER_DATA_SENT_BYTES.inc_by(frame_size as u64);
     }
 }
 

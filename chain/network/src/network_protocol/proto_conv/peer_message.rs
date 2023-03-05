@@ -83,8 +83,10 @@ impl From<&PeerMessage> for proto::PeerMessage {
     fn from(x: &PeerMessage) -> Self {
         Self {
             message_type: Some(match x {
-                PeerMessage::Tier1Handshake(h) => ProtoMT::Tier1Handshake(h.into()),
-                PeerMessage::Tier2Handshake(h) => ProtoMT::Tier2Handshake(h.into()),
+                PeerMessage::Handshake(h) => match h.tier {
+                    tcp::Tier::T1 => ProtoMT::Tier1Handshake(h.into()),
+                    tcp::Tier::T2 => ProtoMT::Tier2Handshake(h.into()),
+                }
                 PeerMessage::HandshakeFailure(pi, hfr) => {
                     ProtoMT::HandshakeFailure((pi, hfr).into())
                 }
@@ -208,10 +210,10 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
     fn try_from(x: &proto::PeerMessage) -> Result<Self, Self::Error> {
         Ok(match x.message_type.as_ref().ok_or(Self::Error::Empty)? {
             ProtoMT::Tier1Handshake(h) => {
-                PeerMessage::Tier1Handshake(h.try_into().map_err(Self::Error::Handshake)?)
+                PeerMessage::Handshake((tcp::Tier::T1,h).try_into().map_err(Self::Error::Handshake)?)
             }
             ProtoMT::Tier2Handshake(h) => {
-                PeerMessage::Tier2Handshake(h.try_into().map_err(Self::Error::Handshake)?)
+                PeerMessage::Handshake((tcp::Tier::T2,h).try_into().map_err(Self::Error::Handshake)?)
             }
             ProtoMT::HandshakeFailure(hf) => {
                 let (pi, hfr) = hf.try_into().map_err(Self::Error::HandshakeFailure)?;

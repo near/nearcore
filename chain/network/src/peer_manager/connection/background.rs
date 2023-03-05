@@ -80,10 +80,14 @@ pub struct HandshakeCompletedEvent {
 pub(crate) HandshakeError {
     #[error("too many inbound connections in connecting state")]
     TooManyInbound,
-    #[error("stream error")]
-    StreamError,
     #[error("outbound not allowed: {0}")]
-    OutboundNotAllowed(connection::PoolError),
+    OutboundNotAllowed(#[from] connection::PoolError),
+    
+    #[error(transparent)]
+    Canceled(#[from] ctx::ErrCanceled),
+    #[error(transparent)]
+    StreamError(#[from] stream::Error),
+    
     #[error("rejected by PeerManager: {0:?}")]
     RejectedByPeerManager(RegisterPeerError),
     #[error("Peer clock skew exceeded {MAX_CLOCK_SKEW}")]
@@ -153,7 +157,6 @@ impl Connection {
         let bytes_len = bytes.len();
         tracing::trace!(target: "network", msg_len = bytes_len);
         self.stream.send(stream::Frame(bytes))?;
-        metrics::PEER_DATA_SENT_BYTES.inc_by(bytes_len as u64);
         metrics::PEER_MESSAGE_SENT_BY_TYPE_TOTAL.with_label_values(&[msg_type]).inc();
         metrics::PEER_MESSAGE_SENT_BY_TYPE_BYTES
             .with_label_values(&[msg_type])
@@ -643,7 +646,6 @@ impl actix::Actor for PeerActor {
     type Context = actix::Context<PeerActor>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
-        metrics::PEER_CONNECTIONS_TOTAL.inc();
         tracing::debug!(target: "network", "{:?}: Peer {:?} {:?} started", self.my_node_info.id, self.peer_addr, self.peer_type);
         // Set Handshake timeout for stopping actor if peer is not ready after given period of time.
 

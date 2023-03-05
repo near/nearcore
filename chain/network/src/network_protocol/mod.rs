@@ -293,6 +293,8 @@ impl RoutingTableUpdate {
 pub struct Handshake {
     /// Current protocol version.
     pub(crate) protocol_version: u32,
+    /// Tier of the connection.
+    pub(crate) tier: tcp::Tier,
     /// Oldest supported protocol version.
     pub(crate) oldest_supported_version: u32,
     /// Sender's peer id.
@@ -307,6 +309,57 @@ pub struct Handshake {
     pub(crate) partial_edge_info: PartialEdgeInfo,
     /// Account owned by the sender.
     pub(crate) owned_account: Option<SignedOwnedAccount>,
+}
+
+impl Handshake {
+    fn verify(&self) -> Result<(),HandshakeError> {
+        verify_nonce(h.partial_edge_info.nonce)?;
+        if let Some(owned_account) = &self.owned_account {
+            if owned_account.peer_id != self.sender_peer_id {
+                return Err(HandshakeError::OwnedAccountMismatch);
+            }
+            if (owned_account.timestamp - ctx::time::now_utc()).abs() >= MAX_CLOCK_SKEW {
+                return Err(HandshakeError::TooLargeClockSkew);
+            }
+            if Err(_) = owned_account.payload().verify(&owned_account.account_key) {
+                return Err(HandshakeError::OwnedAccountInvalidSignature);
+            }
+        }
+    }
+
+    fn verify_pair(req: &Self, resp: &Self) -> Result<Edge,HandshakeError> {
+        if resp.protocol_version != req.protocol_version {
+            return Err(HandshakeError::ProtocolVersionMismatch);
+        }
+        if resp.sender_chain_info.genesis_id != req.sender_chain_info.genesis_id {
+            return Err(HandshakeError::GenesisMismatch);
+        }
+        if resp.sender_peer_id != req.target_peer_id || req.sender_peer_id != resp.target_peer_id {
+            return Err(HandshakeError::TargetMismatch);
+        }
+        // This can happen only in case of a malicious node.
+        // Outbound peer requests a connection of a given TIER, the inbound peer can just
+        // confirm the TIER or drop connection. TIER is not negotiable during handshake.
+        if resp.tier != req.tier {
+            return Err(HandshakeError::TierMismatch);
+        }
+        // Verify if nonce is sane.
+        req.verify()?;
+        resp.verify()?;
+        
+        // Merge partial edges.
+        let edge = Edge::new(
+            req.sender_peer_id.clone(),
+            resp.sender_peer_id.clone(),
+            req.partial_edge_info.nonce,
+            req.partial_edge_info.signature.clone(),
+            resp.partial_edge_info.signature.clone(),
+        );
+        if !edge.verify() {
+            return Err(HandshakeError::InvalidEdge);
+        }
+        Ok(edge)
+    }
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, strum::IntoStaticStr)]

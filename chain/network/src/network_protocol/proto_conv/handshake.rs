@@ -95,10 +95,11 @@ impl From<&Handshake> for proto::Handshake {
     }
 }
 
-impl TryFrom<&proto::Handshake> for Handshake {
+impl TryFrom<(tcp::Tier,&proto::Handshake)> for Handshake {
     type Error = ParseHandshakeError;
-    fn try_from(p: &proto::Handshake) -> Result<Self, Self::Error> {
+    fn try_from((tier,p): (tcp::Tier,&proto::Handshake)) -> Result<Self, Self::Error> {
         Ok(Self {
+            tier,
             protocol_version: p.protocol_version,
             oldest_supported_version: p.oldest_supported_version,
             sender_peer_id: try_from_required(&p.sender_peer_id)
