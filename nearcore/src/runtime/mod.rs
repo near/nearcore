@@ -1374,8 +1374,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, epoch_id)?;
         let mut store_update = tries.store_update();
         tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-        debug!(target: "chain", %shard_id, "Inserting {} values to flat storage", flat_state_delta.len());
-        flat_state_delta.apply_to_flat_state(&mut store_update);
+        if cfg!(feature = "protocol_feature_flat_state") {
+            debug!(target: "chain", %shard_id, "Inserting {} values to flat storage", flat_state_delta.len());
+            flat_state_delta.apply_to_flat_state(&mut store_update);
+        }
         self.precompile_contracts(epoch_id, contract_codes)?;
         Ok(store_update.commit()?)
     }
