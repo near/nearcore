@@ -1,5 +1,6 @@
 use crate::concurrency::ctx;
 use crate::stats::metrics;
+use crate::tcp;
 use bytesize::{GIB, MIB};
 use near_primitives::time;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -77,6 +78,7 @@ impl WindowMetric {
 }
 
 pub(crate) struct Stats {
+    pub info: tcp::StreamInfo,
     /// Number of messages received since the last reset of the counter.
     pub received_messages: Arc<Mutex<WindowMetric>>,
     /// Avg received bytes/s, based on the last few minutes of traffic.
@@ -96,9 +98,10 @@ pub(crate) struct Stats {
 }
 
 impl Stats {
-    pub fn new(peer_addr: &std::net::SocketAddr) -> Self {
-        let labels = vec![peer_addr.to_string()];
+    pub fn new(info: tcp::StreamInfo) -> Self {
+        let labels = vec![info.peer_addr.to_string()];
         Self {
+            info,
             received_messages: Arc::new(Mutex::new(WindowMetric::new(
                 10,
                 time::Duration::minutes(1),
@@ -178,7 +181,7 @@ impl RecvGuard {
 }
 
 impl Drop for RecvGuard {
-    fn drop(&mut self) { 
+    fn drop(&mut self) {
         self.stats.recv_buf_size_metric.set(0);
         self.stats.recv_msg_size_metric.observe(self.frame_size as f64);
         self.stats.received_messages.lock().unwrap().observe(1);

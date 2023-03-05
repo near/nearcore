@@ -150,9 +150,10 @@ impl<E: 'static + Send> TerminateGuard<E> {
     }
 
     /// Spawns a new service in the scope.
-    pub fn new_service<S:ServiceTrait>(self: Arc<Self>, s:S) -> Service<S> {
+    pub fn new_service<S: ServiceTrait>(self: Arc<Self>, s: S) -> Service<S> {
         let sub = Arc::new(TerminateGuard::new(&self.0.ctx));
-        let service = Service(s, Arc::downgrade(&sub), sub.0.clone());
+        let service = ServiceScope(Arc::new(s), sub.clone());
+        S::start(&service);
         // Spawn a guard task in `self` scope, so that it is not terminated
         // before `sub` scope is.
         TerminateGuard::spawn(self, async move {
@@ -164,7 +165,7 @@ impl<E: 'static + Send> TerminateGuard<E> {
             sub_inner.terminated.recv().await;
             Ok(())
         });
-        service
+        Service(service.0, Arc::downgrade(&service.1), service.1 .0.clone())
     }
 }
 
@@ -176,8 +177,14 @@ impl<E: 'static + Send> TerminateGuard<E> {
 #[error("service has been terminated")]
 pub struct ErrTerminated;
 
+<<<<<<< HEAD
 pub trait ServiceTrait {
     type E : 'static + Send + Clone;
+=======
+pub trait ServiceTrait: Sized {
+    type E: 'static + Send + Clone;
+    fn start(_this: &ServiceScope<Self>) {}
+>>>>>>> gprusak-sc-stream
 }
 
 /// A service is a subscope which doesn't keep the scope
@@ -191,6 +198,7 @@ pub trait ServiceTrait {
 /// Service is NOT cancelled just when all tasks within the service complete - in particular
 /// a newly started service has no tasks.
 /// Service is terminated when it is cancelled AND all tasks within the service complete.
+<<<<<<< HEAD
 pub struct Service<S:ServiceTrait>(Arc<S>,Weak<TerminateGuard<S::E>>, Arc<Inner<S::E>>);
 
 impl<S:ServiceTrait> Clone for Service<S> {
@@ -230,14 +238,86 @@ macro_rules! try_spawn {
     ($x:expr, $f:expr) => {{
         fn apply<A,R>(a:A, f:impl FnOnce(A) -> R) -> R { f(a) }
         $crate::concurrency::scope::service_internal::try_spawn($x, |x| async { let x = x; apply(&x, $f).await }.boxed())
+=======
+pub struct Service<S: ServiceTrait>(Arc<S>, Weak<TerminateGuard<S::E>>, Arc<Inner<S::E>>);
+
+impl<S: ServiceTrait> Clone for Service<S> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone(), self.1.clone(), self.2.clone())
+    }
+}
+
+impl<S: ServiceTrait> std::ops::Deref for Service<S> {
+    type Target = S;
+    fn deref(&self) -> &Self::Target {
+        self.0.as_ref()
+    }
+}
+
+pub struct ServiceScope<S: ServiceTrait>(Arc<S>, Arc<TerminateGuard<S::E>>);
+
+impl<S: ServiceTrait> std::ops::Deref for ServiceScope<S> {
+    type Target = S;
+    fn deref(&self) -> &Self::Target {
+        self.0.as_ref()
+    }
+}
+
+#[doc(hidden)]
+pub mod service_internal {
+    use super::*;
+
+    pub fn try_spawn<S: ServiceTrait, T: 'static + Send>(
+        s: &Service<S>,
+        f: impl FnOnce(ServiceScope<S>) -> BoxFuture<'static, Result<T, S::E>>,
+    ) -> Result<JoinHandle<'static, T, S::E>, ErrTerminated> {
+        s.1.upgrade().map(|g| spawn(&ServiceScope(s.0.clone(), g), f)).ok_or(ErrTerminated)
+    }
+
+    pub fn spawn<S: ServiceTrait, T: 'static + Send>(
+        s: &ServiceScope<S>,
+        f: impl FnOnce(ServiceScope<S>) -> BoxFuture<'static, Result<T, S::E>>,
+    ) -> JoinHandle<'static, T, S::E> {
+        JoinHandle(
+            TerminateGuard::spawn(s.1.clone(), f(ServiceScope(s.0.clone(), s.1.clone()))),
+            std::marker::PhantomData,
+        )
+    }
+}
+
+#[macro_export]
+macro_rules! try_spawn {
+    ($x:expr, $f:expr) => {{
+        fn apply<A, R>(a: A, f: impl FnOnce(A) -> R) -> R {
+            f(a)
+        }
+        $crate::concurrency::scope::service_internal::try_spawn($x, |x| {
+            Box::pin(async {
+                let x = x;
+                apply(&x, $f).await
+            })
+        })
+>>>>>>> gprusak-sc-stream
     }};
 }
 
 #[macro_export]
 macro_rules! spawn {
     ($x:expr, $f:expr) => {{
+<<<<<<< HEAD
         fn apply<A,R>(a:A, f:impl FnOnce(A) -> R) -> R { f(a) }
         $crate::concurrency::scope::service_internal::spawn($x, |x| async { let x = x; apply(&x, $f).await }.boxed())
+=======
+        fn apply<A, R>(a: A, f: impl FnOnce(A) -> R) -> R {
+            f(a)
+        }
+        $crate::concurrency::scope::service_internal::spawn($x, |x| {
+            Box::pin(async {
+                let x = x;
+                apply(&x, $f).await
+            })
+        })
+>>>>>>> gprusak-sc-stream
     }};
 }
 
@@ -251,7 +331,13 @@ impl<S: ServiceTrait> Service<S> {
     }
 
     /// Cancels the service, then awaits its termination.
+<<<<<<< HEAD
     pub fn terminate(&self) { self.2.ctx.cancel(); }
+=======
+    pub fn terminate(&self) {
+        self.2.ctx.cancel();
+    }
+>>>>>>> gprusak-sc-stream
 
     /// Awaits termination of the service and returns the service error (if any).
     pub async fn terminated(&self) -> ctx::OrCanceled<Result<(), S::E>> {
@@ -270,7 +356,11 @@ impl<S: ServiceTrait> ServiceScope<S> {
     /// Spawns a subservice.
     ///
     /// Returns ErrTerminated if the service has already terminated.
+<<<<<<< HEAD
     pub fn new_service<S2:ServiceTrait>(&self, s2:S2) -> Service<S2> {
+=======
+    pub fn new_service<S2: ServiceTrait>(&self, s2: S2) -> Service<S2> {
+>>>>>>> gprusak-sc-stream
         self.1.clone().new_service(s2)
     }
 }
@@ -389,7 +479,11 @@ impl<'env, E: 'static + Send> Scope<'env, E> {
     /// Spawns a service.
     ///
     /// Returns a handle to the service, which allows spawning new tasks within the service.
+<<<<<<< HEAD
     pub fn new_service<S:ServiceTrait>(&self, s:S) -> Service<S> {
+=======
+    pub fn new_service<S: ServiceTrait>(&self, s: S) -> Service<S> {
+>>>>>>> gprusak-sc-stream
         self.1.upgrade().unwrap().new_service(s)
     }
 }

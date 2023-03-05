@@ -34,7 +34,7 @@ pub(crate) enum StreamType {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct StreamInfo {
+pub struct StreamInfo {
     pub(crate) type_: StreamType,
     /// Cached stream.local_addr().
     pub(crate) local_addr: std::net::SocketAddr,
@@ -50,7 +50,9 @@ pub struct Stream {
 
 impl std::ops::Deref for Stream {
     type Target = StreamInfo;
-    fn deref(&self) -> &Self::Target { &self.info }
+    fn deref(&self) -> &Self::Target {
+        &self.info
+    }
 }
 
 /// TEST-ONLY. Used to identify events relevant to a specific TCP connection in unit tests.
@@ -89,7 +91,14 @@ impl Socket {
 
 impl Stream {
     fn new(stream: tokio::net::TcpStream, type_: StreamType) -> std::io::Result<Self> {
-        Ok(Self { peer_addr: stream.peer_addr()?, local_addr: stream.local_addr()?, stream, type_ })
+        Ok(Self {
+            info: StreamInfo {
+                peer_addr: stream.peer_addr()?,
+                local_addr: stream.local_addr()?,
+                type_,
+            },
+            stream,
+        })
     }
 
     pub async fn connect(peer_info: &PeerInfo, tier: Tier) -> anyhow::Result<Stream> {
