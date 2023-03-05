@@ -76,7 +76,7 @@ fn flat_head_key(shard_id: ShardId) -> Vec<u8> {
 }
 
 pub fn get_flat_head(store: &Store, shard_id: ShardId) -> Option<CryptoHash> {
-    if cfg!(feature = "protocol_feature_flat_state") {
+    if !cfg!(feature = "protocol_feature_flat_state") {
         return None;
     }
     store
