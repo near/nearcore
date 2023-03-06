@@ -22,6 +22,9 @@ const CATCHING_UP: u8 = 1;
 pub const FLAT_STATE_HEAD_KEY_PREFIX: &[u8; 4] = b"HEAD";
 pub const FLAT_STATE_CREATION_STATUS_KEY_PREFIX: &[u8; 6] = b"STATUS";
 
+/// This is needed to avoid `#[cfg(feature = "protocol_feature_flat_state")]`
+/// from `DBCol::FlatState*` cascading all over the code.
+/// Should be removed along with protocol_feature_flat_state feature.
 pub enum FlatStateColumn {
     State,
     Deltas,
