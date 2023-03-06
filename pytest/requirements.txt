@@ -15,4 +15,3 @@ scipy
 semver
 toml
 tqdm
-buildkite-test-collector
