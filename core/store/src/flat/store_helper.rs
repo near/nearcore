@@ -22,6 +22,28 @@ const CATCHING_UP: u8 = 1;
 pub const FLAT_STATE_HEAD_KEY_PREFIX: &[u8; 4] = b"HEAD";
 pub const FLAT_STATE_CREATION_STATUS_KEY_PREFIX: &[u8; 6] = b"STATUS";
 
+/// This is needed to avoid `#[cfg(feature = "protocol_feature_flat_state")]`
+/// from `DBCol::FlatState*` cascading all over the code.
+/// Should be removed along with protocol_feature_flat_state feature.
+pub enum FlatStateColumn {
+    State,
+    Deltas,
+    Misc,
+}
+
+impl FlatStateColumn {
+    pub const fn to_db_col(&self) -> crate::DBCol {
+        #[cfg(feature = "protocol_feature_flat_state")]
+        match self {
+            FlatStateColumn::State => crate::DBCol::FlatState,
+            FlatStateColumn::Deltas => crate::DBCol::FlatStateDeltas,
+            FlatStateColumn::Misc => crate::DBCol::FlatStateMisc,
+        }
+        #[cfg(not(feature = "protocol_feature_flat_state"))]
+        panic!("protocol_feature_flat_state feature is not enabled")
+    }
+}
+
 pub fn get_delta(
     store: &Store,
     shard_id: ShardId,
@@ -29,7 +51,7 @@ pub fn get_delta(
 ) -> Result<Option<FlatStateDelta>, FlatStorageError> {
     let key = KeyForFlatStateDelta { shard_id, block_hash };
     Ok(store
-        .get_ser::<FlatStateDelta>(crate::DBCol::FlatStateDeltas, &key.try_to_vec().unwrap())
+        .get_ser::<FlatStateDelta>(FlatStateColumn::Deltas.to_db_col(), &key.try_to_vec().unwrap())
         .map_err(|_| FlatStorageError::StorageInternalError)?)
 }
 
@@ -41,13 +63,13 @@ pub fn set_delta(
 ) -> Result<(), FlatStorageError> {
     let key = KeyForFlatStateDelta { shard_id, block_hash };
     store_update
-        .set_ser(crate::DBCol::FlatStateDeltas, &key.try_to_vec().unwrap(), delta)
+        .set_ser(FlatStateColumn::Deltas.to_db_col(), &key.try_to_vec().unwrap(), delta)
         .map_err(|_| FlatStorageError::StorageInternalError)
 }
 
 pub fn remove_delta(store_update: &mut StoreUpdate, shard_id: ShardId, block_hash: CryptoHash) {
     let key = KeyForFlatStateDelta { shard_id, block_hash };
-    store_update.delete(crate::DBCol::FlatStateDeltas, &key.try_to_vec().unwrap());
+    store_update.delete(FlatStateColumn::Deltas.to_db_col(), &key.try_to_vec().unwrap());
 }
 
 fn flat_head_key(shard_id: ShardId) -> Vec<u8> {
@@ -57,24 +79,27 @@ fn flat_head_key(shard_id: ShardId) -> Vec<u8> {
 }
 
 pub fn get_flat_head(store: &Store, shard_id: ShardId) -> Option<CryptoHash> {
+    if !cfg!(feature = "protocol_feature_flat_state") {
+        return None;
+    }
     store
-        .get_ser(crate::DBCol::FlatStateMisc, &flat_head_key(shard_id))
+        .get_ser(FlatStateColumn::Misc.to_db_col(), &flat_head_key(shard_id))
         .expect("Error reading flat head from storage")
 }
 
 pub fn set_flat_head(store_update: &mut StoreUpdate, shard_id: ShardId, val: &CryptoHash) {
     store_update
-        .set_ser(crate::DBCol::FlatStateMisc, &flat_head_key(shard_id), val)
+        .set_ser(FlatStateColumn::Misc.to_db_col(), &flat_head_key(shard_id), val)
         .expect("Error writing flat head from storage")
 }
 
 pub fn remove_flat_head(store_update: &mut StoreUpdate, shard_id: ShardId) {
-    store_update.delete(crate::DBCol::FlatStateMisc, &flat_head_key(shard_id));
+    store_update.delete(FlatStateColumn::Misc.to_db_col(), &flat_head_key(shard_id));
 }
 
 pub(crate) fn get_ref(store: &Store, key: &[u8]) -> Result<Option<ValueRef>, FlatStorageError> {
     let raw_ref = store
-        .get(crate::DBCol::FlatState, key)
+        .get(FlatStateColumn::State.to_db_col(), key)
         .map_err(|_| FlatStorageError::StorageInternalError)?;
     if let Some(raw_ref) = raw_ref {
         let bytes =
@@ -92,9 +117,9 @@ pub(crate) fn set_ref(
 ) -> Result<(), FlatStorageError> {
     match value {
         Some(value) => store_update
-            .set_ser(crate::DBCol::FlatState, &key, &value)
+            .set_ser(FlatStateColumn::State.to_db_col(), &key, &value)
             .map_err(|_| FlatStorageError::StorageInternalError),
-        None => Ok(store_update.delete(crate::DBCol::FlatState, &key)),
+        None => Ok(store_update.delete(FlatStateColumn::State.to_db_col(), &key)),
     }
 }
 
@@ -124,13 +149,17 @@ pub fn set_flat_storage_creation_status(
             panic!("Attempted to write incorrect flat storage creation status {status:?} for shard {shard_id}");
         }
     };
-    store_update.set(crate::DBCol::FlatStateMisc, &creation_status_key(shard_id), &value);
+    store_update.set(FlatStateColumn::Misc.to_db_col(), &creation_status_key(shard_id), &value);
 }
 
 pub fn get_flat_storage_creation_status(
     store: &Store,
     shard_id: ShardId,
 ) -> FlatStorageCreationStatus {
+    if !cfg!(feature = "protocol_feature_flat_state") {
+        return FlatStorageCreationStatus::DontCreate;
+    }
+
     match get_flat_head(store, shard_id) {
         Some(_) => {
             return FlatStorageCreationStatus::Ready;
@@ -139,7 +168,7 @@ pub fn get_flat_storage_creation_status(
     }
 
     let value = store
-        .get(crate::DBCol::FlatStateMisc, &creation_status_key(shard_id))
+        .get(FlatStateColumn::Misc.to_db_col(), &creation_status_key(shard_id))
         .expect("Error reading status from storage");
     match value {
         None => FlatStorageCreationStatus::SavingDeltas,
@@ -164,7 +193,7 @@ pub fn get_flat_storage_creation_status(
 }
 
 pub fn remove_flat_storage_creation_status(store_update: &mut StoreUpdate, shard_id: ShardId) {
-    store_update.delete(crate::DBCol::FlatStateMisc, &creation_status_key(shard_id));
+    store_update.delete(FlatStateColumn::Misc.to_db_col(), &creation_status_key(shard_id));
 }
 
 /// Iterate over flat storage entries for a given shard.
@@ -180,7 +209,11 @@ pub fn iter_flat_state_entries<'a>(
     to: Option<&'a Vec<u8>>,
 ) -> impl Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a {
     store
-        .iter_range(crate::DBCol::FlatState, from.map(|x| x.as_slice()), to.map(|x| x.as_slice()))
+        .iter_range(
+            FlatStateColumn::State.to_db_col(),
+            from.map(|x| x.as_slice()),
+            to.map(|x| x.as_slice()),
+        )
         .filter_map(move |result| {
             if let Ok((key, value)) = result {
                 // Currently all the data in flat storage is 'together' - so we have to parse the key,

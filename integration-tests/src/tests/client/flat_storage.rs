@@ -5,16 +5,12 @@ use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
-#[cfg(feature = "protocol_feature_flat_state")]
-use near_primitives::trie_key::TrieKey;
 use near_primitives::types::AccountId;
 use near_primitives_core::types::{BlockHeight, NumShards};
 use near_store::flat::{
     store_helper, FetchingStateStatus, FlatStorageCreationStatus, NUM_PARTS_IN_ONE_STEP,
 };
 use near_store::test_utils::create_test_store;
-#[cfg(feature = "protocol_feature_flat_state")]
-use near_store::DBCol;
 use near_store::{Store, TrieTraversalItem};
 use nearcore::config::GenesisExt;
 use std::path::Path;
@@ -316,14 +312,13 @@ fn test_flat_storage_creation_start_from_state_part() {
     assert!(!trie_keys[0].is_empty());
     assert!(!trie_keys[1].is_empty());
 
-    #[cfg(feature = "protocol_feature_flat_state")]
-    {
+    if cfg!(feature = "protocol_feature_flat_state") {
         // Remove keys of part 1 from the flat state.
         // Manually set flat storage creation status to the step when it should start from fetching part 1.
         let flat_head = store_helper::get_flat_head(&store, 0).unwrap();
         let mut store_update = store.store_update();
         for key in trie_keys[1].iter() {
-            store_update.delete(DBCol::FlatState, key);
+            store_update.delete(store_helper::FlatStateColumn::State.to_db_col(), key);
         }
         store_helper::remove_flat_head(&mut store_update, 0);
         store_helper::set_flat_storage_creation_status(
@@ -442,7 +437,11 @@ fn test_flat_storage_iter() {
                 // Two entries - one for account, the other for contract.
                 assert_eq!(2, items.len());
                 assert_eq!(
-                    TrieKey::Account { account_id: "test0".parse().unwrap() }.to_vec().as_slice(),
+                    near_primitives::trie_key::TrieKey::Account {
+                        account_id: "test0".parse().unwrap()
+                    }
+                    .to_vec()
+                    .as_slice(),
                     items.get(0).unwrap().0.as_ref()
                 );
             }
@@ -454,7 +453,11 @@ fn test_flat_storage_iter() {
                 assert_eq!(2, items.len());
                 // Two entries - one for 'near' system account, the other for the contract.
                 assert_eq!(
-                    TrieKey::Account { account_id: "near".parse().unwrap() }.to_vec().as_slice(),
+                    near_primitives::trie_key::TrieKey::Account {
+                        account_id: "near".parse().unwrap()
+                    }
+                    .to_vec()
+                    .as_slice(),
                     items.get(0).unwrap().0.as_ref()
                 );
             }

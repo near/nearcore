@@ -69,10 +69,7 @@ use near_primitives::views::{
     FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
     LightClientBlockView, SignedTransactionView,
 };
-#[cfg(feature = "protocol_feature_flat_state")]
-use near_store::flat::{store_helper, FlatStateDelta};
-use near_store::flat::{FlatStorageCreationStatus, FlatStorageError};
-#[cfg(feature = "protocol_feature_flat_state")]
+use near_store::flat::{store_helper, FlatStateDelta, FlatStorageCreationStatus, FlatStorageError};
 use near_store::StorageError;
 use near_store::{DBCol, ShardTries, StoreUpdate, WrappedTrieChanges};
 use once_cell::sync::OnceCell;
@@ -630,9 +627,13 @@ impl Chain {
                 // Set the root block of flat state to be the genesis block. Later, when we
                 // init FlatStorages, we will read the from this column in storage, so it
                 // must be set here.
-                let tmp_store_update = runtime_adapter
-                    .set_flat_storage_for_genesis(genesis.hash(), genesis.header().epoch_id())?;
-                store_update.merge(tmp_store_update);
+                if cfg!(feature = "protocol_feature_flat_state") {
+                    let tmp_store_update = runtime_adapter.set_flat_storage_for_genesis(
+                        genesis.hash(),
+                        genesis.header().epoch_id(),
+                    )?;
+                    store_update.merge(tmp_store_update);
+                }
 
                 info!(target: "chain", "Init: saved genesis: #{} {} / {:?}", block_head.height, block_head.last_block_hash, state_roots);
 
@@ -2130,7 +2131,6 @@ impl Chain {
             // TODO (#8250): come up with correct assertion. Currently it doesn't work because runtime may be
             // implemented by KeyValueRuntime which doesn't support flat storage, and flat storage background
             // creation may happen.
-            // #[cfg(feature = "protocol_feature_flat_state")]
             // debug_assert!(false, "Flat storage state for shard {shard_id} does not exist and its creation was not initiated");
         }
         Ok(())
@@ -3174,8 +3174,7 @@ impl Chain {
         // We synced shard state on top of _previous_ block for chunk in shard state header and applied state parts to
         // flat storage. Now we can set flat head to hash of this block and create flat storage.
         // TODO (#7327): ensure that no flat storage work is done for `KeyValueRuntime`.
-        #[cfg(feature = "protocol_feature_flat_state")]
-        {
+        if cfg!(feature = "protocol_feature_flat_state") {
             let mut store_update = self.runtime_adapter.store().store_update();
             store_helper::set_flat_head(&mut store_update, shard_id, block_hash);
             store_update.commit()?;
@@ -4899,7 +4898,6 @@ impl<'a> ChainUpdate<'a> {
         Ok(())
     }
 
-    #[allow(unused_variables)]
     fn save_flat_state_changes(
         &mut self,
         block_hash: CryptoHash,
@@ -4908,8 +4906,7 @@ impl<'a> ChainUpdate<'a> {
         shard_id: ShardId,
         trie_changes: &WrappedTrieChanges,
     ) -> Result<(), Error> {
-        #[cfg(feature = "protocol_feature_flat_state")]
-        {
+        if cfg!(feature = "protocol_feature_flat_state") {
             let delta = FlatStateDelta::from_state_changes(&trie_changes.state_changes());
 
             if let Some(chain_flat_storage) =
@@ -4926,7 +4923,7 @@ impl<'a> ChainUpdate<'a> {
                 // Otherwise, save delta to disk so it will be used for flat storage creation later.
                 info!(target: "chain", %shard_id, "Add delta for flat storage creation");
                 let mut store_update = self.chain_store_update.store().store_update();
-                store_helper::set_delta(&mut store_update, shard_id, block_hash.clone(), &delta)
+                store_helper::set_delta(&mut store_update, shard_id, block_hash, &delta)
                     .map_err(|e| StorageError::from(e))?;
                 self.chain_store_update.merge(store_update);
             }
