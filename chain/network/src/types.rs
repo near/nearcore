@@ -25,7 +25,7 @@ use std::sync::Arc;
 /// Exported types, which are part of network protocol.
 pub use crate::network_protocol::{
     Edge, PartialEdgeInfo, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
-    PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo, Ping, Pong, StateResponseInfo,
+    PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo, StateResponseInfo,
     StateResponseInfoV1, StateResponseInfoV2,
 };
 
@@ -142,8 +142,6 @@ pub struct ChainInfo {
     // The lastest block on chain.
     pub block: Block,
     // Public keys of accounts participating in the BFT consensus
-    // (both accounts from current and next epoch are important, that's why
-    // the map is indexed by (EpochId,AccountId) pair).
     // It currently includes "block producers", "chunk producers" and "approvers".
     // They are collectively known as "validators".
     // Peers acting on behalf of these accounts have a higher
@@ -155,10 +153,6 @@ pub struct ChainInfo {
 #[rtype(result = "()")]
 pub struct SetChainInfo(pub ChainInfo);
 
-#[derive(Debug, actix::Message)]
-#[rtype(result = "NetworkInfo")]
-pub struct GetNetworkInfo;
-
 /// Public actix interface of `PeerManagerActor`.
 #[derive(actix::Message, Debug, strum::IntoStaticStr)]
 #[rtype(result = "PeerManagerMessageResponse")]
@@ -168,16 +162,9 @@ pub enum PeerManagerMessageRequest {
     /// Used in tests and internally by PeerManager.
     /// TODO: replace it with AsyncContext::spawn/run_later for internal use.
     OutboundTcpConnect(crate::tcp::Stream),
-    /// TEST-ONLY
-    SetAdvOptions(crate::test_utils::SetAdvOptions),
     /// The following types of requests are used to trigger actions in the Peer Manager for testing.
     /// TEST-ONLY: Fetch current routing table.
     FetchRoutingTable,
-    /// TEST-ONLY Start ping to `PeerId` with `nonce`.
-    PingTo {
-        nonce: u64,
-        target: PeerId,
-    },
 }
 
 impl PeerManagerMessageRequest {
@@ -204,9 +191,7 @@ pub enum PeerManagerMessageResponse {
     NetworkResponses(NetworkResponses),
     /// TEST-ONLY
     OutboundTcpConnect,
-    SetAdvOptions,
     FetchRoutingTable(RoutingTableInfo),
-    PingTo,
 }
 
 impl PeerManagerMessageResponse {
@@ -214,7 +199,7 @@ impl PeerManagerMessageResponse {
         if let PeerManagerMessageResponse::NetworkResponses(item) = self {
             item
         } else {
-            panic!("expected PeerMessageRequest::NetworkResponses(");
+            panic!("expected PeerMessageRequest::NetworkResponses");
         }
     }
 }
@@ -380,20 +365,7 @@ pub struct NetworkInfo {
 #[derive(Debug, actix::MessageResponse, PartialEq, Eq)]
 pub enum NetworkResponses {
     NoResponse,
-    PingPongInfo { pings: Vec<Ping>, pongs: Vec<Pong> },
     RouteNotFound,
-}
-
-#[cfg(feature = "test_features")]
-#[derive(actix::Message, Debug)]
-#[rtype(result = "Option<u64>")]
-pub enum NetworkAdversarialMessage {
-    AdvProduceBlocks(u64, bool),
-    AdvSwitchToHeight(u64),
-    AdvDisableHeaderSync,
-    AdvDisableDoomslug,
-    AdvGetSavedBlocks,
-    AdvCheckStorageConsistency,
 }
 
 #[derive(Clone, derive_more::AsRef)]
@@ -445,8 +417,6 @@ mod tests {
         assert_size!(NetworkRequests);
         assert_size!(NetworkResponses);
         assert_size!(Handshake);
-        assert_size!(Ping);
-        assert_size!(Pong);
         assert_size!(RoutingTableUpdate);
         assert_size!(FullPeerInfo);
         assert_size!(NetworkInfo);
@@ -474,8 +444,6 @@ mod tests {
     fn test_struct_size() {
         assert_size!(PeerInfo);
         assert_size!(AnnounceAccount);
-        assert_size!(Ping);
-        assert_size!(Pong);
         assert_size!(RawRoutedMessage);
         assert_size!(RoutedMessage);
         assert_size!(KnownPeerState);
@@ -515,8 +483,7 @@ mod tests {
     }
 }
 
-// Don't need Borsh ?
-#[derive(Debug, Clone, PartialEq, Eq, borsh::BorshSerialize, borsh::BorshDeserialize, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 /// Defines the destination for a network request.
 /// The request should be sent either to the `account_id` as a routed message, or directly to
 /// any peer that tracks the shard.
