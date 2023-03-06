@@ -1,6 +1,10 @@
 # Changelog
 
-## 1.26.x (UNRELEASED)
+## 1.32.x
+
+* Add `nightly` feature to NEAR Indexer Framework to respect this feature for `nearcore` lib (requried for `betanet`)
+
+## 1.26.0
 
 * `state_changes` field is moved from the top-level `StreamerMessage` to `IndexerShard` struct to align better with the sharded nature of NEAR protocol. In the future, when nearcore will be able to track only a subset of shards, this API will work naturally, so we take pro-active measures to solidify the APIs
 * All the NEAR Indexer Framework types were extracted to a separate crate `near-indexer-primitives`
