@@ -234,6 +234,7 @@ impl NetworkConfig {
                     .map(|e| e.parse())
                     .collect::<Result<_, _>>()
                     .context("failed to parse blacklist")?,
+                peer_states_cache_size: cfg.peer_states_cache_size,
                 connect_only_to_boot_nodes: cfg.experimental.connect_only_to_boot_nodes,
                 ban_window: cfg.ban_window.try_into()?,
                 peer_expiration_duration: cfg.peer_expiration_duration.try_into()?,
@@ -313,6 +314,7 @@ impl NetworkConfig {
             peer_store: peer_store::Config {
                 boot_nodes: vec![],
                 blacklist: blacklist::Blacklist::default(),
+                peer_states_cache_size: 1000,
                 ban_window: time::Duration::seconds(1),
                 peer_expiration_duration: time::Duration::seconds(60 * 60),
                 connect_only_to_boot_nodes: false,
