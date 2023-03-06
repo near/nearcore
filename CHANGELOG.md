@@ -1,11 +1,5 @@
 # Changelog
 
-## [unreleased]
-
-### Protocol Changes
-
-### Non-protocol Changes
-
 ## 1.32.0
 
 ### Protocol Changes
