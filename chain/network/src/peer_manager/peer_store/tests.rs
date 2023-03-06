@@ -33,23 +33,7 @@ fn make_config(
     Config {
         boot_nodes: boot_nodes.iter().cloned().collect(),
         blacklist,
-        peer_states_cache_size: 10,
-        connect_only_to_boot_nodes,
-        ban_window: time::Duration::seconds(1),
-        peer_expiration_duration: time::Duration::days(1000),
-    }
-}
-
-fn make_config_with_cache_size(
-    boot_nodes: &[PeerInfo],
-    blacklist: blacklist::Blacklist,
-    connect_only_to_boot_nodes: bool,
-    peer_states_cache_size: u32,
-) -> Config {
-    Config {
-        boot_nodes: boot_nodes.iter().cloned().collect(),
-        blacklist,
-        peer_states_cache_size,
+        peer_states_cache_size: 1000,
         connect_only_to_boot_nodes,
         ban_window: time::Duration::seconds(1),
         peer_expiration_duration: time::Duration::days(1000),
@@ -443,7 +427,8 @@ fn test_delete_peers() {
 #[test]
 fn test_lru_eviction() {
     let clock = time::FakeClock::default();
-    let config = make_config_with_cache_size(&[], Default::default(), false, 10);
+    let mut config = make_config(&[], Default::default(), false);
+    config.peer_states_cache_size = 10;
     let peer_store = PeerStore::new(&clock.clock(), config).unwrap();
 
     let (peer_ids, peer_infos): (Vec<_>, Vec<_>) = (0..15)
@@ -473,7 +458,8 @@ fn test_lru_eviction() {
 #[test]
 fn test_lru_ignore_duplicate_peers() {
     let clock = time::FakeClock::default();
-    let config = make_config_with_cache_size(&[], Default::default(), false, 10);
+    let mut config = make_config(&[], Default::default(), false);
+    config.peer_states_cache_size = 10;
     let peer_store = PeerStore::new(&clock.clock(), config).unwrap();
 
     let (peer_ids, peer_infos): (Vec<_>, Vec<_>) = (0..15)
