@@ -25,7 +25,6 @@ pub struct FlatStorageChunkView {
     block_hash: CryptoHash,
     /// Stores the state of the flat storage, for example, where the head is at and which
     /// blocks' state are stored in flat storage.
-    #[allow(unused)]
     flat_storage: FlatStorage,
 }
 

@@ -181,11 +181,10 @@ impl GenesisBuilder {
         let shard_uid = ShardUId { version: genesis_shard_version, shard_id: shard_idx as u32 };
         let mut store_update = tries.store_update();
         let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-        #[cfg(feature = "protocol_feature_flat_state")]
-        near_store::flat::FlatStateDelta::from_state_changes(&state_changes)
-            .apply_to_flat_state(&mut store_update);
-        // silence unused variable warning when protocol_feature_flat_state feature is disabled
-        drop(state_changes);
+        if cfg!(feature = "protocol_feature_flat_state") {
+            near_store::flat::FlatStateDelta::from_state_changes(&state_changes)
+                .apply_to_flat_state(&mut store_update);
+        }
         store_update.commit()?;
 
         self.roots.insert(shard_idx, root);
