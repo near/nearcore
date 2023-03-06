@@ -52,8 +52,7 @@ use crate::{BlockHeader, RuntimeWithEpochManagerAdapter};
 
 use near_primitives::epoch_manager::ShardConfig;
 
-use near_store::flat_state::ChainAccessForFlatStorage;
-use near_store::flat_state::{FlatStorageCreationStatus, FlatStorageState};
+use near_store::flat::{ChainAccessForFlatStorage, FlatStorage, FlatStorageCreationStatus};
 
 use super::ValidatorSchedule;
 
@@ -830,7 +829,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         ))
     }
 
-    fn get_flat_storage_state_for_shard(&self, _shard_id: ShardId) -> Option<FlatStorageState> {
+    fn get_flat_storage_for_shard(&self, _shard_id: ShardId) -> Option<FlatStorage> {
         None
     }
 
@@ -838,7 +837,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         FlatStorageCreationStatus::DontCreate
     }
 
-    fn create_flat_storage_state_for_shard(
+    fn create_flat_storage_for_shard(
         &self,
         shard_id: ShardId,
         _latest_block_height: BlockHeight,
@@ -847,7 +846,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         panic!("Flat storage state can't be created for shard {shard_id} because KeyValueRuntime doesn't support this");
     }
 
-    fn remove_flat_storage_state_for_shard(
+    fn remove_flat_storage_for_shard(
         &self,
         _shard_id: ShardId,
         _epoch_id: &EpochId,
@@ -855,7 +854,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(())
     }
 
-    fn set_flat_storage_state_for_genesis(
+    fn set_flat_storage_for_genesis(
         &self,
         _genesis_block: &CryptoHash,
         _genesis_epoch_id: &EpochId,

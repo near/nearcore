@@ -104,7 +104,11 @@ impl StateViewerSubCommand {
         );
 
         let storage = store_opener.open_in_mode(mode).unwrap();
-        let store = storage.get_store(temperature);
+        let store = match temperature {
+            Temperature::Hot => storage.get_hot_store(),
+            Temperature::Cold => storage.get_cold_store().unwrap(),
+        };
+
         match self {
             StateViewerSubCommand::Apply(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ApplyChunk(cmd) => cmd.run(home_dir, near_config, store),

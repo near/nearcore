@@ -11,7 +11,7 @@ use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Gas, MerkleHash};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_store::flat_state::FlatStateFactory;
+use near_store::flat::FlatStorageManager;
 use near_store::{ShardTries, ShardUId, Store, StoreCompiledContractCache, TrieUpdate};
 use near_store::{TrieCache, TrieCachingStorage, TrieConfig};
 use near_vm_logic::{ExtCosts, VMLimitConfig};
@@ -72,11 +72,13 @@ impl<'c> EstimatorContext<'c> {
         let shard_uids = [ShardUId { shard_id: 0, version: 0 }];
         let mut trie_config = near_store::TrieConfig::default();
         trie_config.enable_receipt_prefetching = true;
+        let flat_state_cache_capacity = trie_config.flat_state_cache_capacity;
+
         let tries = ShardTries::new(
             store.clone(),
             trie_config,
             &shard_uids,
-            Self::create_flat_state_factory(store.clone()),
+            Self::create_flat_storage_manager(store.clone(), flat_state_cache_capacity),
         );
 
         Testbed {
@@ -140,19 +142,17 @@ impl<'c> EstimatorContext<'c> {
     }
 
     #[cfg(feature = "protocol_feature_flat_state")]
-    fn create_flat_state_factory(store: Store) -> FlatStateFactory {
+    fn create_flat_storage_manager(store: Store, cache_capacity: u64) -> FlatStorageManager {
         // function-level `use` statements here to avoid `unused import` warning
         // when flat state feature is disabled
         use near_primitives::types::BlockHeight;
-        use near_store::flat_state::{
-            store_helper, BlockInfo, ChainAccessForFlatStorage, FlatStorageState,
-        };
+        use near_store::flat::{store_helper, BlockInfo, ChainAccessForFlatStorage, FlatStorage};
         use std::collections::HashSet;
 
         const BLOCK_HEIGHT: BlockHeight = 0;
 
         /// Dummy ChainAccessForFlatStorage implementation to be able to create
-        /// FlatStorageState.
+        /// FlatStorage.
         struct ChainAccess;
 
         impl ChainAccessForFlatStorage for ChainAccess {
@@ -179,16 +179,21 @@ impl<'c> EstimatorContext<'c> {
         let mut store_update = store.store_update();
         store_helper::set_flat_head(&mut store_update, shard_id, &FLAT_STATE_HEAD);
         store_update.commit().expect("failed to set flat head");
-        let factory = FlatStateFactory::new(store.clone());
-        let flat_storage_state =
-            FlatStorageState::new(store.clone(), shard_id, BLOCK_HEIGHT, &ChainAccess {});
-        factory.add_flat_storage_state_for_shard(shard_id, flat_storage_state);
+        let factory = FlatStorageManager::new(store.clone());
+        let flat_storage = FlatStorage::new(
+            store,
+            shard_id,
+            BLOCK_HEIGHT,
+            &ChainAccess {},
+            cache_capacity as usize,
+        );
+        factory.add_flat_storage_for_shard(shard_id, flat_storage);
         factory
     }
 
     #[cfg(not(feature = "protocol_feature_flat_state"))]
-    fn create_flat_state_factory(store: Store) -> FlatStateFactory {
-        FlatStateFactory::new(store)
+    fn create_flat_storage_manager(store: Store, _cache_capacity: u64) -> FlatStorageManager {
+        FlatStorageManager::new(store)
     }
 }
 
@@ -318,7 +323,7 @@ impl Testbed<'_> {
             &mut store_update,
         );
         #[cfg(feature = "protocol_feature_flat_state")]
-        near_store::FlatStateDelta::from_state_changes(&apply_result.state_changes)
+        near_store::flat::FlatStateDelta::from_state_changes(&apply_result.state_changes)
             .apply_to_flat_state(&mut store_update);
         store_update.commit().unwrap();
         self.apply_state.block_height += 1;

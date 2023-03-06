@@ -13,7 +13,7 @@ mod tests {
     // Returns test & rocksDB databases.
     fn test_and_rocksdb() -> Vec<Arc<dyn Database>> {
         let (_tmp_dir, opener) = NodeStorage::test_opener();
-        let store = opener.open().unwrap().get_store(crate::Temperature::Hot);
+        let store = opener.open().unwrap().get_hot_store();
         vec![TestDB::new(), store.storage.clone()]
     }
 

@@ -47,8 +47,7 @@ pub fn sized_contract(size: usize) -> Vec<u8> {
 /// not work for tests using an older version. In particular, if a test depends
 /// on a specific protocol version, it should use [`base_rs_contract`].
 pub fn rs_contract() -> &'static [u8] {
-    static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
-    CONTRACT.get_or_init(|| read_contract("test_contract_rs.wasm")).as_slice()
+    include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/res/", "test_contract_rs.wasm"))
 }
 
 /// Standard test contract which is compatible any protocol version, including
