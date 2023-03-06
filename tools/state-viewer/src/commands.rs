@@ -7,6 +7,8 @@ use crate::state_dump::state_dump_redis;
 use crate::tx_dump::dump_tx_from_block;
 use crate::{apply_chunk, epoch_info};
 use ansi_term::Color::Red;
+use itertools::EitherOrBoth;
+use itertools::Itertools;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::RuntimeAdapter;
@@ -415,6 +417,28 @@ pub(crate) fn get_receipt(receipt_id: CryptoHash, near_config: NearConfig, store
     println!("Receipt: {:#?}", receipt);
 }
 
+fn chunk_extras_equal(l: &ChunkExtra, r: &ChunkExtra) -> bool {
+    if l.state_root() != r.state_root() {
+        return false;
+    }
+    if l.outcome_root() != r.outcome_root() {
+        return false;
+    }
+    if l.gas_used() != r.gas_used() {
+        return false;
+    }
+    if l.gas_limit() != r.gas_limit() {
+        return false;
+    }
+    if l.balance_burnt() != r.balance_burnt() {
+        return false;
+    }
+    l.validator_proposals().zip_longest(r.validator_proposals()).all(|x| match x {
+        EitherOrBoth::Both(l, r) => l == r,
+        _ => false,
+    })
+}
+
 pub(crate) fn check_apply_block_result(
     block: &Block,
     apply_result: &ApplyTransactionResult,
@@ -433,7 +457,7 @@ pub(crate) fn check_apply_block_result(
     let shard_uid = runtime_adapter.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
     if block.chunks()[shard_id as usize].height_included() == height {
         if let Ok(old_chunk_extra) = chain_store.get_chunk_extra(&block_hash, &shard_uid) {
-            if &new_chunk_extra == old_chunk_extra.as_ref() {
+            if chunk_extras_equal(&new_chunk_extra, old_chunk_extra.as_ref()) {
                 println!("new chunk extra matches old chunk extra");
                 Ok(())
             } else {

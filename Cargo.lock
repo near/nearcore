@@ -5914,6 +5914,7 @@ dependencies = [
  "chrono",
  "clap 3.1.18",
  "insta",
+ "itertools",
  "near-chain",
  "near-chain-configs",
  "near-client",
