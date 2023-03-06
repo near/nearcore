@@ -1,12 +1,14 @@
 use chrono::Utc;
 use near_chain::types::LatestKnown;
-use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
+use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeWithEpochManagerAdapter};
 use near_chain_configs::GenesisValidationMode;
 use near_primitives::block::Tip;
 use near_primitives::utils::to_timestamp;
 use near_store::{Mode, NodeStorage, Temperature};
 use nearcore::load_config;
+use nearcore::NightshadeRuntime;
 use std::path::Path;
+use std::sync::Arc;
 
 #[derive(clap::Parser)]
 pub struct ResetHeadToPrevCommand {
@@ -39,7 +41,8 @@ impl ResetHeadToPrevCommand {
             near_config.client_config.save_trie_changes,
         );
 
-        // let runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter> = Arc::new(NightshadeRuntime::from_config(home_dir, store, &near_config));
+        let runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter> =
+            Arc::new(NightshadeRuntime::from_config(home_dir, store, &near_config));
 
         let head = chain_store.head().unwrap();
         let current_final_head = chain_store.final_head().unwrap();
@@ -57,9 +60,17 @@ impl ResetHeadToPrevCommand {
 
         // chain_store_update.dec_block_refcount(&prev_hash)?;
 
+        // clear block data for current head
+        chain_store_update.clear_block_data_head_reset(runtime_adapter.as_ref(), head_hash)?;
+
         chain_store_update.save_head(&prev_tip)?;
         if current_final_head.height >= prev_tip.height {
             chain_store_update.save_final_head(&prev_tip)?;
+        }
+
+        // update tail if tail is higher than the new head
+        if chain_store_update.tail().unwrap() > prev_tip.height {
+            chain_store_update.update_tail(prev_tip.height)?;
         }
 
         chain_store_update.commit()?;
@@ -70,9 +81,11 @@ impl ResetHeadToPrevCommand {
         })?;
 
         let new_chain_store_head = chain_store.head().unwrap();
+        let new_chain_store_header_head = chain_store.header_head().unwrap();
 
         tracing::info!(target: "neard", "The current chain store shows head is at height {}", new_chain_store_head.height);
-        tracing::info!(target: "neard", "The current chain store shows head is at block hash {}", new_chain_store_head.last_block_hash);
+        tracing::info!(target: "neard", "The current chain store shows header head is at height {}", new_chain_store_header_head.height);
+        //tracing::info!(target: "neard", "The current chain store shows head is at block hash {}", new_chain_store_head.last_block_hash);
         Ok(())
     }
 }
