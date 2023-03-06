@@ -4,7 +4,7 @@ use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeWithEpoc
 use near_chain_configs::GenesisValidationMode;
 use near_primitives::block::Tip;
 use near_primitives::utils::to_timestamp;
-use near_store::{Mode, NodeStorage, Temperature};
+use near_store::{Mode, NodeStorage};
 use nearcore::load_config;
 use nearcore::NightshadeRuntime;
 use std::path::Path;
@@ -33,7 +33,7 @@ impl ResetHeadToPrevCommand {
         );
 
         let storage = store_opener.open_in_mode(Mode::ReadWrite).unwrap();
-        let store = storage.get_store(Temperature::Hot);
+        let store = storage.get_hot_store();
 
         let mut chain_store = ChainStore::new(
             store.clone(),
