@@ -3,6 +3,7 @@ on:
   # Run when a new release is published
   release:
     types: [published]
+  push:
 
 jobs:
   build_fuzzers:
@@ -39,6 +40,8 @@ jobs:
           version: ">= 416.0.0"
 
       - uses: actions/checkout@master
+        with:
+          ref: "1.31.1"
 
       - run: pip install -r scripts/build_fuzzers_requirements.txt
 
