@@ -110,7 +110,6 @@ pub(crate) fn get_ref(store: &Store, key: &[u8]) -> Result<Option<ValueRef>, Fla
     }
 }
 
-#[allow(unused)]
 pub(crate) fn set_ref(
     store_update: &mut StoreUpdate,
     key: Vec<u8>,
