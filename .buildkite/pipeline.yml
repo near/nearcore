@@ -3,7 +3,7 @@ env:
   RUSTFLAGS: -D warnings
 
 steps:
-  - label: "protobuf backward compatibility"
+  - label: "protobuf backward compatibility1"
     command: |
       # We need to manually fetch the latest commit of master to
       # correctly compute the commit at which we should diff the proto
