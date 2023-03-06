@@ -1,0 +1,21 @@
+env:
+  RUST_BACKTRACE: short
+  RUSTFLAGS: -D warnings
+
+steps:
+  - label: "test pipeline run"
+    command: git fetch origin
+    timeout: 30
+    agents:
+    - "distro=amazonlinux"
+
+
+  - label: "test step 2"
+    command: |
+      source ~/.cargo/env && set -eux
+      cd pytest
+      pip3 install --user -r requirements.txt
+      python3 tests/sanity/db_migration.py
+    timeout: 30
+    agents:
+    - "distro=amazonlinux"
