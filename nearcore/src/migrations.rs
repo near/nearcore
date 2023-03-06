@@ -153,13 +153,13 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
             33 => {
                 near_store::migrations::migrate_33_to_34(store, self.config.client_config.archive)
             }
+            34 => near_store::migrations::migrate_34_to_35(store),
             #[cfg(feature = "protocol_feature_flat_state")]
-            34 => {
-                tracing::info!(target: "migrations", "Migrating DB version from 34 to 35. Flat storage data will be created on disk.");
+            35 => {
+                tracing::info!(target: "migrations", "Migrating DB version from 35 to 36. Flat storage data will be created on disk.");
                 tracing::info!(target: "migrations", "It will happen in parallel with regular block processing. ETA is 5h for RPC node and 10h for archival node.");
                 Ok(())
             }
-            35 => near_store::migrations::migrate_35_to_36(store),
             DB_VERSION.. => unreachable!(),
         }
     }
