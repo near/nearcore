@@ -25,36 +25,34 @@ TEST_TIMEOUT = 12 * 60 * 60
 
 def get_test_accounts_from_args(argv):
     node_account_id = argv[1]
-    pk = argv[2]
-    sk = argv[3]
-    rpc_nodes = argv[4].split(',')
-    num_nodes = int(argv[5])
-    max_tps = float(argv[6])
+    rpc_nodes = argv[2].split(',')
+    num_nodes = int(argv[3])
+    max_tps = float(argv[4])
     logger.info(f'rpc_nodes: {rpc_nodes}')
 
-    node_account_key = key_mod.Key(node_account_id, pk, sk)
+    node_account_key = key_mod.Key(node_account_id, mocknet.PUBLIC_KEY,
+                                   mocknet.SECRET_KEY)
     test_account_keys = [
-        key_mod.Key(mocknet.load_testing_account_id(node_account_id, i), pk, sk)
+        key_mod.Key(mocknet.load_testing_account_id(node_account_id, i),
+                    mocknet.PUBLIC_KEY, mocknet.SECRET_KEY)
         for i in range(mocknet.NUM_ACCOUNTS)
     ]
 
     base_block_hash = mocknet_helpers.get_latest_block_hash()
 
     rpc_infos = [(rpc_addr, mocknet_helpers.RPC_PORT) for rpc_addr in rpc_nodes]
-    node_account = account.Account(
-        node_account_key,
-        mocknet_helpers.get_nonce_for_pk(node_account_key.account_id,
-                                         node_account_key.pk),
-        base_block_hash,
-        rpc_infos=rpc_infos,
-    )
+    node_account = account.Account(node_account_key,
+                                   mocknet_helpers.get_nonce_for_pk(
+                                       node_account_key.account_id,
+                                       node_account_key.pk),
+                                   base_block_hash,
+                                   rpc_infos=rpc_infos)
     accounts = [
-        account.Account(
-            key,
-            mocknet_helpers.get_nonce_for_pk(key.account_id, key.pk),
-            base_block_hash,
-            rpc_infos=rpc_infos,
-        ) for key in test_account_keys
+        account.Account(key,
+                        mocknet_helpers.get_nonce_for_pk(
+                            key.account_id, key.pk),
+                        base_block_hash,
+                        rpc_infos=rpc_infos) for key in test_account_keys
     ]
     max_tps_per_node = max_tps / num_nodes
     return load_test_utils.TestState(
