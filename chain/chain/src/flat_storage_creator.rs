@@ -190,7 +190,7 @@ impl FlatStorageShardCreator {
                             for hash in hashes {
                                 debug!(target: "store", %shard_id, %height, %hash, "Checking delta existence");
                                 assert_matches!(
-                                    store_helper::get_delta(chain_store.store(), shard_id, *hash,),
+                                    store_helper::get_delta(chain_store.store(), shard_id, *hash),
                                     Ok(Some(_))
                                 );
                             }
