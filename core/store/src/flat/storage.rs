@@ -7,7 +7,7 @@ use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::ValueRef;
-use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::types::BlockHeight;
 use tracing::info;
 
 use crate::flat::delta::CachedFlatStateDelta;
@@ -270,7 +270,7 @@ impl FlatStorage {
             return Ok(value_ref);
         }
 
-        let value_ref = store_helper::get_ref(&guard.store, key)?;
+        let value_ref = store_helper::get_ref(&guard.store, guard.shard_uid, key)?;
         guard.put_value_ref_to_cache(key.to_vec(), value_ref.clone());
         Ok(value_ref)
     }
@@ -432,6 +432,7 @@ mod tests {
     };
 
     use assert_matches::assert_matches;
+    use near_primitives::shard_layout::ShardUId;
     use std::collections::HashMap;
 
     struct MockChain {
@@ -720,10 +721,12 @@ mod tests {
         // 1. Create a chain with 10 blocks with no forks. Set flat head to be at block 0.
         //    Block i sets value for key &[1] to &[i].
         let mut chain = MockChain::linear_chain(10);
+        let shard_uid = ShardUId::single_shard();
         let store = create_test_store();
         let mut store_update = store.store_update();
         store_helper::set_flat_head(&mut store_update, 0, &chain.get_block_hash(0));
-        store_helper::set_ref(&mut store_update, vec![1], Some(ValueRef::new(&[0]))).unwrap();
+        store_helper::set_ref(&mut store_update, shard_uid, vec![1], Some(ValueRef::new(&[0])))
+            .unwrap();
         for i in 1..10 {
             store_helper::set_delta(
                 &mut store_update,
@@ -785,7 +788,10 @@ mod tests {
         // 5. Move the flat head to block 5, verify that chunk_view0 still returns the same values
         // and chunk_view1 returns an error. Also check that DBCol::FlatState is updated correctly
         flat_storage.update_flat_head(&chain.get_block_hash(5)).unwrap();
-        assert_eq!(store_helper::get_ref(&store, &[1]).unwrap(), Some(ValueRef::new(&[5])));
+        assert_eq!(
+            store_helper::get_ref(&store, shard_uid, &[1]).unwrap(),
+            Some(ValueRef::new(&[5]))
+        );
         let blocks = flat_storage.get_blocks_to_head(&chain.get_block_hash(10)).unwrap();
         assert_eq!(blocks.len(), 5);
         assert_eq!(chunk_view0.get_ref(&[1]).unwrap(), None);
@@ -802,8 +808,11 @@ mod tests {
         flat_storage.update_flat_head(&chain.get_block_hash(10)).unwrap();
         let blocks = flat_storage.get_blocks_to_head(&chain.get_block_hash(10)).unwrap();
         assert_eq!(blocks.len(), 0);
-        assert_eq!(store_helper::get_ref(&store, &[1]).unwrap(), None);
-        assert_eq!(store_helper::get_ref(&store, &[2]).unwrap(), Some(ValueRef::new(&[1])));
+        assert_eq!(store_helper::get_ref(&store, shard_uid, &[1]).unwrap(), None);
+        assert_eq!(
+            store_helper::get_ref(&store, shard_uid, &[2]).unwrap(),
+            Some(ValueRef::new(&[1]))
+        );
         assert_eq!(chunk_view0.get_ref(&[1]).unwrap(), None);
         assert_eq!(chunk_view0.get_ref(&[2]).unwrap(), Some(ValueRef::new(&[1])));
         assert_matches!(
