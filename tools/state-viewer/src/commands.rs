@@ -7,7 +7,6 @@ use crate::state_dump::state_dump_redis;
 use crate::tx_dump::dump_tx_from_block;
 use crate::{apply_chunk, epoch_info};
 use ansi_term::Color::Red;
-use itertools::{EitherOrBoth, Itertools};
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::RuntimeAdapter;
@@ -432,10 +431,7 @@ fn chunk_extras_equal(l: &ChunkExtra, r: &ChunkExtra) -> bool {
     if l.balance_burnt() != r.balance_burnt() {
         return false;
     }
-    l.validator_proposals().zip_longest(r.validator_proposals()).all(|x| match x {
-        EitherOrBoth::Both(l, r) => l == r,
-        _ => false,
-    })
+    l.validator_proposals().collect::<Vec<_>>() == r.validator_proposals().collect::<Vec<_>>()
 }
 
 pub(crate) fn check_apply_block_result(
