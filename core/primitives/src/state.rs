@@ -3,7 +3,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::hash::{hash, CryptoHash};
 
 /// State value reference. Used to charge fees for value length before retrieving the value itself.
-#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Hash)]
 pub struct ValueRef {
     /// Value length in bytes.
     pub length: u32,
@@ -24,6 +24,23 @@ impl ValueRef {
         let (length, hash) = stdx::split_array(bytes);
         let length = u32::from_le_bytes(*length);
         ValueRef { length, hash: CryptoHash(*hash) }
+    }
+
+    /// Returns length of the referenced value.
+    pub fn len(&self) -> usize {
+        usize::try_from(self.length).unwrap()
+    }
+}
+
+impl std::cmp::PartialEq<[u8]> for ValueRef {
+    fn eq(&self, rhs: &[u8]) -> bool {
+        self.len() == rhs.len() && self.hash == CryptoHash::hash_bytes(rhs)
+    }
+}
+
+impl std::fmt::Debug for ValueRef {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(fmt, "({}, {})", self.length, self.hash)
     }
 }
 

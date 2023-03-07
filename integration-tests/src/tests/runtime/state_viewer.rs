@@ -51,17 +51,12 @@ impl ProofVerifier {
         let mut expected_hash = state_root;
         while let Some(node) = self.nodes.get(expected_hash) {
             match &node.node {
-                RawTrieNode::Leaf(node_key, value_length, value_hash) => {
+                RawTrieNode::Leaf(node_key, value) => {
                     let nib = &NibbleSlice::from_encoded(&node_key).0;
                     return if &key != nib {
-                        return expected.is_none();
-                    } else if let Some(value) = expected {
-                        if *value_length as usize != value.len() {
-                            return false;
-                        }
-                        CryptoHash::hash_bytes(value) == *value_hash
+                        expected.is_none()
                     } else {
-                        false
+                        expected.map_or(false, |expected| value == expected)
                     };
                 }
 
@@ -77,10 +72,11 @@ impl ProofVerifier {
                 }
                 RawTrieNode::Branch(children, value) => {
                     if key.is_empty() {
-                        return *value
-                            == expected.map(|value| {
-                                (value.len().try_into().unwrap(), CryptoHash::hash_bytes(&value))
-                            });
+                        return match (value, expected) {
+                            (Some(value), Some(expected)) => value == expected,
+                            (None, None) => true,
+                            _ => false,
+                        };
                     }
                     let index = key.at(0);
                     match &children[index as usize] {
