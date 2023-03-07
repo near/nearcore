@@ -489,7 +489,7 @@ impl StateRootSelector {
             }
             // If state root is provided, then just use it.
             StateRootSelector::Hash { hash } => {
-                vec![hash.clone()]
+                vec![*hash]
             }
         })
     }
