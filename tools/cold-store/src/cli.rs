@@ -455,7 +455,7 @@ impl StateRootSelector {
         storage: &NodeStorage,
         cold_store: &Store,
     ) -> anyhow::Result<Vec<CryptoHash>> {
-        Ok(match self {
+        match self {
             // If height is provided, calculate previous state roots for this block's chunks.
             StateRootSelector::Height { height } => {
                 let hash_key = {
@@ -463,35 +463,37 @@ impl StateRootSelector {
                     storage
                         .get_hot_store()
                         .get(DBCol::BlockHeight, &height_key)?
-                        .unwrap()
+                        .ok_or(anyhow::anyhow!(
+                            "Failed to find block hash for height {:?}",
+                            height
+                        ))?
                         .as_slice()
                         .to_vec()
                 };
                 let block = cold_store
-                    .get_ser::<near_primitives::block::Block>(DBCol::Block, &hash_key)
-                    .unwrap()
-                    .unwrap();
-                block
-                    .chunks()
-                    .iter()
-                    .map(|chunk| {
+                    .get_ser::<near_primitives::block::Block>(DBCol::Block, &hash_key)?
+                    .ok_or(anyhow::anyhow!("Failed to find Block: {:?}", hash_key))?;
+                let mut hashes = vec![];
+                for chunk in block.chunks().iter() {
+                    hashes.push(
                         cold_store
                             .get_ser::<near_primitives::sharding::ShardChunk>(
                                 DBCol::Chunks,
                                 chunk.chunk_hash().as_bytes(),
-                            )
-                            .unwrap()
-                            .unwrap()
+                            )?
+                            .ok_or(anyhow::anyhow!(
+                                "Failed to find Chunk: {:?}",
+                                chunk.chunk_hash()
+                            ))?
                             .take_header()
-                            .prev_state_root()
-                    })
-                    .collect()
+                            .prev_state_root(),
+                    );
+                }
+                Ok(hashes)
             }
             // If state root is provided, then just use it.
-            StateRootSelector::Hash { hash } => {
-                vec![*hash]
-            }
-        })
+            StateRootSelector::Hash { hash } => Ok(vec![*hash]),
+        }
     }
 }
 
@@ -500,7 +502,7 @@ impl StateRootSelector {
 #[derive(Debug)]
 struct PruneCondition {
     /// Maximum depth (measured in number of nodes, not trie key length).
-    max_depth: Option<u8>,
+    max_depth: Option<u64>,
     /// Maximum number of nodes checked for each state_root.
     max_count: Option<u64>,
 }
@@ -509,7 +511,7 @@ struct PruneCondition {
 #[derive(Debug)]
 struct PruneState {
     /// Depth of node in trie (measured in number of nodes, not trie key length).
-    depth: u8,
+    depth: u64,
     /// Number of already checked nodes.
     count: u64,
 }
@@ -552,7 +554,7 @@ impl PruneState {
 struct CheckStateRootCmd {
     /// Maximum depth (measured in number of nodes, not trie key length) for checking trie.
     #[clap(long)]
-    max_depth: Option<u8>,
+    max_depth: Option<u64>,
     /// Maximum number of nodes checked for each state_root.
     #[clap(long)]
     max_count: Option<u64>,
