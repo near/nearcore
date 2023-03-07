@@ -291,7 +291,7 @@ impl<'a> StoreOpener<'a> {
                 Some(cold) => cold.path.display().to_string(),
                 None => String::from("none"),
             };
-            tracing::info!(target: "db_opener", path=hot_path, cold_path=cold_path, "Opening NodeStorage snapshots");
+            tracing::info!(target: "db_opener", path=hot_path, cold_path=cold_path, "Creating NodeStorage snapshots");
         }
 
         let hot_snapshot = {
