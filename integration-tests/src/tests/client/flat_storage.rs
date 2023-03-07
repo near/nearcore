@@ -260,6 +260,7 @@ fn test_flat_storage_creation_start_from_state_part() {
     let genesis = Genesis::test(accounts, 1);
     let store = create_test_store();
     let shard_layout = ShardLayout::v0_single_shard();
+    let shard_uid = shard_layout.get_shard_uids()[0];
 
     // Process some blocks with flat storage.
     // Split state into two parts and return trie keys corresponding to each part.
@@ -317,8 +318,8 @@ fn test_flat_storage_creation_start_from_state_part() {
         // Manually set flat storage creation status to the step when it should start from fetching part 1.
         let flat_head = store_helper::get_flat_head(&store, 0).unwrap();
         let mut store_update = store.store_update();
-        for key in trie_keys[1].iter() {
-            store_update.delete(store_helper::FlatStateColumn::State.to_db_col(), key);
+        for key in trie_keys[1].into_iter() {
+            store_helper::set_ref(&mut store_update, shard_uid, key, None).unwrap();
         }
         store_helper::remove_flat_head(&mut store_update, 0);
         store_helper::set_flat_storage_creation_status(

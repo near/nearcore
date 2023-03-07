@@ -306,14 +306,11 @@ impl Testbed<'_> {
             .unwrap();
 
         let mut store_update = self.tries.store_update();
-        self.root = self.tries.apply_all(
-            &apply_result.trie_changes,
-            ShardUId::single_shard(),
-            &mut store_update,
-        );
+        let shard_uid = ShardUId::single_shard();
+        self.root = self.tries.apply_all(&apply_result.trie_changes, shard_uid, &mut store_update);
         if cfg!(feature = "protocol_feature_flat_state") {
             near_store::flat::FlatStateDelta::from_state_changes(&apply_result.state_changes)
-                .apply_to_flat_state(&mut store_update);
+                .apply_to_flat_state(&mut store_update, shard_uid);
         }
         store_update.commit().unwrap();
         self.apply_state.block_height += 1;

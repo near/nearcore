@@ -8,7 +8,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::ReadBytesExt;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
+use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout, ShardUId};
 use near_primitives::state::ValueRef;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
 use near_primitives::types::ShardId;
@@ -97,9 +97,21 @@ pub fn remove_flat_head(store_update: &mut StoreUpdate, shard_id: ShardId) {
     store_update.delete(FlatStateColumn::Misc.to_db_col(), &flat_head_key(shard_id));
 }
 
-pub(crate) fn get_ref(store: &Store, key: &[u8]) -> Result<Option<ValueRef>, FlatStorageError> {
+fn flat_state_db_key(shard_uid: ShardUId, key: &[u8]) -> Vec<u8> {
+    let mut buffer = Vec::with_capacity(key.len() + 8);
+    buffer[0..8].copy_from_slice(&shard_uid.to_bytes());
+    buffer[8..].copy_from_slice(key);
+    buffer
+}
+
+pub(crate) fn get_ref(
+    store: &Store,
+    shard_uid: ShardUId,
+    key: &[u8],
+) -> Result<Option<ValueRef>, FlatStorageError> {
+    let db_key = flat_state_db_key(shard_uid, key);
     let raw_ref = store
-        .get(FlatStateColumn::State.to_db_col(), key)
+        .get(FlatStateColumn::State.to_db_col(), &db_key)
         .map_err(|_| FlatStorageError::StorageInternalError)?;
     if let Some(raw_ref) = raw_ref {
         let bytes =
@@ -110,16 +122,19 @@ pub(crate) fn get_ref(store: &Store, key: &[u8]) -> Result<Option<ValueRef>, Fla
     }
 }
 
-pub(crate) fn set_ref(
+// TODO(#8577): make pub(crate) once flat storage creator is moved inside `flat` module.
+pub fn set_ref(
     store_update: &mut StoreUpdate,
+    shard_uid: ShardUId,
     key: Vec<u8>,
     value: Option<ValueRef>,
 ) -> Result<(), FlatStorageError> {
+    let db_key = flat_state_db_key(shard_uid, &key);
     match value {
         Some(value) => store_update
-            .set_ser(FlatStateColumn::State.to_db_col(), &key, &value)
+            .set_ser(FlatStateColumn::State.to_db_col(), &db_key, &value)
             .map_err(|_| FlatStorageError::StorageInternalError),
-        None => Ok(store_update.delete(FlatStateColumn::State.to_db_col(), &key)),
+        None => Ok(store_update.delete(FlatStateColumn::State.to_db_col(), &db_key)),
     }
 }
 
@@ -235,11 +250,11 @@ pub fn key_belongs_to_shard(
     shard_layout: &ShardLayout,
     shard_id: u64,
 ) -> Result<bool, StorageError> {
-    let account_id = parse_account_id_from_raw_key(key)
-        .map_err(|e| StorageError::StorageInconsistentState(e.to_string()))?
-        .ok_or(StorageError::FlatStorageError(format!(
-            "Failed to find account id in flat storage key {:?}",
-            key
-        )))?;
-    Ok(account_id_to_shard_id(&account_id, &shard_layout) == shard_id)
+    if key.len() < 8 {
+        return Err(StorageError::StorageInconsistentState(format!(
+            "Found key in flat storage with length < 8: {key:?}"
+        )));
+    }
+    let key_shard_uid: ShardUId = key[..8].try_into().unwrap();
+    Ok(key_shard_uid.version == shard_layout.version() && key_shard_uid.shard_id as u64 == shard_id)
 }
