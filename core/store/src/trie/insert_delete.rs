@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::state::ValueRef;
 
 use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::{
@@ -615,8 +616,8 @@ impl Trie {
                 TrieNode::Leaf(key, value) => {
                     let key = key.clone();
                     let value = value.clone();
-                    let (value_length, value_hash) = Trie::flatten_value(&mut memory, value);
-                    RawTrieNode::Leaf(key, value_length, value_hash)
+                    let value = Trie::flatten_value(&mut memory, value);
+                    RawTrieNode::Leaf(key, value)
                 }
             };
             let raw_node_with_size = RawTrieNodeWithSize { node: raw_node, memory_usage };
@@ -634,7 +635,7 @@ impl Trie {
         Ok(TrieChanges { old_root: *old_root, new_root: last_hash, insertions, deletions })
     }
 
-    fn flatten_value(memory: &mut NodesStorage, value: ValueHandle) -> (u32, CryptoHash) {
+    fn flatten_value(memory: &mut NodesStorage, value: ValueHandle) -> ValueRef {
         match value {
             ValueHandle::InMemory(value_handle) => {
                 let value = memory.value_ref(value_handle).to_vec();
@@ -643,9 +644,9 @@ impl Trie {
                 let (_value, rc) =
                     memory.refcount_changes.entry(value_hash).or_insert_with(|| (value, 0));
                 *rc += 1;
-                (value_length, value_hash)
+                ValueRef { length: value_length, hash: value_hash }
             }
-            ValueHandle::HashAndSize(value_length, value_hash) => (value_length, value_hash),
+            ValueHandle::HashAndSize(value) => value,
         }
     }
 }
