@@ -390,7 +390,7 @@ impl NetworkConfig {
             );
         }
 
-        if !(self.max_send_peers > PEERS_RESPONSE_MAX_PEERS) {
+        if !(self.max_send_peers <= PEERS_RESPONSE_MAX_PEERS) {
             anyhow::bail!(
                 "max_send_peers({}) can be at most {}",
                 self.max_send_peers,
