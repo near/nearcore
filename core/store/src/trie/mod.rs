@@ -12,13 +12,11 @@ use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::ValueRef;
-#[cfg(feature = "protocol_feature_flat_state")]
-use near_primitives::state_record::is_delayed_receipt_key;
-use near_primitives::state_record::StateRecord;
+use near_primitives::state_record::{is_delayed_receipt_key, StateRecord};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{StateRoot, StateRootNode};
 
-use crate::flat_state::FlatState;
+use crate::flat::{FlatStateDelta, FlatStorageChunkView};
 pub use crate::trie::config::TrieConfig;
 pub(crate) use crate::trie::config::DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT;
 use crate::trie::insert_delete::NodesStorage;
@@ -28,7 +26,7 @@ pub use crate::trie::prefetching_trie_storage::{PrefetchApi, PrefetchError};
 pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
 pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage, TrieStorage};
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieRecordingStorage};
-use crate::{FlatStateDelta, StorageError};
+use crate::StorageError;
 pub use near_primitives::types::TrieNodesCount;
 
 mod config;
@@ -472,7 +470,7 @@ impl RawTrieNodeWithSize {
 pub struct Trie {
     pub storage: Box<dyn TrieStorage>,
     root: StateRoot,
-    pub flat_state: Option<FlatState>,
+    pub flat_storage_chunk_view: Option<FlatStorageChunkView>,
 }
 
 /// Trait for reading data from a trie.
@@ -572,9 +570,9 @@ impl Trie {
     pub fn new(
         storage: Box<dyn TrieStorage>,
         root: StateRoot,
-        flat_state: Option<FlatState>,
+        flat_storage_chunk_view: Option<FlatStorageChunkView>,
     ) -> Self {
-        Trie { storage, root, flat_state }
+        Trie { storage, root, flat_storage_chunk_view }
     }
 
     pub fn recording_reads(&self) -> Self {
@@ -585,7 +583,7 @@ impl Trie {
             shard_uid: storage.shard_uid,
             recorded: RefCell::new(Default::default()),
         };
-        Trie { storage: Box::new(storage), root: self.root, flat_state: None }
+        Trie { storage: Box::new(storage), root: self.root, flat_storage_chunk_view: None }
     }
 
     pub fn recorded_storage(&self) -> Option<PartialStorage> {
@@ -959,14 +957,10 @@ impl Trie {
         // For now, to test correctness, flat storage does double the work and
         // compares the results. This needs to be changed when the features is
         // stabilized.
-        #[cfg(feature = "protocol_feature_flat_state")]
-        {
-            let is_delayed = is_delayed_receipt_key(key);
-            if matches!(mode, KeyLookupMode::FlatStorage) && !is_delayed {
-                if let Some(flat_state) = &self.flat_state {
-                    let flat_result = flat_state.get_ref(&key);
-                    assert_eq!(result, flat_result);
-                }
+        if matches!(mode, KeyLookupMode::FlatStorage) && !is_delayed_receipt_key(key) {
+            if let Some(flat_storage_chunk_view) = &self.flat_storage_chunk_view {
+                let flat_result = flat_storage_chunk_view.get_ref(&key);
+                assert_eq!(result, flat_result);
             }
         }
         result
