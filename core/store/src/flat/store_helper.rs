@@ -96,11 +96,22 @@ pub fn remove_flat_head(store_update: &mut StoreUpdate, shard_id: ShardId) {
     store_update.delete(FlatStateColumn::Misc.to_db_col(), &flat_head_key(shard_id));
 }
 
-fn flat_state_db_key(shard_uid: ShardUId, key: &[u8]) -> Vec<u8> {
+fn encode_flat_state_db_key(shard_uid: ShardUId, key: &[u8]) -> Vec<u8> {
     let mut buffer = vec![];
     buffer.extend_from_slice(&shard_uid.to_bytes());
     buffer.extend_from_slice(key);
     buffer
+}
+
+fn decode_flat_state_db_key(key: &Box<[u8]>) -> Result<(ShardUId, Vec<u8>), StorageError> {
+    if key.len() < 8 {
+        return Err(StorageError::StorageInconsistentState(format!(
+            "Found key in flat storage with length < 8: {key:?}"
+        )));
+    }
+    let shard_uid = key[0..8].try_into().unwrap();
+    let trie_key = key[8..].to_vec();
+    Ok((shard_uid, trie_key))
 }
 
 pub(crate) fn get_ref(
@@ -108,7 +119,7 @@ pub(crate) fn get_ref(
     shard_uid: ShardUId,
     key: &[u8],
 ) -> Result<Option<ValueRef>, FlatStorageError> {
-    let db_key = flat_state_db_key(shard_uid, key);
+    let db_key = encode_flat_state_db_key(shard_uid, key);
     let raw_ref = store
         .get(FlatStateColumn::State.to_db_col(), &db_key)
         .map_err(|_| FlatStorageError::StorageInternalError)?;
@@ -128,7 +139,7 @@ pub fn set_ref(
     key: Vec<u8>,
     value: Option<ValueRef>,
 ) -> Result<(), FlatStorageError> {
-    let db_key = flat_state_db_key(shard_uid, &key);
+    let db_key = encode_flat_state_db_key(shard_uid, &key);
     match value {
         Some(value) => store_update
             .set_ser(FlatStateColumn::State.to_db_col(), &db_key, &value)
@@ -211,17 +222,18 @@ pub fn remove_flat_storage_creation_status(store_update: &mut StoreUpdate, shard
 }
 
 /// Iterate over flat storage entries for a given shard.
-/// It reads data only from the 'main' column - which represents the state as of final head.k
+/// It reads data only from the 'main' column - which represents the state as of final head.
 ///
 /// WARNING: flat storage keeps changing, so the results might be inconsistent, unless you're running
 /// this method on the shapshot of the data.
+// TODO(#8676): Support non-trivial ranges.
 pub fn iter_flat_state_entries<'a>(
     shard_layout: ShardLayout,
     shard_id: u64,
     store: &'a Store,
     from: Option<&'a Vec<u8>>,
     to: Option<&'a Vec<u8>>,
-) -> impl Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a {
+) -> impl Iterator<Item = (Vec<u8>, Box<[u8]>)> + 'a {
     store
         .iter_range(
             FlatStateColumn::State.to_db_col(),
@@ -234,7 +246,8 @@ pub fn iter_flat_state_entries<'a>(
                 // to see if this element belongs to this shard.
                 if let Ok(key_in_shard) = key_belongs_to_shard(&key, &shard_layout, shard_id) {
                     if key_in_shard {
-                        return Some((key, value));
+                        let (_, trie_key) = decode_flat_state_db_key(&key).unwrap();
+                        return Some((trie_key, value));
                     }
                 }
             }
@@ -249,11 +262,6 @@ pub fn key_belongs_to_shard(
     shard_layout: &ShardLayout,
     shard_id: u64,
 ) -> Result<bool, StorageError> {
-    if key.len() < 8 {
-        return Err(StorageError::StorageInconsistentState(format!(
-            "Found key in flat storage with length < 8: {key:?}"
-        )));
-    }
-    let key_shard_uid: ShardUId = key[..8].try_into().unwrap();
+    let (key_shard_uid, _) = decode_flat_state_db_key(key)?;
     Ok(key_shard_uid.version == shard_layout.version() && key_shard_uid.shard_id as u64 == shard_id)
 }
