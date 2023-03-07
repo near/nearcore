@@ -181,7 +181,7 @@ impl<'c> EstimatorContext<'c> {
             &ChainAccess {},
             cache_capacity as usize,
         );
-        flat_storage_manager.add_flat_storage_for_shard(shard_id, flat_storage);
+        flat_storage_manager.add_flat_storage_for_shard(shard_uid.shard_id(), flat_storage);
         flat_storage_manager
     }
 }

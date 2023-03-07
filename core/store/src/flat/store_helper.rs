@@ -97,9 +97,9 @@ pub fn remove_flat_head(store_update: &mut StoreUpdate, shard_id: ShardId) {
 }
 
 fn flat_state_db_key(shard_uid: ShardUId, key: &[u8]) -> Vec<u8> {
-    let mut buffer = Vec::with_capacity(key.len() + 8);
-    buffer[0..8].copy_from_slice(&shard_uid.to_bytes());
-    buffer[8..].copy_from_slice(key);
+    let mut buffer = vec![];
+    buffer.extend_from_slice(&shard_uid.to_bytes());
+    buffer.extend_from_slice(key);
     buffer
 }
 
