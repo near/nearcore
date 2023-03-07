@@ -197,8 +197,7 @@ impl FlatStorageCommand {
                 println!("Verifying using the {:?} as state_root", state_root);
                 let tip = chain_store.final_head().unwrap();
 
-                let shard_uid =
-                    rw_hot_runtime.shard_id_to_uid(verify_cmd.shard_id, &tip.epoch_id)?;
+                let shard_uid = hot_runtime.shard_id_to_uid(verify_cmd.shard_id, &tip.epoch_id)?;
                 hot_runtime.create_flat_storage_for_shard(shard_uid, tip.height, &chain_store);
 
                 let trie = hot_runtime
