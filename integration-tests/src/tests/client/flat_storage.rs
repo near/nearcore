@@ -441,9 +441,8 @@ fn test_flat_storage_iter() {
                     near_primitives::trie_key::TrieKey::Account {
                         account_id: "test0".parse().unwrap()
                     }
-                    .to_vec()
-                    .as_slice(),
-                    items.get(0).unwrap().0.as_ref()
+                    .to_vec(),
+                    items.get(0).unwrap().0
                 );
             }
             1 => {
@@ -457,9 +456,8 @@ fn test_flat_storage_iter() {
                     near_primitives::trie_key::TrieKey::Account {
                         account_id: "near".parse().unwrap()
                     }
-                    .to_vec()
-                    .as_slice(),
-                    items.get(0).unwrap().0.as_ref()
+                    .to_vec(),
+                    items.get(0).unwrap().0
                 );
             }
             _ => {
