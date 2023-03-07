@@ -1,4 +1,5 @@
 use crate::account::AccessKey;
+use crate::delegate_action::SignedDelegateAction;
 use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::MerklePath;
@@ -11,9 +12,6 @@ use near_primitives_core::profile::{ProfileDataV2, ProfileDataV3};
 use std::borrow::Borrow;
 use std::fmt;
 use std::hash::{Hash, Hasher};
-
-#[cfg(feature = "protocol_feature_nep366_delegate_action")]
-use crate::delegate_action::SignedDelegateAction;
 
 pub type LogEntry = String;
 
@@ -76,7 +74,6 @@ pub enum Action {
     AddKey(AddKeyAction),
     DeleteKey(DeleteKeyAction),
     DeleteAccount(DeleteAccountAction),
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     Delegate(SignedDelegateAction),
 }
 

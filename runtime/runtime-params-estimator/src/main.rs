@@ -185,7 +185,7 @@ fn run_estimation(cli_args: CliArgs) -> anyhow::Result<Option<CostTable>> {
         )
         .open()
         .unwrap()
-        .get_store(near_store::Temperature::Hot);
+        .get_hot_store();
         GenesisBuilder::from_config_and_store(&state_dump_path, near_config, store)
             .add_additional_accounts(cli_args.additional_accounts_num)
             .add_additional_accounts_contract(contract_code.to_vec())

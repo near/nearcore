@@ -84,6 +84,11 @@ expression: "&view"
         "send_sir": 147489000000,
         "send_not_sir": 147489000000,
         "execution": 147489000000
+      },
+      "delegate_cost": {
+        "send_sir": 200000000000,
+        "send_not_sir": 200000000000,
+        "execution": 200000000000
       }
     },
     "storage_usage_config": {
@@ -169,7 +174,7 @@ expression: "&view"
     "regular_op_cost": 3856371,
     "limit_config": {
       "max_gas_burnt": 200000000000000,
-      "max_stack_height": 16384,
+      "max_stack_height": 262144,
       "stack_limiter_version": 1,
       "initial_memory_pages": 1024,
       "max_memory_pages": 2048,

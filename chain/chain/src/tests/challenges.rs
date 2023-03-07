@@ -2,8 +2,8 @@ use crate::test_utils::setup;
 use crate::{Error, Provenance};
 use assert_matches::assert_matches;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::static_clock::StaticClock;
 use near_primitives::test_utils::TestBlockBuilder;
-use near_primitives::time::Clock;
 use near_primitives::utils::MaybeValidated;
 
 /// Ignore the test because challenges are not enabled yet and the test not compatible with flat storage implementation.
@@ -55,7 +55,7 @@ fn challenges_new_head_prev() {
         &Provenance::NONE,
         &mut vec![],
         &mut vec![],
-        Clock::instant(),
+        StaticClock::instant(),
         Default::default(),
     ) {
         assert_matches!(e, Error::ChallengedBlockOnChain)

@@ -157,11 +157,10 @@ impl RuntimeFeesConfig {
                     send_not_sir: 59357464,
                     execution: 59357464,
                 },
-                #[cfg(feature = "protocol_feature_nep366_delegate_action")]
                 ActionCosts::delegate => Fee {
-                    send_sir: 2319861500000,
-                    send_not_sir: 2319861500000,
-                    execution: 2319861500000,
+                    send_sir: 200_000_000_000,
+                    send_not_sir: 200_000_000_000,
+                    execution: 200_000_000_000,
                 },
             },
         }

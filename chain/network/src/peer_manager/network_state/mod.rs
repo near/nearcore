@@ -4,8 +4,8 @@ use crate::concurrency::demux;
 use crate::concurrency::runtime::Runtime;
 use crate::config;
 use crate::network_protocol::{
-    Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerInfo, PeerMessage, Ping, Pong,
-    RawRoutedMessage, RoutedMessageBody, RoutedMessageV2, SignedAccountData,
+    Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerInfo, PeerMessage, RawRoutedMessage,
+    RoutedMessageBody, RoutedMessageV2, SignedAccountData,
 };
 use crate::peer::peer_actor::PeerActor;
 use crate::peer::peer_actor::{ClosingReason, ConnectionClosedEvent};
@@ -19,7 +19,6 @@ use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
-use crate::time;
 use crate::types::{ChainInfo, PeerType, ReasonForBan};
 use anyhow::Context;
 use arc_swap::ArcSwap;
@@ -27,10 +26,11 @@ use near_async::messaging::Sender;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
+use near_primitives::time;
 use near_primitives::types::AccountId;
 use parking_lot::Mutex;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
+use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use tracing::Instrument as _;
 
@@ -136,12 +136,6 @@ pub(crate) struct NetworkState {
     /// Whitelisted nodes, which are allowed to connect even if the connection limit has been
     /// reached.
     whitelist_nodes: Vec<WhitelistNode>,
-    /// Maximal allowed number of peer connections.
-    /// It is initialized with config.max_num_peers and is mutable
-    /// only so that it can be changed in tests.
-    /// TODO(gprusak): determine why tests need to change that dynamically
-    /// in the first place.
-    pub max_num_peers: AtomicU32,
 
     /// Mutex which prevents overlapping calls to tier1_advertise_proxies.
     tier1_advertise_proxies_mutex: tokio::sync::Mutex<()>,
@@ -191,7 +185,6 @@ impl NetworkState {
             )),
             txns_since_last_block: AtomicUsize::new(0),
             whitelist_nodes,
-            max_num_peers: AtomicU32::new(config.max_num_peers),
             add_edges_demux: demux::Demux::new(config.routing_table_update_rate_limit),
             set_chain_info_mutex: Mutex::new(()),
             config,
@@ -248,8 +241,7 @@ impl NetworkState {
     fn is_inbound_allowed(&self, peer_info: &PeerInfo) -> bool {
         // Check if we have spare inbound connections capacity.
         let tier2 = self.tier2.load();
-        if tier2.ready.len() + tier2.outbound_handshakes.len()
-            < self.max_num_peers.load(Ordering::Relaxed) as usize
+        if tier2.ready.len() + tier2.outbound_handshakes.len() < self.config.max_num_peers as usize
             && !self.config.inbound_disabled
         {
             return true;
@@ -313,7 +305,7 @@ impl NetworkState {
                             let tier2 = this.tier2.load();
                             tracing::debug!(target: "network",
                                 tier2 = tier2.ready.len(), outgoing_peers = tier2.outbound_handshakes.len(),
-                                max_num_peers = this.max_num_peers.load(Ordering::Relaxed),
+                                max_num_peers = this.config.max_num_peers,
                                 "Dropping handshake (network at max capacity)."
                             );
                             return Err(RegisterPeerError::ConnectionLimitExceeded);
@@ -326,10 +318,8 @@ impl NetworkState {
                         .await
                         .map_err(|_: ReasonForBan| RegisterPeerError::InvalidEdge)?;
                     this.tier2.insert_ready(conn.clone()).map_err(RegisterPeerError::PoolError)?;
-                    // Best effort write to DB.
-                    if let Err(err) = this.peer_store.peer_connected(&clock, peer_info) {
-                        tracing::error!(target: "network", ?err, "Failed to save peer data");
-                    }
+                    // Write to the peer store
+                    this.peer_store.peer_connected(&clock, peer_info);
                 }
             }
             Ok(())
@@ -442,14 +432,21 @@ impl NetworkState {
         }
     }
 
+    #[cfg(test)]
     pub fn send_ping(&self, clock: &time::Clock, tier: tcp::Tier, nonce: u64, target: PeerId) {
-        let body = RoutedMessageBody::Ping(Ping { nonce, source: self.config.node_id() });
+        let body = RoutedMessageBody::Ping(crate::network_protocol::Ping {
+            nonce,
+            source: self.config.node_id(),
+        });
         let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target), body };
         self.send_message_to_peer(clock, tier, self.sign_message(clock, msg));
     }
 
     pub fn send_pong(&self, clock: &time::Clock, tier: tcp::Tier, nonce: u64, target: CryptoHash) {
-        let body = RoutedMessageBody::Pong(Pong { nonce, source: self.config.node_id() });
+        let body = RoutedMessageBody::Pong(crate::network_protocol::Pong {
+            nonce,
+            source: self.config.node_id(),
+        });
         let msg = RawRoutedMessage { target: PeerIdOrHash::Hash(target), body };
         self.send_message_to_peer(clock, tier, self.sign_message(clock, msg));
     }
@@ -716,6 +713,11 @@ impl NetworkState {
         let polled = pending_reconnect.clone();
         pending_reconnect.clear();
         return polled;
+    }
+
+    /// Collects and returns PeerInfos for all directly connected TIER2 peers.
+    pub fn get_direct_peers(self: &Arc<Self>) -> Vec<PeerInfo> {
+        return self.tier2.load().ready.values().map(|c| c.peer_info.clone()).collect();
     }
 
     /// Sets the chain info, and updates the set of TIER1 keys.

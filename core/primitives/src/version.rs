@@ -140,6 +140,10 @@ pub enum ProtocolFeature {
     AccountIdInFunctionCallPermission,
     /// Zero Balance Account NEP 448: https://github.com/near/NEPs/pull/448
     ZeroBalanceAccount,
+    /// Execute a set of actions on behalf of another account.
+    ///
+    /// Meta Transaction NEP-366: https://github.com/near/NEPs/blob/master/neps/nep-0366.md
+    DelegateAction,
 
     /// In case not all validator seats are occupied our algorithm provide incorrect minimal seat
     /// price - it reports as alpha * sum_stake instead of alpha * sum_stake / (1 - alpha), where
@@ -152,8 +156,6 @@ pub enum ProtocolFeature {
     Ed25519Verify,
     #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
     RejectBlocksWithOutdatedProtocolVersions,
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
-    DelegateAction,
 }
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
@@ -231,7 +233,9 @@ impl ProtocolFeature {
             ProtocolFeature::AltBn128 => 55,
             ProtocolFeature::ChunkOnlyProducers | ProtocolFeature::MaxKickoutStake => 56,
             ProtocolFeature::AccountIdInFunctionCallPermission => 57,
-            ProtocolFeature::Ed25519Verify | ProtocolFeature::ZeroBalanceAccount => 59,
+            ProtocolFeature::Ed25519Verify
+            | ProtocolFeature::ZeroBalanceAccount
+            | ProtocolFeature::DelegateAction => 59,
             ProtocolFeature::NearVm => 60,
 
             // Nightly features
@@ -241,8 +245,6 @@ impl ProtocolFeature {
             ProtocolFeature::FixContractLoadingCost => 129,
             #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
             ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 132,
-            #[cfg(feature = "protocol_feature_nep366_delegate_action")]
-            ProtocolFeature::DelegateAction => 133,
         }
     }
 }

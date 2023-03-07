@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use crate::time::{Clock, Utc};
+use crate::static_clock::StaticClock;
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use chrono::DateTime;
+use chrono::{DateTime, Utc};
 use near_crypto::Signature;
 use primitive_types::U256;
 
@@ -239,7 +239,7 @@ impl Block {
         );
 
         let new_total_supply = prev.total_supply() + minted_amount.unwrap_or(0) - balance_burnt;
-        let now = to_timestamp(timestamp_override.unwrap_or_else(Clock::utc));
+        let now = to_timestamp(timestamp_override.unwrap_or_else(StaticClock::utc));
         let time = if now <= prev.raw_timestamp() { prev.raw_timestamp() + 1 } else { now };
 
         let (vrf_value, vrf_proof) = signer.compute_vrf_with_proof(prev.random_value().as_ref());

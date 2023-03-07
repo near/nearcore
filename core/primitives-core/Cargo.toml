@@ -34,5 +34,4 @@ insta.workspace = true
 
 [features]
 default = []
-protocol_feature_nep366_delegate_action = []
-nightly = ["protocol_feature_nep366_delegate_action"]
+nightly = []

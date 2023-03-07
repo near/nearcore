@@ -32,7 +32,7 @@ use std::collections::{HashMap, HashSet};
 use near_client_primitives::debug::{DebugBlockStatus, DebugChunkStatus};
 use near_network::types::{ConnectedPeerInfo, NetworkInfo, PeerType};
 use near_primitives::sharding::ShardChunkHeader;
-use near_primitives::time::Clock;
+use near_primitives::static_clock::StaticClock;
 use near_primitives::views::{
     AccountDataView, KnownProducerView, NetworkInfoView, PeerInfoView, Tier1ProxyView,
 };
@@ -93,7 +93,7 @@ impl BlockProductionTracker {
         chunk_collections: Vec<ChunkCollection>,
     ) {
         if let Some(block_production) = self.0.get_mut(&height) {
-            block_production.block_production_time = Some(Clock::utc());
+            block_production.block_production_time = Some(StaticClock::utc());
             block_production.chunks_collection_time = chunk_collections;
         }
     }
@@ -106,7 +106,7 @@ impl BlockProductionTracker {
             // Check that chunk_collection is set and we haven't received this chunk yet.
             if let Some(chunk_collection) = chunk_collections.get_mut(shard_id as usize) {
                 if chunk_collection.received_time.is_none() {
-                    chunk_collection.received_time = Some(Clock::utc());
+                    chunk_collection.received_time = Some(StaticClock::utc());
                 }
             }
             // Otherwise, it means chunk_collections is not set yet, which means the block wasn't produced.

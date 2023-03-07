@@ -2,14 +2,21 @@ use std::io;
 
 use crate::DBCol;
 
-mod colddb;
-pub mod refcount;
 pub(crate) mod rocksdb;
+
+mod colddb;
+mod splitdb;
+
+pub mod refcount;
 mod slice;
 mod testdb;
 
+mod database_tests;
+
 pub use self::colddb::ColdDB;
 pub use self::rocksdb::RocksDB;
+pub use self::splitdb::SplitDB;
+
 pub use self::slice::DBSlice;
 pub use self::testdb::TestDB;
 
@@ -126,7 +133,7 @@ pub trait Database: Sync + Send {
     /// count will be treated as non-existing (i.e. they’re going to be
     /// skipped).  For all other columns, the value is returned directly from
     /// the database.
-    fn iter<'a>(&'a self, column: DBCol) -> DBIterator<'a>;
+    fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a>;
 
     /// Iterate over items in given column whose keys start with given prefix.
     ///
@@ -134,6 +141,18 @@ pub trait Database: Sync + Send {
     /// keys which do not start with given `key_prefix` (but faster).  The items
     /// are returned in lexicographical order sorted by the key.
     fn iter_prefix<'a>(&'a self, col: DBCol, key_prefix: &'a [u8]) -> DBIterator<'a>;
+
+    /// Iterate over items in given column whose keys are between [lower_bound, upper_bound)
+    ///
+    /// Upper_bound key is not included.
+    /// If lower_bound is None - the iterator starts from the first key.
+    /// If upper_bound is None - iterator continues to the last key.
+    fn iter_range<'a>(
+        &'a self,
+        col: DBCol,
+        lower_bound: Option<&'a [u8]>,
+        upper_bound: Option<&'a [u8]>,
+    ) -> DBIterator<'a>;
 
     /// Iterate over items in given column bypassing reference count decoding if
     /// any.
@@ -146,7 +165,7 @@ pub trait Database: Sync + Send {
     /// If in doubt, use [`Self::iter`] instead.  Unless you’re doing something
     /// low-level with the database (e.g. doing a migration), you probably don’t
     /// want this method.
-    fn iter_raw_bytes<'a>(&'a self, column: DBCol) -> DBIterator<'a>;
+    fn iter_raw_bytes<'a>(&'a self, col: DBCol) -> DBIterator<'a>;
 
     /// Atomically apply all operations in given batch at once.
     fn write(&self, batch: DBTransaction) -> io::Result<()>;

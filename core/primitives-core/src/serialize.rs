@@ -34,16 +34,14 @@ pub mod base64_format {
     }
 }
 
+#[derive(PartialEq, Eq, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(transparent)]
+pub struct Base64Bytes(#[serde(with = "base64_format")] pub Vec<u8>);
+
 #[test]
 fn test_base64_format() {
-    #[derive(PartialEq, Debug, serde::Deserialize, serde::Serialize)]
-    struct Test {
-        #[serde(with = "base64_format")]
-        field: Vec<u8>,
-    }
-
-    assert_round_trip("{\"field\":\"Zm9v\"}", Test { field: b"foo".to_vec() });
-    assert_de_error::<Test>("{\"field\":null}");
+    assert_round_trip("\"Zm9v\"", Base64Bytes(b"foo".to_vec()));
+    assert_de_error::<Base64Bytes>("null");
 }
 
 pub mod option_base64_format {

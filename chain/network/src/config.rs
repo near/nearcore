@@ -7,12 +7,12 @@ use crate::peer_manager::peer_store;
 use crate::sink::Sink;
 use crate::stun;
 use crate::tcp;
-use crate::time;
 use crate::types::ROUTED_MESSAGE_TTL;
 use anyhow::Context;
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
+use near_primitives::time;
 use near_primitives::types::AccountId;
 use near_primitives::validator_signer::ValidatorSigner;
 use std::collections::HashSet;
@@ -234,6 +234,7 @@ impl NetworkConfig {
                     .map(|e| e.parse())
                     .collect::<Result<_, _>>()
                     .context("failed to parse blacklist")?,
+                peer_states_cache_size: cfg.peer_states_cache_size,
                 connect_only_to_boot_nodes: cfg.experimental.connect_only_to_boot_nodes,
                 ban_window: cfg.ban_window.try_into()?,
                 peer_expiration_duration: cfg.peer_expiration_duration.try_into()?,
@@ -313,6 +314,7 @@ impl NetworkConfig {
             peer_store: peer_store::Config {
                 boot_nodes: vec![],
                 blacklist: blacklist::Blacklist::default(),
+                peer_states_cache_size: 1000,
                 ban_window: time::Duration::seconds(1),
                 peer_expiration_duration: time::Duration::seconds(60 * 60),
                 connect_only_to_boot_nodes: false,
@@ -429,7 +431,7 @@ mod test {
     use crate::network_protocol::{AccountData, VersionedAccountData};
     use crate::tcp;
     use crate::testonly::make_rng;
-    use crate::time;
+    use near_primitives::time;
 
     #[test]
     fn test_network_config() {

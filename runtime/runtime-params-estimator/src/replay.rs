@@ -114,7 +114,9 @@ trait Visitor {
                         if key_str.starts_with('"') {
                             key_str = &key_str[1..key_str.len() - 1];
                         }
-                        let key = bs58::decode(key_str).into_vec()?;
+                        let key = near_o11y::pretty::Bytes::from_str(key_str).map_err(|e| {
+                            anyhow::anyhow!("failed to decode key {key_str} because {e}")
+                        })?;
                         let dict = extract_key_values(tokens)?;
                         let size: Option<u64> = dict.get("size").map(|s| s.parse()).transpose()?;
                         self.eval_db_op(out, indent, keyword, size, &key, col)?;
@@ -241,32 +243,32 @@ mod tests {
 
     /// A synthetic trace that should be a bit easier to read and verify.
     const SYNTHETIC_TRACE: &str = r#"
-GET BlockHeader "fAkeHeAd3R" size=6000
-GET BlockInfo "FAk31nf0" size=1
+GET BlockHeader "`fAkeHeAd3R`" size=6000
+GET BlockInfo "`FAk31nf0`" size=1
 apply_transactions shard_id=0
     process_state_update 
         apply num_transactions=1 shard_cache_hit=10 shard_cache_miss=1
             process_transaction tx_hash=txHash0 shard_cache_miss=1 shard_cache_hit=20
-                GET State "stateKey0" size=300
+                GET State "'stateKey0'" size=300
             process_receipt receipt_id=id0 predecessor=system receiver=alice.near id=id0 shard_cache_miss=2 shard_cache_hit=6
-                GET State "stateKey1" size=10
-                GET State "stateKey2" size=20
+                GET State "'stateKey1'" size=10
+                GET State "'stateKey2'" size=20
             process_receipt receipt_id=id1 predecessor=system receiver=bob.near id=id1 shard_cache_hit=18 shard_cache_miss=3 shard_cache_too_large=1
-                GET State "stateKey3" size=100
-                GET State "stateKey4" size=200
-                GET State "stateKey5" size=9000
+                GET State "'stateKey3'" size=100
+                GET State "'stateKey4'" size=200
+                GET State "'stateKey5'" size=9000
             process_receipt receipt_id=id2 predecessor=system receiver=alice.near id=id2 shard_cache_miss=1 shard_cache_hit=6
-                GET State "stateKey6" size=30
+                GET State "'stateKey6'" size=30
                 attached_deposit 
                 input 
                 register_len 
                 read_register 
                 storage_read READ key=StorageKey0 size=1000 tn_db_reads=20 tn_mem_reads=0 shard_cache_hit=19 shard_cache_miss=1
-                    GET State "stateKey7" size=5
+                    GET State "'stateKey7'" size=5
             process_receipt receipt_id=id3 predecessor=utiha.near receiver=alice.near id=id3 shard_cache_miss=0 shard_cache_hit=15
-            GET State "stateKey8" size=300
-        GET State "stateKey9" size=400
-GET State "stateKey10" size=500
+            GET State "'stateKey8'" size=300
+        GET State "'stateKey9'" size=400
+GET State "'stateKey10'" size=500
 "#;
 
     #[test]

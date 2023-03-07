@@ -27,7 +27,7 @@ pub fn read_updateable_configs(
             Err(err) => {
                 errs.push(UpdateableConfigLoaderError::ConfigFileError {
                     file: PathBuf::from(crate::config::CONFIG_FILENAME),
-                    err,
+                    err: err.into(),
                 });
                 None
             }

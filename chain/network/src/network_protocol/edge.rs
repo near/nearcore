@@ -1,9 +1,9 @@
-use crate::time;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{KeyType, SecretKey, Signature};
 use near_primitives::borsh::maybestd::sync::Arc;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
+use near_primitives::time;
 use once_cell::sync::Lazy;
 
 // We'd treat all nonces that are below this values as 'old style' (without any expiration time).

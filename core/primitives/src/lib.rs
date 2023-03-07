@@ -25,6 +25,7 @@ pub mod signable_message;
 pub mod state;
 pub mod state_part;
 pub mod state_record;
+pub mod static_clock;
 pub mod syncing;
 pub mod telemetry;
 pub mod test_utils;

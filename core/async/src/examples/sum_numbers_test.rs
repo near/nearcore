@@ -1,10 +1,12 @@
-use std::time::Duration;
-
 use derive_enum_from_into::{EnumFrom, EnumTryInto};
+use near_primitives::time;
 
 use crate::{
     messaging::{CanSend, IntoSender},
-    test_loop::{CaptureEvents, LoopEventHandler, TestLoopBuilder, TryIntoOrSelf},
+    test_loop::{
+        event_handler::{capture_events, LoopEventHandler},
+        TestLoopBuilder,
+    },
 };
 
 use super::sum_numbers::{ReportSumMsg, SumNumbersComponent, SumRequest};
@@ -24,20 +26,10 @@ enum TestEvent {
 // Handler that forwards SumRequest messages to the SumNumberComponent.
 // Note that typically we would have a single handler like this, and it can
 // be reused for any test that needs to send messages to this component.
-pub struct ForwardSumRequest;
-
-impl<Data: AsMut<SumNumbersComponent>, Event: TryIntoOrSelf<SumRequest>>
-    LoopEventHandler<Data, Event> for ForwardSumRequest
-{
-    fn handle(&mut self, event: Event, data: &mut Data) -> Option<Event> {
-        match event.try_into_or_self() {
-            Ok(request) => {
-                data.as_mut().handle(request);
-                None
-            }
-            Err(event) => Some(event),
-        }
-    }
+pub fn forward_sum_request() -> LoopEventHandler<SumNumbersComponent, SumRequest> {
+    LoopEventHandler::new_simple(|event, data: &mut SumNumbersComponent| {
+        data.handle(event);
+    })
 }
 
 #[test]
@@ -48,8 +40,8 @@ fn test_simple() {
         TestData { summer: SumNumbersComponent::new(builder.sender().into_sender()), sums: vec![] };
     let sender = builder.sender();
     let mut test = builder.build(data);
-    test.register_handler(ForwardSumRequest);
-    test.register_handler(CaptureEvents::<ReportSumMsg>::new());
+    test.register_handler(forward_sum_request().widen());
+    test.register_handler(capture_events::<ReportSumMsg>().widen());
 
     sender.send(TestEvent::Request(SumRequest::Number(1)));
     sender.send(TestEvent::Request(SumRequest::Number(2)));
@@ -59,6 +51,6 @@ fn test_simple() {
     sender.send(TestEvent::Request(SumRequest::Number(5)));
     sender.send(TestEvent::Request(SumRequest::GetSum));
 
-    test.run(Duration::from_millis(1));
+    test.run(time::Duration::milliseconds(1));
     assert_eq!(test.data.sums, vec![ReportSumMsg(3), ReportSumMsg(12)]);
 }

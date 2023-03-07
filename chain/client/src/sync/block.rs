@@ -1,22 +1,15 @@
+use chrono::{DateTime, Duration, Utc};
 use near_async::messaging::CanSend;
-use near_chain::{check_known, ChainStoreAccess};
-
-use chrono::{DateTime, Duration};
-use rand::seq::IteratorRandom;
-
-use tracing::{debug, warn};
-
 use near_chain::Chain;
+use near_chain::{check_known, ChainStoreAccess};
+use near_client_primitives::types::SyncStatus;
+use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter};
 use near_primitives::hash::CryptoHash;
-
-use near_primitives::time::{Clock, Utc};
-
+use near_primitives::static_clock::StaticClock;
 use near_primitives::types::{BlockHeight, BlockHeightDelta};
-
-use near_client_primitives::types::SyncStatus;
-
-use near_network::types::PeerManagerMessageRequest;
+use rand::seq::IteratorRandom;
+use tracing::{debug, warn};
 
 /// Maximum number of block requested at once in BlockSync
 const MAX_BLOCK_REQUESTS: usize = 5;
@@ -116,7 +109,7 @@ impl BlockSync {
         // update last request now because we want to update it whether or not the rest of the logic
         // succeeds
         self.last_request =
-            Some(BlockSyncRequest { head: chain_head.last_block_hash, when: Clock::utc() });
+            Some(BlockSyncRequest { head: chain_head.last_block_hash, when: StaticClock::utc() });
 
         // reference_hash is the last block on the canonical chain that is in store (processed)
         let reference_hash = {
@@ -216,7 +209,7 @@ impl BlockSync {
         match &self.last_request {
             None => Ok(true),
             Some(request) => Ok(chain.head()?.last_block_hash != request.head
-                || Clock::utc() - request.when > Duration::seconds(BLOCK_REQUEST_TIMEOUT)),
+                || StaticClock::utc() - request.when > Duration::seconds(BLOCK_REQUEST_TIMEOUT)),
         }
     }
 }

@@ -1,8 +1,8 @@
 use near_crypto::key_conversion::is_valid_staking_key;
 use near_primitives::checked_feature;
+use near_primitives::delegate_action::SignedDelegateAction;
 use near_primitives::runtime::config::RuntimeConfig;
-use near_primitives::types::BlockHeight;
-#[cfg(feature = "protocol_feature_nep366_delegate_action")]
+use near_primitives::types::{BlockHeight, StorageUsage};
 use near_primitives::version::ProtocolFeature;
 use near_primitives::{
     account::AccessKeyPermission,
@@ -82,10 +82,6 @@ pub fn check_storage_stake(
 fn is_zero_balance_account(account: &Account) -> bool {
     account.storage_usage() <= ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT
 }
-
-use crate::near_primitives::types::StorageUsage;
-#[cfg(feature = "protocol_feature_nep366_delegate_action")]
-use near_primitives::delegate_action::SignedDelegateAction;
 
 /// Validates the transaction without using the state. It allows any node to validate a
 /// transaction before forwarding it to the node that tracks the `signer_id` account.
@@ -357,7 +353,6 @@ pub(crate) fn validate_actions(
         });
     }
 
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     let mut found_delegate_action = false;
     let mut iter = actions.iter().peekable();
     while let Some(action) = iter.next() {
@@ -366,13 +361,8 @@ pub(crate) fn validate_actions(
                 return Err(ActionsValidationError::DeleteActionMustBeFinal);
             }
         } else {
-            #[cfg(feature = "protocol_feature_nep366_delegate_action")]
             if let Action::Delegate(_) = action {
-                if !checked_feature!(
-                    "protocol_feature_nep366_delegate_action",
-                    DelegateAction,
-                    current_protocol_version
-                ) {
+                if !checked_feature!("stable", DelegateAction, current_protocol_version) {
                     return Err(ActionsValidationError::UnsupportedProtocolFeature {
                         protocol_feature: String::from("DelegateAction"),
                         version: ProtocolFeature::DelegateAction.protocol_version(),
@@ -403,7 +393,6 @@ pub(crate) fn validate_actions(
 pub fn validate_action(
     limit_config: &VMLimitConfig,
     action: &Action,
-    #[cfg_attr(not(feature = "protocol_feature_nep366_delegate_action"), allow(unused))]
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), ActionsValidationError> {
     match action {
@@ -415,12 +404,10 @@ pub fn validate_action(
         Action::AddKey(a) => validate_add_key_action(limit_config, a),
         Action::DeleteKey(_) => Ok(()),
         Action::DeleteAccount(_) => Ok(()),
-        #[cfg(feature = "protocol_feature_nep366_delegate_action")]
         Action::Delegate(a) => validate_delegate_action(limit_config, a, current_protocol_version),
     }
 }
 
-#[cfg(feature = "protocol_feature_nep366_delegate_action")]
 fn validate_delegate_action(
     limit_config: &VMLimitConfig,
     signed_delegate_action: &SignedDelegateAction,
@@ -558,8 +545,10 @@ fn test_truncate_string() {
 mod tests {
     use std::sync::Arc;
 
-    use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
+    use crate::near_primitives::borsh::BorshSerialize;
+    use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
     use near_primitives::account::{AccessKey, FunctionCallPermission};
+    use near_primitives::delegate_action::{DelegateAction, NonDelegateAction};
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::test_utils::account_new;
     use near_primitives::transaction::{
@@ -576,12 +565,6 @@ mod tests {
     use crate::near_primitives::contract::ContractCode;
     use crate::near_primitives::trie_key::TrieKey;
     use near_store::{set, set_code};
-
-    use crate::near_primitives::borsh::BorshSerialize;
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
-    use near_crypto::Signature;
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
-    use near_primitives::delegate_action::{DelegateAction, NonDelegateAction};
 
     /// Initial balance used in tests.
     const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
@@ -1845,7 +1828,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     fn test_delegate_action_must_be_only_one() {
         let signed_delegate_action = SignedDelegateAction {
             delegate_action: DelegateAction {

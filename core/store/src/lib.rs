@@ -1,6 +1,5 @@
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
-use std::marker::PhantomData;
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -39,13 +38,12 @@ pub use crate::trie::{
     TrieAccess, TrieCache, TrieCachingStorage, TrieChanges, TrieConfig, TrieDBStorage, TrieStorage,
     WrappedTrieChanges,
 };
-pub use flat_state::FlatStateDelta;
 
 pub mod cold_storage;
 mod columns;
 pub mod config;
 pub mod db;
-pub mod flat_state;
+pub mod flat;
 pub mod metadata;
 mod metrics;
 pub mod migrations;
@@ -91,24 +89,19 @@ const STATE_FILE_END_MARK: u8 = 255;
 
 /// Node’s storage holding chain and all other necessary data.
 ///
-/// The eventual goal is to implement cold storage at which point this structure
-/// will provide interface to access hot and cold storage.  This is in contrast
-/// to [`Store`] which will abstract access to only one of the temperatures of
-/// the storage.
-pub struct NodeStorage<D = crate::db::RocksDB> {
+/// Provides access to hot storage, cold storage and split storage. Typically
+/// users will want to use one of the above via the Store abstraction.
+pub struct NodeStorage {
     hot_storage: Arc<dyn Database>,
-    cold_storage: Option<Arc<crate::db::ColdDB<D>>>,
-    _phantom: PhantomData<D>,
+    cold_storage: Option<Arc<crate::db::ColdDB>>,
 }
 
 /// Node’s single storage source.
 ///
-/// Currently, this is somewhat equivalent to [`NodeStorage`] in that for given
-/// node storage you can get only a single [`Store`] object.  This will change
-/// as we implement cold storage in which case this structure will provide an
-/// interface to access either hot or cold data.  At that point, [`NodeStorage`]
-/// will map to one of two [`Store`] objects depending on the temperature of the
-/// data.
+/// The Store holds one of the possible databases:
+/// - The hot database - access to the hot database only
+/// - The cold database - access to the cold database only
+/// - The split database - access to both hot and cold databases
 #[derive(Clone)]
 pub struct Store {
     storage: Arc<dyn Database>,
@@ -132,9 +125,15 @@ impl NodeStorage {
         cold_storage: Option<crate::db::RocksDB>,
     ) -> Self {
         let hot_storage = Arc::new(hot_storage);
-        let cold_storage = cold_storage
-            .map(|cold_db| Arc::new(crate::db::ColdDB::new(hot_storage.clone(), cold_db)));
-        Self { hot_storage, cold_storage, _phantom: PhantomData {} }
+        let cold_storage = cold_storage.map(|storage| Arc::new(storage));
+
+        let cold_db = if let Some(cold_storage) = cold_storage {
+            Some(Arc::new(crate::db::ColdDB::new(cold_storage)))
+        } else {
+            None
+        };
+
+        Self { hot_storage: hot_storage, cold_storage: cold_db }
     }
 
     /// Initialises an opener for a new temporary test store.
@@ -162,40 +161,54 @@ impl NodeStorage {
     /// possibly [`crate::test_utils::create_test_store`] (depending whether you
     /// need [`NodeStorage`] or [`Store`] object.
     pub fn new(storage: Arc<dyn Database>) -> Self {
-        Self { hot_storage: storage, cold_storage: None, _phantom: PhantomData {} }
+        Self { hot_storage: storage, cold_storage: None }
     }
 }
 
-impl<D: Database + 'static> NodeStorage<D> {
-    /// Returns storage for given temperature.
+impl NodeStorage {
+    /// Returns the hot store. The hot store is always available and it provides
+    /// direct access to the hot database.
     ///
-    /// Some data live only in hot and some only in cold storage (which is at
-    /// the moment not implemented but is planned soon).  Hot data is anything
-    /// at the head of the chain.  Cold data, if node is configured with split
-    /// storage, is anything archival.
+    /// For RPC nodes this is the only store available and it should be used for
+    /// all the use cases.
     ///
-    /// Based on block in whose context database access are going to be made,
-    /// you will either need to access hot or cold storage.  Temperature of the
-    /// data is, simplifying slightly, determined based on height of the block.
-    /// Anything above the tail of hot storage is hot and everything else is
-    /// cold.
+    /// For archival nodes that do not have split storage configured this is the
+    /// only store available and it should be used for all the use cases.
     ///
-    /// This method panics if trying to access cold store but it wasn't configured.
-    /// Please consider using the get_hot_store and get_cold_store methods to avoid panics.
-    pub fn get_store(&self, temp: Temperature) -> Store {
-        match temp {
-            Temperature::Hot => self.get_hot_store(),
-            Temperature::Cold => self.get_cold_store().unwrap(),
-        }
-    }
-
+    /// For archival nodes that do have split storage configured there are three
+    /// stores available: hot, cold and split. The client should use the hot
+    /// store, the view client should use the split store and the cold store
+    /// loop should use cold store.
     pub fn get_hot_store(&self) -> Store {
         Store { storage: self.hot_storage.clone() }
     }
 
+    /// Returns the cold store. The cold store is only available in archival
+    /// nodes with split storage configured.
+    ///
+    /// For archival nodes that do have split storage configured there are three
+    /// stores available: hot, cold and split. The client should use the hot
+    /// store, the view client should use the split store and the cold store
+    /// loop should use cold store.
     pub fn get_cold_store(&self) -> Option<Store> {
         match &self.cold_storage {
             Some(cold_storage) => Some(Store { storage: cold_storage.clone() }),
+            None => None,
+        }
+    }
+
+    /// Returns the split store. The split store is only available in archival
+    /// nodes with split storage configured.
+    ///
+    /// For archival nodes that do have split storage configured there are three
+    /// stores available: hot, cold and split. The client should use the hot
+    /// store, the view client should use the split store and the cold store
+    /// loop should use cold store.
+    pub fn get_split_store(&self) -> Option<Store> {
+        match &self.cold_storage {
+            Some(cold_storage) => Some(Store {
+                storage: crate::db::SplitDB::new(self.hot_storage.clone(), cold_storage.clone()),
+            }),
             None => None,
         }
     }
@@ -222,17 +235,9 @@ impl<D: Database + 'static> NodeStorage<D> {
             Temperature::Cold => self.cold_storage.unwrap(),
         }
     }
-
-    pub fn set_version(&self, version: DbVersion) -> std::io::Result<()> {
-        self.get_hot_store().set_db_version(version)?;
-        if let Some(cold_store) = self.get_cold_store() {
-            cold_store.set_db_version(version)?;
-        }
-        Ok(())
-    }
 }
 
-impl<D> NodeStorage<D> {
+impl NodeStorage {
     /// Returns whether the storage has a cold database.
     pub fn has_cold(&self) -> bool {
         self.cold_storage.is_some()
@@ -250,15 +255,11 @@ impl<D> NodeStorage<D> {
         })
     }
 
-    pub fn new_with_cold(hot: Arc<dyn Database>, cold: D) -> Self {
-        Self {
-            hot_storage: hot.clone(),
-            cold_storage: Some(Arc::new(crate::db::ColdDB::<D>::new(hot, cold))),
-            _phantom: PhantomData::<D> {},
-        }
+    pub fn new_with_cold(hot: Arc<dyn Database>, cold: Arc<dyn Database>) -> Self {
+        Self { hot_storage: hot, cold_storage: Some(Arc::new(crate::db::ColdDB::new(cold))) }
     }
 
-    pub fn cold_db(&self) -> Option<&Arc<crate::db::ColdDB<D>>> {
+    pub fn cold_db(&self) -> Option<&Arc<crate::db::ColdDB>> {
         self.cold_storage.as_ref()
     }
 }
@@ -298,8 +299,8 @@ impl Store {
         StoreUpdate::new(Arc::clone(&self.storage))
     }
 
-    pub fn iter<'a>(&'a self, column: DBCol) -> DBIterator<'a> {
-        self.storage.iter(column)
+    pub fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
+        self.storage.iter(col)
     }
 
     /// Fetches raw key/value pairs from the database.
@@ -308,21 +309,31 @@ impl Store {
     /// This method is a deliberate escape hatch, and shouldn't be used outside
     /// of auxilary code like migrations which wants to hack on the database
     /// directly.
-    pub fn iter_raw_bytes<'a>(&'a self, column: DBCol) -> DBIterator<'a> {
-        self.storage.iter_raw_bytes(column)
+    pub fn iter_raw_bytes<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
+        self.storage.iter_raw_bytes(col)
     }
 
-    pub fn iter_prefix<'a>(&'a self, column: DBCol, key_prefix: &'a [u8]) -> DBIterator<'a> {
-        self.storage.iter_prefix(column, key_prefix)
+    pub fn iter_prefix<'a>(&'a self, col: DBCol, key_prefix: &'a [u8]) -> DBIterator<'a> {
+        self.storage.iter_prefix(col, key_prefix)
+    }
+
+    /// Iterates over a range of keys. Upper bound key is not included.
+    pub fn iter_range<'a>(
+        &'a self,
+        col: DBCol,
+        lower_bound: Option<&'a [u8]>,
+        upper_bound: Option<&'a [u8]>,
+    ) -> DBIterator<'a> {
+        self.storage.iter_range(col, lower_bound, upper_bound)
     }
 
     pub fn iter_prefix_ser<'a, T: BorshDeserialize>(
         &'a self,
-        column: DBCol,
+        col: DBCol,
         key_prefix: &'a [u8],
     ) -> impl Iterator<Item = io::Result<(Box<[u8]>, T)>> + 'a {
         self.storage
-            .iter_prefix(column, key_prefix)
+            .iter_prefix(col, key_prefix)
             .map(|item| item.and_then(|(key, value)| Ok((key, T::try_from_slice(value.as_ref())?))))
     }
 
@@ -947,7 +958,7 @@ impl CompiledContractCache for StoreCompiledContractCache {
 mod tests {
     use near_primitives::hash::CryptoHash;
 
-    use super::{DBCol, NodeStorage, Store, Temperature};
+    use super::{DBCol, NodeStorage, Store};
 
     #[test]
     fn test_no_cache_disabled() {
@@ -976,7 +987,7 @@ mod tests {
     #[test]
     fn clear_column_rocksdb() {
         let (_tmp_dir, opener) = NodeStorage::test_opener();
-        test_clear_column(opener.open().unwrap().get_store(Temperature::Hot));
+        test_clear_column(opener.open().unwrap().get_hot_store());
     }
 
     #[test]
@@ -999,7 +1010,7 @@ mod tests {
         use rand::Rng;
 
         // An arbitrary non-rc non-insert-only column we can write data into.
-        const COLUMN: DBCol = DBCol::Peers;
+        const COLUMN: DBCol = DBCol::RecentOutboundConnections;
         assert!(!COLUMN.is_rc());
         assert!(!COLUMN.is_insert_only());
 
@@ -1048,7 +1059,7 @@ mod tests {
     #[test]
     fn rocksdb_iter_order() {
         let (_tempdir, opener) = NodeStorage::test_opener();
-        test_iter_order_impl(opener.open().unwrap().get_store(Temperature::Hot));
+        test_iter_order_impl(opener.open().unwrap().get_hot_store());
     }
 
     #[test]

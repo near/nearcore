@@ -1,4 +1,5 @@
 use borsh::BorshSerialize;
+use chrono::Utc;
 use near_chain::types::RuntimeAdapter;
 use near_chain_configs::{Genesis, GenesisChangeConfig, GenesisConfig};
 use near_crypto::PublicKey;
@@ -7,7 +8,6 @@ use near_primitives::account::id::AccountId;
 use near_primitives::block::BlockHeader;
 use near_primitives::state_record::state_record_to_account_id;
 use near_primitives::state_record::StateRecord;
-use near_primitives::time::Utc;
 use near_primitives::types::{AccountInfo, Balance, StateRoot};
 use nearcore::config::NearConfig;
 use nearcore::NightshadeRuntime;
@@ -103,7 +103,7 @@ pub fn state_dump(
             genesis_config.total_supply = total_supply;
             change_genesis_config(&mut genesis_config, change_config);
             near_config.genesis =
-                Genesis::new_with_path(genesis_config, records_path.to_path_buf());
+                Genesis::new_with_path(genesis_config, records_path.to_path_buf()).unwrap();
             near_config.config.genesis_records_file =
                 Some(records_path.file_name().unwrap().to_str().unwrap().to_string());
         }
@@ -122,7 +122,7 @@ pub fn state_dump(
             // minting tokens every epoch.
             genesis_config.total_supply = total_supply;
             change_genesis_config(&mut genesis_config, change_config);
-            near_config.genesis = Genesis::new(genesis_config, records.into());
+            near_config.genesis = Genesis::new(genesis_config, records.into()).unwrap();
         }
     }
     near_config
@@ -296,20 +296,14 @@ mod test {
     use near_chain::{ChainGenesis, Provenance};
     use near_chain_configs::genesis_validate::validate_genesis;
     use near_chain_configs::{Genesis, GenesisChangeConfig};
-    #[cfg(not(feature = "protocol_feature_flat_state"))]
-    use near_client::test_utils::run_catchup;
     use near_client::test_utils::TestEnv;
     use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, SecretKey};
     use near_primitives::account::id::AccountId;
-    #[cfg(not(feature = "protocol_feature_flat_state"))]
-    use near_primitives::shard_layout::ShardLayout;
     use near_primitives::state_record::StateRecord;
     use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
     use near_primitives::types::{
         Balance, BlockHeight, BlockHeightDelta, NumBlocks, ProtocolVersion,
     };
-    #[cfg(not(feature = "protocol_feature_flat_state"))]
-    use near_primitives::version::ProtocolFeature::SimpleNightshade;
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_test_store;
     use near_store::Store;
@@ -428,7 +422,7 @@ mod test {
         );
         let new_genesis = new_near_config.genesis;
         assert_eq!(new_genesis.config.validators.len(), 2);
-        validate_genesis(&new_genesis);
+        validate_genesis(&new_genesis).unwrap();
     }
 
     /// Test that we respect the specified account ID list in dump_state.
@@ -512,7 +506,7 @@ mod test {
             }
         });
         assert_eq!(expected_accounts, actual_accounts);
-        validate_genesis(&new_genesis);
+        validate_genesis(&new_genesis).unwrap();
     }
 
     /// Test that we preserve the validators from the epoch of the state dump.
@@ -559,7 +553,7 @@ mod test {
         );
         let new_genesis = new_near_config.genesis;
         assert_eq!(new_genesis.config.validators.len(), 2);
-        validate_genesis(&new_genesis);
+        validate_genesis(&new_genesis).unwrap();
     }
 
     /// Test that we return locked tokens for accounts that are not validators.
@@ -608,13 +602,17 @@ mod test {
                 .collect::<Vec<_>>(),
             vec!["test0".parse().unwrap()]
         );
-        validate_genesis(&new_genesis);
+        validate_genesis(&new_genesis).unwrap();
     }
 
     // TODO (#7327): enable test when flat storage will support resharding.
     #[cfg(not(feature = "protocol_feature_flat_state"))]
     #[test]
     fn test_dump_state_shard_upgrade() {
+        use near_client::test_utils::run_catchup;
+        use near_primitives::shard_layout::ShardLayout;
+        use near_primitives::version::ProtocolFeature::SimpleNightshade;
+
         let epoch_length = 4;
         let (store, genesis, mut env, near_config) =
             setup(epoch_length, SimpleNightshade.protocol_version() - 1, true);
@@ -799,7 +797,7 @@ mod test {
         let new_genesis = new_near_config.genesis;
 
         assert_eq!(new_genesis.config.validators.len(), 2);
-        validate_genesis(&new_genesis);
+        validate_genesis(&new_genesis).unwrap();
     }
 
     #[test]
@@ -869,6 +867,6 @@ mod test {
 
         assert_eq!(stake.get("test0").unwrap_or(&(0 as Balance)), &(0 as Balance));
 
-        validate_genesis(&new_genesis);
+        validate_genesis(&new_genesis).unwrap();
     }
 }

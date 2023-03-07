@@ -1,4 +1,4 @@
-use super::{parse_params, RpcFrom, RpcRequest};
+use super::{Params, RpcFrom, RpcRequest};
 use near_client_primitives::types::{GetReceipt, GetReceiptError};
 use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::receipts::{
@@ -8,8 +8,7 @@ use serde_json::Value;
 
 impl RpcRequest for RpcReceiptRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {
-        let receipt_reference = parse_params::<ReceiptReference>(value)?;
-        Ok(Self { receipt_reference })
+        Ok(Self { receipt_reference: Params::parse(value)? })
     }
 }
 

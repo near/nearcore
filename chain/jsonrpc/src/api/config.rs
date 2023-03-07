@@ -3,13 +3,12 @@ use serde_json::Value;
 use near_client_primitives::types::GetProtocolConfigError;
 use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::config::{RpcProtocolConfigError, RpcProtocolConfigRequest};
-use near_primitives::types::BlockReference;
 
-use super::{parse_params, RpcFrom, RpcRequest};
+use super::{Params, RpcFrom, RpcRequest};
 
 impl RpcRequest for RpcProtocolConfigRequest {
     fn parse(value: Value) -> Result<Self, RpcParseError> {
-        parse_params::<BlockReference>(value).map(|block_reference| Self { block_reference })
+        Params::parse(value).map(|block_reference| Self { block_reference })
     }
 }
 

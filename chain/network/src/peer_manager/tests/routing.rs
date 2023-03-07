@@ -14,12 +14,11 @@ use crate::peer_manager::testonly::Event;
 use crate::private_actix::RegisterPeerError;
 use crate::store;
 use crate::tcp;
-use crate::testonly::{make_rng, Rng};
-use crate::time;
+use crate::testonly::{abort_on_panic, make_rng, Rng};
 use crate::types::PeerMessage;
 use crate::types::{PeerInfo, ReasonForBan};
-use near_o11y::testonly::init_test_logger;
 use near_primitives::network::PeerId;
+use near_primitives::time;
 use near_store::db::TestDB;
 use pretty_assertions::assert_eq;
 use rand::seq::IteratorRandom;
@@ -27,30 +26,6 @@ use rand::Rng as _;
 use std::collections::HashSet;
 use std::net::Ipv6Addr;
 use std::sync::Arc;
-
-/// Initializes the test logger and then, iff the current process is executed under
-/// nextest in process-per-test mode, changes the behavior of the process to [panic=abort].
-/// In particular it doesn't enable [panic=abort] when run via "cargo test".
-/// Note that (unfortunately) some tests may expect a panic, so we cannot apply blindly
-/// [panic=abort] in compilation time to all tests.
-// TODO: investigate whether "-Zpanic-abort-tests" could replace this function once the flag
-// becomes stable: https://github.com/rust-lang/rust/issues/67650, so we don't use it.
-fn abort_on_panic() {
-    init_test_logger();
-    // I don't know a way to set panic=abort for nextest builds in compilation time, so we set it
-    // in runtime. https://nexte.st/book/env-vars.html#environment-variables-nextest-sets
-    let Ok(nextest) = std::env::var("NEXTEST") else { return };
-    let Ok(nextest_execution_mode) = std::env::var("NEXTEST_EXECUTION_MODE") else { return };
-    if nextest != "1" || nextest_execution_mode != "process-per-test" {
-        return;
-    }
-    tracing::info!(target:"test", "[panic=abort] enabled");
-    let orig_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |panic_info| {
-        orig_hook(panic_info);
-        std::process::abort();
-    }));
-}
 
 // test routing in a two-node network before and after connecting the nodes
 #[tokio::test]
@@ -375,7 +350,7 @@ async fn ping_simple() {
     let mut pm1_ev = pm1.events.from_now();
 
     tracing::info!(target:"test", "send ping from {id0} to {id1}");
-    pm0.send_ping(0, id1.clone()).await;
+    pm0.send_ping(&clock.clock(), 0, id1.clone()).await;
 
     tracing::info!(target:"test", "await ping at {id1}");
     wait_for_ping(&mut pm1_ev, Ping { nonce: 0, source: id0.clone() }).await;
@@ -433,7 +408,7 @@ async fn ping_jump() {
     let mut pm2_ev = pm2.events.from_now();
 
     tracing::info!(target:"test", "send ping from {id0} to {id2}");
-    pm0.send_ping(0, id2.clone()).await;
+    pm0.send_ping(&clock.clock(), 0, id2.clone()).await;
 
     tracing::info!(target:"test", "await ping at {id2}");
     wait_for_ping(&mut pm2_ev, Ping { nonce: 0, source: id0.clone() }).await;
@@ -490,7 +465,7 @@ async fn test_dont_drop_after_ttl() {
     let mut pm2_ev = pm2.events.from_now();
 
     tracing::info!(target:"test", "send ping from {id0} to {id2}");
-    pm0.send_ping(0, id2.clone()).await;
+    pm0.send_ping(&clock.clock(), 0, id2.clone()).await;
 
     tracing::info!(target:"test", "await ping at {id2}");
     wait_for_ping(&mut pm2_ev, Ping { nonce: 0, source: id0.clone() }).await;
@@ -546,7 +521,7 @@ async fn test_drop_after_ttl() {
     let mut pm1_ev = pm1.events.from_now();
 
     tracing::info!(target:"test", "send ping from {id0} to {id2}");
-    pm0.send_ping(0, id2.clone()).await;
+    pm0.send_ping(&clock.clock(), 0, id2.clone()).await;
 
     tracing::info!(target:"test", "await message dropped at {id1}");
     wait_for_message_dropped(&mut pm1_ev).await;
@@ -600,20 +575,20 @@ async fn test_dropping_duplicate_messages() {
 
     // Send two identical messages. One will be dropped, because the delay between them was less than 50ms.
     tracing::info!(target:"test", "send ping from {id0} to {id2}");
-    pm0.send_ping(0, id2.clone()).await;
+    pm0.send_ping(&clock.clock(), 0, id2.clone()).await;
     tracing::info!(target:"test", "await ping at {id2}");
     wait_for_ping(&mut pm2_ev, Ping { nonce: 0, source: id0.clone() }).await;
     tracing::info!(target:"test", "await pong at {id0}");
     wait_for_pong(&mut pm0_ev, Pong { nonce: 0, source: id2.clone() }).await;
 
     tracing::info!(target:"test", "send ping from {id0} to {id2}");
-    pm0.send_ping(0, id2.clone()).await;
+    pm0.send_ping(&clock.clock(), 0, id2.clone()).await;
     tracing::info!(target:"test", "await message dropped at {id1}");
     wait_for_message_dropped(&mut pm1_ev).await;
 
     // Send two identical messages but with 300ms delay so they don't get dropped.
     tracing::info!(target:"test", "send ping from {id0} to {id2}");
-    pm0.send_ping(1, id2.clone()).await;
+    pm0.send_ping(&clock.clock(), 1, id2.clone()).await;
     tracing::info!(target:"test", "await ping at {id2}");
     wait_for_ping(&mut pm2_ev, Ping { nonce: 1, source: id0.clone() }).await;
     tracing::info!(target:"test", "await pong at {id0}");
@@ -622,15 +597,11 @@ async fn test_dropping_duplicate_messages() {
     clock.advance(DROP_DUPLICATED_MESSAGES_PERIOD + time::Duration::milliseconds(1));
 
     tracing::info!(target:"test", "send ping from {id0} to {id2}");
-    pm0.send_ping(1, id2.clone()).await;
+    pm0.send_ping(&clock.clock(), 1, id2.clone()).await;
     tracing::info!(target:"test", "await ping at {id2}");
     wait_for_ping(&mut pm2_ev, Ping { nonce: 1, source: id0.clone() }).await;
     tracing::info!(target:"test", "await pong at {id0}");
     wait_for_pong(&mut pm0_ev, Pong { nonce: 1, source: id2.clone() }).await;
-
-    drop(pm0);
-    drop(pm1);
-    drop(pm2);
 }
 
 /// Awaits until a ConnectionClosed event with the expected reason is seen in the event stream.

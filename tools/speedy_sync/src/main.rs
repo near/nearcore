@@ -127,7 +127,7 @@ fn create_snapshot(create_cmd: CreateCmd) {
     let store = NodeStorage::opener(path, false, &Default::default(), None)
         .open_in_mode(Mode::ReadOnly)
         .unwrap()
-        .get_store(near_store::Temperature::Hot);
+        .get_hot_store();
 
     // Get epoch information:
     let mut epochs = store
@@ -225,7 +225,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
     let store = NodeStorage::opener(home_dir, config.config.archive, &Default::default(), None)
         .open()
         .unwrap()
-        .get_store(near_store::Temperature::Hot);
+        .get_hot_store();
     let chain_genesis = ChainGenesis::new(&config.genesis);
     let runtime = Arc::new(NightshadeRuntime::from_config(home_dir, store.clone(), &config));
     // This will initialize the database (add genesis block etc)

@@ -1,3 +1,5 @@
+use near_account_id::AccountId;
+
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum ParseKeyTypeError {
     #[error("unknown key type '{unknown_key_type}'")]
@@ -42,4 +44,10 @@ impl From<ParseKeyTypeError> for ParseSignatureError {
             }
         }
     }
+}
+
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum ImplicitPublicKeyError {
+    #[error("'{account_id}' is not an implicit account")]
+    AccountIsNotImplicit { account_id: AccountId },
 }

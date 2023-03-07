@@ -10,7 +10,7 @@ use near_primitives::{
     types::{AccountId, ShardId},
 };
 
-#[derive(Message)]
+#[derive(Message, Debug)]
 #[rtype(result = "()")]
 pub enum ShardsManagerResponse {
     /// Notifies the client that the ShardsManager has collected a complete chunk.
