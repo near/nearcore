@@ -416,6 +416,13 @@ pub(crate) fn get_receipt(receipt_id: CryptoHash, near_config: NearConfig, store
 }
 
 fn chunk_extras_equal(l: &ChunkExtra, r: &ChunkExtra) -> bool {
+    // explicitly enumerate the versions in a match here first so that if a new version is
+    // added, we'll get a compile error here and be reminded to update it correctly.
+    match (l, r) {
+        (ChunkExtra::V1(l), ChunkExtra::V1(r)) => return l == r,
+        (ChunkExtra::V2(l), ChunkExtra::V2(r)) => return l == r,
+        (ChunkExtra::V1(_), ChunkExtra::V2(_)) | (ChunkExtra::V2(_), ChunkExtra::V1(_)) => {}
+    };
     if l.state_root() != r.state_root() {
         return false;
     }
