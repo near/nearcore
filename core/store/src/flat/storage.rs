@@ -8,10 +8,10 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state::ValueRef;
 use near_primitives::types::{BlockHeight, ShardId};
-#[cfg(feature = "protocol_feature_flat_state")]
 use tracing::info;
 
 use crate::flat::delta::CachedFlatStateDelta;
+use crate::flat::store_helper::FlatStateColumn;
 use crate::{metrics, Store, StoreUpdate};
 
 use super::delta::FlatStateDelta;
@@ -39,30 +39,23 @@ pub struct FlatStorage(pub(crate) Arc<RwLock<FlatStorageInner>>);
 //   This makes sure that when a node restarts, FlatStorage can load deltas for all blocks
 //   after the `flat_head` block successfully.
 pub(crate) struct FlatStorageInner {
-    #[allow(unused)]
     store: Store,
     /// Id of the shard which state is accessed by this flat storage.
-    #[allow(unused)]
     shard_id: ShardId,
     /// The block for which we store the key value pairs of the state after it is applied.
     /// For non catchup mode, it should be the last final block.
-    #[allow(unused)]
     flat_head: CryptoHash,
     /// Stores some information for all blocks supported by flat storage, this is used for finding
     /// paths between the root block and a target block
-    #[allow(unused)]
     blocks: HashMap<CryptoHash, BlockInfo>,
     /// Cached deltas for all blocks supported by this flat storage.
     /// Uncompressed deltas are stored on DB too, but are cached here for faster access.
-    #[allow(unused)]
     deltas: HashMap<CryptoHash, Arc<CachedFlatStateDelta>>,
     /// Cache for the mapping from trie storage keys to value refs for `flat_head`.
     /// Must be equivalent to the mapping stored on disk only for `flat_head`. For
     /// other blocks, deltas have to be applied as usual.
     // TODO (#8649): consider using RocksDB RowCache.
-    #[allow(unused)]
     value_ref_cache: LruCache<Vec<u8>, Option<ValueRef>>,
-    #[allow(unused)]
     metrics: FlatStorageMetrics,
 }
 
@@ -72,17 +65,12 @@ struct FlatStorageMetrics {
     cached_deltas: IntGauge,
     cached_deltas_num_items: IntGauge,
     cached_deltas_size: IntGauge,
-    #[allow(unused)]
     distance_to_head: IntGauge,
-    #[allow(unused)]
     value_ref_cache_len: IntGauge,
-    #[allow(unused)]
     value_ref_cache_total_key_size: IntGauge,
-    #[allow(unused)]
     value_ref_cache_total_value_size: IntGauge,
 }
 
-#[cfg(feature = "protocol_feature_flat_state")]
 impl FlatStorageInner {
     /// Creates `BlockNotSupported` error for the given block.
     fn create_block_not_supported_error(&self, block_hash: &CryptoHash) -> FlatStorageError {
@@ -116,7 +104,7 @@ impl FlatStorageInner {
             .get(flat_head)
             .expect(&format!("Inconsistent flat storage state for shard {shard_id}: head {flat_head} not found in cached blocks"));
 
-        let mut block_hash = target_block_hash.clone();
+        let mut block_hash = *target_block_hash;
         let mut blocks = vec![];
         while block_hash != *flat_head {
             let block_info = self
@@ -136,7 +124,6 @@ impl FlatStorageInner {
         Ok(blocks)
     }
 
-    #[allow(unused)]
     fn put_value_ref_to_cache(&mut self, key: Vec<u8>, value: Option<ValueRef>) {
         let value_size = value.as_ref().map_or(1, |_| 37);
         if let Some((key, old_value)) = self.value_ref_cache.push(key.to_vec(), value) {
@@ -154,7 +141,6 @@ impl FlatStorageInner {
     /// - None: no entry in cache;
     /// - Some(None): entry None found in cache, meaning that there is no such key in state;
     /// - Some(Some(value_ref)): entry found in cache.
-    #[cfg(feature = "protocol_feature_flat_state")]
     pub(crate) fn get_cached_ref(&mut self, key: &[u8]) -> Option<Option<ValueRef>> {
         self.value_ref_cache.get(key).cloned()
     }
@@ -250,8 +236,8 @@ impl FlatStorage {
 
     /// Get sequence of blocks `target_block_hash` (inclusive) to flat head (exclusive)
     /// in backwards chain order. Returns an error if there is no path between them.
-    #[cfg(feature = "protocol_feature_flat_state")]
     #[cfg(test)]
+    #[allow(unused)]
     pub(crate) fn get_blocks_to_head(
         &self,
         target_block_hash: &CryptoHash,
@@ -260,16 +246,6 @@ impl FlatStorage {
         guard.get_blocks_to_head(target_block_hash)
     }
 
-    #[cfg(not(feature = "protocol_feature_flat_state"))]
-    #[allow(unused)]
-    pub(crate) fn get_blocks_to_head(
-        &self,
-        _target_block_hash: &CryptoHash,
-    ) -> Result<Vec<CryptoHash>, FlatStorageError> {
-        Err(FlatStorageError::StorageInternalError)
-    }
-
-    #[cfg(feature = "protocol_feature_flat_state")]
     pub fn get_ref(
         &self,
         block_hash: &CryptoHash,
@@ -298,20 +274,9 @@ impl FlatStorage {
         Ok(value_ref)
     }
 
-    #[cfg(not(feature = "protocol_feature_flat_state"))]
-    #[allow(unused)]
-    fn get_ref(
-        &self,
-        _block_hash: &CryptoHash,
-        _key: &[u8],
-    ) -> Result<Option<ValueRef>, crate::StorageError> {
-        Err(StorageError::StorageInternalError)
-    }
-
     /// Update the head of the flat storage, including updating the flat state in memory and on disk
     /// and updating the flat state to reflect the state at the new head. If updating to given head is not possible,
     /// returns an error.
-    #[cfg(feature = "protocol_feature_flat_state")]
     pub fn update_flat_head(&self, new_head: &CryptoHash) -> Result<(), FlatStorageError> {
         let mut guard = self.0.write().expect(crate::flat::POISONED_LOCK_ERR);
         let blocks = guard.get_blocks_to_head(new_head)?;
@@ -383,17 +348,11 @@ impl FlatStorage {
         Ok(())
     }
 
-    #[cfg(not(feature = "protocol_feature_flat_state"))]
-    pub fn update_flat_head(&self, _new_head: &CryptoHash) -> Result<(), FlatStorageError> {
-        Ok(())
-    }
-
     /// Adds a block (including the block delta and block info) to flat storage,
     /// returns a StoreUpdate to store the delta on disk. Node that this StoreUpdate should be
     /// committed to disk in one db transaction together with the rest of changes caused by block,
     /// in case the node stopped or crashed in between and a block is on chain but its delta is not
     /// stored or vice versa.
-    #[cfg(feature = "protocol_feature_flat_state")]
     pub fn add_block(
         &self,
         block_hash: &CryptoHash,
@@ -408,7 +367,7 @@ impl FlatStorage {
             return Err(guard.create_block_not_supported_error(block_hash));
         }
         let mut store_update = StoreUpdate::new(guard.store.storage.clone());
-        store_helper::set_delta(&mut store_update, guard.shard_id, block_hash.clone(), &delta)?;
+        store_helper::set_delta(&mut store_update, guard.shard_id, *block_hash, &delta)?;
         let cached_delta: CachedFlatStateDelta = delta.into();
         guard.metrics.cached_deltas.inc();
         guard.metrics.cached_deltas_num_items.add(cached_delta.len() as i64);
@@ -419,18 +378,7 @@ impl FlatStorage {
         Ok(store_update)
     }
 
-    #[cfg(not(feature = "protocol_feature_flat_state"))]
-    pub fn add_block(
-        &self,
-        _block_hash: &CryptoHash,
-        _delta: FlatStateDelta,
-        _block_info: BlockInfo,
-    ) -> Result<StoreUpdate, FlatStorageError> {
-        panic!("not implemented")
-    }
-
     /// Clears all State key-value pairs from flat storage.
-    #[cfg(feature = "protocol_feature_flat_state")]
     pub fn clear_state(&self, shard_layout: ShardLayout) -> Result<(), StorageError> {
         let guard = self.0.write().expect(super::POISONED_LOCK_ERR);
         let shard_id = guard.shard_id;
@@ -446,13 +394,13 @@ impl FlatStorage {
         // We should also take fixed accounts into account.
         let mut store_update = guard.store.store_update();
         let mut removed_items = 0;
-        for item in guard.store.iter(crate::DBCol::FlatState) {
+        for item in guard.store.iter(FlatStateColumn::State.to_db_col()) {
             let (key, _) =
                 item.map_err(|e| StorageError::StorageInconsistentState(e.to_string()))?;
 
             if store_helper::key_belongs_to_shard(&key, &shard_layout, shard_id)? {
                 removed_items += 1;
-                store_update.delete(crate::DBCol::FlatState, &key);
+                store_update.delete(FlatStateColumn::State.to_db_col(), &key);
             }
         }
         info!(target: "chain", %shard_id, %removed_items, "Removing old items from flat storage");
@@ -461,9 +409,6 @@ impl FlatStorage {
         store_update.commit().map_err(|_| StorageError::StorageInternalError)?;
         Ok(())
     }
-
-    #[cfg(not(feature = "protocol_feature_flat_state"))]
-    pub fn clear_state(&self, _shard_layout: ShardLayout) {}
 }
 
 #[cfg(feature = "protocol_feature_flat_state")]

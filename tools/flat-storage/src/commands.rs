@@ -202,7 +202,7 @@ impl FlatStorageCommand {
                 );
 
                 let trie = hot_runtime
-                    .get_view_trie_for_shard(verify_cmd.shard_id, &head_hash, state_root.clone())
+                    .get_view_trie_for_shard(verify_cmd.shard_id, &head_hash, *state_root)
                     .unwrap();
 
                 let flat_state_entries_iter = store_helper::iter_flat_state_entries(

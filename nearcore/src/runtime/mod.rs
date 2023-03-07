@@ -1374,8 +1374,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, epoch_id)?;
         let mut store_update = tries.store_update();
         tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-        debug!(target: "chain", %shard_id, "Inserting {} values to flat storage", flat_state_delta.len());
-        flat_state_delta.apply_to_flat_state(&mut store_update);
+        if cfg!(feature = "protocol_feature_flat_state") {
+            debug!(target: "chain", %shard_id, "Inserting {} values to flat storage", flat_state_delta.len());
+            flat_state_delta.apply_to_flat_state(&mut store_update);
+        }
         self.precompile_contracts(epoch_id, contract_codes)?;
         Ok(store_update.commit()?)
     }
@@ -1808,17 +1810,18 @@ mod test {
 
             // Create flat storage. Naturally it happens on Chain creation, but here we test only Runtime behaviour
             // and use a mock chain, so we need to initialize flat storage manually.
-            let store_update =
-                runtime.set_flat_storage_for_genesis(&genesis_hash, &EpochId::default()).unwrap();
-            store_update.commit().unwrap();
-            let mock_chain = MockChainForFlatStorage::new(0, genesis_hash);
-            for shard_id in 0..runtime.num_shards(&EpochId::default()).unwrap() {
-                let status = runtime.get_flat_storage_creation_status(shard_id);
-                if cfg!(feature = "protocol_feature_flat_state") {
-                    assert_eq!(status, FlatStorageCreationStatus::Ready);
+            if cfg!(feature = "protocol_feature_flat_state") {
+                let store_update = runtime
+                    .set_flat_storage_for_genesis(&genesis_hash, &EpochId::default())
+                    .unwrap();
+                store_update.commit().unwrap();
+                let mock_chain = MockChainForFlatStorage::new(0, genesis_hash);
+                for shard_id in 0..runtime.num_shards(&EpochId::default()).unwrap() {
+                    assert_eq!(
+                        runtime.get_flat_storage_creation_status(shard_id),
+                        FlatStorageCreationStatus::Ready
+                    );
                     runtime.create_flat_storage_for_shard(shard_id, 0, &mock_chain);
-                } else {
-                    assert_eq!(status, FlatStorageCreationStatus::DontCreate);
                 }
             }
 

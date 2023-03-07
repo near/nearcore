@@ -59,12 +59,10 @@ pub enum FlatStorageCreationStatus {
     /// Status contains block hash for which we fetch the shard state and number of current step. Progress of each step
     /// is saved to disk, so if creation is interrupted during some step, we don't repeat previous steps, starting from
     /// the saved step again.
-    #[allow(unused)]
     FetchingState(FetchingStateStatus),
     /// Flat storage data exists on disk but block which is corresponds to is earlier than chain final head.
     /// We apply deltas from disk until the head reaches final head.
     /// Includes block hash of flat storage head.
-    #[allow(unused)]
     CatchingUp(CryptoHash),
     /// Flat storage is ready to use.
     Ready,

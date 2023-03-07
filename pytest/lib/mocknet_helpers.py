@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import json
 import time
 import base58
 import requests
@@ -57,25 +56,16 @@ def get_latest_block_hash(addr=LOCAL_ADDR, port=RPC_PORT):
     return base58.b58decode(last_block_hash.encode('utf-8'))
 
 
-def throttle_txns(send_txns,
-                  total_tx_sent,
-                  elapsed_time,
-                  max_tps_per_node,
-                  node_account,
-                  test_accounts,
-                  rpc_infos=None):
+def throttle_txns(send_txns, total_tx_sent, elapsed_time, test_state):
     start_time = time.monotonic()
-    send_txns(node_account,
-              test_accounts,
-              max_tps_per_node,
-              rpc_infos=rpc_infos)
+    send_txns(test_state)
     duration = time.monotonic() - start_time
-    total_tx_sent += len(test_accounts)
+    total_tx_sent += test_state.num_test_accounts()
 
-    excess_transactions = total_tx_sent - (max_tps_per_node *
+    excess_transactions = total_tx_sent - (test_state.max_tps_per_node *
                                            (elapsed_time + duration))
     if excess_transactions > 0:
-        delay = excess_transactions / max_tps_per_node
+        delay = excess_transactions / test_state.max_tps_per_node
         logger.info(f'Sleeping for {delay} seconds to throttle transactions')
         time.sleep(delay)
 
