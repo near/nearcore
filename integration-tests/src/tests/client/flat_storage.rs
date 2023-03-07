@@ -318,8 +318,8 @@ fn test_flat_storage_creation_start_from_state_part() {
         // Manually set flat storage creation status to the step when it should start from fetching part 1.
         let flat_head = store_helper::get_flat_head(&store, 0).unwrap();
         let mut store_update = store.store_update();
-        for key in trie_keys[1].into_iter() {
-            store_helper::set_ref(&mut store_update, shard_uid, key, None).unwrap();
+        for key in trie_keys[1].iter() {
+            store_helper::set_ref(&mut store_update, shard_uid, key.clone(), None).unwrap();
         }
         store_helper::remove_flat_head(&mut store_update, 0);
         store_helper::set_flat_storage_creation_status(

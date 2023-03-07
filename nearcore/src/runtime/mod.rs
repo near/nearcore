@@ -1821,7 +1821,7 @@ mod test {
                         runtime.get_flat_storage_creation_status(shard_id),
                         FlatStorageCreationStatus::Ready
                     );
-                    let shard_uid = runtime.shard_id_to_uid(shard_id, &EpochId::default())?;
+                    let shard_uid = runtime.shard_id_to_uid(shard_id, &EpochId::default()).unwrap();
                     runtime.create_flat_storage_for_shard(shard_uid, 0, &mock_chain);
                 }
             }

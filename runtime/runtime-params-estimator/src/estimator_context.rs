@@ -169,14 +169,14 @@ impl<'c> EstimatorContext<'c> {
             }
         }
 
-        let shard_id = ShardUId::single_shard().shard_id();
+        let shard_uid = ShardUId::single_shard();
         // Set up flat head to be equal to the latest block height
         let mut store_update = store.store_update();
-        store_helper::set_flat_head(&mut store_update, shard_id, &FLAT_STATE_HEAD);
+        store_helper::set_flat_head(&mut store_update, shard_uid.shard_id(), &FLAT_STATE_HEAD);
         store_update.commit().expect("failed to set flat head");
         let flat_storage = FlatStorage::new(
             store,
-            shard_id,
+            shard_uid,
             BLOCK_HEIGHT,
             &ChainAccess {},
             cache_capacity as usize,
