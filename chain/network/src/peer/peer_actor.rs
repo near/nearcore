@@ -1,6 +1,7 @@
 use crate::accounts_data;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
+use crate::config::PEERS_RESPONSE_MAX_PEERS;
 use crate::network_protocol::{
     Edge, EdgeState, Encoding, OwnedAccount, ParsePeerMessageError, PartialEdgeInfo,
     PeerChainInfoV2, PeerIdOrHash, PeerInfo, PeersResponse, RawRoutedMessage, RoutedMessageBody,
@@ -11,6 +12,7 @@ use crate::peer::tracker::Tracker;
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::{NetworkState, PRUNE_EDGES_AFTER};
 use crate::peer_manager::peer_manager_actor::Event;
+use crate::peer_manager::peer_manager_actor::MAX_TIER2_PEERS;
 use crate::private_actix::{RegisterPeerError, SendMessage};
 use crate::routing::edge::verify_nonce;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
@@ -1132,6 +1134,17 @@ impl PeerActor {
             }
             PeerMessage::PeersResponse(PeersResponse { peers, direct_peers }) => {
                 tracing::debug!(target: "network", "Received peers from {}: {} peers and {} direct peers.", self.peer_info, peers.len(), direct_peers.len());
+
+                // Check for abusive behavior (sending too many peers)
+                if peers.len() > PEERS_RESPONSE_MAX_PEERS.try_into().unwrap() {
+                    self.stop(ctx, ClosingReason::Ban(ReasonForBan::Abusive));
+                }
+                // Check for abusive behavior (sending too many direct peers)
+                if direct_peers.len() > MAX_TIER2_PEERS {
+                    self.stop(ctx, ClosingReason::Ban(ReasonForBan::Abusive));
+                }
+
+                // Add received peers to the peer store
                 let node_id = self.network_state.config.node_id();
                 self.network_state.peer_store.add_indirect_peers(
                     &self.clock,
@@ -1143,6 +1156,7 @@ impl PeerActor {
                     &self.clock,
                     direct_peers.into_iter().filter(|peer_info| peer_info.id != node_id),
                 );
+
                 self.network_state
                     .config
                     .event_sink
