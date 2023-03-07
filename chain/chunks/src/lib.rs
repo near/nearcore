@@ -88,7 +88,8 @@ use logic::{
     make_partial_encoded_chunk_from_owned_parts_and_needed_receipts, need_part, need_receipt,
 };
 use metrics::{
-    PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER, PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY,
+    PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER,
+    PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_PREV_BLOCK, PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY,
 };
 use near_async::messaging::Sender;
 use near_chain::chunks_store::ReadOnlyChunksStore;
@@ -1156,7 +1157,7 @@ impl ShardsManager {
                 // to be used after we get the header.
                 self.insert_forwarded_chunk(forward);
                 PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER.inc();
-                return Err(Error::UnknownChunk);
+                return Ok(()); // a normal and expected case, not error
             }
             Err(Error::ChainError(chain_error)) => {
                 match chain_error {
@@ -1166,8 +1167,8 @@ impl ShardsManager {
                         // forwarded parts are later processed as partial encoded chunks, so we
                         // can mark it as unknown for now.
                         self.insert_forwarded_chunk(forward);
-                        PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER.inc();
-                        return Err(Error::UnknownChunk);
+                        PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_PREV_BLOCK.inc();
+                        return Ok(()); // a normal and expected case, not error
                     }
                     // Some other error occurred, we don't know how to handle it
                     _ => Err(Error::ChainError(chain_error)),
@@ -2484,10 +2485,7 @@ mod test {
             most_parts,
         );
         // The validator receives the chunk forward
-        assert_matches!(
-            shards_manager.process_partial_encoded_chunk_forward(forward),
-            Err(Error::UnknownChunk)
-        );
+        assert!(shards_manager.process_partial_encoded_chunk_forward(forward).is_ok());
         let partial_encoded_chunk = PartialEncodedChunk::V2(PartialEncodedChunkV2 {
             header: fixture.mock_chunk_header.clone(),
             parts: other_parts,
@@ -2549,10 +2547,7 @@ mod test {
             fixture.mock_chunk_parts.clone(),
         );
         // The validator receives the chunk forward
-        assert_matches!(
-            shards_manager.process_partial_encoded_chunk_forward(forward),
-            Err(Error::UnknownChunk)
-        );
+        assert!(shards_manager.process_partial_encoded_chunk_forward(forward).is_ok(),);
         // The validator then receives the block, which is missing chunks; it notifies the
         // ShardsManager of the chunk header, and ShardsManager is able to complete the chunk
         // because of the forwarded parts.shards_manager
