@@ -107,6 +107,7 @@ impl InfoHelper {
         last_final_block_height: BlockHeight,
         last_final_ds_block_height: BlockHeight,
         epoch_height: EpochHeight,
+        block_height_within_epoch: BlockHeight,
     ) {
         self.num_blocks_processed += 1;
         self.num_chunks_in_blocks_processed += num_chunks;
@@ -119,6 +120,7 @@ impl InfoHelper {
         metrics::FINAL_BLOCK_HEIGHT.set(last_final_block_height as i64);
         metrics::FINAL_DOOMSLUG_BLOCK_HEIGHT.set(last_final_ds_block_height as i64);
         metrics::EPOCH_HEIGHT.set(epoch_height as i64);
+        metrics::BLOCK_HEIGHT_WITHIN_EPOCH.set(block_height_within_epoch as i64);
     }
 
     /// Print current summary.
