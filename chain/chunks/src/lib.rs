@@ -2005,6 +2005,9 @@ impl PartialEncodedChunkResponseSource {
 
 #[cfg(test)]
 mod test {
+    mod basic;
+    mod multi;
+
     use assert_matches::assert_matches;
     use near_async::messaging::IntoSender;
     use near_chain::types::EpochManagerAdapter;
