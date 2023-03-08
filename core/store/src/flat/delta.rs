@@ -5,7 +5,6 @@ use near_primitives::state::ValueRef;
 use near_primitives::types::{RawStateChangesWithTrieKey, ShardId};
 use std::collections::HashMap;
 
-#[cfg(feature = "protocol_feature_flat_state")]
 use super::store_helper;
 use crate::{CryptoHash, StoreUpdate};
 
@@ -73,15 +72,11 @@ impl FlatStateDelta {
     }
 
     /// Applies delta to the flat state.
-    #[cfg(feature = "protocol_feature_flat_state")]
     pub fn apply_to_flat_state(self, store_update: &mut StoreUpdate) {
         for (key, value) in self.0.into_iter() {
             store_helper::set_ref(store_update, key, value).expect("Borsh cannot fail");
         }
     }
-
-    #[cfg(not(feature = "protocol_feature_flat_state"))]
-    pub fn apply_to_flat_state(self, _store_update: &mut StoreUpdate) {}
 }
 
 /// `FlatStateDelta` which uses hash of raw `TrieKey`s instead of keys themselves.
@@ -100,7 +95,6 @@ impl CachedFlatStateDelta {
         std::mem::size_of::<CryptoHash>() + std::mem::size_of::<Option<ValueRef>>();
 
     /// Returns `Some(Option<ValueRef>)` from delta for the given key. If key is not present, returns None.
-    #[allow(unused)]
     pub(crate) fn get(&self, key: &[u8]) -> Option<Option<ValueRef>> {
         self.0.get(&hash(key)).cloned()
     }
@@ -116,7 +110,6 @@ impl CachedFlatStateDelta {
     }
 }
 
-#[cfg(feature = "protocol_feature_flat_state")]
 #[cfg(test)]
 mod tests {
     use super::FlatStateDelta;

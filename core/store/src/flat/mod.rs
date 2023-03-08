@@ -25,13 +25,10 @@
 //!                     of the chain formed by these blocks (because we can't access ChainStore
 //!                     inside flat storage).
 
-#[cfg(feature = "protocol_feature_flat_state")]
 mod chunk_view;
 mod delta;
-#[cfg(feature = "protocol_feature_flat_state")]
 mod manager;
 mod storage;
-#[cfg(feature = "protocol_feature_flat_state")]
 pub mod store_helper;
 mod types;
 
@@ -44,107 +41,10 @@ pub use types::{
     FlatStorageError,
 };
 
-#[allow(unused)]
 pub(crate) const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 /// Number of traversed parts during a single step of fetching state.
-#[allow(unused)]
 pub const NUM_PARTS_IN_ONE_STEP: u64 = 20;
 
 /// Memory limit for state part being fetched.
-#[allow(unused)]
 pub const STATE_PART_MEMORY_LIMIT: bytesize::ByteSize = bytesize::ByteSize(10 * bytesize::MIB);
-
-#[cfg(not(feature = "protocol_feature_flat_state"))]
-pub mod store_helper {
-    use super::delta::FlatStateDelta;
-    use super::types::{FlatStorageCreationStatus, FlatStorageError};
-    use crate::Store;
-    use near_primitives::hash::CryptoHash;
-    use near_primitives::types::ShardId;
-
-    pub fn get_flat_head(_store: &Store, _shard_id: ShardId) -> Option<CryptoHash> {
-        None
-    }
-
-    pub fn get_delta(
-        _store: &Store,
-        _shard_id: ShardId,
-        _block_hash: CryptoHash,
-    ) -> Result<Option<FlatStateDelta>, FlatStorageError> {
-        Err(FlatStorageError::StorageInternalError)
-    }
-
-    pub fn get_flat_storage_creation_status(
-        _store: &Store,
-        _shard_id: ShardId,
-    ) -> FlatStorageCreationStatus {
-        FlatStorageCreationStatus::DontCreate
-    }
-}
-
-#[cfg(not(feature = "protocol_feature_flat_state"))]
-mod manager {
-    use super::storage::FlatStorage;
-    use super::FlatStorageChunkView;
-    use crate::{Store, StoreUpdate};
-    use near_primitives::errors::StorageError;
-    use near_primitives::hash::CryptoHash;
-    use near_primitives::shard_layout::ShardLayout;
-    use near_primitives::types::ShardId;
-
-    #[derive(Clone)]
-    pub struct FlatStorageManager {}
-
-    impl FlatStorageManager {
-        pub fn new(_store: Store) -> Self {
-            Self {}
-        }
-
-        pub fn chunk_view(
-            &self,
-            _shard_id: ShardId,
-            _block_hash: Option<CryptoHash>,
-            _is_view: bool,
-        ) -> Option<FlatStorageChunkView> {
-            None
-        }
-
-        pub fn get_flat_storage_for_shard(&self, _shard_id: ShardId) -> Option<FlatStorage> {
-            None
-        }
-
-        pub fn add_flat_storage_for_shard(&self, _shard_id: ShardId, _flat_storage: FlatStorage) {}
-
-        pub fn remove_flat_storage_for_shard(
-            &self,
-            _shard_id: ShardId,
-            _shard_layout: ShardLayout,
-        ) -> Result<(), StorageError> {
-            Ok(())
-        }
-
-        pub fn set_flat_storage_for_genesis(
-            &self,
-            _store_update: &mut StoreUpdate,
-            _shard_id: ShardId,
-            _genesis_block: &CryptoHash,
-        ) {
-        }
-    }
-}
-
-#[cfg(not(feature = "protocol_feature_flat_state"))]
-mod chunk_view {
-    /// Since this has no variants it can never be instantiated.
-    ///
-    /// To use flat state enable `protocol_feature_flat_state` cargo feature.
-    #[derive(Clone)]
-    pub enum FlatStorageChunkView {}
-
-    impl FlatStorageChunkView {
-        pub fn get_ref(&self, _key: &[u8]) -> ! {
-            match *self {}
-        }
-    }
-}
