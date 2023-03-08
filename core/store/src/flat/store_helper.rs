@@ -109,9 +109,13 @@ fn decode_flat_state_db_key(key: &Box<[u8]>) -> Result<(ShardUId, Vec<u8>), Stor
             "Found key in flat storage with length < 8: {key:?}"
         )));
     }
-    let shard_uid = key[0..8].try_into().unwrap();
-    let trie_key = key[8..].to_vec();
-    Ok((shard_uid, trie_key))
+    let (shard_uid_bytes, trie_key) = key.split_at(8);
+    let shard_uid = shard_uid_bytes.try_into().map_err(|_| {
+        StorageError::StorageInconsistentState(format!(
+            "Incorrect raw shard uid: {shard_uid_bytes:?}"
+        ))
+    })?;
+    Ok((shard_uid, trie_key.to_vec()))
 }
 
 pub(crate) fn get_ref(
@@ -226,7 +230,7 @@ pub fn remove_flat_storage_creation_status(store_update: &mut StoreUpdate, shard
 ///
 /// WARNING: flat storage keeps changing, so the results might be inconsistent, unless you're running
 /// this method on the shapshot of the data.
-// TODO(#8676): Support non-trivial ranges.
+// TODO(#8676): Support non-trivial ranges and maybe pass `shard_uid` as key prefix.
 pub fn iter_flat_state_entries<'a>(
     shard_layout: ShardLayout,
     shard_id: u64,

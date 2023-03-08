@@ -40,7 +40,7 @@ pub struct FlatStorage(pub(crate) Arc<RwLock<FlatStorageInner>>);
 //   after the `flat_head` block successfully.
 pub(crate) struct FlatStorageInner {
     store: Store,
-    /// Id of the shard which state is accessed by this flat storage.
+    /// UId of the shard which state is accessed by this flat storage.
     shard_uid: ShardUId,
     /// The block for which we store the key value pairs of the state after it is applied.
     /// For non catchup mode, it should be the last final block.
