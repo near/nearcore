@@ -73,7 +73,7 @@ fn build_chain() {
 
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
-        insta::assert_display_snapshot!(hash, @"5GXKgTvpLBcSDncu3P8tdmFZ48m89rzUivJEtDTjp6oq");
+        insta::assert_display_snapshot!(hash, @"AV8UPQ2WvJyieSHVf6SDLYmycE4xwWuTvaHiR5hPdoX2");
     } else {
         insta::assert_display_snapshot!(hash, @"8L1cHCc7Cx9SRPWpVtjPtEzQWamztMoHE3cxAcZtHTKv");
     }
