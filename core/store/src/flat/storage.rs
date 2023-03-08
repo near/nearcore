@@ -5,9 +5,9 @@ use lru::LruCache;
 use near_o11y::metrics::IntGauge;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::ShardLayout;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::ValueRef;
-use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::types::BlockHeight;
 use tracing::info;
 
 use crate::flat::delta::CachedFlatStateDelta;
@@ -40,8 +40,8 @@ pub struct FlatStorage(pub(crate) Arc<RwLock<FlatStorageInner>>);
 //   after the `flat_head` block successfully.
 pub(crate) struct FlatStorageInner {
     store: Store,
-    /// Id of the shard which state is accessed by this flat storage.
-    shard_id: ShardId,
+    /// UId of the shard which state is accessed by this flat storage.
+    shard_uid: ShardUId,
     /// The block for which we store the key value pairs of the state after it is applied.
     /// For non catchup mode, it should be the last final block.
     flat_head: CryptoHash,
@@ -97,12 +97,12 @@ impl FlatStorageInner {
         &self,
         target_block_hash: &CryptoHash,
     ) -> Result<Vec<CryptoHash>, FlatStorageError> {
-        let shard_id = &self.shard_id;
+        let shard_uid = &self.shard_uid;
         let flat_head = &self.flat_head;
         let flat_head_info = self
             .blocks
             .get(flat_head)
-            .expect(&format!("Inconsistent flat storage state for shard {shard_id}: head {flat_head} not found in cached blocks"));
+            .expect(&format!("Inconsistent flat storage state for shard {shard_uid}: head {flat_head} not found in cached blocks"));
 
         let mut block_hash = *target_block_hash;
         let mut blocks = vec![];
@@ -152,13 +152,14 @@ impl FlatStorage {
     /// including those on forks into the returned FlatStorage.
     pub fn new(
         store: Store,
-        shard_id: ShardId,
+        shard_uid: ShardUId,
         latest_block_height: BlockHeight,
         // Unfortunately we don't have access to ChainStore inside this file because of package
         // dependencies, so we pass these functions in to access chain info
         chain_access: &dyn ChainAccessForFlatStorage,
         cache_capacity: usize,
     ) -> Self {
+        let shard_id = shard_uid.shard_id();
         let flat_head = store_helper::get_flat_head(&store, shard_id)
             .unwrap_or_else(|| panic!("Cannot read flat head for shard {} from storage", shard_id));
         let flat_head_info = chain_access.get_block_info(&flat_head);
@@ -225,7 +226,7 @@ impl FlatStorage {
 
         Self(Arc::new(RwLock::new(FlatStorageInner {
             store,
-            shard_id,
+            shard_uid,
             flat_head,
             blocks,
             deltas,
@@ -269,7 +270,7 @@ impl FlatStorage {
             return Ok(value_ref);
         }
 
-        let value_ref = store_helper::get_ref(&guard.store, key)?;
+        let value_ref = store_helper::get_ref(&guard.store, guard.shard_uid, key)?;
         guard.put_value_ref_to_cache(key.to_vec(), value_ref.clone());
         Ok(value_ref)
     }
@@ -279,17 +280,18 @@ impl FlatStorage {
     /// returns an error.
     pub fn update_flat_head(&self, new_head: &CryptoHash) -> Result<(), FlatStorageError> {
         let mut guard = self.0.write().expect(crate::flat::POISONED_LOCK_ERR);
+        let shard_id = guard.shard_uid.shard_id();
         let blocks = guard.get_blocks_to_head(new_head)?;
         for block in blocks.into_iter().rev() {
             let mut store_update = StoreUpdate::new(guard.store.storage.clone());
             // We unwrap here because flat storage is locked and we could retrieve path from old to new head, so delta
             // must exist.
-            let delta = store_helper::get_delta(&guard.store, guard.shard_id, block)?.unwrap();
+            let delta = store_helper::get_delta(&guard.store, shard_id, block)?.unwrap();
             for (key, value) in delta.0.iter() {
                 guard.put_value_ref_to_cache(key.clone(), value.clone());
             }
-            delta.apply_to_flat_state(&mut store_update);
-            store_helper::set_flat_head(&mut store_update, guard.shard_id, &block);
+            delta.apply_to_flat_state(&mut store_update, guard.shard_uid);
+            store_helper::set_flat_head(&mut store_update, shard_id, &block);
 
             // Remove old blocks and deltas from disk and memory.
             // Do it for each head update separately to ensure that old data is removed properly if node was
@@ -311,7 +313,7 @@ impl FlatStorage {
             for hash in hashes_to_remove {
                 // It is fine to remove all deltas in single store update, because memory overhead of `DeleteRange`
                 // operation is low.
-                store_helper::remove_delta(&mut store_update, guard.shard_id, hash);
+                store_helper::remove_delta(&mut store_update, shard_id, hash);
                 match guard.deltas.remove(&hash) {
                     Some(delta) => {
                         guard.metrics.cached_deltas.dec();
@@ -335,7 +337,6 @@ impl FlatStorage {
             store_update.commit().unwrap();
         }
 
-        let shard_id = guard.shard_id;
         guard.flat_head = *new_head;
         let flat_head_height = guard
             .blocks
@@ -360,14 +361,14 @@ impl FlatStorage {
         block: BlockInfo,
     ) -> Result<StoreUpdate, FlatStorageError> {
         let mut guard = self.0.write().expect(super::POISONED_LOCK_ERR);
-        let shard_id = guard.shard_id;
+        let shard_id = guard.shard_uid.shard_id();
         let block_height = block.height;
         info!(target: "chain", %shard_id, %block_hash, %block_height, "Adding block to flat storage");
         if !guard.blocks.contains_key(&block.prev_hash) {
             return Err(guard.create_block_not_supported_error(block_hash));
         }
         let mut store_update = StoreUpdate::new(guard.store.storage.clone());
-        store_helper::set_delta(&mut store_update, guard.shard_id, *block_hash, &delta)?;
+        store_helper::set_delta(&mut store_update, shard_id, *block_hash, &delta)?;
         let cached_delta: CachedFlatStateDelta = delta.into();
         guard.metrics.cached_deltas.inc();
         guard.metrics.cached_deltas_num_items.add(cached_delta.len() as i64);
@@ -381,7 +382,7 @@ impl FlatStorage {
     /// Clears all State key-value pairs from flat storage.
     pub fn clear_state(&self, shard_layout: ShardLayout) -> Result<(), StorageError> {
         let guard = self.0.write().expect(super::POISONED_LOCK_ERR);
-        let shard_id = guard.shard_id;
+        let shard_id = guard.shard_uid.shard_id();
 
         // Removes all items belonging to the shard one by one.
         // Note that it does not work for resharding.
@@ -431,6 +432,7 @@ mod tests {
     };
 
     use assert_matches::assert_matches;
+    use near_primitives::shard_layout::ShardUId;
     use std::collections::HashMap;
 
     struct MockChain {
@@ -640,9 +642,11 @@ mod tests {
     fn block_not_supported_errors() {
         // Create a chain with two forks. Set flat head to be at block 0.
         let chain = MockChain::chain_with_two_forks(5);
+        let shard_uid = ShardUId::single_shard();
+        let shard_id = shard_uid.shard_id();
         let store = create_test_store();
         let mut store_update = store.store_update();
-        store_helper::set_flat_head(&mut store_update, 0, &chain.get_block_hash(0));
+        store_helper::set_flat_head(&mut store_update, shard_id, &chain.get_block_hash(0));
         for i in 1..5 {
             store_helper::set_delta(
                 &mut store_update,
@@ -654,10 +658,10 @@ mod tests {
         }
         store_update.commit().unwrap();
 
-        let flat_storage = FlatStorage::new(store.clone(), 0, 4, &chain, 0);
+        let flat_storage = FlatStorage::new(store.clone(), shard_uid, 4, &chain, 0);
         let flat_storage_manager = FlatStorageManager::new(store.clone());
-        flat_storage_manager.add_flat_storage_for_shard(0, flat_storage);
-        let flat_storage = flat_storage_manager.get_flat_storage_for_shard(0).unwrap();
+        flat_storage_manager.add_flat_storage_for_shard(shard_id, flat_storage);
+        let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_id).unwrap();
 
         // Check that flat head can be moved to block 1.
         let flat_head_hash = chain.get_block_hash(1);
@@ -686,9 +690,11 @@ mod tests {
     fn skipped_heights() {
         // Create a linear chain where some heights are skipped.
         let chain = MockChain::linear_chain_with_skips(5);
+        let shard_uid = ShardUId::single_shard();
+        let shard_id = shard_uid.shard_id();
         let store = create_test_store();
         let mut store_update = store.store_update();
-        store_helper::set_flat_head(&mut store_update, 0, &chain.get_block_hash(0));
+        store_helper::set_flat_head(&mut store_update, shard_id, &chain.get_block_hash(0));
         for i in 1..5 {
             store_helper::set_delta(
                 &mut store_update,
@@ -701,10 +707,10 @@ mod tests {
         store_update.commit().unwrap();
 
         // Check that flat storage state is created correctly for chain which has skipped heights.
-        let flat_storage = FlatStorage::new(store.clone(), 0, 8, &chain, 0);
+        let flat_storage = FlatStorage::new(store.clone(), shard_uid, 8, &chain, 0);
         let flat_storage_manager = FlatStorageManager::new(store.clone());
-        flat_storage_manager.add_flat_storage_for_shard(0, flat_storage);
-        let flat_storage = flat_storage_manager.get_flat_storage_for_shard(0).unwrap();
+        flat_storage_manager.add_flat_storage_for_shard(shard_id, flat_storage);
+        let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_id).unwrap();
 
         // Check that flat head can be moved to block 8.
         let flat_head_hash = chain.get_block_hash(8);
@@ -719,14 +725,17 @@ mod tests {
         // 1. Create a chain with 10 blocks with no forks. Set flat head to be at block 0.
         //    Block i sets value for key &[1] to &[i].
         let mut chain = MockChain::linear_chain(10);
+        let shard_uid = ShardUId::single_shard();
+        let shard_id = shard_uid.shard_id();
         let store = create_test_store();
         let mut store_update = store.store_update();
-        store_helper::set_flat_head(&mut store_update, 0, &chain.get_block_hash(0));
-        store_helper::set_ref(&mut store_update, vec![1], Some(ValueRef::new(&[0]))).unwrap();
+        store_helper::set_flat_head(&mut store_update, shard_id, &chain.get_block_hash(0));
+        store_helper::set_ref(&mut store_update, shard_uid, vec![1], Some(ValueRef::new(&[0])))
+            .unwrap();
         for i in 1..10 {
             store_helper::set_delta(
                 &mut store_update,
-                0,
+                shard_id,
                 chain.get_block_hash(i),
                 &FlatStateDelta::from([(vec![1], Some(ValueRef::new(&[i as u8])))]),
             )
@@ -734,9 +743,9 @@ mod tests {
         }
         store_update.commit().unwrap();
 
-        let flat_storage = FlatStorage::new(store.clone(), 0, 9, &chain, cache_capacity);
+        let flat_storage = FlatStorage::new(store.clone(), shard_uid, 9, &chain, cache_capacity);
         let flat_storage_manager = FlatStorageManager::new(store.clone());
-        flat_storage_manager.add_flat_storage_for_shard(0, flat_storage);
+        flat_storage_manager.add_flat_storage_for_shard(shard_id, flat_storage);
         let flat_storage = flat_storage_manager.get_flat_storage_for_shard(0).unwrap();
 
         // 2. Check that the chunk_view at block i reads the value of key &[1] as &[i]
@@ -744,7 +753,8 @@ mod tests {
             let block_hash = chain.get_block_hash(i);
             let blocks = flat_storage.get_blocks_to_head(&block_hash).unwrap();
             assert_eq!(blocks.len(), i as usize);
-            let chunk_view = flat_storage_manager.chunk_view(0, Some(block_hash), false).unwrap();
+            let chunk_view =
+                flat_storage_manager.chunk_view(shard_id, Some(block_hash), false).unwrap();
             assert_eq!(chunk_view.get_ref(&[1]).unwrap(), Some(ValueRef::new(&[i as u8])));
         }
 
@@ -764,27 +774,32 @@ mod tests {
         //    Verify that they return the correct values
         let blocks = flat_storage.get_blocks_to_head(&chain.get_block_hash(10)).unwrap();
         assert_eq!(blocks.len(), 10);
-        let chunk_view0 =
-            flat_storage_manager.chunk_view(0, Some(chain.get_block_hash(10)), false).unwrap();
-        let chunk_view1 =
-            flat_storage_manager.chunk_view(0, Some(chain.get_block_hash(4)), false).unwrap();
+        let chunk_view0 = flat_storage_manager
+            .chunk_view(shard_id, Some(chain.get_block_hash(10)), false)
+            .unwrap();
+        let chunk_view1 = flat_storage_manager
+            .chunk_view(shard_id, Some(chain.get_block_hash(4)), false)
+            .unwrap();
         assert_eq!(chunk_view0.get_ref(&[1]).unwrap(), None);
         assert_eq!(chunk_view0.get_ref(&[2]).unwrap(), Some(ValueRef::new(&[1])));
         assert_eq!(chunk_view1.get_ref(&[1]).unwrap(), Some(ValueRef::new(&[4])));
         assert_eq!(chunk_view1.get_ref(&[2]).unwrap(), None);
         assert_matches!(
-            store_helper::get_delta(&store, 0, chain.get_block_hash(5)).unwrap(),
+            store_helper::get_delta(&store, shard_id, chain.get_block_hash(5)).unwrap(),
             Some(_)
         );
         assert_matches!(
-            store_helper::get_delta(&store, 0, chain.get_block_hash(10)).unwrap(),
+            store_helper::get_delta(&store, shard_id, chain.get_block_hash(10)).unwrap(),
             Some(_)
         );
 
         // 5. Move the flat head to block 5, verify that chunk_view0 still returns the same values
         // and chunk_view1 returns an error. Also check that DBCol::FlatState is updated correctly
         flat_storage.update_flat_head(&chain.get_block_hash(5)).unwrap();
-        assert_eq!(store_helper::get_ref(&store, &[1]).unwrap(), Some(ValueRef::new(&[5])));
+        assert_eq!(
+            store_helper::get_ref(&store, shard_uid, &[1]).unwrap(),
+            Some(ValueRef::new(&[5]))
+        );
         let blocks = flat_storage.get_blocks_to_head(&chain.get_block_hash(10)).unwrap();
         assert_eq!(blocks.len(), 5);
         assert_eq!(chunk_view0.get_ref(&[1]).unwrap(), None);
@@ -801,12 +816,15 @@ mod tests {
         flat_storage.update_flat_head(&chain.get_block_hash(10)).unwrap();
         let blocks = flat_storage.get_blocks_to_head(&chain.get_block_hash(10)).unwrap();
         assert_eq!(blocks.len(), 0);
-        assert_eq!(store_helper::get_ref(&store, &[1]).unwrap(), None);
-        assert_eq!(store_helper::get_ref(&store, &[2]).unwrap(), Some(ValueRef::new(&[1])));
+        assert_eq!(store_helper::get_ref(&store, shard_uid, &[1]).unwrap(), None);
+        assert_eq!(
+            store_helper::get_ref(&store, shard_uid, &[2]).unwrap(),
+            Some(ValueRef::new(&[1]))
+        );
         assert_eq!(chunk_view0.get_ref(&[1]).unwrap(), None);
         assert_eq!(chunk_view0.get_ref(&[2]).unwrap(), Some(ValueRef::new(&[1])));
         assert_matches!(
-            store_helper::get_delta(&store, 0, chain.get_block_hash(10)).unwrap(),
+            store_helper::get_delta(&store, shard_id, chain.get_block_hash(10)).unwrap(),
             None
         );
     }
@@ -826,8 +844,10 @@ mod tests {
         // 1. Create a simple chain and add single key-value deltas for 3 consecutive blocks.
         let chain = MockChain::linear_chain(4);
         let store = create_test_store();
+        let shard_uid = ShardUId::single_shard();
+        let shard_id = shard_uid.shard_id();
         let mut store_update = store.store_update();
-        store_helper::set_flat_head(&mut store_update, 0, &chain.get_block_hash(0));
+        store_helper::set_flat_head(&mut store_update, shard_id, &chain.get_block_hash(0));
 
         let mut deltas: Vec<(BlockHeight, Vec<u8>, Option<ValueRef>)> = vec![
             (1, vec![1], Some(ValueRef::new(&[1 as u8]))),
@@ -837,7 +857,7 @@ mod tests {
         for (height, key, value) in deltas.drain(..) {
             store_helper::set_delta(
                 &mut store_update,
-                0,
+                shard_id,
                 chain.get_block_hash(height),
                 &FlatStateDelta::from([(key, value)]),
             )
@@ -846,10 +866,10 @@ mod tests {
         store_update.commit().unwrap();
 
         // 2. Create flat storage and apply 3 blocks to it.
-        let flat_storage = FlatStorage::new(store.clone(), 0, 3, &chain, 2);
+        let flat_storage = FlatStorage::new(store.clone(), shard_uid, 3, &chain, 2);
         let flat_storage_manager = FlatStorageManager::new(store.clone());
-        flat_storage_manager.add_flat_storage_for_shard(0, flat_storage);
-        let flat_storage = flat_storage_manager.get_flat_storage_for_shard(0).unwrap();
+        flat_storage_manager.add_flat_storage_for_shard(shard_id, flat_storage);
+        let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_id).unwrap();
         flat_storage.update_flat_head(&chain.get_block_hash(3)).unwrap();
 
         {
