@@ -2454,11 +2454,11 @@ impl<'a> VMLogic<'a> {
             .into());
         }
         self.gas_counter.pay_per(storage_read_key_byte, key.len() as u64)?;
-        let nodes_before = self.ext.get_trie_nodes_count();
         let (value_ptr, tn_db_reads, tn_mem_reads) =
             if cfg!(feature = "protocol_feature_flat_state") {
                 (self.ext.storage_get(&key, StorageGetMode::FlatStorage), 0, 0)
             } else {
+                let nodes_before = self.ext.get_trie_nodes_count();
                 let value_ptr = self.ext.storage_get(&key, StorageGetMode::Trie);
                 let nodes_delta = self
                     .ext
@@ -2478,6 +2478,9 @@ impl<'a> VMLogic<'a> {
             tn_db_reads = tn_db_reads,
             tn_mem_reads = tn_mem_reads,
         );
+        drop(tn_db_reads);
+        drop(tn_mem_reads);
+
         match read {
             Some(value) => {
                 self.registers.set(
