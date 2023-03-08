@@ -712,6 +712,7 @@ pub(crate) enum OperationType {
     DelegateAction,
     RefundDeleteAccount,
     InitiateAddKey,
+    SignedDelegateAction,
     AddKey,
     InitiateDeleteKey,
     DeleteKey,
@@ -720,6 +721,8 @@ pub(crate) enum OperationType {
     InitiateDeployContract,
     DeployContract,
     InitiateFunctionCall,
+    InitiateSignedDelegateAction,
+    InitiateDelegateAction,
     FunctionCall,
 }
 
@@ -791,7 +794,13 @@ pub(crate) struct OperationMetadata {
     pub max_block_height: Option<near_primitives::types::BlockHeight>,
     /// Has to be specified for DELEGATE_ACTION operation
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub operations: Option<private_non_delegate_action::NonDelegateActionOperation>,
+    pub nonce: Option<Nonce>,
+    /// Has to be specified for DELEGATE_ACTION operation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub operations: Option<Vec<NonDelegateActionOperation>>,
+    /// Has to be specified for SIGNED_DELEGATE_ACTION operation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signature: Option<Signature>,
 }
 
 impl OperationMetadata {
@@ -850,56 +859,60 @@ pub(crate) struct Operation {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<OperationMetadata>,
 }
-/// A small private module to protect the private fields inside `NonDelegateAction`.
-mod private_non_delegate_action {
-    use super::*;
 
-    /// This is Action which mustn't contain DelegateAction.
-    ///
-    /// This struct is needed to avoid the recursion when Action/DelegateAction is deserialized.
-    ///
-    /// Important: Don't make the inner Action public, this must only be constructed
-    /// through the correct interface that ensures the inner Action is actually not
-    /// a delegate action. That would break an assumption of this type, which we use
-    /// in several places. For example, borsh de-/serialization relies on it. If the
-    /// invariant is broken, we may end up with a `Transaction` or `Receipt` that we
-    /// can serialize but deserializing it back causes a parsing error.
-    #[derive(serde::Serialize, serde::Deserialize, PartialEq, Clone, Debug)]
-    pub struct NonDelegateActionOperation(Operation);
+/// This is Operation which mustn't contain DelegateActionOperation.
+///
+/// This struct is needed to avoid the recursion when Action/DelegateAction is deserialized.
+///
+/// Important: Don't make the inner Action public, this must only be constructed
+/// through the correct interface that ensures the inner Action is actually not
+/// a delegate action. That would break an assumption of this type, which we use
+/// in several places. For example, borsh de-/serialization relies on it. If the
+/// invariant is broken, we may end up with a `Transaction` or `Receipt` that we
+/// can serialize but deserializing it back causes a parsing error.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
+pub(crate) struct NonDelegateActionOperation(crate::models::Operation);
 
-    impl From<NonDelegateActionOperation> for Operation {
-        fn from(action: NonDelegateActionOperation) -> Self {
-            action.0
+impl From<NonDelegateActionOperation> for crate::models::Operation {
+    fn from(action: NonDelegateActionOperation) -> Self {
+        action.0
+    }
+}
+
+impl TryFrom<NonDelegateActionOperation> for near_primitives::delegate_action::NonDelegateAction {
+    type Error = crate::errors::ErrorKind;
+
+    fn try_from(value: NonDelegateActionOperation) -> Result<Self, Self::Error> {
+        let near_action = crate::adapters::NearActions::try_from(value.0);
+        Ok(near_primitives::delegate_action::NonDelegateAction { 0:  })
+    }
+}
+// impl Into<Vec<near_primitives::delegate_action::NonDelegateAction>>
+//     for Vec<NonDelegateActionOperation>
+// {
+//     fn into(self) -> Vec<near_primitives::delegate_action::NonDelegateAction> {
+//         let non_delegate_actions: Vec<near_primitives::delegate_action::NonDelegateAction> = vec![];
+//         let near_actions :self.try_into();
+//         // for non_delegate_action_operation in self {
+//         //     let near_actions = non_delegate_action_operationtry_into();
+//         //     non_delegate_actions.push(non_delegate_action_operation.0.try_into())
+//         // }
+//     }
+// }
+
+#[derive(serde::Serialize, serde::Deserialize, PartialEq, Clone, Debug)]
+pub struct IsDelegateOperation;
+
+impl TryFrom<crate::models::Operation> for NonDelegateActionOperation {
+    type Error = IsDelegateOperation;
+
+    fn try_from(operation: crate::models::Operation) -> Result<Self, IsDelegateOperation> {
+        if matches!(operation.type_, crate::models::OperationType::DelegateAction) {
+            Err(IsDelegateOperation)
+        } else {
+            Ok(Self(operation))
         }
     }
-
-    #[derive(Debug, thiserror::Error)]
-    #[error("attempted to construct NonDelegateAction from Action::Delegate")]
-    pub struct IsDelegateOperation;
-
-    impl TryFrom<Operation> for NonDelegateActionOperation {
-        type Error = IsDelegateOperation;
-
-        fn try_from(action: Operation) -> Result<Self, IsDelegateOperation> {
-            if matches!(action.type_, DelegateAction) {
-                Err(IsDelegateOperation)
-            } else {
-                Ok(Self(action))
-            }
-        }
-    }
-
-    // fn deserialize_reader<R: borsh::maybestd::io::Read>(
-    //     rd: &mut R,
-    // ) -> ::core::result::Result<Self, borsh::maybestd::io::Error> {
-    //     match u8::deserialize_reader(rd)? {
-    //         ACTION_DELEGATE_NUMBER => Err(Error::new(
-    //             ErrorKind::InvalidInput,
-    //             "DelegateAction mustn't contain a nested one",
-    //         )),
-    //         n => borsh::de::EnumExt::deserialize_variant(rd, n).map(Self),
-    //     }
-    // }
 }
 
 /// The operation_identifier uniquely identifies an operation within a
@@ -1264,6 +1277,27 @@ impl TryFrom<&Signature> for near_crypto::Signature {
         Signature { signature_type, hex_bytes, .. }: &Signature,
     ) -> Result<Self, Self::Error> {
         near_crypto::Signature::from_parts((*signature_type).into(), hex_bytes.as_ref())
+    }
+}
+
+impl Signature {
+    pub fn from_signature(
+        signature: near_crypto::Signature,
+        public_key: PublicKey,
+        signing_payload: SigningPayload,
+        hex_bytes: BlobInHexString<Vec<u8>>,
+    ) -> Self {
+        match signature {
+            near_crypto::Signature::ED25519(_) => Signature {
+                signature_type: signature.key_type().into(),
+                public_key,
+                signing_payload,
+                hex_bytes,
+            },
+            near_crypto::Signature::SECP256K1(_) => {
+                unimplemented!("SEC256K1 keys are not implemented in Rosetta yet")
+            }
+        }
     }
 }
 
