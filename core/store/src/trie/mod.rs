@@ -97,14 +97,14 @@ impl std::fmt::Debug for NodeHandle {
 #[derive(Clone, Hash)]
 enum ValueHandle {
     InMemory(StorageValueHandle),
-    HashAndSize(u32, CryptoHash),
+    HashAndSize(ValueRef),
 }
 
 impl std::fmt::Debug for ValueHandle {
     fn fmt(&self, fmtr: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::HashAndSize(size, hash) => write!(fmtr, "{hash}, size:{size}"),
-            Self::InMemory(handle) => write!(fmtr, "@{}", handle.0),
+            Self::HashAndSize(value) => write!(fmtr, "{value:?}"),
+            Self::InMemory(StorageValueHandle(num)) => write!(fmtr, "@{num}"),
         }
     }
 }
@@ -148,20 +148,14 @@ impl TrieNodeWithSize {
 impl TrieNode {
     fn new(rc_node: RawTrieNode) -> TrieNode {
         match rc_node {
-            RawTrieNode::Leaf(key, value_length, value_hash) => {
-                TrieNode::Leaf(key, ValueHandle::HashAndSize(value_length, value_hash))
-            }
+            RawTrieNode::Leaf(key, value) => TrieNode::Leaf(key, ValueHandle::HashAndSize(value)),
             RawTrieNode::Branch(children, value) => {
                 let mut new_children: Box<[Option<NodeHandle>; 16]> = Default::default();
                 for i in 0..children.len() {
                     new_children[i] = children[i].map(NodeHandle::Hash);
                 }
-                TrieNode::Branch(
-                    new_children,
-                    value.map(|(value_length, value_hash)| {
-                        ValueHandle::HashAndSize(value_length, value_hash)
-                    }),
-                )
+                let value = value.map(ValueHandle::HashAndSize);
+                TrieNode::Branch(new_children, value)
             }
             RawTrieNode::Extension(key, child) => TrieNode::Extension(key, NodeHandle::Hash(child)),
         }
@@ -246,7 +240,7 @@ impl TrieNode {
                 .expect("InMemory nodes exist, but storage is not provided")
                 .value_ref(*handle)
                 .len() as u64,
-            ValueHandle::HashAndSize(value_length, _value_hash) => *value_length as u64,
+            ValueHandle::HashAndSize(value) => u64::from(value.length),
         };
         Self::memory_usage_for_value_length(value_length)
     }
@@ -321,9 +315,9 @@ impl std::fmt::Debug for TrieNode {
 #[allow(clippy::large_enum_variant)]
 pub enum RawTrieNode {
     /// Leaf(key, value_length, value_hash)
-    Leaf(Vec<u8>, u32, CryptoHash),
+    Leaf(Vec<u8>, ValueRef),
     /// Branch(children, (value_length, value_hash))
-    Branch([Option<CryptoHash>; 16], Option<(u32, CryptoHash)>),
+    Branch([Option<CryptoHash>; 16], Option<ValueRef>),
     /// Extension(key, child)
     Extension(Vec<u8>, CryptoHash),
 }
@@ -361,19 +355,19 @@ impl RawTrieNode {
         // size in state_parts = size + 8 for RawTrieNodeWithSize + 8 for borsh vector length
         match &self {
             // size <= 1 + 4 + 4 + 32 + key_length + value_length
-            RawTrieNode::Leaf(key, value_length, value_hash) => {
+            RawTrieNode::Leaf(key, value) => {
                 out.push(LEAF_NODE);
                 out.extend((key.len() as u32).to_le_bytes());
                 out.extend(key);
-                out.extend((*value_length as u32).to_le_bytes());
-                out.extend(value_hash.as_bytes());
+                out.extend(value.length.to_le_bytes());
+                out.extend(value.hash.as_bytes());
             }
             // size <= 1 + 4 + 32 + value_length + 2 + 32 * num_children
             RawTrieNode::Branch(children, value) => {
-                if let Some((value_length, value_hash)) = value {
+                if let Some(value) = value {
                     out.push(BRANCH_NODE_WITH_VALUE);
-                    out.extend((*value_length as u32).to_le_bytes());
-                    out.extend(value_hash.as_bytes());
+                    out.extend(value.length.to_le_bytes());
+                    out.extend(value.hash.as_bytes());
                 } else {
                     out.push(BRANCH_NODE_NO_VALUE);
                 }
@@ -408,23 +402,23 @@ impl RawTrieNode {
                 let key_length = bytes.read_u32::<LittleEndian>()?;
                 let mut key = vec![0; key_length as usize];
                 bytes.read_exact(&mut key)?;
-                let value_length = bytes.read_u32::<LittleEndian>()?;
+                let length = bytes.read_u32::<LittleEndian>()?;
                 let mut arr = [0; 32];
                 bytes.read_exact(&mut arr)?;
-                let value_hash = CryptoHash(arr);
-                RawTrieNode::Leaf(key, value_length, value_hash)
+                let hash = CryptoHash(arr);
+                RawTrieNode::Leaf(key, ValueRef { length, hash })
             }
             BRANCH_NODE_NO_VALUE => {
                 let children = decode_children(&mut bytes)?;
                 RawTrieNode::Branch(children, None)
             }
             BRANCH_NODE_WITH_VALUE => {
-                let value_length = bytes.read_u32::<LittleEndian>()?;
+                let length = bytes.read_u32::<LittleEndian>()?;
                 let mut arr = [0; 32];
                 bytes.read_exact(&mut arr)?;
-                let value_hash = CryptoHash(arr);
+                let hash = CryptoHash(arr);
                 let children = decode_children(&mut bytes)?;
-                RawTrieNode::Branch(children, Some((value_length, value_hash)))
+                RawTrieNode::Branch(children, Some(ValueRef { length, hash }))
             }
             EXTENSION_NODE => {
                 let key_length = bytes.read_u32::<LittleEndian>()?;
@@ -657,9 +651,13 @@ impl Trie {
         value: &ValueHandle,
     ) -> Result<(), StorageError> {
         match value {
-            ValueHandle::HashAndSize(_, hash) => {
-                let bytes = self.storage.retrieve_raw_bytes(hash)?;
-                memory.refcount_changes.entry(*hash).or_insert_with(|| (bytes.to_vec(), 0)).1 -= 1;
+            ValueHandle::HashAndSize(value) => {
+                let bytes = self.storage.retrieve_raw_bytes(&value.hash)?;
+                memory
+                    .refcount_changes
+                    .entry(value.hash)
+                    .or_insert_with(|| (bytes.to_vec(), 0))
+                    .1 -= 1;
             }
             ValueHandle::InMemory(_) => {
                 // do nothing
@@ -753,16 +751,12 @@ impl Trie {
         match self.retrieve_raw_node(hash) {
             Ok(Some((_, raw_node))) => {
                 match raw_node.node {
-                    RawTrieNode::Leaf(key, value_length, value_hash) => {
+                    RawTrieNode::Leaf(key, value) => {
                         let (slice, _) = NibbleSlice::from_encoded(key.as_slice());
                         prefix.extend(slice.iter());
                         writeln!(
                             f,
-                            "{}Leaf {:?} size:{} child_hash:{} child_prefix:{}",
-                            spaces,
-                            slice,
-                            value_length,
-                            value_hash,
+                            "{spaces}Leaf {slice:?} {value:?} prefix:{}",
                             self.nibbles_to_string(prefix)
                         )?;
                         prefix.truncate(prefix.len() - slice.len());
@@ -894,12 +888,12 @@ impl Trie {
                 Some((_bytes, node)) => node.node,
             };
             match node {
-                RawTrieNode::Leaf(existing_key, value_length, value_hash) => {
-                    if NibbleSlice::from_encoded(&existing_key).0 == key {
-                        return Ok(Some(ValueRef { length: value_length, hash: value_hash }));
+                RawTrieNode::Leaf(existing_key, value) => {
+                    return Ok(if NibbleSlice::from_encoded(&existing_key).0 == key {
+                        Some(value)
                     } else {
-                        return Ok(None);
-                    }
+                        None
+                    });
                 }
                 RawTrieNode::Extension(existing_key, child) => {
                     let existing_key = NibbleSlice::from_encoded(&existing_key).0;
@@ -912,23 +906,14 @@ impl Trie {
                 }
                 RawTrieNode::Branch(mut children, value) => {
                     if key.is_empty() {
-                        match value {
-                            Some((value_length, value_hash)) => {
-                                return Ok(Some(ValueRef {
-                                    length: value_length,
-                                    hash: value_hash,
-                                }));
-                            }
-                            None => return Ok(None),
+                        return Ok(value);
+                    }
+                    match children[key.at(0) as usize].take() {
+                        Some(x) => {
+                            hash = x;
+                            key = key.mid(1);
                         }
-                    } else {
-                        match children[key.at(0) as usize].take() {
-                            Some(x) => {
-                                hash = x;
-                                key = key.mid(1);
-                            }
-                            None => return Ok(None),
-                        }
+                        None => return Ok(None),
                     }
                 }
             };
@@ -1120,9 +1105,8 @@ mod tests {
             assert!(got.is_err(), "got: {got:?}");
         }
 
-        let value_length = 3;
-        let value_hash = CryptoHash::hash_bytes(&[123, 245, 255]);
-        let node = RawTrieNode::Leaf(vec![1, 2, 3], value_length, value_hash);
+        let value = ValueRef { length: 3, hash: CryptoHash::hash_bytes(&[123, 245, 255]) };
+        let node = RawTrieNode::Leaf(vec![1, 2, 3], value.clone());
         let encoded = [
             0, 3, 0, 0, 0, 1, 2, 3, 3, 0, 0, 0, 194, 40, 8, 24, 64, 219, 69, 132, 86, 52, 110, 175,
             57, 198, 165, 200, 83, 237, 211, 11, 194, 83, 251, 33, 145, 138, 234, 226, 7, 242, 186,
@@ -1141,7 +1125,7 @@ mod tests {
 
         let mut children: [Option<CryptoHash>; 16] = Default::default();
         children[3] = Some(Trie::EMPTY_ROOT);
-        let node = RawTrieNode::Branch(children, Some((value_length, value_hash)));
+        let node = RawTrieNode::Branch(children, Some(value));
         let encoded = [
             2, 3, 0, 0, 0, 194, 40, 8, 24, 64, 219, 69, 132, 86, 52, 110, 175, 57, 198, 165, 200,
             83, 237, 211, 11, 194, 83, 251, 33, 145, 138, 234, 226, 7, 242, 186, 73, 8, 0, 0, 0, 0,
