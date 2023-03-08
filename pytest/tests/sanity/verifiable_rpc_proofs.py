@@ -52,6 +52,7 @@ def main():
             assert raw_node_encoding[0] in node_encoding_keys; "0th bit of proof must be valid trie node encoding"
 
         assert proof[-1][0] == LEAF_NODE; "The last raw trie node in a proof must be a leaf node"
+        assert proof[0][0] == EXTENSION_NODE; "The first raw trie node in a proo must be an extension node"
 
         leaf_count = node_count(proof, LEAF_NODE)
         branch_count = node_count(proof, BRANCH_NODE_NO_VALUE) + node_count(proof, BRANCH_NODE_WITH_VALUE)
