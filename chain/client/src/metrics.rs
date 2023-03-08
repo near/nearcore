@@ -23,8 +23,28 @@ pub(crate) static CHUNK_PRODUCED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
 });
 
 pub(crate) static IS_VALIDATOR: Lazy<IntGauge> = Lazy::new(|| {
-    try_create_int_gauge("near_is_validator", "Bool to denote if it is currently validating")
-        .unwrap()
+    try_create_int_gauge(
+        "near_is_validator",
+        "Bool to denote if it is validating in the current epoch",
+    )
+    .unwrap()
+});
+
+pub(crate) static IS_BLOCK_PRODUCER: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge(
+        "near_is_block_producer",
+        "Bool to denote if the node is a block producer in the current epoch",
+    )
+    .unwrap()
+});
+
+pub(crate) static IS_CHUNK_PRODUCER_FOR_SHARD: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_is_chunk_producer_for_shard",
+        "Bool to denote if the node is a chunk producer for a shard in the current epoch",
+        &["shard_id"],
+    )
+    .unwrap()
 });
 
 pub(crate) static RECEIVED_BYTES_PER_SECOND: Lazy<IntGauge> = Lazy::new(|| {
@@ -104,12 +124,7 @@ pub(crate) static VALIDATORS_BLOCKS_EXPECTED: Lazy<IntGaugeVec> = Lazy::new(|| {
 });
 
 pub(crate) static TRACKED_SHARDS: Lazy<IntGaugeVec> = Lazy::new(|| {
-    try_create_int_gauge_vec(
-        "near_client_tracked_shards",
-        "Tracked shards",
-        &["shard_id"],
-    )
-    .unwrap()
+    try_create_int_gauge_vec("near_client_tracked_shards", "Tracked shards", &["shard_id"]).unwrap()
 });
 
 pub(crate) static SYNC_STATUS: Lazy<IntGauge> =

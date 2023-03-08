@@ -140,6 +140,43 @@ impl InfoHelper {
         }
     }
 
+    fn record_block_producers(head: &Tip, client: &crate::client::Client) {
+        let me = client.validator_signer.as_ref().map(|x| x.validator_id().clone());
+        let is_bp = me.map_or(false, |account_id| {
+            client
+                .runtime_adapter
+                .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash)
+                .unwrap()
+                .iter()
+                .any(|bp| bp.0.account_id() == &account_id)
+        });
+        metrics::IS_BLOCK_PRODUCER.set(if is_bp { 1 } else { 0 });
+    }
+
+    fn record_chunk_producers(head: &Tip, client: &crate::client::Client) {
+        if let (Some(account_id), Ok(epoch_info)) = (
+            client.validator_signer.as_ref().map(|x| x.validator_id().clone()),
+            client.runtime_adapter.get_epoch_info(&head.epoch_id),
+        ) {
+            for (shard_id, validators) in
+                epoch_info.chunk_producers_settlement().into_iter().enumerate()
+            {
+                let is_chunk_producer_for_shard = validators.iter().any(|&validator_id| {
+                    *epoch_info.validator_account_id(validator_id) == account_id
+                });
+                metrics::IS_CHUNK_PRODUCER_FOR_SHARD
+                    .with_label_values(&[&shard_id.to_string()])
+                    .set(if is_chunk_producer_for_shard { 1 } else { 0 });
+            }
+        } else if let Ok(num_shards) = client.runtime_adapter.num_shards(&head.epoch_id) {
+            for shard_id in 0..num_shards {
+                metrics::IS_CHUNK_PRODUCER_FOR_SHARD
+                    .with_label_values(&[&shard_id.to_string()])
+                    .set(0);
+            }
+        }
+    }
+
     /// Print current summary.
     pub fn log_summary(
         &mut self,
@@ -199,6 +236,8 @@ impl InfoHelper {
         };
 
         InfoHelper::record_tracked_shards(&head, &client);
+        InfoHelper::record_block_producers(&head, &client);
+        InfoHelper::record_chunk_producers(&head, &client);
 
         self.info(
             &head,
