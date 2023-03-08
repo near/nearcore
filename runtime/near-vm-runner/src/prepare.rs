@@ -35,12 +35,12 @@ pub fn prepare_contract_for_near_vm(
     original_code: &[u8],
     config: &VMConfig,
 ) -> Result<Vec<u8>, PrepareError> {
-validate_contract(original_code, config)?;
-prepare_v1::ContractModule::init(original_code, config)? // TODO: completely get rid of pwasm-utils
-    .scan_imports()?
-    .standardize_mem()
-    .ensure_no_internal_memory()?
-    .into_wasm_code()
+    prepare_v1::validate_contract(original_code, config)?;
+    prepare_v1::ContractModule::init(original_code, config)? // TODO: completely get rid of pwasm-utils
+        .scan_imports()?
+        .standardize_mem()
+        .ensure_no_internal_memory()?
+        .into_wasm_code()
 }
 
 pub fn prepare_contract(
