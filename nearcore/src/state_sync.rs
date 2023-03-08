@@ -2,7 +2,7 @@ use crate::{metrics, NearConfig, NightshadeRuntime};
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode, Error};
 use near_chain_configs::ClientConfig;
-use near_client::sync::state::StateSync;
+use near_client::sync::state::{s3_location, StateSync};
 use near_crypto::PublicKey;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::hash::CryptoHash;
@@ -386,17 +386,4 @@ fn check_new_epoch(
             start_dumping(head.epoch_id.clone(), sync_hash, shard_id, &chain, runtime)
         }
     }
-}
-
-fn s3_location(
-    chain_id: &str,
-    epoch_height: u64,
-    shard_id: u64,
-    part_id: u64,
-    num_parts: u64,
-) -> String {
-    format!(
-        "chain_id={}/epoch_height={}/shard_id={}/state_part_{:06}_of_{:06}",
-        chain_id, epoch_height, shard_id, part_id, num_parts
-    )
 }

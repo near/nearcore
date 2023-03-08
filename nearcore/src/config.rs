@@ -1498,10 +1498,15 @@ pub fn load_test_config(seed: &str, addr: tcp::ListenerAddr, genesis: Genesis) -
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 /// Options for dumping state to S3.
 pub struct StateSyncConfig {
+    /// Location of state dumps on S3.
     pub s3_bucket: String,
+    /// Region is very important on S3.
     pub s3_region: String,
+    /// Whether a node should dump state of each epoch to the external storage.
     pub dump_enabled: bool,
+    /// Use carefully in case a node that dumps state to the external storage gets in trouble.
     pub drop_state_of_dump: Vec<ShardId>,
+    /// If enabled, will download state parts from external storage and not from the peers.
     pub sync_from_s3_enabled: bool,
 }
 

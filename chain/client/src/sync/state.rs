@@ -91,18 +91,43 @@ fn make_account_or_peer_id_or_hash(
         From::AccountId(a) => To::AccountId(a),
         From::PeerId(p) => To::PeerId(p),
         From::Hash(h) => To::Hash(h),
+        From::ExternalStorage() => To::ExternalStorage(),
     }
+}
+
+/// How to retrieve the state data.
+pub enum StateSyncMode {
+    /// Request both the state header and state parts from the peers.
+    Peers,
+    /// Requests the state header from peers but gets the state parts from an
+    /// external storage.
+    HeaderFromPeersAndPartsFromExternal {
+        /// Chain ID.
+        chain_id: String,
+        /// Connection to the external storage.
+        bucket: Arc<s3::Bucket>,
+    },
+}
+
+/// Information about which parts were requested from which peer and when.
+pub struct PartsRequestState {
+    last_part_id_requested: HashMap<(AccountOrPeerIdOrHash, ShardId), PendingRequestStatus>,
+    /// Map from which part we requested to whom.
+    requested_target: lru::LruCache<(u64, CryptoHash), AccountOrPeerIdOrHash>,
 }
 
 /// Helper to track state sync.
 pub struct StateSync {
+    /// How to retrieve the state data.
+    mode: StateSyncMode,
+
+    /// Is used for communication with the peers.
     network_adapter: PeerManagerAdapter,
 
     last_time_block_requested: Option<DateTime<Utc>>,
 
-    last_part_id_requested: HashMap<(AccountOrPeerIdOrHash, ShardId), PendingRequestStatus>,
-    /// Map from which part we requested to whom.
-    requested_target: lru::LruCache<(u64, CryptoHash), AccountOrPeerIdOrHash>,
+    /// Information about which parts were requested from which peer and when.
+    parts_request_state: Option<PartsRequestState>,
 
     /// Timeout (set in config - by default to 60 seconds) is used to figure out how long we should wait
     /// for the answer from the other node before giving up.
@@ -116,12 +141,46 @@ pub struct StateSync {
 }
 
 impl StateSync {
-    pub fn new(network_adapter: PeerManagerAdapter, timeout: TimeDuration) -> Self {
+    pub fn new(
+        network_adapter: PeerManagerAdapter,
+        timeout: TimeDuration,
+        chain_id: &str,
+        state_sync_from_s3_enabled: bool,
+        s3_bucket: &str,
+        s3_region: &str,
+    ) -> Self {
+        let (mode, parts_request_state) = if state_sync_from_s3_enabled {
+            tracing::debug!(target: "sync", s3_bucket, s3_region, "Initializing S3 bucket connection.");
+            assert!(!s3_bucket.is_empty() && !s3_region.is_empty(), "State sync from S3 is enabled. This requires that both `s3_bucket and `s3_region` and specified and non-empty");
+            let bucket = Arc::new(
+                s3::Bucket::new(
+                    s3_bucket,
+                    s3_region.parse::<s3::Region>().unwrap(),
+                    s3::creds::Credentials::default().unwrap(),
+                )
+                .unwrap(),
+            );
+            (
+                StateSyncMode::HeaderFromPeersAndPartsFromExternal {
+                    chain_id: chain_id.to_string(),
+                    bucket,
+                },
+                None,
+            )
+        } else {
+            (
+                StateSyncMode::Peers,
+                Some(PartsRequestState {
+                    last_part_id_requested: Default::default(),
+                    requested_target: lru::LruCache::new(MAX_PENDING_PART as usize),
+                }),
+            )
+        };
         StateSync {
+            mode,
             network_adapter,
             last_time_block_requested: None,
-            last_part_id_requested: Default::default(),
-            requested_target: lru::LruCache::new(MAX_PENDING_PART as usize),
+            parts_request_state,
             timeout: Duration::from_std(timeout).unwrap(),
             state_parts_apply_results: HashMap::new(),
             split_state_roots: HashMap::new(),

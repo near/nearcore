@@ -22,7 +22,7 @@ pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 /// Combines errors coming from chain, tx pool and block producer.
 #[derive(Debug, thiserror::Error)]
@@ -50,6 +50,7 @@ pub enum AccountOrPeerIdOrHash {
     AccountId(AccountId),
     PeerId(PeerId),
     Hash(CryptoHash),
+    ExternalStorage(),
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -61,6 +62,23 @@ pub struct DownloadStatus {
     pub done: bool,
     pub state_requests_count: u64,
     pub last_target: Option<AccountOrPeerIdOrHash>,
+    #[serde(skip_serializing, skip_deserializing)]
+    pub response: Arc<Mutex<Option<Result<(u16, Vec<u8>), String>>>>,
+}
+
+impl DownloadStatus {
+    pub fn new(now: DateTime<Utc>) -> Self {
+        Self {
+            start_time: now,
+            prev_update_time: now,
+            run_me: Arc::new(AtomicBool::new(true)),
+            error: false,
+            done: false,
+            state_requests_count: 0,
+            last_target: None,
+            response: Arc::new(Mutex::new(None)),
+        }
+    }
 }
 
 impl Clone for DownloadStatus {
@@ -73,6 +91,8 @@ impl Clone for DownloadStatus {
             done: self.done,
             state_requests_count: self.state_requests_count,
             last_target: self.last_target.clone(),
+            // Copy the contents of `response`, but make it an independent object.
+            response: Arc::new(Mutex::new(self.response.lock().unwrap().clone().into())),
         }
     }
 }
@@ -167,18 +187,7 @@ impl ShardSyncDownload {
     /// Creates a instance of self which includes initial statuses for shard sync and download at the given time.
     pub fn new(now: DateTime<Utc>) -> Self {
         Self {
-            downloads: vec![
-                DownloadStatus {
-                    start_time: now,
-                    prev_update_time: now,
-                    run_me: Arc::new(AtomicBool::new(true)),
-                    error: false,
-                    done: false,
-                    state_requests_count: 0,
-                    last_target: None,
-                };
-                1
-            ],
+            downloads: vec![DownloadStatus::new(now); 1],
             status: ShardSyncStatus::StateDownloadHeader,
         }
     }
