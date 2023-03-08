@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 #[derive(clap::Subcommand, Debug, Clone)]
 pub(crate) enum StateChangesSubCommand {
     /// Applies StateChanges from a file.
-    /// Needs state roots because ChunkExtras may not be available.
+    /// Needs state roots because chunks state roots may not be known.
     /// Needs BlockHeaders available for the corresponding blocks.
     Apply {
         /// Location of the input file.
@@ -125,7 +125,7 @@ fn dump_state_changes(
 ///
 /// The operation needs state viewer to be run in read-write mode, use `--readwrite` flag.
 ///
-/// In case the DB contains corresponding ChunkExtra, the process compares resulting StateRoots with StateRoots in those ChunkExtra.
+/// In case the DB contains state roots of chunks, the process compares resulting StateRoots with those known StateRoots.
 fn apply_state_changes(
     file: PathBuf,
     shard_id: ShardId,
@@ -158,6 +158,12 @@ fn apply_state_changes(
                 continue;
             }
 
+            if let Ok(block) = chain_store.get_block(block_hash) {
+                let known_state_root = block.chunks()[shard_id as usize].prev_state_root();
+                assert_eq!(known_state_root, state_root);
+                tracing::debug!(target: "state-changes", block_height, ?state_root, "Known StateRoot matches");
+            }
+
             tracing::info!(target: "state-changes", block_height, ?block_hash, ?shard_uid, ?state_root, num_changes = state_changes.len(), "Applying state changes");
             let trie =
                 runtime.get_trie_for_shard(shard_id, &block_hash, state_root, false).unwrap();
@@ -184,11 +190,6 @@ fn apply_state_changes(
             let mut store_update = chain_store.store_update();
             store_update.save_trie_changes(wrapped_trie_changes);
             store_update.commit().unwrap();
-        }
-
-        if let Ok(chunk_extra) = chain_store.get_chunk_extra(block_hash, &shard_uid) {
-            assert_eq!(chunk_extra.state_root(), &state_root);
-            tracing::debug!(target: "state-changes", block_height, ?state_root, "StateRoot Matches");
         }
     }
 
