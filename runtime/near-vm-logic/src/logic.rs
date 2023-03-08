@@ -2454,20 +2454,23 @@ impl<'a> VMLogic<'a> {
             .into());
         }
         self.gas_counter.pay_per(storage_read_key_byte, key.len() as u64)?;
-        let (value_ptr, tn_db_reads, tn_mem_reads) =
-            if cfg!(feature = "protocol_feature_flat_state") {
-                (self.ext.storage_get(&key, StorageGetMode::FlatStorage), 0, 0)
-            } else {
-                let nodes_before = self.ext.get_trie_nodes_count();
-                let value_ptr = self.ext.storage_get(&key, StorageGetMode::Trie);
-                let nodes_delta = self
-                    .ext
-                    .get_trie_nodes_count()
-                    .checked_sub(&nodes_before)
-                    .ok_or(InconsistentStateError::IntegerOverflow)?;
-                self.gas_counter.add_trie_fees(&nodes_delta)?;
-                (value_ptr, nodes_delta.db_reads, nodes_delta.mem_reads)
-            };
+        let (value_ptr, tn_db_reads, tn_mem_reads) = if checked_feature!(
+            "protocol_feature_flat_state",
+            FlatStorageReads,
+            self.current_protocol_version
+        ) {
+            (self.ext.storage_get(&key, StorageGetMode::FlatStorage), 0, 0)
+        } else {
+            let nodes_before = self.ext.get_trie_nodes_count();
+            let value_ptr = self.ext.storage_get(&key, StorageGetMode::Trie);
+            let nodes_delta = self
+                .ext
+                .get_trie_nodes_count()
+                .checked_sub(&nodes_before)
+                .ok_or(InconsistentStateError::IntegerOverflow)?;
+            self.gas_counter.add_trie_fees(&nodes_delta)?;
+            (value_ptr, nodes_delta.db_reads, nodes_delta.mem_reads)
+        };
 
         let read = Self::deref_value(&mut self.gas_counter, storage_read_value_byte, value_ptr?)?;
 
