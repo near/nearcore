@@ -936,19 +936,16 @@ impl Trie {
         key: &[u8],
         mode: KeyLookupMode,
     ) -> Result<Option<ValueRef>, StorageError> {
-        let key_nibbles = NibbleSlice::new(key);
-        let result = self.lookup(key_nibbles);
+        let use_flat_storage = matches!(mode, KeyLookupMode::FlatStorage)
+            && !is_delayed_receipt_key(key)
+            && self.flat_storage_chunk_view.is_some();
 
-        // For now, to test correctness, flat storage does double the work and
-        // compares the results. This needs to be changed when the features is
-        // stabilized.
-        if matches!(mode, KeyLookupMode::FlatStorage) && !is_delayed_receipt_key(key) {
-            if let Some(flat_storage_chunk_view) = &self.flat_storage_chunk_view {
-                let flat_result = flat_storage_chunk_view.get_ref(&key);
-                assert_eq!(result, flat_result);
-            }
+        if use_flat_storage {
+            self.flat_storage_chunk_view.as_ref().unwrap().get_ref(&key)
+        } else {
+            let key_nibbles = NibbleSlice::new(key);
+            self.lookup(key_nibbles)
         }
-        result
     }
 
     pub fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
