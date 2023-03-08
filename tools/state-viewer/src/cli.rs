@@ -106,6 +106,7 @@ impl StateViewerSubCommand {
         let storage = store_opener.open_in_mode(mode).unwrap();
         let store = match temperature {
             Temperature::Hot => storage.get_hot_store(),
+            // Cold store on it's own is useless in majority of subcommandsst
             Temperature::Cold => storage.get_split_store().unwrap(),
         };
 
