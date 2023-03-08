@@ -1,7 +1,7 @@
 //! This file contains helper functions for accessing flat storage data in DB
 //! TODO(#8577): remove this file and move functions to the corresponding structs
 
-use crate::flat::delta::{FlatStateDelta, KeyForFlatStateDelta};
+use crate::flat::delta::{FlatStateChanges, KeyForFlatStateDelta};
 use crate::flat::types::{FetchingStateStatus, FlatStorageCreationStatus, FlatStorageError};
 use crate::{Store, StoreUpdate};
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -11,6 +11,9 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::ValueRef;
 use near_primitives::types::ShardId;
+
+use super::delta::FlatStateDelta;
+use super::FlatStateDeltaMetadata;
 
 /// Prefixes determining type of flat storage creation status stored in DB.
 /// Note that non-existent status is treated as SavingDeltas if flat storage /// does not exist and Ready if it does.
@@ -26,7 +29,8 @@ pub const FLAT_STATE_CREATION_STATUS_KEY_PREFIX: &[u8; 6] = b"STATUS";
 /// Should be removed along with protocol_feature_flat_state feature.
 pub enum FlatStateColumn {
     State,
-    Deltas,
+    Changes,
+    DeltaMetadata,
     Misc,
 }
 
@@ -35,7 +39,8 @@ impl FlatStateColumn {
         #[cfg(feature = "protocol_feature_flat_state")]
         match self {
             FlatStateColumn::State => crate::DBCol::FlatState,
-            FlatStateColumn::Deltas => crate::DBCol::FlatStateDeltas,
+            FlatStateColumn::Changes => crate::DBCol::FlatStateChanges,
+            FlatStateColumn::DeltaMetadata => crate::DBCol::FlatStateDeltaMetadata,
             FlatStateColumn::Misc => crate::DBCol::FlatStateMisc,
         }
         #[cfg(not(feature = "protocol_feature_flat_state"))]
@@ -43,32 +48,52 @@ impl FlatStateColumn {
     }
 }
 
-pub fn get_delta(
+pub fn get_delta_changes(
     store: &Store,
     shard_id: ShardId,
     block_hash: CryptoHash,
-) -> Result<Option<FlatStateDelta>, FlatStorageError> {
+) -> Result<Option<FlatStateChanges>, FlatStorageError> {
     let key = KeyForFlatStateDelta { shard_id, block_hash };
     Ok(store
-        .get_ser::<FlatStateDelta>(FlatStateColumn::Deltas.to_db_col(), &key.try_to_vec().unwrap())
+        .get_ser::<FlatStateChanges>(
+            FlatStateColumn::Changes.to_db_col(),
+            &key.try_to_vec().unwrap(),
+        )
         .map_err(|_| FlatStorageError::StorageInternalError)?)
+}
+
+pub fn get_all_deltas_metadata(
+    store: &Store,
+    shard_id: ShardId,
+) -> Result<Vec<FlatStateDeltaMetadata>, FlatStorageError> {
+    let prefix = shard_id.try_to_vec().map_err(|_| FlatStorageError::StorageInternalError)?;
+    store
+        .iter_prefix_ser(FlatStateColumn::DeltaMetadata.to_db_col(), &prefix)
+        .map(|res| res.map(|(_, value)| value).map_err(|_| FlatStorageError::StorageInternalError))
+        .collect()
 }
 
 pub fn set_delta(
     store_update: &mut StoreUpdate,
     shard_id: ShardId,
-    block_hash: CryptoHash,
     delta: &FlatStateDelta,
 ) -> Result<(), FlatStorageError> {
-    let key = KeyForFlatStateDelta { shard_id, block_hash };
+    let key = KeyForFlatStateDelta { shard_id, block_hash: delta.metadata.block.hash }
+        .try_to_vec()
+        .map_err(|_| FlatStorageError::StorageInternalError)?;
     store_update
-        .set_ser(FlatStateColumn::Deltas.to_db_col(), &key.try_to_vec().unwrap(), delta)
-        .map_err(|_| FlatStorageError::StorageInternalError)
+        .set_ser(FlatStateColumn::Changes.to_db_col(), &key, &delta.changes)
+        .map_err(|_| FlatStorageError::StorageInternalError)?;
+    store_update
+        .set_ser(FlatStateColumn::DeltaMetadata.to_db_col(), &key, &delta.metadata)
+        .map_err(|_| FlatStorageError::StorageInternalError)?;
+    Ok(())
 }
 
 pub fn remove_delta(store_update: &mut StoreUpdate, shard_id: ShardId, block_hash: CryptoHash) {
-    let key = KeyForFlatStateDelta { shard_id, block_hash };
-    store_update.delete(FlatStateColumn::Deltas.to_db_col(), &key.try_to_vec().unwrap());
+    let key = KeyForFlatStateDelta { shard_id, block_hash }.try_to_vec().unwrap();
+    store_update.delete(FlatStateColumn::Changes.to_db_col(), &key);
+    store_update.delete(FlatStateColumn::DeltaMetadata.to_db_col(), &key);
 }
 
 fn flat_head_key(shard_id: ShardId) -> Vec<u8> {

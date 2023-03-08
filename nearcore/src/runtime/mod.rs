@@ -1565,6 +1565,7 @@ mod test {
     use near_chain::{Chain, ChainGenesis};
     use near_primitives::test_utils::create_test_signer;
     use near_primitives::types::validator_stake::ValidatorStake;
+    use near_store::flat::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
     use num_rational::Ratio;
 
     use crate::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
@@ -1645,21 +1646,24 @@ mod test {
                 )
                 .unwrap();
             let mut store_update = self.store.store_update();
-            let flat_state_delta = near_store::flat::FlatStateDelta::from_state_changes(
-                &result.trie_changes.state_changes(),
-            );
+            let flat_state_changes =
+                FlatStateChanges::from_state_changes(&result.trie_changes.state_changes());
             result.trie_changes.insertions_into(&mut store_update);
             result.trie_changes.state_changes_into(&mut store_update);
 
             match self.get_flat_storage_for_shard(shard_id) {
                 Some(flat_storage) => {
-                    let block_info = near_store::flat::BlockInfo {
-                        hash: *block_hash,
-                        height,
-                        prev_hash: *prev_block_hash,
+                    let delta = FlatStateDelta {
+                        changes: flat_state_changes,
+                        metadata: FlatStateDeltaMetadata {
+                            block: near_store::flat::BlockInfo {
+                                hash: *block_hash,
+                                height,
+                                prev_hash: *prev_block_hash,
+                            },
+                        },
                     };
-                    let new_store_update =
-                        flat_storage.add_block(&block_hash, flat_state_delta, block_info).unwrap();
+                    let new_store_update = flat_storage.add_delta(delta).unwrap();
                     store_update.merge(new_store_update);
                 }
                 None => {}

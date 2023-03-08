@@ -33,7 +33,7 @@ pub mod store_helper;
 mod types;
 
 pub use chunk_view::FlatStorageChunkView;
-pub use delta::FlatStateDelta;
+pub use delta::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
 pub use manager::FlatStorageManager;
 pub use storage::FlatStorage;
 pub use types::{
