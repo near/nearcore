@@ -239,7 +239,7 @@ impl<'a> TrieIterator<'a> {
             }
             (CrumbStatus::At, TrieNode::Branch(_, Some(value))) => {
                 let hash = match value {
-                    ValueHandle::HashAndSize(_, hash) => *hash,
+                    ValueHandle::HashAndSize(value) => value.hash,
                     ValueHandle::InMemory(_node) => unreachable!(),
                 };
                 Some(IterStep::Value(hash))
@@ -247,7 +247,7 @@ impl<'a> TrieIterator<'a> {
             (CrumbStatus::At, TrieNode::Branch(_, None)) => Some(IterStep::Continue),
             (CrumbStatus::At, TrieNode::Leaf(key, value)) => {
                 let hash = match value {
-                    ValueHandle::HashAndSize(_, hash) => *hash,
+                    ValueHandle::HashAndSize(value) => value.hash,
                     ValueHandle::InMemory(_node) => unreachable!(),
                 };
                 let key = NibbleSlice::from_encoded(key).0;

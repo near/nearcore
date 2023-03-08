@@ -144,6 +144,13 @@ pub fn update_cold_head(
         cold_db.write(transaction)?;
     }
 
+    // Write COLD_HEAD_KEY to the cold db.
+    {
+        let mut transaction = DBTransaction::new();
+        transaction.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), tip.try_to_vec()?);
+        cold_db.write(transaction)?;
+    }
+
     // Write COLD_HEAD to the hot db.
     {
         let mut transaction = DBTransaction::new();
@@ -167,7 +174,7 @@ pub fn copy_all_data_to_cold(
     cold_db: std::sync::Arc<ColdDB>,
     hot_store: &Store,
     batch_size: usize,
-    keep_going: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    keep_going: &std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) -> io::Result<CopyAllDataToColdStatus> {
     for col in DBCol::iter() {
         if col.is_cold() {

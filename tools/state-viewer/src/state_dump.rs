@@ -296,20 +296,14 @@ mod test {
     use near_chain::{ChainGenesis, Provenance};
     use near_chain_configs::genesis_validate::validate_genesis;
     use near_chain_configs::{Genesis, GenesisChangeConfig};
-    #[cfg(not(feature = "protocol_feature_flat_state"))]
-    use near_client::test_utils::run_catchup;
     use near_client::test_utils::TestEnv;
     use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, SecretKey};
     use near_primitives::account::id::AccountId;
-    #[cfg(not(feature = "protocol_feature_flat_state"))]
-    use near_primitives::shard_layout::ShardLayout;
     use near_primitives::state_record::StateRecord;
     use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
     use near_primitives::types::{
         Balance, BlockHeight, BlockHeightDelta, NumBlocks, ProtocolVersion,
     };
-    #[cfg(not(feature = "protocol_feature_flat_state"))]
-    use near_primitives::version::ProtocolFeature::SimpleNightshade;
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_test_store;
     use near_store::Store;
@@ -615,6 +609,10 @@ mod test {
     #[cfg(not(feature = "protocol_feature_flat_state"))]
     #[test]
     fn test_dump_state_shard_upgrade() {
+        use near_client::test_utils::run_catchup;
+        use near_primitives::shard_layout::ShardLayout;
+        use near_primitives::version::ProtocolFeature::SimpleNightshade;
+
         let epoch_length = 4;
         let (store, genesis, mut env, near_config) =
             setup(epoch_length, SimpleNightshade.protocol_version() - 1, true);

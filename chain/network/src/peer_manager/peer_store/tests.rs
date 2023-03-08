@@ -33,6 +33,7 @@ fn make_config(
     Config {
         boot_nodes: boot_nodes.iter().cloned().collect(),
         blacklist,
+        peer_states_cache_size: 1000,
         connect_only_to_boot_nodes,
         ban_window: time::Duration::seconds(1),
         peer_expiration_duration: time::Duration::days(1000),
@@ -195,7 +196,7 @@ fn check_exist(
     addr_level: Option<(SocketAddr, TrustLevel)>,
 ) -> bool {
     let inner = peer_store.0.lock();
-    if let Some(peer_info) = inner.peer_states.get(peer_id) {
+    if let Some(peer_info) = inner.peer_states.peek(peer_id) {
         let peer_info = &peer_info.peer_info;
         if let Some((addr, level)) = addr_level {
             peer_info.addr.map_or(false, |cur_addr| cur_addr == addr)
@@ -213,7 +214,7 @@ fn check_exist(
 
 fn check_integrity(peer_store: &PeerStore) -> bool {
     let inner = peer_store.0.lock();
-    inner.peer_states.clone().iter().all(|(k, v)| {
+    inner.peer_states.iter().all(|(k, v)| {
         if let Some(addr) = v.peer_info.addr {
             if inner.addr_peers.get(&addr).map_or(true, |value| value.peer_id != *k) {
                 return false;
@@ -223,7 +224,7 @@ fn check_integrity(peer_store: &PeerStore) -> bool {
     }) && inner.addr_peers.clone().iter().all(|(k, v)| {
         !inner
             .peer_states
-            .get(&v.peer_id)
+            .peek(&v.peer_id)
             .map_or(true, |value| value.peer_info.addr.map_or(true, |addr| addr != *k))
     })
 }
@@ -360,7 +361,7 @@ fn check_ignore_blacklisted_peers() {
     fn assert_peers(peer_store: &PeerStore, expected: &[&PeerId]) {
         let inner = peer_store.0.lock();
         let expected: HashSet<&PeerId> = HashSet::from_iter(expected.iter().cloned());
-        let got = HashSet::from_iter(inner.peer_states.keys());
+        let got = HashSet::from_iter(inner.peer_states.iter().map(|(k, _)| k));
         assert_eq!(expected, got);
     }
 
@@ -393,7 +394,7 @@ fn assert_peers_in_cache(
 ) {
     let inner = peer_store.0.lock();
     let expected_peers: HashSet<&PeerId> = HashSet::from_iter(expected_peers);
-    let cached_peers = HashSet::from_iter(inner.peer_states.keys());
+    let cached_peers = HashSet::from_iter(inner.peer_states.iter().map(|(k, _)| k));
     assert_eq!(expected_peers, cached_peers);
 
     let expected_addresses: HashSet<&SocketAddr> = HashSet::from_iter(expected_addresses);
@@ -421,4 +422,64 @@ fn test_delete_peers() {
 
     peer_store.0.lock().delete_peers(&peer_ids);
     assert_peers_in_cache(&peer_store, &[], &[]);
+}
+
+#[test]
+fn test_lru_eviction() {
+    let clock = time::FakeClock::default();
+    let mut config = make_config(&[], Default::default(), false);
+    config.peer_states_cache_size = 10;
+    let peer_store = PeerStore::new(&clock.clock(), config).unwrap();
+
+    let (peer_ids, peer_infos): (Vec<_>, Vec<_>) = (0..15)
+        .map(|i| {
+            let id = get_peer_id(format!("node{}", i));
+            let info = get_peer_info(id.clone(), Some(get_addr(i as u16)));
+            (id, info)
+        })
+        .unzip();
+    let peer_addresses = peer_infos.iter().map(|info| info.addr.unwrap()).collect::<Vec<_>>();
+
+    // Fill the peer_store with the first peer_infos
+    peer_store.add_indirect_peers(&clock.clock(), peer_infos[0..10].iter().cloned());
+    assert_peers_in_cache(&peer_store, &peer_ids[0..10], &peer_addresses[0..10]);
+
+    // Push additional peers and check that the most recent peers are retained
+    peer_store.add_indirect_peers(&clock.clock(), peer_infos[10..].iter().cloned());
+    assert_peers_in_cache(&peer_store, &peer_ids[5..], &peer_addresses[5..]);
+}
+
+/// Tests that pushing the same peers twice to the peer store does not update their
+/// place in the LruCache the second time.
+///
+/// We may learn of the same peer(s) multiple times as we exchange PeersRequest/PeersResponse
+/// with any given neighbor. However, it is not a signal of any new information about the peer,
+/// just that the peer continues to be stored by the responding neighbor.
+#[test]
+fn test_lru_ignore_duplicate_peers() {
+    let clock = time::FakeClock::default();
+    let mut config = make_config(&[], Default::default(), false);
+    config.peer_states_cache_size = 10;
+    let peer_store = PeerStore::new(&clock.clock(), config).unwrap();
+
+    let (peer_ids, peer_infos): (Vec<_>, Vec<_>) = (0..15)
+        .map(|i| {
+            let id = get_peer_id(format!("node{}", i));
+            let info = get_peer_info(id.clone(), Some(get_addr(i as u16)));
+            (id, info)
+        })
+        .unzip();
+    let peer_addresses = peer_infos.iter().map(|info| info.addr.unwrap()).collect::<Vec<_>>();
+
+    // Fill the peer_store with the first 10 peer_infos
+    peer_store.add_indirect_peers(&clock.clock(), peer_infos[0..10].iter().cloned());
+    assert_peers_in_cache(&peer_store, &peer_ids[0..10], &peer_addresses[0..10]);
+
+    // Push the first 5 peer_infos again, which should not affect their order in the cache
+    peer_store.add_indirect_peers(&clock.clock(), peer_infos[0..5].iter().cloned());
+    assert_peers_in_cache(&peer_store, &peer_ids[0..10], &peer_addresses[0..10]);
+
+    // Push additional peers and check that the most recent peers are retained
+    peer_store.add_indirect_peers(&clock.clock(), peer_infos[10..].iter().cloned());
+    assert_peers_in_cache(&peer_store, &peer_ids[5..], &peer_addresses[5..]);
 }

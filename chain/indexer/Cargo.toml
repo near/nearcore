@@ -30,3 +30,4 @@ node-runtime = { path = "../../runtime/runtime" }
 
 [features]
 calimero_zero_storage = ["near-primitives/calimero_zero_storage"]
+nightly = ["nearcore/nightly"]
