@@ -2478,8 +2478,7 @@ impl<'a> VMLogic<'a> {
             tn_db_reads = tn_db_reads,
             tn_mem_reads = tn_mem_reads,
         );
-        drop(tn_db_reads);
-        drop(tn_mem_reads);
+        let _ = (tn_db_reads, tn_mem_reads);
 
         match read {
             Some(value) => {
