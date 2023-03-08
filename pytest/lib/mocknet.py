@@ -918,7 +918,7 @@ def create_and_upload_genesis_file_from_empty_genesis(
         total_supply += int(account.get('locked', 0))
         total_supply += int(account.get('amount', 0))
     genesis_config['total_supply'] = str(total_supply)
-    genesis_config['protocol_version'] = 57
+    genesis_config['protocol_version'] = 63
     genesis_config['epoch_length'] = int(epoch_length)
     genesis_config['num_block_producer_seats'] = int(num_seats)
     genesis_config['protocol_reward_rate'] = [1, 10]
