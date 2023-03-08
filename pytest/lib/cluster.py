@@ -301,6 +301,16 @@ class BaseNode(object):
             "finality": finality
         },
                              timeout=timeout)
+    
+    def get_access_key(self, acc, pk, proof, finality='optimistic'):
+        return self.json_rpc(
+            'query', {
+                "request_type": "view_access_key",
+                "account_id": acc,
+                "public_key": pk,
+                "include_proof": proof,
+                "finality": finality,
+            })
 
     def get_access_key_list(self, acc, finality='optimistic'):
         return self.json_rpc(
