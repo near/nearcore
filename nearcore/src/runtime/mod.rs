@@ -743,19 +743,19 @@ impl RuntimeAdapter for NightshadeRuntime {
     // TODO (#7327): consider passing flat storage errors here to handle them gracefully
     fn create_flat_storage_for_shard(
         &self,
-        shard_id: ShardId,
+        shard_uid: ShardUId,
         latest_block_height: BlockHeight,
         chain_access: &dyn ChainAccessForFlatStorage,
     ) {
         let cache_capacity = self.tries.flat_state_cache_capacity() as usize;
         let flat_storage = FlatStorage::new(
             self.store.clone(),
-            shard_id,
+            shard_uid,
             latest_block_height,
             chain_access,
             cache_capacity,
         );
-        self.flat_storage_manager.add_flat_storage_for_shard(shard_id, flat_storage);
+        self.flat_storage_manager.add_flat_storage_for_shard(shard_uid.shard_id(), flat_storage);
     }
 
     fn remove_flat_storage_for_shard(
@@ -1376,7 +1376,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         tries.apply_all(&trie_changes, shard_uid, &mut store_update);
         if cfg!(feature = "protocol_feature_flat_state") {
             debug!(target: "chain", %shard_id, "Inserting {} values to flat storage", flat_state_delta.len());
-            flat_state_delta.apply_to_flat_state(&mut store_update);
+            flat_state_delta.apply_to_flat_state(&mut store_update, shard_uid);
         }
         self.precompile_contracts(epoch_id, contract_codes)?;
         Ok(store_update.commit()?)
@@ -1821,7 +1821,8 @@ mod test {
                         runtime.get_flat_storage_creation_status(shard_id),
                         FlatStorageCreationStatus::Ready
                     );
-                    runtime.create_flat_storage_for_shard(shard_id, 0, &mock_chain);
+                    let shard_uid = runtime.shard_id_to_uid(shard_id, &EpochId::default()).unwrap();
+                    runtime.create_flat_storage_for_shard(shard_uid, 0, &mock_chain);
                 }
             }
 
