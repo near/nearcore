@@ -472,7 +472,7 @@ impl DBCol {
             DBCol::StateChangesForSplitStates => &[DBKeyType::BlockHash, DBKeyType::ShardId],
             DBCol::TransactionResultForBlock => &[DBKeyType::OutcomeId, DBKeyType::BlockHash],
             #[cfg(feature = "protocol_feature_flat_state")]
-            DBCol::FlatState => &[DBKeyType::TrieKey],
+            DBCol::FlatState => &[DBKeyType::ShardUId, DBKeyType::TrieKey],
             #[cfg(feature = "protocol_feature_flat_state")]
             DBCol::FlatStateDeltas => &[DBKeyType::ShardId, DBKeyType::BlockHash],
             #[cfg(feature = "protocol_feature_flat_state")]

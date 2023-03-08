@@ -99,7 +99,7 @@ impl GenesisStateApplier {
         *current_state_root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
         if cfg!(feature = "protocol_feature_flat_state") {
             FlatStateDelta::from_state_changes(&state_changes)
-                .apply_to_flat_state(&mut store_update);
+                .apply_to_flat_state(&mut store_update, shard_uid);
         }
         drop(state_changes); // silence compiler when not protocol_feature_flat_state
         store_update.commit().expect("Store update failed on genesis initialization");

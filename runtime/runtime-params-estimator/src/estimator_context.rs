@@ -169,19 +169,19 @@ impl<'c> EstimatorContext<'c> {
             }
         }
 
-        let shard_id = ShardUId::single_shard().shard_id();
+        let shard_uid = ShardUId::single_shard();
         // Set up flat head to be equal to the latest block height
         let mut store_update = store.store_update();
-        store_helper::set_flat_head(&mut store_update, shard_id, &FLAT_STATE_HEAD);
+        store_helper::set_flat_head(&mut store_update, shard_uid.shard_id(), &FLAT_STATE_HEAD);
         store_update.commit().expect("failed to set flat head");
         let flat_storage = FlatStorage::new(
             store,
-            shard_id,
+            shard_uid,
             BLOCK_HEIGHT,
             &ChainAccess {},
             cache_capacity as usize,
         );
-        flat_storage_manager.add_flat_storage_for_shard(shard_id, flat_storage);
+        flat_storage_manager.add_flat_storage_for_shard(shard_uid.shard_id(), flat_storage);
         flat_storage_manager
     }
 }
@@ -306,14 +306,11 @@ impl Testbed<'_> {
             .unwrap();
 
         let mut store_update = self.tries.store_update();
-        self.root = self.tries.apply_all(
-            &apply_result.trie_changes,
-            ShardUId::single_shard(),
-            &mut store_update,
-        );
+        let shard_uid = ShardUId::single_shard();
+        self.root = self.tries.apply_all(&apply_result.trie_changes, shard_uid, &mut store_update);
         if cfg!(feature = "protocol_feature_flat_state") {
             near_store::flat::FlatStateDelta::from_state_changes(&apply_result.state_changes)
-                .apply_to_flat_state(&mut store_update);
+                .apply_to_flat_state(&mut store_update, shard_uid);
         }
         store_update.commit().unwrap();
         self.apply_state.block_height += 1;

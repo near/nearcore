@@ -3187,10 +3187,13 @@ impl Chain {
             // So we don't have to add the storage state for shard in such case.
             // TODO(8438) - add additional test scenarios for this case.
             if *block_hash != CryptoHash::default() {
-                let block_height = self.get_block_header(block_hash)?.height();
+                let block_header = self.get_block_header(block_hash)?;
+                let epoch_id = block_header.epoch_id();
+                let shard_uid = self.runtime_adapter.shard_id_to_uid(shard_id, epoch_id)?;
+                let block_height = block_header.height();
 
                 self.runtime_adapter.create_flat_storage_for_shard(
-                    shard_id,
+                    shard_uid,
                     block_height,
                     self.store(),
                 );

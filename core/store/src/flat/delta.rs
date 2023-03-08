@@ -1,6 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_primitives::hash::hash;
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::ValueRef;
 use near_primitives::types::{RawStateChangesWithTrieKey, ShardId};
 use std::collections::HashMap;
@@ -72,9 +73,9 @@ impl FlatStateDelta {
     }
 
     /// Applies delta to the flat state.
-    pub fn apply_to_flat_state(self, store_update: &mut StoreUpdate) {
+    pub fn apply_to_flat_state(self, store_update: &mut StoreUpdate, shard_uid: ShardUId) {
         for (key, value) in self.0.into_iter() {
-            store_helper::set_ref(store_update, key, value).expect("Borsh cannot fail");
+            store_helper::set_ref(store_update, shard_uid, key, value).expect("Borsh cannot fail");
         }
     }
 }
