@@ -93,8 +93,6 @@ impl TrieViewer {
             }
             .to_vec();
 
-            let key = key.to_vec();
-
             let mut iter = state_update.trie().iter()?;
             iter.remember_visited_nodes(include_proof);
             iter.seek_prefix(key)?;
