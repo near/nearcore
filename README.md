@@ -9,7 +9,7 @@
 <br />
 
 
-## Reference implementation of NEAR Protocol1
+## Reference implementation of NEAR Protocol
 
 ![Buildkite](https://img.shields.io/buildkite/0eae07525f8e44a19b48fa937813e2c21ee04aa351361cd851)
 ![Stable Status][stable-release]
