@@ -103,6 +103,15 @@ pub(crate) static VALIDATORS_BLOCKS_EXPECTED: Lazy<IntGaugeVec> = Lazy::new(|| {
     .unwrap()
 });
 
+pub(crate) static TRACKED_SHARDS: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_client_tracked_shards",
+        "Tracked shards",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
 pub(crate) static SYNC_STATUS: Lazy<IntGauge> =
     Lazy::new(|| try_create_int_gauge("near_sync_status", "Node sync status").unwrap());
 

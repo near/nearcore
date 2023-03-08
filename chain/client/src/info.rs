@@ -123,6 +123,23 @@ impl InfoHelper {
         metrics::BLOCK_HEIGHT_WITHIN_EPOCH.set(block_height_within_epoch as i64);
     }
 
+    /// Count which shards are tracked by the node in the epoch indicated by head parameter.
+    fn record_tracked_shards(head: &Tip, client: &crate::client::Client) {
+        if let Ok(num_shards) = client.runtime_adapter.num_shards(&head.epoch_id) {
+            for shard_id in 0..num_shards {
+                let tracked = client.runtime_adapter.cares_about_shard(
+                    None,
+                    &head.last_block_hash,
+                    shard_id,
+                    false,
+                );
+                metrics::TRACKED_SHARDS
+                    .with_label_values(&[&shard_id.to_string()])
+                    .set(if tracked { 1 } else { 0 });
+            }
+        }
+    }
+
     /// Print current summary.
     pub fn log_summary(
         &mut self,
@@ -180,6 +197,9 @@ impl InfoHelper {
         } else {
             None
         };
+
+        InfoHelper::record_tracked_shards(&head, &client);
+
         self.info(
             &head,
             &client.sync_status,
