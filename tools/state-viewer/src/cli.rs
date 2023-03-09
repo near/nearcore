@@ -2,7 +2,6 @@ use crate::commands::*;
 use crate::contract_accounts::ContractAccountFilter;
 use crate::rocksdb_stats::get_rocksdb_stats;
 use crate::state_parts::{apply_state_parts, dump_state_parts};
-use crate::{epoch_info, state_parts};
 use near_chain_configs::{GenesisChangeConfig, GenesisValidationMode};
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
@@ -76,6 +75,9 @@ pub enum StateViewerSubCommand {
     RocksDBStats(RocksDBStatsCmd),
     /// Iterates over a trie and prints the StateRecords.
     State,
+    /// Dumps or applies StateChanges.
+    /// Experimental tool for shard shadowing development.
+    StateChanges(StateChangesCmd),
     /// View head of the storage.
     #[clap(alias = "view_chain")]
     ViewChain(ViewChainCmd),
@@ -133,6 +135,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::Replay(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::RocksDBStats(cmd) => cmd.run(store_opener.path()),
             StateViewerSubCommand::State => state(home_dir, near_config, store),
+            StateViewerSubCommand::StateChanges(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ViewChain(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::ViewTrie(cmd) => cmd.run(store),
         }
@@ -220,7 +223,7 @@ impl ApplyReceiptCmd {
 pub struct ApplyStatePartsCmd {
     /// Selects an epoch. The dump will be of the state at the beginning of this epoch.
     #[clap(subcommand)]
-    epoch_selection: state_parts::EpochSelection,
+    epoch_selection: crate::state_parts::EpochSelection,
     /// Shard id.
     #[clap(long)]
     shard_id: ShardId,
@@ -247,7 +250,7 @@ impl ApplyStatePartsCmd {
             home_dir,
             near_config,
             store,
-            state_parts::Location::new(self.root_dir, (self.s3_bucket, self.s3_region)),
+            crate::state_parts::Location::new(self.root_dir, (self.s3_bucket, self.s3_region)),
         );
     }
 }
@@ -403,7 +406,7 @@ impl DumpStateCmd {
 pub struct DumpStatePartsCmd {
     /// Selects an epoch. The dump will be of the state at the beginning of this epoch.
     #[clap(subcommand)]
-    epoch_selection: state_parts::EpochSelection,
+    epoch_selection: crate::state_parts::EpochSelection,
     /// Shard id.
     #[clap(long)]
     shard_id: ShardId,
@@ -437,7 +440,7 @@ impl DumpStatePartsCmd {
             home_dir,
             near_config,
             store,
-            state_parts::Location::new(self.root_dir, (self.s3_bucket, self.s3_region)),
+            crate::state_parts::Location::new(self.root_dir, (self.s3_bucket, self.s3_region)),
         );
     }
 }
@@ -490,7 +493,7 @@ impl DumpTxCmd {
 #[derive(clap::Args)]
 pub struct EpochInfoCmd {
     #[clap(subcommand)]
-    epoch_selection: epoch_info::EpochSelection,
+    epoch_selection: crate::epoch_info::EpochSelection,
     /// Displays kickouts of the given validator and expected and missed blocks and chunks produced.
     #[clap(long)]
     validator_account_id: Option<String>,
@@ -558,6 +561,18 @@ pub struct RocksDBStatsCmd {
 impl RocksDBStatsCmd {
     pub fn run(self, store_dir: &Path) {
         get_rocksdb_stats(store_dir, self.file).expect("Couldn't get RocksDB stats");
+    }
+}
+
+#[derive(clap::Parser)]
+pub struct StateChangesCmd {
+    #[clap(subcommand)]
+    command: crate::state_changes::StateChangesSubCommand,
+}
+
+impl StateChangesCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        self.command.run(home_dir, near_config, store)
     }
 }
 
