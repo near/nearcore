@@ -237,6 +237,11 @@ impl FlatStorage {
         let mut guard = self.0.write().expect(crate::flat::POISONED_LOCK_ERR);
         let shard_id = guard.shard_uid.shard_id();
         let blocks = guard.get_blocks_to_head(new_head)?;
+        if blocks.is_empty() {
+            // This effectively means that new flat head is the same as the current one,
+            // so we are not updating it
+            return Err(guard.create_block_not_supported_error(new_head));
+        }
         let new_head_height = guard.deltas[new_head].metadata.block.height;
         for block in blocks.into_iter().rev() {
             let mut store_update = StoreUpdate::new(guard.store.storage.clone());
@@ -302,7 +307,7 @@ impl FlatStorage {
         let block_hash = block.hash;
         let block_height = block.height;
         info!(target: "chain", %shard_id, %block_hash, %block_height, "Adding block to flat storage");
-        if !guard.deltas.contains_key(&block.prev_hash) {
+        if block.prev_hash != guard.flat_head && !guard.deltas.contains_key(&block.prev_hash) {
             return Err(guard.create_block_not_supported_error(&block_hash));
         }
         let mut store_update = StoreUpdate::new(guard.store.storage.clone());
