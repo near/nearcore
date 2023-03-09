@@ -116,10 +116,8 @@ def main():
         logger.info(f"TEST ITERATION {iteration}")
         txs = set()
         failed = 0
-        for i in range(MAX_INFLIGHT_TXS):
-            sender, receiver = None, None
-            while sender == receiver:
-                [sender, receiver] = rng.choices(accounts, k=2)
+        for _ in range(MAX_INFLIGHT_TXS):
+            sender, receiver = rng.sample(accounts, k=2)
             sender.base_block_hash = block_hash
             receiver.base_block_hash = block_hash
             txs.add(transfer_tokens_factory(node0_acct, sender)(receiver))
