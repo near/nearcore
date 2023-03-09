@@ -975,3 +975,25 @@ impl TrieNodesCount {
         })
     }
 }
+
+/// State changes for a range of blocks.
+/// Expects that a block is present at most once in the list.
+#[derive(borsh::BorshDeserialize, borsh::BorshSerialize)]
+pub struct StateChangesForBlockRange {
+    pub blocks: Vec<StateChangesForBlock>,
+}
+
+/// State changes for a single block.
+/// Expects that a shard is present at most once in the list of state changes.
+#[derive(borsh::BorshDeserialize, borsh::BorshSerialize)]
+pub struct StateChangesForBlock {
+    pub block_hash: CryptoHash,
+    pub state_changes: Vec<StateChangesForShard>,
+}
+
+/// Key and value of a StateChanges column.
+#[derive(borsh::BorshDeserialize, borsh::BorshSerialize)]
+pub struct StateChangesForShard {
+    pub shard_id: ShardId,
+    pub state_changes: Vec<RawStateChangesWithTrieKey>,
+}

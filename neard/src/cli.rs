@@ -136,7 +136,8 @@ pub(super) struct StateViewerCommand {
     #[clap(long, short = 'w')]
     readwrite: bool,
     /// What store temperature should the state viewer open. Allowed values are hot and cold but
-    /// cold is only available when cold_store feature is enabled.
+    /// cold is only available when cold_store is configured.
+    /// Cold temperature actually means the split store will be used.
     #[clap(long, short = 't', default_value = "hot")]
     store_temperature: near_store::Temperature,
     #[clap(subcommand)]
