@@ -48,10 +48,7 @@ use near_primitives::views::{
     AccessKeyInfoView, CallResult, QueryRequest, QueryResponse, QueryResponseKind, ViewApplyState,
     ViewStateResult,
 };
-use near_store::flat::{
-    store_helper, ChainAccessForFlatStorage, FlatStorage, FlatStorageCreationStatus,
-    FlatStorageManager,
-};
+use near_store::flat::{store_helper, FlatStorage, FlatStorageCreationStatus, FlatStorageManager};
 use near_store::metadata::DbKind;
 use near_store::split_state::get_delayed_receipts;
 use near_store::{
@@ -741,20 +738,9 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     // TODO (#7327): consider passing flat storage errors here to handle them gracefully
-    fn create_flat_storage_for_shard(
-        &self,
-        shard_uid: ShardUId,
-        latest_block_height: BlockHeight,
-        chain_access: &dyn ChainAccessForFlatStorage,
-    ) {
+    fn create_flat_storage_for_shard(&self, shard_uid: ShardUId) {
         let cache_capacity = self.tries.flat_state_cache_capacity() as usize;
-        let flat_storage = FlatStorage::new(
-            self.store.clone(),
-            shard_uid,
-            latest_block_height,
-            chain_access,
-            cache_capacity,
-        );
+        let flat_storage = FlatStorage::new(self.store.clone(), shard_uid, cache_capacity);
         self.flat_storage_manager.add_flat_storage_for_shard(shard_uid.shard_id(), flat_storage);
     }
 
@@ -1565,6 +1551,7 @@ mod test {
     use near_chain::{Chain, ChainGenesis};
     use near_primitives::test_utils::create_test_signer;
     use near_primitives::types::validator_stake::ValidatorStake;
+    use near_store::flat::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
     use num_rational::Ratio;
 
     use crate::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
@@ -1645,21 +1632,24 @@ mod test {
                 )
                 .unwrap();
             let mut store_update = self.store.store_update();
-            let flat_state_delta = near_store::flat::FlatStateDelta::from_state_changes(
-                &result.trie_changes.state_changes(),
-            );
+            let flat_state_changes =
+                FlatStateChanges::from_state_changes(&result.trie_changes.state_changes());
             result.trie_changes.insertions_into(&mut store_update);
             result.trie_changes.state_changes_into(&mut store_update);
 
             match self.get_flat_storage_for_shard(shard_id) {
                 Some(flat_storage) => {
-                    let block_info = near_store::flat::BlockInfo {
-                        hash: *block_hash,
-                        height,
-                        prev_hash: *prev_block_hash,
+                    let delta = FlatStateDelta {
+                        changes: flat_state_changes,
+                        metadata: FlatStateDeltaMetadata {
+                            block: near_store::flat::BlockInfo {
+                                hash: *block_hash,
+                                height,
+                                prev_hash: *prev_block_hash,
+                            },
+                        },
                     };
-                    let new_store_update =
-                        flat_storage.add_block(&block_hash, flat_state_delta, block_info).unwrap();
+                    let new_store_update = flat_storage.add_delta(delta).unwrap();
                     store_update.merge(new_store_update);
                 }
                 None => {}
@@ -1667,43 +1657,6 @@ mod test {
             store_update.commit().unwrap();
 
             (result.new_root, result.validator_proposals, result.outgoing_receipts)
-        }
-    }
-
-    /// Stores chain data for genesis block to initialize flat storage in test environment.
-    struct MockChainForFlatStorage {
-        height_to_hashes: HashMap<BlockHeight, CryptoHash>,
-        blocks: HashMap<CryptoHash, near_store::flat::BlockInfo>,
-    }
-
-    impl ChainAccessForFlatStorage for MockChainForFlatStorage {
-        fn get_block_info(&self, block_hash: &CryptoHash) -> near_store::flat::BlockInfo {
-            self.blocks.get(block_hash).unwrap().clone()
-        }
-
-        fn get_block_hashes_at_height(&self, block_height: BlockHeight) -> HashSet<CryptoHash> {
-            HashSet::from([self.get_block_hash(block_height)])
-        }
-    }
-
-    impl MockChainForFlatStorage {
-        /// Creates mock chain containing only genesis block data.
-        pub fn new(genesis_height: BlockHeight, genesis_hash: CryptoHash) -> Self {
-            Self {
-                height_to_hashes: HashMap::from([(genesis_height, genesis_hash)]),
-                blocks: HashMap::from([(
-                    genesis_hash,
-                    near_store::flat::BlockInfo {
-                        hash: genesis_hash,
-                        height: genesis_height,
-                        prev_hash: CryptoHash::default(),
-                    },
-                )]),
-            }
-        }
-
-        fn get_block_hash(&self, height: BlockHeight) -> CryptoHash {
-            *self.height_to_hashes.get(&height).unwrap()
         }
     }
 
@@ -1815,14 +1768,13 @@ mod test {
                     .set_flat_storage_for_genesis(&genesis_hash, &EpochId::default())
                     .unwrap();
                 store_update.commit().unwrap();
-                let mock_chain = MockChainForFlatStorage::new(0, genesis_hash);
                 for shard_id in 0..runtime.num_shards(&EpochId::default()).unwrap() {
                     assert_eq!(
                         runtime.get_flat_storage_creation_status(shard_id),
                         FlatStorageCreationStatus::Ready
                     );
                     let shard_uid = runtime.shard_id_to_uid(shard_id, &EpochId::default()).unwrap();
-                    runtime.create_flat_storage_for_shard(shard_uid, 0, &mock_chain);
+                    runtime.create_flat_storage_for_shard(shard_uid);
                 }
             }
 

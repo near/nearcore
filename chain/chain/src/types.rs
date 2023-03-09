@@ -31,7 +31,7 @@ use near_primitives::version::{
     MIN_PROTOCOL_VERSION_NEP_92_FIX,
 };
 use near_primitives::views::{QueryRequest, QueryResponse};
-use near_store::flat::{ChainAccessForFlatStorage, FlatStorage, FlatStorageCreationStatus};
+use near_store::flat::{FlatStorage, FlatStorageCreationStatus};
 use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTrieChanges};
 
 pub use near_epoch_manager::EpochManagerAdapter;
@@ -305,12 +305,7 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Creates flat storage state for given shard, assuming that all flat storage data
     /// is already stored in DB.
     /// TODO (#7327): consider returning flat storage creation errors here
-    fn create_flat_storage_for_shard(
-        &self,
-        shard_uid: ShardUId,
-        latest_block_height: BlockHeight,
-        chain_access: &dyn ChainAccessForFlatStorage,
-    );
+    fn create_flat_storage_for_shard(&self, shard_uid: ShardUId);
 
     /// Removes flat storage state for shard, if it exists.
     /// Used to clear old flat storage data from disk and memory before syncing to newer state.

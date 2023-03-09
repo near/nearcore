@@ -120,13 +120,16 @@ fn test_flat_storage_creation() {
             // Deltas for blocks until `START_HEIGHT - 2` should not exist.
             for height in 0..START_HEIGHT - 2 {
                 let block_hash = env.clients[0].chain.get_block_hash_by_height(height).unwrap();
-                assert_eq!(store_helper::get_delta(&store, 0, block_hash), Ok(None));
+                assert_eq!(store_helper::get_delta_changes(&store, 0, block_hash), Ok(None));
             }
             // Deltas for blocks until `START_HEIGHT` should still exist,
             // because they come after flat storage head.
             for height in START_HEIGHT - 2..START_HEIGHT {
                 let block_hash = env.clients[0].chain.get_block_hash_by_height(height).unwrap();
-                assert_matches!(store_helper::get_delta(&store, 0, block_hash), Ok(Some(_)));
+                assert_matches!(
+                    store_helper::get_delta_changes(&store, 0, block_hash),
+                    Ok(Some(_))
+                );
             }
         } else {
             assert_eq!(
@@ -167,7 +170,7 @@ fn test_flat_storage_creation() {
     );
     for height in START_HEIGHT..START_HEIGHT + 2 {
         let block_hash = env.clients[0].chain.get_block_hash_by_height(height).unwrap();
-        assert_matches!(store_helper::get_delta(&store, 0, block_hash), Ok(Some(_)));
+        assert_matches!(store_helper::get_delta_changes(&store, 0, block_hash), Ok(Some(_)));
     }
 
     // Produce new block and run flat storage creation step.
