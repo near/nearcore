@@ -476,13 +476,16 @@ impl StateSync {
         highest_height_peers: &[HighestHeightPeerInfo],
     ) -> Result<Vec<AccountOrPeerIdOrHash>, near_chain::Error> {
         // Remove candidates from pending list if request expired due to timeout
-        self.last_part_id_requested.retain(|_, request| !request.expired());
+        self.parts_request_state.as_mut().map(|parts_request_state| {
+            parts_request_state.last_part_id_requested.retain(|_, request| !request.expired())
+        });
 
         let prev_block_hash = *chain.get_block_header(&sync_hash)?.prev_hash();
         let epoch_hash = runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash)?;
 
-        Ok(runtime_adapter
-            .get_epoch_block_producers_ordered(&epoch_hash, &sync_hash)?
+        let block_producers =
+            runtime_adapter.get_epoch_block_producers_ordered(&epoch_hash, &sync_hash)?;
+        let peers = block_producers
             .iter()
             .filter_map(|(validator_stake, _slashed)| {
                 let account_id = validator_stake.account_id();
@@ -512,12 +515,20 @@ impl StateSync {
                 } else {
                     None
                 }
-            }))
-            .filter(|candidate| {
-                // If we still have a pending request from this node - don't add another one.
-                !self.last_part_id_requested.contains_key(&(candidate.clone(), shard_id))
-            })
-            .collect::<Vec<_>>())
+            }));
+        let result = if let Some(parts_request_state) = &self.parts_request_state {
+            peers
+                .filter(|candidate| {
+                    // If we still have a pending request from this node - don't add another one.
+                    !parts_request_state
+                        .last_part_id_requested
+                        .contains_key(&(candidate.clone(), shard_id))
+                })
+                .collect::<Vec<_>>()
+        } else {
+            peers.collect::<Vec<_>>()
+        };
+        Ok(result)
     }
 
     /// Returns new ShardSyncDownload if successful, otherwise returns given shard_sync_download
