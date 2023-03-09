@@ -7,7 +7,6 @@ use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::ValueRef;
-use near_primitives::types::BlockHeight;
 use tracing::info;
 
 use crate::flat::delta::CachedFlatStateChanges;
@@ -16,7 +15,7 @@ use crate::{metrics, Store, StoreUpdate};
 
 use super::delta::{CachedFlatStateDelta, FlatStateDelta};
 use super::store_helper;
-use super::types::{ChainAccessForFlatStorage, FlatStorageError};
+use super::types::FlatStorageError;
 
 /// FlatStorage stores information on which blocks flat storage current supports key lookups on.
 /// Note that this struct is shared by multiple threads, the chain thread, threads that apply chunks,
@@ -131,15 +130,7 @@ impl FlatStorage {
     /// Create a new FlatStorage for `shard_id` using flat head if it is stored on storage.
     /// We also load all blocks with height between flat head to `latest_block_height`
     /// including those on forks into the returned FlatStorage.
-    pub fn new(
-        store: Store,
-        shard_uid: ShardUId,
-        _latest_block_height: BlockHeight,
-        // Unfortunately we don't have access to ChainStore inside this file because of package
-        // dependencies, so we pass these functions in to access chain info
-        _chain_access: &dyn ChainAccessForFlatStorage,
-        cache_capacity: usize,
-    ) -> Self {
+    pub fn new(store: Store, shard_uid: ShardUId, cache_capacity: usize) -> Self {
         let shard_id = shard_uid.shard_id();
         let flat_head = store_helper::get_flat_head(&store, shard_id)
             .unwrap_or_else(|| panic!("Cannot read flat head for shard {} from storage", shard_id));
@@ -367,11 +358,10 @@ mod tests {
     use crate::flat::manager::FlatStorageManager;
     use crate::flat::storage::FlatStorage;
     use crate::flat::store_helper;
-    use crate::flat::types::{BlockInfo, ChainAccessForFlatStorage, FlatStorageError};
+    use crate::flat::types::{BlockInfo, FlatStorageError};
     use crate::test_utils::create_test_store;
     use crate::StorageError;
     use borsh::BorshSerialize;
-    use near_primitives::borsh::maybestd::collections::HashSet;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::state::ValueRef;
     use near_primitives::types::BlockHeight;
@@ -386,17 +376,11 @@ mod tests {
         head_height: BlockHeight,
     }
 
-    impl ChainAccessForFlatStorage for MockChain {
+    impl MockChain {
         fn get_block_info(&self, block_hash: &CryptoHash) -> BlockInfo {
             self.blocks.get(block_hash).unwrap().clone()
         }
 
-        fn get_block_hashes_at_height(&self, block_height: BlockHeight) -> HashSet<CryptoHash> {
-            self.height_to_hashes.get(&block_height).cloned().iter().cloned().collect()
-        }
-    }
-
-    impl MockChain {
         fn block_hash(height: BlockHeight) -> CryptoHash {
             hash(&height.try_to_vec().unwrap())
         }
@@ -503,7 +487,7 @@ mod tests {
         }
         store_update.commit().unwrap();
 
-        let flat_storage = FlatStorage::new(store.clone(), shard_uid, 4, &chain, 0);
+        let flat_storage = FlatStorage::new(store.clone(), shard_uid, 0);
         let flat_storage_manager = FlatStorageManager::new(store.clone());
         flat_storage_manager.add_flat_storage_for_shard(shard_id, flat_storage);
         let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_id).unwrap();
@@ -550,7 +534,7 @@ mod tests {
         store_update.commit().unwrap();
 
         // Check that flat storage state is created correctly for chain which has skipped heights.
-        let flat_storage = FlatStorage::new(store.clone(), shard_uid, 8, &chain, 0);
+        let flat_storage = FlatStorage::new(store.clone(), shard_uid, 0);
         let flat_storage_manager = FlatStorageManager::new(store.clone());
         flat_storage_manager.add_flat_storage_for_shard(shard_id, flat_storage);
         let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_id).unwrap();
@@ -584,7 +568,7 @@ mod tests {
         }
         store_update.commit().unwrap();
 
-        let flat_storage = FlatStorage::new(store.clone(), shard_uid, 9, &chain, cache_capacity);
+        let flat_storage = FlatStorage::new(store.clone(), shard_uid, cache_capacity);
         let flat_storage_manager = FlatStorageManager::new(store.clone());
         flat_storage_manager.add_flat_storage_for_shard(shard_id, flat_storage);
         let flat_storage = flat_storage_manager.get_flat_storage_for_shard(0).unwrap();
@@ -710,7 +694,7 @@ mod tests {
         store_update.commit().unwrap();
 
         // 2. Create flat storage and apply 3 blocks to it.
-        let flat_storage = FlatStorage::new(store.clone(), shard_uid, 3, &chain, 2);
+        let flat_storage = FlatStorage::new(store.clone(), shard_uid, 2);
         let flat_storage_manager = FlatStorageManager::new(store.clone());
         flat_storage_manager.add_flat_storage_for_shard(shard_id, flat_storage);
         let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_id).unwrap();

@@ -359,11 +359,7 @@ impl FlatStorageShardCreator {
                         );
                         store_helper::set_flat_head(&mut store_update, shard_id, &flat_head);
                         store_update.commit()?;
-                        self.runtime_adapter.create_flat_storage_for_shard(
-                            shard_uid,
-                            chain_store.head().unwrap().height,
-                            chain_store,
-                        );
+                        self.runtime_adapter.create_flat_storage_for_shard(shard_uid);
                         info!(target: "chain", %shard_id, %flat_head, %height, "Flat storage creation done");
                     } else {
                         store_helper::set_flat_storage_creation_status(
@@ -411,11 +407,7 @@ impl FlatStorageCreator {
                     FlatStorageCreationStatus::Ready => {
                         let shard_uid =
                             runtime_adapter.shard_id_to_uid(shard_id, &chain_head.epoch_id)?;
-                        runtime_adapter.create_flat_storage_for_shard(
-                            shard_uid,
-                            chain_head.height,
-                            chain_store,
-                        );
+                        runtime_adapter.create_flat_storage_for_shard(shard_uid);
                     }
                     FlatStorageCreationStatus::DontCreate => {}
                     _ => {

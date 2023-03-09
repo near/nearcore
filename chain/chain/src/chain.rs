@@ -3193,13 +3193,8 @@ impl Chain {
                 let block_header = self.get_block_header(block_hash)?;
                 let epoch_id = block_header.epoch_id();
                 let shard_uid = self.runtime_adapter.shard_id_to_uid(shard_id, epoch_id)?;
-                let block_height = block_header.height();
 
-                self.runtime_adapter.create_flat_storage_for_shard(
-                    shard_uid,
-                    block_height,
-                    self.store(),
-                );
+                self.runtime_adapter.create_flat_storage_for_shard(shard_uid);
             }
         }
 

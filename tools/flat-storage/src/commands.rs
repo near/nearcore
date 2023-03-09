@@ -128,11 +128,7 @@ impl FlatStorageCommand {
                 // TODO: there should be a method that 'loads' the current flat storage state based on Storage.
                 let shard_uid =
                     rw_hot_runtime.shard_id_to_uid(reset_cmd.shard_id, &tip.epoch_id)?;
-                rw_hot_runtime.create_flat_storage_for_shard(
-                    shard_uid,
-                    tip.height,
-                    &rw_chain_store,
-                );
+                rw_hot_runtime.create_flat_storage_for_shard(shard_uid);
 
                 rw_hot_runtime.remove_flat_storage_for_shard(reset_cmd.shard_id, &tip.epoch_id)?;
             }
@@ -198,7 +194,7 @@ impl FlatStorageCommand {
                 let tip = chain_store.final_head().unwrap();
 
                 let shard_uid = hot_runtime.shard_id_to_uid(verify_cmd.shard_id, &tip.epoch_id)?;
-                hot_runtime.create_flat_storage_for_shard(shard_uid, tip.height, &chain_store);
+                hot_runtime.create_flat_storage_for_shard(shard_uid);
 
                 let trie = hot_runtime
                     .get_view_trie_for_shard(verify_cmd.shard_id, &head_hash, *state_root)
