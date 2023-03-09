@@ -655,7 +655,10 @@ impl NearConfig {
                 enable_statistics_export: config.store.enable_statistics_export,
                 client_background_migration_threads: config.store.background_migration_threads,
                 flat_storage_creation_period: config.store.flat_storage_creation_period,
-                state_dump_enabled: config.state_sync.as_ref().map_or(false, |x| x.dump_enabled),
+                state_dump_enabled: config
+                    .state_sync
+                    .as_ref()
+                    .map_or(false, |x| x.dump_enabled.unwrap_or(false)),
                 state_sync_s3_bucket: config
                     .state_sync
                     .as_ref()
@@ -667,11 +670,11 @@ impl NearConfig {
                 state_sync_dump_drop_state: config
                     .state_sync
                     .as_ref()
-                    .map_or(vec![], |x| x.drop_state_of_dump.clone()),
+                    .map_or(vec![], |x| x.drop_state_of_dump.clone().unwrap_or(vec![])),
                 state_sync_from_s3_enabled: config
                     .state_sync
                     .as_ref()
-                    .map_or(false, |x| x.sync_from_s3_enabled),
+                    .map_or(false, |x| x.sync_from_s3_enabled.unwrap_or(false)),
             },
             network_config: NetworkConfig::new(
                 config.network,
@@ -1503,11 +1506,14 @@ pub struct StateSyncConfig {
     /// Region is very important on S3.
     pub s3_region: String,
     /// Whether a node should dump state of each epoch to the external storage.
-    pub dump_enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dump_enabled: Option<bool>,
     /// Use carefully in case a node that dumps state to the external storage gets in trouble.
-    pub drop_state_of_dump: Vec<ShardId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub drop_state_of_dump: Option<Vec<ShardId>>,
     /// If enabled, will download state parts from external storage and not from the peers.
-    pub sync_from_s3_enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sync_from_s3_enabled: Option<bool>,
 }
 
 #[test]
