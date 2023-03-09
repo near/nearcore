@@ -431,7 +431,7 @@ pub(crate) fn generate_data_only_contract(data_size: usize, config: &VMConfig) -
     );
     let wasm = wat::parse_str(wat_code).unwrap();
     // Validate generated code is valid.
-    near_vm_runner::prepare::prepare_contract(&wasm, config, VMKind::Wasmer2).unwrap();
+    near_vm_runner::prepare::prepare_contract(&wasm, config, VMKind::NearVm).unwrap();
     wasm
 }
 

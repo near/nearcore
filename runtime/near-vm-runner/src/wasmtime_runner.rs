@@ -137,8 +137,14 @@ pub(super) fn default_config() -> wasmtime::Config {
     config.wasm_reference_types(WASM_FEATURES.reference_types);
     config.wasm_simd(WASM_FEATURES.simd);
     config.wasm_bulk_memory(WASM_FEATURES.bulk_memory);
-    config.wasm_multi_value(WASM_FEATURES.multi_value);
     config.wasm_multi_memory(WASM_FEATURES.multi_memory);
+    // Multi-value is currently required by finite-wasm instrumentation.
+    // We already run wasmparser’s validate on contract anyway so there’s no risk of accepting invalid contracts.
+    // Still, only enable it on #[cfg(test)] for added certainty.
+    #[cfg(test)]
+    config.wasm_multi_value(true);
+    #[cfg(not(test))]
+    config.wasm_multi_value(WASM_FEATURES.multi_value);
     config
 }
 

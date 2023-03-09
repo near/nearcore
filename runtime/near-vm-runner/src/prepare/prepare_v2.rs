@@ -1,157 +1,106 @@
 use crate::internal::VMKind;
-use finite_wasm::wasmparser as wp;
 use near_vm_errors::PrepareError;
 use near_vm_logic::VMConfig;
 
 pub(crate) fn prepare_contract(
     original_code: &[u8],
-    _config: &VMConfig,
+    config: &VMConfig,
     kind: VMKind,
 ) -> Result<Vec<u8>, PrepareError> {
-    let original_code = early_prepare(original_code)?;
-    if matches!(kind, VMKind::Wasmer2) {
-        // Built-in wasmer2 code instruments code for itself.
+    let original_code = early_prepare(original_code, config)?;
+    if matches!(kind, VMKind::NearVm) {
+        // Built-in near-vm code instruments code for itself.
         return Ok(original_code);
     }
 
-    finite_wasm::Analysis::new()
+    let res = finite_wasm::Analysis::new()
+        .with_stack(Box::new(SimpleMaxStackCfg))
+        .with_gas(Box::new(SimpleGasCostCfg(config.regular_op_cost.try_into().unwrap())))
         .analyze(&original_code)
-        .map_err(|_| todo!())?
+        .map_err(|err| {
+            tracing::error!(?err, ?kind, "Analysis failed");
+            PrepareError::Deserialization
+        })?
         // Make sure contracts can’t call the instrumentation functions via `env`.
         .instrument("internal", &original_code)
-        .map_err(|_| todo!())
+        .map_err(|err| {
+            tracing::error!(?err, ?kind, "Instrumentation failed");
+            PrepareError::Serialization
+        })?;
+    Ok(res)
 }
 
 /// Early preparation code.
 ///
-/// Must happen before the finite-wasm analysis and is applicable to Wasmer2 just as much as it is
+/// Must happen before the finite-wasm analysis and is applicable to NearVm just as much as it is
 /// applicable to other runtimes.
 ///
 /// This will validate the module, normalize the memories within, apply limits.
-fn early_prepare(code: &[u8]) -> Result<Vec<u8>, PrepareError> {
-    use super::WASM_FEATURES as F;
-    let mut validator = wp::Validator::new_with_features(wp::WasmFeatures {
-        mutable_global: true,
-        saturating_float_to_int: false,
-        sign_extension: false,
-        reference_types: F.reference_types,
-        multi_value: F.multi_value,
-        bulk_memory: F.bulk_memory,
-        simd: F.simd,
-        relaxed_simd: false,
-        threads: F.threads,
-        tail_call: F.tail_call,
-        floats: true,
-        multi_memory: F.multi_memory,
-        exceptions: F.exceptions,
-        memory64: F.memory64,
-        extended_const: false,
-        component_model: false,
-        memory_control: false,
-    });
-    let mut func_validator_allocs = Default::default();
+fn early_prepare(code: &[u8], config: &VMConfig) -> Result<Vec<u8>, PrepareError> {
+    use super::prepare_v1;
+    prepare_v1::validate_contract(code, config)?;
+    prepare_v1::ContractModule::init(code, config)? // TODO: completely get rid of pwasm-utils
+        .scan_imports()?
+        .standardize_mem()
+        .ensure_no_internal_memory()?
+        .into_wasm_code()
+    // TODO: enforce our own limits, don't rely on wasmparser for it
+}
 
-    for payload in wp::Parser::new(0).parse_all(code) {
-        let payload = payload.expect("TODO");
-        match payload {
-            wp::Payload::Version { num, encoding, range } => {
-                validator.version(num, encoding, &range).expect("TODO");
-            }
-            wp::Payload::TypeSection(reader) => {
-                validator.type_section(&reader).expect("TODO");
-            }
-            wp::Payload::ImportSection(reader) => {
-                validator.import_section(&reader).expect("TODO");
-                todo!("verify all imports come from `env`");
-            }
-            wp::Payload::FunctionSection(reader) => {
-                validator.function_section(&reader).expect("TODO");
-            }
-            wp::Payload::TableSection(reader) => {
-                validator.table_section(&reader).expect("TODO");
-            }
-            wp::Payload::MemorySection(reader) => {
-                validator.memory_section(&reader).expect("TODO");
-                todo!("standardize memories");
-            }
-            wp::Payload::TagSection(reader) => {
-                validator.tag_section(&reader).expect("TODO");
-            }
-            wp::Payload::GlobalSection(reader) => {
-                validator.global_section(&reader).expect("TODO");
-            }
-            wp::Payload::ExportSection(reader) => {
-                validator.export_section(&reader).expect("TODO");
-            }
-            wp::Payload::StartSection { func, range } => {
-                validator.start_section(func, &range).expect("TODO");
-            }
-            wp::Payload::ElementSection(reader) => {
-                validator.element_section(&reader).expect("TODO");
-            }
-            wp::Payload::DataCountSection { count, range } => {
-                validator.data_count_section(count, &range).expect("TODO");
-            }
-            wp::Payload::DataSection(reader) => {
-                validator.data_section(&reader).expect("TODO");
-            }
-            wp::Payload::CodeSectionStart { count, range, size } => {
-                validator.code_section_start(count, &range).expect("TODO");
-            }
-            wp::Payload::CodeSectionEntry(body) => {
-                let code_validator = validator.code_section_entry(&body).expect("TODO");
-                let mut code_validator = code_validator.into_validator(func_validator_allocs);
-                code_validator.validate(&body).expect("TODO");
-                func_validator_allocs = code_validator.into_allocations();
-            }
-            wp::Payload::ModuleSection { parser, range } => {
-                validator.module_section(&range).expect("TODO");
-            }
-            wp::Payload::InstanceSection(reader) => {
-                validator.instance_section(&reader).expect("TODO");
-            }
-            wp::Payload::CoreTypeSection(reader) => {
-                validator.core_type_section(&reader).expect("TODO");
-            }
-            wp::Payload::ComponentSection { parser, range } => {
-                validator.component_section(&range).expect("TODO");
-            }
-            wp::Payload::ComponentInstanceSection(reader) => {
-                validator.component_instance_section(&reader).expect("TODO");
-            }
-            wp::Payload::ComponentAliasSection(reader) => {
-                validator.component_alias_section(&reader).expect("TODO");
-            }
-            wp::Payload::ComponentTypeSection(reader) => {
-                validator.component_type_section(&reader).expect("TODO");
-            }
-            wp::Payload::ComponentCanonicalSection(reader) => {
-                validator.component_canonical_section(&reader).expect("TODO");
-            }
-            wp::Payload::ComponentStartSection { start, range } => {
-                validator.component_start_section(&start, &range).expect("TODO");
-            }
-            wp::Payload::ComponentImportSection(reader) => {
-                validator.component_import_section(&reader).expect("TODO");
-            }
-            wp::Payload::ComponentExportSection(reader) => {
-                validator.component_export_section(&reader).expect("TODO");
-            }
-            wp::Payload::CustomSection(_) => {}
-            wp::Payload::UnknownSection { id, contents, range } => {
-                validator.unknown_section(id, &range).expect("TODO");
-            }
-            wp::Payload::End(p) => {
-                validator.end(p).expect("TODO");
-            }
+// TODO: refactor to avoid copy-paste with the ones currently defined in near_vm
+struct SimpleMaxStackCfg;
+
+impl finite_wasm::max_stack::SizeConfig for SimpleMaxStackCfg {
+    fn size_of_value(&self, ty: finite_wasm::wasmparser::ValType) -> u8 {
+        use finite_wasm::wasmparser::ValType;
+        match ty {
+            ValType::I32 => 4,
+            ValType::I64 => 8,
+            ValType::F32 => 4,
+            ValType::F64 => 8,
+            ValType::V128 => 16,
+            ValType::FuncRef => 8,
+            ValType::ExternRef => 8,
         }
     }
+    fn size_of_function_activation(
+        &self,
+        locals: &prefix_sum_vec::PrefixSumVec<finite_wasm::wasmparser::ValType, u32>,
+    ) -> u64 {
+        let mut res = 0;
+        res += locals.max_index().map(|l| u64::from(*l).saturating_add(1)).unwrap_or(0) * 8;
+        // TODO: make the above take into account the types of locals by adding an iter on PrefixSumVec that returns (count, type)
+        res += 32; // Rough accounting for rip, rbp and some registers spilled. Not exact.
+        res
+    }
+}
 
-    // Is this necessary anymore?
-    todo!("count functions and locals");
-    todo!("enforce our own limits, don't rely on wasmparser for it");
-    todo!("wasmencoder encode changed module, but only those parts that have actually changed");
+struct SimpleGasCostCfg(u64);
 
-    Ok(vec![])
+macro_rules! gas_cost {
+    ($( @$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident)*) => {
+        $(
+            fn $visit(&mut self $($(, $arg: $argty)*)?) -> u64 {
+                gas_cost!(@@$proposal $op self $({ $($arg: $argty),* })? => $visit)
+            }
+        )*
+    };
 
+    (@@mvp $_op:ident $_self:ident $({ $($_arg:ident: $_argty:ty),* })? => visit_block) => {
+        0
+    };
+    (@@mvp $_op:ident $_self:ident $({ $($_arg:ident: $_argty:ty),* })? => visit_end) => {
+        0
+    };
+    (@@mvp $_op:ident $_self:ident $({ $($_arg:ident: $_argty:ty),* })? => visit_else) => {
+        0
+    };
+    (@@$_proposal:ident $_op:ident $self:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident) => {
+        $self.0
+    };
+}
+
+impl<'a> finite_wasm::wasmparser::VisitOperator<'a> for SimpleGasCostCfg {
+    type Output = u64;
+    finite_wasm::wasmparser::for_each_operator!(gas_cost);
 }

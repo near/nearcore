@@ -30,19 +30,6 @@ pub(crate) const WASM_FEATURES: wasmparser::WasmFeatures = wasmparser::WasmFeatu
     memory_control: false,
 };
 
-// TODO: merge with early_prepare
-pub fn prepare_contract_for_near_vm(
-    original_code: &[u8],
-    config: &VMConfig,
-) -> Result<Vec<u8>, PrepareError> {
-    prepare_v1::validate_contract(original_code, config)?;
-    prepare_v1::ContractModule::init(original_code, config)? // TODO: completely get rid of pwasm-utils
-        .scan_imports()?
-        .standardize_mem()
-        .ensure_no_internal_memory()?
-        .into_wasm_code()
-}
-
 pub fn prepare_contract(
     original_code: &[u8],
     config: &VMConfig,
@@ -72,7 +59,6 @@ pub fn prepare_contract(
 mod tests {
     use super::*;
     use assert_matches::assert_matches;
-    use near_vm_logic::ContractPrepareVersion;
 
     fn parse_and_prepare_wat(wat: &str) -> Result<Vec<u8>, PrepareError> {
         let wasm = wat::parse_str(wat).unwrap();

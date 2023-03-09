@@ -288,7 +288,7 @@ impl NearVmVM {
         code: &ContractCode,
     ) -> Result<UniversalExecutable, CompilationError> {
         let _span = tracing::debug_span!(target: "vm", "NearVmVM::compile_uncached").entered();
-        let prepared_code = prepare::prepare_contract_for_near_vm(code.code(), &self.config)
+        let prepared_code = prepare::prepare_contract(code.code(), &self.config, VMKind::NearVm)
             .map_err(CompilationError::PrepareError)?;
         std::fs::write("/tmp/foo.wasm", &prepared_code).unwrap();
 

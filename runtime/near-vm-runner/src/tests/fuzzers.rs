@@ -158,6 +158,11 @@ fn current_vm_does_not_crash() {
     });
 }
 
+// TODO: re-enable someday?
+// finite-wasm instrumentation currently requires multi-value, and wasmer2 does not support multi-value
+// Now, hopefully we’ll get limited replayability Soon(tm), which means we’ll be able to just delete this code
+// alongside wasmer2, rather than need to actually re-enable this test.
+#[cfg(disabled)]
 #[test]
 fn wasmer2_and_wasmtime_agree() {
     check!().for_each(|data: &[u8]| {
@@ -169,7 +174,6 @@ fn wasmer2_and_wasmtime_agree() {
         let code = ContractCode::new(module.0.module.to_bytes(), None);
         let wasmer2 = run_fuzz(&code, VMKind::Wasmer2).expect("fatal failure");
         let wasmtime = run_fuzz(&code, VMKind::Wasmtime).expect("fatal failure");
-        assert_eq!(wasmer2, wasmtime);
         assert_eq!(wasmer2, wasmtime);
     });
 }
@@ -183,10 +187,9 @@ fn near_vm_and_wasmtime_agree() {
             Err(_) => return,
         };
         let code = ContractCode::new(module.0.module.to_bytes(), None);
-        let wasmer2 = run_fuzz(&code, VMKind::NearVm).expect("fatal failure");
+        let near_vm = run_fuzz(&code, VMKind::NearVm).expect("fatal failure");
         let wasmtime = run_fuzz(&code, VMKind::Wasmtime).expect("fatal failure");
-        assert_eq!(wasmer2, wasmtime);
-        assert_eq!(wasmer2, wasmtime);
+        assert_eq!(near_vm, wasmtime);
     });
 }
 
