@@ -20,10 +20,6 @@ from prober_util import *
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
-import configured_logger
-
-logger = configured_logger.new_logger("stderr", stderr=True)
-
 
 def main():
     logger.info('Running Prober')
@@ -50,12 +46,13 @@ def main():
         if block:
             break
 
-        # Some blocks are really missing and there is no way to miss if they are
+        # Some blocks are really missing and there is no way to know if they are
         # missing because the node doesn't have history, or because the block
         # was skipped.
         if random_height == genesis_height:
             logger.error(
                 f'Genesis block is missing. This is impossible {random_height}')
+            sys.exit(1)
 
         random_height -= 1
         attempt += 1

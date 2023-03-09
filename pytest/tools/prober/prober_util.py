@@ -24,13 +24,13 @@ def json_rpc(method, params, url):
         start_time = time.time()
         r = requests.post(url, json=j, timeout=5)
         latency_ms = (time.time() - start_time)
-        print(
+        logger.debug(
             f'prober_request_latency_ms{{method="{method}",url="{url}"}} {latency_ms:.2f}'
         )
         result = json.loads(r.content)
         return result
     except Exception as e:
-        logger.error(f'Query failed: {e}')
+        logger.error(f'json_rpc({method}, {url}) query failed: {e}')
         sys.exit(1)
 
 
@@ -38,10 +38,10 @@ def get_genesis_height(url):
     try:
         genesis_config = json_rpc('EXPERIMENTAL_genesis_config', None, url)
         genesis_height = genesis_config['result']['genesis_height']
-        logger.info(f'Got genesis_height {genesis_height}')
+        logger.debug(f'Got genesis_height {genesis_height}')
         return genesis_height
     except Exception as e:
-        logger.error(f'get_genesis_height() failed: {e}')
+        logger.error(f'get_genesis_height({url}) failed: {e}')
         sys.exit(1)
 
 
@@ -49,10 +49,10 @@ def get_head(url):
     try:
         status = json_rpc('status', None, url)
         head = status['result']['sync_info']['latest_block_height']
-        logger.info(f'Got latest_block_height {head}')
+        logger.debug(f'Got latest_block_height {head}')
         return head
     except Exception as e:
-        logger.error(f'get_head() failed: {e}')
+        logger.error(f'get_head({url}) failed: {e}')
         sys.exit(1)
 
 
@@ -60,10 +60,11 @@ def get_block(height, url):
     try:
         block = json_rpc('block', {'block_id': height}, url)
         block = block['result']
-        logger.info(f'Got block at height {height}')
+        logger.debug(f'Got block at height {height}')
         return block
     except Exception as e:
-        logger.error(f'get_block({height}) failed: {e}')
+        # This is typically fine as there may be gaps in the chain.
+        logger.error(f'get_block({height}, {url}) failed: {e}')
         return None
 
 
@@ -73,8 +74,8 @@ def get_chunk(chunk, url):
         chunk_hash = chunk['chunk_hash']
         chunk = json_rpc('chunk', {'chunk_id': chunk_hash}, url)
         chunk = chunk['result']
-        logger.info(f'Got chunk {chunk_hash} for shard {shard_id}')
+        logger.debug(f'Got chunk {chunk_hash} for shard {shard_id}')
         return chunk
     except Exception as e:
-        logger.error(f'get_chunk({chunk_hash}) failed: {e}')
+        logger.error(f'get_chunk({chunk_hash}, {url}) failed: {e}')
         sys.exit(1)
