@@ -208,8 +208,13 @@ if __name__ == '__main__':
 
     if not args.skip_load:
         logger.info('Starting transaction spamming scripts.')
-        mocknet.start_load_test_helpers(validator_nodes, script, rpc_nodes,
-                                        num_nodes, max_tps)
+        mocknet.start_load_test_helpers(
+            validator_nodes,
+            script,
+            rpc_nodes,
+            num_nodes,
+            max_tps,
+        )
 
         initial_epoch_height = mocknet.get_epoch_height(rpc_nodes, -1)
         logger.info(f'initial_epoch_height: {initial_epoch_height}')
@@ -221,29 +226,41 @@ if __name__ == '__main__':
         prev_epoch_height = initial_epoch_height
         EPOCH_HEIGHT_CHECK_DELAY = 30
         while time.monotonic() - start_time < deploy_time:
-            epoch_height = mocknet.get_epoch_height(rpc_nodes,
-                                                    prev_epoch_height)
+            epoch_height = mocknet.get_epoch_height(
+                rpc_nodes,
+                prev_epoch_height,
+            )
             if epoch_height > prev_epoch_height:
-                mocknet.upgrade_nodes(epoch_height - initial_epoch_height,
-                                      upgrade_schedule, all_nodes)
+                mocknet.upgrade_nodes(
+                    epoch_height - initial_epoch_height,
+                    upgrade_schedule,
+                    all_nodes,
+                )
                 prev_epoch_height = epoch_height
             time.sleep(EPOCH_HEIGHT_CHECK_DELAY)
 
         logger.info(
             f'Waiting for the loadtest to complete: {test_timeout} seconds')
         while time.monotonic() - start_time < test_timeout:
-            epoch_height = mocknet.get_epoch_height(rpc_nodes,
-                                                    prev_epoch_height)
+            epoch_height = mocknet.get_epoch_height(
+                rpc_nodes,
+                prev_epoch_height,
+            )
             if epoch_height > prev_epoch_height:
-                mocknet.upgrade_nodes(epoch_height - initial_epoch_height,
-                                      upgrade_schedule, all_nodes)
+                mocknet.upgrade_nodes(
+                    epoch_height - initial_epoch_height,
+                    upgrade_schedule,
+                    all_nodes,
+                )
                 prev_epoch_height = epoch_height
             time.sleep(EPOCH_HEIGHT_CHECK_DELAY)
 
         final_metrics = mocknet.get_metrics(archival_node)
         logger.info('All transaction types results:')
-        all_tx_measurement = measure_tps_bps(validator_nodes,
-                                             f'{mocknet.TX_OUT_FILE}.0')
+        all_tx_measurement = measure_tps_bps(
+            validator_nodes,
+            f'{mocknet.TX_OUT_FILE}.0',
+        )
         if all_tx_measurement['bps'] < 0.5:
             test_passed = False
             logger.error(f'bps is below 0.5: {all_tx_measurement["bps"]}')
