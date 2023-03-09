@@ -54,12 +54,13 @@ fn process_transaction(
 
 #[test]
 fn test_flat_storage_upgrade() {
-    let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    let epoch_length = 10;
     let old_protocol_version = ProtocolFeature::FlatStorageReads.protocol_version() - 1;
-    let new_protocol_version = old_protocol_version + 1;
+    // let new_protocol_version = old_protocol_version + 1;
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = old_protocol_version;
+    let chain_genesis = ChainGenesis::new(&genesis);
     let runtimes: Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> =
         vec![Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(
             Path::new("../../../.."),
@@ -89,7 +90,7 @@ fn test_flat_storage_upgrade() {
     let tx_hash = process_transaction(
         &mut env,
         &signer,
-        num_blocks,
+        epoch_length / 2,
         old_protocol_version,
         write_value_action,
     );
