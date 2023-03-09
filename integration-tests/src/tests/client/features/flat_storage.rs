@@ -1,5 +1,4 @@
 use crate::tests::client::process_blocks::{deploy_test_contract, set_block_protocol_version};
-use crate::tests::client::runtimes::create_nightshade_runtimes;
 use assert_matches::assert_matches;
 use near_chain::{ChainGenesis, Provenance, RuntimeWithEpochManagerAdapter};
 use near_chain_configs::Genesis;
@@ -75,7 +74,7 @@ fn test_flat_storage_upgrade() {
         &mut env,
         "test0".parse().unwrap(),
         near_test_contracts::base_rs_contract(),
-        num_blocks,
+        epoch_length / 2,
         1,
     );
 
