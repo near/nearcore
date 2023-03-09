@@ -59,6 +59,8 @@ def get_head(url):
 def get_block(height, url):
     try:
         block = json_rpc('block', {'block_id': height}, url)
+        if 'error' in block:
+            raise Exception(block['error'])
         block = block['result']
         logger.debug(f'Got block at height {height}')
         return block
