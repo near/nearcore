@@ -110,6 +110,21 @@ pub enum ShardSyncStatus {
     StateSyncDone,
 }
 
+impl ShardSyncStatus {
+    pub fn repr(&self) -> u8 {
+        match self {
+            ShardSyncStatus::StateDownloadHeader => 0,
+            ShardSyncStatus::StateDownloadParts => 1,
+            ShardSyncStatus::StateDownloadScheduling => 2,
+            ShardSyncStatus::StateDownloadApplying => 3,
+            ShardSyncStatus::StateDownloadComplete => 4,
+            ShardSyncStatus::StateSplitScheduling => 5,
+            ShardSyncStatus::StateSplitApplying(_) => 6,
+            ShardSyncStatus::StateSyncDone => 7,
+        }
+    }
+}
+
 /// Manually implement compare for ShardSyncStatus to compare only based on variant name
 impl PartialEq<Self> for ShardSyncStatus {
     fn eq(&self, other: &Self) -> bool {
