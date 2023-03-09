@@ -7,12 +7,13 @@ use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::test_utils::encode;
 use near_primitives::transaction::{
-    Action, ExecutionStatus, FunctionCallAction, SignedTransaction,
+    Action, ExecutionMetadata, ExecutionStatus, FunctionCallAction, SignedTransaction,
 };
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::FinalExecutionStatus;
+use near_primitives_core::config::ExtCosts;
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::{BlockHeightDelta, ProtocolVersion};
+use near_primitives_core::types::{BlockHeightDelta, Gas, ProtocolVersion};
 use near_store::test_utils::create_test_store;
 use nearcore::config::GenesisExt;
 use nearcore::TrackedConfig;
@@ -57,7 +58,7 @@ fn test_flat_storage_upgrade() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let epoch_length = 12;
     let old_protocol_version = ProtocolFeature::FlatStorageReads.protocol_version() - 1;
-    // let new_protocol_version = old_protocol_version + 1;
+    let new_protocol_version = old_protocol_version + 1;
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = old_protocol_version;
     let chain_genesis = ChainGenesis::new(&genesis);
@@ -106,6 +107,8 @@ fn test_flat_storage_upgrade() {
         ExecutionStatus::SuccessValue(_)
     );
 
+    let touching_trie_node_cost: Gas = 16_101_955_926;
+
     let read_value_action = vec![Action::FunctionCall(FunctionCallAction {
         args: encode(&[1u64]),
         method_name: "read_value".to_string(),
@@ -115,8 +118,8 @@ fn test_flat_storage_upgrade() {
     let tx_hash = process_transaction(
         &mut env,
         &signer,
-        epoch_length / 3,
-        old_protocol_version,
+        epoch_length * 2,
+        new_protocol_version,
         read_value_action,
     );
     let final_result = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
@@ -126,8 +129,39 @@ fn test_flat_storage_upgrade() {
     assert_eq!(receipt_ids.len(), 1);
     let receipt_execution_outcome =
         env.clients[0].chain.get_execution_outcome(&receipt_ids[0]).unwrap();
-    assert_eq!(
-        receipt_execution_outcome.outcome_with_id.outcome.status,
-        ExecutionStatus::SuccessValue(encode(&[10u64]))
+    let metadata = receipt_execution_outcome.outcome_with_id.outcome.metadata;
+    if let ExecutionMetadata::V3(profile_data) = metadata {
+        let cost = profile_data.get_ext_cost(ExtCosts::touching_trie_node);
+        assert_eq!(cost, touching_trie_node_cost * 4);
+    } else {
+        panic!("Too old version of metadata: {metadata}");
+    }
+
+    let read_value_action = vec![Action::FunctionCall(FunctionCallAction {
+        args: encode(&[1u64]),
+        method_name: "read_value".to_string(),
+        gas,
+        deposit: 0,
+    })];
+    let tx_hash = process_transaction(
+        &mut env,
+        &signer,
+        epoch_length * 2,
+        new_protocol_version,
+        read_value_action,
     );
+    let final_result = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
+    assert_matches!(final_result.status, FinalExecutionStatus::SuccessValue(_));
+    let transaction_outcome = env.clients[0].chain.get_execution_outcome(&tx_hash).unwrap();
+    let receipt_ids = transaction_outcome.outcome_with_id.outcome.receipt_ids;
+    assert_eq!(receipt_ids.len(), 1);
+    let receipt_execution_outcome =
+        env.clients[0].chain.get_execution_outcome(&receipt_ids[0]).unwrap();
+    let metadata = receipt_execution_outcome.outcome_with_id.outcome.metadata;
+    if let ExecutionMetadata::V3(profile_data) = metadata {
+        let cost = profile_data.get_ext_cost(ExtCosts::touching_trie_node);
+        assert_eq!(cost, 0);
+    } else {
+        panic!("Too old version of metadata: {metadata}");
+    }
 }
