@@ -16,7 +16,6 @@ use near_chain::{
 };
 use near_chain_configs::GenesisChangeConfig;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
-use near_network::iter_peers_from_store;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
@@ -27,7 +26,6 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{chunk_extra::ChunkExtra, BlockHeight, ShardId, StateRoot};
 use near_primitives_core::types::Gas;
-use near_store::db::Database;
 use near_store::test_utils::create_test_store;
 use near_store::TrieDBStorage;
 use near_store::{Store, Trie, TrieCache, TrieCachingStorage, TrieConfig};
@@ -417,10 +415,30 @@ pub(crate) fn get_receipt(receipt_id: CryptoHash, near_config: NearConfig, store
     println!("Receipt: {:#?}", receipt);
 }
 
-pub(crate) fn peers(db: Arc<dyn Database>) {
-    iter_peers_from_store(db, |(peer_id, peer_info)| {
-        println!("{} {:?}", peer_id, peer_info);
-    })
+fn chunk_extras_equal(l: &ChunkExtra, r: &ChunkExtra) -> bool {
+    // explicitly enumerate the versions in a match here first so that if a new version is
+    // added, we'll get a compile error here and be reminded to update it correctly.
+    match (l, r) {
+        (ChunkExtra::V1(l), ChunkExtra::V1(r)) => return l == r,
+        (ChunkExtra::V2(l), ChunkExtra::V2(r)) => return l == r,
+        (ChunkExtra::V1(_), ChunkExtra::V2(_)) | (ChunkExtra::V2(_), ChunkExtra::V1(_)) => {}
+    };
+    if l.state_root() != r.state_root() {
+        return false;
+    }
+    if l.outcome_root() != r.outcome_root() {
+        return false;
+    }
+    if l.gas_used() != r.gas_used() {
+        return false;
+    }
+    if l.gas_limit() != r.gas_limit() {
+        return false;
+    }
+    if l.balance_burnt() != r.balance_burnt() {
+        return false;
+    }
+    l.validator_proposals().collect::<Vec<_>>() == r.validator_proposals().collect::<Vec<_>>()
 }
 
 pub(crate) fn check_apply_block_result(
@@ -441,7 +459,7 @@ pub(crate) fn check_apply_block_result(
     let shard_uid = runtime_adapter.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
     if block.chunks()[shard_id as usize].height_included() == height {
         if let Ok(old_chunk_extra) = chain_store.get_chunk_extra(&block_hash, &shard_uid) {
-            if &new_chunk_extra == old_chunk_extra.as_ref() {
+            if chunk_extras_equal(&new_chunk_extra, old_chunk_extra.as_ref()) {
                 println!("new chunk extra matches old chunk extra");
                 Ok(())
             } else {
@@ -877,8 +895,8 @@ pub(crate) fn contract_accounts(
         // Use simple non-caching storage, we don't expect many duplicate lookups while iterating.
         let storage = TrieDBStorage::new(store.clone(), shard_uid);
         // We don't need flat state to traverse all accounts.
-        let flat_state = None;
-        Trie::new(Box::new(storage), state_root, flat_state)
+        let flat_storage_chunk_view = None;
+        Trie::new(Box::new(storage), state_root, flat_storage_chunk_view)
     });
 
     filter.write_header(&mut std::io::stdout().lock())?;

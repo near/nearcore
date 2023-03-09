@@ -1,13 +1,16 @@
+use crate::cli::SubCommand::CheckStateRoot;
 use anyhow;
+use anyhow::Context;
 use clap;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_store::cold_storage::{copy_all_data_to_cold, update_cold_db, update_cold_head};
 use near_store::metadata::DbKind;
-use near_store::{DBCol, NodeStorage, Store, Temperature};
+use near_store::{DBCol, NodeStorage, Store, StoreOpener};
 use near_store::{COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY, TAIL_KEY};
 use nearcore::{NearConfig, NightshadeRuntime};
+use rand::seq::SliceRandom;
 use std::io::Result;
 use std::path::Path;
 use std::sync::Arc;
@@ -15,6 +18,10 @@ use strum::IntoEnumIterator;
 
 #[derive(clap::Parser)]
 pub struct ColdStoreCommand {
+    /// By default state viewer opens rocks DB in the read only mode, which allows it to run
+    /// multiple instances in parallel and be sure that no unintended changes get written to the DB.
+    #[clap(long, short = 'w')]
+    readwrite: bool,
     #[clap(subcommand)]
     subcmd: SubCommand,
 }
@@ -39,23 +46,28 @@ enum SubCommand {
     /// - config.cold_store.path points to an existing database with kind Cold
     /// - store_relative_path points to an existing database with kind Rpc
     PrepareHot(PrepareHotCmd),
+    /// Traverse trie and check that every node is in cold db.
+    /// Can start from given state_root or compute previous roots for every chunk in provided block
+    /// and use them as starting point.
+    /// You can provide maximum depth and/or maximum number of vertices to traverse for each root.
+    /// Trie is traversed using DFS with randomly shuffled kids for every node.
+    CheckStateRoot(CheckStateRootCmd),
 }
 
 impl ColdStoreCommand {
     pub fn run(self, home_dir: &Path) -> anyhow::Result<()> {
-        let near_config = nearcore::config::load_config(
+        let mode =
+            if self.readwrite { near_store::Mode::ReadWrite } else { near_store::Mode::ReadOnly };
+        let mut near_config = nearcore::config::load_config(
             &home_dir,
             near_chain_configs::GenesisValidationMode::Full,
         )
         .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
-        let opener = NodeStorage::opener(
-            home_dir,
-            true,
-            &near_config.config.store,
-            near_config.config.cold_store.as_ref(),
-        );
-        let storage = opener.open().unwrap_or_else(|e| panic!("Error opening storage: {:#}", e));
+        let opener = self.get_opener(home_dir, &mut near_config);
+
+        let storage =
+            opener.open_in_mode(mode).unwrap_or_else(|e| panic!("Error opening storage: {:#}", e));
 
         let hot_runtime = Arc::new(NightshadeRuntime::from_config(
             home_dir,
@@ -76,7 +88,52 @@ impl ColdStoreCommand {
                 Ok(())
             }
             SubCommand::PrepareHot(cmd) => cmd.run(&storage, &home_dir, &near_config),
+            SubCommand::CheckStateRoot(cmd) => cmd.run(&storage),
         }
+    }
+
+    /// Returns opener suitable for subcommand.
+    /// If subcommand is  CheckStateRoot, creates checkpoint for cold db
+    /// and modifies `near_config.config.cold_store.path` to path to that checkpoint.
+    /// Then returns opener for dbs at `store.path` and `cold_store.path`.
+    pub fn get_opener<'a>(
+        &'a self,
+        home_dir: &Path,
+        near_config: &'a mut NearConfig,
+    ) -> StoreOpener<'a> {
+        if !near_config.config.archive {
+            tracing::warn!("Expected archive option in config to be set to true.");
+        }
+
+        let opener = NodeStorage::opener(
+            home_dir,
+            near_config.config.archive,
+            &near_config.config.store,
+            near_config.config.cold_store.as_ref(),
+        );
+
+        match self.subcmd {
+            CheckStateRoot(_) => {
+                let (hot_snapshot, cold_snapshot) = opener
+                    .create_snapshots(near_store::Mode::ReadOnly)
+                    .expect("Failed to create snapshots");
+                if let Some(_) = &hot_snapshot.0 {
+                    hot_snapshot.remove().expect("Failed to remove unnecessary hot snapshot");
+                }
+                if let Some(cold_store_config) = near_config.config.cold_store.as_mut() {
+                    cold_store_config.path =
+                        Some(cold_snapshot.0.clone().expect("cold_snapshot should be Some"));
+                }
+            }
+            _ => {}
+        }
+
+        NodeStorage::opener(
+            home_dir,
+            near_config.config.archive,
+            &near_config.config.store,
+            near_config.config.cold_store.as_ref(),
+        )
     }
 }
 
@@ -132,7 +189,8 @@ fn copy_next_block(store: &NodeStorage, config: &NearConfig, hot_runtime: &Arc<N
     // It should be set before the copying of a block in prod,
     // but we should default it to genesis height here.
     let cold_head_height = store
-        .get_store(Temperature::Cold)
+        .get_cold_store()
+        .unwrap()
         .get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)
         .unwrap_or_else(|e| panic!("Error reading cold HEAD: {:#}", e))
         .map_or(config.genesis.config.genesis_height, |t| t.height);
@@ -140,7 +198,7 @@ fn copy_next_block(store: &NodeStorage, config: &NearConfig, hot_runtime: &Arc<N
     // If FINAL_HEAD is not set for hot storage though, we default it to 0.
     // And subsequently fail in assert!(next_height <= hot_final_height).
     let hot_final_head = store
-        .get_store(Temperature::Hot)
+        .get_hot_store()
         .get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)
         .unwrap_or_else(|e| panic!("Error reading hot FINAL_HEAD: {:#}", e))
         .map(|t| t.height)
@@ -153,8 +211,7 @@ fn copy_next_block(store: &NodeStorage, config: &NearConfig, hot_runtime: &Arc<N
     // Here it should be sufficient to just read from hot storage.
     // Because BlockHeight is never garbage collectable and is not even copied to cold.
     let cold_head_hash = get_ser_from_store::<CryptoHash>(
-        store,
-        Temperature::Hot,
+        &store.get_hot_store(),
         DBCol::BlockHeight,
         &cold_head_height.to_le_bytes(),
     )
@@ -166,7 +223,7 @@ fn copy_next_block(store: &NodeStorage, config: &NearConfig, hot_runtime: &Arc<N
     // we use cold_head_hash.
     update_cold_db(
         &*store.cold_db().unwrap(),
-        &store.get_store(Temperature::Hot),
+        &store.get_hot_store(),
         &hot_runtime
             .get_shard_layout(&hot_runtime.get_epoch_id_from_prev_block(&cold_head_hash).unwrap())
             .unwrap(),
@@ -174,43 +231,41 @@ fn copy_next_block(store: &NodeStorage, config: &NearConfig, hot_runtime: &Arc<N
     )
     .expect(&std::format!("Failed to copy block at height {} to cold db", next_height));
 
-    update_cold_head(&*store.cold_db().unwrap(), &store.get_store(Temperature::Hot), &next_height)
+    update_cold_head(&*store.cold_db().unwrap(), &store.get_hot_store(), &next_height)
         .expect(&std::format!("Failed to update cold HEAD to {}", next_height));
 }
 
-fn copy_all_blocks(store: &NodeStorage, batch_size: usize, check: bool) {
-    // If FINAL_HEAD is not set for hot storage though, we default it to 0.
-    let hot_final_head = store
-        .get_store(Temperature::Hot)
+fn copy_all_blocks(storage: &NodeStorage, batch_size: usize, check: bool) {
+    // If FINAL_HEAD is not set for hot storage we default it to 0
+    // not genesis_height, because hot db needs to contain genesis block for that
+    let hot_final_head = storage
+        .get_hot_store()
         .get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)
         .unwrap_or_else(|e| panic!("Error reading hot FINAL_HEAD: {:#}", e))
         .map(|t| t.height)
         .unwrap_or(0);
 
+    let keep_going = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+
     copy_all_data_to_cold(
-        (*store.cold_db().unwrap()).clone(),
-        &store.get_store(Temperature::Hot),
+        (*storage.cold_db().unwrap()).clone(),
+        &storage.get_hot_store(),
         batch_size,
+        &keep_going,
     )
     .expect("Failed to do migration to cold db");
 
-    update_cold_head(
-        &*store.cold_db().unwrap(),
-        &store.get_store(Temperature::Hot),
-        &hot_final_head,
-    )
-    .expect(&std::format!("Failed to update cold HEAD to {}", hot_final_head));
+    // Setting cold head to hot_final_head captured BEFORE the start of initial migration.
+    // Doesn't really matter here, but very important in case of migration during `neard run`.
+    update_cold_head(&*storage.cold_db().unwrap(), &storage.get_hot_store(), &hot_final_head)
+        .expect(&std::format!("Failed to update cold HEAD to {}", hot_final_head));
 
     if check {
         for col in DBCol::iter() {
             if col.is_cold() {
                 println!(
                     "Performed {} {:?} checks",
-                    check_iter(
-                        &store.get_store(Temperature::Hot),
-                        &store.get_store(Temperature::Cold),
-                        col,
-                    ),
+                    check_iter(&storage.get_hot_store(), &storage.get_cold_store().unwrap(), col),
                     col
                 );
             }
@@ -230,6 +285,9 @@ fn check_key(
     assert_eq!(first_res.unwrap(), second_res.unwrap());
 }
 
+/// Checks that `first_store`'s column `col` is fully included in `second_store`
+/// with same values for every key.
+/// Return number of checks performed == number of keys in column `col` of the `first_store`.
 fn check_iter(
     first_store: &near_store::Store,
     second_store: &near_store::Store,
@@ -246,41 +304,11 @@ fn check_iter(
 /// Calls get_ser on Store with provided temperature from provided NodeStorage.
 /// Expects read to not result in errors.
 fn get_ser_from_store<T: near_primitives::borsh::BorshDeserialize>(
-    store: &NodeStorage,
-    temperature: Temperature,
+    store: &Store,
     col: DBCol,
     key: &[u8],
 ) -> Option<T> {
-    store.get_store(temperature).get_ser(col, key).expect(&std::format!(
-        "Error reading {} {:?} from {:?} store",
-        col,
-        key,
-        temperature
-    ))
-}
-
-/// First try to read col, key from hot storage.
-/// If resulted Option is None, try to read col, key from cold storage.
-/// Returns serialized inner value (not wrapped in option),
-/// or panics, if value isn't found even in cold.
-///
-/// Reads from database are expected to not result in errors.
-///
-/// This function is currently unused, but will be important in the future,
-/// when we start garbage collecting data from hot.
-/// For some columns you can understand the temperature by key.
-/// For others, though, read with fallback is the only working solution right now.
-fn _get_with_fallback<T: near_primitives::borsh::BorshDeserialize>(
-    store: &NodeStorage,
-    col: DBCol,
-    key: &[u8],
-) -> T {
-    let hot_option = get_ser_from_store(store, Temperature::Hot, col, key);
-    match hot_option {
-        Some(value) => value,
-        None => get_ser_from_store(store, Temperature::Cold, col, key)
-            .unwrap_or_else(|| panic!("No value for {} {:?} in any storage", col, key)),
-    }
+    store.get_ser(col, key).expect(&std::format!("Error reading {} {:?} from store", col, key,))
 }
 
 #[derive(clap::Parser)]
@@ -411,5 +439,200 @@ impl PrepareHotCmd {
         }
 
         Ok(())
+    }
+}
+
+/// The StateRootSelector is a subcommand that allows the user to select the state root either by block height or by the state root hash.
+#[derive(clap::Subcommand)]
+enum StateRootSelector {
+    Height { height: near_primitives::types::BlockHeight },
+    Hash { hash: CryptoHash },
+}
+
+impl StateRootSelector {
+    pub fn get_hashes(
+        &self,
+        storage: &NodeStorage,
+        cold_store: &Store,
+    ) -> anyhow::Result<Vec<CryptoHash>> {
+        match self {
+            // If height is provided, calculate previous state roots for this block's chunks.
+            StateRootSelector::Height { height } => {
+                let hash_key = {
+                    let height_key = height.to_le_bytes();
+                    storage
+                        .get_hot_store()
+                        .get(DBCol::BlockHeight, &height_key)?
+                        .ok_or(anyhow::anyhow!(
+                            "Failed to find block hash for height {:?}",
+                            height
+                        ))?
+                        .as_slice()
+                        .to_vec()
+                };
+                let block = cold_store
+                    .get_ser::<near_primitives::block::Block>(DBCol::Block, &hash_key)?
+                    .ok_or(anyhow::anyhow!("Failed to find Block: {:?}", hash_key))?;
+                let mut hashes = vec![];
+                for chunk in block.chunks().iter() {
+                    hashes.push(
+                        cold_store
+                            .get_ser::<near_primitives::sharding::ShardChunk>(
+                                DBCol::Chunks,
+                                chunk.chunk_hash().as_bytes(),
+                            )?
+                            .ok_or(anyhow::anyhow!(
+                                "Failed to find Chunk: {:?}",
+                                chunk.chunk_hash()
+                            ))?
+                            .take_header()
+                            .prev_state_root(),
+                    );
+                }
+                Ok(hashes)
+            }
+            // If state root is provided, then just use it.
+            StateRootSelector::Hash { hash } => Ok(vec![*hash]),
+        }
+    }
+}
+
+/// Struct that holds all conditions for node in Trie
+/// to be checked by CheckStateRootCmd::check_trie.
+#[derive(Debug)]
+struct PruneCondition {
+    /// Maximum depth (measured in number of nodes, not trie key length).
+    max_depth: Option<u64>,
+    /// Maximum number of nodes checked for each state_root.
+    max_count: Option<u64>,
+}
+
+/// Struct that holds data related to pruning of node in CheckStateRootCmd::check_trie.
+#[derive(Debug)]
+struct PruneState {
+    /// Depth of node in trie (measured in number of nodes, not trie key length).
+    depth: u64,
+    /// Number of already checked nodes.
+    count: u64,
+}
+
+impl PruneState {
+    pub fn new() -> Self {
+        Self { depth: 0, count: 0 }
+    }
+
+    /// Return `true` if node should be pruned.
+    pub fn should_prune(&self, condition: &PruneCondition) -> bool {
+        if let Some(md) = condition.max_depth {
+            if self.depth > md {
+                return true;
+            }
+        }
+        if let Some(mc) = condition.max_count {
+            if self.count > mc {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Modify self to reflect going down a tree.
+    /// We increment node count, because we are visiting a new node.
+    pub fn down(&mut self) {
+        self.count += 1;
+        self.depth += 1;
+    }
+
+    /// Modify self to reflect going up a tree.
+    /// We do not change node count, because we already visited parent node before.
+    pub fn up(&mut self) {
+        self.depth -= 1;
+    }
+}
+
+#[derive(clap::Args)]
+struct CheckStateRootCmd {
+    /// Maximum depth (measured in number of nodes, not trie key length) for checking trie.
+    #[clap(long)]
+    max_depth: Option<u64>,
+    /// Maximum number of nodes checked for each state_root.
+    #[clap(long)]
+    max_count: Option<u64>,
+    #[clap(subcommand)]
+    state_root_selector: StateRootSelector,
+}
+
+impl CheckStateRootCmd {
+    pub fn run(self, storage: &NodeStorage) -> anyhow::Result<()> {
+        let cold_store =
+            storage.get_cold_store().ok_or(anyhow::anyhow!("Cold storage is not configured"))?;
+
+        let hashes = self.state_root_selector.get_hashes(storage, &cold_store)?;
+        for hash in hashes.iter() {
+            Self::check_trie(
+                &cold_store,
+                &hash,
+                &mut PruneState::new(),
+                &PruneCondition { max_depth: self.max_depth, max_count: self.max_count },
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// Check that trie subtree of `hash` is fully present in `store`.
+    fn check_trie(
+        store: &Store,
+        hash: &CryptoHash,
+        prune_state: &mut PruneState,
+        prune_condition: &PruneCondition,
+    ) -> anyhow::Result<()> {
+        tracing::debug!(target: "check_trie", "Checking {:?} at {:?}", hash, prune_state);
+        if prune_state.should_prune(prune_condition) {
+            tracing::debug!(target: "check_trie", "Reached prune condition: {:?}", prune_condition);
+            return Ok(());
+        }
+
+        let bytes = Self::read_state(store, hash.as_ref())
+            .with_context(|| format!("Failed to read raw bytes for hash {:?}", hash))?
+            .with_context(|| format!("Failed to find raw bytes for hash {:?}", hash))?;
+        let node = near_store::RawTrieNodeWithSize::decode(&bytes)?;
+        match node.node {
+            near_store::RawTrieNode::Leaf(..) => {
+                tracing::debug!(target: "check_trie", "Reached leaf node");
+                return Ok(());
+            }
+            near_store::RawTrieNode::Branch(mut children, _) => {
+                children.shuffle(&mut rand::thread_rng());
+                for child in children.iter() {
+                    if let Some(child) = child {
+                        // Record in prune state that we are visiting a child node
+                        prune_state.down();
+                        // Visit a child node
+                        Self::check_trie(store, child, prune_state, prune_condition)?;
+                        // Record in prune state that we are returning from a child node
+                        prune_state.up();
+                    }
+                }
+            }
+            near_store::RawTrieNode::Extension(_, child) => {
+                // Record in prune state that we are visiting a child node
+                prune_state.down();
+                // Visit a child node
+                Self::check_trie(store, &child, prune_state, prune_condition)?;
+                // Record in prune state that we are returning from a child node
+                prune_state.up();
+            }
+        }
+        Ok(())
+    }
+
+    fn read_state<'a>(
+        store: &'a Store,
+        trie_key: &'a [u8],
+    ) -> std::io::Result<Option<near_store::db::DBSlice<'a>>> {
+        // As cold db strips shard_uid at the beginning of State key, we can add any 8 u8s as prefix.
+        let cold_state_key = [&[1; 8], trie_key.as_ref()].concat();
+        store.get(DBCol::State, &cold_state_key)
     }
 }

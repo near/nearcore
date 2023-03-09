@@ -3,8 +3,8 @@ use std::collections::{HashMap, HashSet};
 use std::io;
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use chrono::Utc;
 use near_cache::CellLruCache;
-use near_primitives::time::Utc;
 
 use near_chain_primitives::error::Error;
 use near_primitives::block::Tip;
@@ -47,7 +47,7 @@ use crate::chunks_store::ReadOnlyChunksStore;
 use crate::types::{Block, BlockHeader, LatestKnown};
 use crate::{byzantine_assert, RuntimeWithEpochManagerAdapter};
 use near_store::db::StoreStatistics;
-use near_store::flat_state::{BlockInfo, ChainAccessForFlatStorage};
+use near_store::flat::{BlockInfo, ChainAccessForFlatStorage};
 use std::sync::Arc;
 
 /// lru cache size
@@ -2394,7 +2394,7 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::BlockMisc
             | DBCol::_GCCount
             | DBCol::BlockHeight  // block sync needs it + genesis should be accessible
-            | DBCol::Peers
+            | DBCol::_Peers
             | DBCol::RecentOutboundConnections
             | DBCol::BlockMerkleTree
             | DBCol::AccountAnnouncements

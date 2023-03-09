@@ -994,8 +994,8 @@ impl<T: ChainAccess> TxMirror<T> {
                                 )
                             })?
                         {
-                            let public_key =
-                                crate::key_mapping::implicit_account_key(&target_account);
+                            let public_key = PublicKey::from_implicit_account(&target_account)
+                                .expect("must be implicit");
                             nonce_updates.insert((target_account, public_key));
                         }
                     }

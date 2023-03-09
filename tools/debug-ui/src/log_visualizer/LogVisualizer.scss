@@ -1,0 +1,162 @@
+.log-visualizer {
+    padding: 10px;
+
+    .visualizer-content {
+        position: relative;
+        background-color: white;
+
+        .timestamp-header {
+            position: absolute;
+            text-align: left;
+            border-top: 1px solid lightgray;
+            color: gray;
+            font-size: 20px;
+            height: 20px;
+        }
+
+        .column-header {
+            position: absolute;
+            text-align: center;
+        }
+
+        .column-background {
+            position: absolute;
+            border-left: 1px solid lightgray;
+        }
+
+        .event {
+            position: absolute;
+            border: 1px solid gray;
+            box-sizing: border-box;
+            display: flex;
+            align-items: center;
+            box-shadow: 0 0 2px 0 rgba(0, 0, 0, 0.5);
+            background-color: #eee;
+            padding: 4px;
+            z-index: 10;
+
+            &.selected {
+                border: 1px solid green;
+                box-shadow: 0 0 2px 0 rgba(0, 255, 0, 0.5);
+                background-color: #cfc;
+            }
+
+            .content {
+                overflow: hidden;
+
+                .title {
+                    font-size: 10px;
+                    color: gray;
+                }
+
+                .subtitle {
+                    font-size: 12px;
+                    text-overflow: ellipsis;
+                    overflow: hidden;
+                }
+            }
+        }
+
+        .attached-event {
+            position: absolute;
+            margin-top: -9px;
+            margin-left: -7px;
+            width: 14px;
+            height: 14px;
+            border: 1px solid gray;
+            background-color: white;
+            box-shadow: 0 0 2px 0 rgba(0, 0, 0, 0.3);
+            transform: rotate(45deg);
+            z-index: 9;
+
+            &.selected {
+                border: 1px solid green;
+                box-shadow: 0 0 2px 0 rgba(0, 255, 0, 0.5);
+                background-color: #cfc;
+            }
+        }
+
+        .line {
+            position: absolute;
+            box-sizing: content-box;
+            margin-left: -0.5px;
+            margin-top: -0.5px;
+            padding: 0.5px;
+            background-color: gray;
+            z-index: 1;
+
+            &.selected {
+                --selection-color: green;
+            }
+            &.child-selected {
+                --selection-color: blue;
+            }
+
+            &.selected,
+            &.child-selected {
+                margin-left: -1px;
+                margin-top: -1px;
+                padding: 1px;
+                background-color: var(--selection-color);
+                z-index: 2;
+            }
+
+            &.arrow {
+                &:after {
+                    content: '';
+                    position: absolute;
+                    top: -1.5px;
+                    right: 0;
+                    display: inline-block !important;
+                    width: 0;
+                    height: 0;
+                    border-left: 4px solid gray;
+                    border-top: 2px solid transparent;
+                    border-bottom: 2px solid transparent;
+                    vertical-align: middle;
+                }
+
+                &.selected,
+                &.child-selected {
+                    &:after {
+                        border-left: 6px solid var(--selection-color);
+                        border-top: 3px solid white;
+                        border-bottom: 3px solid white;
+                        top: -2px;
+                    }
+                }
+            }
+        }
+    }
+
+    .log-view {
+        position: fixed;
+        right: 0;
+        top: 0;
+        bottom: 0;
+        width: 800px;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        z-index: 20;
+
+        > * {
+            flex: 1;
+            font-size: 12px;
+        }
+    }
+
+    .log-view-header {
+        padding: 8px;
+        padding-left: 16px;
+        background-color: black;
+        color: white;
+        border-bottom: 1px solid rgb(137, 137, 137);
+        font-weight: bold;
+    }
+}
+
+:root {
+    --pf-global--FontSize--sm: 12px;
+}

@@ -38,7 +38,7 @@ fn setup_runtime(
         near_store::NodeStorage::opener(home_dir, config.config.archive, &config.config.store, None)
             .open()
             .unwrap()
-            .get_store(near_store::Temperature::Hot)
+            .get_hot_store()
     };
 
     Arc::new(NightshadeRuntime::from_config(home_dir, store, config))

@@ -288,14 +288,21 @@ message SyncAccountsData {
 
 // Request to send a list of known healthy peers
 // (i.e. considered honest and available by the receiver).
-// Currently this list might include both
-// - peers directly connected to the receiver
-// - peers that the receiver transitively learned about from other peers.
-message PeersRequest {}
+// max_peers limits the number of peers to send back.
+// max_direct_peers limits the number of direct peers to send back.
+// See PeersResponse below for the response.
+message PeersRequest {
+  optional uint32 max_peers = 1;
+  optional uint32 max_direct_peers = 2;
+}
 
-// Response to PeersRequest.
+// Response to PeersRequest
 message PeersResponse {
+  // Peers drawn from the PeerStore of the responding node,
+  // which includes peers learned transitively from other peers
   repeated PeerInfo peers = 1;
+  // Peers directly connected to the responding node
+  repeated PeerInfo direct_peers = 2;
 }
 
 // Request to send back headers of the NEAR chain blocks.

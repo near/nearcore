@@ -1,6 +1,6 @@
 use anyhow::{anyhow, bail, Context};
+use near_primitives::static_clock::StaticClock;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::time::Clock;
 use num_rational::Rational32;
 use std::fs;
 use std::fs::File;
@@ -337,7 +337,9 @@ pub struct Config {
     /// This feature is under development, do not use in production.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cold_store: Option<near_store::StoreConfig>,
-
+    /// Configuration for the
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub split_storage: Option<SplitStorageConfig>,
     // TODO(mina86): Remove those two altogether at some point.  We need to be
     // somewhat careful though and make sure that we don’t start silently
     // ignoring this option without users setting corresponding store option.
@@ -385,7 +387,51 @@ impl Default for Config {
             use_db_migration_snapshot: None,
             store: near_store::StoreConfig::default(),
             cold_store: None,
+            split_storage: None,
             expected_shutdown: None,
+        }
+    }
+}
+
+fn default_enable_split_storage_view_client() -> bool {
+    false
+}
+
+fn default_cold_store_initial_migration_batch_size() -> usize {
+    500_000_000
+}
+
+fn default_cold_store_initial_migration_loop_sleep_duration() -> Duration {
+    Duration::from_secs(30)
+}
+
+fn default_cold_store_loop_sleep_duration() -> Duration {
+    Duration::from_secs(1)
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct SplitStorageConfig {
+    #[serde(default = "default_enable_split_storage_view_client")]
+    pub enable_split_storage_view_client: bool,
+
+    #[serde(default = "default_cold_store_initial_migration_batch_size")]
+    pub cold_store_initial_migration_batch_size: usize,
+    #[serde(default = "default_cold_store_initial_migration_loop_sleep_duration")]
+    pub cold_store_initial_migration_loop_sleep_duration: Duration,
+
+    #[serde(default = "default_cold_store_loop_sleep_duration")]
+    pub cold_store_loop_sleep_duration: Duration,
+}
+
+impl Default for SplitStorageConfig {
+    fn default() -> Self {
+        SplitStorageConfig {
+            enable_split_storage_view_client: default_enable_split_storage_view_client(),
+            cold_store_initial_migration_batch_size:
+                default_cold_store_initial_migration_batch_size(),
+            cold_store_initial_migration_loop_sleep_duration:
+                default_cold_store_initial_migration_loop_sleep_duration(),
+            cold_store_loop_sleep_duration: default_cold_store_loop_sleep_duration(),
         }
     }
 }
@@ -510,7 +556,7 @@ impl Genesis {
         add_protocol_account(&mut records);
         let config = GenesisConfig {
             protocol_version: PROTOCOL_VERSION,
-            genesis_time: Clock::utc(),
+            genesis_time: StaticClock::utc(),
             chain_id: random_chain_id(),
             num_block_producer_seats: num_validator_seats,
             num_block_producer_seats_per_shard: num_validator_seats_per_shard.clone(),
@@ -1078,7 +1124,7 @@ pub fn init_configs(
 
             let genesis_config = GenesisConfig {
                 protocol_version: PROTOCOL_VERSION,
-                genesis_time: Clock::utc(),
+                genesis_time: StaticClock::utc(),
                 chain_id,
                 genesis_height: 0,
                 num_block_producer_seats: NUM_BLOCK_PRODUCER_SEATS,

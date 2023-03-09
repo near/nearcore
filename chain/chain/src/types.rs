@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
+use chrono::Utc;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
-use near_primitives::time::Utc;
 use num_rational::Rational32;
 
 use crate::metrics;
@@ -31,8 +31,7 @@ use near_primitives::version::{
     MIN_PROTOCOL_VERSION_NEP_92_FIX,
 };
 use near_primitives::views::{QueryRequest, QueryResponse};
-use near_store::flat_state::ChainAccessForFlatStorage;
-use near_store::flat_state::{FlatStorageCreationStatus, FlatStorageState};
+use near_store::flat::{ChainAccessForFlatStorage, FlatStorage, FlatStorageCreationStatus};
 use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTrieChanges};
 
 pub use near_epoch_manager::EpochManagerAdapter;
@@ -298,7 +297,7 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: StateRoot,
     ) -> Result<Trie, Error>;
 
-    fn get_flat_storage_state_for_shard(&self, shard_id: ShardId) -> Option<FlatStorageState>;
+    fn get_flat_storage_for_shard(&self, shard_id: ShardId) -> Option<FlatStorage>;
 
     /// Gets status of flat storage state background creation.
     fn get_flat_storage_creation_status(&self, shard_id: ShardId) -> FlatStorageCreationStatus;
@@ -306,22 +305,22 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Creates flat storage state for given shard, assuming that all flat storage data
     /// is already stored in DB.
     /// TODO (#7327): consider returning flat storage creation errors here
-    fn create_flat_storage_state_for_shard(
+    fn create_flat_storage_for_shard(
         &self,
-        shard_id: ShardId,
+        shard_uid: ShardUId,
         latest_block_height: BlockHeight,
         chain_access: &dyn ChainAccessForFlatStorage,
     );
 
     /// Removes flat storage state for shard, if it exists.
     /// Used to clear old flat storage data from disk and memory before syncing to newer state.
-    fn remove_flat_storage_state_for_shard(
+    fn remove_flat_storage_for_shard(
         &self,
         shard_id: ShardId,
         epoch_id: &EpochId,
     ) -> Result<(), Error>;
 
-    fn set_flat_storage_state_for_genesis(
+    fn set_flat_storage_for_genesis(
         &self,
         genesis_block: &CryptoHash,
         genesis_epoch_id: &EpochId,
@@ -593,8 +592,8 @@ pub struct LatestKnown {
 
 #[cfg(test)]
 mod tests {
+    use chrono::Utc;
     use near_primitives::test_utils::{create_test_signer, TestBlockBuilder};
-    use near_primitives::time::Utc;
 
     use near_primitives::block::{genesis_chunks, Approval};
     use near_primitives::hash::hash;

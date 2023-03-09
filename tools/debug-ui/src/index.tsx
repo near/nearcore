@@ -1,10 +1,11 @@
 import * as React from 'react';
 import * as ReactDOM from 'react-dom/client';
 import './index.css';
-import { Navigate, RouterProvider, createBrowserRouter } from 'react-router-dom';
+import '@patternfly/react-core/dist/styles/base.css';
+import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from 'react-query';
 import { App } from './App';
-import 'react-tooltip/dist/react-tooltip.css';
+import { LogVisualizer } from './log_visualizer/LogVisualizer';
 
 const root = ReactDOM.createRoot(document.getElementById('root') as HTMLElement);
 
@@ -16,6 +17,10 @@ const router = createBrowserRouter([
         // itself.
         path: '/',
         element: <Navigate to={'/' + window.location.host} />,
+    },
+    {
+        path: '/logviz',
+        element: <LogVisualizer />,
     },
     {
         path: '/:addr/*',

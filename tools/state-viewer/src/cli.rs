@@ -66,8 +66,6 @@ pub enum StateViewerSubCommand {
     /// Looks up a certain partial chunk.
     #[clap(alias = "partial_chunks")]
     PartialChunks(PartialChunksCmd),
-    /// Prints stored peers information from the DB.
-    Peers,
     /// Looks up a certain receipt.
     Receipts(ReceiptsCmd),
     /// Replay headers from chain.
@@ -108,8 +106,12 @@ impl StateViewerSubCommand {
         );
 
         let storage = store_opener.open_in_mode(mode).unwrap();
-        let store = storage.get_store(temperature);
-        let db = storage.into_inner(temperature);
+        let store = match temperature {
+            Temperature::Hot => storage.get_hot_store(),
+            // Cold store on it's own is useless in majority of subcommands
+            Temperature::Cold => storage.get_split_store().unwrap(),
+        };
+
         match self {
             StateViewerSubCommand::Apply(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ApplyChunk(cmd) => cmd.run(home_dir, near_config, store),
@@ -129,7 +131,6 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::DumpTx(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::EpochInfo(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::PartialChunks(cmd) => cmd.run(near_config, store),
-            StateViewerSubCommand::Peers => peers(db),
             StateViewerSubCommand::Receipts(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::Replay(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::RocksDBStats(cmd) => cmd.run(store_opener.path()),
