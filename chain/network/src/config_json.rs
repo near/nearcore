@@ -200,7 +200,7 @@ fn default_tier1_enable_inbound() -> bool {
 /// This default will be changed over the next releases.
 /// It allows us to gradually roll out the TIER1 feature.
 fn default_tier1_enable_outbound() -> bool {
-    false
+    true
 }
 
 fn default_tier1_connect_interval() -> Duration {
