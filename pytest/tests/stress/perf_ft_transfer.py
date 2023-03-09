@@ -18,10 +18,6 @@ env NEAR_ROOT=../target/release/ \
 ```
 """
 
-# TODO: add code for to randomly select account pairs and send FT between them
-# TODO: add code to set up a network of nodes on GCP (see `GcpNode`)
-# TODO: see also pytest/tests/loadtest/loadtest.py
-
 import argparse
 import sys
 import os
