@@ -8,7 +8,8 @@ use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::types::AccountId;
 use near_primitives_core::types::{BlockHeight, NumShards};
 use near_store::flat::{
-    store_helper, FetchingStateStatus, FlatStorageCreationStatus, NUM_PARTS_IN_ONE_STEP,
+    store_helper, FetchingStateStatus, FlatStorageCreationStatus, FlatStorageStatus,
+    NUM_PARTS_IN_ONE_STEP,
 };
 use near_store::test_utils::create_test_store;
 use near_store::{Store, TrieTraversalItem};
@@ -44,30 +45,41 @@ fn wait_for_flat_storage_creation(
 ) -> BlockHeight {
     let store = env.clients[0].runtime_adapter.store().clone();
     let mut next_height = start_height;
-    let mut prev_status = store_helper::get_flat_storage_creation_status(&store, 0);
+    let mut prev_status = store_helper::get_flat_storage_status(&store, 0);
     while next_height < start_height + CREATION_TIMEOUT {
         if produce_blocks {
             env.produce_block(0, next_height);
         }
         env.clients[0].run_flat_storage_creation_step().unwrap();
 
-        let status = store_helper::get_flat_storage_creation_status(&store, 0);
+        let status = store_helper::get_flat_storage_status(&store, 0);
         // Check validity of state transition for flat storage creation.
         match &prev_status {
-            FlatStorageCreationStatus::SavingDeltas => assert_matches!(
+            FlatStorageStatus::Empty => assert_matches!(
                 status,
-                FlatStorageCreationStatus::SavingDeltas
-                    | FlatStorageCreationStatus::FetchingState(_)
+                FlatStorageStatus::Creation(FlatStorageCreationStatus::SavingDeltas)
             ),
-            FlatStorageCreationStatus::FetchingState(_) => assert_matches!(
-                status,
-                FlatStorageCreationStatus::FetchingState(_)
-                    | FlatStorageCreationStatus::CatchingUp(_)
-            ),
-            FlatStorageCreationStatus::CatchingUp(_) => assert_matches!(
-                status,
-                FlatStorageCreationStatus::CatchingUp(_) | FlatStorageCreationStatus::Ready
-            ),
+            FlatStorageStatus::Creation(FlatStorageCreationStatus::SavingDeltas) => {
+                assert_matches!(
+                    status,
+                    FlatStorageStatus::Creation(FlatStorageCreationStatus::SavingDeltas)
+                        | FlatStorageStatus::Creation(FlatStorageCreationStatus::FetchingState(_))
+                )
+            }
+            FlatStorageStatus::Creation(FlatStorageCreationStatus::FetchingState(_)) => {
+                assert_matches!(
+                    status,
+                    FlatStorageStatus::Creation(FlatStorageCreationStatus::FetchingState(_))
+                        | FlatStorageStatus::Creation(FlatStorageCreationStatus::CatchingUp(_))
+                )
+            }
+            FlatStorageStatus::Creation(FlatStorageCreationStatus::CatchingUp(_)) => {
+                assert_matches!(
+                    status,
+                    FlatStorageStatus::Creation(FlatStorageCreationStatus::CatchingUp(_))
+                        | FlatStorageStatus::Ready(_)
+                )
+            }
             _ => {
                 panic!("Invalid status {prev_status:?} observed during flat storage creation for height {next_height}");
             }
@@ -76,16 +88,16 @@ fn wait_for_flat_storage_creation(
 
         prev_status = status;
         next_height += 1;
-        if prev_status == FlatStorageCreationStatus::Ready {
+        if matches!(prev_status, FlatStorageStatus::Ready(_)) {
             break;
         }
 
         thread::sleep(Duration::from_secs(1));
     }
-    let status = store_helper::get_flat_storage_creation_status(&store, 0);
-    assert_eq!(
+    let status = store_helper::get_flat_storage_status(&store, 0);
+    assert_matches!(
         status,
-        FlatStorageCreationStatus::Ready,
+        FlatStorageStatus::Ready(_),
         "Client couldn't create flat storage until block {next_height}, status: {status:?}"
     );
     assert!(env.clients[0].runtime_adapter.get_flat_storage_for_shard(0).is_some());

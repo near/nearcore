@@ -3,11 +3,17 @@ use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::BlockHeight;
 
-#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
 pub struct BlockInfo {
     pub hash: CryptoHash,
     pub height: BlockHeight,
     pub prev_hash: CryptoHash,
+}
+
+impl BlockInfo {
+    pub fn genesis(hash: CryptoHash) -> BlockInfo {
+        BlockInfo { hash, height: 0, prev_hash: CryptoHash::default() }
+    }
 }
 
 #[derive(strum::AsRefStr, Debug, PartialEq, Eq)]
@@ -32,11 +38,43 @@ impl From<FlatStorageError> for StorageError {
     }
 }
 
+#[derive(BorshSerialize, BorshDeserialize, Debug)]
+pub enum FlatStorageStatus {
+    /// 'protocol_feature_flat_state' is disabled
+    Disabled,
+    Empty,
+    Creation(FlatStorageCreationStatus),
+    Ready(FlatStorageReadyStatus),
+}
+
+impl Into<i64> for &FlatStorageStatus {
+    /// Converts status to integer to export to prometheus later.
+    /// Cast inside enum does not work because it is not fieldless.
+    fn into(self) -> i64 {
+        match self {
+            FlatStorageStatus::Disabled => 0,
+            FlatStorageStatus::Empty => 1,
+            FlatStorageStatus::Ready(_) => 2,
+            // 10..20 is reserved for creation statuses
+            FlatStorageStatus::Creation(creation_status) => match creation_status {
+                FlatStorageCreationStatus::SavingDeltas => 10,
+                FlatStorageCreationStatus::FetchingState(_) => 11,
+                FlatStorageCreationStatus::CatchingUp(_) => 12,
+            },
+        }
+    }
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Debug)]
+pub struct FlatStorageReadyStatus {
+    pub flat_head: BlockInfo,
+}
+
 /// If a node has flat storage enabled but it didn't have flat storage data on disk, its creation should be initiated.
 /// Because this is a heavy work requiring ~5h for testnet rpc node and ~10h for testnet archival node, we do it on
 /// background during regular block processing.
 /// This struct reveals what is the current status of creating flat storage data on disk.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Copy, Clone, Debug, PartialEq, Eq)]
 pub enum FlatStorageCreationStatus {
     /// Flat storage state does not exist. We are saving `FlatStorageDelta`s to disk.
     /// During this step, we save current chain head, start saving all deltas for blocks after chain head and wait until
@@ -54,10 +92,6 @@ pub enum FlatStorageCreationStatus {
     /// We apply deltas from disk until the head reaches final head.
     /// Includes block hash of flat storage head.
     CatchingUp(CryptoHash),
-    /// Flat storage is ready to use.
-    Ready,
-    /// Flat storage cannot be created.
-    DontCreate,
 }
 
 impl Into<i64> for &FlatStorageCreationStatus {
@@ -68,8 +102,6 @@ impl Into<i64> for &FlatStorageCreationStatus {
             FlatStorageCreationStatus::SavingDeltas => 0,
             FlatStorageCreationStatus::FetchingState(_) => 1,
             FlatStorageCreationStatus::CatchingUp(_) => 2,
-            FlatStorageCreationStatus::Ready => 3,
-            FlatStorageCreationStatus::DontCreate => 4,
         }
     }
 }
