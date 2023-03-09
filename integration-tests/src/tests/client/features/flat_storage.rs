@@ -134,7 +134,7 @@ fn test_flat_storage_upgrade() {
         let cost = profile_data.get_ext_cost(ExtCosts::touching_trie_node);
         assert_eq!(cost, touching_trie_node_cost * 4);
     } else {
-        panic!("Too old version of metadata: {metadata}");
+        panic!("Too old version of metadata: {metadata:?}");
     }
 
     let read_value_action = vec![Action::FunctionCall(FunctionCallAction {
@@ -162,6 +162,6 @@ fn test_flat_storage_upgrade() {
         let cost = profile_data.get_ext_cost(ExtCosts::touching_trie_node);
         assert_eq!(cost, 0);
     } else {
-        panic!("Too old version of metadata: {metadata}");
+        panic!("Too old version of metadata: {metadata:?}");
     }
 }
