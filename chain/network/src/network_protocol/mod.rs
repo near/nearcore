@@ -324,6 +324,15 @@ pub struct SyncAccountsData {
     pub incremental: bool,
 }
 
+/// Message sent to request a PeersResponse
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct PeersRequest {
+    /// Limits the number of peers to send back
+    pub max_peers: Option<u32>,
+    /// Limits the number of direct peers to send back
+    pub max_direct_peers: Option<u32>,
+}
+
 /// Message sent as a response to PeersRequest
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct PeersResponse {
@@ -356,7 +365,7 @@ pub enum PeerMessage {
 
     SyncAccountsData(SyncAccountsData),
 
-    PeersRequest,
+    PeersRequest(PeersRequest),
     PeersResponse(PeersResponse),
 
     BlockHeadersRequest(Vec<CryptoHash>),
