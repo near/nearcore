@@ -7,8 +7,11 @@ use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::test_utils::encode;
-use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
+use near_primitives::transaction::{
+    Action, ExecutionStatus, FunctionCallAction, SignedTransaction,
+};
 use near_primitives::version::ProtocolFeature;
+use near_primitives::views::FinalExecutionStatus;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{BlockHeightDelta, ProtocolVersion};
 use near_store::test_utils::create_test_store;
@@ -92,4 +95,13 @@ fn test_flat_storage_upgrade() {
     );
     let final_result = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
     assert_matches!(final_result.status, FinalExecutionStatus::SuccessValue(_));
+    let transaction_outcome = env.clients[0].chain.get_execution_outcome(&tx_hash).unwrap();
+    let receipt_ids = transaction_outcome.outcome_with_id.outcome.receipt_ids;
+    assert_eq!(receipt_ids.len(), 1);
+    let receipt_execution_outcome =
+        env.clients[0].chain.get_execution_outcome(&receipt_ids[0]).unwrap();
+    assert_eq!(
+        receipt_execution_outcome.outcome_with_id.outcome.status,
+        ExecutionStatus::SuccessValue(encode(&[10u64]))
+    );
 }
