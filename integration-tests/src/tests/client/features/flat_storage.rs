@@ -55,7 +55,7 @@ fn process_transaction(
 #[test]
 fn test_flat_storage_upgrade() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    let epoch_length = 10;
+    let epoch_length = 12;
     let old_protocol_version = ProtocolFeature::FlatStorageReads.protocol_version() - 1;
     // let new_protocol_version = old_protocol_version + 1;
     genesis.config.epoch_length = epoch_length;
@@ -75,7 +75,7 @@ fn test_flat_storage_upgrade() {
         &mut env,
         "test0".parse().unwrap(),
         near_test_contracts::base_rs_contract(),
-        epoch_length / 2,
+        epoch_length / 3,
         1,
     );
 
@@ -90,9 +90,34 @@ fn test_flat_storage_upgrade() {
     let tx_hash = process_transaction(
         &mut env,
         &signer,
-        epoch_length / 2,
+        epoch_length / 3,
         old_protocol_version,
         write_value_action,
+    );
+    let final_result = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
+    assert_matches!(final_result.status, FinalExecutionStatus::SuccessValue(_));
+    let transaction_outcome = env.clients[0].chain.get_execution_outcome(&tx_hash).unwrap();
+    let receipt_ids = transaction_outcome.outcome_with_id.outcome.receipt_ids;
+    assert_eq!(receipt_ids.len(), 1);
+    let receipt_execution_outcome =
+        env.clients[0].chain.get_execution_outcome(&receipt_ids[0]).unwrap();
+    assert_matches!(
+        receipt_execution_outcome.outcome_with_id.outcome.status,
+        ExecutionStatus::SuccessValue(_)
+    );
+
+    let read_value_action = vec![Action::FunctionCall(FunctionCallAction {
+        args: encode(&[1u64]),
+        method_name: "read_value".to_string(),
+        gas,
+        deposit: 0,
+    })];
+    let tx_hash = process_transaction(
+        &mut env,
+        &signer,
+        epoch_length / 3,
+        old_protocol_version,
+        read_value_action,
     );
     let final_result = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
     assert_matches!(final_result.status, FinalExecutionStatus::SuccessValue(_));
