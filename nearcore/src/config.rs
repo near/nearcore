@@ -704,7 +704,7 @@ impl NearConfig {
                 state_sync_dump_enabled: config
                     .state_sync
                     .as_ref()
-                    .map_or(false, |x| x.dump_enabled),
+                    .map_or(false, |x| x.dump_enabled.unwrap_or(false)),
                 state_sync_s3_bucket: config
                     .state_sync
                     .as_ref()
@@ -716,7 +716,7 @@ impl NearConfig {
                 state_sync_restart_dump_for_shards: config
                     .state_sync
                     .as_ref()
-                    .map_or(vec![], |x| x.drop_state_of_dump.clone()),
+                    .map_or(vec![], |x| x.drop_state_of_dump.clone().unwrap_or(vec![])),
             },
             network_config: NetworkConfig::new(
                 config.network,
@@ -1545,8 +1545,10 @@ pub fn load_test_config(seed: &str, addr: tcp::ListenerAddr, genesis: Genesis) -
 pub struct StateSyncConfig {
     pub s3_bucket: String,
     pub s3_region: String,
-    pub dump_enabled: bool,
-    pub drop_state_of_dump: Vec<ShardId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dump_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub drop_state_of_dump: Option<Vec<ShardId>>,
 }
 
 #[test]
