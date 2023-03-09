@@ -257,12 +257,6 @@ impl PeerActor {
                         ));
                     }
                 },
-                handshake_spec: HandshakeSpec {
-                    partial_edge_info: network_state.propose_edge(&clock, peer_id, None),
-                    protocol_version: PROTOCOL_VERSION,
-                    tier: *tier,
-                    peer_id: peer_id.clone(),
-                },
             },
         };
         // Override force_encoding for outbound Tier1 connections,
