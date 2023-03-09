@@ -284,6 +284,43 @@ impl<'a> StoreOpener<'a> {
         Ok(storage)
     }
 
+    pub fn create_snapshots(&self, mode: Mode) -> Result<(Snapshot, Snapshot), StoreOpenerError> {
+        {
+            let hot_path = self.hot.path.display().to_string();
+            let cold_path = match &self.cold {
+                Some(cold) => cold.path.display().to_string(),
+                None => String::from("none"),
+            };
+            tracing::info!(target: "db_opener", path=hot_path, cold_path=cold_path, "Creating NodeStorage snapshots");
+        }
+
+        let hot_snapshot = {
+            Self::ensure_created(mode, &self.hot)?;
+            Self::ensure_kind(mode, &self.hot, self.archive, Temperature::Hot)?;
+            let snapshot = Self::ensure_version(mode, &self.hot, &self.migrator)?;
+            if snapshot.0.is_none() {
+                self.hot.snapshot()?
+            } else {
+                snapshot
+            }
+        };
+
+        let cold_snapshot = if let Some(cold) = &self.cold {
+            Self::ensure_created(mode, cold)?;
+            Self::ensure_kind(mode, cold, self.archive, Temperature::Cold)?;
+            let snapshot = Self::ensure_version(mode, cold, &self.migrator)?;
+            if snapshot.0.is_none() {
+                cold.snapshot()?
+            } else {
+                snapshot
+            }
+        } else {
+            Snapshot::none()
+        };
+
+        Ok((hot_snapshot, cold_snapshot))
+    }
+
     // Creates the DB if it doesn't exist.
     fn ensure_created(mode: Mode, opener: &DBOpener) -> Result<(), StoreOpenerError> {
         let meta = opener.get_metadata()?;

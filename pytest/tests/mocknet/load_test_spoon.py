@@ -59,8 +59,6 @@ import pathlib
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
-from helpers import load_test_spoon_helper
-from helpers import load_testing_add_and_delete_helper
 import mocknet
 import data
 
@@ -126,7 +124,8 @@ if __name__ == '__main__':
     parser.add_argument('--skip-setup', default=False, action='store_true')
     parser.add_argument('--skip-restart', default=False, action='store_true')
     parser.add_argument('--no-sharding', default=False, action='store_true')
-    parser.add_argument('--script', required=True)
+    # The flag is no longer needed but is kept for backwards-compatibility.
+    parser.add_argument('--script', required=False)
     parser.add_argument('--num-seats', type=int, required=True)
 
     args = parser.parse_args()
@@ -142,7 +141,9 @@ if __name__ == '__main__':
 
     all_nodes = mocknet.get_nodes(pattern=pattern)
     random.shuffle(all_nodes)
-    assert len(all_nodes) > num_nodes, 'Need at least one RPC node'
+    assert len(
+        all_nodes
+    ) > num_nodes, f'Need at least one RPC node, all nodes {len(all_nodes)}, num nodes {num_nodes}'
     validator_nodes = all_nodes[:num_nodes]
     logger.info(f'validator_nodes: {validator_nodes}')
     rpc_nodes = all_nodes[num_nodes:]
@@ -159,8 +160,10 @@ if __name__ == '__main__':
 
     if not args.skip_setup:
         logger.info('Setting remote python environments')
-        mocknet.setup_python_environments(all_nodes,
-                                          'add_and_delete_state.wasm')
+        mocknet.setup_python_environments(
+            all_nodes,
+            'add_and_delete_state.wasm',
+        )
         logger.info('Setting remote python environments -- done')
 
     if not args.skip_restart:
@@ -196,17 +199,12 @@ if __name__ == '__main__':
     logger.info(f'initial_validator_accounts: {initial_validator_accounts}')
     test_passed = True
 
-    script, deploy_time, test_timeout = (None, None, None)
-    if args.script == 'skyward':
-        script = 'load_testing_add_and_delete_helper.py'
-        deploy_time = load_testing_add_and_delete_helper.CONTRACT_DEPLOY_TIME
-        test_timeout = load_testing_add_and_delete_helper.TEST_TIMEOUT
-    elif args.script == 'add_and_delete':
-        script = 'load_test_spoon_helper.py'
-        deploy_time = load_test_spoon_helper.CONTRACT_DEPLOY_TIME
-        test_timeout = load_test_spoon_helper.TEST_TIMEOUT
-    else:
-        assert False, f'Unsupported --script={args.script}'
+    script = 'load_test_spoon_helper.py'
+    # TODO: Get these constants from load_test_spoon_helper:
+    # deploy_time = load_test_spoon_helper.CONTRACT_DEPLOY_TIME
+    # test_timeout = load_test_spoon_helper.TEST_TIMEOUT
+    deploy_time = 10 * mocknet.NUM_ACCOUNTS
+    test_timeout = 12 * 60 * 60
 
     if not args.skip_load:
         logger.info('Starting transaction spamming scripts.')

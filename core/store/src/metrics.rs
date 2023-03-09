@@ -241,14 +241,6 @@ pub static FLAT_STORAGE_HEAD_HEIGHT: Lazy<IntGaugeVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static FLAT_STORAGE_CACHED_BLOCKS: Lazy<IntGaugeVec> = Lazy::new(|| {
-    try_create_int_gauge_vec(
-        "flat_storage_cached_blocks",
-        "Number of cached blocks in flat storage",
-        &["shard_id"],
-    )
-    .unwrap()
-});
 pub static FLAT_STORAGE_CACHED_DELTAS: Lazy<IntGaugeVec> = Lazy::new(|| {
     try_create_int_gauge_vec(
         "flat_storage_cached_deltas",
@@ -257,18 +249,18 @@ pub static FLAT_STORAGE_CACHED_DELTAS: Lazy<IntGaugeVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static FLAT_STORAGE_CACHED_DELTAS_NUM_ITEMS: Lazy<IntGaugeVec> = Lazy::new(|| {
+pub static FLAT_STORAGE_CACHED_CHANGES_NUM_ITEMS: Lazy<IntGaugeVec> = Lazy::new(|| {
     try_create_int_gauge_vec(
-        "flat_storage_cached_deltas_num_items",
-        "Number of items in all cached deltas in flat storage",
+        "flat_storage_cached_changes_num_items",
+        "Number of items in all cached changes in flat storage",
         &["shard_id"],
     )
     .unwrap()
 });
-pub static FLAT_STORAGE_CACHED_DELTAS_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
+pub static FLAT_STORAGE_CACHED_CHANGES_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
     try_create_int_gauge_vec(
-        "flat_storage_cached_deltas_size",
-        "Total size of cached deltas in flat storage",
+        "flat_storage_cached_changes_size",
+        "Total size of cached changes in flat storage",
         &["shard_id"],
     )
     .unwrap()

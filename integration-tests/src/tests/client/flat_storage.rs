@@ -5,16 +5,12 @@ use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
-#[cfg(feature = "protocol_feature_flat_state")]
-use near_primitives::trie_key::TrieKey;
 use near_primitives::types::AccountId;
 use near_primitives_core::types::{BlockHeight, NumShards};
-use near_store::flat_state::{
+use near_store::flat::{
     store_helper, FetchingStateStatus, FlatStorageCreationStatus, NUM_PARTS_IN_ONE_STEP,
 };
 use near_store::test_utils::create_test_store;
-#[cfg(feature = "protocol_feature_flat_state")]
-use near_store::DBCol;
 use near_store::{Store, TrieTraversalItem};
 use nearcore::config::GenesisExt;
 use std::path::Path;
@@ -92,7 +88,7 @@ fn wait_for_flat_storage_creation(
         FlatStorageCreationStatus::Ready,
         "Client couldn't create flat storage until block {next_height}, status: {status:?}"
     );
-    assert!(env.clients[0].runtime_adapter.get_flat_storage_state_for_shard(0).is_some());
+    assert!(env.clients[0].runtime_adapter.get_flat_storage_for_shard(0).is_some());
     next_height
 }
 
@@ -124,13 +120,16 @@ fn test_flat_storage_creation() {
             // Deltas for blocks until `START_HEIGHT - 2` should not exist.
             for height in 0..START_HEIGHT - 2 {
                 let block_hash = env.clients[0].chain.get_block_hash_by_height(height).unwrap();
-                assert_eq!(store_helper::get_delta(&store, 0, block_hash), Ok(None));
+                assert_eq!(store_helper::get_delta_changes(&store, 0, block_hash), Ok(None));
             }
             // Deltas for blocks until `START_HEIGHT` should still exist,
             // because they come after flat storage head.
             for height in START_HEIGHT - 2..START_HEIGHT {
                 let block_hash = env.clients[0].chain.get_block_hash_by_height(height).unwrap();
-                assert_matches!(store_helper::get_delta(&store, 0, block_hash), Ok(Some(_)));
+                assert_matches!(
+                    store_helper::get_delta_changes(&store, 0, block_hash),
+                    Ok(Some(_))
+                );
             }
         } else {
             assert_eq!(
@@ -142,11 +141,7 @@ fn test_flat_storage_creation() {
 
         let block_hash = env.clients[0].chain.get_block_hash_by_height(START_HEIGHT - 1).unwrap();
         let epoch_id = env.clients[0].chain.runtime_adapter.get_epoch_id(&block_hash).unwrap();
-        env.clients[0]
-            .chain
-            .runtime_adapter
-            .remove_flat_storage_state_for_shard(0, &epoch_id)
-            .unwrap();
+        env.clients[0].chain.runtime_adapter.remove_flat_storage_for_shard(0, &epoch_id).unwrap();
     }
 
     // Create new chain and runtime using the same store. It should produce next blocks normally, but now it should
@@ -155,7 +150,7 @@ fn test_flat_storage_creation() {
     for height in START_HEIGHT..START_HEIGHT + 2 {
         env.produce_block(0, height);
     }
-    assert!(env.clients[0].runtime_adapter.get_flat_storage_state_for_shard(0).is_none());
+    assert!(env.clients[0].runtime_adapter.get_flat_storage_for_shard(0).is_none());
 
     if !cfg!(feature = "protocol_feature_flat_state") {
         assert_eq!(
@@ -175,7 +170,7 @@ fn test_flat_storage_creation() {
     );
     for height in START_HEIGHT..START_HEIGHT + 2 {
         let block_hash = env.clients[0].chain.get_block_hash_by_height(height).unwrap();
-        assert_matches!(store_helper::get_delta(&store, 0, block_hash), Ok(Some(_)));
+        assert_matches!(store_helper::get_delta_changes(&store, 0, block_hash), Ok(Some(_)));
     }
 
     // Produce new block and run flat storage creation step.
@@ -234,11 +229,7 @@ fn test_flat_storage_creation_two_shards() {
 
         let block_hash = env.clients[0].chain.get_block_hash_by_height(START_HEIGHT - 1).unwrap();
         let epoch_id = env.clients[0].chain.runtime_adapter.get_epoch_id(&block_hash).unwrap();
-        env.clients[0]
-            .chain
-            .runtime_adapter
-            .remove_flat_storage_state_for_shard(0, &epoch_id)
-            .unwrap();
+        env.clients[0].chain.runtime_adapter.remove_flat_storage_for_shard(0, &epoch_id).unwrap();
     }
 
     if !cfg!(feature = "protocol_feature_flat_state") {
@@ -247,12 +238,12 @@ fn test_flat_storage_creation_two_shards() {
 
     // Check that flat storage is not ready for shard 0 but ready for shard 1.
     let mut env = setup_env(&genesis, store.clone());
-    assert!(env.clients[0].runtime_adapter.get_flat_storage_state_for_shard(0).is_none());
+    assert!(env.clients[0].runtime_adapter.get_flat_storage_for_shard(0).is_none());
     assert_eq!(
         store_helper::get_flat_storage_creation_status(&store, 0),
         FlatStorageCreationStatus::SavingDeltas
     );
-    assert!(env.clients[0].runtime_adapter.get_flat_storage_state_for_shard(1).is_some());
+    assert!(env.clients[0].runtime_adapter.get_flat_storage_for_shard(1).is_some());
     assert_eq!(
         store_helper::get_flat_storage_creation_status(&store, 1),
         FlatStorageCreationStatus::Ready
@@ -272,6 +263,7 @@ fn test_flat_storage_creation_start_from_state_part() {
     let genesis = Genesis::test(accounts, 1);
     let store = create_test_store();
     let shard_layout = ShardLayout::v0_single_shard();
+    let shard_uid = shard_layout.get_shard_uids()[0];
 
     // Process some blocks with flat storage.
     // Split state into two parts and return trie keys corresponding to each part.
@@ -324,14 +316,13 @@ fn test_flat_storage_creation_start_from_state_part() {
     assert!(!trie_keys[0].is_empty());
     assert!(!trie_keys[1].is_empty());
 
-    #[cfg(feature = "protocol_feature_flat_state")]
-    {
+    if cfg!(feature = "protocol_feature_flat_state") {
         // Remove keys of part 1 from the flat state.
         // Manually set flat storage creation status to the step when it should start from fetching part 1.
         let flat_head = store_helper::get_flat_head(&store, 0).unwrap();
         let mut store_update = store.store_update();
         for key in trie_keys[1].iter() {
-            store_update.delete(DBCol::FlatState, key);
+            store_helper::set_ref(&mut store_update, shard_uid, key.clone(), None).unwrap();
         }
         store_helper::remove_flat_head(&mut store_update, 0);
         store_helper::set_flat_storage_creation_status(
@@ -348,7 +339,7 @@ fn test_flat_storage_creation_start_from_state_part() {
 
         // Re-create runtime, check that flat storage is not created yet.
         let mut env = setup_env(&genesis, store.clone());
-        assert!(env.clients[0].runtime_adapter.get_flat_storage_state_for_shard(0).is_none());
+        assert!(env.clients[0].runtime_adapter.get_flat_storage_for_shard(0).is_none());
 
         // Run chain for a couple of blocks and check that flat storage for shard 0 is eventually created.
         let next_height = wait_for_flat_storage_creation(&mut env, START_HEIGHT, true);
@@ -365,10 +356,10 @@ fn test_flat_storage_creation_start_from_state_part() {
             .runtime_adapter
             .get_trie_for_shard(0, &block_hash, state_root, true)
             .unwrap();
-        let flat_state = trie.flat_state.unwrap();
+        let chunk_view = trie.flat_storage_chunk_view.unwrap();
         for part_trie_keys in trie_keys.iter() {
             for trie_key in part_trie_keys.iter() {
-                assert_matches!(flat_state.get_ref(trie_key), Ok(Some(_)));
+                assert_matches!(chunk_view.get_ref(trie_key), Ok(Some(_)));
             }
         }
     }
@@ -392,14 +383,10 @@ fn test_cachup_succeeds_even_if_no_new_blocks() {
         // Remove flat storage.
         let block_hash = env.clients[0].chain.get_block_hash_by_height(START_HEIGHT - 1).unwrap();
         let epoch_id = env.clients[0].chain.runtime_adapter.get_epoch_id(&block_hash).unwrap();
-        env.clients[0]
-            .chain
-            .runtime_adapter
-            .remove_flat_storage_state_for_shard(0, &epoch_id)
-            .unwrap();
+        env.clients[0].chain.runtime_adapter.remove_flat_storage_for_shard(0, &epoch_id).unwrap();
     }
     let mut env = setup_env(&genesis, store.clone());
-    assert!(env.clients[0].runtime_adapter.get_flat_storage_state_for_shard(0).is_none());
+    assert!(env.clients[0].runtime_adapter.get_flat_storage_for_shard(0).is_none());
     assert_eq!(
         store_helper::get_flat_storage_creation_status(&store, 0),
         FlatStorageCreationStatus::SavingDeltas
@@ -454,8 +441,11 @@ fn test_flat_storage_iter() {
                 // Two entries - one for account, the other for contract.
                 assert_eq!(2, items.len());
                 assert_eq!(
-                    TrieKey::Account { account_id: "test0".parse().unwrap() }.to_vec().as_slice(),
-                    items.get(0).unwrap().0.as_ref()
+                    near_primitives::trie_key::TrieKey::Account {
+                        account_id: "test0".parse().unwrap()
+                    }
+                    .to_vec(),
+                    items.get(0).unwrap().0
                 );
             }
             1 => {
@@ -466,8 +456,11 @@ fn test_flat_storage_iter() {
                 assert_eq!(2, items.len());
                 // Two entries - one for 'near' system account, the other for the contract.
                 assert_eq!(
-                    TrieKey::Account { account_id: "near".parse().unwrap() }.to_vec().as_slice(),
-                    items.get(0).unwrap().0.as_ref()
+                    near_primitives::trie_key::TrieKey::Account {
+                        account_id: "near".parse().unwrap()
+                    }
+                    .to_vec(),
+                    items.get(0).unwrap().0
                 );
             }
             _ => {

@@ -5,12 +5,13 @@ use near_primitives::state_part::PartId;
 use near_primitives::types::StateRoot;
 use tracing::error;
 
+use crate::flat::FlatStateChanges;
 use crate::trie::iterator::TrieTraversalItem;
 use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::{
     ApplyStatePartResult, NodeHandle, RawTrieNodeWithSize, TrieNode, TrieNodeWithSize,
 };
-use crate::{FlatStateDelta, PartialStorage, StorageError, Trie, TrieChanges};
+use crate::{PartialStorage, StorageError, Trie, TrieChanges};
 use near_primitives::contract::ContractCode;
 use near_primitives::state::ValueRef;
 use near_primitives::state_record::is_contract_code_key;
@@ -210,7 +211,7 @@ impl Trie {
         let mut iterator = trie.iter()?;
         let trie_traversal_items = iterator.visit_nodes_interval(&path_begin, &path_end)?;
         let mut map = HashMap::new();
-        let mut flat_state_delta = FlatStateDelta::default();
+        let mut flat_state_delta = FlatStateChanges::default();
         let mut contract_codes = Vec::new();
         for TrieTraversalItem { hash, key } in trie_traversal_items {
             let value = trie.storage.retrieve_raw_bytes(&hash)?;
@@ -327,28 +328,25 @@ mod tests {
                 if let CrumbStatus::Entering = position {
                     on_enter(&hash)?;
                 }
+                let mut on_enter_value = |value: &ValueHandle| {
+                    if let ValueHandle::HashAndSize(value) = value {
+                        on_enter(&value.hash)
+                    } else {
+                        unreachable!("only possible while mutating")
+                    }
+                };
                 match &node.node {
                     TrieNode::Empty => {
                         continue;
                     }
                     TrieNode::Leaf(_, value) => {
-                        match value {
-                            ValueHandle::HashAndSize(_, hash) => {
-                                on_enter(hash)?;
-                            }
-                            ValueHandle::InMemory(_) => {
-                                unreachable!("only possible while mutating")
-                            }
-                        }
+                        on_enter_value(value)?;
                         continue;
                     }
                     TrieNode::Branch(children, value) => match position {
                         CrumbStatus::Entering => {
-                            match value {
-                                Some(ValueHandle::HashAndSize(_, hash)) => {
-                                    on_enter(hash)?;
-                                }
-                                _ => {}
+                            if let Some(ref value) = value {
+                                on_enter_value(value)?;
                             }
                             stack.push((hash, node, CrumbStatus::AtChild(0)));
                             continue;
@@ -381,15 +379,12 @@ mod tests {
                     },
                     TrieNode::Extension(_key, child) => {
                         if let CrumbStatus::Entering = position {
-                            match child.clone() {
-                                NodeHandle::InMemory(_) => {
-                                    unreachable!("only possible while mutating")
-                                }
-                                NodeHandle::Hash(h) => {
-                                    let child = self.retrieve_node(&h)?.1;
-                                    stack.push((hash, node, CrumbStatus::Exiting));
-                                    stack.push((h, child, CrumbStatus::Entering));
-                                }
+                            if let NodeHandle::Hash(h) = child.clone() {
+                                let child = self.retrieve_node(&h)?.1;
+                                stack.push((h, node, CrumbStatus::Exiting));
+                                stack.push((h, child, CrumbStatus::Entering));
+                            } else {
+                                unreachable!("only possible while mutating")
                             }
                         }
                     }
