@@ -7,7 +7,7 @@ compares the results. The expectation is that the block and chunks at each
 height will be identical even when fetched from two different nodes.
 
 The prober runs continuously for the duration specified in the command line
-arguments.
+arguments. It runs at least one block and chunk check at a random height.
 
 The intended goal of this prober is ensure that a legacy archival node and a
 split storage archival node contain the same data.
@@ -129,6 +129,8 @@ def main():
     logger.info(
         f"The genesis height is {genesis_height}. The head height is {head}")
 
+    # Verify multiple heights - optimization to allow the prober to verify
+    # multiple heights in a single run.
     count = 0
     none_count = 0
     while True:
