@@ -116,7 +116,7 @@ async fn state_sync_dump(
     tracing::info!(target: "state_sync_dump", shard_id, "Running StateSyncDump loop");
     let mut interval = actix_rt::time::interval(std::time::Duration::from_secs(10));
 
-    if config.state_sync_dump_drop_state.contains(&shard_id) {
+    if config.state_sync_restart_dump_for_shards.contains(&shard_id) {
         tracing::debug!(target: "state_sync_dump", shard_id, "Dropped existing progress");
         chain.store().set_state_sync_dump_progress(shard_id, None).unwrap();
     }

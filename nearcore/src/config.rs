@@ -713,7 +713,7 @@ impl NearConfig {
                     .state_sync
                     .as_ref()
                     .map_or(String::new(), |x| x.s3_region.clone()),
-                state_sync_dump_drop_state: config
+                state_sync_restart_dump_for_shards: config
                     .state_sync
                     .as_ref()
                     .map_or(vec![], |x| x.drop_state_of_dump.clone()),
