@@ -141,7 +141,9 @@ if __name__ == '__main__':
 
     all_nodes = mocknet.get_nodes(pattern=pattern)
     random.shuffle(all_nodes)
-    assert len(all_nodes) > num_nodes, 'Need at least one RPC node'
+    assert len(
+        all_nodes
+    ) > num_nodes, f'Need at least one RPC node, all nodes {len(all_nodes)}, num nodes {num_nodes}'
     validator_nodes = all_nodes[:num_nodes]
     logger.info(f'validator_nodes: {validator_nodes}')
     rpc_nodes = all_nodes[num_nodes:]
@@ -158,8 +160,10 @@ if __name__ == '__main__':
 
     if not args.skip_setup:
         logger.info('Setting remote python environments')
-        mocknet.setup_python_environments(all_nodes,
-                                          'add_and_delete_state.wasm')
+        mocknet.setup_python_environments(
+            all_nodes,
+            'add_and_delete_state.wasm',
+        )
         logger.info('Setting remote python environments -- done')
 
     if not args.skip_restart:
