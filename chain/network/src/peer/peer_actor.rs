@@ -249,18 +249,10 @@ impl PeerActor {
                         .start_outbound(peer_id.clone())
                         .map_err(ClosingReason::OutboundNotAllowed)?,
                     tcp::Tier::T2 => {
-                        // A loop connection is not allowed on TIER2
-                        // (it is allowed on TIER1 to verify node's public IP).
-                        // TODO(gprusak): try to make this more consistent.
-                        if peer_id == &network_state.config.node_id() {
-                            return Err(ClosingReason::OutboundNotAllowed(
-                                connection::PoolError::UnexpectedLoopConnection,
-                            ));
-                        }
-                        network_state
-                            .tier2
-                            .start_outbound(peer_id.clone())
-                            .map_err(ClosingReason::OutboundNotAllowed)?
+                        // disable all T2 outbound connections
+                        return Err(ClosingReason::OutboundNotAllowed(
+                            connection::PoolError::UnexpectedLoopConnection,
+                        ));
                     }
                 },
                 handshake_spec: HandshakeSpec {
