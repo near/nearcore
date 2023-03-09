@@ -69,7 +69,10 @@ use near_primitives::views::{
     FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
     LightClientBlockView, SignedTransactionView,
 };
-use near_store::flat::{store_helper, FlatStateDelta, FlatStorageCreationStatus, FlatStorageError};
+use near_store::flat::{
+    store_helper, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata,
+    FlatStorageCreationStatus, FlatStorageError,
+};
 use near_store::StorageError;
 use near_store::{DBCol, ShardTries, StoreUpdate, WrappedTrieChanges};
 use once_cell::sync::OnceCell;
@@ -3190,13 +3193,8 @@ impl Chain {
                 let block_header = self.get_block_header(block_hash)?;
                 let epoch_id = block_header.epoch_id();
                 let shard_uid = self.runtime_adapter.shard_id_to_uid(shard_id, epoch_id)?;
-                let block_height = block_header.height();
 
-                self.runtime_adapter.create_flat_storage_for_shard(
-                    shard_uid,
-                    block_height,
-                    self.store(),
-                );
+                self.runtime_adapter.create_flat_storage_for_shard(shard_uid);
             }
         }
 
@@ -4910,23 +4908,25 @@ impl<'a> ChainUpdate<'a> {
         trie_changes: &WrappedTrieChanges,
     ) -> Result<(), Error> {
         if cfg!(feature = "protocol_feature_flat_state") {
-            let delta = FlatStateDelta::from_state_changes(&trie_changes.state_changes());
+            let delta = FlatStateDelta {
+                changes: FlatStateChanges::from_state_changes(&trie_changes.state_changes()),
+                metadata: FlatStateDeltaMetadata {
+                    block: near_store::flat::BlockInfo { hash: block_hash, height, prev_hash },
+                },
+            };
 
             if let Some(chain_flat_storage) =
                 self.runtime_adapter.get_flat_storage_for_shard(shard_id)
             {
                 // If flat storage exists, we add a block to it.
-                let block_info =
-                    near_store::flat::BlockInfo { hash: block_hash, height, prev_hash };
-                let store_update = chain_flat_storage
-                    .add_block(&block_hash, delta, block_info)
-                    .map_err(|e| StorageError::from(e))?;
+                let store_update =
+                    chain_flat_storage.add_delta(delta).map_err(|e| StorageError::from(e))?;
                 self.chain_store_update.merge(store_update);
             } else {
                 // Otherwise, save delta to disk so it will be used for flat storage creation later.
                 info!(target: "chain", %shard_id, "Add delta for flat storage creation");
                 let mut store_update = self.chain_store_update.store().store_update();
-                store_helper::set_delta(&mut store_update, shard_id, block_hash, &delta)
+                store_helper::set_delta(&mut store_update, shard_id, &delta)
                     .map_err(|e| StorageError::from(e))?;
                 self.chain_store_update.merge(store_update);
             }

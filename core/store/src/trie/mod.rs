@@ -16,7 +16,7 @@ use near_primitives::state_record::{is_delayed_receipt_key, StateRecord};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{StateRoot, StateRootNode};
 
-use crate::flat::{FlatStateDelta, FlatStorageChunkView};
+use crate::flat::{FlatStateChanges, FlatStorageChunkView};
 pub use crate::trie::config::TrieConfig;
 pub(crate) use crate::trie::config::DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT;
 use crate::trie::insert_delete::NodesStorage;
@@ -548,7 +548,7 @@ pub struct ApplyStatePartResult {
     /// Trie changes after applying state part.
     pub trie_changes: TrieChanges,
     /// Flat state changes after applying state part, stored as delta.
-    pub flat_state_delta: FlatStateDelta,
+    pub flat_state_delta: FlatStateChanges,
     /// Contract codes belonging to the state part.
     pub contract_codes: Vec<ContractCode>,
 }

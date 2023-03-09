@@ -33,13 +33,10 @@ pub mod store_helper;
 mod types;
 
 pub use chunk_view::FlatStorageChunkView;
-pub use delta::FlatStateDelta;
+pub use delta::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
 pub use manager::FlatStorageManager;
 pub use storage::FlatStorage;
-pub use types::{
-    BlockInfo, ChainAccessForFlatStorage, FetchingStateStatus, FlatStorageCreationStatus,
-    FlatStorageError,
-};
+pub use types::{BlockInfo, FetchingStateStatus, FlatStorageCreationStatus, FlatStorageError};
 
 pub(crate) const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 

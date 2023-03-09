@@ -5,7 +5,7 @@ use near_primitives::state_part::PartId;
 use near_primitives::types::StateRoot;
 use tracing::error;
 
-use crate::flat::FlatStateDelta;
+use crate::flat::FlatStateChanges;
 use crate::trie::iterator::TrieTraversalItem;
 use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::{
@@ -211,7 +211,7 @@ impl Trie {
         let mut iterator = trie.iter()?;
         let trie_traversal_items = iterator.visit_nodes_interval(&path_begin, &path_end)?;
         let mut map = HashMap::new();
-        let mut flat_state_delta = FlatStateDelta::default();
+        let mut flat_state_delta = FlatStateChanges::default();
         let mut contract_codes = Vec::new();
         for TrieTraversalItem { hash, key } in trie_traversal_items {
             let value = trie.storage.retrieve_raw_bytes(&hash)?;

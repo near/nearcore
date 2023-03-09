@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
@@ -32,14 +30,6 @@ impl From<FlatStorageError> for StorageError {
             FlatStorageError::StorageInternalError => StorageError::StorageInternalError,
         }
     }
-}
-
-// Unfortunately we don't have access to ChainStore inside this file because of package
-// dependencies, so we create this trait that provides the functions that FlatStorage needs
-// to access chain information
-pub trait ChainAccessForFlatStorage {
-    fn get_block_info(&self, block_hash: &CryptoHash) -> BlockInfo;
-    fn get_block_hashes_at_height(&self, block_height: BlockHeight) -> HashSet<CryptoHash>;
 }
 
 /// If a node has flat storage enabled but it didn't have flat storage data on disk, its creation should be initiated.
