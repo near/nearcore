@@ -14,6 +14,7 @@ use near_primitives::views::FinalExecutionStatus;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{BlockHeightDelta, ProtocolVersion};
 use near_store::test_utils::create_test_store;
+use nearcore::config::GenesisExt;
 use nearcore::TrackedConfig;
 use std::path::Path;
 use std::sync::Arc;
