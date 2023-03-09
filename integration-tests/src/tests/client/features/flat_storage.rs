@@ -132,7 +132,7 @@ fn test_flat_storage_upgrade() {
     let metadata = receipt_execution_outcome.outcome_with_id.outcome.metadata;
     if let ExecutionMetadata::V3(profile_data) = metadata {
         let cost = profile_data.get_ext_cost(ExtCosts::touching_trie_node);
-        assert_eq!(cost, touching_trie_node_cost * 4);
+        assert_eq!(cost, touching_trie_node_cost * 3);
     } else {
         panic!("Too old version of metadata: {metadata:?}");
     }
