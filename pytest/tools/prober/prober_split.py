@@ -6,10 +6,10 @@ The ProberSplit queries two nodes for blocks and chunks at random heights and
 compares the results. The expectation is that the block and chunks at each
 height will be identical even when fetched from two different nodes.
 
-The test runs continuously for the duration specified in the command line
+The prober runs continuously for the duration specified in the command line
 arguments.
 
-The intended goal of this prober is ensure that an legacy archival node and a
+The intended goal of this prober is ensure that a legacy archival node and a
 split storage archival node contain the same data.
 
 Run like this:
@@ -21,13 +21,11 @@ import argparse
 import datetime
 import pathlib
 import random
-import sys
 import json
+import sys
 from datetime import datetime, timedelta
 
 from prober_util import *
-
-sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 
 def pretty_print(value) -> str:
@@ -90,10 +88,11 @@ def check_blocks(legacy_url: str, split_url: str, height: int):
     return legacy_block
 
 
-def check_chunks(legacy_url, split_url, block):
-    logger.info(f"Checking chunks")
+def check_chunks(legacy_url: str, split_url: str, block):
     if block is None:
         return
+
+    logger.info(f"Checking chunks")
 
     for chunk in block['chunks']:
         legacy_chunk = get_chunk(chunk, legacy_url)
@@ -132,12 +131,12 @@ def main():
 
     count = 0
     none_count = 0
-
     while True:
-        # Pick a random number and then check the block at that height.
+        # Pick a random number and then check the block and chunks at that height.
         height = random.randint(genesis_height, head)
         block = check_blocks(legacy_url, split_url, height)
         check_chunks(legacy_url, split_url, block)
+
         count += 1
         none_count += block is None
 
