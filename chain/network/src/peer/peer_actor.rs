@@ -244,7 +244,12 @@ impl PeerActor {
             ),
             tcp::StreamType::Outbound { tier, peer_id } => ConnectingStatus::Outbound {
                 _permit: match tier {
-                    tcp::Tier::T1 => Err(ClosingReason::OutboundNotAllowed)
+                    tcp::Tier::T1 => {
+                        return Err(ClosingReason::OutboundNotAllowed(
+                            // reason doesn't matter we're just testing
+                            connection::PoolError::PermitDropped,
+                        ));
+                    }
                     tcp::Tier::T2 => {
                         // A loop connection is not allowed on TIER2
                         // (it is allowed on TIER1 to verify node's public IP).
