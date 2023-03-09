@@ -24,8 +24,11 @@ pub const HIGHEST_PEER_HORIZON: u64 = 5;
 /// Maximum amount of routes to store for each account id.
 pub const MAX_ROUTES_TO_STORE: usize = 5;
 
-/// Maximum number of PeerAddts in the ValidatorConfig::endpoints field.
+/// Maximum number of PeerAddrs in the ValidatorConfig::endpoints field.
 pub const MAX_PEER_ADDRS: usize = 10;
+
+/// Maximum number of peers to include in a PeersResponse message.
+pub const PEERS_RESPONSE_MAX_PEERS: u32 = 512;
 
 /// ValidatorProxies are nodes with public IP (aka proxies) that this validator trusts to be honest
 /// and willing to forward traffic to this validator. Whenever this node is a TIER1 validator
@@ -264,7 +267,7 @@ impl NetworkConfig {
             peer_recent_time_window: cfg.peer_recent_time_window.try_into()?,
             safe_set_size: cfg.safe_set_size,
             archival_peer_connections_lower_bound: cfg.archival_peer_connections_lower_bound,
-            max_send_peers: 512,
+            max_send_peers: PEERS_RESPONSE_MAX_PEERS,
             peer_stats_period: cfg.peer_stats_period.try_into()?,
             ttl_account_id_router: cfg.ttl_account_id_router.try_into()?,
             routed_message_ttl: ROUTED_MESSAGE_TTL,
@@ -330,7 +333,7 @@ impl NetworkConfig {
             peer_recent_time_window: time::Duration::seconds(600),
             safe_set_size: 20,
             archival_peer_connections_lower_bound: 10,
-            max_send_peers: 512,
+            max_send_peers: PEERS_RESPONSE_MAX_PEERS,
             peer_stats_period: time::Duration::seconds(5),
             ttl_account_id_router: time::Duration::seconds(60 * 60),
             routed_message_ttl: ROUTED_MESSAGE_TTL,
@@ -386,6 +389,15 @@ impl NetworkConfig {
                 self.peer_recent_time_window, UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE
             );
         }
+
+        if !(self.max_send_peers <= PEERS_RESPONSE_MAX_PEERS) {
+            anyhow::bail!(
+                "max_send_peers({}) can be at most {}",
+                self.max_send_peers,
+                PEERS_RESPONSE_MAX_PEERS
+            );
+        }
+
         self.accounts_data_broadcast_rate_limit
             .validate()
             .context("accounts_Data_broadcast_rate_limit")?;
