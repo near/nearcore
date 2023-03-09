@@ -244,18 +244,22 @@ impl PeerActor {
             ),
             tcp::StreamType::Outbound { tier, peer_id } => ConnectingStatus::Outbound {
                 _permit: match tier {
-                    tcp::Tier::T1 => {
-                        return Err(ClosingReason::OutboundNotAllowed(
-                            // reason doesn't matter we're just testing
-                            connection::PoolError::PermitDropped,
-                        ));
-                    }
+                    tcp::Tier::T1 => network_state
+                        .tier1
+                        .start_outbound(peer_id.clone())
+                        .map_err(ClosingReason::OutboundNotAllowed)?,
                     tcp::Tier::T2 => {
                         return Err(ClosingReason::OutboundNotAllowed(
                             // reason doesn't matter we're just testing
                             connection::PoolError::PermitDropped,
                         ));
                     }
+                },
+                handshake_spec: HandshakeSpec {
+                    partial_edge_info: network_state.propose_edge(&clock, peer_id, None),
+                    protocol_version: PROTOCOL_VERSION,
+                    tier: *tier,
+                    peer_id: peer_id.clone(),
                 },
             },
         };
