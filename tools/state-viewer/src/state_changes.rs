@@ -29,6 +29,7 @@ pub(crate) enum StateChangesSubCommand {
         state_root: StateRoot,
     },
     /// Dumps state changes for a range of blocks from --height-from to --height-to inclusive.
+    /// The dump will include all available state changes, i.e. of shards tracked at the time.
     Dump {
         /// --height-from defines the lower (inclusive) bound of a range of block heights to dump.
         height_from: BlockHeight,

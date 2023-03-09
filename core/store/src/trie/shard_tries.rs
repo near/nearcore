@@ -478,10 +478,9 @@ impl KeyForStateChanges {
         trie_key: &TrieKey,
         shard_uid: &ShardUId,
     ) -> Self {
-        let mut key = Self::new(block_hash, trie_key.len());
+        let mut key = Self::new(block_hash, trie_key.len() + std::mem::size_of::<ShardUId>());
         trie_key.append_into(&mut key.0);
-        key.0.extend(shard_uid.version.to_le_bytes());
-        key.0.extend(shard_uid.shard_id.to_le_bytes());
+        key.0.extend(shard_uid.to_bytes());
         key
     }
 
@@ -496,32 +495,10 @@ impl KeyForStateChanges {
         let prefix = prefix.as_ref();
 
         let suffix = &row_key[prefix.len()..];
-        if suffix.is_empty() {
-            return Err(KeyForStateChangesError::DelayedReceiptRowKeyError(
-                row_key.to_vec(),
-                trie_key.clone(),
-            ));
-        }
-        let version_chunk = &suffix[..std::mem::size_of::<ShardVersion>()];
-        let version = ShardVersion::from_le_bytes(version_chunk.try_into().map_err(|err| {
-            tracing::debug!(target: "state-changes", ?err, "Can't read `version` from row key of Delayed Receipt state change");
-            KeyForStateChangesError::DelayedReceiptRowKeyError(row_key.to_vec(),trie_key.clone())
-        })?);
-
-        let suffix = &suffix[std::mem::size_of::<ShardVersion>()..];
-        if suffix.is_empty() {
-            return Err(KeyForStateChangesError::DelayedReceiptRowKeyError(
-                row_key.to_vec(),
-                trie_key.clone(),
-            ));
-        }
-        let shard_id_chunk = &suffix[..std::mem::size_of::<u32>()];
-        let shard_id = u32::from_le_bytes(shard_id_chunk.try_into().map_err(|err| {
-            tracing::debug!(target: "state-changes", ?err, "Can't read `shard_id` from row key of Delayed Receipt state change");
-            KeyForStateChangesError::DelayedReceiptRowKeyError(row_key.to_vec(),trie_key.clone())
-        })?);
-
-        Ok(ShardUId { shard_id, version })
+        let shard_uid = ShardUId::try_from(suffix).map_err(|_err| {
+            KeyForStateChangesError::DelayedReceiptRowKeyError(row_key.to_vec(), trie_key.clone())
+        })?;
+        Ok(shard_uid)
     }
 
     /// Iterates over deserialized row values where row key matches `self`.
@@ -563,12 +540,18 @@ impl KeyForStateChanges {
     ) -> impl Iterator<Item = Result<(Box<[u8]>, RawStateChangesWithTrieKey), std::io::Error>> + 'a
     {
         let prefix_len = Self::estimate_prefix_len();
-        debug_assert!(self.0.len() >= prefix_len);
+        debug_assert!(
+            self.0.len() >= prefix_len,
+            "Key length: {}, prefix length: {}, key: {:?}",
+            self.0.len(),
+            prefix_len,
+            self.0
+        );
         store.iter_prefix_ser::<RawStateChangesWithTrieKey>(DBCol::StateChanges, &self.0).map(
             move |change| {
                 // Split off the irrelevant part of the key, so only the original trie_key is left.
                 let (key, state_changes) = change?;
-                debug_assert!(key.starts_with(&self.0));
+                debug_assert!(key.starts_with(&self.0), "Key: {:?}, row key: {:?}", self.0, key);
                 Ok((key, state_changes))
             },
         )
@@ -590,31 +573,57 @@ mod test {
         let block_hash =
             CryptoHash::from_str("32222222222233333333334444444444445555555777").unwrap();
 
-        let row_key1 = KeyForStateChanges::delayed_receipt_key_from_trie_key(
+        for trie_key in [trie_key1.clone(), trie_key2.clone()] {
+            let row_key = KeyForStateChanges::delayed_receipt_key_from_trie_key(
+                &block_hash,
+                &trie_key,
+                &shard_uid,
+            );
+
+            let got_shard_uid = KeyForStateChanges::delayed_receipt_key_decode_shard_uid(
+                row_key.as_ref(),
+                &block_hash,
+                &trie_key,
+            )
+            .unwrap();
+            assert_eq!(shard_uid, got_shard_uid);
+        }
+
+        // Forget to add a ShardUId to the key, fail to extra a ShardUId from the key.
+        let row_key_without_shard_uid = KeyForStateChanges::from_trie_key(&block_hash, &trie_key1);
+        assert!(KeyForStateChanges::delayed_receipt_key_decode_shard_uid(
+            row_key_without_shard_uid.as_ref(),
+            &block_hash,
+            &trie_key1
+        )
+        .is_err());
+
+        // Add an extra byte to the key, fail to extra a ShardUId from the key.
+        let mut row_key_extra_bytes = KeyForStateChanges::delayed_receipt_key_from_trie_key(
             &block_hash,
             &trie_key1,
             &shard_uid,
         );
-        let row_key2 = KeyForStateChanges::delayed_receipt_key_from_trie_key(
+        row_key_extra_bytes.0.extend([8u8]);
+        assert!(KeyForStateChanges::delayed_receipt_key_decode_shard_uid(
+            row_key_extra_bytes.as_ref(),
             &block_hash,
-            &trie_key2,
-            &shard_uid,
+            &trie_key1
+        )
+        .is_err());
+
+        // This is the internal detail of how delayed_receipt_key_from_trie_key() works.
+        let mut row_key_with_single_shard_uid =
+            KeyForStateChanges::from_trie_key(&block_hash, &trie_key1);
+        row_key_with_single_shard_uid.0.extend(shard_uid.to_bytes());
+        assert_eq!(
+            KeyForStateChanges::delayed_receipt_key_decode_shard_uid(
+                row_key_with_single_shard_uid.as_ref(),
+                &block_hash,
+                &trie_key1
+            )
+            .unwrap(),
+            shard_uid
         );
-
-        let got_shard_uid1 = KeyForStateChanges::delayed_receipt_key_decode_shard_uid(
-            row_key1.as_ref(),
-            &block_hash,
-            &trie_key1,
-        )
-        .unwrap();
-        let got_shard_uid2 = KeyForStateChanges::delayed_receipt_key_decode_shard_uid(
-            row_key2.as_ref(),
-            &block_hash,
-            &trie_key2,
-        )
-        .unwrap();
-
-        assert_eq!(shard_uid, got_shard_uid1);
-        assert_eq!(shard_uid, got_shard_uid2);
     }
 }
