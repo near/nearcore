@@ -307,7 +307,7 @@ pub trait RuntimeAdapter: Send + Sync {
     /// TODO (#7327): consider returning flat storage creation errors here
     fn create_flat_storage_for_shard(
         &self,
-        shard_id: ShardId,
+        shard_uid: ShardUId,
         latest_block_height: BlockHeight,
         chain_access: &dyn ChainAccessForFlatStorage,
     );

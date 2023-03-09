@@ -328,28 +328,25 @@ mod tests {
                 if let CrumbStatus::Entering = position {
                     on_enter(&hash)?;
                 }
+                let mut on_enter_value = |value: &ValueHandle| {
+                    if let ValueHandle::HashAndSize(value) = value {
+                        on_enter(&value.hash)
+                    } else {
+                        unreachable!("only possible while mutating")
+                    }
+                };
                 match &node.node {
                     TrieNode::Empty => {
                         continue;
                     }
                     TrieNode::Leaf(_, value) => {
-                        match value {
-                            ValueHandle::HashAndSize(_, hash) => {
-                                on_enter(hash)?;
-                            }
-                            ValueHandle::InMemory(_) => {
-                                unreachable!("only possible while mutating")
-                            }
-                        }
+                        on_enter_value(value)?;
                         continue;
                     }
                     TrieNode::Branch(children, value) => match position {
                         CrumbStatus::Entering => {
-                            match value {
-                                Some(ValueHandle::HashAndSize(_, hash)) => {
-                                    on_enter(hash)?;
-                                }
-                                _ => {}
+                            if let Some(ref value) = value {
+                                on_enter_value(value)?;
                             }
                             stack.push((hash, node, CrumbStatus::AtChild(0)));
                             continue;
@@ -382,15 +379,12 @@ mod tests {
                     },
                     TrieNode::Extension(_key, child) => {
                         if let CrumbStatus::Entering = position {
-                            match child.clone() {
-                                NodeHandle::InMemory(_) => {
-                                    unreachable!("only possible while mutating")
-                                }
-                                NodeHandle::Hash(h) => {
-                                    let child = self.retrieve_node(&h)?.1;
-                                    stack.push((hash, node, CrumbStatus::Exiting));
-                                    stack.push((h, child, CrumbStatus::Entering));
-                                }
+                            if let NodeHandle::Hash(h) = child.clone() {
+                                let child = self.retrieve_node(&h)?.1;
+                                stack.push((h, node, CrumbStatus::Exiting));
+                                stack.push((h, child, CrumbStatus::Entering));
+                            } else {
+                                unreachable!("only possible while mutating")
                             }
                         }
                     }

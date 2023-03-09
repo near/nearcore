@@ -51,3 +51,15 @@ pub static PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER: Lazy<Counter> = 
     )
     .unwrap()
 });
+
+pub static PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_PREV_BLOCK: Lazy<Counter> = Lazy::new(
+    || {
+        near_o11y::metrics::try_create_counter(
+        "near_partial_encoded_chunk_forward_cached_without_prev_block",
+        concat!(
+            "Number of times we received a partial encoded chunk forward without having the previous block to fully validate it, so we cached it"
+        ),
+    )
+    .unwrap()
+    },
+);
