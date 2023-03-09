@@ -182,7 +182,7 @@ impl GenesisBuilder {
         let mut store_update = tries.store_update();
         let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
         if cfg!(feature = "protocol_feature_flat_state") {
-            near_store::flat::FlatStateDelta::from_state_changes(&state_changes)
+            near_store::flat::FlatStateChanges::from_state_changes(&state_changes)
                 .apply_to_flat_state(&mut store_update, shard_uid);
         }
         store_update.commit()?;

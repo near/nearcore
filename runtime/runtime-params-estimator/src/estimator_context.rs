@@ -9,16 +9,14 @@ use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
-use near_primitives::types::{BlockHeight, Gas, MerkleHash};
+use near_primitives::types::{Gas, MerkleHash};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_store::flat::{
-    store_helper, BlockInfo, ChainAccessForFlatStorage, FlatStorage, FlatStorageManager,
-};
+use near_store::flat::{store_helper, FlatStorage, FlatStorageManager};
 use near_store::{ShardTries, ShardUId, Store, StoreCompiledContractCache, TrieUpdate};
 use near_store::{TrieCache, TrieCachingStorage, TrieConfig};
 use near_vm_logic::{ExtCosts, VMLimitConfig};
 use node_runtime::{ApplyState, Runtime};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -149,38 +147,12 @@ impl<'c> EstimatorContext<'c> {
             return flat_storage_manager;
         }
 
-        const BLOCK_HEIGHT: BlockHeight = 0;
-        /// Dummy ChainAccessForFlatStorage implementation to be able to create
-        /// FlatStorage.
-        struct ChainAccess;
-
-        impl ChainAccessForFlatStorage for ChainAccess {
-            fn get_block_info(&self, block_hash: &CryptoHash) -> BlockInfo {
-                BlockInfo { hash: *block_hash, prev_hash: Default::default(), height: BLOCK_HEIGHT }
-            }
-
-            fn get_block_hashes_at_height(
-                &self,
-                _block_height: BlockHeight,
-            ) -> HashSet<CryptoHash> {
-                // This is only needed to accumulate deltas when flat head doesn't
-                // match the latest block height, so it won't be called in our case.
-                unimplemented!()
-            }
-        }
-
         let shard_uid = ShardUId::single_shard();
         // Set up flat head to be equal to the latest block height
         let mut store_update = store.store_update();
         store_helper::set_flat_head(&mut store_update, shard_uid.shard_id(), &FLAT_STATE_HEAD);
         store_update.commit().expect("failed to set flat head");
-        let flat_storage = FlatStorage::new(
-            store,
-            shard_uid,
-            BLOCK_HEIGHT,
-            &ChainAccess {},
-            cache_capacity as usize,
-        );
+        let flat_storage = FlatStorage::new(store, shard_uid, cache_capacity as usize);
         flat_storage_manager.add_flat_storage_for_shard(shard_uid.shard_id(), flat_storage);
         flat_storage_manager
     }
@@ -309,7 +281,7 @@ impl Testbed<'_> {
         let shard_uid = ShardUId::single_shard();
         self.root = self.tries.apply_all(&apply_result.trie_changes, shard_uid, &mut store_update);
         if cfg!(feature = "protocol_feature_flat_state") {
-            near_store::flat::FlatStateDelta::from_state_changes(&apply_result.state_changes)
+            near_store::flat::FlatStateChanges::from_state_changes(&apply_result.state_changes)
                 .apply_to_flat_state(&mut store_update, shard_uid);
         }
         store_update.commit().unwrap();

@@ -262,11 +262,16 @@ pub enum DBCol {
     /// - *Column type*: ValueRef
     #[cfg(feature = "protocol_feature_flat_state")]
     FlatState,
-    /// Deltas for flat state. Stores how flat state should be updated for the given shard and block.
+    /// Changes for flat state delta. Stores how flat state should be updated for the given shard and block.
     /// - *Rows*: `KeyForFlatStateDelta { shard_id, block_hash }`
-    /// - *Column type*: `FlatStateDelta`
+    /// - *Column type*: `FlatStateChanges`
     #[cfg(feature = "protocol_feature_flat_state")]
-    FlatStateDeltas,
+    FlatStateChanges,
+    /// Metadata for flat state delta.
+    /// - *Rows*: `KeyForFlatStateDelta { shard_id, block_hash }`
+    /// - *Column type*: `FlatStateDeltaMetadata`
+    #[cfg(feature = "protocol_feature_flat_state")]
+    FlatStateDeltaMetadata,
     /// Miscellaneous data for flat state. Stores intermediate flat storage creation statuses and flat
     /// state heads for each shard.
     /// - *Rows*: Unique key prefix (e.g. `FLAT_STATE_HEAD_KEY_PREFIX`) + ShardId
@@ -474,7 +479,9 @@ impl DBCol {
             #[cfg(feature = "protocol_feature_flat_state")]
             DBCol::FlatState => &[DBKeyType::ShardUId, DBKeyType::TrieKey],
             #[cfg(feature = "protocol_feature_flat_state")]
-            DBCol::FlatStateDeltas => &[DBKeyType::ShardId, DBKeyType::BlockHash],
+            DBCol::FlatStateChanges => &[DBKeyType::ShardId, DBKeyType::BlockHash],
+            #[cfg(feature = "protocol_feature_flat_state")]
+            DBCol::FlatStateDeltaMetadata => &[DBKeyType::ShardId, DBKeyType::BlockHash],
             #[cfg(feature = "protocol_feature_flat_state")]
             DBCol::FlatStateMisc => &[DBKeyType::ShardId],
         }

@@ -19,7 +19,7 @@ use near_primitives::state::ValueRef;
 use near_primitives::state_part::PartId;
 use near_primitives::types::{AccountId, BlockHeight, ShardId, StateRoot};
 use near_store::flat::{
-    store_helper, FetchingStateStatus, FlatStateDelta, FlatStorageCreationStatus,
+    store_helper, FetchingStateStatus, FlatStateChanges, FlatStorageCreationStatus,
     NUM_PARTS_IN_ONE_STEP, STATE_PART_MEMORY_LIMIT,
 };
 use near_store::{Store, FLAT_STORAGE_HEAD_HEIGHT};
@@ -187,7 +187,11 @@ impl FlatStorageShardCreator {
                             for hash in hashes {
                                 debug!(target: "store", %shard_id, %height, %hash, "Checking delta existence");
                                 assert_matches!(
-                                    store_helper::get_delta(chain_store.store(), shard_id, *hash),
+                                    store_helper::get_delta_changes(
+                                        chain_store.store(),
+                                        shard_id,
+                                        *hash
+                                    ),
                                     Ok(Some(_))
                                 );
                             }
@@ -316,7 +320,7 @@ impl FlatStorageShardCreator {
                 let store = self.runtime_adapter.store();
                 let mut flat_head = *old_flat_head;
                 let chain_final_head = chain_store.final_head()?;
-                let mut merged_delta = FlatStateDelta::default();
+                let mut merged_changes = FlatStateChanges::default();
 
                 // Merge up to 50 deltas of the next blocks until we reach chain final head.
                 // TODO: consider merging 10 deltas at once to limit memory usage
@@ -330,9 +334,10 @@ impl FlatStorageShardCreator {
                         break;
                     }
                     flat_head = chain_store.get_next_block_hash(&flat_head).unwrap();
-                    let delta =
-                        store_helper::get_delta(store, shard_id, flat_head).unwrap().unwrap();
-                    merged_delta.merge(delta);
+                    let changes = store_helper::get_delta_changes(store, shard_id, flat_head)
+                        .unwrap()
+                        .unwrap();
+                    merged_changes.merge(changes);
                 }
 
                 if (old_flat_head != &flat_head) || (flat_head == chain_final_head.last_block_hash)
@@ -345,8 +350,7 @@ impl FlatStorageShardCreator {
                     debug!(target: "chain", %shard_id, %old_flat_head, %old_height, %flat_head, %height, "Catching up flat head");
                     self.metrics.flat_head_height.set(height as i64);
                     let mut store_update = self.runtime_adapter.store().store_update();
-                    merged_delta.apply_to_flat_state(&mut store_update, shard_uid);
-
+                    merged_changes.apply_to_flat_state(&mut store_update, shard_uid);
                     if flat_head == chain_final_head.last_block_hash {
                         // If we reached chain final head, we can finish catchup and finally create flat storage.
                         store_helper::remove_flat_storage_creation_status(
@@ -355,11 +359,7 @@ impl FlatStorageShardCreator {
                         );
                         store_helper::set_flat_head(&mut store_update, shard_id, &flat_head);
                         store_update.commit()?;
-                        self.runtime_adapter.create_flat_storage_for_shard(
-                            shard_uid,
-                            chain_store.head().unwrap().height,
-                            chain_store,
-                        );
+                        self.runtime_adapter.create_flat_storage_for_shard(shard_uid);
                         info!(target: "chain", %shard_id, %flat_head, %height, "Flat storage creation done");
                     } else {
                         store_helper::set_flat_storage_creation_status(
@@ -407,11 +407,7 @@ impl FlatStorageCreator {
                     FlatStorageCreationStatus::Ready => {
                         let shard_uid =
                             runtime_adapter.shard_id_to_uid(shard_id, &chain_head.epoch_id)?;
-                        runtime_adapter.create_flat_storage_for_shard(
-                            shard_uid,
-                            chain_head.height,
-                            chain_store,
-                        );
+                        runtime_adapter.create_flat_storage_for_shard(shard_uid);
                     }
                     FlatStorageCreationStatus::DontCreate => {}
                     _ => {
