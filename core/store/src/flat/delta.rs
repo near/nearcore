@@ -3,7 +3,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::hash::hash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::ValueRef;
-use near_primitives::types::{RawStateChangesWithTrieKey, ShardId};
+use near_primitives::types::RawStateChangesWithTrieKey;
 use std::collections::HashMap;
 use std::sync::Arc;
 
