@@ -1,9 +1,6 @@
 import logging
 import sys
 import pathlib
-import base58
-import binascii
-
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
