@@ -272,7 +272,7 @@ fn is_top_level_account(top_account: &AccountId, account: &AccountId) -> bool {
 }
 
 /// ShardUId is an unique representation for shards from different shard layout
-#[derive(BorshSerialize, BorshDeserialize, Hash, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Hash, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ShardUId {
     pub version: ShardVersion,
     pub shard_id: u32,
