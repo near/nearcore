@@ -18,7 +18,7 @@ use near_crypto::PublicKey;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_o11y::log_assert;
 use near_pool::types::PoolIterator;
-use near_primitives::account::{Account};
+use near_primitives::account::Account;
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::config::ExtCosts;
 use near_primitives::contract::ContractCode;
