@@ -62,14 +62,14 @@ def main():
         logging.info("Cross validate returned proof from `view_access_key` endpoint with proof returned from `view_access_key_list` endpoint")
 
         key_query_result = node.get_access_key_list(node.signer_key.account_id, proof=True)
-        
-        key_list = key_query_result["result"]["keys"]
+        key_view_list = key_query_result["result"]["keys"]
 
-        key_view = key_list[0]
+        ## We assume only 1 key-pair per account for intuitive testing purposes
+        key_view = key_view_list[0]
 
         logging.info("Cross validating proofs between endpoints for value equivalence...")
         for i, node in enumerate(key_view["access_key"]["proof"]):
-            assert node == proof[i]
+            assert node == proof[i]; "Path returned from `view_access_key` must be identical to the one returned in `view_access_key_list`"
 
 
     logging.info("Testing complete, terminating all the nodes....")
