@@ -50,37 +50,31 @@ impl FlatStateColumn {
 
 pub fn get_delta_changes(
     store: &Store,
-    shard_id: ShardId,
+    shard_uid: ShardUId,
     block_hash: CryptoHash,
 ) -> Result<Option<FlatStateChanges>, FlatStorageError> {
-    let key = KeyForFlatStateDelta { shard_id, block_hash };
+    let key = KeyForFlatStateDelta { shard_uid, block_hash };
     Ok(store
-        .get_ser::<FlatStateChanges>(
-            FlatStateColumn::Changes.to_db_col(),
-            &key.try_to_vec().unwrap(),
-        )
+        .get_ser::<FlatStateChanges>(FlatStateColumn::Changes.to_db_col(), &key.to_bytes())
         .map_err(|_| FlatStorageError::StorageInternalError)?)
 }
 
 pub fn get_all_deltas_metadata(
     store: &Store,
-    shard_id: ShardId,
+    shard_uid: ShardUId,
 ) -> Result<Vec<FlatStateDeltaMetadata>, FlatStorageError> {
-    let prefix = shard_id.try_to_vec().map_err(|_| FlatStorageError::StorageInternalError)?;
     store
-        .iter_prefix_ser(FlatStateColumn::DeltaMetadata.to_db_col(), &prefix)
+        .iter_prefix_ser(FlatStateColumn::DeltaMetadata.to_db_col(), &shard_uid.to_bytes())
         .map(|res| res.map(|(_, value)| value).map_err(|_| FlatStorageError::StorageInternalError))
         .collect()
 }
 
 pub fn set_delta(
     store_update: &mut StoreUpdate,
-    shard_id: ShardId,
+    shard_uid: ShardUId,
     delta: &FlatStateDelta,
 ) -> Result<(), FlatStorageError> {
-    let key = KeyForFlatStateDelta { shard_id, block_hash: delta.metadata.block.hash }
-        .try_to_vec()
-        .map_err(|_| FlatStorageError::StorageInternalError)?;
+    let key = KeyForFlatStateDelta { shard_uid, block_hash: delta.metadata.block.hash }.to_bytes();
     store_update
         .set_ser(FlatStateColumn::Changes.to_db_col(), &key, &delta.changes)
         .map_err(|_| FlatStorageError::StorageInternalError)?;
@@ -90,8 +84,8 @@ pub fn set_delta(
     Ok(())
 }
 
-pub fn remove_delta(store_update: &mut StoreUpdate, shard_id: ShardId, block_hash: CryptoHash) {
-    let key = KeyForFlatStateDelta { shard_id, block_hash }.try_to_vec().unwrap();
+pub fn remove_delta(store_update: &mut StoreUpdate, shard_uid: ShardUId, block_hash: CryptoHash) {
+    let key = KeyForFlatStateDelta { shard_uid, block_hash }.to_bytes();
     store_update.delete(FlatStateColumn::Changes.to_db_col(), &key);
     store_update.delete(FlatStateColumn::DeltaMetadata.to_db_col(), &key);
 }
