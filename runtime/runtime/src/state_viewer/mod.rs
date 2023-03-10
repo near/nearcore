@@ -107,7 +107,8 @@ impl TrieViewer {
         &self,
         state_update: &TrieUpdate,
         account_id: &AccountId,
-    ) -> Result<Vec<(PublicKey, AccessKey)>, errors::ViewAccessKeyError> {
+        include_proof: bool,
+    ) -> Result<Vec<(PublicKey, ViewAccessKeyResult)>, errors::ViewAccessKeyError> {
         let prefix = trie_key_parsers::get_raw_prefix_for_access_keys(account_id);
         let raw_prefix: &[u8] = prefix.as_ref();
         let access_keys =
@@ -129,8 +130,35 @@ impl TrieViewer {
                         })
                         .map(|key| (key, access_key))
                 })
-                .collect::<Result<Vec<_>, errors::ViewAccessKeyError>>();
-        access_keys
+                .collect::<Result<Vec<_>, errors::ViewAccessKeyError>>()?;
+
+        let view_keys = access_keys
+            .iter()
+            .map(|key_tuple| {
+                let proof = if include_proof {
+                    let key = TrieKey::AccessKey {
+                        account_id: account_id.clone(),
+                        public_key: key_tuple.0.clone(),
+                    }
+                    .to_vec();
+
+                    let mut iter = state_update.trie().iter()?;
+                    iter.remember_visited_nodes(true);
+                    iter.seek_prefix(key)?;
+
+                    Some(iter.into_visited_nodes())
+                } else {
+                    None
+                };
+
+                Ok((
+                    key_tuple.0.clone(),
+                    ViewAccessKeyResult { access_key: key_tuple.1.clone(), proof: proof },
+                ))
+            })
+            .collect();
+
+        view_keys
     }
 
     pub fn view_state(

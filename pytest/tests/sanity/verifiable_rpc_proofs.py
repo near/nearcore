@@ -59,6 +59,19 @@ def main():
         assert leaf_count == 1; "There can not be more than one leaf node per proof"
         assert branch_count >= 1; "There must be at least one branch node per proof"
 
+        logging.info("Cross validate returned proof from `view_access_key` endpoint with proof returned from `view_access_key_list` endpoint")
+
+        key_query_result = node.get_access_key_list(node.signer_key.account_id, proof=True)
+        
+        key_list = key_query_result["result"]["keys"]
+
+        key_view = key_list[0]
+
+        logging.info("Cross validating proofs between endpoints for value equivalence...")
+        for i, node in enumerate(key_view["access_key"]["proof"]):
+            assert node == proof[i]
+
+
     logging.info("Testing complete, terminating all the nodes....")
     for node in nodes:
         node.kill()

@@ -302,7 +302,7 @@ class BaseNode(object):
         },
                              timeout=timeout)
     
-    def get_access_key(self, acc, pk, proof, finality='optimistic'):
+    def get_access_key(self, acc, pk, proof=False, finality='optimistic'):
         return self.json_rpc(
             'query', {
                 "request_type": "view_access_key",
@@ -312,12 +312,13 @@ class BaseNode(object):
                 "finality": finality,
             })
 
-    def get_access_key_list(self, acc, finality='optimistic'):
+    def get_access_key_list(self, acc, proof=False, finality='optimistic'):
         return self.json_rpc(
             'query', {
                 "request_type": "view_access_key_list",
                 "account_id": acc,
-                "finality": finality
+                "include_proof": proof,
+                "finality": finality,
             })
 
     def get_nonce_for_pk(self, acc, pk, finality='optimistic'):

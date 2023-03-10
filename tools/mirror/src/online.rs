@@ -216,7 +216,10 @@ impl crate::ChainAccess for ChainAccess {
             .send(
                 Query {
                     block_reference: BlockReference::BlockId(BlockId::Hash(*block_hash)),
-                    request: QueryRequest::ViewAccessKeyList { account_id: account_id.clone() },
+                    request: QueryRequest::ViewAccessKeyList {
+                        account_id: account_id.clone(),
+                        include_proof: false,
+                    },
                 }
                 .with_span_context(),
             )

@@ -222,7 +222,10 @@ fn test_query_access_keys() {
         let query_response = client
             .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
                 block_reference: BlockReference::latest(),
-                request: QueryRequest::ViewAccessKeyList { account_id: "test".parse().unwrap() },
+                request: QueryRequest::ViewAccessKeyList {
+                    account_id: "test".parse().unwrap(),
+                    include_proof: false,
+                },
             })
             .await
             .unwrap();
@@ -236,6 +239,7 @@ fn test_query_access_keys() {
         assert_eq!(access_keys.keys.len(), 1);
         assert_eq!(access_keys.keys[0].access_key, AccessKey::full_access().into());
         assert_eq!(access_keys.keys[0].public_key, PublicKey::empty(KeyType::ED25519));
+        assert_eq!(access_keys.keys[0].access_key.proof, None);
     });
 }
 

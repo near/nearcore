@@ -336,6 +336,7 @@ pub enum QueryRequest {
     },
     ViewAccessKeyList {
         account_id: AccountId,
+        include_proof: bool,
     },
     CallFunction {
         account_id: AccountId,

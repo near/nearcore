@@ -68,7 +68,10 @@ fn parse_path_data(path: String, data: String) -> Result<RpcQueryRequest, RpcPar
     let request = match query_command {
         "account" => QueryRequest::ViewAccount { account_id },
         "access_key" => match maybe_extra_arg {
-            None => QueryRequest::ViewAccessKeyList { account_id },
+            None => QueryRequest::ViewAccessKeyList {
+                account_id: account_id,
+                include_proof: maybe_require_proof,
+            },
             Some(pk) => QueryRequest::ViewAccessKey {
                 account_id,
                 public_key: pk

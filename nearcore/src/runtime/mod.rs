@@ -1181,9 +1181,9 @@ impl RuntimeAdapter for NightshadeRuntime {
                     block_hash: *block_hash,
                 })
             }
-            QueryRequest::ViewAccessKeyList { account_id } => {
+            QueryRequest::ViewAccessKeyList { account_id, include_proof } => {
                 let access_key_list =
-                    self.view_access_keys(&shard_uid, *state_root, account_id).map_err(|err| {
+                    self.view_access_keys(&shard_uid, *state_root, account_id, *include_proof).map_err(|err| {
                         near_chain::near_chain_primitives::error::QueryError::from_view_access_key_error(
                             err,
                             block_height,
@@ -1540,10 +1540,13 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         shard_uid: &ShardUId,
         state_root: MerkleHash,
         account_id: &AccountId,
-    ) -> Result<Vec<(PublicKey, AccessKey)>, node_runtime::state_viewer::errors::ViewAccessKeyError>
-    {
+        include_proof: bool,
+    ) -> Result<
+        Vec<(PublicKey, ViewAccessKeyResult)>,
+        node_runtime::state_viewer::errors::ViewAccessKeyError,
+    > {
         let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
-        self.trie_viewer.view_access_keys(&state_update, account_id)
+        self.trie_viewer.view_access_keys(&state_update, account_id, include_proof)
     }
 
     fn view_state(
