@@ -1475,11 +1475,11 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
             let block_hash = *blocks[i as usize].hash();
             assert_matches!(
                 env.clients[0].chain.get_block(&block_hash).unwrap_err(),
-                Error::DBNotFoundErr(missing_block_hash) if missing_block_hash == "BLOCK: ".to_owned() + &block_hash.to_string()
+                Error::DBNotFoundErr(missing_block_hash) if missing_block_hash == format!("BLOCK: {}", block_hash)
             );
             assert_matches!(
                 env.clients[0].chain.get_block_by_height(i).unwrap_err(),
-                Error::DBNotFoundErr(missing_block_hash) if missing_block_hash == "BLOCK: ".to_owned() + &block_hash.to_string()
+                Error::DBNotFoundErr(missing_block_hash) if missing_block_hash == format!("BLOCK: {}", block_hash)
             );
             assert!(env.clients[0]
                 .chain
