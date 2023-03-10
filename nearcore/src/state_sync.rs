@@ -48,7 +48,7 @@ pub fn spawn_state_sync_dump(
     ).map_err(|err| <s3::error::S3Error as Into<anyhow::Error>>::into(err))?;
 
     // Determine how many threads to start.
-    // Doesn't handle the case of changing the shard layout.
+    // TODO: Handle the case of changing the shard layout.
     let num_shards = {
         // Sadly, `Chain` is not `Send` and each thread needs to create its own `Chain` instance.
         let chain = Chain::new_for_view_client(
