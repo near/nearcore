@@ -165,8 +165,14 @@ def setup_python_environments(nodes, wasm_contract):
     pmap(lambda n: setup_python_environment(n, wasm_contract), nodes)
 
 
-def start_load_test_helper_script(script, node_account_id, rpc_nodes, num_nodes,
-                                  max_tps, leader_account_id):
+def start_load_test_helper_script(
+    script,
+    node_account_id,
+    rpc_nodes,
+    num_nodes,
+    max_tps,
+    leader_account_id,
+):
     s = '''
         cd {dir}
         nohup ./venv/bin/python {script} {node_account_id} {rpc_nodes} {num_nodes} {max_tps} {leader_account_id} 1>load_test.out 2>load_test.err < /dev/null &
@@ -218,7 +224,9 @@ def start_load_test_helpers(nodes, script, rpc_nodes, num_nodes, max_tps):
             num_nodes,
             max_tps,
             lead_account_id=account.account_id,
-        ), nodes)
+        ),
+        nodes,
+    )
 
 
 def get_log(node):
@@ -321,8 +329,10 @@ def get_tx_events_single_node(node, tx_filename):
 def get_tx_events(nodes, tx_filename):
     run('mkdir ./logs/')
     run('rm -rf ./logs/*_txs')
-    all_events = pmap(lambda node: get_tx_events_single_node(node, tx_filename),
-                      nodes)
+    all_events = pmap(
+        lambda node: get_tx_events_single_node(node, tx_filename),
+        nodes,
+    )
     return sorted(data.flatten(all_events))
 
 
@@ -470,15 +480,7 @@ def redownload_neard(nodes, binary_url):
 
 
 # Check /home/ubuntu/neard.upgrade to see whether the amend-genesis command is
-# available. If it is, then we'll use that to update the genesis files,
-# otherwise we'll use the python create_genesis_file() function. We can't just
-# check this individually on each machine since the two functions have slightly
-# different behavior (for example, neard amend-genesis will set the storage
-# usage fields in account records), so the resulting genesis block hashes will
-# not match up.
-#
-# Return value is None if it's not available, otherwise the path to the binary
-# where it should be available
+# available. Returns the path to the neard binary or throws an exception.
 def neard_amend_genesis_path(node):
     r = node.machine.run(
         '/home/ubuntu/neard.upgrade amend-genesis --help',
@@ -487,7 +489,7 @@ def neard_amend_genesis_path(node):
     )
     if r.exitcode == 0:
         return '/home/ubuntu/neard.upgrade'
-    return None
+    raise Exception(f'`neard.upgrade amend-genesis` not available')
 
 
 # We assume that the nodes already have the .near directory with the files
@@ -524,12 +526,27 @@ def create_and_upload_genesis(
         neard = neard_amend_genesis_path(validator_nodes[1])
         pmap(
             lambda node: start_genesis_updater(
-                node, 'genesis_updater.py', genesis_filename_in,
-                records_filename_in, config_filename_in, '/home/ubuntu/.near/',
-                chain_id, validator_keys, rpc_node_names, done_filename,
-                epoch_length, node_pks, increasing_stakes, num_seats,
-                single_shard, all_node_pks, node_ips, neard),
-            validator_nodes + rpc_nodes)
+                node=node,
+                script='genesis_updater.py',
+                genesis_filename_in=genesis_filename_in,
+                records_filename_in=records_filename_in,
+                config_filename_in=config_filename_in,
+                out_dir='/home/ubuntu/.near/',
+                chain_id=chain_id,
+                validator_keys=validator_keys,
+                rpc_nodes=rpc_node_names,
+                done_filename=done_filename,
+                epoch_length=epoch_length,
+                node_pks=node_pks,
+                increasing_stakes=increasing_stakes,
+                num_seats=num_seats,
+                single_shard=single_shard,
+                all_node_pks=all_node_pks,
+                node_ips=node_ips,
+                neard=neard,
+            ),
+            validator_nodes + rpc_nodes,
+        )
         pmap(lambda node: wait_genesis_updater_done(node, done_filename),
              validator_nodes + rpc_nodes)
 
@@ -735,128 +752,13 @@ def neard_amend_genesis(neard, validator_keys, genesis_filename_in,
     subprocess.run(cmd, text=True)
 
 
-def do_create_genesis_file(validator_keys,
-                           genesis_filename_in,
-                           genesis_filename_out,
-                           records_filename_in,
-                           records_filename_out,
-                           rpc_node_names=None,
-                           chain_id=None,
-                           append=False,
-                           epoch_length=None,
-                           node_pks=None,
-                           increasing_stakes=0.0,
-                           num_seats=None,
-                           single_shard=False):
-    logger.info(f'create_genesis_file: validators: {validator_keys}')
-    logger.info(f'create_genesis_file: rpc_node_names: {rpc_node_names}')
-    with open(genesis_filename_in) as f:
-        genesis_config = json.load(f)
-    if append:
-        with open(records_filename_in) as f:
-            records = json.load(f)
-    else:
-        records = []
-
-    if chain_id:
-        if append:
-            assert genesis_config[
-                'chain_id'] != chain_id, 'Can only append to the original genesis once'
-
-        genesis_config['chain_id'] = chain_id
-
-    if append:
-        # Unstake all tokens from all existing accounts.
-        for record in records:
-            if 'Account' in record:
-                account = record['Account'].get('account', {})
-                locked = int(account.get('locked', 0))
-                if locked > 0:
-                    amount = int(account.get('amount', 0))
-                    account['amount'] = str(amount + locked)
-                    account['locked'] = 0
-
-    seen_accounts = set()
-    for record in records:
-        if 'Account' in record:
-            account_record = record['Account']
-            account_id = account_record.get('account_id', '')
-            if account_id in ACCOUNTS:
-                seen_accounts.add(account_id)
-                account = account_record.get('account', {})
-                account['amount'] = str(ACCOUNTS[account_id])
-
-    extra_records, validators = extra_genesis_records(validator_keys,
-                                                      rpc_node_names, node_pks,
-                                                      seen_accounts, num_seats,
-                                                      increasing_stakes)
-
-    records.extend(extra_records)
-
-    genesis_config['validators'] = validators
-    total_supply = 0
-    for record in records:
-        account = record.get('Account', {}).get('account', {})
-        total_supply += int(account.get('locked', 0))
-        total_supply += int(account.get('amount', 0))
-    genesis_config['total_supply'] = str(total_supply)
-    # Testing simple nightshade.
-    genesis_config['protocol_version'] = 49
-    genesis_config['epoch_length'] = int(epoch_length)
-    genesis_config['num_block_producer_seats'] = int(num_seats)
-    # Mainnet genesis disables protocol rewards, override to a value used today on mainnet.
-    genesis_config['protocol_reward_rate'] = [1, 10]
-    # Loadtest helper signs all transactions using the same block.
-    # Extend validity period to allow the same hash to be used for the whole duration of the test.
-    genesis_config['transaction_validity_period'] = 10**9
-    # Protocol upgrades require downtime, therefore make it harder to kickout validators.
-    # The default value of this parameter is 90.
-    genesis_config['block_producer_kickout_threshold'] = 10
-
-    if single_shard:
-        genesis_config['shard_layout'] = {'V0': {'num_shards': 1, 'version': 0}}
-        genesis_config['simple_nightshade_shard_layout'] = {}
-
-    # The json object gets truncated if I don't close and reopen the file.
-    with open(genesis_filename_out, 'w') as f:
-        json.dump(genesis_config, f, indent=2)
-    with open(records_filename_out, 'w') as f:
-        json.dump(records, f)
-
-
-def create_genesis_file(validator_keys,
-                        genesis_filename_in,
-                        records_filename_in,
-                        out_dir,
-                        rpc_node_names=None,
-                        chain_id=None,
-                        append=False,
-                        epoch_length=None,
-                        node_pks=None,
-                        increasing_stakes=0.0,
-                        num_seats=None,
-                        single_shard=False,
-                        neard=None):
-    if append and neard is not None:
-        neard_amend_genesis(neard, validator_keys, genesis_filename_in,
-                            records_filename_in, out_dir, rpc_node_names,
-                            chain_id, epoch_length, node_pks, increasing_stakes,
-                            num_seats, single_shard)
-    else:
-        genesis_filename_out = os.path.join(out_dir, 'genesis.json')
-        records_filename_out = os.path.join(out_dir, 'records.json')
-        do_create_genesis_file(validator_keys, genesis_filename_in,
-                               genesis_filename_out, records_filename_in,
-                               records_filename_out, rpc_node_names, chain_id,
-                               append, epoch_length, node_pks,
-                               increasing_stakes, num_seats, single_shard)
-
-
-def create_and_upload_genesis_file_from_empty_genesis(validator_node_and_stakes,
-                                                      rpc_nodes,
-                                                      chain_id=None,
-                                                      epoch_length=None,
-                                                      num_seats=None):
+def create_and_upload_genesis_file_from_empty_genesis(
+    validator_node_and_stakes,
+    rpc_nodes,
+    chain_id=None,
+    epoch_length=None,
+    num_seats=None,
+):
     node0 = validator_node_and_stakes[0][0]
     node0.machine.run(
         'rm -rf /home/ubuntu/.near-tmp && mkdir /home/ubuntu/.near-tmp && /home/ubuntu/neard --home /home/ubuntu/.near-tmp init --chain-id {}'
@@ -1202,12 +1104,25 @@ def reset_data(node, retries=0):
             )
 
 
-def start_genesis_updater_script(script, genesis_filename_in,
-                                 records_filename_in, config_filename_in,
-                                 out_dir, chain_id, validator_keys, rpc_nodes,
-                                 done_filename, epoch_length, node_pks,
-                                 increasing_stakes, num_seats, single_shard,
-                                 all_node_pks, node_ips, neard):
+def start_genesis_updater_script(
+    script,
+    genesis_filename_in,
+    records_filename_in,
+    config_filename_in,
+    out_dir,
+    chain_id,
+    validator_keys,
+    rpc_nodes,
+    done_filename,
+    epoch_length,
+    node_pks,
+    increasing_stakes,
+    num_seats,
+    single_shard,
+    all_node_pks,
+    node_ips,
+    neard,
+):
     validators = ','.join(
         [f'{account_id}={key}' for (account_id, key) in validator_keys.items()])
     cmd = ' '.join([
@@ -1301,27 +1216,26 @@ def wait_node_up(node):
     attempt = 0
     while True:
         try:
+            result = node.machine.run('ps -A | grep neard')
+            if result.returncode != 0:
+                raise Exception(f'{msg} - failed. The neard process crashed.')
+
             response = node.get_validators()
 
             if 'error' in response:
-                raise Exception(
-                    f'Received error from node {node.instance_name}. Error: {response["error"]}'
-                )
+                attempt += 1
+                logger.info(f'{msg}, attempt {attempt} error response.')
+                continue
             if 'result' not in response:
-                raise Exception(
-                    f'Received no result in response. Response: {response}')
+                attempt += 1
+                logger.info(f'{msg}, attempt {attempt} result missing.')
+                continue
 
             logger.info(f'{msg} - done.')
             return True
-        except (
-                ConnectionRefusedError,
-                requests.exceptions.ConnectionError,
-        ) as e:
+        except (ConnectionRefusedError, requests.exceptions.ConnectionError):
             attempt += 1
-            logger.info(f'{msg}, attempt {attempt}.')
-        except Exception as e:
-            attempt += 1
-            logger.info(f'{msg}, attempt {attempt} failed: {e}')
+            logger.info(f'{msg}, attempt {attempt} connection refused.')
         time.sleep(30)
 
 
@@ -1329,8 +1243,13 @@ def wait_all_nodes_up(all_nodes):
     pmap(lambda node: wait_node_up(node), all_nodes)
 
 
-def create_upgrade_schedule(rpc_nodes, validator_nodes, progressive_upgrade,
-                            increasing_stakes, num_block_producer_seats):
+def create_upgrade_schedule(
+    rpc_nodes,
+    validator_nodes,
+    progressive_upgrade,
+    increasing_stakes,
+    num_block_producer_seats,
+):
     schedule = {}
     if progressive_upgrade:
         # Re-create stakes assignment.
