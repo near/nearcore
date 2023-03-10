@@ -72,9 +72,11 @@ def measure_tps_bps(nodes, tx_filename):
     n = int(0.05 * len(input_tx_events))
     input_tx_events = input_tx_events[n:-n]
     input_tps = data.compute_rate(input_tx_events)
-    measurement = mocknet.chain_measure_bps_and_tps(nodes[-1],
-                                                    input_tx_events[0],
-                                                    input_tx_events[-1])
+    measurement = mocknet.chain_measure_bps_and_tps(
+        nodes[-1],
+        input_tx_events[0],
+        input_tx_events[-1],
+    )
     result = {
         'bps': measurement['bps'],
         'in_tps': input_tps,
@@ -141,9 +143,8 @@ if __name__ == '__main__':
 
     all_nodes = mocknet.get_nodes(pattern=pattern)
     random.shuffle(all_nodes)
-    assert len(
-        all_nodes
-    ) > num_nodes, f'Need at least one RPC node, all nodes {len(all_nodes)}, num nodes {num_nodes}'
+    assert len(all_nodes) > num_nodes, \
+        f'Need at least one RPC node, all nodes {len(all_nodes)}, num nodes {num_nodes}'
     validator_nodes = all_nodes[:num_nodes]
     logger.info(f'validator_nodes: {validator_nodes}')
     rpc_nodes = all_nodes[num_nodes:]
@@ -151,11 +152,13 @@ if __name__ == '__main__':
         f'Starting Load of {chain_id} test using {len(validator_nodes)} validator nodes and {len(rpc_nodes)} RPC nodes.'
     )
 
-    upgrade_schedule = mocknet.create_upgrade_schedule(rpc_nodes,
-                                                       validator_nodes,
-                                                       args.progressive_upgrade,
-                                                       args.increasing_stakes,
-                                                       args.num_seats)
+    upgrade_schedule = mocknet.create_upgrade_schedule(
+        rpc_nodes,
+        validator_nodes,
+        args.progressive_upgrade,
+        args.increasing_stakes,
+        args.num_seats,
+    )
     logger.info(f'upgrade_schedule: %s' % str(upgrade_schedule))
 
     if not args.skip_setup:
@@ -171,10 +174,14 @@ if __name__ == '__main__':
         # Make sure nodes are running by restarting them.
         mocknet.stop_nodes(all_nodes)
         time.sleep(10)
-        node_pks = pmap(lambda node: mocknet.get_node_keys(node)[0],
-                        validator_nodes)
-        all_node_pks = pmap(lambda node: mocknet.get_node_keys(node)[0],
-                            all_nodes)
+        node_pks = pmap(
+            lambda node: mocknet.get_node_keys(node)[0],
+            validator_nodes,
+        )
+        all_node_pks = pmap(
+            lambda node: mocknet.get_node_keys(node)[0],
+            all_nodes,
+        )
         pmap(lambda node: mocknet.init_validator_key(node), all_nodes)
         node_ips = [node.machine.ip for node in all_nodes]
         mocknet.create_and_upload_genesis(
@@ -187,7 +194,8 @@ if __name__ == '__main__':
             num_seats=args.num_seats,
             single_shard=args.no_sharding,
             all_node_pks=all_node_pks,
-            node_ips=node_ips)
+            node_ips=node_ips,
+        )
         mocknet.start_nodes(all_nodes, upgrade_schedule)
         time.sleep(60)
 
@@ -208,8 +216,13 @@ if __name__ == '__main__':
 
     if not args.skip_load:
         logger.info('Starting transaction spamming scripts.')
-        mocknet.start_load_test_helpers(validator_nodes, script, rpc_nodes,
-                                        num_nodes, max_tps)
+        mocknet.start_load_test_helpers(
+            validator_nodes,
+            script,
+            rpc_nodes,
+            num_nodes,
+            max_tps,
+        )
 
         initial_epoch_height = mocknet.get_epoch_height(rpc_nodes, -1)
         logger.info(f'initial_epoch_height: {initial_epoch_height}')
@@ -221,29 +234,49 @@ if __name__ == '__main__':
         prev_epoch_height = initial_epoch_height
         EPOCH_HEIGHT_CHECK_DELAY = 30
         while time.monotonic() - start_time < deploy_time:
-            epoch_height = mocknet.get_epoch_height(rpc_nodes,
-                                                    prev_epoch_height)
+            epoch_height = mocknet.get_epoch_height(
+                rpc_nodes,
+                prev_epoch_height,
+            )
             if epoch_height > prev_epoch_height:
-                mocknet.upgrade_nodes(epoch_height - initial_epoch_height,
-                                      upgrade_schedule, all_nodes)
+                mocknet.upgrade_nodes(
+                    epoch_height - initial_epoch_height,
+                    upgrade_schedule,
+                    all_nodes,
+                )
                 prev_epoch_height = epoch_height
             time.sleep(EPOCH_HEIGHT_CHECK_DELAY)
 
-        logger.info(
-            f'Waiting for the loadtest to complete: {test_timeout} seconds')
-        while time.monotonic() - start_time < test_timeout:
-            epoch_height = mocknet.get_epoch_height(rpc_nodes,
-                                                    prev_epoch_height)
+        waiting_msg = 'Waiting for the loadtest to complete'
+        logger.info(f'{waiting_msg}: {test_timeout}s')
+        while True:
+            remaining_time = test_timeout + start_time - time.monotonic()
+            if remaining_time < 0:
+                break
+
+            logger.info(f'{waiting_msg}: {remaining_time}s')
+
+            epoch_height = mocknet.get_epoch_height(
+                rpc_nodes,
+                prev_epoch_height,
+            )
             if epoch_height > prev_epoch_height:
-                mocknet.upgrade_nodes(epoch_height - initial_epoch_height,
-                                      upgrade_schedule, all_nodes)
+                mocknet.upgrade_nodes(
+                    epoch_height - initial_epoch_height,
+                    upgrade_schedule,
+                    all_nodes,
+                )
                 prev_epoch_height = epoch_height
             time.sleep(EPOCH_HEIGHT_CHECK_DELAY)
+
+        logger.info(f'{waiting_msg} - done')
 
         final_metrics = mocknet.get_metrics(archival_node)
         logger.info('All transaction types results:')
-        all_tx_measurement = measure_tps_bps(validator_nodes,
-                                             f'{mocknet.TX_OUT_FILE}.0')
+        all_tx_measurement = measure_tps_bps(
+            validator_nodes,
+            f'{mocknet.TX_OUT_FILE}.0',
+        )
         if all_tx_measurement['bps'] < 0.5:
             test_passed = False
             logger.error(f'bps is below 0.5: {all_tx_measurement["bps"]}')
@@ -260,9 +293,9 @@ if __name__ == '__main__':
     logger.info(f'final_validator_accounts: {final_validator_accounts}')
     if initial_validator_accounts != final_validator_accounts:
         test_passed = False
-        logger.error(
-            f'Mismatching set of validators:\n{initial_validator_accounts}\n{final_validator_accounts}'
-        )
+        logger.error(f'Mismatching set of validators:\n'
+                     f'{initial_validator_accounts}\n'
+                     f'{final_validator_accounts}')
 
     assert test_passed
     logger.info('Load test complete.')
