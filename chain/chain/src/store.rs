@@ -19,7 +19,7 @@ use near_primitives::sharding::{
 };
 use near_primitives::syncing::{
     get_num_state_parts, ReceiptProofResponse, ShardStateSyncResponseHeader, StateHeaderKey,
-    StatePartKey,
+    StatePartKey, StateSyncDumpProgress,
 };
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof,
@@ -837,6 +837,39 @@ impl ChainStore {
             return Ok(Some(result));
         }
         Ok(None)
+    }
+
+    /// Constructs key 'STATE_SYNC_DUMP:<ShardId>',
+    /// for example 'STATE_SYNC_DUMP:2' for shard_id=2.
+    /// Doesn't contain epoch_id, because only one dump process per shard is allowed.
+    fn state_sync_dump_progress_key(shard_id: ShardId) -> Vec<u8> {
+        let mut key = b"STATE_SYNC_DUMP:".to_vec();
+        key.extend(shard_id.to_le_bytes());
+        key
+    }
+
+    /// Retrieves STATE_SYNC_DUMP for the given shard.
+    pub fn get_state_sync_dump_progress(
+        &self,
+        shard_id: ShardId,
+    ) -> Result<Option<StateSyncDumpProgress>, Error> {
+        option_to_not_found(
+            self.store
+                .get_ser(DBCol::BlockMisc, &ChainStore::state_sync_dump_progress_key(shard_id)),
+            "STATE_SYNC_DUMP",
+        )
+    }
+
+    /// Updates STATE_SYNC_DUMP for the given shard.
+    pub fn set_state_sync_dump_progress(
+        &self,
+        shard_id: ShardId,
+        value: Option<StateSyncDumpProgress>,
+    ) -> Result<(), Error> {
+        let mut store_update = self.store.store_update();
+        let key = ChainStore::state_sync_dump_progress_key(shard_id);
+        store_update.set_ser(DBCol::BlockMisc, &key, &value)?;
+        store_update.commit().map_err(|err| err.into())
     }
 }
 

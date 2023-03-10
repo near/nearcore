@@ -412,7 +412,7 @@ impl S3Storage {
         let location = location_prefix(chain_id, epoch_height, shard_id);
         let bucket = s3::Bucket::new(
             &s3_bucket,
-            s3_region.parse().unwrap(),
+            s3_region.parse::<s3::Region>().unwrap(),
             s3::creds::Credentials::default().unwrap(),
         )
         .unwrap();

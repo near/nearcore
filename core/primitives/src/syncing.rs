@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_primitives_core::types::EpochHeight;
 
 use crate::block_header::BlockHeader;
 use crate::epoch_manager::block_info::BlockInfo;
@@ -10,7 +11,7 @@ use crate::merkle::{MerklePath, PartialMerkleTree};
 use crate::sharding::{
     ReceiptProof, ShardChunk, ShardChunkHeader, ShardChunkHeaderV1, ShardChunkV1,
 };
-use crate::types::{BlockHeight, ShardId, StateRoot, StateRootNode};
+use crate::types::{BlockHeight, EpochId, ShardId, StateRoot, StateRootNode};
 use crate::views::LightClientBlockView;
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
@@ -225,4 +226,33 @@ pub fn get_num_state_parts(memory_usage: u64) -> u64 {
     // several parts to make sure that partitioning always works.
     // TODO #1708
     memory_usage / STATE_PART_MEMORY_LIMIT.as_u64() + 3
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
+/// Represents the progress of dumps state of a shard.
+pub enum StateSyncDumpProgress {
+    /// Represents two cases:
+    /// * An epoch dump is complete
+    /// * The node is running its first epoch and there is nothing to dump.
+    AllDumped {
+        /// The dumped state corresponds to the state at the beginning of the specified epoch.
+        epoch_id: EpochId,
+        epoch_height: EpochHeight,
+        // Missing in case of a node running the first epoch.
+        num_parts: Option<u64>,
+    },
+    /// Represents the case of an epoch being partially dumped.
+    InProgress {
+        /// The dumped state corresponds to the state at the beginning of the specified epoch.
+        epoch_id: EpochId,
+        epoch_height: EpochHeight,
+        /// Block hash of the first block of the epoch.
+        /// The dumped state corresponds to the state before applying this block.
+        sync_hash: CryptoHash,
+        /// Root of the state being dumped.
+        state_root: StateRoot,
+        /// Progress made.
+        parts_dumped: u64,
+        num_parts: u64,
+    },
 }
