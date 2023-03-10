@@ -16,8 +16,13 @@ from configured_logger import logger
 
 class TestState:
 
-    def __init__(self, node_account, test_accounts, max_tps_per_node,
-                 rpc_infos):
+    def __init__(
+        self,
+        node_account,
+        test_accounts,
+        max_tps_per_node,
+        rpc_infos,
+    ):
         self.node_account = node_account
         self.test_accounts = test_accounts
         self.max_tps_per_node = max_tps_per_node
