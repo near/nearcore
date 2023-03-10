@@ -43,20 +43,6 @@ pub(crate) static SENT_BYTES_PER_SECOND: Lazy<IntGauge> = Lazy::new(|| {
     .unwrap()
 });
 
-// Deprecated.
-pub(crate) static BLOCKS_PER_MINUTE: Lazy<IntGauge> = Lazy::new(|| {
-    try_create_int_gauge("near_blocks_per_minute", "Blocks produced per minute").unwrap()
-});
-
-// Deprecated.
-pub(crate) static CHUNKS_PER_BLOCK_MILLIS: Lazy<IntGauge> = Lazy::new(|| {
-    try_create_int_gauge(
-        "near_chunks_per_block_millis",
-        "Average number of chunks included in blocks",
-    )
-    .unwrap()
-});
-
 pub(crate) static CPU_USAGE: Lazy<IntGauge> =
     Lazy::new(|| try_create_int_gauge("near_cpu_usage_ratio", "Percent of CPU usage").unwrap());
 
@@ -66,15 +52,6 @@ pub(crate) static MEMORY_USAGE: Lazy<IntGauge> = Lazy::new(|| {
 
 pub(crate) static GC_TIME: Lazy<Histogram> = Lazy::new(|| {
     try_create_histogram("near_gc_time", "Time taken to do garbage collection").unwrap()
-});
-
-// Deprecated.
-pub(crate) static AVG_TGAS_USAGE: Lazy<IntGauge> = Lazy::new(|| {
-    try_create_int_gauge(
-        "near_chunk_tgas_used",
-        "Number of Tgas (10^12 of gas) used by the last processed chunks",
-    )
-    .unwrap()
 });
 
 pub(crate) static TGAS_USAGE_HIST: Lazy<HistogramVec> = Lazy::new(|| {

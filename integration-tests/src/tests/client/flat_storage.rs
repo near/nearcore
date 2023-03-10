@@ -97,6 +97,7 @@ fn wait_for_flat_storage_creation(
 fn test_flat_storage_creation() {
     init_test_logger();
     let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
+    let shard_uid = ShardLayout::v0_single_shard().get_shard_uids()[0];
     let store = create_test_store();
 
     // Process some blocks with flat storage. Then remove flat storage data from disk.
@@ -120,14 +121,17 @@ fn test_flat_storage_creation() {
             // Deltas for blocks until `START_HEIGHT - 2` should not exist.
             for height in 0..START_HEIGHT - 2 {
                 let block_hash = env.clients[0].chain.get_block_hash_by_height(height).unwrap();
-                assert_eq!(store_helper::get_delta_changes(&store, 0, block_hash), Ok(None));
+                assert_eq!(
+                    store_helper::get_delta_changes(&store, shard_uid, block_hash),
+                    Ok(None)
+                );
             }
             // Deltas for blocks until `START_HEIGHT` should still exist,
             // because they come after flat storage head.
             for height in START_HEIGHT - 2..START_HEIGHT {
                 let block_hash = env.clients[0].chain.get_block_hash_by_height(height).unwrap();
                 assert_matches!(
-                    store_helper::get_delta_changes(&store, 0, block_hash),
+                    store_helper::get_delta_changes(&store, shard_uid, block_hash),
                     Ok(Some(_))
                 );
             }
@@ -170,7 +174,10 @@ fn test_flat_storage_creation() {
     );
     for height in START_HEIGHT..START_HEIGHT + 2 {
         let block_hash = env.clients[0].chain.get_block_hash_by_height(height).unwrap();
-        assert_matches!(store_helper::get_delta_changes(&store, 0, block_hash), Ok(Some(_)));
+        assert_matches!(
+            store_helper::get_delta_changes(&store, shard_uid, block_hash),
+            Ok(Some(_))
+        );
     }
 
     // Produce new block and run flat storage creation step.

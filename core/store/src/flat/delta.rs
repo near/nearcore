@@ -3,7 +3,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::hash::hash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::ValueRef;
-use near_primitives::types::{RawStateChangesWithTrieKey, ShardId};
+use near_primitives::types::RawStateChangesWithTrieKey;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -20,12 +20,19 @@ pub struct FlatStateDeltaMetadata {
     pub block: BlockInfo,
 }
 
-#[derive(BorshSerialize, BorshDeserialize)]
 pub struct KeyForFlatStateDelta {
-    pub shard_id: ShardId,
+    pub shard_uid: ShardUId,
     pub block_hash: CryptoHash,
 }
 
+impl KeyForFlatStateDelta {
+    pub fn to_bytes(&self) -> [u8; 40] {
+        let mut res = [0; 40];
+        res[..8].copy_from_slice(&self.shard_uid.to_bytes());
+        res[8..].copy_from_slice(self.block_hash.as_bytes());
+        res
+    }
+}
 /// Delta of the state for some shard and block, stores mapping from keys to value refs or None, if key was removed in
 /// this block.
 #[derive(BorshSerialize, BorshDeserialize, Clone, Default, Debug, PartialEq, Eq)]
