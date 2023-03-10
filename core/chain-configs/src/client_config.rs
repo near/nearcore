@@ -166,19 +166,15 @@ pub struct ClientConfig {
     pub client_background_migration_threads: usize,
     /// Duration to perform background flat storage creation step.
     pub flat_storage_creation_period: Duration,
-    /// Whether to enable dumping state of every epoch to S3.
-    pub state_dump_enabled: bool,
+    /// If enabled, will dump state of every epoch to external storage.
+    pub state_sync_dump_enabled: bool,
     /// S3 bucket for storing state dumps.
     pub state_sync_s3_bucket: String,
     /// S3 region for storing state dumps.
     pub state_sync_s3_region: String,
-    /// Discard the existing progress of dumping an epoch state to S3.
-    pub state_sync_dump_drop_state: Vec<ShardId>,
-    /// Whether to enable state sync from S3.
-    /// If disabled will perform state sync from the peers.
-    pub state_sync_from_s3_enabled: bool,
-    /// Number of parallel in-flight requests allowed per shard.
-    pub state_sync_num_s3_requests_per_shard: u64,
+    /// Restart dumping state of selected shards.
+    /// Use for troubleshooting of the state dumping process.
+    pub state_sync_restart_dump_for_shards: Vec<ShardId>,
 }
 
 impl ClientConfig {
@@ -248,12 +244,10 @@ impl ClientConfig {
             enable_statistics_export: true,
             client_background_migration_threads: 1,
             flat_storage_creation_period: Duration::from_secs(1),
-            state_dump_enabled: false,
-            state_sync_from_s3_enabled: false,
+            state_sync_dump_enabled: false,
             state_sync_s3_bucket: String::new(),
             state_sync_s3_region: String::new(),
-            state_sync_dump_drop_state: vec![],
-            state_sync_num_s3_requests_per_shard: 100,
+            state_sync_restart_dump_for_shards: vec![],
         }
     }
 }
