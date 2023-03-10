@@ -1,5 +1,3 @@
-use borsh::{BorshDeserialize, BorshSerialize};
-
 use crate::hash::CryptoHash;
 use crate::types::{AccountId, NumShards};
 use near_primitives_core::types::ShardId;
