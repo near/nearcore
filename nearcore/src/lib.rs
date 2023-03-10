@@ -270,8 +270,8 @@ pub fn start_with_config_and_synchronization(
 
     let state_sync_dump_handle = spawn_state_sync_dump(
         &config,
-        chain_genesis.clone(),
-        runtime.clone(),
+        chain_genesis,
+        runtime,
         config.network_config.node_id().public_key(),
     )?;
 

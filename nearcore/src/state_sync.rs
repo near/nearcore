@@ -281,13 +281,12 @@ fn update_progress(
     let next_progress = StateSyncDumpProgress::InProgress {
         epoch_id: epoch_id.clone(),
         epoch_height,
-        sync_hash: sync_hash.clone(),
-        state_root: state_root.clone(),
+        sync_hash: *sync_hash,
+        state_root: *state_root,
         parts_dumped: part_id + 1,
         num_parts,
     };
-    match chain.store().set_state_sync_dump_progress(shard_id.clone(), Some(next_progress.clone()))
-    {
+    match chain.store().set_state_sync_dump_progress(*shard_id, Some(next_progress.clone())) {
         Ok(_) => {
             tracing::debug!(target: "state_sync_dump", shard_id, ?next_progress, "Updated dump progress");
         }
@@ -343,7 +342,7 @@ fn get_state_part(
             .with_label_values(&[&shard_id.to_string()])
             .start_timer();
         runtime.obtain_state_part(
-            shard_id.clone(),
+            *shard_id,
             &sync_hash,
             &state_root,
             PartId::new(part_id, num_parts),
@@ -351,7 +350,7 @@ fn get_state_part(
     };
 
     // Save the part data.
-    let key = StatePartKey(sync_hash.clone(), shard_id.clone(), part_id).try_to_vec()?;
+    let key = StatePartKey(*sync_hash, *shard_id, part_id).try_to_vec()?;
     let mut store_update = chain.store().store().store_update();
     store_update.set(DBCol::StateParts, &key, &state_part);
     store_update.commit()?;
@@ -419,7 +418,7 @@ fn check_new_epoch(
             // Still in the latest dumped epoch. Do nothing.
             Ok(None)
         } else {
-            start_dumping(head.epoch_id.clone(), sync_hash, shard_id, &chain, runtime)
+            start_dumping(head.epoch_id, sync_hash, shard_id, &chain, runtime)
         }
     }
 }
