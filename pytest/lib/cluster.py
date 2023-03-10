@@ -321,9 +321,8 @@ class BaseNode(object):
                 "finality": finality,
             })
 
-    def get_nonce_for_pk(self, acc, pk, finality='optimistic'):
-        for access_key in self.get_access_key_list(acc,
-                                                   finality)['result']['keys']:
+    def get_nonce_for_pk(self, acc, pk):
+        for access_key in self.get_access_key_list(acc)['result']['keys']:
             if access_key['public_key'] == pk:
                 return access_key['access_key']['nonce']
         return None
