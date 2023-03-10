@@ -222,7 +222,7 @@ fn test_query_access_keys() {
         let query_response = client
             .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
                 block_reference: BlockReference::latest(),
-                request: QueryRequest::ViewAccessKeyList { account_id: "test".parse().unwrap()},
+                request: QueryRequest::ViewAccessKeyList { account_id: "test".parse().unwrap() },
             })
             .await
             .unwrap();

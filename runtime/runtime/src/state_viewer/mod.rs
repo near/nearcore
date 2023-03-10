@@ -84,9 +84,7 @@ impl TrieViewer {
                 errors::ViewAccessKeyError::AccessKeyDoesNotExist { public_key: public_key.clone() }
             })?;
 
-        let mut view_result = ViewAccessKeyResult { access_key: access_key, proof: None };
-
-        if include_proof {
+        let proof = if include_proof {
             let key = TrieKey::AccessKey {
                 account_id: account_id.clone(),
                 public_key: public_key.clone(),
@@ -94,13 +92,15 @@ impl TrieViewer {
             .to_vec();
 
             let mut iter = state_update.trie().iter()?;
-            iter.remember_visited_nodes(include_proof);
+            iter.remember_visited_nodes(true);
             iter.seek_prefix(key)?;
 
-            let proof = iter.into_visited_nodes();
-            view_result.proof = Some(proof)
-        }
-        Ok(view_result)
+            Some(iter.into_visited_nodes())
+        } else {
+            None
+        };
+
+        Ok(ViewAccessKeyResult { access_key: access_key, proof: proof })
     }
 
     pub fn view_access_keys(
@@ -110,7 +110,6 @@ impl TrieViewer {
     ) -> Result<Vec<(PublicKey, AccessKey)>, errors::ViewAccessKeyError> {
         let prefix = trie_key_parsers::get_raw_prefix_for_access_keys(account_id);
         let raw_prefix: &[u8] = prefix.as_ref();
-
         let access_keys =
             state_update
                 .iter(&prefix)?
