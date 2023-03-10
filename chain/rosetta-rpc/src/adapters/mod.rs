@@ -7,10 +7,6 @@ use validated_operations::ValidatedOperation;
 
 use crate::utils::BlobInHexString;
 
-use self::validated_operations::{
-    initiate_delegate_action, intitiate_signed_delegate_action, signed_delegate_action,
-};
-
 mod transactions;
 mod validated_operations;
 
@@ -442,7 +438,7 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                         .try_to_vec()
                         .expect("Failed to deseralize")
                         .into();
-                    let singing_payload = crate::models::SigningPayload {
+                    let signing_payload = crate::models::SigningPayload {
                         account_identifier: action.delegate_action.clone().sender_id.into(),
                         signature_type: Some(action.signature.key_type().into()),
                         hex_bytes: hex_bytes.clone(),
@@ -451,8 +447,13 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                         crate::models::OperationIdentifier::new(&operations);
 
                     operations.push(validated_operations::signed_delegate_action::SignedDelegateActionOperation {
-                                                receiver_id: receiver_account_identifier.clone(),
-                                                signature : crate::models::Signature::from_signature(action.signature, (&action.delegate_action.public_key.clone()).into(), singing_payload, hex_bytes)
+                        receiver_id: receiver_account_identifier.clone(),
+                        signature: crate::models::Signature::from_signature(
+                            action.signature,
+                            (&action.delegate_action.public_key.clone()).into(),
+                            signing_payload,
+                            hex_bytes,
+                        )
                     }.into_related_operation(
                         signed_delegate_action_operation_id.clone(),
                         vec![intitiate_signed_delegate_action_operation_id],
@@ -462,7 +463,7 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                         crate::models::OperationIdentifier::new(&operations);
 
                     operations.push(validated_operations::initiate_delegate_action::InitiateDelegateActionOperation{
-                        sender_account: action.delegate_action.clone().sender_id.into()
+                        sender_account: action.delegate_action.sender_id.clone().into()
                     }.into_related_operation(initiate_delegate_action_operation_id.clone(), vec![signed_delegate_action_operation_id]));
 
                     let delegate_action_operation_id =
@@ -473,7 +474,23 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                     operations.push(delegate_action_operation.into_related_operation(
                         delegate_action_operation_id,
                         vec![initiate_delegate_action_operation_id],
-                    ))
+                    ));
+
+                    // We know that there are no delegate actions inside so this is guaranteed to
+                    // be a single-level recursion.
+                    let delegated_operations: Vec<crate::models::Operation> = NearActions {
+                        sender_account_id: action.delegate_action.sender_id.clone(),
+                        receiver_account_id: action.delegate_action.receiver_id.clone(),
+                        actions: action
+                            .delegate_action
+                            .actions
+                            .into_iter()
+                            .map(|a| a.into())
+                            .collect::<Vec<near_primitives::transaction::Action>>(),
+                    }
+                    .into();
+
+                    operations.extend(delegated_operations);
                 } // TODO(#8469): Implement delegate action support, for now they are ignored.
             }
         }
@@ -704,13 +721,13 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                     )
                 }
                 crate::models::OperationType::SignedDelegateAction => {
-                    let delegate_action_operation =
-                        validated_operations::delegate_action::DelegateActionOperation::try_from(
-                            tail_operation,
-                        )?;
-                    let initiate_delegate_action_operation = validated_operations::initiate_delegate_action::InitiateDelegateActionOperation::try_from(tail_operation)?;
+                    let delegate_action_operation: validated_operations::delegate_action::DelegateActionOperation = todo!();
+                    // validated_operations::signed_delegate_action::SignedDelegateActionOperation::try_from(
+                    //     tail_operation,
+                    // )?;
+                    let initiate_delegate_action_operation = validated_operations::initiate_delegate_action::InitiateDelegateActionOperation::try_from_option(operations.next())?;
 
-                    let signed_delegate_action_operation = validated_operations::signed_delegate_action::SignedDelegateActionOperation::try_from(tail_operation)?;
+                    let signed_delegate_action_operation = validated_operations::signed_delegate_action::SignedDelegateActionOperation::try_from_option(operations.next())?;
                     receiver_account_id.try_set(&signed_delegate_action_operation.receiver_id)?;
 
                     let intitiate_signed_delegate_action_operation = validated_operations::initiate_delegate_action::InitiateDelegateActionOperation::try_from_option(operations.next())?;
@@ -730,17 +747,56 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                                     .address
                                     .parse()
                                     .unwrap(),
-                                actions: delegate_action_operation.operations,
+                                actions: {
+                                    let sub_near_actions_wrapper: NearActions = delegate_action_operation
+                                        .operations
+                                        .into_iter()
+                                        .map(|o| crate::models::Operation::from(o))
+                                        .collect::<Vec<_>>()
+                                        .try_into()?;
+
+                                    // make sure that the delegated actions are consistent with the
+                                    // containing DelegateAction
+                                    if Some(sub_near_actions_wrapper.sender_account_id.clone().into())
+                                        != *sender_account_id.as_ref()
+                                    {
+                                        return Err(crate::errors::ErrorKind::InvalidInput(format!(
+                                            "Delegated action sender `{}` does not equal the receiver of the delegate action `{:?}`",
+                                            sub_near_actions_wrapper.sender_account_id, sender_account_id.into_inner(),
+                                        )));
+                                    }
+
+                                    // Rewrite when .try_collect() is stable
+                                    let sub_actions_results = sub_near_actions_wrapper.actions.into_iter().map(|a| a.try_into()).collect::<Vec<_>>();
+                                    let sub_actions = {
+                                        let mut actions = vec![];
+                                        for r in sub_actions_results.into_iter() {
+                                            if let Ok(r) = r {
+                                                actions.push(r);
+                                            } else {
+                                                return Err(crate::errors::ErrorKind::InvalidInput("Delegate action contains nested delegate action".to_string()));
+                                            }
+                                        }
+                                        actions
+                                    };
+
+                                    sub_actions
+                                },
                                 nonce: delegate_action_operation.nonce,
                                 max_block_height: delegate_action_operation.max_block_height,
-                                public_key: delegate_action_operation.public_key.into(),
+                                public_key:  match (&delegate_action_operation.public_key).try_into() {
+                                    Ok(o) => o,
+                                    Err(_) => return Err(crate::errors::ErrorKind::InvalidInput("Invalid public key on delegate action".to_string())),
+                                },
                             },
-                            signature: signed_delegate_action_operation.signature.into(),
+                            signature: match (&signed_delegate_action_operation.signature).try_into() {
+                                Ok(s) => s,
+                                Err(_) => return Err(crate::errors::ErrorKind::InvalidInput("Failed to parse delegate action signature".to_string())),
+                            },
                         }
                         .into(),
                     )
                 }
-                // crate::models::OperationType::SignedDelegateAction
                 crate::models::OperationType::InitiateCreateAccount
                 | crate::models::OperationType::InitiateDeleteAccount
                 | crate::models::OperationType::InitiateAddKey
@@ -1060,10 +1116,9 @@ mod tests {
             status: None,
             metadata: None,
         }];
-        assert!(matches!(
-            NearActions::try_from(operations),
-            Err(crate::errors::ErrorKind::InvalidInput(_))
-        ));
+        let value = NearActions::try_from(operations);
+        dbg!(&value);
+        assert!(matches!(value, Err(crate::errors::ErrorKind::InvalidInput(_))));
     }
 
     #[test]

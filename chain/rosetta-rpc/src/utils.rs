@@ -469,6 +469,15 @@ where
     }
 }
 
+impl<'a, T> AsRef<Option<T>> for InitializeOnce<'a, T>
+where
+    T: std::fmt::Debug + std::clone::Clone + std::cmp::Eq,
+{
+    fn as_ref(&self) -> &Option<T> {
+        &self.known_value
+    }
+}
+
 /// Get a block with `block_id`.
 /// Returns `Ok(Some(_))` if the block exists and is final.
 /// Returns `Ok(None)` if the block does not exist or is not final.

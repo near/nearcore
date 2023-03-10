@@ -25,6 +25,7 @@ mod deploy_contract;
 mod function_call;
 mod initiate_add_key;
 mod initiate_create_account;
+pub mod initiate_delegate_action;
 mod initiate_delete_account;
 mod initiate_delete_key;
 mod initiate_deploy_contract;
@@ -34,7 +35,6 @@ mod refund_delete_account;
 pub mod signed_delegate_action;
 mod stake;
 mod transfer;
-pub mod initiate_delegate_action;
 
 pub(crate) trait ValidatedOperation:
     TryFrom<crate::models::Operation, Error = crate::errors::ErrorKind>

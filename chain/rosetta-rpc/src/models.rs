@@ -879,14 +879,15 @@ impl From<NonDelegateActionOperation> for crate::models::Operation {
     }
 }
 
-impl TryFrom<NonDelegateActionOperation> for near_primitives::delegate_action::NonDelegateAction {
-    type Error = crate::errors::ErrorKind;
-
-    fn try_from(value: NonDelegateActionOperation) -> Result<Self, Self::Error> {
-        let near_action = crate::adapters::NearActions::try_from(value.0);
-        Ok(near_primitives::delegate_action::NonDelegateAction { 0:  })
-    }
-}
+// impl TryFrom<NonDelegateActionOperation> for near_primitives::delegate_action::NonDelegateAction {
+//     type Error = crate::errors::ErrorKind;
+//
+//     fn try_from(value: NonDelegateActionOperation) -> Result<Self, Self::Error> {
+//         todo!()
+//         // let near_action = crate::adapters::NearActions::try_from(value.0);
+//         // Ok(near_primitives::delegate_action::NonDelegateAction { 0:  })
+//     }
+// }
 // impl Into<Vec<near_primitives::delegate_action::NonDelegateAction>>
 //     for Vec<NonDelegateActionOperation>
 // {
