@@ -70,7 +70,8 @@ def main(argv):
     assert all_node_pks
     assert node_ips
 
-    mocknet.create_genesis_file(
+    mocknet.neard_amend_genesis(
+        neard=neard,
         validator_keys=validator_keys,
         genesis_filename_in=genesis_filename_in,
         records_filename_in=records_filename_in,
@@ -82,7 +83,6 @@ def main(argv):
         increasing_stakes=increasing_stakes,
         num_seats=num_seats,
         single_shard=single_shard,
-        neard=neard,
     )
     config_filename_out = os.path.join(out_dir, 'config.json')
     mocknet.update_config_file(

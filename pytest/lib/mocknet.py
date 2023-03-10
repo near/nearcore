@@ -165,8 +165,14 @@ def setup_python_environments(nodes, wasm_contract):
     pmap(lambda n: setup_python_environment(n, wasm_contract), nodes)
 
 
-def start_load_test_helper_script(script, node_account_id, rpc_nodes, num_nodes,
-                                  max_tps, leader_account_id):
+def start_load_test_helper_script(
+    script,
+    node_account_id,
+    rpc_nodes,
+    num_nodes,
+    max_tps,
+    leader_account_id,
+):
     s = '''
         cd {dir}
         nohup ./venv/bin/python {script} {node_account_id} {rpc_nodes} {num_nodes} {max_tps} {leader_account_id} 1>load_test.out 2>load_test.err < /dev/null &
@@ -218,7 +224,9 @@ def start_load_test_helpers(nodes, script, rpc_nodes, num_nodes, max_tps):
             num_nodes,
             max_tps,
             lead_account_id=account.account_id,
-        ), nodes)
+        ),
+        nodes,
+    )
 
 
 def get_log(node):
@@ -321,8 +329,10 @@ def get_tx_events_single_node(node, tx_filename):
 def get_tx_events(nodes, tx_filename):
     run('mkdir ./logs/')
     run('rm -rf ./logs/*_txs')
-    all_events = pmap(lambda node: get_tx_events_single_node(node, tx_filename),
-                      nodes)
+    all_events = pmap(
+        lambda node: get_tx_events_single_node(node, tx_filename),
+        nodes,
+    )
     return sorted(data.flatten(all_events))
 
 
@@ -524,7 +534,7 @@ def create_and_upload_genesis(
                 out_dir='/home/ubuntu/.near/',
                 chain_id=chain_id,
                 validator_keys=validator_keys,
-                rpc_node_names=rpc_node_names,
+                rpc_nodes=rpc_node_names,
                 done_filename=done_filename,
                 epoch_length=epoch_length,
                 node_pks=node_pks,
@@ -740,34 +750,6 @@ def neard_amend_genesis(neard, validator_keys, genesis_filename_in,
         cmd.extend(['--shard-layout-file', shard_layout_filename])
 
     subprocess.run(cmd, text=True)
-
-
-def create_genesis_file(validator_keys,
-                        genesis_filename_in,
-                        records_filename_in,
-                        out_dir,
-                        rpc_node_names=None,
-                        chain_id=None,
-                        epoch_length=None,
-                        node_pks=None,
-                        increasing_stakes=0.0,
-                        num_seats=None,
-                        single_shard=False,
-                        neard=None):
-    neard_amend_genesis(
-        neard,
-        validator_keys,
-        genesis_filename_in,
-        records_filename_in,
-        out_dir,
-        rpc_node_names,
-        chain_id,
-        epoch_length,
-        node_pks,
-        increasing_stakes,
-        num_seats,
-        single_shard,
-    )
 
 
 def create_and_upload_genesis_file_from_empty_genesis(
@@ -1229,10 +1211,6 @@ def wait_genesis_updater_done(node, done_filename):
 # list_validators but assumes that the node can still be starting and expects
 # connection errors and the data not being available.
 def wait_node_up(node):
-
-    class NeardResponseException(Exception):
-        pass
-
     msg = f'Waiting for node {node.instance_name} to start'
     logger.info(msg)
     attempt = 0
@@ -1245,18 +1223,19 @@ def wait_node_up(node):
             response = node.get_validators()
 
             if 'error' in response:
-                raise NeardResponseException('error')
+                attempt += 1
+                logger.info(f'{msg}, attempt {attempt} error response.')
+                continue
             if 'result' not in response:
-                raise NeardResponseException('result missing')
+                attempt += 1
+                logger.info(f'{msg}, attempt {attempt} result missing.')
+                continue
 
             logger.info(f'{msg} - done.')
             return True
         except (ConnectionRefusedError, requests.exceptions.ConnectionError):
             attempt += 1
             logger.info(f'{msg}, attempt {attempt} connection refused.')
-        except NeardResponseException:
-            attempt += 1
-            logger.info(f'{msg}, attempt {attempt} error response.')
         time.sleep(30)
 
 
