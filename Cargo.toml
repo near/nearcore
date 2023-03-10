@@ -209,7 +209,7 @@ wasm-encoder = "0.11.0"
 wasm-smith = "0.10"
 wasmparser = "0.78"
 wasmprinter = "0.2"
-wasmtime = { version = "4.0.0", default-features = false, features = ["cranelift"] }
+wasmtime = { version = "4.0.1", default-features = false, features = ["cranelift"] }
 wat = "1.0.40"
 webrtc-util = "0.7"
 xshell = "0.2.1"
