@@ -8,7 +8,7 @@ pub(crate) fn prepare_contract(
     kind: VMKind,
 ) -> Result<Vec<u8>, PrepareError> {
     let original_code = early_prepare(original_code, config)?;
-    if matches!(kind, VMKind::NearVm) {
+    if kind == VMKind::NearVm {
         // Built-in near-vm code instruments code for itself.
         return Ok(original_code);
     }
