@@ -3,7 +3,7 @@ use crate::{actions::execute_function_call, ext::RuntimeExt};
 use near_crypto::{KeyType, PublicKey};
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::{
-    account::{AccessKey, Account},
+    account::{Account},
     borsh::BorshDeserialize,
     contract::ContractCode,
     hash::CryptoHash,
