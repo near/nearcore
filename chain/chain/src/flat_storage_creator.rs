@@ -17,7 +17,7 @@ use near_o11y::metrics::{IntCounter, IntGauge};
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::ValueRef;
 use near_primitives::state_part::PartId;
-use near_primitives::types::{AccountId, BlockHeight, ShardId, StateRoot};
+use near_primitives::types::{AccountId, BlockHeight, StateRoot};
 use near_store::flat::{
     store_helper, FetchingStateStatus, FlatStateChanges, FlatStorageCreationStatus,
     NUM_PARTS_IN_ONE_STEP, STATE_PART_MEMORY_LIMIT,
