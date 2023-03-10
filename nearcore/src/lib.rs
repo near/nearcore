@@ -2,6 +2,7 @@ use crate::cold_storage::spawn_cold_store_loop;
 pub use crate::config::{init_configs, load_config, load_test_config, NearConfig, NEAR_BASE};
 pub use crate::runtime::NightshadeRuntime;
 pub use crate::shard_tracker::TrackedConfig;
+use crate::state_sync::{spawn_state_sync_dump, StateSyncDumpHandle};
 use actix::{Actor, Addr};
 use actix_rt::ArbiterHandle;
 use actix_web;
@@ -12,17 +13,17 @@ use near_async::messaging::{IntoSender, LateBoundSender};
 use near_chain::{Chain, ChainGenesis};
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::{start_client, start_view_client, ClientActor, ConfigUpdater, ViewClientActor};
-use near_primitives::time;
-
 use near_network::PeerManagerActor;
 use near_primitives::block::GenesisId;
+use near_primitives::time;
 use near_store::metadata::DbKind;
 use near_store::{DBCol, Mode, NodeStorage, Store, StoreOpenerError};
 use near_telemetry::TelemetryActor;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::broadcast;
-use tracing::{info, trace};
+use tracing::info;
+
 pub mod append_only_map;
 mod cold_storage;
 pub mod config;
@@ -33,6 +34,7 @@ mod metrics;
 pub mod migrations;
 mod runtime;
 mod shard_tracker;
+mod state_sync;
 
 pub fn get_default_home() -> PathBuf {
     if let Ok(near_home) = std::env::var("NEAR_HOME") {
@@ -188,6 +190,8 @@ pub struct NearNode {
     /// The cold_store_loop_handle will only be set if the cold store is configured.
     /// It's a handle to a background thread that copies data from the hot store to the cold store.
     pub cold_store_loop_handle: Option<ColdStoreLoopHandle>,
+    /// Contains handles to background threads that may be dumping state to S3.
+    pub state_sync_dump_handle: Option<StateSyncDumpHandle>,
 }
 
 pub fn start_with_config(home_dir: &Path, config: NearConfig) -> anyhow::Result<NearNode> {
@@ -242,7 +246,7 @@ pub fn start_with_config_and_synchronization(
     );
     let (client_actor, client_arbiter_handle) = start_client(
         config.client_config.clone(),
-        chain_genesis,
+        chain_genesis.clone(),
         runtime.clone(),
         node_id,
         network_adapter.clone().into(),
@@ -255,7 +259,7 @@ pub fn start_with_config_and_synchronization(
     );
     client_adapter_for_shards_manager.bind(client_actor.clone().with_auto_span_context());
     let (shards_manager_actor, shards_manager_arbiter_handle) = start_shards_manager(
-        runtime,
+        runtime.clone(),
         network_adapter.as_sender(),
         client_adapter_for_shards_manager.as_sender(),
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
@@ -263,6 +267,13 @@ pub fn start_with_config_and_synchronization(
         config.client_config.chunk_request_retry_period,
     );
     shards_manager_adapter.bind(shards_manager_actor);
+
+    let state_sync_dump_handle = spawn_state_sync_dump(
+        &config,
+        chain_genesis,
+        runtime,
+        config.network_config.node_id().public_key(),
+    )?;
 
     #[allow(unused_mut)]
     let mut rpc_servers = Vec::new();
@@ -304,7 +315,7 @@ pub fn start_with_config_and_synchronization(
 
     rpc_servers.shrink_to_fit();
 
-    trace!(target: "diagnostic", key="log", "Starting NEAR node with diagnostic activated");
+    tracing::trace!(target: "diagnostic", key = "log", "Starting NEAR node with diagnostic activated");
 
     Ok(NearNode {
         client: client_actor,
@@ -312,6 +323,7 @@ pub fn start_with_config_and_synchronization(
         rpc_servers,
         arbiters: vec![client_arbiter_handle, shards_manager_arbiter_handle],
         cold_store_loop_handle,
+        state_sync_dump_handle,
     })
 }
 
