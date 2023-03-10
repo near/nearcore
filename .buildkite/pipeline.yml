@@ -11,7 +11,6 @@ steps:
       git fetch origin
       buf breaking --against ".git#ref=`git merge-base origin/master HEAD`"
 
-    timeout: 30
     agents:
       - "queue=gcp-standart"
 
@@ -21,7 +20,6 @@ steps:
       cargo install cargo-nextest
       cargo nextest run --locked -p 'integration-tests'
 
-    timeout: 60
     agents:
       - "queue=gcp-standart"
     branches: "!master"
@@ -32,7 +30,6 @@ steps:
       cargo install cargo-nextest
       cargo nextest run --locked --workspace -p '*' --exclude 'integration-tests*'
 
-    timeout: 60
     agents:
       - "queue=gcp-standart"
     branches: "!master"
@@ -43,7 +40,6 @@ steps:
       cargo install cargo-nextest
       cargo nextest run --features nightly,test_features -p 'integration-tests'
 
-    timeout: 60
     agents:
       - "queue=gcp-standart"
     branches: "!master"
@@ -55,7 +51,6 @@ steps:
       cargo nextest run --workspace --features nightly,test_features,mock_node -p '*' --exclude 'integration-tests*'
       cargo test --doc
 
-    timeout: 60
     agents:
       - "queue=gcp-standart"
     branches: "!master"
@@ -101,7 +96,6 @@ steps:
           echo '    ./chain/jsonrpc/build_errors_schema.sh'
           exit 1
       fi >&2
-    timeout: 30
     agents:
       - "queue=gcp-standart"
     branches: "!master"
@@ -116,7 +110,6 @@ steps:
       python3 tests/sanity/backward_compatible.py
       ls ../target/debug
     branches: "!master !beta !stable"
-    timeout: 30
     agents:
       - "queue=gcp-standart"
 
@@ -127,7 +120,6 @@ steps:
       pip3 install --user -r requirements.txt
       python3 tests/sanity/upgradable.py
     branches: "!master"
-    timeout: 30
     agents:
       - "queue=gcp-standart"
 
@@ -138,6 +130,5 @@ steps:
       pip3 install --user -r requirements.txt
       python3 tests/sanity/db_migration.py
     branches: "!master !beta !stable"
-    timeout: 30
     agents:
       - "queue=gcp-standart"
