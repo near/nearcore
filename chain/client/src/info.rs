@@ -245,11 +245,6 @@ impl InfoHelper {
         let avg_bls = (self.num_blocks_processed as f64)
             / (self.started.elapsed().as_millis() as f64)
             * 1000.0;
-        let chunks_per_block = if self.num_blocks_processed > 0 {
-            (self.num_chunks_in_blocks_processed as f64) / (self.num_blocks_processed as f64)
-        } else {
-            0.
-        };
         let avg_gas_used =
             ((self.gas_used as f64) / (self.started.elapsed().as_millis() as f64) * 1000.0) as u64;
         let blocks_info_log =
@@ -289,13 +284,6 @@ impl InfoHelper {
         (metrics::CPU_USAGE.set(cpu_usage as i64));
         (metrics::MEMORY_USAGE.set((memory_usage * 1024) as i64));
         (metrics::PROTOCOL_UPGRADE_BLOCK_HEIGHT.set(protocol_upgrade_block_height as i64));
-
-        // TODO: Deprecated.
-        (metrics::BLOCKS_PER_MINUTE.set((avg_bls * (60 as f64)) as i64));
-        // TODO: Deprecated.
-        (metrics::CHUNKS_PER_BLOCK_MILLIS.set((1000. * chunks_per_block) as i64));
-        // TODO: Deprecated.
-        (metrics::AVG_TGAS_USAGE.set((avg_gas_used as f64 / TERAGAS).round() as i64));
 
         // In case we can't get the list of validators for the current and the previous epoch,
         // skip updating the per-validator metrics.
