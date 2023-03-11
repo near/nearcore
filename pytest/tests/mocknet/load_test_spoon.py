@@ -111,12 +111,6 @@ def check_slow_blocks(initial_metrics, final_metrics):
 
 
 class LoadTestSpoon:
-    # TODO: Get these constants from load_test_spoon_helper:
-    # deploy_time = load_test_spoon_helper.CONTRACT_DEPLOY_TIME
-    # test_timeout = load_test_spoon_helper.TEST_TIMEOUT
-    DEPLOY_TIME = 10 * mocknet.NUM_ACCOUNTS
-    TEST_TIMEOUT = 10 * 60  # TODO don't merge this!
-    # TEST_TIMEOUT = 12 * 60 * 60
     EPOCH_HEIGHT_CHECK_DELAY = 30
 
     def run(self):
@@ -179,6 +173,15 @@ class LoadTestSpoon:
         parser.add_argument('--no-sharding', default=False, action='store_true')
         parser.add_argument('--num-seats', type=int, required=True)
 
+        parser.add_argument('--test-timeout', type=int, default=12 * 60 * 60)
+        parser.add_argument(
+            '--contract-deploy-time',
+            type=int,
+            default=10 * mocknet.NUM_ACCOUNTS,
+            help=
+            'We need to slowly deploy contracts, otherwise we stall out the nodes',
+        )
+
         # The flag is no longer needed but is kept for backwards-compatibility.
         parser.add_argument('--script', required=False)
 
@@ -198,6 +201,9 @@ class LoadTestSpoon:
         self.skip_restart = args.skip_restart
         self.skip_load = args.skip_load
         self.no_sharding = args.no_sharding
+
+        self.test_timeout = args.test_timeout
+        self.contract_deploy_time = args.contract_deploy_time
 
         assert self.epoch_length > 0
         assert self.num_nodes > 0
@@ -279,12 +285,14 @@ class LoadTestSpoon:
             self.validator_nodes,
             self.rpc_nodes,
             self.max_tps,
+            self.test_timeout,
+            self.contract_deploy_time,
         )
         logger.info('Starting transaction spamming scripts -- done.')
 
     def __wait_to_complete(self):
         msg = 'Waiting for the loadtest to complete'
-        logger.info(f'{msg}: {self.TEST_TIMEOUT}s')
+        logger.info(f'{msg}: {self.test_timeout}s')
 
         initial_epoch_height = mocknet.get_epoch_height(self.rpc_nodes, -1)
         logger.info(f'initial_epoch_height: {initial_epoch_height}')
@@ -293,7 +301,7 @@ class LoadTestSpoon:
         prev_epoch_height = initial_epoch_height
         start_time = time.monotonic()
         while True:
-            remaining_time = self.TEST_TIMEOUT + start_time - time.monotonic()
+            remaining_time = self.test_timeout + start_time - time.monotonic()
             logger.info(f'{msg}: {round(remaining_time)}s')
             if remaining_time < 0:
                 break

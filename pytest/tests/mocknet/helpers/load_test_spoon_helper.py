@@ -19,13 +19,8 @@ import mocknet_helpers
 
 from configured_logger import logger
 
-# We need to slowly deploy contracts, otherwise we stall out the nodes
-CONTRACT_DEPLOY_TIME = 10 * mocknet.NUM_ACCOUNTS
-TEST_TIMEOUT = 10 * 60  # don't merge this!
-# TEST_TIMEOUT = 12 * 60 * 60
 
-
-def get_test_accounts_from_args():
+def parse_args():
     parser = argparse.ArgumentParser(
         description='Generates transactions on a mocknet node.')
     parser.add_argument('--node-account-id', required=True, type=str)
@@ -33,7 +28,19 @@ def get_test_accounts_from_args():
     parser.add_argument('--num-nodes', required=True, type=int)
     parser.add_argument('--max-tps', required=True, type=float)
 
-    args = parser.parse_args()
+    parser.add_argument('--test-timeout', type=int, default=12 * 60 * 60)
+    parser.add_argument(
+        '--contract-deploy-time',
+        type=int,
+        default=10 * mocknet.NUM_ACCOUNTS,
+        help=
+        'We need to slowly deploy contracts, otherwise we stall out the nodes',
+    )
+
+    return parser.parse_args()
+
+
+def get_test_accounts_from_args(args):
 
     node_account_id = args.node_account_id
     rpc_nodes = args.rpc_nodes.split(',')
@@ -42,7 +49,7 @@ def get_test_accounts_from_args():
 
     logger.info(f'node_account_id: {rpc_nodes}')
     logger.info(f'rpc_nodes: {rpc_nodes}')
-    logger.info(f'num_nodes: {rpc_nodes}')
+    logger.info(f'num_nodes: {num_nodes}')
     logger.info(f'max_tps: {max_tps}')
 
     node_account_key = key_mod.Key(
@@ -92,12 +99,14 @@ def get_test_accounts_from_args():
 
 def main():
     logger.info(sys.argv)
-    test_state = get_test_accounts_from_args()
+
+    args = parse_args()
+    test_state = get_test_accounts_from_args(args)
 
     # Ensure load testing contract is deployed to all accounts before
     # starting to send random transactions (ensures we do not try to
     # call the contract before it is deployed).
-    delay = CONTRACT_DEPLOY_TIME / test_state.num_test_accounts()
+    delay = args.contract_deploy_time / test_state.num_test_accounts()
     logger.info(f'Start deploying, delay between deployments: {delay}')
 
     time.sleep(random.random() * delay)
@@ -125,7 +134,7 @@ def main():
     )
     last_staking = 0
     start_time = time.monotonic()
-    while time.monotonic() - start_time < TEST_TIMEOUT:
+    while time.monotonic() - start_time < args.test_timeout:
         # Repeat the staking transactions in case the validator selection algorithm changes.
         staked_time = mocknet.stake_available_amount(
             test_state.node_account,

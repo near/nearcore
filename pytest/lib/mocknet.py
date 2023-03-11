@@ -171,6 +171,8 @@ def start_load_test_helper_script(
     rpc_nodes,
     num_nodes,
     max_tps,
+    test_timeout,
+    contract_deploy_time,
 ):
     s = '''
         cd {dir}
@@ -179,6 +181,8 @@ def start_load_test_helper_script(
             --rpc-nodes {rpc_nodes} \\
             --num-nodes {num_nodes} \\
             --max-tps {max_tps} \\
+            --test-timeout {test_timeout} \\
+            --contract-deploy-time {contract_deploy_time} \\
             1>load_test.out 2>load_test.err < /dev/null &
     '''.format(
         dir=shlex.quote(PYTHON_DIR),
@@ -187,6 +191,8 @@ def start_load_test_helper_script(
         rpc_nodes=shlex.quote(rpc_nodes),
         num_nodes=shlex.quote(str(num_nodes)),
         max_tps=shlex.quote(str(max_tps)),
+        test_timeout=shlex.quote(str(test_timeout)),
+        contract_deploy_time=shlex.quote(str(contract_deploy_time)),
     )
     logger.info(
         f'Starting load test helper. Node accound id: {node_account_id}.')
@@ -200,6 +206,8 @@ def start_load_test_helper(
     rpc_nodes,
     num_nodes,
     max_tps,
+    test_timeout,
+    contract_deploy_time,
 ):
     logger.info(f'Starting load_test_helper on {node.instance_name}')
     rpc_node_ips = ','.join([rpc_node.ip for rpc_node in rpc_nodes])
@@ -211,11 +219,20 @@ def start_load_test_helper(
             rpc_node_ips,
             num_nodes,
             max_tps,
+            test_timeout,
+            contract_deploy_time,
         ),
     )
 
 
-def start_load_test_helpers(script, validator_nodes, rpc_nodes, max_tps):
+def start_load_test_helpers(
+    script,
+    validator_nodes,
+    rpc_nodes,
+    max_tps,
+    test_timeout,
+    contract_deploy_time,
+):
     pmap(
         lambda node: start_load_test_helper(
             script,
@@ -223,6 +240,8 @@ def start_load_test_helpers(script, validator_nodes, rpc_nodes, max_tps):
             rpc_nodes,
             len(validator_nodes),
             max_tps,
+            test_timeout,
+            contract_deploy_time,
         ),
         validator_nodes,
     )
