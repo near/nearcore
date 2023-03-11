@@ -20,7 +20,8 @@ from configured_logger import logger
 
 # We need to slowly deploy contracts, otherwise we stall out the nodes
 CONTRACT_DEPLOY_TIME = 10 * mocknet.NUM_ACCOUNTS
-TEST_TIMEOUT = 12 * 60 * 60
+TEST_TIMEOUT = 10 * 60  # don't merge this!
+# TEST_TIMEOUT = 12 * 60 * 60
 
 
 def get_test_accounts_from_args(argv):

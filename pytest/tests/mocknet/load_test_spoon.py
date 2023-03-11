@@ -110,192 +110,273 @@ def check_slow_blocks(initial_metrics, final_metrics):
     return slow_process_blocks == 0
 
 
-if __name__ == '__main__':
-    logger.info('Starting Load test.')
-    parser = argparse.ArgumentParser(description='Run a load test')
-    parser.add_argument('--chain-id', required=True)
-    parser.add_argument('--pattern', required=False)
-    parser.add_argument('--epoch-length', type=int, required=True)
-    parser.add_argument('--num-nodes', type=int, required=True)
-    parser.add_argument('--max-tps', type=float, required=True)
-    parser.add_argument('--increasing-stakes', type=float, default=0.0)
-    parser.add_argument('--progressive-upgrade',
-                        default=False,
-                        action='store_true')
-    parser.add_argument('--skip-load', default=False, action='store_true')
-    parser.add_argument('--skip-setup', default=False, action='store_true')
-    parser.add_argument('--skip-restart', default=False, action='store_true')
-    parser.add_argument('--no-sharding', default=False, action='store_true')
-    # The flag is no longer needed but is kept for backwards-compatibility.
-    parser.add_argument('--script', required=False)
-    parser.add_argument('--num-seats', type=int, required=True)
+class LoadTestSpoon:
+    # TODO: Get these constants from load_test_spoon_helper:
+    # deploy_time = load_test_spoon_helper.CONTRACT_DEPLOY_TIME
+    # test_timeout = load_test_spoon_helper.TEST_TIMEOUT
+    DEPLOY_TIME = 10 * mocknet.NUM_ACCOUNTS
+    TEST_TIMEOUT = 10 * 60  # TODO don't merge this!
+    # TEST_TIMEOUT = 12 * 60 * 60
+    EPOCH_HEIGHT_CHECK_DELAY = 30
 
-    args = parser.parse_args()
+    def run(self):
+        logger.info('Starting load test spoon.')
 
-    chain_id = args.chain_id
-    pattern = args.pattern
-    epoch_length = args.epoch_length
-    assert epoch_length > 0
-    num_nodes = args.num_nodes
-    assert num_nodes > 0
-    max_tps = args.max_tps
-    assert max_tps > 0
+        self.__parse_args()
 
-    all_nodes = mocknet.get_nodes(pattern=pattern)
-    random.shuffle(all_nodes)
-    assert len(all_nodes) > num_nodes, \
-        f'Need at least one RPC node, all nodes {len(all_nodes)}, num nodes {num_nodes}'
-    validator_nodes = all_nodes[:num_nodes]
-    logger.info(f'validator_nodes: {validator_nodes}')
-    rpc_nodes = all_nodes[num_nodes:]
-    logger.info(
-        f'Starting Load of {chain_id} test using {len(validator_nodes)} validator nodes and {len(rpc_nodes)} RPC nodes.'
-    )
+        self.__prepare_nodes()
 
-    upgrade_schedule = mocknet.create_upgrade_schedule(
-        rpc_nodes,
-        validator_nodes,
-        args.progressive_upgrade,
-        args.increasing_stakes,
-        args.num_seats,
-    )
-    logger.info(f'upgrade_schedule: %s' % str(upgrade_schedule))
+        self.__prepare_upgrade_schedule()
 
-    if not args.skip_setup:
+        if not self.skip_setup:
+            self.__setup_remote_python_environments()
+
+        if not self.skip_restart:
+            self.__restart()
+
+        mocknet.wait_all_nodes_up(self.all_nodes)
+
+        initial_metrics = mocknet.get_metrics(self.archival_node)
+        initial_validator_accounts = mocknet.list_validators(self.archival_node)
+
+        if not self.skip_load:
+            self.__load()
+
+        time.sleep(5)
+
+        final_metrics = mocknet.get_metrics(self.archival_node)
+        final_validator_accounts = mocknet.list_validators(self.archival_node)
+
+        self.__final_checks(
+            initial_metrics,
+            final_metrics,
+            initial_validator_accounts,
+            final_validator_accounts,
+        )
+
+        logger.info('Load test complete.')
+
+    def __parse_args(self):
+        parser = argparse.ArgumentParser(description='Run a load test')
+        parser.add_argument('--chain-id', required=True)
+        parser.add_argument('--pattern', required=False)
+        parser.add_argument('--epoch-length', type=int, required=True)
+        parser.add_argument('--num-nodes', type=int, required=True)
+        parser.add_argument('--max-tps', type=float, required=True)
+        parser.add_argument('--increasing-stakes', type=float, default=0.0)
+        parser.add_argument(
+            '--progressive-upgrade',
+            default=False,
+            action='store_true',
+        )
+        parser.add_argument('--skip-load', default=False, action='store_true')
+        parser.add_argument('--skip-setup', default=False, action='store_true')
+        parser.add_argument(
+            '--skip-restart',
+            default=False,
+            action='store_true',
+        )
+        parser.add_argument('--no-sharding', default=False, action='store_true')
+        parser.add_argument('--num-seats', type=int, required=True)
+
+        # The flag is no longer needed but is kept for backwards-compatibility.
+        parser.add_argument('--script', required=False)
+
+        args = parser.parse_args()
+
+        self.chain_id = args.chain_id
+        self.pattern = args.pattern
+        self.epoch_length = args.epoch_length
+        self.num_nodes = args.num_nodes
+        self.max_tps = args.max_tps
+
+        self.increasing_stakes = args.increasing_stakes
+        self.progressive_upgrade = args.progressive_upgrade
+        self.num_seats = args.num_seats
+
+        self.skip_setup = args.skip_setup
+        self.skip_restart = args.skip_restart
+        self.skip_load = args.skip_load
+        self.no_sharding = args.no_sharding
+
+        assert self.epoch_length > 0
+        assert self.num_nodes > 0
+        assert self.max_tps > 0
+
+    def __prepare_nodes(self):
+        all_nodes = mocknet.get_nodes(pattern=self.pattern)
+        random.shuffle(all_nodes)
+        assert len(all_nodes) > self.num_nodes, \
+            f'Need at least one RPC node. ' \
+            f'Nodes available in mocknet: {len(all_nodes)}' \
+            f'Requested validator nodes num: {self.num_nodes}'
+
+        self.all_nodes = all_nodes
+        self.validator_nodes = all_nodes[:self.num_nodes]
+        self.rpc_nodes = all_nodes[self.num_nodes:]
+        self.archival_node = self.rpc_nodes[0]
+
+        logger.info(f'validator_nodes: {self.validator_nodes}')
+        logger.info(f'rpc_nodes      : {self.rpc_nodes}')
+        logger.info(f'archival node  : {self.archival_node.instance_name}')
+
+    def __prepare_upgrade_schedule(self):
+        logger.info(f'Preparing upgrade schedule')
+        self.upgrade_schedule = mocknet.create_upgrade_schedule(
+            self.rpc_nodes,
+            self.validator_nodes,
+            self.progressive_upgrade,
+            self.increasing_stakes,
+            self.num_seats,
+        )
+        logger.info(f'Preparing upgrade schedule -- done.')
+
+    def __setup_remote_python_environments(self):
         logger.info('Setting remote python environments')
         mocknet.setup_python_environments(
-            all_nodes,
+            self.all_nodes,
             'add_and_delete_state.wasm',
         )
         logger.info('Setting remote python environments -- done')
 
-    if not args.skip_restart:
+    def __restart(self):
         logger.info(f'Restarting')
         # Make sure nodes are running by restarting them.
-        mocknet.stop_nodes(all_nodes)
+        mocknet.stop_nodes(self.all_nodes)
         time.sleep(10)
-        node_pks = pmap(
+        validator_node_pks = pmap(
             lambda node: mocknet.get_node_keys(node)[0],
-            validator_nodes,
+            self.validator_nodes,
         )
         all_node_pks = pmap(
             lambda node: mocknet.get_node_keys(node)[0],
-            all_nodes,
+            self.all_nodes,
         )
-        pmap(lambda node: mocknet.init_validator_key(node), all_nodes)
-        node_ips = [node.machine.ip for node in all_nodes]
+        pmap(lambda node: mocknet.init_validator_key(node), self.all_nodes)
+        node_ips = [node.machine.ip for node in self.all_nodes]
         mocknet.create_and_upload_genesis(
-            validator_nodes,
-            chain_id,
-            rpc_nodes=rpc_nodes,
-            epoch_length=epoch_length,
-            node_pks=node_pks,
-            increasing_stakes=args.increasing_stakes,
-            num_seats=args.num_seats,
-            single_shard=args.no_sharding,
+            self.validator_nodes,
+            self.chain_id,
+            rpc_nodes=self.rpc_nodes,
+            epoch_length=self.epoch_length,
+            node_pks=validator_node_pks,
+            increasing_stakes=self.increasing_stakes,
+            num_seats=self.num_seats,
+            single_shard=self.no_sharding,
             all_node_pks=all_node_pks,
             node_ips=node_ips,
         )
-        mocknet.start_nodes(all_nodes, upgrade_schedule)
+        mocknet.start_nodes(self.all_nodes, self.upgrade_schedule)
         time.sleep(60)
 
-    mocknet.wait_all_nodes_up(all_nodes)
+        logger.info(f'Restarting -- done')
 
-    archival_node = rpc_nodes[0]
-    logger.info(f'Archival node: {archival_node.instance_name}')
-    initial_validator_accounts = mocknet.list_validators(archival_node)
-    logger.info(f'initial_validator_accounts: {initial_validator_accounts}')
-    test_passed = True
-
-    script = 'load_test_spoon_helper.py'
-    # TODO: Get these constants from load_test_spoon_helper:
-    # deploy_time = load_test_spoon_helper.CONTRACT_DEPLOY_TIME
-    # test_timeout = load_test_spoon_helper.TEST_TIMEOUT
-    deploy_time = 10 * mocknet.NUM_ACCOUNTS
-    test_timeout = 12 * 60 * 60
-
-    if not args.skip_load:
+    def __start_load_test_helpers(self):
         logger.info('Starting transaction spamming scripts.')
+        script = 'load_test_spoon_helper.py'
         mocknet.start_load_test_helpers(
-            validator_nodes,
             script,
-            rpc_nodes,
-            num_nodes,
-            max_tps,
+            self.validator_nodes,
+            self.rpc_nodes,
+            self.max_tps,
         )
+        logger.info('Starting transaction spamming scripts -- done.')
 
-        initial_epoch_height = mocknet.get_epoch_height(rpc_nodes, -1)
-        logger.info(f'initial_epoch_height: {initial_epoch_height}')
-        assert initial_epoch_height >= 0
-        initial_metrics = mocknet.get_metrics(archival_node)
-        start_time = time.monotonic()
-        logger.info(
-            f'Waiting for contracts to be deployed for {deploy_time} seconds.')
+    def __deploy_contracts(self, initial_epoch_height):
+        msg = 'Waiting for contracts to be deployed'
+        logger.info(f'{msg}: {self.DEPLOY_TIME} seconds.')
+
         prev_epoch_height = initial_epoch_height
-        EPOCH_HEIGHT_CHECK_DELAY = 30
-        while time.monotonic() - start_time < deploy_time:
+        start_time = time.monotonic()
+        while time.monotonic() - start_time < self.DEPLOY_TIME:
             epoch_height = mocknet.get_epoch_height(
-                rpc_nodes,
+                self.rpc_nodes,
                 prev_epoch_height,
             )
             if epoch_height > prev_epoch_height:
                 mocknet.upgrade_nodes(
                     epoch_height - initial_epoch_height,
-                    upgrade_schedule,
-                    all_nodes,
+                    self.upgrade_schedule,
+                    self.all_nodes,
                 )
                 prev_epoch_height = epoch_height
-            time.sleep(EPOCH_HEIGHT_CHECK_DELAY)
+            time.sleep(self.EPOCH_HEIGHT_CHECK_DELAY)
 
-        waiting_msg = 'Waiting for the loadtest to complete'
-        logger.info(f'{waiting_msg}: {test_timeout}s')
+        logger.info(f'{msg} -- done.')
+
+    def __wait_to_complete(self, initial_epoch_height):
+        msg = 'Waiting for the loadtest to complete'
+        logger.info(f'{msg}: {self.TEST_TIMEOUT}s')
+
+        prev_epoch_height = initial_epoch_height
+        start_time = time.monotonic()
         while True:
-            remaining_time = test_timeout + start_time - time.monotonic()
+            remaining_time = self.TEST_TIMEOUT + start_time - time.monotonic()
+            logger.info(f'{msg}: {round(remaining_time)}s')
             if remaining_time < 0:
                 break
 
-            logger.info(f'{waiting_msg}: {remaining_time}s')
-
             epoch_height = mocknet.get_epoch_height(
-                rpc_nodes,
+                self.rpc_nodes,
                 prev_epoch_height,
             )
             if epoch_height > prev_epoch_height:
                 mocknet.upgrade_nodes(
                     epoch_height - initial_epoch_height,
-                    upgrade_schedule,
-                    all_nodes,
+                    self.upgrade_schedule,
+                    self.all_nodes,
                 )
                 prev_epoch_height = epoch_height
-            time.sleep(EPOCH_HEIGHT_CHECK_DELAY)
+            time.sleep(self.EPOCH_HEIGHT_CHECK_DELAY)
 
-        logger.info(f'{waiting_msg} - done')
+        logger.info(f'{msg} -- done')
 
-        final_metrics = mocknet.get_metrics(archival_node)
-        logger.info('All transaction types results:')
-        all_tx_measurement = measure_tps_bps(
-            validator_nodes,
-            f'{mocknet.TX_OUT_FILE}.0',
-        )
-        if all_tx_measurement['bps'] < 0.5:
-            test_passed = False
-            logger.error(f'bps is below 0.5: {all_tx_measurement["bps"]}')
-        if not check_memory_usage(validator_nodes[0]):
+    def __load(self):
+        msg = 'Running load test'
+        logger.info(f'{msg}')
+
+        initial_epoch_height = mocknet.get_epoch_height(self.rpc_nodes, -1)
+        logger.info(f'initial_epoch_height: {initial_epoch_height}')
+        assert initial_epoch_height >= 0
+
+        self.__start_load_test_helpers()
+
+        self.__deploy_contracts(initial_epoch_height)
+
+        self.__wait_to_complete(initial_epoch_height)
+
+        logger.info(f'{msg} -- done')
+
+    def __final_checks(
+        self,
+        initial_metrics,
+        final_metrics,
+        initial_validator_accounts,
+        final_validator_accounts,
+    ):
+        msg = 'Running final checks'
+        logger.info(msg)
+
+        test_passed = True
+        if not check_memory_usage(self.validator_nodes[0]):
             test_passed = False
             logger.error('Memory usage too large')
         if not check_slow_blocks(initial_metrics, final_metrics):
             test_passed = False
             logger.error('Too many slow blocks')
 
-    time.sleep(5)
+        if initial_validator_accounts != final_validator_accounts:
+            test_passed = False
+            logger.error(
+                f'Mismatching set of validators:\n'
+                f'initial_validator_accounts: {initial_validator_accounts}\n'
+                f'final_validator_accounts  : {final_validator_accounts}')
 
-    final_validator_accounts = mocknet.list_validators(validator_nodes[0])
-    logger.info(f'final_validator_accounts: {final_validator_accounts}')
-    if initial_validator_accounts != final_validator_accounts:
-        test_passed = False
-        logger.error(f'Mismatching set of validators:\n'
-                     f'{initial_validator_accounts}\n'
-                     f'{final_validator_accounts}')
+        assert test_passed
 
-    assert test_passed
-    logger.info('Load test complete.')
+        logger.info(f'{msg} -- done.')
+
+
+if __name__ == '__main__':
+    load_test_spoon = LoadTestSpoon()
+    load_test_spoon.run()

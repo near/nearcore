@@ -192,8 +192,8 @@ def start_load_test_helper_script(
 
 
 def start_load_test_helper(
-    node,
     script,
+    node,
     rpc_nodes,
     num_nodes,
     max_tps,
@@ -214,18 +214,18 @@ def start_load_test_helper(
     )
 
 
-def start_load_test_helpers(nodes, script, rpc_nodes, num_nodes, max_tps):
-    account = get_validator_account(nodes[0])
+def start_load_test_helpers(script, validator_nodes, rpc_nodes, max_tps):
+    lead_account = get_validator_account(validator_nodes[0])
     pmap(
         lambda node: start_load_test_helper(
-            node,
             script,
+            node,
             rpc_nodes,
-            num_nodes,
+            len(validator_nodes),
             max_tps,
-            lead_account_id=account.account_id,
+            lead_account_id=lead_account.account_id,
         ),
-        nodes,
+        validator_nodes,
     )
 
 
@@ -263,10 +263,12 @@ def get_chunk_txn(index, chunks, archival_node, result):
 
 # Measure bps and tps by directly checking block timestamps and number of transactions
 # in each block.
-def chain_measure_bps_and_tps(archival_node,
-                              start_time,
-                              end_time,
-                              duration=None):
+def chain_measure_bps_and_tps(
+    archival_node,
+    start_time,
+    end_time,
+    duration=None,
+):
     latest_block_hash = archival_node.get_latest_block().hash
     curr_block = archival_node.get_block(latest_block_hash)['result']
     curr_time = get_timestamp(curr_block)
@@ -282,7 +284,6 @@ def chain_measure_bps_and_tps(archival_node,
     block_times = []
     # One entry per block, containing the count of transactions in all chunks of the block.
     tx_count = []
-    block_counter = 0
     while curr_time > start_time:
         if curr_time < end_time:
             block_times.append(curr_time)
@@ -1029,8 +1030,10 @@ def update_existing_config_file(nodes, overrider=None):
 
 
 def start_nodes(nodes, upgrade_schedule=None):
-    pmap(lambda node: start_node(node, upgrade_schedule=upgrade_schedule),
-         nodes)
+    pmap(
+        lambda node: start_node(node, upgrade_schedule=upgrade_schedule),
+        nodes,
+    )
 
 
 def stop_nodes(nodes):
@@ -1367,7 +1370,8 @@ def get_epoch_height(rpc_nodes, prev_epoch_height):
                 response = r.json()
                 max_height = max(
                     max_height,
-                    int(response.get('result', {}).get('epoch_height', 0)))
+                    int(response.get('result', {}).get('epoch_height', 0)),
+                )
         except Exception as e:
             continue
     return max_height
