@@ -282,31 +282,13 @@ class LoadTestSpoon:
         )
         logger.info('Starting transaction spamming scripts -- done.')
 
-    def __deploy_contracts(self, initial_epoch_height):
-        msg = 'Waiting for contracts to be deployed'
-        logger.info(f'{msg}: {self.DEPLOY_TIME} seconds.')
-
-        prev_epoch_height = initial_epoch_height
-        start_time = time.monotonic()
-        while time.monotonic() - start_time < self.DEPLOY_TIME:
-            epoch_height = mocknet.get_epoch_height(
-                self.rpc_nodes,
-                prev_epoch_height,
-            )
-            if epoch_height > prev_epoch_height:
-                mocknet.upgrade_nodes(
-                    epoch_height - initial_epoch_height,
-                    self.upgrade_schedule,
-                    self.all_nodes,
-                )
-                prev_epoch_height = epoch_height
-            time.sleep(self.EPOCH_HEIGHT_CHECK_DELAY)
-
-        logger.info(f'{msg} -- done.')
-
-    def __wait_to_complete(self, initial_epoch_height):
+    def __wait_to_complete(self):
         msg = 'Waiting for the loadtest to complete'
         logger.info(f'{msg}: {self.TEST_TIMEOUT}s')
+
+        initial_epoch_height = mocknet.get_epoch_height(self.rpc_nodes, -1)
+        logger.info(f'initial_epoch_height: {initial_epoch_height}')
+        assert initial_epoch_height >= 0
 
         prev_epoch_height = initial_epoch_height
         start_time = time.monotonic()
@@ -335,15 +317,9 @@ class LoadTestSpoon:
         msg = 'Running load test'
         logger.info(f'{msg}')
 
-        initial_epoch_height = mocknet.get_epoch_height(self.rpc_nodes, -1)
-        logger.info(f'initial_epoch_height: {initial_epoch_height}')
-        assert initial_epoch_height >= 0
-
         self.__start_load_test_helpers()
 
-        self.__deploy_contracts(initial_epoch_height)
-
-        self.__wait_to_complete(initial_epoch_height)
+        self.__wait_to_complete()
 
         logger.info(f'{msg} -- done')
 
