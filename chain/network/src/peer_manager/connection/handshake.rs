@@ -4,7 +4,6 @@ impl scope::ServiceTrait for Connection {
     type E = ClosingReason;
 
     async fn start(this: &scope::ServiceScope<Self>) -> Result<(),Self::E> {
-        s.spawn(async { conn.stream.terminated().await });
         s.spawn(async { conn.sync_routing_table().await });
         
         // TIER1 is strictly reserved for BFT consensensus messages,
@@ -268,6 +267,21 @@ impl NetworkState {
         permit: Permit,
     }
 
+    fn start_handshake(&self, tier: tcp::Tier, key: pool::HandshakeKey) -> Result<pool::Handshake<'a>, pool::Error> {
+        match tier {
+            tcp::Tier::T1 => self.tier1.start_handshake(key),
+            tcp::Tier::T2 => {
+                // A loop connection is not allowed on TIER2
+                // (it is allowed on TIER1 to verify node's public IP).
+                // TODO(gprusak): try to make this more consistent.
+                if peer_id == &this.node_id() {
+                    return Err(pool::Error::UnexpectedLoopConnection);
+                }
+                self.tier2.start_handshake(key)
+            }
+        }
+    }
+
     /// Spawns a PeerActor on a separate actix arbiter.
     /// Returns the actor address and a HandshakeSignal: an asynchronous channel
     /// which will be closed as soon as the handshake is finished (successfully or not).
@@ -283,7 +297,7 @@ impl NetworkState {
         let (send,recv) = stream::split(stream);
         match &send.stats.info.type_ {
             tcp::StreamType::Inbound => {
-                let handshake_permit = this
+                let _permit = this
                     .inbound_handshake_permits
                     .clone()
                     .try_acquire_owned()
@@ -308,24 +322,13 @@ impl NetworkState {
                     this.propose_edge(&req.sender_peer_id, Some(nonce)),
                 );
                 verify(req,resp)?;
-                Self::register(this,encoding,req,resp,send,recv)
+                let handshake = this.start_handshake(tier,HandshakeKey{peer_type:PeerType::Inbound,peer_id: req.sender_peer_id.clone()})?;
+                send.send(&stream::Frame(resp.serialize(encoding))).await?;
+                Ok(HandshakeScope { encoding, handshake, req, resp, send, recv })
             }
             tcp::StreamType::Outbound{tier,peer_id} => {
-                let permit = match tier {
-                    tcp::Tier::T1 => this.tier1.start_outbound(peer_id.clone())?
-                    tcp::Tier::T2 => {
-                        // A loop connection is not allowed on TIER2
-                        // (it is allowed on TIER1 to verify node's public IP).
-                        // TODO(gprusak): try to make this more consistent.
-                        if peer_id == &this.node_id() {
-                            return Err(HandshakeError::OutboundNotAllowed(
-                                connection::PoolError::UnexpectedLoopConnection,
-                            ));
-                        }
-                        this.tier2.start_outbound(peer_id.clone())?
-                    }
-                };
-                
+                let key = HandshakeKey{peer_type:PeerType::Outbound, peer_id };
+                let handshake = this.start_handshake(key)?; 
                 let mut req = this.make_handshake(
                     tier,
                     peer_id,
@@ -340,7 +343,8 @@ impl NetworkState {
                             return Ok(resp);
                         }
                     }
-                }.await;
+                }.await?;
+                Ok(HandshakeScope { encoding, handshake, req, resp, send, recv })
             }
         };
     }
