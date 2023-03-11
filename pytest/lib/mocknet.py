@@ -171,11 +171,15 @@ def start_load_test_helper_script(
     rpc_nodes,
     num_nodes,
     max_tps,
-    leader_account_id,
 ):
     s = '''
         cd {dir}
-        nohup ./venv/bin/python {script} {node_account_id} {rpc_nodes} {num_nodes} {max_tps} {leader_account_id} 1>load_test.out 2>load_test.err < /dev/null &
+        nohup ./venv/bin/python {script} \\
+            --node-account-id {node_account_id} \\
+            --rpc-nodes {rpc_nodes} \\
+            --num-nodes {num_nodes} \\
+            --max-tps {max_tps} \\
+            1>load_test.out 2>load_test.err < /dev/null &
     '''.format(
         dir=shlex.quote(PYTHON_DIR),
         script=shlex.quote(script),
@@ -183,11 +187,10 @@ def start_load_test_helper_script(
         rpc_nodes=shlex.quote(rpc_nodes),
         num_nodes=shlex.quote(str(num_nodes)),
         max_tps=shlex.quote(str(max_tps)),
-        leader_account_id=shlex.quote(leader_account_id),
     )
     logger.info(
-        f'Starting load test helper. Node accound id: {node_account_id}. Leader account id: {leader_account_id}'
-    )
+        f'Starting load test helper. Node accound id: {node_account_id}.')
+    logger.debug(f'The load test helper script is:{s}')
     return s
 
 
@@ -197,7 +200,6 @@ def start_load_test_helper(
     rpc_nodes,
     num_nodes,
     max_tps,
-    lead_account_id,
 ):
     logger.info(f'Starting load_test_helper on {node.instance_name}')
     rpc_node_ips = ','.join([rpc_node.ip for rpc_node in rpc_nodes])
@@ -209,13 +211,11 @@ def start_load_test_helper(
             rpc_node_ips,
             num_nodes,
             max_tps,
-            lead_account_id,
         ),
     )
 
 
 def start_load_test_helpers(script, validator_nodes, rpc_nodes, max_tps):
-    lead_account = get_validator_account(validator_nodes[0])
     pmap(
         lambda node: start_load_test_helper(
             script,
@@ -223,7 +223,6 @@ def start_load_test_helpers(script, validator_nodes, rpc_nodes, max_tps):
             rpc_nodes,
             len(validator_nodes),
             max_tps,
-            lead_account_id=lead_account.account_id,
         ),
         validator_nodes,
     )
@@ -507,49 +506,45 @@ def create_and_upload_genesis(
     all_node_pks=None,
     node_ips=None,
 ):
-    logger.info(
-        f'create_and_upload_genesis: validator_nodes: {list(map(lambda node: node.instance_name, validator_nodes))}'
-    )
-    assert chain_id
     logger.info('Uploading genesis and config files')
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        logger.info(
-            'Assuming that genesis_updater.py is available on the instances.')
-        validator_keys = dict(pmap(get_validator_key, validator_nodes))
-        rpc_node_names = [node.instance_name for node in rpc_nodes]
-        assert '-spoon' in chain_id, f'Expecting chain_id like "testnet-spoon" or "mainnet-spoon", got {chain_id}'
-        chain_id_in = chain_id.split('-spoon')[0]
-        genesis_filename_in = f'/home/ubuntu/.near/{chain_id_in}-genesis/genesis.json'
-        records_filename_in = f'/home/ubuntu/.near/{chain_id_in}-genesis/records.json'
-        config_filename_in = f'/home/ubuntu/.near/{chain_id_in}-genesis/config.json'
-        stamp = time.strftime('%Y%m%d-%H%M%S', time.gmtime())
-        done_filename = f'/home/ubuntu/genesis_update_done_{stamp}.txt'
-        neard = neard_amend_genesis_path(validator_nodes[1])
-        pmap(
-            lambda node: start_genesis_updater(
-                node=node,
-                script='genesis_updater.py',
-                genesis_filename_in=genesis_filename_in,
-                records_filename_in=records_filename_in,
-                config_filename_in=config_filename_in,
-                out_dir='/home/ubuntu/.near/',
-                chain_id=chain_id,
-                validator_keys=validator_keys,
-                rpc_nodes=rpc_node_names,
-                done_filename=done_filename,
-                epoch_length=epoch_length,
-                node_pks=node_pks,
-                increasing_stakes=increasing_stakes,
-                num_seats=num_seats,
-                single_shard=single_shard,
-                all_node_pks=all_node_pks,
-                node_ips=node_ips,
-                neard=neard,
-            ),
-            validator_nodes + rpc_nodes,
-        )
-        pmap(lambda node: wait_genesis_updater_done(node, done_filename),
-             validator_nodes + rpc_nodes)
+    assert chain_id
+    logger.info(
+        'Assuming that genesis_updater.py is available on the instances.')
+    validator_keys = dict(pmap(get_validator_key, validator_nodes))
+    rpc_node_names = [node.instance_name for node in rpc_nodes]
+    assert '-spoon' in chain_id, f'Expecting chain_id like "testnet-spoon" or "mainnet-spoon", got {chain_id}'
+    chain_id_in = chain_id.split('-spoon')[0]
+    genesis_filename_in = f'/home/ubuntu/.near/{chain_id_in}-genesis/genesis.json'
+    records_filename_in = f'/home/ubuntu/.near/{chain_id_in}-genesis/records.json'
+    config_filename_in = f'/home/ubuntu/.near/{chain_id_in}-genesis/config.json'
+    stamp = time.strftime('%Y%m%d-%H%M%S', time.gmtime())
+    done_filename = f'/home/ubuntu/genesis_update_done_{stamp}.txt'
+    neard = neard_amend_genesis_path(validator_nodes[1])
+    pmap(
+        lambda node: start_genesis_updater(
+            node=node,
+            script='genesis_updater.py',
+            genesis_filename_in=genesis_filename_in,
+            records_filename_in=records_filename_in,
+            config_filename_in=config_filename_in,
+            out_dir='/home/ubuntu/.near/',
+            chain_id=chain_id,
+            validator_keys=validator_keys,
+            rpc_nodes=rpc_node_names,
+            done_filename=done_filename,
+            epoch_length=epoch_length,
+            node_pks=node_pks,
+            increasing_stakes=increasing_stakes,
+            num_seats=num_seats,
+            single_shard=single_shard,
+            all_node_pks=all_node_pks,
+            node_ips=node_ips,
+            neard=neard,
+        ),
+        validator_nodes + rpc_nodes,
+    )
+    pmap(lambda node: wait_genesis_updater_done(node, done_filename),
+         validator_nodes + rpc_nodes)
 
 
 def extra_genesis_records(validator_keys, rpc_node_names, node_pks,

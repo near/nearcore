@@ -7,6 +7,7 @@ This file is uploaded to each mocknet node and run there.
 import random
 import sys
 import time
+import argparse
 
 # Don't use the pathlib magic because this file runs on a remote machine.
 sys.path.append('lib')
@@ -24,12 +25,25 @@ TEST_TIMEOUT = 10 * 60  # don't merge this!
 # TEST_TIMEOUT = 12 * 60 * 60
 
 
-def get_test_accounts_from_args(argv):
-    node_account_id = argv[1]
-    rpc_nodes = argv[2].split(',')
-    num_nodes = int(argv[3])
-    max_tps = float(argv[4])
+def get_test_accounts_from_args():
+    parser = argparse.ArgumentParser(
+        description='Generates transactions on a mocknet node.')
+    parser.add_argument('--node-account-id', required=True, type=str)
+    parser.add_argument('--rpc-nodes', required=True, type=str)
+    parser.add_argument('--num-nodes', required=True, type=int)
+    parser.add_argument('--max-tps', required=True, type=float)
+
+    args = parser.parse_args()
+
+    node_account_id = args.node_account_id
+    rpc_nodes = args.rpc_nodes.split(',')
+    num_nodes = args.num_nodes
+    max_tps = args.max_tps
+
+    logger.info(f'node_account_id: {rpc_nodes}')
     logger.info(f'rpc_nodes: {rpc_nodes}')
+    logger.info(f'num_nodes: {rpc_nodes}')
+    logger.info(f'max_tps: {max_tps}')
 
     node_account_key = key_mod.Key(
         node_account_id,
@@ -76,9 +90,9 @@ def get_test_accounts_from_args(argv):
     )
 
 
-def main(argv):
-    logger.info(argv)
-    test_state = get_test_accounts_from_args(argv)
+def main():
+    logger.info(sys.argv)
+    test_state = get_test_accounts_from_args()
 
     # Ensure load testing contract is deployed to all accounts before
     # starting to send random transactions (ensures we do not try to
@@ -95,8 +109,10 @@ def main(argv):
         mocknet_helpers.retry_and_ignore_errors(
             lambda: account.send_deploy_contract_tx(mocknet.WASM_FILENAME))
         load_test_utils.init_ft_account(test_state.node_account, account)
+        balance = mocknet_helpers.retry_and_ignore_errors(
+            lambda: account.get_amount_yoctonear())
         logger.info(
-            f'Account {account.key.account_id} balance after initialization: {mocknet_helpers.retry_and_ignore_errors(lambda:account.get_amount_yoctonear())}'
+            f'Account {account.key.account_id} balance after initialization: {balance}'
         )
         time.sleep(max(1.0, start_time + (i + 1) * delay - time.monotonic()))
 
@@ -129,4 +145,4 @@ def main(argv):
 
 
 if __name__ == '__main__':
-    main(sys.argv)
+    main()
