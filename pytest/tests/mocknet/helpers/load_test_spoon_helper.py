@@ -47,7 +47,7 @@ def get_test_accounts_from_args(args):
     num_nodes = args.num_nodes
     max_tps = args.max_tps
 
-    logger.info(f'node_account_id: {rpc_nodes}')
+    logger.info(f'node_account_id: {node_account_id}')
     logger.info(f'rpc_nodes: {rpc_nodes}')
     logger.info(f'num_nodes: {num_nodes}')
     logger.info(f'max_tps: {max_tps}')
@@ -98,7 +98,7 @@ def get_test_accounts_from_args(args):
 
 
 def main():
-    logger.info(sys.argv)
+    logger.info(" ".join(sys.argv))
 
     args = parse_args()
     test_state = get_test_accounts_from_args(args)
@@ -130,7 +130,7 @@ def main():
     # begin with only transfers for TPS measurement
     total_tx_sent, elapsed_time = 0, 0
     logger.info(
-        f'Start the test, expected TPS {test_state.max_tps_per_node} over the next {TEST_TIMEOUT} seconds'
+        f'Start the test, expected TPS {test_state.max_tps_per_node} over the next {args.test_timeout} seconds'
     )
     last_staking = 0
     start_time = time.monotonic()

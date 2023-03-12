@@ -6,6 +6,7 @@ import shlex
 import subprocess
 import tempfile
 import time
+import functools
 
 import base58
 import requests
@@ -458,11 +459,19 @@ def kill_proccess_script(pid):
         done
     '''
 
-
 def get_near_pid(machine):
     p = machine.run(
         "ps aux | grep 'near.* run' | grep -v grep | awk '{print $2}'")
     return p.stdout.strip()
+
+
+def is_binary_running(binary_name: str, node) -> bool:
+    result = node.machine.run(f'ps aux | grep -v grep | grep {binary_name}')
+    return result.returncode == 0
+
+
+def is_binary_running_all_nodes(binary_name: str, all_nodes) -> bool:
+    return pmap(functools.partial(is_binary_running, binary_name), all_nodes)
 
 
 def stop_node(node):
@@ -1208,8 +1217,7 @@ def wait_genesis_updater_done(node, done_filename):
     # Wait until the neard process stops running.
     while True:
         time.sleep(5)
-        result = node.machine.run('ps | grep neard')
-        if result.returncode != 0:
+        if not is_binary_running('neard', node):
             break
 
     # Check if the done_filename was produced.
@@ -1233,8 +1241,7 @@ def wait_node_up(node):
     attempt = 0
     while True:
         try:
-            result = node.machine.run('ps -A | grep neard')
-            if result.returncode != 0:
+            if not is_binary_running('neard', node):
                 raise Exception(f'{msg} - failed. The neard process crashed.')
 
             response = node.get_validators()
@@ -1274,8 +1281,8 @@ def create_upgrade_schedule(
         if increasing_stakes:
             prev_stake = None
             for i, node in enumerate(validator_nodes):
-                if i * 5 < num_block_producer_seats * 3 and i < len(
-                        MAINNET_STAKES):
+                if (i * 5 < num_block_producer_seats * 3 and
+                        i < len(MAINNET_STAKES)):
                     staked = MAINNET_STAKES[i] * ONE_NEAR
                 elif prev_stake is None:
                     prev_stake = MIN_STAKE - STAKE_STEP
@@ -1288,7 +1295,9 @@ def create_upgrade_schedule(
         else:
             for node in validator_nodes:
                 stakes.append((MIN_STAKE, node.instance_name))
-        logger.info(f'create_upgrade_schedule {stakes}')
+        logger.info(f'create_upgrade_schedule')
+        for stake, instance_name in stakes:
+            logger.debug(f'instance_name: {instance_name} - stake: {stake}')
 
         # Compute seat assignments.
         seats = compute_seats(stakes, num_block_producer_seats)
@@ -1431,7 +1440,6 @@ def stake_available_amount(node_account, last_staking):
     # Repeat the staking transactions in case the validator selection algorithm changes.
     # Don't query the balance too often, avoid overloading the RPC node.
     if time.time() - last_staking > STAKING_TIMEOUT:
-        NEAR_IN_YOCTONEAR = 10**24
         # Make several attempts just in case the RPC node doesn't respond.
         for attempt in range(3):
             try:
@@ -1439,7 +1447,7 @@ def stake_available_amount(node_account, last_staking):
                 logger.info(
                     f'Amount of {node_account.key.account_id} is {stake_amount}'
                 )
-                if stake_amount > (10**3) * NEAR_IN_YOCTONEAR:
+                if stake_amount > (10**3) * ONE_NEAR:
                     logger.info(
                         f'Staking {stake_amount} for {node_account.key.account_id}'
                     )

@@ -291,8 +291,10 @@ class LoadTestSpoon:
         logger.info('Starting transaction spamming scripts -- done.')
 
     def __wait_to_complete(self):
+        full_test_duration = self.test_timeout + self.contract_deploy_time
+
         msg = 'Waiting for the loadtest to complete'
-        logger.info(f'{msg}: {self.test_timeout}s')
+        logger.info(f'{msg}: {full_test_duration}s')
 
         initial_epoch_height = mocknet.get_epoch_height(self.rpc_nodes, -1)
         logger.info(f'initial_epoch_height: {initial_epoch_height}')
@@ -301,10 +303,38 @@ class LoadTestSpoon:
         prev_epoch_height = initial_epoch_height
         start_time = time.monotonic()
         while True:
-            remaining_time = self.test_timeout + start_time - time.monotonic()
+            remaining_time = full_test_duration + start_time - time.monotonic()
             logger.info(f'{msg}: {round(remaining_time)}s')
             if remaining_time < 0:
                 break
+
+            neard_running = mocknet.is_binary_running_all_nodes(
+                'neard',
+                self.all_nodes,
+            )
+            helper_running = mocknet.is_binary_running_all_nodes(
+                'load_test_spoon_helper.py',
+                self.validator_nodes,
+            )
+
+            logger.info(
+                f'neard is running on {neard_running.count(True)}/{len(neard_running)} nodes'
+            )
+            logger.info(
+                f'helper is running on {helper_running.count(True)}/{len(helper_running)} validator nodes'
+            )
+
+            if not all(neard_running):
+                raise Exception(
+                    f'The neard process is not running on some nodes!')
+
+            for node, is_running in zip(self.all_nodes, helper_running):
+                if not is_running:
+                    logger.warning(
+                        'The helper process is not running on some of the nodes. '
+                        'This is fine by the end of the test but an error otherwise. '
+                        f'The helper is not running on {node.instance_name}')
+                    break
 
             epoch_height = mocknet.get_epoch_height(
                 self.rpc_nodes,
@@ -317,6 +347,7 @@ class LoadTestSpoon:
                     self.all_nodes,
                 )
                 prev_epoch_height = epoch_height
+
             time.sleep(self.EPOCH_HEIGHT_CHECK_DELAY)
 
         logger.info(f'{msg} -- done')
