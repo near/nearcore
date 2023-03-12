@@ -1,77 +1,3 @@
-type InboundHandshakePermit = tokio::sync::OwnedSemaphorePermit;
-
-impl scope::ServiceTrait for Connection {
-    type E = ClosingReason;
-
-    async fn start(this: &scope::ServiceScope<Self>) -> Result<(),Self::E> {
-        s.spawn(async { conn.sync_routing_table().await });
-        
-        // TIER1 is strictly reserved for BFT consensensus messages,
-        // so all kinds of periodical syncs happen only on TIER2 connections.
-        if this.tier==tcp::Tier::T2 {
-            // Exchange peers periodically.
-            scope::spawn!(this, |this| async {
-                let mut interval = ctx::time::Interval::new(this.established,REQUEST_PEERS_INTERVAL);
-                loop {
-                    interval.tick().await?;
-                    this.send_message(&PeerMessage::PeersRequest).await?;
-                }
-            });
-            // Send latest block periodically.
-            scope::spawn!(this, |this| async {
-                let mut interval = ctx::time::Interval::new(this.established, SYNC_LATEST_BLOCK_INTERVAL);
-                loop {
-                    interval.tick().await?;
-                    if let Some(chain_info) = state.chain_info.load().as_ref() {
-                        this.send_message(&PeerMessage::Block(chain_info.block.clone())).await?;
-                    }
-                }
-            });
-            if conn.peer_type() == PeerType::Outbound {
-                // Trigger a full accounts data sync periodically.
-                // Note that AccountsData is used to establish TIER1 network,
-                // it is broadcasted over TIER2 network. This is a bootstrapping
-                // mechanism, because TIER2 is established before TIER1.
-                //
-                // TODO(gprusak): consider whether it wouldn't be more uniform to just
-                // send full sync from both sides of the connection independently. Or
-                // perhaps make the full sync request a separate message which doesn't
-                // carry the accounts_data at all.
-                scope::spawn!(this, |this| async {
-                    let mut interval = ctx::time::Interval::new(this.established,ACCOUNTS_DATA_FULL_SYNC_INTERVAL);
-                    loop {
-                        interval.tick().await?;
-                        conn.send_message(Arc::new(PeerMessage::SyncAccountsData(SyncAccountsData{
-                            accounts_data: network_state.accounts_data.load().data.values().cloned().collect(),
-                            incremental: false,
-                            requesting_full_sync: true,
-                        })));
-                    }
-                });
-                // Refresh connection nonces but only if we're outbound. For inbound connection, the other party should
-                // take care of nonce refresh.
-                scope::spawn!(this, |this| async {
-                    // How often should we refresh a nonce from a peer.
-                    // It should be smaller than PRUNE_EDGES_AFTER.
-                    let mut interval = ctx::time::Interval::new(this.established + PRUNE_EDGES_AFTER / 3, PRUNE_EDGES_AFTER / 3);
-                    loop {
-                        interval.tick().await?;
-                        this.send_message(Arc::new(
-                            PeerMessage::RequestUpdateNonce(PartialEdgeInfo::new(
-                                &network_state.config.node_id(),
-                                &conn.peer_info.id,
-                                Edge::create_fresh_nonce(),
-                                &network_state.config.node_key,
-                            )
-                        )));
-
-                    }
-                });
-            }
-        } 
-    });
-}
-
 impl NetworkState {
     fn make_handshake(
         &self,
@@ -150,8 +76,12 @@ impl NetworkState {
         Ok(())
     }
 
-    fn verify_handshake_response(&self, req: &mut Handshake, msg: &PeerMessage) -> Result<Option<Handshake>>,HandshakeError> {
-        match msg {
+    /// Returns Ok(Some(resp)) if the peer accepted the handshake and resp is their response.
+    /// Returns Ok(None) if handshake failed but it is retriable (h has been updated, so that it
+    /// can be sent in the next attempt).
+    /// Returns Err if handshake failed and is not retriable.
+    fn verify_handshake_response(&self, h: &mut Handshake, resp: &PeerMessage) -> Result<Option<Handshake>>,HandshakeError> {
+        match resp {
             PeerMessage::Handshake(h) => return Ok(h),
             PeerMessage::HandshakeFailure(peer_info, reason) => match reason {
                 HandshakeFailureReason::GenesisMismatch(genesis) => return Err(HandshakeError::GenesisMismatch),
@@ -264,7 +194,6 @@ impl NetworkState {
         handshake_received: Handshake,
         sender: stream::FrameSender,
         receiver: stream::FrameReceiver,
-        permit: Permit,
     }
 
     fn start_handshake(&self, tier: tcp::Tier, key: pool::HandshakeKey) -> Result<pool::Handshake<'a>, pool::Error> {
@@ -289,33 +218,28 @@ impl NetworkState {
     pub async fn run_handshake(
         this: &Self,
         stream: tcp::Stream,
-    ) -> Result<HandshakeScope,HandshakeError> { 
+    ) -> Result<HandshakeStream,HandshakeError> { 
         let encoding = match stream.tier {
             tcp::Tier1::T1 => Encoding::Proto,
             tcp::Tier2::T2 => this.config.encoding,
         };
         let (send,recv) = stream::split(stream);
         match &send.stats.info.type_ {
-            tcp::StreamType::Inbound => {
-                let _permit = this
-                    .inbound_handshake_permits
-                    .clone()
-                    .try_acquire_owned()
-                    .map_err(|_| HandshakeError::TooManyInbound)?;
-                let req = async {
+            tcp::StreamType::Inbound => { 
+                let handshake_received = async {
                     loop {
-                        let req = match PeerMessage::deserialize(encoding,recv.recv()?) {
-                            Ok(PeerMessage::Handshake(req)) => req,
+                        let h = match PeerMessage::deserialize(encoding,recv.recv()?) {
+                            Ok(PeerMessage::Handshake(h)) => h,
                             Err(_) => continue,
                         };
-                        if Err(resp) = this.verify_handshake_request(req) {
+                        if Err(resp) = this.verify_inbound_handshake(h) {
                             stream.send(&stream::Frame(PeerMessage::encode(encoding,resp))).await?;
                         } else {
-                            return Ok(req);
+                            return Ok(h);
                         }
                     }
-                })?;
-                let resp = this.make_handshake(
+                }.await?;
+                let handshake_sent = this.make_handshake(
                     req.tier,
                     req.sender_peer_id.clone(),
                     req.protocol_version,
@@ -344,7 +268,7 @@ impl NetworkState {
                         }
                     }
                 }.await?;
-                Ok(HandshakeScope { encoding, handshake, req, resp, send, recv })
+                Ok(HandshakeStream { encoding, handshake, req, resp, send, recv })
             }
         };
     }

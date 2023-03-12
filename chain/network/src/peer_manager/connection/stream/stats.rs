@@ -80,11 +80,11 @@ impl WindowMetric {
 pub(crate) struct Stats {
     pub info: tcp::StreamInfo,
     /// Number of messages received since the last reset of the counter.
-    pub received_messages: Arc<Mutex<WindowMetric>>,
+    pub received_messages: Mutex<WindowMetric>,
     /// Avg received bytes/s, based on the last few minutes of traffic.
-    pub received_bytes: Arc<Mutex<WindowMetric>>,
+    pub received_bytes: Mutex<WindowMetric>,
     /// Avg sent bytes/s, based on the last few minutes of traffic.
-    pub sent_bytes: Arc<Mutex<WindowMetric>>,
+    pub sent_bytes: Mutex<WindowMetric>,
 
     /// Number of messages in the buffer to send.
     pub messages_to_send: AtomicU64,
@@ -102,12 +102,9 @@ impl Stats {
         let labels = vec![info.peer_addr.to_string()];
         Self {
             info,
-            received_messages: Arc::new(Mutex::new(WindowMetric::new(
-                10,
-                time::Duration::minutes(1),
-            ))),
-            sent_bytes: Arc::new(Mutex::new(WindowMetric::new(10, time::Duration::minutes(1)))),
-            received_bytes: Arc::new(Mutex::new(WindowMetric::new(10, time::Duration::minutes(1)))),
+            received_messages: Mutex::new(WindowMetric::new(10, time::Duration::minutes(1))),
+            sent_bytes: Mutex::new(WindowMetric::new(10, time::Duration::minutes(1))),
+            received_bytes: Mutex::new(WindowMetric::new(10, time::Duration::minutes(1))),
 
             messages_to_send: AtomicU64::new(0),
             bytes_to_send: AtomicU64::new(0),

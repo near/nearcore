@@ -1,7 +1,6 @@
 use crate::accounts_data;
 use crate::client;
 use crate::concurrency::{ctx,scope,demux};
-use crate::concurrency::runtime::Runtime;
 use crate::config;
 use crate::network_protocol::{
     Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerInfo, PeerMessage, RawRoutedMessage,
@@ -85,16 +84,6 @@ pub(crate) struct WhitelistNode {
 }
 
 pub struct NetworkState {
-    /// Dedicated runtime for `NetworkState` which runs in a separate thread.
-    /// Async methods of NetworkState are not cancellable,
-    /// so calling them from, for example, PeerActor is dangerous because
-    /// PeerActor can be stopped at any moment.
-    /// WARNING: DO NOT spawn infinite futures/background loops on this arbiter,
-    /// as it will be automatically closed only when the NetworkState is dropped.
-    /// WARNING: actix actors can be spawned only when actix::System::current() is set.
-    /// DO NOT spawn actors from a task on this runtime.
-    service: scope::Service,
-
     /// PeerManager config.
     pub config: config::VerifiedConfig,
     /// When network state has been constructed.
@@ -155,16 +144,25 @@ pub struct NetworkState {
 
 impl NetworkState {
     pub(crate) fn new(
-        store: store::Store,
+        store: Arc<dyn near_store::db::Database>,
         peer_store: peer_store::PeerStore,
-        config: config::VerifiedConfig,
+        config: config::Config,
         genesis_id: GenesisId,
         client: Arc<dyn client::Client>,
         shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
-        whitelist_nodes: Vec<WhitelistNode>,
-    ) -> Self {
+    ) -> anyhow::Result<Self> {
+        let config = config.verify().context("config")?;
+        let store = store::Store::from(store);
+        let peer_store = peer_store::PeerStore::new(config.peer_store.clone())
+            .context("PeerStore::new")?;
+        let whitelist_nodes = {
+            let mut v = vec![];
+            for wn in &config.whitelist_nodes {
+                v.push(WhitelistNode::from_peer_info(wn)?);
+            }
+            v
+        };
         Self {
-            runtime: Runtime::new(),
             graph: Arc::new(crate::routing::Graph::new(
                 crate::routing::GraphConfig {
                     node_id: config.node_id(),
@@ -179,7 +177,6 @@ impl NetworkState {
             chain_info: Default::default(),
             tier2: connection::Pool::new(config.node_id()),
             tier1: connection::Pool::new(config.node_id()),
-            inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
             peer_store,
             connection_store: connection_store::ConnectionStore::new(store).unwrap(),
             pending_reconnect: Mutex::new(Vec::<PeerInfo>::new()),
@@ -196,21 +193,6 @@ impl NetworkState {
             created_at: ctx::time::now(),
             tier1_advertise_proxies_mutex: tokio::sync::Mutex::new(()),
         }
-    }
-
-    /// Spawn a future on the runtime which has the same lifetime as the NetworkState instance.
-    /// In particular if the future contains the NetworkState handler, it will be run until
-    /// completion. It is safe to self.spawn(...).await.unwrap(), since runtime will be kept alive
-    /// by the reference to self.
-    ///
-    /// It should be used to make the public methods cancellable: you spawn the
-    /// noncancellable logic on self.runtime and just await it: in case the call is cancelled,
-    /// the noncancellable logic will be run in the background anyway.
-    fn spawn<R: 'static + Send>(
-        &self,
-        fut: impl std::future::Future<Output = R> + 'static + Send,
-    ) -> tokio::task::JoinHandle<R> {
-        self.runtime.handle.spawn(fut.in_current_span())
     }
 
     /// Stops peer instance if it is still connected,
@@ -264,7 +246,7 @@ impl NetworkState {
     /// To build new edge between this pair of nodes both signatures are required.
     /// Signature from this node is passed in `edge_info`
     /// Signature from the other node is passed in `full_peer_info.edge_info`.
-    async fn run_connection(
+    async fn spawn_connection(
         this: &scope::Service<Self>,
         stream: tcp::Stream, 
     ) -> Result<scope::Service<Connection>, HandshakeError> {
@@ -298,10 +280,77 @@ impl NetworkState {
                 let ready = ready?;
 
                 metrics::PEER_CONNECTIONS_TOTAL.inc();
-                let routed_message_cache = LruCache::new(ROUTED_MESSAGE_CACHE_SIZE);
                 let reason = scope::run!(|s| async {
-                    s.spawn(async { conn.stream.terminated().await });
-                    s.spawn(async { conn.terminated().await });
+                    s.spawn_bg(async { conn.sync_routing_table().await });
+                            
+                    // TIER1 is strictly reserved for BFT consensensus messages,
+                    // so all kinds of periodical syncs happen only on TIER2 connections.
+                    if this.tier==tcp::Tier::T2 {
+                        // Exchange peers periodically.
+                        s.spawn_bg(async {
+                            let mut interval = ctx::time::Interval::new(conn.established,REQUEST_PEERS_INTERVAL);
+                            loop {
+                                interval.tick().await?;
+                                conn.send_message(&PeerMessage::PeersRequest).await?;
+                            }
+                        });
+                        // Send latest block periodically.
+                        s.spawn_bg(async {
+                            let mut interval = ctx::time::Interval::new(conn.established, SYNC_LATEST_BLOCK_INTERVAL);
+                            loop {
+                                interval.tick().await?;
+                                if let Some(chain_info) = this.chain_info.load().as_ref() {
+                                    conn.send_message(&PeerMessage::Block(chain_info.block.clone())).await?;
+                                }
+                            }
+                        });
+                        s.spawn_bg(async {
+                            let mut interval = ctx::time::Interval::new(conn.established,ACCOUNTS_DATA_FULL_SYNC_INTERVAL);
+                            loop {
+                                interval.tick().await?;
+                                conn.send_message(&PeerMessage::SyncAccountsData(SyncAccountsData{
+                                    accounts_data: vec![], 
+                                    incremental: true,
+                                    requesting_full_sync: true,
+                                }));
+                            }
+                        });
+                        if conn.peer_type() == PeerType::Outbound {
+                            // Trigger a full accounts data sync periodically.
+                            // Note that AccountsData is used to establish TIER1 network,
+                            // it is broadcasted over TIER2 network. This is a bootstrapping
+                            // mechanism, because TIER2 is established before TIER1.
+                            //
+                            // TODO(gprusak): consider whether it wouldn't be more uniform to just
+                            // send full sync from both sides of the connection independently. Or
+                            // perhaps make the full sync request a separate message which doesn't
+                            // carry the accounts_data at all.
+                            
+                            // Refresh connection nonces but only if we're outbound. For inbound connection, the other party should
+                            // take care of nonce refresh.
+                            s.spawn_bg(async {
+                                // How often should we refresh a nonce from a peer.
+                                // It should be smaller than PRUNE_EDGES_AFTER.
+                                let mut interval = ctx::time::Interval::new(this.established + PRUNE_EDGES_AFTER / 3, PRUNE_EDGES_AFTER / 3);
+                                loop {
+                                    interval.tick().await?;
+                                    conn.send_message(&PeerMessage::RequestUpdateNonce(PartialEdgeInfo::new(
+                                        &network_state.config.node_id(),
+                                        &conn.peer_info.id,
+                                        Edge::create_fresh_nonce(),
+                                        &network_state.config.node_key,
+                                    )));
+                                }
+                            });
+                        }
+                    } 
+
+                    // If SharedFrameSender is broken, terminate.
+                    s.spawn_bg(async { Ok(conn.stream.terminated().await?) });
+                    // If Connection is closed manually terminate.
+                    s.spawn_bg(async { conn.terminated().await });
+                    
+                    let routed_message_cache = LruCache::new(ROUTED_MESSAGE_CACHE_SIZE);
                     loop {
                         let msg = recv.recv()?;
                         // TODO: receive messages.
@@ -317,16 +366,17 @@ impl NetworkState {
                         ClosingReason::Ban(ban_reason) => this.peer_store.peer_ban(&conn.peer_info.id, ban_reason),
                         _ => this.peer_store.peer_disconnected(&conn.peer_info.id),
                     }
+                    this.fix_local_edges().await?;
 
-                    // Save the fact that we are disconnecting to the ConnectionStore,
-                    // and push a reconnect attempt, if applicable
+                    // Save the fact that we are disconnecting to the ConnectionStore and spawn a
+                    // reconnect loop if applicable.
                     if this.connection_store.connection_closed(&conn.peer_info, &conn.peer_type, &reason) {
-                        this.pending_reconnect.lock().push(conn.peer_info.clone());
+                        scope::spawn!(this, |this| async {
+                            this.reconnect(peer_info, MAX_RECONNECT_ATTEMPTS).await    
+                        });
                     }
-                    this.fix_local_edges().await;
                 }
 
-                // TODO: spawn reconnect loop.
             });
             // TODO: disconnect event.
         })
@@ -338,29 +388,24 @@ impl NetworkState {
         this: &scope::ServiceScope<Self>,
         peer_info: PeerInfo,
         max_attempts: usize,
-    ) {
+    ) -> anyhow::Result<()> {
         let mut interval = ctx::time::Interval::new(ctx::time::now(), RECONNECT_ATTEMPT_INTERVAL);
         for _ in 0..max_attempts {
-            interval.tick().await;
+            interval.tick().await?;
 
             let result = async {
                 let stream = tcp::Stream::connect(&peer_info, tcp::Tier::T2).await?;
-                this.run_connection(stream).await?;
+                this.spawn_connection(stream).await?;
             }
             .await;
 
-            let succeeded = !result.is_err();
-
-            if result.is_err() {
-                tracing::info!(target:"network", ?result, "Failed to connect to {peer_info}");
+            if let Err(err) = self.peer_store.peer_connection_attempt(&peer_info.id, result) {
+                tracing::error!(target: "network", ?peer_info, ?err, "Failed to store connection attempt");
             }
 
-            if self.peer_store.peer_connection_attempt(&peer_info.id, result).is_err() {
-                tracing::error!(target: "network", ?peer_info, "Failed to store connection attempt.");
-            }
-
-            if succeeded {
-                return;
+            match result {
+                Err(err) => tracing::info!(target:"network", ?result, ?err, "Failed to connect to {peer_info}");
+                Ok(_) => return;
             }
         }
     }
@@ -579,15 +624,6 @@ impl NetworkState {
     }
 
     pub fn update_connection_store(self: &Arc<Self>) {
-        self.connection_store.update(&self.tier2.load());
-    }
-
-    /// Clears pending_reconnect and returns the cleared values
-    pub fn poll_pending_reconnect(&self) -> Vec<PeerInfo> {
-        let mut pending_reconnect = self.pending_reconnect.lock();
-        let polled = pending_reconnect.clone();
-        pending_reconnect.clear();
-        return polled;
     }
 
     /// Collects and returns PeerInfos for all directly connected TIER2 peers.
@@ -619,5 +655,122 @@ impl NetworkState {
             self.tier1_request_full_sync();
         }
         has_changed
+    }
+}
+
+impl scope::ServiceTrait for NetworkState {
+    type E = anyhow::Error;
+
+    pub async fn start(this: &scope::ServiceScope<Self>) -> Result<(),Self::E> {
+        let now = ctx::time::now();
+
+        // Start server if address provided.
+        if let Some(server_addr) = &this.config.node_addr {
+            let mut listener = server_addr.listener().context("server_addr.listener()")?;
+            scope::spawn!(this, |this| async {
+                let permits = tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS);
+                scope::run!(|s| async {
+                    loop {
+                        let permit = ctx::wait(permits.acquire()).await??;
+                        let stream = ctx::wait(listener.accept()).await??;
+                        s.spawn(async {
+                            let permit = permit;
+                            if Err(err) = this.spawn_connection(stream).await {
+                                tracing::info!(target:"network", ?err, "spawn_connection()");
+                            }
+                            Ok(())
+                        });
+                    }
+                })
+            });
+        }
+        scope::spawn!(this, |this| async {
+            let Some(cfg) = this.config.tier1 else { return Ok(()); };
+            scope::run!(|s| async {
+                // Connect to TIER1 proxies and broadcast the list those connections periodically.
+                s.spawn(async {
+                    let mut interval = ctx::time::Interval::new(now, cfg.advertise_proxies_interval);
+                    loop {
+                        interval.tick().await?;
+                        // TODO: is this needed?
+                        this.tier1_request_full_sync();
+                        this.tier1_advertise_proxies().await?;
+                    }
+                });
+                // Update TIER1 connections periodically.
+                s.spawn(async {
+                    let mut interval = ctx::time::Interval::new(now, cfg.connect_interval);
+                    loop {
+                        interval.tick().await?;
+                        this.tier1_connect().await?;
+                    }
+                });
+                Ok(())
+            })
+        });
+        scope::spawn!(this, |this| async {
+            let mut interval = ctx::time::Interval::new(now, self.state.config.push_info_period);
+            loop {
+                interval.tick().await?;
+                this.client.network_info(this.get_network_info()).await?;
+            }
+        });
+        
+        // Attempt to reconnect to recent outbound connections from storage
+        if this.config.connect_to_reliable_peers_on_startup {
+            tracing::debug!(target: "network", "Reconnecting to reliable peers from storage");
+            this.bootstrap_outbound_from_recent_connections();
+        } else {
+            tracing::debug!(target: "network", "Skipping reconnection to reliable peers");
+        }
+
+        scope::spawn!(this, |this| async {
+            let mut interval = ctx::time::Interval::new(now, FIX_LOCAL_EDGES_INTERVAL);
+            loop {
+                interval.tick().await?;
+                this.fix_local_edges().await?;
+            }
+        });
+        scope::spawn!(this, |this| async {
+            let mut interval = ctx::time::Interval::new(now, UPDATE_CONNECTION_STORE_INTERVAL);
+            loop {
+                interval.tick().await?;
+                this.connection_store.update(&this.tier2.load());
+            }
+        }));
+        
+        scope::spawn!(this, |this| async {
+            let mut interval = ctx::time::Interval::new(now, REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL);
+            loop {
+                interval.tick().await?;
+                let mut total_bandwidth_used_by_all_peers: usize = 0;
+                let mut total_msg_received_count: usize = 0;
+                for conn in this.tier2.load().ready.values() {
+                    let bandwidth_used = conn.stats.received_bytes.lock().unwrap().total();
+                    let msg_received_count conn.stats.received_messages.lock().unwrap().total();
+                    if bandwidth_used > REPORT_BANDWIDTH_THRESHOLD_BYTES || msg_received_count > REPORT_BANDWIDTH_THRESHOLD_COUNT {
+                        tracing::debug!(target: "bandwidth",
+                            ?peer_id,
+                            bandwidth_used, msg_received_count, "Peer bandwidth exceeded threshold",
+                        );
+                    }
+                    total_bandwidth_used_by_all_peers += bandwidth_used;
+                    total_msg_received_count += msg_received_count;
+                }
+                tracing::info!(
+                    target: "bandwidth",
+                    total_bandwidth_used_by_all_peers,
+                    total_msg_received_count, "Bandwidth stats"
+                );
+            }
+        });
+
+        scope::spawn!(this, |this| async {
+            let mut interval = ctx::time::Interval::new(now, self.config.monitor_peers_max_period);
+            loop {
+                interval.tick().await?;
+                this.monitor_peers_trigger().await;
+            }
+        });
     }
 }
