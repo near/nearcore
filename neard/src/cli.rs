@@ -722,7 +722,7 @@ impl VerifyTrieProofSubCommand {
         match iter.seek_prefix(key) {
             Ok(_) => println!("Successfully verified Trie path"),
             Err(e) => {
-                panic!("Could not find account_id within partial trie constructed from  proof json")
+                panic!("Could not find account_id within partial trie constructed from proof json {:?}", e)
             }
         }
     }
