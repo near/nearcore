@@ -94,18 +94,6 @@ pub enum FlatStorageCreationStatus {
     CatchingUp(CryptoHash),
 }
 
-impl Into<i64> for &FlatStorageCreationStatus {
-    /// Converts status to integer to export to prometheus later.
-    /// Cast inside enum does not work because it is not fieldless.
-    fn into(self) -> i64 {
-        match self {
-            FlatStorageCreationStatus::SavingDeltas => 0,
-            FlatStorageCreationStatus::FetchingState(_) => 1,
-            FlatStorageCreationStatus::CatchingUp(_) => 2,
-        }
-    }
-}
-
 /// Current step of fetching state to fill flat storage.
 #[derive(BorshSerialize, BorshDeserialize, Copy, Clone, Debug, PartialEq, Eq)]
 pub struct FetchingStateStatus {

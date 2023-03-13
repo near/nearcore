@@ -3185,20 +3185,22 @@ impl Chain {
                 let block_header = self.get_block_header(block_hash)?;
                 let epoch_id = block_header.epoch_id();
                 let shard_uid = self.runtime_adapter.shard_id_to_uid(shard_id, epoch_id)?;
-                let mut store_update = self.runtime_adapter.store().store_update();
-                store_helper::set_flat_storage_status(
-                    &mut store_update,
-                    shard_uid,
-                    FlatStorageStatus::Ready(FlatStorageReadyStatus {
-                        flat_head: near_store::flat::BlockInfo {
-                            hash: *block_hash,
-                            prev_hash: *block_header.prev_hash(),
-                            height: block_header.height(),
-                        },
-                    }),
-                );
-                store_update.commit()?;
-                self.runtime_adapter.create_flat_storage_for_shard(shard_uid);
+                if !matches!(self.runtime_adapter.get_flat_storage_status(shard_uid), FlatStorageStatus::Disabled) {
+                    let mut store_update = self.runtime_adapter.store().store_update();
+                    store_helper::set_flat_storage_status(
+                        &mut store_update,
+                        shard_uid,
+                        FlatStorageStatus::Ready(FlatStorageReadyStatus {
+                            flat_head: near_store::flat::BlockInfo {
+                                hash: *block_hash,
+                                prev_hash: *block_header.prev_hash(),
+                                height: block_header.height(),
+                            },
+                        }),
+                    );
+                    store_update.commit()?;
+                    self.runtime_adapter.create_flat_storage_for_shard(shard_uid);
+                }
             }
         }
 
