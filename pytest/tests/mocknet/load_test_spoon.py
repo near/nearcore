@@ -303,11 +303,6 @@ class LoadTestSpoon:
         prev_epoch_height = initial_epoch_height
         start_time = time.monotonic()
         while True:
-            remaining_time = full_test_duration + start_time - time.monotonic()
-            logger.info(f'{msg}: {round(remaining_time)}s')
-            if remaining_time < 0:
-                break
-
             neard_running = mocknet.is_binary_running_all_nodes(
                 'neard',
                 self.all_nodes,
@@ -347,6 +342,11 @@ class LoadTestSpoon:
                     self.all_nodes,
                 )
                 prev_epoch_height = epoch_height
+
+            remaining_time = full_test_duration + start_time - time.monotonic()
+            logger.info(f'{msg}: {round(remaining_time)}s')
+            if remaining_time < 0:
+                break
 
             time.sleep(self.EPOCH_HEIGHT_CHECK_DELAY)
 

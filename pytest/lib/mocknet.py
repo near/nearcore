@@ -459,6 +459,7 @@ def kill_proccess_script(pid):
         done
     '''
 
+
 def get_near_pid(machine):
     p = machine.run(
         "ps aux | grep 'near.* run' | grep -v grep | awk '{print $2}'")
@@ -938,20 +939,32 @@ def create_and_upload_genesis_file_from_empty_genesis(
 
 
 def download_and_read_json(node, filename):
-    tmp_file = tempfile.NamedTemporaryFile(mode='r+', delete=False)
-    node.machine.download(filename, tmp_file.name)
-    tmp_file.close()
-    with open(tmp_file.name, 'r') as f:
-        return json.load(f)
+    try:
+        tmp_file = tempfile.NamedTemporaryFile(mode='r+', delete=False)
+        node.machine.download(filename, tmp_file.name)
+        tmp_file.close()
+        with open(tmp_file.name, 'r') as f:
+            return json.load(f)
+    except:
+        logger.error(
+            f'Failed to download json file. Node: {node.instance_name}. Filename: {filename}'
+        )
+        raise
 
 
 def upload_json(node, filename, data):
-    logger.info(f'Upload file {filename} to {node.instance_name}')
-    tmp_file = tempfile.NamedTemporaryFile(mode='r+', delete=False)
-    with open(tmp_file.name, 'w') as f:
-        json.dump(data, f, indent=2)
-    node.machine.upload(tmp_file.name, filename)
-    tmp_file.close()
+    try:
+        logger.info(f'Upload file {filename} to {node.instance_name}')
+        tmp_file = tempfile.NamedTemporaryFile(mode='r+', delete=False)
+        with open(tmp_file.name, 'w') as f:
+            json.dump(data, f, indent=2)
+        node.machine.upload(tmp_file.name, filename)
+        tmp_file.close()
+    except:
+        logger.error(
+            f'Failed to upload json file. Node: {node.instance_name}. Filename: {filename}'
+        )
+        raise
 
 
 def get_node_addr(node, port):
