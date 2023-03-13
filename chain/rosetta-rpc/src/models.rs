@@ -879,29 +879,8 @@ impl From<NonDelegateActionOperation> for crate::models::Operation {
     }
 }
 
-// impl TryFrom<NonDelegateActionOperation> for near_primitives::delegate_action::NonDelegateAction {
-//     type Error = crate::errors::ErrorKind;
-//
-//     fn try_from(value: NonDelegateActionOperation) -> Result<Self, Self::Error> {
-//         todo!()
-//         // let near_action = crate::adapters::NearActions::try_from(value.0);
-//         // Ok(near_primitives::delegate_action::NonDelegateAction { 0:  })
-//     }
-// }
-// impl Into<Vec<near_primitives::delegate_action::NonDelegateAction>>
-//     for Vec<NonDelegateActionOperation>
-// {
-//     fn into(self) -> Vec<near_primitives::delegate_action::NonDelegateAction> {
-//         let non_delegate_actions: Vec<near_primitives::delegate_action::NonDelegateAction> = vec![];
-//         let near_actions :self.try_into();
-//         // for non_delegate_action_operation in self {
-//         //     let near_actions = non_delegate_action_operationtry_into();
-//         //     non_delegate_actions.push(non_delegate_action_operation.0.try_into())
-//         // }
-//     }
-// }
-
-#[derive(serde::Serialize, serde::Deserialize, PartialEq, Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, PartialEq, Clone, Debug, thiserror::Error)]
+#[error("Delegate operation cannot contain a delegate operation")]
 pub struct IsDelegateOperation;
 
 impl TryFrom<crate::models::Operation> for NonDelegateActionOperation {
@@ -913,6 +892,12 @@ impl TryFrom<crate::models::Operation> for NonDelegateActionOperation {
         } else {
             Ok(Self(operation))
         }
+    }
+}
+
+impl From<IsDelegateOperation> for crate::errors::ErrorKind {
+    fn from(value: IsDelegateOperation) -> Self {
+        crate::errors::ErrorKind::InvalidInput(value.to_string())
     }
 }
 

@@ -205,7 +205,7 @@ pub(crate) async fn collect_transactions(
 /// There are some helper Operation Types defined since a single operation
 /// has only a single "account" field, so to indicate "sender" and "receiver"
 /// we use two operations (e.g. InitiateAddKey and AddKey).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct NearActions {
     pub sender_account_id: near_primitives::types::AccountId,
     pub receiver_account_id: near_primitives::types::AccountId,
@@ -508,10 +508,10 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
     /// Operations. The implementations are bijective (there is a test below).
     fn try_from(operations: Vec<crate::models::Operation>) -> Result<Self, Self::Error> {
         let mut sender_account_id = crate::utils::InitializeOnce::new(
-            "A single transaction cannot be send from multiple senders",
+            "A single transaction cannot be sent from multiple senders",
         );
         let mut receiver_account_id = crate::utils::InitializeOnce::new(
-            "A single transaction cannot be send to multiple recipients",
+            "A single transaction cannot be sent to multiple recipients",
         );
         let mut actions = vec![];
 
@@ -720,11 +720,12 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                         .into(),
                     )
                 }
-                crate::models::OperationType::SignedDelegateAction => {
-                    let delegate_action_operation: validated_operations::delegate_action::DelegateActionOperation = todo!();
-                    // validated_operations::signed_delegate_action::SignedDelegateActionOperation::try_from(
-                    //     tail_operation,
-                    // )?;
+                crate::models::OperationType::DelegateAction => {
+                    let delegate_action_operation =
+                        validated_operations::delegate_action::DelegateActionOperation::try_from(
+                            tail_operation,
+                        )?;
+
                     let initiate_delegate_action_operation = validated_operations::initiate_delegate_action::InitiateDelegateActionOperation::try_from_option(operations.next())?;
 
                     let signed_delegate_action_operation = validated_operations::signed_delegate_action::SignedDelegateActionOperation::try_from_option(operations.next())?;
@@ -803,7 +804,7 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                 | crate::models::OperationType::InitiateDeleteKey
                 | crate::models::OperationType::InitiateDeployContract
                 | crate::models::OperationType::InitiateFunctionCall
-                | crate::models::OperationType::DelegateAction
+                | crate::models::OperationType::SignedDelegateAction
                 | crate::models::OperationType::InitiateSignedDelegateAction
                 | crate::models::OperationType::InitiateDelegateAction
                 | crate::models::OperationType::DeleteAccount => {
@@ -845,7 +846,10 @@ mod tests {
     use actix::System;
     use near_actix_test_utils::run_actix;
     use near_client::test_utils::setup_no_network;
+    use near_crypto::{KeyType, PublicKey};
+    use near_primitives::delegate_action::{DelegateAction, SignedDelegateAction};
     use near_primitives::runtime::config::RuntimeConfig;
+    use near_primitives::transaction::{Action, TransferAction};
     use near_primitives::views::RuntimeConfigView;
 
     #[test]
@@ -1107,18 +1111,29 @@ mod tests {
 
     #[test]
     fn test_near_actions_invalid_signed_delegate_function() {
-        let operations = vec![crate::models::Operation {
-            type_: crate::models::OperationType::SignedDelegateAction,
-            account: "sender.near".parse().unwrap(),
-            amount: None,
-            operation_identifier: crate::models::OperationIdentifier::new(&[]),
-            related_operations: None,
-            status: None,
-            metadata: None,
-        }];
-        let value = NearActions::try_from(operations);
-        dbg!(&value);
-        assert!(matches!(value, Err(crate::errors::ErrorKind::InvalidInput(_))));
+        let near_actions = NearActions {
+            sender_account_id: "proxy.near".parse().unwrap(),
+            receiver_account_id: "account.near".parse().unwrap(),
+            actions: vec![Action::Delegate(SignedDelegateAction {
+                delegate_action: DelegateAction {
+                    sender_id: "account.near".parse().unwrap(),
+                    receiver_id: "receiver.near".parse().unwrap(),
+                    actions: vec![Action::Transfer(TransferAction { deposit: 1 })
+                        .try_into()
+                        .unwrap()],
+                    nonce: 0,
+                    max_block_height: 0,
+                    public_key: PublicKey::empty(KeyType::ED25519),
+                },
+                signature: Default::default(),
+            })],
+        };
+
+        let operations: Vec<crate::models::Operation> = near_actions.clone().try_into().unwrap();
+
+        let near_actions_from_operations = NearActions::try_from(dbg!(operations)).unwrap();
+
+        assert_eq!(near_actions, near_actions_from_operations);
     }
 
     #[test]
