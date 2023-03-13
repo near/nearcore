@@ -4071,6 +4071,109 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-vm"
+version = "2.4.0"
+dependencies = [
+ "anyhow",
+ "cfg-if 1.0.0",
+ "finite-wasm",
+ "indexmap",
+ "more-asserts",
+ "near-vm-compiler",
+ "near-vm-compiler-singlepass",
+ "near-vm-engine",
+ "near-vm-engine-universal",
+ "near-vm-types",
+ "near-vm-vm",
+ "prefix-sum-vec",
+ "target-lexicon 0.12.3",
+ "tempfile",
+ "thiserror",
+ "tracing",
+ "wat",
+ "winapi",
+]
+
+[[package]]
+name = "near-vm-compiler"
+version = "2.4.0"
+dependencies = [
+ "enumset",
+ "finite-wasm",
+ "hashbrown 0.11.2",
+ "near-vm-types",
+ "near-vm-vm",
+ "rkyv",
+ "smallvec",
+ "target-lexicon 0.12.3",
+ "thiserror",
+ "tracing",
+ "wasmparser 0.99.0",
+]
+
+[[package]]
+name = "near-vm-compiler-singlepass"
+version = "2.4.0"
+dependencies = [
+ "byteorder",
+ "dynasm",
+ "dynasmrt",
+ "enumset",
+ "finite-wasm",
+ "hashbrown 0.11.2",
+ "lazy_static",
+ "memoffset",
+ "more-asserts",
+ "near-vm-compiler",
+ "near-vm-types",
+ "near-vm-vm",
+ "rayon",
+ "smallvec",
+ "strum",
+ "target-lexicon 0.12.3",
+ "tracing",
+]
+
+[[package]]
+name = "near-vm-engine"
+version = "2.4.0"
+dependencies = [
+ "backtrace",
+ "enumset",
+ "finite-wasm",
+ "lazy_static",
+ "memmap2",
+ "more-asserts",
+ "near-vm-compiler",
+ "near-vm-types",
+ "near-vm-vm",
+ "rustc-demangle",
+ "target-lexicon 0.12.3",
+ "thiserror",
+]
+
+[[package]]
+name = "near-vm-engine-universal"
+version = "2.4.0"
+dependencies = [
+ "cfg-if 1.0.0",
+ "enumset",
+ "finite-wasm",
+ "leb128",
+ "near-vm-compiler",
+ "near-vm-engine",
+ "near-vm-types",
+ "near-vm-vm",
+ "prefix-sum-vec",
+ "region",
+ "rkyv",
+ "thiserror",
+ "tracing",
+ "wasmparser 0.99.0",
+ "winapi",
+]
+
+[[package]]
 name = "near-vm-errors"
 version = "0.0.0"
 dependencies = [
@@ -4124,8 +4227,14 @@ dependencies = [
  "near-primitives",
  "near-stable-hasher",
  "near-test-contracts",
+ "near-vm-compiler",
+ "near-vm-compiler-singlepass",
+ "near-vm-engine",
+ "near-vm-engine-universal",
  "near-vm-errors",
  "near-vm-logic",
+ "near-vm-types",
+ "near-vm-vm",
  "once_cell",
  "parity-wasm 0.41.0",
  "parity-wasm 0.42.2",
@@ -4135,20 +4244,14 @@ dependencies = [
  "serde",
  "tracing",
  "wasm-smith 0.12.5",
- "wasmer-compiler-near 2.4.0",
- "wasmer-compiler-near 2.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "wasmer-compiler-singlepass-near 2.4.0",
- "wasmer-compiler-singlepass-near 2.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "wasmer-engine-near 2.4.0",
- "wasmer-engine-near 2.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "wasmer-engine-universal-near 2.4.0",
- "wasmer-engine-universal-near 2.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "wasmer-compiler-near",
+ "wasmer-compiler-singlepass-near",
+ "wasmer-engine-near",
+ "wasmer-engine-universal-near",
  "wasmer-runtime-core-near",
  "wasmer-runtime-near",
- "wasmer-types-near 2.4.0",
- "wasmer-types-near 2.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "wasmer-vm-near 2.4.0",
- "wasmer-vm-near 2.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "wasmer-types-near",
+ "wasmer-vm-near",
  "wasmparser 0.99.0",
  "wasmprinter",
  "wasmtime",
@@ -4168,6 +4271,38 @@ dependencies = [
  "near-vm-runner",
  "wasm-smith 0.12.5",
  "wasmprinter",
+]
+
+[[package]]
+name = "near-vm-types"
+version = "2.4.0"
+dependencies = [
+ "bolero 0.6.2",
+ "indexmap",
+ "num-traits",
+ "rkyv",
+ "thiserror",
+]
+
+[[package]]
+name = "near-vm-vm"
+version = "2.4.0"
+dependencies = [
+ "backtrace",
+ "cc",
+ "cfg-if 1.0.0",
+ "finite-wasm",
+ "indexmap",
+ "libc",
+ "memoffset",
+ "more-asserts",
+ "near-vm-types",
+ "region",
+ "rkyv",
+ "thiserror",
+ "tracing",
+ "wasmparser 0.99.0",
+ "winapi",
 ]
 
 [[package]]
@@ -7133,10 +7268,10 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "libfuzzer-sys",
+ "near-vm",
+ "near-vm-compiler-singlepass",
+ "near-vm-engine-universal",
  "wasm-smith 0.4.5",
- "wasmer-compiler-singlepass-near 2.4.0",
- "wasmer-engine-universal-near 2.4.0",
- "wasmer-near",
  "wasmprinter",
 ]
 
@@ -7145,31 +7280,12 @@ name = "wasmer-compiler-near"
 version = "2.4.0"
 dependencies = [
  "enumset",
- "finite-wasm",
- "hashbrown 0.11.2",
  "rkyv",
  "smallvec",
  "target-lexicon 0.12.3",
  "thiserror",
- "tracing",
- "wasmer-types-near 2.4.0",
- "wasmer-vm-near 2.4.0",
- "wasmparser 0.99.0",
-]
-
-[[package]]
-name = "wasmer-compiler-near"
-version = "2.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34d09dc0ba83ddaceb9b0846ed11a6c26a449b69fa2709e0335d268f44491921"
-dependencies = [
- "enumset",
- "rkyv",
- "smallvec",
- "target-lexicon 0.12.3",
- "thiserror",
- "wasmer-types-near 2.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "wasmer-vm-near 2.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "wasmer-types-near",
+ "wasmer-vm-near",
  "wasmparser 0.78.2",
 ]
 
@@ -7180,64 +7296,19 @@ dependencies = [
  "byteorder",
  "dynasm",
  "dynasmrt",
- "enumset",
- "finite-wasm",
- "hashbrown 0.11.2",
  "lazy_static",
  "memoffset",
  "more-asserts",
  "rayon",
  "smallvec",
- "strum",
- "target-lexicon 0.12.3",
- "tracing",
- "wasmer-compiler-near 2.4.0",
- "wasmer-types-near 2.4.0",
- "wasmer-vm-near 2.4.0",
-]
-
-[[package]]
-name = "wasmer-compiler-singlepass-near"
-version = "2.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86f34bf0625219766759851c1f92e0797787b8b10b424c0a273ee4e0328a2ff7"
-dependencies = [
- "byteorder",
- "dynasm",
- "dynasmrt",
- "lazy_static",
- "memoffset",
- "more-asserts",
- "rayon",
- "smallvec",
- "wasmer-compiler-near 2.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "wasmer-types-near 2.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "wasmer-vm-near 2.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "wasmer-compiler-near",
+ "wasmer-types-near",
+ "wasmer-vm-near",
 ]
 
 [[package]]
 name = "wasmer-engine-near"
 version = "2.4.0"
-dependencies = [
- "backtrace",
- "enumset",
- "finite-wasm",
- "lazy_static",
- "memmap2",
- "more-asserts",
- "rustc-demangle",
- "target-lexicon 0.12.3",
- "thiserror",
- "wasmer-compiler-near 2.4.0",
- "wasmer-types-near 2.4.0",
- "wasmer-vm-near 2.4.0",
-]
-
-[[package]]
-name = "wasmer-engine-near"
-version = "2.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa8353167be3099f3bd033cb9c8479a02d69917777cf4c2e52a09946d5582457"
 dependencies = [
  "backtrace",
  "enumset",
@@ -7247,9 +7318,9 @@ dependencies = [
  "rustc-demangle",
  "target-lexicon 0.12.3",
  "thiserror",
- "wasmer-compiler-near 2.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "wasmer-types-near 2.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "wasmer-vm-near 2.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "wasmer-compiler-near",
+ "wasmer-types-near",
+ "wasmer-vm-near",
 ]
 
 [[package]]
@@ -7258,61 +7329,14 @@ version = "2.4.0"
 dependencies = [
  "cfg-if 1.0.0",
  "enumset",
- "finite-wasm",
- "leb128",
- "prefix-sum-vec",
- "region",
- "rkyv",
- "thiserror",
- "tracing",
- "wasmer-compiler-near 2.4.0",
- "wasmer-engine-near 2.4.0",
- "wasmer-types-near 2.4.0",
- "wasmer-vm-near 2.4.0",
- "wasmparser 0.99.0",
- "winapi",
-]
-
-[[package]]
-name = "wasmer-engine-universal-near"
-version = "2.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c34fb4f6af2209a36c5e6ed407c9e057fdd2e722e762f702dbd8575896349c62"
-dependencies = [
- "cfg-if 1.0.0",
- "enumset",
  "leb128",
  "region",
  "rkyv",
  "thiserror",
- "wasmer-compiler-near 2.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "wasmer-engine-near 2.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "wasmer-types-near 2.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "wasmer-vm-near 2.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "winapi",
-]
-
-[[package]]
-name = "wasmer-near"
-version = "2.4.0"
-dependencies = [
- "anyhow",
- "cfg-if 1.0.0",
- "finite-wasm",
- "indexmap",
- "more-asserts",
- "prefix-sum-vec",
- "target-lexicon 0.12.3",
- "tempfile",
- "thiserror",
- "tracing",
- "wasmer-compiler-near 2.4.0",
- "wasmer-compiler-singlepass-near 2.4.0",
- "wasmer-engine-near 2.4.0",
- "wasmer-engine-universal-near 2.4.0",
- "wasmer-types-near 2.4.0",
- "wasmer-vm-near 2.4.0",
- "wat",
+ "wasmer-compiler-near",
+ "wasmer-engine-near",
+ "wasmer-types-near",
+ "wasmer-vm-near",
  "winapi",
 ]
 
@@ -7384,19 +7408,6 @@ dependencies = [
 name = "wasmer-types-near"
 version = "2.4.0"
 dependencies = [
- "bolero 0.6.2",
- "indexmap",
- "num-traits",
- "rkyv",
- "thiserror",
-]
-
-[[package]]
-name = "wasmer-types-near"
-version = "2.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d1131dfac4d92947acef554a75b433122ca635414c23934f53434ec0efc5994d"
-dependencies = [
  "indexmap",
  "rkyv",
  "thiserror",
@@ -7409,7 +7420,6 @@ dependencies = [
  "backtrace",
  "cc",
  "cfg-if 1.0.0",
- "finite-wasm",
  "indexmap",
  "libc",
  "memoffset",
@@ -7417,29 +7427,7 @@ dependencies = [
  "region",
  "rkyv",
  "thiserror",
- "tracing",
- "wasmer-types-near 2.4.0",
- "wasmparser 0.99.0",
- "winapi",
-]
-
-[[package]]
-name = "wasmer-vm-near"
-version = "2.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a47f13d5c412974a38bba01a8b009e1e49bffbee45387198403b269a74d7374"
-dependencies = [
- "backtrace",
- "cc",
- "cfg-if 1.0.0",
- "indexmap",
- "libc",
- "memoffset",
- "more-asserts",
- "region",
- "rkyv",
- "thiserror",
- "wasmer-types-near 2.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "wasmer-types-near",
  "winapi",
 ]
 
@@ -7448,9 +7436,9 @@ name = "wasmer-wast"
 version = "2.1.0"
 dependencies = [
  "anyhow",
+ "near-vm",
  "tempfile",
  "thiserror",
- "wasmer-near",
  "wast 38.0.1",
 ]
 

@@ -1,5 +1,5 @@
 [package]
-name = "wasmer-engine-near"
+name = "near-vm-engine"
 version = "2.4.0"
 description = "Wasmer Engine abstraction"
 categories = ["wasm"]
@@ -15,9 +15,9 @@ name = "wasmer_engine"
 
 [dependencies]
 finite-wasm = "0.3.0"
-wasmer-types = { path = "../types", version = "=2.4.0", package = "wasmer-types-near" }
-wasmer-compiler = { path = "../compiler", version = "=2.4.0", package = "wasmer-compiler-near" }
-wasmer-vm = { path = "../vm", version = "=2.4.0", package = "wasmer-vm-near" }
+wasmer-types = { path = "../types", version = "=2.4.0", package = "near-vm-types" }
+wasmer-compiler = { path = "../compiler", version = "=2.4.0", package = "near-vm-compiler" }
+wasmer-vm = { path = "../vm", version = "=2.4.0", package = "near-vm-vm" }
 target-lexicon = { version = "0.12.2", default-features = false }
 # flexbuffers = { path = "../../../flatbuffers/rust/flexbuffers", version = "0.1.0" }
 backtrace = "0.3"

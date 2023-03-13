@@ -54,12 +54,12 @@ wasmer-vm = { package = "wasmer-vm-near", version = "=2.4.0", optional = true }
 
 finite-wasm = "0.3.0"
 prefix-sum-vec = "0.1.2"
-near-vm-compiler = { package = "wasmer-compiler-near", path = "../near-vm/lib/compiler", optional = true }
-near-vm-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", path = "../near-vm/lib/compiler-singlepass", optional = true }
-near-vm-engine = { package = "wasmer-engine-near", path = "../near-vm/lib/engine", optional = true }
-near-vm-engine-universal = { package = "wasmer-engine-universal-near", path = "../near-vm/lib/engine-universal", features = ["compiler"], optional = true }
-near-vm-types = { package = "wasmer-types-near", path = "../near-vm/lib/types", optional = true }
-near-vm-vm = { package = "wasmer-vm-near", path = "../near-vm/lib/vm", optional = true }
+near-vm-compiler = { package = "near-vm-compiler", path = "../near-vm/lib/compiler", optional = true }
+near-vm-compiler-singlepass = { package = "near-vm-compiler-singlepass", path = "../near-vm/lib/compiler-singlepass", optional = true }
+near-vm-engine = { package = "near-vm-engine", path = "../near-vm/lib/engine", optional = true }
+near-vm-engine-universal = { package = "near-vm-engine-universal", path = "../near-vm/lib/engine-universal", features = ["compiler"], optional = true }
+near-vm-types = { package = "near-vm-types", path = "../near-vm/lib/types", optional = true }
+near-vm-vm = { package = "near-vm-vm", path = "../near-vm/lib/vm", optional = true }
 
 [dev-dependencies]
 arbitrary.workspace = true
