@@ -1768,7 +1768,7 @@ mod test {
             // and use a mock chain, so we need to initialize flat storage manually.
             if cfg!(feature = "protocol_feature_flat_state") {
                 let store_update = runtime
-                    .set_flat_storage_for_genesis(&genesis_hash, &EpochId::default())
+                    .set_flat_storage_for_genesis(&genesis_hash, 0, &EpochId::default())
                     .unwrap();
                 store_update.commit().unwrap();
                 for shard_id in 0..runtime.num_shards(&EpochId::default()).unwrap() {

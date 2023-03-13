@@ -38,7 +38,7 @@ impl From<FlatStorageError> for StorageError {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, PartialEq, Eq)]
 pub enum FlatStorageStatus {
     /// 'protocol_feature_flat_state' is disabled
     Disabled,
@@ -65,7 +65,7 @@ impl Into<i64> for &FlatStorageStatus {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, PartialEq, Eq)]
 pub struct FlatStorageReadyStatus {
     pub flat_head: BlockInfo,
 }
