@@ -40,10 +40,13 @@ impl From<FlatStorageError> for StorageError {
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, PartialEq, Eq)]
 pub enum FlatStorageStatus {
-    /// 'protocol_feature_flat_state' is disabled
+    /// Flat Storage is not supported.
     Disabled,
+    /// Flat Storage is empty: either wasn't created yet or was deleted.
     Empty,
+    /// Flat Storage is in the process of being created.
     Creation(FlatStorageCreationStatus),
+    /// Flat Storage is ready to be used.
     Ready(FlatStorageReadyStatus),
 }
 

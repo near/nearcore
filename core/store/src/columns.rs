@@ -258,24 +258,24 @@ pub enum DBCol {
     /// *Column type*: ExecutionOutcomeWithProof
     TransactionResultForBlock,
     /// Flat state contents. Used to get `ValueRef` by trie key faster than doing a trie lookup.
-    /// - *Rows*: trie key (Vec<u8>)
+    /// - *Rows*: `shard_uid` + trie key (Vec<u8>)
     /// - *Column type*: ValueRef
     #[cfg(feature = "protocol_feature_flat_state")]
     FlatState,
     /// Changes for flat state delta. Stores how flat state should be updated for the given shard and block.
-    /// - *Rows*: `KeyForFlatStateDelta { shard_id, block_hash }`
+    /// - *Rows*: `KeyForFlatStateDelta { shard_uid, block_hash }`
     /// - *Column type*: `FlatStateChanges`
     #[cfg(feature = "protocol_feature_flat_state")]
     FlatStateChanges,
     /// Metadata for flat state delta.
-    /// - *Rows*: `KeyForFlatStateDelta { shard_id, block_hash }`
+    /// - *Rows*: `KeyForFlatStateDelta { shard_uid, block_hash }`
     /// - *Column type*: `FlatStateDeltaMetadata`
     #[cfg(feature = "protocol_feature_flat_state")]
     FlatStateDeltaMetadata,
-    #[cfg(feature = "protocol_feature_flat_state")]
     /// Flat storage status for the corresponding shard.
-    /// - *Rows*: `shard_id`
+    /// - *Rows*: `shard_uid`
     /// - *Column type*: `FlatStorageStatus`
+    #[cfg(feature = "protocol_feature_flat_state")]
     FlatStorageStatus,
 }
 
