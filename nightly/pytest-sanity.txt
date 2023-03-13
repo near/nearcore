@@ -149,4 +149,4 @@ pytest sanity/split_storage.py
 pytest sanity/split_storage.py --features nightly
 
 # Tests for verifiable RPC API endpoints
-pytest sanity/verifiable_rpc_proofs.py
+pytest sanity/verifiable_rpc_proofs.py --features nightly
