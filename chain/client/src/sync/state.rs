@@ -45,7 +45,7 @@ use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use std::collections::HashMap;
 use std::ops::Add;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration as TimeDuration;
 
@@ -105,6 +105,8 @@ pub enum StateSyncMode {
         chain_id: String,
         /// Connection to the external storage.
         bucket: Arc<s3::Bucket>,
+        /// Number state part requests allowed to be in-flight in parallel per shard.
+        num_s3_requests_per_shard: u64,
     },
 }
 
@@ -137,6 +139,10 @@ pub struct StateSync {
 
     /// Maps shard_id to result of splitting state for resharding
     split_state_roots: HashMap<ShardId, Result<HashMap<ShardUId, StateRoot>, near_chain::Error>>,
+
+    /// The number of requests for state parts from external storage that are
+    /// allowed to be started for this shard.
+    requests_remaining: Arc<AtomicI64>,
 }
 
 impl StateSync {
@@ -147,22 +153,25 @@ impl StateSync {
         state_sync_from_s3_enabled: bool,
         s3_bucket: &str,
         s3_region: &str,
+        num_s3_requests_per_shard: u64,
     ) -> Self {
         let (mode, parts_request_state) = if state_sync_from_s3_enabled {
             tracing::debug!(target: "sync", s3_bucket, s3_region, "Initializing S3 bucket connection.");
             assert!(!s3_bucket.is_empty() && !s3_region.is_empty(), "State sync from S3 is enabled. This requires that both `s3_bucket and `s3_region` and specified and non-empty");
-            let bucket = Arc::new(
-                s3::Bucket::new(
-                    s3_bucket,
-                    s3_region.parse::<s3::Region>().unwrap(),
-                    s3::creds::Credentials::default().unwrap(),
-                )
-                .unwrap(),
-            );
+            let mut bucket = s3::Bucket::new(
+                s3_bucket,
+                s3_region.parse::<s3::Region>().unwrap(),
+                s3::creds::Credentials::default().unwrap(),
+            )
+            .unwrap();
+            // Ensure requests finish in finite amount of time.
+            bucket.set_request_timeout(Some(timeout));
+            let bucket = Arc::new(bucket);
             (
                 StateSyncMode::HeaderFromPeersAndPartsFromExternal {
                     chain_id: chain_id.to_string(),
                     bucket,
+                    num_s3_requests_per_shard,
                 },
                 None,
             )
@@ -175,14 +184,16 @@ impl StateSync {
                 }),
             )
         };
+        let timeout = Duration::from_std(timeout).unwrap();
         StateSync {
             mode,
             network_adapter,
             last_time_block_requested: None,
             parts_request_state,
-            timeout: Duration::from_std(timeout).unwrap(),
+            timeout,
             state_parts_apply_results: HashMap::new(),
             split_state_roots: HashMap::new(),
+            requests_remaining: Arc::new(AtomicI64::new(num_s3_requests_per_shard as i64)),
         }
     }
 
@@ -655,7 +666,11 @@ impl StateSync {
                         sync_hash,
                     );
                 }
-                StateSyncMode::HeaderFromPeersAndPartsFromExternal { chain_id, bucket } => {
+                StateSyncMode::HeaderFromPeersAndPartsFromExternal {
+                    chain_id,
+                    bucket,
+                    num_s3_requests_per_shard: _,
+                } => {
                     self.request_part_from_external_storage(
                         part_id as u64,
                         download,
@@ -681,6 +696,10 @@ impl StateSync {
         chain_id: &str,
         bucket: Arc<s3::Bucket>,
     ) {
+        let requests_remaining = self.requests_remaining.clone();
+        if !allow_request(&requests_remaining) {
+            return;
+        }
         download.run_me.store(false, Ordering::SeqCst);
         download.state_requests_count += 1;
         download.last_target =
@@ -691,7 +710,25 @@ impl StateSync {
         near_performance_metrics::actix::spawn(std::any::type_name::<Self>(), {
             async move {
                 tracing::info!(target: "sync", %shard_id, part_id, location, "Getting an object from the external storage");
-                match bucket.get_object(location.clone()).await {
+                let started = StaticClock::utc();
+                metrics::STATE_SYNC_EXTERNAL_PARTS_SCHEDULING_DELAY
+                    .with_label_values(&[&shard_id.to_string()])
+                    .observe(
+                        started.signed_duration_since(scheduled).num_nanoseconds().unwrap_or(0)
+                            as f64
+                            / 1e9,
+                    );
+                let result = bucket.get_object(location.clone()).await;
+                let completed = StaticClock::utc();
+                finished_request(&requests_remaining);
+                metrics::STATE_SYNC_EXTERNAL_PARTS_REQUEST_DELAY
+                    .with_label_values(&[&shard_id.to_string()])
+                    .observe(
+                        completed.signed_duration_since(started).num_nanoseconds().unwrap_or(0)
+                            as f64
+                            / 1e9,
+                    );
+                match result {
                     Ok(response) => {
                         tracing::info!(target: "sync", %shard_id, part_id, location, response_code = response.status_code(), num_bytes = response.bytes().len(), "S3 request finished");
                         let mut lock = download_response.lock().unwrap();
@@ -1132,6 +1169,20 @@ impl StateSync {
     }
 }
 
+fn allow_request(requests_remaining: &AtomicI64) -> bool {
+    let remaining = requests_remaining.fetch_sub(1, Ordering::SeqCst);
+    if remaining <= 0 {
+        requests_remaining.fetch_add(1, Ordering::SeqCst);
+        false
+    } else {
+        true
+    }
+}
+
+fn finished_request(requests_remaining: &AtomicI64) {
+    requests_remaining.fetch_add(1, Ordering::SeqCst);
+}
+
 /// Works around how data requests to external storage are done.
 /// The response is stored on the DownloadStatus object.
 /// This function investigates if the response is available and updates `done` and `error` appropriately.
@@ -1322,8 +1373,15 @@ mod test {
     // Start a new state sync - and check that it asks for a header.
     fn test_ask_for_header() {
         let mock_peer_manager = Arc::new(MockPeerManagerAdapter::default());
-        let mut state_sync =
-            StateSync::new(mock_peer_manager.clone().into(), TimeDuration::from_secs(1));
+        let mut state_sync = StateSync::new(
+            mock_peer_manager.clone().into(),
+            TimeDuration::from_secs(1),
+            "chain_id".to_string(),
+            false,
+            "".to_string(),
+            "".to_string(),
+            100,
+        );
         let mut new_shard_sync = HashMap::new();
 
         let (mut chain, kv, signer) = test_utils::setup();

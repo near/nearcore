@@ -658,23 +658,37 @@ impl NearConfig {
                 state_dump_enabled: config
                     .state_sync
                     .as_ref()
-                    .map_or(false, |x| x.dump_enabled.unwrap_or(false)),
+                    .map(|x| x.dump_enabled)
+                    .flatten()
+                    .unwrap_or(false),
                 state_sync_s3_bucket: config
                     .state_sync
                     .as_ref()
-                    .map_or(String::new(), |x| x.s3_bucket.clone()),
+                    .map(|x| x.s3_bucket.clone())
+                    .unwrap_or(String::new()),
                 state_sync_s3_region: config
                     .state_sync
                     .as_ref()
-                    .map_or(String::new(), |x| x.s3_region.clone()),
+                    .map(|x| x.s3_region.clone())
+                    .unwrap_or(String::new()),
                 state_sync_dump_drop_state: config
                     .state_sync
                     .as_ref()
-                    .map_or(vec![], |x| x.drop_state_of_dump.clone().unwrap_or(vec![])),
+                    .map(|x| x.drop_state_of_dump.clone())
+                    .flatten()
+                    .unwrap_or(vec![]),
                 state_sync_from_s3_enabled: config
                     .state_sync
                     .as_ref()
-                    .map_or(false, |x| x.sync_from_s3_enabled.unwrap_or(false)),
+                    .map(|x| x.sync_from_s3_enabled)
+                    .flatten()
+                    .unwrap_or(false),
+                state_sync_num_s3_requests_per_shard: config
+                    .state_sync
+                    .as_ref()
+                    .map(|x| x.num_s3_requests_per_shard)
+                    .flatten()
+                    .unwrap_or(100),
             },
             network_config: NetworkConfig::new(
                 config.network,
@@ -1514,6 +1528,8 @@ pub struct StateSyncConfig {
     /// If enabled, will download state parts from external storage and not from the peers.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sync_from_s3_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub num_s3_requests_per_shard: Option<u64>,
 }
 
 #[test]

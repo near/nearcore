@@ -177,6 +177,8 @@ pub struct ClientConfig {
     /// Whether to enable state sync from S3.
     /// If disabled will perform state sync from the peers.
     pub state_sync_from_s3_enabled: bool,
+    /// Number of parallel in-flight requests allowed per shard.
+    pub state_sync_num_s3_requests_per_shard: u64,
 }
 
 impl ClientConfig {
@@ -251,6 +253,7 @@ impl ClientConfig {
             state_sync_s3_bucket: String::new(),
             state_sync_s3_region: String::new(),
             state_sync_dump_drop_state: vec![],
+            state_sync_num_s3_requests_per_shard: 100,
         }
     }
 }
