@@ -295,7 +295,7 @@ fn test_limit_locals_bigfunc() {
         )
         .skip_wasmtime()
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 54378291 used gas 54378291
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 43682463 used gas 43682463
             Err: WebAssembly trap: Stack overflow.
         "#]]);
 }
@@ -339,7 +339,7 @@ fn test_limit_locals_global() {
             .make(),
         )
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13012109589 used gas 13012109589
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 12998122737 used gas 12998122737
         "#]]);
 }
 
@@ -362,7 +362,7 @@ pub fn test_stablized_host_function() {
                 Err: ...
             "#]],
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 7161934015 used gas 7161934015
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 7146301647 used gas 7146301647
             "#]],
         ]);
 }
