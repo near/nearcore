@@ -196,6 +196,28 @@ class BaseNode(object):
         cmd = (os.path.join(near_root, binary_name), '--home', node_dir, 'run')
         return cmd + make_boot_nodes_arg(boot_node)
 
+    def get_verification_result(self,
+                                account_id,
+                                public_key,
+                                state_root,
+                                proof,
+                                file_path='/tmp/tmp.json',
+                                binary_name='neard'):
+
+        parsed_proof = {'path': proof}
+
+        with open(file_path, 'w') as fw:
+            json.dump(parsed_proof, fw)
+
+        cmd = (os.path.join(self.near_root, binary_name), '--home',
+               self.node_dir, 'verify_trie_path', '--account-id', account_id,
+               '--public-key', public_key, '--state-root', state_root,
+               '--proof-json-path', file_path)
+
+        status = subprocess.call(args=cmd)
+
+        return status
+
     def addr_with_pk(self) -> str:
         pk_hash = self.node_key.pk.split(':')[1]
         host, port = self.addr()
@@ -301,7 +323,7 @@ class BaseNode(object):
             "finality": finality
         },
                              timeout=timeout)
-    
+
     def get_access_key(self, acc, pk, proof=False, finality='optimistic'):
         return self.json_rpc(
             'query', {
@@ -322,8 +344,8 @@ class BaseNode(object):
             })
 
     def get_nonce_for_pk(self, acc, pk, finality='optimistic'):
-        for access_key in self.get_access_key_list(acc, proof=False,
-                                                   finality=finality)['result']['keys']:
+        for access_key in self.get_access_key_list(
+                acc, proof=False, finality=finality)['result']['keys']:
             if access_key['public_key'] == pk:
                 return access_key['access_key']['nonce']
         return None

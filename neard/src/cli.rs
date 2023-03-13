@@ -4,6 +4,7 @@ use near_amend_genesis::AmendGenesisCommand;
 use near_chain_configs::GenesisValidationMode;
 use near_client::ConfigUpdater;
 use near_cold_store_tool::ColdStoreCommand;
+use near_crypto::PublicKey;
 use near_dyn_configs::{UpdateableConfigLoader, UpdateableConfigLoaderError, UpdateableConfigs};
 use near_flat_storage::commands::FlatStorageCommand;
 use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse;
@@ -15,18 +16,22 @@ use near_o11y::{
     EnvFilterBuilder,
 };
 use near_ping::PingCommand;
+use near_primitives::challenge::PartialState;
+use near_primitives::challenge::StateItem;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::compute_root_from_path;
-use near_primitives::types::{Gas, NumSeats, NumShards};
+use near_primitives::trie_key::TrieKey;
+use near_primitives::types::{AccountId, Gas, NumSeats, NumShards};
 use near_state_parts::cli::StatePartsCommand;
 use near_state_viewer::StateViewerSubCommand;
 use near_store::db::RocksDB;
-use near_store::Mode;
+use near_store::{Mode, PartialStorage, Trie};
 use serde_json::Value;
 use std::fs::File;
 use std::io::BufReader;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::Receiver;
@@ -98,6 +103,9 @@ impl NeardCmd {
 
             NeardSubCommand::RecompressStorage(cmd) => {
                 cmd.run(&home_dir);
+            }
+            NeardSubCommand::VerifyTriePath(cmd) => {
+                cmd.run();
             }
             NeardSubCommand::VerifyProof(cmd) => {
                 cmd.run();
@@ -215,6 +223,10 @@ pub(super) enum NeardSubCommand {
     /// Verify proofs
     #[clap(alias = "verify_proof")]
     VerifyProof(VerifyProofSubCommand),
+
+    /// Verify trie path
+    #[clap(alias = "verify_trie_path")]
+    VerifyTriePath(VerifyTrieProofSubCommand),
 
     /// Connects to a NEAR node and sends ping messages to the accounts it sends
     /// us after the handshake is completed, printing stats to stdout.
@@ -668,6 +680,52 @@ pub enum VerifyProofError {
     InvalidOutcomeRootProof,
     #[error("invalid block hash proof")]
     InvalidBlockHashProof,
+}
+
+#[derive(clap::Parser)]
+pub struct VerifyTrieProofSubCommand {
+    #[clap(long)]
+    account_id: String,
+    #[clap(long)]
+    public_key: String,
+    #[clap(long)]
+    state_root: String,
+    #[clap(long)]
+    proof_json_path: String,
+}
+impl VerifyTrieProofSubCommand {
+    pub fn run(self) {
+        let file = File::open(Path::new(self.proof_json_path.as_str()))
+            .with_context(|| "Could not open proof file.")
+            .unwrap();
+        let reader = BufReader::new(file);
+        let proof_json: Value =
+            serde_json::from_reader(reader).with_context(|| "Failed to deserialize JSON.").unwrap();
+        let trie_nodes: Vec<StateItem> =
+            serde_json::from_value(proof_json["path"].clone()).unwrap();
+
+        let state_hash = CryptoHash::from_str(&self.state_root).unwrap();
+
+        let parsed_account_id = self.account_id.parse::<AccountId>().unwrap();
+        let parsed_public_key = self.public_key.parse::<PublicKey>().unwrap();
+
+        let key =
+            TrieKey::AccessKey { account_id: parsed_account_id, public_key: parsed_public_key }
+                .to_vec();
+        let trie = Trie::from_recorded_storage(
+            PartialStorage { nodes: PartialState(trie_nodes) },
+            state_hash,
+        );
+
+        let mut iter = trie.iter().unwrap();
+
+        match iter.seek_prefix(key) {
+            Ok(_) => println!("Successfully verified Trie path"),
+            Err(e) => {
+                panic!("Could not find account_id within partial trie constructed from  proof json")
+            }
+        }
+    }
 }
 
 #[derive(clap::Parser)]

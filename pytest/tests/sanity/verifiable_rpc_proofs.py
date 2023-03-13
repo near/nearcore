@@ -28,20 +28,20 @@ def main():
     nodes = start_cluster(
         5, 0, 1, None,
         [["epoch_length", 10], ["block_producer_kickout_threshold", 60],
-        ["chunk_producer_kickout_threshold", 60]], {})
-    
+         ["chunk_producer_kickout_threshold", 60]], {})
+
     logging.info("Iterating over nodes to fetch arbitrary access key proofs")
 
     for node in nodes:
 
-        utils.wait_for_blocks(node, count=3)
+        latest = utils.wait_for_blocks(node, count=2)
         logging.info(
             "Blocks are being produced, sending access key view queries...")
-        
+
         key_query_result = node.get_access_key(node.signer_key.account_id,
                                                node.signer_key.pk,
                                                proof=True)
-        
+
         proof = key_query_result["result"]["proof"]
         logging.info(
             "Fetched access key, validating for structural integrity....")
@@ -85,10 +85,20 @@ def main():
         logging.info(
             "Cross validating proofs between endpoints for value equivalence..."
         )
-        for i, node in enumerate(key_view["access_key"]["proof"]):
-            assert node == proof[i]
+        for i, proof_node in enumerate(key_view["access_key"]["proof"]):
+            assert proof_node == proof[i]
             "Path returned from `view_access_key` must be identical to the one returned in `view_access_key_list`"
 
+        ## Get state root
+        block = node.get_block(latest.hash)
+        root_hash = block["result"]["chunks"][-1]["prev_state_root"]
+
+        result = node.get_verification_result(node.signer_key.account_id,
+                                              node.signer_key.pk, root_hash,
+                                              key_view["access_key"]["proof"])
+
+        assert result == 0
+        "Returned result must be a successfully verified proof with a subcommand return status of 0"
 
     logging.info("Testing complete, terminating all the nodes....")
     for node in nodes:
