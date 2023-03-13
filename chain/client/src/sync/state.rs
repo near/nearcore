@@ -266,7 +266,7 @@ impl StateSync {
             let shard_sync_download = new_shard_sync.entry(shard_id).or_insert_with(|| {
                 run_shard_state_download = true;
                 update_sync_status = true;
-                ShardSyncDownload::new(now)
+                ShardSyncDownload::new_download_state_header(now)
             });
 
             let old_status = shard_sync_download.status.clone();
@@ -376,13 +376,13 @@ impl StateSync {
             // Execute syncing for shard `shard_id`
             if run_shard_state_download {
                 update_sync_status = true;
-                *shard_sync_download = self.request_shard(
+                self.request_shard(
                     me,
                     shard_id,
                     chain,
                     runtime_adapter,
                     sync_hash,
-                    shard_sync_download.clone(),
+                    shard_sync_download,
                     highest_height_peers,
                 )?;
             }
@@ -550,9 +550,9 @@ impl StateSync {
         chain: &Chain,
         runtime_adapter: &Arc<dyn RuntimeWithEpochManagerAdapter>,
         sync_hash: CryptoHash,
-        shard_sync_download: ShardSyncDownload,
+        shard_sync_download: &mut ShardSyncDownload,
         highest_height_peers: &[HighestHeightPeerInfo],
-    ) -> Result<ShardSyncDownload, near_chain::Error> {
+    ) -> Result<(), near_chain::Error> {
         let possible_targets = self.possible_targets(
             me,
             shard_id,
@@ -564,19 +564,17 @@ impl StateSync {
 
         if possible_targets.is_empty() {
             // In most cases it means that all the targets are currently busy (that we have a pending request with them).
-            return Ok(shard_sync_download);
+            return Ok(());
         }
 
         // Downloading strategy starts here
-        let mut new_shard_sync_download = shard_sync_download.clone();
-
         match shard_sync_download.status {
             ShardSyncStatus::StateDownloadHeader => {
                 self.request_shard_header(
                     shard_id,
                     sync_hash,
                     &possible_targets,
-                    &mut new_shard_sync_download,
+                    shard_sync_download,
                 );
             }
             ShardSyncStatus::StateDownloadParts => {
@@ -585,12 +583,13 @@ impl StateSync {
                     sync_hash,
                     possible_targets,
                     &mut new_shard_sync_download,
+                    chain,
                 );
             }
             _ => {}
         }
 
-        Ok(new_shard_sync_download)
+        Ok(())
     }
 
     fn request_shard_header(
@@ -698,9 +697,15 @@ impl StateSync {
     ) {
         let requests_remaining = self.requests_remaining.clone();
         if !allow_request(&requests_remaining) {
+            tracing::info!(target: "sync", %shard_id, part_id, "Request throttled");
             return;
+        } else {
+            tracing::info!(target: "sync", %shard_id, part_id, "Request allowed");
+            if !download.run_me.swap(false, Ordering::SeqCst) {
+                tracing::info!(target: "sync", %shard_id, part_id, "run_me is already false");
+                return;
+            }
         }
-        download.run_me.store(false, Ordering::SeqCst);
         download.state_requests_count += 1;
         download.last_target =
             Some(make_account_or_peer_id_or_hash(AccountOrPeerIdOrHash::ExternalStorage()));
@@ -730,14 +735,20 @@ impl StateSync {
                     );
                 match result {
                     Ok(response) => {
-                        tracing::info!(target: "sync", %shard_id, part_id, location, response_code = response.status_code(), num_bytes = response.bytes().len(), "S3 request finished");
+                        tracing::error!(target: "sync", %shard_id, part_id, location, response_code = response.status_code(), num_bytes = response.bytes().len(), "S3 request finished");
                         let mut lock = download_response.lock().unwrap();
-                        *lock = Some(Ok((response.status_code(), response.bytes().to_vec())));
+                        let v: &mut Option<Result<_, _>> = &mut lock;
+                        tracing::error!(target: "sync", %shard_id, part_id, location, response_code = response.status_code(), num_bytes = response.bytes().len(), current_value=?v, "S3 request finished");
+                        *v = Some(Ok((response.status_code(), response.bytes().to_vec())));
+                        tracing::error!(target: "sync", %shard_id, part_id, location, response_code = response.status_code(), num_bytes = response.bytes().len(), new_value=?v, "S3 request finished");
                     }
                     Err(err) => {
-                        tracing::info!(target: "sync", %shard_id, part_id, location, ?err, "S3 request failed");
+                        tracing::error!(target: "sync", %shard_id, part_id, location, ?err, "S3 request failed");
                         let mut lock = download_response.lock().unwrap();
-                        *lock = Some(Err(err.to_string()));
+                        let v: &mut Option<Result<_, _>> = &mut lock;
+                        tracing::error!(target: "sync", %shard_id, part_id, location, ?err, current_value=?v, "S3 request failed");
+                        *v = Some(Err(err.to_string()));
+                        tracing::error!(target: "sync", %shard_id, part_id, location, ?err, new_value=?v, "S3 request failed");
                     }
                 }
             }
@@ -936,22 +947,9 @@ impl StateSync {
                 get_num_state_parts(shard_state_header.state_root_node().memory_usage);
             // If the header was downloaded successfully - move to phase 2 (downloading parts).
             // Create the vector with entry for each part.
-            *shard_sync_download = ShardSyncDownload {
-                downloads: vec![
-                    DownloadStatus {
-                        start_time: now,
-                        prev_update_time: now,
-                        run_me: Arc::new(AtomicBool::new(true)),
-                        error: false,
-                        done: false,
-                        state_requests_count: 0,
-                        last_target: None,
-                    };
-                    state_num_parts as usize
-                ],
-                status: ShardSyncStatus::StateDownloadParts,
-            };
-            run_shard_state_download = true;
+            *shard_sync_download =
+                ShardSyncDownload::new_download_state_parts(now, state_num_parts);
+            need_shard = true;
         } else {
             let prev = shard_sync_download.downloads[0].prev_update_time;
             let error = shard_sync_download.downloads[0].error;
@@ -986,6 +984,7 @@ impl StateSync {
         let mut parts_done = true;
         let num_parts = shard_sync_download.downloads.len();
         for (part_id, part_download) in shard_sync_download.downloads.iter_mut().enumerate() {
+            tracing::debug!(target: "sync", %shard_id, %sync_hash, part_id, part_download.done, part_download.error, ?part_download);
             if !part_download.done {
                 // Check if a download from an external storage is finished.
                 check_external_storage_part_response(
@@ -997,12 +996,12 @@ impl StateSync {
                     chain,
                 );
             }
+            tracing::debug!(target: "sync", %shard_id, %sync_hash, part_id, part_download.done, part_download.error);
             if !part_download.done {
                 parts_done = false;
                 let prev = part_download.prev_update_time;
-                let error = part_download.error;
-                let part_timeout = now - prev > self.timeout;
-                // Retry parts that failed.
+                let part_timeout = false; // now - prev > self.timeout;
+                                          // Retry parts that failed.
                 if part_timeout || part_download.error {
                     download_timeout |= part_timeout;
                     part_download.run_me.store(true, Ordering::SeqCst);
@@ -1014,6 +1013,13 @@ impl StateSync {
                 }
             }
         }
+        tracing::debug!(target: "sync", %shard_id, %sync_hash, num_parts_done, parts_done);
+        metrics::STATE_SYNC_PARTS_DONE
+            .with_label_values(&[&shard_id.to_string()])
+            .set(num_parts_done);
+        metrics::STATE_SYNC_PARTS_TOTAL
+            .with_label_values(&[&shard_id.to_string()])
+            .set(num_parts as i64);
         // If all parts are done - we can move towards scheduling.
         if parts_done {
             *shard_sync_download = ShardSyncDownload {
@@ -1055,7 +1061,7 @@ impl StateSync {
                 // Cannot finalize the downloaded state.
                 // The reasonable behavior here is to start from the very beginning.
                 tracing::error!(target: "sync", %shard_id, %sync_hash, ?err, "State sync finalizing error");
-                *shard_sync_download = ShardSyncDownload::new(now);
+                *shard_sync_download = ShardSyncDownload::new_download_state_header(now);
                 chain.clear_downloaded_parts(shard_id, sync_hash, state_num_parts)?;
             }
         }
@@ -1085,7 +1091,7 @@ impl StateSync {
                     // Cannot finalize the downloaded state.
                     // The reasonable behavior here is to start from the very beginning.
                     tracing::error!(target: "sync", %shard_id, %sync_hash, ?err, "State sync finalizing error");
-                    *shard_sync_download = ShardSyncDownload::new(now);
+                    *shard_sync_download = ShardSyncDownload::new_download_state_header(now);
                     let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
                     let state_num_parts =
                         get_num_state_parts(shard_state_header.state_root_node().memory_usage);
@@ -1198,6 +1204,7 @@ fn check_external_storage_part_response(
     let external_storage_response = {
         let mut lock = part_download.response.lock().unwrap();
         if let Some(response) = lock.clone() {
+            tracing::debug!(target: "sync", %shard_id, part_id, "Got response from external storage");
             // Remove the response from DownloadStatus, because
             // we're going to write positive responses to the DB
             // and retry negative responses.
@@ -1207,11 +1214,17 @@ fn check_external_storage_part_response(
             return;
         }
     };
+    {
+        let lock = part_download.response.lock().unwrap();
+        assert!(lock.is_none());
+        tracing::debug!(target: "sync", %shard_id, part_id, "And `response` is now clear");
+    }
 
     let mut err_to_retry = None;
     match external_storage_response {
         // HTTP status code 200 means success.
         Ok((200, data)) => {
+            tracing::debug!(target: "sync", %shard_id, part_id, "Got 200 response from external storage");
             match chain.set_state_part(
                 shard_id,
                 sync_hash,
@@ -1220,6 +1233,8 @@ fn check_external_storage_part_response(
             ) {
                 Ok(_) => {
                     part_download.done = true;
+                    tracing::debug!(target: "sync", %shard_id, part_id, ?part_download, "Got 200 response from external storage and saved state part");
+                    // TODO
                 }
                 Err(err) => {
                     tracing::warn!(target: "sync", %shard_id, %sync_hash, part_id, ?err, "Failed to save a state part");
@@ -1240,6 +1255,8 @@ fn check_external_storage_part_response(
     if let Some(err) = err_to_retry {
         tracing::debug!(target: "sync", %shard_id, %sync_hash, part_id, ?err, "Failed to get a part from external storage, will retry");
         part_download.error = true;
+    } else {
+        tracing::debug!(target: "sync", %shard_id, %sync_hash, part_id, "Checked, ok");
     }
 }
 

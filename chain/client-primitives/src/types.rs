@@ -92,7 +92,7 @@ impl Clone for DownloadStatus {
             state_requests_count: self.state_requests_count,
             last_target: self.last_target.clone(),
             // Copy the contents of `response`, but make it an independent object.
-            response: Arc::new(Mutex::new(self.response.lock().unwrap().clone().into())),
+            response: self.response.clone(),
         }
     }
 }
@@ -200,13 +200,23 @@ pub struct ShardSyncDownload {
 
 impl ShardSyncDownload {
     /// Creates a instance of self which includes initial statuses for shard sync and download at the given time.
-    pub fn new(now: DateTime<Utc>) -> Self {
+    pub fn new_download_state_header(now: DateTime<Utc>) -> Self {
         Self {
             downloads: vec![DownloadStatus::new(now); 1],
             status: ShardSyncStatus::StateDownloadHeader,
         }
     }
+
+    pub fn new_download_state_parts(now: DateTime<Utc>, num_parts: u64) -> Self {
+        // Avoid using `vec![x; num_parts]`, because cloning DownloadStatus::response is a terrible idea.
+        let mut downloads = Vec::with_capacity(num_parts as usize);
+        for _ in 0..num_parts {
+            downloads.push(DownloadStatus::new(now));
+        }
+        Self { downloads, status: ShardSyncStatus::StateDownloadParts }
+    }
 }
+
 /// Various status sync can be in, whether it's fast sync or archival.
 #[derive(Clone, Debug, strum::AsRefStr)]
 pub enum SyncStatus {
