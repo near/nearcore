@@ -759,6 +759,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn set_flat_storage_for_genesis(
         &self,
         genesis_block: &CryptoHash,
+        genesis_block_height: BlockHeight,
         genesis_epoch_id: &EpochId,
     ) -> Result<StoreUpdate, Error> {
         let mut store_update = self.store.store_update();
@@ -768,6 +769,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 &mut store_update,
                 shard_uid,
                 genesis_block,
+                genesis_block_height,
             );
         }
         Ok(store_update)

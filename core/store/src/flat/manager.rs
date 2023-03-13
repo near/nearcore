@@ -4,7 +4,7 @@ use crate::flat::{
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
-use near_primitives::types::ShardId;
+use near_primitives::types::{BlockHeight, ShardId};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tracing::debug;
@@ -48,6 +48,7 @@ impl FlatStorageManager {
         store_update: &mut StoreUpdate,
         shard_uid: ShardUId,
         genesis_block: &CryptoHash,
+        genesis_height: BlockHeight,
     ) {
         let shard_id = shard_uid.shard_id();
         let flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
@@ -56,7 +57,7 @@ impl FlatStorageManager {
             store_update,
             shard_uid,
             FlatStorageStatus::Ready(FlatStorageReadyStatus {
-                flat_head: BlockInfo::genesis(*genesis_block),
+                flat_head: BlockInfo::genesis(*genesis_block, genesis_height),
             }),
         );
     }

@@ -317,6 +317,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn set_flat_storage_for_genesis(
         &self,
         genesis_block: &CryptoHash,
+        genesis_block_height: BlockHeight,
         genesis_epoch_id: &EpochId,
     ) -> Result<StoreUpdate, Error>;
 

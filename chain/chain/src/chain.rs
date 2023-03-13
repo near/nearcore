@@ -633,6 +633,7 @@ impl Chain {
                 if cfg!(feature = "protocol_feature_flat_state") {
                     let tmp_store_update = runtime_adapter.set_flat_storage_for_genesis(
                         genesis.hash(),
+                        genesis.header().height(),
                         genesis.header().epoch_id(),
                     )?;
                     store_update.merge(tmp_store_update);
@@ -3185,7 +3186,10 @@ impl Chain {
                 let block_header = self.get_block_header(block_hash)?;
                 let epoch_id = block_header.epoch_id();
                 let shard_uid = self.runtime_adapter.shard_id_to_uid(shard_id, epoch_id)?;
-                if !matches!(self.runtime_adapter.get_flat_storage_status(shard_uid), FlatStorageStatus::Disabled) {
+                if !matches!(
+                    self.runtime_adapter.get_flat_storage_status(shard_uid),
+                    FlatStorageStatus::Disabled
+                ) {
                     let mut store_update = self.runtime_adapter.store().store_update();
                     store_helper::set_flat_storage_status(
                         &mut store_update,

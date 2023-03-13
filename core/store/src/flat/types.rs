@@ -11,8 +11,8 @@ pub struct BlockInfo {
 }
 
 impl BlockInfo {
-    pub fn genesis(hash: CryptoHash) -> BlockInfo {
-        BlockInfo { hash, height: 0, prev_hash: CryptoHash::default() }
+    pub fn genesis(hash: CryptoHash, height: BlockHeight) -> BlockInfo {
+        BlockInfo { hash, height, prev_hash: CryptoHash::default() }
     }
 }
 

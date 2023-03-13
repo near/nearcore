@@ -157,7 +157,7 @@ impl<'c> EstimatorContext<'c> {
             &mut store_update,
             shard_uid,
             FlatStorageStatus::Ready(FlatStorageReadyStatus {
-                flat_head: BlockInfo::genesis(FLAT_STATE_HEAD),
+                flat_head: BlockInfo::genesis(FLAT_STATE_HEAD, 0),
             }),
         );
         store_update.commit().expect("failed to set flat storage status");
