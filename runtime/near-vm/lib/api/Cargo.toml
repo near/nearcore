@@ -17,7 +17,7 @@ name = "wasmer"
 [dependencies]
 # - Mandatory shared dependencies.
 cfg-if = "1.0"
-finite-wasm = "0.3.0"
+finite-wasm.workspace = true
 indexmap = { version = "1.6" }
 more-asserts = "0.2"
 prefix-sum-vec = "0.1.2"

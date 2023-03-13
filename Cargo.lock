@@ -2028,8 +2028,6 @@ dependencies = [
 [[package]]
 name = "finite-wasm"
 version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c6b821e04f9b8562f75e2c3a1806d629084a78e7f154aadac9e8230ab9efd1d7"
 dependencies = [
  "bitvec",
  "dissimilar",
@@ -7278,6 +7276,8 @@ dependencies = [
 [[package]]
 name = "wasmer-compiler-near"
 version = "2.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "34d09dc0ba83ddaceb9b0846ed11a6c26a449b69fa2709e0335d268f44491921"
 dependencies = [
  "enumset",
  "rkyv",
@@ -7292,6 +7292,8 @@ dependencies = [
 [[package]]
 name = "wasmer-compiler-singlepass-near"
 version = "2.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "86f34bf0625219766759851c1f92e0797787b8b10b424c0a273ee4e0328a2ff7"
 dependencies = [
  "byteorder",
  "dynasm",
@@ -7309,6 +7311,8 @@ dependencies = [
 [[package]]
 name = "wasmer-engine-near"
 version = "2.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fa8353167be3099f3bd033cb9c8479a02d69917777cf4c2e52a09946d5582457"
 dependencies = [
  "backtrace",
  "enumset",
@@ -7326,6 +7330,8 @@ dependencies = [
 [[package]]
 name = "wasmer-engine-universal-near"
 version = "2.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c34fb4f6af2209a36c5e6ed407c9e057fdd2e722e762f702dbd8575896349c62"
 dependencies = [
  "cfg-if 1.0.0",
  "enumset",
@@ -7407,6 +7413,8 @@ dependencies = [
 [[package]]
 name = "wasmer-types-near"
 version = "2.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d1131dfac4d92947acef554a75b433122ca635414c23934f53434ec0efc5994d"
 dependencies = [
  "indexmap",
  "rkyv",
@@ -7416,6 +7424,8 @@ dependencies = [
 [[package]]
 name = "wasmer-vm-near"
 version = "2.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4a47f13d5c412974a38bba01a8b009e1e49bffbee45387198403b269a74d7374"
 dependencies = [
  "backtrace",
  "cc",

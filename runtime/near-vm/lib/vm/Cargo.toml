@@ -16,7 +16,7 @@ name = "wasmer_vm"
 [dependencies]
 backtrace = "0.3"
 cfg-if = "1.0"
-finite-wasm = "0.3.0"
+finite-wasm.workspace = true
 indexmap = { version = "1.6" }
 libc = { version = "^0.2", default-features = false }
 memoffset = "0.6"

@@ -15,7 +15,7 @@ edition = "2018"
 name = "wasmer_compiler_singlepass"
 
 [dependencies]
-finite-wasm = "0.3.0"
+finite-wasm.workspace = true
 wasmer-compiler = { path = "../compiler", package = "near-vm-compiler", version = "=2.4.0", features = ["translator"], default-features = false }
 wasmer-vm = { path = "../vm", package = "near-vm-vm", version = "=2.4.0" }
 wasmer-types = { path = "../types", package = "near-vm-types", version = "=2.4.0", default-features = false, features = ["std"] }

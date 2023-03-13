@@ -14,7 +14,7 @@ edition = "2018"
 name = "wasmer_engine"
 
 [dependencies]
-finite-wasm = "0.3.0"
+finite-wasm.workspace = true
 wasmer-types = { path = "../types", version = "=2.4.0", package = "near-vm-types" }
 wasmer-compiler = { path = "../compiler", version = "=2.4.0", package = "near-vm-compiler" }
 wasmer-vm = { path = "../vm", version = "=2.4.0", package = "near-vm-vm" }
