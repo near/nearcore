@@ -1,8 +1,18 @@
-name: Build Release fuzzers
+name: Build on-demand fuzz targets
 on:
-  # Run when a new release is published
-  release:
-    types: [published]
+  workflow_dispatch:
+    inputs:
+      branch_type:
+        type: choice
+        required: true
+        options:
+          - release
+          - rc
+        description: Type of branch to build binaries for - release or rc
+      branch_ref:
+        type: string
+        required: true
+        description: Branch name or tag to build from
 
 jobs:
   build_fuzzers:
@@ -38,8 +48,11 @@ jobs:
         with:
           version: ">= 416.0.0"
 
-      - uses: actions/checkout@master
+      - name: Checkout ${{ github.event.inputs.branch_ref }} branch
+        uses: actions/checkout@master
+        with:
+          ref: ${{ github.event.inputs.branch_ref }}
 
       - run: pip install -r scripts/build_fuzzers_requirements.txt
 
-      - run: python3 scripts/build_fuzzers.py release
+      - run: python3 scripts/build_fuzzers.py ${{ github.event.inputs.branch_type }}
