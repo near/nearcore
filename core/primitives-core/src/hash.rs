@@ -211,7 +211,7 @@ impl fmt::Display for CryptoHash {
 
 // This implementation is compatible with derived PartialEq.
 // Custom PartialEq implementation was explicitly removed in #4220.
-#[allow(clippy::derive_hash_xor_eq)]
+#[allow(clippy::derived_hash_with_manual_eq)]
 impl Hash for CryptoHash {
     fn hash<H: Hasher>(&self, state: &mut H) {
         state.write(self.as_ref());
