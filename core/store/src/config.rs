@@ -93,8 +93,6 @@ pub struct StoreConfig {
     /// frequently we check creation status and execute work related to it in
     /// main thread (scheduling and collecting state parts, catching up blocks, etc.).
     pub flat_storage_creation_period: Duration,
-    /// Capacity of `ValueRef`s cache for flat storage head for each shard.
-    pub flat_state_cache_capacity: u64,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -229,12 +227,6 @@ impl Default for StoreConfig {
             // One second should be enough to save deltas on start and catch up
             // flat storage head quickly. State read work is much more expensive.
             flat_storage_creation_period: Duration::from_secs(1),
-
-            // Chosen based on our estimations on Dec 2022, so that performances of
-            // flat storage and trie with caches are comparable.
-            // Total size of all flat state caches can't exceed 100_000 * 2 KB (max
-            // storage key length) * 4 (number of tracked shards) = 800 MB.
-            flat_state_cache_capacity: 100_000,
         }
     }
 }
