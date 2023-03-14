@@ -29,8 +29,10 @@ fn test_flat_storage_upgrade() {
         .build();
 
     // We assume that it is enough to process 4 blocks to get a single txn included and processed.
-    // At the same time, `blocks_to_process_txn` * `num_txns` has to be slower than ~`4 * epoch_length`,
-    // because after that protocol gets auto-upgraded to latest version.
+    // At the same time, once we process `>= 2 * epoch_length` blocks, protocol can get
+    // auto-upgraded to latest version. We use this value to process 3 transactions for older
+    // protocol version. So we choose this value to be `epoch_length / 3` and we process only
+    // `epoch_length` blocks in total.
     // TODO (#8703): resolve this properly
     let blocks_to_process_txn = epoch_length / 3;
 
