@@ -21,6 +21,7 @@
 //!
 
 use ansi_term::Color::{Purple, Yellow};
+use ansi_term::Style;
 use chrono::{DateTime, Duration, Utc};
 use futures::{future, FutureExt};
 use near_async::messaging::CanSendAsync;
@@ -246,6 +247,7 @@ impl StateSync {
         now: DateTime<Utc>,
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
         state_split_scheduler: &dyn Fn(StateSplitRequest),
+        use_colour: bool,
     ) -> Result<(bool, bool), near_chain::Error> {
         let mut all_done = true;
         let mut update_sync_status = false;
@@ -350,26 +352,7 @@ impl StateSync {
                     %shard_id,
                     %sync_hash,
                     ?me,
-                    phase = ?match shard_sync_download.status {
-                          ShardSyncStatus::StateDownloadHeader => format!("{} requests sent {}, last target {:?}",
-                                                                          Purple.bold().paint("HEADER".to_string()),
-                                                                          shard_sync_download.downloads[0].state_requests_count,
-                                                                          shard_sync_download.downloads[0].last_target),
-                          ShardSyncStatus::StateDownloadParts => { let mut text = "".to_string();
-                              for (i, download) in shard_sync_download.downloads.iter().enumerate() {
-                                  text.push_str(&format!("[{}: {}, {}, {:?}] ",
-                                                         Yellow.bold().paint(i.to_string()),
-                                                         download.done,
-                                                         download.state_requests_count,
-                                                         download.last_target));
-                              }
-                              format!("{} [{}: is_done, requests sent, last target] {}",
-                                      Purple.bold().paint("PARTS"),
-                                      Yellow.bold().paint("part_id"),
-                                      text)
-                          }
-                          _ => unreachable!("timeout cannot happen when all state is downloaded"),
-                      },
+                    phase = format_shard_sync_phase(&shard_sync_download, use_colour),
                     "State sync status");
             }
 
@@ -805,6 +788,7 @@ impl StateSync {
         tracking_shards: Vec<ShardId>,
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
         state_split_scheduler: &dyn Fn(StateSplitRequest),
+        use_colour: bool,
     ) -> Result<StateSyncResult, near_chain::Error> {
         let _span = tracing::debug_span!(target: "sync", "run", sync = "StateSync").entered();
         tracing::debug!(target: "sync", %sync_hash, ?tracking_shards, "syncing state");
@@ -838,6 +822,7 @@ impl StateSync {
             now,
             state_parts_task_scheduler,
             state_split_scheduler,
+            use_colour,
         )?;
 
         if have_block && all_done {
@@ -1257,12 +1242,20 @@ pub fn s3_location(
     )
 }
 
+fn paint(s: &str, colour: Style, use_colour: bool) -> String {
+    if use_colour {
+        colour.paint(s).to_string()
+    } else {
+        s.to_string()
+    }
+}
+
 /// Formats the given ShardSyncDownload for logging.
-fn format_shard_sync_phase(shard_sync_download: &ShardSyncDownload) -> String {
+fn format_shard_sync_phase(shard_sync_download: &ShardSyncDownload, use_colour: bool) -> String {
     match shard_sync_download.status {
         ShardSyncStatus::StateDownloadHeader => format!(
             "{} requests sent {}, last target {:?}",
-            Purple.bold().paint("HEADER".to_string()),
+            paint("HEADER", Purple.bold(), use_colour),
             shard_sync_download.downloads[0].state_requests_count,
             shard_sync_download.downloads[0].last_target
         ),
@@ -1271,7 +1264,7 @@ fn format_shard_sync_phase(shard_sync_download: &ShardSyncDownload) -> String {
             for (i, download) in shard_sync_download.downloads.iter().enumerate() {
                 text.push_str(&format!(
                     "[{}: {}, {}, {:?}] ",
-                    Yellow.bold().paint(i.to_string()),
+                    paint(&i.to_string(), Yellow.bold(), use_colour),
                     download.done,
                     download.state_requests_count,
                     download.last_target
@@ -1279,8 +1272,8 @@ fn format_shard_sync_phase(shard_sync_download: &ShardSyncDownload) -> String {
             }
             format!(
                 "{} [{}: is_done, requests sent, last target] {}",
-                Purple.bold().paint("PARTS"),
-                Yellow.bold().paint("part_id"),
+                paint("PARTS", Purple.bold(), use_colour),
+                paint("part_id", Yellow.bold(), use_colour),
                 text
             )
         }
