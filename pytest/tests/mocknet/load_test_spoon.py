@@ -214,7 +214,7 @@ class LoadTestSpoon:
         random.shuffle(all_nodes)
         assert len(all_nodes) > self.num_nodes, \
             f'Need at least one RPC node. ' \
-            f'Nodes available in mocknet: {len(all_nodes)}' \
+            f'Nodes available in mocknet: {len(all_nodes)} ' \
             f'Requested validator nodes num: {self.num_nodes}'
 
         self.all_nodes = all_nodes
@@ -222,8 +222,11 @@ class LoadTestSpoon:
         self.rpc_nodes = all_nodes[self.num_nodes:]
         self.archival_node = self.rpc_nodes[0]
 
-        logger.info(f'validator_nodes: {self.validator_nodes}')
-        logger.info(f'rpc_nodes      : {self.rpc_nodes}')
+        logger.info(
+            f'validator_nodes: {[n.instance_name for n in self.validator_nodes]}'
+        )
+        logger.info(
+            f'rpc_nodes      : {[n.instance_name for n in self.rpc_nodes]}')
         logger.info(f'archival node  : {self.archival_node.instance_name}')
 
     def __prepare_upgrade_schedule(self):
