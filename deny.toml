@@ -85,6 +85,8 @@ skip = [
 
     # old version of tokio, parking_lot
     { name = "windows-sys", version = "=0.36.1" },
+    # console
+    { name = "windows-sys", version = "=0.42.0" },
     { name = "windows_x86_64_msvc", version = "=0.36.1" },
 
     # old version of rustix, wasmtime, is-terminal, etc.
