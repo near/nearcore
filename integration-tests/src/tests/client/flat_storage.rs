@@ -6,9 +6,10 @@ use near_client::test_utils::TestEnv;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::types::AccountId;
-use near_primitives_core::types::{BlockHeight, NumShards};
+use near_primitives_core::types::BlockHeight;
 use near_store::flat::{
-    store_helper, FetchingStateStatus, FlatStorageCreationStatus, NUM_PARTS_IN_ONE_STEP,
+    store_helper, FetchingStateStatus, FlatStorageCreationStatus, FlatStorageReadyStatus,
+    FlatStorageStatus, NUM_PARTS_IN_ONE_STEP,
 };
 use near_store::test_utils::create_test_store;
 use near_store::{Store, TrieTraversalItem};
@@ -40,34 +41,46 @@ fn setup_env(genesis: &Genesis, store: Store) -> TestEnv {
 fn wait_for_flat_storage_creation(
     env: &mut TestEnv,
     start_height: BlockHeight,
+    shard_uid: ShardUId,
     produce_blocks: bool,
 ) -> BlockHeight {
     let store = env.clients[0].runtime_adapter.store().clone();
     let mut next_height = start_height;
-    let mut prev_status = store_helper::get_flat_storage_creation_status(&store, 0);
+    let mut prev_status = store_helper::get_flat_storage_status(&store, shard_uid);
     while next_height < start_height + CREATION_TIMEOUT {
         if produce_blocks {
             env.produce_block(0, next_height);
         }
         env.clients[0].run_flat_storage_creation_step().unwrap();
 
-        let status = store_helper::get_flat_storage_creation_status(&store, 0);
+        let status = store_helper::get_flat_storage_status(&store, shard_uid);
         // Check validity of state transition for flat storage creation.
         match &prev_status {
-            FlatStorageCreationStatus::SavingDeltas => assert_matches!(
+            FlatStorageStatus::Empty => assert_matches!(
                 status,
-                FlatStorageCreationStatus::SavingDeltas
-                    | FlatStorageCreationStatus::FetchingState(_)
+                FlatStorageStatus::Creation(FlatStorageCreationStatus::SavingDeltas)
             ),
-            FlatStorageCreationStatus::FetchingState(_) => assert_matches!(
-                status,
-                FlatStorageCreationStatus::FetchingState(_)
-                    | FlatStorageCreationStatus::CatchingUp(_)
-            ),
-            FlatStorageCreationStatus::CatchingUp(_) => assert_matches!(
-                status,
-                FlatStorageCreationStatus::CatchingUp(_) | FlatStorageCreationStatus::Ready
-            ),
+            FlatStorageStatus::Creation(FlatStorageCreationStatus::SavingDeltas) => {
+                assert_matches!(
+                    status,
+                    FlatStorageStatus::Creation(FlatStorageCreationStatus::SavingDeltas)
+                        | FlatStorageStatus::Creation(FlatStorageCreationStatus::FetchingState(_))
+                )
+            }
+            FlatStorageStatus::Creation(FlatStorageCreationStatus::FetchingState(_)) => {
+                assert_matches!(
+                    status,
+                    FlatStorageStatus::Creation(FlatStorageCreationStatus::FetchingState(_))
+                        | FlatStorageStatus::Creation(FlatStorageCreationStatus::CatchingUp(_))
+                )
+            }
+            FlatStorageStatus::Creation(FlatStorageCreationStatus::CatchingUp(_)) => {
+                assert_matches!(
+                    status,
+                    FlatStorageStatus::Creation(FlatStorageCreationStatus::CatchingUp(_))
+                        | FlatStorageStatus::Ready(_)
+                )
+            }
             _ => {
                 panic!("Invalid status {prev_status:?} observed during flat storage creation for height {next_height}");
             }
@@ -76,16 +89,16 @@ fn wait_for_flat_storage_creation(
 
         prev_status = status;
         next_height += 1;
-        if prev_status == FlatStorageCreationStatus::Ready {
+        if matches!(prev_status, FlatStorageStatus::Ready(_)) {
             break;
         }
 
         thread::sleep(Duration::from_secs(1));
     }
-    let status = store_helper::get_flat_storage_creation_status(&store, 0);
-    assert_eq!(
+    let status = store_helper::get_flat_storage_status(&store, shard_uid);
+    assert_matches!(
         status,
-        FlatStorageCreationStatus::Ready,
+        FlatStorageStatus::Ready(_),
         "Client couldn't create flat storage until block {next_height}, status: {status:?}"
     );
     assert!(env.clients[0].runtime_adapter.get_flat_storage_for_shard(0).is_some());
@@ -110,13 +123,16 @@ fn test_flat_storage_creation() {
         if cfg!(feature = "protocol_feature_flat_state") {
             // If chain was initialized from scratch, flat storage state should be created. During block processing, flat
             // storage head should be moved to block `START_HEIGHT - 3`.
-            assert_eq!(
-                store_helper::get_flat_storage_creation_status(&store, 0),
-                FlatStorageCreationStatus::Ready
-            );
+            let flat_head_height = START_HEIGHT - 3;
             let expected_flat_storage_head =
-                env.clients[0].chain.get_block_hash_by_height(START_HEIGHT - 3).unwrap();
-            assert_eq!(store_helper::get_flat_head(&store, 0), Some(expected_flat_storage_head));
+                env.clients[0].chain.get_block_hash_by_height(flat_head_height).unwrap();
+            let status = store_helper::get_flat_storage_status(&store, shard_uid);
+            if let FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head }) = status {
+                assert_eq!(flat_head.hash, expected_flat_storage_head);
+                assert_eq!(flat_head.height, flat_head_height);
+            } else {
+                panic!("expected FlatStorageStatus::Ready status, got {status:?}");
+            }
 
             // Deltas for blocks until `START_HEIGHT - 2` should not exist.
             for height in 0..START_HEIGHT - 2 {
@@ -136,11 +152,10 @@ fn test_flat_storage_creation() {
                 );
             }
         } else {
-            assert_eq!(
-                store_helper::get_flat_storage_creation_status(&store, 0),
-                FlatStorageCreationStatus::DontCreate
+            assert_matches!(
+                store_helper::get_flat_storage_status(&store, shard_uid),
+                FlatStorageStatus::Disabled
             );
-            assert_eq!(store_helper::get_flat_head(&store, 0), None);
         }
 
         let block_hash = env.clients[0].chain.get_block_hash_by_height(START_HEIGHT - 1).unwrap();
@@ -157,20 +172,21 @@ fn test_flat_storage_creation() {
     assert!(env.clients[0].runtime_adapter.get_flat_storage_for_shard(0).is_none());
 
     if !cfg!(feature = "protocol_feature_flat_state") {
-        assert_eq!(
-            store_helper::get_flat_storage_creation_status(&store, 0),
-            FlatStorageCreationStatus::DontCreate
+        assert_matches!(
+            store_helper::get_flat_storage_status(&store, shard_uid),
+            FlatStorageStatus::Disabled
         );
-        assert_eq!(store_helper::get_flat_head(&store, 0), None);
         // Stop the test here.
         return;
     }
 
+    assert_eq!(store_helper::get_flat_storage_status(&store, shard_uid), FlatStorageStatus::Empty);
+    assert!(!env.clients[0].run_flat_storage_creation_step().unwrap());
     // At first, flat storage state should start saving deltas. Deltas for all newly processed blocks should be saved to
     // disk.
     assert_eq!(
-        store_helper::get_flat_storage_creation_status(&store, 0),
-        FlatStorageCreationStatus::SavingDeltas
+        store_helper::get_flat_storage_status(&store, shard_uid),
+        FlatStorageStatus::Creation(FlatStorageCreationStatus::SavingDeltas)
     );
     for height in START_HEIGHT..START_HEIGHT + 2 {
         let block_hash = env.clients[0].chain.get_block_hash_by_height(height).unwrap();
@@ -187,30 +203,29 @@ fn test_flat_storage_creation() {
     env.produce_block(0, START_HEIGHT + 2);
     assert!(!env.clients[0].run_flat_storage_creation_step().unwrap());
     let final_block_hash = env.clients[0].chain.get_block_hash_by_height(START_HEIGHT).unwrap();
-    assert_eq!(store_helper::get_flat_head(&store, 0), None);
     assert_eq!(
-        store_helper::get_flat_storage_creation_status(&store, 0),
-        FlatStorageCreationStatus::FetchingState(FetchingStateStatus {
-            block_hash: final_block_hash,
-            part_id: 0,
-            num_parts_in_step: NUM_PARTS_IN_ONE_STEP,
-            num_parts: 1,
-        })
+        store_helper::get_flat_storage_status(&store, shard_uid),
+        FlatStorageStatus::Creation(FlatStorageCreationStatus::FetchingState(
+            FetchingStateStatus {
+                block_hash: final_block_hash,
+                part_id: 0,
+                num_parts_in_step: NUM_PARTS_IN_ONE_STEP,
+                num_parts: 1,
+            }
+        ))
     );
 
-    wait_for_flat_storage_creation(&mut env, START_HEIGHT + 3, true);
+    wait_for_flat_storage_creation(&mut env, START_HEIGHT + 3, shard_uid, true);
 }
 
 /// Check that client can create flat storage on some shard while it already exists on another shard.
 #[test]
 fn test_flat_storage_creation_two_shards() {
     init_test_logger();
-    let num_shards: NumShards = 2;
-    let genesis = Genesis::test_sharded_new_version(
-        vec!["test0".parse().unwrap()],
-        1,
-        vec![1; num_shards as usize],
-    );
+    let num_shards = 2;
+    let genesis =
+        Genesis::test_sharded_new_version(vec!["test0".parse().unwrap()], 1, vec![1; num_shards]);
+    let shard_uids = genesis.config.shard_layout.get_shard_uids();
     let store = create_test_store();
 
     // Process some blocks with flat storages for two shards. Then remove flat storage data from disk for shard 0.
@@ -220,16 +235,16 @@ fn test_flat_storage_creation_two_shards() {
             env.produce_block(0, height);
         }
 
-        for shard_id in 0..num_shards {
+        for &shard_uid in &shard_uids {
             if cfg!(feature = "protocol_feature_flat_state") {
-                assert_eq!(
-                    store_helper::get_flat_storage_creation_status(&store, shard_id),
-                    FlatStorageCreationStatus::Ready
+                assert_matches!(
+                    store_helper::get_flat_storage_status(&store, shard_uid),
+                    FlatStorageStatus::Ready(_)
                 );
             } else {
-                assert_eq!(
-                    store_helper::get_flat_storage_creation_status(&store, shard_id),
-                    FlatStorageCreationStatus::DontCreate
+                assert_matches!(
+                    store_helper::get_flat_storage_status(&store, shard_uid),
+                    FlatStorageStatus::Disabled
                 );
             }
         }
@@ -246,17 +261,17 @@ fn test_flat_storage_creation_two_shards() {
     // Check that flat storage is not ready for shard 0 but ready for shard 1.
     let mut env = setup_env(&genesis, store.clone());
     assert!(env.clients[0].runtime_adapter.get_flat_storage_for_shard(0).is_none());
-    assert_eq!(
-        store_helper::get_flat_storage_creation_status(&store, 0),
-        FlatStorageCreationStatus::SavingDeltas
+    assert_matches!(
+        store_helper::get_flat_storage_status(&store, shard_uids[0]),
+        FlatStorageStatus::Empty
     );
     assert!(env.clients[0].runtime_adapter.get_flat_storage_for_shard(1).is_some());
-    assert_eq!(
-        store_helper::get_flat_storage_creation_status(&store, 1),
-        FlatStorageCreationStatus::Ready
+    assert_matches!(
+        store_helper::get_flat_storage_status(&store, shard_uids[1]),
+        FlatStorageStatus::Ready(_)
     );
 
-    wait_for_flat_storage_creation(&mut env, START_HEIGHT, true);
+    wait_for_flat_storage_creation(&mut env, START_HEIGHT, shard_uids[0], true);
 }
 
 /// Check that flat storage creation can be started from intermediate state where one
@@ -282,14 +297,14 @@ fn test_flat_storage_creation_start_from_state_part() {
         }
 
         if cfg!(feature = "protocol_feature_flat_state") {
-            assert_eq!(
-                store_helper::get_flat_storage_creation_status(&store, 0),
-                FlatStorageCreationStatus::Ready
+            assert_matches!(
+                store_helper::get_flat_storage_status(&store, shard_uid),
+                FlatStorageStatus::Ready(_)
             );
         } else {
-            assert_eq!(
-                store_helper::get_flat_storage_creation_status(&store, 0),
-                FlatStorageCreationStatus::DontCreate
+            assert_matches!(
+                store_helper::get_flat_storage_status(&store, shard_uid),
+                FlatStorageStatus::Disabled
             );
             return;
         }
@@ -326,21 +341,27 @@ fn test_flat_storage_creation_start_from_state_part() {
     if cfg!(feature = "protocol_feature_flat_state") {
         // Remove keys of part 1 from the flat state.
         // Manually set flat storage creation status to the step when it should start from fetching part 1.
-        let flat_head = store_helper::get_flat_head(&store, 0).unwrap();
+        let status = store_helper::get_flat_storage_status(&store, shard_uid);
+        let flat_head = if let FlatStorageStatus::Ready(ready_status) = status {
+            ready_status.flat_head.hash
+        } else {
+            panic!("expected FlatStorageStatus::Ready, got: {status:?}");
+        };
         let mut store_update = store.store_update();
         for key in trie_keys[1].iter() {
             store_helper::set_ref(&mut store_update, shard_uid, key.clone(), None).unwrap();
         }
-        store_helper::remove_flat_head(&mut store_update, 0);
-        store_helper::set_flat_storage_creation_status(
+        store_helper::set_flat_storage_status(
             &mut store_update,
-            0,
-            FlatStorageCreationStatus::FetchingState(FetchingStateStatus {
-                block_hash: flat_head,
-                part_id: 1,
-                num_parts_in_step: 1,
-                num_parts: NUM_PARTS,
-            }),
+            shard_uid,
+            FlatStorageStatus::Creation(FlatStorageCreationStatus::FetchingState(
+                FetchingStateStatus {
+                    block_hash: flat_head,
+                    part_id: 1,
+                    num_parts_in_step: 1,
+                    num_parts: NUM_PARTS,
+                },
+            )),
         );
         store_update.commit().unwrap();
 
@@ -349,7 +370,7 @@ fn test_flat_storage_creation_start_from_state_part() {
         assert!(env.clients[0].runtime_adapter.get_flat_storage_for_shard(0).is_none());
 
         // Run chain for a couple of blocks and check that flat storage for shard 0 is eventually created.
-        let next_height = wait_for_flat_storage_creation(&mut env, START_HEIGHT, true);
+        let next_height = wait_for_flat_storage_creation(&mut env, START_HEIGHT, shard_uid, true);
 
         // Check that all the keys are present in flat storage.
         let block_hash = env.clients[0].chain.get_block_hash_by_height(next_height - 1).unwrap();
@@ -380,6 +401,7 @@ fn test_cachup_succeeds_even_if_no_new_blocks() {
     init_test_logger();
     let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     let store = create_test_store();
+    let shard_uid = ShardLayout::v0_single_shard().get_shard_uids()[0];
 
     // Process some blocks with flat storage. Then remove flat storage data from disk.
     {
@@ -394,10 +416,7 @@ fn test_cachup_succeeds_even_if_no_new_blocks() {
     }
     let mut env = setup_env(&genesis, store.clone());
     assert!(env.clients[0].runtime_adapter.get_flat_storage_for_shard(0).is_none());
-    assert_eq!(
-        store_helper::get_flat_storage_creation_status(&store, 0),
-        FlatStorageCreationStatus::SavingDeltas
-    );
+    assert_eq!(store_helper::get_flat_storage_status(&store, shard_uid), FlatStorageStatus::Empty);
     // Create 3 more blocks (so that the deltas are generated) - and assume that no new blocks are received.
     // In the future, we should also support the scenario where no new blocks are created.
 
@@ -406,7 +425,7 @@ fn test_cachup_succeeds_even_if_no_new_blocks() {
     }
 
     assert!(!env.clients[0].run_flat_storage_creation_step().unwrap());
-    wait_for_flat_storage_creation(&mut env, START_HEIGHT + 3, false);
+    wait_for_flat_storage_creation(&mut env, START_HEIGHT + 3, shard_uid, false);
 }
 
 /// Tests the flat storage iterator. Running on a chain with 3 shards, and couple blocks produced.
@@ -414,15 +433,14 @@ fn test_cachup_succeeds_even_if_no_new_blocks() {
 #[test]
 fn test_flat_storage_iter() {
     init_test_logger();
-    let num_shards: NumShards = 3;
-
+    let num_shards = 3;
     let shard_layout =
         ShardLayout::v1(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], vec![], None, 0);
 
     let genesis = Genesis::test_with_seeds(
         vec!["test0".parse().unwrap()],
         1,
-        vec![1; num_shards as usize],
+        vec![1; num_shards],
         shard_layout.clone(),
     );
 

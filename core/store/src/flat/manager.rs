@@ -1,8 +1,10 @@
-use crate::flat::{store_helper, POISONED_LOCK_ERR};
+use crate::flat::{
+    store_helper, BlockInfo, FlatStorageReadyStatus, FlatStorageStatus, POISONED_LOCK_ERR,
+};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::ShardId;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
+use near_primitives::types::{BlockHeight, ShardId};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tracing::debug;
@@ -44,12 +46,20 @@ impl FlatStorageManager {
     pub fn set_flat_storage_for_genesis(
         &self,
         store_update: &mut StoreUpdate,
-        shard_id: ShardId,
+        shard_uid: ShardUId,
         genesis_block: &CryptoHash,
+        genesis_height: BlockHeight,
     ) {
+        let shard_id = shard_uid.shard_id();
         let flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
         assert!(!flat_storages.contains_key(&shard_id));
-        store_helper::set_flat_head(store_update, shard_id, genesis_block);
+        store_helper::set_flat_storage_status(
+            store_update,
+            shard_uid,
+            FlatStorageStatus::Ready(FlatStorageReadyStatus {
+                flat_head: BlockInfo::genesis(*genesis_block, genesis_height),
+            }),
+        );
     }
 
     /// Add a flat storage state for shard `shard_id`. The function also checks that
