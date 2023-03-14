@@ -78,9 +78,8 @@ impl ProofVerifier {
                             _ => false,
                         };
                     }
-                    let index = key.at(0);
-                    match &children[index as usize] {
-                        Some(child_hash) => {
+                    match children[key.at(0)] {
+                        Some(ref child_hash) => {
                             key = key.mid(1);
                             expected_hash = child_hash;
                         }
