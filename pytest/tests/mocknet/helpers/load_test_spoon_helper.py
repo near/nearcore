@@ -7,6 +7,7 @@ This file is uploaded to each mocknet node and run there.
 import random
 import sys
 import time
+import argparse
 
 # Don't use the pathlib magic because this file runs on a remote machine.
 sys.path.append('lib')
@@ -18,17 +19,38 @@ import mocknet_helpers
 
 from configured_logger import logger
 
-# We need to slowly deploy contracts, otherwise we stall out the nodes
-CONTRACT_DEPLOY_TIME = 10 * mocknet.NUM_ACCOUNTS
-TEST_TIMEOUT = 12 * 60 * 60
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description='Generates transactions on a mocknet node.')
+    parser.add_argument('--node-account-id', required=True, type=str)
+    parser.add_argument('--rpc-nodes', required=True, type=str)
+    parser.add_argument('--num-nodes', required=True, type=int)
+    parser.add_argument('--max-tps', required=True, type=float)
+
+    parser.add_argument('--test-timeout', type=int, default=12 * 60 * 60)
+    parser.add_argument(
+        '--contract-deploy-time',
+        type=int,
+        default=10 * mocknet.NUM_ACCOUNTS,
+        help=
+        'We need to slowly deploy contracts, otherwise we stall out the nodes',
+    )
+
+    return parser.parse_args()
 
 
-def get_test_accounts_from_args(argv):
-    node_account_id = argv[1]
-    rpc_nodes = argv[2].split(',')
-    num_nodes = int(argv[3])
-    max_tps = float(argv[4])
+def get_test_accounts_from_args(args):
+
+    node_account_id = args.node_account_id
+    rpc_nodes = args.rpc_nodes.split(',')
+    num_nodes = args.num_nodes
+    max_tps = args.max_tps
+
+    logger.info(f'node_account_id: {node_account_id}')
     logger.info(f'rpc_nodes: {rpc_nodes}')
+    logger.info(f'num_nodes: {num_nodes}')
+    logger.info(f'max_tps: {max_tps}')
 
     node_account_key = key_mod.Key(
         node_account_id,
@@ -75,14 +97,16 @@ def get_test_accounts_from_args(argv):
     )
 
 
-def main(argv):
-    logger.info(argv)
-    test_state = get_test_accounts_from_args(argv)
+def main():
+    logger.info(" ".join(sys.argv))
+
+    args = parse_args()
+    test_state = get_test_accounts_from_args(args)
 
     # Ensure load testing contract is deployed to all accounts before
     # starting to send random transactions (ensures we do not try to
     # call the contract before it is deployed).
-    delay = CONTRACT_DEPLOY_TIME / test_state.num_test_accounts()
+    delay = args.contract_deploy_time / test_state.num_test_accounts()
     logger.info(f'Start deploying, delay between deployments: {delay}')
 
     time.sleep(random.random() * delay)
@@ -94,8 +118,10 @@ def main(argv):
         mocknet_helpers.retry_and_ignore_errors(
             lambda: account.send_deploy_contract_tx(mocknet.WASM_FILENAME))
         load_test_utils.init_ft_account(test_state.node_account, account)
+        balance = mocknet_helpers.retry_and_ignore_errors(
+            lambda: account.get_amount_yoctonear())
         logger.info(
-            f'Account {account.key.account_id} balance after initialization: {mocknet_helpers.retry_and_ignore_errors(lambda:account.get_amount_yoctonear())}'
+            f'Account {account.key.account_id} balance after initialization: {balance}'
         )
         time.sleep(max(1.0, start_time + (i + 1) * delay - time.monotonic()))
 
@@ -104,11 +130,11 @@ def main(argv):
     # begin with only transfers for TPS measurement
     total_tx_sent, elapsed_time = 0, 0
     logger.info(
-        f'Start the test, expected TPS {test_state.max_tps_per_node} over the next {TEST_TIMEOUT} seconds'
+        f'Start the test, expected TPS {test_state.max_tps_per_node} over the next {args.test_timeout} seconds'
     )
     last_staking = 0
     start_time = time.monotonic()
-    while time.monotonic() - start_time < TEST_TIMEOUT:
+    while time.monotonic() - start_time < args.test_timeout:
         # Repeat the staking transactions in case the validator selection algorithm changes.
         staked_time = mocknet.stake_available_amount(
             test_state.node_account,
@@ -128,4 +154,4 @@ def main(argv):
 
 
 if __name__ == '__main__':
-    main(sys.argv)
+    main()

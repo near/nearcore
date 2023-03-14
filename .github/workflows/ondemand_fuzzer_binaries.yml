@@ -1,0 +1,84 @@
+name: Build on-demand fuzz targets
+on:
+  # Run when a new release or rc is created
+  release:
+    types: [released, prereleased]
+
+  # Run on-demand
+  workflow_dispatch:
+    inputs:
+      branch_type:
+        type: choice
+        required: true
+        options:
+          - master
+          - release
+          - rc
+        description: Type of branch to build fuzz targets
+      branch_ref:
+        type: string
+        required: true
+        description: Branch name or tag to build from
+
+jobs:
+  build_fuzzers:
+    runs-on: "ubuntu-20.04"
+
+    permissions:
+      contents: "read"
+      id-token: "write"
+
+    steps:
+      - id: "auth"
+        uses: "google-github-actions/auth@v1"
+        with:
+          workload_identity_provider: "projects/968400232856/locations/global/workloadIdentityPools/project-identity-pool/providers/github-provider"
+          service_account: "near-fuzzer-service-account@near-fuzzer.iam.gserviceaccount.com"
+
+      - name: Installing nightly rust
+        run: |
+          rustup install nightly
+          rustup default nightly
+
+      - name: Set swap to 10G
+        shell: bash
+        run: |
+          export SWAP_FILE=$(swapon --show=NAME | tail -n 1)
+          sudo swapoff $SWAP_FILE
+          sudo rm $SWAP_FILE
+          sudo fallocate -l 10G $SWAP_FILE
+          sudo chmod 600 $SWAP_FILE
+          sudo mkswap $SWAP_FILE
+          sudo swapon $SWAP_FILE
+
+      - name: Install cargo fuzz subcommand crate
+        run: cargo install cargo-fuzz
+
+      - run: rustup target add --toolchain nightly wasm32-unknown-unknown
+
+      - name: "Set up GCP SDK"
+        uses: "google-github-actions/setup-gcloud@v1"
+
+      - name: Checkout Release/RC branch
+        if: contains(fromJSON('["released", "prereleased"]'), github.event.action)
+        uses: actions/checkout@master
+
+      - name: Checkout ${{ github.event.inputs.branch_ref }} branch
+        if: ${{ github.event_name == 'workflow_dispatch'}}
+        uses: actions/checkout@master
+        with:
+          ref: ${{ github.event.inputs.branch_ref }}
+
+      - run: pip install -r scripts/build_fuzzers_requirements.txt
+
+      - name: Build Release branch fuzz targets
+        if: ${{ github.event.action == 'released'}}
+        run: python3 scripts/build_fuzzers.py release
+
+      - name: Build RC branch fuzz targets
+        if: ${{ github.event.action == 'prereleased'}}
+        run: python3 scripts/build_fuzzers.py rc
+
+      - name: Build fuzz targets from ${{ github.event.inputs.branch_ref }}" branch
+        if: ${{ github.event_name == 'workflow_dispatch'}}
+        run: python3 scripts/build_fuzzers.py ${{ github.event.inputs.branch_type }}

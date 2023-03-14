@@ -6,7 +6,7 @@ use near_chain::{
 };
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::{state::ValueRef, trie_key::trie_key_parsers::parse_account_id_from_raw_key};
-use near_store::flat::store_helper::{self, get_flat_head, get_flat_storage_creation_status};
+use near_store::flat::{store_helper, FlatStorageStatus};
 use near_store::{Mode, NodeStorage, ShardUId, Store, StoreOpener};
 use nearcore::{load_config, NearConfig, NightshadeRuntime};
 use std::{path::PathBuf, sync::Arc, time::Duration};
@@ -95,18 +95,17 @@ impl FlatStorageCommand {
                 println!("Current final tip @{:?} - shards: {:?}", tip.height, shards);
 
                 for shard in 0..shards {
-                    let head_hash = get_flat_head(&hot_store, shard);
-                    if let Some(head_hash) = head_hash {
-                        let head_header = chain_store.get_block_header(&head_hash);
-                        let creation_status = get_flat_storage_creation_status(&hot_store, shard);
-                        println!(
-                            "Shard: {:?} - flat storage @{:?} Details: {:?}",
-                            shard,
-                            head_header.map(|header| header.height()),
-                            creation_status
-                        );
-                    } else {
-                        println!("Shard: {:?} - no flat storage.", shard)
+                    let shard_uid = hot_runtime.shard_id_to_uid(shard, &tip.epoch_id)?;
+                    match store_helper::get_flat_storage_status(&hot_store, shard_uid) {
+                        FlatStorageStatus::Ready(ready_status) => {
+                            println!(
+                                "Shard: {shard:?} - flat storage @{:?}",
+                                ready_status.flat_head.height
+                            );
+                        }
+                        status => {
+                            println!("Shard: {shard:?} - no flat storage: {status:?}");
+                        }
                     }
                 }
             }
@@ -141,7 +140,6 @@ impl FlatStorageCommand {
                 );
 
                 let tip = rw_chain_store.final_head().unwrap();
-
                 let shard_uid = rw_hot_runtime.shard_id_to_uid(init_cmd.shard_id, &tip.epoch_id)?;
                 let mut creator =
                     FlatStorageShardCreator::new(shard_uid, tip.height - 1, rw_hot_runtime);
@@ -156,7 +154,7 @@ impl FlatStorageCommand {
                         break;
                     }
                     let current_status =
-                        get_flat_storage_creation_status(&rw_hot_store, init_cmd.shard_id);
+                        store_helper::get_flat_storage_status(&rw_hot_store, shard_uid);
                     println!("Status: {:?}", current_status);
 
                     std::thread::sleep(Duration::from_secs(1));
@@ -167,11 +165,18 @@ impl FlatStorageCommand {
             SubCommand::Verify(verify_cmd) => {
                 let (_, hot_runtime, chain_store, hot_store) =
                     Self::get_db(&opener, home_dir, &near_config, near_store::Mode::ReadOnly);
+                let tip = chain_store.final_head().unwrap();
+                let shard_uid = hot_runtime.shard_id_to_uid(verify_cmd.shard_id, &tip.epoch_id)?;
 
-                let head_hash = get_flat_head(&hot_store, verify_cmd.shard_id).expect(&format!(
-                    "Flat storage head missing for shard {:?}.",
-                    verify_cmd.shard_id
-                ));
+                let head_hash = match store_helper::get_flat_storage_status(&hot_store, shard_uid) {
+                    FlatStorageStatus::Ready(ready_status) => ready_status.flat_head.hash,
+                    status => {
+                        panic!(
+                            "Flat storage is not ready for shard {:?}: {status:?}",
+                            verify_cmd.shard_id
+                        );
+                    }
+                };
                 let block_header = chain_store.get_block_header(&head_hash).unwrap();
                 let shard_layout = hot_runtime.get_shard_layout(block_header.epoch_id()).unwrap();
 
