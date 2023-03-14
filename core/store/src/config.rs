@@ -159,10 +159,6 @@ impl StoreConfig {
             crate::DBCol::State => self.col_state_cache_size,
             #[cfg(feature = "protocol_feature_flat_state")]
             crate::DBCol::FlatState => self.col_state_cache_size,
-            #[cfg(feature = "protocol_feature_flat_state")]
-            crate::DBCol::BlockInfo => bytesize::ByteSize::mib(64),
-            #[cfg(feature = "protocol_feature_flat_state")]
-            crate::DBCol::BlockHeight => bytesize::ByteSize::mib(64),
             _ => bytesize::ByteSize::mib(32),
         }
     }
