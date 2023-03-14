@@ -1541,7 +1541,7 @@ pub fn test_chunk_nodes_cache_mode(node: impl Node, runtime_config: RuntimeConfi
 /// With flat storage, neither DB nor memory reads should be counted, as we skip Trie
 /// node reads and don't charge for Value read due to the same bug. For write we go
 /// to Trie and count 3 DB node reads and 1 mem read for Value.
-pub fn test_flat_storage_read_write(node: impl Node, runtime_config: RuntimeConfig) {
+pub fn test_storage_read_write_costs(node: impl Node, runtime_config: RuntimeConfig) {
     let receipts: Vec<Receipt> = vec![
         make_receipt(
             &node,

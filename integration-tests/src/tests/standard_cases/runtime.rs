@@ -339,8 +339,8 @@ fn test_chunk_nodes_cache_mode_runtime() {
 }
 
 #[test]
-fn test_flat_storage_read_write_runtime() {
+fn test_storage_read_write_costs_runtime() {
     let node = create_runtime_node();
     let runtime_config = node.client.as_ref().read().unwrap().runtime_config.clone();
-    test_flat_storage_read_write(node, runtime_config);
+    test_storage_read_write_costs(node, runtime_config);
 }
