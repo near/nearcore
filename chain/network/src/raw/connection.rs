@@ -8,9 +8,9 @@ use bytes::BytesMut;
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
-use near_primitives::network::PeerId;
+use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::time::{Duration, Instant, Utc};
-use near_primitives::types::{AccountId, BlockHeight, EpochId, ShardId};
+use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use std::io;
 use std::net::SocketAddr;
@@ -35,7 +35,7 @@ pub struct Connection {
 /// we receive that doesn't fit one of these will just be logged and dropped.
 #[derive(Debug)]
 pub enum ReceivedMessage {
-    AnnounceAccounts(Vec<(AccountId, PeerId, EpochId)>),
+    AnnounceAccounts(Vec<AnnounceAccount>),
     Pong { nonce: u64, source: PeerId },
     VersionedStateResponse(StateResponseInfo),
 }
@@ -55,9 +55,7 @@ impl TryFrom<PeerMessage> for ReceivedMessage {
                 }
                 _ => Err(()),
             },
-            PeerMessage::SyncRoutingTable(r) => Ok(Self::AnnounceAccounts(
-                r.accounts.into_iter().map(|a| (a.account_id, a.peer_id, a.epoch_id)).collect(),
-            )),
+            PeerMessage::SyncRoutingTable(r) => Ok(Self::AnnounceAccounts(r.accounts)),
             _ => Err(()),
         }
     }
