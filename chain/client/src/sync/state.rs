@@ -697,10 +697,8 @@ impl StateSync {
     ) {
         let requests_remaining = self.requests_remaining.clone();
         if !allow_request(&requests_remaining) {
-            tracing::info!(target: "sync", %shard_id, part_id, "Request throttled");
             return;
         } else {
-            tracing::info!(target: "sync", %shard_id, part_id, "Request allowed");
             if !download.run_me.swap(false, Ordering::SeqCst) {
                 tracing::info!(target: "sync", %shard_id, part_id, "run_me is already false");
                 return;
@@ -735,20 +733,14 @@ impl StateSync {
                     );
                 match result {
                     Ok(response) => {
-                        tracing::error!(target: "sync", %shard_id, part_id, location, response_code = response.status_code(), num_bytes = response.bytes().len(), "S3 request finished");
+                        tracing::info!(target: "sync", %shard_id, part_id, location, response_code = response.status_code(), num_bytes = response.bytes().len(), "S3 request finished");
                         let mut lock = download_response.lock().unwrap();
-                        let v: &mut Option<Result<_, _>> = &mut lock;
-                        tracing::error!(target: "sync", %shard_id, part_id, location, response_code = response.status_code(), num_bytes = response.bytes().len(), current_value=?v, "S3 request finished");
-                        *v = Some(Ok((response.status_code(), response.bytes().to_vec())));
-                        tracing::error!(target: "sync", %shard_id, part_id, location, response_code = response.status_code(), num_bytes = response.bytes().len(), new_value=?v, "S3 request finished");
+                        *lock = Some(Ok((response.status_code(), response.bytes().to_vec())));
                     }
                     Err(err) => {
-                        tracing::error!(target: "sync", %shard_id, part_id, location, ?err, "S3 request failed");
+                        tracing::info!(target: "sync", %shard_id, part_id, location, ?err, "S3 request failed");
                         let mut lock = download_response.lock().unwrap();
-                        let v: &mut Option<Result<_, _>> = &mut lock;
-                        tracing::error!(target: "sync", %shard_id, part_id, location, ?err, current_value=?v, "S3 request failed");
-                        *v = Some(Err(err.to_string()));
-                        tracing::error!(target: "sync", %shard_id, part_id, location, ?err, new_value=?v, "S3 request failed");
+                        *lock = Some(Err(err.to_string()));
                     }
                 }
             }
@@ -1214,11 +1206,6 @@ fn check_external_storage_part_response(
             return;
         }
     };
-    {
-        let lock = part_download.response.lock().unwrap();
-        assert!(lock.is_none());
-        tracing::debug!(target: "sync", %shard_id, part_id, "And `response` is now clear");
-    }
 
     let mut err_to_retry = None;
     match external_storage_response {
@@ -1233,8 +1220,6 @@ fn check_external_storage_part_response(
             ) {
                 Ok(_) => {
                     part_download.done = true;
-                    tracing::debug!(target: "sync", %shard_id, part_id, ?part_download, "Got 200 response from external storage and saved state part");
-                    // TODO
                 }
                 Err(err) => {
                     tracing::warn!(target: "sync", %shard_id, %sync_hash, part_id, ?err, "Failed to save a state part");
@@ -1256,7 +1241,6 @@ fn check_external_storage_part_response(
         tracing::debug!(target: "sync", %shard_id, %sync_hash, part_id, ?err, "Failed to get a part from external storage, will retry");
         part_download.error = true;
     } else {
-        tracing::debug!(target: "sync", %shard_id, %sync_hash, part_id, "Checked, ok");
     }
 }
 
