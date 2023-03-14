@@ -603,16 +603,14 @@ impl CheckStateRootCmd {
                 return Ok(());
             }
             near_store::RawTrieNode::Branch(mut children, _) => {
-                children.shuffle(&mut rand::thread_rng());
-                for child in children.iter() {
-                    if let Some(child) = child {
-                        // Record in prune state that we are visiting a child node
-                        prune_state.down();
-                        // Visit a child node
-                        Self::check_trie(store, child, prune_state, prune_condition)?;
-                        // Record in prune state that we are returning from a child node
-                        prune_state.up();
-                    }
+                children.0.shuffle(&mut rand::thread_rng());
+                for (_, child) in children.iter() {
+                    // Record in prune state that we are visiting a child node
+                    prune_state.down();
+                    // Visit a child node
+                    Self::check_trie(store, child, prune_state, prune_condition)?;
+                    // Record in prune state that we are returning from a child node
+                    prune_state.up();
                 }
             }
             near_store::RawTrieNode::Extension(_, child) => {

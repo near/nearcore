@@ -11,7 +11,10 @@ use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Gas, MerkleHash};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_store::flat::{store_helper, FlatStorage, FlatStorageManager};
+use near_store::flat::{
+    store_helper, BlockInfo, FlatStorage, FlatStorageManager, FlatStorageReadyStatus,
+    FlatStorageStatus,
+};
 use near_store::{ShardTries, ShardUId, Store, StoreCompiledContractCache, TrieUpdate};
 use near_store::{TrieCache, TrieCachingStorage, TrieConfig};
 use near_vm_logic::{ExtCosts, VMLimitConfig};
@@ -150,8 +153,14 @@ impl<'c> EstimatorContext<'c> {
         let shard_uid = ShardUId::single_shard();
         // Set up flat head to be equal to the latest block height
         let mut store_update = store.store_update();
-        store_helper::set_flat_head(&mut store_update, shard_uid.shard_id(), &FLAT_STATE_HEAD);
-        store_update.commit().expect("failed to set flat head");
+        store_helper::set_flat_storage_status(
+            &mut store_update,
+            shard_uid,
+            FlatStorageStatus::Ready(FlatStorageReadyStatus {
+                flat_head: BlockInfo::genesis(FLAT_STATE_HEAD, 0),
+            }),
+        );
+        store_update.commit().expect("failed to set flat storage status");
         let flat_storage = FlatStorage::new(store, shard_uid, cache_capacity as usize);
         flat_storage_manager.add_flat_storage_for_shard(shard_uid.shard_id(), flat_storage);
         flat_storage_manager
