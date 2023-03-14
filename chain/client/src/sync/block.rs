@@ -32,6 +32,7 @@ pub struct BlockSync {
     block_fetch_horizon: BlockHeightDelta,
     /// Whether to enforce block sync
     archive: bool,
+    state_sync_enabled: bool,
 }
 
 impl BlockSync {
@@ -39,8 +40,15 @@ impl BlockSync {
         network_adapter: PeerManagerAdapter,
         block_fetch_horizon: BlockHeightDelta,
         archive: bool,
+        state_sync_enabled: bool,
     ) -> Self {
-        BlockSync { network_adapter, last_request: None, block_fetch_horizon, archive }
+        BlockSync {
+            network_adapter,
+            last_request: None,
+            block_fetch_horizon,
+            archive,
+            state_sync_enabled,
+        }
     }
 
     /// Runs check if block sync is needed, if it's needed and it's too far - sync state is started instead (returning true).
@@ -85,6 +93,7 @@ impl BlockSync {
         if head.epoch_id != header_head.epoch_id && head.next_epoch_id != header_head.epoch_id {
             if head.height < header_head.height.saturating_sub(self.block_fetch_horizon)
                 && !self.archive
+                && self.state_sync_enabled
             {
                 // Epochs are different and we are too far from horizon, State Sync is needed
                 return Ok(true);
