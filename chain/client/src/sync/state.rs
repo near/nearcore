@@ -992,8 +992,7 @@ impl StateSync {
             if !part_download.done {
                 parts_done = false;
                 let prev = part_download.prev_update_time;
-                let part_timeout = false; // now - prev > self.timeout;
-                                          // Retry parts that failed.
+                let part_timeout = now - prev > self.timeout; // Retry parts that failed.
                 if part_timeout || part_download.error {
                     download_timeout |= part_timeout;
                     part_download.run_me.store(true, Ordering::SeqCst);
