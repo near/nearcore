@@ -734,8 +734,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     // TODO (#7327): consider passing flat storage errors here to handle them gracefully
     fn create_flat_storage_for_shard(&self, shard_uid: ShardUId) {
-        let cache_capacity = self.tries.flat_state_cache_capacity() as usize;
-        let flat_storage = FlatStorage::new(self.store.clone(), shard_uid, cache_capacity);
+        let flat_storage = FlatStorage::new(self.store.clone(), shard_uid);
         self.flat_storage_manager.add_flat_storage_for_shard(shard_uid.shard_id(), flat_storage);
     }
 

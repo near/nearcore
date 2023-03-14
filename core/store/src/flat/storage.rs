@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-use lru::LruCache;
 use near_o11y::metrics::IntGauge;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
@@ -43,11 +42,6 @@ pub(crate) struct FlatStorageInner {
     flat_head: BlockInfo,
     /// Cached deltas for all blocks supported by this flat storage.
     deltas: HashMap<CryptoHash, CachedFlatStateDelta>,
-    /// Cache for the mapping from trie storage keys to value refs for `flat_head`.
-    /// Must be equivalent to the mapping stored on disk only for `flat_head`. For
-    /// other blocks, changes have to be applied as usual.
-    // TODO (#8649): consider using RocksDB RowCache.
-    value_ref_cache: LruCache<Vec<u8>, Option<ValueRef>>,
     metrics: FlatStorageMetrics,
 }
 
@@ -57,9 +51,6 @@ struct FlatStorageMetrics {
     cached_changes_num_items: IntGauge,
     cached_changes_size: IntGauge,
     distance_to_head: IntGauge,
-    value_ref_cache_len: IntGauge,
-    value_ref_cache_total_key_size: IntGauge,
-    value_ref_cache_total_value_size: IntGauge,
 }
 
 impl FlatStorageInner {
@@ -104,34 +95,13 @@ impl FlatStorageInner {
 
         Ok(blocks)
     }
-
-    fn put_value_ref_to_cache(&mut self, key: Vec<u8>, value: Option<ValueRef>) {
-        let value_size = value.as_ref().map_or(1, |_| 37);
-        if let Some((key, old_value)) = self.value_ref_cache.push(key.to_vec(), value) {
-            self.metrics.value_ref_cache_total_key_size.sub(key.len() as i64);
-            self.metrics.value_ref_cache_total_value_size.sub(old_value.map_or(1, |_| 37));
-        }
-        if self.value_ref_cache.cap() > 0 {
-            self.metrics.value_ref_cache_total_key_size.add(key.len() as i64);
-            self.metrics.value_ref_cache_total_value_size.add(value_size);
-        }
-        self.metrics.value_ref_cache_len.set(self.value_ref_cache.len() as i64);
-    }
-
-    /// Get cached `ValueRef` for flat storage head. Possible results:
-    /// - None: no entry in cache;
-    /// - Some(None): entry None found in cache, meaning that there is no such key in state;
-    /// - Some(Some(value_ref)): entry found in cache.
-    pub(crate) fn get_cached_ref(&mut self, key: &[u8]) -> Option<Option<ValueRef>> {
-        self.value_ref_cache.get(key).cloned()
-    }
 }
 
 impl FlatStorage {
     /// Create a new FlatStorage for `shard_id` using flat head if it is stored on storage.
     /// We also load all blocks with height between flat head to `latest_block_height`
     /// including those on forks into the returned FlatStorage.
-    pub fn new(store: Store, shard_uid: ShardUId, cache_capacity: usize) -> Self {
+    pub fn new(store: Store, shard_uid: ShardUId) -> Self {
         let shard_id = shard_uid.shard_id();
         let flat_head = match store_helper::get_flat_storage_status(&store, shard_uid) {
             FlatStorageStatus::Ready(ready_status) => ready_status.flat_head,
@@ -153,13 +123,6 @@ impl FlatStorage {
                 .with_label_values(&[shard_id_label]),
             distance_to_head: metrics::FLAT_STORAGE_DISTANCE_TO_HEAD
                 .with_label_values(&[shard_id_label]),
-            value_ref_cache_len: metrics::FLAT_STORAGE_VALUE_REF_CACHE_LEN
-                .with_label_values(&[shard_id_label]),
-            value_ref_cache_total_key_size: metrics::FLAT_STORAGE_VALUE_REF_CACHE_TOTAL_KEY_SIZE
-                .with_label_values(&[shard_id_label]),
-            value_ref_cache_total_value_size:
-                metrics::FLAT_STORAGE_VALUE_REF_CACHE_TOTAL_VALUE_SIZE
-                    .with_label_values(&[shard_id_label]),
         };
         metrics.flat_head_height.set(flat_head.height as i64);
 
@@ -191,7 +154,6 @@ impl FlatStorage {
             shard_uid,
             flat_head,
             deltas,
-            value_ref_cache: LruCache::new(cache_capacity),
             metrics,
         })))
     }
@@ -204,7 +166,7 @@ impl FlatStorage {
         &self,
         target_block_hash: &CryptoHash,
     ) -> Result<Vec<CryptoHash>, FlatStorageError> {
-        let guard = self.0.write().expect(super::POISONED_LOCK_ERR);
+        let guard = self.0.read().expect(super::POISONED_LOCK_ERR);
         guard.get_blocks_to_head(target_block_hash)
     }
 
@@ -213,7 +175,7 @@ impl FlatStorage {
         block_hash: &CryptoHash,
         key: &[u8],
     ) -> Result<Option<ValueRef>, crate::StorageError> {
-        let mut guard = self.0.write().expect(super::POISONED_LOCK_ERR);
+        let guard = self.0.read().expect(super::POISONED_LOCK_ERR);
         let blocks_to_head =
             guard.get_blocks_to_head(block_hash).map_err(|e| StorageError::from(e))?;
         for block_hash in blocks_to_head.iter() {
@@ -227,12 +189,7 @@ impl FlatStorage {
             };
         }
 
-        if let Some(value_ref) = guard.get_cached_ref(key) {
-            return Ok(value_ref);
-        }
-
         let value_ref = store_helper::get_ref(&guard.store, guard.shard_uid, key)?;
-        guard.put_value_ref_to_cache(key.to_vec(), value_ref.clone());
         Ok(value_ref)
     }
 
@@ -255,9 +212,6 @@ impl FlatStorage {
             // so delta must exist.
             let changes =
                 store_helper::get_delta_changes(&guard.store, shard_uid, block_hash)?.unwrap();
-            for (key, value) in changes.0.iter() {
-                guard.put_value_ref_to_cache(key.clone(), value.clone());
-            }
             changes.apply_to_flat_state(&mut store_update, guard.shard_uid);
             let block = &guard.deltas[&block_hash].metadata.block;
             store_helper::set_flat_storage_status(
@@ -514,7 +468,7 @@ mod tests {
         }
         store_update.commit().unwrap();
 
-        let flat_storage = FlatStorage::new(store.clone(), shard_uid, 0);
+        let flat_storage = FlatStorage::new(store.clone(), shard_uid);
         let flat_storage_manager = FlatStorageManager::new(store.clone());
         flat_storage_manager.add_flat_storage_for_shard(shard_id, flat_storage);
         let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_id).unwrap();
@@ -565,7 +519,7 @@ mod tests {
         store_update.commit().unwrap();
 
         // Check that flat storage state is created correctly for chain which has skipped heights.
-        let flat_storage = FlatStorage::new(store.clone(), shard_uid, 0);
+        let flat_storage = FlatStorage::new(store.clone(), shard_uid);
         let flat_storage_manager = FlatStorageManager::new(store.clone());
         flat_storage_manager.add_flat_storage_for_shard(shard_id, flat_storage);
         let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_id).unwrap();
@@ -575,11 +529,12 @@ mod tests {
         assert_eq!(flat_storage.update_flat_head(&flat_head_hash), Ok(()));
     }
 
-    // This setup tests basic use cases for FlatStorageChunkView and FlatStorage.
+    // This tests basic use cases for FlatStorageChunkView and FlatStorage.
     // We created a linear chain with no forks, start with flat head at the genesis block, then
     // moves the flat head forward, which checking that chunk_view.get_ref() still returns the correct
     // values and the state is being updated in store.
-    fn flat_storage_sanity(cache_capacity: usize) {
+    #[test]
+    fn flat_storage_sanity() {
         // 1. Create a chain with 10 blocks with no forks. Set flat head to be at block 0.
         //    Block i sets value for key &[1] to &[i].
         let mut chain = MockChain::linear_chain(10);
@@ -603,7 +558,7 @@ mod tests {
         }
         store_update.commit().unwrap();
 
-        let flat_storage = FlatStorage::new(store.clone(), shard_uid, cache_capacity);
+        let flat_storage = FlatStorage::new(store.clone(), shard_uid);
         let flat_storage_manager = FlatStorageManager::new(store.clone());
         flat_storage_manager.add_flat_storage_for_shard(shard_id, flat_storage);
         let flat_storage = flat_storage_manager.get_flat_storage_for_shard(0).unwrap();
@@ -692,73 +647,5 @@ mod tests {
             store_helper::get_delta_changes(&store, shard_uid, chain.get_block_hash(10)).unwrap(),
             None
         );
-    }
-
-    #[test]
-    fn flat_storage_sanity_cache() {
-        flat_storage_sanity(100);
-    }
-
-    #[test]
-    fn flat_storage_sanity_no_cache() {
-        flat_storage_sanity(0);
-    }
-
-    #[test]
-    fn flat_storage_cache_eviction() {
-        // 1. Create a simple chain and add single key-value changes for 3 consecutive blocks.
-        let chain = MockChain::linear_chain(4);
-        let store = create_test_store();
-        let shard_uid = ShardUId::single_shard();
-        let shard_id = shard_uid.shard_id();
-        let mut store_update = store.store_update();
-        store_helper::set_flat_storage_status(
-            &mut store_update,
-            shard_uid,
-            FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head: chain.get_block(0) }),
-        );
-
-        let mut changes: Vec<(BlockHeight, Vec<u8>, Option<ValueRef>)> = vec![
-            (1, vec![1], Some(ValueRef::new(&[1 as u8]))),
-            (2, vec![2], None),
-            (3, vec![3], Some(ValueRef::new(&[3 as u8]))),
-        ];
-        for (height, key, value) in changes.drain(..) {
-            let delta = FlatStateDelta {
-                changes: FlatStateChanges::from([(key, value)]),
-                metadata: FlatStateDeltaMetadata { block: chain.get_block(height) },
-            };
-            store_helper::set_delta(&mut store_update, shard_uid, &delta).unwrap();
-        }
-        store_update.commit().unwrap();
-
-        // 2. Create flat storage and apply 3 blocks to it.
-        let flat_storage = FlatStorage::new(store.clone(), shard_uid, 2);
-        let flat_storage_manager = FlatStorageManager::new(store.clone());
-        flat_storage_manager.add_flat_storage_for_shard(shard_id, flat_storage);
-        let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_id).unwrap();
-        flat_storage.update_flat_head(&chain.get_block_hash(3)).unwrap();
-
-        {
-            let mut guard = flat_storage.0.write().unwrap();
-            // 1st key should be kicked out.
-            assert_eq!(guard.get_cached_ref(&[1]), None);
-            // For 2nd key, None should be cached.
-            assert_eq!(guard.get_cached_ref(&[2]), Some(None));
-            // For 3rd key, value should be cached.
-            assert_eq!(guard.get_cached_ref(&[3]), Some(Some(ValueRef::new(&[3 as u8]))));
-        }
-
-        // Check that value for 1st key is correct, even though it is not in cache.
-        assert_eq!(
-            flat_storage.get_ref(&chain.get_block_hash(3), &[1]),
-            Ok(Some(ValueRef::new(&[1 as u8])))
-        );
-
-        // After that, 1st key should be added back to LRU cache.
-        {
-            let mut guard = flat_storage.0.write().unwrap();
-            assert_eq!(guard.get_cached_ref(&[1]), Some(Some(ValueRef::new(&[1 as u8]))));
-        }
     }
 }
