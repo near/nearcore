@@ -19,10 +19,10 @@ Run like this:
 
 import argparse
 import datetime
-import pathlib
 import random
 import json
 import sys
+import subprocess
 from datetime import datetime, timedelta
 
 from prober_util import *
@@ -106,21 +106,43 @@ def check_chunks(legacy_url: str, split_url: str, block):
             sys.exit(1)
 
 
+# Query gcp for the archive nodes, pick a random one and return its url.
+def get_random_legacy_url(chain_id):
+    cmd = [
+        'gcloud',
+        'compute',
+        'instances',
+        'list',
+    ]
+    logger.info(" ".join(cmd))
+    result = subprocess.run(cmd, text=True, capture_output=True)
+    stdout = result.stdout
+    lines = stdout.split('\n')
+    pattern = f'{chain_id}-rpc-archive-public'
+    lines = list(filter(lambda line: pattern in line, lines))
+    line = random.choice(lines)
+    tokens = line.split()
+    external_ip = tokens[4]
+
+    logger.info(f'Selected random legacy node - {external_ip}')
+    return f'http://{external_ip}:3030'
+
+
 def main():
     start_time = datetime.now()
 
     parser = argparse.ArgumentParser(
         description='Run a prober for split archival nodes')
-    parser.add_argument('--legacy-url', required=True)
-    parser.add_argument('--split-url', required=True)
+    parser.add_argument('--chain-id', required=True, type=str)
+    parser.add_argument('--split-url', required=True, type=str)
     parser.add_argument('--duration_ms', default=2000, type=int)
     parser.add_argument('--log-level', default="INFO")
     args = parser.parse_args()
 
     logger.setLevel(args.log_level)
-    logger.info('Running Prober')
+    logger.info('Running Prober Split')
 
-    legacy_url = args.legacy_url
+    legacy_url = get_random_legacy_url(args.chain_id)
     split_url = args.split_url
     duration = timedelta(milliseconds=args.duration_ms)
 
