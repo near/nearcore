@@ -1,7 +1,7 @@
 use crate::flat::{store_helper, POISONED_LOCK_ERR};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::ShardLayout;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::types::ShardId;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -34,6 +34,24 @@ pub struct FlatStorageManagerInner {
 impl FlatStorageManager {
     pub fn new(store: Store) -> Self {
         Self(Arc::new(FlatStorageManagerInner { store, flat_storages: Default::default() }))
+    }
+
+    pub fn test(store: Store, shard_uids: &[ShardUId], flat_head: CryptoHash) -> Self {
+        if !cfg!(feature = "protocol_feature_flat_state") {
+            return Self::new(store);
+        }
+
+        let mut flat_storages = HashMap::default();
+        for shard_uid in shard_uids {
+            let mut store_update = store.store_update();
+            store_helper::set_flat_head(&mut store_update, shard_uid.shard_id(), &flat_head);
+            store_update.commit().expect("failed to set flat head");
+            flat_storages.insert(
+                shard_uid.shard_id(),
+                FlatStorage::new(store.clone(), shard_uid.clone(), 0),
+            );
+        }
+        Self(Arc::new(FlatStorageManagerInner { store, flat_storages: Mutex::new(flat_storages) }))
     }
 
     /// When a node starts from an empty database, this function must be called to ensure

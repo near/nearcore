@@ -1,167 +1,138 @@
-use crate::tests::client::process_blocks::{deploy_test_contract, set_block_protocol_version};
-use assert_matches::assert_matches;
-use near_chain::{ChainGenesis, Provenance, RuntimeWithEpochManagerAdapter};
+use crate::tests::client::process_blocks::deploy_test_contract_with_protocol_version;
+use crate::tests::client::runtimes::create_nightshade_runtimes;
+use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType, Signer};
-use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::test_utils::encode;
-use near_primitives::transaction::{
-    Action, ExecutionMetadata, ExecutionStatus, FunctionCallAction, SignedTransaction,
-};
+use near_primitives::transaction::{Action, ExecutionMetadata, FunctionCallAction, Transaction};
 use near_primitives::version::ProtocolFeature;
-use near_primitives::views::FinalExecutionStatus;
 use near_primitives_core::config::ExtCosts;
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::{BlockHeightDelta, Gas, ProtocolVersion};
-use near_store::test_utils::create_test_store;
+use near_primitives_core::types::Gas;
 use nearcore::config::GenesisExt;
-use nearcore::TrackedConfig;
-use std::path::Path;
-use std::sync::Arc;
 
-fn process_transaction(
-    env: &mut TestEnv,
-    signer: &dyn Signer,
-    num_blocks: BlockHeightDelta,
-    protocol_version: ProtocolVersion,
-    actions: Vec<Action>,
-) -> CryptoHash {
-    let tip = env.clients[0].chain.head().unwrap();
-    let epoch_id =
-        env.clients[0].runtime_adapter.get_epoch_id_from_prev_block(&tip.last_block_hash).unwrap();
-    let block_producer =
-        env.clients[0].runtime_adapter.get_block_producer(&epoch_id, tip.height).unwrap();
-    let last_block_hash = *env.clients[0].chain.get_block_by_height(tip.height).unwrap().hash();
-    let next_height = tip.height + 1;
-    let tx = SignedTransaction::from_actions(
-        next_height,
-        "test0".parse().unwrap(),
-        "test0".parse().unwrap(),
-        signer,
-        actions,
-        last_block_hash,
-    );
-    let tx_hash = tx.get_hash();
-    env.clients[0].process_tx(tx, false, false);
-
-    for i in next_height..next_height + num_blocks {
-        let mut block = env.clients[0].produce_block(i).unwrap().unwrap();
-        set_block_protocol_version(&mut block, block_producer.clone(), protocol_version);
-        env.process_block(0, block.clone(), Provenance::PRODUCED);
-    }
-    tx_hash
-}
-
+/// Check that after flat storage upgrade:
+/// - value read from contract is the same;
+/// - touching trie node cost for read decreases to zero.
 #[test]
 fn test_flat_storage_upgrade() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let epoch_length = 12;
-    let old_protocol_version = ProtocolFeature::FlatStorageReads.protocol_version() - 1;
-    let new_protocol_version = old_protocol_version + 1;
+    let new_protocol_version = ProtocolFeature::FlatStorageReads.protocol_version();
+    let old_protocol_version = new_protocol_version - 1;
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = old_protocol_version;
     let chain_genesis = ChainGenesis::new(&genesis);
-    let runtimes: Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> =
-        vec![Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(
-            Path::new("../../../.."),
-            create_test_store(),
-            &genesis,
-            TrackedConfig::new_empty(),
-            RuntimeConfigStore::new(None),
-        ))];
-    let mut env = TestEnv::builder(chain_genesis).runtime_adapters(runtimes).build();
+    let mut env = TestEnv::builder(chain_genesis)
+        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+        .build();
 
-    deploy_test_contract(
+    // We assume that it is enough to process 4 blocks to get a single txn included and processed.
+    // At the same time, `blocks_to_process_txn` * `num_txns` has to be slower than ~`4 * epoch_length`,
+    // because after that protocol gets auto-upgraded to latest version.
+    // TODO (#8703): resolve this properly
+    let blocks_to_process_txn = epoch_length / 3;
+
+    // Deploy contract to state.
+    deploy_test_contract_with_protocol_version(
         &mut env,
         "test0".parse().unwrap(),
         near_test_contracts::base_rs_contract(),
-        epoch_length / 3,
+        blocks_to_process_txn,
         1,
+        old_protocol_version,
     );
 
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let gas = 20_000_000_000_000;
-    let write_value_action = vec![Action::FunctionCall(FunctionCallAction {
-        args: encode(&[1u64, 10u64]),
-        method_name: "write_key_value".to_string(),
-        gas,
-        deposit: 0,
-    })];
-    let tx_hash = process_transaction(
-        &mut env,
-        &signer,
-        epoch_length / 3,
-        old_protocol_version,
-        write_value_action,
-    );
-    let final_result = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
-    assert_matches!(final_result.status, FinalExecutionStatus::SuccessValue(_));
-    let transaction_outcome = env.clients[0].chain.get_execution_outcome(&tx_hash).unwrap();
-    let receipt_ids = transaction_outcome.outcome_with_id.outcome.receipt_ids;
-    assert_eq!(receipt_ids.len(), 1);
-    let receipt_execution_outcome =
-        env.clients[0].chain.get_execution_outcome(&receipt_ids[0]).unwrap();
-    assert_matches!(
-        receipt_execution_outcome.outcome_with_id.outcome.status,
-        ExecutionStatus::SuccessValue(_)
-    );
+    let tx = Transaction {
+        signer_id: "test0".parse().unwrap(),
+        receiver_id: "test0".parse().unwrap(),
+        public_key: signer.public_key(),
+        actions: vec![],
+        nonce: 0,
+        block_hash: CryptoHash::default(),
+    };
 
-    let touching_trie_node_cost: Gas = 16_101_955_926;
+    // Write key-value pair to state.
+    {
+        let write_value_action = vec![Action::FunctionCall(FunctionCallAction {
+            args: encode(&[1u64, 10u64]),
+            method_name: "write_key_value".to_string(),
+            gas,
+            deposit: 0,
+        })];
+        let tip = env.clients[0].chain.head().unwrap();
+        let signed_transaction = Transaction {
+            nonce: 10,
+            block_hash: tip.last_block_hash,
+            actions: write_value_action,
+            ..tx.clone()
+        }
+        .sign(&signer);
+        let tx_hash = signed_transaction.get_hash();
+        env.clients[0].process_tx(signed_transaction, false, false);
+        for i in 0..blocks_to_process_txn {
+            env.produce_block(0, tip.height + i + 1);
+        }
 
-    let read_value_action = vec![Action::FunctionCall(FunctionCallAction {
-        args: encode(&[1u64]),
-        method_name: "read_value".to_string(),
-        gas,
-        deposit: 0,
-    })];
-    let tx_hash = process_transaction(
-        &mut env,
-        &signer,
-        epoch_length * 2,
-        new_protocol_version,
-        read_value_action,
-    );
-    let final_result = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
-    assert_matches!(final_result.status, FinalExecutionStatus::SuccessValue(_));
-    let transaction_outcome = env.clients[0].chain.get_execution_outcome(&tx_hash).unwrap();
-    let receipt_ids = transaction_outcome.outcome_with_id.outcome.receipt_ids;
-    assert_eq!(receipt_ids.len(), 1);
-    let receipt_execution_outcome =
-        env.clients[0].chain.get_execution_outcome(&receipt_ids[0]).unwrap();
-    let metadata = receipt_execution_outcome.outcome_with_id.outcome.metadata;
-    if let ExecutionMetadata::V3(profile_data) = metadata {
-        let cost = profile_data.get_ext_cost(ExtCosts::touching_trie_node);
-        assert_eq!(cost, touching_trie_node_cost * 3);
-    } else {
-        panic!("Too old version of metadata: {metadata:?}");
+        env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap().assert_success();
     }
 
-    let read_value_action = vec![Action::FunctionCall(FunctionCallAction {
-        args: encode(&[1u64]),
-        method_name: "read_value".to_string(),
-        gas,
-        deposit: 0,
-    })];
-    let tx_hash = process_transaction(
-        &mut env,
-        &signer,
-        epoch_length * 2,
-        new_protocol_version,
-        read_value_action,
-    );
-    let final_result = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
-    assert_matches!(final_result.status, FinalExecutionStatus::SuccessValue(_));
-    let transaction_outcome = env.clients[0].chain.get_execution_outcome(&tx_hash).unwrap();
-    let receipt_ids = transaction_outcome.outcome_with_id.outcome.receipt_ids;
-    assert_eq!(receipt_ids.len(), 1);
-    let receipt_execution_outcome =
-        env.clients[0].chain.get_execution_outcome(&receipt_ids[0]).unwrap();
-    let metadata = receipt_execution_outcome.outcome_with_id.outcome.metadata;
-    if let ExecutionMetadata::V3(profile_data) = metadata {
-        let cost = profile_data.get_ext_cost(ExtCosts::touching_trie_node);
-        assert_eq!(cost, 0);
-    } else {
-        panic!("Too old version of metadata: {metadata:?}");
-    }
+    let touching_trie_node_costs: Vec<_> = (0..2)
+        .map(|i| {
+            let read_value_action = vec![Action::FunctionCall(FunctionCallAction {
+                args: encode(&[1u64]),
+                method_name: "read_value".to_string(),
+                gas,
+                deposit: 0,
+            })];
+            let tip = env.clients[0].chain.head().unwrap();
+            let signed_transaction = Transaction {
+                nonce: 20 + i,
+                block_hash: tip.last_block_hash,
+                actions: read_value_action,
+                ..tx.clone()
+            }
+            .sign(&signer);
+            let tx_hash = signed_transaction.get_hash();
+            env.clients[0].process_tx(signed_transaction, false, false);
+            for i in 0..blocks_to_process_txn {
+                env.produce_block(0, tip.height + i + 1);
+            }
+            if i == 0 {
+                env.upgrade_protocol(new_protocol_version);
+            }
+
+            let final_transaction_result =
+                env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
+            final_transaction_result.assert_success();
+            let receipt_id = final_transaction_result.receipts_outcome[0].id;
+            let metadata = env.clients[0]
+                .chain
+                .get_execution_outcome(&receipt_id)
+                .unwrap()
+                .outcome_with_id
+                .outcome
+                .metadata;
+            if let ExecutionMetadata::V3(profile_data) = metadata {
+                profile_data.get_ext_cost(ExtCosts::touching_trie_node)
+            } else {
+                panic!("Too old version of metadata: {metadata:?}");
+            }
+        })
+        .collect();
+
+    // Guaranteed touching trie node cost in all protocol versions until
+    // `ProtocolFeature::FlatStorageReads`, included.
+    let touching_trie_node_base_cost: Gas = 16_101_955_926;
+
+    // For the first read, cost should be 3 TTNs because trie path is:
+    // (Branch) -> (Extension) -> (Leaf) -> (Value)
+    // but due to a bug in storage_read we don't charge for Value.
+    assert_eq!(touching_trie_node_costs[0], touching_trie_node_base_cost * 3);
+
+    // For the second read, we don't go to Flat storage and don't charge TTN.
+    assert_eq!(touching_trie_node_costs[1], 0);
 }

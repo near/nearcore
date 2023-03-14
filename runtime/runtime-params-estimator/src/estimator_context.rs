@@ -72,13 +72,12 @@ impl<'c> EstimatorContext<'c> {
         let shard_uids = [ShardUId { shard_id: 0, version: 0 }];
         let mut trie_config = near_store::TrieConfig::default();
         trie_config.enable_receipt_prefetching = true;
-        let flat_state_cache_capacity = trie_config.flat_state_cache_capacity;
 
         let tries = ShardTries::new(
             store.clone(),
             trie_config,
             &shard_uids,
-            Self::create_flat_storage_manager(store.clone(), flat_state_cache_capacity),
+            FlatStorageManager::test(store.clone(), &[ShardUId::single_shard()], FLAT_STATE_HEAD),
         );
 
         Testbed {
@@ -139,22 +138,6 @@ impl<'c> EstimatorContext<'c> {
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
         }
-    }
-
-    fn create_flat_storage_manager(store: Store, cache_capacity: u64) -> FlatStorageManager {
-        let flat_storage_manager = FlatStorageManager::new(store.clone());
-        if !cfg!(feature = "protocol_feature_flat_state") {
-            return flat_storage_manager;
-        }
-
-        let shard_uid = ShardUId::single_shard();
-        // Set up flat head to be equal to the latest block height
-        let mut store_update = store.store_update();
-        store_helper::set_flat_head(&mut store_update, shard_uid.shard_id(), &FLAT_STATE_HEAD);
-        store_update.commit().expect("failed to set flat head");
-        let flat_storage = FlatStorage::new(store, shard_uid, cache_capacity as usize);
-        flat_storage_manager.add_flat_storage_for_shard(shard_uid.shard_id(), flat_storage);
-        flat_storage_manager
     }
 }
 
