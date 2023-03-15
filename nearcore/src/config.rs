@@ -337,7 +337,9 @@ pub struct Config {
     /// This feature is under development, do not use in production.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cold_store: Option<near_store::StoreConfig>,
-
+    /// Configuration for the
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub split_storage: Option<SplitStorageConfig>,
     // TODO(mina86): Remove those two altogether at some point.  We need to be
     // somewhat careful though and make sure that we don’t start silently
     // ignoring this option without users setting corresponding store option.
