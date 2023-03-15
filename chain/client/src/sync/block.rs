@@ -32,6 +32,7 @@ pub struct BlockSync {
     block_fetch_horizon: BlockHeightDelta,
     /// Whether to enforce block sync
     archive: bool,
+    /// Whether State Sync should be enabled when a node falls far enough behind.
     state_sync_enabled: bool,
 }
 
