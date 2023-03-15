@@ -70,8 +70,8 @@ use near_primitives::views::{
     LightClientBlockView, SignedTransactionView,
 };
 use near_store::flat::{
-    store_helper, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata,
-    FlatStorageCreationStatus, FlatStorageError,
+    store_helper, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorageError,
+    FlatStorageReadyStatus, FlatStorageStatus,
 };
 use near_store::StorageError;
 use near_store::{DBCol, ShardTries, StoreUpdate, WrappedTrieChanges};
@@ -633,6 +633,7 @@ impl Chain {
                 if cfg!(feature = "protocol_feature_flat_state") {
                     let tmp_store_update = runtime_adapter.set_flat_storage_for_genesis(
                         genesis.hash(),
+                        genesis.header().height(),
                         genesis.header().epoch_id(),
                     )?;
                     store_update.merge(tmp_store_update);
@@ -3178,14 +3179,6 @@ impl Chain {
         // flat storage. Now we can set flat head to hash of this block and create flat storage.
         // TODO (#7327): ensure that no flat storage work is done for `KeyValueRuntime`.
         if cfg!(feature = "protocol_feature_flat_state") {
-            let mut store_update = self.runtime_adapter.store().store_update();
-            store_helper::set_flat_head(&mut store_update, shard_id, block_hash);
-            store_update.commit()?;
-        }
-
-        if self.runtime_adapter.get_flat_storage_creation_status(shard_id)
-            == FlatStorageCreationStatus::Ready
-        {
             // If block_hash is equal to default - this means that we're all the way back at genesis.
             // So we don't have to add the storage state for shard in such case.
             // TODO(8438) - add additional test scenarios for this case.
@@ -3193,8 +3186,25 @@ impl Chain {
                 let block_header = self.get_block_header(block_hash)?;
                 let epoch_id = block_header.epoch_id();
                 let shard_uid = self.runtime_adapter.shard_id_to_uid(shard_id, epoch_id)?;
-
-                self.runtime_adapter.create_flat_storage_for_shard(shard_uid);
+                if !matches!(
+                    self.runtime_adapter.get_flat_storage_status(shard_uid),
+                    FlatStorageStatus::Disabled
+                ) {
+                    let mut store_update = self.runtime_adapter.store().store_update();
+                    store_helper::set_flat_storage_status(
+                        &mut store_update,
+                        shard_uid,
+                        FlatStorageStatus::Ready(FlatStorageReadyStatus {
+                            flat_head: near_store::flat::BlockInfo {
+                                hash: *block_hash,
+                                prev_hash: *block_header.prev_hash(),
+                                height: block_header.height(),
+                            },
+                        }),
+                    );
+                    store_update.commit()?;
+                    self.runtime_adapter.create_flat_storage_for_shard(shard_uid);
+                }
             }
         }
 
@@ -4904,7 +4914,7 @@ impl<'a> ChainUpdate<'a> {
         block_hash: CryptoHash,
         prev_hash: CryptoHash,
         height: BlockHeight,
-        shard_id: ShardId,
+        shard_uid: ShardUId,
         trie_changes: &WrappedTrieChanges,
     ) -> Result<(), Error> {
         if cfg!(feature = "protocol_feature_flat_state") {
@@ -4915,6 +4925,7 @@ impl<'a> ChainUpdate<'a> {
                 },
             };
 
+            let shard_id = shard_uid.shard_id();
             if let Some(chain_flat_storage) =
                 self.runtime_adapter.get_flat_storage_for_shard(shard_id)
             {
@@ -4926,7 +4937,7 @@ impl<'a> ChainUpdate<'a> {
                 // Otherwise, save delta to disk so it will be used for flat storage creation later.
                 info!(target: "chain", %shard_id, "Add delta for flat storage creation");
                 let mut store_update = self.chain_store_update.store().store_update();
-                store_helper::set_delta(&mut store_update, shard_id, &delta)
+                store_helper::set_delta(&mut store_update, shard_uid, &delta)
                     .map_err(|e| StorageError::from(e))?;
                 self.chain_store_update.merge(store_update);
             }
@@ -4970,7 +4981,7 @@ impl<'a> ChainUpdate<'a> {
                     block_hash,
                     prev_block_hash,
                     height,
-                    shard_id,
+                    shard_uid,
                     &apply_result.trie_changes,
                 )?;
                 self.chain_store_update.save_trie_changes(apply_result.trie_changes);
@@ -5010,7 +5021,7 @@ impl<'a> ChainUpdate<'a> {
                     block_hash,
                     prev_block_hash,
                     height,
-                    shard_uid.shard_id(),
+                    shard_uid,
                     &apply_result.trie_changes,
                 )?;
                 self.chain_store_update.save_chunk_extra(&block_hash, &shard_uid, new_extra);
@@ -5374,11 +5385,12 @@ impl<'a> ChainUpdate<'a> {
 
         self.chain_store_update.save_chunk(chunk);
 
+        let shard_uid = self.runtime_adapter.shard_id_to_uid(shard_id, block_header.epoch_id())?;
         self.save_flat_state_changes(
             *block_header.hash(),
             *chunk_header.prev_block_hash(),
             chunk_header.height_included(),
-            shard_id,
+            shard_uid,
             &apply_result.trie_changes,
         )?;
         self.chain_store_update.save_trie_changes(apply_result.trie_changes);
@@ -5390,7 +5402,6 @@ impl<'a> ChainUpdate<'a> {
             gas_limit,
             apply_result.total_balance_burnt,
         );
-        let shard_uid = self.runtime_adapter.shard_id_to_uid(shard_id, block_header.epoch_id())?;
         self.chain_store_update.save_chunk_extra(block_header.hash(), &shard_uid, chunk_extra);
 
         self.chain_store_update.save_outgoing_receipt(
@@ -5464,7 +5475,7 @@ impl<'a> ChainUpdate<'a> {
             *block_header.hash(),
             *prev_block_header.hash(),
             height,
-            shard_id,
+            shard_uid,
             &apply_result.trie_changes,
         )?;
         self.chain_store_update.save_trie_changes(apply_result.trie_changes);

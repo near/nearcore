@@ -106,24 +106,20 @@ impl Trie {
                 Ok(false)
             }
             TrieNode::Branch(children, _) => {
-                for child_index in 0..children.len() {
-                    let child = match &children[child_index] {
-                        None => {
-                            continue;
-                        }
-                        Some(NodeHandle::InMemory(_)) => {
-                            unreachable!("only possible while mutating")
-                        }
-                        Some(NodeHandle::Hash(h)) => self.retrieve_node(h)?.1,
-                    };
-                    if *size_skipped + child.memory_usage <= size_start {
-                        *size_skipped += child.memory_usage;
-                        continue;
+                let mut iter = children.iter();
+                while let Some((index, child)) = iter.next() {
+                    let child = if let NodeHandle::Hash(h) = child {
+                        self.retrieve_node(h)?.1
                     } else {
-                        key_nibbles.push(child_index as u8);
+                        unreachable!("only possible while mutating")
+                    };
+                    if *size_skipped + child.memory_usage > size_start {
+                        core::mem::drop(iter);
+                        key_nibbles.push(index);
                         *node = child;
                         return Ok(true);
                     }
+                    *size_skipped += child.memory_usage;
                 }
                 // This line should not be reached if node.memory_usage > size_start
                 // To avoid changing production behavior, I'm just adding a debug_assert here
@@ -351,25 +347,20 @@ mod tests {
                             stack.push((hash, node, CrumbStatus::AtChild(0)));
                             continue;
                         }
-                        CrumbStatus::AtChild(mut i) => {
-                            while i < 16 {
-                                if let Some(NodeHandle::Hash(_h)) = children[i].as_ref() {
-                                    break;
-                                }
-                                i += 1;
-                            }
-                            if i < 16 {
-                                if let Some(NodeHandle::Hash(h)) = children[i].clone() {
-                                    let child = self.retrieve_node(&h)?.1;
-                                    stack.push((hash, node, CrumbStatus::AtChild(i + 1)));
-                                    stack.push((h, child, CrumbStatus::Entering));
-                                } else {
-                                    stack.push((hash, node, CrumbStatus::Exiting));
-                                }
-                            } else {
+                        CrumbStatus::AtChild(mut i) => loop {
+                            if i >= 16 {
                                 stack.push((hash, node, CrumbStatus::Exiting));
+                                break;
                             }
-                        }
+                            if let Some(NodeHandle::Hash(ref h)) = children[i] {
+                                let h = h.clone();
+                                let child = self.retrieve_node(&h)?.1;
+                                stack.push((hash, node, CrumbStatus::AtChild(i + 1)));
+                                stack.push((h, child, CrumbStatus::Entering));
+                                break;
+                            }
+                            i += 1;
+                        },
                         CrumbStatus::Exiting => {
                             continue;
                         }

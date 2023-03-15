@@ -273,31 +273,6 @@ pub static FLAT_STORAGE_DISTANCE_TO_HEAD: Lazy<IntGaugeVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static FLAT_STORAGE_VALUE_REF_CACHE_LEN: Lazy<IntGaugeVec> = Lazy::new(|| {
-    try_create_int_gauge_vec(
-        "flat_storage_value_ref_cache_len",
-        "Number of items in flat storage cache for its head",
-        &["shard_id"],
-    )
-    .unwrap()
-});
-pub static FLAT_STORAGE_VALUE_REF_CACHE_TOTAL_KEY_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
-    try_create_int_gauge_vec(
-        "flat_storage_value_ref_cache_total_key_size",
-        "Total size of all keys in flat storage cache for its head",
-        &["shard_id"],
-    )
-    .unwrap()
-});
-pub static FLAT_STORAGE_VALUE_REF_CACHE_TOTAL_VALUE_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
-    try_create_int_gauge_vec(
-        "flat_storage_value_ref_cache_total_value_size",
-        "Total size of all values in flat storage cache for its head",
-        &["shard_id"],
-    )
-    .unwrap()
-});
-
 pub mod flat_state_metrics {
     use super::*;
 

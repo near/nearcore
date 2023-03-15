@@ -1,4 +1,4 @@
-name: Build @master fuzzers
+name: Build fuzz targets from master
 on:
   schedule:
     # Run once a day, at midnight
@@ -19,14 +19,21 @@ jobs:
           workload_identity_provider: "projects/968400232856/locations/global/workloadIdentityPools/project-identity-pool/providers/github-provider"
           service_account: "near-fuzzer-service-account@near-fuzzer.iam.gserviceaccount.com"
 
-      - uses: hecrj/setup-rust-action@v1
-        with:
-          rust-version: nightly
+      - name: Installing nightly rust
+        run: |
+          rustup install nightly
+          rustup default nightly
 
-      - name: Set swap space to 10G
-        uses: pierotofy/set-swap-space@master
-        with:
-          swap-size-gb: 10
+      - name: Set swap to 10G
+        shell: bash
+        run: |
+          export SWAP_FILE=$(swapon --show=NAME | tail -n 1)
+          sudo swapoff $SWAP_FILE
+          sudo rm $SWAP_FILE
+          sudo fallocate -l 10G $SWAP_FILE
+          sudo chmod 600 $SWAP_FILE
+          sudo mkswap $SWAP_FILE
+          sudo swapon $SWAP_FILE
 
       - name: Install cargo fuzz subcommand crate
         run: cargo install cargo-fuzz
