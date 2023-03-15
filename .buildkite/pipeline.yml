@@ -12,7 +12,7 @@ steps:
       buf breaking --against ".git#ref=`git merge-base origin/master HEAD`"
 
     agents:
-      - "queue=gcp-standard"
+      - "distro=amazonlinux"
 
   - label: "cargo test integration-tests*"
     command: |
@@ -21,7 +21,7 @@ steps:
       cargo nextest run --locked -p 'integration-tests'
 
     agents:
-      - "queue=gcp-standard"
+      - "distro=amazonlinux"
     branches: "!master"
 
   - label: "cargo test not integration-tests*"
@@ -31,7 +31,7 @@ steps:
       cargo nextest run --locked --workspace -p '*' --exclude 'integration-tests*'
 
     agents:
-      - "queue=gcp-standard"
+      - "distro=amazonlinux"
     branches: "!master"
 
   - label: "cargo test nightly integration-tests*"
@@ -41,7 +41,7 @@ steps:
       cargo nextest run --features nightly,test_features -p 'integration-tests'
 
     agents:
-      - "queue=gcp-standard"
+      - "distro=amazonlinux"
     branches: "!master"
 
   - label: "cargo test nightly not integration-tests*"
@@ -52,7 +52,7 @@ steps:
       cargo test --doc
 
     agents:
-      - "queue=gcp-standard"
+      - "distro=amazonlinux"
     branches: "!master"
 
   - label: "sanity checks"
@@ -97,7 +97,7 @@ steps:
           exit 1
       fi >&2
     agents:
-      - "queue=gcp-standard"
+      - "distro=amazonlinux"
     branches: "!master"
 
   - label: "backward compatible"
@@ -111,7 +111,7 @@ steps:
       ls ../target/debug
     branches: "!master !beta !stable"
     agents:
-      - "queue=gcp-standard"
+      - "distro=amazonlinux"
 
   - label: "upgradable"
     command: |
@@ -121,7 +121,7 @@ steps:
       python3 tests/sanity/upgradable.py
     branches: "!master"
     agents:
-      - "queue=gcp-standard"
+      - "distro=amazonlinux"
 
   - label: "db migration"
     command: |
@@ -131,4 +131,4 @@ steps:
       python3 tests/sanity/db_migration.py
     branches: "!master !beta !stable"
     agents:
-      - "queue=gcp-standard"
+      - "distro=amazonlinux"
