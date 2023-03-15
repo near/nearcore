@@ -291,7 +291,7 @@ mod test {
         let network_adapter = Arc::new(MockPeerManagerAdapter::default());
         let block_fetch_horizon = 10;
         let mut block_sync =
-            BlockSync::new(network_adapter.clone().into(), block_fetch_horizon, false);
+            BlockSync::new(network_adapter.clone().into(), block_fetch_horizon, false, true);
         let mut chain_genesis = ChainGenesis::test();
         chain_genesis.epoch_length = 100;
         let mut env = TestEnv::builder(chain_genesis).clients_count(2).build();
@@ -371,7 +371,7 @@ mod test {
         let network_adapter = Arc::new(MockPeerManagerAdapter::default());
         let block_fetch_horizon = 10;
         let mut block_sync =
-            BlockSync::new(network_adapter.clone().into(), block_fetch_horizon, true);
+            BlockSync::new(network_adapter.clone().into(), block_fetch_horizon, true, true);
         let mut chain_genesis = ChainGenesis::test();
         chain_genesis.epoch_length = 5;
         let mut env = TestEnv::builder(chain_genesis).clients_count(2).build();
