@@ -75,13 +75,12 @@ impl<'c> EstimatorContext<'c> {
         let shard_uids = [ShardUId { shard_id: 0, version: 0 }];
         let mut trie_config = near_store::TrieConfig::default();
         trie_config.enable_receipt_prefetching = true;
-        let flat_state_cache_capacity = trie_config.flat_state_cache_capacity;
 
         let tries = ShardTries::new(
             store.clone(),
             trie_config,
             &shard_uids,
-            Self::create_flat_storage_manager(store.clone(), flat_state_cache_capacity),
+            Self::create_flat_storage_manager(store.clone()),
         );
 
         Testbed {
@@ -144,7 +143,7 @@ impl<'c> EstimatorContext<'c> {
         }
     }
 
-    fn create_flat_storage_manager(store: Store, cache_capacity: u64) -> FlatStorageManager {
+    fn create_flat_storage_manager(store: Store) -> FlatStorageManager {
         let flat_storage_manager = FlatStorageManager::new(store.clone());
         if !cfg!(feature = "protocol_feature_flat_state") {
             return flat_storage_manager;
@@ -161,7 +160,7 @@ impl<'c> EstimatorContext<'c> {
             }),
         );
         store_update.commit().expect("failed to set flat storage status");
-        let flat_storage = FlatStorage::new(store, shard_uid, cache_capacity as usize);
+        let flat_storage = FlatStorage::new(store, shard_uid);
         flat_storage_manager.add_flat_storage_for_shard(shard_uid.shard_id(), flat_storage);
         flat_storage_manager
     }
