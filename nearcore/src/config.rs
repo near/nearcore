@@ -720,6 +720,7 @@ impl NearConfig {
                     .state_sync
                     .as_ref()
                     .map(|x| x.drop_state_of_dump.clone())
+                    .flatten()
                     .unwrap_or(vec![]),
                 state_sync_from_s3_enabled: config
                     .state_sync
