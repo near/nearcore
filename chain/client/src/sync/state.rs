@@ -49,7 +49,7 @@ use std::ops::Add;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration as TimeDuration;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 
 /// Maximum number of state parts to request per peer on each round when node is trying to download the state.
 pub const MAX_STATE_PART_REQUEST: u64 = 16;
