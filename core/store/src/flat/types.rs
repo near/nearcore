@@ -18,9 +18,13 @@ impl BlockInfo {
 
 #[derive(strum::AsRefStr, Debug, PartialEq, Eq)]
 pub enum FlatStorageError {
-    /// This means we can't find a path from `flat_head` to the block. Includes `flat_head` hash and block hash,
-    /// respectively.
+    /// This means we can't find a path from `flat_head` to the block. Includes
+    /// `flat_head` hash and block hash, respectively.
+    /// Should not result in node panic, because flat head can move during processing
+    /// of some chunk.
     BlockNotSupported((CryptoHash, CryptoHash)),
+    /// Internal error, caused by DB or in-memory data corruption. Should result
+    /// in panic, because correctness of flat storage is not guaranteed afterwards.
     StorageInternalError,
 }
 
