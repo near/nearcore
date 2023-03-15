@@ -722,11 +722,6 @@ impl NearConfig {
                     .map(|x| x.drop_state_of_dump.clone())
                     .flatten()
                     .unwrap_or(vec![]),
-                state_sync_from_s3_enabled: config
-                    .state_sync
-                    .as_ref()
-                    .map(|x| x.sync_from_s3_enabled)
-                    .unwrap_or(false),
             },
             network_config: NetworkConfig::new(
                 config.network,
@@ -1559,8 +1554,6 @@ pub struct StateSyncConfig {
     pub dump_enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub drop_state_of_dump: Option<Vec<ShardId>>,
-    #[serde(skip_serializing_if = "is_false")]
-    pub sync_from_s3_enabled: bool,
 }
 
 #[test]

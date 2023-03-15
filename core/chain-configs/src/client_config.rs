@@ -176,9 +176,6 @@ pub struct ClientConfig {
     /// Restart dumping state of selected shards.
     /// Use for troubleshooting of the state dumping process.
     pub state_sync_restart_dump_for_shards: Vec<ShardId>,
-    /// Enable state sync from S3.
-    /// If disabled will perform state sync from the peers.
-    pub state_sync_from_s3_enabled: bool,
 }
 
 impl ClientConfig {
@@ -253,7 +250,6 @@ impl ClientConfig {
             state_sync_s3_bucket: String::new(),
             state_sync_s3_region: String::new(),
             state_sync_restart_dump_for_shards: vec![],
-            state_sync_from_s3_enabled: false,
         }
     }
 }
