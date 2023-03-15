@@ -11,9 +11,8 @@ steps:
       git fetch origin
       buf breaking --against ".git#ref=`git merge-base origin/master HEAD`"
 
-    timeout: 30
     agents:
-    - "distro=amazonlinux"
+      - "queue=gcp-standard"
 
   - label: "cargo test integration-tests*"
     command: |
@@ -21,9 +20,8 @@ steps:
       cargo install cargo-nextest
       cargo nextest run --locked -p 'integration-tests'
 
-    timeout: 60
     agents:
-    - "distro=amazonlinux"
+      - "queue=gcp-standard"
     branches: "!master"
 
   - label: "cargo test not integration-tests*"
@@ -32,9 +30,8 @@ steps:
       cargo install cargo-nextest
       cargo nextest run --locked --workspace -p '*' --exclude 'integration-tests*'
 
-    timeout: 60
     agents:
-    - "distro=amazonlinux"
+      - "queue=gcp-standard"
     branches: "!master"
 
   - label: "cargo test nightly integration-tests*"
@@ -43,9 +40,8 @@ steps:
       cargo install cargo-nextest
       cargo nextest run --features nightly,test_features -p 'integration-tests'
 
-    timeout: 60
     agents:
-    - "distro=amazonlinux"
+      - "queue=gcp-standard"
     branches: "!master"
 
   - label: "cargo test nightly not integration-tests*"
@@ -55,15 +51,15 @@ steps:
       cargo nextest run --workspace --features nightly,test_features,mock_node -p '*' --exclude 'integration-tests*'
       cargo test --doc
 
-    timeout: 60
     agents:
-    - "distro=amazonlinux"
+      - "queue=gcp-standard"
     branches: "!master"
 
   - label: "sanity checks"
     command: |
       source ~/.cargo/env && set -eux
       rustc --version && cargo --version
+      cargo install cargo-deny
       cargo run -p themis --release
       if [ -e deny.toml ]; then
         cargo-deny --all-features check bans
@@ -77,7 +73,7 @@ steps:
       python3 -m pip install --progress-bar off --user -r requirements.txt
       python3 tests/sanity/spin_up_cluster.py
       cd ..
-      # Note: We’re not running spin_up_cluster.py for non-nightly
+      # Note: We're not running spin_up_cluster.py for non-nightly
       # because spinning up non-nightly clusters is already covered
       # by other steps in the CI, e.g. upgradable.
 
@@ -100,9 +96,8 @@ steps:
           echo '    ./chain/jsonrpc/build_errors_schema.sh'
           exit 1
       fi >&2
-    timeout: 30
     agents:
-    - "distro=amazonlinux"
+      - "queue=gcp-standard"
     branches: "!master"
 
   - label: "backward compatible"
@@ -115,9 +110,8 @@ steps:
       python3 tests/sanity/backward_compatible.py
       ls ../target/debug
     branches: "!master !beta !stable"
-    timeout: 30
     agents:
-    - "distro=amazonlinux"
+      - "queue=gcp-standard"
 
   - label: "upgradable"
     command: |
@@ -126,9 +120,8 @@ steps:
       pip3 install --user -r requirements.txt
       python3 tests/sanity/upgradable.py
     branches: "!master"
-    timeout: 30
     agents:
-    - "distro=amazonlinux"
+      - "queue=gcp-standard"
 
   - label: "db migration"
     command: |
@@ -137,6 +130,5 @@ steps:
       pip3 install --user -r requirements.txt
       python3 tests/sanity/db_migration.py
     branches: "!master !beta !stable"
-    timeout: 30
     agents:
-    - "distro=amazonlinux"
+      - "queue=gcp-standard"
