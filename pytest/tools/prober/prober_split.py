@@ -100,7 +100,7 @@ def check_chunks(legacy_url: str, split_url: str, block):
 
         if legacy_chunk != split_chunk:
             logger.error(
-                f"Check failed, the legacy chunk and the split chunk are different",
+                f"Check failed, the legacy chunk and the split chunk are different"
                 f"\nlegacy block\n{pretty_print(legacy_chunk)}"
                 f"\nsplit block\n{pretty_print(split_chunk)}")
             sys.exit(1)
@@ -126,6 +126,27 @@ def get_random_legacy_url(chain_id):
 
     logger.info(f'Selected random legacy node - {external_ip}')
     return f'http://{external_ip}:3030'
+
+
+def check_view_call(legacy_url, split_url):
+    # This is the example contract function call from
+    # https://docs.near.org/api/rpc/contracts#call-a-contract-function
+    params = {
+        "request_type": "call_function",
+        "finality": "final",
+        "account_id": "dev-1588039999690",
+        "method_name": "get_num",
+        "args_base64": "e30="
+    }
+    legacy_response = json_rpc('query', params, legacy_url)
+    split_response = json_rpc('query', params, split_url)
+
+    if legacy_response != split_response:
+        logger.error(
+            f'Check failed, the legacy response and the split response are different'
+            f'\nlegacy response\n{legacy_response}'
+            f'\nsplit response\n{split_response}')
+        sys.exit(1)
 
 
 def main():
@@ -160,6 +181,7 @@ def main():
         height = random.randint(genesis_height, head)
         block = check_blocks(legacy_url, split_url, height)
         check_chunks(legacy_url, split_url, block)
+        check_view_call(legacy_url, split_url)
 
         count += 1
         none_count += block is None
