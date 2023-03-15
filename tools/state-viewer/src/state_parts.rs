@@ -143,13 +143,13 @@ impl EpochSelection {
     }
 }
 
-pub enum Location {
+pub(crate) enum Location {
     Files(PathBuf),
     S3 { bucket: String, region: String },
 }
 
 impl Location {
-    pub fn new(
+    fn new(
         root_dir: Option<PathBuf>,
         s3_bucket_and_region: (Option<String>, Option<String>),
     ) -> Self {
@@ -207,7 +207,7 @@ fn get_prev_hash_of_epoch(
     }
 }
 
-pub fn apply_state_parts(
+fn apply_state_parts(
     epoch_selection: EpochSelection,
     shard_id: ShardId,
     part_id: Option<u64>,
@@ -299,7 +299,7 @@ pub fn apply_state_parts(
     tracing::info!(target: "state-parts", total_elapsed_sec = timer.elapsed().as_secs_f64(), "Applied all requested state parts");
 }
 
-pub fn dump_state_parts(
+fn dump_state_parts(
     epoch_selection: EpochSelection,
     shard_id: ShardId,
     part_from: Option<u64>,

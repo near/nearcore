@@ -726,7 +726,6 @@ impl NearConfig {
                     .state_sync
                     .as_ref()
                     .map(|x| x.sync_from_s3_enabled)
-                    .flatten()
                     .unwrap_or(false),
                 state_sync_num_s3_requests_per_shard: config
                     .state_sync
@@ -1565,14 +1564,14 @@ pub struct StateSyncConfig {
     /// Region is very important on S3.
     pub s3_region: String,
     /// Whether a node should dump state of each epoch to the external storage.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub dump_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "is_false")]
+    pub dump_enabled: bool,
     /// Use carefully in case a node that dumps state to the external storage gets in trouble.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub drop_state_of_dump: Option<Vec<ShardId>>,
     /// If enabled, will download state parts from external storage and not from the peers.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sync_from_s3_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "is_false")]
+    pub sync_from_s3_enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub num_s3_requests_per_shard: Option<u64>,
 }

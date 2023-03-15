@@ -1236,17 +1236,17 @@ fn check_external_storage_part_response(
                         .with_label_values(&[&shard_id.to_string()])
                         .inc();
                     tracing::warn!(target: "sync", %shard_id, %sync_hash, part_id, ?err, "Failed to save a state part");
-                    err_to_retry = Some(Error::Other("Failed to save a state part".to_string()));
+                    err_to_retry = Some(near_chain::Error::Other("Failed to save a state part".to_string()));
                 }
             }
         }
         // Other HTTP status codes are considered errors.
         Ok((status_code, _)) => {
-            err_to_retry = Some(Error::Other(format!("status_code: {}", status_code).to_string()));
+            err_to_retry = Some(near_chain::Error::Other(format!("status_code: {}", status_code).to_string()));
         }
         // The request failed without reaching the external storage.
         Err(err) => {
-            err_to_retry = Some(Error::Other(err.to_string()));
+            err_to_retry = Some(near_chain::Error::Other(err.to_string()));
         }
     };
 

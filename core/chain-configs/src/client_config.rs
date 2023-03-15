@@ -253,6 +253,7 @@ impl ClientConfig {
             state_sync_s3_bucket: String::new(),
             state_sync_s3_region: String::new(),
             state_sync_restart_dump_for_shards: vec![],
+            state_sync_from_s3_enabled: false,
             state_sync_num_s3_requests_per_shard: 10,
         }
     }
