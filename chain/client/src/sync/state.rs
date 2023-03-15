@@ -138,7 +138,11 @@ impl StateSync {
                 None => (true, false),
                 Some(last_time) => {
                     if now - last_time >= self.timeout {
-                        tracing::error!(target: "sync", %prev_hash, timeout_sec = self.timeout.num_seconds(), "State sync: block request timed");
+                        tracing::error!(
+                            target: "sync",
+                            %prev_hash,
+                            timeout_sec = self.timeout.num_seconds(),
+                            "State sync: block request timed");
                         (true, false)
                     } else {
                         (false, false)
@@ -266,8 +270,16 @@ impl StateSync {
             all_done &= this_done;
 
             if download_timeout {
-                tracing::warn!(target: "sync", %shard_id, timeout_sec = self.timeout.num_seconds(), "State sync didn't download the state, sending StateRequest again");
-                tracing::info!(target: "sync", %shard_id, %sync_hash, ?me, phase = ?match shard_sync_download.status {
+                tracing::warn!(
+                    target: "sync",
+                    %shard_id,
+                    timeout_sec = self.timeout.num_seconds(),
+                    "State sync didn't download the state, sending StateRequest again");
+                tracing::info!(target: "sync",
+                    %shard_id,
+                    %sync_hash,
+                    ?me,
+                    phase = ?match shard_sync_download.status {
                           ShardSyncStatus::StateDownloadHeader => format!("{} requests sent {}, last target {:?}",
                                                                           Purple.bold().paint("HEADER".to_string()),
                                                                           shard_sync_download.downloads[0].state_requests_count,
@@ -286,7 +298,8 @@ impl StateSync {
                                       text)
                           }
                           _ => unreachable!("timeout cannot happen when all state is downloaded"),
-                      }, "State sync status");
+                      },
+                    "State sync status");
             }
 
             // Execute syncing for shard `shard_id`
