@@ -47,7 +47,6 @@ use near_network::types::{
 use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
 use near_performance_metrics;
 use near_performance_metrics_macros::perf;
-use near_primitives::block::Tip;
 use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::CryptoHash;
@@ -66,12 +65,11 @@ use near_telemetry::TelemetryActor;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use std::collections::HashMap;
-use std::fmt;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{error, info, warn};
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
@@ -258,7 +256,7 @@ impl Actor for ClientActor {
         self.catchup(ctx);
 
         if let Err(err) = self.client.send_network_chain_info() {
-            error!(target: "client", ?err, "Failed to update network chain info");
+            tracing::error!(target: "client", ?err, "Failed to update network chain info");
         }
     }
 }
@@ -502,7 +500,7 @@ impl Handler<WithSpanContext<BlockApproval>> for ClientActor {
     fn handle(&mut self, msg: WithSpanContext<BlockApproval>, ctx: &mut Context<Self>) {
         self.wrap(msg, ctx, "BlockApproval", |this, msg| {
             let BlockApproval(approval, peer_id) = msg;
-            debug!(target: "client", "Receive approval {:?} from peer {:?}", approval, peer_id);
+            tracing::debug!(target: "client", "Receive approval {:?} from peer {:?}", approval, peer_id);
             this.client.collect_block_approval(&approval, ApprovalType::PeerApproval(peer_id));
         })
     }
@@ -520,7 +518,7 @@ impl Handler<WithSpanContext<StateResponse>> for ClientActor {
             let hash = state_response_info.sync_hash();
             let state_response = state_response_info.take_state_response();
 
-            trace!(target: "sync", "Received state response shard_id: {} sync_hash: {:?} part(id/size): {:?}",
+            tracing::trace!(target: "sync", "Received state response shard_id: {} sync_hash: {:?} part(id/size): {:?}",
                    shard_id,
                    hash,
                    state_response.part().as_ref().map(|(part_id, data)| (part_id, data.len()))
@@ -811,54 +809,13 @@ impl Handler<WithSpanContext<ApplyChunksDoneMessage>> for ClientActor {
     }
 }
 
-#[derive(Debug)]
-enum SyncRequirement {
-    SyncNeeded { peer_id: PeerId, highest_height: BlockHeight, head: Tip },
-    AlreadyCaughtUp { peer_id: PeerId, highest_height: BlockHeight, head: Tip },
-    NoPeers,
-    AdvHeaderSyncDisabled,
-}
-
-impl SyncRequirement {
-    fn sync_needed(&self) -> bool {
-        matches!(self, Self::SyncNeeded { .. })
-    }
-}
-
-impl fmt::Display for SyncRequirement {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::SyncNeeded { peer_id, highest_height, head: my_head } => write!(
-                f,
-                "sync needed at #{} [{}]. highest height peer: {} at #{}",
-                my_head.height,
-                format_hash(my_head.last_block_hash),
-                peer_id,
-                highest_height
-            ),
-            Self::AlreadyCaughtUp { peer_id, highest_height, head: my_head } => write!(
-                f,
-                "synced at #{} [{}]. highest height peer: {} at #{}",
-                my_head.height,
-                format_hash(my_head.last_block_hash),
-                peer_id,
-                highest_height
-            ),
-            Self::NoPeers => write!(f, "no available peers"),
-            Self::AdvHeaderSyncDisabled => {
-                write!(f, "syncing disabled via adv_disable_header_sync")
-            }
-        }
-    }
-}
-
 impl ClientActor {
     /// Check if client Account Id should be sent and send it.
     /// Account Id is sent when is not current a validator but are becoming a validator soon.
     fn check_send_announce_account(&mut self, prev_block_hash: CryptoHash) {
         // If no peers, there is no one to announce to.
         if self.network_info.num_connected_peers == 0 {
-            debug!(target: "client", "No peers: skip account announce");
+            tracing::debug!(target: "client", "No peers: skip account announce");
             return;
         }
 
@@ -878,7 +835,7 @@ impl ClientActor {
             }
         }
 
-        debug!(target: "client", "Check announce account for {}, last announce time {:?}", validator_signer.validator_id(), self.last_validator_announce_time);
+        tracing::debug!(target: "client", "Check announce account for {}, last announce time {:?}", validator_signer.validator_id(), self.last_validator_announce_time);
 
         // Announce AccountId if client is becoming a validator soon.
         let next_epoch_id = unwrap_or_return!(self
@@ -888,7 +845,7 @@ impl ClientActor {
 
         // Check client is part of the futures validators
         if self.client.is_validator(&next_epoch_id, &prev_block_hash) {
-            debug!(target: "client", "Sending announce account for {}", validator_signer.validator_id());
+            tracing::debug!(target: "client", "Sending announce account for {}", validator_signer.validator_id());
             self.last_validator_announce_time = Some(now);
 
             let signature = validator_signer.sign_account_announce(
@@ -991,7 +948,7 @@ impl ClientActor {
         let _span = tracing::debug_span!(target: "client", "handle_block_production").entered();
         // If syncing, don't try to produce blocks.
         if self.client.sync_status.is_syncing() {
-            debug!(target:"client", sync_status=?self.client.sync_status, "Syncing - block production disabled");
+            tracing::debug!(target:"client", sync_status=?self.client.sync_status, "Syncing - block production disabled");
             return Ok(());
         }
 
@@ -1022,9 +979,9 @@ impl ClientActor {
 
         // We try to produce block for multiple heights (up to the highest height for which we've seen 2/3 of approvals).
         if latest_known.height + 1 <= self.client.doomslug.get_largest_height_crossing_threshold() {
-            debug!(target: "client", "Considering blocks for production between {} and {} ", latest_known.height + 1, self.client.doomslug.get_largest_height_crossing_threshold());
+            tracing::debug!(target: "client", "Considering blocks for production between {} and {} ", latest_known.height + 1, self.client.doomslug.get_largest_height_crossing_threshold());
         } else {
-            debug!(target: "client", "Cannot produce any block: not enough approvals beyond {}", latest_known.height);
+            tracing::debug!(target: "client", "Cannot produce any block: not enough approvals beyond {}", latest_known.height);
         }
 
         let me = if let Some(me) = &self.client.validator_signer {
@@ -1373,7 +1330,7 @@ impl ClientActor {
                     error!(target: "client", "Error processing sync blocks: {}", err);
                     false
                 } else {
-                    debug!(target: "client", "Block headers refused by chain: {}", err);
+                    tracing::debug!(target: "client", "Block headers refused by chain: {}", err);
                     true
                 }
             }
@@ -1382,13 +1339,9 @@ impl ClientActor {
 
     /// Check whether need to (continue) sync.
     /// Also return higher height with known peers at that height.
-    fn syncing_info(&self) -> Result<SyncRequirement, near_chain::Error> {
-        if self.adv.disable_header_sync() {
-            return Ok(SyncRequirement::AdvHeaderSyncDisabled);
-        }
-
+    fn syncing_info(&self) -> Result<(bool, u64), near_chain::Error> {
         let head = self.client.chain.head()?;
-        let is_syncing = self.client.sync_status.is_syncing();
+        let mut is_syncing = self.client.sync_status.is_syncing();
 
         // Only consider peers whose latest block is not invalid blocks
         let eligible_peers: Vec<_> = self
@@ -1402,25 +1355,39 @@ impl ClientActor {
         let peer_info = if let Some(peer_info) = eligible_peers.choose(&mut thread_rng()) {
             peer_info
         } else {
-            return Ok(SyncRequirement::NoPeers);
+            if !self.client.config.skip_sync_wait {
+                warn!(target: "client", "Sync: no peers available, disabling sync");
+            }
+            return Ok((false, 0));
         };
 
-        let peer_id = peer_info.peer_info.id.clone();
-        let highest_height = peer_info.highest_block_height;
-
         if is_syncing {
-            if highest_height <= head.height {
-                Ok(SyncRequirement::AlreadyCaughtUp { peer_id, highest_height, head })
-            } else {
-                Ok(SyncRequirement::SyncNeeded { peer_id, highest_height, head })
+            if peer_info.highest_block_height <= head.height {
+                info!(target: "client", "Sync: synced at {} [{}], {}, highest height peer: {}",
+                      head.height, format_hash(head.last_block_hash),
+                      peer_info.peer_info.id, peer_info.highest_block_height,
+                );
+                is_syncing = false;
             }
         } else {
-            if highest_height > head.height + self.client.config.sync_height_threshold {
-                Ok(SyncRequirement::SyncNeeded { peer_id, highest_height, head })
-            } else {
-                Ok(SyncRequirement::AlreadyCaughtUp { peer_id, highest_height, head })
+            if peer_info.highest_block_height
+                > head.height + self.client.config.sync_height_threshold
+            {
+                info!(
+                    target: "client",
+                    "Sync: height: {}, peer id/height: {}/{}, enabling sync",
+                    head.height,
+                    peer_info.peer_info.id,
+                    peer_info.highest_block_height,
+                );
+                is_syncing = true;
             }
         }
+        Ok((is_syncing, peer_info.highest_block_height))
+    }
+
+    fn needs_syncing(&self, needs_syncing: bool) -> bool {
+        !self.adv.disable_header_sync() && needs_syncing
     }
 
     fn start_flat_storage_creation(&mut self, ctx: &mut Context<ClientActor>) {
@@ -1545,8 +1512,8 @@ impl ClientActor {
     }
 
     fn sync_wait_period(&self) -> Duration {
-        if let Ok(sync) = self.syncing_info() {
-            if !sync.sync_needed() {
+        if let Ok((needs_syncing, _)) = self.syncing_info() {
+            if !self.needs_syncing(needs_syncing) {
                 // If we don't need syncing - retry the sync call rarely.
                 self.client.config.sync_check_period
             } else {
@@ -1574,149 +1541,136 @@ impl ClientActor {
         }));
 
         let currently_syncing = self.client.sync_status.is_syncing();
-        let sync = unwrap_and_report!(self.syncing_info());
+        let (needs_syncing, highest_height) = unwrap_and_report!(self.syncing_info());
 
-        match sync {
-            SyncRequirement::AlreadyCaughtUp { .. }
-            | SyncRequirement::NoPeers
-            | SyncRequirement::AdvHeaderSyncDisabled => {
-                if currently_syncing {
-                    info!(target: "client", "disabling sync: {}", &sync);
-                    self.client.sync_status = SyncStatus::NoSync;
+        if !self.needs_syncing(needs_syncing) {
+            if currently_syncing {
+                tracing::debug!(
+                    target: "client",
+                    "{:?} transitions to no sync",
+                    self.client.validator_signer.as_ref().map(|vs| vs.validator_id()),
+                );
+                self.client.sync_status = SyncStatus::NoSync;
 
-                    // Initial transition out of "syncing" state.
-                    // Announce this client's account id if their epoch is coming up.
-                    let head = unwrap_and_report!(self.client.chain.head());
-                    self.check_send_announce_account(head.prev_block_hash);
-                }
+                // Initial transition out of "syncing" state.
+                // Announce this client's account id if their epoch is coming up.
+                let head = unwrap_and_report!(self.client.chain.head());
+                self.check_send_announce_account(head.prev_block_hash);
             }
+        } else {
+            // Run each step of syncing separately.
+            unwrap_and_report!(self.client.header_sync.run(
+                &mut self.client.sync_status,
+                &mut self.client.chain,
+                highest_height,
+                &self.network_info.highest_height_peers
+            ));
+            // Only body / state sync if header height is close to the latest.
+            let header_head = unwrap_and_report!(self.client.chain.header_head());
 
-            SyncRequirement::SyncNeeded { highest_height, .. } => {
-                if !currently_syncing {
-                    info!(
-                        target: "client",
-                        "enabling sync: {}", &sync,
-                    );
+            // Sync state if already running sync state or if block sync is too far.
+            let sync_state = match self.client.sync_status {
+                SyncStatus::StateSync(_, _) => true,
+                _ if header_head.height
+                    >= highest_height
+                        .saturating_sub(self.client.config.block_header_fetch_horizon) =>
+                {
+                    unwrap_and_report!(self.client.block_sync.run(
+                        &mut self.client.sync_status,
+                        &self.client.chain,
+                        highest_height,
+                        &self.network_info.highest_height_peers
+                    ))
                 }
-                // Run each step of syncing separately.
-                unwrap_and_report!(self.client.header_sync.run(
-                    &mut self.client.sync_status,
+                _ => false,
+            };
+            if sync_state {
+                let (sync_hash, mut new_shard_sync, just_enter_state_sync) =
+                    match &self.client.sync_status {
+                        SyncStatus::StateSync(sync_hash, shard_sync) => {
+                            (*sync_hash, shard_sync.clone(), false)
+                        }
+                        _ => {
+                            let sync_hash = unwrap_and_report!(self.find_sync_hash());
+                            (sync_hash, HashMap::default(), true)
+                        }
+                    };
+
+                let me = self.client.validator_signer.as_ref().map(|x| x.validator_id().clone());
+                let block_header =
+                    unwrap_and_report!(self.client.chain.get_block_header(&sync_hash));
+                let prev_hash = *block_header.prev_hash();
+                let epoch_id =
+                    self.client.chain.get_block_header(&sync_hash).unwrap().epoch_id().clone();
+                let shards_to_sync =
+                    (0..self.client.runtime_adapter.num_shards(&epoch_id).unwrap())
+                        .filter(|x| {
+                            cares_about_shard_this_or_next_epoch(
+                                me.as_ref(),
+                                &prev_hash,
+                                *x,
+                                true,
+                                self.client.runtime_adapter.as_ref(),
+                            )
+                        })
+                        .collect();
+
+                if !self.client.config.archive && just_enter_state_sync {
+                    unwrap_and_report!(self.client.chain.reset_data_pre_state_sync(sync_hash));
+                }
+
+                let use_colour =
+                    matches!(self.client.config.log_summary_style, LogSummaryStyle::Colored);
+                match unwrap_and_report!(self.client.state_sync.run(
+                    &me,
+                    sync_hash,
+                    &mut new_shard_sync,
                     &mut self.client.chain,
-                    highest_height,
-                    &self.network_info.highest_height_peers
-                ));
-                // Only body / state sync if header height is close to the latest.
-                let header_head = unwrap_and_report!(self.client.chain.header_head());
+                    &self.client.runtime_adapter,
+                    &self.network_info.highest_height_peers,
+                    shards_to_sync,
+                    &self.state_parts_task_scheduler,
+                    &self.state_split_scheduler,
+                    use_colour,
+                )) {
+                    StateSyncResult::Unchanged => (),
+                    StateSyncResult::Changed(fetch_block) => {
+                        self.client.sync_status = SyncStatus::StateSync(sync_hash, new_shard_sync);
+                        if fetch_block {
+                            if let Some(peer_info) =
+                                self.network_info.highest_height_peers.choose(&mut thread_rng())
+                            {
+                                let id = peer_info.peer_info.id.clone();
 
-                // Sync state if already running sync state or if block sync is too far.
-                let sync_state = match self.client.sync_status {
-                    SyncStatus::StateSync(_, _) => true,
-                    _ if header_head.height
-                        >= highest_height
-                            .saturating_sub(self.client.config.block_header_fetch_horizon) =>
-                    {
-                        unwrap_and_report!(self.client.block_sync.run(
-                            &mut self.client.sync_status,
-                            &self.client.chain,
-                            highest_height,
-                            &self.network_info.highest_height_peers
-                        ))
-                    }
-                    _ => false,
-                };
-                if sync_state {
-                    let (sync_hash, mut new_shard_sync, just_enter_state_sync) =
-                        match &self.client.sync_status {
-                            SyncStatus::StateSync(sync_hash, shard_sync) => {
-                                (*sync_hash, shard_sync.clone(), false)
-                            }
-                            _ => {
-                                let sync_hash = unwrap_and_report!(self.find_sync_hash());
-                                (sync_hash, HashMap::default(), true)
-                            }
-                        };
-
-                    let me =
-                        self.client.validator_signer.as_ref().map(|x| x.validator_id().clone());
-                    let block_header =
-                        unwrap_and_report!(self.client.chain.get_block_header(&sync_hash));
-                    let prev_hash = *block_header.prev_hash();
-                    let epoch_id =
-                        self.client.chain.get_block_header(&sync_hash).unwrap().epoch_id().clone();
-                    let shards_to_sync =
-                        (0..self.client.runtime_adapter.num_shards(&epoch_id).unwrap())
-                            .filter(|x| {
-                                cares_about_shard_this_or_next_epoch(
-                                    me.as_ref(),
-                                    &prev_hash,
-                                    *x,
-                                    true,
-                                    &self.client.shard_tracker,
-                                )
-                            })
-                            .collect();
-
-                    if !self.client.config.archive && just_enter_state_sync {
-                        unwrap_and_report!(self.client.chain.reset_data_pre_state_sync(sync_hash));
-                    }
-
-                    let use_colour =
-                        matches!(self.client.config.log_summary_style, LogSummaryStyle::Colored);
-                    match unwrap_and_report!(self.client.state_sync.run(
-                        &me,
-                        sync_hash,
-                        &mut new_shard_sync,
-                        &mut self.client.chain,
-                        &self.client.runtime_adapter,
-                        &self.network_info.highest_height_peers,
-                        shards_to_sync,
-                        &self.state_parts_task_scheduler,
-                        &self.state_split_scheduler,
-                        use_colour,
-                    )) {
-                        StateSyncResult::Unchanged => (),
-                        StateSyncResult::Changed(fetch_block) => {
-                            self.client.sync_status =
-                                SyncStatus::StateSync(sync_hash, new_shard_sync);
-                            if fetch_block {
-                                if let Some(peer_info) =
-                                    self.network_info.highest_height_peers.choose(&mut thread_rng())
-                                {
-                                    let id = peer_info.peer_info.id.clone();
-
-                                    if let Ok(header) =
-                                        self.client.chain.get_block_header(&sync_hash)
+                                if let Ok(header) = self.client.chain.get_block_header(&sync_hash) {
+                                    for hash in
+                                        vec![*header.prev_hash(), *header.hash()].into_iter()
                                     {
-                                        for hash in
-                                            vec![*header.prev_hash(), *header.hash()].into_iter()
-                                        {
-                                            self.client.request_block(hash, id.clone());
-                                        }
+                                        self.client.request_block(hash, id.clone());
                                     }
                                 }
                             }
                         }
-                        StateSyncResult::Completed => {
-                            info!(target: "sync", "State sync: all shards are done");
+                    }
+                    StateSyncResult::Completed => {
+                        info!(target: "sync", "State sync: all shards are done");
 
-                            let mut block_processing_artifacts = BlockProcessingArtifact::default();
+                        let mut block_processing_artifacts = BlockProcessingArtifact::default();
 
-                            unwrap_and_report!(self.client.chain.reset_heads_post_state_sync(
-                                &me,
-                                sync_hash,
-                                &mut block_processing_artifacts,
-                                self.get_apply_chunks_done_callback(),
-                            ));
+                        unwrap_and_report!(self.client.chain.reset_heads_post_state_sync(
+                            &me,
+                            sync_hash,
+                            &mut block_processing_artifacts,
+                            self.get_apply_chunks_done_callback(),
+                        ));
 
-                            self.client
-                                .process_block_processing_artifact(block_processing_artifacts);
+                        self.client.process_block_processing_artifact(block_processing_artifacts);
 
-                            self.client.sync_status = SyncStatus::BodySync {
-                                start_height: 0,
-                                current_height: 0,
-                                highest_height: 0,
-                            };
-                        }
+                        self.client.sync_status = SyncStatus::BodySync {
+                            start_height: 0,
+                            current_height: 0,
+                            highest_height: 0,
+                        };
                     }
                 }
             }
