@@ -8,6 +8,7 @@
 
 * Experimental option to dump state of every epoch to external storage. [#8661](https://github.com/near/nearcore/pull/8661)
 * State-viewer tool to dump and apply state changes from/to a range of blocks [#8628](https://github.com/near/nearcore/pull/8628)
+* State sync is disabled by default [#8730](https://github.com/near/nearcore/pull/8730)
 
 ## 1.32.0
 
