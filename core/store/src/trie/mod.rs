@@ -976,7 +976,11 @@ impl Trie {
         if matches!(mode, KeyLookupMode::FlatStorage) && !is_delayed_receipt_key(key) {
             if let Some(flat_storage_chunk_view) = &self.flat_storage_chunk_view {
                 let flat_result = flat_storage_chunk_view.get_ref(&key);
-                assert_eq!(result, flat_result);
+                if matches!(flat_result, Err(StorageError::FlatStorageBlockNotSupported(_))) {
+                    return flat_result;
+                } else {
+                    assert_eq!(result, flat_result);
+                }
             }
         }
         result

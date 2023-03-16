@@ -1015,7 +1015,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             Ok(result) => Ok(result),
             Err(e) => match e {
                 Error::StorageError(err) => match &err {
-                    StorageError::FlatStorageError(_) => Err(err.into()),
+                    StorageError::FlatStorageBlockNotSupported(_) => Err(err.into()),
                     _ => panic!("{err}"),
                 },
                 _ => Err(e),
