@@ -142,7 +142,7 @@ impl StateSync {
                             target: "sync",
                             %prev_hash,
                             timeout_sec = self.timeout.num_seconds(),
-                            "State sync: block request timed");
+                            "State sync: block request timed out");
                         (true, false)
                     } else {
                         (false, false)
