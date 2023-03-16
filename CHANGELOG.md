@@ -7,7 +7,8 @@
 ### Non-protocol Changes
 
 * Experimental option to dump state of every epoch to external storage. [#8661](https://github.com/near/nearcore/pull/8661)
-* State-viewer tool to dump and apply state changes from/to a range of blocks [#8628](https://github.com/near/nearcore/pull/8628)
+* State-viewer tool to dump and apply state changes from/to a range of blocks. [#8628](https://github.com/near/nearcore/pull/8628)
+* Merged two `neard view-state` commands: `apply-state-parts` and `dump-state-parts` into a single `state-parts` command. [#8739](https://github.com/near/nearcore/pull/8739)
 
 ## 1.32.0
 

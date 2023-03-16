@@ -578,10 +578,6 @@ pub struct StatePartsCmd {
     /// Shard id.
     #[clap(long)]
     shard_id: ShardId,
-    /// Choose a single part id.
-    /// If None - affects all state parts.
-    #[clap(long)]
-    part_id: Option<u64>,
     /// Location of serialized state parts.
     #[clap(long)]
     root_dir: Option<PathBuf>,
@@ -591,7 +587,6 @@ pub struct StatePartsCmd {
     /// Store state parts in an S3 bucket.
     #[clap(long)]
     s3_region: Option<String>,
-
     /// Dump or Apply state parts.
     #[clap(subcommand)]
     command: crate::state_parts::StatePartsSubCommand,
@@ -601,7 +596,6 @@ impl StatePartsCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         self.command.run(
             self.shard_id,
-            self.part_id,
             self.root_dir,
             self.s3_bucket,
             self.s3_region,
