@@ -67,6 +67,9 @@ pub struct VMLogic<'a> {
 
     /// Handles the receipts generated through execution.
     receipt_manager: ReceiptManager,
+
+    /// Stores the amount of stack space remaining
+    remaining_stack: u64,
 }
 
 /// Promises API allows to create a DAG-structure that defines dependencies between smart contract
@@ -168,6 +171,7 @@ impl<'a> VMLogic<'a> {
             total_log_length: 0,
             current_protocol_version,
             receipt_manager: ReceiptManager::default(),
+            remaining_stack: u64::from(config.limit_config.max_stack_height),
         }
     }
 
@@ -204,6 +208,26 @@ impl<'a> VMLogic<'a> {
     #[cfg(test)]
     pub(crate) fn registers(&mut self) -> &mut crate::vmstate::Registers {
         &mut self.registers
+    }
+
+    // #########################
+    // # Finite-wasm internals #
+    // #########################
+    pub fn finite_wasm_gas(&mut self, gas: u64) -> Result<()> {
+        self.gas(gas)
+    }
+
+    pub fn finite_wasm_stack(&mut self, operand_size: u64, frame_size: u64) -> Result<()> {
+        self.remaining_stack = match self.remaining_stack.checked_sub(operand_size.saturating_add(frame_size)) {
+            Some(s) => s,
+            None => return Err(VMLogicError::HostError(HostError::MemoryAccessViolation)),
+        };
+        Ok(())
+    }
+
+    pub fn finite_wasm_unstack(&mut self, operand_size: u64, frame_size: u64) -> Result<()> {
+        self.remaining_stack = self.remaining_stack.checked_add(operand_size.saturating_add(frame_size)).expect("remaining stack integer overflow");
+        Ok(())
     }
 
     // #################

@@ -49,18 +49,23 @@
 //! available imports.
 
 macro_rules! call_with_name {
+    ( $M:ident => @in $mod:ident : $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] > ) => {
+        $M!($mod / $func : $func < [ $( $arg_name : $arg_type ),* ] -> [ $( $returns ),* ] >)
+    };
     ( $M:ident => @as $name:ident : $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] > ) => {
-        $M!($name : $func < [ $( $arg_name : $arg_type ),* ] -> [ $( $returns ),* ] >)
+        $M!(env / $name : $func < [ $( $arg_name : $arg_type ),* ] -> [ $( $returns ),* ] >)
     };
     ( $M:ident => $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] > ) => {
-        $M!($func : $func < [ $( $arg_name : $arg_type ),* ] -> [ $( $returns ),* ] >)
+        $M!(env / $func : $func < [ $( $arg_name : $arg_type ),* ] -> [ $( $returns ),* ] >)
     };
 }
 
 macro_rules! imports {
     (
       $($(#[$stable_feature:ident])? $(#[$feature_name:literal, $feature:ident])* $(##[$feature_name2:literal])?
-        $( @as $name:ident : )? $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >,)*
+        $( @in $mod:ident : )?
+        $( @as $name:ident : )?
+        $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >,)*
     ) => {
         macro_rules! for_each_available_import {
             ($protocol_version:expr, $M:ident) => {$(
@@ -70,7 +75,7 @@ macro_rules! imports {
                     $(&& near_primitives::checked_feature!($feature_name, $feature, $protocol_version))*
                     $(&& near_primitives::checked_feature!("stable", $stable_feature, $protocol_version))?
                 {
-                    call_with_name!($M => $( @as $name : )? $func < [ $( $arg_name : $arg_type ),* ] -> [ $( $returns ),* ] >);
+                    call_with_name!($M => $( @in $mod : )? $( @as $name : )? $func < [ $( $arg_name : $arg_type ),* ] -> [ $( $returns ),* ] >);
                 }
             )*}
         }
@@ -78,6 +83,12 @@ macro_rules! imports {
 }
 
 imports! {
+    // #########################
+    // # Finite-wasm internals #
+    // #########################
+    @in internal: finite_wasm_gas<[gas: u64] -> []>,
+    @in internal: finite_wasm_stack<[operand_size: u64, frame_size: u64] -> []>,
+    @in internal: finite_wasm_unstack<[operand_size: u64, frame_size: u64] -> []>,
     // #############
     // # Registers #
     // #############
@@ -273,12 +284,13 @@ pub(crate) mod wasmer {
             (import_reference.0, dtor)
         });
 
-        let mut ns = wasmer_runtime_core::import::Namespace::new();
-        ns.insert("memory", memory);
+        let mut ns_internal = wasmer_runtime_core::import::Namespace::new();
+        let mut ns_env = wasmer_runtime_core::import::Namespace::new();
+        ns_env.insert("memory", memory);
 
         macro_rules! add_import {
             (
-              $name:ident : $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >
+              $mod:ident / $name:ident : $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >
             ) => {
                 #[allow(unused_parens)]
                 fn $name( ctx: &mut wasmer_runtime::Ctx, $( $arg_name: $arg_type ),* ) -> Result<($( $returns ),*), VMLogicError> {
@@ -292,12 +304,17 @@ pub(crate) mod wasmer {
                     logic.$func( $( $arg_name, )* )
                 }
 
-                ns.insert(stringify!($name), wasmer_runtime::func!($name));
+                match stringify!($mod) {
+                    "env" => ns_env.insert(stringify!($name), wasmer_runtime::func!($name)),
+                    "internal" => ns_internal.insert(stringify!($name), wasmer_runtime::func!($name)),
+                    _ => unimplemented!(),
+                }
             };
         }
         for_each_available_import!(protocol_version, add_import);
 
-        import_object.register("env", ns);
+        import_object.register("env", ns_env);
+        import_object.register("internal", ns_internal);
         import_object
     }
 }
@@ -360,16 +377,13 @@ pub(crate) mod wasmer2 {
 
     impl<'e, 'l, 'lr> Resolver for Wasmer2Imports<'e, 'l, 'lr> {
         fn resolve(&self, _index: u32, module: &str, field: &str) -> Option<wasmer_vm::Export> {
-            if module != "env" {
-                return None;
-            }
-            if field == "memory" {
+            if module == "env" && field == "memory" {
                 return Some(wasmer_vm::Export::Memory(self.memory.clone()));
             }
 
             macro_rules! add_import {
                 (
-                  $name:ident : $func:ident <
+                  $mod:ident / $name:ident : $func:ident <
                     [ $( $arg_name:ident : $arg_type:ident ),* ]
                     -> [ $( $returns:ident ),* ]
                   >
@@ -415,7 +429,7 @@ pub(crate) mod wasmer2 {
                         }
                     }
                     // TODO: a phf hashmap would probably work better here.
-                    if field == stringify!($name) {
+                    if module == stringify!($mod) && field == stringify!($name) {
                         let args = [$(<$arg_type as Wasmer2Type>::ty()),*];
                         let rets = [$(<$returns as Wasmer2Type>::ty()),*];
                         let signature = wasmer_types::FunctionTypeRef::new(&args[..], &rets[..]);
@@ -525,16 +539,13 @@ pub(crate) mod near_vm {
 
     impl<'e, 'l, 'lr> Resolver for NearVmImports<'e, 'l, 'lr> {
         fn resolve(&self, _index: u32, module: &str, field: &str) -> Option<near_vm_vm::Export> {
-            if module != "env" {
-                return None;
-            }
-            if field == "memory" {
+            if module == "env" && field == "memory" {
                 return Some(near_vm_vm::Export::Memory(self.memory.clone()));
             }
 
             macro_rules! add_import {
                 (
-                  $name:ident : $func:ident <
+                  $mod:ident / $name:ident : $func:ident <
                     [ $( $arg_name:ident : $arg_type:ident ),* ]
                     -> [ $( $returns:ident ),* ]
                   >
@@ -580,7 +591,7 @@ pub(crate) mod near_vm {
                         }
                     }
                     // TODO: a phf hashmap would probably work better here.
-                    if field == stringify!($name) {
+                    if module == stringify!($mod) && field == stringify!($name) {
                         let args = [$(<$arg_type as NearVmType>::ty()),*];
                         let rets = [$(<$returns as NearVmType>::ty()),*];
                         let signature = near_vm_types::FunctionType::new(&args[..], &rets[..]);
@@ -672,7 +683,7 @@ pub(crate) mod wasmtime {
 
         macro_rules! add_import {
             (
-              $name:ident : $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >
+              $mod:ident / $name:ident : $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >
             ) => {
                 #[allow(unused_parens)]
                 fn $name(caller: wasmtime::Caller<'_, ()>, $( $arg_name: $arg_type ),* ) -> anyhow::Result<($( $returns ),*)> {
@@ -703,7 +714,7 @@ pub(crate) mod wasmtime {
                     }
                 }
 
-                linker.func_wrap("env", stringify!($name), $name).expect("cannot link external");
+                linker.func_wrap(stringify!($mod), stringify!($name), $name).expect("cannot link external");
             };
         }
         for_each_available_import!(protocol_version, add_import);
