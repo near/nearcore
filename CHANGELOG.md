@@ -10,7 +10,6 @@
 * State-viewer tool to dump and apply state changes from/to a range of blocks [#8628](https://github.com/near/nearcore/pull/8628)
 * Node can restart if State Sync gets interrupted [#8732](https://github.com/near/nearcore/pull/8732)
 * Add prometheus metrics for tracked shards, block height within epoch, if is block/chunk producer
->>>>>>> f4538a8ce (feat: changelog for PR#8728)
 
 ## 1.32.0
 

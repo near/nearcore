@@ -135,9 +135,12 @@ pub(crate) static EPOCH_HEIGHT: Lazy<IntGauge> = Lazy::new(|| {
         .unwrap()
 });
 
-pub(crate) static BLOCK_HEIGHT_WITHIN_EPOCH: Lazy<IntGauge> = Lazy::new(|| {
-    try_create_int_gauge("near_block_height_within_epoch", "Height of the block within the epoch.")
-        .unwrap()
+pub(crate) static FINAL_BLOCK_HEIGHT_IN_EPOCH: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge(
+        "near_final_block_height_in_epoch",
+        "Height of the last block within the epoch.",
+    )
+    .unwrap()
 });
 
 pub(crate) static PROTOCOL_UPGRADE_BLOCK_HEIGHT: Lazy<IntGauge> = Lazy::new(|| {
