@@ -388,7 +388,7 @@ impl FlatStorageShardCreator {
                     if flat_head == chain_final_head.last_block_hash {
                         // GC deltas from forks which could have appeared on chain during catchup.
                         // Assuming that flat storage creation finishes in < 2 days, all deltas metadata cannot occupy
-                        // more than (Blocks per day = 48 * 60 * 60) * (BlockInfo size = 72) ~= 12.4 MB.
+                        // more than 2 * (Blocks per day = 48 * 60 * 60) * (BlockInfo size = 72) ~= 12.4 MB.
                         let mut store_update = self.runtime_adapter.store().store_update();
                         let deltas_metadata = store_helper::get_all_deltas_metadata(&store, shard_uid)
                             .unwrap_or_else(|_| {
