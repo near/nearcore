@@ -107,13 +107,12 @@ fn wait_for_flat_storage_creation(
         .get_flat_storage_for_shard(shard_uid.shard_id())
         .is_some());
 
-    // Check that deltas are properly garbage-collected during creation.
-    let expected_deltas_number = env.clients[0].chain.head().unwrap().height
-        - env.clients[0].chain.final_head().unwrap().height;
-    println!("{:?}", store_helper::get_all_deltas_metadata(&store, shard_uid).unwrap());
+    // We don't expect any forks in the chain after flat storage head, so the number of
+    // deltas stored on DB should be exactly 2, as there are only 2 blocks after
+    // the final block.
     let deltas_in_metadata =
         store_helper::get_all_deltas_metadata(&store, shard_uid).unwrap().len() as u64;
-    assert_eq!(expected_deltas_number, deltas_in_metadata);
+    assert_eq!(deltas_in_metadata, 2);
 
     next_height
 }
