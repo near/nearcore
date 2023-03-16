@@ -747,7 +747,7 @@ impl StateSync {
         let mut run_shard_state_download = false;
         // StateDownloadHeader is the first step. We want to fetch the basic information about the state (its size, hash etc).
         if shard_sync_download.downloads[0].done {
-            let shard_state_header = chain.get_state_header(shard_id.clone(), sync_hash)?;
+            let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
             let state_num_parts =
                 get_num_state_parts(shard_state_header.state_root_node().memory_usage);
             // If the header was downloaded successfully - move to phase 2 (downloading parts).
