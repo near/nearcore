@@ -1984,7 +1984,7 @@ impl<'a> ChainStoreUpdate<'a> {
         for _header_hash in header_hashes {
             // 3. Delete header_hash-indexed data
             // TODO #3488: enable
-            //self.gc_col(DBCol::BlockHeader, header_hash.as_bytes());
+            self.gc_col(DBCol::BlockHeader, _header_hash.as_bytes());
         }
 
         // 4. Delete chunks_tail-related data
@@ -2250,35 +2250,29 @@ impl<'a> ChainStoreUpdate<'a> {
     // Clearing block data of `block_hash`, which is the head of the chain
     pub fn clear_block_data_head_reset(
         &mut self,
-        runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
+        //runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
         block_hash: CryptoHash,
     ) -> Result<(), Error> {
-        let mut store_update = self.store().store_update();
-
-        // 1. Apply revert insertions or deletions from DBCol::TrieChanges for Trie
-        {
-            let shard_uids_to_gc: Vec<_> = self.get_shard_uids_to_gc(runtime_adapter, &block_hash);
-            let tries = runtime_adapter.get_tries();
-            for shard_uid in shard_uids_to_gc {
-                let trie_changes = self
-                    .store()
-                    .get_ser(DBCol::TrieChanges, &get_block_shard_uid(&block_hash, &shard_uid))?;
-                if let Some(trie_changes) = trie_changes {
-                    tries.revert_insertions(&trie_changes, shard_uid, &mut store_update);
-                    self.gc_col(DBCol::TrieChanges, &get_block_shard_uid(&block_hash, &shard_uid));
-                }
-            }
-        }
-
+        let store_update = self.store().store_update();
         let block =
             self.get_block(&block_hash).expect("block data is not expected to be already cleaned");
+
+        // 1. delete TrieChanges
+        for shard_id in 0..block.header().chunk_mask().len() as ShardId {
+            let block_shard_id = get_block_shard_id(&block_hash, shard_id);
+            self.gc_col(DBCol::TrieChanges, &block_shard_id);
+        }
+
         let height = block.header().height();
 
-        // 2. Delete shard_id-indexed data (Receipts, State Headers and Parts, etc.)
+        // 2. Delete shard_id-indexed data (Receipts, ChunkExtra, State Headers and Parts)
         for shard_id in 0..block.header().chunk_mask().len() as ShardId {
             let block_shard_id = get_block_shard_id(&block_hash, shard_id);
             self.gc_outgoing_receipts(&block_hash, shard_id);
             self.gc_col(DBCol::IncomingReceipts, &block_shard_id);
+
+            // gc DBCol::ChunkExtra based on shard_uid since it's indexed by shard_uid in the storage
+            self.gc_col(DBCol::ChunkExtra, &block_shard_id);
 
             // For incoming State Parts it's done in chain.clear_downloaded_parts()
             // The following code is mostly for outgoing State Parts.
@@ -2290,14 +2284,9 @@ impl<'a> ChainStoreUpdate<'a> {
                 let state_num_parts =
                     get_num_state_parts(shard_state_header.state_root_node().memory_usage);
                 self.gc_col_state_parts(block_hash, shard_id, state_num_parts)?;
-                let key = StateHeaderKey(shard_id, block_hash).try_to_vec()?;
-                self.gc_col(DBCol::StateHeaders, &key);
+                let state_header_key = StateHeaderKey(shard_id, block_hash).try_to_vec()?;
+                self.gc_col(DBCol::StateHeaders, &state_header_key);
             }
-        }
-        // gc DBCol::ChunkExtra based on shard_uid since it's indexed by shard_uid in the storage
-        for shard_uid in self.get_shard_uids_to_gc(runtime_adapter, &block_hash) {
-            let block_shard_uid = get_block_shard_uid(&block_hash, &shard_uid);
-            self.gc_col(DBCol::ChunkExtra, &block_shard_uid);
         }
 
         // 3. Delete block_hash-indexed data
@@ -2320,11 +2309,14 @@ impl<'a> ChainStoreUpdate<'a> {
         self.gc_outcomes(&block)?;
         self.gc_col(DBCol::BlockInfo, block_hash.as_bytes());
         self.gc_col(DBCol::StateDlInfos, block_hash.as_bytes());
+ 
+        // 4. update columns related to prev block (block refcount and NextBlockHashes)
+        self.dec_block_refcount(block.header().prev_hash())?;
+        self.gc_col(DBCol::NextBlockHashes, block.header().prev_hash().as_bytes());
 
-        // 4. Update or delete block_hash_per_height
+        // 5. Update or delete block_hash_per_height
         self.gc_col_block_per_height(&block_hash, height, block.header().epoch_id())?;
 
-        //self.dec_block_refcount(block.header().prev_hash())?;
         self.clear_chunk_data_and_headers_at_height(height)?;
         self.merge(store_update);
         Ok(())
