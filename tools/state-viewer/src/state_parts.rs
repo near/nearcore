@@ -466,6 +466,7 @@ impl FileSystemStorage {
             tracing::info!(target: "state-parts", ?root_dir, ?prefix, ?state_parts_dir, "Ensuring the directory exists");
             std::fs::create_dir_all(&state_parts_dir).unwrap();
         }
+        tracing::info!(target: "state-parts", ?state_parts_dir, "Initialized FileSystemStorage");
         Self { state_parts_dir }
     }
 
