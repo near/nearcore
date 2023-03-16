@@ -84,7 +84,7 @@ pub fn remove_delta(store_update: &mut StoreUpdate, shard_uid: ShardUId, block_h
 
 pub fn remove_all_deltas(store_update: &mut StoreUpdate, shard_uid: ShardUId) {
     let key_from = shard_uid.to_bytes();
-    let mut key_to = key_from.clone();
+    let mut key_to = key_from;
     key_to[7] += 1;
     store_update.delete_range(FlatStateColumn::Changes.to_db_col(), &key_from, &key_to);
     store_update.delete_range(FlatStateColumn::DeltaMetadata.to_db_col(), &key_from, &key_to);
