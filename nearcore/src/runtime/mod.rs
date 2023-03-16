@@ -13,7 +13,6 @@ use near_chain_configs::{
     Genesis, GenesisConfig, ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
     MIN_GC_NUM_EPOCHS_TO_KEEP,
 };
-use rayon::prelude::*;
 use near_client_primitives::types::StateSplitApplyingStatus;
 use near_crypto::PublicKey;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
@@ -65,6 +64,7 @@ use node_runtime::{
     validate_transaction, verify_and_charge_transaction, ApplyState, Runtime,
     ValidatorAccountsUpdate,
 };
+use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
@@ -227,10 +227,17 @@ impl NightshadeRuntime {
     fn genesis_state_from_records(store: Store, genesis: &Genesis) -> Vec<StateRoot> {
         match genesis.records_len() {
             Ok(count) => {
-                info!(target: "runtime", "Genesis state has {count} records, computing state roots")
+                info!(
+                    target: "runtime",
+                    "genesis state has {count} records, computing state roots"
+                )
             }
             Err(path) => {
-                info!(target: "runtime", "Computing state roots from records in file {}", path.display())
+                info!(
+                    target: "runtime",
+                    path=%path.display(),
+                    message="computing state roots from records",
+                )
             }
         }
         let initial_epoch_config = EpochConfig::from(&genesis.config);
@@ -239,6 +246,10 @@ impl NightshadeRuntime {
         let mut shard_account_ids: Vec<HashSet<AccountId>> =
             (0..num_shards).map(|_| HashSet::new()).collect();
         let mut has_protocol_account = false;
+        info!(
+            target: "runtime",
+            "distributing records to shards"
+        );
         genesis.for_each_record(|record: &StateRecord| {
             shard_account_ids[state_record_to_shard_id(record, &shard_layout) as usize]
                 .insert(state_record_to_account_id(record).clone());
@@ -259,34 +270,41 @@ impl NightshadeRuntime {
         let runtime_config_store =
             NightshadeRuntime::create_runtime_config_store(&genesis.config.chain_id);
         let runtime_config = runtime_config_store.get_config(genesis.config.protocol_version);
+        // This is the limit of storage changes stored in memory at once across all shards.
+        let op_limit = std::sync::atomic::AtomicUsize::new(0x100_000);
+        (0..num_shards)
+            .into_par_iter()
+            .map(|shard_id| {
+                let validators = genesis
+                    .config
+                    .validators
+                    .iter()
+                    .filter_map(|account_info| {
+                        if account_id_to_shard_id(&account_info.account_id, &shard_layout)
+                            == shard_id
+                        {
+                            Some((
+                                account_info.account_id.clone(),
+                                account_info.public_key.clone(),
+                                account_info.amount,
+                            ))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>();
 
-        (0..num_shards).into_par_iter().map(|shard_id| {
-            let validators = genesis
-                .config
-                .validators
-                .iter()
-                .filter_map(|account_info| {
-                    if account_id_to_shard_id(&account_info.account_id, &shard_layout) == shard_id {
-                        Some((
-                            account_info.account_id.clone(),
-                            account_info.public_key.clone(),
-                            account_info.amount,
-                        ))
-                    } else {
-                        None
-                    }
-                })
-                .collect::<Vec<_>>();
-
-            runtime.apply_genesis_state(
-                tries.clone(),
-                shard_id,
-                &validators,
-                genesis,
-                runtime_config,
-                shard_account_ids[shard_id as usize].clone(),
-            )
-        }).collect()
+                runtime.apply_genesis_state(
+                    &op_limit,
+                    tries.clone(),
+                    shard_id,
+                    &validators,
+                    genesis,
+                    runtime_config,
+                    shard_account_ids[shard_id as usize].clone(),
+                )
+            })
+            .collect()
     }
 
     /// On first start: compute state roots, load genesis state into storage.
