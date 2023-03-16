@@ -121,45 +121,32 @@ impl GenesisStateApplier {
         let mut record_counter = 0;
 
         // Add all accounts for the shard first.
-        tracing::info!(%shard_uid, count=batch_account_ids.len(), "creating accounts");
         genesis.for_each_record(|record: &StateRecord| {
             if !batch_account_ids.contains(state_record_to_account_id(record)) {
                 return;
             }
             record_counter += 1;
             if record_counter % 0x80_000 == 0 {
-                let old_update = state_update
-                    .replace(tries.new_trie_update(shard_uid, *current_state_root))
-                    .unwrap();
+                let old_update = state_update.take().unwrap();
                 Self::commit(old_update, current_state_root, tries, shard_uid);
-            }
-            let mut state_update = state_update.as_mut().unwrap();
-            match record {
-                StateRecord::Account { account_id, account } => {
-                    set_account(&mut state_update, account_id.clone(), account);
-                }
-                _ => {}
-            }
-        });
-
-        // Handle rest of the records
-        genesis.for_each_record(|record: &StateRecord| {
-            if !batch_account_ids.contains(state_record_to_account_id(record)) {
-                return;
-            }
-            record_counter += 1;
-            if record_counter % 0x80_000 == 0 {
-                let old_update = state_update
-                    .replace(tries.new_trie_update(shard_uid, *current_state_root))
-                    .unwrap();
-                Self::commit(old_update, current_state_root, tries, shard_uid);
+                state_update = Some(tries.new_trie_update(shard_uid, *current_state_root));
+                tracing::info!(
+                    target: "runtime",
+                    ?shard_uid,
+                    processed_records=record_counter,
+                    accounts=batch_account_ids.len(),
+                    state_root=%current_state_root,
+                    "creating genesis"
+                );
             }
             let mut state_update = state_update.as_mut().unwrap();
 
             storage_computer.process_record(record);
 
             match record {
-                StateRecord::Account { .. } => {}
+                StateRecord::Account { account_id, account } => {
+                    set_account(&mut state_update, account_id.clone(), account);
+                }
                 StateRecord::Data { account_id, data_key, value } => {
                     state_update.set(
                         TrieKey::ContractData {
@@ -179,9 +166,10 @@ impl GenesisStateApplier {
                         assert_eq!(*code.hash(), acc.code_hash());
                     } else {
                         tracing::error!(
+                            target: "runtime",
                             %account_id,
                             code_hash = %code.hash(),
-                            message = "code for non-existent account?",
+                            message = "code for non-existent account",
                         );
                     }
                 }

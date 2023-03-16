@@ -107,6 +107,7 @@ impl TrieUpdate {
         self.prospective
             .insert(trie_key.to_vec(), TrieKeyValueUpdate { trie_key, value: Some(value) });
     }
+
     pub fn remove(&mut self, trie_key: TrieKey) {
         self.prospective.insert(trie_key.to_vec(), TrieKeyValueUpdate { trie_key, value: None });
     }
