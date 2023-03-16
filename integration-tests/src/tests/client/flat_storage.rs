@@ -122,7 +122,7 @@ fn wait_for_flat_storage_creation(
 fn test_flat_storage_creation() {
     init_test_logger();
     let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
-    let shard_uids = genesis.config.shard_layout.get_shard_uids();
+    let shard_uid = genesis.config.shard_layout.get_shard_uids()[0];
     let store = create_test_store();
 
     // Process some blocks with flat storage. Then remove flat storage data from disk.
@@ -150,7 +150,7 @@ fn test_flat_storage_creation() {
             for height in 0..START_HEIGHT - 2 {
                 let block_hash = env.clients[0].chain.get_block_hash_by_height(height).unwrap();
                 assert_eq!(
-                    store_helper::get_delta_changes(&store, shard_uids[0], block_hash),
+                    store_helper::get_delta_changes(&store, shard_uid, block_hash),
                     Ok(None)
                 );
             }
@@ -159,7 +159,7 @@ fn test_flat_storage_creation() {
             for height in START_HEIGHT - 2..START_HEIGHT {
                 let block_hash = env.clients[0].chain.get_block_hash_by_height(height).unwrap();
                 assert_matches!(
-                    store_helper::get_delta_changes(&store, shard_uids[0], block_hash),
+                    store_helper::get_delta_changes(&store, shard_uid, block_hash),
                     Ok(Some(_))
                 );
             }
@@ -200,18 +200,22 @@ fn test_flat_storage_creation() {
         store_helper::get_flat_storage_status(&store, shard_uid),
         FlatStorageStatus::Creation(FlatStorageCreationStatus::SavingDeltas)
     );
+    // Introduce fork block to check that deltas for it will be GC-d later.
     let fork_block = env.clients[0].produce_block(START_HEIGHT + 2).unwrap().unwrap();
+    let fork_block_hash = fork_block.hash().clone();
     let next_block = env.clients[0].produce_block(START_HEIGHT + 3).unwrap().unwrap();
+    let next_block_hash = next_block.hash().clone();
     env.process_block(0, fork_block, Provenance::PRODUCED);
     env.process_block(0, next_block, Provenance::PRODUCED);
 
-    for height in START_HEIGHT..START_HEIGHT + 2 {
-        let block_hash = env.clients[0].chain.get_block_hash_by_height(height).unwrap();
-        assert_matches!(
-            store_helper::get_delta_changes(&store, shard_uids[0], block_hash),
-            Ok(Some(_))
-        );
-    }
+    assert_matches!(
+        store_helper::get_delta_changes(&store, shard_uid, fork_block_hash),
+        Ok(Some(_))
+    );
+    assert_matches!(
+        store_helper::get_delta_changes(&store, shard_uid, next_block_hash),
+        Ok(Some(_))
+    );
 
     // Produce new block and run flat storage creation step.
     // We started the node from height `START_HEIGHT - 1`, and now final head should move to height `START_HEIGHT`.
@@ -300,7 +304,7 @@ fn test_flat_storage_creation_start_from_state_part() {
     let accounts =
         (0..4).map(|i| AccountId::from_str(&format!("test{}", i)).unwrap()).collect::<Vec<_>>();
     let genesis = Genesis::test(accounts, 1);
-    let shard_uids = genesis.config.shard_layout.get_shard_uids();
+    let shard_uid = genesis.config.shard_layout.get_shard_uids()[0];
     let store = create_test_store();
 
     // Process some blocks with flat storage.
@@ -326,11 +330,8 @@ fn test_flat_storage_creation_start_from_state_part() {
         }
 
         let block_hash = env.clients[0].chain.get_block_hash_by_height(START_HEIGHT - 1).unwrap();
-        let state_root = *env.clients[0]
-            .chain
-            .get_chunk_extra(&block_hash, &shard_uids[0])
-            .unwrap()
-            .state_root();
+        let state_root =
+            *env.clients[0].chain.get_chunk_extra(&block_hash, &shard_uid).unwrap().state_root();
         let trie = env.clients[0]
             .chain
             .runtime_adapter
@@ -365,7 +366,7 @@ fn test_flat_storage_creation_start_from_state_part() {
         };
         let mut store_update = store.store_update();
         for key in trie_keys[1].iter() {
-            store_helper::set_ref(&mut store_update, shard_uids[0], key.clone(), None).unwrap();
+            store_helper::set_ref(&mut store_update, shard_uid, key.clone(), None).unwrap();
         }
         store_helper::set_flat_storage_status(
             &mut store_update,
@@ -386,16 +387,12 @@ fn test_flat_storage_creation_start_from_state_part() {
         assert!(env.clients[0].runtime_adapter.get_flat_storage_for_shard(0).is_none());
 
         // Run chain for a couple of blocks and check that flat storage for shard 0 is eventually created.
-        let next_height =
-            wait_for_flat_storage_creation(&mut env, START_HEIGHT, shard_uids[0], true);
+        let next_height = wait_for_flat_storage_creation(&mut env, START_HEIGHT, shard_uid, true);
 
         // Check that all the keys are present in flat storage.
         let block_hash = env.clients[0].chain.get_block_hash_by_height(next_height - 1).unwrap();
-        let state_root = *env.clients[0]
-            .chain
-            .get_chunk_extra(&block_hash, &shard_uids[0])
-            .unwrap()
-            .state_root();
+        let state_root =
+            *env.clients[0].chain.get_chunk_extra(&block_hash, &shard_uid).unwrap().state_root();
         let trie = env.clients[0]
             .chain
             .runtime_adapter
