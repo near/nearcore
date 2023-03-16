@@ -290,7 +290,7 @@ impl ShardUId {
     }
 
     pub fn next_shard_prefix(shard_uid_bytes: &[u8; 8]) -> [u8; 8] {
-        let mut result = shard_uid_bytes.clone();
+        let mut result = *shard_uid_bytes;
         for i in (0..8).rev() {
             if result[i] == u8::MAX {
                 result[i] = 0;
