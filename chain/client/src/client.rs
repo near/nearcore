@@ -1454,7 +1454,7 @@ impl Client {
             // send_network_chain_info should be called whenever the chain head changes.
             // See send_network_chain_info() for more details.
             if let Err(err) = self.send_network_chain_info() {
-                error!(target:"client","Failed to update network chain info: {err}");
+                error!(target: "client", ?err, "Failed to update network chain info");
             }
         }
 
