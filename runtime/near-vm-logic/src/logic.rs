@@ -1197,7 +1197,7 @@ impl<'a> VMLogic<'a> {
         }
     }
 
-    /// Called by gas metering injected into Wasm. Counts both towards `burnt_gas` and `used_gas`.
+    /// Consume gas. Counts both towards `burnt_gas` and `used_gas`.
     ///
     /// # Errors
     ///
@@ -1212,6 +1212,7 @@ impl<'a> VMLogic<'a> {
         self.gas(opcodes as u64 * self.config.regular_op_cost as u64)
     }
 
+    /// This is the function that is exposed to WASM contracts under the name `gas`.
     pub fn gas_seen_from_wasm(&mut self, gas: u32) -> Result<()> {
         self.gas(gas as u64)
     }
