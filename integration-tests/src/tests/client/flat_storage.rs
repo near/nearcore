@@ -120,7 +120,7 @@ fn wait_for_flat_storage_creation(
 
 /// Check correctness of flat storage creation.
 #[test]
-fn test_flat_storage_creation() {
+fn test_flat_storage_creation_sanity() {
     init_test_logger();
     let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     let shard_uid = genesis.config.shard_layout.get_shard_uids()[0];
