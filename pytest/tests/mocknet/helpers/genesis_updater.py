@@ -70,22 +70,27 @@ def main(argv):
     assert all_node_pks
     assert node_ips
 
-    mocknet.create_genesis_file(validator_keys,
-                                genesis_filename_in,
-                                records_filename_in,
-                                out_dir,
-                                rpc_node_names=rpc_node_names,
-                                chain_id=chain_id,
-                                append=True,
-                                epoch_length=epoch_length,
-                                node_pks=node_pks,
-                                increasing_stakes=increasing_stakes,
-                                num_seats=num_seats,
-                                single_shard=single_shard,
-                                neard=neard)
+    mocknet.neard_amend_genesis(
+        neard=neard,
+        validator_keys=validator_keys,
+        genesis_filename_in=genesis_filename_in,
+        records_filename_in=records_filename_in,
+        out_dir=out_dir,
+        rpc_node_names=rpc_node_names,
+        chain_id=chain_id,
+        epoch_length=epoch_length,
+        node_pks=node_pks,
+        increasing_stakes=increasing_stakes,
+        num_seats=num_seats,
+        single_shard=single_shard,
+    )
     config_filename_out = os.path.join(out_dir, 'config.json')
-    mocknet.update_config_file(config_filename_in, config_filename_out,
-                               all_node_pks, node_ips)
+    mocknet.update_config_file(
+        config_filename_in,
+        config_filename_out,
+        all_node_pks,
+        node_ips,
+    )
 
     logger.info(f'done_filename: {done_filename}')
     pathlib.Path(done_filename).write_text('DONE')

@@ -70,8 +70,8 @@ use near_primitives::views::{
     LightClientBlockView, SignedTransactionView,
 };
 use near_store::flat::{
-    store_helper, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata,
-    FlatStorageCreationStatus, FlatStorageError,
+    store_helper, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorageError,
+    FlatStorageReadyStatus, FlatStorageStatus,
 };
 use near_store::StorageError;
 use near_store::{DBCol, ShardTries, StoreUpdate, WrappedTrieChanges};
@@ -633,6 +633,7 @@ impl Chain {
                 if cfg!(feature = "protocol_feature_flat_state") {
                     let tmp_store_update = runtime_adapter.set_flat_storage_for_genesis(
                         genesis.hash(),
+                        genesis.header().height(),
                         genesis.header().epoch_id(),
                     )?;
                     store_update.merge(tmp_store_update);
@@ -3178,14 +3179,6 @@ impl Chain {
         // flat storage. Now we can set flat head to hash of this block and create flat storage.
         // TODO (#7327): ensure that no flat storage work is done for `KeyValueRuntime`.
         if cfg!(feature = "protocol_feature_flat_state") {
-            let mut store_update = self.runtime_adapter.store().store_update();
-            store_helper::set_flat_head(&mut store_update, shard_id, block_hash);
-            store_update.commit()?;
-        }
-
-        if self.runtime_adapter.get_flat_storage_creation_status(shard_id)
-            == FlatStorageCreationStatus::Ready
-        {
             // If block_hash is equal to default - this means that we're all the way back at genesis.
             // So we don't have to add the storage state for shard in such case.
             // TODO(8438) - add additional test scenarios for this case.
@@ -3193,8 +3186,25 @@ impl Chain {
                 let block_header = self.get_block_header(block_hash)?;
                 let epoch_id = block_header.epoch_id();
                 let shard_uid = self.runtime_adapter.shard_id_to_uid(shard_id, epoch_id)?;
-
-                self.runtime_adapter.create_flat_storage_for_shard(shard_uid);
+                if !matches!(
+                    self.runtime_adapter.get_flat_storage_status(shard_uid),
+                    FlatStorageStatus::Disabled
+                ) {
+                    let mut store_update = self.runtime_adapter.store().store_update();
+                    store_helper::set_flat_storage_status(
+                        &mut store_update,
+                        shard_uid,
+                        FlatStorageStatus::Ready(FlatStorageReadyStatus {
+                            flat_head: near_store::flat::BlockInfo {
+                                hash: *block_hash,
+                                prev_hash: *block_header.prev_hash(),
+                                height: block_header.height(),
+                            },
+                        }),
+                    );
+                    store_update.commit()?;
+                    self.runtime_adapter.create_flat_storage_for_shard(shard_uid);
+                }
             }
         }
 

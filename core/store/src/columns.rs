@@ -258,27 +258,25 @@ pub enum DBCol {
     /// *Column type*: ExecutionOutcomeWithProof
     TransactionResultForBlock,
     /// Flat state contents. Used to get `ValueRef` by trie key faster than doing a trie lookup.
-    /// - *Rows*: trie key (Vec<u8>)
+    /// - *Rows*: `shard_uid` + trie key (Vec<u8>)
     /// - *Column type*: ValueRef
     #[cfg(feature = "protocol_feature_flat_state")]
     FlatState,
     /// Changes for flat state delta. Stores how flat state should be updated for the given shard and block.
-    /// - *Rows*: `KeyForFlatStateDelta { shard_id, block_hash }`
+    /// - *Rows*: `KeyForFlatStateDelta { shard_uid, block_hash }`
     /// - *Column type*: `FlatStateChanges`
     #[cfg(feature = "protocol_feature_flat_state")]
     FlatStateChanges,
     /// Metadata for flat state delta.
-    /// - *Rows*: `KeyForFlatStateDelta { shard_id, block_hash }`
+    /// - *Rows*: `KeyForFlatStateDelta { shard_uid, block_hash }`
     /// - *Column type*: `FlatStateDeltaMetadata`
     #[cfg(feature = "protocol_feature_flat_state")]
     FlatStateDeltaMetadata,
-    /// Miscellaneous data for flat state. Stores intermediate flat storage creation statuses and flat
-    /// state heads for each shard.
-    /// - *Rows*: Unique key prefix (e.g. `FLAT_STATE_HEAD_KEY_PREFIX`) + ShardId
-    /// - *Column type*: FetchingStateStatus || flat storage catchup status (bool) || flat storage head (CryptoHash)
-    // TODO (#7327): use only during testing, come up with proper format.
+    /// Flat storage status for the corresponding shard.
+    /// - *Rows*: `shard_uid`
+    /// - *Column type*: `FlatStorageStatus`
     #[cfg(feature = "protocol_feature_flat_state")]
-    FlatStateMisc,
+    FlatStorageStatus,
 }
 
 /// Defines different logical parts of a db key.
@@ -483,7 +481,7 @@ impl DBCol {
             #[cfg(feature = "protocol_feature_flat_state")]
             DBCol::FlatStateDeltaMetadata => &[DBKeyType::ShardId, DBKeyType::BlockHash],
             #[cfg(feature = "protocol_feature_flat_state")]
-            DBCol::FlatStateMisc => &[DBKeyType::ShardId],
+            DBCol::FlatStorageStatus => &[DBKeyType::ShardUId],
         }
     }
 }

@@ -19,7 +19,7 @@ struct Crumb {
 pub(crate) enum CrumbStatus {
     Entering,
     At,
-    AtChild(usize),
+    AtChild(u8),
     Exiting,
 }
 
@@ -152,17 +152,16 @@ impl<'a> TrieIterator<'a> {
                 TrieNode::Branch(children, _) => {
                     if key.is_empty() {
                         break;
+                    }
+                    let idx = key.at(0);
+                    self.key_nibbles.push(idx);
+                    *status = CrumbStatus::AtChild(idx);
+                    if let Some(ref child) = children[idx] {
+                        hash = *child.unwrap_hash();
+                        key = key.mid(1);
                     } else {
-                        let idx = key.at(0) as usize;
-                        self.key_nibbles.push(key.at(0));
-                        *status = CrumbStatus::AtChild(idx as usize);
-                        if let Some(child) = &children[idx] {
-                            hash = *child.unwrap_hash();
-                            key = key.mid(1);
-                        } else {
-                            *prefix_boundary = is_prefix_seek;
-                            break;
-                        }
+                        *prefix_boundary = is_prefix_seek;
+                        break;
                     }
                 }
                 TrieNode::Extension(ext_key, child) => {
@@ -222,7 +221,7 @@ impl<'a> TrieIterator<'a> {
     fn iter_step(&mut self) -> Option<IterStep> {
         let last = self.trail.last_mut()?;
         last.increment();
-        match (last.status, &last.node.node) {
+        Some(match (last.status, &last.node.node) {
             (CrumbStatus::Exiting, n) => {
                 match n {
                     TrieNode::Leaf(ref key, _) | TrieNode::Extension(ref key, _) => {
@@ -235,16 +234,16 @@ impl<'a> TrieIterator<'a> {
                     }
                     _ => {}
                 }
-                Some(IterStep::PopTrail)
+                IterStep::PopTrail
             }
             (CrumbStatus::At, TrieNode::Branch(_, Some(value))) => {
                 let hash = match value {
                     ValueHandle::HashAndSize(value) => value.hash,
                     ValueHandle::InMemory(_node) => unreachable!(),
                 };
-                Some(IterStep::Value(hash))
+                IterStep::Value(hash)
             }
-            (CrumbStatus::At, TrieNode::Branch(_, None)) => Some(IterStep::Continue),
+            (CrumbStatus::At, TrieNode::Branch(_, None)) => IterStep::Continue,
             (CrumbStatus::At, TrieNode::Leaf(key, value)) => {
                 let hash = match value {
                     ValueHandle::HashAndSize(value) => value.hash,
@@ -252,30 +251,29 @@ impl<'a> TrieIterator<'a> {
                 };
                 let key = NibbleSlice::from_encoded(key).0;
                 self.key_nibbles.extend(key.iter());
-                Some(IterStep::Value(hash))
+                IterStep::Value(hash)
             }
             (CrumbStatus::At, TrieNode::Extension(key, child)) => {
                 let hash = *child.unwrap_hash();
                 let key = NibbleSlice::from_encoded(key).0;
                 self.key_nibbles.extend(key.iter());
-                Some(IterStep::Descend(hash))
+                IterStep::Descend(hash)
             }
-            (CrumbStatus::AtChild(i), TrieNode::Branch(children, _)) if children[i].is_some() => {
-                match i {
-                    0 => self.key_nibbles.push(0),
-                    i => *self.key_nibbles.last_mut().expect("Pushed child value before") = i as u8,
-                }
-                let hash = *children[i].as_ref().unwrap().unwrap_hash();
-                Some(IterStep::Descend(hash))
-            }
-            (CrumbStatus::AtChild(i), TrieNode::Branch(_, _)) => {
+            (CrumbStatus::AtChild(i), TrieNode::Branch(children, _)) => {
                 if i == 0 {
                     self.key_nibbles.push(0);
                 }
-                Some(IterStep::Continue)
+                if let Some(ref child) = children[i] {
+                    if i != 0 {
+                        *self.key_nibbles.last_mut().expect("Pushed child value before") = i;
+                    }
+                    IterStep::Descend(*child.unwrap_hash())
+                } else {
+                    IterStep::Continue
+                }
             }
             _ => panic!("Should never see Entering or AtChild without a Branch here."),
-        }
+        })
     }
 
     fn common_prefix(str1: &[u8], str2: &[u8]) -> usize {

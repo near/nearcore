@@ -160,7 +160,6 @@ impl PublicKey {
 
 // This `Hash` implementation is safe since it retains the property
 // `k1 == k2 ⇒ hash(k1) == hash(k2)`.
-#[allow(clippy::derive_hash_xor_eq)]
 impl Hash for PublicKey {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self {
@@ -493,7 +492,6 @@ pub enum Signature {
 
 // This `Hash` implementation is safe since it retains the property
 // `k1 == k2 ⇒ hash(k1) == hash(k2)`.
-#[allow(clippy::derive_hash_xor_eq)]
 impl Hash for Signature {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self {

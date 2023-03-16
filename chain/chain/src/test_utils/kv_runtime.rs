@@ -52,7 +52,7 @@ use crate::{BlockHeader, RuntimeWithEpochManagerAdapter};
 
 use near_primitives::epoch_manager::ShardConfig;
 
-use near_store::flat::{FlatStorage, FlatStorageCreationStatus};
+use near_store::flat::{FlatStorage, FlatStorageStatus};
 
 use super::ValidatorSchedule;
 
@@ -833,8 +833,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         None
     }
 
-    fn get_flat_storage_creation_status(&self, _shard_id: ShardId) -> FlatStorageCreationStatus {
-        FlatStorageCreationStatus::DontCreate
+    fn get_flat_storage_status(&self, _shard_uid: ShardUId) -> FlatStorageStatus {
+        FlatStorageStatus::Disabled
     }
 
     fn create_flat_storage_for_shard(&self, shard_uid: ShardUId) {
@@ -852,6 +852,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn set_flat_storage_for_genesis(
         &self,
         _genesis_block: &CryptoHash,
+        _genesis_block_height: BlockHeight,
         _genesis_epoch_id: &EpochId,
     ) -> Result<StoreUpdate, Error> {
         Ok(self.store.store_update())
