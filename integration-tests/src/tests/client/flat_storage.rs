@@ -4,6 +4,7 @@ use near_chain::{ChainGenesis, RuntimeWithEpochManagerAdapter};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::errors::StorageError;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::types::AccountId;
 use near_primitives_core::types::BlockHeight;
@@ -12,7 +13,7 @@ use near_store::flat::{
     FlatStorageStatus, NUM_PARTS_IN_ONE_STEP,
 };
 use near_store::test_utils::create_test_store;
-use near_store::{Store, TrieTraversalItem};
+use near_store::{KeyLookupMode, Store, TrieTraversalItem};
 use nearcore::config::GenesisExt;
 use std::path::Path;
 use std::str::FromStr;
@@ -493,4 +494,58 @@ fn test_flat_storage_iter() {
             }
         }
     }
+}
+
+#[test]
+fn test_not_supported_block() {
+    init_test_logger();
+    let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
+    let shard_layout = ShardLayout::v0_single_shard();
+    let shard_uid = shard_layout.get_shard_uids()[0];
+    let store = create_test_store();
+
+    let mut env = setup_env(&genesis, store.clone());
+    // Produce blocks up to `START_HEIGHT`.
+    for height in 1..START_HEIGHT {
+        env.produce_block(0, height);
+    }
+
+    // Trie key which must exist in the storage.
+    let trie_key_bytes =
+        near_primitives::trie_key::TrieKey::Account { account_id: "test0".parse().unwrap() }
+            .to_vec();
+    // Create trie, which includes creating chunk view, and get `ValueRef`s
+    // for post state roots for blocks `START_HEIGHT - 3` and `START_HEIGHT - 2`.
+    // After creating the first trie, produce block `START_HEIGHT` which moves flat storage
+    // head 1 block further and invalidates it.
+    let mut get_ref_results = vec![];
+    for height in START_HEIGHT - 3..START_HEIGHT - 1 {
+        let block_hash = env.clients[0].chain.get_block_hash_by_height(height).unwrap();
+        let state_root = *env.clients[0]
+            .chain
+            .get_chunk_extra(&block_hash, &ShardUId::from_shard_id_and_layout(0, &shard_layout))
+            .unwrap()
+            .state_root();
+
+        let trie = env.clients[0]
+            .runtime_adapter
+            .get_trie_for_shard(shard_uid.shard_id(), &block_hash, state_root, true)
+            .unwrap();
+        if height == START_HEIGHT - 3 {
+            env.produce_block(0, START_HEIGHT);
+        }
+        get_ref_results.push(trie.get_ref(&trie_key_bytes, KeyLookupMode::FlatStorage));
+    }
+
+    // The first result should be FlatStorageError, because we can't read from first chunk view anymore.
+    // But the node must not panic as this is normal behaviour.
+    // Ideally it should be tested on chain level, but there is no easy way to
+    // postpone applying chunks reliably.
+    if cfg!(feature = "protocol_feature_flat_state") {
+        assert_matches!(get_ref_results[0], Err(StorageError::FlatStorageBlockNotSupported(_)));
+    } else {
+        assert_matches!(get_ref_results[0], Ok(Some(_)));
+    }
+    // For the second result chunk view is valid, so result is Ok.
+    assert_matches!(get_ref_results[1], Ok(Some(_)));
 }

@@ -59,7 +59,7 @@ impl FlatStorageInner {
         FlatStorageError::BlockNotSupported((self.flat_head.hash, *block_hash))
     }
 
-    /// Gets changes for the given block and shard `self.shard_id`.
+    /// Gets changes for the given block and shard `self.shard_id`, assuming that they must exist.
     fn get_block_changes(
         &self,
         block_hash: &CryptoHash,
@@ -68,7 +68,7 @@ impl FlatStorageInner {
         // and read single `ValueRef` from delta if it is not cached.
         self.deltas
             .get(block_hash)
-            .ok_or_else(|| self.create_block_not_supported_error(block_hash))
+            .ok_or(FlatStorageError::StorageInternalError)
             .map(|delta| delta.changes.clone())
     }
 
@@ -201,24 +201,21 @@ impl FlatStorage {
         let shard_uid = guard.shard_uid;
         let shard_id = shard_uid.shard_id();
         let blocks = guard.get_blocks_to_head(new_head)?;
-        if blocks.is_empty() {
-            // This effectively means that new flat head is the same as the current one,
-            // so we are not updating it
-            return Err(guard.create_block_not_supported_error(new_head));
-        }
         for block_hash in blocks.into_iter().rev() {
             let mut store_update = StoreUpdate::new(guard.store.storage.clone());
-            // We unwrap here because flat storage is locked and we could retrieve path from old to new head,
-            // so delta must exist.
-            let changes =
-                store_helper::get_delta_changes(&guard.store, shard_uid, block_hash)?.unwrap();
+            // Delta must exist because flat storage is locked and we could retrieve
+            // path from old to new head. Otherwise we return internal error.
+            let changes = store_helper::get_delta_changes(&guard.store, shard_uid, block_hash)?
+                .ok_or(FlatStorageError::StorageInternalError)?;
             changes.apply_to_flat_state(&mut store_update, guard.shard_uid);
             let block = &guard.deltas[&block_hash].metadata.block;
+            let block_height = block.height;
             store_helper::set_flat_storage_status(
                 &mut store_update,
                 shard_uid,
                 FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head: block.clone() }),
             );
+
             guard.metrics.flat_head_height.set(block.height as i64);
             guard.flat_head = block.clone();
 
@@ -230,7 +227,7 @@ impl FlatStorage {
             let gc_height = guard
                 .deltas
                 .get(&block_hash)
-                .ok_or(guard.create_block_not_supported_error(&block_hash))?
+                .ok_or(FlatStorageError::StorageInternalError)?
                 .metadata
                 .block
                 .height;
@@ -254,10 +251,8 @@ impl FlatStorage {
             }
 
             store_update.commit().unwrap();
+            info!(target: "chain", %shard_id, %block_hash, %block_height, "Moved flat storage head");
         }
-
-        let new_head_height = guard.flat_head.height;
-        info!(target: "chain", %shard_id, %new_head, %new_head_height, "Moved flat storage head");
 
         Ok(())
     }
@@ -447,7 +442,7 @@ mod tests {
     }
 
     #[test]
-    fn block_not_supported_errors() {
+    fn flat_storage_errors() {
         // Create a chain with two forks. Set flat head to be at block 0.
         let chain = MockChain::chain_with_two_forks(5);
         let shard_uid = ShardUId::single_shard();
@@ -473,7 +468,8 @@ mod tests {
         flat_storage_manager.add_flat_storage_for_shard(shard_id, flat_storage);
         let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_id).unwrap();
 
-        // Check that flat head can be moved to block 1.
+        // Check `BlockNotSupported` errors which are fine to occur during regular block processing.
+        // First, check that flat head can be moved to block 1.
         let flat_head_hash = chain.get_block_hash(1);
         assert_eq!(flat_storage.update_flat_head(&flat_head_hash), Ok(()));
         // Check that attempt to move flat head to block 2 results in error because it lays in unreachable fork.
@@ -493,6 +489,15 @@ mod tests {
         assert_eq!(
             flat_storage.update_flat_head(&not_existing_hash),
             Err(FlatStorageError::BlockNotSupported((flat_head_hash, not_existing_hash)))
+        );
+        // Corrupt DB state for block 3 and try moving flat head to it.
+        // Should result in `StorageInternalError` indicating that flat storage is broken.
+        let mut store_update = store.store_update();
+        store_helper::remove_delta(&mut store_update, shard_uid, chain.get_block_hash(3));
+        store_update.commit().unwrap();
+        assert_eq!(
+            flat_storage.update_flat_head(&chain.get_block_hash(3)),
+            Err(FlatStorageError::StorageInternalError)
         );
     }
 
@@ -621,7 +626,10 @@ mod tests {
         assert_eq!(blocks.len(), 5);
         assert_eq!(chunk_view0.get_ref(&[1]).unwrap(), None);
         assert_eq!(chunk_view0.get_ref(&[2]).unwrap(), Some(ValueRef::new(&[1])));
-        assert_matches!(chunk_view1.get_ref(&[1]), Err(StorageError::FlatStorageError(_)));
+        assert_matches!(
+            chunk_view1.get_ref(&[1]),
+            Err(StorageError::FlatStorageBlockNotSupported(_))
+        );
         assert_matches!(
             store_helper::get_delta_changes(&store, shard_uid, chain.get_block_hash(5)).unwrap(),
             None
