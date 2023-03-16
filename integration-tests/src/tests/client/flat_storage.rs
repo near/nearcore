@@ -237,7 +237,7 @@ fn test_flat_storage_creation_sanity() {
         ))
     );
 
-    wait_for_flat_storage_creation(&mut env, START_HEIGHT + 3, shard_uid, true);
+    wait_for_flat_storage_creation(&mut env, START_HEIGHT + 5, shard_uid, true);
 }
 
 /// Check that client can create flat storage on some shard while it already exists on another shard.
