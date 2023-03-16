@@ -13,6 +13,7 @@ use near_chain_configs::{
     Genesis, GenesisConfig, ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
     MIN_GC_NUM_EPOCHS_TO_KEEP,
 };
+use rayon::prelude::*;
 use near_client_primitives::types::StateSplitApplyingStatus;
 use near_crypto::PublicKey;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
@@ -232,7 +233,6 @@ impl NightshadeRuntime {
                 info!(target: "runtime", "Computing state roots from records in file {}", path.display())
             }
         }
-        let mut state_roots = vec![];
         let initial_epoch_config = EpochConfig::from(&genesis.config);
         let shard_layout = initial_epoch_config.shard_layout;
         let num_shards = shard_layout.num_shards();
@@ -260,7 +260,7 @@ impl NightshadeRuntime {
             NightshadeRuntime::create_runtime_config_store(&genesis.config.chain_id);
         let runtime_config = runtime_config_store.get_config(genesis.config.protocol_version);
 
-        for shard_id in 0..num_shards {
+        (0..num_shards).into_par_iter().map(|shard_id| {
             let validators = genesis
                 .config
                 .validators
@@ -278,16 +278,15 @@ impl NightshadeRuntime {
                 })
                 .collect::<Vec<_>>();
 
-            state_roots.push(runtime.apply_genesis_state(
+            runtime.apply_genesis_state(
                 tries.clone(),
                 shard_id,
                 &validators,
                 genesis,
                 runtime_config,
                 shard_account_ids[shard_id as usize].clone(),
-            ));
-        }
-        state_roots
+            )
+        }).collect()
     }
 
     /// On first start: compute state roots, load genesis state into storage.

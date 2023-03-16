@@ -19,6 +19,7 @@ use near_store::{
     get_account, get_received_data, set, set_access_key, set_account, set_code,
     set_postponed_receipt, set_received_data, ShardTries, TrieUpdate,
 };
+use rayon::prelude::*;
 
 use crate::config::RuntimeConfig;
 use crate::Runtime;
@@ -113,59 +114,97 @@ impl GenesisStateApplier {
         validators: &[(AccountId, PublicKey, Balance)],
         config: &RuntimeConfig,
         genesis: &Genesis,
-        batch_account_ids: HashSet<&AccountId>,
+        batch_account_ids: HashSet<AccountId>,
     ) {
-        let mut state_update = tries.new_trie_update(shard_uid, *current_state_root);
+        let mut state_update = Some(tries.new_trie_update(shard_uid, *current_state_root));
         let mut postponed_receipts: Vec<Receipt> = vec![];
-
         let mut storage_computer = StorageComputer::new(config);
+        let mut record_counter = 0;
 
+        // Add all accounts first.
+        println!("adding all accounts first for shard {:?}", shard_uid);
         genesis.for_each_record(|record: &StateRecord| {
             if !batch_account_ids.contains(state_record_to_account_id(record)) {
                 return;
             }
+            let mut state_update = state_update.as_mut().unwrap();
+            match record {
+                StateRecord::Account { account_id, account } => {
+                    record_counter += 1;
+                    set_account(&mut state_update, account_id.clone(), account);
+                }
+                _ => {}
+            }
+        });
+
+        // Handle rest of the records
+        genesis.for_each_record(|record: &StateRecord| {
+            if !batch_account_ids.contains(state_record_to_account_id(record)) {
+                return;
+            }
+            record_counter += 1;
+            if record_counter % 0x100_000 == 0 {
+                println!("comitting {:?} for {:?}", record_counter, shard_uid);
+                let old_update = state_update
+                    .replace(tries.new_trie_update(shard_uid, *current_state_root))
+                    .unwrap();
+                Self::commit(old_update, current_state_root, tries, shard_uid);
+            }
+            let mut state_update = state_update.as_mut().unwrap();
 
             storage_computer.process_record(record);
 
-            match record.clone() {
-                StateRecord::Account { account_id, account } => {
-                    set_account(&mut state_update, account_id, &account);
-                }
+            match record {
+                StateRecord::Account { .. } => {}
                 StateRecord::Data { account_id, data_key, value } => {
-                    state_update.set(TrieKey::ContractData { key: data_key, account_id }, value);
+                    state_update.set(
+                        TrieKey::ContractData {
+                            key: data_key.clone(),
+                            account_id: account_id.clone(),
+                        },
+                        value.clone(),
+                    );
                 }
                 StateRecord::Contract { account_id, code } => {
-                    let acc = get_account(&state_update, &account_id).expect("Failed to read state").expect("Code state record should be preceded by the corresponding account record");
+                    let acc = get_account(state_update, account_id)
+                        .expect("Failed to read state")
+                        .expect(
+                        "Code state record should be preceded by the corresponding account record",
+                    );
                     // Recompute contract code hash.
-                    let code = ContractCode::new(code, None);
-                    set_code(&mut state_update, account_id, &code);
+                    let code = ContractCode::new(code.clone(), None);
+                    set_code(&mut state_update, account_id.clone(), &code);
                     assert_eq!(*code.hash(), acc.code_hash());
                 }
                 StateRecord::AccessKey { account_id, public_key, access_key } => {
-                    set_access_key(&mut state_update, account_id, public_key, &access_key);
+                    set_access_key(
+                        &mut state_update,
+                        account_id.clone(),
+                        public_key.clone(),
+                        access_key,
+                    );
                 }
                 StateRecord::PostponedReceipt(receipt) => {
                     // Delaying processing postponed receipts, until we process all data first
-                    postponed_receipts.push(*receipt);
+                    postponed_receipts.push(*receipt.clone());
                 }
                 StateRecord::ReceivedData { account_id, data_id, data } => {
                     set_received_data(
                         &mut state_update,
-                        account_id,
-                        data_id,
-                        &ReceivedData { data },
+                        account_id.clone(),
+                        *data_id,
+                        // FIXME: this clone is not necessary!
+                        &ReceivedData { data: data.clone() },
                     );
                 }
                 StateRecord::DelayedReceipt(receipt) => {
-                    Runtime::delay_receipt(
-                        &mut state_update,
-                        delayed_receipts_indices,
-                        &*receipt,
-                    )
+                    Runtime::delay_receipt(&mut state_update, delayed_receipts_indices, &*receipt)
                         .unwrap();
                 }
             }
         });
+
+        let mut state_update = state_update.unwrap();
 
         for (account_id, storage_usage) in storage_computer.finalize() {
             let mut account = get_account(&state_update, &account_id)
@@ -255,20 +294,17 @@ impl GenesisStateApplier {
         let mut delayed_receipts_indices = DelayedReceiptIndices::default();
         let shard_uid =
             ShardUId { version: genesis.config.shard_layout.version(), shard_id: shard_id as u32 };
-        for batch_account_ids in
-            shard_account_ids.into_iter().collect::<Vec<AccountId>>().chunks(300_000)
-        {
-            Self::apply_batch(
-                &mut current_state_root,
-                &mut delayed_receipts_indices,
-                &mut tries,
-                shard_uid,
-                validators,
-                config,
-                genesis,
-                HashSet::from_iter(batch_account_ids),
-            );
-        }
+        println!("{:?}", shard_account_ids.len());
+        Self::apply_batch(
+            &mut current_state_root,
+            &mut delayed_receipts_indices,
+            &mut tries,
+            shard_uid,
+            validators,
+            config,
+            genesis,
+            shard_account_ids,
+        );
         Self::apply_delayed_receipts(
             delayed_receipts_indices,
             &mut current_state_root,
