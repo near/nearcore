@@ -10,7 +10,7 @@ use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::ValueRef;
 
 use super::delta::{FlatStateDelta, FlatStateDeltaMetadata};
-use super::types::FlatStorageStatus;
+use super::types::{FlatStateValue, FlatStorageStatus};
 
 /// Prefixes for keys in `FlatStateMisc` DB column.
 pub const FLAT_STATE_HEAD_KEY_PREFIX: &[u8; 4] = b"HEAD";
@@ -110,16 +110,10 @@ pub(crate) fn get_ref(
     key: &[u8],
 ) -> Result<Option<ValueRef>, FlatStorageError> {
     let db_key = encode_flat_state_db_key(shard_uid, key);
-    let raw_ref = store
-        .get(FlatStateColumn::State.to_db_col(), &db_key)
-        .map_err(|_| FlatStorageError::StorageInternalError)?;
-    if let Some(raw_ref) = raw_ref {
-        let bytes =
-            raw_ref.as_slice().try_into().map_err(|_| FlatStorageError::StorageInternalError)?;
-        Ok(Some(ValueRef::decode(bytes)))
-    } else {
-        Ok(None)
-    }
+    store
+        .get_ser(FlatStateColumn::State.to_db_col(), &db_key)
+        .map_err(|_| FlatStorageError::StorageInternalError)
+        .map(|maybe_value| maybe_value.map(|FlatStateValue::Ref(v)| v))
 }
 
 // TODO(#8577): make pub(crate) once flat storage creator is moved inside `flat` module.
@@ -127,9 +121,10 @@ pub fn set_ref(
     store_update: &mut StoreUpdate,
     shard_uid: ShardUId,
     key: Vec<u8>,
-    value: Option<ValueRef>,
+    value_ref: Option<ValueRef>,
 ) -> Result<(), FlatStorageError> {
     let db_key = encode_flat_state_db_key(shard_uid, &key);
+    let value = value_ref.map(|v| FlatStateValue::Ref(v));
     match value {
         Some(value) => store_update
             .set_ser(FlatStateColumn::State.to_db_col(), &db_key, &value)
