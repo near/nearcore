@@ -90,6 +90,14 @@ pub fn remove_delta(store_update: &mut StoreUpdate, shard_uid: ShardUId, block_h
     store_update.delete(FlatStateColumn::DeltaMetadata.to_db_col(), &key);
 }
 
+pub fn remove_all_deltas(store_update: &mut StoreUpdate, shard_uid: ShardUId) {
+    let key_from = shard_uid.to_bytes();
+    let mut key_to = key_from.clone();
+    key_to[7] += 1;
+    store_update.delete_range(FlatStateColumn::Changes.to_db_col(), &key_from, &key_to);
+    store_update.delete_range(FlatStateColumn::DeltaMetadata.to_db_col(), &key_from, &key_to);
+}
+
 fn flat_head_key(shard_id: ShardId) -> Vec<u8> {
     let mut fetching_state_step_key = FLAT_STATE_HEAD_KEY_PREFIX.to_vec();
     fetching_state_step_key.extend_from_slice(&shard_id.try_to_vec().unwrap());

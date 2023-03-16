@@ -7,7 +7,7 @@ use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::ValueRef;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::flat::delta::CachedFlatStateChanges;
 use crate::flat::store_helper::FlatStateColumn;
@@ -127,6 +127,12 @@ impl FlatStorageInner {
 }
 
 impl FlatStorage {
+    /// Expected limits for in-memory stored changes, under which flat storage must keep working.
+    /// If they are exceeded, warnings are displayed. Flat storage still will work, but its
+    /// performance will slow down, and eventually it can cause OOM error.
+    const CACHED_CHANGES_LIMIT: usize = 50;
+    const CACHED_CHANGES_SIZE_LIMIT: bytesize::ByteSize = bytesize::ByteSize(150 * bytesize::MIB);
+
     /// Create a new FlatStorage for `shard_id` using flat head if it is stored on storage.
     /// We also load all blocks with height between flat head to `latest_block_height`
     /// including those on forks into the returned FlatStorage.
@@ -282,14 +288,16 @@ impl FlatStorage {
                         guard.metrics.cached_changes_num_items.sub(delta.changes.len() as i64);
                         guard.metrics.cached_changes_size.sub(delta.changes.total_size() as i64);
                     }
-                    None => {}
+                    None => {
+                        warn!(target: "chain", %shard_id, %hash, "Attempted to remove delta not existing in cache");
+                    }
                 }
             }
 
             store_update.commit().unwrap();
+            guard.flat_head = block;
         }
 
-        guard.flat_head = *new_head;
         guard.metrics.flat_head_height.set(new_head_height as i64);
         info!(target: "chain", %shard_id, %new_head, %new_head_height, "Moved flat storage head");
 
@@ -322,6 +330,15 @@ impl FlatStorage {
             block_hash,
             CachedFlatStateDelta { metadata: delta.metadata, changes: Arc::new(cached_changes) },
         );
+        let cached_changes_num_items = guard.metrics.cached_changes_num_items.get() as usize;
+        let cached_changes_size =
+            bytesize::ByteSize(guard.metrics.cached_changes_size.get() as u64);
+
+        if cached_changes_num_items >= Self::CACHED_CHANGES_LIMIT
+            || cached_changes_size >= Self::CACHED_CHANGES_SIZE_LIMIT
+        {
+            warn!(target: "chain", %shard_id, %block_height, %cached_changes_num_items, %cached_changes_size, "Flat storage cached changes exceeded expected limits");
+        }
         Ok(store_update)
     }
 
@@ -353,6 +370,7 @@ impl FlatStorage {
         info!(target: "chain", %shard_id, %removed_items, "Removing old items from flat storage");
 
         store_helper::remove_flat_head(&mut store_update, shard_id);
+        store_helper::remove_all_deltas(&mut store_update, guard.shard_uid);
         store_update.commit().map_err(|_| StorageError::StorageInternalError)?;
         Ok(())
     }

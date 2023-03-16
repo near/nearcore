@@ -3,7 +3,7 @@ use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::BlockHeight;
 
-#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
 pub struct BlockInfo {
     pub hash: CryptoHash,
     pub height: BlockHeight,

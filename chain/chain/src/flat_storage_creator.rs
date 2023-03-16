@@ -306,6 +306,11 @@ impl FlatStorageShardCreator {
                             // If all parts were fetched, we can start catchup.
                             info!(target: "chain", %shard_id, %block_hash, "Finished fetching state");
                             self.metrics.remaining_state_parts.set(0);
+                            store_helper::remove_delta(
+                                &mut store_update,
+                                self.shard_uid,
+                                block_hash,
+                            );
                             store_helper::set_flat_storage_creation_status(
                                 &mut store_update,
                                 shard_id,
@@ -321,6 +326,7 @@ impl FlatStorageShardCreator {
                 let mut flat_head = *old_flat_head;
                 let chain_final_head = chain_store.final_head()?;
                 let mut merged_changes = FlatStateChanges::default();
+                let mut store_update = self.runtime_adapter.store().store_update();
 
                 // Merge up to 50 deltas of the next blocks until we reach chain final head.
                 // TODO: consider merging 10 deltas at once to limit memory usage
@@ -338,6 +344,7 @@ impl FlatStorageShardCreator {
                         .unwrap()
                         .unwrap();
                     merged_changes.merge(changes);
+                    store_helper::remove_delta(&mut store_update, self.shard_uid, flat_head);
                 }
 
                 if (old_flat_head != &flat_head) || (flat_head == chain_final_head.last_block_hash)
@@ -349,25 +356,46 @@ impl FlatStorageShardCreator {
                     let height = chain_store.get_block_height(&flat_head).unwrap();
                     debug!(target: "chain", %shard_id, %old_flat_head, %old_height, %flat_head, %height, "Catching up flat head");
                     self.metrics.flat_head_height.set(height as i64);
-                    let mut store_update = self.runtime_adapter.store().store_update();
                     merged_changes.apply_to_flat_state(&mut store_update, shard_uid);
+                    store_helper::set_flat_storage_creation_status(
+                        &mut store_update,
+                        shard_id,
+                        FlatStorageCreationStatus::CatchingUp(flat_head),
+                    );
+                    store_update.commit()?;
+
+                    // If we reached chain final head, we can finish catchup and finally create flat storage.
                     if flat_head == chain_final_head.last_block_hash {
-                        // If we reached chain final head, we can finish catchup and finally create flat storage.
+                        // GC deltas from forks which could have appeared on chain during catchup.
+                        // Assuming that flat storage creation finishes in < 1 day, all deltas metadata cannot occupy
+                        // more than (Blocks per day = 24 * 60 * 60) * (BlockInfo size = 72) ~= 6.2 MB.
+                        let mut store_update = self.runtime_adapter.store().store_update();
+                        let deltas_metadata = store_helper::get_all_deltas_metadata(&store, shard_uid)
+                            .unwrap_or_else(|_| {
+                                panic!("Cannot read flat state deltas metadata for shard {shard_id} from storage")
+                            });
+                        let mut gc_count = 0;
+                        for delta_metadata in deltas_metadata {
+                            if delta_metadata.block.height <= chain_final_head.height {
+                                store_helper::remove_delta(
+                                    &mut store_update,
+                                    self.shard_uid,
+                                    delta_metadata.block.hash,
+                                );
+                                gc_count += 1;
+                            }
+                        }
+
+                        // Set flat storage head and create flat storage.
                         store_helper::remove_flat_storage_creation_status(
                             &mut store_update,
                             shard_id,
                         );
                         store_helper::set_flat_head(&mut store_update, shard_id, &flat_head);
                         store_update.commit()?;
+                        info!(target: "chain", %shard_id, %flat_head, %height, "Garbage collected {gc_count} deltas");
                         self.runtime_adapter.create_flat_storage_for_shard(shard_uid);
-                        info!(target: "chain", %shard_id, %flat_head, %height, "Flat storage creation done");
-                    } else {
-                        store_helper::set_flat_storage_creation_status(
-                            &mut store_update,
-                            shard_id,
-                            FlatStorageCreationStatus::CatchingUp(flat_head),
-                        );
-                        store_update.commit()?;
+                        info!(target: "chain", %shard_id, %flat_head, %height, "Flat storage creation done.");
                     }
                 }
             }
