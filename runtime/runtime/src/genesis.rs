@@ -81,11 +81,13 @@ impl<'a> StorageComputer<'a> {
     }
 }
 
+type State = (usize, StateRoot, TrieUpdate);
+
 pub(crate) struct AutoFlushingTrieUpdate<'a> {
     remaining_ops: &'a atomic::AtomicUsize,
     tries: &'a ShardTries,
     shard_uid: ShardUId,
-    state: Mutex<(usize, StateRoot, TrieUpdate)>,
+    state: Mutex<State>,
 }
 
 impl<'a> AutoFlushingTrieUpdate<'a> {
@@ -99,8 +101,12 @@ impl<'a> AutoFlushingTrieUpdate<'a> {
         Self { remaining_ops, state, tries, shard_uid: uid }
     }
 
-    fn with_guard<R>(&self, cb: impl FnOnce(&mut StateRoot, &mut TrieUpdate) -> R) -> R {
-        let mut guard = self.state.lock().unwrap_or_else(|g| g.into_inner());
+    fn lock(&self) -> std::sync::MutexGuard<State> {
+        self.state.lock().unwrap_or_else(|g| g.into_inner())
+    }
+
+    fn modify<R>(&self, cb: impl FnOnce(&mut StateRoot, &mut TrieUpdate) -> R) -> R {
+        let mut guard = self.lock();
         let (ref mut update_count, ref mut state_root, ref mut state_update) = &mut *guard;
         let result = cb(state_root, state_update);
         *update_count += 1;
@@ -116,14 +122,18 @@ impl<'a> AutoFlushingTrieUpdate<'a> {
             },
         );
         if old == Ok(0) {
+            tracing::info!(
+                target: "runtime",
+                messages="write-count triggered flush",
+                update_count
+            );
             *update_count = 0;
-            self.flush();
+            self.flush(guard);
         }
         result
     }
 
-    fn flush(&self) {
-        let mut guard = self.state.lock().unwrap_or_else(|g| g.into_inner());
+    fn flush(&self, mut guard: std::sync::MutexGuard<State>) {
         let (_, ref mut state_root, ref mut state_update) = &mut *guard;
         state_update.commit(StateChangeCause::InitialState);
         // Temporarily store a trie update with the "wrong" state root. This will be replaced
@@ -154,7 +164,7 @@ impl<'a> AutoFlushingTrieUpdate<'a> {
 
 impl<'a> Drop for AutoFlushingTrieUpdate<'a> {
     fn drop(&mut self) {
-        self.flush();
+        self.flush(self.lock());
     }
 }
 
@@ -182,12 +192,14 @@ impl GenesisStateApplier {
                 return;
             }
             storage_computer.process_record(record);
-            storage.with_guard(|_, state_update| {
-                match record {
-                    StateRecord::Account { account_id, account } => {
+            match record {
+                StateRecord::Account { account_id, account } => {
+                    storage.modify(|_, state_update| {
                         set_account(state_update, account_id.clone(), account);
-                    }
-                    StateRecord::Data { account_id, data_key, value } => {
+                    })
+                }
+                StateRecord::Data { account_id, data_key, value } => {
+                    storage.modify(|_, state_update| {
                         state_update.set(
                             TrieKey::ContractData {
                                 key: data_key.clone(),
@@ -195,8 +207,10 @@ impl GenesisStateApplier {
                             },
                             value.clone(),
                         );
-                    }
-                    StateRecord::Contract { account_id, code } => {
+                    })
+                }
+                StateRecord::Contract { account_id, code } => {
+                    storage.modify(|_, state_update| {
                         // Recompute contract code hash.
                         let code = ContractCode::new(code.clone(), None);
                         if let Some(acc) =
@@ -212,20 +226,24 @@ impl GenesisStateApplier {
                                 message = "code for non-existent account",
                             );
                         }
-                    }
-                    StateRecord::AccessKey { account_id, public_key, access_key } => {
+                    })
+                }
+                StateRecord::AccessKey { account_id, public_key, access_key } => {
+                    storage.modify(|_, state_update| {
                         set_access_key(
                             state_update,
                             account_id.clone(),
                             public_key.clone(),
                             access_key,
                         );
-                    }
-                    StateRecord::PostponedReceipt(receipt) => {
-                        // Delaying processing postponed receipts, until we process all data first
-                        postponed_receipts.push(*receipt.clone());
-                    }
-                    StateRecord::ReceivedData { account_id, data_id, data } => {
+                    })
+                }
+                StateRecord::PostponedReceipt(receipt) => {
+                    // Delaying processing postponed receipts, until we process all data first
+                    postponed_receipts.push(*receipt.clone());
+                }
+                StateRecord::ReceivedData { account_id, data_id, data } => {
+                    storage.modify(|_, state_update| {
                         set_received_data(
                             state_update,
                             account_id.clone(),
@@ -233,13 +251,13 @@ impl GenesisStateApplier {
                             // FIXME: this clone is not necessary!
                             &ReceivedData { data: data.clone() },
                         );
-                    }
-                    StateRecord::DelayedReceipt(receipt) => {
-                        Runtime::delay_receipt(state_update, delayed_receipts_indices, &*receipt)
-                            .unwrap();
-                    }
+                    })
                 }
-            })
+                StateRecord::DelayedReceipt(receipt) => storage.modify(|_, state_update| {
+                    Runtime::delay_receipt(state_update, delayed_receipts_indices, &*receipt)
+                        .unwrap();
+                }),
+            }
         });
 
         tracing::info!(
@@ -248,7 +266,7 @@ impl GenesisStateApplier {
             "processing account storage…"
         );
         for (account_id, storage_usage) in storage_computer.finalize() {
-            storage.with_guard(|_, state_update| {
+            storage.modify(|_, state_update| {
                 let mut account = get_account(state_update, &account_id)
                     .expect("Genesis storage error")
                     .expect("Account must exist");
@@ -265,7 +283,7 @@ impl GenesisStateApplier {
         );
 
         postponed_receipts.into_par_iter().for_each(|receipt| {
-            storage.with_guard(|_, state_update| {
+            storage.modify(|_, state_update| {
                 let account_id = &receipt.receiver_id;
                 let action_receipt = match &receipt.receipt {
                     ReceiptEnum::Action(a) => a,
@@ -309,7 +327,7 @@ impl GenesisStateApplier {
             if !account_ids.contains(account_id) {
                 continue;
             }
-            storage.with_guard(|_, state_update| {
+            storage.modify(|_, state_update| {
                 let mut account: Account = get_account(state_update, account_id)
                     .expect("Genesis storage error")
                     .expect("account must exist");
@@ -324,7 +342,7 @@ impl GenesisStateApplier {
         delayed_receipts_indices: DelayedReceiptIndices,
     ) {
         if delayed_receipts_indices != DelayedReceiptIndices::default() {
-            storage.with_guard(|_, state_update| {
+            storage.modify(|_, state_update| {
                 set(state_update, TrieKey::DelayedReceiptIndices, &delayed_receipts_indices);
             });
         }
@@ -354,7 +372,7 @@ impl GenesisStateApplier {
             shard_account_ids,
         );
         Self::apply_delayed_receipts(&storage, delayed_receipts_indices);
-        storage.flush();
-        storage.with_guard(|root, _| root.clone())
+        storage.flush(storage.lock());
+        storage.modify(|root, _| root.clone())
     }
 }
