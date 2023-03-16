@@ -59,7 +59,7 @@ impl FlatStorageInner {
         FlatStorageError::BlockNotSupported((self.flat_head.hash, *block_hash))
     }
 
-    /// Gets changes for the given block and shard `self.shard_id`, expects that they must exist.
+    /// Gets changes for the given block and shard `self.shard_id`, assuming that they must exist.
     fn get_block_changes(
         &self,
         block_hash: &CryptoHash,
