@@ -518,32 +518,31 @@ fn test_not_supported_block() {
     // for post state roots for blocks `START_HEIGHT - 3` and `START_HEIGHT - 2`.
     // After creating the first trie, produce block `START_HEIGHT` which moves flat storage
     // head 1 block further and invalidates it.
-    let get_ref_results: Vec<_> = (START_HEIGHT - 3..START_HEIGHT - 1)
-        .map(|height| {
-            let block_hash = env.clients[0].chain.get_block_hash_by_height(height).unwrap();
-            let state_root = *env.clients[0]
-                .chain
-                .get_chunk_extra(&block_hash, &ShardUId::from_shard_id_and_layout(0, &shard_layout))
-                .unwrap()
-                .state_root();
+    let mut get_ref_results = vec![];
+    for height in START_HEIGHT - 3..START_HEIGHT - 1 {
+        let block_hash = env.clients[0].chain.get_block_hash_by_height(height).unwrap();
+        let state_root = *env.clients[0]
+            .chain
+            .get_chunk_extra(&block_hash, &ShardUId::from_shard_id_and_layout(0, &shard_layout))
+            .unwrap()
+            .state_root();
 
-            let trie = env.clients[0]
-                .runtime_adapter
-                .get_trie_for_shard(shard_uid.shard_id(), &block_hash, state_root, true)
-                .unwrap();
-            if height == START_HEIGHT - 3 {
-                env.produce_block(0, START_HEIGHT);
-            }
-            trie.get_ref(&trie_key_bytes, KeyLookupMode::FlatStorage)
-        })
-        .collect();
+        let trie = env.clients[0]
+            .runtime_adapter
+            .get_trie_for_shard(shard_uid.shard_id(), &block_hash, state_root, true)
+            .unwrap();
+        if height == START_HEIGHT - 3 {
+            env.produce_block(0, START_HEIGHT);
+        }
+        get_ref_results.push(trie.get_ref(&trie_key_bytes, KeyLookupMode::FlatStorage));
+    }
 
     // The first result should be FlatStorageError, because we can't read from first chunk view anymore.
     // But the node must not panic as this is normal behaviour.
     // Ideally it should be tested on chain level, but there is no easy way to
     // postpone applying chunks reliably.
     if cfg!(feature = "protocol_feature_flat_state") {
-        assert_matches!(get_ref_results[0], Err(StorageError::FlatStorageError(_)));
+        assert_matches!(get_ref_results[0], Err(StorageError::FlatStorageBlockNotSupported(_)));
     } else {
         assert_matches!(get_ref_results[0], Ok(Some(_)));
     }

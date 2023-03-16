@@ -93,7 +93,7 @@ pub enum StorageError {
     /// Flat storage error, meaning that it doesn't support some block anymore.
     /// We guarantee that such block cannot become final, thus block processing
     /// must resume normally.
-    FlatStorageError(String),
+    FlatStorageBlockNotSupported(String),
 }
 
 impl std::fmt::Display for StorageError {

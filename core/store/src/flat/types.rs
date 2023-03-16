@@ -39,7 +39,7 @@ impl From<FlatStorageError> for StorageError {
     fn from(err: FlatStorageError) -> Self {
         match err {
             FlatStorageError::BlockNotSupported((head_hash, block_hash)) => {
-                StorageError::FlatStorageError(format!(
+                StorageError::FlatStorageBlockNotSupported(format!(
                     "FlatStorage with head {:?} does not support this block {:?}",
                     head_hash, block_hash
                 ))

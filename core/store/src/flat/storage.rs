@@ -59,7 +59,7 @@ impl FlatStorageInner {
         FlatStorageError::BlockNotSupported((self.flat_head.hash, *block_hash))
     }
 
-    /// Gets changes for the given block and shard `self.shard_id`.
+    /// Gets changes for the given block and shard `self.shard_id`, expects that they must exist.
     fn get_block_changes(
         &self,
         block_hash: &CryptoHash,
@@ -626,7 +626,10 @@ mod tests {
         assert_eq!(blocks.len(), 5);
         assert_eq!(chunk_view0.get_ref(&[1]).unwrap(), None);
         assert_eq!(chunk_view0.get_ref(&[2]).unwrap(), Some(ValueRef::new(&[1])));
-        assert_matches!(chunk_view1.get_ref(&[1]), Err(StorageError::FlatStorageError(_)));
+        assert_matches!(
+            chunk_view1.get_ref(&[1]),
+            Err(StorageError::FlatStorageBlockNotSupported(_))
+        );
         assert_matches!(
             store_helper::get_delta_changes(&store, shard_uid, chain.get_block_hash(5)).unwrap(),
             None
