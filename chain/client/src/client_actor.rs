@@ -255,7 +255,9 @@ impl Actor for ClientActor {
         // Start catchup job.
         self.catchup(ctx);
 
-        self.client.send_network_chain_info().unwrap();
+        if let Err(err) = self.client.send_network_chain_info() {
+            error!(target: "client", ?err, "Failed to update network chain info");
+        }
     }
 }
 
