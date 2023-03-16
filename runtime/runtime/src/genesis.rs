@@ -19,7 +19,6 @@ use near_store::{
     get_account, get_received_data, set, set_access_key, set_account, set_code,
     set_postponed_receipt, set_received_data, ShardTries, TrieUpdate,
 };
-use rayon::prelude::*;
 
 use crate::config::RuntimeConfig;
 use crate::Runtime;
@@ -121,16 +120,22 @@ impl GenesisStateApplier {
         let mut storage_computer = StorageComputer::new(config);
         let mut record_counter = 0;
 
-        // Add all accounts first.
-        println!("adding all accounts first for shard {:?}", shard_uid);
+        // Add all accounts for the shard first.
+        tracing::info!(%shard_uid, count=batch_account_ids.len(), "creating accounts");
         genesis.for_each_record(|record: &StateRecord| {
             if !batch_account_ids.contains(state_record_to_account_id(record)) {
                 return;
             }
+            record_counter += 1;
+            if record_counter % 0x80_000 == 0 {
+                let old_update = state_update
+                    .replace(tries.new_trie_update(shard_uid, *current_state_root))
+                    .unwrap();
+                Self::commit(old_update, current_state_root, tries, shard_uid);
+            }
             let mut state_update = state_update.as_mut().unwrap();
             match record {
                 StateRecord::Account { account_id, account } => {
-                    record_counter += 1;
                     set_account(&mut state_update, account_id.clone(), account);
                 }
                 _ => {}
@@ -143,8 +148,7 @@ impl GenesisStateApplier {
                 return;
             }
             record_counter += 1;
-            if record_counter % 0x100_000 == 0 {
-                println!("comitting {:?} for {:?}", record_counter, shard_uid);
+            if record_counter % 0x80_000 == 0 {
                 let old_update = state_update
                     .replace(tries.new_trie_update(shard_uid, *current_state_root))
                     .unwrap();
@@ -166,15 +170,20 @@ impl GenesisStateApplier {
                     );
                 }
                 StateRecord::Contract { account_id, code } => {
-                    let acc = get_account(state_update, account_id)
-                        .expect("Failed to read state")
-                        .expect(
-                        "Code state record should be preceded by the corresponding account record",
-                    );
                     // Recompute contract code hash.
                     let code = ContractCode::new(code.clone(), None);
-                    set_code(&mut state_update, account_id.clone(), &code);
-                    assert_eq!(*code.hash(), acc.code_hash());
+                    if let Some(acc) =
+                        get_account(state_update, account_id).expect("Failed to read state")
+                    {
+                        set_code(&mut state_update, account_id.clone(), &code);
+                        assert_eq!(*code.hash(), acc.code_hash());
+                    } else {
+                        tracing::error!(
+                            %account_id,
+                            code_hash = %code.hash(),
+                            message = "code for non-existent account?",
+                        );
+                    }
                 }
                 StateRecord::AccessKey { account_id, public_key, access_key } => {
                     set_access_key(
@@ -294,7 +303,6 @@ impl GenesisStateApplier {
         let mut delayed_receipts_indices = DelayedReceiptIndices::default();
         let shard_uid =
             ShardUId { version: genesis.config.shard_layout.version(), shard_id: shard_id as u32 };
-        println!("{:?}", shard_account_ids.len());
         Self::apply_batch(
             &mut current_state_root,
             &mut delayed_receipts_indices,
