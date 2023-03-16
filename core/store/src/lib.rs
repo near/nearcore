@@ -272,8 +272,10 @@ impl Store {
     /// provides conversion into a vector or an Arc.
     pub fn get(&self, column: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
         let value = if column.is_rc() {
+            tracing::trace!(target: "store", info="st rc");
             self.storage.get_with_rc_stripped(column, key)
         } else {
+            tracing::trace!(target: "store", info="rw bt");
             self.storage.get_raw_bytes(column, key)
         }?;
         tracing::trace!(
@@ -654,13 +656,13 @@ impl StoreUpdate {
         for op in &self.transaction.ops {
             match op {
                 DBOp::Insert { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "insert", col = %col, key = %pretty::StorageKey(key), size = value.len())
+                    tracing::trace!(target: "store", db_op = "insert", col = %col, key = %pretty::StorageKey(key), size = value.len(), value = %pretty::AbbrBytes(value),)
                 }
                 DBOp::Set { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "set", col = %col, key = %pretty::StorageKey(key), size = value.len())
+                    tracing::trace!(target: "store", db_op = "set", col = %col, key = %pretty::StorageKey(key), size = value.len(), value = %pretty::AbbrBytes(value))
                 }
                 DBOp::UpdateRefcount { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "update_rc", col = %col, key = %pretty::StorageKey(key), size = value.len())
+                    tracing::trace!(target: "store", db_op = "update_rc", col = %col, key = %pretty::StorageKey(key), size = value.len(), value = %pretty::AbbrBytes(value))
                 }
                 DBOp::Delete { col, key } => {
                     tracing::trace!(target: "store", db_op = "delete", col = %col, key = %pretty::StorageKey(key))

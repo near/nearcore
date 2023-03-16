@@ -536,7 +536,11 @@ impl Handler<WithSpanContext<Query>> for ViewClientActor {
     fn handle(&mut self, msg: WithSpanContext<Query>, _: &mut Self::Context) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["Query"]).start_timer();
-        self.handle_query(msg)
+        let log_msg = format!("{msg:?}");
+        tracing::debug!("BOOM {log_msg}");
+        let result = self.handle_query(msg);
+        tracing::debug!("BOOM {log_msg} {result:?}");
+        result
     }
 }
 
@@ -643,7 +647,14 @@ impl Handler<WithSpanContext<TxStatus>> for ViewClientActor {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["TxStatus"]).start_timer();
-        self.get_tx_status(msg.tx_hash, msg.signer_account_id, msg.fetch_receipt)
+
+        let log_msg = format!("{msg:?}");
+        tracing::debug!("BOOM {log_msg}");
+
+        let result = self.get_tx_status(msg.tx_hash, msg.signer_account_id, msg.fetch_receipt);
+        tracing::debug!("BOOM {log_msg} {result:?}");
+
+        result
     }
 }
 

@@ -4,6 +4,7 @@ use crate::trie::TrieRefcountChange;
 use crate::{metrics, DBCol, DBTransaction, Database, Store, TrieChanges};
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_o11y::pretty;
 use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
@@ -84,6 +85,31 @@ pub fn update_cold_db(
     Ok(true)
 }
 
+// Correctly set the key and value on DBTransaction, taking reference counting
+// into account. For non-rc columns it just sets the value. For rc columns it
+// appends rc = 1 to the value and sets it.
+fn rc_aware_set(
+    transaction: &mut DBTransaction,
+    col: DBCol,
+    key: Vec<u8>,
+    mut value: Vec<u8>,
+) -> usize {
+    const ONE: &[u8] = &1i64.to_le_bytes();
+    match col.is_rc() {
+        false => {
+            let size = key.len() + value.len();
+            transaction.set(col, key, value);
+            return size;
+        }
+        true => {
+            value.extend_from_slice(&ONE);
+            let size = key.len() + value.len();
+            transaction.update_refcount(col, key, value);
+            return size;
+        }
+    };
+}
+
 /// Gets values for given keys in a column from provided hot_store.
 /// Creates a transaction based on that values with set DBOp s.
 /// Writes that transaction to cold_db.
@@ -103,12 +129,19 @@ fn copy_from_store(
         // added.
         let data = hot_store.get(col, &key)?;
         if let Some(value) = data {
+            tracing::debug!(
+                "BOOM copy_from_store key {}, value {}",
+                pretty::StorageKey(key.as_slice()),
+                pretty::AbbrBytes(value.as_slice())
+            );
             // TODO: As an optimisation, we might consider breaking the
             // abstraction layer.  Since we’re always writing to cold database,
-            // rather than using `cold_db: &dyn Database` argument we cloud have
+            // rather than using `cold_db: &dyn Database` argument we could have
             // `cold_db: &ColdDB` and then some custom function which lets us
-            // write raw bytes.
-            transaction.set(col, key, value);
+            // write raw bytes. This would also allow us to bypass stripping and
+            // re-adding the reference count.
+
+            rc_aware_set(&mut transaction, col, key, value);
         }
     }
     cold_db.write(transaction)?;
@@ -474,9 +507,7 @@ impl BatchTransaction {
         key: Vec<u8>,
         value: Vec<u8>,
     ) -> io::Result<()> {
-        let size = key.len() + value.len();
-
-        self.transaction.set(col, key, value);
+        let size = rc_aware_set(&mut self.transaction, col, key, value);
         self.transaction_size += size;
 
         if self.transaction_size > self.threshold_transaction_size {

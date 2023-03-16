@@ -1,16 +1,12 @@
-// TODO remove the allows
-#![allow(dead_code)]
-#![allow(unused_variables)]
-
+use itertools::{self, EitherOrBoth};
+use std::cmp::Ordering;
 use std::io;
 use std::sync::Arc;
 
 use near_o11y::log_assert;
 
-use crate::db::{DBIterator, DBSlice, DBTransaction, Database};
+use crate::db::{DBIterator, DBIteratorItem, DBSlice, DBTransaction, Database, StoreStatistics};
 use crate::DBCol;
-
-use super::StoreStatistics;
 
 /// A database that provides access to the hot and cold databases.
 ///
@@ -18,8 +14,9 @@ use super::StoreStatistics;
 /// columns it reads from hot first and if the value is present it returns it.
 /// If the value is not present it reads from the cold database.
 ///
-/// The iter and iter_prefix methods return either the iterator of the hot
-/// database or of the cold database depending on if the column is hot or cold.
+/// The iter and iter_prefix methods return a chained iterator to both hot and
+/// cold databases and are quite inefficient due to reading all items into
+/// memory upfront.
 ///
 /// The iter_raw_bytes method is not supported but it falls back to returning
 /// the hot storage iterator.
@@ -34,6 +31,39 @@ pub struct SplitDB {
 impl SplitDB {
     pub fn new(hot: Arc<dyn Database>, cold: Arc<dyn Database>) -> Arc<Self> {
         return Arc::new(SplitDB { hot, cold });
+    }
+
+    /// The cmp function for the DBIteratorItems.
+    ///
+    /// Note that this does not implement total order because there isn't a
+    /// clear way to compare errors to errors or errors to values. Instead it
+    /// implements total order on values but always compares the error on the
+    /// left as lesser. This isn't even partial order. It is fine for merging
+    /// lists but should not be used for anything more complex like sorting.
+    fn db_iter_item_cmp(a: &DBIteratorItem, b: &DBIteratorItem) -> Ordering {
+        match (a, b) {
+            // Always put errors first (compare less).
+            (Err(_), _) => Ordering::Less,
+            (_, Err(_)) => Ordering::Less,
+            (Ok(a), Ok(b)) => Ord::cmp(a, b),
+        }
+    }
+
+    fn merge_iter<'a>(a: DBIterator<'a>, b: DBIterator<'a>) -> DBIterator<'a> {
+        // Merge the two iterators using the cmp function. The result will be an
+        // iter of EitherOrBoth.
+        let iter = itertools::merge_join_by(a, b, Self::db_iter_item_cmp);
+        // Flatten the EitherOrBoth while discarding duplicates. Each input
+        // iterator should only contain unique and sorted items. If any item is
+        // present in both iterors before the merge, it will get mapped to a
+        // EitherOrBoth::Both in the merged iter. Pick either and discard the
+        // other - this will guarantee uniqueness of the resulting iterator.
+        let iter = iter.map(|item| match item {
+            EitherOrBoth::Both(item, _) => item,
+            EitherOrBoth::Left(item) => item,
+            EitherOrBoth::Right(item) => item,
+        });
+        Box::new(iter)
     }
 }
 
@@ -74,29 +104,30 @@ impl Database for SplitDB {
     /// Iterate over all items in given column in lexicographical order sorted
     /// by the key.
     ///
-    /// For cold columns returns the cold iterator.
-    /// For other columns returns the hot iterator.
-    ///
-    /// Keep in mind that the cold db is typically behind by a few blocks. It
-    /// may be behind by up to gc_num_epochs_to_keep epochs under acceptable
-    /// conditions or more if the cold store loop is falling behind under
-    /// erroneous conditions.
+    /// The returned iterator will iterate through items in both the cold store
+    /// and the hot store. The items will be deduplicated and sorted.
     fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
-        match col.is_cold() {
-            false => self.hot.iter(col),
-            true => self.cold.iter(col),
+        if !col.is_cold() {
+            return self.hot.iter(col);
         }
+
+        Self::merge_iter(self.hot.iter(col), self.cold.iter(col))
     }
 
-    /// Iterate over items in given column whose keys start with given prefix.
+    /// Iterate over items in given column, whose keys start with given prefix,
+    /// in lexicographical order sorted by the key.
     ///
-    /// For cold columns returns the cold iterator.
-    /// For other columns returns the hot iterator.
+    /// The returned iterator will iterate through items in both the cold store
+    /// and the hot store. The items will be deduplicated and sorted.
     fn iter_prefix<'a>(&'a self, col: DBCol, key_prefix: &'a [u8]) -> DBIterator<'a> {
-        match col.is_cold() {
-            false => self.hot.iter_prefix(col, key_prefix),
-            true => self.cold.iter_prefix(col, key_prefix),
+        if !col.is_cold() {
+            return self.hot.iter(col);
         }
+
+        return Self::merge_iter(
+            self.hot.iter_prefix(col, key_prefix),
+            self.cold.iter_prefix(col, key_prefix),
+        );
     }
 
     /// Iterate over items in given column whose keys are between [lower_bound, upper_bound)
@@ -110,24 +141,23 @@ impl Database for SplitDB {
         lower_bound: Option<&'a [u8]>,
         upper_bound: Option<&'a [u8]>,
     ) -> DBIterator<'a> {
-        match col.is_cold() {
-            false => self.hot.iter_range(col, lower_bound, upper_bound),
-            true => self.cold.iter_range(col, lower_bound, upper_bound),
-        }
+        log_assert!(false, "The iter_range method on split db only iterates over the hot store. Cold data may be missing.");
+        return self.hot.iter_range(col, lower_bound, upper_bound);
     }
 
     /// Iterate over items in given column bypassing reference count decoding if
     /// any. This method falls back to the hot iter_raw_bytes because ColdDB
     /// doesn't implement it.
     fn iter_raw_bytes<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
-        log_assert!(false, "unexpected call to iter_raw_bytes on the split storage");
+        log_assert!(false, "The iter_raw_bytes method on split db only iterates over the hot store. Cold data may be missing.");
         self.hot.iter_raw_bytes(col)
     }
 
+    /// The split db, in principle, should be read only and only used in view client.
+    /// However the view client *does* write to the db in order to update cache.
+    /// Hence we need to allow writing to the split db but only write to the hot db.
     fn write(&self, batch: DBTransaction) -> io::Result<()> {
-        let msg = "write is not allowed - the split storage is read only.";
-        log_assert!(false, "{}", msg);
-        return Err(std::io::Error::new(std::io::ErrorKind::Other, msg));
+        self.hot.write(batch)
     }
 
     fn flush(&self) -> io::Result<()> {
@@ -151,6 +181,7 @@ impl Database for SplitDB {
     }
 }
 
+#[cfg(test)]
 mod test {
     use super::*;
 
@@ -167,10 +198,6 @@ mod test {
 
     fn create_cold() -> Arc<dyn Database> {
         Arc::new(ColdDB::new(TestDB::new()))
-    }
-
-    fn create_split() -> Arc<dyn Database> {
-        SplitDB::new(create_hot(), create_cold())
     }
 
     fn set(db: &Arc<dyn Database>, col: DBCol, key: &[u8], value: &[u8]) -> () {

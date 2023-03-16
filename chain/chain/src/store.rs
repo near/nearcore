@@ -2291,6 +2291,7 @@ impl<'a> ChainStoreUpdate<'a> {
             let outcome_ids =
                 self.chain_store.get_outcomes_by_block_hash_and_shard_id(block_hash, shard_id)?;
             for outcome_id in outcome_ids {
+                // tracing::debug!("BOOM gc outcome {outcome_id:?}");
                 self.gc_col(
                     DBCol::TransactionResultForBlock,
                     &get_outcome_id_block_hash(&outcome_id, block_hash),
@@ -2736,6 +2737,9 @@ impl<'a> ChainStoreUpdate<'a> {
         for ((outcome_id, block_hash), outcome_with_proof) in
             self.chain_store_cache_update.outcomes.iter()
         {
+            // let backtrace = backtrace::Backtrace::force_capture();
+            // tracing::debug!("BOOM inserting outcome {outcome_id:?} backtrace {backtrace:#?}");
+
             store_update.insert_ser(
                 DBCol::TransactionResultForBlock,
                 &get_outcome_id_block_hash(outcome_id, block_hash),

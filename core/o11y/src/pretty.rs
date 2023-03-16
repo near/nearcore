@@ -38,6 +38,12 @@ impl<'a> std::fmt::Display for Bytes<'a> {
     }
 }
 
+impl<'a> std::fmt::Debug for Bytes<'a> {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        bytes_format(self.0, fmt, false)
+    }
+}
+
 impl<'a> Bytes<'a> {
     /// Reverses `bytes_format` to allow decoding `Bytes` written with `Display`.
     ///
@@ -122,6 +128,12 @@ impl<'a> std::fmt::Display for AbbrBytes<Option<&'a [u8]>> {
 pub struct StorageKey<'a>(pub &'a [u8]);
 
 impl<'a> std::fmt::Display for StorageKey<'a> {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        bytes_format(self.0, fmt, true)
+    }
+}
+
+impl<'a> std::fmt::Debug for StorageKey<'a> {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         bytes_format(self.0, fmt, true)
     }

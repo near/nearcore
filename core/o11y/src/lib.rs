@@ -654,3 +654,10 @@ macro_rules! log_assert {
         }
     };
 }
+
+#[macro_export]
+macro_rules! log_error {
+    ($fmt:literal $($arg:tt)*) => {
+        $crate::log_assert!(false, $fmt $($arg)*);
+    };
+}
