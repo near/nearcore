@@ -38,9 +38,12 @@ impl KeyForFlatStateDelta {
 #[derive(BorshSerialize, BorshDeserialize, Clone, Default, Debug, PartialEq, Eq)]
 pub struct FlatStateChanges(pub(crate) HashMap<Vec<u8>, Option<ValueRef>>);
 
-impl<const N: usize> From<[(Vec<u8>, Option<ValueRef>); N]> for FlatStateChanges {
-    fn from(arr: [(Vec<u8>, Option<ValueRef>); N]) -> Self {
-        Self(HashMap::from(arr))
+impl<T> From<T> for FlatStateChanges
+where
+    T: IntoIterator<Item = (Vec<u8>, Option<ValueRef>)>,
+{
+    fn from(iter: T) -> Self {
+        Self(HashMap::from_iter(iter))
     }
 }
 
