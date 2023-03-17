@@ -78,8 +78,11 @@ impl<'c> EstimatorContext<'c> {
 
         let flat_head = CryptoHash::hash_borsh(0usize);
         let flat_storage_manager = FlatStorageManager::test(store.clone(), &shard_uids, flat_head);
-        let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uids[0]).unwrap();
-        self.generate_deltas(&flat_storage);
+        if cfg!(feature = "protocol_feature_flat_state") {
+            let flat_storage =
+                flat_storage_manager.get_flat_storage_for_shard(shard_uids[0]).unwrap();
+            self.generate_deltas(&flat_storage);
+        }
 
         let tries = ShardTries::new(store.clone(), trie_config, &shard_uids, flat_storage_manager);
 
