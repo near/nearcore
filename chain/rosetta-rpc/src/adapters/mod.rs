@@ -513,6 +513,9 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
         let mut receiver_account_id = crate::utils::InitializeOnce::new(
             "A single transaction cannot be sent to multiple recipients",
         );
+        let mut delegate_proxy_account_id = crate::utils::InitializeOnce::new(
+            "A single transaction cannot be sent by multiple proxies",
+        );
         let mut actions = vec![];
 
         // Iterate over operations backwards to handle the related operations
@@ -729,10 +732,11 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                     let initiate_delegate_action_operation = validated_operations::initiate_delegate_action::InitiateDelegateActionOperation::try_from_option(operations.next())?;
 
                     let signed_delegate_action_operation = validated_operations::signed_delegate_action::SignedDelegateActionOperation::try_from_option(operations.next())?;
-                    receiver_account_id.try_set(&signed_delegate_action_operation.receiver_id)?;
+                    // the "sender" of this group of operations is considered to be the delegating account, not the proxy
+                    sender_account_id.try_set(&signed_delegate_action_operation.receiver_id)?;
 
-                    let intitiate_signed_delegate_action_operation = validated_operations::initiate_delegate_action::InitiateDelegateActionOperation::try_from_option(operations.next())?;
-                    sender_account_id
+                    let intitiate_signed_delegate_action_operation = validated_operations::intitiate_signed_delegate_action::InitiateSignedDelegateActionOperation::try_from_option(operations.next())?;
+                    delegate_proxy_account_id
                         .try_set(&intitiate_signed_delegate_action_operation.sender_account)?;
 
                     actions.push(
@@ -1110,6 +1114,7 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "Failed to parse delegate action signature")]
     fn test_near_actions_invalid_signed_delegate_function() {
         let near_actions = NearActions {
             sender_account_id: "proxy.near".parse().unwrap(),
@@ -1125,15 +1130,13 @@ mod tests {
                     max_block_height: 0,
                     public_key: PublicKey::empty(KeyType::ED25519),
                 },
-                signature: Default::default(),
+                signature: Default::default(), // this is not a valid signature
             })],
         };
 
         let operations: Vec<crate::models::Operation> = near_actions.clone().try_into().unwrap();
 
-        let near_actions_from_operations = NearActions::try_from(dbg!(operations)).unwrap();
-
-        assert_eq!(near_actions, near_actions_from_operations);
+        NearActions::try_from(operations).unwrap();
     }
 
     #[test]
