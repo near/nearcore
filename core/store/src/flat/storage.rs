@@ -148,7 +148,7 @@ impl FlatStorage {
         // `itoa` is much faster for printing shard_id to a string than trivial alternatives.
         let mut buffer = itoa::Buffer::new();
         let shard_id_label = buffer.format(shard_id);
-        let mut metrics = FlatStorageMetrics {
+        let metrics = FlatStorageMetrics {
             flat_head_height: metrics::FLAT_STORAGE_HEAD_HEIGHT
                 .with_label_values(&[shard_id_label]),
             distance_to_head: metrics::FLAT_STORAGE_DISTANCE_TO_HEAD
