@@ -22,12 +22,10 @@ use tokio::net::TcpStream;
 /// will receive messages via the recv() function and send messages via
 /// send_message() and send_routed_message()
 pub struct Connection {
+    secret_key: SecretKey,
     my_peer_id: PeerId,
     peer_id: PeerId,
-    secret_key: SecretKey,
-    stream: TcpStream,
-    buf: BytesMut,
-    recv_timeout: Duration,
+    stream: PeerStream,
     // this is used to keep track of routed messages we've sent so that when we get a reply
     // that references one of our previously sent messages, we can determine that the message is for us
     route_cache: lru::LruCache<CryptoHash, ()>,
@@ -73,9 +71,9 @@ impl std::fmt::Debug for Connection {
             f,
             "raw::Connection({:?}@{} -> {:?}@{})",
             &self.my_peer_id,
-            sprint_addr(self.stream.local_addr()),
+            sprint_addr(self.stream.stream.local_addr()),
             &self.peer_id,
-            sprint_addr(self.stream.peer_addr())
+            sprint_addr(self.stream.stream.peer_addr())
         )
     }
 }
@@ -117,12 +115,10 @@ impl Connection {
         );
 
         let mut peer = Self {
-            stream,
+            stream: PeerStream::new(stream, recv_timeout),
             peer_id,
-            buf: BytesMut::with_capacity(1024),
             secret_key,
             my_peer_id,
-            recv_timeout,
             route_cache: lru::LruCache::new(1_000_000),
         };
         peer.do_handshake(
@@ -166,11 +162,11 @@ impl Connection {
             owned_account: None,
         });
 
-        self.write_message(&handshake).await.map_err(ConnectError::IO)?;
+        self.stream.write_message(&handshake).await.map_err(ConnectError::IO)?;
 
         let start = Instant::now();
 
-        let (message, timestamp) = self.recv_message().await.map_err(ConnectError::IO)?;
+        let (message, timestamp) = self.stream.recv_message().await.map_err(ConnectError::IO)?;
 
         match message {
             // TODO: maybe check the handshake for sanity
@@ -186,13 +182,6 @@ impl Connection {
         Ok(())
     }
 
-    async fn write_message(&mut self, msg: &PeerMessage) -> io::Result<()> {
-        let mut msg = msg.serialize(Encoding::Proto);
-        let mut buf = (msg.len() as u32).to_le_bytes().to_vec();
-        buf.append(&mut msg);
-        self.stream.write_all(&buf).await
-    }
-
     // Try to send a PeerMessage corresponding to the given DirectMessage
     pub async fn send_message(&mut self, msg: DirectMessage) -> io::Result<()> {
         let peer_msg = match msg {
@@ -201,7 +190,7 @@ impl Connection {
             }
         };
 
-        self.write_message(&peer_msg).await
+        self.stream.write_message(&peer_msg).await
     }
 
     // Try to send a routed PeerMessage corresponding to the given RoutedMessage
@@ -231,7 +220,81 @@ impl Connection {
             Some(Utc::now_utc()),
         );
         self.route_cache.put(msg.hash(), ());
-        self.write_message(&PeerMessage::Routed(Box::new(msg))).await
+        self.stream.write_message(&PeerMessage::Routed(Box::new(msg))).await
+    }
+
+    fn target_is_for_me(&mut self, target: &PeerIdOrHash) -> bool {
+        match target {
+            PeerIdOrHash::PeerId(peer_id) => peer_id == &self.my_peer_id,
+            PeerIdOrHash::Hash(hash) => self.route_cache.pop(hash).is_some(),
+        }
+    }
+
+    fn recv_routed_msg(
+        &mut self,
+        msg: &crate::network_protocol::RoutedMessage,
+    ) -> Option<RoutedMessage> {
+        if !self.target_is_for_me(&msg.target) {
+            tracing::debug!(
+                target: "network", "{:?} dropping routed message {} for {:?}",
+                &self, <&'static str>::from(&msg.body), &msg.target
+            );
+            return None;
+        }
+        match &msg.body {
+            RoutedMessageBody::Ping(p) => Some(RoutedMessage::Ping { nonce: p.nonce }),
+            RoutedMessageBody::Pong(p) => {
+                Some(RoutedMessage::Pong { nonce: p.nonce, source: p.source.clone() })
+            }
+            RoutedMessageBody::VersionedStateResponse(state_response_info) => {
+                Some(RoutedMessage::VersionedStateResponse(state_response_info.clone()))
+            }
+            RoutedMessageBody::StateRequestPart(shard_id, hash, part_id) => {
+                Some(RoutedMessage::StateRequestPart(*shard_id, *hash, *part_id))
+            }
+            _ => None,
+        }
+    }
+
+    /// Reads from the socket until we receive some message that we care to pass to the caller
+    /// (that is, represented in `DirectMessage` or `RoutedMessage`).
+    pub async fn recv(&mut self) -> io::Result<(Message, Instant)> {
+        loop {
+            let (msg, timestamp) = self.stream.recv_message().await?;
+            match msg {
+                PeerMessage::Routed(r) => {
+                    if let Some(msg) = self.recv_routed_msg(&r) {
+                        return Ok((Message::Routed(msg), timestamp));
+                    }
+                }
+                PeerMessage::SyncRoutingTable(r) => {
+                    return Ok((
+                        Message::Direct(DirectMessage::AnnounceAccounts(r.accounts)),
+                        timestamp,
+                    ))
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+struct PeerStream {
+    stream: TcpStream,
+    buf: BytesMut,
+    recv_timeout: Duration,
+}
+
+impl PeerStream {
+    fn new(stream: TcpStream, recv_timeout: Duration) -> Self {
+        Self { stream, buf: BytesMut::with_capacity(1024), recv_timeout }
+    }
+
+    async fn write_message(&mut self, msg: &PeerMessage) -> io::Result<()> {
+        let mut msg = msg.serialize(Encoding::Proto);
+        let mut buf = (msg.len() as u32).to_le_bytes().to_vec();
+        buf.append(&mut msg);
+        self.stream.write_all(&buf).await
     }
 
     async fn do_read(&mut self) -> io::Result<()> {
@@ -294,60 +357,5 @@ impl Connection {
                 format!("error parsing protobuf of length {}", msg_length),
             )
         })
-    }
-
-    fn target_is_for_me(&mut self, target: &PeerIdOrHash) -> bool {
-        match target {
-            PeerIdOrHash::PeerId(peer_id) => peer_id == &self.my_peer_id,
-            PeerIdOrHash::Hash(hash) => self.route_cache.pop(hash).is_some(),
-        }
-    }
-
-    fn recv_routed_msg(
-        &mut self,
-        msg: &crate::network_protocol::RoutedMessage,
-    ) -> Option<RoutedMessage> {
-        if !self.target_is_for_me(&msg.target) {
-            tracing::debug!(
-                target: "network", "{:?} dropping routed message {} for {:?}",
-                &self, <&'static str>::from(&msg.body), &msg.target
-            );
-            return None;
-        }
-        match &msg.body {
-            RoutedMessageBody::Ping(p) => Some(RoutedMessage::Ping { nonce: p.nonce }),
-            RoutedMessageBody::Pong(p) => {
-                Some(RoutedMessage::Pong { nonce: p.nonce, source: p.source.clone() })
-            }
-            RoutedMessageBody::VersionedStateResponse(state_response_info) => {
-                Some(RoutedMessage::VersionedStateResponse(state_response_info.clone()))
-            }
-            RoutedMessageBody::StateRequestPart(shard_id, hash, part_id) => {
-                Some(RoutedMessage::StateRequestPart(*shard_id, *hash, *part_id))
-            }
-            _ => None,
-        }
-    }
-
-    /// Reads from the socket until we receive some message that we care to pass to the caller
-    /// (that is, represented in `DirectMessage` or `RoutedMessage`).
-    pub async fn recv(&mut self) -> io::Result<(Message, Instant)> {
-        loop {
-            let (msg, timestamp) = self.recv_message().await?;
-            match msg {
-                PeerMessage::Routed(r) => {
-                    if let Some(msg) = self.recv_routed_msg(&r) {
-                        return Ok((Message::Routed(msg), timestamp));
-                    }
-                }
-                PeerMessage::SyncRoutingTable(r) => {
-                    return Ok((
-                        Message::Direct(DirectMessage::AnnounceAccounts(r.accounts)),
-                        timestamp,
-                    ))
-                }
-                _ => {}
-            }
-        }
     }
 }
