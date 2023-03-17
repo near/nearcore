@@ -143,7 +143,7 @@ impl ShardTries {
             prefetch_api,
         ));
         let flat_storage_chunk_view =
-            self.0.flat_storage_manager.chunk_view(shard_uid.shard_id(), block_hash, is_view);
+            self.0.flat_storage_manager.chunk_view(shard_uid, block_hash, is_view);
 
         Trie::new(storage, state_root, flat_storage_chunk_view)
     }
