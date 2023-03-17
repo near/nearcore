@@ -22,6 +22,10 @@ pub struct Config {
     pub active_accounts: usize,
     /// Number of the transactions in the block.
     pub block_sizes: Vec<usize>,
+    /// How many blocks behind the final head is assumed to be compared to the tip.
+    pub finality_lag: usize,
+    /// How many key-value pairs change per flat state delta.
+    pub fs_keys_per_delta: usize,
     /// Where state dump is located in case we need to create a testbed.
     pub state_dump_path: PathBuf,
     /// Metric used for counting.
