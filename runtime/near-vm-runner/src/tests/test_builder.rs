@@ -36,11 +36,7 @@ pub(crate) fn test_builder() -> TestBuilder {
         opaque_error: false,
         opaque_outcome: false,
     };
-    res.skip_wasmer0().skip_wasmtime().skip_wasmer2()
-    // TODO: actually run tests for other engines wasmer0 / wasmtime... but
-    // with the new instrumentation only working for wasmer2, I’m not sure
-    // keeping the same expect! strings makes sense? we need to implement
-    // js->js instrumentation for that basically.
+    res
 }
 
 pub(crate) struct TestBuilder {
@@ -181,6 +177,11 @@ impl TestBuilder {
                 if self.skip.contains(&vm_kind) {
                     continue;
                 }
+                // NearVM includes a different contract preparation algorithm, that is not supported on old protocol versions
+                if protocol_version < ProtocolFeature::NearVm.protocol_version() {
+                    continue;
+                }
+
                 let runtime_config = runtime_config_store.get_config(protocol_version);
 
                 let mut fake_external = MockedExternal::new();

@@ -15,14 +15,14 @@ pub(crate) fn prepare_contract(
 
     let res = finite_wasm::Analysis::new()
         .with_stack(Box::new(SimpleMaxStackCfg))
-        .with_gas(Box::new(SimpleGasCostCfg(config.regular_op_cost.try_into().unwrap())))
+        .with_gas(Box::new(SimpleGasCostCfg(u64::from(config.regular_op_cost))))
         .analyze(&original_code)
         .map_err(|err| {
             tracing::error!(?err, ?kind, "Analysis failed");
             PrepareError::Deserialization
         })?
         // Make sure contracts can’t call the instrumentation functions via `env`.
-        .instrument("internal", &original_code)
+        .instrument("internal", &original_code, &|frame_sz| ((frame_sz + 7) / 8) * u64::from(config.regular_op_cost))
         .map_err(|err| {
             tracing::error!(?err, ?kind, "Instrumentation failed");
             PrepareError::Serialization
@@ -47,7 +47,7 @@ fn early_prepare(code: &[u8], config: &VMConfig) -> Result<Vec<u8>, PrepareError
     // TODO: enforce our own limits, don't rely on wasmparser for it
 }
 
-// TODO: refactor to avoid copy-paste with the ones currently defined in near_vm
+// TODO: refactor to avoid copy-paste with the ones currently defined in near_vm_runner
 struct SimpleMaxStackCfg;
 
 impl finite_wasm::max_stack::SizeConfig for SimpleMaxStackCfg {
@@ -67,10 +67,18 @@ impl finite_wasm::max_stack::SizeConfig for SimpleMaxStackCfg {
         &self,
         locals: &prefix_sum_vec::PrefixSumVec<finite_wasm::wasmparser::ValType, u32>,
     ) -> u64 {
-        let mut res = 0;
-        res += locals.max_index().map(|l| u64::from(*l).saturating_add(1)).unwrap_or(0) * 8;
-        // TODO: make the above take into account the types of locals by adding an iter on PrefixSumVec that returns (count, type)
-        res += 64; // Rough accounting for rip, rbp and some registers spilled. Not exact.
+        let mut res = 64_u64; // Rough accounting for rip, rbp and some registers spilled. Not exact.
+        let mut last_idx_plus_one = 0_u64;
+        for (idx, local) in locals {
+            let idx = u64::from(*idx);
+            res = res.saturating_add(
+                idx.checked_sub(last_idx_plus_one)
+                    .expect("prefix-sum-vec indices went backwards")
+                    .saturating_add(1)
+                    .saturating_mul(u64::from(self.size_of_value(*local))),
+            );
+            last_idx_plus_one = idx.saturating_add(1);
+        }
         res
     }
 }

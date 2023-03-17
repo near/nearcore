@@ -47,7 +47,7 @@ static SIMPLE_CONTRACT: &str = r#"(module (func (export "main")))"#;
 #[test]
 fn test_simple_contract() {
     test_builder().wat(SIMPLE_CONTRACT).expect(expect![[r#"
-        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 46106487 used gas 46106487
+        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 49397511 used gas 49397511
     "#]]);
 }
 
@@ -133,7 +133,7 @@ fn test_trap_contract() {
         .wat(r#"(module (func (export "main") (unreachable)) )"#)
         .skip_wasmtime()
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47145993 used gas 47145993
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 50437017 used gas 50437017
             Err: WebAssembly trap: An `unreachable` opcode was executed.
         "#]]);
 }
@@ -150,7 +150,7 @@ fn test_trap_initializer() {
         )
         .skip_wasmtime()
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 50613993 used gas 50613993
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 53905017 used gas 53905017
             Err: WebAssembly trap: An `unreachable` opcode was executed.
         "#]]);
 }
@@ -171,7 +171,7 @@ fn test_div_by_zero_contract() {
         )
         .skip_wasmtime()
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 49875255 used gas 49875255
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 53166279 used gas 53166279
             Err: WebAssembly trap: An arithmetic exception, e.g. divided by zero.
         "#]]);
 }
@@ -192,7 +192,7 @@ fn test_float_to_int_contract() {
             ))
             .skip_wasmtime()
             .expect(expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 50136249 used gas 50136249
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 53427273 used gas 53427273
                 Err: WebAssembly trap: An arithmetic exception, e.g. divided by zero.
             "#]]);
     }
@@ -216,7 +216,7 @@ fn test_indirect_call_to_null_contract() {
         .opaque_error()
         .skip_wasmtime()
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 53387499 used gas 53387499
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 56678523 used gas 56678523
             Err: ...
         "#]])
 }
@@ -242,7 +242,7 @@ fn test_indirect_call_to_wrong_signature_contract() {
         )
         .skip_wasmtime()
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 58372749 used gas 58372749
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 61663773 used gas 61663773
             Err: WebAssembly trap: Call indirect incorrect signature trap.
         "#]])
 }
@@ -300,7 +300,7 @@ fn test_guest_panic() {
 )"#,
         )
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 319066854 used gas 319066854
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 322357878 used gas 322357878
             Err: Smart contract panicked: explicit guest panic
         "#]]);
 }
@@ -326,9 +326,10 @@ fn test_stack_overflow() {
     test_builder()
         .wat(r#"(module (func $f (export "main") (call $f)))"#)
         .skip_wasmtime()
+        .opaque_error() // near-vm returns stack overflow, others return invalid memory access
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 33746152473 used gas 33746152473
-            Err: WebAssembly trap: Stack overflow.
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 30376143897 used gas 30376143897
+            Err: ...
         "#]]);
 }
 
@@ -349,14 +350,15 @@ fn test_stack_instrumentation_protocol_upgrade() {
         .method("f1")
         .protocol_features(&[ProtocolFeature::CorrectStackLimit])
         .skip_wasmtime()
+        .opaque_error() // near-vm returns stack overflow, others return invalid memory access
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 4944544028 used gas 4944544028
-                Err: WebAssembly trap: Stack overflow.
+                Err: ...
             "#]],
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 35992886829 used gas 35992886829
-                Err: WebAssembly trap: Stack overflow.
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 31767212013 used gas 31767212013
+                Err: ...
             "#]],
         ]);
 
@@ -375,14 +377,15 @@ fn test_stack_instrumentation_protocol_upgrade() {
         .method("f2")
         .protocol_features(&[ProtocolFeature::CorrectStackLimit])
         .skip_wasmtime()
+        .opaque_error() // near-vm returns stack overflow, others return invalid memory access
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 4130838264 used gas 4130838264
-                Err: WebAssembly trap: Stack overflow.
+                Err: ...
             "#]],
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 31501461825 used gas 31501461825
-                Err: WebAssembly trap: Stack overflow.
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 29698803429 used gas 29698803429
+                Err: ...
             "#]],
         ]);
 }
@@ -542,7 +545,7 @@ static EXTERNAL_CALL_CONTRACT: &str = r#"
 #[test]
 fn test_external_call_ok() {
     test_builder().wat(EXTERNAL_CALL_CONTRACT).expect(expect![[r#"
-        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 323574360 used gas 323574360
+        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 326865384 used gas 326865384
     "#]]);
 }
 
@@ -571,7 +574,7 @@ fn test_external_call_indirect() {
   )
 )"#
         ).expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 332200116 used gas 332200116
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 335491140 used gas 335491140
         "#]]);
 }
 
@@ -589,13 +592,13 @@ fn test_address_overflow() {
 )"#;
 
     test_builder().wat(code).skip_wasmtime().skip_wasmer0().expect(expect![[r#"
-        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 51003249 used gas 51003249
+        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 54294273 used gas 54294273
         Err: WebAssembly trap: Memory out of bounds trap.
     "#]]);
 
     // wasmer0 incorrectly doesn't catch overflow during address calculation
     test_builder().wat(code).only_wasmer0().expect(expect![[r#"
-        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 46066713 used gas 46066713
+        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 55117029 used gas 55117029
     "#]]);
 }
 
@@ -613,7 +616,7 @@ fn test_address_valid() {
 )"#;
 
     test_builder().wat(code).expect(expect![[r#"
-        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 50959005 used gas 50959005
+        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 54250029 used gas 54250029
     "#]]);
 }
 
@@ -641,12 +644,12 @@ fn test_nan_sign() {
 )"#;
 
     test_builder().wat(code).skip_wasmtime().skip_wasmer0().expect(expect![[r#"
-        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 58279791 used gas 58279791
+        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 61570815 used gas 61570815
     "#]]);
 
     // wasmer0 doesn't canonicalize NaNs
     test_builder().wat(code).only_wasmer0().expect(expect![[r#"
-        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47583963 used gas 47583963
+        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 60748059 used gas 60748059
         Err: WebAssembly trap: An arithmetic exception, e.g. divided by zero.
     "#]]);
 }

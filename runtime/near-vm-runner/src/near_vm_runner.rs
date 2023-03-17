@@ -290,7 +290,6 @@ impl NearVmVM {
         let _span = tracing::debug_span!(target: "vm", "NearVmVM::compile_uncached").entered();
         let prepared_code = prepare::prepare_contract(code.code(), &self.config, VMKind::NearVm)
             .map_err(CompilationError::PrepareError)?;
-        std::fs::write("/tmp/foo.wasm", &prepared_code).unwrap();
 
         debug_assert!(
             matches!(self.engine.validate(&prepared_code), Ok(_)),
@@ -626,7 +625,7 @@ impl finite_wasm::max_stack::SizeConfig for MaxStackCfg {
         &self,
         locals: &prefix_sum_vec::PrefixSumVec<finite_wasm::wasmparser::ValType, u32>,
     ) -> u64 {
-        let mut res = 32_u64; // Rough accounting for rip, rbp and some registers spilled. Not exact.
+        let mut res = 64_u64; // Rough accounting for rip, rbp and some registers spilled. Not exact.
         let mut last_idx_plus_one = 0_u64;
         for (idx, local) in locals {
             let idx = u64::from(*idx);

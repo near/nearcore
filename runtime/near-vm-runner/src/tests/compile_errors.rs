@@ -171,7 +171,7 @@ fn test_limit_contract_functions_number() {
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13094397567 used gas 13094397567
         "#]],
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13051323237 used gas 13051323237
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13054614261 used gas 13054614261
         "#]],
         #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
         expect![[r#"
@@ -293,10 +293,10 @@ fn test_limit_locals_bigfunc() {
             }
             .make(),
         )
-        .skip_wasmtime()
+        .opaque_error() // near-vm returns a proper stack overflow, others return memory access violation
         .expect(expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 43682463 used gas 43682463
-            Err: WebAssembly trap: Stack overflow.
+            Err: ...
         "#]]);
 }
 
@@ -339,7 +339,7 @@ fn test_limit_locals_global() {
             .make(),
         )
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 12998122737 used gas 12998122737
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13001413761 used gas 13001413761
         "#]]);
 }
 
@@ -362,7 +362,7 @@ pub fn test_stablized_host_function() {
                 Err: ...
             "#]],
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 7146301647 used gas 7146301647
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 7149592671 used gas 7149592671
             "#]],
         ]);
 }

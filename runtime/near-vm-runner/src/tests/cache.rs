@@ -124,7 +124,7 @@ fn test_near_vm_artifact_output_stability() {
         15273557545008376265,
         1656006173392062184,
         17424284302838235626,
-        15986472740031685290,
+        17963351033997198262,
     ];
     let mut got_compiled_hashes = Vec::with_capacity(seeds.len());
     for seed in seeds {
