@@ -2102,9 +2102,9 @@ impl Chain {
     fn update_flat_storage_for_block(
         &mut self,
         block: &Block,
-        shard_id: ShardId,
+        shard_uid: ShardUId,
     ) -> Result<(), Error> {
-        if let Some(flat_storage) = self.runtime_adapter.get_flat_storage_for_shard(shard_id) {
+        if let Some(flat_storage) = self.runtime_adapter.get_flat_storage_for_shard(shard_uid) {
             let mut new_flat_head = *block.header().last_final_block();
             if new_flat_head == CryptoHash::default() {
                 new_flat_head = *self.genesis.hash();
@@ -2197,7 +2197,8 @@ impl Chain {
         // apply chunks processes. This means, the flat head is not always the same as
         // the last final block on chain, which is OK, because in the flat storage implementation
         // we don't assume that.
-        for shard_id in 0..self.runtime_adapter.num_shards(block.header().epoch_id())? {
+        let epoch_id = block.header().epoch_id();
+        for shard_id in 0..self.runtime_adapter.num_shards(epoch_id)? {
             let need_flat_storage_update = if is_caught_up {
                 // If we already caught up this epoch, then flat storage exists for both shards which we already track
                 // and shards which will be tracked in next epoch, so we can update them.
@@ -2224,7 +2225,8 @@ impl Chain {
             };
 
             if need_flat_storage_update {
-                self.update_flat_storage_for_block(&block, shard_id)?;
+                let shard_uid = self.runtime_adapter.shard_id_to_uid(shard_id, epoch_id)?;
+                self.update_flat_storage_for_block(&block, shard_uid)?;
             }
         }
 
@@ -3140,7 +3142,8 @@ impl Chain {
     ) -> Result<(), Error> {
         // Before working with state parts, remove existing flat storage data.
         let epoch_id = self.get_block_header(&sync_hash)?.epoch_id().clone();
-        self.runtime_adapter.remove_flat_storage_for_shard(shard_id, &epoch_id)?;
+        let shard_uid = self.runtime_adapter.shard_id_to_uid(shard_id, &epoch_id)?;
+        self.runtime_adapter.remove_flat_storage_for_shard(shard_uid, &epoch_id)?;
 
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let state_root = shard_state_header.chunk_prev_state_root();
@@ -3172,9 +3175,6 @@ impl Chain {
 
         let block_hash = chunk.prev_block();
 
-        // Flat storage must not exist at this point because leftover keys corrupt its state.
-        assert!(self.runtime_adapter.get_flat_storage_for_shard(shard_id).is_none());
-
         // We synced shard state on top of _previous_ block for chunk in shard state header and applied state parts to
         // flat storage. Now we can set flat head to hash of this block and create flat storage.
         // TODO (#7327): ensure that no flat storage work is done for `KeyValueRuntime`.
@@ -3190,6 +3190,9 @@ impl Chain {
                     self.runtime_adapter.get_flat_storage_status(shard_uid),
                     FlatStorageStatus::Disabled
                 ) {
+                    // Flat storage must not exist at this point because leftover keys corrupt its state.
+                    assert!(self.runtime_adapter.get_flat_storage_for_shard(shard_uid).is_none());
+
                     let mut store_update = self.runtime_adapter.store().store_update();
                     store_helper::set_flat_storage_status(
                         &mut store_update,
@@ -3376,7 +3379,8 @@ impl Chain {
         )?;
         chain_update.commit()?;
 
-        for shard_id in 0..self.runtime_adapter.num_shards(block.header().epoch_id())? {
+        let epoch_id = block.header().epoch_id();
+        for shard_id in 0..self.runtime_adapter.num_shards(epoch_id)? {
             // Update flat storage for each shard being caught up. We catch up a shard if it is tracked in the next
             // epoch. If it is tracked in this epoch as well, it was updated during regular block processing.
             if !self.runtime_adapter.cares_about_shard(
@@ -3390,7 +3394,8 @@ impl Chain {
                 shard_id,
                 true,
             ) {
-                self.update_flat_storage_for_block(&block, shard_id)?;
+                let shard_uid = self.runtime_adapter.shard_id_to_uid(shard_id, epoch_id)?;
+                self.update_flat_storage_for_block(&block, shard_uid)?;
             }
         }
 
@@ -4925,15 +4930,15 @@ impl<'a> ChainUpdate<'a> {
                 },
             };
 
-            let shard_id = shard_uid.shard_id();
             if let Some(chain_flat_storage) =
-                self.runtime_adapter.get_flat_storage_for_shard(shard_id)
+                self.runtime_adapter.get_flat_storage_for_shard(shard_uid)
             {
                 // If flat storage exists, we add a block to it.
                 let store_update =
                     chain_flat_storage.add_delta(delta).map_err(|e| StorageError::from(e))?;
                 self.chain_store_update.merge(store_update);
             } else {
+                let shard_id = shard_uid.shard_id();
                 // Otherwise, save delta to disk so it will be used for flat storage creation later.
                 info!(target: "chain", %shard_id, "Add delta for flat storage creation");
                 let mut store_update = self.chain_store_update.store().store_update();

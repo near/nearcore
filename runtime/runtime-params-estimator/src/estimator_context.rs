@@ -161,7 +161,7 @@ impl<'c> EstimatorContext<'c> {
         );
         store_update.commit().expect("failed to set flat storage status");
         let flat_storage = FlatStorage::new(store, shard_uid);
-        flat_storage_manager.add_flat_storage_for_shard(shard_uid.shard_id(), flat_storage);
+        flat_storage_manager.add_flat_storage_for_shard(shard_uid, flat_storage);
         flat_storage_manager
     }
 }
