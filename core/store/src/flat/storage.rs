@@ -49,8 +49,10 @@ struct FlatStorageMetrics {
     flat_head_height: IntGauge,
     cached_deltas: IntGauge,
     cached_changes_num_items: IntGauge,
-    cached_changes_size: IntGauge,
     distance_to_head: IntGauge,
+    // Separate fields for cached changes number to log it to console as well.
+    cached_changes_size: u64,
+    cached_changes_size_metric: IntGauge,
 }
 
 impl FlatStorageInner {
@@ -119,15 +121,16 @@ impl FlatStorage {
         // `itoa` is much faster for printing shard_id to a string than trivial alternatives.
         let mut buffer = itoa::Buffer::new();
         let shard_id_label = buffer.format(shard_id);
-        let metrics = FlatStorageMetrics {
+        let mut metrics = FlatStorageMetrics {
             flat_head_height: metrics::FLAT_STORAGE_HEAD_HEIGHT
                 .with_label_values(&[shard_id_label]),
             cached_deltas: metrics::FLAT_STORAGE_CACHED_DELTAS.with_label_values(&[shard_id_label]),
             cached_changes_num_items: metrics::FLAT_STORAGE_CACHED_CHANGES_NUM_ITEMS
                 .with_label_values(&[shard_id_label]),
-            cached_changes_size: metrics::FLAT_STORAGE_CACHED_CHANGES_SIZE
-                .with_label_values(&[shard_id_label]),
             distance_to_head: metrics::FLAT_STORAGE_DISTANCE_TO_HEAD
+                .with_label_values(&[shard_id_label]),
+            cached_changes_size: 0,
+            cached_changes_size_metric: metrics::FLAT_STORAGE_CACHED_CHANGES_SIZE
                 .with_label_values(&[shard_id_label]),
         };
         metrics.flat_head_height.set(flat_head.height as i64);
@@ -148,12 +151,13 @@ impl FlatStorage {
                     .into();
             metrics.cached_deltas.inc();
             metrics.cached_changes_num_items.add(changes.len() as i64);
-            metrics.cached_changes_size.add(changes.total_size() as i64);
+            metrics.cached_changes_size += changes.total_size();
             deltas.insert(
                 block_hash,
                 CachedFlatStateDelta { metadata: delta_metadata, changes: Arc::new(changes) },
             );
         }
+        metrics.cached_changes_size_metric.set(metrics.cached_changes_size as i64);
 
         Self(Arc::new(RwLock::new(FlatStorageInner {
             store,
@@ -250,7 +254,7 @@ impl FlatStorage {
                     Some(delta) => {
                         guard.metrics.cached_deltas.dec();
                         guard.metrics.cached_changes_num_items.sub(delta.changes.len() as i64);
-                        guard.metrics.cached_changes_size.sub(delta.changes.total_size() as i64);
+                        guard.metrics.cached_changes_size -= delta.changes.total_size();
                     }
                     None => {
                         warn!(target: "chain", %shard_id, %hash, "Attempted to remove delta not existing in cache");
@@ -261,6 +265,7 @@ impl FlatStorage {
             store_update.commit().unwrap();
             info!(target: "chain", %shard_id, %block_hash, %block_height, "Moved flat storage head");
         }
+        guard.metrics.cached_changes_size_metric.set(guard.metrics.cached_changes_size as i64);
 
         Ok(())
     }
@@ -286,19 +291,19 @@ impl FlatStorage {
         let cached_changes: CachedFlatStateChanges = delta.changes.into();
         guard.metrics.cached_deltas.inc();
         guard.metrics.cached_changes_num_items.add(cached_changes.len() as i64);
-        guard.metrics.cached_changes_size.add(cached_changes.total_size() as i64);
+        guard.metrics.cached_changes_size += cached_changes.total_size();
+        guard.metrics.cached_changes_size_metric.set(guard.metrics.cached_changes_size as i64);
         guard.deltas.insert(
             block_hash,
             CachedFlatStateDelta { metadata: delta.metadata, changes: Arc::new(cached_changes) },
         );
-        let cached_changes_num_items = guard.metrics.cached_changes_num_items.get() as usize;
-        let cached_changes_size =
-            bytesize::ByteSize(guard.metrics.cached_changes_size.get() as u64);
+        let cached_changes = guard.deltas.len();
+        let cached_changes_size = bytesize::ByteSize(guard.metrics.cached_changes_size);
 
-        if cached_changes_num_items >= Self::CACHED_CHANGES_LIMIT
+        if cached_changes >= Self::CACHED_CHANGES_LIMIT
             || cached_changes_size >= Self::CACHED_CHANGES_SIZE_LIMIT
         {
-            warn!(target: "chain", %shard_id, %block_height, %cached_changes_num_items, %cached_changes_size, "Flat storage cached changes exceeded expected limits");
+            warn!(target: "chain", %shard_id, %block_height, %cached_changes, %cached_changes_size, "Flat storage cached changes exceeded expected limits");
         }
         Ok(store_update)
     }
