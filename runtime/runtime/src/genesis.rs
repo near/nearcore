@@ -123,8 +123,11 @@ impl<'a> AutoFlushingTrieUpdate<'a> {
         }
         // Process.
         let result = cb(state_root, state_update);
-        if update_budget.saturating_sub(1) == 0 {
+        let new_budget = update_budget.saturating_sub(1);
+        if new_budget == 0 {
             self.flush(guard);
+        } else {
+            *update_budget = new_budget;
         }
         result
     }
