@@ -373,6 +373,6 @@ impl GenesisStateApplier {
         );
         Self::apply_delayed_receipts(&storage, delayed_receipts_indices);
         storage.flush(storage.lock());
-        storage.modify(|root, _| root.clone())
+        storage.modify(|root, _| *root)
     }
 }
