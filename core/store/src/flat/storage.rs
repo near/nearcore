@@ -111,7 +111,7 @@ impl FlatStorageInner {
         let cached_deltas = self.deltas.len();
         let mut cached_changes_num_items = 0;
         let mut cached_changes_size = 0;
-        for (_, changes) in self.deltas.iter() {
+        for changes in self.deltas.values() {
             cached_changes_num_items += changes.changes.len();
             cached_changes_size += changes.changes.total_size();
         }
