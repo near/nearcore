@@ -270,8 +270,7 @@ impl NightshadeRuntime {
         let runtime_config_store =
             NightshadeRuntime::create_runtime_config_store(&genesis.config.chain_id);
         let runtime_config = runtime_config_store.get_config(genesis.config.protocol_version);
-        // This is the limit of storage changes stored in memory at once across all shards.
-        let op_limit = std::sync::atomic::AtomicUsize::new(0x100_000);
+        let writers = std::sync::atomic::AtomicUsize::new(0);
         (0..num_shards)
             .into_par_iter()
             .map(|shard_id| {
@@ -295,7 +294,7 @@ impl NightshadeRuntime {
                     .collect::<Vec<_>>();
 
                 runtime.apply_genesis_state(
-                    &op_limit,
+                    &writers,
                     tries.clone(),
                     shard_id,
                     &validators,

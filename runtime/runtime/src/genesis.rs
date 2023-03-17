@@ -81,10 +81,11 @@ impl<'a> StorageComputer<'a> {
     }
 }
 
+const MAX_OUTSTANDING_WRITES: usize = 0x100_000;
 type State = (usize, StateRoot, TrieUpdate);
 
 pub(crate) struct AutoFlushingTrieUpdate<'a> {
-    remaining_ops: &'a atomic::AtomicUsize,
+    active_writers: &'a atomic::AtomicUsize,
     tries: &'a ShardTries,
     shard_uid: ShardUId,
     state: Mutex<State>,
@@ -92,13 +93,13 @@ pub(crate) struct AutoFlushingTrieUpdate<'a> {
 
 impl<'a> AutoFlushingTrieUpdate<'a> {
     pub(crate) fn new(
-        remaining_ops: &'a atomic::AtomicUsize,
+        active_writers: &'a atomic::AtomicUsize,
         state_root: StateRoot,
         tries: &'a ShardTries,
         uid: ShardUId,
     ) -> Self {
         let state = Mutex::new((0, state_root, tries.new_trie_update(uid, state_root)));
-        Self { remaining_ops, state, tries, shard_uid: uid }
+        Self { active_writers, state, tries, shard_uid: uid }
     }
 
     fn lock(&self) -> std::sync::MutexGuard<State> {
@@ -107,34 +108,29 @@ impl<'a> AutoFlushingTrieUpdate<'a> {
 
     fn modify<R>(&self, cb: impl FnOnce(&mut StateRoot, &mut TrieUpdate) -> R) -> R {
         let mut guard = self.lock();
-        let (ref mut update_count, ref mut state_root, ref mut state_update) = &mut *guard;
-        let result = cb(state_root, state_update);
-        *update_count += 1;
-        let old = self.remaining_ops.fetch_update(
-            atomic::Ordering::Relaxed,
-            atomic::Ordering::Relaxed,
-            |old| {
-                if old == 0 {
-                    Some(*update_count)
-                } else {
-                    Some(old - 1)
-                }
-            },
-        );
-        if old == Ok(0) {
+        let (ref mut update_budget, ref mut state_root, ref mut state_update) = &mut *guard;
+        // Try to get some budget from the global pool.
+        if *update_budget == 0 {
+            let writers = self.active_writers.fetch_add(1, atomic::Ordering::SeqCst) + 1;
+            *update_budget = MAX_OUTSTANDING_WRITES / writers;
             tracing::info!(
                 target: "runtime",
-                messages="write-count triggered flush",
-                update_count
+                shard_uid=?self.shard_uid,
+                %state_root,
+                %update_budget,
+                "setting up state from genesis"
             );
-            *update_count = 0;
+        }
+        // Process.
+        let result = cb(state_root, state_update);
+        if update_budget.saturating_sub(1) == 0 {
             self.flush(guard);
         }
         result
     }
 
     fn flush(&self, mut guard: std::sync::MutexGuard<State>) {
-        let (_, ref mut state_root, ref mut state_update) = &mut *guard;
+        let (ref mut update_budget, ref mut state_root, ref mut state_update) = &mut *guard;
         state_update.commit(StateChangeCause::InitialState);
         // Temporarily store a trie update with the "wrong" state root. This will be replaced
         // shortly as soon as we know the new state root.
@@ -152,13 +148,11 @@ impl<'a> AutoFlushingTrieUpdate<'a> {
         }
         drop(state_changes); // silence compiler when not protocol_feature_flat_state
         store_update.commit().expect("Store update failed on genesis initialization");
-        tracing::info!(
-            target: "runtime",
-            shard_uid=?self.shard_uid,
-            %state_root,
-            "creating genesis, flushed state"
-        );
         *state_update = self.tries.new_trie_update(self.shard_uid, *state_root);
+        if *update_budget != 0 {
+            *update_budget = 0;
+            self.active_writers.fetch_sub(1, atomic::Ordering::Relaxed);
+        }
     }
 }
 
@@ -281,7 +275,6 @@ impl GenesisStateApplier {
             ?shard_uid,
             "processing postponed receipts…"
         );
-
         postponed_receipts.into_par_iter().for_each(|receipt| {
             storage.modify(|_, state_update| {
                 let account_id = &receipt.receiver_id;
