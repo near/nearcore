@@ -55,7 +55,6 @@ use near_vm_logic::{ActionCosts, ReturnData};
 pub use near_vm_runner::with_ext_cost_counter;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
-use std::rc::Rc;
 use std::sync::Arc;
 use tracing::debug;
 

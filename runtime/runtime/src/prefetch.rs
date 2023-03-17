@@ -322,8 +322,8 @@ mod tests {
         let trie = tries.get_trie_for_shard(ShardUId::single_shard(), root);
         trie.storage.as_caching_storage().unwrap().clear_cache();
 
-        let prefetcher = TriePrefetcher::new_if_enabled(&trie)
-            .expect("caching storage should have prefetcher");
+        let prefetcher =
+            TriePrefetcher::new_if_enabled(&trie).expect("caching storage should have prefetcher");
         let prefetch_api = &prefetcher.prefetch_api;
 
         assert_eq!(prefetch_api.num_prefetched_and_staged(), 0);
