@@ -264,7 +264,7 @@ fn read_node_from_chunk_cache_ext(
 
     // Prepare a data buffer that we can read again later to overwrite CPU caches
     let assumed_max_l3_size = 128 * 1024 * 1024;
-    let dummy_data = testbed.transaction_builder().random_vec(assumed_max_l3_size);
+    let dummy_data = crate::utils::random_vec(assumed_max_l3_size);
 
     (0..iters)
         .map(|i| {
@@ -282,7 +282,7 @@ fn read_node_from_chunk_cache_ext(
             let values_inserted = num_values * data_spread_factor;
             let values: Vec<_> = (0..values_inserted)
                 .map(|_| {
-                    let extention_key = tb.random_vec(value_len);
+                    let extention_key = crate::utils::random_vec(value_len);
                     near_store::estimator::encode_extension_node(extention_key)
                 })
                 .collect();

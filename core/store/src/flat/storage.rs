@@ -6,7 +6,7 @@ use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::ValueRef;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::flat::delta::CachedFlatStateChanges;
 use crate::flat::store_helper::FlatStateColumn;
@@ -47,13 +47,23 @@ pub(crate) struct FlatStorageInner {
 
 struct FlatStorageMetrics {
     flat_head_height: IntGauge,
+    distance_to_head: IntGauge,
     cached_deltas: IntGauge,
     cached_changes_num_items: IntGauge,
     cached_changes_size: IntGauge,
-    distance_to_head: IntGauge,
 }
 
 impl FlatStorageInner {
+    /// Expected limits for in-memory stored changes, under which flat storage must keep working.
+    /// If they are exceeded, warnings are displayed. Flat storage still will work, but its
+    /// performance will slow down, and eventually it can cause OOM error.
+    /// Limit for number of changes. When over 100, introduces 89 us overhead:
+    /// https://github.com/near/nearcore/issues/8006#issuecomment-1473621334
+    const CACHED_CHANGES_LIMIT: usize = 100;
+    /// Limit for total size of cached changes. We allocate 600 MiB for cached deltas, which
+    /// means 150 MiB per shards.
+    const CACHED_CHANGES_SIZE_LIMIT: bytesize::ByteSize = bytesize::ByteSize(150 * bytesize::MIB);
+
     /// Creates `BlockNotSupported` error for the given block.
     fn create_block_not_supported_error(&self, block_hash: &CryptoHash) -> FlatStorageError {
         FlatStorageError::BlockNotSupported((self.flat_head.hash, *block_hash))
@@ -95,6 +105,31 @@ impl FlatStorageInner {
 
         Ok(blocks)
     }
+
+    /// Updates metrics related to deltas, displays a warning if they are off.
+    fn update_delta_metrics(&self) {
+        let cached_deltas = self.deltas.len();
+        let mut cached_changes_num_items = 0;
+        let mut cached_changes_size = 0;
+        for changes in self.deltas.values() {
+            cached_changes_num_items += changes.changes.len();
+            cached_changes_size += changes.changes.total_size();
+        }
+
+        self.metrics.cached_deltas.set(cached_deltas as i64);
+        self.metrics.cached_changes_num_items.set(cached_changes_num_items as i64);
+        self.metrics.cached_changes_size.set(cached_changes_size as i64);
+
+        let cached_changes_size_bytes = bytesize::ByteSize(cached_changes_size);
+        let shard_id = self.shard_uid.shard_id();
+        let flat_head_height = self.flat_head.height;
+
+        if cached_deltas >= Self::CACHED_CHANGES_LIMIT
+            || cached_changes_size_bytes >= Self::CACHED_CHANGES_SIZE_LIMIT
+        {
+            warn!(target: "chain", %shard_id, %flat_head_height, %cached_deltas, %cached_changes_size_bytes, "Flat storage cached deltas exceeded expected limits");
+        }
+    }
 }
 
 impl FlatStorage {
@@ -116,12 +151,12 @@ impl FlatStorage {
         let metrics = FlatStorageMetrics {
             flat_head_height: metrics::FLAT_STORAGE_HEAD_HEIGHT
                 .with_label_values(&[shard_id_label]),
+            distance_to_head: metrics::FLAT_STORAGE_DISTANCE_TO_HEAD
+                .with_label_values(&[shard_id_label]),
             cached_deltas: metrics::FLAT_STORAGE_CACHED_DELTAS.with_label_values(&[shard_id_label]),
             cached_changes_num_items: metrics::FLAT_STORAGE_CACHED_CHANGES_NUM_ITEMS
                 .with_label_values(&[shard_id_label]),
             cached_changes_size: metrics::FLAT_STORAGE_CACHED_CHANGES_SIZE
-                .with_label_values(&[shard_id_label]),
-            distance_to_head: metrics::FLAT_STORAGE_DISTANCE_TO_HEAD
                 .with_label_values(&[shard_id_label]),
         };
         metrics.flat_head_height.set(flat_head.height as i64);
@@ -140,9 +175,6 @@ impl FlatStorage {
                         panic!("Cannot find block delta for block {block_hash:?} shard {shard_id}")
                     })
                     .into();
-            metrics.cached_deltas.inc();
-            metrics.cached_changes_num_items.add(changes.len() as i64);
-            metrics.cached_changes_size.add(changes.total_size() as i64);
             deltas.insert(
                 block_hash,
                 CachedFlatStateDelta { metadata: delta_metadata, changes: Arc::new(changes) },
@@ -240,19 +272,13 @@ impl FlatStorage {
                 .collect();
             for hash in hashes_to_remove {
                 store_helper::remove_delta(&mut store_update, shard_uid, hash);
-                match guard.deltas.remove(&hash) {
-                    Some(delta) => {
-                        guard.metrics.cached_deltas.dec();
-                        guard.metrics.cached_changes_num_items.sub(delta.changes.len() as i64);
-                        guard.metrics.cached_changes_size.sub(delta.changes.total_size() as i64);
-                    }
-                    None => {}
-                }
+                guard.deltas.remove(&hash);
             }
 
             store_update.commit().unwrap();
             info!(target: "chain", %shard_id, %block_hash, %block_height, "Moved flat storage head");
         }
+        guard.update_delta_metrics();
 
         Ok(())
     }
@@ -276,13 +302,12 @@ impl FlatStorage {
         let mut store_update = StoreUpdate::new(guard.store.storage.clone());
         store_helper::set_delta(&mut store_update, shard_uid, &delta)?;
         let cached_changes: CachedFlatStateChanges = delta.changes.into();
-        guard.metrics.cached_deltas.inc();
-        guard.metrics.cached_changes_num_items.add(cached_changes.len() as i64);
-        guard.metrics.cached_changes_size.add(cached_changes.total_size() as i64);
         guard.deltas.insert(
             block_hash,
             CachedFlatStateDelta { metadata: delta.metadata, changes: Arc::new(cached_changes) },
         );
+        guard.update_delta_metrics();
+
         Ok(store_update)
     }
 
@@ -313,12 +338,15 @@ impl FlatStorage {
         }
         info!(target: "chain", %shard_id, %removed_items, "Removing old items from flat storage");
 
+        store_helper::remove_all_deltas(&mut store_update, guard.shard_uid);
         store_helper::set_flat_storage_status(
             &mut store_update,
             guard.shard_uid,
             FlatStorageStatus::Empty,
         );
         store_update.commit().map_err(|_| StorageError::StorageInternalError)?;
+        guard.update_delta_metrics();
+
         Ok(())
     }
 }
