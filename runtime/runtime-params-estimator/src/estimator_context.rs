@@ -170,7 +170,7 @@ impl<'c> EstimatorContext<'c> {
     ///
     /// Use `hash(height)` as the supposed block hash.
     /// Keys are randomly generated, values are a constant that's not even stored.
-    /// 
+    ///
     /// The blocks aren't valid, nor are the values stored anywhere. They only
     /// exist within `FlatStorage` and simulate the performance decrease
     /// observed when the flat head lags behind.
@@ -195,9 +195,9 @@ impl<'c> EstimatorContext<'c> {
             .take(num_changes_per_delta);
             let height = 1 + idx as u64;
             let block = BlockInfo {
-                hash: CryptoHash::hash_borsh(height),
+                hash: fs_fake_block_height_to_hash(height),
                 height,
-                prev_hash: CryptoHash::hash_borsh(height - 1),
+                prev_hash: fs_fake_block_height_to_hash(height - 1),
             };
 
             flat_storage
@@ -427,8 +427,17 @@ impl Testbed<'_> {
 
     /// Instantiate a new trie for the estimator.
     fn trie(&mut self) -> near_store::Trie {
-        let num_deltas = self.config.finality_lag;
-        let tip = CryptoHash::hash_borsh(num_deltas);
+        // We generated `finality_lag` fake blocks earlier, so the fake height
+        // will be at the same number.
+        let tip_height = self.config.finality_lag;
+        let tip = fs_fake_block_height_to_hash(tip_height as u64);
         self.tries.get_trie_with_block_hash_for_shard(ShardUId::single_shard(), self.root, &tip)
     }
+}
+
+/// Maps fake block heights to block hashes.
+///
+/// This is ued to generate and access fake deltas for flat storage.
+fn fs_fake_block_height_to_hash(height: u64) -> CryptoHash {
+    CryptoHash::hash_borsh(height)
 }
