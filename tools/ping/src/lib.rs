@@ -1,7 +1,7 @@
 use actix_web::{web, App, HttpServer};
 use anyhow::Context;
 pub use cli::PingCommand;
-use near_network::raw::{ConnectError, Connection, ReceivedMessage};
+use near_network::raw::{ConnectError, Connection, DirectMessage, Message, RoutedMessage};
 use near_network::types::HandshakeFailureReason;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -314,12 +314,12 @@ impl AppInfo {
 
 fn handle_message(
     app_info: &mut AppInfo,
-    msg: ReceivedMessage,
+    msg: Message,
     received_at: time::Instant,
     latencies_csv: Option<&mut crate::csv::LatenciesCsv>,
 ) -> anyhow::Result<()> {
     match msg {
-        ReceivedMessage::Pong { nonce, source } => {
+        Message::Routed(RoutedMessage::Pong { nonce, source }) => {
             let chain_id = app_info.chain_id.clone(); // Avoid an immutable borrow during a mutable borrow.
             if let Some((latency, account_id)) = app_info.pong_received(&source, nonce, received_at)
             {
@@ -332,7 +332,7 @@ fn handle_message(
                 }
             }
         }
-        ReceivedMessage::AnnounceAccounts(a) => {
+        Message::Direct(DirectMessage::AnnounceAccounts(a)) => {
             app_info.add_announce_accounts(a);
         }
         _ => {}
@@ -447,7 +447,8 @@ async fn ping_via_node(
         tokio::select! {
             _ = &mut next_ping, if target.is_some() => {
                 let target = target.unwrap();
-                result = peer.send_ping(&target, nonce, ttl).await.with_context(|| format!("Failed sending ping to {:?}", &target));
+                result = peer.send_routed_message(RoutedMessage::Ping{nonce}, target.clone(), ttl)
+                            .await.with_context(|| format!("Failed sending ping to {:?}", &target));
                 if result.is_err() {
                     break;
                 }
