@@ -4,7 +4,7 @@ use crate::flat::{
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
-use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::types::BlockHeight;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tracing::debug;
@@ -30,7 +30,7 @@ pub struct FlatStorageManagerInner {
     /// This may cause some overhead because the data like shards that the node is processing for
     /// this epoch can share the same `head` and `tail`, similar for shards for the next epoch,
     /// but such overhead is negligible comparing the delta sizes, so we think it's ok.
-    flat_storages: Mutex<HashMap<ShardId, FlatStorage>>,
+    flat_storages: Mutex<HashMap<ShardUId, FlatStorage>>,
 }
 
 impl FlatStorageManager {
@@ -50,9 +50,8 @@ impl FlatStorageManager {
         genesis_block: &CryptoHash,
         genesis_height: BlockHeight,
     ) {
-        let shard_id = shard_uid.shard_id();
         let flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
-        assert!(!flat_storages.contains_key(&shard_id));
+        assert!(!flat_storages.contains_key(&shard_uid));
         store_helper::set_flat_storage_status(
             store_update,
             shard_uid,
@@ -66,9 +65,9 @@ impl FlatStorageManager {
     /// the shard's flat storage state hasn't been set before, otherwise it panics.
     /// TODO (#7327): this behavior may change when we implement support for state sync
     /// and resharding.
-    pub fn add_flat_storage_for_shard(&self, shard_id: ShardId, flat_storage: FlatStorage) {
+    pub fn add_flat_storage_for_shard(&self, shard_uid: ShardUId, flat_storage: FlatStorage) {
         let mut flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
-        let original_value = flat_storages.insert(shard_id, flat_storage);
+        let original_value = flat_storages.insert(shard_uid, flat_storage);
         // TODO (#7327): maybe we should propagate the error instead of assert here
         // assert is fine now because this function is only called at construction time, but we
         // will need to be more careful when we want to implement flat storage for resharding
@@ -86,7 +85,7 @@ impl FlatStorageManager {
     /// TODO (#7327): implement support for view_client
     pub fn chunk_view(
         &self,
-        shard_id: ShardId,
+        shard_uid: ShardUId,
         block_hash: Option<CryptoHash>,
         is_view: bool,
     ) -> Option<FlatStorageChunkView> {
@@ -106,7 +105,7 @@ impl FlatStorageManager {
                 let flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
                 // It is possible that flat storage state does not exist yet because it is being created in
                 // background.
-                match flat_storages.get(&shard_id) {
+                match flat_storages.get(&shard_uid) {
                     Some(flat_storage) => flat_storage.clone(),
                     None => {
                         debug!(target: "chain", "FlatStorage is not ready");
@@ -122,19 +121,19 @@ impl FlatStorageManager {
     // we stabilize feature protocol_feature_flat_state. We use option now to return None when
     // the feature is not enabled. Ideally, it should return an error because it is problematic
     // if the flat storage state does not exist
-    pub fn get_flat_storage_for_shard(&self, shard_id: ShardId) -> Option<FlatStorage> {
+    pub fn get_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Option<FlatStorage> {
         let flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
-        flat_storages.get(&shard_id).cloned()
+        flat_storages.get(&shard_uid).cloned()
     }
 
     pub fn remove_flat_storage_for_shard(
         &self,
-        shard_id: ShardId,
+        shard_uid: ShardUId,
         shard_layout: ShardLayout,
     ) -> Result<(), StorageError> {
         let mut flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
 
-        match flat_storages.remove(&shard_id) {
+        match flat_storages.remove(&shard_uid) {
             None => {}
             Some(flat_storage) => {
                 flat_storage.clear_state(shard_layout)?;

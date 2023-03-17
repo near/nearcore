@@ -17,6 +17,7 @@ use near_o11y::metrics::{IntCounter, IntGauge};
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::ValueRef;
 use near_primitives::state_part::PartId;
+use near_primitives::state_record::is_delayed_receipt_key;
 use near_primitives::types::{AccountId, BlockHeight, StateRoot};
 use near_store::flat::{
     store_helper, BlockInfo, FetchingStateStatus, FlatStateChanges, FlatStorageCreationStatus,
@@ -132,14 +133,14 @@ impl FlatStorageShardCreator {
             trie_iter.visit_nodes_interval(&path_begin, &path_end).unwrap()
         {
             match key {
-                None => {}
-                Some(key) => {
+                Some(key) if !is_delayed_receipt_key(&key) => {
                     let value = trie.storage.retrieve_raw_bytes(&hash).unwrap();
                     let value_ref = ValueRef::new(&value);
                     store_helper::set_ref(&mut store_update, shard_uid, key, Some(value_ref))
                         .expect("Failed to put value in FlatState");
                     num_items += 1;
                 }
+                _ => {}
             }
         }
         store_update.commit().unwrap();
