@@ -5,7 +5,7 @@ use near_primitives::state_part::PartId;
 use near_primitives::types::StateRoot;
 use tracing::error;
 
-use crate::flat::FlatStateDelta;
+use crate::flat::FlatStateChanges;
 use crate::trie::iterator::TrieTraversalItem;
 use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::{
@@ -106,24 +106,20 @@ impl Trie {
                 Ok(false)
             }
             TrieNode::Branch(children, _) => {
-                for child_index in 0..children.len() {
-                    let child = match &children[child_index] {
-                        None => {
-                            continue;
-                        }
-                        Some(NodeHandle::InMemory(_)) => {
-                            unreachable!("only possible while mutating")
-                        }
-                        Some(NodeHandle::Hash(h)) => self.retrieve_node(h)?.1,
-                    };
-                    if *size_skipped + child.memory_usage <= size_start {
-                        *size_skipped += child.memory_usage;
-                        continue;
+                let mut iter = children.iter();
+                while let Some((index, child)) = iter.next() {
+                    let child = if let NodeHandle::Hash(h) = child {
+                        self.retrieve_node(h)?.1
                     } else {
-                        key_nibbles.push(child_index as u8);
+                        unreachable!("only possible while mutating")
+                    };
+                    if *size_skipped + child.memory_usage > size_start {
+                        core::mem::drop(iter);
+                        key_nibbles.push(index);
                         *node = child;
                         return Ok(true);
                     }
+                    *size_skipped += child.memory_usage;
                 }
                 // This line should not be reached if node.memory_usage > size_start
                 // To avoid changing production behavior, I'm just adding a debug_assert here
@@ -211,7 +207,7 @@ impl Trie {
         let mut iterator = trie.iter()?;
         let trie_traversal_items = iterator.visit_nodes_interval(&path_begin, &path_end)?;
         let mut map = HashMap::new();
-        let mut flat_state_delta = FlatStateDelta::default();
+        let mut flat_state_delta = FlatStateChanges::default();
         let mut contract_codes = Vec::new();
         for TrieTraversalItem { hash, key } in trie_traversal_items {
             let value = trie.storage.retrieve_raw_bytes(&hash)?;
@@ -328,51 +324,43 @@ mod tests {
                 if let CrumbStatus::Entering = position {
                     on_enter(&hash)?;
                 }
+                let mut on_enter_value = |value: &ValueHandle| {
+                    if let ValueHandle::HashAndSize(value) = value {
+                        on_enter(&value.hash)
+                    } else {
+                        unreachable!("only possible while mutating")
+                    }
+                };
                 match &node.node {
                     TrieNode::Empty => {
                         continue;
                     }
                     TrieNode::Leaf(_, value) => {
-                        match value {
-                            ValueHandle::HashAndSize(_, hash) => {
-                                on_enter(hash)?;
-                            }
-                            ValueHandle::InMemory(_) => {
-                                unreachable!("only possible while mutating")
-                            }
-                        }
+                        on_enter_value(value)?;
                         continue;
                     }
                     TrieNode::Branch(children, value) => match position {
                         CrumbStatus::Entering => {
-                            match value {
-                                Some(ValueHandle::HashAndSize(_, hash)) => {
-                                    on_enter(hash)?;
-                                }
-                                _ => {}
+                            if let Some(ref value) = value {
+                                on_enter_value(value)?;
                             }
                             stack.push((hash, node, CrumbStatus::AtChild(0)));
                             continue;
                         }
-                        CrumbStatus::AtChild(mut i) => {
-                            while i < 16 {
-                                if let Some(NodeHandle::Hash(_h)) = children[i].as_ref() {
-                                    break;
-                                }
-                                i += 1;
-                            }
-                            if i < 16 {
-                                if let Some(NodeHandle::Hash(h)) = children[i].clone() {
-                                    let child = self.retrieve_node(&h)?.1;
-                                    stack.push((hash, node, CrumbStatus::AtChild(i + 1)));
-                                    stack.push((h, child, CrumbStatus::Entering));
-                                } else {
-                                    stack.push((hash, node, CrumbStatus::Exiting));
-                                }
-                            } else {
+                        CrumbStatus::AtChild(mut i) => loop {
+                            if i >= 16 {
                                 stack.push((hash, node, CrumbStatus::Exiting));
+                                break;
                             }
-                        }
+                            if let Some(NodeHandle::Hash(ref h)) = children[i] {
+                                let h = h.clone();
+                                let child = self.retrieve_node(&h)?.1;
+                                stack.push((hash, node, CrumbStatus::AtChild(i + 1)));
+                                stack.push((h, child, CrumbStatus::Entering));
+                                break;
+                            }
+                            i += 1;
+                        },
                         CrumbStatus::Exiting => {
                             continue;
                         }
@@ -382,15 +370,12 @@ mod tests {
                     },
                     TrieNode::Extension(_key, child) => {
                         if let CrumbStatus::Entering = position {
-                            match child.clone() {
-                                NodeHandle::InMemory(_) => {
-                                    unreachable!("only possible while mutating")
-                                }
-                                NodeHandle::Hash(h) => {
-                                    let child = self.retrieve_node(&h)?.1;
-                                    stack.push((hash, node, CrumbStatus::Exiting));
-                                    stack.push((h, child, CrumbStatus::Entering));
-                                }
+                            if let NodeHandle::Hash(h) = child.clone() {
+                                let child = self.retrieve_node(&h)?.1;
+                                stack.push((h, node, CrumbStatus::Exiting));
+                                stack.push((h, child, CrumbStatus::Entering));
+                            } else {
+                                unreachable!("only possible while mutating")
                             }
                         }
                     }

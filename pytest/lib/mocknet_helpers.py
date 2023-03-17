@@ -25,18 +25,23 @@ def get_nonce_for_key(key: Key, **kwargs) -> int:
     return get_nonce_for_pk(key.account_id, key.pk, **kwargs)
 
 
-def get_nonce_for_pk(account_id,
-                     pk,
-                     finality='optimistic',
-                     addr=LOCAL_ADDR,
-                     port=RPC_PORT):
-    access_keys = json_rpc('query', {
-        'request_type': 'view_access_key_list',
-        'account_id': account_id,
-        'finality': finality
-    },
-                           addr=addr,
-                           port=port)
+def get_nonce_for_pk(
+    account_id,
+    pk,
+    finality='optimistic',
+    addr=LOCAL_ADDR,
+    port=RPC_PORT,
+):
+    access_keys = json_rpc(
+        'query',
+        {
+            'request_type': 'view_access_key_list',
+            'account_id': account_id,
+            'finality': finality
+        },
+        addr=addr,
+        port=port,
+    )
     logger.info(f'get_nonce_for_pk {account_id}')
     logger.info(access_keys)
     if not access_keys['result']['keys']:

@@ -48,10 +48,7 @@ use near_primitives::views::{
     AccessKeyInfoView, CallResult, QueryRequest, QueryResponse, QueryResponseKind, ViewApplyState,
     ViewStateResult,
 };
-use near_store::flat::{
-    store_helper, ChainAccessForFlatStorage, FlatStorage, FlatStorageCreationStatus,
-    FlatStorageManager,
-};
+use near_store::flat::{store_helper, FlatStorage, FlatStorageManager, FlatStorageStatus};
 use near_store::metadata::DbKind;
 use near_store::split_state::get_delayed_receipts;
 use near_store::{
@@ -534,11 +531,6 @@ impl NightshadeRuntime {
         metrics::APPLY_CHUNK_DELAY
             .with_label_values(&[&format_total_gas_burnt(total_gas_burnt)])
             .observe(elapsed.as_secs_f64());
-        if total_gas_burnt > 0 {
-            metrics::SECONDS_PER_PETAGAS
-                .with_label_values(&[&shard_id.to_string()])
-                .observe(elapsed.as_secs_f64() * 1e15 / total_gas_burnt as f64);
-        }
         let total_balance_burnt = apply_result
             .stats
             .tx_burnt_amount
@@ -732,40 +724,28 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(self.tries.get_view_trie_for_shard(shard_uid, state_root))
     }
 
-    fn get_flat_storage_for_shard(&self, shard_id: ShardId) -> Option<FlatStorage> {
-        self.flat_storage_manager.get_flat_storage_for_shard(shard_id)
+    fn get_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Option<FlatStorage> {
+        self.flat_storage_manager.get_flat_storage_for_shard(shard_uid)
     }
 
-    fn get_flat_storage_creation_status(&self, shard_id: ShardId) -> FlatStorageCreationStatus {
-        store_helper::get_flat_storage_creation_status(&self.store, shard_id)
+    fn get_flat_storage_status(&self, shard_uid: ShardUId) -> FlatStorageStatus {
+        store_helper::get_flat_storage_status(&self.store, shard_uid)
     }
 
     // TODO (#7327): consider passing flat storage errors here to handle them gracefully
-    fn create_flat_storage_for_shard(
-        &self,
-        shard_id: ShardId,
-        latest_block_height: BlockHeight,
-        chain_access: &dyn ChainAccessForFlatStorage,
-    ) {
-        let cache_capacity = self.tries.flat_state_cache_capacity() as usize;
-        let flat_storage = FlatStorage::new(
-            self.store.clone(),
-            shard_id,
-            latest_block_height,
-            chain_access,
-            cache_capacity,
-        );
-        self.flat_storage_manager.add_flat_storage_for_shard(shard_id, flat_storage);
+    fn create_flat_storage_for_shard(&self, shard_uid: ShardUId) {
+        let flat_storage = FlatStorage::new(self.store.clone(), shard_uid);
+        self.flat_storage_manager.add_flat_storage_for_shard(shard_uid, flat_storage);
     }
 
     fn remove_flat_storage_for_shard(
         &self,
-        shard_id: ShardId,
+        shard_uid: ShardUId,
         epoch_id: &EpochId,
     ) -> Result<(), Error> {
         let shard_layout = self.get_shard_layout(epoch_id)?;
         self.flat_storage_manager
-            .remove_flat_storage_for_shard(shard_id, shard_layout)
+            .remove_flat_storage_for_shard(shard_uid, shard_layout)
             .map_err(|e| Error::StorageError(e))?;
         Ok(())
     }
@@ -773,14 +753,17 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn set_flat_storage_for_genesis(
         &self,
         genesis_block: &CryptoHash,
+        genesis_block_height: BlockHeight,
         genesis_epoch_id: &EpochId,
     ) -> Result<StoreUpdate, Error> {
         let mut store_update = self.store.store_update();
         for shard_id in 0..self.num_shards(genesis_epoch_id)? {
+            let shard_uid = self.shard_id_to_uid(shard_id, genesis_epoch_id)?;
             self.flat_storage_manager.set_flat_storage_for_genesis(
                 &mut store_update,
-                shard_id,
+                shard_uid,
                 genesis_block,
+                genesis_block_height,
             );
         }
         Ok(store_update)
@@ -1032,7 +1015,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             Ok(result) => Ok(result),
             Err(e) => match e {
                 Error::StorageError(err) => match &err {
-                    StorageError::FlatStorageError(_) => Err(err.into()),
+                    StorageError::FlatStorageBlockNotSupported(_) => Err(err.into()),
                     _ => panic!("{err}"),
                 },
                 _ => Err(e),
@@ -1376,7 +1359,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         tries.apply_all(&trie_changes, shard_uid, &mut store_update);
         if cfg!(feature = "protocol_feature_flat_state") {
             debug!(target: "chain", %shard_id, "Inserting {} values to flat storage", flat_state_delta.len());
-            flat_state_delta.apply_to_flat_state(&mut store_update);
+            flat_state_delta.apply_to_flat_state(&mut store_update, shard_uid);
         }
         self.precompile_contracts(epoch_id, contract_codes)?;
         Ok(store_update.commit()?)
@@ -1565,6 +1548,7 @@ mod test {
     use near_chain::{Chain, ChainGenesis};
     use near_primitives::test_utils::create_test_signer;
     use near_primitives::types::validator_stake::ValidatorStake;
+    use near_store::flat::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
     use num_rational::Ratio;
 
     use crate::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
@@ -1645,21 +1629,25 @@ mod test {
                 )
                 .unwrap();
             let mut store_update = self.store.store_update();
-            let flat_state_delta = near_store::flat::FlatStateDelta::from_state_changes(
-                &result.trie_changes.state_changes(),
-            );
+            let flat_state_changes =
+                FlatStateChanges::from_state_changes(&result.trie_changes.state_changes());
             result.trie_changes.insertions_into(&mut store_update);
             result.trie_changes.state_changes_into(&mut store_update);
 
-            match self.get_flat_storage_for_shard(shard_id) {
+            let shard_uid = self.shard_id_to_uid(shard_id, &EpochId::default()).unwrap();
+            match self.get_flat_storage_for_shard(shard_uid) {
                 Some(flat_storage) => {
-                    let block_info = near_store::flat::BlockInfo {
-                        hash: *block_hash,
-                        height,
-                        prev_hash: *prev_block_hash,
+                    let delta = FlatStateDelta {
+                        changes: flat_state_changes,
+                        metadata: FlatStateDeltaMetadata {
+                            block: near_store::flat::BlockInfo {
+                                hash: *block_hash,
+                                height,
+                                prev_hash: *prev_block_hash,
+                            },
+                        },
                     };
-                    let new_store_update =
-                        flat_storage.add_block(&block_hash, flat_state_delta, block_info).unwrap();
+                    let new_store_update = flat_storage.add_delta(delta).unwrap();
                     store_update.merge(new_store_update);
                 }
                 None => {}
@@ -1667,43 +1655,6 @@ mod test {
             store_update.commit().unwrap();
 
             (result.new_root, result.validator_proposals, result.outgoing_receipts)
-        }
-    }
-
-    /// Stores chain data for genesis block to initialize flat storage in test environment.
-    struct MockChainForFlatStorage {
-        height_to_hashes: HashMap<BlockHeight, CryptoHash>,
-        blocks: HashMap<CryptoHash, near_store::flat::BlockInfo>,
-    }
-
-    impl ChainAccessForFlatStorage for MockChainForFlatStorage {
-        fn get_block_info(&self, block_hash: &CryptoHash) -> near_store::flat::BlockInfo {
-            self.blocks.get(block_hash).unwrap().clone()
-        }
-
-        fn get_block_hashes_at_height(&self, block_height: BlockHeight) -> HashSet<CryptoHash> {
-            HashSet::from([self.get_block_hash(block_height)])
-        }
-    }
-
-    impl MockChainForFlatStorage {
-        /// Creates mock chain containing only genesis block data.
-        pub fn new(genesis_height: BlockHeight, genesis_hash: CryptoHash) -> Self {
-            Self {
-                height_to_hashes: HashMap::from([(genesis_height, genesis_hash)]),
-                blocks: HashMap::from([(
-                    genesis_hash,
-                    near_store::flat::BlockInfo {
-                        hash: genesis_hash,
-                        height: genesis_height,
-                        prev_hash: CryptoHash::default(),
-                    },
-                )]),
-            }
-        }
-
-        fn get_block_hash(&self, height: BlockHeight) -> CryptoHash {
-            *self.height_to_hashes.get(&height).unwrap()
         }
     }
 
@@ -1812,16 +1763,16 @@ mod test {
             // and use a mock chain, so we need to initialize flat storage manually.
             if cfg!(feature = "protocol_feature_flat_state") {
                 let store_update = runtime
-                    .set_flat_storage_for_genesis(&genesis_hash, &EpochId::default())
+                    .set_flat_storage_for_genesis(&genesis_hash, 0, &EpochId::default())
                     .unwrap();
                 store_update.commit().unwrap();
-                let mock_chain = MockChainForFlatStorage::new(0, genesis_hash);
                 for shard_id in 0..runtime.num_shards(&EpochId::default()).unwrap() {
-                    assert_eq!(
-                        runtime.get_flat_storage_creation_status(shard_id),
-                        FlatStorageCreationStatus::Ready
-                    );
-                    runtime.create_flat_storage_for_shard(shard_id, 0, &mock_chain);
+                    let shard_uid = runtime.shard_id_to_uid(shard_id, &EpochId::default()).unwrap();
+                    assert!(matches!(
+                        runtime.get_flat_storage_status(shard_uid),
+                        FlatStorageStatus::Ready(_)
+                    ));
+                    runtime.create_flat_storage_for_shard(shard_uid);
                 }
             }
 

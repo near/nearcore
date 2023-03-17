@@ -16,7 +16,7 @@ use near_primitives::state_record::{is_delayed_receipt_key, StateRecord};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{StateRoot, StateRootNode};
 
-use crate::flat::{FlatStateDelta, FlatStorageChunkView};
+use crate::flat::{FlatStateChanges, FlatStorageChunkView};
 pub use crate::trie::config::TrieConfig;
 pub(crate) use crate::trie::config::DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT;
 use crate::trie::insert_delete::NodesStorage;
@@ -97,14 +97,91 @@ impl std::fmt::Debug for NodeHandle {
 #[derive(Clone, Hash)]
 enum ValueHandle {
     InMemory(StorageValueHandle),
-    HashAndSize(u32, CryptoHash),
+    HashAndSize(ValueRef),
 }
 
 impl std::fmt::Debug for ValueHandle {
     fn fmt(&self, fmtr: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::HashAndSize(size, hash) => write!(fmtr, "{hash}, size:{size}"),
-            Self::InMemory(handle) => write!(fmtr, "@{}", handle.0),
+            Self::HashAndSize(value) => write!(fmtr, "{value:?}"),
+            Self::InMemory(StorageValueHandle(num)) => write!(fmtr, "@{num}"),
+        }
+    }
+}
+
+/// Children of a branch node.
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct Children<T = CryptoHash>(pub [Option<T>; 16]);
+
+impl<T> Children<T> {
+    /// Iterates over existing children; `None` entries are omitted.
+    #[inline]
+    pub fn iter<'a>(&'a self) -> impl Iterator<Item = (u8, &'a T)> {
+        self.0.iter().enumerate().flat_map(|(i, el)| Some(i as u8).zip(el.as_ref()))
+    }
+}
+
+impl<T> std::ops::Index<u8> for Children<T> {
+    type Output = Option<T>;
+    fn index(&self, index: u8) -> &Option<T> {
+        &self.0[usize::from(index)]
+    }
+}
+
+impl<T> std::ops::IndexMut<u8> for Children<T> {
+    fn index_mut(&mut self, index: u8) -> &mut Option<T> {
+        &mut self.0[usize::from(index)]
+    }
+}
+
+impl Children {
+    fn encode_into(&self, out: &mut Vec<u8>) {
+        let mut bitmap: u16 = 0;
+        let mut pos: u16 = 1;
+        for child in self.0.iter() {
+            if child.is_some() {
+                bitmap |= pos
+            }
+            pos <<= 1;
+        }
+        out.extend(bitmap.to_le_bytes());
+        for (_, hash) in self.iter() {
+            out.extend(hash.as_bytes());
+        }
+    }
+
+    fn decode(bytes: &mut &[u8]) -> std::io::Result<Self> {
+        let mut children = Self::default();
+        let mut bitmap = bytes.read_u16::<LittleEndian>()?;
+        while bitmap != 0 {
+            let idx = bitmap.trailing_zeros() as u8;
+            bitmap &= bitmap - 1;
+            let mut arr = [0; 32];
+            bytes.read_exact(&mut arr)?;
+            children[idx] = Some(CryptoHash(arr));
+        }
+        Ok(children)
+    }
+}
+
+impl<T> Default for Children<T> {
+    fn default() -> Self {
+        Self(Default::default())
+    }
+}
+
+mod children {
+    struct Debug<'a, T>((u8, &'a T));
+
+    impl<T: std::fmt::Debug> std::fmt::Debug for Debug<'_, T> {
+        fn fmt(&self, fmtr: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(fmtr, "{}: {:?}", self.0 .0, self.0 .1)
+        }
+    }
+
+    impl<T: std::fmt::Debug> std::fmt::Debug for super::Children<T> {
+        fn fmt(&self, fmtr: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            fmtr.debug_list().entries(self.iter().map(Debug)).finish()
         }
     }
 }
@@ -116,7 +193,7 @@ enum TrieNode {
     /// Key and value of the leaf node.
     Leaf(Vec<u8>, ValueHandle),
     /// Branch of 16 possible children and value if key ends here.
-    Branch(Box<[Option<NodeHandle>; 16]>, Option<ValueHandle>),
+    Branch(Box<Children<NodeHandle>>, Option<ValueHandle>),
     /// Key and child of extension.
     Extension(Vec<u8>, NodeHandle),
 }
@@ -148,20 +225,12 @@ impl TrieNodeWithSize {
 impl TrieNode {
     fn new(rc_node: RawTrieNode) -> TrieNode {
         match rc_node {
-            RawTrieNode::Leaf(key, value_length, value_hash) => {
-                TrieNode::Leaf(key, ValueHandle::HashAndSize(value_length, value_hash))
-            }
+            RawTrieNode::Leaf(key, value) => TrieNode::Leaf(key, ValueHandle::HashAndSize(value)),
             RawTrieNode::Branch(children, value) => {
-                let mut new_children: Box<[Option<NodeHandle>; 16]> = Default::default();
-                for i in 0..children.len() {
-                    new_children[i] = children[i].map(NodeHandle::Hash);
-                }
-                TrieNode::Branch(
-                    new_children,
-                    value.map(|(value_length, value_hash)| {
-                        ValueHandle::HashAndSize(value_length, value_hash)
-                    }),
-                )
+                let children = children.0.map(|el| el.map(NodeHandle::Hash));
+                let children = Box::new(Children(children));
+                let value = value.map(ValueHandle::HashAndSize);
+                TrieNode::Branch(children, value)
             }
             RawTrieNode::Extension(key, child) => TrieNode::Extension(key, NodeHandle::Hash(child)),
         }
@@ -190,10 +259,7 @@ impl TrieNode {
                     if value.is_some() { "Some" } else { "None" }
                 )?;
                 spaces.push(' ');
-                for (idx, child) in
-                    children.iter().enumerate().filter(|(_idx, child)| child.is_some())
-                {
-                    let child = child.as_ref().unwrap();
+                for (idx, child) in children.iter() {
                     write!(f, "{}{:01x}->", spaces, idx)?;
                     match child {
                         NodeHandle::Hash(hash) => {
@@ -246,7 +312,7 @@ impl TrieNode {
                 .expect("InMemory nodes exist, but storage is not provided")
                 .value_ref(*handle)
                 .len() as u64,
-            ValueHandle::HashAndSize(value_length, _value_hash) => *value_length as u64,
+            ValueHandle::HashAndSize(value) => u64::from(value.length),
         };
         Self::memory_usage_for_value_length(value_length)
     }
@@ -302,10 +368,8 @@ impl std::fmt::Debug for TrieNode {
                     Some(value) => write!(fmtr, "{empty:indent$}Branch({value:?}):"),
                     None => write!(fmtr, "{empty:indent$}Branch:"),
                 }?;
-                for (idx, child) in children.iter().enumerate() {
-                    if let Some(child) = child {
-                        write!(fmtr, "\n{empty:indent$} {idx:x}: {child:?}")?;
-                    }
+                for (idx, child) in children.iter() {
+                    write!(fmtr, "\n{empty:indent$} {idx:x}: {child:?}")?;
                 }
                 Ok(())
             }
@@ -321,9 +385,9 @@ impl std::fmt::Debug for TrieNode {
 #[allow(clippy::large_enum_variant)]
 pub enum RawTrieNode {
     /// Leaf(key, value_length, value_hash)
-    Leaf(Vec<u8>, u32, CryptoHash),
+    Leaf(Vec<u8>, ValueRef),
     /// Branch(children, (value_length, value_hash))
-    Branch([Option<CryptoHash>; 16], Option<(u32, CryptoHash)>),
+    Branch(Children, Option<ValueRef>),
     /// Extension(key, child)
     Extension(Vec<u8>, CryptoHash),
 }
@@ -341,56 +405,28 @@ const BRANCH_NODE_NO_VALUE: u8 = 1;
 const BRANCH_NODE_WITH_VALUE: u8 = 2;
 const EXTENSION_NODE: u8 = 3;
 
-fn decode_children(bytes: &mut &[u8]) -> Result<[Option<CryptoHash>; 16], std::io::Error> {
-    let mut children: [Option<CryptoHash>; 16] = Default::default();
-    let bitmap = bytes.read_u16::<LittleEndian>()?;
-    let mut pos = 1;
-    for child in &mut children {
-        if bitmap & pos != 0 {
-            let mut arr = [0; 32];
-            bytes.read_exact(&mut arr)?;
-            *child = Some(CryptoHash(arr));
-        }
-        pos <<= 1;
-    }
-    Ok(children)
-}
-
 impl RawTrieNode {
     fn encode_into(&self, out: &mut Vec<u8>) {
         // size in state_parts = size + 8 for RawTrieNodeWithSize + 8 for borsh vector length
         match &self {
             // size <= 1 + 4 + 4 + 32 + key_length + value_length
-            RawTrieNode::Leaf(key, value_length, value_hash) => {
+            RawTrieNode::Leaf(key, value) => {
                 out.push(LEAF_NODE);
                 out.extend((key.len() as u32).to_le_bytes());
                 out.extend(key);
-                out.extend((*value_length as u32).to_le_bytes());
-                out.extend(value_hash.as_bytes());
+                out.extend(value.length.to_le_bytes());
+                out.extend(value.hash.as_bytes());
             }
             // size <= 1 + 4 + 32 + value_length + 2 + 32 * num_children
             RawTrieNode::Branch(children, value) => {
-                if let Some((value_length, value_hash)) = value {
+                if let Some(value) = value {
                     out.push(BRANCH_NODE_WITH_VALUE);
-                    out.extend((*value_length as u32).to_le_bytes());
-                    out.extend(value_hash.as_bytes());
+                    out.extend(value.length.to_le_bytes());
+                    out.extend(value.hash.as_bytes());
                 } else {
                     out.push(BRANCH_NODE_NO_VALUE);
                 }
-                let mut bitmap: u16 = 0;
-                let mut pos: u16 = 1;
-                for child in children.iter() {
-                    if child.is_some() {
-                        bitmap |= pos
-                    }
-                    pos <<= 1;
-                }
-                out.extend(bitmap.to_le_bytes());
-                for child in children.iter() {
-                    if let Some(hash) = child {
-                        out.extend(hash.as_bytes());
-                    }
-                }
+                children.encode_into(out);
             }
             // size <= 1 + 4 + key_length + 32
             RawTrieNode::Extension(key, child) => {
@@ -408,23 +444,23 @@ impl RawTrieNode {
                 let key_length = bytes.read_u32::<LittleEndian>()?;
                 let mut key = vec![0; key_length as usize];
                 bytes.read_exact(&mut key)?;
-                let value_length = bytes.read_u32::<LittleEndian>()?;
+                let length = bytes.read_u32::<LittleEndian>()?;
                 let mut arr = [0; 32];
                 bytes.read_exact(&mut arr)?;
-                let value_hash = CryptoHash(arr);
-                RawTrieNode::Leaf(key, value_length, value_hash)
+                let hash = CryptoHash(arr);
+                RawTrieNode::Leaf(key, ValueRef { length, hash })
             }
             BRANCH_NODE_NO_VALUE => {
-                let children = decode_children(&mut bytes)?;
+                let children = Children::decode(&mut bytes)?;
                 RawTrieNode::Branch(children, None)
             }
             BRANCH_NODE_WITH_VALUE => {
-                let value_length = bytes.read_u32::<LittleEndian>()?;
+                let length = bytes.read_u32::<LittleEndian>()?;
                 let mut arr = [0; 32];
                 bytes.read_exact(&mut arr)?;
-                let value_hash = CryptoHash(arr);
-                let children = decode_children(&mut bytes)?;
-                RawTrieNode::Branch(children, Some((value_length, value_hash)))
+                let hash = CryptoHash(arr);
+                let children = Children::decode(&mut bytes)?;
+                RawTrieNode::Branch(children, Some(ValueRef { length, hash }))
             }
             EXTENSION_NODE => {
                 let key_length = bytes.read_u32::<LittleEndian>()?;
@@ -554,7 +590,7 @@ pub struct ApplyStatePartResult {
     /// Trie changes after applying state part.
     pub trie_changes: TrieChanges,
     /// Flat state changes after applying state part, stored as delta.
-    pub flat_state_delta: FlatStateDelta,
+    pub flat_state_delta: FlatStateChanges,
     /// Contract codes belonging to the state part.
     pub contract_codes: Vec<ContractCode>,
 }
@@ -625,8 +661,7 @@ impl Trie {
             TrieNode::Branch(children, _value) => {
                 memory_usage_naive += children
                     .iter()
-                    .filter_map(Option::as_ref)
-                    .map(|handle| self.memory_usage_verify(memory, handle.clone()))
+                    .map(|(_, handle)| self.memory_usage_verify(memory, handle.clone()))
                     .sum::<u64>();
             }
             TrieNode::Extension(_key, child) => {
@@ -657,9 +692,13 @@ impl Trie {
         value: &ValueHandle,
     ) -> Result<(), StorageError> {
         match value {
-            ValueHandle::HashAndSize(_, hash) => {
-                let bytes = self.storage.retrieve_raw_bytes(hash)?;
-                memory.refcount_changes.entry(*hash).or_insert_with(|| (bytes.to_vec(), 0)).1 -= 1;
+            ValueHandle::HashAndSize(value) => {
+                let bytes = self.storage.retrieve_raw_bytes(&value.hash)?;
+                memory
+                    .refcount_changes
+                    .entry(value.hash)
+                    .or_insert_with(|| (bytes.to_vec(), 0))
+                    .1 -= 1;
             }
             ValueHandle::InMemory(_) => {
                 // do nothing
@@ -753,16 +792,12 @@ impl Trie {
         match self.retrieve_raw_node(hash) {
             Ok(Some((_, raw_node))) => {
                 match raw_node.node {
-                    RawTrieNode::Leaf(key, value_length, value_hash) => {
+                    RawTrieNode::Leaf(key, value) => {
                         let (slice, _) = NibbleSlice::from_encoded(key.as_slice());
                         prefix.extend(slice.iter());
                         writeln!(
                             f,
-                            "{}Leaf {:?} size:{} child_hash:{} child_prefix:{}",
-                            spaces,
-                            slice,
-                            value_length,
-                            value_hash,
+                            "{spaces}Leaf {slice:?} {value:?} prefix:{}",
                             self.nibbles_to_string(prefix)
                         )?;
                         prefix.truncate(prefix.len() - slice.len());
@@ -775,21 +810,13 @@ impl Trie {
                             optional_value,
                             self.nibbles_to_string(prefix)
                         )?;
-                        for (idx, child) in children.iter().enumerate() {
-                            if let Some(child) = child {
-                                writeln!(f, "{} {:01x}->", spaces, idx)?;
-                                spaces.push_str("  ");
-                                prefix.push(idx as u8);
-                                self.print_recursive_internal(
-                                    f,
-                                    child,
-                                    max_depth - 1,
-                                    spaces,
-                                    prefix,
-                                )?;
-                                prefix.pop();
-                                spaces.truncate(spaces.len() - 2);
-                            }
+                        for (idx, child) in children.iter() {
+                            writeln!(f, "{spaces} {idx:01x}->")?;
+                            spaces.push_str("  ");
+                            prefix.push(idx as u8);
+                            self.print_recursive_internal(f, child, max_depth - 1, spaces, prefix)?;
+                            prefix.pop();
+                            spaces.truncate(spaces.len() - 2);
                         }
                     }
                     RawTrieNode::Extension(key, child) => {
@@ -894,12 +921,12 @@ impl Trie {
                 Some((_bytes, node)) => node.node,
             };
             match node {
-                RawTrieNode::Leaf(existing_key, value_length, value_hash) => {
-                    if NibbleSlice::from_encoded(&existing_key).0 == key {
-                        return Ok(Some(ValueRef { length: value_length, hash: value_hash }));
+                RawTrieNode::Leaf(existing_key, value) => {
+                    return Ok(if NibbleSlice::from_encoded(&existing_key).0 == key {
+                        Some(value)
                     } else {
-                        return Ok(None);
-                    }
+                        None
+                    });
                 }
                 RawTrieNode::Extension(existing_key, child) => {
                     let existing_key = NibbleSlice::from_encoded(&existing_key).0;
@@ -912,23 +939,12 @@ impl Trie {
                 }
                 RawTrieNode::Branch(mut children, value) => {
                     if key.is_empty() {
-                        match value {
-                            Some((value_length, value_hash)) => {
-                                return Ok(Some(ValueRef {
-                                    length: value_length,
-                                    hash: value_hash,
-                                }));
-                            }
-                            None => return Ok(None),
-                        }
+                        return Ok(value);
+                    } else if let Some(h) = children[key.at(0)].take() {
+                        hash = h;
+                        key = key.mid(1);
                     } else {
-                        match children[key.at(0) as usize].take() {
-                            Some(x) => {
-                                hash = x;
-                                key = key.mid(1);
-                            }
-                            None => return Ok(None),
-                        }
+                        return Ok(None);
                     }
                 }
             };
@@ -960,7 +976,11 @@ impl Trie {
         if matches!(mode, KeyLookupMode::FlatStorage) && !is_delayed_receipt_key(key) {
             if let Some(flat_storage_chunk_view) = &self.flat_storage_chunk_view {
                 let flat_result = flat_storage_chunk_view.get_ref(&key);
-                assert_eq!(result, flat_result);
+                if matches!(flat_result, Err(StorageError::FlatStorageBlockNotSupported(_))) {
+                    return flat_result;
+                } else {
+                    assert_eq!(result, flat_result);
+                }
             }
         }
         result
@@ -1120,9 +1140,8 @@ mod tests {
             assert!(got.is_err(), "got: {got:?}");
         }
 
-        let value_length = 3;
-        let value_hash = CryptoHash::hash_bytes(&[123, 245, 255]);
-        let node = RawTrieNode::Leaf(vec![1, 2, 3], value_length, value_hash);
+        let value = ValueRef { length: 3, hash: CryptoHash::hash_bytes(&[123, 245, 255]) };
+        let node = RawTrieNode::Leaf(vec![1, 2, 3], value.clone());
         let encoded = [
             0, 3, 0, 0, 0, 1, 2, 3, 3, 0, 0, 0, 194, 40, 8, 24, 64, 219, 69, 132, 86, 52, 110, 175,
             57, 198, 165, 200, 83, 237, 211, 11, 194, 83, 251, 33, 145, 138, 234, 226, 7, 242, 186,
@@ -1130,7 +1149,7 @@ mod tests {
         ];
         test(node, &encoded);
 
-        let mut children: [Option<CryptoHash>; 16] = Default::default();
+        let mut children = Children::default();
         children[3] = Some(Trie::EMPTY_ROOT);
         let node = RawTrieNode::Branch(children, None);
         let encoded = [
@@ -1139,9 +1158,9 @@ mod tests {
         ];
         test(node, &encoded);
 
-        let mut children: [Option<CryptoHash>; 16] = Default::default();
+        let mut children = Children::default();
         children[3] = Some(Trie::EMPTY_ROOT);
-        let node = RawTrieNode::Branch(children, Some((value_length, value_hash)));
+        let node = RawTrieNode::Branch(children, Some(value));
         let encoded = [
             2, 3, 0, 0, 0, 194, 40, 8, 24, 64, 219, 69, 132, 86, 52, 110, 175, 57, 198, 165, 200,
             83, 237, 211, 11, 194, 83, 251, 33, 145, 138, 234, 226, 7, 242, 186, 73, 8, 0, 0, 0, 0,

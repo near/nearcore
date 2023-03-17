@@ -87,7 +87,7 @@ class RecompressStorageTestCase(unittest.TestCase):
         logger.info(f'Restart all nodes with the new database')
         for idx, node in enumerate(self.nodes):
             logger.info(f'Starting node{idx}')
-            node.start()
+            node.start(boot_node=self.nodes[0])
 
         # Execute a few more transactions
         time.sleep(5)

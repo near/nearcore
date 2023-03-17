@@ -18,11 +18,11 @@ use crate::Temperature;
 /// informational messages pointing where the snapshot resides and how to
 /// recover data from it.
 #[derive(Debug)]
-pub(crate) struct Snapshot(Option<std::path::PathBuf>);
+pub struct Snapshot(pub Option<std::path::PathBuf>);
 
 /// Possible errors when creating a checkpoint.
 #[derive(Debug)]
-pub(crate) enum SnapshotError {
+pub enum SnapshotError {
     /// Snapshot at requested location already exists.
     ///
     /// More specifically, the specified path exists (since the code does only

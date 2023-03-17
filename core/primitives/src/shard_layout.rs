@@ -289,6 +289,19 @@ impl ShardUId {
         res
     }
 
+    pub fn next_shard_prefix(shard_uid_bytes: &[u8; 8]) -> [u8; 8] {
+        let mut result = *shard_uid_bytes;
+        for i in (0..8).rev() {
+            if result[i] == u8::MAX {
+                result[i] = 0;
+            } else {
+                result[i] += 1;
+                return result;
+            }
+        }
+        panic!("Next shard prefix for shard bytes {shard_uid_bytes:?} does not exist");
+    }
+
     /// Constructs a shard uid from shard id and a shard layout
     pub fn from_shard_id_and_layout(shard_id: ShardId, shard_layout: &ShardLayout) -> Self {
         assert!(shard_id < shard_layout.num_shards());
