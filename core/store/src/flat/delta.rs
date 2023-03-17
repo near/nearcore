@@ -40,7 +40,7 @@ pub struct FlatStateChanges(pub(crate) HashMap<Vec<u8>, Option<ValueRef>>);
 
 impl<T> From<T> for FlatStateChanges
 where
-    T: Iterator<Item = (Vec<u8>, Option<ValueRef>)>,
+    T: IntoIterator<Item = (Vec<u8>, Option<ValueRef>)>,
 {
     fn from(iter: T) -> Self {
         Self(HashMap::from_iter(iter))

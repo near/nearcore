@@ -515,6 +515,8 @@ mod tests {
             iters: 1,
             accounts_num: 100,
             additional_accounts_num: 100,
+            finality_lag: 3,
+            fs_keys_per_delta: 1,
             skip_build_test_contract: false,
             metric: "time".to_owned(),
             vm_kind: None,
