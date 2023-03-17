@@ -54,4 +54,6 @@
 
 # Misc
 
-- [Misc](./misc/README.md)
+- [Overview](./misc/README.md)
+- [State Sync Dump](./misc/state_sync_dump.md)
+- [Spoon Mainnet State](./misc/mainnet_spoon.md)
