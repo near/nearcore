@@ -7,23 +7,23 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
+use near_primitives::state::ValueRef;
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Gas, MerkleHash};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::flat::{
-    store_helper, BlockInfo, FlatStorage, FlatStorageManager, FlatStorageReadyStatus,
-    FlatStorageStatus,
+    store_helper, BlockInfo, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorage,
+    FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus,
 };
 use near_store::{ShardTries, ShardUId, Store, StoreCompiledContractCache, TrieUpdate};
 use near_store::{TrieCache, TrieCachingStorage, TrieConfig};
 use near_vm_logic::{ExtCosts, VMLimitConfig};
 use node_runtime::{ApplyState, Runtime};
 use std::collections::HashMap;
+use std::iter;
 use std::rc::Rc;
 use std::sync::Arc;
-
-const FLAT_STATE_HEAD: CryptoHash = CryptoHash::new();
 
 /// Global context shared by all cost calculating functions.
 pub(crate) struct EstimatorContext<'c> {
@@ -80,7 +80,7 @@ impl<'c> EstimatorContext<'c> {
             store.clone(),
             trie_config,
             &shard_uids,
-            Self::create_flat_storage_manager(store.clone()),
+            self.create_flat_storage_manager(store.clone()),
         );
 
         Testbed {
@@ -143,7 +143,7 @@ impl<'c> EstimatorContext<'c> {
         }
     }
 
-    fn create_flat_storage_manager(store: Store) -> FlatStorageManager {
+    fn create_flat_storage_manager(&self, store: Store) -> FlatStorageManager {
         let flat_storage_manager = FlatStorageManager::new(store.clone());
         if !cfg!(feature = "protocol_feature_flat_state") {
             return flat_storage_manager;
@@ -156,13 +156,57 @@ impl<'c> EstimatorContext<'c> {
             &mut store_update,
             shard_uid,
             FlatStorageStatus::Ready(FlatStorageReadyStatus {
-                flat_head: BlockInfo::genesis(FLAT_STATE_HEAD, 0),
+                flat_head: BlockInfo::genesis(CryptoHash::hash_borsh(0usize), 0),
             }),
         );
         store_update.commit().expect("failed to set flat storage status");
         let flat_storage = FlatStorage::new(store, shard_uid);
+        self.generate_deltas(&flat_storage);
         flat_storage_manager.add_flat_storage_for_shard(shard_uid, flat_storage);
         flat_storage_manager
+    }
+
+    /// Construct a chain of fake blocks with fake deltas for flat storage.
+    ///
+    /// Use `hash(height)` as the supposed block hash.
+    /// Keys are randomly generated, values are a constant that's not even stored.
+    ///
+    /// The blocks aren't valid, nor are the values stored anywhere. They only
+    /// exist within `FlatStorage` and simulate the performance decrease
+    /// observed when the flat head lags behind.
+    fn generate_deltas(&self, flat_storage: &FlatStorage) {
+        // Assumption: One delta per non-final block, which is configurable.
+        // There could be forks but that's considered to e outside the normal
+        // operating conditions for this estimation.
+        let num_deltas = self.config.finality_lag;
+        // Number of keys changed is the same for all deltas and configurable.
+        let num_changes_per_delta = self.config.fs_keys_per_delta;
+        // This is the longest key we allow in storage.
+        let delta_key_len = 2000;
+        for idx in 0..num_deltas {
+            // We want different keys and to avoid all optimization potential.
+            // But the values are never read, so let's just use a dummy constant.
+            let random_data = iter::repeat_with(|| {
+                (
+                    crate::utils::random_vec(delta_key_len),
+                    Some(ValueRef::new(b"this is never stored or accessed, we only need it to blow up in-memory deltas")),
+                )
+            })
+            .take(num_changes_per_delta);
+            let height = 1 + idx as u64;
+            let block = BlockInfo {
+                hash: fs_fake_block_height_to_hash(height),
+                height,
+                prev_hash: fs_fake_block_height_to_hash(height - 1),
+            };
+
+            flat_storage
+                .add_delta(FlatStateDelta {
+                    changes: FlatStateChanges::from(random_data),
+                    metadata: FlatStateDeltaMetadata { block },
+                })
+                .unwrap();
+        }
     }
 }
 
@@ -383,10 +427,17 @@ impl Testbed<'_> {
 
     /// Instantiate a new trie for the estimator.
     fn trie(&mut self) -> near_store::Trie {
-        self.tries.get_trie_with_block_hash_for_shard(
-            ShardUId::single_shard(),
-            self.root,
-            &FLAT_STATE_HEAD,
-        )
+        // We generated `finality_lag` fake blocks earlier, so the fake height
+        // will be at the same number.
+        let tip_height = self.config.finality_lag;
+        let tip = fs_fake_block_height_to_hash(tip_height as u64);
+        self.tries.get_trie_with_block_hash_for_shard(ShardUId::single_shard(), self.root, &tip)
     }
+}
+
+/// Maps fake block heights to block hashes.
+///
+/// This is ued to generate and access fake deltas for flat storage.
+fn fs_fake_block_height_to_hash(height: u64) -> CryptoHash {
+    CryptoHash::hash_borsh(height)
 }

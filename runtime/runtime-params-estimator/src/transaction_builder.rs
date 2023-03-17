@@ -146,10 +146,6 @@ impl TransactionBuilder {
         }
     }
 
-    pub(crate) fn random_vec(&mut self, len: usize) -> Vec<u8> {
-        (0..len).map(|_| self.rng().gen()).collect()
-    }
-
     fn nonce(&mut self, account_id: &AccountId) -> u64 {
         let nonce = self.nonces.entry(account_id.clone()).or_default();
         *nonce += 1;
