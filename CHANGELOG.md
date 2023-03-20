@@ -10,6 +10,7 @@
 * Experimental option to dump state of every epoch to external storage. [#8661](https://github.com/near/nearcore/pull/8661)
 * State sync is disabled by default [#8730](https://github.com/near/nearcore/pull/8730)
 * Node can restart if State Sync gets interrupted [#8732](https://github.com/near/nearcore/pull/8732)
+* Add prometheus metrics for tracked shards, block height within epoch, if is block/chunk producer
 
 ## 1.32.0
 
