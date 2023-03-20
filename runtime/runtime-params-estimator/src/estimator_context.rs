@@ -13,8 +13,8 @@ use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Gas, MerkleHash};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::flat::{
-    store_helper, BlockInfo, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorage,
-    FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus,
+    BlockInfo, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorage,
+    FlatStorageManager,
 };
 use near_store::{ShardTries, ShardUId, Store, StoreCompiledContractCache, TrieUpdate};
 use near_store::{TrieCache, TrieCachingStorage, TrieConfig};
@@ -22,7 +22,6 @@ use near_vm_logic::{ExtCosts, VMLimitConfig};
 use node_runtime::{ApplyState, Runtime};
 use std::collections::HashMap;
 use std::iter;
-use std::rc::Rc;
 use std::sync::Arc;
 
 /// Global context shared by all cost calculating functions.
@@ -76,12 +75,15 @@ impl<'c> EstimatorContext<'c> {
         let mut trie_config = near_store::TrieConfig::default();
         trie_config.enable_receipt_prefetching = true;
 
-        let tries = ShardTries::new(
-            store.clone(),
-            trie_config,
-            &shard_uids,
-            self.create_flat_storage_manager(store.clone()),
-        );
+        let flat_head = CryptoHash::hash_borsh(0usize);
+        let flat_storage_manager = FlatStorageManager::test(store.clone(), &shard_uids, flat_head);
+        if cfg!(feature = "protocol_feature_flat_state") {
+            let flat_storage =
+                flat_storage_manager.get_flat_storage_for_shard(shard_uids[0]).unwrap();
+            self.generate_deltas(&flat_storage);
+        }
+
+        let tries = ShardTries::new(store.clone(), trie_config, &shard_uids, flat_storage_manager);
 
         Testbed {
             config: self.config,
@@ -141,29 +143,6 @@ impl<'c> EstimatorContext<'c> {
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
         }
-    }
-
-    fn create_flat_storage_manager(&self, store: Store) -> FlatStorageManager {
-        let flat_storage_manager = FlatStorageManager::new(store.clone());
-        if !cfg!(feature = "protocol_feature_flat_state") {
-            return flat_storage_manager;
-        }
-
-        let shard_uid = ShardUId::single_shard();
-        // Set up flat head to be equal to the latest block height
-        let mut store_update = store.store_update();
-        store_helper::set_flat_storage_status(
-            &mut store_update,
-            shard_uid,
-            FlatStorageStatus::Ready(FlatStorageReadyStatus {
-                flat_head: BlockInfo::genesis(CryptoHash::hash_borsh(0usize), 0),
-            }),
-        );
-        store_update.commit().expect("failed to set flat storage status");
-        let flat_storage = FlatStorage::new(store, shard_uid);
-        self.generate_deltas(&flat_storage);
-        flat_storage_manager.add_flat_storage_for_shard(shard_uid, flat_storage);
-        flat_storage_manager
     }
 
     /// Construct a chain of fake blocks with fake deltas for flat storage.
@@ -373,7 +352,7 @@ impl Testbed<'_> {
         tx: &SignedTransaction,
         metric: GasMetric,
     ) -> GasCost {
-        let mut state_update = TrieUpdate::new(Rc::new(self.trie()));
+        let mut state_update = TrieUpdate::new(self.trie());
         // gas price and block height can be anything, it doesn't affect performance
         // but making it too small affects max_depth and thus pessimistic inflation
         let gas_price = 100_000_000;
@@ -399,7 +378,7 @@ impl Testbed<'_> {
     ///
     /// Use this method to estimate action exec costs.
     pub(crate) fn apply_action_receipt(&mut self, receipt: &Receipt, metric: GasMetric) -> GasCost {
-        let mut state_update = TrieUpdate::new(Rc::new(self.trie()));
+        let mut state_update = TrieUpdate::new(self.trie());
         let mut outgoing_receipts = vec![];
         let mut validator_proposals = vec![];
         let mut stats = node_runtime::ApplyStats::default();
