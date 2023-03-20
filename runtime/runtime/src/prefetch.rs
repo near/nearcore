@@ -50,7 +50,6 @@ use near_primitives::types::AccountId;
 use near_primitives::types::StateRoot;
 use near_store::{PrefetchApi, PrefetchError, Trie};
 use sha2::Digest;
-use std::rc::Rc;
 use tracing::{debug, warn};
 
 use crate::metrics;
@@ -63,7 +62,7 @@ pub(crate) struct TriePrefetcher {
 }
 
 impl TriePrefetcher {
-    pub(crate) fn new_if_enabled(trie: Rc<Trie>) -> Option<Self> {
+    pub(crate) fn new_if_enabled(trie: &Trie) -> Option<Self> {
         if let Some(caching_storage) = trie.storage.as_caching_storage() {
             if let Some(prefetch_api) = caching_storage.prefetch_api().clone() {
                 let trie_root = *trie.get_root();
@@ -223,7 +222,6 @@ mod tests {
     use near_primitives::{trie_key::TrieKey, types::AccountId};
     use near_store::test_utils::{create_test_store, test_populate_trie};
     use near_store::{ShardTries, ShardUId, Trie, TrieConfig};
-    use std::rc::Rc;
     use std::str::FromStr;
     use std::time::{Duration, Instant};
 
@@ -321,12 +319,11 @@ mod tests {
             kvs.push((storage_key.clone(), Some(i.to_string().as_bytes().to_vec())));
         }
         let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, ShardUId::single_shard(), kvs);
-
-        let trie = Rc::new(tries.get_trie_for_shard(ShardUId::single_shard(), root));
+        let trie = tries.get_trie_for_shard(ShardUId::single_shard(), root);
         trie.storage.as_caching_storage().unwrap().clear_cache();
 
-        let prefetcher = TriePrefetcher::new_if_enabled(trie.clone())
-            .expect("caching storage should have prefetcher");
+        let prefetcher =
+            TriePrefetcher::new_if_enabled(&trie).expect("caching storage should have prefetcher");
         let prefetch_api = &prefetcher.prefetch_api;
 
         assert_eq!(prefetch_api.num_prefetched_and_staged(), 0);

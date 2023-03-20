@@ -273,7 +273,7 @@ fn test_view_state() {
         b"321".to_vec(),
     );
     state_update.commit(StateChangeCause::InitialState);
-    let trie_changes = state_update.finalize().unwrap().0;
+    let trie_changes = state_update.finalize().unwrap().1;
     let mut db_changes = tries.store_update();
     let new_root = tries.apply_all(&trie_changes, shard_uid, &mut db_changes);
     db_changes.commit().unwrap();
