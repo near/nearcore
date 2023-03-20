@@ -1134,6 +1134,7 @@ mod test {
                     vec![0],
                     &apply_parts_fn,
                     &state_split_fn,
+                    false,
                 )
                 .unwrap();
 
