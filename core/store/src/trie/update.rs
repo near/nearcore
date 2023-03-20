@@ -122,6 +122,11 @@ impl TrieUpdate {
         self.prospective.clear();
     }
 
+    /// Prepare the accumulated state changes to be applied to the underlying storage.
+    ///
+    /// This Function returns the [`Trie`] with which the [`TrieUpdate`] has been initially
+    /// constructed. It can be reused to construct another `TrieUpdate` or to operate with `Trie`
+    /// in any other way as desired.
     pub fn finalize(
         self,
     ) -> Result<(Trie, TrieChanges, Vec<RawStateChangesWithTrieKey>), StorageError> {
