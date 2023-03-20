@@ -194,9 +194,7 @@ impl near_network::client::Client for Adapter {
     ) -> Result<Option<StateResponseInfo>, ReasonForBan> {
         match self
             .view_client_addr
-            .send(
-                StateRequestHeader { shard_id: shard_id, sync_hash: sync_hash }.with_span_context(),
-            )
+            .send(StateRequestHeader { shard_id, sync_hash }.with_span_context())
             .await
         {
             Ok(Some(StateResponse(resp))) => Ok(Some(*resp)),

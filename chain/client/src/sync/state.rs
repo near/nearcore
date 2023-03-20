@@ -356,7 +356,7 @@ impl StateSync {
                     %shard_id,
                     timeout_sec = self.timeout.num_seconds(),
                     "State sync didn't download the state, sending StateRequest again");
-                tracing::info!(
+                tracing::debug!(
                     target: "sync",
                     %shard_id,
                     %sync_hash,

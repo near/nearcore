@@ -48,6 +48,12 @@ pub(crate) enum StatePartsSubCommand {
         #[clap(subcommand)]
         epoch_selection: EpochSelection,
     },
+    /// Read State Header from the DB
+    ReadStateHeader {
+        /// Select an epoch to work on.
+        #[clap(subcommand)]
+        epoch_selection: EpochSelection,
+    },
 }
 
 impl StatePartsSubCommand {
@@ -97,6 +103,9 @@ impl StatePartsSubCommand {
                     store,
                     Location::new(root_dir, (s3_bucket, s3_region)),
                 );
+            }
+            StatePartsSubCommand::ReadStateHeader { epoch_selection } => {
+                read_state_header(epoch_selection, shard_id, &chain, store)
             }
         }
     }
@@ -360,6 +369,22 @@ fn dump_state_parts(
         tracing::info!(target: "state-parts", part_id, part_length = state_part.len(), elapsed_sec = timer.elapsed().as_secs_f64(), "Wrote a state part");
     }
     tracing::info!(target: "state-parts", total_elapsed_sec = timer.elapsed().as_secs_f64(), "Wrote all requested state parts");
+}
+
+fn read_state_header(
+    epoch_selection: EpochSelection,
+    shard_id: ShardId,
+    chain: &Chain,
+    store: Store,
+) {
+    let epoch_id = epoch_selection.to_epoch_id(store, &chain);
+    let epoch = chain.runtime_adapter.get_epoch_info(&epoch_id).unwrap();
+
+    let sync_hash = get_any_block_hash_of_epoch(&epoch, &chain);
+    let sync_hash = StateSync::get_epoch_start_sync_hash(&chain, &sync_hash).unwrap();
+
+    let state_header = chain.store().get_state_header(shard_id, sync_hash);
+    tracing::info!(target: "state-parts", ?epoch_id, ?sync_hash, ?state_header);
 }
 
 fn get_part_ids(part_from: Option<u64>, part_to: Option<u64>, num_parts: u64) -> Range<u64> {
