@@ -746,8 +746,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(self.tries.get_view_trie_for_shard(shard_uid, state_root))
     }
 
-    fn get_flat_storage_for_shard(&self, shard_id: ShardId) -> Option<FlatStorage> {
-        self.flat_storage_manager.get_flat_storage_for_shard(shard_id)
+    fn get_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Option<FlatStorage> {
+        self.flat_storage_manager.get_flat_storage_for_shard(shard_uid)
     }
 
     fn get_flat_storage_status(&self, shard_uid: ShardUId) -> FlatStorageStatus {
@@ -757,7 +757,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     // TODO (#7327): consider passing flat storage errors here to handle them gracefully
     fn create_flat_storage_for_shard(&self, shard_uid: ShardUId) {
         let flat_storage = FlatStorage::new(self.store.clone(), shard_uid);
-        self.flat_storage_manager.add_flat_storage_for_shard(shard_uid.shard_id(), flat_storage);
+        self.flat_storage_manager.add_flat_storage_for_shard(shard_uid, flat_storage);
     }
 
     fn remove_flat_storage_for_shard(
@@ -767,7 +767,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<(), Error> {
         let shard_layout = self.get_shard_layout(epoch_id)?;
         self.flat_storage_manager
-            .remove_flat_storage_for_shard(shard_id, shard_layout)
+            .remove_flat_storage_for_shard(shard_uid, shard_layout)
             .map_err(|e| Error::StorageError(e))?;
         Ok(())
     }
@@ -1660,7 +1660,8 @@ mod test {
             result.trie_changes.insertions_into(&mut store_update);
             result.trie_changes.state_changes_into(&mut store_update);
 
-            match self.get_flat_storage_for_shard(shard_id) {
+            let shard_uid = self.shard_id_to_uid(shard_id, &EpochId::default()).unwrap();
+            match self.get_flat_storage_for_shard(shard_uid) {
                 Some(flat_storage) => {
                     let delta = FlatStateDelta {
                         changes: flat_state_changes,
@@ -1786,18 +1787,18 @@ mod test {
 
             // Create flat storage. Naturally it happens on Chain creation, but here we test only Runtime behaviour
             // and use a mock chain, so we need to initialize flat storage manually.
-            let store_update = runtime
-                .set_flat_storage_state_for_genesis(&genesis_hash, &EpochId::default())
-                .unwrap();
-            store_update.commit().unwrap();
-            let mock_chain = MockChainForFlatStorage::new(0, genesis_hash);
-            for shard_id in 0..runtime.num_shards(&EpochId::default()).unwrap() {
-                let status = runtime.get_flat_storage_creation_status(shard_id);
-                if cfg!(feature = "protocol_feature_flat_state") {
-                    assert_eq!(status, FlatStorageCreationStatus::Ready);
-                    runtime.create_flat_storage_state_for_shard(shard_id, 0, &mock_chain);
-                } else {
-                    assert_eq!(status, FlatStorageCreationStatus::DontCreate);
+            if cfg!(feature = "protocol_feature_flat_state") {
+                let store_update = runtime
+                    .set_flat_storage_for_genesis(&genesis_hash, 0, &EpochId::default())
+                    .unwrap();
+                store_update.commit().unwrap();
+                for shard_id in 0..runtime.num_shards(&EpochId::default()).unwrap() {
+                    let shard_uid = runtime.shard_id_to_uid(shard_id, &EpochId::default()).unwrap();
+                    assert!(matches!(
+                        runtime.get_flat_storage_status(shard_uid),
+                        FlatStorageStatus::Ready(_)
+                    ));
+                    runtime.create_flat_storage_for_shard(shard_uid);
                 }
             }
 

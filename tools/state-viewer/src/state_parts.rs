@@ -486,6 +486,7 @@ impl StatePartWriter for FileSystemStorage {
 impl StatePartReader for FileSystemStorage {
     fn read(&self, part_id: u64, num_parts: u64) -> Vec<u8> {
         let filename = self.get_location(part_id, num_parts);
+        tracing::debug!(target: "state-parts", part_id, num_parts, ?filename, "Reading state part file");
         let part = std::fs::read(filename).unwrap();
         part
     }
