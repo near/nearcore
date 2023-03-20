@@ -16,9 +16,9 @@ use super::types::{FlatStateValue, FlatStorageStatus};
 pub const FLAT_STATE_HEAD_KEY_PREFIX: &[u8; 4] = b"HEAD";
 pub const FLAT_STATE_CREATION_STATUS_KEY_PREFIX: &[u8; 6] = b"STATUS";
 
-/// This is needed to avoid `#[cfg(feature = "protocol_feature_flat_state")]`
+/// This was needed to avoid `#[cfg(feature = "protocol_feature_flat_state")]`
 /// from `DBCol::FlatState*` cascading all over the code.
-/// Should be removed along with protocol_feature_flat_state feature.
+/// TODO (#7327): remove.
 pub enum FlatStateColumn {
     State,
     Changes,
@@ -28,15 +28,12 @@ pub enum FlatStateColumn {
 
 impl FlatStateColumn {
     pub const fn to_db_col(&self) -> crate::DBCol {
-        #[cfg(feature = "protocol_feature_flat_state")]
         match self {
             FlatStateColumn::State => crate::DBCol::FlatState,
             FlatStateColumn::Changes => crate::DBCol::FlatStateChanges,
             FlatStateColumn::DeltaMetadata => crate::DBCol::FlatStateDeltaMetadata,
             FlatStateColumn::Status => crate::DBCol::FlatStorageStatus,
         }
-        #[cfg(not(feature = "protocol_feature_flat_state"))]
-        panic!("protocol_feature_flat_state feature is not enabled")
     }
 }
 
@@ -141,9 +138,6 @@ pub fn set_ref(
 }
 
 pub fn get_flat_storage_status(store: &Store, shard_uid: ShardUId) -> FlatStorageStatus {
-    if !cfg!(feature = "protocol_feature_flat_state") {
-        return FlatStorageStatus::Disabled;
-    }
     store
         .get_ser(FlatStateColumn::Status.to_db_col(), &shard_uid.to_bytes())
         .expect("Error reading flat head from storage")

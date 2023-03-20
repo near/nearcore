@@ -39,10 +39,6 @@ impl FlatStorageManager {
     }
 
     pub fn test(store: Store, shard_uids: &[ShardUId], flat_head: CryptoHash) -> Self {
-        if !cfg!(feature = "protocol_feature_flat_state") {
-            return Self::new(store);
-        }
-
         let mut flat_storages = HashMap::default();
         for shard_uid in shard_uids {
             let mut store_update = store.store_update();
@@ -138,10 +134,7 @@ impl FlatStorageManager {
         }
     }
 
-    // TODO (#7327): change the function signature to Result<FlatStorage, Error> when
-    // we stabilize feature protocol_feature_flat_state. We use option now to return None when
-    // the feature is not enabled. Ideally, it should return an error because it is problematic
-    // if the flat storage state does not exist
+    // TODO (#7327): consider returning Result<FlatStorage, Error> when we expect flat storage to exist
     pub fn get_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Option<FlatStorage> {
         let flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
         flat_storages.get(&shard_uid).cloned()

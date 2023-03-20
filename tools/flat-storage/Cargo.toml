@@ -20,10 +20,3 @@ near-epoch-manager = { path = "../../chain/epoch-manager" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 nearcore = { path = "../../nearcore" }
-
-[features]
-protocol_feature_flat_state = [
-  "nearcore/protocol_feature_flat_state",
-  "near-chain/protocol_feature_flat_state",
-  "near-store/protocol_feature_flat_state",
-]

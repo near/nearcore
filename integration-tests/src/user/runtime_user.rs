@@ -89,7 +89,7 @@ impl RuntimeUser {
         let mut txs = transactions;
         loop {
             let mut client = self.client.write().expect(POISONED_LOCK_ERR);
-            let trie = if cfg!(feature = "protocol_feature_flat_state") && use_flat_storage {
+            let trie = if use_flat_storage {
                 client.tries.get_trie_with_block_hash_for_shard(
                     ShardUId::single_shard(),
                     client.state_root,
@@ -132,7 +132,7 @@ impl RuntimeUser {
                 ShardUId::single_shard(),
                 &mut update,
             );
-            if cfg!(feature = "protocol_feature_flat_state") && use_flat_storage {
+            if use_flat_storage {
                 near_store::flat::FlatStateChanges::from_state_changes(&apply_result.state_changes)
                     .apply_to_flat_state(&mut update, ShardUId::single_shard());
             }

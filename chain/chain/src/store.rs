@@ -2431,11 +2431,8 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::_TransactionRefCount
             | DBCol::_TransactionResult
             | DBCol::StateChangesForSplitStates
-            | DBCol::CachedContractCode => {
-                unreachable!();
-            }
-            #[cfg(feature = "protocol_feature_flat_state")]
-            DBCol::FlatState
+            | DBCol::CachedContractCode
+            | DBCol::FlatState
             | DBCol::FlatStateChanges
             | DBCol::FlatStateDeltaMetadata
             | DBCol::FlatStorageStatus => {
