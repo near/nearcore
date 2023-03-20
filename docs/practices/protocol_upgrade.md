@@ -54,7 +54,7 @@ nightly = [
 ]
 ```
 
-In [core/primitives/src/version.rs](../core/primitives/src/version.rs), we would
+In [core/primitives/src/version.rs](https://github.com/near/nearcore/blob/master/core/primitives/src/version.rs), we would
 change the protocol version by:
 
 ```rust
@@ -81,7 +81,7 @@ To determine whether a protocol feature is enabled, we do the following:
   `checked_feature`
 
 For more details, please refer to
-[core/primitives/src/version.rs](../core/primitives/src/version.rs).
+[core/primitives/src/version.rs](https://github.com/near/nearcore/blob/master/core/primitives/src/version.rs).
 
 ### Feature Gating
 

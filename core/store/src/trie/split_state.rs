@@ -102,7 +102,7 @@ impl ShardTries {
 
         let mut trie_changes_map = HashMap::new();
         for (shard_uid, update) in trie_updates {
-            let (trie_changes, _) = update.finalize()?;
+            let (_, trie_changes, _) = update.finalize()?;
             trie_changes_map.insert(shard_uid, trie_changes);
         }
         Ok(trie_changes_map)
@@ -196,7 +196,7 @@ impl ShardTries {
         let mut new_state_roots = HashMap::new();
         let mut store_update = self.store_update();
         for (shard_uid, update) in updates {
-            let (trie_changes, state_changes) = update.finalize()?;
+            let (_, trie_changes, state_changes) = update.finalize()?;
             let state_root = self.apply_all(&trie_changes, shard_uid, &mut store_update);
             if cfg!(feature = "protocol_feature_flat_state") {
                 FlatStateChanges::from_state_changes(&state_changes)
@@ -525,7 +525,7 @@ mod tests {
             delayed_receipt_indices.next_available_index = all_receipts.len() as u64;
             set(&mut trie_update, TrieKey::DelayedReceiptIndices, &delayed_receipt_indices);
             trie_update.commit(StateChangeCause::Resharding);
-            let (trie_changes, _) = trie_update.finalize().unwrap();
+            let (_, trie_changes, _) = trie_update.finalize().unwrap();
             let mut store_update = tries.store_update();
             let state_root =
                 tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
@@ -661,7 +661,7 @@ mod tests {
                 },
             );
             trie_update.commit(StateChangeCause::Resharding);
-            let (trie_changes, _) = trie_update.finalize().unwrap();
+            let (_, trie_changes, _) = trie_update.finalize().unwrap();
             let mut store_update = tries.store_update();
             let state_root =
                 tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
@@ -765,7 +765,7 @@ mod tests {
             );
             set(&mut trie_update, TrieKey::DelayedReceiptIndices, &delayed_receipt_indices);
             trie_update.commit(StateChangeCause::Resharding);
-            let (trie_changes, state_changes) = trie_update.finalize().unwrap();
+            let (_, trie_changes, state_changes) = trie_update.finalize().unwrap();
             let mut store_update = tries.store_update();
             let new_state_root =
                 tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
