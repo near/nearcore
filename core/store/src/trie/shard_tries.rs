@@ -65,7 +65,13 @@ impl ShardTries {
         let shard_uids: Vec<ShardUId> =
             (0..num_shards as u32).map(|shard_id| ShardUId { shard_id, version }).collect();
         let trie_config = TrieConfig::default();
-        ShardTries::new(store.clone(), trie_config, &shard_uids, FlatStorageManager::new(store))
+
+        ShardTries::new(
+            store.clone(),
+            trie_config,
+            &shard_uids,
+            FlatStorageManager::test(store, &shard_uids, CryptoHash::default()),
+        )
     }
 
     /// Create caches for all shards according to the trie config.
@@ -143,7 +149,7 @@ impl ShardTries {
             prefetch_api,
         ));
         let flat_storage_chunk_view =
-            self.0.flat_storage_manager.chunk_view(shard_uid.shard_id(), block_hash, is_view);
+            self.0.flat_storage_manager.chunk_view(shard_uid, block_hash, is_view);
 
         Trie::new(storage, state_root, flat_storage_chunk_view)
     }

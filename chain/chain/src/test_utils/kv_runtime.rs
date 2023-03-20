@@ -829,7 +829,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         ))
     }
 
-    fn get_flat_storage_for_shard(&self, _shard_id: ShardId) -> Option<FlatStorage> {
+    fn get_flat_storage_for_shard(&self, _shard_uid: ShardUId) -> Option<FlatStorage> {
         None
     }
 
@@ -843,7 +843,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn remove_flat_storage_for_shard(
         &self,
-        _shard_id: ShardId,
+        _shard_uid: ShardUId,
         _epoch_id: &EpochId,
     ) -> Result<(), Error> {
         Ok(())

@@ -297,7 +297,7 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: StateRoot,
     ) -> Result<Trie, Error>;
 
-    fn get_flat_storage_for_shard(&self, shard_id: ShardId) -> Option<FlatStorage>;
+    fn get_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Option<FlatStorage>;
 
     fn get_flat_storage_status(&self, shard_uid: ShardUId) -> FlatStorageStatus;
 
@@ -310,7 +310,7 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Used to clear old flat storage data from disk and memory before syncing to newer state.
     fn remove_flat_storage_for_shard(
         &self,
-        shard_id: ShardId,
+        shard_uid: ShardUId,
         epoch_id: &EpochId,
     ) -> Result<(), Error>;
 
