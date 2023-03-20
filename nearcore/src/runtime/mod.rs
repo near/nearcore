@@ -1271,16 +1271,16 @@ impl RuntimeAdapter for NightshadeRuntime {
                     Ok(_) => true,
                     // Storage error should not happen
                     Err(err) => {
-                        tracing::error!(target: "state-parts", ?err, "Storage error");
+                        tracing::error!(target: "state-parts", ?err, "State part storage error");
                         false
                     }
                 }
             }
             // Deserialization error means we've got the data from malicious peer
             Err(err) => {
-                tracing::error!(target: "state-parts", ?err, "Deserialization error");
+                tracing::error!(target: "state-parts", ?err, "State part deserialization error");
                 false
-            },
+            }
         }
     }
 
@@ -1932,11 +1932,11 @@ mod test {
                     * U256::from(self.runtime.genesis_config.total_supply)
                     * U256::from(epoch_duration)
                     / (U256::from(num_seconds_per_year)
-                    * U256::from(
-                    *self.runtime.genesis_config.max_inflation_rate.denom() as u128
-                )
-                    * U256::from(num_ns_in_second)))
-                    .as_u128();
+                        * U256::from(
+                            *self.runtime.genesis_config.max_inflation_rate.denom() as u128
+                        )
+                        * U256::from(num_ns_in_second)))
+                .as_u128();
             let per_epoch_protocol_treasury = per_epoch_total_reward
                 * *self.runtime.genesis_config.protocol_reward_rate.numer() as u128
                 / *self.runtime.genesis_config.protocol_reward_rate.denom() as u128;
@@ -2451,7 +2451,7 @@ mod test {
                     block_producers[0].public_key(),
                     0,
                 )
-                    .into()],
+                .into()],
                 prev_epoch_kickout: Default::default(),
                 epoch_start_height: 1,
                 epoch_height: 1,
@@ -2533,11 +2533,11 @@ mod test {
         assert!(
             env.runtime.cares_about_shard(Some(&validators[0]), &env.head.last_block_hash, 1, true)
                 ^ env.runtime.cares_about_shard(
-                Some(&validators[1]),
-                &env.head.last_block_hash,
-                1,
-                true
-            )
+                    Some(&validators[1]),
+                    &env.head.last_block_hash,
+                    1,
+                    true
+                )
         );
         assert!(env.runtime.cares_about_shard(
             Some(&validators[1]),
