@@ -229,35 +229,39 @@ fn apply_state_parts(
     store: Store,
     location: Location,
 ) {
-    let (state_root, epoch_height, epoch_id, sync_hash) = if let (
+    let (state_root, epoch_height, epoch_id, sync_hash, sync_prev_hash) = if let (
         Some(state_root),
         EpochSelection::EpochHeight { epoch_height },
     ) =
         (maybe_state_root, &epoch_selection)
     {
-        (state_root, *epoch_height, None, None)
+        (state_root, *epoch_height, None, None, None)
     } else {
         let epoch_id = epoch_selection.to_epoch_id(store, &chain);
         let epoch = chain.runtime_adapter.get_epoch_info(&epoch_id).unwrap();
 
         let sync_hash = get_any_block_hash_of_epoch(&epoch, &chain);
         let sync_hash = StateSync::get_epoch_start_sync_hash(&chain, &sync_hash).unwrap();
-        let sync_block = chain.get_block(&sync_hash).unwrap();
+        let sync_header = chain.get_block_header(&sync_hash).unwrap();
+        // See `get_state_response_header()`.
+        let sync_prev_block = chain.get_block(sync_header.prev_hash()).unwrap();
+        let sync_prev_hash = sync_prev_block.hash();
         tracing::info!(
             target: "state-parts",
             ?sync_hash,
-            height = sync_block.header().height(),
-            state_roots = ?sync_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect::<Vec<StateRoot>>());
+            ?sync_prev_hash,
+            height = sync_prev_block.header().height(),
+            state_roots = ?sync_prev_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect::<Vec<StateRoot>>());
 
-        assert!(chain.runtime_adapter.is_next_block_epoch_start(&sync_hash).unwrap());
+        assert!(chain.runtime_adapter.is_next_block_epoch_start(&sync_prev_hash).unwrap());
         assert!(
-            shard_id < sync_block.chunks().len() as u64,
+            shard_id < sync_prev_block.chunks().len() as u64,
             "shard_id: {}, #shards: {}",
             shard_id,
-            sync_block.chunks().len()
+            sync_prev_block.chunks().len()
         );
-        let state_root = sync_block.chunks()[shard_id as usize].prev_state_root();
-        (state_root, epoch.epoch_height(), Some(epoch_id), Some(sync_hash))
+        let state_root = sync_prev_block.chunks()[shard_id as usize].prev_state_root();
+        (state_root, epoch.epoch_height(), Some(epoch_id), Some(sync_hash), Some(*sync_prev_hash))
     };
 
     let part_storage = get_state_part_reader(location, &chain_id, epoch_height, shard_id);
@@ -270,6 +274,7 @@ fn apply_state_parts(
         epoch_height,
         shard_id,
         num_parts,
+        ?sync_prev_hash,
         ?sync_hash,
         ?part_ids,
         "Applying state as seen at the beginning of the specified epoch.",
@@ -327,18 +332,21 @@ fn dump_state_parts(
     let epoch = chain.runtime_adapter.get_epoch_info(&epoch_id).unwrap();
     let sync_hash = get_any_block_hash_of_epoch(&epoch, &chain);
     let sync_hash = StateSync::get_epoch_start_sync_hash(&chain, &sync_hash).unwrap();
-    let sync_block = chain.get_block(&sync_hash).unwrap();
+    let sync_header = chain.get_block_header(&sync_hash).unwrap();
+    // See `get_state_response_header()`.
+    let sync_prev_block = chain.get_block(sync_header.prev_hash()).unwrap();
+    let sync_prev_hash = sync_prev_block.hash();
 
-    assert!(chain.runtime_adapter.is_next_block_epoch_start(&sync_hash).unwrap());
+    assert!(chain.runtime_adapter.is_next_block_epoch_start(&sync_prev_hash).unwrap());
     assert!(
-        shard_id < sync_block.chunks().len() as u64,
+        shard_id < sync_prev_block.chunks().len() as u64,
         "shard_id: {}, #shards: {}",
         shard_id,
-        sync_block.chunks().len()
+        sync_prev_block.chunks().len()
     );
-    let state_root = sync_block.chunks()[shard_id as usize].prev_state_root();
+    let state_root = sync_prev_block.chunks()[shard_id as usize].prev_state_root();
     let state_root_node =
-        chain.runtime_adapter.get_state_root_node(shard_id, &sync_hash, &state_root).unwrap();
+        chain.runtime_adapter.get_state_root_node(shard_id, &sync_prev_hash, &state_root).unwrap();
 
     let num_parts = get_num_state_parts(state_root_node.memory_usage);
     let part_ids = get_part_ids(part_from, part_to, num_parts);
@@ -350,6 +358,7 @@ fn dump_state_parts(
         shard_id,
         num_parts,
         ?sync_hash,
+        ?sync_prev_hash,
         ?part_ids,
         ?state_root,
         "Dumping state as seen at the beginning of the specified epoch.",
@@ -371,6 +380,7 @@ fn dump_state_parts(
     tracing::info!(target: "state-parts", total_elapsed_sec = timer.elapsed().as_secs_f64(), "Wrote all requested state parts");
 }
 
+/// Reads `StateHeader` stored in the DB.
 fn read_state_header(
     epoch_selection: EpochSelection,
     shard_id: ShardId,

@@ -368,13 +368,17 @@ fn start_dumping(
     let epoch_info = runtime.get_epoch_info(&epoch_id)?;
     let epoch_height = epoch_info.epoch_height();
     let num_shards = runtime.num_shards(&epoch_id)?;
-    let sync_hash_block = chain.get_block(&sync_hash)?;
-    if runtime.cares_about_shard(None, sync_hash_block.header().prev_hash(), shard_id, false) {
-        assert_eq!(num_shards, sync_hash_block.chunks().len() as u64);
-        let state_root = sync_hash_block.chunks()[shard_id as usize].prev_state_root();
-        let state_root_node = runtime.get_state_root_node(shard_id, &sync_hash, &state_root)?;
+    let sync_prev_header = chain.get_block_header(&sync_hash)?;
+    let sync_prev_hash = sync_prev_header.prev_hash();
+    let prev_sync_block = chain.get_block(&sync_prev_hash)?;
+    if runtime.cares_about_shard(None, prev_sync_block.header().prev_hash(), shard_id, false) {
+        assert_eq!(num_shards, prev_sync_block.chunks().len() as u64);
+        let state_root = prev_sync_block.chunks()[shard_id as usize].prev_state_root();
+        // See `get_state_response_header()` for reference.
+        let state_root_node =
+            runtime.get_state_root_node(shard_id, &sync_prev_hash, &state_root)?;
         let num_parts = get_num_state_parts(state_root_node.memory_usage);
-        tracing::debug!(target: "state_sync_dump", shard_id, ?epoch_id, %sync_hash, %state_root, num_parts, "Initialize dumping state of Epoch");
+        tracing::debug!(target: "state_sync_dump", shard_id, ?epoch_id, %sync_prev_hash, %sync_hash, %state_root, num_parts, "Initialize dumping state of Epoch");
         // Note that first the state of the state machines gets changes to
         // `InProgress` and it starts dumping state after a short interval.
         set_metrics(&shard_id, Some(0), Some(num_parts), Some(epoch_height));
@@ -387,7 +391,7 @@ fn start_dumping(
             num_parts,
         }))
     } else {
-        tracing::debug!(target: "state_sync_dump", shard_id, ?epoch_id, %sync_hash, "Shard is not tracked, skip the epoch");
+        tracing::debug!(target: "state_sync_dump", shard_id, ?epoch_id, %sync_prev_hash, %sync_hash, "Shard is not tracked, skip the epoch");
         Ok(Some(StateSyncDumpProgress::AllDumped { epoch_id, epoch_height, num_parts: Some(0) }))
     }
 }
