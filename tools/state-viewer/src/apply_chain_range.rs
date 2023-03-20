@@ -1,10 +1,3 @@
-use std::fs::File;
-use std::io::Write;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
-
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
-
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::ApplyTransactionResult;
@@ -19,6 +12,11 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_store::{get, DBCol, Store};
 use nearcore::NightshadeRuntime;
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use std::fs::File;
+use std::io::Write;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
 
 fn timestamp_ms() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};

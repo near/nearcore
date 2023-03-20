@@ -1,12 +1,11 @@
 use crate::epoch_info::iterate_and_filter;
-use clap::Subcommand;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_epoch_manager::EpochManager;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::state_part::PartId;
 use near_primitives::syncing::get_num_state_parts;
-use near_primitives::types::EpochId;
+use near_primitives::types::{EpochId, StateRoot};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{BlockHeight, EpochHeight, ShardId};
 use near_store::Store;
@@ -19,7 +18,81 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
 
-#[derive(Subcommand, Debug, Clone)]
+#[derive(clap::Subcommand, Debug, Clone)]
+pub(crate) enum StatePartsSubCommand {
+    /// Apply all or a single state part of a shard.
+    Apply {
+        /// If true, validate the state part but don't write it to the DB.
+        #[clap(long)]
+        dry_run: bool,
+        /// If provided, this value will be used instead of looking it up in the headers.
+        /// Use if those headers or blocks are not available.
+        #[clap(long)]
+        state_root: Option<StateRoot>,
+        /// Choose a single part id.
+        /// If None - affects all state parts.
+        #[clap(long)]
+        part_id: Option<u64>,
+        /// Select an epoch to work on.
+        #[clap(subcommand)]
+        epoch_selection: EpochSelection,
+    },
+    /// Dump all or a single state part of a shard.
+    Dump {
+        /// Dump part ids starting from this part.
+        #[clap(long)]
+        part_from: Option<u64>,
+        /// Dump part ids up to this part (exclusive).
+        #[clap(long)]
+        part_to: Option<u64>,
+        /// Select an epoch to work on.
+        #[clap(subcommand)]
+        epoch_selection: EpochSelection,
+    },
+}
+
+impl StatePartsSubCommand {
+    pub(crate) fn run(
+        self,
+        shard_id: ShardId,
+        root_dir: Option<PathBuf>,
+        s3_bucket: Option<String>,
+        s3_region: Option<String>,
+        home_dir: &Path,
+        near_config: NearConfig,
+        store: Store,
+    ) {
+        match self {
+            StatePartsSubCommand::Apply { dry_run, state_root, part_id, epoch_selection } => {
+                apply_state_parts(
+                    epoch_selection,
+                    shard_id,
+                    part_id,
+                    dry_run,
+                    state_root,
+                    home_dir,
+                    near_config,
+                    store,
+                    Location::new(root_dir, (s3_bucket, s3_region)),
+                );
+            }
+            StatePartsSubCommand::Dump { part_from, part_to, epoch_selection } => {
+                dump_state_parts(
+                    epoch_selection,
+                    shard_id,
+                    part_from,
+                    part_to,
+                    home_dir,
+                    near_config,
+                    store,
+                    Location::new(root_dir, (s3_bucket, s3_region)),
+                );
+            }
+        }
+    }
+}
+
+#[derive(clap::Subcommand, Debug, Clone)]
 pub(crate) enum EpochSelection {
     /// Current epoch.
     Current,
@@ -34,7 +107,7 @@ pub(crate) enum EpochSelection {
 }
 
 impl EpochSelection {
-    pub fn to_epoch_id(
+    fn to_epoch_id(
         &self,
         store: Store,
         chain_store: &ChainStore,
@@ -70,13 +143,13 @@ impl EpochSelection {
     }
 }
 
-pub(crate) enum Location {
+enum Location {
     Files(PathBuf),
     S3 { bucket: String, region: String },
 }
 
 impl Location {
-    pub(crate) fn new(
+    fn new(
         root_dir: Option<PathBuf>,
         s3_bucket_and_region: (Option<String>, Option<String>),
     ) -> Self {
@@ -134,10 +207,12 @@ fn get_prev_hash_of_epoch(
     }
 }
 
-pub(crate) fn apply_state_parts(
+fn apply_state_parts(
     epoch_selection: EpochSelection,
     shard_id: ShardId,
     part_id: Option<u64>,
+    dry_run: bool,
+    maybe_state_root: Option<StateRoot>,
     home_dir: &Path,
     near_config: NearConfig,
     store: Store,
@@ -156,17 +231,23 @@ pub(crate) fn apply_state_parts(
 
     let epoch_id = epoch_selection.to_epoch_id(store, &chain_store, &epoch_manager);
     let epoch = epoch_manager.get_epoch_info(&epoch_id).unwrap();
-    let sync_prev_hash = get_prev_hash_of_epoch(&epoch, &chain_store, &epoch_manager);
-    let sync_prev_block = chain_store.get_block(&sync_prev_hash).unwrap();
 
-    assert!(epoch_manager.is_next_block_epoch_start(&sync_prev_hash).unwrap());
-    assert!(
-        shard_id < sync_prev_block.chunks().len() as u64,
-        "shard_id: {}, #shards: {}",
-        shard_id,
-        sync_prev_block.chunks().len()
-    );
-    let state_root = sync_prev_block.chunks()[shard_id as usize].prev_state_root();
+    let (state_root, sync_prev_hash) = if let Some(state_root) = maybe_state_root {
+        (state_root, None)
+    } else {
+        let sync_prev_hash = get_prev_hash_of_epoch(&epoch, &chain_store, &epoch_manager);
+        let sync_prev_block = chain_store.get_block(&sync_prev_hash).unwrap();
+
+        assert!(epoch_manager.is_next_block_epoch_start(&sync_prev_hash).unwrap());
+        assert!(
+            shard_id < sync_prev_block.chunks().len() as u64,
+            "shard_id: {}, #shards: {}",
+            shard_id,
+            sync_prev_block.chunks().len()
+        );
+        let state_root = sync_prev_block.chunks()[shard_id as usize].prev_state_root();
+        (state_root, Some(sync_prev_hash))
+    };
 
     let part_storage = get_state_part_reader(
         location,
@@ -176,6 +257,7 @@ pub(crate) fn apply_state_parts(
     );
 
     let num_parts = part_storage.num_parts();
+    assert_ne!(num_parts, 0, "Too few num_parts: {}", num_parts);
     let part_ids = get_part_ids(part_id, part_id.map(|x| x + 1), num_parts);
     tracing::info!(
         target: "state-parts",
@@ -192,22 +274,32 @@ pub(crate) fn apply_state_parts(
     for part_id in part_ids {
         let timer = Instant::now();
         assert!(part_id < num_parts, "part_id: {}, num_parts: {}", part_id, num_parts);
-        let part = part_storage.read(part_id);
-        runtime_adapter
-            .apply_state_part(
-                shard_id,
+        let part = part_storage.read(part_id, num_parts);
+
+        if dry_run {
+            assert!(runtime_adapter.validate_state_part(
                 &state_root,
                 PartId::new(part_id, num_parts),
-                &part,
-                &epoch_id,
-            )
-            .unwrap();
-        tracing::info!(target: "state-parts", part_id, part_length = part.len(), elapsed_sec = timer.elapsed().as_secs_f64(), "Applied a state part");
+                &part
+            ));
+            tracing::info!(target: "state-parts", part_id, part_length = part.len(), elapsed_sec = timer.elapsed().as_secs_f64(), "Validated a state part");
+        } else {
+            runtime_adapter
+                .apply_state_part(
+                    shard_id,
+                    &state_root,
+                    PartId::new(part_id, num_parts),
+                    &part,
+                    &epoch_id,
+                )
+                .unwrap();
+            tracing::info!(target: "state-parts", part_id, part_length = part.len(), elapsed_sec = timer.elapsed().as_secs_f64(), "Applied a state part");
+        }
     }
     tracing::info!(target: "state-parts", total_elapsed_sec = timer.elapsed().as_secs_f64(), "Applied all requested state parts");
 }
 
-pub(crate) fn dump_state_parts(
+fn dump_state_parts(
     epoch_selection: EpochSelection,
     shard_id: ShardId,
     part_from: Option<u64>,
@@ -277,7 +369,7 @@ pub(crate) fn dump_state_parts(
                 PartId::new(part_id, num_parts),
             )
             .unwrap();
-        part_storage.write(&state_part, part_id);
+        part_storage.write(&state_part, part_id, num_parts);
         tracing::info!(target: "state-parts", part_id, part_length = state_part.len(), elapsed_sec = timer.elapsed().as_secs_f64(), "Wrote a state part");
     }
     tracing::info!(target: "state-parts", total_elapsed_sec = timer.elapsed().as_secs_f64(), "Wrote all requested state parts");
@@ -291,21 +383,36 @@ fn location_prefix(chain_id: &str, epoch_height: u64, shard_id: u64) -> String {
     format!("chain_id={}/epoch_height={}/shard_id={}", chain_id, epoch_height, shard_id)
 }
 
-fn is_part_filename(s: &str) -> bool {
-    let re = regex::Regex::new(r"^state_part_(\d{6})$").unwrap();
-    re.is_match(s)
+fn match_filename(s: &str) -> Option<regex::Captures> {
+    let re = regex::Regex::new(r"^state_part_(\d{6})_of_(\d{6})$").unwrap();
+    re.captures(s)
 }
 
-fn part_filename(part_id: u64) -> String {
-    format!("state_part_{:06}", part_id)
+fn is_part_filename(s: &str) -> bool {
+    match_filename(s).is_some()
+}
+
+fn get_num_parts_from_filename(s: &str) -> Option<u64> {
+    if let Some(captures) = match_filename(s) {
+        if let Some(num_parts) = captures.get(2) {
+            if let Ok(num_parts) = num_parts.as_str().parse::<u64>() {
+                return Some(num_parts);
+            }
+        }
+    }
+    None
+}
+
+fn part_filename(part_id: u64, num_parts: u64) -> String {
+    format!("state_part_{:06}_of_{:06}", part_id, num_parts)
 }
 
 trait StatePartWriter {
-    fn write(&self, state_part: &[u8], part_id: u64);
+    fn write(&self, state_part: &[u8], part_id: u64, num_parts: u64);
 }
 
 trait StatePartReader {
-    fn read(&self, part_id: u64) -> Vec<u8>;
+    fn read(&self, part_id: u64, num_parts: u64) -> Vec<u8>;
     fn num_parts(&self) -> u64;
 }
 
@@ -362,22 +469,22 @@ impl FileSystemStorage {
         Self { state_parts_dir }
     }
 
-    fn get_location(&self, part_id: u64) -> PathBuf {
-        (&self.state_parts_dir).join(part_filename(part_id))
+    fn get_location(&self, part_id: u64, num_parts: u64) -> PathBuf {
+        (&self.state_parts_dir).join(part_filename(part_id, num_parts))
     }
 }
 
 impl StatePartWriter for FileSystemStorage {
-    fn write(&self, state_part: &[u8], part_id: u64) {
-        let filename = self.get_location(part_id);
+    fn write(&self, state_part: &[u8], part_id: u64, num_parts: u64) {
+        let filename = self.get_location(part_id, num_parts);
         std::fs::write(&filename, state_part).unwrap();
         tracing::info!(target: "state-parts", part_id, part_length = state_part.len(), ?filename, "Wrote a state part to disk");
     }
 }
 
 impl StatePartReader for FileSystemStorage {
-    fn read(&self, part_id: u64) -> Vec<u8> {
-        let filename = self.get_location(part_id);
+    fn read(&self, part_id: u64, num_parts: u64) -> Vec<u8> {
+        let filename = self.get_location(part_id, num_parts);
         let part = std::fs::read(filename).unwrap();
         part
     }
@@ -421,22 +528,22 @@ impl S3Storage {
         Self { location, bucket }
     }
 
-    fn get_location(&self, part_id: u64) -> String {
-        format!("{}/{}", self.location, part_filename(part_id))
+    fn get_location(&self, part_id: u64, num_parts: u64) -> String {
+        format!("{}/{}", self.location, part_filename(part_id, num_parts))
     }
 }
 
 impl StatePartWriter for S3Storage {
-    fn write(&self, state_part: &[u8], part_id: u64) {
-        let location = self.get_location(part_id);
+    fn write(&self, state_part: &[u8], part_id: u64, num_parts: u64) {
+        let location = self.get_location(part_id, num_parts);
         self.bucket.put_object_blocking(&location, &state_part).unwrap();
         tracing::info!(target: "state-parts", part_id, part_length = state_part.len(), ?location, "Wrote a state part to S3");
     }
 }
 
 impl StatePartReader for S3Storage {
-    fn read(&self, part_id: u64) -> Vec<u8> {
-        let location = self.get_location(part_id);
+    fn read(&self, part_id: u64, num_parts: u64) -> Vec<u8> {
+        let location = self.get_location(part_id, num_parts);
         let response = self.bucket.get_object_blocking(location.clone()).unwrap();
         tracing::info!(target: "state-parts", part_id, location, response_code = response.status_code(), "Got an object from S3");
         assert_eq!(response.status_code(), 200);
@@ -449,17 +556,27 @@ impl StatePartReader for S3Storage {
         let list: Vec<ListBucketResult> =
             self.bucket.list_blocking(location, Some("/".to_string())).unwrap();
         assert_eq!(list.len(), 1);
-        let num_parts = list[0]
+        let mut known_num_parts = None;
+        let num_objects = list[0]
             .contents
             .iter()
             .filter(|object| {
                 let filename = Path::new(&object.key);
                 let filename = filename.file_name().unwrap().to_str().unwrap();
                 tracing::debug!(target: "state-parts", object_key = ?object.key, ?filename);
+                if let Some(num_parts) = get_num_parts_from_filename(filename) {
+                    if let Some(known_num_parts) = known_num_parts {
+                        assert_eq!(known_num_parts, num_parts);
+                    }
+                    known_num_parts = Some(num_parts);
+                }
                 is_part_filename(filename)
             })
             .collect::<Vec<&s3::serde_types::Object>>()
             .len();
-        num_parts as u64
+        if let Some(known_num_parts) = known_num_parts {
+            assert_eq!(known_num_parts, num_objects as u64);
+        }
+        num_objects as u64
     }
 }

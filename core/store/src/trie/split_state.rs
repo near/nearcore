@@ -1,3 +1,4 @@
+use crate::flat::FlatStateChanges;
 use crate::trie::iterator::TrieItem;
 use crate::{
     get, get_delayed_receipt_indices, set, ShardTries, StoreUpdate, Trie, TrieChanges, TrieUpdate,
@@ -195,8 +196,12 @@ impl ShardTries {
         let mut new_state_roots = HashMap::new();
         let mut store_update = self.store_update();
         for (shard_uid, update) in updates {
-            let (trie_changes, _) = update.finalize()?;
+            let (trie_changes, state_changes) = update.finalize()?;
             let state_root = self.apply_all(&trie_changes, shard_uid, &mut store_update);
+            if cfg!(feature = "protocol_feature_flat_state") {
+                FlatStateChanges::from_state_changes(&state_changes)
+                    .apply_to_flat_state(&mut store_update, shard_uid);
+            }
             new_state_roots.insert(shard_uid, state_root);
         }
         Ok((store_update, new_state_roots))
