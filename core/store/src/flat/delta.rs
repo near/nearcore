@@ -15,7 +15,7 @@ pub struct FlatStateDelta {
     pub changes: FlatStateChanges,
 }
 
-#[derive(BorshSerialize, BorshDeserialize)]
+#[derive(BorshSerialize, BorshDeserialize, Debug)]
 pub struct FlatStateDeltaMetadata {
     pub block: BlockInfo,
 }
@@ -38,9 +38,12 @@ impl KeyForFlatStateDelta {
 #[derive(BorshSerialize, BorshDeserialize, Clone, Default, Debug, PartialEq, Eq)]
 pub struct FlatStateChanges(pub(crate) HashMap<Vec<u8>, Option<ValueRef>>);
 
-impl<const N: usize> From<[(Vec<u8>, Option<ValueRef>); N]> for FlatStateChanges {
-    fn from(arr: [(Vec<u8>, Option<ValueRef>); N]) -> Self {
-        Self(HashMap::from(arr))
+impl<T> From<T> for FlatStateChanges
+where
+    T: IntoIterator<Item = (Vec<u8>, Option<ValueRef>)>,
+{
+    fn from(iter: T) -> Self {
+        Self(HashMap::from_iter(iter))
     }
 }
 
@@ -69,10 +72,6 @@ impl FlatStateChanges {
         let mut delta = HashMap::new();
         for change in changes.iter() {
             let key = change.trie_key.to_vec();
-            if near_primitives::state_record::is_delayed_receipt_key(&key) {
-                continue;
-            }
-
             // `RawStateChangesWithTrieKey` stores all sequential changes for a key within a chunk, so it is sufficient
             // to take only the last change.
             let last_change = &change
@@ -147,8 +146,24 @@ mod tests {
         let alice_trie_key = TrieKey::ContractCode { account_id: "alice".parse().unwrap() };
         let bob_trie_key = TrieKey::ContractCode { account_id: "bob".parse().unwrap() };
         let carol_trie_key = TrieKey::ContractCode { account_id: "carol".parse().unwrap() };
+        let delayed_trie_key = TrieKey::DelayedReceiptIndices;
+        let delayed_receipt_trie_key = TrieKey::DelayedReceipt { index: 1 };
 
         let state_changes = vec![
+            RawStateChangesWithTrieKey {
+                trie_key: delayed_trie_key.clone(),
+                changes: vec![RawStateChange {
+                    cause: StateChangeCause::InitialState,
+                    data: Some(vec![1]),
+                }],
+            },
+            RawStateChangesWithTrieKey {
+                trie_key: delayed_receipt_trie_key.clone(),
+                changes: vec![RawStateChange {
+                    cause: StateChangeCause::InitialState,
+                    data: Some(vec![2]),
+                }],
+            },
             RawStateChangesWithTrieKey {
                 trie_key: alice_trie_key.clone(),
                 changes: vec![
@@ -188,34 +203,14 @@ mod tests {
         );
         assert_eq!(flat_state_changes.get(&bob_trie_key.to_vec()), Some(None));
         assert_eq!(flat_state_changes.get(&carol_trie_key.to_vec()), None);
-    }
-
-    /// Check that keys related to delayed receipts are not included to `FlatStateChanges`.
-    #[test]
-    fn flat_state_changes_delayed_keys() {
-        let delayed_trie_key = TrieKey::DelayedReceiptIndices;
-        let delayed_receipt_trie_key = TrieKey::DelayedReceipt { index: 1 };
-
-        let state_changes = vec![
-            RawStateChangesWithTrieKey {
-                trie_key: delayed_trie_key.clone(),
-                changes: vec![RawStateChange {
-                    cause: StateChangeCause::InitialState,
-                    data: Some(vec![1]),
-                }],
-            },
-            RawStateChangesWithTrieKey {
-                trie_key: delayed_receipt_trie_key.clone(),
-                changes: vec![RawStateChange {
-                    cause: StateChangeCause::InitialState,
-                    data: Some(vec![2]),
-                }],
-            },
-        ];
-
-        let flat_state_changes = FlatStateChanges::from_state_changes(&state_changes);
-        assert!(flat_state_changes.get(&delayed_trie_key.to_vec()).is_none());
-        assert!(flat_state_changes.get(&delayed_receipt_trie_key.to_vec()).is_none());
+        assert_eq!(
+            flat_state_changes.get(&delayed_trie_key.to_vec()),
+            Some(Some(ValueRef::new(&[1])))
+        );
+        assert_eq!(
+            flat_state_changes.get(&delayed_receipt_trie_key.to_vec()),
+            Some(Some(ValueRef::new(&[2])))
+        );
     }
 
     /// Check that merge of `FlatStateChanges`s overrides the old changes for the same keys and doesn't conflict with

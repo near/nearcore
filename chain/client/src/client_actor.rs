@@ -1239,6 +1239,59 @@ impl ClientActor {
         Ok(())
     }
 
+    fn send_chunks_metrics(&mut self, block: &Block) {
+        let chunks = block.chunks();
+        for (chunk, &included) in chunks.iter().zip(block.header().chunk_mask().iter()) {
+            if included {
+                self.info_helper.chunk_processed(
+                    chunk.shard_id(),
+                    chunk.gas_used(),
+                    chunk.balance_burnt(),
+                );
+            } else {
+                self.info_helper.chunk_skipped(chunk.shard_id());
+            }
+        }
+    }
+
+    fn send_block_metrics(&mut self, block: &Block) {
+        let chunks_in_block = block.header().chunk_mask().iter().filter(|&&m| m).count();
+        let gas_used = Block::compute_gas_used(block.chunks().iter(), block.header().height());
+
+        let last_final_hash = block.header().last_final_block();
+        let last_final_ds_hash = block.header().last_ds_final_block();
+        let last_final_block_height = self
+            .client
+            .chain
+            .get_block(&last_final_hash)
+            .map_or(0, |block| block.header().height());
+        let last_final_ds_block_height = self
+            .client
+            .chain
+            .get_block(&last_final_ds_hash)
+            .map_or(0, |block| block.header().height());
+
+        let epoch_height =
+            self.client.runtime_adapter.get_epoch_height_from_prev_block(block.hash()).unwrap_or(0);
+        let epoch_start_height = self
+            .client
+            .runtime_adapter
+            .get_epoch_start_height(&last_final_hash)
+            .unwrap_or(last_final_block_height);
+        let last_final_block_height_in_epoch = last_final_block_height - epoch_start_height;
+
+        self.info_helper.block_processed(
+            gas_used,
+            chunks_in_block as u64,
+            block.header().gas_price(),
+            block.header().total_supply(),
+            last_final_block_height,
+            last_final_ds_block_height,
+            epoch_height,
+            last_final_block_height_in_epoch,
+        );
+    }
+
     /// Process all blocks that were accepted by calling other relevant services.
     fn process_accepted_blocks(&mut self, accepted_blocks: Vec<CryptoHash>) {
         let _span = tracing::debug_span!(
@@ -1248,51 +1301,9 @@ impl ClientActor {
         .entered();
         for accepted_block in accepted_blocks {
             let block = self.client.chain.get_block(&accepted_block).unwrap().clone();
-            let chunks_in_block = block.header().chunk_mask().iter().filter(|&&m| m).count();
-            let gas_used = Block::compute_gas_used(block.chunks().iter(), block.header().height());
-
-            let last_final_hash = block.header().last_final_block();
-            let last_final_ds_hash = block.header().last_ds_final_block();
-            let last_final_block_height = self
-                .client
-                .chain
-                .get_block(&last_final_hash)
-                .map_or(0, |block| block.header().height());
-            let last_final_ds_block_height = self
-                .client
-                .chain
-                .get_block(&last_final_ds_hash)
-                .map_or(0, |block| block.header().height());
-
-            let chunks = block.chunks();
-            for (chunk, &included) in chunks.iter().zip(block.header().chunk_mask().iter()) {
-                if included {
-                    self.info_helper.chunk_processed(
-                        chunk.shard_id(),
-                        chunk.gas_used(),
-                        chunk.balance_burnt(),
-                    );
-                } else {
-                    self.info_helper.chunk_skipped(chunk.shard_id());
-                }
-            }
-
-            let epoch_height = self
-                .client
-                .runtime_adapter
-                .get_epoch_height_from_prev_block(block.hash())
-                .unwrap_or(0);
-
-            self.info_helper.block_processed(
-                gas_used,
-                chunks_in_block as u64,
-                block.header().gas_price(),
-                block.header().total_supply(),
-                last_final_block_height,
-                last_final_ds_block_height,
-                epoch_height,
-            );
-            self.check_send_announce_account(*last_final_hash);
+            self.send_chunks_metrics(&block);
+            self.send_block_metrics(&block);
+            self.check_send_announce_account(*block.header().last_final_block());
         }
     }
 

@@ -434,6 +434,11 @@ pub(crate) fn generate_data_only_contract(data_size: usize, config: &VMConfig) -
     wasm
 }
 
+pub(crate) fn random_vec(len: usize) -> Vec<u8> {
+    let mut rng = rand::thread_rng();
+    (0..len).map(|_| rng.gen()).collect()
+}
+
 #[cfg(test)]
 mod test {
     use super::percentiles;

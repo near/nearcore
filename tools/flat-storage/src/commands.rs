@@ -129,7 +129,7 @@ impl FlatStorageCommand {
                     rw_hot_runtime.shard_id_to_uid(reset_cmd.shard_id, &tip.epoch_id)?;
                 rw_hot_runtime.create_flat_storage_for_shard(shard_uid);
 
-                rw_hot_runtime.remove_flat_storage_for_shard(reset_cmd.shard_id, &tip.epoch_id)?;
+                rw_hot_runtime.remove_flat_storage_for_shard(shard_uid, &tip.epoch_id)?;
             }
             SubCommand::Init(init_cmd) => {
                 let (_, rw_hot_runtime, rw_chain_store, rw_hot_store) = Self::get_db(
