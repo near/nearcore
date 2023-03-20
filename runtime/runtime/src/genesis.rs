@@ -80,14 +80,19 @@ impl<'a> StorageComputer<'a> {
     }
 }
 
-/// The number of storage modifications stored in memory that we target.
-const TARGET_OUTSTANDING_WRITES: usize = 0x100_000;
+/// The number of buffered storage modifications stored in memory.
+///
+/// Note that the actual number of changes stored in memory may be higher, and this is a very rough
+/// limit on the memory usage. For instance – 100k writes of 4MiB (maximum size) contracts is still
+/// going to be half a terabyte worth of memory, but in practice this does not seem to be a problem
+/// and the memory usage stays fairly consistent throughout the process.
+const TARGET_OUTSTANDING_WRITES: usize = 100_000;
 
 pub(crate) struct AutoFlushingTrieUpdate<'a> {
     tries: &'a ShardTries,
     shard_uid: ShardUId,
     state_root: StateRoot,
-    state_update: TrieUpdate,
+    state_update: Option<TrieUpdate>,
     changes: usize,
     active_writers: &'a atomic::AtomicUsize,
 }
@@ -105,7 +110,7 @@ impl<'a> AutoFlushingTrieUpdate<'a> {
             state_root,
             tries,
             changes: 0,
-            state_update: tries.new_trie_update(uid, state_root),
+            state_update: Some(tries.new_trie_update(uid, state_root)),
             shard_uid: uid,
         }
     }
@@ -113,7 +118,7 @@ impl<'a> AutoFlushingTrieUpdate<'a> {
     fn modify<R>(&mut self, process_callback: impl FnOnce(&mut TrieUpdate) -> R) -> R {
         let Self { ref mut changes, ref mut state_update, .. } = self;
         // See if we should consider flushing.
-        let result = process_callback(state_update);
+        let result = process_callback(state_update.as_mut().expect("state update should be set"));
         let writers = self.active_writers.load(atomic::Ordering::Relaxed);
         let target_updates = TARGET_OUTSTANDING_WRITES / writers;
         *changes += 1;
@@ -132,13 +137,8 @@ impl<'a> AutoFlushingTrieUpdate<'a> {
             %changes,
             "flushing changes"
         );
-        state_update.commit(StateChangeCause::InitialState);
-        // Temporarily store a trie update with the "wrong" state root. This will be replaced
-        // shortly as soon as we know the new state root.
-        let old_state_update = std::mem::replace(
-            state_update,
-            self.tries.new_trie_update(self.shard_uid, *state_root),
-        );
+        let mut old_state_update = state_update.take().expect("state update should be set");
+        old_state_update.commit(StateChangeCause::InitialState);
         let (_, trie_changes, state_changes) =
             old_state_update.finalize().expect("Genesis state update failed");
         let mut store_update = self.tries.store_update();
@@ -147,9 +147,8 @@ impl<'a> AutoFlushingTrieUpdate<'a> {
             FlatStateChanges::from_state_changes(&state_changes)
                 .apply_to_flat_state(&mut store_update, self.shard_uid);
         }
-        drop(state_changes); // silence compiler when not protocol_feature_flat_state
         store_update.commit().expect("Store update failed on genesis initialization");
-        *state_update = self.tries.new_trie_update(self.shard_uid, *state_root);
+        *state_update = Some(self.tries.new_trie_update(self.shard_uid, *state_root));
         *changes = 0;
         *state_root
     }
