@@ -493,15 +493,31 @@ impl StatePartReader for FileSystemStorage {
 
     fn num_parts(&self) -> u64 {
         let paths = std::fs::read_dir(&self.state_parts_dir).unwrap();
-        let num_parts = paths
+        let mut known_num_parts = None;
+        let num_files = paths
             .filter(|path| {
                 let full_path = path.as_ref().unwrap();
                 tracing::debug!(target: "state-parts", ?full_path);
-                is_part_filename(full_path.file_name().to_str().unwrap())
+                let filename = full_path.file_name().to_str().unwrap().to_string();
+                if let Some(num_parts) = get_num_parts_from_filename(&filename) {
+                    if let Some(known_num_parts) = known_num_parts {
+                        assert_eq!(known_num_parts, num_parts);
+                    }
+                    known_num_parts = Some(num_parts);
+                }
+                is_part_filename(&filename)
             })
             .collect::<Vec<std::io::Result<DirEntry>>>()
             .len();
-        num_parts as u64
+        if known_num_parts != Some(num_files as u64) {
+            // This is expected when a user saves time and downloads a few parts instead of all parts.
+            tracing::warn!(target: "state-parts",
+                dir = ?self.state_parts_dir,
+                ?known_num_parts,
+                num_files,
+                "Filename indicates that number of files expected doesn't match the number of files available");
+        }
+        known_num_parts.unwrap()
     }
 }
 
