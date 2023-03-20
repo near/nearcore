@@ -158,19 +158,12 @@ class LoadTestSpoon:
         parser.add_argument('--num-nodes', type=int, required=True)
         parser.add_argument('--max-tps', type=float, required=True)
         parser.add_argument('--increasing-stakes', type=float, default=0.0)
-        parser.add_argument(
-            '--progressive-upgrade',
-            default=False,
-            action='store_true',
-        )
-        parser.add_argument('--skip-load', default=False, action='store_true')
-        parser.add_argument('--skip-setup', default=False, action='store_true')
-        parser.add_argument(
-            '--skip-restart',
-            default=False,
-            action='store_true',
-        )
-        parser.add_argument('--no-sharding', default=False, action='store_true')
+        parser.add_argument('--progressive-upgrade', action='store_true')
+
+        parser.add_argument('--skip-load', action='store_true')
+        parser.add_argument('--skip-setup', action='store_true')
+        parser.add_argument('--skip-restart', action='store_true')
+        parser.add_argument('--no-sharding', action='store_true')
         parser.add_argument('--num-seats', type=int, required=True)
 
         parser.add_argument('--test-timeout', type=int, default=12 * 60 * 60)
@@ -182,10 +175,14 @@ class LoadTestSpoon:
             'We need to slowly deploy contracts, otherwise we stall out the nodes',
         )
 
+        parser.add_argument('--log-level', default="INFO")
+
         # The flag is no longer needed but is kept for backwards-compatibility.
         parser.add_argument('--script', required=False)
 
         args = parser.parse_args()
+
+        logger.setLevel(args.log_level)
 
         self.chain_id = args.chain_id
         self.pattern = args.pattern
@@ -204,6 +201,8 @@ class LoadTestSpoon:
 
         self.test_timeout = args.test_timeout
         self.contract_deploy_time = args.contract_deploy_time
+
+        self.log_level = args.log_level
 
         assert self.epoch_length > 0
         assert self.num_nodes > 0
@@ -322,9 +321,11 @@ class LoadTestSpoon:
                 f'helper is running on {helper_running.count(True)}/{len(helper_running)} validator nodes'
             )
 
-            if not all(neard_running):
-                raise Exception(
-                    f'The neard process is not running on some nodes!')
+            for node, is_running in zip(self.all_nodes, neard_running):
+                if not is_running:
+                    raise Exception(
+                        'The neard process is not running on some of the nodes!'
+                        f'The neard is not running on {node.instance_name}')
 
             for node, is_running in zip(self.all_nodes, helper_running):
                 if not is_running:

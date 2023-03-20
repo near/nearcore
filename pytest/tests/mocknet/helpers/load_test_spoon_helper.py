@@ -108,10 +108,10 @@ def main():
     # call the contract before it is deployed).
     delay = args.contract_deploy_time / test_state.num_test_accounts()
     logger.info(f'Start deploying, delay between deployments: {delay}')
+    assert delay >= 1
 
     time.sleep(random.random() * delay)
     start_time = time.monotonic()
-    assert delay >= 1
     load_test_utils.init_ft(test_state.node_account)
     for i, account in enumerate(test_state.test_accounts):
         logger.info(f'Deploying contract for account {account.key.account_id}')
