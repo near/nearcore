@@ -1219,7 +1219,7 @@ impl<'a> VMLogic<'a> {
     /// a public API. Maybe we can remove it, but it’d need actually checking the currently
     /// deployed contracts to validate they won’t break if we remove the import.
     /// So it’s left as a no-op for now.
-    pub fn gas_seen_from_wasm(&mut self, gas: u32) -> Result<()> {
+    pub fn gas_seen_from_wasm(&mut self, _gas: u32) -> Result<()> {
         Ok(())
     }
 
