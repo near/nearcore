@@ -28,6 +28,7 @@
 mod chunk_view;
 mod delta;
 mod manager;
+mod metrics;
 mod storage;
 pub mod store_helper;
 mod types;
@@ -35,6 +36,7 @@ mod types;
 pub use chunk_view::FlatStorageChunkView;
 pub use delta::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
 pub use manager::FlatStorageManager;
+pub use metrics::FlatStorageCreationMetrics;
 pub use storage::FlatStorage;
 pub use types::{
     BlockInfo, FetchingStateStatus, FlatStorageCreationStatus, FlatStorageError,

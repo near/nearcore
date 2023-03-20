@@ -3495,7 +3495,6 @@ mod contract_precompilation_tests {
     use near_vm_runner::get_contract_cache_key;
     use near_vm_runner::internal::VMKind;
     use node_runtime::state_viewer::TrieViewer;
-    use std::rc::Rc;
 
     const EPOCH_LENGTH: u64 = 5;
 
@@ -3593,12 +3592,10 @@ mod contract_precompilation_tests {
 
         let viewer = TrieViewer::default();
         // TODO (#7327): set use_flat_storage to true when we implement support for state sync for FlatStorage
-        let trie = Rc::new(
-            env.clients[1]
-                .runtime_adapter
-                .get_trie_for_shard(0, block.header().prev_hash(), state_root, false)
-                .unwrap(),
-        );
+        let trie = env.clients[1]
+            .runtime_adapter
+            .get_trie_for_shard(0, block.header().prev_hash(), state_root, false)
+            .unwrap();
         let state_update = TrieUpdate::new(trie);
 
         let mut logs = vec![];
