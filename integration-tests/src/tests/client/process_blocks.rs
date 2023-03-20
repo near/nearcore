@@ -108,8 +108,7 @@ pub fn create_nightshade_runtime_with_store(
     genesis: &Genesis,
     store: &Store,
 ) -> Arc<dyn RuntimeWithEpochManagerAdapter> {
-    Arc::new(nearcore::NightshadeRuntime::test(Path::new("../../../.."), store.clone(), genesis))
-        as Arc<dyn RuntimeWithEpochManagerAdapter>
+    nearcore::NightshadeRuntime::test(Path::new("../../../.."), store.clone(), genesis)
 }
 
 /// Produce `blocks_number` block in the given environment, starting from the given height.
@@ -2142,9 +2141,8 @@ fn test_invalid_block_root() {
 fn test_incorrect_validator_key_produce_block() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 2);
     let chain_genesis = ChainGenesis::new(&genesis);
-    let runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter> = Arc::new(
-        nearcore::NightshadeRuntime::test(Path::new("../../../.."), create_test_store(), &genesis),
-    );
+    let runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter> =
+        nearcore::NightshadeRuntime::test(Path::new("../../../.."), create_test_store(), &genesis);
     let signer = Arc::new(InMemoryValidatorSigner::from_seed(
         "test0".parse().unwrap(),
         KeyType::ED25519,
@@ -3532,11 +3530,8 @@ mod contract_precompilation_tests {
         let runtime_adapters = stores
             .iter()
             .map(|store| {
-                Arc::new(nearcore::NightshadeRuntime::test(
-                    Path::new("../../../.."),
-                    store.clone(),
-                    &genesis,
-                )) as Arc<dyn RuntimeWithEpochManagerAdapter>
+                nearcore::NightshadeRuntime::test(Path::new("../../../.."), store.clone(), &genesis)
+                    as Arc<dyn RuntimeWithEpochManagerAdapter>
             })
             .collect();
 
@@ -3633,11 +3628,8 @@ mod contract_precompilation_tests {
         let runtime_adapters = stores
             .iter()
             .map(|store| {
-                Arc::new(nearcore::NightshadeRuntime::test(
-                    Path::new("../../../.."),
-                    store.clone(),
-                    &genesis,
-                )) as Arc<dyn RuntimeWithEpochManagerAdapter>
+                nearcore::NightshadeRuntime::test(Path::new("../../../.."), store.clone(), &genesis)
+                    as Arc<dyn RuntimeWithEpochManagerAdapter>
             })
             .collect();
 
@@ -3717,11 +3709,8 @@ mod contract_precompilation_tests {
         let runtime_adapters = stores
             .iter()
             .map(|store| {
-                Arc::new(nearcore::NightshadeRuntime::test(
-                    Path::new("../../../.."),
-                    store.clone(),
-                    &genesis,
-                )) as Arc<dyn RuntimeWithEpochManagerAdapter>
+                nearcore::NightshadeRuntime::test(Path::new("../../../.."), store.clone(), &genesis)
+                    as Arc<dyn RuntimeWithEpochManagerAdapter>
             })
             .collect();
 

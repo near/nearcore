@@ -69,11 +69,8 @@ impl ColdStoreCommand {
         let storage =
             opener.open_in_mode(mode).unwrap_or_else(|e| panic!("Error opening storage: {:#}", e));
 
-        let hot_runtime = Arc::new(NightshadeRuntime::from_config(
-            home_dir,
-            storage.get_hot_store(),
-            &near_config,
-        ));
+        let hot_runtime =
+            NightshadeRuntime::from_config(home_dir, storage.get_hot_store(), &near_config);
         match self.subcmd {
             SubCommand::Open => check_open(&storage),
             SubCommand::Head => print_heads(&storage),

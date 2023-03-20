@@ -3,16 +3,15 @@ use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client_primitives::types::Error;
 use near_crypto::InMemorySigner;
+use near_epoch_manager::shard_tracker::TrackedConfig;
 use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::transaction::{Action, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, Gas, Nonce};
 use near_store::test_utils::create_test_store;
-use nearcore::TrackedConfig;
 use nearcore::{config::GenesisExt, NightshadeRuntime};
 use std::io;
 use std::path::Path;
-use std::sync::Arc;
 use std::time::Duration;
 
 pub struct ScenarioResult<T, E> {
@@ -52,13 +51,13 @@ impl Scenario {
         let mut env = TestEnv::builder(ChainGenesis::new(&genesis))
             .clients(clients.clone())
             .validators(clients)
-            .runtime_adapters(vec![Arc::new(NightshadeRuntime::test_with_runtime_config_store(
+            .runtime_adapters(vec![NightshadeRuntime::test_with_runtime_config_store(
                 if let Some(tempdir) = &tempdir { tempdir.path() } else { Path::new(".") },
                 store,
                 &genesis,
                 TrackedConfig::new_empty(),
                 runtime_config_store,
-            ))])
+            )])
             .build();
 
         let result = self.process_blocks(&mut env);

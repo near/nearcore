@@ -88,7 +88,7 @@ pub fn setup_with_tx_validity_period(
 ) -> (Chain, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {
     let store = create_test_store();
     let epoch_length = 1000;
-    let runtime = Arc::new(KeyValueRuntime::new(store, epoch_length));
+    let runtime = KeyValueRuntime::new(store, epoch_length);
     let chain = Chain::new(
         runtime.clone(),
         &ChainGenesis {
@@ -120,7 +120,7 @@ pub fn setup_with_validators(
     let store = create_test_store();
     let signers =
         vs.all_block_producers().map(|x| Arc::new(create_test_signer(x.as_str()))).collect();
-    let runtime = Arc::new(KeyValueRuntime::new_with_validators(store, vs, epoch_length));
+    let runtime = KeyValueRuntime::new_with_validators(store, vs, epoch_length);
     let chain = Chain::new(
         runtime.clone(),
         &ChainGenesis {
@@ -151,7 +151,7 @@ pub fn setup_with_validators_and_start_time(
     let store = create_test_store();
     let signers =
         vs.all_block_producers().map(|x| Arc::new(create_test_signer(x.as_str()))).collect();
-    let runtime = Arc::new(KeyValueRuntime::new_with_validators(store, vs, epoch_length));
+    let runtime = KeyValueRuntime::new_with_validators(store, vs, epoch_length);
     let chain = Chain::new(
         runtime.clone(),
         &ChainGenesis {
