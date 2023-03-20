@@ -974,7 +974,7 @@ impl StateSync {
         let num_parts = shard_sync_download.downloads.len();
         let mut num_parts_done = 0;
         for (part_id, part_download) in shard_sync_download.downloads.iter_mut().enumerate() {
-            tracing::debug!(target: "sync", %shard_id, %sync_hash, part_id, part_download.done, part_download.error, ?part_download);
+            // tracing::debug!(target: "sync", %shard_id, %sync_hash, part_id, part_download.done, part_download.error, ?part_download);
             if !part_download.done {
                 // Check if a download from an external storage is finished.
                 check_external_storage_part_response(
