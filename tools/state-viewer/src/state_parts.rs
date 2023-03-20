@@ -63,7 +63,12 @@ impl StatePartsSubCommand {
         store: Store,
     ) {
         match self {
-            StatePartsSubCommand::Apply { dry_run, state_root, part_id, epoch_selection } => {
+            StatePartsSubCommand::Apply {
+                dry_run,
+                state_root,
+                part_id,
+                epoch_selection,
+            } => {
                 apply_state_parts(
                     epoch_selection,
                     shard_id,
@@ -229,12 +234,17 @@ fn apply_state_parts(
         near_config.client_config.save_trie_changes,
     );
 
-    let epoch_id = epoch_selection.to_epoch_id(store, &chain_store, &epoch_manager);
-    let epoch = epoch_manager.get_epoch_info(&epoch_id).unwrap();
-
-    let (state_root, sync_prev_hash) = if let Some(state_root) = maybe_state_root {
-        (state_root, None)
+    let (state_root, epoch_height, epoch_id, sync_prev_hash) = if let (
+        Some(state_root),
+        EpochSelection::EpochHeight{epoch_height},
+    ) =
+        (maybe_state_root, &epoch_selection)
+    {
+        (state_root, *epoch_height, None, None)
     } else {
+        let epoch_id = epoch_selection.to_epoch_id(store, &chain_store, &epoch_manager);
+        let epoch = epoch_manager.get_epoch_info(&epoch_id).unwrap();
+
         let sync_prev_hash = get_prev_hash_of_epoch(&epoch, &chain_store, &epoch_manager);
         let sync_prev_block = chain_store.get_block(&sync_prev_hash).unwrap();
         tracing::info!(
@@ -251,13 +261,13 @@ fn apply_state_parts(
             sync_prev_block.chunks().len()
         );
         let state_root = sync_prev_block.chunks()[shard_id as usize].prev_state_root();
-        (state_root, Some(sync_prev_hash))
+        (state_root, epoch.epoch_height(), Some(epoch_id), Some(sync_prev_hash))
     };
 
     let part_storage = get_state_part_reader(
         location,
         &near_config.client_config.chain_id,
-        epoch.epoch_height(),
+        epoch_height,
         shard_id,
     );
 
@@ -266,8 +276,7 @@ fn apply_state_parts(
     let part_ids = get_part_ids(part_id, part_id.map(|x| x + 1), num_parts);
     tracing::info!(
         target: "state-parts",
-        epoch_height = epoch.epoch_height(),
-        epoch_id = ?epoch_id.0,
+        epoch_height,
         shard_id,
         num_parts,
         ?sync_prev_hash,
@@ -295,7 +304,7 @@ fn apply_state_parts(
                     &state_root,
                     PartId::new(part_id, num_parts),
                     &part,
-                    &epoch_id,
+                    epoch_id.as_ref().unwrap(),
                 )
                 .unwrap();
             tracing::info!(target: "state-parts", part_id, part_length = part.len(), elapsed_sec = timer.elapsed().as_secs_f64(), "Applied a state part");

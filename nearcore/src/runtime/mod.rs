@@ -1246,10 +1246,6 @@ impl RuntimeAdapter for NightshadeRuntime {
             %block_hash,
             num_parts = part_id.total)
         .entered();
-        let _timer = metrics::STATE_SYNC_OBTAIN_PART_DELAY
-            .with_label_values(&[&shard_id.to_string()])
-            .start_timer();
-
         let epoch_id = self.get_epoch_id(block_hash)?;
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
         let trie = self.tries.get_view_trie_for_shard(shard_uid, *state_root);
@@ -1275,16 +1271,16 @@ impl RuntimeAdapter for NightshadeRuntime {
                     Ok(_) => true,
                     // Storage error should not happen
                     Err(err) => {
-                        tracing::error!(target: "state-parts", ?err, "State part storage error");
+                        tracing::error!(target: "state-parts", ?err, "Storage error");
                         false
                     }
                 }
             }
             // Deserialization error means we've got the data from malicious peer
             Err(err) => {
-                tracing::error!(target: "state-parts", ?err, "State part deserialization error");
+                tracing::error!(target: "state-parts", ?err, "Deserialization error");
                 false
-            }
+            },
         }
     }
 
@@ -1381,10 +1377,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         data: &[u8],
         epoch_id: &EpochId,
     ) -> Result<(), Error> {
-        let _timer = metrics::STATE_SYNC_APPLY_PART_DELAY
-            .with_label_values(&[&shard_id.to_string()])
-            .start_timer();
-
         let part = BorshDeserialize::try_from_slice(data)
             .expect("Part was already validated earlier, so could never fail here");
         let ApplyStatePartResult { trie_changes, flat_state_delta, contract_codes } =
@@ -1940,11 +1932,11 @@ mod test {
                     * U256::from(self.runtime.genesis_config.total_supply)
                     * U256::from(epoch_duration)
                     / (U256::from(num_seconds_per_year)
-                        * U256::from(
-                            *self.runtime.genesis_config.max_inflation_rate.denom() as u128
-                        )
-                        * U256::from(num_ns_in_second)))
-                .as_u128();
+                    * U256::from(
+                    *self.runtime.genesis_config.max_inflation_rate.denom() as u128
+                )
+                    * U256::from(num_ns_in_second)))
+                    .as_u128();
             let per_epoch_protocol_treasury = per_epoch_total_reward
                 * *self.runtime.genesis_config.protocol_reward_rate.numer() as u128
                 / *self.runtime.genesis_config.protocol_reward_rate.denom() as u128;
@@ -2459,7 +2451,7 @@ mod test {
                     block_producers[0].public_key(),
                     0,
                 )
-                .into()],
+                    .into()],
                 prev_epoch_kickout: Default::default(),
                 epoch_start_height: 1,
                 epoch_height: 1,
@@ -2541,11 +2533,11 @@ mod test {
         assert!(
             env.runtime.cares_about_shard(Some(&validators[0]), &env.head.last_block_hash, 1, true)
                 ^ env.runtime.cares_about_shard(
-                    Some(&validators[1]),
-                    &env.head.last_block_hash,
-                    1,
-                    true
-                )
+                Some(&validators[1]),
+                &env.head.last_block_hash,
+                1,
+                true
+            )
         );
         assert!(env.runtime.cares_about_shard(
             Some(&validators[1]),
