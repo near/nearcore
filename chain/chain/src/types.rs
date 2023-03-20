@@ -31,8 +31,7 @@ use near_primitives::version::{
     MIN_PROTOCOL_VERSION_NEP_92_FIX,
 };
 use near_primitives::views::{QueryRequest, QueryResponse};
-use near_store::flat_state::ChainAccessForFlatStorage;
-use near_store::flat_state::{FlatStorageCreationStatus, FlatStorageState};
+use near_store::flat::{FlatStorage, FlatStorageStatus};
 use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTrieChanges};
 
 pub use near_epoch_manager::EpochManagerAdapter;
@@ -298,32 +297,27 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: StateRoot,
     ) -> Result<Trie, Error>;
 
-    fn get_flat_storage_state_for_shard(&self, shard_id: ShardId) -> Option<FlatStorageState>;
+    fn get_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Option<FlatStorage>;
 
-    /// Gets status of flat storage state background creation.
-    fn get_flat_storage_creation_status(&self, shard_id: ShardId) -> FlatStorageCreationStatus;
+    fn get_flat_storage_status(&self, shard_uid: ShardUId) -> FlatStorageStatus;
 
     /// Creates flat storage state for given shard, assuming that all flat storage data
     /// is already stored in DB.
     /// TODO (#7327): consider returning flat storage creation errors here
-    fn create_flat_storage_state_for_shard(
-        &self,
-        shard_id: ShardId,
-        latest_block_height: BlockHeight,
-        chain_access: &dyn ChainAccessForFlatStorage,
-    );
+    fn create_flat_storage_for_shard(&self, shard_uid: ShardUId);
 
     /// Removes flat storage state for shard, if it exists.
     /// Used to clear old flat storage data from disk and memory before syncing to newer state.
-    fn remove_flat_storage_state_for_shard(
+    fn remove_flat_storage_for_shard(
         &self,
-        shard_id: ShardId,
+        shard_uid: ShardUId,
         epoch_id: &EpochId,
     ) -> Result<(), Error>;
 
-    fn set_flat_storage_state_for_genesis(
+    fn set_flat_storage_for_genesis(
         &self,
         genesis_block: &CryptoHash,
+        genesis_block_height: BlockHeight,
         genesis_epoch_id: &EpochId,
     ) -> Result<StoreUpdate, Error>;
 

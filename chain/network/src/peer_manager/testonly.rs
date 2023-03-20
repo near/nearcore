@@ -365,12 +365,12 @@ impl ActorHandler {
         self.with_state(move |s| async move { s.peer_store.update(&clock) }).await;
     }
 
-    pub async fn send_ping(&self, nonce: u64, target: PeerId) {
-        self.actix
-            .addr
-            .send(PeerManagerMessageRequest::PingTo { nonce, target }.with_span_context())
-            .await
-            .unwrap();
+    pub async fn send_ping(&self, clock: &time::Clock, nonce: u64, target: PeerId) {
+        let clock = clock.clone();
+        self.with_state(move |s| async move {
+            s.send_ping(&clock, tcp::Tier::T2, nonce, target);
+        })
+        .await;
     }
 
     pub async fn announce_account(&self, aa: AnnounceAccount) {

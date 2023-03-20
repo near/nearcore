@@ -115,7 +115,7 @@ fn serialize_deserialize() -> anyhow::Result<()> {
         PeerMessage::LastEdge(edge),
         PeerMessage::SyncRoutingTable(data::make_routing_table(&mut rng)),
         PeerMessage::RequestUpdateNonce(data::make_partial_edge(&mut rng)),
-        PeerMessage::PeersRequest,
+        PeerMessage::PeersRequest(PeersRequest { max_peers: None, max_direct_peers: None }),
         PeerMessage::PeersResponse(PeersResponse {
             peers: (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
             direct_peers: vec![], // TODO: populate this field once borsh support is dropped

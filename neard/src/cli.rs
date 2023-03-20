@@ -5,7 +5,6 @@ use near_chain_configs::GenesisValidationMode;
 use near_client::ConfigUpdater;
 use near_cold_store_tool::ColdStoreCommand;
 use near_dyn_configs::{UpdateableConfigLoader, UpdateableConfigLoaderError, UpdateableConfigs};
-#[cfg(feature = "protocol_feature_flat_state")]
 use near_flat_storage::commands::FlatStorageCommand;
 use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse;
 use near_mirror::MirrorCommand;
@@ -118,7 +117,6 @@ impl NeardCmd {
             NeardSubCommand::StateParts(cmd) => {
                 cmd.run()?;
             }
-            #[cfg(feature = "protocol_feature_flat_state")]
             NeardSubCommand::FlatStorage(cmd) => {
                 cmd.run(&home_dir)?;
             }
@@ -138,7 +136,8 @@ pub(super) struct StateViewerCommand {
     #[clap(long, short = 'w')]
     readwrite: bool,
     /// What store temperature should the state viewer open. Allowed values are hot and cold but
-    /// cold is only available when cold_store feature is enabled.
+    /// cold is only available when cold_store is configured.
+    /// Cold temperature actually means the split store will be used.
     #[clap(long, short = 't', default_value = "hot")]
     store_temperature: near_store::Temperature,
     #[clap(subcommand)]
@@ -235,7 +234,6 @@ pub(super) enum NeardSubCommand {
     /// Connects to a NEAR node and sends state parts requests after the handshake is completed.
     StateParts(StatePartsCommand),
 
-    #[cfg(feature = "protocol_feature_flat_state")]
     /// Flat storage related tooling.
     FlatStorage(FlatStorageCommand),
 
@@ -507,14 +505,18 @@ impl RunCmd {
                 UpdateableConfigLoader::new(updateable_configs.clone(), tx_config_update);
             let config_updater = ConfigUpdater::new(rx_config_update);
 
-            let nearcore::NearNode { rpc_servers, cold_store_loop_handle, .. } =
-                nearcore::start_with_config_and_synchronization(
-                    home_dir,
-                    near_config,
-                    Some(tx_crash),
-                    Some(config_updater),
-                )
-                .expect("start_with_config");
+            let nearcore::NearNode {
+                rpc_servers,
+                cold_store_loop_handle,
+                state_sync_dump_handle,
+                ..
+            } = nearcore::start_with_config_and_synchronization(
+                home_dir,
+                near_config,
+                Some(tx_crash),
+                Some(config_updater),
+            )
+            .expect("start_with_config");
 
             let sig = loop {
                 let sig = wait_for_interrupt_signal(home_dir, &mut rx_crash).await;
@@ -528,6 +530,7 @@ impl RunCmd {
             };
             warn!(target: "neard", "{}, stopping... this may take a few minutes.", sig);
             cold_store_loop_handle.map(|handle| handle.stop());
+            state_sync_dump_handle.map(|handle| handle.stop());
             futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
                 server.stop(true).await;
                 debug!(target: "neard", "{} server stopped", name);
