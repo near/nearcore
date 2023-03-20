@@ -1,5 +1,4 @@
 use crate::epoch_info::iterate_and_filter;
-use clap::Subcommand;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_epoch_manager::EpochManager;
@@ -19,8 +18,8 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
 
-#[derive(Subcommand, Debug, Clone)]
-pub enum StatePartsSubCommand {
+#[derive(clap::Subcommand, Debug, Clone)]
+pub(crate) enum StatePartsSubCommand {
     /// Apply all or a single state part of a shard.
     Apply {
         /// If true, validate the state part but don't write it to the DB.
@@ -30,8 +29,11 @@ pub enum StatePartsSubCommand {
         /// Use if those headers or blocks are not available.
         #[clap(long)]
         state_root: Option<StateRoot>,
-
-        /// Selects an epoch. The dump will be of the state at the beginning of this epoch.
+        /// Choose a single part id.
+        /// If None - affects all state parts.
+        #[clap(long)]
+        part_id: Option<u64>,
+        /// Select an epoch to work on.
         #[clap(subcommand)]
         epoch_selection: EpochSelection,
     },
@@ -43,8 +45,7 @@ pub enum StatePartsSubCommand {
         /// Dump part ids up to this part (exclusive).
         #[clap(long)]
         part_to: Option<u64>,
-
-        /// Selects an epoch. The dump will be of the state at the beginning of this epoch.
+        /// Select an epoch to work on.
         #[clap(subcommand)]
         epoch_selection: EpochSelection,
     },
@@ -54,7 +55,6 @@ impl StatePartsSubCommand {
     pub(crate) fn run(
         self,
         shard_id: ShardId,
-        part_id: Option<u64>,
         root_dir: Option<PathBuf>,
         s3_bucket: Option<String>,
         s3_region: Option<String>,
@@ -63,7 +63,7 @@ impl StatePartsSubCommand {
         store: Store,
     ) {
         match self {
-            StatePartsSubCommand::Apply { dry_run, state_root, epoch_selection } => {
+            StatePartsSubCommand::Apply { dry_run, state_root, part_id, epoch_selection } => {
                 apply_state_parts(
                     epoch_selection,
                     shard_id,
@@ -80,8 +80,8 @@ impl StatePartsSubCommand {
                 dump_state_parts(
                     epoch_selection,
                     shard_id,
-                    part_from.or(part_id),
-                    part_to.or(part_id.map(|x| x + 1)),
+                    part_from,
+                    part_to,
                     home_dir,
                     near_config,
                     store,
@@ -92,8 +92,8 @@ impl StatePartsSubCommand {
     }
 }
 
-#[derive(Subcommand, Debug, Clone)]
-pub enum EpochSelection {
+#[derive(clap::Subcommand, Debug, Clone)]
+pub(crate) enum EpochSelection {
     /// Current epoch.
     Current,
     /// Fetch the given epoch.
@@ -107,7 +107,7 @@ pub enum EpochSelection {
 }
 
 impl EpochSelection {
-    pub fn to_epoch_id(
+    fn to_epoch_id(
         &self,
         store: Store,
         chain_store: &ChainStore,
@@ -143,7 +143,7 @@ impl EpochSelection {
     }
 }
 
-pub(crate) enum Location {
+enum Location {
     Files(PathBuf),
     S3 { bucket: String, region: String },
 }
