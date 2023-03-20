@@ -16,9 +16,8 @@ use near_store::{
     get_account, get_received_data, set, set_access_key, set_account, set_code,
     set_postponed_receipt, set_received_data, ShardTries, TrieUpdate,
 };
-use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
-use std::sync::{atomic, Mutex};
+use std::sync::atomic;
 
 /// Computes the expected storage per account for a given stream of StateRecord(s).
 /// For example: the storage for Contract depends on its length, we don't charge storage for receipts
@@ -81,14 +80,16 @@ impl<'a> StorageComputer<'a> {
     }
 }
 
-const MAX_OUTSTANDING_WRITES: usize = 0x100_000;
-type State = (usize, StateRoot, TrieUpdate);
+/// The number of storage modifications stored in memory that we target.
+const TARGET_OUTSTANDING_WRITES: usize = 0x100_000;
 
 pub(crate) struct AutoFlushingTrieUpdate<'a> {
-    active_writers: &'a atomic::AtomicUsize,
     tries: &'a ShardTries,
     shard_uid: ShardUId,
-    state: Mutex<State>,
+    state_root: StateRoot,
+    state_update: TrieUpdate,
+    changes: usize,
+    active_writers: &'a atomic::AtomicUsize,
 }
 
 impl<'a> AutoFlushingTrieUpdate<'a> {
@@ -98,42 +99,39 @@ impl<'a> AutoFlushingTrieUpdate<'a> {
         tries: &'a ShardTries,
         uid: ShardUId,
     ) -> Self {
-        let state = Mutex::new((0, state_root, tries.new_trie_update(uid, state_root)));
-        Self { active_writers, state, tries, shard_uid: uid }
-    }
-
-    fn lock(&self) -> std::sync::MutexGuard<State> {
-        self.state.lock().unwrap_or_else(|g| g.into_inner())
-    }
-
-    fn modify<R>(&self, cb: impl FnOnce(&mut StateRoot, &mut TrieUpdate) -> R) -> R {
-        let mut guard = self.lock();
-        let (ref mut update_budget, ref mut state_root, ref mut state_update) = &mut *guard;
-        // Try to get some budget from the global pool.
-        if *update_budget == 0 {
-            let writers = self.active_writers.fetch_add(1, atomic::Ordering::SeqCst) + 1;
-            *update_budget = MAX_OUTSTANDING_WRITES / writers;
-            tracing::info!(
-                target: "runtime",
-                shard_uid=?self.shard_uid,
-                %state_root,
-                %update_budget,
-                "setting up state from genesis"
-            );
+        active_writers.fetch_add(1, atomic::Ordering::Relaxed);
+        Self {
+            active_writers,
+            state_root,
+            tries,
+            changes: 0,
+            state_update: tries.new_trie_update(uid, state_root),
+            shard_uid: uid,
         }
-        // Process.
-        let result = cb(state_root, state_update);
-        let new_budget = update_budget.saturating_sub(1);
-        if new_budget == 0 {
-            self.flush(guard);
-        } else {
-            *update_budget = new_budget;
+    }
+
+    fn modify<R>(&mut self, process_callback: impl FnOnce(&mut TrieUpdate) -> R) -> R {
+        let Self { ref mut changes, ref mut state_update, .. } = self;
+        // See if we should consider flushing.
+        let result = process_callback(state_update);
+        let writers = self.active_writers.load(atomic::Ordering::Relaxed);
+        let target_updates = TARGET_OUTSTANDING_WRITES / writers;
+        *changes += 1;
+        if *changes >= target_updates {
+            self.flush();
         }
         result
     }
 
-    fn flush(&self, mut guard: std::sync::MutexGuard<State>) {
-        let (ref mut update_budget, ref mut state_root, ref mut state_update) = &mut *guard;
+    fn flush(&mut self) -> StateRoot {
+        let Self { ref mut changes, ref mut state_root, ref mut state_update, .. } = self;
+        tracing::info!(
+            target: "runtime",
+            shard_uid=?self.shard_uid,
+            %state_root,
+            %changes,
+            "flushing changes"
+        );
         state_update.commit(StateChangeCause::InitialState);
         // Temporarily store a trie update with the "wrong" state root. This will be replaced
         // shortly as soon as we know the new state root.
@@ -152,16 +150,15 @@ impl<'a> AutoFlushingTrieUpdate<'a> {
         drop(state_changes); // silence compiler when not protocol_feature_flat_state
         store_update.commit().expect("Store update failed on genesis initialization");
         *state_update = self.tries.new_trie_update(self.shard_uid, *state_root);
-        if *update_budget != 0 {
-            *update_budget = 0;
-            self.active_writers.fetch_sub(1, atomic::Ordering::Relaxed);
-        }
+        *changes = 0;
+        *state_root
     }
 }
 
 impl<'a> Drop for AutoFlushingTrieUpdate<'a> {
     fn drop(&mut self) {
-        self.flush(self.lock());
+        self.flush();
+        self.active_writers.fetch_sub(1, atomic::Ordering::Relaxed);
     }
 }
 
@@ -169,7 +166,7 @@ pub struct GenesisStateApplier {}
 
 impl GenesisStateApplier {
     fn apply_batch(
-        storage: &AutoFlushingTrieUpdate,
+        storage: &mut AutoFlushingTrieUpdate,
         delayed_receipts_indices: &mut DelayedReceiptIndices,
         shard_uid: ShardUId,
         validators: &[(AccountId, PublicKey, Balance)],
@@ -190,13 +187,11 @@ impl GenesisStateApplier {
             }
             storage_computer.process_record(record);
             match record {
-                StateRecord::Account { account_id, account } => {
-                    storage.modify(|_, state_update| {
-                        set_account(state_update, account_id.clone(), account);
-                    })
-                }
+                StateRecord::Account { account_id, account } => storage.modify(|state_update| {
+                    set_account(state_update, account_id.clone(), account);
+                }),
                 StateRecord::Data { account_id, data_key, value } => {
-                    storage.modify(|_, state_update| {
+                    storage.modify(|state_update| {
                         state_update.set(
                             TrieKey::ContractData {
                                 key: data_key.clone(),
@@ -207,7 +202,7 @@ impl GenesisStateApplier {
                     })
                 }
                 StateRecord::Contract { account_id, code } => {
-                    storage.modify(|_, state_update| {
+                    storage.modify(|state_update| {
                         // Recompute contract code hash.
                         let code = ContractCode::new(code.clone(), None);
                         if let Some(acc) =
@@ -226,7 +221,7 @@ impl GenesisStateApplier {
                     })
                 }
                 StateRecord::AccessKey { account_id, public_key, access_key } => {
-                    storage.modify(|_, state_update| {
+                    storage.modify(|state_update| {
                         set_access_key(
                             state_update,
                             account_id.clone(),
@@ -240,7 +235,7 @@ impl GenesisStateApplier {
                     postponed_receipts.push(*receipt.clone());
                 }
                 StateRecord::ReceivedData { account_id, data_id, data } => {
-                    storage.modify(|_, state_update| {
+                    storage.modify(|state_update| {
                         set_received_data(
                             state_update,
                             account_id.clone(),
@@ -250,7 +245,7 @@ impl GenesisStateApplier {
                         );
                     })
                 }
-                StateRecord::DelayedReceipt(receipt) => storage.modify(|_, state_update| {
+                StateRecord::DelayedReceipt(receipt) => storage.modify(|state_update| {
                     Runtime::delay_receipt(state_update, delayed_receipts_indices, &*receipt)
                         .unwrap();
                 }),
@@ -263,7 +258,7 @@ impl GenesisStateApplier {
             "processing account storage…"
         );
         for (account_id, storage_usage) in storage_computer.finalize() {
-            storage.modify(|_, state_update| {
+            storage.modify(|state_update| {
                 let mut account = get_account(state_update, &account_id)
                     .expect("Genesis storage error")
                     .expect("Account must exist");
@@ -278,16 +273,16 @@ impl GenesisStateApplier {
             ?shard_uid,
             "processing postponed receipts…"
         );
-        postponed_receipts.into_par_iter().for_each(|receipt| {
-            storage.modify(|_, state_update| {
-                let account_id = &receipt.receiver_id;
-                let action_receipt = match &receipt.receipt {
-                    ReceiptEnum::Action(a) => a,
-                    _ => panic!("Expected action receipt"),
-                };
-                // Logic similar to `apply_receipt`
-                let mut pending_data_count: u32 = 0;
-                for data_id in &action_receipt.input_data_ids {
+        for receipt in postponed_receipts {
+            let account_id = &receipt.receiver_id;
+            let action_receipt = match &receipt.receipt {
+                ReceiptEnum::Action(a) => a,
+                _ => panic!("Expected action receipt"),
+            };
+            // Logic similar to `apply_receipt`
+            let mut pending_data_count: u32 = 0;
+            for data_id in &action_receipt.input_data_ids {
+                storage.modify(|state_update| {
                     if get_received_data(state_update, account_id, *data_id)
                         .expect("Genesis storage error")
                         .is_none()
@@ -302,10 +297,12 @@ impl GenesisStateApplier {
                             &receipt.receipt_id,
                         )
                     }
-                }
-                if pending_data_count == 0 {
-                    panic!("Postponed receipt should have pending data")
-                } else {
+                });
+            }
+            if pending_data_count == 0 {
+                panic!("Postponed receipt should have pending data")
+            } else {
+                storage.modify(|state_update| {
                     set(
                         state_update,
                         TrieKey::PendingDataCount {
@@ -315,15 +312,15 @@ impl GenesisStateApplier {
                         &pending_data_count,
                     );
                     set_postponed_receipt(state_update, &receipt);
-                }
-            });
-        });
+                });
+            }
+        }
 
         for (account_id, _, amount) in validators {
             if !account_ids.contains(account_id) {
                 continue;
             }
-            storage.modify(|_, state_update| {
+            storage.modify(|state_update| {
                 let mut account: Account = get_account(state_update, account_id)
                     .expect("Genesis storage error")
                     .expect("account must exist");
@@ -334,11 +331,11 @@ impl GenesisStateApplier {
     }
 
     fn apply_delayed_receipts(
-        storage: &AutoFlushingTrieUpdate,
+        storage: &mut AutoFlushingTrieUpdate,
         delayed_receipts_indices: DelayedReceiptIndices,
     ) {
         if delayed_receipts_indices != DelayedReceiptIndices::default() {
-            storage.modify(|_, state_update| {
+            storage.modify(|state_update| {
                 set(state_update, TrieKey::DelayedReceiptIndices, &delayed_receipts_indices);
             });
         }
@@ -356,10 +353,10 @@ impl GenesisStateApplier {
         let mut delayed_receipts_indices = DelayedReceiptIndices::default();
         let shard_uid =
             ShardUId { version: genesis.config.shard_layout.version(), shard_id: shard_id as u32 };
-        let storage =
+        let mut storage =
             AutoFlushingTrieUpdate::new(op_limit, StateRoot::default(), &tries, shard_uid);
         Self::apply_batch(
-            &storage,
+            &mut storage,
             &mut delayed_receipts_indices,
             shard_uid,
             validators,
@@ -367,8 +364,9 @@ impl GenesisStateApplier {
             genesis,
             shard_account_ids,
         );
-        Self::apply_delayed_receipts(&storage, delayed_receipts_indices);
-        storage.flush(storage.lock());
-        storage.modify(|root, _| *root)
+        Self::apply_delayed_receipts(&mut storage, delayed_receipts_indices);
+        // At this point we have written all we wanted, but there may be outstanding writes left.
+        // We flush those writes and return the new state root to the caller.
+        storage.flush()
     }
 }
