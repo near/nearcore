@@ -1,6 +1,10 @@
-use std::rc::Rc;
-use std::sync::{Arc, RwLock};
-
+use crate::flat::FlatStorageManager;
+use crate::trie::config::TrieConfig;
+use crate::trie::prefetching_trie_storage::PrefetchingThreadsHandle;
+use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
+use crate::trie::{TrieRefcountChange, POISONED_LOCK_ERR};
+use crate::{metrics, DBCol, DBOp, DBTransaction, PrefetchApi};
+use crate::{Store, StoreUpdate, Trie, TrieChanges, TrieUpdate};
 use borsh::BorshSerialize;
 use near_primitives::borsh::maybestd::collections::HashMap;
 use near_primitives::hash::CryptoHash;
@@ -9,14 +13,7 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     NumShards, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
 };
-
-use crate::flat::FlatStorageManager;
-use crate::trie::config::TrieConfig;
-use crate::trie::prefetching_trie_storage::PrefetchingThreadsHandle;
-use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
-use crate::trie::{TrieRefcountChange, POISONED_LOCK_ERR};
-use crate::{metrics, DBCol, DBOp, DBTransaction, PrefetchApi};
-use crate::{Store, StoreUpdate, Trie, TrieChanges, TrieUpdate};
+use std::sync::{Arc, RwLock};
 
 struct ShardTriesInner {
     store: Store,
@@ -91,11 +88,11 @@ impl ShardTries {
     }
 
     pub fn new_trie_update(&self, shard_uid: ShardUId, state_root: StateRoot) -> TrieUpdate {
-        TrieUpdate::new(Rc::new(self.get_trie_for_shard(shard_uid, state_root)))
+        TrieUpdate::new(self.get_trie_for_shard(shard_uid, state_root))
     }
 
     pub fn new_trie_update_view(&self, shard_uid: ShardUId, state_root: StateRoot) -> TrieUpdate {
-        TrieUpdate::new(Rc::new(self.get_view_trie_for_shard(shard_uid, state_root)))
+        TrieUpdate::new(self.get_view_trie_for_shard(shard_uid, state_root))
     }
 
     #[allow(unused_variables)]
