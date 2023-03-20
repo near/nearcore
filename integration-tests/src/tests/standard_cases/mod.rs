@@ -1415,10 +1415,11 @@ fn make_receipt(node: &impl Node, actions: Vec<Action>, receiver_id: AccountId) 
 /// results.
 /// Runs the list of receipts 2 times. 1st run establishes the state structure, 2nd run is used to get node counts.
 fn check_trie_nodes_count(
-    node: impl Node,
-    runtime_config: RuntimeConfig,
+    node: &impl Node,
+    runtime_config: &RuntimeConfig,
     receipts: Vec<Receipt>,
     results: Vec<TrieNodesCount>,
+    use_flat_storage: bool,
 ) {
     let node_user = node.user();
     let mut node_touches: Vec<_> = vec![];
@@ -1426,14 +1427,14 @@ fn check_trie_nodes_count(
         receipts.iter().map(|receipt| receipt.receipt_id).collect();
 
     for i in 0..2 {
-        node_user.add_receipts(receipts.clone()).unwrap();
+        node_user.add_receipts(receipts.clone(), use_flat_storage).unwrap();
 
         if i == 1 {
             node_touches = receipt_hashes
                 .iter()
                 .map(|receipt_hash| {
                     let result = node_user.get_transaction_result(receipt_hash);
-                    get_trie_nodes_count(&result.metadata, &runtime_config)
+                    get_trie_nodes_count(&result.metadata, runtime_config)
                 })
                 .collect();
         }
@@ -1470,7 +1471,7 @@ pub fn test_chunk_nodes_cache_common_parent(node: impl Node, runtime_config: Run
         TrieNodesCount { db_reads: 2, mem_reads: 4 },
         TrieNodesCount { db_reads: 2, mem_reads: 4 },
     ];
-    check_trie_nodes_count(node, runtime_config, receipts, results);
+    check_trie_nodes_count(&node, &runtime_config, receipts, results, true);
 }
 
 /// This test is similar to `test_chunk_nodes_cache_common_parent` but checks another trie structure:
@@ -1495,7 +1496,7 @@ pub fn test_chunk_nodes_cache_branch_value(node: impl Node, runtime_config: Runt
         TrieNodesCount { db_reads: 5, mem_reads: 0 },
         TrieNodesCount { db_reads: 2, mem_reads: 4 },
     ];
-    check_trie_nodes_count(node, runtime_config, receipts, results);
+    check_trie_nodes_count(&node, &runtime_config, receipts, results, true);
 }
 
 /// This test is similar to `test_chunk_nodes_cache_common_parent` but checks another trie structure:
@@ -1530,5 +1531,43 @@ pub fn test_chunk_nodes_cache_mode(node: impl Node, runtime_config: RuntimeConfi
         TrieNodesCount { db_reads: 0, mem_reads: 0 },
         TrieNodesCount { db_reads: 2, mem_reads: 4 },
     ];
-    check_trie_nodes_count(node, runtime_config, receipts, results);
+    check_trie_nodes_count(&node, &runtime_config, receipts, results, true);
+}
+
+/// Checks costs for subsequent `storage_read` and `storage_write` for the same key.
+/// Depth for the storage key is 4.
+/// Without flat storage, cost for reading Value is skipped due to a bug, so we count
+/// 3 DB reads during read. During write, all nodes get cached, so we count 4 mem reads.
+/// With flat storage, neither DB nor memory reads should be counted, as we skip Trie
+/// node reads and don't charge for Value read due to the same bug. For write we go
+/// to Trie and count 3 DB node reads and 1 mem read for Value.
+pub fn test_storage_read_write_costs(node: impl Node, runtime_config: RuntimeConfig) {
+    let receipts: Vec<Receipt> = vec![
+        make_receipt(
+            &node,
+            vec![FunctionCallAction {
+                args: test_utils::encode(&[1]),
+                method_name: "read_value".to_string(),
+                gas: 10u64.pow(14),
+                deposit: 0,
+            }
+            .into()],
+            bob_account(),
+        ),
+        make_receipt(&node, vec![make_write_key_value_action(vec![1], vec![20])], bob_account()),
+    ];
+
+    let results = vec![
+        TrieNodesCount { db_reads: 3, mem_reads: 0 },
+        TrieNodesCount { db_reads: 0, mem_reads: 4 },
+    ];
+    check_trie_nodes_count(&node, &runtime_config, receipts.clone(), results, false);
+
+    if cfg!(feature = "protocol_feature_flat_state") {
+        let results = vec![
+            TrieNodesCount { db_reads: 0, mem_reads: 0 },
+            TrieNodesCount { db_reads: 3, mem_reads: 1 },
+        ];
+        check_trie_nodes_count(&node, &runtime_config, receipts, results, true);
+    }
 }
