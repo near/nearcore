@@ -1214,8 +1214,13 @@ impl<'a> VMLogic<'a> {
     }
 
     /// This is the function that is exposed to WASM contracts under the name `gas`.
+    ///
+    /// It is a no-op as it shouldn’t actually be used by any contract as it was never part of
+    /// a public API. Maybe we can remove it, but it’d need actually checking the currently
+    /// deployed contracts to validate they won’t break if we remove the import.
+    /// So it’s left as a no-op for now.
     pub fn gas_seen_from_wasm(&mut self, gas: u32) -> Result<()> {
-        self.gas(gas as u64)
+        Ok(())
     }
 
     // ################
