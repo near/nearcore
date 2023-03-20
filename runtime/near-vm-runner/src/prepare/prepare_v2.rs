@@ -22,7 +22,7 @@ pub(crate) fn prepare_contract(
             PrepareError::Deserialization
         })?
         // Make sure contracts can’t call the instrumentation functions via `env`.
-        .instrument("internal", &original_code, &|frame_sz| ((frame_sz + 7) / 8) * u64::from(config.regular_op_cost))
+        .instrument("internal", &original_code)
         .map_err(|err| {
             tracing::error!(?err, ?kind, "Instrumentation failed");
             PrepareError::Serialization

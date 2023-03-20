@@ -222,6 +222,7 @@ impl<'a> VMLogic<'a> {
             Some(s) => s,
             None => return Err(VMLogicError::HostError(HostError::MemoryAccessViolation)),
         };
+        self.gas(((frame_size + 7) / 8) * u64::from(self.config.regular_op_cost))?;
         Ok(())
     }
 
