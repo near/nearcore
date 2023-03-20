@@ -2455,7 +2455,11 @@ impl<'a> VMLogic<'a> {
         }
         self.gas_counter.pay_per(storage_read_key_byte, key.len() as u64)?;
         let nodes_before = self.ext.get_trie_nodes_count();
-        let read_mode = if cfg!(feature = "protocol_feature_flat_state") {
+        let read_mode = if checked_feature!(
+            "protocol_feature_flat_state",
+            FlatStorageReads,
+            self.current_protocol_version
+        ) {
             StorageGetMode::FlatStorage
         } else {
             StorageGetMode::Trie
@@ -2476,6 +2480,7 @@ impl<'a> VMLogic<'a> {
             tn_db_reads = nodes_delta.db_reads,
             tn_mem_reads = nodes_delta.mem_reads,
         );
+
         match read {
             Some(value) => {
                 self.registers.set(
