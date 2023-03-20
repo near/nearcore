@@ -237,6 +237,11 @@ fn apply_state_parts(
     } else {
         let sync_prev_hash = get_prev_hash_of_epoch(&epoch, &chain_store, &epoch_manager);
         let sync_prev_block = chain_store.get_block(&sync_prev_hash).unwrap();
+        tracing::info!(
+            target: "state-parts",
+            ?sync_prev_hash,
+            height = sync_prev_block.header().height(),
+            state_roots = ?sync_prev_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect::<Vec<StateRoot>>());
 
         assert!(epoch_manager.is_next_block_epoch_start(&sync_prev_hash).unwrap());
         assert!(
