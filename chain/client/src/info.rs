@@ -120,8 +120,6 @@ impl InfoHelper {
         metrics::FINAL_DOOMSLUG_BLOCK_HEIGHT.set(last_final_ds_block_height as i64);
         metrics::EPOCH_HEIGHT.set(epoch_height as i64);
         if let Some(last_final_block_height_in_epoch) = last_final_block_height_in_epoch {
-            // In rare cases cases the final height isn't updated, for example right after a state sync.
-            // Don't update the metric in such cases.
             metrics::FINAL_BLOCK_HEIGHT_IN_EPOCH.set(last_final_block_height_in_epoch as i64);
         }
     }
@@ -146,16 +144,15 @@ impl InfoHelper {
 
     fn record_block_producers(head: &Tip, client: &crate::client::Client) {
         let me = client.validator_signer.as_ref().map(|x| x.validator_id().clone());
-        if let Some(is_bp) = me.map_or(Some(false), |account_id| {
-            // In rare cases block producer information isn't available.
-            // Don't set the metric in this case.
+        let is_bp = me.map_or(false, |account_id| {
             client
                 .runtime_adapter
                 .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash)
-                .map_or(None, |bp| Some(bp.iter().any(|bp| bp.0.account_id() == &account_id)))
-        }) {
-            metrics::IS_BLOCK_PRODUCER.set(if is_bp { 1 } else { 0 });
-        }
+                .unwrap()
+                .iter()
+                .any(|bp| bp.0.account_id() == &account_id)
+        });
+        metrics::IS_BLOCK_PRODUCER.set(if is_bp { 1 } else { 0 });
     }
 
     fn record_chunk_producers(head: &Tip, client: &crate::client::Client) {
@@ -533,14 +530,6 @@ pub fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
             for (shard_id, shard_status) in shard_statuses {
                 write!(res, "[{}: {}]", shard_id, shard_status.status.to_string(),).unwrap();
             }
-            // TODO #8719
-            tracing::warn!(target: "stats",
-                "The node is syncing its State. The current implementation of this mechanism is known to be unreliable. It may never complete, or fail randomly and corrupt the DB.\n\
-                 Suggestions:\n\
-                 * Download a recent data snapshot and restart the node.\n\
-                 * Disable state sync in the config. Add `\"state_sync_enabled\": false` to `config.json`.\n\
-                 \n\
-                 A better implementation of State Sync is work in progress.");
             res
         }
         SyncStatus::StateSyncDone => "State sync done".to_string(),
@@ -747,7 +736,8 @@ mod tests {
         let store = near_store::test_utils::create_test_store();
         let vs =
             ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test".parse().unwrap()]]);
-        let runtime = KeyValueRuntime::new_with_validators_and_no_gc(store, vs, 123, false);
+        let runtime =
+            Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(store, vs, 123, false));
         let chain_genesis = ChainGenesis {
             time: StaticClock::utc(),
             height: 0,
