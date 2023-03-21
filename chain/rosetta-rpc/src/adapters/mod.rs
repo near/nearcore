@@ -811,9 +811,8 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
         } else {
             receiver_account_id.clone()
         };
-        let actual_sender_account_id = delegate_proxy_account_id
-            .or_else(|| sender_account_id.clone())
-            .unwrap_or_else(|| {
+        let actual_sender_account_id =
+            delegate_proxy_account_id.or_else(|| sender_account_id.clone()).unwrap_or_else(|| {
                 // in case of reflexive action
                 receiver_account_id.clone()
             });

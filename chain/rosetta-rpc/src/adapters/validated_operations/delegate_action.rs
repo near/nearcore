@@ -4,7 +4,6 @@ use super::ValidatedOperation;
 
 pub(crate) struct DelegateActionOperation {
     pub(crate) receiver_id: crate::models::AccountIdentifier,
-    // pub(crate) operations: Vec<crate::models::NonDelegateActionOperation>,
     pub(crate) max_block_height: near_primitives::types::BlockHeight,
     pub(crate) public_key: crate::models::PublicKey,
     pub(crate) nonce: near_primitives::types::Nonce,
