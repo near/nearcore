@@ -19,8 +19,9 @@ pub(crate) async fn convert_transactions_sir_into_local_receipts(
     let prev_block = fetch_block(&client, block.header.prev_hash).await?;
     let prev_block_gas_price = prev_block.header.gas_price;
 
-    let runtime_config =
-        node_runtime::config::RuntimeConfig::from(protocol_config.runtime_config.clone());
+    let runtime_config_store =
+        near_primitives::runtime::config_store::RuntimeConfigStore::new(None);
+    let runtime_config = runtime_config_store.get_config(block.header.latest_protocol_version);
     let local_receipts: Vec<views::ReceiptView> =
         txs.into_iter()
             .map(|tx| {
