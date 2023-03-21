@@ -50,13 +50,16 @@ impl Default for ChunkTestFixture {
 impl ChunkTestFixture {
     pub fn new(orphan_chunk: bool) -> Self {
         // 12 validators, 3 shards, 4 validators per shard
-        Self::new_with_runtime(orphan_chunk, Arc::new(default_runtime()))
+        Self::new_with_runtime(orphan_chunk, default_runtime())
     }
 
     pub fn new_with_all_shards_tracking() -> Self {
-        let mut runtime = default_runtime();
-        runtime.set_tracks_all_shards(true);
-        Self::new_with_runtime(false, Arc::new(runtime))
+        let store = near_store::test_utils::create_test_store();
+        // 12 validators, 3 shards, 4 validators per shard
+        let vs = make_validators(12, 0, 3);
+        let runtime =
+            KeyValueRuntime::new_with_validators_and_no_gc_and_tracking(store, vs, 5, false, true);
+        Self::new_with_runtime(false, runtime)
     }
 
     // Create a ChunkTestFixture to test chunk only producers
@@ -65,8 +68,7 @@ impl ChunkTestFixture {
         // 3 block producer. 1 block producer + 2 chunk only producer per shard
         // This setup ensures that the chunk producer
         let vs = make_validators(6, 2, 3);
-        let mock_runtime =
-            Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(store, vs, 5, false));
+        let mock_runtime = KeyValueRuntime::new_with_validators_and_no_gc(store, vs, 5, false);
         Self::new_with_runtime(false, mock_runtime)
     }
 
@@ -245,7 +247,7 @@ fn make_validators(
 }
 
 // 12 validators, 3 shards, 4 validators per shard
-fn default_runtime() -> KeyValueRuntime {
+fn default_runtime() -> Arc<KeyValueRuntime> {
     let store = near_store::test_utils::create_test_store();
     // 12 validators, 3 shards, 4 validators per shard
     let vs = make_validators(12, 0, 3);

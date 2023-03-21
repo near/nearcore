@@ -12,7 +12,6 @@ use nearcore::TrackedConfig;
 use nearcore::{config::GenesisExt, NightshadeRuntime};
 use std::io;
 use std::path::Path;
-use std::sync::Arc;
 use std::time::Duration;
 
 pub struct ScenarioResult<T, E> {
@@ -52,13 +51,13 @@ impl Scenario {
         let mut env = TestEnv::builder(ChainGenesis::new(&genesis))
             .clients(clients.clone())
             .validators(clients)
-            .runtime_adapters(vec![Arc::new(NightshadeRuntime::test_with_runtime_config_store(
+            .runtime_adapters(vec![NightshadeRuntime::test_with_runtime_config_store(
                 if let Some(tempdir) = &tempdir { tempdir.path() } else { Path::new(".") },
                 store,
                 &genesis,
                 TrackedConfig::new_empty(),
                 runtime_config_store,
-            ))])
+            )])
             .build();
 
         let result = self.process_blocks(&mut env);
