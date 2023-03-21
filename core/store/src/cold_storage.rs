@@ -4,7 +4,6 @@ use crate::trie::TrieRefcountChange;
 use crate::{metrics, DBCol, DBTransaction, Database, Store, TrieChanges};
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_o11y::pretty;
 use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
@@ -129,11 +128,6 @@ fn copy_from_store(
         // added.
         let data = hot_store.get(col, &key)?;
         if let Some(value) = data {
-            tracing::debug!(
-                "BOOM copy_from_store key {}, value {}",
-                pretty::StorageKey(key.as_slice()),
-                pretty::AbbrBytes(value.as_slice())
-            );
             // TODO: As an optimisation, we might consider breaking the
             // abstraction layer.  Since we’re always writing to cold database,
             // rather than using `cold_db: &dyn Database` argument we could have

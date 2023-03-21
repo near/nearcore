@@ -1,4 +1,4 @@
-use near_o11y::{log_assert, pretty};
+use near_o11y::{log_assert, log_assert_fail};
 
 use crate::db::refcount::set_refcount;
 use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database};
@@ -6,16 +6,9 @@ use crate::DBCol;
 
 /// A database which provides access to the cold storage.
 ///
-/// Some of the data we’re storing in cold storage is saved in slightly
-/// different format than it is in the main database.  Specifically:
-///
-/// - Reference counts are not saved.  Since data is never removed from cold
-///   storage, reference counts are not preserved and when fetching data are
-///   always assumed to be one.
-///
-/// This struct handles all those transformations transparently to the user so
-/// that they don’t need to worry about accessing hot and cold storage
-/// differently.
+/// The data is stored in the same format as in the regular database but for the
+/// reference counted columns the rc is always set to 1. This struct handles
+/// setting the rc to one transparently to the user.
 ///
 /// Lastly, since no data is ever deleted from cold storage, trying to decrease
 /// reference of a value count or delete data is ignored and if debug assertions
@@ -29,20 +22,21 @@ impl ColdDB {
         Self { cold }
     }
 
+    fn err_msg(col: DBCol) -> String {
+        format!("Reading from column missing from cold storage. {col:?}")
+    }
+
     // Checks if the column is is the cold db and returns an error if not.
     fn check_is_in_colddb(col: DBCol) -> std::io::Result<()> {
         if !col.is_in_colddb() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Reading from column missing from cold storage. {col:?}"),
-            ));
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, Self::err_msg(col)));
         }
         Ok(())
     }
 
-    // Checks if the column is is the cold db and returns an error if not.
+    // Checks if the column is is the cold db and panics if not.
     fn log_assert_is_in_colddb(col: DBCol) {
-        log_assert!(col.is_in_colddb(), "Reading from column missing from cold storage. {col:?}");
+        log_assert!(col.is_in_colddb(), "{}", Self::err_msg(col));
     }
 }
 
@@ -53,6 +47,7 @@ impl Database for ColdDB {
         self.cold.get_raw_bytes(col, key)
     }
 
+    /// Returns value for given `key` forcing a reference count decoding.
     fn get_with_rc_stripped(&self, col: DBCol, key: &[u8]) -> std::io::Result<Option<DBSlice<'_>>> {
         Self::check_is_in_colddb(col)?;
         self.cold.get_with_rc_stripped(col, key)
@@ -93,7 +88,6 @@ impl Database for ColdDB {
     /// operations or operations decreasing reference count of a value.  If
     /// debug assertions are not enabled, such operations are filtered out.
     fn write(&self, mut transaction: DBTransaction) -> std::io::Result<()> {
-        tracing::debug!("BOOM write {transaction:#?}");
         let mut idx = 0;
         while idx < transaction.ops.len() {
             if adjust_op(&mut transaction.ops[idx]) {
@@ -125,21 +119,15 @@ impl Database for ColdDB {
 /// for cold storage.
 fn adjust_op(op: &mut DBOp) -> bool {
     if !op.col().is_in_colddb() {
-        near_o11y::log_error!("Unexpected DBOp on cold storage col {}", op.col());
         return false;
     }
 
     match op {
         DBOp::Set { .. } | DBOp::Insert { .. } => true,
-        // There is no point in keeping track of ref count in the cold store so
-        // just always hardcode it to 1.
         DBOp::UpdateRefcount { col, key, value } => {
-            tracing::debug!(
-                "BOOM update refcount key {} value {}",
-                pretty::StorageKey(key),
-                pretty::AbbrBytes(value.as_slice())
-            );
             assert!(col.is_rc());
+            // There is no point in keeping track of ref count in the cold store so
+            // just always hardcode it to 1.
             let mut value = core::mem::take(value);
             match set_refcount(&mut value, 1) {
                 Ok(_) => {
@@ -147,7 +135,7 @@ fn adjust_op(op: &mut DBOp) -> bool {
                     return true;
                 }
                 Err(err) => {
-                    near_o11y::log_error!(
+                    log_assert_fail!(
                         "Failed to set refcount when writing to cold store. Error: {err}"
                     );
                     return false;
@@ -155,17 +143,15 @@ fn adjust_op(op: &mut DBOp) -> bool {
             };
         }
         DBOp::Delete { col, key } => {
-            near_o11y::log_error!("Unexpected delete from {col} in cold store: {key:?}");
+            log_assert_fail!("Unexpected delete from {col} in cold store: {key:?}");
             false
         }
         DBOp::DeleteAll { col } => {
-            near_o11y::log_error!("Unexpected delete from {col} in cold store");
+            log_assert_fail!("Unexpected delete from {col} in cold store");
             false
         }
         DBOp::DeleteRange { col, from, to } => {
-            near_o11y::log_error!(
-                "Unexpected delete range from {col} in cold store: {from:?} {to:?}"
-            );
+            log_assert_fail!("Unexpected delete range from {col} in cold store: {from:?} {to:?}");
             false
         }
     }

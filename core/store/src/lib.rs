@@ -272,10 +272,8 @@ impl Store {
     /// provides conversion into a vector or an Arc.
     pub fn get(&self, column: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
         let value = if column.is_rc() {
-            tracing::trace!(target: "store", info="st rc");
             self.storage.get_with_rc_stripped(column, key)
         } else {
-            tracing::trace!(target: "store", info="rw bt");
             self.storage.get_raw_bytes(column, key)
         }?;
         tracing::trace!(

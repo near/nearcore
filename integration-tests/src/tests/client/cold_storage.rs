@@ -26,7 +26,7 @@ use strum::IntoEnumIterator;
 
 fn check_key(first_store: &Store, second_store: &Store, col: DBCol, key: &[u8]) {
     let pretty_key = pretty::StorageKey(key);
-    tracing::trace!("Checking {:?} {:?}", col, pretty_key);
+    tracing::debug!("Checking {:?} {:?}", col, pretty_key);
 
     let first_res = first_store.get(col, key);
     let second_res = second_store.get(col, key);

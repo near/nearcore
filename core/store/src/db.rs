@@ -77,19 +77,19 @@ impl std::fmt::Debug for DBOp {
                 .debug_struct("Set")
                 .field("col", col)
                 .field("key", &pretty::StorageKey(key))
-                .field("value", &pretty::Bytes(value))
+                .field("value", &pretty::AbbrBytes(value))
                 .finish(),
             Self::Insert { col, key, value } => f
                 .debug_struct("Insert")
                 .field("col", col)
                 .field("key", &pretty::StorageKey(key))
-                .field("value", &pretty::Bytes(value))
+                .field("value", &pretty::AbbrBytes(value))
                 .finish(),
             Self::UpdateRefcount { col, key, value } => f
                 .debug_struct("UpdateRefcount")
                 .field("col", col)
                 .field("key", &pretty::StorageKey(key))
-                .field("value", &pretty::Bytes(value))
+                .field("value", &pretty::AbbrBytes(value))
                 .finish(),
             Self::Delete { col, key } => f
                 .debug_struct("Delete")

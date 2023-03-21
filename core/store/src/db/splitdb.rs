@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use std::io;
 use std::sync::Arc;
 
-use near_o11y::log_assert;
+use near_o11y::log_assert_fail;
 
 use crate::db::{DBIterator, DBIteratorItem, DBSlice, DBTransaction, Database, StoreStatistics};
 use crate::DBCol;
@@ -14,15 +14,10 @@ use crate::DBCol;
 /// columns it reads from hot first and if the value is present it returns it.
 /// If the value is not present it reads from the cold database.
 ///
-/// The iter and iter_prefix methods return a chained iterator to both hot and
-/// cold databases and are quite inefficient due to reading all items into
-/// memory upfront.
+/// The iter* methods return a merge iterator of hot and cold iterators.
 ///
-/// The iter_raw_bytes method is not supported but it falls back to returning
-/// the hot storage iterator.
-///
-/// This is a read-only database that doesn't support writing. This is because
-/// it would be not clear what database should be written to.
+/// This database should be treated as read-only but it is not enforced because
+/// even the view client writes to the database in order to update caches.
 pub struct SplitDB {
     hot: Arc<dyn Database>,
     cold: Arc<dyn Database>,
@@ -35,7 +30,7 @@ impl SplitDB {
 
     /// The cmp function for the DBIteratorItems.
     ///
-    /// Note that this does not implement total order because there isn't a
+    /// Note that this does not implement total ordering because there isn't a
     /// clear way to compare errors to errors or errors to values. Instead it
     /// implements total order on values but always compares the error on the
     /// left as lesser. This isn't even partial order. It is fine for merging
@@ -45,10 +40,18 @@ impl SplitDB {
             // Always put errors first (compare less).
             (Err(_), _) => Ordering::Less,
             (_, Err(_)) => Ordering::Less,
-            (Ok(a), Ok(b)) => Ord::cmp(a, b),
+            // When comparing two (key, value) paris only compare the keys.
+            // - values in hot and cold may differ in rc but they are still the same
+            // - values written to cold should be immutable anyway
+            // - values writted to cold should be final
+            (Ok((a_key, _)), Ok((b_key, _))) => Ord::cmp(a_key, b_key),
         }
     }
 
+    /// Returns merge iterator for the given two DBIterators. The returned
+    /// iterator will contain unique and sorted items from both input iterators.
+    ///
+    /// All errors from both inputs will be returned.
     fn merge_iter<'a>(a: DBIterator<'a>, b: DBIterator<'a>) -> DBIterator<'a> {
         // Merge the two iterators using the cmp function. The result will be an
         // iter of EitherOrBoth.
@@ -118,7 +121,7 @@ impl Database for SplitDB {
     /// in lexicographical order sorted by the key.
     ///
     /// The returned iterator will iterate through items in both the cold store
-    /// and the hot store. The items will be deduplicated and sorted.
+    /// and the hot store. The items will be unique and sorted.
     fn iter_prefix<'a>(&'a self, col: DBCol, key_prefix: &'a [u8]) -> DBIterator<'a> {
         if !col.is_cold() {
             return self.hot.iter(col);
@@ -135,22 +138,36 @@ impl Database for SplitDB {
     /// Upper_bound key is not included.
     /// If lower_bound is None - the iterator starts from the first key.
     /// If upper_bound is None - iterator continues to the last key.
+    ///
+    /// The returned iterator will iterate through items in both the cold store
+    /// and the hot store. The items will be unique and sorted.
     fn iter_range<'a>(
         &'a self,
         col: DBCol,
         lower_bound: Option<&'a [u8]>,
         upper_bound: Option<&'a [u8]>,
     ) -> DBIterator<'a> {
-        log_assert!(false, "The iter_range method on split db only iterates over the hot store. Cold data may be missing.");
-        return self.hot.iter_range(col, lower_bound, upper_bound);
+        if !col.is_cold() {
+            return self.hot.iter_range(col, lower_bound, upper_bound);
+        }
+
+        return Self::merge_iter(
+            self.hot.iter_range(col, lower_bound, upper_bound),
+            self.cold.iter_range(col, lower_bound, upper_bound),
+        );
     }
 
     /// Iterate over items in given column bypassing reference count decoding if
-    /// any. This method falls back to the hot iter_raw_bytes because ColdDB
-    /// doesn't implement it.
+    /// any.
+    ///
+    /// The returned iterator will iterate through items in both the cold store
+    /// and the hot store. The items will be unique and sorted.
     fn iter_raw_bytes<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
-        log_assert!(false, "The iter_raw_bytes method on split db only iterates over the hot store. Cold data may be missing.");
-        self.hot.iter_raw_bytes(col)
+        if !col.is_cold() {
+            return self.hot.iter_raw_bytes(col);
+        }
+
+        return Self::merge_iter(self.hot.iter_raw_bytes(col), self.cold.iter_raw_bytes(col));
     }
 
     /// The split db, in principle, should be read only and only used in view client.
@@ -162,21 +179,22 @@ impl Database for SplitDB {
 
     fn flush(&self) -> io::Result<()> {
         let msg = "flush is not allowed - the split storage is read only.";
-        log_assert!(false, "{}", msg);
-        return Err(std::io::Error::new(std::io::ErrorKind::Other, msg));
+        log_assert_fail!("{}", msg);
+        self.hot.flush()?;
+        self.cold.flush()?;
+        Ok(())
     }
 
     fn compact(&self) -> io::Result<()> {
         let msg = "compact is not allowed - the split storage is read only.";
-        log_assert!(false, "{}", msg);
-        return Err(std::io::Error::new(std::io::ErrorKind::Other, msg));
+        log_assert_fail!("{}", msg);
+        self.hot.compact()?;
+        self.cold.compact()?;
+        Ok(())
     }
 
     fn get_store_statistics(&self) -> Option<StoreStatistics> {
-        log_assert!(
-            false,
-            "get_store_statistics is not allowed - the split storage has two stores"
-        );
+        log_assert_fail!("get_store_statistics is not allowed - the split storage has two stores");
         None
     }
 }

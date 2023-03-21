@@ -76,6 +76,27 @@ impl<'a> Bytes<'a> {
 /// the value.
 pub struct AbbrBytes<T>(pub T);
 
+impl<'a> std::fmt::Debug for AbbrBytes<&'a [u8]> {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        truncated_bytes_format(self.0, fmt)
+    }
+}
+
+impl<'a> std::fmt::Debug for AbbrBytes<&'a Vec<u8>> {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        AbbrBytes(self.0.as_slice()).fmt(fmt)
+    }
+}
+
+impl<'a> std::fmt::Debug for AbbrBytes<Option<&'a [u8]>> {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.0 {
+            None => fmt.write_str("None"),
+            Some(bytes) => truncated_bytes_format(bytes, fmt),
+        }
+    }
+}
+
 impl<'a> std::fmt::Display for AbbrBytes<&'a [u8]> {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         truncated_bytes_format(self.0, fmt)
