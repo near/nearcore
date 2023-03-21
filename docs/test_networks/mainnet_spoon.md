@@ -71,6 +71,14 @@ field in `genesis.json`, maybe in the file
 ]
 ```
 
+These validator keys should be keys you've already generated. So for
+the rest of this document, we'll assume you've run:
+
+```shell
+$ neard --home ~/near-test-chain/validator0 init --account-id validator0.near
+$ neard --home ~/near-test-chain/validator1 init --account-id validator1.near
+```
+
 This is also a good time to think about what extra accounts you might
 want in your test chain. Since all accounts in the test chain will
 have the same keys as they do on mainnet, you'll only have access to
@@ -120,5 +128,96 @@ use the `neard amend-genesis` command like so:
 $ neard amend-genesis --genesis-file-in $NEAR_HOME_DIRECTORY/output/genesis.json --records-file-in $NEAR_HOME_DIRECTORY/output/records.json --validators ~/test-chain-scratch/validators.json --extra-records ~/test-chain-scratch/extra-records.json --chain-id $TEST_CHAIN_ID --records-file-out ~/near-test-chain/records.json --genesis-file-out ~/near-test-chain/genesis.json
 ```
 
-Then you can use the resulting genesis and records files in
-`~/near-test-chain/` to start your new chain as you normally would.
+## Starting the network
+
+After running the previous steps you should have the files
+`genesis.json` and `records.json` in `~/near-test-chain/`. Assuming
+you've started it with the two validators `validator0.near` and
+`validator1.near` as described above, you'll want to run at least two
+nodes, one for each of these validator accounts. If you're working
+with multiple computers or VMs that can connect to each other over the
+internet, you'll be able to run your test network over the internet as
+is done with the "real" networks (mainnet, testnet, etc.). But for now
+let's assume that you want to run this on only one machine.
+
+So assuming you've initialized home directories for each of the
+validators with the `init` command described above, you'll want to
+copy the records and genesis files generated in the previous step to
+each of these:
+
+```shell
+$ cp ~/near-test-chain/records.json ~/near-test-chain/validator0
+$ cp ~/near-test-chain/genesis.json ~/near-test-chain/validator0
+$ cp ~/near-test-chain/records.json ~/near-test-chain/validator1
+$ cp ~/near-test-chain/genesis.json ~/near-test-chain/validator1
+```
+
+Now we'll need to make a few config changes to each of
+`~/near-test-chain/validator0/config.json` and
+`~/near-test-chain/validator1/config.json`:
+
+changes to `~/near-test-chain/validator0/config.json`:
+
+```json
+{
+  "genesis_records_file": "records.json",
+  "rpc": {
+    "addr": "0.0.0.0:3030"
+  },
+  "network": {
+    "addr": "0.0.0.0:24567",
+    "boot_nodes": "ed25519:Dk4A7NPBYFPwKWouiSUoyZ15igbLSrcPEJqUqDX4grb7@127.0.0.1:24568",
+    "skip_sync_wait": false,
+  },
+  "consensus": {
+    "min_num_peers": 1
+  },
+  "tracked_shards": [0],
+}
+```
+
+changes to `~/near-test-chain/validator1/config.json`:
+
+```json
+{
+  "genesis_records_file": "records.json",
+  "rpc": {
+    "addr": "0.0.0.0:3031"
+  },
+  "network": {
+    "addr": "0.0.0.0:24568",
+    "boot_nodes": "ed25519:6aR4xVQedQ7Z9URrASgwBY8bedpaYzgH8u5NqEHp2hBv@127.0.0.1:24567",
+    "skip_sync_wait": false,
+  },
+  "consensus": {
+    "min_num_peers": 1
+  },
+  "tracked_shards": [0],
+}
+```
+
+Here we make sure to have each node listen on different ports, while
+telling each about the other via `network.boot_nodes`. In this
+`boot_nodes` string, we set the public key not to the validator key,
+but to whatever key is present in the `node_key.json` file you got
+when you initialized the home directory. So for `validator0`'s config,
+we set its boot node to `validator1`'s node key, followed by the
+address of the socket it should be listening on. We also want to drop
+the minimum required number of peers, since we're just running a small
+test network locally. We set `skip_sync_wait` to `false`, because
+otherwise we get strange behavior that will often make your network
+stall.
+
+After making these changes, you can try running one neard process for
+each of your validators:
+
+```shell
+$ neard --home ~/near-test-chain/validator0 run
+$ neard --home ~/near-test-chain/validator1 run
+```
+
+Now these nodes will begin by taking the records laid out in
+`records.json` and turning them into a genesis state. At the time of
+this writing, using the latest nearcore version from the master
+branch, this will take a couple hours. But your validators should
+begin producing blocks after that's done.
