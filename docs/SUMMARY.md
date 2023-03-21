@@ -52,8 +52,11 @@
 
 - [Networking](./advanced_configuration/networking.md)
 
+# Custom test networks
+
+- [Starting a network from mainnet state](./test_networks/mainnet_spoon.md)
+
 # Misc
 
 - [Overview](./misc/README.md)
 - [State Sync Dump](./misc/state_sync_dump.md)
-- [Spoon Mainnet State](./misc/mainnet_spoon.md)
