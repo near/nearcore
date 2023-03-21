@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
+use near_chain_primitives::error::EpochErrorResultToChainError;
 use near_crypto::PublicKey;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::BlockHeader;
@@ -191,8 +192,12 @@ impl crate::ChainAccess for ChainAccess {
     ) -> Result<Vec<PublicKey>, ChainError> {
         let mut ret = Vec::new();
         let header = self.chain.get_block_header(block_hash)?;
-        let shard_id = self.runtime.account_id_to_shard_id(account_id, header.epoch_id())?;
-        let shard_uid = self.runtime.shard_id_to_uid(shard_id, header.epoch_id())?;
+        let shard_id = self
+            .runtime
+            .account_id_to_shard_id(account_id, header.epoch_id())
+            .into_chain_error()?;
+        let shard_uid =
+            self.runtime.shard_id_to_uid(shard_id, header.epoch_id()).into_chain_error()?;
         let chunk_extra = self.chain.get_chunk_extra(header.hash(), &shard_uid)?;
         match self
             .runtime
