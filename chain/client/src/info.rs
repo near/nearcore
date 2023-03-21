@@ -107,7 +107,7 @@ impl InfoHelper {
         last_final_block_height: BlockHeight,
         last_final_ds_block_height: BlockHeight,
         epoch_height: EpochHeight,
-        last_final_block_height_in_epoch: BlockHeight,
+        last_final_block_height_in_epoch: Option<BlockHeight>,
     ) {
         self.num_blocks_processed += 1;
         self.num_chunks_in_blocks_processed += num_chunks;
@@ -120,7 +120,11 @@ impl InfoHelper {
         metrics::FINAL_BLOCK_HEIGHT.set(last_final_block_height as i64);
         metrics::FINAL_DOOMSLUG_BLOCK_HEIGHT.set(last_final_ds_block_height as i64);
         metrics::EPOCH_HEIGHT.set(epoch_height as i64);
-        metrics::FINAL_BLOCK_HEIGHT_IN_EPOCH.set(last_final_block_height_in_epoch as i64);
+        if let Some(last_final_block_height_in_epoch) = last_final_block_height_in_epoch {
+            // In rare cases cases the final height isn't updated, for example right after a state sync.
+            // Don't update the metric in such cases.
+            metrics::FINAL_BLOCK_HEIGHT_IN_EPOCH.set(last_final_block_height_in_epoch as i64);
+        }
     }
 
     /// Count which shards are tracked by the node in the epoch indicated by head parameter.
@@ -142,15 +146,16 @@ impl InfoHelper {
 
     fn record_block_producers(head: &Tip, client: &crate::client::Client) {
         let me = client.validator_signer.as_ref().map(|x| x.validator_id().clone());
-        let is_bp = me.map_or(false, |account_id| {
+        if let Some(is_bp) = me.map_or(Some(false), |account_id| {
+            // In rare cases block producer information isn't available.
+            // Don't set the metric in this case.
             client
                 .runtime_adapter
                 .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash)
-                .unwrap()
-                .iter()
-                .any(|bp| bp.0.account_id() == &account_id)
-        });
-        metrics::IS_BLOCK_PRODUCER.set(if is_bp { 1 } else { 0 });
+                .map_or(None, |bp| Some(bp.iter().any(|bp| bp.0.account_id() == &account_id)))
+        }) {
+            metrics::IS_BLOCK_PRODUCER.set(if is_bp { 1 } else { 0 });
+        }
     }
 
     fn record_chunk_producers(head: &Tip, client: &crate::client::Client) {
