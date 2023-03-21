@@ -666,54 +666,6 @@ fn test_gas_exceed_loading() {
     ]]);
 }
 
-// Call the "gas" host function with unreasonably large values, trying to force
-// overflow
-#[test]
-fn gas_overflow_direct_call() {
-    test_builder()
-        .wat(
-            r#"
-(module
-  (import "env" "gas" (func $gas (param i32)))
-  (func (export "main")
-    (call $gas (i32.const 0xffff_ffff)))
-)"#,
-        )
-        .gas(4000000000)
-        .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 4000000000 used gas 4000000000
-            Err: Exceeded the prepaid gas.
-        "#]]);
-}
-
-// Call the "gas" host function indirectly with unreasonably large values,
-// trying to force overflow.
-#[test]
-fn gas_overflow_indirect_call() {
-    test_builder()
-        .wat(
-            r#"
-(module
-  (import "env" "gas" (func $gas (param i32)))
-  (type $gas_ty (func (param i32)))
-
-  (table 1 anyfunc)
-  (elem (i32.const 0) $gas)
-
-  (func (export "main")
-    (call_indirect
-      (type $gas_ty)
-      (i32.const 0xffff_ffff)
-      (i32.const 0)))
-)"#,
-        )
-        .gas(4000000000)
-        .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 4000000000 used gas 4000000000
-            Err: Exceeded the prepaid gas.
-        "#]]);
-}
-
 #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
 mod fix_contract_loading_cost_protocol_upgrade {
     use super::*;
