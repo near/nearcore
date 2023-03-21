@@ -50,7 +50,7 @@ pub enum AccountOrPeerIdOrHash {
     AccountId(AccountId),
     PeerId(PeerId),
     Hash(CryptoHash),
-    ExternalStorage(),
+    ExternalStorage,
 }
 
 #[derive(Debug, serde::Serialize)]

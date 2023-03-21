@@ -92,7 +92,7 @@ fn make_account_or_peer_id_or_hash(
         From::AccountId(a) => To::AccountId(a),
         From::PeerId(p) => To::PeerId(p),
         From::Hash(h) => To::Hash(h),
-        From::ExternalStorage() => To::ExternalStorage(),
+        From::ExternalStorage => To::ExternalStorage,
     }
 }
 
@@ -709,7 +709,7 @@ impl StateSync {
         }
         download.state_requests_count += 1;
         download.last_target =
-            Some(make_account_or_peer_id_or_hash(AccountOrPeerIdOrHash::ExternalStorage()));
+            Some(make_account_or_peer_id_or_hash(AccountOrPeerIdOrHash::ExternalStorage));
 
         let location = s3_location(chain_id, epoch_height, shard_id, part_id, num_parts);
         let download_response = download.response.clone();
@@ -1001,9 +1001,12 @@ impl StateSync {
                         .with_label_values(&[&shard_id.to_string()])
                         .inc();
                     download_timeout |= part_timeout;
-                    part_download.run_me.store(true, Ordering::SeqCst);
-                    part_download.error = false;
-                    part_download.prev_update_time = now;
+                    if part_timeout ||
+                        part_download.last_target != Some(near_client_primitives::types::AccountOrPeerIdOrHash::ExternalStorage) {
+                        part_download.run_me.store(true, Ordering::SeqCst);
+                        part_download.error = false;
+                        part_download.prev_update_time = now;
+                    }
                 }
                 if part_download.run_me.load(Ordering::SeqCst) {
                     run_shard_state_download = true;

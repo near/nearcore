@@ -658,7 +658,7 @@ impl PeerManagerActor {
             }
             AccountOrPeerIdOrHash::PeerId(it) => PeerIdOrHash::PeerId(it.clone()),
             AccountOrPeerIdOrHash::Hash(it) => PeerIdOrHash::Hash(*it),
-            AccountOrPeerIdOrHash::ExternalStorage() => unreachable!(),
+            AccountOrPeerIdOrHash::ExternalStorage => unreachable!(),
         };
 
         self.state.send_message_to_peer(
