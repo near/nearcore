@@ -8,6 +8,7 @@ use near_chain_configs::Genesis;
 use near_client::adapter::ProcessTxResponse;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
+use near_epoch_manager::shard_tracker::TrackedConfig;
 use near_primitives::account::id::AccountId;
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::config::ExtCostsConfig;
@@ -22,7 +23,7 @@ use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives::views::{FinalExecutionStatus, QueryRequest, QueryResponseKind};
 use near_store::test_utils::create_test_store;
 use nearcore::config::GenesisExt;
-use nearcore::{NightshadeRuntime, TrackedConfig};
+use nearcore::NightshadeRuntime;
 
 use crate::tests::client::runtimes::create_nightshade_runtimes;
 use node_runtime::ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT;

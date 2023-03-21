@@ -354,6 +354,20 @@ pub trait EpochManagerAdapter: Send + Sync {
         block_height: BlockHeight,
         approvals: &[Option<Signature>],
     ) -> Result<(), Error>;
+
+    fn cares_about_shard_from_prev_block(
+        &self,
+        parent_hash: &CryptoHash,
+        account_id: &AccountId,
+        shard_id: ShardId,
+    ) -> Result<bool, EpochError>;
+
+    fn cares_about_shard_next_epoch_from_prev_block(
+        &self,
+        parent_hash: &CryptoHash,
+        account_id: &AccountId,
+        shard_id: ShardId,
+    ) -> Result<bool, EpochError>;
 }
 
 /// A technical plumbing trait to conveniently implement [`EpochManagerAdapter`]
@@ -895,5 +909,29 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
         } else {
             Ok(())
         }
+    }
+
+    fn cares_about_shard_from_prev_block(
+        &self,
+        parent_hash: &CryptoHash,
+        account_id: &AccountId,
+        shard_id: ShardId,
+    ) -> Result<bool, EpochError> {
+        let epoch_manager = self.read();
+        epoch_manager.cares_about_shard_from_prev_block(parent_hash, account_id, shard_id)
+    }
+
+    fn cares_about_shard_next_epoch_from_prev_block(
+        &self,
+        parent_hash: &CryptoHash,
+        account_id: &AccountId,
+        shard_id: ShardId,
+    ) -> Result<bool, EpochError> {
+        let epoch_manager = self.read();
+        epoch_manager.cares_about_shard_next_epoch_from_prev_block(
+            parent_hash,
+            account_id,
+            shard_id,
+        )
     }
 }

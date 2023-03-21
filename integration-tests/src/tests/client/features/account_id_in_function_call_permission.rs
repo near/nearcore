@@ -3,6 +3,7 @@ use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_epoch_manager::shard_tracker::TrackedConfig;
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::errors::{ActionsValidationError, InvalidTxError};
 use near_primitives::hash::CryptoHash;
@@ -10,7 +11,6 @@ use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::transaction::{Action, AddKeyAction, Transaction};
 use near_store::test_utils::create_test_store;
 use nearcore::config::GenesisExt;
-use nearcore::TrackedConfig;
 use std::path::Path;
 use std::sync::Arc;
 

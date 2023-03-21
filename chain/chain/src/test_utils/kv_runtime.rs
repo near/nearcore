@@ -4,6 +4,7 @@ use std::sync::{Arc, RwLock, Weak};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
+use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::{EpochManagerAdapter, RngSeed};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_part::PartId;
@@ -858,6 +859,45 @@ impl EpochManagerAdapter for KeyValueRuntime {
             Ok(())
         }
     }
+
+    fn cares_about_shard_from_prev_block(
+        &self,
+        parent_hash: &CryptoHash,
+        account_id: &AccountId,
+        shard_id: ShardId,
+    ) -> Result<bool, EpochError> {
+        // This `unwrap` here tests that in all code paths we check that the epoch exists before
+        //    we check if we care about a shard. Please do not remove the unwrap, fix the logic of
+        //    the calling function.
+        let epoch_valset = self.get_epoch_and_valset(*parent_hash).unwrap();
+        let chunk_producers = self.get_chunk_producers(epoch_valset.1, shard_id);
+        for validator in chunk_producers {
+            if validator.account_id() == account_id {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    fn cares_about_shard_next_epoch_from_prev_block(
+        &self,
+        parent_hash: &CryptoHash,
+        account_id: &AccountId,
+        shard_id: ShardId,
+    ) -> Result<bool, EpochError> {
+        // This `unwrap` here tests that in all code paths we check that the epoch exists before
+        //    we check if we care about a shard. Please do not remove the unwrap, fix the logic of
+        //    the calling function.
+        let epoch_valset = self.get_epoch_and_valset(*parent_hash).unwrap();
+        let chunk_producers = self
+            .get_chunk_producers((epoch_valset.1 + 1) % self.validators_by_valset.len(), shard_id);
+        for validator in chunk_producers {
+            if validator.account_id() == account_id {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
 }
 
 impl RuntimeAdapter for KeyValueRuntime {
@@ -936,19 +976,12 @@ impl RuntimeAdapter for KeyValueRuntime {
         if self.tracks_all_shards {
             return true;
         }
-        // This `unwrap` here tests that in all code paths we check that the epoch exists before
-        //    we check if we care about a shard. Please do not remove the unwrap, fix the logic of
-        //    the calling function.
-        let epoch_valset = self.get_epoch_and_valset(*parent_hash).unwrap();
-        let chunk_producers = self.get_chunk_producers(epoch_valset.1, shard_id);
         if let Some(account_id) = account_id {
-            for validator in chunk_producers {
-                if validator.account_id() == account_id {
-                    return true;
-                }
-            }
+            self.cares_about_shard_from_prev_block(parent_hash, account_id, shard_id)
+                .unwrap_or(false)
+        } else {
+            false
         }
-        false
     }
 
     fn will_care_about_shard(
@@ -961,20 +994,12 @@ impl RuntimeAdapter for KeyValueRuntime {
         if self.tracks_all_shards {
             return true;
         }
-        // This `unwrap` here tests that in all code paths we check that the epoch exists before
-        //    we check if we care about a shard. Please do not remove the unwrap, fix the logic of
-        //    the calling function.
-        let epoch_valset = self.get_epoch_and_valset(*parent_hash).unwrap();
-        let chunk_producers = self
-            .get_chunk_producers((epoch_valset.1 + 1) % self.validators_by_valset.len(), shard_id);
         if let Some(account_id) = account_id {
-            for validator in chunk_producers {
-                if validator.account_id() == account_id {
-                    return true;
-                }
-            }
+            self.cares_about_shard_next_epoch_from_prev_block(parent_hash, account_id, shard_id)
+                .unwrap_or(false)
+        } else {
+            false
         }
-        false
     }
 
     fn validate_tx(
@@ -1432,5 +1457,13 @@ impl RuntimeWithEpochManagerAdapter for KeyValueRuntime {
     }
     fn epoch_manager_adapter_arc(&self) -> Arc<dyn EpochManagerAdapter> {
         self.myself.upgrade().unwrap()
+    }
+    fn shard_tracker(&self) -> ShardTracker {
+        let config = if self.tracks_all_shards {
+            TrackedConfig::AllShards
+        } else {
+            TrackedConfig::new_empty()
+        };
+        ShardTracker::new(config, self.epoch_manager_adapter_arc())
     }
 }

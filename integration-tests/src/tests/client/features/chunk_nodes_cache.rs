@@ -4,6 +4,7 @@ use near_chain::{ChainGenesis, Provenance, RuntimeWithEpochManagerAdapter};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_epoch_manager::shard_tracker::TrackedConfig;
 use near_primitives::config::ExtCosts;
 use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
@@ -16,7 +17,6 @@ use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
 use near_store::test_utils::create_test_store;
 use nearcore::config::GenesisExt;
-use nearcore::TrackedConfig;
 use std::path::Path;
 use std::sync::Arc;
 
