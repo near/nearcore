@@ -4,7 +4,7 @@ When mainnet launched, the neard client stored all the chain's state in a single
 RocksDB column `DBCol::State`. This column embeds the entire [NEAR state
 trie](./trie.md) directly in the key-value database, using roughly
 `hash(borsh_encode(trie_node))` as the key to store a `trie_node`. This gives a
-content-addressed storage system than can easily self-verify.
+content-addressed storage system that can easily self-verify.
 
 Flat storage is a bit like a database index for the values stored in the trie.
 It stores a copy of the data in a more accessible way to speed up the lookup
