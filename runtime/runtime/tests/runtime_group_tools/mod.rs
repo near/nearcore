@@ -75,7 +75,9 @@ impl StandaloneRuntime {
         genesis.for_each_record(|record: &StateRecord| {
             account_ids.insert(state_record_to_account_id(record).clone());
         });
+        let writers = std::sync::atomic::AtomicUsize::new(0);
         let root = runtime.apply_genesis_state(
+            &writers,
             tries.clone(),
             0,
             &[],

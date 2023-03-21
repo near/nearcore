@@ -1215,7 +1215,7 @@ mod tests {
         set_access_key(&mut state_update, account_id.clone(), public_key.clone(), access_key);
 
         state_update.commit(StateChangeCause::InitialState);
-        let trie_changes = state_update.finalize().unwrap().0;
+        let trie_changes = state_update.finalize().unwrap().1;
         let mut store_update = tries.store_update();
         let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
         store_update.commit().unwrap();
