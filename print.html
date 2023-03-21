@@ -2240,7 +2240,133 @@ updated using a custom merge operation <code>merge_refcounted_records</code>.</p
 (Note that the last grep is required because not every such value appears to contain contract code)
 We should implement a feature to state-viewer that’d allow better visualization of this data, but in the meantime this seems to work.</li>
 </ul>
-<div style="break-before: page; page-break-before: always;"></div><p>Here we describe structures used for flat storage implementation.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="high-level-overview-1"><a class="header" href="#high-level-overview-1">High level overview</a></h1>
+<p>When mainnet launched, the neard client stored all the chain's state in a single
+RocksDB column <code>DBCol::State</code>. This column embeds the entire <a href="architecture/storage/./trie.html">NEAR state
+trie</a> directly in the key-value database, using roughly
+<code>hash(borsh_encode(trie_node))</code> as the key to store a <code>trie_node</code>. This gives a
+content-addressed storage system that can easily self-verify.</p>
+<p>Flat storage is a bit like a database index for the values stored in the trie.
+It stores a copy of the data in a more accessible way to speed up the lookup
+time. </p>
+<p>Drastically oversimplified, flat storage uses a hashmap instead of a trie. This
+reduces the lookup time from <code>O(d)</code> to <code>O(1)</code> where <code>d</code> is the tree depth of the
+value.</p>
+<p>But the devil is in the detail. Below is a high-level summary of implementation
+challenges, which are the reasons why the above description is an
+oversimplification.</p>
+<h2 id="time-dimension-of-the-state"><a class="header" href="#time-dimension-of-the-state">Time dimension of the state</a></h2>
+<p>The blockchain state is modified with every chunk. Neard must be able to travel
+back in time and resolve key lookups for older versions, as well as travel to
+alternative universes to resolve requests for chunks that belong to a different
+fork.</p>
+<p>Using the full trie embedding in RocksDB, this is almost trivial. We only need
+to know the state root for a chunk and we can start traversing from the root to
+any key. As long as we do not delete (garbage collect) unused trie nodes, the
+data remains available. The overhead is minimal, too, since all the trie nodes
+that have not been changed are shared between tries.</p>
+<p>Enter flat storage territory: A simple hashmap only stores a snapshot. When we
+write a new value to the same key, the old value is overwritten and no longer
+accessible. A solution to access different versions on each shard is required.</p>
+<p>The minimal solution only tracks the final head and all forks building on top. A
+full implementation would also allow replaying older chunks and doing view
+calls. But even this minimal solution pulls in all complicated details regarding
+consensus and multiplies them with all the problems listed below.</p>
+<h2 id="fear-of-data-corruption"><a class="header" href="#fear-of-data-corruption">Fear of data corruption</a></h2>
+<p>State and FlatState keep a copy of the same data and need to be in sync at all
+times. This is a source for errors which any implementation needs to test
+properly. Ideally, there are also tools to quickly compare the two and verify
+which is correct.</p>
+<p>Note: The trie storage is verifiable by construction of the hashes. The flat
+state is not directly verifiable. But it is possible to reconstruct the full
+trie just from the leaf values and use that for verification.</p>
+<h2 id="gas-accounting-requires-a-protocol-change"><a class="header" href="#gas-accounting-requires-a-protocol-change">Gas accounting requires a protocol change</a></h2>
+<p>The trie path we take in a trie lookup affects the gas costs, and hence the
+balance subtracted from the user. In other words, the lookup algorithm leaks
+into the protocol. Hence, we cannot switch between different ways of looking up
+state without a protocol change.</p>
+<p>This makes things a whole lot more complicated. We have to do the data migration
+and prepare flat storage, while still using trie storage. Keeping flat storage
+up to date at this point is pure overhead. And then, at the epoch switch where
+the new protocol version begins, we have to start using the new storage in all
+clients simultaneously. Anyone that has not finished migration, yet, will fail
+to produce a chunk due to invalid gas results.</p>
+<p>In an ideal future, we want to make gas costs independent of the position in the
+trie and then this would no longer be a problem.</p>
+<h2 id="performance-reality-check"><a class="header" href="#performance-reality-check">Performance reality check</a></h2>
+<p>Going from <code>O(d)</code> to <code>O(1)</code> sounds great. But let's look at actual numbers.</p>
+<p>A flat state lookup requires exactly 2 database requests. One for finding the
+<code>ValueRef</code> and one for dereferencing the value. (Dereferencing only happens if
+the value is present and if enough gas was paid to cover reading the potentially
+large value, otherwise we short-circuit.)</p>
+<p>A trie lookup requires exactly <code>d</code> trie node lookups where <code>d</code> is the depth in
+the trie, plus one more for dereferencing the final value.</p>
+<p>Clearly, <code>d + 1</code> is worse than <code>1 + 1</code>, right? Well, as it turns out, we can
+cache the trie nodes with surprisingly high effectiveness. In mainnet
+workloads (which were often optimized to work well with the trie shape) we
+observe a 99% cache hit rate in many cases. </p>
+<p>Combine that with the fact that a typical value for <code>d</code> is somewhere between 10
+and 20. Then we may conclude that, in expectation, a trie lookup (<code>d * 0.01 + 1</code>
+requests) requires less DB requests than a flat state lookup (<code>1 + 1</code> requests). </p>
+<p>In practice, however, flat state still has an edge over accessing trie storage
+directly. And that is due to two reasons.</p>
+<ol>
+<li>DB keys are in better order, leading to more cache hits in RocksDB's block cache.</li>
+<li>The flat state column is much smaller than the state column.</li>
+</ol>
+<p>We observed a speedup of 100x and beyond for reading a single value from
+<code>DBCol::FlatState</code> compared to reading it from <code>DBCol::State</code>. So that is
+clearly a win. But one that is due to the data layout inside RocksDB, not due to
+algorithmic improvements.</p>
+<h2 id="updating-the-merkle-tree"><a class="header" href="#updating-the-merkle-tree">Updating the Merkle tree</a></h2>
+<p>When we update a value in the blockchain state, all ancestor nodes change their
+value due to the recursive nature of Merkle trees.</p>
+<p>Updating flat state is easy enough but then we would not know the new state
+root. Annoyingly, it is rather important to have the state root in due time, as
+it is included in the chunk header.</p>
+<p>To update the state root, we need to read all nodes between the root and all
+changed values. At which point, we are doing all the same reads we were trying
+to avoid in the first place.</p>
+<p>This makes flat state for writes algorithmically useless, as we still have to do
+<code>O(d)</code> requests, no matter what. But there are potential benefits from data
+locality, as flat state stores values sorted by a trie key instead of a
+perfectly random hash.</p>
+<p>For that, we would need a fast index not only for the state value but also for
+all intermediate trie nodes. At this point, we would be back to a full embedding
+of the trie in a key-value store / hashmap. Just changing the keys we use for
+the database.</p>
+<p>Note that we can enjoy the benefits of read-only flat storage to improve read
+heavy contracts. But a read-modify-write pattern using this hybrid solution is
+strictly worse than the original implementation without flat storage.</p>
+<h1 id="implementation-status-and-future-ideas"><a class="header" href="#implementation-status-and-future-ideas">Implementation status and future ideas</a></h1>
+<p>As of March 2023, we have implemented a read-only flat storage that only works
+for the frontier of non-final blocks and the final block itself. Archival calls
+and view calls still use the trie directly.</p>
+<h2 id="things-we-have-solved"><a class="header" href="#things-we-have-solved">Things we have solved</a></h2>
+<p>We are fairly confident we have solved the time-travel issues, the data
+migration / protocol upgrade problems, and got a decent handle on avoiding
+accidental data corruption.</p>
+<p>This improves the worst case (no cache hits) for reads dramatically. And it
+paves the way for further improvements, as we have now a good understanding of
+all these seemingly-simple but actually-really-hard problems.</p>
+<h2 id="flat-state-for-writes"><a class="header" href="#flat-state-for-writes">Flat state for writes</a></h2>
+<p>How to use flat storage for writes is not fully designed, yet, but we have some
+rough ideas how to do it. But we don't know the performance we should expect.
+Algorithmically, it can only get worse but the speedup on RocksDB we found with
+the read-only flat storage is promising. But one has to wonder if there are not
+also simpler ways to achieve better data locality in RocksDB.</p>
+<h2 id="inlining-values"><a class="header" href="#inlining-values">Inlining values</a></h2>
+<p>We hope to get a jump in performance by avoiding dereferencing <code>ValueRef</code> after
+the flat state lookup. At least for small values  we could store the value
+itself also in flat state. (to be defined what small means)</p>
+<p>This seems very promising because the value dereferencing still happens in the
+much slower <code>DBCol::State</code>. If we assume small values are the common case, we
+would thus expect huge performance improvements for the average case.</p>
+<p>It is not clear yet, if we can also optimize large lookups somehow. If not, we
+could at least charge them at a higher rate than we do today, to reflect the
+real DB cost better.</p>
+<h1 id="code-guide"><a class="header" href="#code-guide">Code guide</a></h1>
+<p>Here we describe structures used for flat storage implementation.</p>
 <h2 id="flatstorage"><a class="header" href="#flatstorage">FlatStorage</a></h2>
 <p>This is the main structure which owns information about ValueRefs for all keys from some fixed 
 shard for some set of blocks. It is shared by multiple threads, so it is guarded by RwLock:</p>
