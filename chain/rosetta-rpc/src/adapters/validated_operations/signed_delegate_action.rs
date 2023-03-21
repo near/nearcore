@@ -41,7 +41,7 @@ impl TryFrom<crate::models::Operation> for SignedDelegateActionOperation {
         Self::validate_operation_type(operation.type_)?;
         let metadata = operation.metadata.ok_or_else(required_fields_error)?;
         let signature =
-            metadata.signature.ok_or_else(required_fields_error)?.parse().map_err(|e| {
+            metadata.signature.ok_or_else(required_fields_error)?.parse().map_err(|_| {
                 crate::errors::ErrorKind::InvalidInput("Invalid key format".to_string())
             })?;
 

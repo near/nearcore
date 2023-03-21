@@ -2,10 +2,7 @@ use actix::Addr;
 use near_chain_configs::Genesis;
 use near_client::ViewClientActor;
 use near_o11y::WithSpanContextExt;
-use near_primitives::borsh::BorshSerialize;
 use validated_operations::ValidatedOperation;
-
-use crate::utils::BlobInHexString;
 
 mod transactions;
 mod validated_operations;
@@ -432,17 +429,6 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                         .into_operation(intitiate_signed_delegate_action_operation_id.clone()),
                     );
 
-                    let hex_bytes: BlobInHexString<Vec<u8>> = action
-                        .delegate_action
-                        .clone()
-                        .try_to_vec()
-                        .expect("Failed to deseralize")
-                        .into();
-                    let signing_payload = crate::models::SigningPayload {
-                        account_identifier: action.delegate_action.clone().sender_id.into(),
-                        signature_type: Some(action.signature.key_type().into()),
-                        hex_bytes: hex_bytes.clone(),
-                    };
                     let signed_delegate_action_operation_id =
                         crate::models::OperationIdentifier::new(&operations);
 
@@ -810,12 +796,27 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
             })?
             .address
             .into();
+
+        let delegate_proxy_account_id: Option<near_account_id::AccountId> =
+            delegate_proxy_account_id.into_inner().map(|a| a.address.into());
+        let sender_account_id: Option<near_account_id::AccountId> =
+            sender_account_id.into_inner().map(|a| a.address.into());
+
+        let actual_receiver_account_id = if delegate_proxy_account_id.is_some() {
+            sender_account_id.clone().unwrap_or_else(|| receiver_account_id.clone())
+        } else {
+            receiver_account_id.clone()
+        };
+        let actual_sender_account_id = delegate_proxy_account_id
+            .clone()
+            .or_else(|| sender_account_id.clone())
+            .unwrap_or_else(|| {
+                // in case of reflexive action
+                receiver_account_id.clone()
+            });
         Ok(Self {
-            sender_account_id: sender_account_id
-                .into_inner()
-                .map(|account_identifier| account_identifier.address.into())
-                .unwrap_or_else(|| receiver_account_id.clone()),
-            receiver_account_id,
+            sender_account_id: actual_sender_account_id,
+            receiver_account_id: actual_receiver_account_id,
             actions,
         })
     }
@@ -1091,8 +1092,10 @@ mod tests {
     }
 
     #[test]
-    fn test_near_actions_invalid_signed_delegate_function() {
+    fn test_delegate_actions_bijection() {
+        // dummy key
         let sk = SecretKey::from_seed(KeyType::ED25519, "");
+
         let original_near_actions = NearActions {
             sender_account_id: "proxy.near".parse().unwrap(),
             receiver_account_id: "account.near".parse().unwrap(),
@@ -1113,8 +1116,6 @@ mod tests {
 
         let operations: Vec<crate::models::Operation> =
             original_near_actions.clone().try_into().unwrap();
-
-        dbg!(&operations);
 
         let converted_near_actions = NearActions::try_from(operations).unwrap();
 

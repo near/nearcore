@@ -1263,37 +1263,6 @@ impl TryFrom<&Signature> for near_crypto::Signature {
     }
 }
 
-impl Signature {
-    pub fn from_signature(
-        signature: near_crypto::Signature,
-        public_key: PublicKey,
-        signing_payload: SigningPayload,
-        hex_bytes: BlobInHexString<Vec<u8>>,
-    ) -> Self {
-        match signature {
-            near_crypto::Signature::ED25519(_) => Signature {
-                signature_type: signature.key_type().into(),
-                public_key,
-                signing_payload,
-                hex_bytes,
-            },
-            near_crypto::Signature::SECP256K1(_) => {
-                unimplemented!("SEC256K1 keys are not implemented in Rosetta yet")
-            }
-        }
-    }
-}
-
-// #[cfg(test)]
-// mod tests {
-//     #[test]
-//     fn test_signature_from() {
-//         let native_key = near_crypto::SecretKey::from_random(near_crypto::KeyType::ED25519);
-//         let native_signature = native_key.sign(&[0]);
-//         let converted_signature = crate::models::Signature::from_signature(signature, public_key, signing_payload, hex_bytes);
-//     }
-// }
-
 /// SignatureType is the type of a cryptographic signature.
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 #[serde(rename_all = "lowercase")]
