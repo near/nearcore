@@ -15,6 +15,7 @@
 * The contract runtime switched to using our fork of wasmer, with various improvements.
 * undo-block tool to reset the chain head from current head to its prev block. Use the tool by running: `./target/release/neard --home {path_to_config_directory} undo-block`. [#8681](https://github.com/near/nearcore/pull/8681)
 * Add per shard granularity for chunks in validator info metric. [#8934](https://github.com/near/nearcore/pull/8934)
+* Add prometheus metrics for expected number of blocks/chunks at the end of the epoch. [#8759](https://github.com/near/nearcore/pull/8759)
 
 ## 1.33.0
 
