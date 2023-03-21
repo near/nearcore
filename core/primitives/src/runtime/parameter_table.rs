@@ -1,6 +1,6 @@
 use super::config::{AccountCreationConfig, RuntimeConfig};
 use near_primitives_core::account::id::ParseAccountError;
-use near_primitives_core::config::{ExtCostsConfig, VMConfig};
+use near_primitives_core::config::{ExtCostsConfig, ParameterCost, VMConfig};
 use near_primitives_core::parameter::{FeeParameter, Parameter};
 use near_primitives_core::runtime::fees::{Fee, RuntimeFeesConfig, StorageUsageConfig};
 use near_primitives_core::types::AccountId;
@@ -13,6 +13,7 @@ use std::collections::BTreeMap;
 pub(crate) enum ParameterValue {
     U64(u64),
     Rational { numerator: i32, denominator: i32 },
+    ParameterCost { gas: u64, compute: u64 },
     Fee { send_sir: u64, send_not_sir: u64, execution: u64 },
     // Can be used to store either a string or u128. Ideally, we would use a dedicated enum member
     // for u128, but this is currently impossible to express in YAML (see
@@ -89,6 +90,24 @@ impl TryFrom<&ParameterValue> for Rational32 {
     }
 }
 
+impl TryFrom<&ParameterValue> for ParameterCost {
+    type Error = ValueConversionError;
+
+    fn try_from(value: &ParameterValue) -> Result<Self, Self::Error> {
+        match value {
+            ParameterValue::ParameterCost { gas, compute } => {
+                Ok(ParameterCost { gas: *gas, compute: *compute })
+            }
+            // If not specified, compute costs default to gas costs.
+            &ParameterValue::U64(v) => Ok(ParameterCost { gas: v, compute: v }),
+            _ => Err(ValueConversionError::ParseType(
+                std::any::type_name::<ParameterCost>(),
+                value.clone(),
+            )),
+        }
+    }
+}
+
 impl TryFrom<&ParameterValue> for Fee {
     type Error = ValueConversionError;
 
@@ -141,6 +160,9 @@ impl core::fmt::Display for ParameterValue {
             ParameterValue::U64(v) => write!(f, "{:>20}", format_number(*v)),
             ParameterValue::Rational { numerator, denominator } => {
                 write!(f, "{numerator} / {denominator}")
+            }
+            ParameterValue::ParameterCost { gas, compute } => {
+                write!(f, "{:>20}, compute: {:>20}", format_number(*gas), format_number(*compute))
             }
             ParameterValue::Fee { send_sir, send_not_sir, execution } => {
                 write!(
@@ -470,6 +492,7 @@ burnt_gas_reward: {
   numerator: 1_000_000,
   denominator: 300,
 }
+wasm_storage_read_base: { gas: 50_000_000_000, compute: 100_000_000_000 }
 "#;
 
     static BASE_1: &str = r#"
@@ -495,6 +518,10 @@ wasm_regular_op_cost: { new: 3_856_371 }
 burnt_gas_reward: {
     old: { numerator: 1_000_000, denominator: 300 },
     new: { numerator: 2_000_000, denominator: 500 },
+}
+wasm_storage_read_base: {
+    old: { gas: 50_000_000_000, compute: 100_000_000_000 },
+    new: { gas: 50_000_000_000, compute: 200_000_000_000 },
 }
 "#;
 
@@ -533,6 +560,10 @@ burnt_gas_reward: {
                 (Parameter::StorageNumBytesAccount, "100"),
                 (Parameter::StorageNumExtraBytesRecord, "40"),
                 (Parameter::BurntGasReward, "{ numerator: 1_000_000, denominator: 300 }"),
+                (
+                    Parameter::WasmStorageReadBase,
+                    "{ gas: 50_000_000_000, compute: 100_000_000_000 }",
+                ),
             ],
         );
     }
@@ -567,6 +598,10 @@ burnt_gas_reward: {
                 (Parameter::StorageNumExtraBytesRecord, "40"),
                 (Parameter::WasmRegularOpCost, "3856371"),
                 (Parameter::BurntGasReward, "{ numerator: 2_000_000, denominator: 500 }"),
+                (
+                    Parameter::WasmStorageReadBase,
+                    "{ gas: 50_000_000_000, compute: 200_000_000_000 }",
+                ),
             ],
         );
     }
@@ -586,6 +621,10 @@ burnt_gas_reward: {
                 (Parameter::WasmRegularOpCost, "0"),
                 (Parameter::MaxMemoryPages, "512"),
                 (Parameter::BurntGasReward, "{ numerator: 3_000_000, denominator: 800 }"),
+                (
+                    Parameter::WasmStorageReadBase,
+                    "{ gas: 50_000_000_000, compute: 200_000_000_000 }",
+                ),
             ],
         );
     }
@@ -602,6 +641,10 @@ burnt_gas_reward: {
                 (Parameter::StorageNumBytesAccount, "100"),
                 (Parameter::StorageNumExtraBytesRecord, "40"),
                 (Parameter::BurntGasReward, "{ numerator: 1_000_000, denominator: 300 }"),
+                (
+                    Parameter::WasmStorageReadBase,
+                    "{ gas: 50_000_000_000, compute: 100_000_000_000 }",
+                ),
             ],
         );
     }
@@ -716,6 +759,7 @@ burnt_gas_reward: {
                 Parameter::StorageNumBytesAccount,
                 Parameter::StorageNumExtraBytesRecord,
                 Parameter::BurntGasReward,
+                Parameter::WasmStorageReadBase,
             ]
             .iter(),
         );
