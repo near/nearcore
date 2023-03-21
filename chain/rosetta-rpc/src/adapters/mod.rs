@@ -420,24 +420,28 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                     operations.push(deploy_contract_operation);
                 }
                 near_primitives::transaction::Action::Delegate(action) => {
-                    let intitiate_signed_delegate_action_operation_id =
+                    let initiate_signed_delegate_action_operation_id =
                         crate::models::OperationIdentifier::new(&operations);
                     operations.push(
                         validated_operations::InitiateSignedDelegateActionOperation {
                             sender_account: sender_account_identifier.clone(),
                         }
-                        .into_operation(intitiate_signed_delegate_action_operation_id.clone()),
+                        .into_operation(initiate_signed_delegate_action_operation_id.clone()),
                     );
 
                     let signed_delegate_action_operation_id =
                         crate::models::OperationIdentifier::new(&operations);
 
-                    operations.push(validated_operations::signed_delegate_action::SignedDelegateActionOperation {
-                        receiver_id: receiver_account_identifier.clone(),
-                        signature: action.signature                    }.into_related_operation(
-                        signed_delegate_action_operation_id.clone(),
-                        vec![intitiate_signed_delegate_action_operation_id],
-                    ));
+                    operations.push(
+                        validated_operations::signed_delegate_action::SignedDelegateActionOperation {
+                            receiver_id: receiver_account_identifier.clone(),
+                            signature: action.signature,
+                        }
+                        .into_related_operation(
+                            signed_delegate_action_operation_id.clone(),
+                            vec![initiate_signed_delegate_action_operation_id],
+                        )
+                    );
 
                     let initiate_delegate_action_operation_id =
                         crate::models::OperationIdentifier::new(&operations);
