@@ -112,3 +112,58 @@ impl<'a> finite_wasm::wasmparser::VisitOperator<'a> for SimpleGasCostCfg {
     type Output = u64;
     finite_wasm::wasmparser::for_each_operator!(gas_cost);
 }
+
+
+#[cfg(test)]
+mod test {
+    use crate::internal::VMKind;
+    use near_vm_logic::{ContractPrepareVersion, VMConfig};
+
+    #[test]
+    fn v2_preparation_wasmtime_generates_valid_contract() {
+        let mut config = VMConfig::test();
+        config.limit_config.contract_prepare_version = ContractPrepareVersion::V2;
+        bolero::check!().for_each(|input: &[u8]| {
+            // DO NOT use ArbitraryModule. We do want modules that may be invalid here, if they pass our validation step!
+            if let Ok(_) = crate::prepare::prepare_v1::validate_contract(input, &config) {
+                match super::prepare_contract(input, &config, VMKind::Wasmtime) {
+                    Err(_e) => (), // TODO: this should be a panic, but for now it’d actually trigger
+                    Ok(code) => {
+                        let mut validator = wasmparser::Validator::new_with_features(crate::prepare::WASM_FEATURES);
+                        match validator.validate_all(&code) {
+                            Ok(_) => (),
+                            Err(e) => panic!(
+                                "prepared code failed validation: {e:?}\ncontract: {}",
+                                hex::encode(input),
+                            ),
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn v2_preparation_near_vm_generates_valid_contract() {
+        let mut config = VMConfig::test();
+        config.limit_config.contract_prepare_version = ContractPrepareVersion::V2;
+        bolero::check!().for_each(|input: &[u8]| {
+            // DO NOT use ArbitraryModule. We do want modules that may be invalid here, if they pass our validation step!
+            if let Ok(_) = crate::prepare::prepare_v1::validate_contract(input, &config) {
+                match super::prepare_contract(input, &config, VMKind::NearVm) {
+                    Err(_e) => (), // TODO: this should be a panic, but for now it’d actually trigger
+                    Ok(code) => {
+                        let mut validator = wasmparser::Validator::new_with_features(crate::prepare::WASM_FEATURES);
+                        match validator.validate_all(&code) {
+                            Ok(_) => (),
+                            Err(e) => panic!(
+                                "prepared code failed validation: {e:?}\ncontract: {}",
+                                hex::encode(input),
+                            ),
+                        }
+                    }
+                }
+            }
+        });
+    }
+}
