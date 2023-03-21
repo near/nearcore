@@ -566,9 +566,7 @@ async fn construction_payloads(
 
     check_network_identifier(&client_addr, network_identifier).await?;
 
-    let signer_public_access_key: near_crypto::PublicKey = public_keys
-        .iter()
-        .next()
+    let signer_public_access_key: near_crypto::PublicKey = public_keys.first()
         .ok_or_else(|| {
             errors::ErrorKind::InvalidInput("exactly one public key is expected".to_string())
         })?
@@ -631,9 +629,7 @@ async fn construction_combine(
 
     check_network_identifier(&client_addr, network_identifier).await?;
 
-    let signature = signatures
-        .iter()
-        .next()
+    let signature = signatures.first()
         .ok_or_else(|| {
             errors::ErrorKind::InvalidInput("exactly one signature is expected".to_string())
         })?

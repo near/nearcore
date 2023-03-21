@@ -34,10 +34,10 @@ async fn convert_genesis_records_to_transaction(
     let genesis_accounts: std::collections::BTreeMap<_, _> = crate::utils::query_accounts(
         &near_primitives::types::BlockId::Hash(block.header.hash).into(),
         genesis_account_ids.iter(),
-        &view_client_addr,
+        view_client_addr,
     )
     .await?;
-    let runtime_config = crate::utils::query_protocol_config(block.header.hash, &view_client_addr)
+    let runtime_config = crate::utils::query_protocol_config(block.header.hash, view_client_addr)
         .await?
         .runtime_config;
 
@@ -147,7 +147,7 @@ pub(crate) async fn convert_block_to_transactions(
         near_primitives::types::BlockId::Hash(block.header.prev_hash),
     );
     let accounts_previous_state =
-        crate::utils::query_accounts(&prev_block_id, touched_account_ids.iter(), &view_client_addr)
+        crate::utils::query_accounts(&prev_block_id, touched_account_ids.iter(), view_client_addr)
             .await?;
 
     let accounts_changes = view_client_addr
@@ -163,13 +163,13 @@ pub(crate) async fn convert_block_to_transactions(
         )
         .await??;
 
-    let runtime_config = crate::utils::query_protocol_config(block.header.hash, &view_client_addr)
+    let runtime_config = crate::utils::query_protocol_config(block.header.hash, view_client_addr)
         .await?
         .runtime_config;
     let exec_to_rx =
-        transactions::ExecutionToReceipts::for_block(&view_client_addr, block.header.hash).await?;
+        transactions::ExecutionToReceipts::for_block(view_client_addr, block.header.hash).await?;
     transactions::convert_block_changes_to_transactions(
-        &view_client_addr,
+        view_client_addr,
         &runtime_config,
         &block.header.hash,
         accounts_changes,
@@ -812,7 +812,6 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
             receiver_account_id.clone()
         };
         let actual_sender_account_id = delegate_proxy_account_id
-            .clone()
             .or_else(|| sender_account_id.clone())
             .unwrap_or_else(|| {
                 // in case of reflexive action
