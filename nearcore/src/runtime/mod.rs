@@ -2253,6 +2253,7 @@ mod test {
     }
 
     // TODO (#7327): enable test when flat storage will support state sync.
+    #[ignore]
     #[test]
     fn test_state_sync() {
         init_test_logger();
