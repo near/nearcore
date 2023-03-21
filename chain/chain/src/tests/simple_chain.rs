@@ -75,7 +75,7 @@ fn build_chain() {
     if cfg!(feature = "nightly") {
         insta::assert_display_snapshot!(hash, @"AV8UPQ2WvJyieSHVf6SDLYmycE4xwWuTvaHiR5hPdoX2");
     } else {
-        insta::assert_display_snapshot!(hash, @"8L1cHCc7Cx9SRPWpVtjPtEzQWamztMoHE3cxAcZtHTKv");
+        insta::assert_display_snapshot!(hash, @"7hQ4bvvu2TmgFVhELFThZPHFoBPwa74VT6D8uk79xPzB");
     }
 }
 
