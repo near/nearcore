@@ -441,3 +441,13 @@ pub static STATE_SYNC_EXTERNAL_PARTS_REQUEST_DELAY: Lazy<near_o11y::metrics::His
         )
         .unwrap()
     });
+
+pub static STATE_SYNC_APPLY_PART_DELAY: Lazy<near_o11y::metrics::HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_state_sync_apply_part_delay",
+        "Latency of applying a state part",
+        &["shard_id"],
+        Some(exponential_buckets(0.001, 2.0, 20).unwrap()),
+    )
+    .unwrap()
+});

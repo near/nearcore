@@ -1714,6 +1714,9 @@ impl SyncJobsActor {
         let store = msg.runtime.store();
 
         for part_id in 0..msg.num_parts {
+            let _timer = metrics::STATE_SYNC_APPLY_PART_DELAY
+                .with_label_values(&[&msg.shard_id.to_string()])
+                .start_timer();
             let key = StatePartKey(msg.sync_hash, msg.shard_id, part_id).try_to_vec()?;
             let part = store.get(DBCol::StateParts, &key)?.unwrap();
 
