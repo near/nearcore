@@ -448,13 +448,7 @@ impl From<NearActions> for Vec<crate::models::Operation> {
 
                     operations.push(validated_operations::signed_delegate_action::SignedDelegateActionOperation {
                         receiver_id: receiver_account_identifier.clone(),
-                        signature: crate::models::Signature::from_signature(
-                            action.signature,
-                            (&action.delegate_action.public_key.clone()).into(),
-                            signing_payload,
-                            hex_bytes,
-                        )
-                    }.into_related_operation(
+                        signature: action.signature                    }.into_related_operation(
                         signed_delegate_action_operation_id.clone(),
                         vec![intitiate_signed_delegate_action_operation_id],
                     ));
@@ -516,7 +510,7 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
         let mut delegate_proxy_account_id = crate::utils::InitializeOnce::new(
             "A single transaction cannot be sent by multiple proxies",
         );
-        let mut actions = vec![];
+        let mut actions: Vec<near_primitives::transaction::Action> = vec![];
 
         // Iterate over operations backwards to handle the related operations
         let mut operations = operations.into_iter().rev();
@@ -739,7 +733,7 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                     delegate_proxy_account_id
                         .try_set(&intitiate_signed_delegate_action_operation.sender_account)?;
 
-                    actions.push(
+                    let delegate_action: near_primitives::transaction::Action =
                         near_primitives::delegate_action::SignedDelegateAction {
                             delegate_action: near_primitives::delegate_action::DelegateAction {
                                 sender_id: initiate_delegate_action_operation
@@ -753,54 +747,37 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                                     .parse()
                                     .unwrap(),
                                 actions: {
-                                    let sub_near_actions_wrapper: NearActions = delegate_action_operation
-                                        .operations
-                                        .into_iter()
-                                        .map(|o| crate::models::Operation::from(o))
-                                        .collect::<Vec<_>>()
-                                        .try_into()?;
-
-                                    // make sure that the delegated actions are consistent with the
-                                    // containing DelegateAction
-                                    if Some(sub_near_actions_wrapper.sender_account_id.clone().into())
-                                        != *sender_account_id.as_ref()
-                                    {
-                                        return Err(crate::errors::ErrorKind::InvalidInput(format!(
-                                            "Delegated action sender `{}` does not equal the receiver of the delegate action `{:?}`",
-                                            sub_near_actions_wrapper.sender_account_id, sender_account_id.into_inner(),
-                                        )));
-                                    }
-
-                                    // Rewrite when .try_collect() is stable
-                                    let sub_actions_results = sub_near_actions_wrapper.actions.into_iter().map(|a| a.try_into()).collect::<Vec<_>>();
-                                    let sub_actions = {
-                                        let mut actions = vec![];
-                                        for r in sub_actions_results.into_iter() {
-                                            if let Ok(r) = r {
-                                                actions.push(r);
-                                            } else {
-                                                return Err(crate::errors::ErrorKind::InvalidInput("Delegate action contains nested delegate action".to_string()));
+                                    let mut nda = vec![];
+                                    for a in actions.into_iter() {
+                                        nda.push(match a.try_into() {
+                                            Ok(a) => a,
+                                            Err(_) => {
+                                                return Err(crate::errors::ErrorKind::InvalidInput(
+                                                    "Nested delegate actions not allowed"
+                                                        .to_string(),
+                                                ))
                                             }
-                                        }
-                                        actions
-                                    };
-
-                                    sub_actions
+                                        });
+                                    }
+                                    nda
                                 },
                                 nonce: delegate_action_operation.nonce,
                                 max_block_height: delegate_action_operation.max_block_height,
-                                public_key:  match (&delegate_action_operation.public_key).try_into() {
+                                public_key: match (&delegate_action_operation.public_key).try_into()
+                                {
                                     Ok(o) => o,
-                                    Err(_) => return Err(crate::errors::ErrorKind::InvalidInput("Invalid public key on delegate action".to_string())),
+                                    Err(_) => {
+                                        return Err(crate::errors::ErrorKind::InvalidInput(
+                                            "Invalid public key on delegate action".to_string(),
+                                        ))
+                                    }
                                 },
                             },
-                            signature: match (&signed_delegate_action_operation.signature).try_into() {
-                                Ok(s) => s,
-                                Err(_) => return Err(crate::errors::ErrorKind::InvalidInput("Failed to parse delegate action signature".to_string())),
-                            },
+                            signature: signed_delegate_action_operation.signature,
                         }
-                        .into(),
-                    )
+                        .into();
+
+                    actions = vec![delegate_action];
                 }
                 crate::models::OperationType::InitiateCreateAccount
                 | crate::models::OperationType::InitiateDeleteAccount
@@ -850,7 +827,7 @@ mod tests {
     use actix::System;
     use near_actix_test_utils::run_actix;
     use near_client::test_utils::setup_no_network;
-    use near_crypto::{KeyType, PublicKey};
+    use near_crypto::{KeyType, SecretKey};
     use near_primitives::delegate_action::{DelegateAction, SignedDelegateAction};
     use near_primitives::runtime::config::RuntimeConfig;
     use near_primitives::transaction::{Action, TransferAction};
@@ -1114,9 +1091,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Failed to parse delegate action signature")]
     fn test_near_actions_invalid_signed_delegate_function() {
-        let near_actions = NearActions {
+        let sk = SecretKey::from_seed(KeyType::ED25519, "");
+        let original_near_actions = NearActions {
             sender_account_id: "proxy.near".parse().unwrap(),
             receiver_account_id: "account.near".parse().unwrap(),
             actions: vec![Action::Delegate(SignedDelegateAction {
@@ -1128,15 +1105,20 @@ mod tests {
                         .unwrap()],
                     nonce: 0,
                     max_block_height: 0,
-                    public_key: PublicKey::empty(KeyType::ED25519),
+                    public_key: sk.public_key(),
                 },
-                signature: Default::default(), // this is not a valid signature
+                signature: sk.sign(&[0]),
             })],
         };
 
-        let operations: Vec<crate::models::Operation> = near_actions.clone().try_into().unwrap();
+        let operations: Vec<crate::models::Operation> =
+            original_near_actions.clone().try_into().unwrap();
 
-        NearActions::try_from(operations).unwrap();
+        dbg!(&operations);
+
+        let converted_near_actions = NearActions::try_from(operations).unwrap();
+
+        assert_eq!(converted_near_actions, original_near_actions);
     }
 
     #[test]

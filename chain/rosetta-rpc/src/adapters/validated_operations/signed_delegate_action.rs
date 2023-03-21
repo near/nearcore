@@ -2,7 +2,7 @@ use super::ValidatedOperation;
 
 pub(crate) struct SignedDelegateActionOperation {
     pub(crate) receiver_id: crate::models::AccountIdentifier,
-    pub(crate) signature: crate::models::Signature,
+    pub(crate) signature: near_crypto::Signature,
 }
 
 impl ValidatedOperation for SignedDelegateActionOperation {
@@ -19,7 +19,7 @@ impl ValidatedOperation for SignedDelegateActionOperation {
             account: self.receiver_id,
             amount: None,
             metadata: Some(crate::models::OperationMetadata {
-                signature: Some(self.signature),
+                signature: Some(self.signature.to_string()),
                 ..Default::default()
             }),
 
@@ -40,7 +40,10 @@ impl TryFrom<crate::models::Operation> for SignedDelegateActionOperation {
     fn try_from(operation: crate::models::Operation) -> Result<Self, Self::Error> {
         Self::validate_operation_type(operation.type_)?;
         let metadata = operation.metadata.ok_or_else(required_fields_error)?;
-        let signature = metadata.signature.ok_or_else(required_fields_error)?;
+        let signature =
+            metadata.signature.ok_or_else(required_fields_error)?.parse().map_err(|e| {
+                crate::errors::ErrorKind::InvalidInput("Invalid key format".to_string())
+            })?;
 
         Ok(Self { receiver_id: operation.account, signature })
     }

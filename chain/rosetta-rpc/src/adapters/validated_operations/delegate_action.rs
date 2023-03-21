@@ -4,7 +4,7 @@ use super::ValidatedOperation;
 
 pub(crate) struct DelegateActionOperation {
     pub(crate) receiver_id: crate::models::AccountIdentifier,
-    pub(crate) operations: Vec<crate::models::NonDelegateActionOperation>,
+    // pub(crate) operations: Vec<crate::models::NonDelegateActionOperation>,
     pub(crate) max_block_height: near_primitives::types::BlockHeight,
     pub(crate) public_key: crate::models::PublicKey,
     pub(crate) nonce: near_primitives::types::Nonce,
@@ -26,7 +26,6 @@ impl ValidatedOperation for DelegateActionOperation {
             metadata: Some(crate::models::OperationMetadata {
                 public_key: Some(self.public_key),
                 max_block_height: Some(self.max_block_height),
-                operations: Some(self.operations),
                 nonce: Some(self.nonce),
                 ..Default::default()
             }),
@@ -53,9 +52,9 @@ impl TryFrom<crate::models::Operation> for DelegateActionOperation {
         let public_key = metadata.public_key.ok_or_else(required_fields_error)?;
         let max_block_height = metadata.max_block_height.ok_or_else(required_fields_error)?;
         let nonce = metadata.nonce.ok_or_else(required_fields_error)?;
-        let operations = metadata.operations.ok_or_else(required_fields_error)?;
+        // let operations = metadata.operations.ok_or_else(required_fields_error)?;
 
-        Ok(Self { receiver_id: operation.account, public_key, max_block_height, operations, nonce })
+        Ok(Self { receiver_id: operation.account, public_key, max_block_height, nonce })
     }
 }
 
@@ -78,7 +77,6 @@ impl From<near_primitives::delegate_action::DelegateAction> for DelegateActionOp
             receiver_id: delegate_action.receiver_id.into(),
             max_block_height: delegate_action.max_block_height,
             public_key: (&delegate_action.public_key).into(),
-            operations: non_delegate_operations,
             nonce: delegate_action.nonce,
         }
     }

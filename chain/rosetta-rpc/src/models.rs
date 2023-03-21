@@ -795,12 +795,9 @@ pub(crate) struct OperationMetadata {
     /// Has to be specified for DELEGATE_ACTION operation
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nonce: Option<Nonce>,
-    /// Has to be specified for DELEGATE_ACTION operation
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub operations: Option<Vec<NonDelegateActionOperation>>,
     /// Has to be specified for SIGNED_DELEGATE_ACTION operation
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub signature: Option<Signature>,
+    pub signature: Option<String>,
 }
 
 impl OperationMetadata {
@@ -1286,6 +1283,16 @@ impl Signature {
         }
     }
 }
+
+// #[cfg(test)]
+// mod tests {
+//     #[test]
+//     fn test_signature_from() {
+//         let native_key = near_crypto::SecretKey::from_random(near_crypto::KeyType::ED25519);
+//         let native_signature = native_key.sign(&[0]);
+//         let converted_signature = crate::models::Signature::from_signature(signature, public_key, signing_payload, hex_bytes);
+//     }
+// }
 
 /// SignatureType is the type of a cryptographic signature.
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
