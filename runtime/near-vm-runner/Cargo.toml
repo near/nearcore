@@ -80,6 +80,7 @@ default = [
   "wasmer0_vm",
   "wasmtime_vm",
   "wasmer2_vm",
+  "near_vm",
 ]
 wasmer0_vm = [ "wasmer-runtime", "wasmer-runtime-core" ]
 wasmtime_vm = [ "wasmtime", "anyhow"]
