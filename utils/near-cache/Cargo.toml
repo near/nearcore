@@ -3,7 +3,13 @@ name = "near-cache"
 version = "0.0.0"
 authors.workspace = true
 edition.workspace = true
-publish = false
+publish = true
+# Please update rust-toolchain.toml as well when changing version here:
+rust-version.workspace = true
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/near/nearcore"
+description = ""
 
 [dependencies]
 lru.workspace = true
