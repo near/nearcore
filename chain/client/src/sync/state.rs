@@ -806,7 +806,7 @@ impl StateSync {
         use_colour: bool,
     ) -> Result<StateSyncResult, near_chain::Error> {
         let _span = tracing::debug_span!(target: "sync", "run", sync = "StateSync").entered();
-        tracing::debug!(target: "sync", %sync_hash, ?tracking_shards, "syncing state");
+        tracing::trace!(target: "sync", %sync_hash, ?tracking_shards, "syncing state");
         let prev_hash = *chain.get_block_header(&sync_hash)?.prev_hash();
         let now = StaticClock::utc();
 
@@ -1016,7 +1016,7 @@ impl StateSync {
                 num_parts_done += 1;
             }
         }
-        tracing::debug!(target: "sync", %shard_id, %sync_hash, num_parts_done, parts_done);
+        tracing::trace!(target: "sync", %shard_id, %sync_hash, num_parts_done, parts_done);
         metrics::STATE_SYNC_PARTS_DONE
             .with_label_values(&[&shard_id.to_string()])
             .set(num_parts_done);
@@ -1238,6 +1238,7 @@ fn check_external_storage_part_response(
                         .with_label_values(&[&shard_id.to_string()])
                         .inc();
                     part_download.done = true;
+                    tracing::debug!(target: "sync", %shard_id, part_id, ?part_download, "Set state part success");
                 }
                 Err(err) => {
                     metrics::STATE_SYNC_EXTERNAL_PARTS_FAILED
@@ -1251,6 +1252,7 @@ fn check_external_storage_part_response(
         }
         // Other HTTP status codes are considered errors.
         Ok((status_code, _)) => {
+            tracing::debug!(target: "sync", %shard_id, %sync_hash, part_id, status_code, "Wrong response code, expected 200");
             err_to_retry =
                 Some(near_chain::Error::Other(format!("status_code: {}", status_code).to_string()));
         }
@@ -1263,7 +1265,6 @@ fn check_external_storage_part_response(
     if let Some(err) = err_to_retry {
         tracing::debug!(target: "sync", %shard_id, %sync_hash, part_id, ?err, "Failed to get a part from external storage, will retry");
         part_download.error = true;
-    } else {
     }
 }
 
@@ -1299,8 +1300,15 @@ fn format_shard_sync_phase(shard_sync_download: &ShardSyncDownload, use_colour: 
             shard_sync_download.downloads[0].last_target
         ),
         ShardSyncStatus::StateDownloadParts => {
+            let mut num_parts_done = 0;
+            let mut num_parts_not_done = 0;
             let mut text = "".to_string();
             for (i, download) in shard_sync_download.downloads.iter().enumerate() {
+                if download.done {
+                    num_parts_done += 1;
+                    continue;
+                }
+                num_parts_not_done += 1;
                 text.push_str(&format!(
                     "[{}: {}, {}, {:?}] ",
                     paint(&i.to_string(), Yellow.bold(), use_colour),
@@ -1310,10 +1318,12 @@ fn format_shard_sync_phase(shard_sync_download: &ShardSyncDownload, use_colour: 
                 ));
             }
             format!(
-                "{} [{}: is_done, requests sent, last target] {}",
+                "{} [{}: is_done, requests sent, last target] {} num_parts_done={} num_parts_not_done={}",
                 paint("PARTS", Purple.bold(), use_colour),
                 paint("part_id", Yellow.bold(), use_colour),
-                text
+                text,
+                num_parts_done,
+                num_parts_not_done
             )
         }
         _ => unreachable!("timeout cannot happen when all state is downloaded"),
