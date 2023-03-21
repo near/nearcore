@@ -12,6 +12,8 @@ mod disabled {
         pub fn new<'a>(_msg: impl FnOnce() -> Cow<'a, str>) -> Self {
             Self {}
         }
+
+        pub fn snapshot(&mut self, _msg: &str) {}
     }
 }
 

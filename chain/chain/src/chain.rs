@@ -1817,6 +1817,7 @@ impl Chain {
     }
 
     pub fn reset_data_pre_state_sync(&mut self, sync_hash: CryptoHash) -> Result<(), Error> {
+        let mut d = DelayDetector::new(|| "reset_data_pre_state_sync".into());
         let _span = tracing::debug_span!(target: "sync", "reset_data_pre_state_sync").entered();
         let head = self.head()?;
         // Get header we were syncing into.
@@ -1829,7 +1830,12 @@ impl Chain {
         // there is no block, we need to make sure that the last block before tail is cleaned.
         let tail = self.store.tail()?;
         let mut tail_prev_block_cleaned = false;
+        tracing::debug!(target: "sync", tail, gc_height, "reset_data_pre_state_sync");
         for height in tail..gc_height {
+            if height % 100 == 0 {
+                d.snapshot(&format!("reset_data_pre_state_sync height={}", height));
+                tracing::debug!(target: "sync", height, tail, gc_height, "reset_data_pre_state_sync progress");
+            }
             if let Ok(blocks_current_height) = self.store.get_all_block_hashes_by_height(height) {
                 let blocks_current_height =
                     blocks_current_height.values().flatten().cloned().collect::<Vec<_>>();
@@ -1858,6 +1864,9 @@ impl Chain {
             }
         }
 
+        d.snapshot("reset_data_pre_state_sync loop done");
+        tracing::debug!(target: "sync", "reset_data_pre_state_sync loop done");
+
         // Clear Chunks data
         let mut chain_store_update = self.mut_store().store_update();
         // The largest height of chunk we have in storage is head.height + 1
@@ -1865,8 +1874,10 @@ impl Chain {
         chain_store_update.clear_chunk_data_and_headers(chunk_height)?;
         chain_store_update.commit()?;
 
-        // clear all trie data
+        d.snapshot("reset_data_pre_state_sync chunks data cleaned up");
+        tracing::debug!(target: "sync", "reset_data_pre_state_sync chunks data cleaned up");
 
+        // clear all trie data
         let tries = self.runtime_adapter.get_tries();
         let mut chain_store_update = self.mut_store().store_update();
         let mut store_update = StoreUpdate::new_with_tries(tries);
@@ -1876,6 +1887,10 @@ impl Chain {
         // The reason to reset tail here is not to allow Tail be greater than Head
         chain_store_update.reset_tail();
         chain_store_update.commit()?;
+
+        d.snapshot("reset_data_pre_state_sync chunks trie data cleaned up");
+        tracing::debug!(target: "sync", "reset_data_pre_state_sync chunks trie data cleaned up");
+
         Ok(())
     }
 

@@ -1440,6 +1440,7 @@ impl ClientActor {
     /// Usually `state_fetch_horizon` is much less than the expected number of produced blocks on an epoch,
     /// so this is only relevant on epoch boundaries.
     fn find_sync_hash(&mut self) -> Result<CryptoHash, near_chain::Error> {
+        let _d = delay_detector::DelayDetector::new(|| "find_sync_hash".into());
         let header_head = self.client.chain.header_head()?;
         let mut sync_hash = header_head.prev_block_hash;
         for _ in 0..self.client.config.state_fetch_horizon {
