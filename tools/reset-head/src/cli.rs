@@ -58,6 +58,11 @@ impl ResetHeadToPrevCommand {
 
         // chain_store_update.dec_block_refcount(&prev_hash)?;
 
+        // stop if it's already the final block
+        if current_final_head.height >= prev_tip.height {
+            return Err(anyhow::anyhow!("cannot revert past final block"))
+        }
+
         // clear block data for current head
         chain_store_update.clear_block_data_head_reset(head_hash)?;
 

@@ -1984,7 +1984,7 @@ impl<'a> ChainStoreUpdate<'a> {
         for _header_hash in header_hashes {
             // 3. Delete header_hash-indexed data
             // TODO #3488: enable
-            self.gc_col(DBCol::BlockHeader, _header_hash.as_bytes());
+            // self.gc_col(DBCol::BlockHeader, _header_hash.as_bytes());
         }
 
         // 4. Delete chunks_tail-related data
