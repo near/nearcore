@@ -33,11 +33,8 @@ fn setup_env(genesis: &Genesis) -> TestEnv {
     init_integration_logger();
     let store1 = create_test_store();
     TestEnv::builder(ChainGenesis::new(&genesis))
-        .runtime_adapters(vec![Arc::new(nearcore::NightshadeRuntime::test(
-            Path::new("."),
-            store1,
-            genesis,
-        )) as Arc<dyn RuntimeWithEpochManagerAdapter>])
+        .runtime_adapters(vec![nearcore::NightshadeRuntime::test(Path::new("."), store1, genesis)
+            as Arc<dyn RuntimeWithEpochManagerAdapter>])
         .build()
 }
 

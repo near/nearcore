@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, Weak};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
@@ -65,6 +65,7 @@ use super::ValidatorSchedule;
 ///   * Uses hard-coded validator schedule instead of using `EpochManager` and
 ///     staking to assign block and chunk producers.
 pub struct KeyValueRuntime {
+    myself: Weak<KeyValueRuntime>,
     store: Store,
     tries: ShardTries,
     /// A pre determined list of validator sets. We rotate validator set in this list.
@@ -114,13 +115,17 @@ struct KVState {
 }
 
 impl KeyValueRuntime {
-    pub fn new(store: Store, epoch_length: u64) -> Self {
+    pub fn new(store: Store, epoch_length: u64) -> Arc<Self> {
         let vs =
             ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test".parse().unwrap()]]);
         Self::new_with_validators(store, vs, epoch_length)
     }
 
-    pub fn new_with_validators(store: Store, vs: ValidatorSchedule, epoch_length: u64) -> Self {
+    pub fn new_with_validators(
+        store: Store,
+        vs: ValidatorSchedule,
+        epoch_length: u64,
+    ) -> Arc<Self> {
         Self::new_with_validators_and_no_gc(store, vs, epoch_length, false)
     }
 
@@ -129,7 +134,17 @@ impl KeyValueRuntime {
         vs: ValidatorSchedule,
         epoch_length: u64,
         no_gc: bool,
-    ) -> Self {
+    ) -> Arc<Self> {
+        Self::new_with_validators_and_no_gc_and_tracking(store, vs, epoch_length, no_gc, false)
+    }
+
+    pub fn new_with_validators_and_no_gc_and_tracking(
+        store: Store,
+        vs: ValidatorSchedule,
+        epoch_length: u64,
+        no_gc: bool,
+        tracks_all_shards: bool,
+    ) -> Arc<Self> {
         let tries = ShardTries::test(store.clone(), vs.num_shards);
         let mut initial_amounts = HashMap::new();
         for (i, validator) in vs.block_producers.iter().flatten().enumerate() {
@@ -207,13 +222,14 @@ impl KeyValueRuntime {
             }
         }
 
-        KeyValueRuntime {
+        Arc::new_cyclic(|myself| KeyValueRuntime {
+            myself: myself.clone(),
             store,
             tries,
             validators,
             validators_by_valset,
             num_shards: vs.num_shards,
-            tracks_all_shards: false,
+            tracks_all_shards,
             epoch_length,
             state: RwLock::new(state),
             state_size: RwLock::new(state_size),
@@ -224,11 +240,7 @@ impl KeyValueRuntime {
             hash_to_valset: RwLock::new(map_with_default_hash3),
             epoch_start: RwLock::new(map_with_default_hash2),
             no_gc,
-        }
-    }
-
-    pub fn set_tracks_all_shards(&mut self, tracks_all_shards: bool) {
-        self.tracks_all_shards = tracks_all_shards;
+        })
     }
 
     fn get_block_header(&self, hash: &CryptoHash) -> Result<Option<BlockHeader>, EpochError> {
@@ -1414,4 +1426,11 @@ impl RuntimeAdapter for KeyValueRuntime {
     }
 }
 
-impl RuntimeWithEpochManagerAdapter for KeyValueRuntime {}
+impl RuntimeWithEpochManagerAdapter for KeyValueRuntime {
+    fn epoch_manager_adapter(&self) -> &dyn EpochManagerAdapter {
+        self
+    }
+    fn epoch_manager_adapter_arc(&self) -> Arc<dyn EpochManagerAdapter> {
+        self.myself.upgrade().unwrap()
+    }
+}

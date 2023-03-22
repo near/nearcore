@@ -205,12 +205,8 @@ pub fn setup(
 ) -> (Block, ClientActor, Addr<ViewClientActor>, ShardsManagerAdapterForTest) {
     let store = create_test_store();
     let num_validator_seats = vs.all_block_producers().count() as NumSeats;
-    let runtime = Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(
-        store.clone(),
-        vs,
-        epoch_length,
-        archive,
-    ));
+    let runtime =
+        KeyValueRuntime::new_with_validators_and_no_gc(store.clone(), vs, epoch_length, archive);
     let chain_genesis = ChainGenesis {
         time: genesis_time,
         height: 0,
@@ -314,8 +310,7 @@ pub fn setup_only_view(
 ) -> Addr<ViewClientActor> {
     let store = create_test_store();
     let num_validator_seats = vs.all_block_producers().count() as NumSeats;
-    let runtime =
-        Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(store, vs, epoch_length, archive));
+    let runtime = KeyValueRuntime::new_with_validators_and_no_gc(store, vs, epoch_length, archive);
     let chain_genesis = ChainGenesis {
         time: genesis_time,
         height: 0,
@@ -1165,7 +1160,7 @@ pub fn setup_client(
 ) -> Client {
     let num_validator_seats = vs.all_block_producers().count() as NumSeats;
     let runtime_adapter =
-        Arc::new(KeyValueRuntime::new_with_validators(store, vs, chain_genesis.epoch_length));
+        KeyValueRuntime::new_with_validators(store, vs, chain_genesis.epoch_length);
     setup_client_with_runtime(
         num_validator_seats,
         account_id,
@@ -1228,7 +1223,7 @@ pub fn setup_client_with_synchronous_shards_manager(
 ) -> Client {
     let num_validator_seats = vs.all_block_producers().count() as NumSeats;
     let runtime_adapter =
-        Arc::new(KeyValueRuntime::new_with_validators(store, vs, chain_genesis.epoch_length));
+        KeyValueRuntime::new_with_validators(store, vs, chain_genesis.epoch_length);
     let shards_manager_adapter = setup_synchronous_shards_manager(
         account_id.clone(),
         client_adapter,
@@ -1413,11 +1408,11 @@ impl TestEnvBuilder {
                 .map(|_| {
                     let vs = ValidatorSchedule::new()
                         .block_producers_per_epoch(vec![validators.clone()]);
-                    Arc::new(KeyValueRuntime::new_with_validators(
+                    KeyValueRuntime::new_with_validators(
                         create_test_store(),
                         vs,
                         chain_genesis.epoch_length,
-                    )) as Arc<dyn RuntimeWithEpochManagerAdapter>
+                    ) as Arc<dyn RuntimeWithEpochManagerAdapter>
                 })
                 .collect(),
         };

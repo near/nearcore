@@ -29,7 +29,7 @@ fn is_on_current_chain(
 
 pub(crate) struct ChainAccess {
     chain: ChainStore,
-    runtime: NightshadeRuntime,
+    runtime: Arc<NightshadeRuntime>,
 }
 
 impl ChainAccess {

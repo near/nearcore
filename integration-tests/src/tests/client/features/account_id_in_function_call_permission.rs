@@ -31,14 +31,12 @@ fn test_account_id_in_function_call_permission_upgrade() {
         genesis.config.protocol_version = old_protocol_version;
         let chain_genesis = ChainGenesis::new(&genesis);
         TestEnv::builder(chain_genesis)
-            .runtime_adapters(vec![Arc::new(
-                nearcore::NightshadeRuntime::test_with_runtime_config_store(
-                    Path::new("../../../.."),
-                    create_test_store(),
-                    &genesis,
-                    TrackedConfig::new_empty(),
-                    RuntimeConfigStore::new(None),
-                ),
+            .runtime_adapters(vec![nearcore::NightshadeRuntime::test_with_runtime_config_store(
+                Path::new("../../../.."),
+                create_test_store(),
+                &genesis,
+                TrackedConfig::new_empty(),
+                RuntimeConfigStore::new(None),
             ) as Arc<dyn RuntimeWithEpochManagerAdapter>])
             .build()
     };
@@ -98,14 +96,12 @@ fn test_very_long_account_id() {
         let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         let chain_genesis = ChainGenesis::new(&genesis);
         TestEnv::builder(chain_genesis)
-            .runtime_adapters(vec![Arc::new(
-                nearcore::NightshadeRuntime::test_with_runtime_config_store(
-                    Path::new("../../../.."),
-                    create_test_store(),
-                    &genesis,
-                    TrackedConfig::new_empty(),
-                    RuntimeConfigStore::new(None),
-                ),
+            .runtime_adapters(vec![nearcore::NightshadeRuntime::test_with_runtime_config_store(
+                Path::new("../../../.."),
+                create_test_store(),
+                &genesis,
+                TrackedConfig::new_empty(),
+                RuntimeConfigStore::new(None),
             ) as Arc<dyn RuntimeWithEpochManagerAdapter>])
             .build()
     };
