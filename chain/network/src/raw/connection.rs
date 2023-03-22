@@ -19,10 +19,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
 /// Represents a connection to a peer, and provides only minimal functionality.
-/// Almost none of the usual NEAR network logic is implemented, and the caller
-/// will receive messages via the recv() function. Currently the only message
-/// you can send is a Ping message, but in the future we can add more stuff there
-/// (e.g. sending blocks/chunk parts/etc)
+/// Almost none of the usual NEAR network logic is implemented, and the user
+/// will receive messages via the recv() function and send messages via
+/// send_message() and send_routed_message()
 pub struct Connection {
     my_peer_id: PeerId,
     peer_id: PeerId,
