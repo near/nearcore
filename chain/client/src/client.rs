@@ -41,6 +41,7 @@ use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, Bl
 use near_primitives::block_header::ApprovalType;
 use near_primitives::challenge::{Challenge, ChallengeBody};
 use near_primitives::epoch_manager::RngSeed;
+use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
 use near_primitives::network::PeerId;
@@ -1754,7 +1755,7 @@ impl Client {
         let next_block_epoch_id =
             match self.runtime_adapter.get_epoch_id_from_prev_block(&parent_hash) {
                 Err(e) => {
-                    self.handle_process_approval_error(approval, approval_type, true, e);
+                    self.handle_process_approval_error(approval, approval_type, true, e.into());
                     return;
                 }
                 Ok(next_epoch_id) => next_epoch_id,
@@ -1775,7 +1776,7 @@ impl Client {
                 account_id,
             ) {
                 Ok(_) => next_block_epoch_id.clone(),
-                Err(near_chain::Error::NotAValidator) => {
+                Err(EpochError::NotAValidator(_, _)) => {
                     match self.runtime_adapter.get_next_epoch_id_from_prev_block(&parent_hash) {
                         Ok(next_block_next_epoch_id) => next_block_next_epoch_id,
                         Err(_) => return,

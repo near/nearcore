@@ -575,7 +575,11 @@ pub trait RuntimeAdapter: Send + Sync {
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error>;
 }
 
-pub trait RuntimeWithEpochManagerAdapter: RuntimeAdapter + EpochManagerAdapter {}
+/// LEGACY trait. Will be removed. Use RuntimeAdapter or EpochManagerHandler instead.
+pub trait RuntimeWithEpochManagerAdapter: RuntimeAdapter + EpochManagerAdapter {
+    fn epoch_manager_adapter(&self) -> &dyn EpochManagerAdapter;
+    fn epoch_manager_adapter_arc(&self) -> Arc<dyn EpochManagerAdapter>;
+}
 
 /// The last known / checked height and time when we have processed it.
 /// Required to keep track of skipped blocks and not fallback to produce blocks at lower height.

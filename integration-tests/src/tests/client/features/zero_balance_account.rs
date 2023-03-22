@@ -1,5 +1,4 @@
 use std::path::Path;
-use std::sync::Arc;
 
 use assert_matches::assert_matches;
 
@@ -138,13 +137,13 @@ fn test_zero_balance_account_add_key() {
     };
     runtime_config.wasm_config.ext_costs = ExtCostsConfig::test();
     let runtime_config_store = RuntimeConfigStore::with_one_config(runtime_config);
-    let nightshade_runtime = Arc::new(NightshadeRuntime::test_with_runtime_config_store(
+    let nightshade_runtime = NightshadeRuntime::test_with_runtime_config_store(
         Path::new("."),
         create_test_store(),
         &genesis,
         TrackedConfig::new_empty(),
         runtime_config_store,
-    ));
+    );
     let mut env =
         TestEnv::builder(ChainGenesis::test()).runtime_adapters(vec![nightshade_runtime]).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();

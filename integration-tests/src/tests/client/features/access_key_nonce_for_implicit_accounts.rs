@@ -322,13 +322,13 @@ fn test_request_chunks_for_orphan() {
     let chain_genesis = ChainGenesis::new(&genesis);
     let runtimes: Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> = (0..2)
         .map(|_| {
-            Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(
+            nearcore::NightshadeRuntime::test_with_runtime_config_store(
                 Path::new("."),
                 create_test_store(),
                 &genesis,
                 TrackedConfig::AllShards,
                 RuntimeConfigStore::test(),
-            )) as Arc<dyn RuntimeWithEpochManagerAdapter>
+            ) as Arc<dyn RuntimeWithEpochManagerAdapter>
         })
         .collect();
     let mut env = TestEnv::builder(chain_genesis)
@@ -469,13 +469,13 @@ fn test_processing_chunks_sanity() {
     let chain_genesis = ChainGenesis::new(&genesis);
     let runtimes: Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> = (0..2)
         .map(|_| {
-            Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(
+            nearcore::NightshadeRuntime::test_with_runtime_config_store(
                 Path::new("."),
                 create_test_store(),
                 &genesis,
                 TrackedConfig::AllShards,
                 RuntimeConfigStore::test(),
-            )) as Arc<dyn RuntimeWithEpochManagerAdapter>
+            ) as Arc<dyn RuntimeWithEpochManagerAdapter>
         })
         .collect();
     let mut env = TestEnv::builder(chain_genesis)
@@ -578,13 +578,13 @@ impl ChunkForwardingOptimizationTestData {
         let chain_genesis = ChainGenesis::new(&genesis);
         let runtimes: Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> = (0..num_clients)
             .map(|_| {
-                Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(
+                nearcore::NightshadeRuntime::test_with_runtime_config_store(
                     Path::new("."),
                     create_test_store(),
                     &genesis,
                     TrackedConfig::AllShards,
                     RuntimeConfigStore::test(),
-                )) as Arc<dyn RuntimeWithEpochManagerAdapter>
+                ) as Arc<dyn RuntimeWithEpochManagerAdapter>
             })
             .collect();
         let env = TestEnv::builder(chain_genesis)
@@ -804,13 +804,13 @@ fn test_processing_blocks_async() {
     let chain_genesis = ChainGenesis::new(&genesis);
     let runtimes: Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> = (0..2)
         .map(|_| {
-            Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(
+            nearcore::NightshadeRuntime::test_with_runtime_config_store(
                 Path::new("."),
                 create_test_store(),
                 &genesis,
                 TrackedConfig::AllShards,
                 RuntimeConfigStore::test(),
-            )) as Arc<dyn RuntimeWithEpochManagerAdapter>
+            ) as Arc<dyn RuntimeWithEpochManagerAdapter>
         })
         .collect();
     let mut env = TestEnv::builder(chain_genesis)

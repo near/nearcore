@@ -39,6 +39,12 @@ pub enum Error {
     Other(String),
 }
 
+impl From<near_primitives::errors::EpochError> for Error {
+    fn from(err: near_primitives::errors::EpochError) -> Self {
+        Error::Chain(err.into())
+    }
+}
+
 #[derive(Clone, Debug, serde::Serialize, PartialEq)]
 pub enum AccountOrPeerIdOrHash {
     AccountId(AccountId),

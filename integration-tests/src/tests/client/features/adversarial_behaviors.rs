@@ -53,13 +53,13 @@ impl AdversarialBehaviorTestData {
         let chain_genesis = ChainGenesis::new(&genesis);
         let runtimes: Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> = (0..num_clients)
             .map(|_| {
-                Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(
+                nearcore::NightshadeRuntime::test_with_runtime_config_store(
                     Path::new("."),
                     create_test_store(),
                     &genesis,
                     TrackedConfig::AllShards,
                     RuntimeConfigStore::test(),
-                )) as Arc<dyn RuntimeWithEpochManagerAdapter>
+                ) as Arc<dyn RuntimeWithEpochManagerAdapter>
             })
             .collect();
         let env = TestEnv::builder(chain_genesis)

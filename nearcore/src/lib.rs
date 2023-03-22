@@ -208,14 +208,13 @@ pub fn start_with_config_and_synchronization(
 ) -> anyhow::Result<NearNode> {
     let store = open_storage(home_dir, &mut config)?;
 
-    let runtime =
-        Arc::new(NightshadeRuntime::from_config(home_dir, store.get_hot_store(), &config));
+    let runtime = NightshadeRuntime::from_config(home_dir, store.get_hot_store(), &config);
 
     // Get the split store. If split store is some then create a new runtime for
     // the view client. Otherwise just re-use the existing runtime.
     let split_store = get_split_store(&config, &store)?;
     let view_runtime = if let Some(split_store) = split_store {
-        Arc::new(NightshadeRuntime::from_config(home_dir, split_store, &config))
+        NightshadeRuntime::from_config(home_dir, split_store, &config)
     } else {
         runtime.clone()
     };

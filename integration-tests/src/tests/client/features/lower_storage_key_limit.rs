@@ -43,13 +43,13 @@ fn protocol_upgrade() {
         genesis.config.protocol_version = old_protocol_version;
         let chain_genesis = ChainGenesis::new(&genesis);
         let runtimes: Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> =
-            vec![Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(
+            vec![nearcore::NightshadeRuntime::test_with_runtime_config_store(
                 Path::new("."),
                 create_test_store(),
                 &genesis,
                 TrackedConfig::AllShards,
                 RuntimeConfigStore::new(None),
-            )) as Arc<dyn RuntimeWithEpochManagerAdapter>];
+            ) as Arc<dyn RuntimeWithEpochManagerAdapter>];
         let mut env = TestEnv::builder(chain_genesis).runtime_adapters(runtimes).build();
 
         deploy_test_contract_with_protocol_version(
