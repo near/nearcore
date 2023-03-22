@@ -1,15 +1,49 @@
-use serde::{Deserialize, Serialize};
+#[cfg(feature = "debug_types")]
+use near_client_primitives::debug::{
+    DebugBlockStatusData, EpochInfoView, TrackedShardsView, ValidatorStatus,
+};
+#[cfg(feature = "debug_types")]
+use near_primitives::views::{
+    CatchupStatusView, ChainProcessingInfo, NetworkGraphView, PeerStoreView,
+    RecentOutboundConnectionsView, RequestedStatePartsView, SyncStatusView,
+};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct RpcStatusResponse {
     #[serde(flatten)]
     pub status_response: near_primitives::views::StatusResponse,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[cfg(feature = "debug_types")]
+#[derive(serde::Serialize, Debug)]
+pub enum DebugStatusResponse {
+    SyncStatus(SyncStatusView),
+    CatchupStatus(Vec<CatchupStatusView>),
+    TrackedShards(TrackedShardsView),
+    // List of epochs - in descending order (next epoch is first).
+    EpochInfo(Vec<EpochInfoView>),
+    // Detailed information about blocks.
+    BlockStatus(DebugBlockStatusData),
+    // Detailed information about the validator (approvals, block & chunk production etc.)
+    ValidatorStatus(ValidatorStatus),
+    PeerStore(PeerStoreView),
+    ChainProcessingStatus(ChainProcessingInfo),
+    // The state parts already requested.
+    RequestedStateParts(Vec<RequestedStatePartsView>),
+    NetworkGraph(NetworkGraphView),
+    RecentOutboundConnections(RecentOutboundConnectionsView),
+}
+
+#[cfg(feature = "debug_types")]
+#[derive(Debug, serde::Serialize)]
+pub struct RpcDebugStatusResponse {
+    pub status_response: DebugStatusResponse,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct RpcHealthResponse;
 
-#[derive(thiserror::Error, Debug, Serialize, Deserialize)]
+#[derive(thiserror::Error, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcStatusError {
     #[error("Node is syncing")]
@@ -20,48 +54,6 @@ pub enum RpcStatusError {
     EpochOutOfBounds { epoch_id: near_primitives::types::EpochId },
     #[error("The node reached its limits. Try again later. More details: {error_message}")]
     InternalError { error_message: String },
-}
-
-impl From<near_primitives::views::StatusResponse> for RpcStatusResponse {
-    fn from(status_response: near_primitives::views::StatusResponse) -> Self {
-        Self { status_response }
-    }
-}
-
-impl From<near_primitives::views::StatusResponse> for RpcHealthResponse {
-    fn from(_status_response: near_primitives::views::StatusResponse) -> Self {
-        Self {}
-    }
-}
-
-impl From<near_client_primitives::types::StatusError> for RpcStatusError {
-    fn from(error: near_client_primitives::types::StatusError) -> Self {
-        match error {
-            near_client_primitives::types::StatusError::InternalError { error_message } => {
-                Self::InternalError { error_message }
-            }
-            near_client_primitives::types::StatusError::NodeIsSyncing => Self::NodeIsSyncing,
-            near_client_primitives::types::StatusError::NoNewBlocks { elapsed } => {
-                Self::NoNewBlocks { elapsed }
-            }
-            near_client_primitives::types::StatusError::EpochOutOfBounds { epoch_id } => {
-                Self::EpochOutOfBounds { epoch_id }
-            }
-            near_client_primitives::types::StatusError::Unreachable { ref error_message } => {
-                tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
-                crate::metrics::RPC_UNREACHABLE_ERROR_COUNT
-                    .with_label_values(&["RpcStatusError"])
-                    .inc();
-                Self::InternalError { error_message: error.to_string() }
-            }
-        }
-    }
-}
-
-impl From<actix::MailboxError> for RpcStatusError {
-    fn from(error: actix::MailboxError) -> Self {
-        Self::InternalError { error_message: error.to_string() }
-    }
 }
 
 impl From<RpcStatusError> for crate::errors::RpcError {

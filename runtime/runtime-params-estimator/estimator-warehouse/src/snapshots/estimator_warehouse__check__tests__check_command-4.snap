@@ -1,0 +1,15 @@
+---
+source: runtime/runtime-params-estimator/estimator-warehouse/src/check.rs
+expression: report.to_string()
+---
+## Report 
+*Status: Warn*
+*Current commit:         0000b*
+*Compared to:         0004a*
+### Relative gas estimation changes above threshold: 2
+```
+AltBn128MultiExp                                    0 gas ➜           10 gas (+inf%)
+LogByte                                        15.00 Mgas ➜       20.00 Mgas (+33.33%)
+```
+### Gas estimator uncertain estimations: 0
+

@@ -1,9 +1,7 @@
 use std::collections::BTreeMap;
 use syn::{Data, DataEnum, DataStruct, DeriveInput, Fields, FieldsNamed, FieldsUnnamed};
 
-use serde::{Deserialize, Serialize};
-
-#[derive(Default, Debug, Deserialize, Serialize)]
+#[derive(Default, Debug, serde::Deserialize, serde::Serialize)]
 pub struct ErrorType {
     /// A type name of the error
     pub name: String,
@@ -19,10 +17,7 @@ fn parse_rpc_error_variant(input: &DeriveInput) -> String {
     type_kind[0].to_string()
 }
 
-fn error_type_name<'a>(
-    schema: &'a mut BTreeMap<String, ErrorType>,
-    name: String,
-) -> &'a mut ErrorType {
+fn error_type_name(schema: &mut BTreeMap<String, ErrorType>, name: String) -> &mut ErrorType {
     let error_type = ErrorType { name: name.clone(), ..Default::default() };
     schema.entry(name).or_insert(error_type)
 }
@@ -47,8 +42,8 @@ pub fn parse_error_type(schema: &mut BTreeMap<String, ErrorType>, input: &Derive
                     }
                     Fields::Named(FieldsNamed { ref named, .. }) => {
                         // If variant is Enum with a named fields - create a new type for each variant with named props
-                        let mut error_type = ErrorType::default();
-                        error_type.name = variant.ident.to_string();
+                        let mut error_type =
+                            ErrorType { name: variant.ident.to_string(), ..Default::default() };
                         for field in named {
                             error_type.props.insert(
                                 field

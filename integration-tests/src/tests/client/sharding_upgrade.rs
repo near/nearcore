@@ -3,19 +3,22 @@ use borsh::BorshSerialize;
 use crate::tests::client::process_blocks::{
     create_nightshade_runtimes, set_block_protocol_version,
 };
-use near_chain::{ChainGenesis, Provenance};
+use near_chain::near_chain_primitives::Error;
+use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::Genesis;
-use near_client::test_utils::TestEnv;
+use near_client::test_utils::{run_catchup, TestEnv};
 use near_crypto::{InMemorySigner, KeyType, Signer};
-use near_logger_utils::init_test_logger;
+use near_o11y::testonly::init_test_logger;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout};
+use near_primitives::serialize::to_base64;
+use near_primitives::shard_layout::{account_id_to_shard_id, account_id_to_shard_uid};
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
-use near_primitives::types::{BlockHeight, ProtocolVersion, ShardId};
+use near_primitives::types::{BlockHeight, NumShards, ProtocolVersion, ShardId};
+use near_primitives::utils::MaybeValidated;
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::QueryRequest;
 use near_primitives::views::{ExecutionStatusView, FinalExecutionStatus};
@@ -25,9 +28,11 @@ use nearcore::NEAR_BASE;
 use tracing::debug;
 
 use assert_matches::assert_matches;
+use near_chain::test_utils::wait_for_all_blocks_in_processing;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 const SIMPLE_NIGHTSHADE_PROTOCOL_VERSION: ProtocolVersion =
     ProtocolFeature::SimpleNightshade.protocol_version();
@@ -64,7 +69,7 @@ impl TestShardUpgradeEnv {
             [validators, gen_unique_accounts(&mut rng, num_init_accounts)].concat();
         let genesis =
             setup_genesis(epoch_length, num_validators as u64, initial_accounts.clone(), gas_limit);
-        let chain_genesis = ChainGenesis::from(&genesis);
+        let chain_genesis = ChainGenesis::new(&genesis);
         let env = TestEnv::builder(chain_genesis)
             .clients_count(num_clients)
             .validator_seats(num_validators)
@@ -143,13 +148,27 @@ impl TestShardUpgradeEnv {
         // process block, this also triggers chunk producers for the next block to produce chunks
         for j in 0..self.num_clients {
             let produce_chunks = !rng.gen_bool(p_drop_chunk);
-            env.process_block_with_options(
-                j as usize,
-                block.clone(),
-                Provenance::NONE,
-                should_catchup,
-                produce_chunks,
-            );
+            // Here we don't just call self.clients[i].process_block_sync_with_produce_chunk_options
+            // because we want to call run_catchup before finish processing this block. This simulates
+            // that catchup and block processing run in parallel.
+            env.clients[j]
+                .start_process_block(
+                    MaybeValidated::from(block.clone()),
+                    Provenance::NONE,
+                    Arc::new(|_| {}),
+                )
+                .unwrap();
+            if should_catchup {
+                run_catchup(&mut env.clients[j], &[]).unwrap();
+            }
+            while wait_for_all_blocks_in_processing(&mut env.clients[j].chain) {
+                let (_, errors) =
+                    env.clients[j].postprocess_ready_blocks(Arc::new(|_| {}), produce_chunks);
+                assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
+            }
+            if should_catchup {
+                run_catchup(&mut env.clients[j], &[]).unwrap();
+            }
         }
 
         let expected_num_shards = if height < 2 * self.epoch_length { 1 } else { 4 };
@@ -163,6 +182,9 @@ impl TestShardUpgradeEnv {
         );
 
         env.process_partial_encoded_chunks();
+        for j in 0..self.num_clients {
+            env.process_shards_manager_responses_and_finish_processing_blocks(j);
+        }
 
         // after state split, check chunk extra exists and the states are correct
         for account_id in self.initial_accounts.iter() {
@@ -173,7 +195,7 @@ impl TestShardUpgradeEnv {
     /// check that all accounts in `accounts` exist in the current state
     fn check_accounts(&mut self, accounts: Vec<&AccountId>) {
         let head = self.env.clients[0].chain.head().unwrap();
-        let block = self.env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
+        let block = self.env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         for account_id in accounts {
             check_account(&mut self.env, account_id, &block)
         }
@@ -192,7 +214,7 @@ impl TestShardUpgradeEnv {
     ///    - all blocks after the block at `height` in the current canonical chain do not have
     ///      new chunks for the corresponding shards
     fn check_next_block_with_new_chunk(&mut self, height: BlockHeight) {
-        let block = self.env.clients[0].chain.get_block_by_height(height).unwrap().clone();
+        let block = self.env.clients[0].chain.get_block_by_height(height).unwrap();
         let block_hash = block.hash();
         let num_shards = block.chunks().len();
         for shard_id in 0..num_shards {
@@ -256,7 +278,7 @@ impl TestShardUpgradeEnv {
     ) -> Vec<CryptoHash> {
         let env = &mut self.env;
         let head = env.clients[0].chain.head().unwrap();
-        let block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
+        let block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         // check execution outcomes
         let shard_layout = env.clients[0]
             .runtime_adapter
@@ -308,6 +330,59 @@ impl TestShardUpgradeEnv {
             }
         }
         successful_txs
+    }
+
+    // Check the receipt_id_to_shard_id mappings are correct for all outgoing receipts in the
+    // latest block
+    fn check_receipt_id_to_shard_id(&mut self) {
+        let env = &mut self.env;
+        let head = env.clients[0].chain.head().unwrap();
+        let shard_layout = env.clients[0]
+            .runtime_adapter
+            .get_shard_layout_from_prev_block(&head.last_block_hash)
+            .unwrap();
+        let block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
+        for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
+            if chunk_header.height_included() == block.header().height() {
+                let outgoing_receipts = env.clients[0]
+                    .chain
+                    .mut_store()
+                    .get_outgoing_receipts(&head.last_block_hash, shard_id as ShardId)
+                    .unwrap()
+                    .clone();
+                for receipt in outgoing_receipts.iter() {
+                    let target_shard_id = env.clients[0]
+                        .chain
+                        .get_shard_id_for_receipt_id(&receipt.receipt_id)
+                        .unwrap();
+                    assert_eq!(
+                        target_shard_id,
+                        account_id_to_shard_id(&receipt.receiver_id, &shard_layout)
+                    );
+                }
+            }
+        }
+    }
+
+    /// Check that after split state is finished, the artifacts stored in storage is removed
+    fn check_split_states_artifacts(&mut self) {
+        let env = &mut self.env;
+        let head = env.clients[0].chain.head().unwrap();
+        for height in 0..head.height {
+            let (block_hash, num_shards) = {
+                let block = env.clients[0].chain.get_block_by_height(height).unwrap();
+                (*block.hash(), block.chunks().len() as NumShards)
+            };
+            for shard_id in 0..num_shards {
+                let res = env.clients[0]
+                    .chain
+                    .store()
+                    .get_state_changes_for_split_states(&block_hash, shard_id);
+                assert_matches!(res, Err(error) => {
+                    assert_matches!(error, Error::DBNotFoundErr(_));
+                })
+            }
+        }
     }
 }
 
@@ -372,7 +447,7 @@ fn setup_genesis(
     genesis.config.chunk_producer_kickout_threshold = 0;
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = SIMPLE_NIGHTSHADE_PROTOCOL_VERSION - 1;
-    genesis.config.simple_nightshade_shard_layout = Some(ShardLayout::v1_test());
+    genesis.config.use_production_config = true;
 
     if let Some(gas_limit) = gas_limit {
         genesis.config.gas_limit = gas_limit;
@@ -400,7 +475,7 @@ fn test_shard_layout_upgrade_simple() {
     let initial_accounts = test_env.initial_accounts.clone();
     let generate_create_accounts_txs: &mut dyn FnMut(usize, bool) -> Vec<SignedTransaction> =
         &mut |max_size: usize, check_accounts: bool| -> Vec<SignedTransaction> {
-            let size = rng.gen_range(0, max_size) + 1;
+            let size = rng.gen_range(0..max_size) + 1;
             std::iter::repeat_with(|| loop {
                 let signer_account = initial_accounts.choose(&mut rng).unwrap();
                 let signer0 = InMemorySigner::from_seed(
@@ -453,6 +528,8 @@ fn test_shard_layout_upgrade_simple() {
     // sharding upgrade
     test_env.check_tx_outcomes(false, vec![2 * epoch_length + 1]);
     test_env.check_accounts(accounts_to_check.iter().collect());
+
+    test_env.check_split_states_artifacts();
 }
 
 const GAS_1: u64 = 300_000_000_000_000;
@@ -493,15 +570,15 @@ fn gen_cross_contract_transaction(
                     "id": 0 },
                 {"action_transfer": {
                     "promise_index": 0,
-                    "amount": format!("{}", NEAR_BASE),
+                    "amount": NEAR_BASE.to_string(),
                 }, "id": 0 },
                 {"action_add_key_with_full_access": {
                     "promise_index": 0,
-                    "public_key": base64::encode(&signer_new_account.public_key.try_to_vec().unwrap()),
+                    "public_key": to_base64(&signer_new_account.public_key.try_to_vec().unwrap()),
                     "nonce": 0,
                 }, "id": 0 }
             ],
-        "amount": format!("{}", NEAR_BASE),
+        "amount": NEAR_BASE.to_string(),
         "gas": GAS_2,
         }, "id": 1}
     ]);
@@ -533,8 +610,8 @@ fn setup_test_env_with_cross_contract_txs(
     let contract_accounts = vec![
         test_env.initial_accounts[0].clone(),
         test_env.initial_accounts[1].clone(),
-        test_env.initial_accounts[rng.gen_range(0, test_env.initial_accounts.len())].clone(),
-        test_env.initial_accounts[rng.gen_range(0, test_env.initial_accounts.len())].clone(),
+        test_env.initial_accounts[rng.gen_range(0..test_env.initial_accounts.len())].clone(),
+        test_env.initial_accounts[rng.gen_range(0..test_env.initial_accounts.len())].clone(),
     ];
     test_env.set_init_tx(
         contract_accounts
@@ -551,7 +628,7 @@ fn setup_test_env_with_cross_contract_txs(
                     account_id.clone(),
                     &signer,
                     vec![Action::DeployContract(DeployContractAction {
-                        code: near_test_contracts::rs_contract().to_vec(),
+                        code: near_test_contracts::base_rs_contract().to_vec(),
                     })],
                     genesis_hash,
                 )
@@ -565,7 +642,7 @@ fn setup_test_env_with_cross_contract_txs(
     let generate_txs: &mut dyn FnMut(usize, usize) -> Vec<SignedTransaction> =
         &mut |min_size: usize, max_size: usize| -> Vec<SignedTransaction> {
             let mut rng = thread_rng();
-            let size = rng.gen_range(min_size, max_size + 1);
+            let size = rng.gen_range(min_size..max_size + 1);
             std::iter::repeat_with(|| loop {
                 let account_id = gen_account(&mut rng, b"abcdefghijkmn");
                 if all_accounts.insert(account_id.clone()) {
@@ -628,12 +705,15 @@ fn test_shard_layout_upgrade_cross_contract_calls() {
 
     for _ in 1..5 * epoch_length {
         test_env.step(0.);
+        test_env.check_receipt_id_to_shard_id();
     }
 
     let successful_txs = test_env.check_tx_outcomes(false, vec![2 * epoch_length + 1]);
     let new_accounts: Vec<_> =
         successful_txs.iter().flat_map(|tx_hash| new_accounts.get(tx_hash)).collect();
     test_env.check_accounts(new_accounts);
+
+    test_env.check_split_states_artifacts();
 }
 
 // Test cross contract calls
@@ -658,6 +738,7 @@ fn test_shard_layout_upgrade_missing_chunks(p_missing: f64) {
         for height in last_height - 3..=last_height {
             test_env.check_next_block_with_new_chunk(height);
         }
+        test_env.check_receipt_id_to_shard_id();
     }
 
     // make sure all included transactions finished processing
@@ -667,12 +748,15 @@ fn test_shard_layout_upgrade_missing_chunks(p_missing: f64) {
         for height in last_height - 3..=last_height {
             test_env.check_next_block_with_new_chunk(height);
         }
+        test_env.check_receipt_id_to_shard_id();
     }
 
     let successful_txs = test_env.check_tx_outcomes(true, vec![2 * epoch_length + 1]);
     let new_accounts: Vec<_> =
         successful_txs.iter().flat_map(|tx_hash| new_accounts.get(tx_hash)).collect();
     test_env.check_accounts(new_accounts);
+
+    test_env.check_split_states_artifacts();
 }
 
 #[test]

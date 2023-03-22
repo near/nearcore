@@ -1,0 +1,439 @@
+/// After changing this file, regenerate protobuf code.
+/// See build.rs for details.
+syntax = "proto3";
+package network;
+
+import "google/protobuf/timestamp.proto";
+
+// Proof that a given peer owns the account key.
+// Included in every handshake sent by a validator node.
+// Note: sign AccountKeyPayload, rather than OwnedAccount directly.
+message OwnedAccount {
+  PublicKey account_key = 1; // required
+  // PeerId of the node owning the account_key.
+  PublicKey peer_id = 2; // required 
+  // Timestamp indicates the date of signing - we do not assume the
+  // nodes' clocks to be synchronized, but for security if the timestamp
+  // deviation is too large, the handshake will be rejected.
+  // TODO(gprusak): an alternative would be a 3-way handshake with a
+  // random challenge to sign, or even better: just use some standard
+  // asymetric entryption.
+  google.protobuf.Timestamp timestamp = 3; // required
+}
+
+// A payload that can be signed with account keys.
+// Since account keys are used to sign things in independent contexts,
+// we need this common enum to prevent message replay attacks, like this one:
+// - messages M1 and M2 of different types happen to have the same serialized representation.
+// - an attacker observes M1 signed by A in some context
+// - the attacker then sends M2 with A's signature of M1 (which also matches M2, since
+//   their serialized representations match) to B, effectively impersonating A.
+// NOTE: that proto serialization is non-unique, so the message passed around with the signature
+// should be in serialized form.
+// TODO: move to a separate file, probably in a separate package.
+message AccountKeyPayload {
+  reserved 1;
+  oneof payload_type {
+    AccountData account_data = 2;
+    OwnedAccount owned_account = 3;
+  }
+}
+
+// Wrapper of borsh-encoded Signature.
+// TODO: link to the rust Signature type.
+message Signature {
+  bytes borsh = 1;
+}
+
+message AccountKeySignedPayload {
+  // protobuf-serialized AccountKeyPayload, required.
+  // It is passed in serialized form, because the protobuf encoding is non-deterministic.
+  // In particular encode(decode(payload)) might not match the signature.
+  bytes payload = 1;
+  // Signature of the payload, required.
+  Signature signature = 2;
+  // TODO: this is a good place to add optional fields: account_id, account_public_key,
+  // in case the signer of the message is not implied by the payload, or the context.
+  // Add them if needed.
+}
+//////////////////////////////////////
+
+// Wrapper of borsh-encoded PublicKey.
+// https://github.com/near/nearcore/blob/1a4edefd0116f7d1e222bc96569367a02fe64199/core/crypto/src/signature.rs#L201
+message PublicKey {
+  bytes borsh = 1;
+}
+
+// Wrapper of borsh-encoded PeerInfo.
+// https://github.com/near/nearcore/blob/1a4edefd0116f7d1e222bc96569367a02fe64199/chain/network-primitives/src/network_protocol/mod.rs#L30
+message PeerInfo {
+  bytes borsh = 1;
+}
+
+// sha256 hash of the borsh-encoded NEAR Block.
+message CryptoHash {
+  // sha256 hash (32 bytes)
+  bytes hash = 1;
+}
+
+// Wrapper of borsh-encoded Edge.
+// https://cs.github.com/near/nearcore/blob/1a4edefd0116f7d1e222bc96569367a02fe64199/chain/network-primitives/src/network_protocol/edge.rs#L32
+message Edge {
+  bytes borsh = 1;
+}
+
+// Wrapper of the borsh-encoded PartialEdgeInfo.
+// https://github.com/near/nearcore/blob/1a4edefd0116f7d1e222bc96569367a02fe64199/chain/network-primitives/src/network_protocol/edge.rs#L11
+message PartialEdgeInfo {
+  bytes borsh = 1;
+}
+
+// Wrapper of the borsh-encoded AnnounceAccount.
+// https://github.com/near/nearcore/blob/1a4edefd0116f7d1e222bc96569367a02fe64199/core/primitives/src/network.rs#L86
+message AnnounceAccount {
+  bytes borsh = 1;
+}
+
+// Wrapper of the borsh-encoded NEAR chain block.
+// https://github.com/near/nearcore/blob/1a4edefd0116f7d1e222bc96569367a02fe64199/core/primitives/src/block.rs#L77
+message Block {
+  bytes borsh = 1;
+}
+
+// Wrapper of the borsh-encoded BlockHeader.
+// https://github.com/near/nearcore/blob/1a4edefd0116f7d1e222bc96569367a02fe64199/core/primitives/src/block_header.rs#L325
+message BlockHeader {
+  bytes borsh = 1;
+}
+
+// Unique identifier of the NEAR chain.
+message GenesisId {
+  // Name of the chain (for example "mainnet").
+  string chain_id = 1;
+  // Hash of the genesis block(?) of the NEAR chain.
+  CryptoHash hash = 2;
+}
+
+// Basic information about the chain view maintained by a peer.
+message PeerChainInfo {
+  GenesisId genesis_id = 1;
+  // Height of the highest NEAR chain block known to a peer.
+  uint64 height = 2;
+  // Shards of the NEAR chain tracked by the peer.
+  repeated uint64 tracked_shards = 3;
+  // Whether the peer is an archival node.
+  bool archival = 4;
+}
+
+//////////////////////////////////////
+
+// Handshake is the first message exchanged after establishing a TCP connection.
+// If A opened a connection B, then
+// 1. A sends Handshake to B.
+// 2a. If B accepts the handshake, it sends Handshake to A and connection is established.
+// 2b. If B rejects the handshake, it sends HandshakeFailure to A.
+//     A may retry the Handshake with a different payload.
+message Handshake {
+  // The protocol_version that the sender wants to use for communication.
+  // Currently NEAR protocol and NEAR network protocol are versioned together
+  // (it may change in the future), however peers may communicate with the newer version
+  // of the NEAR network protol, than the NEAR protocol version approved by the quorum of
+  // the validators. If B doesn't support protocol_version, it sends back HandshakeFailure
+  // with reason ProtocolVersionMismatch.
+  uint32 protocol_version = 1;
+  // Oldest version of the NEAR network protocol that the peer supports.
+  uint32 oldest_supported_version = 2;
+  // PeerId of the sender.
+  PublicKey sender_peer_id = 3;
+  // PeerId of the receiver that the sender expects.
+  // In case of mismatch, receiver sends back HandshakeFailure with
+  // reason InvalidTarget.
+  PublicKey target_peer_id = 4;
+  // TCP port on which sender is listening for inbound connections.
+  uint32 sender_listen_port = 5;
+  // Basic info about the NEAR chain that the sender belongs to.
+  // Sender expects receiver to belong to the same chain.
+  // In case of mismatch, receiver sends back HandshakeFailure with 
+  // reason GenesisMismatch.
+  PeerChainInfo sender_chain_info = 6;
+  // Edge (sender,receiver) signed by sender, which once signed by
+  // receiver may be broadcasted to the network to prove that the
+  // connection has been established.
+  // In case receiver accepts the Handshake, it sends back back a Handshake
+  // containing his signature in this field.
+  // WARNING: this field contains a signature of (sender_peer_id,target_peer_id,nonce) tuple,
+  // which currently the only thing that we have as a substitute for a real authentication.
+  // TODO(gprusak): for TIER1 authentication is way more important than for TIER2, so this
+  // thing should be replaced with sth better.
+  PartialEdgeInfo partial_edge_info = 7;
+  // See description of OwnedAccount.
+  AccountKeySignedPayload owned_account = 8; // optional
+}
+
+// Response to Handshake, in case the Handshake was rejected.
+message HandshakeFailure {
+  enum Reason {
+    UNKNOWN = 0;
+    // Peer doesn't support protocol_version indicated in the handshake.
+    ProtocolVersionMismatch = 1;
+    // Peer doesn't belong to the chain indicated in the handshake.
+    GenesisMismatch = 2;
+    // target_id doesn't match the id of the peer.
+    InvalidTarget = 3;
+  }
+  // Reason for rejecting the Handshake.
+  Reason reason = 1;
+
+  // Data about the peer.
+  PeerInfo peer_info = 2;
+  // GenesisId of the NEAR chain that the peer belongs to.
+  GenesisId genesis_id = 3;
+  // Newest NEAR network version supported by the peer.
+  uint32 version = 4;
+  // Oldest NEAR network version supported by the peer.
+  uint32 oldest_supported_version = 5;
+}
+
+// TODO: document it.
+message LastEdge {
+  Edge edge = 1;
+}
+
+message SocketAddr {
+  // IPv4 (4 bytes) or IPv6 (16 bytes) in network byte order.
+  bytes ip = 1;
+  // TCP port (actually uint16, however uint32 is smallest supported protobuf type).
+  uint32 port = 2;
+}
+
+message PeerAddr {
+  SocketAddr addr = 1; // required
+  PublicKey peer_id = 2; // required
+}
+
+message AccountData {
+  reserved 1,3;
+
+  // PeerId of the node owning the account_key.
+  // Used to route the message over TIER1.
+  // TODO(gprusak): it should be possible to add support for routing
+  // messages to an account_id directly (for TIER1), instead of routing
+  // to a specific peer_id. Then this field won't be necessary.
+  // Unless we use it instead of AnnounceAccount.
+  PublicKey peer_id = 5; // required.
+ 
+  PublicKey account_key = 6; // required.
+
+  // List of nodes which
+  // - are trusted by the validator and
+  // - are connected to the validator directly
+  // - are willing to proxy traffic to the validator.
+  // It may include the validator node itself, if it has a public IP.
+  // If empty, the validator explicitly declares that it has no public IP
+  // and the TIER2 routing should be used instead (discouraged, might be disallowed in the future).
+  repeated PeerAddr proxies = 2;
+
+  // Version of the AccountData. A node can override a previous version,
+  // by broadcasting a never version.
+  uint64 version = 7;
+  // Time of creation of this AccountData.
+  // TODO(gprusak): consider expiring the AccountData based on this field.
+  google.protobuf.Timestamp timestamp = 4; 
+}
+
+// Message sent whenever the sender learns about new connections
+// between the peers in the network (I think).
+// It provides a view of the whole NEAR network to each peer.
+//
+// Edges constitute a graph between PeerIds, signed by both of
+// the peers. This is one of the first messages sent after Handshake.
+// First RoutingTableUpdate contains the whole graph known to peer.
+// Afterwards only the graph delta (changed edges) are included.
+//
+// Accounts provides a mapping AccountId -> PeerId, providing knowledge
+// about which NEAR peer controls which NEAR account.
+message RoutingTableUpdate {
+  reserved 3,4;
+  repeated Edge edges = 1;
+  // list of known NEAR validator accounts 
+  repeated AnnounceAccount accounts = 2;
+}
+
+// TODO: document it.
+message UpdateNonceRequest {
+  PartialEdgeInfo partial_edge_info = 1;
+}
+
+// Deprecated. Use SyncRoutingTable instead.
+message UpdateNonceResponse {
+  Edge edge = 1;
+}
+
+// SyncAccountData message can represent:
+// - incremental sync (incremental = true, requesting_full_sync = false)
+// - full sync request (incremental = false, requesting_full_sync = true)
+// - full sync response (incremental = false, requesting_full_sync = false)
+message SyncAccountsData {
+  // Data about the (important) accounts,
+  // which should be broadcasted to the whole network.
+  // Contains AccountKeyPayload.account_data.
+  repeated AccountKeySignedPayload accounts_data = 1;
+  // Indicates whether this message is an incremental sync (true), or
+  // a full sync (false). Useful for tracking time since the last full sync.
+  bool incremental = 2;
+  // Indicates that sender requests a full sync message in return.
+  // Useful for soliciting a full sync periodically.
+  bool requesting_full_sync = 3;
+}
+
+// Request to send a list of known healthy peers
+// (i.e. considered honest and available by the receiver).
+// max_peers limits the number of peers to send back.
+// max_direct_peers limits the number of direct peers to send back.
+// See PeersResponse below for the response.
+message PeersRequest {
+  optional uint32 max_peers = 1;
+  optional uint32 max_direct_peers = 2;
+}
+
+// Response to PeersRequest
+message PeersResponse {
+  // Peers drawn from the PeerStore of the responding node,
+  // which includes peers learned transitively from other peers
+  repeated PeerInfo peers = 1;
+  // Peers directly connected to the responding node
+  repeated PeerInfo direct_peers = 2;
+}
+
+// Request to send back headers of the NEAR chain blocks.
+// Receiver finds in block_hashes the first hash of a block it knows about
+// and rends back BlockHeadersResponse with block headers following that block.
+// At most 512 block headers are returned:
+// https://github.com/near/nearcore/blob/1a4edefd0116f7d1e222bc96569367a02fe64199/chain/client/src/sync.rs#L38
+// It might happen that the receiver doesn't know some of the hashes in the list
+// in the following cases:
+// - sender's view of the chain forked from the receiver's view of the chain
+// - sender's view of the chain is ahead of receiver's view of the chain.
+message BlockHeadersRequest {
+  repeated CryptoHash block_hashes = 1;
+}
+
+// A collection of headers of the NEAR chain blocks.
+message BlockHeadersResponse {
+  repeated BlockHeader block_headers = 1;
+}
+
+// Request to send back a NEAR chain block with a given hash.
+message BlockRequest {
+  CryptoHash block_hash = 1;
+}
+
+// NEAR chain Block.
+// It might be send both as a response to BlockRequest,
+// or unsolicitated in case a new Block is being broadcasted.
+message BlockResponse {
+  Block block = 1;
+}
+
+// Wrapper of borsh-encoded SignedTransaction
+// https://github.com/near/nearcore/blob/1a4edefd0116f7d1e222bc96569367a02fe64199/core/primitives/src/transaction.rs#L218
+message SignedTransaction {
+  bytes borsh = 1;
+}
+
+// Wrapper of borsh-encoded RoutedMessage
+// https://github.com/near/nearcore/blob/1a4edefd0116f7d1e222bc96569367a02fe64199/chain/network-primitives/src/network_protocol/mod.rs#L295
+message RoutedMessage {
+  bytes borsh = 1;
+  // Timestamp of creating the Routed message by its original author.
+  google.protobuf.Timestamp created_at = 2;
+  // Number of peers this routed message travelled through. Doesn't include the peer that created the message.
+  optional int32 num_hops = 3;
+}
+
+// Disconnect is send by a node before closing a TCP connection.
+// There is no guarantee that it will be sent in all circumstances.
+message Disconnect {
+  bool remove_from_connection_store = 1;
+}
+
+// Wrapper of borsh-encoded Challenge
+// https://github.com/near/nearcore/blob/1a4edefd0116f7d1e222bc96569367a02fe64199/core/primitives/src/challenge.rs#L89
+message Challenge {
+  bytes borsh = 1;
+}
+
+// Wrapper of borsh-encoded RoutingSyncV2
+// https://github.com/near/nearcore/blob/1a4edefd0116f7d1e222bc96569367a02fe64199/chain/network/src/network_protocol.rs#L225
+message RoutingSyncV2 {
+  bytes borsh = 1;
+}
+
+// Inter-process tracing information.
+message TraceContext {
+  enum SamplingPriority {
+    UNKNOWN = 0;
+    AutoReject = 1;
+    UserReject = 2;
+    AutoKeep = 3;
+    UserKeep = 4;
+  }
+  // 16 bytes representing TraceId: https://docs.rs/opentelemetry/latest/opentelemetry/trace/struct.TraceId.html
+  bytes trace_id = 1;
+  // 8 bytes representing SpanId: https://docs.rs/opentelemetry/latest/opentelemetry/trace/struct.SpanId.html
+  bytes span_id = 2;
+  SamplingPriority sampling_priority = 3;
+}
+
+// PeerMessage is a wrapper of all message types exchanged between NEAR nodes.
+// The wire format of a single message M consists of len(M)+4 bytes:
+// <len(M)> : 4 bytes : little endian uint32
+// <M> : N bytes : binary encoded protobuf PeerMessage M
+message PeerMessage {
+  // Leaving 1,2,3 unused allows us to ensure that there will be no collision
+  // between borsh and protobuf encodings:
+  // https://docs.google.com/document/d/1gCWmt9O-h_-5JDXIqbKxAaSS3Q9pryB1f9DDY1mMav4/edit
+  reserved 1,2,3;
+  // Deprecated fields.
+  reserved 20,21,22,23,24;
+
+  // Inter-process tracing information.
+  TraceContext trace_context = 26;
+
+  oneof message_type {
+    // Handshakes for TIER1 and TIER2 networks are considered separate,
+    // so that a node binary which doesn't support TIER1 connection won't
+    // be even able to PARSE the handshake. This way we avoid accidental
+    // connections, such that one end thinks it is a TIER2 connection and the
+    // other thinks it is a TIER1 connection. As currently both TIER1 and TIER2
+    // connections are handled by the same PeerActor, both fields use the same
+    // underlying message type. If we ever decide to separate the handshake
+    // implementations, we can copy the Handshake message type defition and
+    // make it evolve differently for TIER1 and TIER2.
+    Handshake tier1_handshake = 27;
+    Handshake tier2_handshake = 4;
+
+    HandshakeFailure handshake_failure = 5;
+    LastEdge last_edge = 6;
+    RoutingTableUpdate sync_routing_table = 7;
+    
+    UpdateNonceRequest update_nonce_request = 8;
+    UpdateNonceResponse update_nonce_response = 9;
+
+    SyncAccountsData sync_accounts_data = 25;
+
+    PeersRequest peers_request = 10;
+    PeersResponse peers_response = 11;
+    
+    BlockHeadersRequest block_headers_request = 12;
+    BlockHeadersResponse block_headers_response = 13;
+    
+    BlockRequest block_request = 14;
+    BlockResponse block_response = 15;
+    
+    SignedTransaction transaction = 16;
+    RoutedMessage routed = 17;
+    Disconnect disconnect = 18;
+    Challenge challenge = 19;
+  }
+}

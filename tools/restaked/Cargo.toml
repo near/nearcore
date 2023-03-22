@@ -1,21 +1,19 @@
 [package]
 name = "restaked"
 version = "0.0.0"
-authors = ["Near Inc <hello@nearprotocol.com>"]
+authors.workspace = true
 publish = false
-# Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.56.0"
-edition = "2021"
+edition.workspace = true
 
 [dependencies]
-clap = "2.33.0"
-tracing = "0.1.13"
-tracing-subscriber = "0.2.4"
+clap.workspace = true
+tokio.workspace = true
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-jsonrpc-client = { path = "../../chain/jsonrpc/client" }
 nearcore = { path = "../../nearcore" }
+near-o11y = { path = "../../core/o11y" }
 
 integration-tests = { path = "../../integration-tests" }
 

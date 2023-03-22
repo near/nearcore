@@ -1,0 +1,275 @@
+<html>
+
+<head>
+    <style>
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        table,
+        th,
+        td {
+            border: 1px solid black;
+        }
+
+        td {
+            text-align: left;
+            vertical-align: top;
+            padding: 8px;
+        }
+
+        th {
+            text-align: center;
+            vertical-align: center;
+            padding: 8px;
+            background-color: lightgrey;
+        }
+
+        tr.active {
+            background-color: #eff8bf;
+        }
+    </style>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <script>
+        function drawPixel(context, x, y, color) {
+            // Math.round() used to decrease smoothing when numbers have decimal parts.
+            var roundedX = Math.round(x);
+            var roundedY = Math.round(y);
+            context.fillStyle = color || '#000';
+            context.fillRect(roundedX, roundedY, 300, 150);
+        }
+
+        function drawSlot(context, slot_id, slot_size, color) {
+            let start_position = slot_id * slot_size;
+            if (start_position > 300 * 150) {
+                return;
+            }
+            let pos_y = Math.floor(start_position / 300);
+            let pos_x = start_position % 300;
+
+            let left = slot_size;
+            context.fillStyle = color;
+            while (left > 0) {
+                let draw = Math.min(300 - pos_x, left);
+                context.fillRect(pos_x, pos_y, draw, 1);
+                pos_x = (pos_x + draw) % 300;
+                pos_y += 1;
+                left -= draw;
+            }
+        }
+
+        function process_sync_status(data) {
+            let sync_status = data.status_response.SyncStatus;
+            $('.js-header-sync').text("Header sync - not started.")
+            $('.js-state-sync').text("State sync - not started.")
+            $('.js-block-sync').text("Block sync - not started.")
+
+            if (typeof (sync_status) === 'string') {
+                if (sync_status == 'NoSync') {
+                    $('.js-header-sync').text("Header sync - ✅.");
+                    $('.js-state-sync').text("State sync - ✅.");
+                    $('.js-block-sync').text("Block sync - ✅.");
+                }
+            } else {
+                if ('StateSync' in sync_status) {
+                    $('.div-progress').show();
+                    $('.js-header-sync').text("Header sync - ✅.")
+                    let state_sync = sync_status.StateSync;
+                    let sync_hash = state_sync[0];
+                    $('.js-state-sync').text("State sync @" + sync_hash);
+                    for (const [shard_id, shard_info] of Object.entries(state_sync[1])) {
+                        let canvas = $('<canvas>');
+                        // 45k
+                        let canvas_slots = 300 * 150;
+                        let slot_size = Math.max(1, Math.floor(canvas_slots / shard_info.downloads.length))
+
+                        console.log(slot_size);
+
+                        let parts_done = 0;
+
+                        shard_info.downloads.forEach((element, index) => {
+                            if (element.done == true) {
+                                parts_done += 1;
+                                drawSlot(canvas[0].getContext('2d'), index, slot_size, 'green');
+                            } else if (element.error == true) {
+                                drawSlot(canvas[0].getContext('2d'), index, slot_size, 'red');
+                            } else {
+                                drawSlot(canvas[0].getContext('2d'), index, slot_size, 'grey');
+                            }
+                        });
+
+                        let progress_percent = 0;
+                        if (shard_info.downloads.length > 0) {
+                            progress_percent = parts_done / shard_info.downloads.length * 100;
+
+                        }
+
+                        $('.js-tbody-progress').append($('<tr>')
+                            .append($('<td>').append(shard_id))
+                            .append($('<td>').append(progress_percent.toFixed(1) + "% " + parts_done + " / " + shard_info.downloads.length))
+                            .append($('<td>').append(shard_info.status))
+                            .append($('<td>').append(canvas))
+                        );
+                    }
+                }
+                if ('HeaderSync' in sync_status) {
+                    let from = sync_status.HeaderSync.current_height;
+                    let to = sync_status.HeaderSync.highest_height;
+                    $('.js-header-sync').text("Header sync - " + from + " -> " + to + ":    " + (to - from) + " remaining");
+                }
+                if ('BodySync' in sync_status) {
+                    $('.js-header-sync').text("Header sync - ✅.");
+                    $('.js-state-sync').text("State sync - ✅.");
+                    let from = sync_status.BodySync.current_height;
+                    let to = sync_status.BodySync.highest_height;
+                    $('.js-block-sync').text("Block sync - " + from + " -> " + to + ":    " + (to - from) + " remaining");
+                }
+            }
+        }
+
+        function process_tracked_shards(data) {
+            let tracked_shards = data.status_response.TrackedShards;
+            let max_shards = Math.max(tracked_shards.shards_tracked_this_epoch.length, tracked_shards.shards_tracked_next_epoch.length);
+            for (let shard = 0; shard < max_shards; shard += 1) {
+                console.log(shard);
+                $('.js-thead-tracked').append($('<th>').append("Shard " + shard));
+            }
+
+            let row = $('<tr>').append('<td>Current epoch</td>');
+            for (let shard = 0; shard < tracked_shards.shards_tracked_this_epoch.length; shard += 1) {
+                row.append($('<td>').append(tracked_shards.shards_tracked_this_epoch[shard]));
+            }
+            $('.js-tbody-tracked').append(row);
+
+            row = $('<tr>').append('<td>Next epoch</td>');
+            for (let shard = 0; shard < tracked_shards.shards_tracked_next_epoch.length; shard += 1) {
+                row.append($('<td>').append(tracked_shards.shards_tracked_next_epoch[shard]));
+            }
+            $('.js-tbody-tracked').append(row);
+
+        }
+
+        function process_catchup_status(data) {
+            let catchup_status = data.status_response.CatchupStatus;
+            $('.catchup-body').text("");
+            catchup_status.forEach((catchup) => {
+                $('.catchup-body').append(catchup);
+                console.log(catchup);
+                $('.catchup-body').append("Epoch starting at block " + catchup.sync_block_hash + " " + catchup.sync_block_height + "<br>");
+                Object.entries(catchup.shard_sync_status).forEach(([shard_id, shard_status]) => {
+                    $('.catchup-body').append("Shard " + shard_id + " status: " + shard_status + "<br>");
+                });
+                $('.catchup-body').append("Blocks to catchup: <br>");
+                catchup.blocks_to_catchup.forEach(block => {
+                    $('.catchup-body').append("Block " + block.hash + " " + block.height + "<br>");
+                });
+            })
+        }
+
+        $(document).ready(() => {
+            $('.div-progress').hide();
+            $('span').text("Loading...");
+            $.ajax({
+                type: "GET",
+                url: "../api/sync_status",
+                success: data => {
+                    process_sync_status(data);
+                },
+                dataType: "json",
+                error: function (errMsg, textStatus, errorThrown) {
+                    alert("Failed: " + textStatus + " :" + errorThrown);
+                },
+                contentType: "application/json; charset=utf-8",
+            });
+            $.ajax({
+                type: "GET",
+                url: "../api/tracked_shards",
+                success: data => {
+                    process_tracked_shards(data);
+                },
+                dataType: "json",
+                error: function (errMsg, textStatus, errorThrown) {
+                    alert("Failed: " + textStatus + " :" + errorThrown);
+                },
+                contentType: "application/json; charset=utf-8",
+            });
+            $.ajax({
+                type: "GET",
+                url: "../api/catchup_status",
+                success: data => {
+                    process_catchup_status(data);
+                },
+                dataType: "json",
+                error: function (errMsg, textStatus, errorThrown) {
+                    alert("Failed: " + textStatus + " :" + errorThrown);
+                },
+                contentType: "application/json; charset=utf-8",
+            });
+        });
+    </script>
+</head>
+
+<body>
+    <h1>
+        Sync page
+    </h1>
+    <div class="div-tracked">
+        <h2>
+            <p>Tracked shards</p>
+        </h2>
+        <table>
+            <thead>
+                <tr class="js-thead-tracked">
+                    <th>Epoch</th>
+                </tr>
+            </thead>
+            <tbody class="js-tbody-tracked">
+            </tbody>
+        </table>
+    </div>
+    <h2>
+        <p>
+            <span class="js-header-sync"></span>
+        </p>
+        <p>
+            <span class="js-state-sync"></span>
+        </p>
+        <p>
+            <span class="js-block-sync"></span>
+        </p>
+    </h2>
+    <div class="div-progress">
+        <h2>
+            <p>Progress</p>
+        </h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Shard</th>
+                    <th>Progress</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody class="js-tbody-progress">
+            </tbody>
+        </table>
+    </div>
+    <h2>
+        <p>Catchup</p>
+    </h2>
+    <h3>
+        <span class="catchup-body"></span>
+    </h3>
+
+    Header sync is a fast process, where we fetch 512 'headers' at a time from the network (basically header consists of
+    a few hashes).
+    <br>
+    State sync is downloading the current storage state - it can take couple GB for each shard that you're tracking.
+    <br>
+    Block sync is executing all the transactions in the a block (which might take up to 1 second/block) - can be faster
+    if blocks are not full.
+
+</body>
+
+</html>

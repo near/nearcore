@@ -1,21 +1,27 @@
-use crate::serialize::u128_dec_format;
+use crate::hash::CryptoHash;
+use crate::serialize::dec_format;
 use crate::types::{AccountId, Balance, EpochId, Gas, Nonce};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
-use serde::{Deserialize, Serialize};
+use near_primitives_core::types::ProtocolVersion;
+use near_rpc_error_macro::RpcError;
+use near_vm_errors::FunctionCallErrorSer;
 use std::fmt::{Debug, Display};
 
-use crate::hash::CryptoHash;
-use near_rpc_error_macro::RpcError;
-use near_vm_errors::{CompilationError, FunctionCallErrorSer, MethodResolveError};
-
 /// Error returned in the ExecutionOutcome in case of failure
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
-    BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    RpcError,
+    serde::Deserialize,
+    serde::Serialize,
 )]
 pub enum TxExecutionError {
-    /// An error happened during Acton execution
+    /// An error happened during Action execution
     ActionError(ActionError),
     /// An error happened during Transaction execution
     InvalidTxError(InvalidTxError),
@@ -84,6 +90,10 @@ pub enum StorageError {
     /// panic in every place that produces this error.
     /// We can check if db is corrupted by verifying everything in the state trie.
     StorageInconsistentState(String),
+    /// Flat storage error, meaning that it doesn't support some block anymore.
+    /// We guarantee that such block cannot become final, thus block processing
+    /// must resume normally.
+    FlatStorageBlockNotSupported(String),
 }
 
 impl std::fmt::Display for StorageError {
@@ -95,9 +105,16 @@ impl std::fmt::Display for StorageError {
 impl std::error::Error for StorageError {}
 
 /// An error happened during TX execution
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
-    BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    RpcError,
+    serde::Deserialize,
+    serde::Serialize,
 )]
 pub enum InvalidTxError {
     /// Happens if a wrong AccessKey used or AccessKey has not enough permissions
@@ -117,9 +134,9 @@ pub enum InvalidTxError {
     /// Account does not have enough balance to cover TX cost
     NotEnoughBalance {
         signer_id: AccountId,
-        #[serde(with = "u128_dec_format")]
+        #[serde(with = "dec_format")]
         balance: Balance,
-        #[serde(with = "u128_dec_format")]
+        #[serde(with = "dec_format")]
         cost: Balance,
     },
     /// Signer account doesn't have enough balance after transaction.
@@ -127,7 +144,7 @@ pub enum InvalidTxError {
         /// An account which doesn't have enough balance to cover storage.
         signer_id: AccountId,
         /// Required balance to cover the state.
-        #[serde(with = "u128_dec_format")]
+        #[serde(with = "dec_format")]
         amount: Balance,
     },
     /// An integer overflow occurred during transaction cost estimation.
@@ -144,9 +161,16 @@ pub enum InvalidTxError {
 
 impl std::error::Error for InvalidTxError {}
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
-    BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    RpcError,
+    serde::Deserialize,
+    serde::Serialize,
 )]
 pub enum InvalidAccessKeyError {
     /// The access key identified by the `public_key` doesn't exist for the account
@@ -161,9 +185,9 @@ pub enum InvalidAccessKeyError {
     NotEnoughAllowance {
         account_id: AccountId,
         public_key: PublicKey,
-        #[serde(with = "u128_dec_format")]
+        #[serde(with = "dec_format")]
         allowance: Balance,
-        #[serde(with = "u128_dec_format")]
+        #[serde(with = "dec_format")]
         cost: Balance,
     },
     /// Having a deposit with a function call action is not allowed with a function call access key.
@@ -171,9 +195,16 @@ pub enum InvalidAccessKeyError {
 }
 
 /// Describes the error for validating a list of actions.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
-    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, RpcError,
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    RpcError,
+    serde::Serialize,
+    serde::Deserialize,
 )]
 pub enum ActionsValidationError {
     /// The delete action must be a final aciton in transaction
@@ -189,7 +220,7 @@ pub enum ActionsValidationError {
     /// Integer overflow during a compute.
     IntegerOverflow,
     /// Invalid account ID.
-    InvalidAccountId { account_id: AccountId },
+    InvalidAccountId { account_id: String },
     /// The size of the contract code exceeded the limit in a DeployContract action.
     ContractSizeExceeded { size: u64, limit: u64 },
     /// The length of the method name exceeded the limit in a Function Call action.
@@ -200,12 +231,28 @@ pub enum ActionsValidationError {
     UnsuitableStakingKey { public_key: PublicKey },
     /// The attached amount of gas in a FunctionCall action has to be a positive number.
     FunctionCallZeroAttachedGas,
+    /// There should be the only one DelegateAction
+    DelegateActionMustBeOnlyOne,
+    /// The transaction includes a feature that the current protocol version
+    /// does not support.
+    ///
+    /// Note: we stringify the protocol feature name instead of using
+    /// `ProtocolFeature` here because we don't want to leak the internals of
+    /// that type into observable borsh serialization.
+    UnsupportedProtocolFeature { protocol_feature: String, version: ProtocolVersion },
 }
 
 /// Describes the error for validating a receipt.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
-    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, RpcError,
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    RpcError,
+    serde::Serialize,
+    serde::Deserialize,
 )]
 pub enum ReceiptValidationError {
     /// The `predecessor_id` of a Receipt is not valid.
@@ -317,16 +364,33 @@ impl Display for ActionsValidationError {
                 f,
                 "The attached amount of gas in a FunctionCall action has to be a positive number",
             ),
+            ActionsValidationError::DelegateActionMustBeOnlyOne => write!(
+                f,
+                "The actions can contain the ony one DelegateAction"
+            ),
+            ActionsValidationError::UnsupportedProtocolFeature { protocol_feature, version } => write!(
+                    f,
+                    "Transaction requires protocol feature {} / version {} which is not supported by the current protocol version",
+                    protocol_feature,
+                    version,
+            ),
         }
     }
 }
 
 impl std::error::Error for ActionsValidationError {}
 
-/// An error happened during Acton execution
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+/// An error happened during Action execution
 #[derive(
-    BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    RpcError,
+    serde::Deserialize,
+    serde::Serialize,
 )]
 pub struct ActionError {
     /// Index of the failed action in the transaction.
@@ -338,48 +402,16 @@ pub struct ActionError {
 
 impl std::error::Error for ActionError {}
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Debug, Clone, PartialEq, Eq, RpcError)]
-pub enum ContractCallError {
-    MethodResolveError(MethodResolveError),
-    CompilationError(CompilationError),
-    ExecutionError { msg: String },
-}
-
-impl From<ContractCallError> for FunctionCallErrorSer {
-    fn from(e: ContractCallError) -> Self {
-        match e {
-            ContractCallError::CompilationError(e) => FunctionCallErrorSer::CompilationError(e),
-            ContractCallError::MethodResolveError(e) => FunctionCallErrorSer::MethodResolveError(e),
-            ContractCallError::ExecutionError { msg } => FunctionCallErrorSer::ExecutionError(msg),
-        }
-    }
-}
-
-impl From<FunctionCallErrorSer> for ContractCallError {
-    fn from(e: FunctionCallErrorSer) -> Self {
-        match e {
-            FunctionCallErrorSer::CompilationError(e) => ContractCallError::CompilationError(e),
-            FunctionCallErrorSer::MethodResolveError(e) => ContractCallError::MethodResolveError(e),
-            FunctionCallErrorSer::ExecutionError(msg) => ContractCallError::ExecutionError { msg },
-            FunctionCallErrorSer::LinkError { msg } => ContractCallError::ExecutionError { msg },
-            FunctionCallErrorSer::WasmUnknownError => {
-                ContractCallError::ExecutionError { msg: "unknown error".to_string() }
-            }
-            FunctionCallErrorSer::_EVMError => unreachable!(),
-            FunctionCallErrorSer::WasmTrap(e) => {
-                ContractCallError::ExecutionError { msg: format!("WASM: {:?}", e) }
-            }
-            FunctionCallErrorSer::HostError(e) => {
-                ContractCallError::ExecutionError { msg: format!("Host: {:?}", e) }
-            }
-        }
-    }
-}
-
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
-    BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    RpcError,
+    serde::Deserialize,
+    serde::Serialize,
 )]
 pub enum ActionErrorKind {
     /// Happens when CreateAccount action tries to create an account with account_id which is already exists in the storage
@@ -408,7 +440,7 @@ pub enum ActionErrorKind {
         /// An account which needs balance
         account_id: AccountId,
         /// Balance required to complete an action.
-        #[serde(with = "u128_dec_format")]
+        #[serde(with = "dec_format")]
         amount: Balance,
     },
     /// Account is not yet staked, but tries to unstake
@@ -416,18 +448,18 @@ pub enum ActionErrorKind {
     /// The account doesn't have enough balance to increase the stake.
     TriesToStake {
         account_id: AccountId,
-        #[serde(with = "u128_dec_format")]
+        #[serde(with = "dec_format")]
         stake: Balance,
-        #[serde(with = "u128_dec_format")]
+        #[serde(with = "dec_format")]
         locked: Balance,
-        #[serde(with = "u128_dec_format")]
+        #[serde(with = "dec_format")]
         balance: Balance,
     },
     InsufficientStake {
         account_id: AccountId,
-        #[serde(with = "u128_dec_format")]
+        #[serde(with = "dec_format")]
         stake: Balance,
-        #[serde(with = "u128_dec_format")]
+        #[serde(with = "dec_format")]
         minimum_stake: Balance,
     },
     /// An error occurred during a `FunctionCall` Action, parameter is debug message.
@@ -438,9 +470,24 @@ pub enum ActionErrorKind {
     /// Error occurs when a `CreateAccount` action is called on hex-characters
     /// account of length 64.  See implicit account creation NEP:
     /// <https://github.com/nearprotocol/NEPs/pull/71>.
+    ///
+    /// TODO(#8598): This error is named very poorly. A better name would be
+    /// `OnlyNamedAccountCreationAllowed`.
     OnlyImplicitAccountCreationAllowed { account_id: AccountId },
     /// Delete account whose state is large is temporarily banned.
     DeleteAccountWithLargeState { account_id: AccountId },
+    /// Signature does not match the provided actions and given signer public key.
+    DelegateActionInvalidSignature,
+    /// Receiver of the transaction doesn't match Sender of the delegate action
+    DelegateActionSenderDoesNotMatchTxReceiver { sender_id: AccountId, receiver_id: AccountId },
+    /// Delegate action has expired. `max_block_height` is less than actual block height.
+    DelegateActionExpired,
+    /// The given public key doesn't exist for Sender account
+    DelegateActionAccessKeyError(InvalidAccessKeyError),
+    /// DelegateAction nonce must be greater sender[public_key].nonce
+    DelegateActionInvalidNonce { delegate_nonce: Nonce, ak_nonce: Nonce },
+    /// DelegateAction nonce is larger than the upper bound given by the block height
+    DelegateActionNonceTooLarge { delegate_nonce: Nonce, upper_bound: Nonce },
 }
 
 impl From<ActionErrorKind> for ActionError {
@@ -554,34 +601,42 @@ impl std::error::Error for InvalidAccessKeyError {}
 
 /// Happens when the input balance doesn't match the output balance in Runtime apply.
 #[derive(
-    BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    RpcError,
+    serde::Deserialize,
+    serde::Serialize,
 )]
 pub struct BalanceMismatchError {
     // Input balances
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub incoming_validator_rewards: Balance,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub initial_accounts_balance: Balance,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub incoming_receipts_balance: Balance,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub processed_delayed_receipts_balance: Balance,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub initial_postponed_receipts_balance: Balance,
     // Output balances
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub final_accounts_balance: Balance,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub outgoing_receipts_balance: Balance,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub new_delayed_receipts_balance: Balance,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub final_postponed_receipts_balance: Balance,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub tx_burnt_amount: Balance,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub slashed_burnt_amount: Balance,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub other_burnt_amount: Balance,
 }
 
@@ -751,6 +806,12 @@ impl Display for ActionErrorKind {
             ActionErrorKind::InsufficientStake { account_id, stake, minimum_stake } => write!(f, "Account {} tries to stake {} but minimum required stake is {}", account_id, stake, minimum_stake),
             ActionErrorKind::OnlyImplicitAccountCreationAllowed { account_id } => write!(f, "CreateAccount action is called on hex-characters account of length 64 {}", account_id),
             ActionErrorKind::DeleteAccountWithLargeState { account_id } => write!(f, "The state of account {} is too large and therefore cannot be deleted", account_id),
+            ActionErrorKind::DelegateActionInvalidSignature => write!(f, "DelegateAction is not signed with the given public key"),
+            ActionErrorKind::DelegateActionSenderDoesNotMatchTxReceiver { sender_id, receiver_id } => write!(f, "Transaction receiver {} doesn't match DelegateAction sender {}", receiver_id, sender_id),
+            ActionErrorKind::DelegateActionExpired => write!(f, "DelegateAction has expired"),
+            ActionErrorKind::DelegateActionAccessKeyError(access_key_error) => Display::fmt(&access_key_error, f),
+            ActionErrorKind::DelegateActionInvalidNonce { delegate_nonce, ak_nonce } => write!(f, "DelegateAction nonce {} must be larger than nonce of the used access key {}", delegate_nonce, ak_nonce),
+            ActionErrorKind::DelegateActionNonceTooLarge { delegate_nonce, upper_bound } => write!(f, "DelegateAction nonce {} must be smaller than the access key nonce upper bound {}", delegate_nonce, upper_bound),
         }
     }
 }

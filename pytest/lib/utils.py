@@ -5,13 +5,15 @@ import json
 import os
 import pathlib
 import random
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import time
 import typing
-
+import requests
+from prometheus_client.parser import text_string_to_metric_families
 from retrying import retry
 from rc import gcloud
 
@@ -71,6 +73,10 @@ class LogTracker:
     """Opens up a log file, scrolls to the end and allows to check for patterns.
 
     The tracker works only on local nodes.
+
+    PLEASE AVOID USING THE TRACKER IN NEW TESTS.
+    As depending on the exact log wording is making tests very fragile.
+    Try depending on a metric instead.
     """
 
     def __init__(self, node: cluster.BaseNode) -> None:
@@ -89,25 +95,86 @@ class LogTracker:
             f.seek(0, 2)
             self.offset = f.tell()
 
-    def check(self, pattern: str) -> bool:
-        """Check whether the pattern can be found in the logs."""
+    # Pattern matching ANSI escape codes starting with a Control Sequence
+    # Introducer (CSI) sequence.  Most notably Select Graphic Rendition (SGR)
+    # such as ‘\x1b[35;41m’.
+    _CSI_RE = re.compile('\x1b\\[[^\x40-\x7E]*[\x40-\x7E]')
+
+    def _read_file(self) -> str:
+        """Returns data from the file starting from the offset."""
         with open(self.fname) as rd:
             rd.seek(self.offset)
-            found = pattern in rd.read()
+            data = rd.read()
             self.offset = rd.tell()
-        return found
+        # Strip ANSI codes
+        return self._CSI_RE.sub('', data)
 
-    def reset(self) -> bool:
+    def check(self, pattern: str) -> bool:
+        """Check whether the pattern can be found in the logs."""
+        return pattern in self._read_file()
+
+    def reset(self) -> None:
         """Resets log offset to beginning of the file."""
         self.offset = 0
 
-    def count(self, pattern):
+    def count(self, pattern: str) -> int:
         """Count number of occurrences of pattern in new logs."""
-        with open(self.fname) as rd:
-            rd.seek(self.offset)
-            count = rd.read().count(pattern)
-            self.offset = rd.tell()
-        return count
+        return self._read_file().count(pattern)
+
+
+class MetricsTracker:
+    """Helper class to collect prometheus metrics from the node.
+    
+    Usage:
+        tracker = MetricsTracker(node)
+        assert tracker.get_int_metric_value("near-connections") == 2
+    """
+
+    def __init__(self, node: cluster.BaseNode) -> None:
+        if not isinstance(node, cluster.LocalNode):
+            raise NotImplementedError()
+        host, port = node.rpc_addr()
+
+        self.addr = f"http://{host}:{port}/metrics"
+
+    def get_all_metrics(self) -> str:
+        response = requests.get(self.addr)
+        if not response.ok:
+            raise RuntimeError(
+                f"Could not fetch metrics from {self.addr}: {response}")
+        return response.content.decode('utf-8')
+
+    def get_metric_value(
+        self,
+        metric_name: str,
+        labels: typing.Optional[typing.Dict[str, str]] = None
+    ) -> typing.Optional[str]:
+        for family in text_string_to_metric_families(self.get_all_metrics()):
+            if family.name == metric_name:
+                all_samples = [sample for sample in family.samples]
+                if not labels:
+                    if len(all_samples) > 1:
+                        raise AssertionError(
+                            f"Too many metric values ({len(all_samples)}) for {metric_name} - please specify a label"
+                        )
+                    if not all_samples:
+                        return None
+                    return all_samples[0].value
+                for sample in all_samples:
+                    if sample.labels == labels:
+                        return sample.value
+        return None
+
+    def get_int_metric_value(
+        self,
+        metric_name: str,
+        labels: typing.Optional[typing.Dict[str, str]] = None
+    ) -> typing.Optional[int]:
+        """Helper function to return the integer value of the metric (as function above returns strings)."""
+        value = self.get_metric_value(metric_name, labels)
+        if not value:
+            return None
+        return round(float(value))
 
 
 def chain_query(node, block_handler, *, block_hash=None, max_blocks=-1):
@@ -164,7 +231,8 @@ def load_binary_file(filepath):
         return bytearray(binaryfile.read())
 
 
-def load_test_contract(filename: str = 'test_contract_rs.wasm') -> bytearray:
+def load_test_contract(
+        filename: str = 'base_test_contract_rs.wasm') -> bytearray:
     """Loads a WASM file from near-test-contracts package.
 
     This is just a convenience function around load_binary_file which loads
@@ -355,6 +423,11 @@ def poll_blocks(node: cluster.LocalNode,
     while time.monotonic() < end:
         latest = node.get_latest_block(**kw)
         if latest.height != previous:
+            if __target:
+                msg = f'{latest}  (waiting for #{__target})'
+            else:
+                msg = str(latest)
+            logger.info(msg)
             yield latest
             previous = latest.height
             if start_height == -1:
@@ -415,7 +488,6 @@ def wait_for_blocks(node: cluster.LocalNode,
     if timeout is None:
         timeout = max(10, count * 5)
     for latest in poll_blocks(node, timeout=timeout, __target=target, **kw):
-        logger.info(f'{latest}  (waiting for #{target})')
         if latest.height >= target:
             return latest
 

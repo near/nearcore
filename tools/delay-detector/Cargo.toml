@@ -1,0 +1,13 @@
+[package]
+name = "delay-detector"
+version = "0.0.0"
+authors.workspace = true
+publish = false
+edition.workspace = true
+
+[dependencies]
+tracing.workspace = true
+cpu-time.workspace = true
+
+[features]
+delay_detector = []

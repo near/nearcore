@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Verifies that node can be started inside of a Docker image.
 
-The script builds Docker image using ‘make docker-nearcore’ command and then
+The script builds Docker image using 'make docker-nearcore' command and then
 starts a cluster with all nodes running inside of containers.  As sanity check
 to see if the cluster works correctly, the test waits for a several blocks and
 then interrogates each node about block with specified hash expecting all of
@@ -22,6 +22,7 @@ import subprocess
 import sys
 import tempfile
 import typing
+import uuid
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -36,6 +37,8 @@ _REPO_DIR = pathlib.Path(__file__).resolve().parents[3]
 _CD_PRINTED = False
 _Command = typing.Sequence[typing.Union[str, pathlib.Path]]
 
+_DOCKER_IMAGE_TAG = 'nearcore-testimage-' + uuid.uuid4().hex
+
 
 def run(cmd: _Command, *, capture_output: bool = False) -> typing.Optional[str]:
     """Trivial wrapper around subprocess.check_({all,output}.
@@ -45,7 +48,7 @@ def run(cmd: _Command, *, capture_output: bool = False) -> typing.Optional[str]:
         capture_output: If true, captures standard output of the command and
             returns it.
     Returns:
-        Command’s stripped standard output if `capture_output` is true, None
+        Command's stripped standard output if `capture_output` is true, None
         otherwise.
     """
     global _CD_PRINTED
@@ -70,7 +73,7 @@ def docker_run(shell_cmd: typing.Optional[str] = None,
 
     Args:
         shell_cmd: Optionally a shell command to execute inside of the
-            container.  It’s going to be run using `sh -c` and it’s caller’s
+            container.  It's going to be run using `sh -c` and it's caller's
             responsibility to make sure all data inside is properly sanitised.
             If not given, command configured via CMD when building the container
             will be executed as typical for Docker images.
@@ -79,14 +82,14 @@ def docker_run(shell_cmd: typing.Optional[str] = None,
             test outputs.  If True, the container will be detached and the
             function will return its container id.
         network: Whether to enable network.  If True, the container will be
-            configured to use host’s network.  This allows processes in
+            configured to use host's network.  This allows processes in
             different containers to connect with each other easily.
         volume: A (path, container_path) tuple denoting that local `path` should
             be mounted under `container_path` inside of the container.
         env: *Additional* environment variables set inside of the container.
 
     Returns:
-        Command’s stripped standard output if `detach` is true, None otherwise.
+        Command's stripped standard output if `detach` is true, None otherwise.
     """
     cmd = ['docker', 'run', '--read-only', f'-v{volume[0]}:{volume[1]}']
 
@@ -119,7 +122,7 @@ def docker_run(shell_cmd: typing.Optional[str] = None,
         cmd.append((f'-e{key}={value}'))
 
     # Specify the image to run.
-    cmd.append('nearcore')
+    cmd.append(_DOCKER_IMAGE_TAG)
 
     # And finally, specify the command.
     if shell_cmd:
@@ -182,17 +185,17 @@ class DockerNode(cluster.LocalNode):
 
 
 def main():
-    # Build the container
-    run(('make', 'docker-nearcore'))
-
-    dot_near = pathlib.Path.home() / '.near'
-
-    # Initialise local network
-    cmd = f'neard --home /home/near localnet --v {NUM_NODES} --prefix test'
-    docker_run(cmd, volume=(dot_near, '/home/near'))
-
     nodes = []
+
+    logger.info("Build the container")
+    run(('make', 'DOCKER_TAG=' + _DOCKER_IMAGE_TAG, 'docker-nearcore'))
     try:
+        dot_near = pathlib.Path.home() / '.near'
+
+        logger.info("Initialise local network nodes config.")
+        cmd = f'neard --home /home/near localnet --v {NUM_NODES} --prefix test'
+        docker_run(cmd, volume=(dot_near, '/home/near'), network=True)
+
         # Start all the nodes
         for ordinal in range(NUM_NODES):
             logger.info(f'Starting node {ordinal}')
@@ -232,9 +235,12 @@ def main():
         cids = tuple(filter(None, (node._container_id for node in nodes)))
         if cids:
             logger.info('Stopping containers')
-            run(('docker', 'stop') + cids)
+            run(('docker', 'rm', '-f') + cids)
         for node in nodes:
             node._container_id = None
+
+        subprocess.check_call(
+            ('docker', 'image', 'rm', '-f', _DOCKER_IMAGE_TAG))
 
 
 if __name__ == '__main__':

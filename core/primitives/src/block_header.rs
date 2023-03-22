@@ -1,10 +1,3 @@
-use crate::time::Utc;
-use borsh::{BorshDeserialize, BorshSerialize};
-use chrono::DateTime;
-use serde::Serialize;
-
-use near_crypto::{KeyType, PublicKey, Signature};
-
 use crate::challenge::ChallengesResult;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::combine_hash;
@@ -14,9 +7,12 @@ use crate::types::{AccountId, Balance, BlockHeight, EpochId, MerkleHash, NumBloc
 use crate::utils::{from_timestamp, to_timestamp};
 use crate::validator_signer::ValidatorSigner;
 use crate::version::{get_protocol_version, ProtocolVersion, PROTOCOL_VERSION};
+use borsh::{BorshDeserialize, BorshSerialize};
+use chrono::{DateTime, Utc};
+use near_crypto::{KeyType, PublicKey, Signature};
+use std::sync::Arc;
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockHeaderInnerLite {
     /// Height of this block.
     pub height: BlockHeight,
@@ -36,8 +32,7 @@ pub struct BlockHeaderInnerLite {
     pub block_merkle_root: CryptoHash,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockHeaderInnerRest {
     /// Root hash of the chunk receipts in the given block.
     pub chunk_receipts_root: MerkleHash,
@@ -75,8 +70,7 @@ pub struct BlockHeaderInnerRest {
 }
 
 /// Remove `chunks_included` from V1
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockHeaderInnerRestV2 {
     /// Root hash of the chunk receipts in the given block.
     pub chunk_receipts_root: MerkleHash,
@@ -115,8 +109,7 @@ pub struct BlockHeaderInnerRestV2 {
 /// Add `block_ordinal`
 /// Add `epoch_sync_data_hash`
 /// Use new `ValidatorStake` struct
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockHeaderInnerRestV3 {
     /// Root hash of the chunk receipts in the given block.
     pub chunk_receipts_root: MerkleHash,
@@ -159,16 +152,14 @@ pub struct BlockHeaderInnerRestV3 {
 }
 
 /// The part of the block approval that is different for endorsements and skips
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ApprovalInner {
     Endorsement(CryptoHash),
     Skip(BlockHeight),
 }
 
 /// Block approval by other block producers with a signature
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct Approval {
     pub inner: ApprovalInner,
     pub target_height: BlockHeight,
@@ -184,8 +175,7 @@ pub enum ApprovalType {
 }
 
 /// Block approval by other block producers.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct ApprovalMessage {
     pub approval: Approval,
     pub target: AccountId,
@@ -228,8 +218,7 @@ impl ApprovalMessage {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq)]
 #[borsh_init(init)]
 pub struct BlockHeaderV1 {
     pub prev_hash: CryptoHash,
@@ -258,8 +247,7 @@ impl BlockHeaderV1 {
 }
 
 /// V1 -> V2: Remove `chunks_included` from `inner_reset`
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq)]
 #[borsh_init(init)]
 pub struct BlockHeaderV2 {
     pub prev_hash: CryptoHash,
@@ -279,8 +267,7 @@ pub struct BlockHeaderV2 {
 
 /// V2 -> V3: Add `prev_height` to `inner_rest` and use new `ValidatorStake`
 // Add `block_ordinal` to `inner_rest`
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq)]
 #[borsh_init(init)]
 pub struct BlockHeaderV3 {
     pub prev_hash: CryptoHash,
@@ -320,12 +307,11 @@ impl BlockHeaderV3 {
 
 /// Versioned BlockHeader data structure.
 /// For each next version, document what are the changes between versions.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq)]
 pub enum BlockHeader {
-    BlockHeaderV1(Box<BlockHeaderV1>),
-    BlockHeaderV2(Box<BlockHeaderV2>),
-    BlockHeaderV3(Box<BlockHeaderV3>),
+    BlockHeaderV1(Arc<BlockHeaderV1>),
+    BlockHeaderV2(Arc<BlockHeaderV2>),
+    BlockHeaderV3(Arc<BlockHeaderV3>),
 }
 
 impl BlockHeader {
@@ -409,7 +395,7 @@ impl BlockHeader {
                 &inner_lite.try_to_vec().expect("Failed to serialize"),
                 &inner_rest.try_to_vec().expect("Failed to serialize"),
             );
-            Self::BlockHeaderV1(Box::new(BlockHeaderV1 {
+            Self::BlockHeaderV1(Arc::new(BlockHeaderV1 {
                 prev_hash,
                 inner_lite,
                 inner_rest,
@@ -438,7 +424,7 @@ impl BlockHeader {
                 &inner_lite.try_to_vec().expect("Failed to serialize"),
                 &inner_rest.try_to_vec().expect("Failed to serialize"),
             );
-            Self::BlockHeaderV2(Box::new(BlockHeaderV2 {
+            Self::BlockHeaderV2(Arc::new(BlockHeaderV2 {
                 prev_hash,
                 inner_lite,
                 inner_rest,
@@ -470,7 +456,7 @@ impl BlockHeader {
                 &inner_lite.try_to_vec().expect("Failed to serialize"),
                 &inner_rest.try_to_vec().expect("Failed to serialize"),
             );
-            Self::BlockHeaderV3(Box::new(BlockHeaderV3 {
+            Self::BlockHeaderV3(Arc::new(BlockHeaderV3 {
                 prev_hash,
                 inner_lite,
                 inner_rest,
@@ -530,7 +516,7 @@ impl BlockHeader {
                 &inner_lite.try_to_vec().expect("Failed to serialize"),
                 &inner_rest.try_to_vec().expect("Failed to serialize"),
             );
-            Self::BlockHeaderV1(Box::new(BlockHeaderV1 {
+            Self::BlockHeaderV1(Arc::new(BlockHeaderV1 {
                 prev_hash: CryptoHash::default(),
                 inner_lite,
                 inner_rest,
@@ -559,7 +545,7 @@ impl BlockHeader {
                 &inner_lite.try_to_vec().expect("Failed to serialize"),
                 &inner_rest.try_to_vec().expect("Failed to serialize"),
             );
-            Self::BlockHeaderV2(Box::new(BlockHeaderV2 {
+            Self::BlockHeaderV2(Arc::new(BlockHeaderV2 {
                 prev_hash: CryptoHash::default(),
                 inner_lite,
                 inner_rest,
@@ -591,7 +577,7 @@ impl BlockHeader {
                 &inner_lite.try_to_vec().expect("Failed to serialize"),
                 &inner_rest.try_to_vec().expect("Failed to serialize"),
             );
-            Self::BlockHeaderV3(Box::new(BlockHeaderV3 {
+            Self::BlockHeaderV3(Arc::new(BlockHeaderV3 {
                 prev_hash: CryptoHash::default(),
                 inner_lite,
                 inner_rest,

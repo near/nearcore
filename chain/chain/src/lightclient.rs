@@ -5,12 +5,12 @@ use near_primitives::types::EpochId;
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{BlockHeaderInnerLiteView, LightClientBlockView};
 
-use crate::{ChainStoreAccess, RuntimeAdapter};
+use crate::{ChainStoreAccess, RuntimeWithEpochManagerAdapter};
 
 pub fn get_epoch_block_producers_view(
     epoch_id: &EpochId,
     prev_hash: &CryptoHash,
-    runtime_adapter: &dyn RuntimeAdapter,
+    runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
 ) -> Result<Vec<ValidatorStakeView>, Error> {
     Ok(runtime_adapter
         .get_epoch_block_producers_ordered(epoch_id, prev_hash)?
@@ -34,7 +34,7 @@ pub fn get_epoch_block_producers_view(
 ///                   to and for the next block, and the three blocks must have sequential heights.
 pub fn create_light_client_block_view(
     block_header: &BlockHeader,
-    chain_store: &mut dyn ChainStoreAccess,
+    chain_store: &dyn ChainStoreAccess,
     next_block_producers: Option<Vec<ValidatorStakeView>>,
 ) -> Result<LightClientBlockView, Error> {
     let inner_lite_view = BlockHeaderInnerLiteView {
@@ -50,14 +50,14 @@ pub fn create_light_client_block_view(
     };
     let inner_rest_hash = hash(&block_header.inner_rest_bytes());
 
-    let next_block_hash = *chain_store.get_next_block_hash(block_header.hash())?;
+    let next_block_hash = chain_store.get_next_block_hash(block_header.hash())?;
     let next_block_header = chain_store.get_block_header(&next_block_hash)?;
     let next_block_inner_hash = BlockHeader::compute_inner_hash(
         &next_block_header.inner_lite_bytes(),
         &next_block_header.inner_rest_bytes(),
     );
 
-    let after_next_block_hash = *chain_store.get_next_block_hash(&next_block_hash)?;
+    let after_next_block_hash = chain_store.get_next_block_hash(&next_block_hash)?;
     let after_next_block_header = chain_store.get_block_header(&after_next_block_hash)?;
     let approvals_after_next = after_next_block_header.approvals().to_vec();
 

@@ -1,64 +1,40 @@
+use crate::cold_storage::spawn_cold_store_loop;
 pub use crate::config::{init_configs, load_config, load_test_config, NearConfig, NEAR_BASE};
-use crate::migrations::{
-    migrate_12_to_13, migrate_18_to_19, migrate_19_to_20, migrate_22_to_23, migrate_23_to_24,
-    migrate_24_to_25, migrate_30_to_31,
-};
 pub use crate::runtime::NightshadeRuntime;
 pub use crate::shard_tracker::TrackedConfig;
-use actix::{Actor, Addr, Arbiter};
+use crate::state_sync::{spawn_state_sync_dump, StateSyncDumpHandle};
+use actix::{Actor, Addr};
 use actix_rt::ArbiterHandle;
 use actix_web;
 use anyhow::Context;
-use near_chain::ChainGenesis;
-#[cfg(feature = "test_features")]
-use near_client::AdversarialControls;
-use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
-use near_network::routing::start_routing_table_actor;
-use near_network::test_utils::NetworkRecipient;
+use cold_storage::ColdStoreLoopHandle;
+use near_async::actix::AddrWithAutoSpanContextExt;
+use near_async::messaging::{IntoSender, LateBoundSender};
+use near_chain::{Chain, ChainGenesis};
+use near_chunks::shards_manager_actor::start_shards_manager;
+use near_client::{start_client, start_view_client, ClientActor, ConfigUpdater, ViewClientActor};
 use near_network::PeerManagerActor;
-use near_primitives::network::PeerId;
-#[cfg(feature = "rosetta_rpc")]
-use near_rosetta_rpc::start_rosetta_rpc;
-#[cfg(feature = "performance_stats")]
-use near_rust_allocator_proxy::reset_memory_usage_max;
-use near_store::db::RocksDB;
-use near_store::migrations::{
-    fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_10_to_11,
-    migrate_11_to_12, migrate_13_to_14, migrate_14_to_15, migrate_17_to_18, migrate_20_to_21,
-    migrate_21_to_22, migrate_25_to_26, migrate_26_to_27, migrate_28_to_29, migrate_29_to_30,
-    migrate_6_to_7, migrate_7_to_8, migrate_8_to_9, migrate_9_to_10, set_store_version,
-};
-use near_store::{create_store, Store};
+use near_primitives::block::GenesisId;
+use near_primitives::time;
+use near_store::metadata::DbKind;
+use near_store::{DBCol, Mode, NodeStorage, Store, StoreOpenerError};
 use near_telemetry::TelemetryActor;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tokio::sync::oneshot;
-use tracing::{error, info, trace};
+use tokio::sync::broadcast;
+use tracing::info;
 
 pub mod append_only_map;
+mod cold_storage;
 pub mod config;
+mod config_validate;
+mod download_file;
+pub mod dyn_config;
 mod metrics;
 pub mod migrations;
 mod runtime;
 mod shard_tracker;
-
-const STORE_PATH: &str = "data";
-
-pub fn store_path_exists<P: AsRef<Path>>(path: P) -> bool {
-    fs::canonicalize(path).is_ok()
-}
-
-pub fn get_store_path(base_path: &Path) -> PathBuf {
-    let mut store_path = base_path.to_owned();
-    store_path.push(STORE_PATH);
-    if store_path_exists(&store_path) {
-        info!(target: "near", "Opening store database at {:?}", store_path);
-    } else {
-        info!(target: "near", "Did not find {:?} path, will be creating new store database", store_path);
-    }
-    store_path
-}
+mod state_sync;
 
 pub fn get_default_home() -> PathBuf {
     if let Ok(near_home) = std::env::var("NEAR_HOME") {
@@ -73,398 +49,252 @@ pub fn get_default_home() -> PathBuf {
     PathBuf::default()
 }
 
-/// Returns the path of the DB checkpoint.
-/// Default location is the same as the database location: `path`.
-fn db_checkpoint_path(path: &Path, near_config: &NearConfig) -> PathBuf {
-    let root_path =
-        if let Some(db_migration_snapshot_path) = &near_config.config.db_migration_snapshot_path {
-            assert!(
-                db_migration_snapshot_path.is_absolute(),
-                "'db_migration_snapshot_path' must be an absolute path to an existing directory."
-            );
-            db_migration_snapshot_path.clone()
-        } else {
-            path.to_path_buf()
-        };
-    root_path.join(DB_CHECKPOINT_NAME)
-}
-
-const DB_CHECKPOINT_NAME: &str = "db_migration_snapshot";
-
-/// Creates a consistent DB checkpoint and returns its path.
-/// By default it creates checkpoints in the DB directory, but can be overridden by the config.
-fn create_db_checkpoint(path: &Path, near_config: &NearConfig) -> Result<PathBuf, anyhow::Error> {
-    let checkpoint_path = db_checkpoint_path(path, near_config);
-    if checkpoint_path.exists() {
-        return Err(anyhow::anyhow!(
-            "Detected an existing database migration snapshot: '{}'.\n\
-             Probably a database migration got interrupted and your database is corrupted.\n\
-             Please replace the contents of '{}' with data from that checkpoint, delete the checkpoint and try again.",
-            checkpoint_path.display(),
-            path.display()));
-    }
-
-    let db = RocksDB::new(path)?;
-    let checkpoint = db.checkpoint()?;
-    info!(target: "near", "Creating a database migration snapshot in '{}'", checkpoint_path.display());
-    checkpoint.create_checkpoint(&checkpoint_path)?;
-    info!(target: "near", "Created a database migration snapshot in '{}'", checkpoint_path.display());
-
-    Ok(checkpoint_path)
-}
-
-/// Function checks current version of the database and applies migrations to the database.
-pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
-    let db_version = get_store_version(path);
-    if db_version > near_primitives::version::DB_VERSION {
-        error!(target: "near", "DB version {} is created by a newer version of neard, please update neard or delete data", db_version);
-        std::process::exit(1);
-    }
-
-    if db_version == near_primitives::version::DB_VERSION {
-        return;
-    }
-
-    // Before starting a DB migration, create a consistent snapshot of the database. If a migration
-    // fails, it can be used to quickly restore the database to its original state.
-    let checkpoint_path = if near_config.config.use_db_migration_snapshot {
-        match create_db_checkpoint(path, near_config) {
-            Ok(checkpoint_path) => {
-                info!(target: "near", "Created a DB checkpoint before a DB migration: '{}'. Please recover from this checkpoint if the migration gets interrupted.", checkpoint_path.display());
-                Some(checkpoint_path)
-            }
-            Err(err) => {
-                panic!(
-                    "Failed to create a database migration snapshot:\n\
-                     {}\n\
-                     Please consider fixing this issue and retrying.\n\
-                     You can change the location of database migration snapshots by adjusting `config.json`:\n\
-                     \t\"db_migration_snapshot_path\": \"/absolute/path/to/existing/dir\",\n\
-                     Alternatively, you can disable database migration snapshots in `config.json`:\n\
-                     \t\"use_db_migration_snapshot\": false,\n\
-                     ",
-                    err
-                );
-            }
+/// Opens node’s storage performing migrations and checks when necessary.
+///
+/// If opened storage is an RPC store and `near_config.config.archive` is true,
+/// converts the storage to archival node.  Otherwise, if opening archival node
+/// with that field being false, prints a warning and sets the field to `true`.
+/// In other words, once store is archival, the node will act as archival nod
+/// regardless of settings in `config.json`.
+///
+/// The end goal is to get rid of `archive` option in `config.json` file and
+/// have the type of the node be determined purely based on kind of database
+/// being opened.
+fn open_storage(home_dir: &Path, near_config: &mut NearConfig) -> anyhow::Result<NodeStorage> {
+    let migrator = migrations::Migrator::new(near_config);
+    let opener = NodeStorage::opener(
+        home_dir,
+        near_config.client_config.archive,
+        &near_config.config.store,
+        near_config.config.cold_store.as_ref(),
+    )
+    .with_migrator(&migrator);
+    let storage = match opener.open() {
+        Ok(storage) => Ok(storage),
+        Err(StoreOpenerError::IO(err)) => {
+            Err(anyhow::anyhow!("{err}"))
         }
-    } else {
-        None
-    };
-
-    // Add migrations here based on `db_version`.
-    if db_version <= 1 {
-        // version 1 => 2: add gc column
-        // Does not need to do anything since open db with option `create_missing_column_families`
-        // Nevertheless need to bump db version, because db_version 1 binary can't open db_version 2 db
-        info!(target: "near", "Migrate DB from version 1 to 2");
-        let store = create_store(path);
-        set_store_version(&store, 2);
-    }
-    if db_version <= 2 {
-        // version 2 => 3: add ColOutcomesByBlockHash + rename LastComponentNonce -> ColLastComponentNonce
-        // The column number is the same, so we don't need additional updates
-        info!(target: "near", "Migrate DB from version 2 to 3");
-        let store = create_store(path);
-        fill_col_outcomes_by_hash(&store);
-        set_store_version(&store, 3);
-    }
-    if db_version <= 3 {
-        // version 3 => 4: add ColTransactionRefCount
-        info!(target: "near", "Migrate DB from version 3 to 4");
-        let store = create_store(path);
-        fill_col_transaction_refcount(&store);
-        set_store_version(&store, 4);
-    }
-    if db_version <= 4 {
-        info!(target: "near", "Migrate DB from version 4 to 5");
-        // version 4 => 5: add ColProcessedBlockHeights
-        // we don't need to backfill the old heights since at worst we will just process some heights
-        // again.
-        let store = create_store(path);
-        set_store_version(&store, 5);
-    }
-    if db_version <= 5 {
-        info!(target: "near", "Migrate DB from version 5 to 6");
-        // version 5 => 6: add merge operator to ColState
-        // we don't have merge records before so old storage works
-        let store = create_store(path);
-        set_store_version(&store, 6);
-    }
-    if db_version <= 6 {
-        info!(target: "near", "Migrate DB from version 6 to 7");
-        // version 6 => 7:
-        // - make ColState use 8 bytes for refcount (change to merge operator)
-        // - move ColTransactionRefCount into ColTransactions
-        // - make ColReceiptIdToShardId refcounted
-        migrate_6_to_7(path);
-    }
-    if db_version <= 7 {
-        info!(target: "near", "Migrate DB from version 7 to 8");
-        // version 7 => 8:
-        // delete values in column `StateColParts`
-        migrate_7_to_8(path);
-    }
-    if db_version <= 8 {
-        info!(target: "near", "Migrate DB from version 8 to 9");
-        // version 8 => 9:
-        // Repair `ColTransactions`, `ColReceiptIdToShardId`
-        migrate_8_to_9(path);
-    }
-    if db_version <= 9 {
-        info!(target: "near", "Migrate DB from version 9 to 10");
-        // version 9 => 10;
-        // populate partial encoded chunks for chunks that exist in storage
-        migrate_9_to_10(path, near_config.client_config.archive);
-    }
-    if db_version <= 10 {
-        info!(target: "near", "Migrate DB from version 10 to 11");
-        // version 10 => 11
-        // Add final head
-        migrate_10_to_11(path);
-    }
-    if db_version <= 11 {
-        info!(target: "near", "Migrate DB from version 11 to 12");
-        // version 11 => 12;
-        // populate ColReceipts with existing receipts
-        migrate_11_to_12(path);
-    }
-    if db_version <= 12 {
-        info!(target: "near", "Migrate DB from version 12 to 13");
-        // version 12 => 13;
-        // migrate ColTransactionResult to fix the inconsistencies there
-        migrate_12_to_13(path, near_config);
-    }
-    if db_version <= 13 {
-        info!(target: "near", "Migrate DB from version 13 to 14");
-        // version 13 => 14;
-        // store versioned enums for shard chunks
-        migrate_13_to_14(path);
-    }
-    if db_version <= 14 {
-        info!(target: "near", "Migrate DB from version 14 to 15");
-        // version 14 => 15;
-        // Change ColOutcomesByBlockHash to be ordered within each shard
-        migrate_14_to_15(path);
-    }
-    if db_version <= 15 {
-        info!(target: "near", "Migrate DB from version 15 to 16");
-        // version 15 => 16: add column for compiled contracts
-        let store = create_store(path);
-        set_store_version(&store, 16);
-    }
-    if db_version <= 16 {
-        info!(target: "near", "Migrate DB from version 16 to 17");
-        // version 16 => 17: add column for storing epoch validator info
-        let store = create_store(path);
-        set_store_version(&store, 17);
-    }
-    if db_version <= 17 {
-        info!(target: "near", "Migrate DB from version 17 to 18");
-        // version 17 => 18: add `hash` to `BlockInfo` and ColHeaderHashesByHeight
-        migrate_17_to_18(path);
-    }
-    if db_version <= 18 {
-        info!(target: "near", "Migrate DB from version 18 to 19");
-        // version 18 => 19: populate ColEpochValidatorInfo for archival nodes
-        migrate_18_to_19(path, near_config);
-    }
-    if db_version <= 19 {
-        info!(target: "near", "Migrate DB from version 19 to 20");
-        // version 19 => 20: fix execution outcome
-        migrate_19_to_20(path, near_config);
-    }
-    if db_version <= 20 {
-        info!(target: "near", "Migrate DB from version 20 to 21");
-        // version 20 => 21: delete genesis json hash due to change in Genesis::json_hash function
-        migrate_20_to_21(path);
-    }
-    if db_version <= 21 {
-        info!(target: "near", "Migrate DB from version 21 to 22");
-        // version 21 => 22: rectify inflation: add `timestamp` to `BlockInfo`
-        migrate_21_to_22(path);
-    }
-    if db_version <= 22 {
-        info!(target: "near", "Migrate DB from version 22 to 23");
-        migrate_22_to_23(path, near_config);
-    }
-    if db_version <= 23 {
-        info!(target: "near", "Migrate DB from version 23 to 24");
-        migrate_23_to_24(path, near_config);
-    }
-    if db_version <= 24 {
-        info!(target: "near", "Migrate DB from version 24 to 25");
-        migrate_24_to_25(path);
-    }
-    if db_version <= 25 {
-        info!(target: "near", "Migrate DB from version 25 to 26");
-        migrate_25_to_26(path);
-    }
-    if db_version <= 26 {
-        info!(target: "near", "Migrate DB from version 26 to 27");
-        migrate_26_to_27(path, near_config.client_config.archive);
-    }
-    if db_version <= 27 {
-        // version 27 => 28: add ColStateChangesForSplitStates
-        // Does not need to do anything since open db with option `create_missing_column_families`
-        // Nevertheless need to bump db version, because db_version 1 binary can't open db_version 2 db
-        info!(target: "near", "Migrate DB from version 27 to 28");
-        let store = create_store(path);
-        set_store_version(&store, 28);
-    }
-    if db_version <= 28 {
-        // version 28 => 29: delete ColNextBlockWithNewChunk, ColLastBlockWithNewChunk
-        info!(target: "near", "Migrate DB from version 28 to 29");
-        migrate_28_to_29(path);
-    }
-    if db_version <= 29 {
-        // version 29 => 30: migrate all structures that use ValidatorStake to versionized version
-        info!(target: "near", "Migrate DB from version 29 to 30");
-        migrate_29_to_30(path);
-    }
-    if db_version <= 30 {
-        // version 30 => 31: recompute block ordinal due to a bug fixed in #5761
-        info!(target: "near", "Migrate DB from version 30 to 31");
-        migrate_30_to_31(path, &near_config);
-    }
-
-    #[cfg(feature = "nightly_protocol")]
-    {
-        let store = create_store(&path);
-
-        // set some dummy value to avoid conflict with other migrations from nightly features
-        set_store_version(&store, 10000);
-    }
-
-    #[cfg(not(feature = "nightly_protocol"))]
-    {
-        let db_version = get_store_version(path);
-        debug_assert_eq!(db_version, near_primitives::version::DB_VERSION);
-    }
-
-    // DB migration was successful, remove the checkpoint to avoid it taking up precious disk space.
-    if let Some(checkpoint_path) = checkpoint_path {
-        info!(target: "near", "Deleting the database migration snapshot at '{}'", checkpoint_path.display());
-        match std::fs::remove_dir_all(&checkpoint_path) {
-            Ok(_) => {
-                info!(target: "near", "Deleted the database migration snapshot at '{}'", checkpoint_path.display());
-            }
-            Err(err) => {
-                error!(
-                    "Failed to delete the database migration snapshot at '{}'.\n\
-                    \tError: {:#?}.\n\
-                    \n\
-                    Please delete the database migration snapshot manually before the next start of the node.",
-                    checkpoint_path.display(),
-                    err);
-            }
+        // Cannot happen with Mode::ReadWrite
+        Err(StoreOpenerError::DbDoesNotExist) => unreachable!(),
+        // Cannot happen with Mode::ReadWrite
+        Err(StoreOpenerError::DbAlreadyExists) => unreachable!(),
+        Err(StoreOpenerError::HotColdExistenceMismatch) => {
+            Err(anyhow::anyhow!(
+                "Hot and cold databases must either both exist or both not exist.\n\
+                 Note that at this moment it’s not possible to convert and RPC or legacy archive database into split hot+cold database.\n\
+                 To set up node in that configuration, start with neither of the databases existing.",
+            ))
+        },
+        Err(err @ StoreOpenerError::HotColdVersionMismatch { .. }) => {
+            Err(anyhow::anyhow!("{err}"))
+        },
+        Err(StoreOpenerError::DbKindMismatch { which, got, want }) => {
+            Err(if let Some(got) = got {
+                anyhow::anyhow!("{which} database kind should be {want} but got {got}")
+            } else {
+                anyhow::anyhow!("{which} database kind should be {want} but none was set")
+            })
         }
-    }
+        Err(StoreOpenerError::SnapshotAlreadyExists(snap_path)) => {
+            Err(anyhow::anyhow!(
+                "Detected an existing database migration snapshot at ‘{}’.\n\
+                 Probably a database migration got interrupted and your database is corrupted.\n\
+                 Please replace files in ‘{}’ with contents of the snapshot, delete the snapshot and try again.",
+                snap_path.display(),
+                opener.path().display(),
+            ))
+        },
+        Err(StoreOpenerError::SnapshotError(err)) => {
+            use near_store::config::MigrationSnapshot;
+            let path = std::path::PathBuf::from("/path/to/snapshot/dir");
+            let on = MigrationSnapshot::Path(path).format_example();
+            let off = MigrationSnapshot::Enabled(false).format_example();
+            Err(anyhow::anyhow!(
+                "Failed to create a database migration snapshot: {err}.\n\
+                 To change the location of snapshot adjust \
+                 ‘store.migration_snapshot’ property in ‘config.json’:\n{on}\n\
+                 Alternatively, you can disable database migration snapshots \
+                 in `config.json`:\n{off}"
+            ))
+        },
+        Err(StoreOpenerError::SnapshotRemoveError { path, error }) => {
+            let path = path.display();
+            Err(anyhow::anyhow!(
+                "The DB migration has succeeded but deleting of the snapshot \
+                 at {path} has failed: {error}\n
+                 Try renaming the snapshot directory to temporary name (e.g. \
+                 by adding tilde to its name) and starting the node.  If that \
+                 works, the snapshot can be deleted."))
+        }
+        // Cannot happen with Mode::ReadWrite
+        Err(StoreOpenerError::DbVersionMismatchOnRead { .. }) => unreachable!(),
+        // Cannot happen when migrator is specified.
+        Err(StoreOpenerError::DbVersionMismatch { .. }) => unreachable!(),
+        Err(StoreOpenerError::DbVersionMissing { .. }) => {
+            Err(anyhow::anyhow!("Database version is missing!"))
+        },
+        Err(StoreOpenerError::DbVersionTooOld { got, latest_release, .. }) => {
+            Err(anyhow::anyhow!(
+                "Database version {got} is created by an old version \
+                 of neard and is no longer supported, please migrate using \
+                 {latest_release} release"
+            ))
+        },
+        Err(StoreOpenerError::DbVersionTooNew { got, .. }) => {
+            Err(anyhow::anyhow!(
+                "Database version {got} is created by a newer version of \
+                 neard, please update neard"
+            ))
+        },
+        Err(StoreOpenerError::MigrationError(err)) => {
+            Err(err)
+        },
+    }.with_context(|| format!("unable to open database at {}", opener.path().display()))?;
+
+    near_config.config.archive = storage.is_archive()?;
+    Ok(storage)
 }
 
-pub fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> Store {
-    let path = get_store_path(home_dir);
-    let store_exists = store_path_exists(&path);
-    if store_exists {
-        apply_store_migrations(&path, near_config);
+// Safely get the split store while checking that all conditions to use it are met.
+fn get_split_store(config: &NearConfig, storage: &NodeStorage) -> anyhow::Result<Option<Store>> {
+    // SplitStore should only be used on archival nodes.
+    if !config.config.archive {
+        return Ok(None);
     }
-    let store = create_store(&path);
-    if !store_exists {
-        set_store_version(&store, near_primitives::version::DB_VERSION);
+
+    // SplitStore should only be used if cold store is configured.
+    if config.config.cold_store.is_none() {
+        return Ok(None);
     }
-    store
+
+    // SplitStore should only be used in the view client if it is enabled.
+    if !config.config.split_storage.as_ref().map_or(false, |c| c.enable_split_storage_view_client) {
+        return Ok(None);
+    }
+
+    // SplitStore should only be used if the migration is finished. The
+    // migration to cold store is finished when the db kind of the hot store is
+    // changed from Archive to Hot.
+    if storage.get_hot_store().get_db_kind()? != Some(DbKind::Hot) {
+        return Ok(None);
+    }
+
+    Ok(storage.get_split_store())
 }
 
 pub struct NearNode {
     pub client: Addr<ClientActor>,
     pub view_client: Addr<ViewClientActor>,
     pub arbiters: Vec<ArbiterHandle>,
-    pub rpc_servers: Vec<(&'static str, actix_web::dev::Server)>,
+    pub rpc_servers: Vec<(&'static str, actix_web::dev::ServerHandle)>,
+    /// The cold_store_loop_handle will only be set if the cold store is configured.
+    /// It's a handle to a background thread that copies data from the hot store to the cold store.
+    pub cold_store_loop_handle: Option<ColdStoreLoopHandle>,
+    /// Contains handles to background threads that may be dumping state to S3.
+    pub state_sync_dump_handle: Option<StateSyncDumpHandle>,
 }
 
-pub fn start_with_config(home_dir: &Path, config: NearConfig) -> Result<NearNode, anyhow::Error> {
-    start_with_config_and_synchronization(home_dir, config, None)
+pub fn start_with_config(home_dir: &Path, config: NearConfig) -> anyhow::Result<NearNode> {
+    start_with_config_and_synchronization(home_dir, config, None, None)
 }
 
 pub fn start_with_config_and_synchronization(
     home_dir: &Path,
-    config: NearConfig,
+    mut config: NearConfig,
     // 'shutdown_signal' will notify the corresponding `oneshot::Receiver` when an instance of
     // `ClientActor` gets dropped.
-    shutdown_signal: Option<oneshot::Sender<()>>,
-) -> Result<NearNode, anyhow::Error> {
-    let store = init_and_migrate_store(home_dir, &config);
+    shutdown_signal: Option<broadcast::Sender<()>>,
+    config_updater: Option<ConfigUpdater>,
+) -> anyhow::Result<NearNode> {
+    let store = open_storage(home_dir, &mut config)?;
 
-    let runtime = Arc::new(NightshadeRuntime::with_config(
-        home_dir,
-        store.clone(),
-        &config,
-        config.client_config.trie_viewer_state_size_limit,
-        config.client_config.max_gas_burnt_view,
-    ));
+    let runtime = NightshadeRuntime::from_config(home_dir, store.get_hot_store(), &config);
+
+    // Get the split store. If split store is some then create a new runtime for
+    // the view client. Otherwise just re-use the existing runtime.
+    let split_store = get_split_store(&config, &store)?;
+    let view_runtime = if let Some(split_store) = split_store {
+        NightshadeRuntime::from_config(home_dir, split_store, &config)
+    } else {
+        runtime.clone()
+    };
+
+    let cold_store_loop_handle = spawn_cold_store_loop(&config, &store, runtime.clone())?;
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
-    let chain_genesis = ChainGenesis::from(&config.genesis);
+    let chain_genesis = ChainGenesis::new(&config.genesis);
+    let genesis_block = Chain::make_genesis_block(&*runtime, &chain_genesis)?;
+    let genesis_id = GenesisId {
+        chain_id: config.client_config.chain_id.clone(),
+        hash: *genesis_block.header().hash(),
+    };
 
-    let node_id = PeerId::new(config.network_config.public_key.clone().into());
-    let network_adapter = Arc::new(NetworkRecipient::default());
-    #[cfg(feature = "test_features")]
-    let adv = Arc::new(std::sync::RwLock::new(AdversarialControls::default()));
+    let node_id = config.network_config.node_id();
+    let network_adapter = Arc::new(LateBoundSender::default());
+    let shards_manager_adapter = Arc::new(LateBoundSender::default());
+    let client_adapter_for_shards_manager = Arc::new(LateBoundSender::default());
+    let adv = near_client::adversarial::Controls::new(config.client_config.archive);
 
     let view_client = start_view_client(
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
         chain_genesis.clone(),
-        runtime.clone(),
-        network_adapter.clone(),
+        view_runtime,
+        network_adapter.clone().into(),
         config.client_config.clone(),
-        #[cfg(feature = "test_features")]
         adv.clone(),
     );
     let (client_actor, client_arbiter_handle) = start_client(
-        config.client_config,
-        chain_genesis,
-        runtime,
+        config.client_config.clone(),
+        chain_genesis.clone(),
+        runtime.clone(),
         node_id,
-        network_adapter.clone(),
-        config.validator_signer,
+        network_adapter.clone().into(),
+        shards_manager_adapter.as_sender(),
+        config.validator_signer.clone(),
         telemetry,
         shutdown_signal,
-        #[cfg(feature = "test_features")]
-        adv.clone(),
+        adv,
+        config_updater,
     );
+    client_adapter_for_shards_manager.bind(client_actor.clone().with_auto_span_context());
+    let (shards_manager_actor, shards_manager_arbiter_handle) = start_shards_manager(
+        runtime.clone(),
+        network_adapter.as_sender(),
+        client_adapter_for_shards_manager.as_sender(),
+        config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
+        store.get_hot_store(),
+        config.client_config.chunk_request_retry_period,
+    );
+    shards_manager_adapter.bind(shards_manager_actor);
+
+    let state_sync_dump_handle = spawn_state_sync_dump(
+        &config,
+        chain_genesis,
+        runtime,
+        config.network_config.node_id().public_key(),
+    )?;
 
     #[allow(unused_mut)]
     let mut rpc_servers = Vec::new();
-    let arbiter = Arbiter::new();
-    let client_actor1 = client_actor.clone().recipient();
-    let view_client1 = view_client.clone().recipient();
-    config.network_config.verify().with_context(|| "start_with_config")?;
-    let network_config = config.network_config;
-    let routing_table_addr =
-        start_routing_table_actor(PeerId::new(network_config.public_key.clone()), store.clone());
-    #[cfg(all(feature = "json_rpc", feature = "test_features"))]
-    let routing_table_addr2 = routing_table_addr.clone();
-    let network_actor = PeerManagerActor::start_in_arbiter(&arbiter.handle(), move |_ctx| {
-        PeerManagerActor::new(
-            store,
-            network_config,
-            client_actor1,
-            view_client1,
-            routing_table_addr,
-        )
-        .unwrap()
-    });
+    let network_actor = PeerManagerActor::spawn(
+        time::Clock::real(),
+        store.into_inner(near_store::Temperature::Hot),
+        config.network_config,
+        Arc::new(near_client::adapter::Adapter::new(client_actor.clone(), view_client.clone())),
+        shards_manager_adapter.as_sender(),
+        genesis_id,
+    )
+    .context("PeerManager::spawn()")?;
+    network_adapter.bind(network_actor.clone().with_auto_span_context());
 
     #[cfg(feature = "json_rpc")]
     if let Some(rpc_config) = config.rpc_config {
-        rpc_servers.extend_from_slice(&near_jsonrpc::start_http(
+        rpc_servers.extend(near_jsonrpc::start_http(
             rpc_config,
             config.genesis.config.clone(),
             client_actor.clone(),
             view_client.clone(),
-            #[cfg(feature = "test_features")]
-            network_actor.clone(),
-            #[cfg(feature = "test_features")]
-            routing_table_addr2,
+            Some(network_actor),
         ));
     }
 
@@ -472,29 +302,153 @@ pub fn start_with_config_and_synchronization(
     if let Some(rosetta_rpc_config) = config.rosetta_rpc_config {
         rpc_servers.push((
             "Rosetta RPC",
-            start_rosetta_rpc(
+            near_rosetta_rpc::start_rosetta_rpc(
                 rosetta_rpc_config,
-                Arc::new(config.genesis.clone()),
+                config.genesis,
+                genesis_block.header().hash(),
                 client_actor.clone(),
                 view_client.clone(),
             ),
         ));
     }
 
-    network_adapter.set_recipient(network_actor.recipient());
-
     rpc_servers.shrink_to_fit();
 
-    trace!(target: "diagnostic", key="log", "Starting NEAR node with diagnostic activated");
-
-    // We probably reached peak memory once on this thread, we want to see when it happens again.
-    #[cfg(feature = "performance_stats")]
-    reset_memory_usage_max();
+    tracing::trace!(target: "diagnostic", key = "log", "Starting NEAR node with diagnostic activated");
 
     Ok(NearNode {
         client: client_actor,
         view_client,
         rpc_servers,
-        arbiters: vec![client_arbiter_handle, arbiter.handle()],
+        arbiters: vec![client_arbiter_handle, shards_manager_arbiter_handle],
+        cold_store_loop_handle,
+        state_sync_dump_handle,
     })
+}
+
+pub struct RecompressOpts {
+    pub dest_dir: PathBuf,
+    pub keep_partial_chunks: bool,
+    pub keep_invalid_chunks: bool,
+    pub keep_trie_changes: bool,
+}
+
+pub fn recompress_storage(home_dir: &Path, opts: RecompressOpts) -> anyhow::Result<()> {
+    use strum::IntoEnumIterator;
+
+    let config_path = home_dir.join(config::CONFIG_FILENAME);
+    let config = config::Config::from_file(&config_path)
+        .map_err(|err| anyhow::anyhow!("{}: {}", config_path.display(), err))?;
+    let archive = config.archive;
+    let mut skip_columns = Vec::new();
+    if archive && !opts.keep_partial_chunks {
+        skip_columns.push(DBCol::PartialChunks);
+    }
+    if archive && !opts.keep_invalid_chunks {
+        skip_columns.push(DBCol::InvalidChunks);
+    }
+    if archive && !opts.keep_trie_changes {
+        skip_columns.push(DBCol::TrieChanges);
+    }
+
+    let src_opener = NodeStorage::opener(home_dir, archive, &config.store, None);
+    let src_path = src_opener.path();
+
+    let mut dst_config = config.store.clone();
+    dst_config.path = Some(opts.dest_dir);
+    // Note: opts.dest_dir is resolved relative to current working directory
+    // (since it’s a command line option) which is why we set home to cwd.
+    let cwd = std::env::current_dir()?;
+    let dst_opener = NodeStorage::opener(&cwd, archive, &dst_config, None);
+    let dst_path = dst_opener.path();
+
+    info!(target: "recompress",
+          src = %src_path.display(), dest = %dst_path.display(),
+          "Recompressing database");
+
+    info!("Opening database at {}", src_path.display());
+    let src_store = src_opener.open_in_mode(Mode::ReadOnly)?.get_hot_store();
+
+    let final_head_height = if skip_columns.contains(&DBCol::PartialChunks) {
+        let tip: Option<near_primitives::block::Tip> =
+            src_store.get_ser(DBCol::BlockMisc, near_store::FINAL_HEAD_KEY)?;
+        anyhow::ensure!(
+            tip.is_some(),
+            "{}: missing {}; is this a freshly set up node? note that recompress_storage makes no sense on those",
+            src_path.display(),
+            std::str::from_utf8(near_store::FINAL_HEAD_KEY).unwrap(),
+        );
+        tip.map(|tip| tip.height)
+    } else {
+        None
+    };
+
+    info!("Creating database at {}", dst_path.display());
+    let dst_store = dst_opener.open_in_mode(Mode::Create)?.get_hot_store();
+
+    const BATCH_SIZE_BYTES: u64 = 150_000_000;
+
+    for column in DBCol::iter() {
+        let skip = skip_columns.contains(&column);
+        info!(
+            target: "recompress",
+            column_id = column as usize,
+            %column,
+            "{}",
+            if skip { "Clearing  " } else { "Processing" }
+        );
+        if skip {
+            continue;
+        }
+
+        let mut store_update = dst_store.store_update();
+        let mut total_written: u64 = 0;
+        let mut batch_written: u64 = 0;
+        let mut count_keys: u64 = 0;
+        for item in src_store.iter_raw_bytes(column) {
+            let (key, value) = item.with_context(|| format!("scanning column {column}"))?;
+            store_update.set_raw_bytes(column, &key, &value);
+            total_written += value.len() as u64;
+            batch_written += value.len() as u64;
+            count_keys += 1;
+            if batch_written >= BATCH_SIZE_BYTES {
+                store_update.commit()?;
+                info!(
+                    target: "recompress",
+                    column_id = column as usize,
+                    %count_keys,
+                    %total_written,
+                    "Processing",
+                );
+                batch_written = 0;
+                store_update = dst_store.store_update();
+            }
+        }
+        info!(
+            target: "recompress",
+            column_id = column as usize,
+            %count_keys,
+            %total_written,
+            "Done with "
+        );
+        store_update.commit()?;
+    }
+
+    // If we’re not keeping DBCol::PartialChunks, update chunk tail to point to
+    // current final block.  If we don’t do that, the gc will try to work its
+    // way from the genesis even though chunks at those heights have been
+    // deleted.
+    if skip_columns.contains(&DBCol::PartialChunks) {
+        let chunk_tail = final_head_height.unwrap();
+        info!(target: "recompress", %chunk_tail, "Setting chunk tail");
+        let mut store_update = dst_store.store_update();
+        store_update.set_ser(DBCol::BlockMisc, near_store::CHUNK_TAIL_KEY, &chunk_tail)?;
+        store_update.commit()?;
+    }
+
+    core::mem::drop(dst_store);
+    core::mem::drop(src_store);
+
+    info!(target: "recompress", dest = %dst_path.display(), "Database recompressed");
+    Ok(())
 }

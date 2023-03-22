@@ -1,42 +1,41 @@
 [package]
 name = "near-vm-runner"
 version = "0.0.0"
-authors = ["Near Inc <hello@nearprotocol.com>"]
-publish = false
+authors.workspace = true
+publish = true
 # Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.56.0"
-edition = "2021"
+rust-version.workspace = true
+edition.workspace = true
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 categories = ["wasm"]
-repository = "https://github.com/nearprotocol/nearcore"
+repository = "https://github.com/near/nearcore"
 description = """
 This crate implements the specification of the interface that Near blockchain exposes to the smart contracts.
 """
 
 [dependencies]
-borsh = "0.9"
-serde = { version = "1", features = ["derive"] }
-wasmparser = "0.78"
-memoffset = "0.6"
+anyhow = { workspace = true, optional = true }
+borsh.workspace = true
+loupe.workspace = true
+memoffset.workspace = true
+once_cell.workspace = true
+parity-wasm.workspace = true
+serde.workspace = true
+tracing.workspace = true
+wasmparser.workspace = true
+wasmtime = { workspace = true, optional = true }
 
-loupe = "0.1"
-once_cell = "1.5.2"
-pwasm-utils = "0.18"
-wasmtime = { version = "0.33.0", default-features = false, features = ["cranelift"], optional = true }
-anyhow = { version = "1.0.19", optional = true }
 near-cache = { path = "../../utils/near-cache" }
-near-vm-logic = { path = "../near-vm-logic", default-features = false, features = [] }
+near-vm-logic = { path = "../near-vm-logic", default-features = false }
 near-vm-errors = { path = "../near-vm-errors" }
 near-primitives = { path = "../../core/primitives" }
 near-stable-hasher = { path = "../../utils/near-stable-hasher" }
-tracing = { version = "0.1", default-features = false }
-threadpool = "1.8.1"
 
-# Old versions of pwasm-utils we need to preserve backbwards compatability under
+# Old versions of pwasm-utils we need to preserve backwards compatibility under
 # old protocol versions.
 pwasm-utils_12 = { package = "pwasm-utils", version = "0.12" }
-parity-wasm_41 = { package = "parity-wasm", version = "0.41" }
+parity-wasm_41.workspace = true
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
 wasmer-runtime = { version = "0.18.0", features = ["default-backend-singlepass"], default-features = false, package = "wasmer-runtime-near", optional = true }
@@ -47,19 +46,25 @@ wasmer-runtime-core = { version = "0.18.2", package = "wasmer-runtime-core-near"
 # wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", git = "https://github.com/near/wasmer", branch = "near-main", optional = true }
 # wasmer-engine-universal = { package = "wasmer-engine-universal-near", git = "https://github.com/near/wasmer", branch = "near-main", optional = true }
 # wasmer-vm = { package = "wasmer-vm-near", git = "https://github.com/near/wasmer", branch = "near-main" }
-wasmer-compiler = { package = "wasmer-compiler-near", version = "=2.2.0", optional = true }
-wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", version = "=2.2.0", optional = true }
-wasmer-engine = { package = "wasmer-engine-near", version = "=2.2.0", optional = true }
-wasmer-engine-universal = { package = "wasmer-engine-universal-near", version = "=2.2.0", optional = true, features = ["compiler"] }
-wasmer-types = { package = "wasmer-types-near", version = "=2.2.0", optional = true }
-wasmer-vm = { package = "wasmer-vm-near", version = "=2.2.0", optional = true }
-
+wasmer-compiler = { package = "wasmer-compiler-near", version = "=2.4.0", optional = true }
+wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", version = "=2.4.0", optional = true }
+wasmer-engine = { package = "wasmer-engine-near", version = "=2.4.0", optional = true }
+wasmer-engine-universal = { package = "wasmer-engine-universal-near", version = "=2.4.0", optional = true, features = ["compiler"] }
+wasmer-types = { package = "wasmer-types-near", version = "=2.4.0", optional = true }
+wasmer-vm = { package = "wasmer-vm-near", version = "=2.4.0", optional = true }
 
 [dev-dependencies]
+arbitrary.workspace = true
+assert_matches.workspace = true
+bolero.workspace = true
+expect-test.workspace = true
+hex.workspace = true
+rand.workspace = true
+wasm-smith.workspace = true
+wasmprinter.workspace = true
+wat.workspace = true
+
 near-test-contracts = { path = "../near-test-contracts" }
-assert_matches = "1.3"
-wat = "1.0.40"
-base64 = "0.13"
 
 [features]
 # all vms enabled for now
@@ -88,13 +93,18 @@ no_cpu_compatibility_checks = []
 
 no_cache = []
 
-protocol_feature_alt_bn128 = [
-    "near-vm-logic/protocol_feature_alt_bn128",
-    "near-primitives/protocol_feature_alt_bn128",
-    "near-vm-errors/protocol_feature_alt_bn128"
+protocol_feature_fix_contract_loading_cost = [
+    "near-primitives/protocol_feature_fix_contract_loading_cost",
+    "near-vm-logic/protocol_feature_fix_contract_loading_cost",
 ]
-nightly_protocol = ["near-primitives/nightly_protocol"]
+
+nightly = [
+    "near-primitives/nightly",
+    "protocol_feature_fix_contract_loading_cost",
+]
 sandbox = ["near-vm-logic/sandbox"]
+io_trace = ["near-vm-logic/io_trace"]
+
 
 [package.metadata.cargo-udeps.ignore]
 # `no_cache` feature leads to an unused `cached` crate

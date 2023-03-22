@@ -1,4 +1,6 @@
-use arrayref::{array_refs, mut_array_refs};
+use crate::errors::ImplicitPublicKeyError;
+use crate::{KeyType, PublicKey};
+use borsh::BorshDeserialize;
 use curve25519_dalek::ristretto::CompressedRistretto;
 use curve25519_dalek::traits::VartimeMultiscalarMul;
 
@@ -59,16 +61,12 @@ impl<T1: Packable<Packed = [u8; 32]>, T2: Packable<Packed = [u8; 32]>> Packable 
     type Packed = [u8; 64];
 
     fn unpack(data: &[u8; 64]) -> Option<Self> {
-        let (d1, d2) = array_refs!(data, 32, 32);
+        let (d1, d2) = stdx::split_array::<64, 32, 32>(data);
         Some((unpack(d1)?, unpack(d2)?))
     }
 
     fn pack(&self) -> [u8; 64] {
-        let mut res = [0; 64];
-        let (d1, d2) = mut_array_refs!(&mut res, 32, 32);
-        *d1 = self.0.pack();
-        *d2 = self.1.pack();
-        res
+        stdx::join_array(self.0.pack(), self.1.pack())
     }
 }
 
@@ -81,17 +79,46 @@ impl<
     type Packed = [u8; 96];
 
     fn unpack(data: &[u8; 96]) -> Option<Self> {
-        let (d1, d2, d3) = array_refs!(data, 32, 32, 32);
+        let (d1, d2) = stdx::split_array::<96, 32, 64>(data);
+        let (d2, d3) = stdx::split_array::<64, 32, 32>(d2);
         Some((unpack(d1)?, unpack(d2)?, unpack(d3)?))
     }
 
     fn pack(&self) -> [u8; 96] {
         let mut res = [0; 96];
-        let (d1, d2, d3) = mut_array_refs!(&mut res, 32, 32, 32);
+        let (d1, d2) = stdx::split_array_mut::<96, 32, 64>(&mut res);
+        let (d2, d3) = stdx::split_array_mut::<64, 32, 32>(d2);
         *d1 = self.0.pack();
         *d2 = self.1.pack();
         *d3 = self.2.pack();
         res
+    }
+}
+
+impl PublicKey {
+    /// Create the implicit public key from an implicit account ID.
+    ///
+    /// Returns `ImplicitPublicKeyError::AccountIsNotImplicit` if the given
+    /// account id is not a valid implicit account ID.
+    /// See [`near_account_id::AccountId#is_implicit`] for the definition.
+    pub fn from_implicit_account(
+        account_id: &near_account_id::AccountId,
+    ) -> Result<Self, ImplicitPublicKeyError> {
+        if !account_id.is_implicit() {
+            return Err(ImplicitPublicKeyError::AccountIsNotImplicit {
+                account_id: account_id.clone(),
+            });
+        }
+        let mut public_key_data = Vec::with_capacity(33);
+        public_key_data.push(KeyType::ED25519 as u8);
+        public_key_data.extend(
+            hex::decode(account_id.as_ref().as_bytes())
+                .expect("account id was a valid hex of length 64 resulting in 32 bytes"),
+        );
+        debug_assert_eq!(public_key_data.len(), 33);
+        let public_key = PublicKey::try_from_slice(&public_key_data)
+            .expect("we should be able to deserialize ED25519 public key");
+        Ok(public_key)
     }
 }
 

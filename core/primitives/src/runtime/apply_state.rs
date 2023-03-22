@@ -10,8 +10,7 @@ use std::sync::Arc;
 #[derive(Debug)]
 pub struct ApplyState {
     /// Currently building block height.
-    // TODO #1903 pub block_height: BlockHeight,
-    pub block_index: BlockHeight,
+    pub block_height: BlockHeight,
     /// Prev block hash
     pub prev_block_hash: CryptoHash,
     /// Current block hash
@@ -34,7 +33,7 @@ pub struct ApplyState {
     /// The Runtime config to use for the current transition.
     pub config: Arc<RuntimeConfig>,
     /// Cache for compiled contracts.
-    pub cache: Option<Arc<dyn CompiledContractCache>>,
+    pub cache: Option<Box<dyn CompiledContractCache>>,
     /// Whether the chunk being applied is new.
     pub is_new_chunk: bool,
     /// Data for migrations that may need to be applied at the start of an epoch when protocol

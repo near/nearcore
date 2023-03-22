@@ -124,8 +124,8 @@ impl ScenarioBuilder {
 
         (*block).transactions.push(TransactionConfig {
             nonce: self.nonce,
-            signer_id: signer_id.clone(),
-            receiver_id: receiver_id.clone(),
+            signer_id: signer_id,
+            receiver_id: receiver_id,
             signer,
             actions,
         });

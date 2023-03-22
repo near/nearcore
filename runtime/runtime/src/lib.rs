@@ -1,58 +1,3 @@
-use std::cmp::max;
-use std::collections::{HashMap, HashSet};
-use std::rc::Rc;
-use std::sync::Arc;
-
-use tracing::debug;
-
-use near_chain_configs::Genesis;
-pub use near_crypto;
-use near_crypto::PublicKey;
-pub use near_primitives;
-#[cfg(feature = "sandbox")]
-use near_primitives::contract::ContractCode;
-use near_primitives::profile::ProfileData;
-pub use near_primitives::runtime::apply_state::ApplyState;
-use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_primitives::runtime::get_insufficient_storage_stake;
-use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
-use near_primitives::transaction::ExecutionMetadata;
-use near_primitives::version::{
-    is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
-};
-use near_primitives::{
-    account::Account,
-    checked_feature,
-    errors::{ActionError, ActionErrorKind, RuntimeError, TxExecutionError},
-    hash::CryptoHash,
-    receipt::{
-        ActionReceipt, DataReceipt, DelayedReceiptIndices, Receipt, ReceiptEnum, ReceivedData,
-    },
-    state_record::StateRecord,
-    transaction::{
-        Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry,
-        SignedTransaction,
-    },
-    trie_key::TrieKey,
-    types::{
-        validator_stake::ValidatorStake, AccountId, Balance, EpochInfoProvider, Gas,
-        RawStateChangesWithTrieKey, ShardId, StateChangeCause, StateRoot,
-    },
-    utils::{
-        create_action_hash, create_receipt_id_from_receipt, create_receipt_id_from_transaction,
-    },
-};
-use near_store::{
-    get, get_account, get_postponed_receipt, get_received_data, remove_postponed_receipt, set,
-    set_account, set_postponed_receipt, set_received_data, PartialStorage, ShardTries,
-    StorageError, Trie, TrieChanges, TrieUpdate,
-};
-#[cfg(feature = "sandbox")]
-use near_store::{set_access_key, set_code};
-use near_vm_logic::types::PromiseResult;
-use near_vm_logic::ReturnData;
-pub use near_vm_runner::with_ext_cost_counter;
-
 use crate::actions::*;
 use crate::balance_checker::check_balance;
 use crate::config::{
@@ -60,17 +5,67 @@ use crate::config::{
     total_prepaid_exec_fees, total_prepaid_gas, RuntimeConfig,
 };
 use crate::genesis::{GenesisStateApplier, StorageComputer};
-use crate::verifier::validate_receipt;
-pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
+use crate::prefetch::TriePrefetcher;
+use crate::verifier::{check_storage_stake, validate_receipt, StorageStakingError};
+pub use crate::verifier::{
+    validate_transaction, verify_and_charge_transaction, ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT,
+};
+use config::total_prepaid_send_fees;
+use near_chain_configs::Genesis;
+pub use near_crypto;
+use near_crypto::PublicKey;
+pub use near_primitives;
+use near_primitives::account::Account;
+use near_primitives::checked_feature;
+use near_primitives::contract::ContractCode;
+use near_primitives::errors::{ActionError, ActionErrorKind, RuntimeError, TxExecutionError};
+use near_primitives::hash::CryptoHash;
+use near_primitives::profile::ProfileDataV3;
+use near_primitives::receipt::{
+    ActionReceipt, DataReceipt, DelayedReceiptIndices, Receipt, ReceiptEnum, ReceivedData,
+};
+pub use near_primitives::runtime::apply_state::ApplyState;
+use near_primitives::runtime::fees::RuntimeFeesConfig;
+use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
+use near_primitives::sandbox::state_patch::SandboxStatePatch;
+use near_primitives::state_record::StateRecord;
+use near_primitives::transaction::ExecutionMetadata;
+use near_primitives::transaction::{
+    Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry, SignedTransaction,
+};
+use near_primitives::trie_key::TrieKey;
+use near_primitives::types::{
+    validator_stake::ValidatorStake, AccountId, Balance, EpochInfoProvider, Gas,
+    RawStateChangesWithTrieKey, ShardId, StateChangeCause, StateRoot,
+};
+use near_primitives::utils::{
+    create_action_hash, create_receipt_id_from_receipt, create_receipt_id_from_transaction,
+};
+use near_primitives::version::{
+    is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
+};
+use near_store::{
+    get, get_account, get_postponed_receipt, get_received_data, remove_postponed_receipt, set,
+    set_account, set_postponed_receipt, set_received_data, PartialStorage, ShardTries,
+    StorageError, Trie, TrieChanges, TrieUpdate,
+};
+use near_store::{set_access_key, set_code};
+use near_vm_logic::types::PromiseResult;
+use near_vm_logic::{ActionCosts, ReturnData};
+pub use near_vm_runner::with_ext_cost_counter;
+use std::cmp::max;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use tracing::debug;
 
 mod actions;
 pub mod adapter;
 mod balance_checker;
-pub mod cache;
 pub mod config;
 pub mod ext;
 mod genesis;
 mod metrics;
+mod prefetch;
 pub mod state_viewer;
 mod verifier;
 
@@ -85,7 +80,7 @@ pub struct ValidatorAccountsUpdate {
     pub validator_rewards: HashMap<AccountId, Balance>,
     /// Stake proposals from the last chunk.
     pub last_proposals: HashMap<AccountId, Balance>,
-    /// The ID of the protocol treasure account if it belongs to the current shard.
+    /// The ID of the protocol treasury account if it belongs to the current shard.
     pub protocol_treasury_account_id: Option<AccountId>,
     /// Accounts to slash and the slashed amount (None means everything)
     pub slashing_info: HashMap<AccountId, Option<Balance>>,
@@ -134,7 +129,7 @@ pub struct ActionResult {
     pub logs: Vec<LogEntry>,
     pub new_receipts: Vec<Receipt>,
     pub validator_proposals: Vec<ValidatorStake>,
-    pub profile: ProfileData,
+    pub profile: ProfileDataV3,
 }
 
 impl ActionResult {
@@ -222,8 +217,7 @@ impl Runtime {
         signed_transaction: &SignedTransaction,
         stats: &mut ApplyStats,
     ) -> Result<(Receipt, ExecutionOutcomeWithId), RuntimeError> {
-        let _span =
-            tracing::debug_span!(target: "runtime", "Runtime::process_transaction").entered();
+        let _span = tracing::debug_span!(target: "runtime", "process_transaction", tx_hash = %signed_transaction.get_hash()).entered();
         metrics::TRANSACTION_PROCESSED_TOTAL.inc();
 
         match verify_and_charge_transaction(
@@ -232,7 +226,7 @@ impl Runtime {
             apply_state.gas_price,
             signed_transaction,
             true,
-            Some(apply_state.block_index),
+            Some(apply_state.block_height),
             apply_state.current_protocol_version,
         ) {
             Ok(verification_result) => {
@@ -304,7 +298,7 @@ impl Runtime {
         // println!("enter apply_action");
         let mut result = ActionResult::default();
         let exec_fees = exec_fee(
-            &apply_state.config.transaction_costs,
+            &apply_state.config.fees,
             action,
             &receipt.receiver_id,
             apply_state.current_protocol_version,
@@ -331,11 +325,11 @@ impl Runtime {
             result.result = Err(e);
             return Ok(result);
         }
+        metrics::ACTION_CALLED_COUNT.with_label_values(&[action.as_ref()]).inc();
         match action {
             Action::CreateAccount(_) => {
-                metrics::ACTION_CREATE_ACCOUNT_TOTAL.inc();
                 action_create_account(
-                    &apply_state.config.transaction_costs,
+                    &apply_state.config.fees,
                     &apply_state.config.account_creation_config,
                     account,
                     actor_id,
@@ -345,7 +339,6 @@ impl Runtime {
                 );
             }
             Action::DeployContract(deploy_contract) => {
-                metrics::ACTION_DEPLOY_CONTRACT_TOTAL.inc();
                 action_deploy_contract(
                     state_update,
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
@@ -356,7 +349,6 @@ impl Runtime {
                 )?;
             }
             Action::FunctionCall(function_call) => {
-                metrics::ACTION_FUNCTION_CALL_TOTAL.inc();
                 action_function_call(
                     state_update,
                     apply_state,
@@ -374,7 +366,6 @@ impl Runtime {
                 )?;
             }
             Action::Transfer(transfer) => {
-                metrics::ACTION_TRANSFER_TOTAL.inc();
                 if let Some(account) = account.as_mut() {
                     action_transfer(account, transfer)?;
                     // Check if this is a gas refund, then try to refund the access key allowance.
@@ -394,18 +385,17 @@ impl Runtime {
                     debug_assert!(!is_refund);
                     action_implicit_account_creation_transfer(
                         state_update,
-                        &apply_state.config.transaction_costs,
+                        &apply_state.config.fees,
                         account,
                         actor_id,
                         &receipt.receiver_id,
                         transfer,
-                        apply_state.block_index,
+                        apply_state.block_height,
                         apply_state.current_protocol_version,
                     );
                 }
             }
             Action::Stake(stake) => {
-                metrics::ACTION_STAKE_TOTAL.inc();
                 action_stake(
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
                     &mut result,
@@ -413,12 +403,9 @@ impl Runtime {
                     stake,
                     &apply_state.prev_block_hash,
                     epoch_info_provider,
-                    #[cfg(feature = "protocol_feature_chunk_only_producers")]
-                    false,
                 )?;
             }
             Action::AddKey(add_key) => {
-                metrics::ACTION_ADD_KEY_TOTAL.inc();
                 action_add_key(
                     apply_state,
                     state_update,
@@ -429,9 +416,8 @@ impl Runtime {
                 )?;
             }
             Action::DeleteKey(delete_key) => {
-                metrics::ACTION_DELETE_KEY_TOTAL.inc();
                 action_delete_key(
-                    &apply_state.config.transaction_costs,
+                    &apply_state.config.fees,
                     state_update,
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
                     &mut result,
@@ -441,7 +427,6 @@ impl Runtime {
                 )?;
             }
             Action::DeleteAccount(delete_account) => {
-                metrics::ACTION_DELETE_ACCOUNT_TOTAL.inc();
                 action_delete_account(
                     state_update,
                     account,
@@ -453,17 +438,14 @@ impl Runtime {
                     apply_state.current_protocol_version,
                 )?;
             }
-            #[cfg(feature = "protocol_feature_chunk_only_producers")]
-            Action::StakeChunkOnly(stake) => {
-                metrics::ACTION_STAKE_CHUNK_ONLY_TOTAL.inc();
-                action_stake(
-                    account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
-                    &mut result,
+            Action::Delegate(signed_delegate_action) => {
+                apply_delegate_action(
+                    state_update,
+                    apply_state,
+                    action_receipt,
                     account_id,
-                    stake,
-                    &apply_state.prev_block_hash,
-                    epoch_info_provider,
-                    true,
+                    signed_delegate_action,
+                    &mut result,
                 )?;
             }
         };
@@ -517,8 +499,7 @@ impl Runtime {
         let mut account = get_account(state_update, account_id)?;
         let mut actor_id = receipt.predecessor_id.clone();
         let mut result = ActionResult::default();
-        let exec_fee =
-            apply_state.config.transaction_costs.action_receipt_creation_config.exec_fee();
+        let exec_fee = apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee();
         result.gas_used = exec_fee;
         result.gas_burnt = exec_fee;
         // Executing actions one by one
@@ -546,7 +527,11 @@ impl Runtime {
             )?;
             if new_result.result.is_ok() {
                 if let Err(e) = new_result.new_receipts.iter().try_for_each(|receipt| {
-                    validate_receipt(&apply_state.config.wasm_config.limit_config, receipt)
+                    validate_receipt(
+                        &apply_state.config.wasm_config.limit_config,
+                        receipt,
+                        apply_state.current_protocol_version,
+                    )
                 }) {
                     new_result.result = Err(ActionErrorKind::NewReceiptValidationError(e).into());
                 }
@@ -562,21 +547,31 @@ impl Runtime {
         // Going to check balance covers account's storage.
         if result.result.is_ok() {
             if let Some(ref mut account) = account {
-                if let Some(amount) = get_insufficient_storage_stake(account, &apply_state.config)
-                    .map_err(StorageError::StorageInconsistentState)?
-                {
-                    result.merge(ActionResult {
-                        result: Err(ActionError {
-                            index: None,
-                            kind: ActionErrorKind::LackBalanceForState {
-                                account_id: account_id.clone(),
-                                amount,
-                            },
-                        }),
-                        ..Default::default()
-                    })?;
-                } else {
-                    set_account(state_update, account_id.clone(), account);
+                match check_storage_stake(
+                    account,
+                    &apply_state.config,
+                    apply_state.current_protocol_version,
+                ) {
+                    Ok(()) => {
+                        set_account(state_update, account_id.clone(), account);
+                    }
+                    Err(StorageStakingError::LackBalanceForStorageStaking(amount)) => {
+                        result.merge(ActionResult {
+                            result: Err(ActionError {
+                                index: None,
+                                kind: ActionErrorKind::LackBalanceForState {
+                                    account_id: account_id.clone(),
+                                    amount,
+                                },
+                            }),
+                            ..Default::default()
+                        })?;
+                    }
+                    Err(StorageStakingError::StorageError(err)) => {
+                        return Err(RuntimeError::StorageError(
+                            StorageError::StorageInconsistentState(err),
+                        ))
+                    }
                 }
             }
         }
@@ -610,7 +605,7 @@ impl Runtime {
                 action_receipt,
                 &mut result,
                 apply_state.current_protocol_version,
-                &apply_state.config.transaction_costs,
+                &apply_state.config.fees,
             )?
         };
         stats.gas_deficit_amount = safe_add_balance(stats.gas_deficit_amount, gas_deficit_amount)?;
@@ -642,8 +637,8 @@ impl Runtime {
 
         // Adding burnt gas reward for function calls if the account exists.
         let receiver_gas_reward = result.gas_burnt_for_function_call
-            * *apply_state.config.transaction_costs.burnt_gas_reward.numer() as u64
-            / *apply_state.config.transaction_costs.burnt_gas_reward.denom() as u64;
+            * *apply_state.config.fees.burnt_gas_reward.numer() as u64
+            / *apply_state.config.fees.burnt_gas_reward.denom() as u64;
         // The balance that the current account should receive as a reward for function call
         // execution.
         let receiver_reward = safe_gas_to_balance(apply_state.gas_price, receiver_gas_reward)?
@@ -756,7 +751,7 @@ impl Runtime {
                 gas_burnt: result.gas_burnt,
                 tokens_burnt,
                 executor_id: account_id.clone(),
-                metadata: ExecutionMetadata::V2(result.profile),
+                metadata: ExecutionMetadata::V3(result.profile),
             },
         })
     }
@@ -771,7 +766,14 @@ impl Runtime {
         transaction_costs: &RuntimeFeesConfig,
     ) -> Result<Balance, RuntimeError> {
         let total_deposit = total_deposit(&action_receipt.actions)?;
-        let prepaid_gas = total_prepaid_gas(&action_receipt.actions)?;
+        let prepaid_gas = safe_add_gas(
+            total_prepaid_gas(&action_receipt.actions)?,
+            total_prepaid_send_fees(
+                transaction_costs,
+                &action_receipt.actions,
+                current_protocol_version,
+            )?,
+        )?;
         let prepaid_exec_gas = safe_add_gas(
             total_prepaid_exec_fees(
                 transaction_costs,
@@ -779,7 +781,7 @@ impl Runtime {
                 &receipt.receiver_id,
                 current_protocol_version,
             )?,
-            transaction_costs.action_receipt_creation_config.exec_fee(),
+            transaction_costs.fee(ActionCosts::new_action_receipt).exec_fee(),
         )?;
         let deposit_refund = if result.result.is_err() { total_deposit } else { 0 };
         let gas_refund = if result.result.is_err() {
@@ -816,6 +818,7 @@ impl Runtime {
                 )?,
             )?;
         }
+
         if deposit_refund > 0 {
             result
                 .new_receipts
@@ -989,7 +992,7 @@ impl Runtime {
     }
 
     /// Iterates over the validators in the current shard and updates their accounts to return stake
-    /// and allocate rewards. Also updates protocol treasure account if it belongs to the current
+    /// and allocate rewards. Also updates protocol treasury account if it belongs to the current
     /// shard.
     fn update_validator_accounts(
         &self,
@@ -1157,7 +1160,7 @@ impl Runtime {
         Ok((gas_used, receipts_to_restore))
     }
 
-    /// Applies new singed transactions and incoming receipts for some chunk/shard on top of
+    /// Applies new signed transactions and incoming receipts for some chunk/shard on top of
     /// given trie and the given state root.
     /// If the validator accounts update is provided, updates validators accounts.
     /// All new signed transactions should be valid and already verified by the chunk producer.
@@ -1169,23 +1172,32 @@ impl Runtime {
     pub fn apply(
         &self,
         trie: Trie,
-        root: CryptoHash,
         validator_accounts_update: &Option<ValidatorAccountsUpdate>,
         apply_state: &ApplyState,
         incoming_receipts: &[Receipt],
         transactions: &[SignedTransaction],
         epoch_info_provider: &dyn EpochInfoProvider,
-        states_to_patch: Option<Vec<StateRecord>>,
+        state_patch: SandboxStatePatch,
     ) -> Result<ApplyResult, RuntimeError> {
-        let _span = tracing::debug_span!(target: "runtime", "Runtime::apply").entered();
+        // state_patch must be empty unless this is sandbox build.  Thanks to
+        // conditional compilation this always resolves to true so technically
+        // the check is not necessary.  It’s defence in depth to make sure any
+        // future refactoring won’t break the condition.
+        assert!(cfg!(feature = "sandbox") || state_patch.is_empty());
 
-        if states_to_patch.is_some() && !cfg!(feature = "sandbox") {
-            panic!("Can only patch state in sandbox mode");
+        let _span = tracing::debug_span!(
+            target: "runtime",
+            "apply",
+            num_transactions = transactions.len())
+        .entered();
+
+        let mut prefetcher = TriePrefetcher::new_if_enabled(&trie);
+        let mut state_update = TrieUpdate::new(trie);
+
+        if let Some(prefetcher) = &mut prefetcher {
+            // Prefetcher is allowed to fail
+            _ = prefetcher.prefetch_transactions_data(transactions);
         }
-
-        let trie = Rc::new(trie);
-        let initial_state = TrieUpdate::new(trie.clone(), root);
-        let mut state_update = TrieUpdate::new(trie.clone(), root);
 
         let mut stats = ApplyStats::default();
 
@@ -1217,7 +1229,7 @@ impl Runtime {
             && apply_state.current_protocol_version
                 >= ProtocolFeature::FixApplyChunks.protocol_version()
         {
-            let (trie_changes, state_changes) = state_update.finalize()?;
+            let (trie, trie_changes, state_changes) = state_update.finalize()?;
             let proof = trie.recorded_storage();
             return Ok(ApplyResult {
                 state_root: trie_changes.new_root,
@@ -1268,7 +1280,16 @@ impl Runtime {
                                    state_update: &mut TrieUpdate,
                                    total_gas_burnt: &mut Gas|
          -> Result<_, RuntimeError> {
-            let _span = tracing::debug_span!(target: "runtime", "Runtime::process_receipt", receipt_id = %receipt.receipt_id, node_counter = state_update.trie.get_touched_nodes_count()).entered();
+            let _span = tracing::debug_span!(
+                target: "runtime",
+                "process_receipt",
+                receipt_id = %receipt.receipt_id,
+                node_counter = ?state_update.trie().get_trie_nodes_count(),
+                predecessor = %receipt.predecessor_id,
+                receiver = %receipt.receiver_id,
+                id = %receipt.receipt_id,
+            )
+            .entered();
             let result = self.process_receipt(
                 state_update,
                 apply_state,
@@ -1278,21 +1299,23 @@ impl Runtime {
                 &mut stats,
                 epoch_info_provider,
             );
-            tracing::debug!(target: "runtime", node_counter = state_update.trie.get_touched_nodes_count());
-            result?.into_iter().try_for_each(
-                |outcome_with_id: ExecutionOutcomeWithId| -> Result<(), RuntimeError> {
-                    *total_gas_burnt =
-                        safe_add_gas(*total_gas_burnt, outcome_with_id.outcome.gas_burnt)?;
-                    outcomes.push(outcome_with_id);
-                    Ok(())
-                },
-            )?;
+            tracing::debug!(target: "runtime", node_counter = ?state_update.trie().get_trie_nodes_count());
+            if let Some(outcome_with_id) = result? {
+                *total_gas_burnt =
+                    safe_add_gas(*total_gas_burnt, outcome_with_id.outcome.gas_burnt)?;
+                outcomes.push(outcome_with_id);
+            }
             Ok(())
         };
 
         let gas_limit = apply_state.gas_limit.unwrap_or(Gas::max_value());
 
         // We first process local receipts. They contain staking, local contract calls, etc.
+        if let Some(prefetcher) = &mut prefetcher {
+            prefetcher.clear();
+            // Prefetcher is allowed to fail
+            _ = prefetcher.prefetch_receipts_data(&local_receipts);
+        }
         for receipt in local_receipts.iter() {
             if total_gas_burnt < gas_limit {
                 // NOTE: We don't need to validate the local receipt, because it's just validated in
@@ -1316,15 +1339,24 @@ impl Runtime {
                 ))
             })?;
 
+            if let Some(prefetcher) = &mut prefetcher {
+                prefetcher.clear();
+                // Prefetcher is allowed to fail
+                _ = prefetcher.prefetch_receipts_data(std::slice::from_ref(&receipt));
+            }
+
             // Validating the delayed receipt. If it fails, it's likely the state is inconsistent.
-            validate_receipt(&apply_state.config.wasm_config.limit_config, &receipt).map_err(
-                |e| {
-                    StorageError::StorageInconsistentState(format!(
-                        "Delayed receipt #{} in the state is invalid: {}",
-                        delayed_receipts_indices.first_index, e
-                    ))
-                },
-            )?;
+            validate_receipt(
+                &apply_state.config.wasm_config.limit_config,
+                &receipt,
+                apply_state.current_protocol_version,
+            )
+            .map_err(|e| {
+                StorageError::StorageInconsistentState(format!(
+                    "Delayed receipt #{} in the state is invalid: {}",
+                    delayed_receipts_indices.first_index, e
+                ))
+            })?;
 
             state_update.remove(key);
             // Math checked above: first_index is less than next_available_index
@@ -1334,11 +1366,20 @@ impl Runtime {
         }
 
         // And then we process the new incoming receipts. These are receipts from other shards.
+        if let Some(prefetcher) = &mut prefetcher {
+            prefetcher.clear();
+            // Prefetcher is allowed to fail
+            _ = prefetcher.prefetch_receipts_data(&incoming_receipts);
+        }
         for receipt in incoming_receipts.iter() {
             // Validating new incoming no matter whether we have available gas or not. We don't
             // want to store invalid receipts in state as delayed.
-            validate_receipt(&apply_state.config.wasm_config.limit_config, receipt)
-                .map_err(RuntimeError::ReceiptValidationError)?;
+            validate_receipt(
+                &apply_state.config.wasm_config.limit_config,
+                receipt,
+                apply_state.current_protocol_version,
+            )
+            .map_err(RuntimeError::ReceiptValidationError)?;
             if total_gas_burnt < gas_limit {
                 process_receipt(receipt, &mut state_update, &mut total_gas_burnt)?;
             } else {
@@ -1346,13 +1387,17 @@ impl Runtime {
             }
         }
 
+        // No more receipts are executed on this trie, stop any pending prefetches on it.
+        if let Some(prefetcher) = &prefetcher {
+            prefetcher.clear();
+        }
+
         if delayed_receipts_indices != initial_delayed_receipt_indices {
             set(&mut state_update, TrieKey::DelayedReceiptIndices, &delayed_receipts_indices);
         }
 
         check_balance(
-            &apply_state.config.transaction_costs,
-            &initial_state,
+            &apply_state.config.fees,
             &state_update,
             validator_accounts_update,
             incoming_receipts,
@@ -1363,13 +1408,8 @@ impl Runtime {
         )?;
 
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
-
-        #[cfg(feature = "sandbox")]
-        if let Some(patch) = states_to_patch {
-            self.apply_state_patches(&mut state_update, patch);
-        }
-
-        let (trie_changes, state_changes) = state_update.finalize()?;
+        self.apply_state_patch(&mut state_update, state_patch);
+        let (trie, trie_changes, state_changes) = state_update.finalize()?;
 
         // Dedup proposals from the same account.
         // The order is deterministically changed.
@@ -1419,13 +1459,11 @@ impl Runtime {
         Ok(())
     }
 
-    #[cfg(feature = "sandbox")]
-    fn apply_state_patches(
-        &self,
-        state_update: &mut TrieUpdate,
-        states_to_patch: Vec<StateRecord>,
-    ) {
-        for record in states_to_patch {
+    fn apply_state_patch(&self, state_update: &mut TrieUpdate, state_patch: SandboxStatePatch) {
+        if state_patch.is_empty() {
+            return;
+        }
+        for record in state_patch {
             match record {
                 StateRecord::Account { account_id, account } => {
                     set_account(state_update, account_id, &account);
@@ -1434,7 +1472,7 @@ impl Runtime {
                     state_update.set(TrieKey::ContractData { key: data_key, account_id }, value);
                 }
                 StateRecord::Contract { account_id, code } => {
-                    let acc = get_account(&state_update, &account_id).expect("Failed to read state").expect("Code state record should be preceded by the corresponding account record");
+                    let acc = get_account(state_update, &account_id).expect("Failed to read state").expect("Code state record should be preceded by the corresponding account record");
                     // Recompute contract code hash.
                     let code = ContractCode::new(code, None);
                     set_code(state_update, account_id, &code);
@@ -1460,9 +1498,23 @@ impl Runtime {
         storage_computer.finalize()
     }
 
+    /// Compute the expected storage per account for genesis records.
+    pub fn compute_genesis_storage_usage(
+        &self,
+        genesis: &Genesis,
+        config: &RuntimeConfig,
+    ) -> HashMap<AccountId, u64> {
+        let mut storage_computer = StorageComputer::new(config);
+        genesis.for_each_record(|record| {
+            storage_computer.process_record(record);
+        });
+        storage_computer.finalize()
+    }
+
     /// Balances are account, publickey, initial_balance, initial_tx_stake
     pub fn apply_genesis_state(
         &self,
+        op_limit: &std::sync::atomic::AtomicUsize,
         tries: ShardTries,
         shard_id: ShardId,
         validators: &[(AccountId, PublicKey, Balance)],
@@ -1470,7 +1522,15 @@ impl Runtime {
         config: &RuntimeConfig,
         shard_account_ids: HashSet<AccountId>,
     ) -> StateRoot {
-        GenesisStateApplier::apply(tries, shard_id, validators, config, genesis, shard_account_ids)
+        GenesisStateApplier::apply(
+            op_limit,
+            tries,
+            shard_id,
+            validators,
+            config,
+            genesis,
+            shard_account_ids,
+        )
     }
 }
 
@@ -1544,9 +1604,9 @@ mod tests {
         let account_id = bob_account();
         set_account(&mut state_update, account_id.clone(), &test_account);
         state_update.commit(StateChangeCause::InitialState);
-        let trie_changes = state_update.finalize().unwrap().0;
-        let (store_update, new_root) =
-            tries.apply_all(&trie_changes, ShardUId::single_shard()).unwrap();
+        let trie_changes = state_update.finalize().unwrap().1;
+        let mut store_update = tries.store_update();
+        let new_root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
         store_update.commit().unwrap();
         let new_state_update = tries.new_trie_update(ShardUId::single_shard(), new_root);
         let get_res = get_account(&new_state_update, &account_id).unwrap().unwrap();
@@ -1586,13 +1646,13 @@ mod tests {
             &AccessKey::full_access(),
         );
         initial_state.commit(StateChangeCause::InitialState);
-        let trie_changes = initial_state.finalize().unwrap().0;
-        let (store_update, root) =
-            tries.apply_all(&trie_changes, ShardUId::single_shard()).unwrap();
+        let trie_changes = initial_state.finalize().unwrap().1;
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
         store_update.commit().unwrap();
 
         let apply_state = ApplyState {
-            block_index: 1,
+            block_height: 1,
             prev_block_hash: Default::default(),
             block_hash: Default::default(),
             epoch_id: Default::default(),
@@ -1603,7 +1663,7 @@ mod tests {
             random_seed: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(RuntimeConfig::test()),
-            cache: Some(Arc::new(StoreCompiledContractCache { store: tries.get_store() })),
+            cache: Some(Box::new(StoreCompiledContractCache::new(&tries.get_store()))),
             is_new_chunk: true,
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
@@ -1618,14 +1678,13 @@ mod tests {
             setup_runtime(to_yocto(1_000_000), 0, 10u64.pow(15));
         runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard()),
-                root,
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &None,
                 &apply_state,
                 &[],
                 &[],
                 &epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
     }
@@ -1648,14 +1707,13 @@ mod tests {
 
         runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard()),
-                root,
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &Some(validator_accounts_update),
                 &apply_state,
                 &[Receipt::new_balance_refund(&alice_account(), small_refund)],
                 &[],
                 &epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
     }
@@ -1677,19 +1735,21 @@ mod tests {
             let prev_receipts: &[Receipt] = if i == 1 { &receipts } else { &[] };
             let apply_result = runtime
                 .apply(
-                    tries.get_trie_for_shard(ShardUId::single_shard()),
-                    root,
+                    tries.get_trie_for_shard(ShardUId::single_shard(), root),
                     &None,
                     &apply_state,
                     prev_receipts,
                     &[],
                     &epoch_info_provider,
-                    None,
+                    Default::default(),
                 )
                 .unwrap();
-            let (store_update, new_root) =
-                tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard()).unwrap();
-            root = new_root;
+            let mut store_update = tries.store_update();
+            root = tries.apply_all(
+                &apply_result.trie_changes,
+                ShardUId::single_shard(),
+                &mut store_update,
+            );
             store_update.commit().unwrap();
             let state = tries.new_trie_update(ShardUId::single_shard(), root);
             let account = get_account(&state, &alice_account()).unwrap().unwrap();
@@ -1720,19 +1780,21 @@ mod tests {
             let prev_receipts: &[Receipt] = if i == 1 { &receipts } else { &[] };
             let apply_result = runtime
                 .apply(
-                    tries.get_trie_for_shard(ShardUId::single_shard()),
-                    root,
+                    tries.get_trie_for_shard(ShardUId::single_shard(), root),
                     &None,
                     &apply_state,
                     prev_receipts,
                     &[],
                     &epoch_info_provider,
-                    None,
+                    Default::default(),
                 )
                 .unwrap();
-            let (store_update, new_root) =
-                tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard()).unwrap();
-            root = new_root;
+            let mut store_update = tries.store_update();
+            root = tries.apply_all(
+                &apply_result.trie_changes,
+                ShardUId::single_shard(),
+                &mut store_update,
+            );
             store_update.commit().unwrap();
             let state = tries.new_trie_update(ShardUId::single_shard(), root);
             let account = get_account(&state, &alice_account()).unwrap().unwrap();
@@ -1754,12 +1816,9 @@ mod tests {
         let (runtime, tries, mut root, mut apply_state, _, epoch_info_provider) =
             setup_runtime(initial_balance, initial_locked, 1);
 
-        let receipt_gas_cost = apply_state
-            .config
-            .transaction_costs
-            .action_receipt_creation_config
-            .exec_fee()
-            + apply_state.config.transaction_costs.action_creation_config.transfer_cost.exec_fee();
+        let receipt_gas_cost =
+            apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee()
+                + apply_state.config.fees.fee(ActionCosts::transfer).exec_fee();
         apply_state.gas_limit = Some(receipt_gas_cost * 3);
 
         let n = 40;
@@ -1771,18 +1830,21 @@ mod tests {
             let prev_receipts: &[Receipt] = receipt_chunks.next().unwrap_or_default();
             let apply_result = runtime
                 .apply(
-                    tries.get_trie_for_shard(ShardUId::single_shard()),
-                    root,
+                    tries.get_trie_for_shard(ShardUId::single_shard(), root),
                     &None,
                     &apply_state,
                     prev_receipts,
                     &[],
                     &epoch_info_provider,
-                    None,
+                    Default::default(),
                 )
                 .unwrap();
-            let (store_update, new_root) =
-                tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard()).unwrap();
+            let mut store_update = tries.store_update();
+            let new_root = tries.apply_all(
+                &apply_result.trie_changes,
+                ShardUId::single_shard(),
+                &mut store_update,
+            );
             root = new_root;
             store_update.commit().unwrap();
             let state = tries.new_trie_update(ShardUId::single_shard(), root);
@@ -1805,12 +1867,9 @@ mod tests {
         let (runtime, tries, mut root, mut apply_state, _, epoch_info_provider) =
             setup_runtime(initial_balance, initial_locked, 1);
 
-        let receipt_gas_cost = apply_state
-            .config
-            .transaction_costs
-            .action_receipt_creation_config
-            .exec_fee()
-            + apply_state.config.transaction_costs.action_creation_config.transfer_cost.exec_fee();
+        let receipt_gas_cost =
+            apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee()
+                + apply_state.config.fees.fee(ActionCosts::transfer).exec_fee();
 
         let n = 120;
         let receipts = generate_receipts(small_transfer, n);
@@ -1831,19 +1890,21 @@ mod tests {
             num_receipts_given += prev_receipts.len() as u64;
             let apply_result = runtime
                 .apply(
-                    tries.get_trie_for_shard(ShardUId::single_shard()),
-                    root,
+                    tries.get_trie_for_shard(ShardUId::single_shard(), root),
                     &None,
                     &apply_state,
                     prev_receipts,
                     &[],
                     &epoch_info_provider,
-                    None,
+                    Default::default(),
                 )
                 .unwrap();
-            let (store_update, new_root) =
-                tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard()).unwrap();
-            root = new_root;
+            let mut store_update = tries.store_update();
+            root = tries.apply_all(
+                &apply_result.trie_changes,
+                ShardUId::single_shard(),
+                &mut store_update,
+            );
             store_update.commit().unwrap();
             let state = tries.new_trie_update(ShardUId::single_shard(), root);
             num_receipts_processed += apply_result.outcomes.len() as u64;
@@ -1905,7 +1966,7 @@ mod tests {
 
         let receipt_exec_gas_fee = 1000;
         let mut free_config = RuntimeConfig::free();
-        free_config.transaction_costs.action_receipt_creation_config.execution =
+        free_config.fees.action_fees[ActionCosts::new_action_receipt].execution =
             receipt_exec_gas_fee;
         apply_state.config = Arc::new(free_config);
         // This allows us to execute 3 receipts per apply.
@@ -1934,18 +1995,21 @@ mod tests {
         // The new delayed queue is TX#3, R#0, R#1.
         let apply_result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard()),
-                root,
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &None,
                 &apply_state,
                 &receipts[0..2],
                 &local_transactions[0..4],
                 &epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
-        let (store_update, root) =
-            tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard()).unwrap();
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(
+            &apply_result.trie_changes,
+            ShardUId::single_shard(),
+            &mut store_update,
+        );
         store_update.commit().unwrap();
 
         assert_eq!(
@@ -1983,18 +2047,21 @@ mod tests {
         // The new delayed queue is R#1, R#2
         let apply_result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard()),
-                root,
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &None,
                 &apply_state,
                 &receipts[2..3],
                 &local_transactions[4..5],
                 &epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
-        let (store_update, root) =
-            tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard()).unwrap();
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(
+            &apply_result.trie_changes,
+            ShardUId::single_shard(),
+            &mut store_update,
+        );
         store_update.commit().unwrap();
 
         assert_eq!(
@@ -2024,18 +2091,21 @@ mod tests {
         // The new delayed queue is R#1, R#2, TX#8, R#3
         let apply_result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard()),
-                root,
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &None,
                 &apply_state,
                 &receipts[3..4],
                 &local_transactions[5..9],
                 &epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
-        let (store_update, root) =
-            tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard()).unwrap();
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(
+            &apply_result.trie_changes,
+            ShardUId::single_shard(),
+            &mut store_update,
+        );
         store_update.commit().unwrap();
 
         assert_eq!(
@@ -2073,18 +2143,21 @@ mod tests {
         // The new delayed queue is R#3, R#4
         let apply_result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard()),
-                root,
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &None,
                 &apply_state,
                 &receipts[4..5],
                 &[],
                 &epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
-        let (store_update, root) =
-            tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard()).unwrap();
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(
+            &apply_result.trie_changes,
+            ShardUId::single_shard(),
+            &mut store_update,
+        );
         store_update.commit().unwrap();
 
         assert_eq!(
@@ -2107,14 +2180,13 @@ mod tests {
         // The new delayed queue is empty.
         let apply_result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard()),
-                root,
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &None,
                 &apply_state,
                 &receipts[5..6],
                 &[],
                 &epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
 
@@ -2146,14 +2218,13 @@ mod tests {
 
         let result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard()),
-                root,
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &None,
                 &apply_state,
                 &receipts,
                 &[],
                 &epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
         assert_eq!(result.stats.gas_deficit_amount, result.stats.tx_burnt_amount * 9)
@@ -2177,9 +2248,9 @@ mod tests {
         })];
 
         let expected_gas_burnt = safe_add_gas(
-            apply_state.config.transaction_costs.action_receipt_creation_config.exec_fee(),
+            apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
             total_prepaid_exec_fees(
-                &apply_state.config.transaction_costs,
+                &apply_state.config.fees,
                 &actions,
                 &alice_account(),
                 PROTOCOL_VERSION,
@@ -2206,14 +2277,13 @@ mod tests {
 
         let result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard()),
-                root,
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &None,
                 &apply_state,
                 &receipts,
                 &[],
                 &epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
         // We used part of the prepaid gas to paying extra fees.
@@ -2247,9 +2317,9 @@ mod tests {
         })];
 
         let expected_gas_burnt = safe_add_gas(
-            apply_state.config.transaction_costs.action_receipt_creation_config.exec_fee(),
+            apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
             total_prepaid_exec_fees(
-                &apply_state.config.transaction_costs,
+                &apply_state.config.fees,
                 &actions,
                 &alice_account(),
                 PROTOCOL_VERSION,
@@ -2276,14 +2346,13 @@ mod tests {
 
         let result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard()),
-                root,
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &None,
                 &apply_state,
                 &receipts,
                 &[],
                 &epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
         // Used full prepaid gas, but it still not enough to cover deficit.
@@ -2313,18 +2382,21 @@ mod tests {
 
         let apply_result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard()),
-                root,
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &None,
                 &apply_state,
                 &receipts,
                 &[],
                 &epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
-        let (store_update, root) =
-            tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard()).unwrap();
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(
+            &apply_result.trie_changes,
+            ShardUId::single_shard(),
+            &mut store_update,
+        );
         store_update.commit().unwrap();
 
         let state_update = tries.new_trie_update(ShardUId::single_shard(), root);
@@ -2345,9 +2417,9 @@ mod tests {
         initial_account_state.set_storage_usage(10);
         set_account(&mut state_update, alice_account(), &initial_account_state);
         state_update.commit(StateChangeCause::InitialState);
-        let trie_changes = state_update.finalize().unwrap().0;
-        let (store_update, root) =
-            tries.apply_all(&trie_changes, ShardUId::single_shard()).unwrap();
+        let trie_changes = state_update.finalize().unwrap().1;
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
         store_update.commit().unwrap();
 
         let actions = vec![Action::DeleteKey(DeleteKeyAction { public_key: signer.public_key() })];
@@ -2356,18 +2428,21 @@ mod tests {
 
         let apply_result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard()),
-                root,
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &None,
                 &apply_state,
                 &receipts,
                 &[],
                 &epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
-        let (store_update, root) =
-            tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard()).unwrap();
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(
+            &apply_result.trie_changes,
+            ShardUId::single_shard(),
+            &mut store_update,
+        );
         store_update.commit().unwrap();
 
         let state_update = tries.new_trie_update(ShardUId::single_shard(), root);
@@ -2392,18 +2467,17 @@ mod tests {
 
         let apply_result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard()),
-                root,
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &None,
                 &apply_state,
                 &receipts,
                 &[],
                 &epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
-        let (store_update, _) =
-            tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard()).unwrap();
+        let mut store_update = tries.store_update();
+        tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
         store_update.commit().unwrap();
 
         let contract_code = ContractCode::new(wasm_code, None);
@@ -2412,8 +2486,43 @@ mod tests {
         apply_state
             .cache
             .unwrap()
-            .get(&key.0)
+            .get(&key)
             .expect("Compiled contract should be cached")
             .expect("Compilation result should be non-empty");
+    }
+}
+
+/// Interface provided for gas cost estimations.
+pub mod estimator {
+    use near_primitives::errors::RuntimeError;
+    use near_primitives::receipt::Receipt;
+    use near_primitives::runtime::apply_state::ApplyState;
+    use near_primitives::transaction::ExecutionOutcomeWithId;
+    use near_primitives::types::validator_stake::ValidatorStake;
+    use near_primitives::types::EpochInfoProvider;
+    use near_store::TrieUpdate;
+
+    use crate::ApplyStats;
+
+    use super::Runtime;
+
+    pub fn apply_action_receipt(
+        state_update: &mut TrieUpdate,
+        apply_state: &ApplyState,
+        receipt: &Receipt,
+        outgoing_receipts: &mut Vec<Receipt>,
+        validator_proposals: &mut Vec<ValidatorStake>,
+        stats: &mut ApplyStats,
+        epoch_info_provider: &dyn EpochInfoProvider,
+    ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
+        Runtime {}.apply_action_receipt(
+            state_update,
+            apply_state,
+            receipt,
+            outgoing_receipts,
+            validator_proposals,
+            stats,
+            epoch_info_provider,
+        )
     }
 }

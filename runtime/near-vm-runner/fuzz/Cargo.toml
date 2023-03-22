@@ -1,28 +1,33 @@
 [package]
 name = "near-vm-runner-fuzz"
 version = "0.0.0"
-authors = ["Near Inc <hello@nearprotocol.com>"]
+authors.workspace = true
 publish = false
-# Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.56.0"
-edition = "2021"
+edition.workspace = true
 
 [package.metadata]
 cargo-fuzz = true
 
 [dependencies]
-libfuzzer-sys = "0.4"
-wasm-smith = "0.8"
-wasmprinter = "0.2"
-arbitrary = "1"
+arbitrary.workspace = true
+libfuzzer-sys.workspace = true
+wasm-smith.workspace = true
+wasmprinter.workspace = true
 
-near-vm-runner = { path = ".." }
-near-vm-logic = { path = "../../near-vm-logic", default-features = false, features = [] }
 near-primitives = { path = "../../../core/primitives" }
-
+near-test-contracts = { path = "../../near-test-contracts" }
+near-vm-errors = { path = "../../near-vm-errors" }
+near-vm-logic = { path = "../../near-vm-logic", default-features = false }
+near-vm-runner = { path = ".." }
 
 [[bin]]
 name = "runner"
 path = "fuzz_targets/runner.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "diffrunner"
+path = "fuzz_targets/diffrunner.rs"
 test = false
 doc = false

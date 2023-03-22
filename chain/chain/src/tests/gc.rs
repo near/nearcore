@@ -1,17 +1,18 @@
 use std::sync::Arc;
 
 use crate::chain::Chain;
-use crate::test_utils::KeyValueRuntime;
-use crate::types::{ChainGenesis, Tip};
+use crate::test_utils::{KeyValueRuntime, ValidatorSchedule};
+use crate::types::{ChainConfig, ChainGenesis, Tip};
 use crate::DoomslugThresholdMode;
-use near_crypto::KeyType;
+
+use near_chain_configs::GCConfig;
 use near_primitives::block::Block;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::shard_layout::ShardUId;
+use near_primitives::test_utils::{create_test_signer, TestBlockBuilder};
 use near_primitives::types::{NumBlocks, NumShards, StateRoot};
-use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_store::test_utils::{create_test_store, gen_changes};
-use near_store::{ShardTries, StoreUpdate, Trie, WrappedTrieChanges};
+use near_store::{ShardTries, Trie, WrappedTrieChanges};
 use rand::Rng;
 
 fn get_chain(num_shards: NumShards) -> Chain {
@@ -24,18 +25,17 @@ fn get_chain_with_epoch_length_and_num_shards(
 ) -> Chain {
     let store = create_test_store();
     let chain_genesis = ChainGenesis::test();
-    let validators = vec![vec!["test1"]];
-    let runtime_adapter = Arc::new(KeyValueRuntime::new_with_validators(
-        store,
-        validators
-            .into_iter()
-            .map(|inner| inner.into_iter().map(|account_id| account_id.parse().unwrap()).collect())
-            .collect(),
-        1,
-        num_shards,
-        epoch_length,
-    ));
-    Chain::new(runtime_adapter, &chain_genesis, DoomslugThresholdMode::NoApprovals).unwrap()
+    let vs = ValidatorSchedule::new()
+        .block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]])
+        .num_shards(num_shards);
+    let runtime_adapter = KeyValueRuntime::new_with_validators(store, vs, epoch_length);
+    Chain::new(
+        runtime_adapter,
+        &chain_genesis,
+        DoomslugThresholdMode::NoApprovals,
+        ChainConfig::test(),
+    )
+    .unwrap()
 }
 
 // Build a chain of num_blocks on top of prev_block
@@ -49,19 +49,58 @@ fn do_fork(
     max_changes: usize,
     verbose: bool,
 ) {
+    if verbose {
+        println!(
+            "Prev Block: @{} {:?} {:?} {:?}",
+            prev_block.header().height(),
+            prev_block.header().epoch_id(),
+            prev_block.header().next_epoch_id(),
+            prev_block.hash()
+        );
+    }
     let mut rng = rand::thread_rng();
-    let signer = Arc::new(InMemoryValidatorSigner::from_seed(
-        "test1".parse().unwrap(),
-        KeyType::ED25519,
-        "test1",
-    ));
+    let signer = Arc::new(create_test_signer("test1"));
     let num_shards = prev_state_roots.len() as u64;
     let runtime_adapter = chain.runtime_adapter.clone();
     for i in 0..num_blocks {
-        runtime_adapter
+        let next_epoch_id = runtime_adapter
             .get_next_epoch_id_from_prev_block(prev_block.hash())
             .expect("block must exist");
-        let block = Block::empty(&prev_block, &*signer);
+        let block = if next_epoch_id == *prev_block.header().next_epoch_id() {
+            TestBlockBuilder::new(&prev_block, signer.clone()).build()
+        } else {
+            let prev_hash = prev_block.hash();
+            let epoch_id = prev_block.header().next_epoch_id().clone();
+            if verbose {
+                println!(
+                    "Creating block with new epoch id {:?} @{}",
+                    next_epoch_id,
+                    prev_block.header().height() + 1
+                );
+            }
+            let next_bp_hash = Chain::compute_bp_hash(
+                &*runtime_adapter,
+                next_epoch_id.clone(),
+                epoch_id.clone(),
+                &prev_hash,
+            )
+            .unwrap();
+            TestBlockBuilder::new(&prev_block, signer.clone())
+                .epoch_id(epoch_id)
+                .next_epoch_id(next_epoch_id)
+                .next_bp_hash(next_bp_hash)
+                .build()
+        };
+
+        if verbose {
+            println!(
+                "Block: @{} {:?} {:?} {:?}",
+                block.header().height(),
+                block.header().epoch_id(),
+                block.header().next_epoch_id(),
+                block.hash()
+            );
+        }
 
         let head = chain.head().unwrap();
         let mut store_update = chain.mut_store().store_update();
@@ -81,8 +120,8 @@ fn do_fork(
             let shard_uid = ShardUId { version: 0, shard_id: shard_id as u32 };
             let trie_changes_data = gen_changes(&mut rng, max_changes);
             let state_root = prev_state_roots[shard_id as usize];
-            let trie = tries.get_trie_for_shard(shard_uid);
-            let trie_changes = trie.update(&state_root, trie_changes_data.iter().cloned()).unwrap();
+            let trie = tries.get_trie_for_shard(shard_uid, state_root);
+            let trie_changes = trie.update(trie_changes_data.iter().cloned()).unwrap();
             if verbose {
                 println!("state new {:?} {:?}", block.header().height(), trie_changes_data);
             }
@@ -120,20 +159,19 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
     );
     let verbose = false;
 
-    let num_shards = rand::thread_rng().gen_range(1, 3);
+    let num_shards = rand::thread_rng().gen_range(1..3);
 
     // Init Chain 1
     let mut chain1 = get_chain(num_shards);
     let tries1 = chain1.runtime_adapter.get_tries();
     let mut rng = rand::thread_rng();
-    let shard_to_check_trie = rng.gen_range(0, num_shards);
+    let shard_to_check_trie = rng.gen_range(0..num_shards);
     let shard_uid = ShardUId { version: 0, shard_id: shard_to_check_trie as u32 };
-    let trie1 = tries1.get_trie_for_shard(shard_uid);
-    let genesis1 = chain1.get_block_by_height(0).unwrap().clone();
+    let genesis1 = chain1.get_block_by_height(0).unwrap();
     let mut states1 = vec![];
     states1.push((
         genesis1,
-        vec![Trie::empty_root(); num_shards as usize],
+        vec![Trie::EMPTY_ROOT; num_shards as usize],
         vec![Vec::new(); num_shards as usize],
     ));
 
@@ -152,15 +190,11 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
     }
 
     // GC execution
-    let clear_data = chain1.clear_data(tries1, 100);
-    if clear_data.is_err() {
-        println!("clear data failed = {:?}", clear_data);
-        assert!(false);
-    }
+    chain1
+        .clear_data(tries1.clone(), &GCConfig { gc_blocks_limit: 1000, ..GCConfig::default() })
+        .unwrap();
 
-    let mut chain2 = get_chain(num_shards);
-    let tries2 = chain2.runtime_adapter.get_tries();
-    let trie2 = tries2.get_trie_for_shard(shard_uid);
+    let tries2 = get_chain(num_shards).runtime_adapter.get_tries();
 
     // Find gc_height
     let mut gc_height = simple_chains[0].length - 51;
@@ -175,13 +209,13 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
 
     let mut start_index = 1; // zero is for genesis
     let mut state_roots2 = vec![];
-    state_roots2.push(Trie::empty_root());
+    state_roots2.push(Trie::EMPTY_ROOT);
 
     for simple_chain in simple_chains.iter() {
         if simple_chain.is_removed {
             for _ in 0..simple_chain.length {
                 // This chain is deleted in Chain1
-                state_roots2.push(Trie::empty_root());
+                state_roots2.push(Trie::EMPTY_ROOT);
             }
             start_index += simple_chain.length;
             continue;
@@ -189,33 +223,28 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
 
         let mut state_root2 = state_roots2[simple_chain.from as usize];
         let state_root1 = states1[simple_chain.from as usize].1[shard_to_check_trie as usize];
-        assert!(trie1.iter(&state_root1).is_ok());
+        tries1.get_trie_for_shard(shard_uid, state_root1).iter().unwrap();
         assert_eq!(state_root1, state_root2);
 
         for i in start_index..start_index + simple_chain.length {
-            let mut store_update2 = chain2.mut_store().store_update();
             let (block1, state_root1, changes1) = states1[i as usize].clone();
             // Apply to Trie 2 the same changes (changes1) as applied to Trie 1
-            let trie_changes2 = trie2
-                .update(&state_root2, changes1[shard_to_check_trie as usize].iter().cloned())
+            let trie_changes2 = tries2
+                .get_trie_for_shard(shard_uid, state_root2)
+                .update(changes1[shard_to_check_trie as usize].iter().cloned())
                 .unwrap();
             // i == gc_height is the only height should be processed here
+            let mut update2 = tries2.store_update();
             if block1.header().height() > gc_height || i == gc_height {
-                let mut trie_store_update2 = StoreUpdate::new_with_tries(tries2.clone());
-                tries2
-                    .apply_insertions(&trie_changes2, shard_uid, &mut trie_store_update2)
-                    .unwrap();
+                tries2.apply_insertions(&trie_changes2, shard_uid, &mut update2);
                 state_root2 = trie_changes2.new_root;
                 assert_eq!(state_root1[shard_to_check_trie as usize], state_root2);
-                store_update2.merge(trie_store_update2);
             } else {
-                let (trie_store_update2, new_root2) =
-                    tries2.apply_all(&trie_changes2, shard_uid).unwrap();
+                let new_root2 = tries2.apply_all(&trie_changes2, shard_uid, &mut update2);
                 state_root2 = new_root2;
-                store_update2.merge(trie_store_update2);
             }
             state_roots2.push(state_root2);
-            store_update2.commit().unwrap();
+            update2.commit().unwrap();
         }
         start_index += simple_chain.length;
     }
@@ -223,6 +252,17 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
     let mut start_index = 1; // zero is for genesis
     for simple_chain in simple_chains.iter() {
         if simple_chain.is_removed {
+            for i in start_index..start_index + simple_chain.length {
+                let (block1, _, _) = states1[i as usize].clone();
+                // Make sure that blocks were removed.
+                assert_eq!(
+                    chain1.block_exists(block1.hash()).unwrap(),
+                    false,
+                    "Block {:?}@{} should have been removed - as it belongs to removed fork.",
+                    block1.hash(),
+                    block1.header().height()
+                );
+            }
             start_index += simple_chain.length;
             continue;
         }
@@ -230,19 +270,35 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
             let (block1, state_root1, _) = states1[i as usize].clone();
             let state_root1 = state_root1[shard_to_check_trie as usize];
             if block1.header().height() > gc_height || i == gc_height {
-                assert!(trie1.iter(&state_root1).is_ok());
-                assert!(trie2.iter(&state_root1).is_ok());
-                let a = trie1
-                    .iter(&state_root1)
+                assert_eq!(
+                    chain1.block_exists(block1.hash()).unwrap(),
+                    true,
+                    "Block {:?}@{} should exist",
+                    block1.hash(),
+                    block1.header().height()
+                );
+                let a = tries1
+                    .get_trie_for_shard(shard_uid, state_root1)
+                    .iter()
                     .unwrap()
                     .map(|item| item.unwrap().0)
                     .collect::<Vec<_>>();
-                let b = trie2
-                    .iter(&state_root1)
+                let b = tries2
+                    .get_trie_for_shard(shard_uid, state_root1)
+                    .iter()
                     .unwrap()
                     .map(|item| item.unwrap().0)
                     .collect::<Vec<_>>();
                 assert_eq!(a, b);
+            } else {
+                // Make sure that blocks were removed.
+                assert_eq!(
+                    chain1.block_exists(block1.hash()).unwrap(),
+                    false,
+                    "Block {:?}@{} should have been removed.",
+                    block1.hash(),
+                    block1.header().height()
+                );
             }
         }
         start_index += simple_chain.length;
@@ -435,17 +491,17 @@ fn test_gc_boundaries_large() {
 fn test_gc_random_common(runs: u64) {
     let mut rng = rand::thread_rng();
     for _tests in 0..runs {
-        let canonical_len = 100 + rng.gen_range(0, 20);
+        let canonical_len = 101;
         let mut chains = vec![SimpleChain { from: 0, length: canonical_len, is_removed: false }];
         for _num_chains in 1..10 {
-            let from = rng.gen_range(0, 50);
-            let len = rng.gen_range(0, 50) + 1;
+            let from = rng.gen_range(0..50);
+            let len = rng.gen_range(0..50) + 1;
             chains.push(SimpleChain {
                 from,
                 length: len,
                 is_removed: from + len < canonical_len - 50,
             });
-            gc_fork_common(chains.clone(), rng.gen_range(0, 20) + 1);
+            gc_fork_common(chains.clone(), rng.gen_range(0..20) + 1);
         }
     }
 }
@@ -546,4 +602,112 @@ fn test_gc_star_small() {
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_gc_star_large() {
     test_gc_star_common(20)
+}
+
+#[test]
+// This test covers the situation when fork happens far away from the end of the epoch.
+// Currently, we start fork cleanup, once we are at the epoch boundary, by setting 'fork_tail'.
+// Then in each step, we move the fork_tail backwards, cleaning up any forks that we might encounter.
+// But in order not to do too much work in one go, we check up to 1000 blocks (and we continue during the next execution of clean).
+// This test checks what happens when fork is more than 1k blocks from the epoch end - and checks that it gets properly cleaned
+// during the second run.
+fn test_fork_far_away_from_epoch_end() {
+    let verbose = false;
+    let max_changes = 1;
+    let fork_clean_step = 100;
+    let epoch_length = fork_clean_step + 10;
+    let simple_chains = vec![
+        SimpleChain { from: 0, length: 5, is_removed: false },
+        SimpleChain { from: 5, length: 2, is_removed: true },
+        // We want the chain to end up exactly at the new epoch start.
+        SimpleChain { from: 5, length: 6 * epoch_length - 5 + 1, is_removed: false },
+    ];
+
+    let num_shards = 1;
+    let mut chain1 = get_chain_with_epoch_length_and_num_shards(epoch_length, num_shards);
+    let tries1 = chain1.runtime_adapter.get_tries();
+    let genesis1 = chain1.get_block_by_height(0).unwrap();
+    let mut states1 = vec![(
+        genesis1,
+        vec![Trie::EMPTY_ROOT; num_shards as usize],
+        vec![Vec::new(); num_shards as usize],
+    )];
+
+    for simple_chain in simple_chains.iter() {
+        let (source_block1, state_root1, _) = states1[simple_chain.from as usize].clone();
+        do_fork(
+            source_block1.clone(),
+            state_root1,
+            tries1.clone(),
+            &mut chain1,
+            simple_chain.length,
+            &mut states1,
+            max_changes,
+            verbose,
+        );
+    }
+
+    // GC execution
+    chain1
+        .clear_data(
+            tries1.clone(),
+            &GCConfig {
+                gc_blocks_limit: 100,
+                gc_fork_clean_step: fork_clean_step,
+                ..GCConfig::default()
+            },
+        )
+        .expect("Clear data failed");
+
+    // The run above would clear just the first 5 blocks from the beginning, but shouldn't clear any forks
+    // yet - as fork_tail only clears the 'last' 1k blocks.
+    for i in 1..5 {
+        let (block, _, _) = states1[i as usize].clone();
+        assert_eq!(
+            chain1.block_exists(block.hash()).unwrap(),
+            false,
+            "Block {:?}@{} should have been removed.",
+            block.hash(),
+            block.header().height()
+        );
+    }
+    // But blocks from the fork - shouldn't be removed yet.
+    for i in 6..7 {
+        let (block, _, _) = states1[i as usize].clone();
+        assert_eq!(
+            chain1.block_exists(block.hash()).unwrap(),
+            true,
+            "Block {:?}@{} should NOT be removed.",
+            block.hash(),
+            block.header().height()
+        );
+    }
+    // Now let's add one more block - and now the fork (and the rest) should be successfully removed.
+    {
+        let (source_block1, state_root1, _) = states1.last().unwrap().clone();
+        do_fork(
+            source_block1,
+            state_root1,
+            tries1.clone(),
+            &mut chain1,
+            1,
+            &mut states1,
+            max_changes,
+            verbose,
+        );
+    }
+    chain1
+        .clear_data(tries1, &GCConfig { gc_blocks_limit: 100, ..GCConfig::default() })
+        .expect("Clear data failed");
+    // And now all these blocks should be safely removed.
+    for i in 6..50 {
+        let (block, _, _) = states1[i as usize].clone();
+        assert_eq!(
+            chain1.block_exists(block.hash()).unwrap(),
+            false,
+            "Block {:?}@{} should have been removed.",
+            block.hash(),
+            block.header().height()
+        );
+    }
 }

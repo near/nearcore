@@ -80,6 +80,7 @@ impl RuntimeUser {
         apply_state: ApplyState,
         prev_receipts: Vec<Receipt>,
         transactions: Vec<SignedTransaction>,
+        use_flat_storage: bool,
     ) -> Result<(), ServerError> {
         let mut receipts = prev_receipts;
         for transaction in transactions.iter() {
@@ -88,17 +89,25 @@ impl RuntimeUser {
         let mut txs = transactions;
         loop {
             let mut client = self.client.write().expect(POISONED_LOCK_ERR);
+            let trie = if cfg!(feature = "protocol_feature_flat_state") && use_flat_storage {
+                client.tries.get_trie_with_block_hash_for_shard(
+                    ShardUId::single_shard(),
+                    client.state_root,
+                    &CryptoHash::default(),
+                )
+            } else {
+                client.tries.get_trie_for_shard(ShardUId::single_shard(), client.state_root)
+            };
             let apply_result = client
                 .runtime
                 .apply(
-                    client.tries.get_trie_for_shard(ShardUId::single_shard()),
-                    client.state_root,
+                    trie,
                     &None,
                     &apply_state,
                     &receipts,
                     &txs,
                     &self.epoch_info_provider,
-                    None,
+                    Default::default(),
                 )
                 .map_err(|e| match e {
                     RuntimeError::InvalidTxError(e) => {
@@ -117,13 +126,17 @@ impl RuntimeUser {
                     .borrow_mut()
                     .insert(outcome_with_id.id, outcome_with_id.outcome.into());
             }
-            client
-                .tries
-                .apply_all(&apply_result.trie_changes, ShardUId::single_shard())
-                .unwrap()
-                .0
-                .commit()
-                .unwrap();
+            let mut update = client.tries.store_update();
+            client.tries.apply_all(
+                &apply_result.trie_changes,
+                ShardUId::single_shard(),
+                &mut update,
+            );
+            if cfg!(feature = "protocol_feature_flat_state") && use_flat_storage {
+                near_store::flat::FlatStateChanges::from_state_changes(&apply_result.state_changes)
+                    .apply_to_flat_state(&mut update, ShardUId::single_shard());
+            }
+            update.commit().unwrap();
             client.state_root = apply_result.state_root;
             if apply_result.outgoing_receipts.is_empty() {
                 return Ok(());
@@ -138,7 +151,7 @@ impl RuntimeUser {
 
     fn apply_state(&self) -> ApplyState {
         ApplyState {
-            block_index: 1,
+            block_height: 1,
             prev_block_hash: Default::default(),
             block_hash: Default::default(),
             block_timestamp: 0,
@@ -234,7 +247,7 @@ impl User for RuntimeUser {
     fn view_state(&self, account_id: &AccountId, prefix: &[u8]) -> Result<ViewStateResult, String> {
         let state_update = self.client.read().expect(POISONED_LOCK_ERR).get_state_update();
         self.trie_viewer
-            .view_state(&state_update, account_id, prefix)
+            .view_state(&state_update, account_id, prefix, false)
             .map_err(|err| err.to_string())
     }
 
@@ -249,7 +262,7 @@ impl User for RuntimeUser {
         let state_update = client.get_state_update();
         let mut result = CallResult::default();
         let view_state = ViewApplyState {
-            block_height: apply_state.block_index,
+            block_height: apply_state.block_height,
             prev_block_hash: apply_state.prev_block_hash,
             block_hash: apply_state.block_hash,
             epoch_id: apply_state.epoch_id,
@@ -274,7 +287,7 @@ impl User for RuntimeUser {
     }
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), ServerError> {
-        self.apply_all(self.apply_state(), vec![], vec![transaction])?;
+        self.apply_all(self.apply_state(), vec![], vec![transaction], true)?;
         Ok(())
     }
 
@@ -282,12 +295,16 @@ impl User for RuntimeUser {
         &self,
         transaction: SignedTransaction,
     ) -> Result<FinalExecutionOutcomeView, ServerError> {
-        self.apply_all(self.apply_state(), vec![], vec![transaction.clone()])?;
+        self.apply_all(self.apply_state(), vec![], vec![transaction.clone()], true)?;
         Ok(self.get_transaction_final_result(&transaction.get_hash()))
     }
 
-    fn add_receipt(&self, receipt: Receipt) -> Result<(), ServerError> {
-        self.apply_all(self.apply_state(), vec![receipt], vec![])?;
+    fn add_receipts(
+        &self,
+        receipts: Vec<Receipt>,
+        use_flat_storage: bool,
+    ) -> Result<(), ServerError> {
+        self.apply_all(self.apply_state(), receipts, vec![], use_flat_storage)?;
         Ok(())
     }
 
@@ -300,15 +317,15 @@ impl User for RuntimeUser {
         Some(CryptoHash::default())
     }
 
-    fn get_block(&self, _height: u64) -> Option<BlockView> {
+    fn get_block_by_height(&self, _height: u64) -> Option<BlockView> {
         unimplemented!("get_block should not be implemented for RuntimeUser");
     }
 
-    fn get_block_by_hash(&self, _block_hash: CryptoHash) -> Option<BlockView> {
+    fn get_block(&self, _block_hash: CryptoHash) -> Option<BlockView> {
         None
     }
 
-    fn get_chunk(&self, _height: u64, _shard_id: u64) -> Option<ChunkView> {
+    fn get_chunk_by_height(&self, _height: u64, _shard_id: u64) -> Option<ChunkView> {
         unimplemented!("get_chunk should not be implemented for RuntimeUser");
     }
 

@@ -49,13 +49,11 @@ pub fn perf(_attr: TokenStream, item: TokenStream) -> TokenStream {
 /// This function assumes it wraps around a method with `&mut self, msg: NetworkClientMessages,
 /// ctx: &mut Self::Context<Self>` as arguments. There is currently a requirement that the second
 /// argument is called msg. There is an assumption that the argument called `msg` is an enum, which
-/// has `#[derive(AsStaticStr)]`.
+/// has `#[derive(AsRefStr)]`.
 ///
 /// # Examples
 /// ```ignore
-/// use strum::AsStaticStr;
-///
-/// #[derive(AsStaticStr)]
+/// #[derive(strum::AsRefStr)]
 /// pub enum MyMessage {
 ///      ExampleMessage()
 /// }

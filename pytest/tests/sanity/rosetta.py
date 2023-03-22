@@ -133,8 +133,14 @@ class RosettaExecResult:
             while True:
                 try:
                     block = self._rpc.get_block(block_id=self._block_id)
-                except RuntimeError:
-                    block = None
+                except requests.exceptions.HTTPError as ex:
+                    res = ex.response
+                    try:
+                        if res.status_code == 500 and res.json()['code'] == 404:
+                            break
+                    except:
+                        pass
+                    raise
                 if not block:
                     break
                 for tx in block['transactions']:
@@ -178,15 +184,7 @@ class RosettaRPC:
                                headers={'content-type': 'application/json'},
                                data=json.dumps(data, indent=True))
         result.raise_for_status()
-        data = result.json()
-        if 'code' in result:
-            raise RuntimeError(f'Got error from {path}:\n{json.dumps(data)}')
-        return data
-
-    def _get_latest_block_height(self) -> int:
-        """Returns latest block’s height."""
-        block_hash = self.node.get_status()['sync_info']['latest_block_hash']
-        return self.node.get_block(block_hash)['result']['header']['height']
+        return result.json()
 
     def exec_operations(self, signer: key.Key,
                         *operations) -> RosettaExecResult:
@@ -199,7 +197,7 @@ class RosettaRPC:
             A RosettaExecResult object which can be used to get hash of the
             submitted transaction or wait on the transaction completion.
         """
-        height = self._get_latest_block_height()
+        height = self.node.get_latest_block().height
 
         public_key = {
             'hex_bytes': signer.decoded_pk().hex(),
@@ -296,24 +294,27 @@ class RosettaRPC:
 
         def fetch(block_id: BlockIdentifier) -> JsonDict:
             block_id = block_identifier(block_id)
-            return self.rpc('/block', block_identifier=block_id)['block']
+            block = self.rpc('/block', block_identifier=block_id)['block']
+
+            # Order of transactions on the list is not guaranteed so normalise
+            # it by sorting by hash.
+            # TODO(mina86): Verify that this is still true.
+            block.get(
+                'transactions',
+                []).sort(key=lambda tx: tx['transaction_identifier']['hash'])
+
+            return block
 
         block = fetch(block_id)
-        if not block:
-            return block
 
         # Verify that fetching block by index and hash produce the same result
         # as well as getting individual transactions produce the same object as
         # the one returned when fetching transactions individually.
-        #
-        # TODO(mpn): The order of operations is currently nondeterministic for
-        # non-genesis block.  Perform check only on genesis block for now.
-        if block['block_identifier']['index'] == 0:
-            assert block == fetch(block['block_identifier']['index'])
-            assert block == fetch(block['block_identifier']['hash'])
-            for tx in block['transactions']:
-                assert tx == self.get_transaction(
-                    block_id=block_id, tx_id=tx['transaction_identifier'])
+        assert block == fetch(block['block_identifier']['index'])
+        assert block == fetch(block['block_identifier']['hash'])
+        for tx in block['transactions']:
+            assert tx == self.get_transaction(
+                block_id=block_id, tx_id=tx['transaction_identifier'])
 
         return block
 
@@ -358,16 +359,7 @@ class RosettaTestCase(unittest.TestCase):
         differ each time the test runs, those are assumed to be correct.
         """
 
-        def normalise_operations(transactions: typing.Sequence[typing.Any]):
-            """Normalises operations in a transactions by sorting by value."""
-            for tr in transactions:
-                ops = tr.get('operations', [])
-                ops.sort(key=lambda op: int(op['amount']['value']))
-                for idx, op in enumerate(ops):
-                    op['operation_identifier']['index'] = idx
-
         block_0 = self.rosetta.get_block(block_id=0)
-        normalise_operations(block_0['transactions'])
         block_0_id = block_0['block_identifier']
         trans_0_id = 'block:' + block_0_id['hash']
         trans_0 = {
@@ -375,6 +367,22 @@ class RosettaTestCase(unittest.TestCase):
                 'type': 'BLOCK'
             },
             'operations': [{
+                'account': {
+                    'address': 'near'
+                },
+                'amount': {
+                    'currency': {
+                        'decimals': 24,
+                        'symbol': 'NEAR'
+                    },
+                    'value': '999999999998180000000000000000000'
+                },
+                'operation_identifier': {
+                    'index': 0
+                },
+                'status': 'SUCCESS',
+                'type': 'TRANSFER'
+            }, {
                 'account': {
                     'address': 'near',
                     'sub_account': {
@@ -387,25 +395,6 @@ class RosettaTestCase(unittest.TestCase):
                         'symbol': 'NEAR'
                     },
                     'value': '1820000000000000000000'
-                },
-                'operation_identifier': {
-                    'index': 0
-                },
-                'status': 'SUCCESS',
-                'type': 'TRANSFER'
-            }, {
-                'account': {
-                    'address': 'test0',
-                    'sub_account': {
-                        'address': 'LOCKED'
-                    }
-                },
-                'amount': {
-                    'currency': {
-                        'decimals': 24,
-                        'symbol': 'NEAR'
-                    },
-                    'value': '50000000000000000000000000000000'
                 },
                 'operation_identifier': {
                     'index': 1
@@ -430,14 +419,17 @@ class RosettaTestCase(unittest.TestCase):
                 'type': 'TRANSFER'
             }, {
                 'account': {
-                    'address': 'near'
+                    'address': 'test0',
+                    'sub_account': {
+                        'address': 'LOCKED'
+                    }
                 },
                 'amount': {
                     'currency': {
                         'decimals': 24,
                         'symbol': 'NEAR'
                     },
-                    'value': '999999999998180000000000000000000'
+                    'value': '50000000000000000000000000000000'
                 },
                 'operation_identifier': {
                     'index': 3
@@ -461,12 +453,10 @@ class RosettaTestCase(unittest.TestCase):
 
         # Getting by hash should work and should return the exact same thing
         block = self.rosetta.get_block(block_id=block_0_id['hash'])
-        normalise_operations(block['transactions'])
         self.assertEqual(block_0, block)
 
         # Get transaction from genesis block.
         tr = self.rosetta.get_transaction(block_id=block_0_id, tx_id=trans_0_id)
-        normalise_operations((tr,))
         self.assertEqual(trans_0, tr)
 
         # Block at height=1 should have genesis block as parent and only
@@ -519,19 +509,19 @@ class RosettaTestCase(unittest.TestCase):
         block_1_id = block_1['block_identifier']
         trans_1_id = 'block:' + block_1_id['hash']
 
-        def test(want_code, callback, *args, **kw) -> JsonDict:
+        def test(want_code, callback, *args, **kw) -> None:
             with self.assertRaises(requests.exceptions.HTTPError) as err:
                 callback(*args, **kw)
             self.assertEqual(500, err.exception.response.status_code)
             resp = err.exception.response.json()
             self.assertFalse(resp['retriable'])
             self.assertEqual(want_code, resp['code'])
-            return resp
 
         # Query for non-existent blocks
-        bogus_block_hash = 'GJ92SsB76CvfaHHdaC4Vsio6xSHT7fR3EEUoK84tFe99'
-        self.assertIsNone(self.rosetta.get_block(block_id=bogus_block_hash))
-
+        test(404, self.rosetta.get_block, block_id=123456789)
+        test(400, self.rosetta.get_block, block_id=-123456789)
+        bogus_hash = 'GJ92SsB76CvfaHHdaC4Vsio6xSHT7fR3EEUoK84tFe99'
+        test(404, self.rosetta.get_block, block_id=bogus_hash)
         test(400, self.rosetta.get_block, block_id='malformed-hash')
 
         # Query for non-existent transactions
@@ -619,7 +609,12 @@ class RosettaTestCase(unittest.TestCase):
                     'index': 0
                 },
                 'status': 'SUCCESS',
-                'type': 'TRANSFER'
+                'type': 'TRANSFER',
+                'metadata': {
+                    'predecessor_id': {
+                        'address': 'test0'
+                    }
+                }
             }, {
                 'account': {
                     'address': 'test0'
@@ -635,7 +630,13 @@ class RosettaTestCase(unittest.TestCase):
                     'index': 1
                 },
                 'status': 'SUCCESS',
-                'type': 'TRANSFER'
+                'type': 'TRANSFER',
+                'metadata': {
+                    'predecessor_id': {
+                        'address': 'test0'
+                    },
+                    'transfer_fee_type': 'GAS_PREPAYMENT'
+                }
             }],
             'related_transactions': [{
                 'direction': 'forward',
@@ -656,6 +657,11 @@ class RosettaTestCase(unittest.TestCase):
                     },
                     'type': 'TRANSFER',
                     'status': 'SUCCESS',
+                    'metadata': {
+                        'predecessor_id': {
+                            'address': 'test0'
+                        }
+                    },
                     'account': {
                         'address': implicit.account_id,
                     },
@@ -672,6 +678,11 @@ class RosettaTestCase(unittest.TestCase):
                     },
                     'type': 'TRANSFER',
                     'status': 'SUCCESS',
+                    'metadata': {
+                        'predecessor_id': {
+                            'address': 'test0'
+                        }
+                    },
                     'account': {
                         'address': implicit.account_id,
                         'sub_account': {
@@ -710,13 +721,19 @@ class RosettaTestCase(unittest.TestCase):
                             'decimals': 24,
                             'symbol': 'NEAR'
                         },
-                        'value': '12736651875000000000'
+                        'value': '12524843062500000000'
                     },
                     'operation_identifier': {
                         'index': 0
                     },
                     'status': 'SUCCESS',
-                    'type': 'TRANSFER'
+                    'type': 'TRANSFER',
+                    'metadata': {
+                        'predecessor_id': {
+                            'address': 'system'
+                        },
+                        'transfer_fee_type': 'GAS_REFUND'
+                    }
                 }],
                 'transaction_identifier': related.identifier
             }, related.transaction())
@@ -755,13 +772,18 @@ class RosettaTestCase(unittest.TestCase):
                             'decimals': 24,
                             'symbol': 'NEAR'
                         },
-                        'value': '-511097000000000000000'
+                        'value': '-51109700000000000000'
                     },
                     'operation_identifier': {
                         'index': 0
                     },
                     'status': 'SUCCESS',
-                    'type': 'TRANSFER'
+                    'type': 'TRANSFER',
+                    'metadata': {
+                        'predecessor_id': {
+                            'address': implicit.account_id
+                        }
+                    }
                 }],
                 'related_transactions': [{
                     'direction': 'forward',
@@ -786,7 +808,7 @@ class RosettaTestCase(unittest.TestCase):
                             'decimals': 24,
                             'symbol': 'NEAR'
                         },
-                        'value': '-7668903000000000000000'
+                        'value': '-8128890300000000000000'
                     },
                     'operation_identifier': {
                         'index': 0
@@ -836,13 +858,19 @@ class RosettaTestCase(unittest.TestCase):
                             'decimals': 24,
                             'symbol': 'NEAR'
                         },
-                        'value': '9488903000000000000000'
+                        'value': '9948890300000000000000'
                     },
                     'operation_identifier': {
                         'index': 0
                     },
                     'status': 'SUCCESS',
-                    'type': 'TRANSFER'
+                    'type': 'TRANSFER',
+                    'metadata': {
+                        'predecessor_id': {
+                            'address': "system"
+                        },
+                        'transfer_fee_type': 'GAS_REFUND'
+                    }
                 }],
                 'transaction_identifier': receipt_id_2
             }, result.transaction())

@@ -1,21 +1,21 @@
 [package]
 name = "near-telemetry"
 version = "0.0.0"
-authors = ["Near Inc <hello@nearprotocol.com>"]
+authors.workspace = true
 publish = false
-# Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.56.0"
-edition = "2021"
+edition.workspace = true
 
 [dependencies]
-openssl = { version = "0.10", features = ["vendored"] }
-awc = "3.0.0-beta.5"
-actix-web = { version = "=4.0.0-beta.6", features = [ "openssl" ] }
-futures = "0.3"
-actix = "=0.11.0-beta.2"
-serde = { version = "1", features = [ "derive" ] }
-serde_json = "1"
-tracing = "0.1.13"
+actix.workspace = true
+awc.workspace = true
+futures.workspace = true
+once_cell.workspace = true
+openssl.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
 
+near-o11y = { path = "../../core/o11y" }
 near-performance-metrics = { path = "../../utils/near-performance-metrics" }
 near-performance-metrics-macros = { path = "../../utils/near-performance-metrics-macros" }
+near-primitives = { path = "../../core/primitives" }

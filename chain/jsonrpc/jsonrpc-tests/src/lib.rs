@@ -1,28 +1,24 @@
 use actix::Addr;
 use futures::{future, future::LocalBoxFuture, FutureExt, TryFutureExt};
-use once_cell::sync::Lazy;
-use serde_json::json;
-
 use near_chain_configs::GenesisConfig;
 use near_client::test_utils::setup_no_network_with_validity_period_and_no_epoch_sync;
 use near_client::ViewClientActor;
 use near_jsonrpc::{start_http, RpcConfig};
 use near_jsonrpc_primitives::message::{from_slice, Message};
-use near_network::test_utils::open_port;
-#[cfg(feature = "test_features")]
-use near_network::test_utils::test_features::make_peer_manager_routing_table_addr_pair;
+use near_network::tcp;
 use near_primitives::types::NumBlocks;
+use once_cell::sync::Lazy;
+use serde_json::json;
 
-pub static TEST_GENESIS_CONFIG: Lazy<GenesisConfig> = Lazy::new(|| {
-    GenesisConfig::from_json(include_str!("../../../../nearcore/res/genesis_config.json"))
-});
+pub static TEST_GENESIS_CONFIG: Lazy<GenesisConfig> =
+    Lazy::new(|| GenesisConfig::from_json(include_str!("../res/genesis_config.json")));
 
 pub enum NodeType {
     Validator,
     NonValidator,
 }
 
-pub fn start_all(node_type: NodeType) -> (Addr<ViewClientActor>, String) {
+pub fn start_all(node_type: NodeType) -> (Addr<ViewClientActor>, tcp::ListenerAddr) {
     start_all_with_validity_period_and_no_epoch_sync(node_type, 100, false)
 }
 
@@ -30,8 +26,8 @@ pub fn start_all_with_validity_period_and_no_epoch_sync(
     node_type: NodeType,
     transaction_validity_period: NumBlocks,
     enable_doomslug: bool,
-) -> (Addr<ViewClientActor>, String) {
-    let (client_addr, view_client_addr) = setup_no_network_with_validity_period_and_no_epoch_sync(
+) -> (Addr<ViewClientActor>, tcp::ListenerAddr) {
+    let actor_handles = setup_no_network_with_validity_period_and_no_epoch_sync(
         vec!["test1".parse().unwrap(), "test2".parse().unwrap()],
         if let NodeType::Validator = node_type {
             "test1".parse().unwrap()
@@ -43,22 +39,15 @@ pub fn start_all_with_validity_period_and_no_epoch_sync(
         enable_doomslug,
     );
 
-    let addr = format!("127.0.0.1:{}", open_port());
-
-    #[cfg(feature = "test_features")]
-    let (peer_manager_addr, routing_table_addr) = make_peer_manager_routing_table_addr_pair();
-
+    let addr = tcp::ListenerAddr::reserve_for_test();
     start_http(
-        RpcConfig::new(&addr),
+        RpcConfig::new(addr),
         TEST_GENESIS_CONFIG.clone(),
-        client_addr.clone(),
-        view_client_addr.clone(),
-        #[cfg(feature = "test_features")]
-        peer_manager_addr,
-        #[cfg(feature = "test_features")]
-        routing_table_addr,
+        actor_handles.client_actor,
+        actor_handles.view_client_actor.clone(),
+        None,
     );
-    (view_client_addr, addr)
+    (actor_handles.view_client_actor, addr)
 }
 
 #[macro_export]
@@ -133,9 +122,9 @@ where
                         ))
                     })
                 }),
-                _ => Err(near_jsonrpc_primitives::errors::RpcError::parse_error(format!(
-                    "Failed to parse JSON RPC response"
-                ))),
+                _ => Err(near_jsonrpc_primitives::errors::RpcError::parse_error(
+                    "Failed to parse JSON RPC response".to_string(),
+                )),
             })
         })
         .boxed_local()

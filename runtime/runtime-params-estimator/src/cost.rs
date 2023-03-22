@@ -4,7 +4,7 @@ use std::str::FromStr;
 /// Kinds of things we measure in parameter estimator and charge for in runtime.
 ///
 /// TODO: Deduplicate this enum with `ExtCosts` and `ActionCosts`.
-#[derive(Copy, Clone, PartialEq, Eq, Debug, PartialOrd, Ord)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, PartialOrd, Ord, clap::ArgEnum)]
 #[repr(u8)]
 pub enum Cost {
     // Every set of actions in a transaction needs to be transformed into a
@@ -34,9 +34,44 @@ pub enum Cost {
     /// Estimation: Measure the creation and execution of an empty action
     /// receipt, where sender and receiver are the same account.
     ActionSirReceiptCreation,
+    ActionReceiptCreationSendNotSir,
+    ActionReceiptCreationSendSir,
+    ActionReceiptCreationExec,
+    /// Estimates `data_receipt_creation_config.base_cost`, which is charged for
+    /// every data dependency of created receipts. This occurs either through
+    /// calls to `promise_batch_then` or `value_return`. Dispatch and execution
+    /// costs are both burnt upfront.
+    ///
+    /// Estimation: Measure two functions that each create 1000 promises but
+    /// only one of them also creates a callback that depends on the promise
+    /// results. The difference in execution cost is divided by 1000.
     DataReceiptCreationBase,
+    DataReceiptCreationBaseSendNotSir,
+    DataReceiptCreationBaseSendSir,
+    DataReceiptCreationBaseExec,
+    /// Estimates `data_receipt_creation_config.cost_per_byte`, which is charged
+    /// for every byte in data dependency of created receipts. This occurs
+    /// either through calls to `promise_batch_then` or `value_return`. Dispatch
+    /// and execution costs are both burnt upfront.
+    ///
+    /// Estimation: Measure two functions that each create 1000 promises with a
+    /// callback that depends on the promise results. One of the functions
+    /// creates small data receipts, the other large ones. The difference in
+    /// execution cost is divided by the total byte difference.
     DataReceiptCreationPerByte,
+    DataReceiptCreationPerByteSendNotSir,
+    DataReceiptCreationPerByteSendSir,
+    DataReceiptCreationPerByteExec,
+    /// Estimates `action_creation_config.create_account_cost` which is charged
+    /// for `CreateAccount` actions, the same value on sending and executing.
+    ///
+    /// Estimation: Measure a transaction that creates an account and transfers
+    /// an initial balance to it. Subtract the base cost of creating a receipt.
+    // TODO(jakmeier): consider also subtracting transfer fee
     ActionCreateAccount,
+    ActionCreateAccountSendNotSir,
+    ActionCreateAccountSendSir,
+    ActionCreateAccountExec,
     // Deploying a new contract for an account on the blockchain stores the WASM
     // code in the trie. Additionally, it also triggers a compilation of the
     // code to check that it is valid WASM. The compiled code is then stored in
@@ -49,6 +84,9 @@ pub enum Cost {
     ///
     /// Estimation: Measure deployment cost of a "smallest" contract.
     ActionDeployContractBase,
+    ActionDeployContractBaseSendNotSir,
+    ActionDeployContractBaseSendSir,
+    ActionDeployContractBaseExec,
     /// Estimates `action_creation_config.deploy_contract_cost_per_byte`, which
     /// is charged for every byte in the WASM code when deploying the contract
     ///
@@ -56,19 +94,135 @@ pub enum Cost {
     /// a transaction. Subtract base costs and apply least-squares on the
     /// results to find the per-byte costs.
     ActionDeployContractPerByte,
+    ActionDeployContractPerByteSendNotSir,
+    ActionDeployContractPerByteSendSir,
+    ActionDeployContractPerByteExec,
+    /// Estimates `action_creation_config.function_call_cost`, which is the base
+    /// cost for adding a `FunctionCallAction` to a receipt. It aims to account
+    /// for all costs of calling a function that are already known on the caller
+    /// side.
+    ///
+    /// Estimation: Measure the cost to execute a NOP function on a tiny
+    /// contract. To filter out block and general receipt processing overhead,
+    /// the difference between calling it N +1 times and calling it once in a
+    /// transaction is divided by N. Executable loading cost is also subtracted
+    /// from the final result because this is charged separately.
     ActionFunctionCallBase,
+    ActionFunctionCallBaseSendNotSir,
+    ActionFunctionCallBaseSendSir,
+    ActionFunctionCallBaseExec,
+    /// Estimates `action_creation_config.function_call_cost_per_byte`, which is
+    /// the incremental cost for each byte of the method name and method
+    /// arguments cost for adding a `FunctionCallAction` to a receipt.
+    ///
+    /// Estimation: Measure the cost for a transaction with an empty function
+    /// call with a large argument value. Subtract the cost of an empty function
+    /// call with no argument. Divide the difference by the length of the
+    /// argument.
     ActionFunctionCallPerByte,
-    ActionFunctionCallBaseV2,
-    ActionFunctionCallPerByteV2,
+    ActionFunctionCallPerByteSendNotSir,
+    ActionFunctionCallPerByteSendSir,
+    ActionFunctionCallPerByteExec,
+    /// Estimates `action_creation_config.transfer_cost` which is charged for
+    /// every `Action::Transfer`, the same value for sending and executing.
+    ///
+    /// Estimation: Measure a transaction with only a transfer and subtract the
+    /// base cost of creating a receipt.
     ActionTransfer,
+    ActionTransferSendNotSir,
+    ActionTransferSendSir,
+    ActionTransferExec,
+    /// Estimates `action_creation_config.stake_cost` which is charged for every
+    /// `Action::Stake`, a slightly higher value for sending than executing.
+    ///
+    /// Estimation: Measure a transaction with only a staking action and
+    /// subtract the base cost of creating a sir-receipt.
+    ///
+    /// Note: The exec cost is probably a copy-paste mistake. (#8185)
     ActionStake,
+    ActionStakeSendNotSir,
+    ActionStakeSendSir,
+    ActionStakeExec,
+    /// Estimates `action_creation_config.add_key_cost.full_access_cost` which
+    /// is charged for every `Action::AddKey` where the key is a full access
+    /// key. The same value is charged for sending and executing.
+    ///
+    /// Estimation: Measure a transaction that adds a full access key and
+    /// subtract the base cost of creating a sir-receipt.
     ActionAddFullAccessKey,
+    ActionAddFullAccessKeySendNotSir,
+    ActionAddFullAccessKeySendSir,
+    ActionAddFullAccessKeyExec,
+    /// Estimates `action_creation_config.add_key_cost.function_call_cost` which
+    /// is charged once for every `Action::AddKey` where the key is a function
+    /// call key. The same value is charged for sending and executing.
+    ///
+    /// Estimation: Measure a transaction that adds a function call key and
+    /// subtract the base cost of creating a sir-receipt.
     ActionAddFunctionAccessKeyBase,
+    ActionAddFunctionAccessKeyBaseSendNotSir,
+    ActionAddFunctionAccessKeyBaseSendSir,
+    ActionAddFunctionAccessKeyBaseExec,
+    /// Estimates
+    /// `action_creation_config.add_key_cost.function_call_cost_per_byte` which
+    /// is charged once for every byte in null-terminated method names listed in
+    /// an `Action::AddKey` where the key is a function call key. The same value
+    /// is charged for sending and executing.
+    ///
+    /// Estimation: Measure a transaction that adds a function call key with
+    /// many methods. Subtract the cost of adding a function call key with a
+    /// single method and of creating a sir-receipt. The result is divided by
+    /// total bytes in the method names.
     ActionAddFunctionAccessKeyPerByte,
+    ActionAddFunctionAccessKeyPerByteSendNotSir,
+    ActionAddFunctionAccessKeyPerByteSendSir,
+    ActionAddFunctionAccessKeyPerByteExec,
+    /// Estimates `action_creation_config.delete_key_cost` which is charged for
+    /// `DeleteKey` actions, the same value on sending and executing. It does
+    /// not matter whether it is a function call or full access key.
+    ///
+    /// Estimation: Measure a transaction that deletes a full access key and
+    /// transfers an initial balance to it. Subtract the base cost of creating a
+    /// receipt.
+    // TODO(jakmeier): check cost for function call keys with many methods
     ActionDeleteKey,
+    ActionDeleteKeySendNotSir,
+    ActionDeleteKeySendSir,
+    ActionDeleteKeyExec,
+    /// Estimates `action_creation_config.delete_account_cost` which is charged
+    /// for `DeleteAccount` actions, the same value on sending and executing.
+    ///
+    /// Estimation: Measure a transaction that deletes an existing account.
+    /// Subtract the base cost of creating a sir-receipt.
+    /// TODO(jakmeier): Consider different account states.
     ActionDeleteAccount,
-
+    ActionDeleteAccountSendNotSir,
+    ActionDeleteAccountSendSir,
+    ActionDeleteAccountExec,
+    /// Estimates `action_creation_config.delegate_cost` which is charged
+    /// for `DelegateAction` actions.
+    ActionDelegate,
+    /// Estimates `wasm_config.ext_costs.base` which is intended to be charged
+    /// once on every host function call. However, this is currently
+    /// inconsistent. First, we do not charge on Math API methods (`sha256`,
+    /// `keccak256`, `keccak512`, `ripemd160`, `alt_bn128_g1_multiexp`,
+    /// `alt_bn128_g1_sum`, `alt_bn128_pairing_check`). Furthermore,
+    /// `promise_then` and `promise_create` are convenience wrapper around two
+    /// other host functions, which means they end up charing this fee twice.
+    ///
+    /// Estimation: Measure a transaction with a smart contract function call
+    /// that, from within the WASM runtime, invokes the host function
+    /// `block_index()` many times. Subtract the cost of executing a smart
+    /// contract function that does nothing. Divide the difference by the number
+    /// of host function calls.
     HostFunctionCall,
+    /// Estimates `wasm_config.regular_op_cost` which is charged for every
+    /// executed WASM operation in function calls, as counted dynamically during
+    /// execution.
+    ///
+    /// Estimation: Run a contract that reads and writes lots of memory in an
+    /// attempt to cause slow loads and stores. The total time spent in the
+    /// runtime is divided by the number of executed instructions.
     WasmInstruction,
 
     // # Reading and writing memory
@@ -247,7 +401,39 @@ pub enum Cost {
     /// function `ecrecover` to verify an ECDSA signature and extract the
     /// signer.
     EcrecoverBase,
-
+    /// Estimates `ed25519_verify_base`, which covers the base cost of the host
+    /// function `ed25519_verify` to verify an ED25519 signature.
+    ///
+    /// Estimation: Use a fixed signature embedded in the test contract and
+    /// verify it `N` times in a loop and divide by `N`. The overhead of other
+    /// costs is negligible compared to the two elliptic curve scalar
+    /// multiplications performed for signature validation.
+    ///
+    /// Note that the multiplication algorithm used is not constant time, i.e.
+    /// it's timing varies depending on the input. Testing with a range of
+    /// random signatures, the difference is +/-10%. Testing with extreme
+    /// inputs, it can be more than 20% faster than a  random case. But it seems
+    /// on the upper end, there is a limit to how many additions and doublings
+    /// need to be performed.
+    /// In conclusion, testing on a single input is okay, if we account for the
+    /// 10-20% variation.
+    Ed25519VerifyBase,
+    /// Estimates `ed25519_verify_byte`, the cost charged per input byte in calls to the
+    /// ed25519_verify host function.
+    ///
+    /// Estimation: Verify a signature for a large message many times, subtract
+    /// the cost estimated for the base and divide the remainder by the total
+    /// bytes the message.
+    ///
+    /// The cost per byte for pure verification is just the cost for hashing.
+    /// This is comparable to the cost for reading values from memory or
+    /// registers, which is currently not subtracted in the estimation.
+    /// Subtracting it would lead to high variance. Instead, one has to take it
+    /// into account that memory overhead is included when mapping the
+    /// estimation to a parameter.
+    /// In the end, the cost should be low enough, compared to the base cost,
+    /// that it does not matter all that much if we overestimate it a bit.
+    Ed25519VerifyByte,
     // `storage_write` records a single key-value pair, initially in the
     // prospective changes in-memory hash map, and then once a full block has
     // been processed, in the on-disk trie. If there was already a value
@@ -353,13 +539,26 @@ pub enum Cost {
     StorageIterNextValueByte,
 
     /// Estimates `touching_trie_node` which is charged when smart contracts
-    /// access storage either through `storage_has_key`, `storage_read`, or
-    /// `storage_write`. The fee is paid once for each unique trie node
-    /// accessed.
+    /// access storage either through `storage_has_key`, `storage_read`,
+    /// `storage_write` or `storage_remove`. The fee is paid once for each
+    /// unique trie node accessed.
     ///
     /// Estimation: Take the maximum of estimations for `TouchingTrieNodeRead`
     /// and `TouchingTrieNodeWrite`
     TouchingTrieNode,
+    /// It is similar to `TouchingTrieNode`, but it is charged instead of this
+    /// cost when we can guarantee that trie node is cached in memory, which
+    /// allows us to charge less costs.
+    ///
+    /// Estimation: Since this is a small cost, it cannot be measured accurately
+    /// through the normal process of measuring several transactions and
+    /// calculating the difference. Instead, the estimation directly
+    /// instantiates the caching storage and reads nodes of the largest possible
+    /// size from it. This is done in a pessimistic setup and the 90th
+    /// percentile of measured samples is taken as the final cost. The details
+    /// for this are a bit involved but roughly speaking, it just forces values
+    /// out of CPU caches so that they are always read from memory.
+    ReadCachedTrieNode,
     /// Helper estimation for `TouchingTrieNode`
     ///
     /// Estimation: Prepare an account that has many keys stored that are
@@ -408,12 +607,12 @@ pub enum Cost {
     ValidatorTotalStakeBase,
 
     AltBn128G1MultiexpBase,
-    AltBn128G1MultiexpByte,
+    AltBn128G1MultiexpElement,
     AltBn128G1MultiexpSublinear,
     AltBn128PairingCheckBase,
-    AltBn128PairingCheckByte,
+    AltBn128PairingCheckElement,
     AltBn128G1SumBase,
-    AltBn128G1SumByte,
+    AltBn128G1SumElement,
 
     // Costs used only in estimator
     //
@@ -452,6 +651,38 @@ pub enum Cost {
     /// around bytes that are not code. Divide this cost by the difference of
     /// bytes.
     DeployBytes,
+    /// Estimates `wasm_contract_loading_base` which is charged once per contract
+    /// that is loaded from the database to execute a method on it.
+    ///
+    /// Estimation: Measure the cost to execute an empty contract method
+    /// directly on a runtime instance, using different sizes of contracts.
+    /// Use least-squares to calculate base and per-byte cost.
+    /// The contract size is scaled by adding more methods to it. This has been
+    /// identified as particular expensive in terms of per-byte loading time.
+    /// This makes it a better scaling strategy than, for example, adding large
+    /// constants in the data section.
+    ContractLoadingBase,
+    /// Estimates the executable loading part of `wasm_contract_loading_bytes`
+    /// which is charged for each byte in a contract when it is loaded as an
+    /// executable.
+    ///
+    /// This cost also has to cover the reading of the code from the database.
+    /// So technically, it covers code loading from database and also executable
+    /// loading. But it is still charged right before executable loading because
+    /// pre-charging for loading from the database is not possible without
+    /// knowing the code size.
+    ///
+    /// Estimation: See `ContractLoadingBase`.
+    ContractLoadingPerByte,
+    /// Estimates the storage loading part of `wasm_contract_loading_bytes`.
+    ///
+    /// See comment on `ContractLoadingPerByte` why these are combined.
+    ///
+    /// Estimation: Measure the cost difference of two transactions calling a
+    /// trivial smart contract method, where one contract has a large data
+    /// section and the other contract is very small. Divide the difference in
+    /// size.
+    FunctionCallPerStorageByte,
     GasMeteringBase,
     GasMeteringOp,
     /// Cost of inserting a new value directly into a RocksDB instance.
@@ -502,7 +733,7 @@ impl fmt::Display for Cost {
 }
 
 impl FromStr for Cost {
-    type Err = ();
+    type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         // Ridiculously inefficient, but shouldn't mater.
@@ -511,6 +742,6 @@ impl FromStr for Cost {
                 return Ok(cost);
             }
         }
-        Err(())
+        anyhow::bail!("failed parsing {s} as Cost");
     }
 }

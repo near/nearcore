@@ -1,14 +1,20 @@
+use crate::hash::CryptoHash;
+use crate::serialize::dec_format;
+use crate::types::{Balance, Nonce, StorageUsage};
 use borsh::{BorshDeserialize, BorshSerialize};
-use serde::{Deserialize, Serialize};
+pub use near_account_id as id;
 use std::io;
 
-pub use near_account_id as id;
-
-use crate::hash::CryptoHash;
-use crate::serialize::{option_u128_dec_format, u128_dec_format_compatible};
-use crate::types::{Balance, Nonce, StorageUsage};
 #[derive(
-    BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Copy,
+    BorshSerialize,
+    BorshDeserialize,
+    PartialEq,
+    Eq,
+    Debug,
+    Clone,
+    Copy,
+    serde::Serialize,
+    serde::Deserialize,
 )]
 pub enum AccountVersion {
     V1,
@@ -21,13 +27,13 @@ impl Default for AccountVersion {
 }
 
 /// Per account information stored in the state.
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct Account {
     /// The total not locked tokens.
-    #[serde(with = "u128_dec_format_compatible")]
+    #[serde(with = "dec_format")]
     amount: Balance,
     /// The amount locked due to staking.
-    #[serde(with = "u128_dec_format_compatible")]
+    #[serde(with = "dec_format")]
     locked: Balance,
     /// Hash of the code stored in the storage for this account.
     code_hash: CryptoHash,
@@ -111,13 +117,10 @@ struct LegacyAccount {
 }
 
 impl BorshDeserialize for Account {
-    fn deserialize(buf: &mut &[u8]) -> Result<Self, io::Error> {
+    fn deserialize_reader<R: io::Read>(rd: &mut R) -> io::Result<Self> {
         // This should only ever happen if we have pre-transition account serialized in state
         // See test_account_size
-        let deserialized_account = LegacyAccount::deserialize(buf)?;
-        if buf.len() != 0 {
-            panic!("Tried deserializing a buffer that is not exactly the size of an account");
-        }
+        let deserialized_account = LegacyAccount::deserialize_reader(rd)?;
         Ok(Account {
             amount: deserialized_account.amount,
             locked: deserialized_account.locked,
@@ -147,9 +150,16 @@ impl BorshSerialize for Account {
 /// access keys. Access keys allow to act on behalf of the account by restricting transactions
 /// that can be issued.
 /// `account_id,public_key` is a key in the state
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
-    BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Debug,
+    BorshSerialize,
+    BorshDeserialize,
+    PartialEq,
+    Eq,
+    Hash,
+    Clone,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
 )]
 pub struct AccessKey {
     /// Nonce for this access key, used for tx nonce generation. When access key is created, nonce
@@ -170,9 +180,16 @@ impl AccessKey {
 }
 
 /// Defines permissions for AccessKey
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
-    BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Debug,
+    BorshSerialize,
+    BorshDeserialize,
+    PartialEq,
+    Eq,
+    Hash,
+    Clone,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
 )]
 pub enum AccessKeyPermission {
     FunctionCall(FunctionCallPermission),
@@ -186,9 +203,16 @@ pub enum AccessKeyPermission {
 /// The permission can limit the allowed balance to be spent on the prepaid gas.
 /// It also restrict the account ID of the receiver for this function call.
 /// It also can restrict the method name for the allowed function calls.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
-    BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Debug,
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Eq,
+    Hash,
+    Clone,
+    Debug,
 )]
 pub struct FunctionCallPermission {
     /// Allowance is a balance limit to use by this access key to pay for function call gas and
@@ -197,7 +221,7 @@ pub struct FunctionCallPermission {
     /// `None` means unlimited allowance.
     /// NOTE: To change or increase the allowance, the old access key needs to be deleted and a new
     /// access key should be created.
-    #[serde(with = "option_u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub allowance: Option<Balance>,
 
     // This isn't an AccountId because already existing records in testnet genesis have invalid
@@ -217,7 +241,6 @@ mod tests {
     use borsh::BorshSerialize;
 
     use crate::hash::hash;
-    use crate::serialize::to_base;
 
     use super::*;
 
@@ -225,7 +248,7 @@ mod tests {
     fn test_account_serialization() {
         let acc = Account::new(1_000_000, 1_000_000, CryptoHash::default(), 100);
         let bytes = acc.try_to_vec().unwrap();
-        assert_eq!(to_base(&hash(&bytes)), "EVk5UaxBe8LQ8r8iD5EAxVBs6TJcMDKqyH7PBuho6bBJ");
+        assert_eq!(hash(&bytes).to_string(), "EVk5UaxBe8LQ8r8iD5EAxVBs6TJcMDKqyH7PBuho6bBJ");
     }
 
     #[test]

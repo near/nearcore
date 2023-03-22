@@ -1,0 +1,19 @@
+---
+source: runtime/runtime-params-estimator/estimator-warehouse/src/check.rs
+expression: report.to_string()
+---
+## Report 
+*Status: Warn*
+*Current commit:         0000b*
+*Compared to:         0004a*
+### Relative gas estimation changes above threshold: 2
+```
+LogBase                                         5.00 Ggas ➜        6.00 Ggas (+20.00%)
+LogByte                                         1.01 Ggas ➜        7.00 Ggas (+594.44%)
+```
+### Gas estimator uncertain estimations: 2
+```
+UncertainTest                                               HIGH-VARIANCE ➜ None                            
+UncertainTest2                                                       None ➜ BLOCK-MEASUREMENT-OVERHEAD      
+```
+

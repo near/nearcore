@@ -1,6 +1,6 @@
 use crate::peer::transfer_stats::TransferStats;
 use near_primitives::hash::CryptoHash;
-use std::time::Instant;
+use near_primitives::time;
 
 /// Maximum number of requests and responses to track.
 const MAX_TRACK_SIZE: usize = 30;
@@ -63,17 +63,20 @@ impl Default for Tracker {
 }
 
 impl Tracker {
-    pub(crate) fn increment_received(&mut self, size: u64) {
-        self.received_bytes.record(size, Instant::now());
+    pub(crate) fn increment_received(&mut self, clock: &time::Clock, size: u64) {
+        self.received_bytes.record(clock, size);
     }
 
-    pub(crate) fn increment_sent(&mut self, size: u64) {
-        self.sent_bytes.record(size, Instant::now());
+    pub(crate) fn increment_sent(&mut self, clock: &time::Clock, size: u64) {
+        self.sent_bytes.record(clock, size);
     }
 
+    // TODO: uncomment this once we add a new message type to sync block height
+    /*
     pub(crate) fn has_received(&self, hash: &CryptoHash) -> bool {
         self.received.contains(hash)
     }
+     */
 
     pub(crate) fn push_received(&mut self, hash: CryptoHash) {
         self.received.push(hash);

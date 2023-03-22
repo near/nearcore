@@ -2,15 +2,10 @@
 
 pub mod state_dump;
 
-use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-
-use indicatif::{ProgressBar, ProgressStyle};
-
 use crate::state_dump::StateDump;
-use near_chain::types::BlockHeaderInfo;
-use near_chain::{Block, Chain, ChainStore, RuntimeAdapter};
+use indicatif::{ProgressBar, ProgressStyle};
+use near_chain::types::{BlockHeaderInfo, RuntimeAdapter};
+use near_chain::{Block, Chain, ChainStore};
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::{AccessKey, Account};
@@ -21,13 +16,36 @@ use near_primitives::shard_layout::{account_id_to_shard_id, ShardUId};
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, Balance, EpochId, ShardId, StateChangeCause, StateRoot};
-use near_store::{
-    create_store, get_account, set_access_key, set_account, set_code, Store, TrieUpdate,
-};
-use nearcore::{get_store_path, NightshadeRuntime, TrackedConfig};
+use near_store::{get_account, set_access_key, set_account, set_code, Store, TrieUpdate};
+use nearcore::{NearConfig, NightshadeRuntime};
+use std::collections::BTreeMap;
+use std::hash::{Hash, Hasher};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-fn get_account_id(account_index: u64) -> AccountId {
-    AccountId::try_from(format!("near_{}_{}", account_index, account_index)).unwrap()
+/// Deterministically construct an account ID by index.
+///
+/// This is used by the estimator to fill a DB with many accounts for which the
+/// name can be constructed again during estimations.
+///
+/// The ids are constructed to form a somewhat interesting shape in the trie. It
+/// starts with a hash that will be different for each account, followed by a
+/// string that is sufficiently long. The hash is supposed to produces a bunch
+/// of branches, whereas the string after that will produce an extension.
+///
+/// If anyone has a reason to change the format, there is no strong reason to
+/// keep it exactly as it is. But keeping the length of the accounts the same
+/// would be desired to avoid breaking tests and estimations.
+///
+/// Note that existing estimator DBs need to be reconstructed when the format
+/// changes. Daily estimations are not affected by this.
+pub fn get_account_id(account_index: u64) -> AccountId {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    account_index.hash(&mut hasher);
+    let hash = hasher.finish();
+    // Some estimations rely on the account ID length being constant.
+    // Pad booth numbers to length 20, the longest decimal representation of an u64.
+    AccountId::try_from(format!("{hash:020}_near_{account_index:020}")).unwrap()
 }
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -39,7 +57,7 @@ pub struct GenesisBuilder {
     tmpdir: tempfile::TempDir,
     genesis: Arc<Genesis>,
     store: Store,
-    runtime: NightshadeRuntime,
+    runtime: Arc<NightshadeRuntime>,
     unflushed_records: BTreeMap<ShardId, Vec<StateRecord>>,
     roots: BTreeMap<ShardId, StateRoot>,
     state_updates: BTreeMap<ShardId, TrieUpdate>,
@@ -53,23 +71,13 @@ pub struct GenesisBuilder {
 }
 
 impl GenesisBuilder {
-    pub fn from_config_and_store(home_dir: &Path, genesis: Arc<Genesis>, store: Store) -> Self {
+    pub fn from_config_and_store(home_dir: &Path, config: NearConfig, store: Store) -> Self {
         let tmpdir = tempfile::Builder::new().prefix("storage").tempdir().unwrap();
-        let runtime = NightshadeRuntime::new(
-            tmpdir.path(),
-            store.clone(),
-            &genesis,
-            // Since we are not using runtime as an actor
-            // there is no reason to track accounts or shards.
-            TrackedConfig::new_empty(),
-            None,
-            None,
-            None,
-        );
+        let runtime = NightshadeRuntime::from_config(tmpdir.path(), store.clone(), &config);
         Self {
             home_dir: home_dir.to_path_buf(),
             tmpdir,
-            genesis,
+            genesis: Arc::new(config.genesis),
             store,
             runtime,
             unflushed_records: Default::default(),
@@ -80,11 +88,6 @@ impl GenesisBuilder {
             additional_accounts_code_hash: CryptoHash::default(),
             print_progress: false,
         }
-    }
-
-    pub fn from_config(home_dir: &Path, genesis: Arc<Genesis>) -> Self {
-        let store = create_store(&get_store_path(home_dir));
-        Self::from_config_and_store(home_dir, genesis, store)
     }
 
     pub fn print_progress(mut self) -> Self {
@@ -173,13 +176,18 @@ impl GenesisBuilder {
         }
         let tries = self.runtime.get_tries();
         state_update.commit(StateChangeCause::InitialState);
-        let trie_changes = state_update.finalize()?.0;
+        let (_, trie_changes, state_changes) = state_update.finalize()?;
         let genesis_shard_version = self.genesis.config.shard_layout.version();
         let shard_uid = ShardUId { version: genesis_shard_version, shard_id: shard_idx as u32 };
-        let (store_update, root) = tries.apply_all(&trie_changes, shard_uid)?;
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+        if cfg!(feature = "protocol_feature_flat_state") {
+            near_store::flat::FlatStateChanges::from_state_changes(&state_changes)
+                .apply_to_flat_state(&mut store_update, shard_uid);
+        }
         store_update.commit()?;
 
-        self.roots.insert(shard_idx, root.clone());
+        self.roots.insert(shard_idx, root);
         self.state_updates.insert(shard_idx, tries.new_trie_update(shard_uid, root));
         Ok(())
     }
@@ -200,14 +208,15 @@ impl GenesisBuilder {
             self.genesis.config.min_gas_price,
             self.genesis.config.total_supply,
             Chain::compute_bp_hash(
-                &self.runtime,
+                &*self.runtime,
                 EpochId::default(),
                 EpochId::default(),
                 &CryptoHash::default(),
             )?,
         );
 
-        let mut store = ChainStore::new(self.store.clone(), self.genesis.config.genesis_height);
+        let mut store =
+            ChainStore::new(self.store.clone(), self.genesis.config.genesis_height, true);
         let mut store_update = store.store_update();
 
         store_update.merge(
@@ -232,7 +241,7 @@ impl GenesisBuilder {
                     CryptoHash::default(),
                     vec![],
                     0,
-                    self.genesis.config.gas_limit.clone(),
+                    self.genesis.config.gas_limit,
                     0,
                 ),
             );

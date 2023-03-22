@@ -1,3 +1,5 @@
+#![deny(clippy::integer_arithmetic)]
+
 pub use errors::{ParseKeyError, ParseKeyTypeError, ParseSignatureError};
 pub use key_file::KeyFile;
 pub use signature::{
@@ -16,7 +18,6 @@ mod util;
 mod errors;
 pub mod key_conversion;
 mod key_file;
-pub mod randomness;
 mod signature;
 mod signer;
 mod test_utils;

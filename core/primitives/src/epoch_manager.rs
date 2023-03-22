@@ -1,9 +1,6 @@
-use borsh::{BorshDeserialize, BorshSerialize};
-use num_rational::Rational;
-use serde::{Deserialize, Serialize};
-
 use crate::challenge::SlashedValidator;
 use crate::checked_feature;
+use crate::num_rational::Rational32;
 use crate::shard_layout::ShardLayout;
 use crate::types::validator_stake::ValidatorStakeV1;
 use crate::types::{
@@ -11,6 +8,7 @@ use crate::types::{
     ValidatorId, ValidatorKickoutReason,
 };
 use crate::version::PROTOCOL_VERSION;
+use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::BlockHeight;
 use smart_default::SmartDefault;
@@ -36,16 +34,18 @@ pub struct EpochConfig {
     pub block_producer_kickout_threshold: u8,
     /// Criterion for kicking out chunk producers.
     pub chunk_producer_kickout_threshold: u8,
+    /// Max ratio of validators that we can kick out in an epoch
+    pub validator_max_kickout_stake_perc: u8,
     /// Online minimum threshold below which validator doesn't receive reward.
-    pub online_min_threshold: Rational,
+    pub online_min_threshold: Rational32,
     /// Online maximum threshold above which validator gets full reward.
-    pub online_max_threshold: Rational,
+    pub online_max_threshold: Rational32,
     /// Stake threshold for becoming a fisherman.
     pub fishermen_threshold: Balance,
     /// The minimum stake required for staking is last seat price divided by this number.
     pub minimum_stake_divisor: u64,
     /// Threshold of stake that needs to indicate that they ready for upgrade.
-    pub protocol_upgrade_stake_threshold: Rational,
+    pub protocol_upgrade_stake_threshold: Rational32,
     /// Number of epochs after stake threshold was achieved to start next prtocol version.
     pub protocol_upgrade_num_epochs: EpochHeight,
     /// Shard layout of this epoch, may change from epoch to epoch
@@ -54,54 +54,77 @@ pub struct EpochConfig {
     pub validator_selection_config: ValidatorSelectionConfig,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ShardConfig {
     pub num_block_producer_seats_per_shard: Vec<NumSeats>,
     pub avg_hidden_validator_seats_per_shard: Vec<NumSeats>,
     pub shard_layout: ShardLayout,
 }
 
-impl From<EpochConfig> for ShardConfig {
-    fn from(config: EpochConfig) -> Self {
-        ShardConfig {
-            num_block_producer_seats_per_shard: config.num_block_producer_seats_per_shard,
-            avg_hidden_validator_seats_per_shard: config.avg_hidden_validator_seats_per_shard,
-            shard_layout: config.shard_layout,
+impl ShardConfig {
+    pub fn new(epoch_config: EpochConfig) -> Self {
+        Self {
+            num_block_producer_seats_per_shard: epoch_config
+                .num_block_producer_seats_per_shard
+                .clone(),
+            avg_hidden_validator_seats_per_shard: epoch_config
+                .avg_hidden_validator_seats_per_shard
+                .clone(),
+            shard_layout: epoch_config.shard_layout,
         }
     }
 }
 
+/// AllEpochConfig manages protocol configs that might be changing throughout epochs (hence EpochConfig).
+/// The main function in AllEpochConfig is ::for_protocol_version which takes a protocol version
+/// and returns the EpochConfig that should be used for this protocol version.
 #[derive(Clone)]
 pub struct AllEpochConfig {
+    /// Whether this is for production (i.e., mainnet or testnet). This is a temporary implementation
+    /// to allow us to change protocol config for mainnet and testnet without changing the genesis config
+    use_production_config: bool,
+    /// EpochConfig from genesis
     genesis_epoch_config: EpochConfig,
-    simple_nightshade_epoch_config: EpochConfig,
 }
 
 impl AllEpochConfig {
-    pub fn new(
-        genesis_epoch_config: EpochConfig,
-        simple_nightshade_shard_config: Option<ShardConfig>,
-    ) -> Self {
-        let mut config = genesis_epoch_config.clone();
-        if let Some(ShardConfig {
-            num_block_producer_seats_per_shard,
-            avg_hidden_validator_seats_per_shard,
-            shard_layout,
-        }) = simple_nightshade_shard_config
-        {
-            config.num_block_producer_seats_per_shard = num_block_producer_seats_per_shard;
-            config.avg_hidden_validator_seats_per_shard = avg_hidden_validator_seats_per_shard;
-            config.shard_layout = shard_layout;
-        }
-        Self { genesis_epoch_config, simple_nightshade_epoch_config: config }
+    pub fn new(use_production_config: bool, genesis_epoch_config: EpochConfig) -> Self {
+        Self { use_production_config, genesis_epoch_config }
     }
 
-    pub fn for_protocol_version(&self, protocol_version: ProtocolVersion) -> &EpochConfig {
-        if checked_feature!("stable", SimpleNightshade, protocol_version) {
-            &self.simple_nightshade_epoch_config
-        } else {
-            &self.genesis_epoch_config
+    pub fn for_protocol_version(&self, protocol_version: ProtocolVersion) -> EpochConfig {
+        // if SimpleNightshade is enabled, we override genesis shard config with
+        // the simple nightshade shard config
+        let mut config = self.genesis_epoch_config.clone();
+        if self.use_production_config {
+            if checked_feature!("stable", SimpleNightshade, protocol_version) {
+                config.shard_layout = ShardLayout::get_simple_nightshade_layout();
+                config.num_block_producer_seats_per_shard = vec![
+                    config.num_block_producer_seats;
+                    config.shard_layout.num_shards()
+                        as usize
+                ];
+                config.avg_hidden_validator_seats_per_shard =
+                    vec![0; config.shard_layout.num_shards() as usize];
+            }
+            if checked_feature!("stable", ChunkOnlyProducers, protocol_version) {
+                // On testnet, genesis config set num_block_producer_seats to 200
+                // This is to bring it back to 100 to be the same as on mainnet
+                config.num_block_producer_seats = 100;
+                // Technically, after ChunkOnlyProducers is enabled, this field is no longer used
+                // We still set it here just in case
+                config.num_block_producer_seats_per_shard =
+                    vec![100; config.shard_layout.num_shards() as usize];
+                config.block_producer_kickout_threshold = 80;
+                config.chunk_producer_kickout_threshold = 80;
+                config.validator_selection_config.num_chunk_only_producer_seats = 200;
+            }
+
+            if checked_feature!("stable", MaxKickoutStake, protocol_version) {
+                config.validator_max_kickout_stake_perc = 30;
+            }
         }
+        config
     }
 }
 
@@ -109,21 +132,12 @@ impl AllEpochConfig {
 /// algorithm.  See <https://github.com/near/NEPs/pull/167> for details.
 #[derive(Debug, Clone, SmartDefault, PartialEq, Eq)]
 pub struct ValidatorSelectionConfig {
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
     #[default(300)]
     pub num_chunk_only_producer_seats: NumSeats,
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
     #[default(1)]
     pub minimum_validators_per_shard: NumSeats,
-    #[default(Rational::new(160, 1_000_000))]
-    pub minimum_stake_ratio: Rational,
-}
-
-#[cfg(feature = "deepsize_feature")]
-impl deepsize::DeepSizeOf for ValidatorSelectionConfig {
-    fn deep_size_of_children(&self, _context: &mut deepsize::Context) -> usize {
-        0
-    }
+    #[default(Rational32::new(160, 1_000_000))]
+    pub minimum_stake_ratio: Rational32,
 }
 
 pub mod block_info {
@@ -139,8 +153,7 @@ pub mod block_info {
     pub use super::BlockInfoV1;
 
     /// Information per each block.
-    #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-    #[derive(BorshSerialize, BorshDeserialize, Eq, PartialEq, Clone, Debug)]
+    #[derive(BorshSerialize, BorshDeserialize, Eq, PartialEq, Clone, Debug, serde::Serialize)]
     pub enum BlockInfo {
         V1(BlockInfoV1),
         V2(BlockInfoV2),
@@ -210,18 +223,18 @@ pub mod block_info {
         }
 
         #[inline]
-        pub fn height(&self) -> &BlockHeight {
+        pub fn height(&self) -> BlockHeight {
             match self {
-                Self::V1(v1) => &v1.height,
-                Self::V2(v2) => &v2.height,
+                Self::V1(v1) => v1.height,
+                Self::V2(v2) => v2.height,
             }
         }
 
         #[inline]
-        pub fn last_finalized_height(&self) -> &BlockHeight {
+        pub fn last_finalized_height(&self) -> BlockHeight {
             match self {
-                Self::V1(v1) => &v1.last_finalized_height,
-                Self::V2(v2) => &v2.last_finalized_height,
+                Self::V1(v1) => v1.last_finalized_height,
+                Self::V2(v2) => v2.last_finalized_height,
             }
         }
 
@@ -323,8 +336,9 @@ pub mod block_info {
     }
 
     // V1 -> V2: Use versioned ValidatorStake structure in proposals
-    #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-    #[derive(Default, BorshSerialize, BorshDeserialize, Eq, PartialEq, Clone, Debug)]
+    #[derive(
+        Default, BorshSerialize, BorshDeserialize, Eq, PartialEq, Clone, Debug, serde::Serialize,
+    )]
     pub struct BlockInfoV2 {
         pub hash: CryptoHash,
         pub height: BlockHeight,
@@ -346,8 +360,9 @@ pub mod block_info {
 }
 
 /// Information per each block.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Default, BorshSerialize, BorshDeserialize, Eq, PartialEq, Clone, Debug)]
+#[derive(
+    Default, BorshSerialize, BorshDeserialize, Eq, PartialEq, Clone, Debug, serde::Serialize,
+)]
 pub struct BlockInfoV1 {
     pub hash: CryptoHash,
     pub height: BlockHeight,
@@ -406,8 +421,9 @@ impl BlockInfoV1 {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Default, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(
+    Default, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, serde::Serialize,
+)]
 pub struct ValidatorWeight(ValidatorId, u64);
 
 pub mod epoch_info {
@@ -423,6 +439,7 @@ pub mod epoch_info {
     use smart_default::SmartDefault;
     use std::collections::{BTreeMap, HashMap};
 
+    use crate::types::validator_stake::ValidatorStakeV1;
     use crate::{checked_feature, epoch_manager::RngSeed, rand::WeightedIndex};
     use near_primitives_core::{
         hash::hash,
@@ -432,8 +449,7 @@ pub mod epoch_info {
     pub use super::EpochInfoV1;
 
     /// Information per epoch.
-    #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-    #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+    #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, serde::Serialize)]
     pub enum EpochInfo {
         V1(EpochInfoV1),
         V2(EpochInfoV2),
@@ -447,8 +463,16 @@ pub mod epoch_info {
     }
 
     // V1 -> V2: Use versioned ValidatorStake structure in validators and fishermen
-    #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-    #[derive(SmartDefault, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+    #[derive(
+        SmartDefault,
+        BorshSerialize,
+        BorshDeserialize,
+        Clone,
+        Debug,
+        PartialEq,
+        Eq,
+        serde::Serialize,
+    )]
     pub struct EpochInfoV2 {
         /// Ordinal of given epoch from genesis.
         /// There can be multiple epochs with the same ordinal in case of long forks.
@@ -484,8 +508,16 @@ pub mod epoch_info {
 
     // V2 -> V3: Structures for randomly selecting validators at each height based on new
     // block producer and chunk producer selection algorithm.
-    #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-    #[derive(SmartDefault, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+    #[derive(
+        SmartDefault,
+        BorshSerialize,
+        BorshDeserialize,
+        Clone,
+        Debug,
+        PartialEq,
+        Eq,
+        serde::Serialize,
+    )]
     pub struct EpochInfoV3 {
         pub epoch_height: EpochHeight,
         pub validators: Vec<ValidatorStake>,
@@ -575,6 +607,40 @@ pub mod epoch_info {
                     protocol_version,
                 })
             }
+        }
+
+        pub fn v1_test() -> Self {
+            Self::V1(EpochInfoV1 {
+                epoch_height: 10,
+                validators: vec![
+                    ValidatorStakeV1 {
+                        account_id: "test".parse().unwrap(),
+                        public_key: "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
+                            .parse()
+                            .unwrap(),
+                        stake: 0,
+                    },
+                    ValidatorStakeV1 {
+                        account_id: "validator".parse().unwrap(),
+                        public_key: "ed25519:9E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
+                            .parse()
+                            .unwrap(),
+                        stake: 0,
+                    },
+                ],
+                validator_to_index: HashMap::new(),
+                block_producers_settlement: vec![0u64, 1u64],
+                chunk_producers_settlement: vec![vec![0u64, 1u64]],
+                hidden_validators_settlement: vec![],
+                fishermen: vec![],
+                fishermen_to_index: HashMap::new(),
+                stake_change: BTreeMap::new(),
+                validator_reward: HashMap::new(),
+                validator_kickout: HashMap::new(),
+                minted_amount: 1,
+                seat_price: 1,
+                protocol_version: 1,
+            })
         }
 
         #[inline]
@@ -819,25 +885,23 @@ pub mod epoch_info {
                 }
                 Self::V3(v3) => {
                     let protocol_version = self.protocol_version();
-                    let seed = if checked_feature!(
-                        "stable",
-                        SynchronizeBlockChunkProduction,
-                        protocol_version
-                    ) && !checked_feature!(
-                        "protocol_feature_chunk_only_producers",
-                        ChunkOnlyProducers,
-                        protocol_version
-                    ) {
-                        // This is same seed that used for determining block producer
-                        Self::block_produce_seed(height, &v3.rng_seed)
-                    } else {
-                        // 32 bytes from epoch_seed, 8 bytes from height, 8 bytes from shard_id
-                        let mut buffer = [0u8; 48];
-                        buffer[0..32].copy_from_slice(&v3.rng_seed);
-                        buffer[32..40].copy_from_slice(&height.to_le_bytes());
-                        buffer[40..48].copy_from_slice(&shard_id.to_le_bytes());
-                        hash(&buffer).0
-                    };
+                    let seed =
+                        if checked_feature!(
+                            "stable",
+                            SynchronizeBlockChunkProduction,
+                            protocol_version
+                        ) && !checked_feature!("stable", ChunkOnlyProducers, protocol_version)
+                        {
+                            // This is same seed that used for determining block producer
+                            Self::block_produce_seed(height, &v3.rng_seed)
+                        } else {
+                            // 32 bytes from epoch_seed, 8 bytes from height, 8 bytes from shard_id
+                            let mut buffer = [0u8; 48];
+                            buffer[0..32].copy_from_slice(&v3.rng_seed);
+                            buffer[32..40].copy_from_slice(&height.to_le_bytes());
+                            buffer[40..48].copy_from_slice(&shard_id.to_le_bytes());
+                            hash(&buffer).0
+                        };
                     let shard_id = shard_id as usize;
                     v3.chunk_producers_settlement[shard_id]
                         [v3.chunk_producers_sampler[shard_id].sample(seed)]
@@ -869,8 +933,9 @@ pub mod epoch_info {
 }
 
 /// Information per epoch.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(SmartDefault, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(
+    SmartDefault, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, serde::Serialize,
+)]
 pub struct EpochInfoV1 {
     /// Ordinal of given epoch from genesis.
     /// There can be multiple epochs with the same ordinal in case of long forks.
@@ -905,8 +970,7 @@ pub struct EpochInfoV1 {
 }
 
 /// State that a slashed validator can be in.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, PartialEq, Eq)]
 pub enum SlashState {
     /// Double Sign, will be partially slashed.
     DoubleSign,

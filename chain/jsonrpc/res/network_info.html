@@ -1,0 +1,339 @@
+<html>
+
+<head>
+    <link rel="stylesheet" href="network_info.css">
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <script src="network_info.js"></script>
+    <script>
+        function fetchProducers(epoch_id, producers_callback) {
+            $.ajax({
+                type: "GET",
+                url: "../api/epoch_info",
+                success: data => {
+                    let epoch_found = false;
+                    data.status_response.EpochInfo.forEach(element => {
+                        if (element.epoch_id == epoch_id) {
+                            epoch_found = true;
+                            producers_callback(element.block_producers, element.chunk_only_producers);
+                        }
+                    });
+                    // This can happen if we're in sync mode - in such case, still print the list of peers,
+                    // but don't show producers.
+                    if (epoch_found == false) {
+                        producers_callback([], []);
+                    }
+                },
+                dataType: "json",
+                error: function (errMsg, textStatus, errorThrown) {
+                    alert("Failed: " + textStatus + " :" + errorThrown);
+                },
+                contentType: "application/json; charset=utf-8",
+            })
+        }
+
+        $(document).ready(() => {
+            $('.detailed-peer-storage-div').hide();
+            $('.recent-outbound-connections-div').hide();
+            $('span').text("Loading...");
+            $.ajax({
+                type: "GET",
+                url: "../api/status",
+                success: data => {
+
+                    fetchProducers(data.sync_info.epoch_id, (block_producers, chunk_producers) => {
+                        let block_producer_set = new Set();
+                        block_producers.forEach(element => {
+                            block_producer_set.add(element.account_id);
+                        });
+                        let chunk_producer_set = new Set();
+                        chunk_producers.forEach(element => {
+                            chunk_producer_set.add(element);
+                        });
+
+                        let known_set = new Set();
+                        data.detailed_debug_status.network_info.known_producers.forEach(element => {
+                            known_set.add(element.account_id);
+                        });
+
+                        let reachable_set = new Set();
+                        data.detailed_debug_status.network_info.known_producers.forEach(element => {
+                            if (element.next_hops != null && element.next_hops.length > 0) {
+                                reachable_set.add(element.account_id);
+                            }
+                        });
+
+                        $('.js-num-block-producers').text(block_producers.length);
+                        $('.js-num-known-block-producers').text(getIntersection(block_producer_set, known_set).size);
+                        $('.js-num-reachable-block-producers').text(getIntersection(block_producer_set, reachable_set).size);
+                        let uknown_set = getDifference(block_producer_set, known_set);
+                        let known_but_unreachable = getIntersection(block_producer_set, getDifference(known_set, reachable_set));
+                        $('.js-unknown-block-producers').text(Array.from(uknown_set).join(","));
+                        $('.js-unreachable-block-producers').text(Array.from(known_but_unreachable).join(","));
+
+
+
+                        $('.js-num-chunk-producers').text(chunk_producers.length);
+                        $('.js-num-known-chunk-producers').text(getIntersection(chunk_producer_set, known_set).size);
+                        $('.js-num-reachable-chunk-producers').text(getIntersection(chunk_producer_set, reachable_set).size);
+                        let chunk_uknown_set = getDifference(chunk_producer_set, known_set);
+                        let chunk_known_but_unreachable = getIntersection(chunk_producer_set, getDifference(known_set, reachable_set));
+                        $('.js-unknown-chunk-producers').text(Array.from(chunk_uknown_set).join(","));
+                        $('.js-unreachable-chunk-producers').text(Array.from(chunk_known_but_unreachable).join(","));
+
+                        let node_public_key = data.node_public_key;
+                        let sync_status = data.detailed_debug_status.sync_status;
+                        let network_info = data.detailed_debug_status.network_info;
+                        $('.js-node-public-key').text(node_public_key);
+                        $('.js-sync-status').text(sync_status);
+                        $('.js-max-peers').text(network_info.peer_max_count);
+                        $('.js-num-peers').text(network_info.num_connected_peers);
+                        let current_height = data.sync_info.latest_block_height;
+                        let peer_status_map = new Map();
+                        network_info.connected_peers.forEach(function (peer, index) {
+                            let peer_id = peer.peer_id;
+                            let validator = new Array();
+                            let routedValidator = new Array();
+                            data.detailed_debug_status.network_info.known_producers.forEach(element => {
+                                if (block_producer_set.has(element.account_id) || chunk_producer_set.has(element.account_id)) {
+                                    if (element.peer_id == peer_id) {
+                                        // This means that the peer that we're connected to is a validator.
+                                        validator.push(element.account_id);
+                                    } else {
+                                        if (element.next_hops != null) {
+                                            if (element.next_hops.includes(peer_id)) {
+                                                // This means that the peer that we're connected to is on the shortest path
+                                                // to this validator.
+                                                routedValidator.push(element.account_id);
+                                            }
+                                        }
+                                    }
+                                }
+                            });
+                            let peer_class = peerClass(current_height, peer.height)
+                            if (peer_status_map.has(peer_class)) {
+                                peer_status_map.set(peer_class, peer_status_map.get(peer_class) + 1);
+                            } else {
+                                peer_status_map.set(peer_class, 1);
+                            }
+
+                            let last_ping_class = ""
+                            if (peer.last_time_received_message_millis > 60 * 1000) {
+                                last_ping_class = "peer_far_behind";
+                            }
+
+
+                            let row = $('.js-tbody-peers').append($('<tr>')
+                                .append($('<td>').append(add_debug_port_link(peer.addr)))
+                                .append($('<td>').append(validator.join(",")))
+                                .append($('<td>').append(peer.peer_id.substr(8, 5) + "..."))
+                                .append($('<td>').append(convertTime(peer.last_time_received_message_millis)).addClass(last_ping_class))
+                                .append($('<td>').append(JSON.stringify(peer.height)).addClass(peer_class))
+                                .append($('<td>').append(displayHash(peer)))
+                                .append($('<td>').append(JSON.stringify(peer.tracked_shards)))
+                                .append($('<td>').append(JSON.stringify(peer.archival)))
+                                .append($('<td>').append(((peer.is_outbound_peer) ? 'OUT' : 'IN')))
+                                // If this is a new style nonce - show the approx time since it was created.
+                                .append($('<td>').append(peer.nonce + " <br> " + ((peer.nonce > 1660000000) ? convertTime(Date.now() - peer.nonce * 1000) : "old style nonce")))
+                                .append($('<td>').append(convertTime(peer.connection_established_time_millis)))
+                                .append($('<td>').append(computeTraffic(peer.received_bytes_per_sec, peer.sent_bytes_per_sec)))
+                                .append($('<td>').append(routedValidator.join(",")))
+                            )
+                        });
+                        let legend = [["peer_ahead_alot", "Peer ahead a lot"],
+                        ["peer_ahead", "Peer ahead"],
+                        ["peer_in_sync", "Peer in sync"],
+                        ["peer_behind_a_little", "Peer behind a little"],
+                        ["peer_behind", "Peer behind"],
+                        ["peer_far_behind", "Peer far behind"]]
+                        legend.forEach(function (elem) {
+                            $('.legend').append($('<td>').addClass(elem[0]).text(elem[1] + " " + (peer_status_map.get(elem[0]) || 0)));
+                        });
+                    });
+                },
+                dataType: "json",
+                error: function (errMsg, textStatus, errorThrown) {
+                    alert("Failed: " + textStatus + " :" + errorThrown);
+                },
+                contentType: "application/json; charset=utf-8",
+            })
+
+        });
+
+        function show_peer_storage() {
+            $(".detailed-peer-storage-button").text("Loading...");
+            $(".tbody-detailed-peer-storage").html("");
+            $.ajax({
+                type: "GET",
+                url: "../api/peer_store",
+                success: data => {
+                    $(".detailed-peer-storage-size").text(data.status_response.PeerStore.peer_states.length);
+                    data.status_response.PeerStore.peer_states.forEach(element => {
+                        let row = $("<tr>");
+                        row.append($("<td>").append(element['peer_id']));
+                        row.append($("<td>").append(element['addr']));
+
+                        let first_seen =
+                            row.append($("<td>").append(to_human_time(Math.floor(Date.now() / 1000) - element['first_seen'])));
+                        row.append($("<td>").append(to_human_time(Math.floor(Date.now() / 1000) - element['last_seen'])));
+                        if (element['last_attempt'] != null) {
+                            row.append($("<td>").append(to_human_time(Math.floor(Date.now() / 1000) - element['last_attempt'][0])));
+                            row.append($("<td>").append(element['status'] + " Last attempt: " + element['last_attempt'][1]));
+                        } else {
+                            row.append($("<td>"));
+                            row.append($("<td>").append(element['status']));
+                        }
+
+                        $(".tbody-detailed-peer-storage").append(row);
+                    });
+
+                    $(".detailed-peer-storage-div").show();
+                    $(".detailed-peer-storage-button").text("Refresh peer storage");
+                }
+            });
+        }
+
+        function show_recent_outbound_connections() {
+            $(".recent-outbound-connections-button").text("Loading...");
+            $(".tbody-recent-outbound-connections").html("");
+            $.ajax({
+                type: "GET",
+                url: "../api/recent_outbound_connections",
+                success: data => {
+                    $(".recent-outbound-connections-size").text(data.status_response.RecentOutboundConnections.recent_outbound_connections.length);
+                    data.status_response.RecentOutboundConnections.recent_outbound_connections.forEach(element => {
+                        let row = $("<tr>");
+                        row.append($("<td>").append(element['peer_id']));
+                        row.append($("<td>").append(element['addr']));
+                        row.append($("<td>").append(to_human_time(Math.floor(Date.now() / 1000) - element['time_established'])));
+                        row.append($("<td>").append(to_human_time(Math.floor(Date.now() / 1000) - element['time_connected_until'])));
+
+                        $(".tbody-recent-outbound-connections").append(row);
+                    });
+
+                    $(".recent-outbound-connections-div").show();
+                    $(".recent-outbound-connections-button").text("Refresh connection storage");
+                }
+            });
+        }
+    </script>
+</head>
+
+<body>
+    <h1>
+        Welcome to the Network Info page!
+    </h1>
+    <h2>
+        <p>
+            PeerId:
+            <span class="js-node-public-key"></span>
+        </p>
+        <p>
+            Current Sync Status:
+            <span class="js-sync-status"></span>
+        </p>
+
+        <p>
+            Number of peers: <span class="js-num-peers"></span>/<span class="js-max-peers"></span>
+        </p>
+        <p>
+            Block Producers: <span class="js-num-block-producers"></span> Known: <span
+                class="js-num-known-block-producers"></span>
+            Reachable: <span class="js-num-reachable-block-producers"></span>
+        </p>
+    </h2>
+
+    <pre>
+Unknown: <span class="js-unknown-block-producers"></span>
+Unreachable: <span class="js-unreachable-block-producers"></span>
+    </pre>
+    <h2>
+        <p>
+            Chunk Producers: <span class="js-num-chunk-producers"></span> Known: <span
+                class="js-num-known-chunk-producers"></span>
+            Reachable: <span class="js-num-reachable-chunk-producers"></span>
+        </p>
+    </h2>
+    <pre>
+Unknown: <span class="js-unknown-chunk-producers"></span>
+Unreachable: <span class="js-unreachable-chunk-producers"></span>
+    </pre>
+
+    <b>Unknown</b> means that we didn't receive 'announce' information about this validator (so we don't know on which
+    peer it
+    is). This usually means that the validator didn't connect to the network
+    during current epoch.
+
+    <br>
+
+    <b>Unreachable</b> means, that we know the peer_id of this validator, but we cannot find it in our routing table.
+    This
+    usually means that validator did connect
+    to the network in the past, but now it is gone for at least 1 hour.
+    <br>
+    <br>
+
+    <table class="legend">
+    </table>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Address</th>
+                <th>Validator?</th>
+                <th>PeerId</th>
+                <th>Last ping</th>
+                <th>Height</th>
+                <th>Last Block Hash</th>
+                <th>Tracked Shards</th>
+                <th>Archival</th>
+                <th>Connection type</th>
+                <th>Nonce</th>
+                <th>First connection</th>
+                <th>Traffic (last minute)</th>
+                <th>Route to validators</th>
+            </tr>
+        </thead>
+        <tbody class="js-tbody-peers">
+        </tbody>
+    </table>
+    <br>
+    <button onclick="show_peer_storage()" class="detailed-peer-storage-button">
+        Show detailed peer storage
+    </button>
+    <div class="detailed-peer-storage-div">
+        <h2>Peers in storage: <span class="detailed-peer-storage-size"></span></h2>
+        <table class="detailed-peer-storage">
+            <thead>
+                <th>Peer id</th>
+                <th>Peer address</th>
+                <th>First seen</th>
+                <th>Last seen</th>
+                <th>Last connection attempt</th>
+                <th>Status</th>
+            </thead>
+            <tbody class="tbody-detailed-peer-storage">
+
+            </tbody>
+        </table>
+        <br>
+    </div>
+    <button onclick="show_recent_outbound_connections()" class="recent-outbound-connections-button">
+        Show outbound connections in storage
+    </button>
+    <div class="recent-outbound-connections-div">
+        <h2>Outbound connections in storage: <span class="recent-outbound-connections-size"></span></h2>
+        <table class="recent-outbound-connections">
+            <thead>
+                <th>Peer id</th>
+                <th>Peer address</th>
+                <th>First connected</th>
+                <th>Last connected</th>
+            </thead>
+            <tbody class="tbody-recent-outbound-connections">
+
+            </tbody>
+        </table>
+    </div>
+</body>
+
+</html>

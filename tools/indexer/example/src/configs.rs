@@ -1,14 +1,10 @@
-use clap::{AppSettings, Clap};
-
 use near_indexer::near_primitives::types::Gas;
-
-use tracing_subscriber::EnvFilter;
 
 /// NEAR Indexer Example
 /// Watches for stream of blocks from the chain
-#[derive(Clap, Debug)]
+#[derive(clap::Parser, Debug)]
 #[clap(version = "0.1", author = "Near Inc. <hello@nearprotocol.com>")]
-#[clap(setting = AppSettings::SubcommandRequiredElseHelp)]
+#[clap(subcommand_required = true, arg_required_else_help = true)]
 pub(crate) struct Opts {
     /// Sets a custom config dir. Defaults to ~/.near/
     #[clap(short, long)]
@@ -17,7 +13,7 @@ pub(crate) struct Opts {
     pub subcmd: SubCommand,
 }
 
-#[derive(Clap, Debug)]
+#[derive(clap::Parser, Debug)]
 pub(crate) enum SubCommand {
     /// Run NEAR Indexer Example. Start observe the network
     Run,
@@ -25,7 +21,7 @@ pub(crate) enum SubCommand {
     Init(InitConfigArgs),
 }
 
-#[derive(Clap, Debug)]
+#[derive(clap::Parser, Debug)]
 pub(crate) struct InitConfigArgs {
     /// chain/network id (localnet, testnet, devnet, betanet)
     #[clap(short, long)]
@@ -51,6 +47,9 @@ pub(crate) struct InitConfigArgs {
     /// Specify a custom download URL for the genesis-file.
     #[clap(long)]
     pub download_genesis_url: Option<String>,
+    /// Specify a custom download URL for the records-file.
+    #[clap(long)]
+    pub download_records_url: Option<String>,
     #[clap(long)]
     /// Download the verified NEAR config file automatically.
     pub download_config: bool,
@@ -64,16 +63,6 @@ pub(crate) struct InitConfigArgs {
     pub max_gas_burnt_view: Option<Gas>,
 }
 
-pub(crate) fn init_logging() {
-    let env_filter = EnvFilter::new(
-        "nearcore=info,indexer_example=info,tokio_reactor=info,near=info,stats=info,telemetry=info,indexer=info,near-performance-metrics=info",
-    );
-    tracing_subscriber::fmt::Subscriber::builder()
-        .with_env_filter(env_filter)
-        .with_writer(std::io::stderr)
-        .init();
-}
-
 impl From<InitConfigArgs> for near_indexer::InitConfigArgs {
     fn from(config_args: InitConfigArgs) -> Self {
         Self {
@@ -85,6 +74,7 @@ impl From<InitConfigArgs> for near_indexer::InitConfigArgs {
             genesis: config_args.genesis,
             download_genesis: config_args.download_genesis,
             download_genesis_url: config_args.download_genesis_url,
+            download_records_url: config_args.download_records_url,
             download_config: config_args.download_config,
             download_config_url: config_args.download_config_url,
             boot_nodes: config_args.boot_nodes,

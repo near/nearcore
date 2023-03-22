@@ -1,0 +1,15 @@
+---
+source: runtime/runtime-params-estimator/estimator-warehouse/src/main.rs
+expression: generate_stats(&db).unwrap()
+---
+
+========================= Warehouse statistics =========================
+
+                  metric                 records            last updated
+                  ------                 -------            ------------
+                  icount                       4     2015-05-15 11:22:33
+                    time                       3     2015-05-15 11:22:33
+               parameter                       0                   never
+
+============================== END STATS ===============================
+

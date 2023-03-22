@@ -1,33 +1,19 @@
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::BlockHeightDelta;
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(serde::Deserialize, serde::Serialize, Debug)]
 pub struct RpcSandboxPatchStateRequest {
     pub records: Vec<StateRecord>,
 }
 
-impl RpcSandboxPatchStateRequest {
-    pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
-        Ok(crate::utils::parse_params::<RpcSandboxPatchStateRequest>(value)?)
-    }
-}
-
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(serde::Deserialize, serde::Serialize, Debug)]
 pub struct RpcSandboxPatchStateResponse {}
 
-#[derive(thiserror::Error, Debug, Serialize, Deserialize)]
+#[derive(thiserror::Error, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcSandboxPatchStateError {
     #[error("The node reached its limits. Try again later. More details: {error_message}")]
     InternalError { error_message: String },
-}
-
-impl From<actix::MailboxError> for RpcSandboxPatchStateError {
-    fn from(error: actix::MailboxError) -> Self {
-        Self::InternalError { error_message: error.to_string() }
-    }
 }
 
 impl From<RpcSandboxPatchStateError> for crate::errors::RpcError {
@@ -45,31 +31,19 @@ impl From<RpcSandboxPatchStateError> for crate::errors::RpcError {
     }
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(serde::Deserialize, serde::Serialize)]
 pub struct RpcSandboxFastForwardRequest {
     pub delta_height: BlockHeightDelta,
 }
 
-impl RpcSandboxFastForwardRequest {
-    pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
-        Ok(crate::utils::parse_params::<RpcSandboxFastForwardRequest>(value)?)
-    }
-}
-
-#[derive(Deserialize, Serialize)]
+#[derive(serde::Deserialize, serde::Serialize)]
 pub struct RpcSandboxFastForwardResponse {}
 
-#[derive(thiserror::Error, Debug, Serialize, Deserialize)]
+#[derive(thiserror::Error, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcSandboxFastForwardError {
     #[error("The node reached its limits. Try again later. More details: {error_message}")]
     InternalError { error_message: String },
-}
-
-impl From<actix::MailboxError> for RpcSandboxFastForwardError {
-    fn from(error: actix::MailboxError) -> Self {
-        Self::InternalError { error_message: error.to_string() }
-    }
 }
 
 impl From<RpcSandboxFastForwardError> for crate::errors::RpcError {

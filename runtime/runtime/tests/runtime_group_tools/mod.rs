@@ -12,6 +12,7 @@ use near_primitives::types::{AccountId, AccountInfo, Balance};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_tries;
 use near_store::ShardTries;
+use near_vm_logic::ActionCosts;
 use node_runtime::{ApplyState, Runtime};
 use random_config::random_config;
 use std::collections::{HashMap, HashSet};
@@ -53,9 +54,9 @@ impl StandaloneRuntime {
         let mut runtime_config = random_config();
         // Bumping costs to avoid inflation overflows.
         runtime_config.wasm_config.limit_config.max_total_prepaid_gas = 10u64.pow(15);
-        runtime_config.transaction_costs.action_receipt_creation_config.execution =
+        runtime_config.fees.action_fees[ActionCosts::new_action_receipt].execution =
             runtime_config.wasm_config.limit_config.max_total_prepaid_gas / 64;
-        runtime_config.transaction_costs.data_receipt_creation_config.base_cost.execution =
+        runtime_config.fees.action_fees[ActionCosts::new_data_receipt_base].execution =
             runtime_config.wasm_config.limit_config.max_total_prepaid_gas / 64;
 
         let runtime = Runtime::new();
@@ -63,16 +64,20 @@ impl StandaloneRuntime {
             GenesisConfig {
                 validators,
                 total_supply: get_initial_supply(state_records),
+                epoch_length: 60,
                 ..Default::default()
             },
             GenesisRecords(state_records.to_vec()),
-        );
+        )
+        .unwrap();
 
         let mut account_ids: HashSet<AccountId> = HashSet::new();
         genesis.for_each_record(|record: &StateRecord| {
             account_ids.insert(state_record_to_account_id(record).clone());
         });
+        let writers = std::sync::atomic::AtomicUsize::new(0);
         let root = runtime.apply_genesis_state(
+            &writers,
             tries.clone(),
             0,
             &[],
@@ -82,7 +87,7 @@ impl StandaloneRuntime {
         );
 
         let apply_state = ApplyState {
-            block_index: 1,
+            block_height: 1,
             prev_block_hash: Default::default(),
             block_hash: Default::default(),
             epoch_id: Default::default(),
@@ -117,22 +122,24 @@ impl StandaloneRuntime {
         let apply_result = self
             .runtime
             .apply(
-                self.tries.get_trie_for_shard(ShardUId::single_shard()),
-                self.root,
+                self.tries.get_trie_for_shard(ShardUId::single_shard(), self.root),
                 &None,
                 &self.apply_state,
                 receipts,
                 transactions,
                 &self.epoch_info_provider,
-                None,
+                Default::default(),
             )
             .unwrap();
 
-        let (store_update, root) =
-            self.tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard()).unwrap();
-        self.root = root;
+        let mut store_update = self.tries.store_update();
+        self.root = self.tries.apply_all(
+            &apply_result.trie_changes,
+            ShardUId::single_shard(),
+            &mut store_update,
+        );
         store_update.commit().unwrap();
-        self.apply_state.block_index += 1;
+        self.apply_state.block_height += 1;
 
         (apply_result.outgoing_receipts, apply_result.outcomes)
     }
@@ -145,7 +152,7 @@ pub struct RuntimeMailbox {
 }
 
 impl RuntimeMailbox {
-    pub fn is_emtpy(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.incoming_receipts.is_empty() && self.incoming_transactions.is_empty()
     }
 }
@@ -216,7 +223,7 @@ impl RuntimeGroup {
                 state_records.push(StateRecord::AccessKey {
                     account_id: account_id.clone(),
                     public_key: signer.public_key.clone(),
-                    access_key: AccessKey::full_access().into(),
+                    access_key: AccessKey::full_access(),
                 });
                 state_records
                     .push(StateRecord::Contract { account_id, code: contract_code.to_vec() });
@@ -270,10 +277,10 @@ impl RuntimeGroup {
 
                 let mut mailboxes = group.mailboxes.0.lock().unwrap();
                 loop {
-                    if !mailboxes.get(&account_id).unwrap().is_emtpy() {
+                    if !mailboxes.get(&account_id).unwrap().is_empty() {
                         break;
                     }
-                    if mailboxes.values().all(|m| m.is_emtpy()) {
+                    if mailboxes.values().all(|m| m.is_empty()) {
                         return;
                     }
                     mailboxes = group.mailboxes.1.wait(mailboxes).unwrap();

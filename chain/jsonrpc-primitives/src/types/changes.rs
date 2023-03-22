@@ -1,19 +1,16 @@
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
-
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct RpcStateChangesInBlockRequest {
     #[serde(flatten)]
     pub block_reference: near_primitives::types::BlockReference,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct RpcStateChangesInBlockResponse {
     pub block_hash: near_primitives::hash::CryptoHash,
     pub changes: near_primitives::views::StateChangesView,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct RpcStateChangesInBlockByTypeRequest {
     #[serde(flatten)]
     pub block_reference: near_primitives::types::BlockReference,
@@ -21,13 +18,13 @@ pub struct RpcStateChangesInBlockByTypeRequest {
     pub state_changes_request: near_primitives::views::StateChangesRequestView,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct RpcStateChangesInBlockByTypeResponse {
     pub block_hash: near_primitives::hash::CryptoHash,
     pub changes: near_primitives::views::StateChangesKindsView,
 }
 
-#[derive(thiserror::Error, Debug, Serialize, Deserialize)]
+#[derive(thiserror::Error, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcStateChangesError {
     #[error("Block not found: {error_message}")]
@@ -39,62 +36,6 @@ pub enum RpcStateChangesError {
     NotSyncedYet,
     #[error("The node reached its limits. Try again later. More details: {error_message}")]
     InternalError { error_message: String },
-}
-
-impl RpcStateChangesInBlockRequest {
-    pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
-        Ok(crate::utils::parse_params::<Self>(value)?)
-    }
-}
-
-impl RpcStateChangesInBlockByTypeRequest {
-    pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
-        Ok(crate::utils::parse_params::<Self>(value)?)
-    }
-}
-
-impl From<near_client_primitives::types::GetBlockError> for RpcStateChangesError {
-    fn from(error: near_client_primitives::types::GetBlockError) -> Self {
-        match error {
-            near_client_primitives::types::GetBlockError::UnknownBlock { error_message } => {
-                Self::UnknownBlock { error_message }
-            }
-            near_client_primitives::types::GetBlockError::NotSyncedYet => Self::NotSyncedYet,
-            near_client_primitives::types::GetBlockError::IOError { error_message } => {
-                Self::InternalError { error_message }
-            }
-            near_client_primitives::types::GetBlockError::Unreachable { ref error_message } => {
-                tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
-                crate::metrics::RPC_UNREACHABLE_ERROR_COUNT
-                    .with_label_values(&["RpcStateChangesError"])
-                    .inc();
-                Self::InternalError { error_message: error.to_string() }
-            }
-        }
-    }
-}
-
-impl From<near_client_primitives::types::GetStateChangesError> for RpcStateChangesError {
-    fn from(error: near_client_primitives::types::GetStateChangesError) -> Self {
-        match error {
-            near_client_primitives::types::GetStateChangesError::IOError { error_message } => {
-                Self::InternalError { error_message }
-            }
-            near_client_primitives::types::GetStateChangesError::UnknownBlock { error_message } => {
-                Self::UnknownBlock { error_message }
-            }
-            near_client_primitives::types::GetStateChangesError::NotSyncedYet => Self::NotSyncedYet,
-            near_client_primitives::types::GetStateChangesError::Unreachable {
-                ref error_message,
-            } => {
-                tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
-                crate::metrics::RPC_UNREACHABLE_ERROR_COUNT
-                    .with_label_values(&["RpcStateChangesError"])
-                    .inc();
-                Self::InternalError { error_message: error.to_string() }
-            }
-        }
-    }
 }
 
 impl From<RpcStateChangesError> for crate::errors::RpcError {
@@ -109,11 +50,5 @@ impl From<RpcStateChangesError> for crate::errors::RpcError {
             }
         };
         Self::new_internal_or_handler_error(Some(error_data.clone()), error_data)
-    }
-}
-
-impl From<actix::MailboxError> for RpcStateChangesError {
-    fn from(error: actix::MailboxError) -> Self {
-        Self::InternalError { error_message: error.to_string() }
     }
 }

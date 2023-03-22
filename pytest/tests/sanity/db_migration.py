@@ -5,6 +5,7 @@ Shutdowns the node and restarts with the same data folder with the new binary.
 Makes sure that the node can still produce blocks.
 """
 
+import json
 import logging
 import os
 import sys
@@ -64,6 +65,16 @@ def main():
         "init",
         "--fast",
     ))
+
+    # Adjust changes required since #7486.  This is needed because current
+    # stable release populates the deprecated migration configuration options.
+    # TODO(mina86): Remove this once we get stable release which doesn’t
+    # populate those fields by default.
+    config_path = node_root / 'config.json'
+    data = json.loads(config_path.read_text(encoding='utf-8'))
+    data.pop('db_migration_snapshot_path', None)
+    data.pop('use_db_migration_snapshot', None)
+    config_path.write_text(json.dumps(data), encoding='utf-8')
 
     # Run stable node for few blocks.
     logging.info("Starting the stable node...")

@@ -6,11 +6,9 @@ use near_primitives::contract::ContractCode;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::types::CompiledContractCache;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_store::{create_store, StoreCompiledContractCache};
+use near_store::StoreCompiledContractCache;
 use near_vm_logic::mocks::mock_external::MockedExternal;
-use nearcore::get_store_path;
 use std::fmt::Write;
-use std::sync::Arc;
 
 pub(crate) fn gas_metering_cost(config: &Config) -> (GasCost, GasCost) {
     let mut xs1 = vec![];
@@ -35,9 +33,9 @@ pub(crate) fn gas_metering_cost(config: &Config) -> (GasCost, GasCost) {
 
     let tolerance = LeastSquaresTolerance::default().factor_rel_nn_tolerance(0.001);
     let (cost1_base, cost1_op) =
-        GasCost::least_squares_method_gas_cost(&xs1, &ys1, &tolerance, config.debug_least_squares);
+        GasCost::least_squares_method_gas_cost(&xs1, &ys1, &tolerance, config.debug);
     let (cost2_base, cost2_op) =
-        GasCost::least_squares_method_gas_cost(&xs2, &ys2, &tolerance, config.debug_least_squares);
+        GasCost::least_squares_method_gas_cost(&xs2, &ys2, &tolerance, config.debug);
 
     let cost_base = std::cmp::max(cost1_base, cost2_base);
     let cost_op = std::cmp::max(cost1_op, cost2_op);
@@ -129,92 +127,98 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
     let vm_kind = config.vm_kind;
     let warmup_repeats = config.warmup_iters_per_block;
 
-    let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
-    let store = create_store(&get_store_path(workdir.path()));
-    let cache_store = Arc::new(StoreCompiledContractCache { store });
-    let cache: Option<&dyn CompiledContractCache> = Some(cache_store.as_ref());
+    let store = near_store::test_utils::create_test_store();
+    let cache_store = StoreCompiledContractCache::new(&store);
+    let cache: Option<&dyn CompiledContractCache> = Some(&cache_store);
     let config_store = RuntimeConfigStore::new(None);
     let runtime_config = config_store.get_config(PROTOCOL_VERSION).as_ref();
     let vm_config_gas = runtime_config.wasm_config.clone();
     let runtime = vm_kind.runtime(vm_config_gas).expect("runtime has not been enabled");
     let runtime_free_gas = vm_kind.runtime(VMConfig::free()).expect("runtime has not been enabled");
-    let fees = runtime_config.transaction_costs.clone();
+    let fees = runtime_config.fees.clone();
     let mut fake_external = MockedExternal::new();
     let fake_context = create_context(vec![]);
     let promise_results = vec![];
 
     // Warmup with gas metering
     for _ in 0..warmup_repeats {
-        let result = runtime.run(
-            contract,
-            "hello",
-            &mut fake_external,
-            fake_context.clone(),
-            &fees,
-            &promise_results,
-            PROTOCOL_VERSION,
-            cache,
-        );
-        if result.1.is_some() {
-            let err = result.1.as_ref().unwrap();
+        let result = runtime
+            .run(
+                contract,
+                "hello",
+                &mut fake_external,
+                fake_context.clone(),
+                &fees,
+                &promise_results,
+                PROTOCOL_VERSION,
+                cache,
+            )
+            .expect("fatal_error");
+        if let Some(err) = &result.aborted {
             eprintln!("error: {}", err);
         }
-        assert!(result.1.is_none());
+        assert!(result.aborted.is_none());
     }
 
     // Run with gas metering.
     let start = GasCost::measure(gas_metric);
     for _ in 0..repeats {
-        let result = runtime.run(
-            contract,
-            "hello",
-            &mut fake_external,
-            fake_context.clone(),
-            &fees,
-            &promise_results,
-            PROTOCOL_VERSION,
-            cache,
-        );
-        assert!(result.1.is_none());
+        let result = runtime
+            .run(
+                contract,
+                "hello",
+                &mut fake_external,
+                fake_context.clone(),
+                &fees,
+                &promise_results,
+                PROTOCOL_VERSION,
+                cache,
+            )
+            .expect("fatal_error");
+        assert!(result.aborted.is_none());
     }
     let total_raw_with_gas = start.elapsed();
 
     // Warmup without gas metering
     for _ in 0..warmup_repeats {
-        let result = runtime_free_gas.run(
-            contract,
-            "hello",
-            &mut fake_external,
-            fake_context.clone(),
-            &fees,
-            &promise_results,
-            PROTOCOL_VERSION,
-            cache,
-        );
-        assert!(result.1.is_none());
+        let result = runtime_free_gas
+            .run(
+                contract,
+                "hello",
+                &mut fake_external,
+                fake_context.clone(),
+                &fees,
+                &promise_results,
+                PROTOCOL_VERSION,
+                cache,
+            )
+            .expect("fatal_error");
+        assert!(result.aborted.is_none());
     }
 
     // Run without gas metering.
     let start = GasCost::measure(gas_metric);
     for _ in 0..repeats {
-        let result = runtime_free_gas.run(
-            contract,
-            "hello",
-            &mut fake_external,
-            fake_context.clone(),
-            &fees,
-            &promise_results,
-            PROTOCOL_VERSION,
-            cache,
-        );
-        assert!(result.1.is_none());
+        let result = runtime_free_gas
+            .run(
+                contract,
+                "hello",
+                &mut fake_external,
+                fake_context.clone(),
+                &fees,
+                &promise_results,
+                PROTOCOL_VERSION,
+                cache,
+            )
+            .expect("fatal_error");
+        assert!(result.aborted.is_none());
     }
     let total_raw_no_gas = start.elapsed();
 
     if total_raw_with_gas < total_raw_no_gas {
         // This might happen due to experimental error, especially when running
         // without warmup or too few iterations.
-        let mut null_cost = GasCost::zero(gas_metric);
+        let mut null_cost = GasCost::zero();
         null_cost.set_uncertain("NEGATIVE-COST");
         return null_cost;
     }

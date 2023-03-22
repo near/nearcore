@@ -1,12 +1,12 @@
 use crate::store::ChainStoreAccess;
-use crate::types::RuntimeAdapter;
+use crate::types::RuntimeWithEpochManagerAdapter;
 use near_chain_primitives::error::Error;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::ShardId;
 
 /// Check that epoch of block with given prev_block_hash is the first one with current protocol version.
 fn is_first_epoch_with_protocol_version(
-    runtime_adapter: &dyn RuntimeAdapter,
+    runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
     prev_block_hash: &CryptoHash,
 ) -> Result<bool, Error> {
     let prev_epoch_id = runtime_adapter.get_prev_epoch_id_from_prev_block(prev_block_hash)?;
@@ -19,8 +19,8 @@ fn is_first_epoch_with_protocol_version(
 /// Check that block is the first one with existing chunk for the given shard in the chain with its protocol version.
 /// We assume that current block contain the chunk for shard with the given id.
 pub fn check_if_block_is_first_with_chunk_of_version(
-    chain_store: &mut dyn ChainStoreAccess,
-    runtime_adapter: &dyn RuntimeAdapter,
+    chain_store: &dyn ChainStoreAccess,
+    runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
     prev_block_hash: &CryptoHash,
     shard_id: ShardId,
 ) -> Result<bool, Error> {

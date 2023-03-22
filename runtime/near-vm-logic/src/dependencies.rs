@@ -1,39 +1,107 @@
 //! External dependencies of the near-vm-logic.
 
-use crate::types::{PublicKey, ReceiptIndex};
-use near_primitives_core::types::{AccountId, Balance, Gas};
-#[cfg(feature = "protocol_feature_function_call_weight")]
-use near_primitives_core::types::{GasDistribution, GasWeight};
+use near_primitives::hash::CryptoHash;
+use near_primitives::types::TrieNodesCount;
+use near_primitives_core::types::{AccountId, Balance};
 use near_vm_errors::VMLogicError;
+
+use std::borrow::Cow;
+
+/// Representation of the address slice of guest memory.
+#[derive(Clone, Copy)]
+pub struct MemSlice {
+    /// Offset within guest memory at which the slice starts.
+    pub ptr: u64,
+    /// Length of the slice.
+    pub len: u64,
+}
+
+impl MemSlice {
+    #[inline]
+    pub fn len<T: TryFrom<u64>>(&self) -> Result<T, ()> {
+        T::try_from(self.len).map_err(|_| ())
+    }
+
+    #[inline]
+    pub fn end<T: TryFrom<u64>>(&self) -> Result<T, ()> {
+        T::try_from(self.ptr.checked_add(self.len).ok_or(())?).map_err(|_| ())
+    }
+
+    #[inline]
+    pub fn range<T: TryFrom<u64>>(&self) -> Result<std::ops::Range<T>, ()> {
+        let end = self.end()?;
+        let start = T::try_from(self.ptr).map_err(|_| ())?;
+        Ok(start..end)
+    }
+}
 
 /// An abstraction over the memory of the smart contract.
 pub trait MemoryLike {
-    /// Returns whether the memory interval is completely inside the smart contract memory.
-    fn fits_memory(&self, offset: u64, len: u64) -> bool;
+    /// Returns success if the memory interval is completely inside smart
+    /// contract’s memory.
+    ///
+    /// You often don’t need to use this method since other methods will perform
+    /// the check, however it may be necessary to prevent potential denial of
+    /// service attacks.  See [`Self::read_memory`] for description.
+    fn fits_memory(&self, slice: MemSlice) -> Result<(), ()>;
+
+    /// Returns view of the content of the given memory interval.
+    ///
+    /// Not all implementations support borrowing the memory directly.  In those
+    /// cases, the data is copied into a vector.
+    fn view_memory(&self, slice: MemSlice) -> Result<Cow<[u8]>, ()>;
 
     /// Reads the content of the given memory interval.
     ///
-    /// # Panics
+    /// Returns error if the memory interval isn’t completely inside the smart
+    /// contract memory.
     ///
-    /// If memory interval is outside the smart contract memory.
-    fn read_memory(&self, offset: u64, buffer: &mut [u8]);
-
-    /// Reads a single byte from the memory.
+    /// # Potential denial of service
     ///
-    /// # Panics
+    /// Note that improper use of this function may lead to denial of service
+    /// attacks.  For example, consider the following function:
     ///
-    /// If pointer is outside the smart contract memory.
-    fn read_memory_u8(&self, offset: u64) -> u8;
+    /// ```
+    /// # use near_vm_logic::{MemoryLike, MemSlice};
+    ///
+    /// fn read_vec(mem: &dyn MemoryLike, slice: MemSlice) -> Result<Vec<u8>, ()> {
+    ///     let mut vec = vec![0; slice.len()?];
+    ///     mem.read_memory(slice.ptr, &mut vec[..])?;
+    ///     Ok(vec)
+    /// }
+    /// ```
+    ///
+    /// If attacker controls length argument, it may cause attempt at allocation
+    /// of arbitrarily-large buffer and crash the program.  In situations like
+    /// this, it’s necessary to use [`Self::fits_memory`] method to verify that
+    /// the length is valid.  For example:
+    ///
+    /// ```
+    /// # use near_vm_logic::{MemoryLike, MemSlice};
+    ///
+    /// fn read_vec(mem: &dyn MemoryLike, slice: MemSlice) -> Result<Vec<u8>, ()> {
+    ///     mem.fits_memory(slice)?;
+    ///     let mut vec = vec![0; slice.len()?];
+    ///     mem.read_memory(slice.ptr, &mut vec[..])?;
+    ///     Ok(vec)
+    /// }
+    /// ```
+    fn read_memory(&self, offset: u64, buffer: &mut [u8]) -> Result<(), ()>;
 
     /// Writes the buffer into the smart contract memory.
     ///
-    /// # Panics
-    ///
-    /// If `offset + buffer.len()` is outside the smart contract memory.
-    fn write_memory(&mut self, offset: u64, buffer: &[u8]);
+    /// Returns error if the memory interval isn’t completely inside the smart
+    /// contract memory.
+    fn write_memory(&mut self, offset: u64, buffer: &[u8]) -> Result<(), ()>;
 }
 
-pub type Result<T> = ::std::result::Result<T, VMLogicError>;
+/// This enum represents if a storage_get call will be performed through flat storage or trie
+pub enum StorageGetMode {
+    FlatStorage,
+    Trie,
+}
+
+pub type Result<T, E = VMLogicError> = ::std::result::Result<T, E>;
 
 /// Logical pointer to a value in storage.
 /// Allows getting value length before getting the value itself. This is needed so that runtime
@@ -72,22 +140,27 @@ pub trait External {
     ///
     /// * `key` - the key to read
     ///
+    /// * `mode`- whether the lookup will be performed through flat storage or trie
     /// # Errors
     ///
-    /// This function could return [`VMError::ExternalError`].
+    /// This function could return [`near_vm_errors::VMRunnerError::ExternalError`].
     ///
     /// # Example
     /// ```
     /// # use near_vm_logic::mocks::mock_external::MockedExternal;
-    /// # use near_vm_logic::{External, ValuePtr};
+    /// # use near_vm_logic::{External, StorageGetMode, ValuePtr};
     ///
     /// # let mut external = MockedExternal::new();
     /// external.storage_set(b"key42", b"value1337").unwrap();
-    /// assert_eq!(external.storage_get(b"key42").unwrap().map(|ptr| ptr.deref().unwrap()), Some(b"value1337".to_vec()));
+    /// assert_eq!(external.storage_get(b"key42", StorageGetMode::Trie).unwrap().map(|ptr| ptr.deref().unwrap()), Some(b"value1337".to_vec()));
     /// // Returns Ok(None) if there is no value for a key
-    /// assert_eq!(external.storage_get(b"no_key").unwrap().map(|ptr| ptr.deref().unwrap()), None);
+    /// assert_eq!(external.storage_get(b"no_key", StorageGetMode::Trie).unwrap().map(|ptr| ptr.deref().unwrap()), None);
     /// ```
-    fn storage_get<'a>(&'a self, key: &[u8]) -> Result<Option<Box<dyn ValuePtr + 'a>>>;
+    fn storage_get<'a>(
+        &'a self,
+        key: &[u8],
+        mode: StorageGetMode,
+    ) -> Result<Option<Box<dyn ValuePtr + 'a>>>;
 
     /// Removes the `key` from the storage trie associated with the current account.
     ///
@@ -122,7 +195,7 @@ pub trait External {
     ///
     /// # Errors
     ///
-    /// This function could return [`VMError`].
+    /// This function could return [`near_vm_errors::VMError`].
     ///
     /// # Example
     /// ```
@@ -148,7 +221,7 @@ pub trait External {
     ///
     /// # Errors
     ///
-    /// This function could return [`VMError::RuntimeError`].
+    /// This function could return [`near_vm_errors::VMError`].
     ///
     /// # Example
     /// ```
@@ -164,374 +237,10 @@ pub trait External {
     /// ```
     fn storage_has_key(&mut self, key: &[u8]) -> Result<bool>;
 
-    /// Create a receipt which will be executed after all the receipts identified by
-    /// `receipt_indices` are complete.
-    ///
-    /// If any of the [`RecepitIndex`]es do not refer to a known receipt, this function will fail
-    /// with an error.
-    ///
-    /// # Arguments
-    ///
-    /// * `receipt_indices` - a list of receipt indices the new receipt is depend on
-    ///
-    /// # Example
-    /// ```
-    /// # use near_vm_logic::mocks::mock_external::MockedExternal;
-    /// # use near_vm_logic::External;
-    ///
-    /// # let mut external = MockedExternal::new();
-    /// let receipt_index_one = external.create_receipt(vec![], "charli.near".parse().unwrap()).unwrap();
-    /// let receipt_index_two = external.create_receipt(vec![receipt_index_one], "bob.near".parse().unwrap());
-    ///
-    /// ```
-    fn create_receipt(
-        &mut self,
-        receipt_indices: Vec<ReceiptIndex>,
-        receiver_id: AccountId,
-    ) -> Result<ReceiptIndex>;
-
-    /// Attach the [`CreateAccountAction`] action to an existing receipt.
-    ///
-    /// # Arguments
-    ///
-    /// * `receipt_index` - an index of Receipt to append an action
-    ///
-    /// # Example
-    /// ```
-    /// # use near_vm_logic::mocks::mock_external::MockedExternal;
-    /// # use near_vm_logic::External;
-    ///
-    /// # let mut external = MockedExternal::new();
-    /// let receipt_index = external.create_receipt(vec![], "charli.near".parse().unwrap()).unwrap();
-    /// external.append_action_create_account(receipt_index).unwrap();
-    ///
-    /// ```
-    ///
-    /// # Panics
-    ///
-    /// Panics if the `receipt_index` does not refer to a known receipt.
-    fn append_action_create_account(&mut self, receipt_index: ReceiptIndex) -> Result<()>;
-
-    /// Attach the [`DeployContractAction`] action to an existing receipt.
-    ///
-    /// # Arguments
-    ///
-    /// * `receipt_index` - an index of Receipt to append an action
-    /// * `code` - a Wasm code to attach
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use near_vm_logic::mocks::mock_external::MockedExternal;
-    /// # use near_vm_logic::External;
-    ///
-    /// # let mut external = MockedExternal::new();
-    /// let receipt_index = external.create_receipt(vec![], "charli.near".parse().unwrap()).unwrap();
-    /// external.append_action_deploy_contract(receipt_index, b"some valid Wasm code".to_vec()).unwrap();
-    /// ```
-    ///
-    /// # Panics
-    ///
-    /// Panics if the `receipt_index` does not refer to a known receipt.
-    fn append_action_deploy_contract(
-        &mut self,
-        receipt_index: ReceiptIndex,
-        code: Vec<u8>,
-    ) -> Result<()>;
-
-    /// Attach the [`FunctionCallAction`] action to an existing receipt.
-    ///
-    /// # Arguments
-    ///
-    /// * `receipt_index` - an index of Receipt to append an action
-    /// * `method_name` - a name of the contract method to call
-    /// * `arguments` - a Wasm code to attach
-    /// * `attached_deposit` - amount of tokens to transfer with the call
-    /// * `prepaid_gas` - amount of prepaid gas to attach to the call
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use near_vm_logic::mocks::mock_external::MockedExternal;
-    /// # use near_vm_logic::External;
-    ///
-    /// # let mut external = MockedExternal::new();
-    /// let receipt_index = external.create_receipt(vec![], "charli.near".parse().unwrap()).unwrap();
-    /// external.append_action_function_call(
-    ///     receipt_index,
-    ///     b"method_name".to_vec(),
-    ///     b"{serialised: arguments}".to_vec(),
-    ///     100000u128,
-    ///     100u64
-    /// ).unwrap();
-    /// ```
-    ///
-    /// # Panics
-    ///
-    /// Panics if the `receipt_index` does not refer to a known receipt.
-    fn append_action_function_call(
-        &mut self,
-        receipt_index: ReceiptIndex,
-        method_name: Vec<u8>,
-        arguments: Vec<u8>,
-        attached_deposit: Balance,
-        prepaid_gas: Gas,
-    ) -> Result<()>;
-
-    /// Attach the [`FunctionCallAction`] action to an existing receipt. This method has similar
-    /// functionality to [`append_action_function_call`](Self::append_action_function_call) except
-    /// that it allows specifying a weight to use leftover gas from the current execution.
-    ///
-    /// `prepaid_gas` and `gas_weight` can either be specified or both. If a `gas_weight` is
-    /// specified, the action should be allocated gas in
-    /// [`distribute_unused_gas`](Self::distribute_unused_gas).
-    ///
-    /// For more information, see [crate::VMLogic::promise_batch_action_function_call_weight].
-    ///
-    /// # Arguments
-    ///
-    /// * `receipt_index` - an index of Receipt to append an action
-    /// * `method_name` - a name of the contract method to call
-    /// * `arguments` - a Wasm code to attach
-    /// * `attached_deposit` - amount of tokens to transfer with the call
-    /// * `prepaid_gas` - amount of prepaid gas to attach to the call
-    /// * `gas_weight` - relative weight of unused gas to distribute to the function call action
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use near_vm_logic::mocks::mock_external::MockedExternal;
-    /// # use near_vm_logic::External;
-    ///
-    /// # let mut external = MockedExternal::new();
-    /// let receipt_index = external.create_receipt(vec![], "charli.near".parse().unwrap()).unwrap();
-    /// external.append_action_function_call_weight(
-    ///     receipt_index,
-    ///     b"method_name".to_vec(),
-    ///     b"{serialised: arguments}".to_vec(),
-    ///     100000u128,
-    ///     100u64,
-    ///     2,
-    /// ).unwrap();
-    /// ```
-    ///
-    /// # Panics
-    ///
-    /// Panics if the `receipt_index` does not refer to a known receipt.
-    #[cfg(feature = "protocol_feature_function_call_weight")]
-    fn append_action_function_call_weight(
-        &mut self,
-        receipt_index: ReceiptIndex,
-        method_name: Vec<u8>,
-        arguments: Vec<u8>,
-        attached_deposit: Balance,
-        prepaid_gas: Gas,
-        gas_weight: GasWeight,
-    ) -> Result<()>;
-
-    /// Attach the [`TransferAction`] action to an existing receipt.
-    ///
-    /// # Arguments
-    ///
-    /// * `receipt_index` - an index of Receipt to append an action
-    /// * `amount` - amount of tokens to transfer
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use near_vm_logic::mocks::mock_external::MockedExternal;
-    /// # use near_vm_logic::External;
-    ///
-    /// # let mut external = MockedExternal::new();
-    /// let receipt_index = external.create_receipt(vec![], "charli.near".parse().unwrap()).unwrap();
-    /// external.append_action_transfer(
-    ///     receipt_index,
-    ///     100000u128,
-    /// ).unwrap();
-    /// ```
-    ///
-    /// # Panics
-    ///
-    /// Panics if the `receipt_index` does not refer to a known receipt.
-    fn append_action_transfer(
-        &mut self,
-        receipt_index: ReceiptIndex,
-        amount: Balance,
-    ) -> Result<()>;
-
-    /// Attach the [`StakeAction`] action to an existing receipt.
-    ///
-    /// # Arguments
-    ///
-    /// * `receipt_index` - an index of Receipt to append an action
-    /// * `stake` - amount of tokens to stake
-    /// * `public_key` - a validator public key
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use near_vm_logic::mocks::mock_external::MockedExternal;
-    /// # use near_vm_logic::External;
-    ///
-    /// # let mut external = MockedExternal::new();
-    /// let receipt_index = external.create_receipt(vec![], "charli.near".parse().unwrap()).unwrap();
-    /// external.append_action_stake(
-    ///     receipt_index,
-    ///     100000u128,
-    ///     b"some public key".to_vec()
-    /// ).unwrap();
-    /// ```
-    ///
-    /// # Panics
-    ///
-    /// Panics if the `receipt_index` does not refer to a known receipt.
-    fn append_action_stake(
-        &mut self,
-        receipt_index: ReceiptIndex,
-        stake: Balance,
-        public_key: PublicKey,
-    ) -> Result<()>;
-
-    /// Attach the [`AddKeyAction`] action to an existing receipt.
-    ///
-    /// # Arguments
-    ///
-    /// * `receipt_index` - an index of Receipt to append an action
-    /// * `public_key` - a public key for an access key
-    /// * `nonce` - a nonce
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use near_vm_logic::mocks::mock_external::MockedExternal;
-    /// # use near_vm_logic::External;
-    ///
-    /// # let mut external = MockedExternal::new();
-    /// let receipt_index = external.create_receipt(vec![], "charli.near".parse().unwrap()).unwrap();
-    /// external.append_action_add_key_with_full_access(
-    ///     receipt_index,
-    ///     b"some public key".to_vec(),
-    ///     0u64
-    /// ).unwrap();
-    /// ```
-    ///
-    /// # Panics
-    ///
-    /// Panics if the `receipt_index` does not refer to a known receipt.
-    fn append_action_add_key_with_full_access(
-        &mut self,
-        receipt_index: ReceiptIndex,
-        public_key: PublicKey,
-        nonce: u64,
-    ) -> Result<()>;
-
-    /// Attach the [`AddKeyAction`] action an existing receipt.
-    ///
-    /// The access key associated with the action will have the
-    /// [`AccessKeyPermission::FunctionCall`] permission scope.
-    ///
-    /// # Arguments
-    ///
-    /// * `receipt_index` - an index of Receipt to append an action
-    /// * `public_key` - a public key for an access key
-    /// * `nonce` - a nonce
-    /// * `allowance` - amount of tokens allowed to spend by this access key
-    /// * `receiver_id` - a contract witch will be allowed to call with this access key
-    /// * `method_names` - a list of method names is allowed to call with this access key (empty = any method)
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use near_vm_logic::mocks::mock_external::MockedExternal;
-    /// # use near_vm_logic::External;
-    ///
-    /// # let mut external = MockedExternal::new();
-    /// let receipt_index = external.create_receipt(vec![], "charli.near".parse().unwrap()).unwrap();
-    /// external.append_action_add_key_with_function_call(
-    ///     receipt_index,
-    ///     b"some public key".to_vec(),
-    ///     0u64,
-    ///     None,
-    ///     "bob.near".parse().unwrap(),
-    ///     vec![b"foo".to_vec(), b"bar".to_vec()]
-    /// ).unwrap();
-    /// ```
-    ///
-    /// # Panics
-    ///
-    /// Panics if the `receipt_index` does not refer to a known receipt.
-    fn append_action_add_key_with_function_call(
-        &mut self,
-        receipt_index: ReceiptIndex,
-        public_key: PublicKey,
-        nonce: u64,
-        allowance: Option<Balance>,
-        receiver_id: AccountId,
-        method_names: Vec<Vec<u8>>,
-    ) -> Result<()>;
-
-    /// Attach the [`DeleteKeyAction`] action to an existing receipt.
-    ///
-    /// # Arguments
-    ///
-    /// * `receipt_index` - an index of Receipt to append an action
-    /// * `public_key` - a public key for an access key to delete
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use near_vm_logic::mocks::mock_external::MockedExternal;
-    /// # use near_vm_logic::External;
-    ///
-    /// # let mut external = MockedExternal::new();
-    /// let receipt_index = external.create_receipt(vec![], "charli.near".parse().unwrap()).unwrap();
-    /// external.append_action_delete_key(
-    ///     receipt_index,
-    ///     b"some public key".to_vec()
-    /// ).unwrap();
-    /// ```
-    ///
-    /// # Panics
-    ///
-    /// Panics if the `receipt_index` does not refer to a known receipt.
-    fn append_action_delete_key(
-        &mut self,
-        receipt_index: ReceiptIndex,
-        public_key: PublicKey,
-    ) -> Result<()>;
-
-    /// Attach the [`DeleteAccountAction`] action to an existing receipt
-    ///
-    /// # Arguments
-    ///
-    /// * `receipt_index` - an index of Receipt to append an action
-    /// * `beneficiary_id` - an account id to which the rest of the funds of the removed account will be transferred
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use near_vm_logic::mocks::mock_external::MockedExternal;
-    /// # use near_vm_logic::External;
-    ///
-    /// # let mut external = MockedExternal::new();
-    /// let receipt_index = external.create_receipt(vec![], "charli.near".parse().unwrap()).unwrap();
-    /// external.append_action_delete_account(
-    ///     receipt_index,
-    ///     "sam".parse().unwrap()
-    /// ).unwrap();
-    /// ```
-    ///
-    /// # Panics
-    ///
-    /// Panics if the `receipt_index` does not refer to a known receipt.
-    fn append_action_delete_account(
-        &mut self,
-        receipt_index: ReceiptIndex,
-        beneficiary_id: AccountId,
-    ) -> Result<()>;
+    fn generate_data_id(&mut self) -> CryptoHash;
 
     /// Returns amount of touched trie nodes by storage operations
-    fn get_touched_nodes_count(&self) -> u64;
+    fn get_trie_nodes_count(&self) -> TrieNodesCount;
 
     /// Returns the validator stake for given account in the current epoch.
     /// If the account is not a validator, returns `None`.
@@ -539,16 +248,4 @@ pub trait External {
 
     /// Returns total stake of validators in the current epoch.
     fn validator_total_stake(&self) -> Result<Balance>;
-
-    /// Distribute the gas among the scheduled function calls that specify a gas weight.
-    ///
-    /// # Arguments
-    ///
-    /// * `gas` - amount of unused gas to distribute
-    ///
-    /// # Returns
-    ///
-    /// Function returns a [GasDistribution] that indicates how the gas was distributed.
-    #[cfg(feature = "protocol_feature_function_call_weight")]
-    fn distribute_unused_gas(&mut self, gas: Gas) -> GasDistribution;
 }

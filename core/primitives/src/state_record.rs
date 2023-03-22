@@ -1,9 +1,3 @@
-use borsh::BorshDeserialize;
-use serde::{Deserialize, Serialize};
-use std::fmt::{Display, Formatter};
-
-use near_crypto::PublicKey;
-
 use crate::account::{AccessKey, Account};
 use crate::hash::{hash, CryptoHash};
 use crate::receipt::{Receipt, ReceivedData};
@@ -16,9 +10,12 @@ use crate::trie_key::trie_key_parsers::{
     parse_data_key_from_contract_data_key, parse_public_key_from_access_key_key,
 };
 use crate::types::AccountId;
+use borsh::BorshDeserialize;
+use near_crypto::PublicKey;
+use std::fmt::{Display, Formatter};
 
 /// Record in the state storage.
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub enum StateRecord {
     /// Account information.
     Account { account_id: AccountId, account: Account },
@@ -58,8 +55,7 @@ impl StateRecord {
     /// Most `unwrap()` here are because the implementation of columns and data are internal and
     /// can't be influenced by external calls.
     pub fn from_raw_key_value(key: Vec<u8>, value: Vec<u8>) -> Option<StateRecord> {
-        let column = &key[0..1];
-        match column {
+        match key[0] {
             col::ACCOUNT => Some(StateRecord::Account {
                 account_id: parse_account_id_from_account_key(&key).unwrap(),
                 account: Account::try_from_slice(&value).unwrap(),
@@ -162,5 +158,6 @@ pub fn state_record_to_account_id(state_record: &StateRecord) -> &AccountId {
 }
 
 pub fn is_contract_code_key(key: &[u8]) -> bool {
-    &key[0..1] == col::CONTRACT_CODE
+    debug_assert!(!key.is_empty());
+    key[0] == col::CONTRACT_CODE
 }

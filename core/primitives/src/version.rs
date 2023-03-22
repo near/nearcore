@@ -1,23 +1,14 @@
 use crate::types::Balance;
 use once_cell::sync::Lazy;
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// Data structure for semver version and github tag or commit.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 pub struct Version {
     pub version: String,
     pub build: String,
     #[serde(default)]
     pub rustc_version: String,
 }
-
-/// Database version.
-pub type DbVersion = u32;
-
-/// Current version of the database.
-pub const DB_VERSION: DbVersion = 31;
 
 use crate::upgrade_schedule::{get_protocol_version_internal, ProtocolUpgradeVotingSchedule};
 /// Protocol version type.
@@ -54,21 +45,6 @@ pub const SHARD_CHUNK_HEADER_UPGRADE_VERSION: ProtocolVersion = 41;
 /// Updates the way receipt ID is constructed to use current block hash instead of last block hash
 pub const CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION: ProtocolVersion = 42;
 
-pub struct ProtocolVersionRange {
-    lower: ProtocolVersion,
-    upper: Option<ProtocolVersion>,
-}
-
-impl ProtocolVersionRange {
-    pub fn new(lower: ProtocolVersion, upper: Option<ProtocolVersion>) -> Self {
-        Self { lower, upper }
-    }
-
-    pub fn contains(&self, version: ProtocolVersion) -> bool {
-        self.lower <= version && self.upper.map_or(true, |upper| version < upper)
-    }
-}
-
 pub fn is_implicit_account_creation_enabled(protocol_version: ProtocolVersion) -> bool {
     protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
 }
@@ -83,7 +59,6 @@ pub fn is_implicit_account_creation_enabled(protocol_version: ProtocolVersion) -
 #[derive(Hash, PartialEq, Eq, Clone, Copy, Debug)]
 pub enum ProtocolFeature {
     // stable features
-    ForwardChunkParts,
     RectifyInflation,
     /// Add `AccessKey` nonce range by setting nonce to `(block_height - 1) * 1e6`, see
     /// <https://github.com/near/nearcore/issues/3779>.
@@ -125,9 +100,10 @@ pub enum ProtocolFeature {
     /// <https://github.com/near/nearcore/pull/4954> for more details.
     LimitContractFunctionsNumber,
     BlockHeaderV3,
-    /// Changes how we select validators for epoch and how we select validators within epoch. See
-    /// https://github.com/near/NEPs/pull/167 for general description, note that we would not
-    /// introduce chunk-only validators with this feature
+    /// Changes how we select validators for epoch and how we select validators
+    /// within epoch.  See <https://github.com/near/NEPs/pull/167> for general
+    /// description, note that we would not introduce chunk-only validators with
+    /// this feature
     AliasValidatorSelectionAlgorithm,
     /// Make block producers produce chunks for the same block they would later produce to avoid
     /// network delays
@@ -137,21 +113,45 @@ pub enum ProtocolFeature {
     CorrectStackLimit,
     /// Add `AccessKey` nonce range for implicit accounts, as in `AccessKeyNonceRange` feature.
     AccessKeyNonceForImplicitAccounts,
-
-    // nightly features
-    #[cfg(feature = "protocol_feature_alt_bn128")]
+    /// Increase cost per deployed code byte to cover for the compilation steps
+    /// that a deployment triggers. Only affects the action execution cost.
+    IncreaseDeploymentCost,
+    FunctionCallWeight,
+    /// This feature enforces a global limit on the function local declarations in a WebAssembly
+    /// contract. See <...> for more information.
+    LimitContractLocals,
+    /// Ensure caching all nodes in the chunk for which touching trie node cost was charged. Charge for each such node
+    /// only once per chunk at the first access time.
+    ChunkNodesCache,
+    /// Lower `max_length_storage_key` limit, which itself limits trie node sizes.
+    LowerStorageKeyLimit,
+    // alt_bn128_g1_multiexp, alt_bn128_g1_sum, alt_bn128_pairing_check host functions
     AltBn128,
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
     ChunkOnlyProducers,
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-    RoutingExchangeAlgorithm,
+    /// Ensure the total stake of validators that are kicked out does not exceed a percentage of total stakes
+    MaxKickoutStake,
+    /// Validate account id for function call access keys.
+    AccountIdInFunctionCallPermission,
+    /// Zero Balance Account NEP 448: https://github.com/near/NEPs/pull/448
+    ZeroBalanceAccount,
+    /// Execute a set of actions on behalf of another account.
+    ///
+    /// Meta Transaction NEP-366: https://github.com/near/NEPs/blob/master/neps/nep-0366.md
+    DelegateAction,
+
     /// In case not all validator seats are occupied our algorithm provide incorrect minimal seat
     /// price - it reports as alpha * sum_stake instead of alpha * sum_stake / (1 - alpha), where
     /// alpha is min stake ratio
     #[cfg(feature = "protocol_feature_fix_staking_threshold")]
     FixStakingThreshold,
-    #[cfg(feature = "protocol_feature_function_call_weight")]
-    FunctionCallWeight,
+    /// Charge for contract loading before it happens.
+    #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
+    FixContractLoadingCost,
+    Ed25519Verify,
+    #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
+    RejectBlocksWithOutdatedProtocolVersions,
+    #[cfg(feature = "protocol_feature_flat_state")]
+    FlatStorageReads,
 }
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
@@ -161,32 +161,37 @@ pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_V
 /// Current protocol version used on the mainnet.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 52;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 59;
 
-/// Version used by this binary.
-#[cfg(not(feature = "nightly_protocol"))]
-pub const PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_VERSION;
-/// Current latest nightly version of the protocol.
-#[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 127;
+/// Largest protocol version supported by the current binary.
+pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {
+    // On nightly, pick big enough version to support all features.
+    135
+} else {
+    // Enable all stable features.
+    STABLE_PROTOCOL_VERSION
+};
 
-/// The points in time after which the voting for the protocol version should start.
-#[allow(dead_code)]
-const PROTOCOL_UPGRADE_SCHEDULE: Lazy<
-    HashMap<ProtocolVersion, Option<ProtocolUpgradeVotingSchedule>>,
-> = Lazy::new(|| {
-    let mut schedule = HashMap::new();
-    schedule.insert(52, None);
-    schedule
+/// The points in time after which the voting for the latest protocol version
+/// should start.
+///
+/// In non-release builds this is typically a date in the far past (meaning that
+/// nightly builds will vote for new protocols immediately).  On release builds
+/// it’s set according to the schedule for that protocol upgrade.  Release
+/// candidates usually have separate schedule to final releases.
+pub const PROTOCOL_UPGRADE_SCHEDULE: Lazy<ProtocolUpgradeVotingSchedule> = Lazy::new(|| {
+    // Update to according to schedule when making a release.
+    ProtocolUpgradeVotingSchedule::default()
 });
 
-/// Gives new clients an option to upgrade without announcing that they support the new version.
-/// This gives non-validator nodes time to upgrade. See https://github.com/near/NEPs/issues/205
+/// Gives new clients an option to upgrade without announcing that they support
+/// the new version.  This gives non-validator nodes time to upgrade.  See
+/// <https://github.com/near/NEPs/issues/205>
 pub fn get_protocol_version(next_epoch_protocol_version: ProtocolVersion) -> ProtocolVersion {
     get_protocol_version_internal(
         next_epoch_protocol_version,
         PROTOCOL_VERSION,
-        &*PROTOCOL_UPGRADE_SCHEDULE,
+        *PROTOCOL_UPGRADE_SCHEDULE,
     )
 }
 
@@ -197,9 +202,7 @@ impl ProtocolFeature {
             ProtocolFeature::LowerStorageCost => 42,
             ProtocolFeature::DeleteActionRestriction => 43,
             ProtocolFeature::FixApplyChunks => 44,
-            ProtocolFeature::ForwardChunkParts
-            | ProtocolFeature::RectifyInflation
-            | ProtocolFeature::AccessKeyNonceRange => 45,
+            ProtocolFeature::RectifyInflation | ProtocolFeature::AccessKeyNonceRange => 45,
             ProtocolFeature::AccountVersions
             | ProtocolFeature::TransactionSizeLimit
             | ProtocolFeature::FixStorageUsage
@@ -218,18 +221,27 @@ impl ProtocolFeature {
             ProtocolFeature::SynchronizeBlockChunkProduction
             | ProtocolFeature::CorrectStackLimit => 50,
             ProtocolFeature::AccessKeyNonceForImplicitAccounts => 51,
+            ProtocolFeature::IncreaseDeploymentCost
+            | ProtocolFeature::FunctionCallWeight
+            | ProtocolFeature::LimitContractLocals
+            | ProtocolFeature::ChunkNodesCache
+            | ProtocolFeature::LowerStorageKeyLimit => 53,
+            ProtocolFeature::AltBn128 => 55,
+            ProtocolFeature::ChunkOnlyProducers | ProtocolFeature::MaxKickoutStake => 56,
+            ProtocolFeature::AccountIdInFunctionCallPermission => 57,
+            ProtocolFeature::Ed25519Verify
+            | ProtocolFeature::ZeroBalanceAccount
+            | ProtocolFeature::DelegateAction => 59,
 
             // Nightly features
-            #[cfg(feature = "protocol_feature_alt_bn128")]
-            ProtocolFeature::AltBn128 => 105,
-            #[cfg(feature = "protocol_feature_chunk_only_producers")]
-            ProtocolFeature::ChunkOnlyProducers => 124,
-            #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-            ProtocolFeature::RoutingExchangeAlgorithm => 117,
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
             ProtocolFeature::FixStakingThreshold => 126,
-            #[cfg(feature = "protocol_feature_function_call_weight")]
-            ProtocolFeature::FunctionCallWeight => 127,
+            #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
+            ProtocolFeature::FixContractLoadingCost => 129,
+            #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
+            ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 132,
+            #[cfg(feature = "protocol_feature_flat_state")]
+            ProtocolFeature::FlatStorageReads => 135,
         }
     }
 }

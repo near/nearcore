@@ -1,8 +1,13 @@
+use crate::{
+    errors,
+    models::{self, AccountBalanceResponseMetadata},
+    types::AccountId,
+};
 use actix::Addr;
 use futures::StreamExt;
-
 use near_chain_configs::ProtocolConfigView;
 use near_client::ViewClientActor;
+use near_o11y::WithSpanContextExt;
 use near_primitives::borsh::{BorshDeserialize, BorshSerialize};
 
 #[derive(Debug, Clone, PartialEq, derive_more::AsRef, derive_more::From)]
@@ -70,7 +75,7 @@ where
     }
 }
 
-#[derive(Debug, Clone, PartialEq, derive_more::AsRef, derive_more::From)]
+#[derive(Debug, Clone, Eq, PartialEq, derive_more::AsRef, derive_more::From)]
 #[as_ref(forward)]
 pub(crate) struct BlobInHexString<T: AsRef<[u8]> + From<Vec<u8>>>(T);
 
@@ -264,14 +269,14 @@ where
     }
 }
 
+/// Tokens not locked due to staking (=liquid) but reserved for state.
 fn get_liquid_balance_for_storage(
-    mut account: near_primitives::account::Account,
-    runtime_config: &near_primitives::runtime::config::RuntimeConfig,
+    account: &near_primitives::account::Account,
+    storage_amount_per_byte: near_primitives::types::Balance,
 ) -> near_primitives::types::Balance {
-    account.set_amount(0);
-    near_primitives::runtime::get_insufficient_storage_stake(&account, runtime_config)
-        .expect("get_insufficient_storage_stake never fails when state is consistent")
-        .unwrap_or(0)
+    let required_amount =
+        near_primitives::types::Balance::from(account.storage_usage()) * storage_amount_per_byte;
+    required_amount.saturating_sub(account.locked())
 }
 
 pub(crate) struct RosettaAccountBalances {
@@ -287,12 +292,13 @@ impl RosettaAccountBalances {
 
     pub fn from_account<T: Into<near_primitives::account::Account>>(
         account: T,
-        runtime_config: &near_primitives::runtime::config::RuntimeConfig,
+        runtime_config: &near_primitives::views::RuntimeConfigView,
     ) -> Self {
         let account = account.into();
         let amount = account.amount();
         let locked = account.locked();
-        let liquid_for_storage = get_liquid_balance_for_storage(account, runtime_config);
+        let liquid_for_storage =
+            get_liquid_balance_for_storage(&account, runtime_config.storage_amount_per_byte);
 
         Self { liquid_for_storage, liquid: amount.saturating_sub(liquid_for_storage), locked }
     }
@@ -314,7 +320,7 @@ pub(crate) async fn query_account(
         block_id,
         near_primitives::views::QueryRequest::ViewAccount { account_id },
     );
-    let account_info_response = match view_client_addr.send(query).await? {
+    let account_info_response = match view_client_addr.send(query.with_span_context()).await? {
         Ok(query_response) => query_response,
         Err(err) => match err {
             near_client_primitives::types::QueryError::UnknownAccount { .. } => {
@@ -382,18 +388,19 @@ pub(crate) async fn query_access_key(
         block_id,
         near_primitives::views::QueryRequest::ViewAccessKey { account_id, public_key },
     );
-    let access_key_query_response = match view_client_addr.send(access_key_query).await? {
-        Ok(query_response) => query_response,
-        Err(err) => {
-            return match err {
-                near_client_primitives::types::QueryError::UnknownAccount { .. }
-                | near_client_primitives::types::QueryError::UnknownAccessKey { .. } => {
-                    Err(crate::errors::ErrorKind::NotFound(err.to_string()))
+    let access_key_query_response =
+        match view_client_addr.send(access_key_query.with_span_context()).await? {
+            Ok(query_response) => query_response,
+            Err(err) => {
+                return match err {
+                    near_client_primitives::types::QueryError::UnknownAccount { .. }
+                    | near_client_primitives::types::QueryError::UnknownAccessKey { .. } => {
+                        Err(crate::errors::ErrorKind::NotFound(err.to_string()))
+                    }
+                    _ => Err(crate::errors::ErrorKind::InternalError(err.to_string())),
                 }
-                _ => Err(crate::errors::ErrorKind::InternalError(err.to_string())),
             }
-        }
-    };
+        };
 
     match access_key_query_response.kind {
         near_primitives::views::QueryResponseKind::AccessKey(access_key) => Ok((
@@ -412,9 +419,12 @@ pub(crate) async fn query_protocol_config(
     view_client_addr: &Addr<ViewClientActor>,
 ) -> crate::errors::Result<ProtocolConfigView> {
     view_client_addr
-        .send(near_client::GetProtocolConfig(near_primitives::types::BlockReference::from(
-            near_primitives::types::BlockId::Hash(block_hash),
-        )))
+        .send(
+            near_client::GetProtocolConfig(near_primitives::types::BlockReference::from(
+                near_primitives::types::BlockId::Hash(block_hash),
+            ))
+            .with_span_context(),
+        )
         .await?
         .map_err(|err| crate::errors::ErrorKind::NotFound(err.to_string()))
 }
@@ -457,4 +467,100 @@ where
     pub fn into_inner(self) -> Option<T> {
         self.known_value
     }
+}
+
+/// Get a block with `block_id`.
+/// Returns `Ok(Some(_))` if the block exists and is final.
+/// Returns `Ok(None)` if the block does not exist or is not final.
+pub(crate) async fn get_block_if_final(
+    block_id: &near_primitives::types::BlockReference,
+    view_client_addr: &Addr<ViewClientActor>,
+) -> Result<Option<near_primitives::views::BlockView>, models::Error> {
+    let final_block = get_final_block(view_client_addr).await?;
+    let is_query_by_height = match block_id {
+        near_primitives::types::BlockReference::Finality(
+            near_primitives::types::Finality::Final,
+        ) => return Ok(Some(final_block)),
+        near_primitives::types::BlockReference::BlockId(
+            near_primitives::types::BlockId::Height(height),
+        ) => {
+            if height > &final_block.header.height {
+                return Ok(None);
+            }
+            if height == &final_block.header.height {
+                return Ok(Some(final_block));
+            }
+            true
+        }
+        _ => false,
+    };
+    let block = match view_client_addr
+        .send(near_client::GetBlock(block_id.clone()).with_span_context())
+        .await?
+    {
+        Ok(block) => block,
+        Err(near_client_primitives::types::GetBlockError::UnknownBlock { .. }) => return Ok(None),
+        Err(err) => return Err(errors::ErrorKind::InternalError(err.to_string()).into()),
+    };
+    // if block height is larger than the last final block height, then the block is not final
+    if block.header.height > final_block.header.height {
+        return Ok(None);
+    }
+    // check that this block is on the canonical chain
+    if is_query_by_height {
+        return Ok(Some(block));
+    }
+    let block_on_canonical_chain = view_client_addr
+        .send(
+            near_client::GetBlock(
+                near_primitives::types::BlockId::Height(block.header.height).into(),
+            )
+            .with_span_context(),
+        )
+        .await?
+        .map_err(|_| errors::ErrorKind::InternalError("final block not found".to_string()))?;
+    if block.header.hash == block_on_canonical_chain.header.hash {
+        Ok(Some(block))
+    } else {
+        Ok(None)
+    }
+}
+
+pub(crate) async fn get_final_block(
+    view_client_addr: &Addr<ViewClientActor>,
+) -> Result<near_primitives::views::BlockView, errors::ErrorKind> {
+    view_client_addr
+        .send(
+            near_client::GetBlock(near_primitives::types::BlockReference::Finality(
+                near_primitives::types::Finality::Final,
+            ))
+            .with_span_context(),
+        )
+        .await?
+        .map_err(|_| errors::ErrorKind::InternalError("final block not found".to_string()))
+}
+
+pub(crate) async fn get_nonces(
+    view_client_addr: &Addr<ViewClientActor>,
+    account_id: AccountId,
+    public_keys: Vec<models::PublicKey>,
+) -> Result<AccountBalanceResponseMetadata, models::Error> {
+    let mut nonces = Vec::with_capacity(public_keys.len());
+    for public_key in public_keys {
+        let account_id_for_public_key = account_id.clone();
+        let (_block_hash, _block_height, access_key) = crate::utils::query_access_key(
+            near_primitives::types::BlockReference::latest(),
+            account_id_for_public_key.into(),
+            (&public_key).try_into().map_err(|err| {
+                errors::ErrorKind::InvalidInput(format!(
+                    "public key could not be parsed due to: {:?}",
+                    err
+                ))
+            })?,
+            &view_client_addr,
+        )
+        .await?;
+        nonces.push(access_key.nonce);
+    }
+    Ok(models::AccountBalanceResponseMetadata { nonces })
 }

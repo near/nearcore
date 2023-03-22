@@ -5,8 +5,10 @@ use futures::{future::LocalBoxFuture, FutureExt};
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc_primitives::errors::ServerError;
 use near_primitives::account::AccessKey;
+use near_primitives::delegate_action::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
+use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, ExecutionOutcome, FunctionCallAction, SignedTransaction, StakeAction,
@@ -50,7 +52,11 @@ pub trait User {
         signed_transaction: SignedTransaction,
     ) -> Result<FinalExecutionOutcomeView, ServerError>;
 
-    fn add_receipt(&self, receipt: Receipt) -> Result<(), ServerError>;
+    fn add_receipts(
+        &self,
+        receipts: Vec<Receipt>,
+        _use_flat_storage: bool,
+    ) -> Result<(), ServerError>;
 
     fn get_access_key_nonce_for_signer(&self, account_id: &AccountId) -> Result<u64, String> {
         self.get_access_key(account_id, &self.signer().public_key())
@@ -61,11 +67,11 @@ pub trait User {
 
     fn get_best_block_hash(&self) -> Option<CryptoHash>;
 
-    fn get_block(&self, height: BlockHeight) -> Option<BlockView>;
+    fn get_block_by_height(&self, height: BlockHeight) -> Option<BlockView>;
 
-    fn get_block_by_hash(&self, block_hash: CryptoHash) -> Option<BlockView>;
+    fn get_block(&self, block_hash: CryptoHash) -> Option<BlockView>;
 
-    fn get_chunk(&self, height: BlockHeight, shard_id: ShardId) -> Option<ChunkView>;
+    fn get_chunk_by_height(&self, height: BlockHeight, shard_id: ShardId) -> Option<ChunkView>;
 
     fn get_transaction_result(&self, hash: &CryptoHash) -> ExecutionOutcomeView;
 
@@ -240,6 +246,43 @@ pub trait User {
             vec![Action::Stake(StakeAction { stake, public_key })],
         )
     }
+
+    /// Wrap the given actions in a delegate action and execute them.
+    ///
+    /// The signer signs the delegate action to be sent to the receiver. The
+    /// relayer packs that in a transaction and signs it .
+    fn meta_tx(
+        &self,
+        signer_id: AccountId,
+        receiver_id: AccountId,
+        relayer_id: AccountId,
+        actions: Vec<Action>,
+    ) -> Result<FinalExecutionOutcomeView, ServerError> {
+        let inner_signer = create_user_test_signer(&signer_id);
+        let user_nonce = self
+            .get_access_key(&signer_id, &inner_signer.public_key)
+            .expect("failed reading user's nonce for access key")
+            .nonce;
+        let delegate_action = DelegateAction {
+            sender_id: signer_id.clone(),
+            receiver_id,
+            actions: actions
+                .into_iter()
+                .map(|action| NonDelegateAction::try_from(action).unwrap())
+                .collect(),
+            nonce: user_nonce + 1,
+            max_block_height: 100,
+            public_key: inner_signer.public_key(),
+        };
+        let signature = inner_signer.sign(delegate_action.get_nep461_hash().as_bytes());
+        let signed_delegate_action = SignedDelegateAction { delegate_action, signature };
+
+        self.sign_and_commit_actions(
+            relayer_id,
+            signer_id,
+            vec![Action::Delegate(signed_delegate_action)],
+        )
+    }
 }
 
 /// Same as `User` by provides async API that can be used inside tokio.
@@ -266,7 +309,10 @@ pub trait AsyncUser: Send + Sync {
         transaction: SignedTransaction,
     ) -> LocalBoxFuture<'static, Result<(), ServerError>>;
 
-    fn add_receipt(&self, receipt: Receipt) -> LocalBoxFuture<'static, Result<(), ServerError>>;
+    fn add_receipts(
+        &self,
+        receipts: &[Receipt],
+    ) -> LocalBoxFuture<'static, Result<(), ServerError>>;
 
     fn get_account_nonce(
         &self,

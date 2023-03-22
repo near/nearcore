@@ -1,12 +1,19 @@
-use borsh::{BorshDeserialize, BorshSerialize};
-
+use crate::config::{
+    safe_add_gas, total_prepaid_exec_fees, total_prepaid_gas, total_prepaid_send_fees,
+    RuntimeConfig,
+};
+use crate::ext::{ExternalError, RuntimeExt};
+use crate::{metrics, ActionResult, ApplyState};
+use borsh::BorshSerialize;
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::checked_feature;
+use near_primitives::config::ViewConfig;
 use near_primitives::contract::ContractCode;
-use near_primitives::errors::{ActionError, ActionErrorKind, ContractCallError, RuntimeError};
+use near_primitives::delegate_action::{DelegateAction, SignedDelegateAction};
+use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{ActionReceipt, Receipt};
+use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::runtime::config::AccountCreationConfig;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::transaction::{
@@ -14,7 +21,7 @@ use near_primitives::transaction::{
     FunctionCallAction, StakeAction, TransferAction,
 };
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::{AccountId, BlockHeight, EpochInfoProvider};
+use near_primitives::types::{AccountId, BlockHeight, EpochInfoProvider, Gas, TrieCacheMode};
 use near_primitives::utils::create_random_seed;
 use near_primitives::version::{
     is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
@@ -25,22 +32,18 @@ use near_store::{
     StorageError, TrieUpdate,
 };
 use near_vm_errors::{
-    AnyError, CacheError, CompilationError, FunctionCallError, InconsistentStateError, VMError,
+    CompilationError, FunctionCallError, FunctionCallErrorSer, InconsistentStateError,
+    VMRunnerError,
 };
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{VMContext, VMOutcome};
-
-use crate::config::{safe_add_gas, RuntimeConfig};
-use crate::ext::{ExternalError, RuntimeExt};
-use crate::{ActionResult, ApplyState};
-use near_primitives::config::ViewConfig;
+use near_vm_logic::{ActionCosts, VMContext, VMOutcome};
 use near_vm_runner::precompile_contract;
 
 /// Runs given function call with given context / apply state.
 pub(crate) fn execute_function_call(
     apply_state: &ApplyState,
     runtime_ext: &mut RuntimeExt,
-    account: &mut Account,
+    account: &Account,
     predecessor_id: &AccountId,
     action_receipt: &ActionReceipt,
     promise_results: &[PromiseResult],
@@ -49,21 +52,19 @@ pub(crate) fn execute_function_call(
     config: &RuntimeConfig,
     is_last_action: bool,
     view_config: Option<ViewConfig>,
-) -> (Option<VMOutcome>, Option<VMError>) {
+) -> Result<VMOutcome, RuntimeError> {
     let account_id = runtime_ext.account_id();
+    tracing::debug!(target: "runtime", %account_id, "Calling the contract");
     let code = match runtime_ext.get_code(account.code_hash()) {
         Ok(Some(code)) => code,
         Ok(None) => {
             let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
                 account_id: account_id.clone(),
             });
-            return (None, Some(VMError::FunctionCallError(error)));
+            return Ok(VMOutcome::nop_outcome(error));
         }
         Err(e) => {
-            return (
-                None,
-                Some(VMError::ExternalError(AnyError::new(ExternalError::StorageError(e)))),
-            );
+            return Err(RuntimeError::StorageError(e));
         }
     };
     // Output data receipts are ignored if the function call is not the last action in the batch.
@@ -86,7 +87,7 @@ pub(crate) fn execute_function_call(
             .expect("Failed to serialize"),
         predecessor_account_id: predecessor_id.clone(),
         input: function_call.args.clone(),
-        block_index: apply_state.block_index,
+        block_height: apply_state.block_height,
         block_timestamp: apply_state.block_timestamp,
         epoch_height: apply_state.epoch_height,
         account_balance: account.amount(),
@@ -99,21 +100,61 @@ pub(crate) fn execute_function_call(
         output_data_receivers,
     };
 
-    // TODO (#5920): enable chunk caching in the protocol. Also consider using RAII for switching the state back
-    // runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingChunk);
+    // Enable caching chunk mode for the function call. This allows to charge for nodes touched in a chunk only once for
+    // the first access time. Although nodes are accessed for other actions as well, we do it only here because we
+    // charge only for trie nodes touched during function calls.
+    // TODO (#5920): Consider using RAII for switching the state back
+    let protocol_version = runtime_ext.protocol_version();
+    if checked_feature!("stable", ChunkNodesCache, protocol_version) {
+        runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingChunk);
+    }
     let result = near_vm_runner::run(
         &code,
         &function_call.method_name,
         runtime_ext,
         context,
         &config.wasm_config,
-        &config.transaction_costs,
+        &config.fees,
         promise_results,
         apply_state.current_protocol_version,
         apply_state.cache.as_deref(),
     );
-    // runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingShard);
-    result
+    if checked_feature!("stable", ChunkNodesCache, protocol_version) {
+        runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingShard);
+    }
+
+    // There are many specific errors that the runtime can encounter.
+    // Some can be translated to the more general `RuntimeError`, which allows to pass
+    // the error up to the caller. For all other cases, panicking here is better
+    // than leaking the exact details further up.
+    // Note that this does not include errors caused by user code / input, those are
+    // stored in outcome.aborted.
+    result.map_err(|e| match e {
+        VMRunnerError::ExternalError(any_err) => {
+            let err: ExternalError =
+                any_err.downcast().expect("Downcasting AnyError should not fail");
+            match err {
+                ExternalError::StorageError(err) => err.into(),
+                ExternalError::ValidatorError(err) => RuntimeError::ValidatorError(err),
+            }
+        }
+        VMRunnerError::InconsistentStateError(err @ InconsistentStateError::IntegerOverflow) => {
+            StorageError::StorageInconsistentState(err.to_string()).into()
+        }
+        VMRunnerError::CacheError(err) => {
+            metrics::FUNCTION_CALL_PROCESSED_CACHE_ERRORS.with_label_values(&[(&err).into()]).inc();
+            StorageError::StorageInconsistentState(err.to_string()).into()
+        }
+        VMRunnerError::LoadingError(msg) => {
+            panic!("Contract runtime failed to load a contrct: {msg}")
+        }
+        VMRunnerError::Nondeterministic(msg) => {
+            panic!("Contract runner returned non-deterministic error '{}', aborting", msg)
+        }
+        VMRunnerError::WasmUnknownError { debug_message } => {
+            panic!("Wasmer returned unknown message: {}", debug_message)
+        }
+    })
 }
 
 pub(crate) fn action_function_call(
@@ -140,9 +181,6 @@ pub(crate) fn action_function_call(
     let mut runtime_ext = RuntimeExt::new(
         state_update,
         account_id,
-        &action_receipt.signer_id,
-        &action_receipt.signer_public_key,
-        action_receipt.gas_price,
         action_hash,
         &apply_state.epoch_id,
         &apply_state.prev_block_hash,
@@ -150,7 +188,7 @@ pub(crate) fn action_function_call(
         epoch_info_provider,
         apply_state.current_protocol_version,
     );
-    let (outcome, err) = execute_function_call(
+    let outcome = execute_function_call(
         apply_state,
         &mut runtime_ext,
         account,
@@ -162,88 +200,89 @@ pub(crate) fn action_function_call(
         config,
         is_last_action,
         None,
-    );
-    let execution_succeeded = match err {
-        Some(VMError::FunctionCallError(err)) => match err {
-            FunctionCallError::Nondeterministic(msg) => {
-                panic!("Contract runner returned non-deterministic error '{}', aborting", msg)
-            }
-            FunctionCallError::WasmUnknownError { debug_message } => {
-                panic!("Wasmer returned unknown message: {}", debug_message)
-            }
-            FunctionCallError::CompilationError(err) => {
-                result.result = Err(ActionErrorKind::FunctionCallError(
-                    ContractCallError::CompilationError(err).into(),
-                )
-                .into());
-                false
-            }
-            FunctionCallError::LinkError { msg } => {
-                result.result = Err(ActionErrorKind::FunctionCallError(
-                    ContractCallError::ExecutionError { msg: format!("Link Error: {}", msg) }
-                        .into(),
-                )
-                .into());
-                false
-            }
-            FunctionCallError::MethodResolveError(err) => {
-                result.result = Err(ActionErrorKind::FunctionCallError(
-                    ContractCallError::MethodResolveError(err).into(),
-                )
-                .into());
-                false
-            }
-            FunctionCallError::WasmTrap(_) | FunctionCallError::HostError(_) => {
-                result.result = Err(ActionErrorKind::FunctionCallError(
-                    ContractCallError::ExecutionError { msg: err.to_string() }.into(),
-                )
-                .into());
-                false
-            }
-            FunctionCallError::_EVMError => unreachable!(),
-        },
-        Some(VMError::ExternalError(any_err)) => {
-            let err: ExternalError =
-                any_err.downcast().expect("Downcasting AnyError should not fail");
-            return match err {
-                ExternalError::StorageError(err) => Err(err.into()),
-                ExternalError::ValidatorError(err) => Err(RuntimeError::ValidatorError(err)),
-            };
+    )?;
+
+    match &outcome.aborted {
+        None => {
+            metrics::FUNCTION_CALL_PROCESSED.with_label_values(&["ok"]).inc();
         }
-        Some(VMError::InconsistentStateError(err @ InconsistentStateError::IntegerOverflow)) => {
-            return Err(StorageError::StorageInconsistentState(err.to_string()).into());
+        Some(err) => {
+            metrics::FUNCTION_CALL_PROCESSED.with_label_values(&[err.into()]).inc();
         }
-        Some(VMError::CacheError(err)) => {
-            let message = match err {
-                CacheError::DeserializationError => "Cache deserialization error",
-                CacheError::SerializationError { hash: _hash } => "Cache serialization error",
-                CacheError::ReadError => "Cache read error",
-                CacheError::WriteError => "Cache write error",
-            };
-            return Err(StorageError::StorageInconsistentState(message.to_string()).into());
-        }
-        None => true,
-    };
-    if let Some(outcome) = outcome {
-        result.gas_burnt = safe_add_gas(result.gas_burnt, outcome.burnt_gas)?;
-        result.gas_burnt_for_function_call =
-            safe_add_gas(result.gas_burnt_for_function_call, outcome.burnt_gas)?;
-        // Runtime in `generate_refund_receipts` takes care of using proper value for refunds.
-        // It uses `gas_used` for success and `gas_burnt` for failures. So it's not an issue to
-        // return a real `gas_used` instead of the `gas_burnt` into `ActionResult` even for
-        // `FunctionCall`s error.
-        result.gas_used = safe_add_gas(result.gas_used, outcome.used_gas)?;
-        result.logs.extend(outcome.logs.into_iter());
-        result.profile.merge(&outcome.profile);
-        if execution_succeeded {
-            account.set_amount(outcome.balance);
-            account.set_storage_usage(outcome.storage_usage);
-            result.result = Ok(outcome.return_data);
-            result.new_receipts.extend(runtime_ext.into_receipts(account_id));
-        }
-    } else {
-        assert!(!execution_succeeded, "Outcome should always be available if execution succeeded")
     }
+
+    let execution_succeeded = outcome.aborted.is_none();
+    if let Some(err) = outcome.aborted {
+        // collect metrics for failed function calls
+        metrics::FUNCTION_CALL_PROCESSED_FUNCTION_CALL_ERRORS
+            .with_label_values(&[(&err).into()])
+            .inc();
+        match &err {
+            FunctionCallError::CompilationError(err) => {
+                metrics::FUNCTION_CALL_PROCESSED_COMPILATION_ERRORS
+                    .with_label_values(&[err.into()])
+                    .inc();
+            }
+            FunctionCallError::LinkError { .. } => (),
+            FunctionCallError::MethodResolveError(err) => {
+                metrics::FUNCTION_CALL_PROCESSED_METHOD_RESOLVE_ERRORS
+                    .with_label_values(&[err.into()])
+                    .inc();
+            }
+            FunctionCallError::WasmTrap(ref inner_err) => {
+                metrics::FUNCTION_CALL_PROCESSED_WASM_TRAP_ERRORS
+                    .with_label_values(&[inner_err.into()])
+                    .inc();
+            }
+            FunctionCallError::HostError(ref inner_err) => {
+                metrics::FUNCTION_CALL_PROCESSED_HOST_ERRORS
+                    .with_label_values(&[inner_err.into()])
+                    .inc();
+            }
+        }
+        // Update action result with the abort error converted to the
+        // transaction runtime's format of errors.
+        let ser: FunctionCallErrorSer = err.into();
+        let action_err: ActionError = ActionErrorKind::FunctionCallError(ser).into();
+        result.result = Err(action_err);
+    }
+    result.gas_burnt = safe_add_gas(result.gas_burnt, outcome.burnt_gas)?;
+    result.gas_burnt_for_function_call =
+        safe_add_gas(result.gas_burnt_for_function_call, outcome.burnt_gas)?;
+    // Runtime in `generate_refund_receipts` takes care of using proper value for refunds.
+    // It uses `gas_used` for success and `gas_burnt` for failures. So it's not an issue to
+    // return a real `gas_used` instead of the `gas_burnt` into `ActionResult` even for
+    // `FunctionCall`s error.
+    result.gas_used = safe_add_gas(result.gas_used, outcome.used_gas)?;
+    result.logs.extend(outcome.logs);
+    result.profile.merge(&outcome.profile);
+    if execution_succeeded {
+        let new_receipts: Vec<_> = outcome
+            .action_receipts
+            .into_iter()
+            .map(|(receiver_id, receipt)| Receipt {
+                predecessor_id: account_id.clone(),
+                receiver_id,
+                // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
+                // "Generating receipt IDs" section
+                receipt_id: CryptoHash::default(),
+                receipt: ReceiptEnum::Action(ActionReceipt {
+                    signer_id: action_receipt.signer_id.clone(),
+                    signer_public_key: action_receipt.signer_public_key.clone(),
+                    gas_price: action_receipt.gas_price,
+                    output_data_receivers: receipt.output_data_receivers,
+                    input_data_ids: receipt.input_data_ids,
+                    actions: receipt.actions,
+                }),
+            })
+            .collect();
+
+        account.set_amount(outcome.balance);
+        account.set_storage_usage(outcome.storage_usage);
+        result.result = Ok(outcome.return_data);
+        result.new_receipts.extend(new_receipts);
+    }
+
     Ok(())
 }
 
@@ -254,7 +293,6 @@ pub(crate) fn action_stake(
     stake: &StakeAction,
     last_block_hash: &CryptoHash,
     epoch_info_provider: &dyn EpochInfoProvider,
-    #[cfg(feature = "protocol_feature_chunk_only_producers")] is_chunk_only: bool,
 ) -> Result<(), RuntimeError> {
     let increment = stake.stake.saturating_sub(account.locked());
 
@@ -283,8 +321,6 @@ pub(crate) fn action_stake(
             account_id.clone(),
             stake.public_key.clone(),
             stake.stake,
-            #[cfg(feature = "protocol_feature_chunk_only_producers")]
-            is_chunk_only,
         ));
         if stake.stake > account.locked() {
             // We've checked above `account.amount >= increment`
@@ -395,9 +431,6 @@ pub(crate) fn action_implicit_account_creation_transfer(
     block_height: BlockHeight,
     current_protocol_version: ProtocolVersion,
 ) {
-    // NOTE: The account_id is hex like, because we've checked the permissions before.
-    debug_assert!(account_id.is_implicit());
-
     *actor_id = account_id.clone();
 
     let mut access_key = AccessKey::full_access();
@@ -408,16 +441,10 @@ pub(crate) fn action_implicit_account_creation_transfer(
             * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
     }
 
-    // 0 for ED25519
-    let mut public_key_data = Vec::with_capacity(33);
-    public_key_data.push(0u8);
-    public_key_data.extend(
-        hex::decode(account_id.as_ref().as_bytes())
-            .expect("account id was a valid hex of length 64 resulting in 32 bytes"),
-    );
-    debug_assert_eq!(public_key_data.len(), 33);
-    let public_key = PublicKey::try_from_slice(&public_key_data)
-        .expect("we should be able to deserialize ED25519 public key");
+    // Invariant: The account_id is hex like (implicit account id).
+    // It holds because in the only calling site, we've checked the permissions before.
+    // unwrap: Can only fail if `account_id` is not implicit.
+    let public_key = PublicKey::from_implicit_account(account_id).unwrap();
 
     *account = Some(Account::new(
         transfer.deposit,
@@ -562,7 +589,7 @@ pub(crate) fn action_add_key(
     }
     if checked_feature!("stable", AccessKeyNonceRange, apply_state.current_protocol_version) {
         let mut access_key = add_key.access_key.clone();
-        access_key.nonce = (apply_state.block_index - 1)
+        access_key.nonce = (apply_state.block_height - 1)
             * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
         set_access_key(state_update, account_id.clone(), add_key.public_key.clone(), &access_key);
     } else {
@@ -573,7 +600,7 @@ pub(crate) fn action_add_key(
             &add_key.access_key,
         );
     };
-    let storage_config = &apply_state.config.transaction_costs.storage_usage_config;
+    let storage_config = &apply_state.config.fees.storage_usage_config;
     account.set_storage_usage(
         account
             .storage_usage()
@@ -592,6 +619,218 @@ pub(crate) fn action_add_key(
     Ok(())
 }
 
+pub(crate) fn apply_delegate_action(
+    state_update: &mut TrieUpdate,
+    apply_state: &ApplyState,
+    action_receipt: &ActionReceipt,
+    sender_id: &AccountId,
+    signed_delegate_action: &SignedDelegateAction,
+    result: &mut ActionResult,
+) -> Result<(), RuntimeError> {
+    let delegate_action = &signed_delegate_action.delegate_action;
+
+    if !signed_delegate_action.verify() {
+        result.result = Err(ActionErrorKind::DelegateActionInvalidSignature.into());
+        return Ok(());
+    }
+    if apply_state.block_height > delegate_action.max_block_height {
+        result.result = Err(ActionErrorKind::DelegateActionExpired.into());
+        return Ok(());
+    }
+    if delegate_action.sender_id.as_str() != sender_id.as_str() {
+        result.result = Err(ActionErrorKind::DelegateActionSenderDoesNotMatchTxReceiver {
+            sender_id: delegate_action.sender_id.clone(),
+            receiver_id: sender_id.clone(),
+        }
+        .into());
+        return Ok(());
+    }
+
+    validate_delegate_action_key(state_update, apply_state, delegate_action, result)?;
+    if result.result.is_err() {
+        // Validation failed. Need to return Ok() because this is not a runtime error.
+        // "result.result" will be return to the User as the action execution result.
+        return Ok(());
+    }
+
+    // Generate a new receipt from DelegateAction.
+    let new_receipt = Receipt {
+        predecessor_id: sender_id.clone(),
+        receiver_id: delegate_action.receiver_id.clone(),
+        receipt_id: CryptoHash::default(),
+
+        receipt: ReceiptEnum::Action(ActionReceipt {
+            signer_id: action_receipt.signer_id.clone(),
+            signer_public_key: action_receipt.signer_public_key.clone(),
+            gas_price: action_receipt.gas_price,
+            output_data_receivers: vec![],
+            input_data_ids: vec![],
+            actions: delegate_action.get_actions(),
+        }),
+    };
+
+    // Note, Relayer prepaid all fees and all things required by actions: attached deposits and attached gas.
+    // If something goes wrong, deposit is refunded to the predecessor, this is sender_id/Sender in DelegateAction.
+    // Gas is refunded to the signer, this is Relayer.
+    // Some contracts refund the deposit. Usually they refund the deposit to the predecessor and this is sender_id/Sender from DelegateAction.
+    // Therefore Relayer should verify DelegateAction before submitting it because it spends the attached deposit.
+
+    let prepaid_send_fees = total_prepaid_send_fees(
+        &apply_state.config.fees,
+        &action_receipt.actions,
+        apply_state.current_protocol_version,
+    )?;
+    let required_gas = receipt_required_gas(apply_state, &new_receipt)?;
+    // This gas will be burnt by the receiver of the created receipt,
+    result.gas_used = safe_add_gas(result.gas_used, required_gas)?;
+    // This gas was prepaid on Relayer shard. Need to burn it because the receipt is going to be sent.
+    // gas_used is incremented because otherwise the gas will be refunded. Refund function checks only gas_used.
+    result.gas_used = safe_add_gas(result.gas_used, prepaid_send_fees)?;
+    result.gas_burnt = safe_add_gas(result.gas_burnt, prepaid_send_fees)?;
+    result.new_receipts.push(new_receipt);
+
+    Ok(())
+}
+
+/// Returns Gas amount is required to execute Receipt and all actions it contains
+fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<Gas, RuntimeError> {
+    Ok(match &receipt.receipt {
+        ReceiptEnum::Action(action_receipt) => {
+            let mut required_gas = safe_add_gas(
+                total_prepaid_exec_fees(
+                    &apply_state.config.fees,
+                    &action_receipt.actions,
+                    &receipt.receiver_id,
+                    apply_state.current_protocol_version,
+                )?,
+                total_prepaid_gas(&action_receipt.actions)?,
+            )?;
+            required_gas = safe_add_gas(
+                required_gas,
+                apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
+            )?;
+
+            required_gas
+        }
+        ReceiptEnum::Data(_) => 0,
+    })
+}
+
+/// Validate access key which was used for signing DelegateAction:
+///
+/// - Checks whether the access key is present fo given public_key and sender_id.
+/// - Validates nonce and updates it if it's ok.
+/// - Validates access key permissions.
+fn validate_delegate_action_key(
+    state_update: &mut TrieUpdate,
+    apply_state: &ApplyState,
+    delegate_action: &DelegateAction,
+    result: &mut ActionResult,
+) -> Result<(), RuntimeError> {
+    // 'delegate_action.sender_id' account existence must be checked by a caller
+    let mut access_key = match get_access_key(
+        state_update,
+        &delegate_action.sender_id,
+        &delegate_action.public_key,
+    )? {
+        Some(access_key) => access_key,
+        None => {
+            result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
+                InvalidAccessKeyError::AccessKeyNotFound {
+                    account_id: delegate_action.sender_id.clone(),
+                    public_key: delegate_action.public_key.clone(),
+                },
+            )
+            .into());
+            return Ok(());
+        }
+    };
+
+    if delegate_action.nonce <= access_key.nonce {
+        result.result = Err(ActionErrorKind::DelegateActionInvalidNonce {
+            delegate_nonce: delegate_action.nonce,
+            ak_nonce: access_key.nonce,
+        }
+        .into());
+        return Ok(());
+    }
+
+    let upper_bound = apply_state.block_height
+        * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
+    if delegate_action.nonce >= upper_bound {
+        result.result = Err(ActionErrorKind::DelegateActionNonceTooLarge {
+            delegate_nonce: delegate_action.nonce,
+            upper_bound,
+        }
+        .into());
+        return Ok(());
+    }
+
+    access_key.nonce = delegate_action.nonce;
+
+    let actions = delegate_action.get_actions();
+
+    // The restriction of "function call" access keys:
+    // the transaction must contain the only `FunctionCall` if "function call" access key is used
+    if let AccessKeyPermission::FunctionCall(ref function_call_permission) = access_key.permission {
+        if actions.len() != 1 {
+            result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
+                InvalidAccessKeyError::RequiresFullAccess,
+            )
+            .into());
+            return Ok(());
+        }
+        if let Some(Action::FunctionCall(ref function_call)) = actions.get(0) {
+            if function_call.deposit > 0 {
+                result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
+                    InvalidAccessKeyError::DepositWithFunctionCall,
+                )
+                .into());
+            }
+            if delegate_action.receiver_id.as_ref() != function_call_permission.receiver_id {
+                result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
+                    InvalidAccessKeyError::ReceiverMismatch {
+                        tx_receiver: delegate_action.receiver_id.clone(),
+                        ak_receiver: function_call_permission.receiver_id.clone(),
+                    },
+                )
+                .into());
+                return Ok(());
+            }
+            if !function_call_permission.method_names.is_empty()
+                && function_call_permission
+                    .method_names
+                    .iter()
+                    .all(|method_name| &function_call.method_name != method_name)
+            {
+                result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
+                    InvalidAccessKeyError::MethodNameMismatch {
+                        method_name: function_call.method_name.clone(),
+                    },
+                )
+                .into());
+                return Ok(());
+            }
+        } else {
+            // There should Action::FunctionCall when "function call" permission is used
+            result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
+                InvalidAccessKeyError::RequiresFullAccess,
+            )
+            .into());
+            return Ok(());
+        }
+    };
+
+    set_access_key(
+        state_update,
+        delegate_action.sender_id.clone(),
+        delegate_action.public_key.clone(),
+        &access_key,
+    );
+
+    Ok(())
+}
+
 pub(crate) fn check_actor_permissions(
     action: &Action,
     account: &Option<Account>,
@@ -600,16 +839,6 @@ pub(crate) fn check_actor_permissions(
 ) -> Result<(), ActionError> {
     match action {
         Action::DeployContract(_) | Action::Stake(_) | Action::AddKey(_) | Action::DeleteKey(_) => {
-            if actor_id != account_id {
-                return Err(ActionErrorKind::ActorNoPermission {
-                    account_id: account_id.clone(),
-                    actor_id: actor_id.clone(),
-                }
-                .into());
-            }
-        }
-        #[cfg(feature = "protocol_feature_chunk_only_producers")]
-        Action::StakeChunkOnly(_) => {
             if actor_id != account_id {
                 return Err(ActionErrorKind::ActorNoPermission {
                     account_id: account_id.clone(),
@@ -635,6 +864,7 @@ pub(crate) fn check_actor_permissions(
             }
         }
         Action::CreateAccount(_) | Action::FunctionCall(_) | Action::Transfer(_) => (),
+        Action::Delegate(_) => (),
     };
     Ok(())
 }
@@ -709,8 +939,7 @@ pub(crate) fn check_account_existence(
                 .into());
             }
         }
-        #[cfg(feature = "protocol_feature_chunk_only_producers")]
-        Action::StakeChunkOnly(_) => {
+        Action::Delegate(_) => {
             if account.is_none() {
                 return Err(ActionErrorKind::AccountDoesNotExist {
                     account_id: account_id.clone(),
@@ -724,12 +953,20 @@ pub(crate) fn check_account_existence(
 
 #[cfg(test)]
 mod tests {
-    use near_primitives::hash::hash;
-    use near_primitives::trie_key::TrieKey;
-    use near_store::test_utils::create_tries;
 
     use super::*;
     use crate::near_primitives::shard_layout::ShardUId;
+    use near_primitives::account::FunctionCallPermission;
+    use near_primitives::delegate_action::NonDelegateAction;
+    use near_primitives::errors::InvalidAccessKeyError;
+    use near_primitives::hash::hash;
+    use near_primitives::runtime::migration_data::MigrationFlags;
+    use near_primitives::transaction::CreateAccountAction;
+    use near_primitives::trie_key::TrieKey;
+    use near_primitives::types::{EpochId, StateChangeCause};
+    use near_store::set_account;
+    use near_store::test_utils::create_tries;
+    use std::sync::Arc;
 
     fn test_action_create_account(
         account_id: AccountId,
@@ -906,6 +1143,590 @@ mod tests {
                     account_id: "alice".parse().unwrap()
                 }
             })
+        );
+    }
+
+    fn create_delegate_action_receipt() -> (ActionReceipt, SignedDelegateAction) {
+        let signed_delegate_action = SignedDelegateAction {
+            delegate_action: DelegateAction {
+                sender_id: "bob.test.near".parse().unwrap(),
+                receiver_id: "token.test.near".parse().unwrap(),
+                actions: vec![
+                    non_delegate_action(
+                        Action::FunctionCall(
+                            FunctionCallAction {
+                                 method_name: "ft_transfer".parse().unwrap(),
+                                 args: vec![123, 34, 114, 101, 99, 101, 105, 118, 101, 114, 95, 105, 100, 34, 58, 34, 106, 97, 110, 101, 46, 116, 101, 115, 116, 46, 110, 101, 97, 114, 34, 44, 34, 97, 109, 111, 117, 110, 116, 34, 58, 34, 52, 34, 125],
+                                 gas: 30000000000000,
+                                 deposit: 1,
+                            }
+                        )
+                    )
+                ],
+                nonce: 19000001,
+                max_block_height: 57,
+                public_key: "ed25519:32LnPNBZQJ3uhY8yV6JqnNxtRW8E27Ps9YD1XeUNuA1m".parse::<PublicKey>().unwrap(),
+            },
+            signature: "ed25519:5oswo6yH6u7xduXHEC4aWc8EGmWdbFz49DaHvAVioS9tbdrxpUtoNQUa8ST9Fxpk7zS2ogWvuKaL29JjMFDi3DLe".parse().unwrap()
+        };
+
+        let action_receipt = ActionReceipt {
+            signer_id: "alice.test.near".parse().unwrap(),
+            signer_public_key: PublicKey::empty(near_crypto::KeyType::ED25519),
+            gas_price: 1,
+            output_data_receivers: Vec::new(),
+            input_data_ids: Vec::new(),
+            actions: vec![Action::Delegate(signed_delegate_action.clone())],
+        };
+
+        (action_receipt, signed_delegate_action)
+    }
+
+    fn create_apply_state(block_height: BlockHeight) -> ApplyState {
+        ApplyState {
+            block_height,
+            prev_block_hash: CryptoHash::default(),
+            block_hash: CryptoHash::default(),
+            epoch_id: EpochId::default(),
+            epoch_height: 3,
+            gas_price: 2,
+            block_timestamp: 1,
+            gas_limit: None,
+            random_seed: CryptoHash::default(),
+            current_protocol_version: 1,
+            config: Arc::new(RuntimeConfig::test()),
+            cache: None,
+            is_new_chunk: false,
+            migration_data: Arc::default(),
+            migration_flags: MigrationFlags::default(),
+        }
+    }
+
+    fn setup_account(
+        account_id: &AccountId,
+        public_key: &PublicKey,
+        access_key: &AccessKey,
+    ) -> TrieUpdate {
+        let tries = create_tries();
+        let mut state_update =
+            tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
+        let account = Account::new(100, 0, CryptoHash::default(), 100);
+        set_account(&mut state_update, account_id.clone(), &account);
+        set_access_key(&mut state_update, account_id.clone(), public_key.clone(), access_key);
+
+        state_update.commit(StateChangeCause::InitialState);
+        let trie_changes = state_update.finalize().unwrap().1;
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
+        store_update.commit().unwrap();
+
+        tries.new_trie_update(ShardUId::single_shard(), root)
+    }
+    fn non_delegate_action(action: Action) -> NonDelegateAction {
+        NonDelegateAction::try_from(action)
+            .expect("cannot violate type invariants, not even in test")
+    }
+
+    #[test]
+    fn test_delegate_action() {
+        let mut result = ActionResult::default();
+        let (action_receipt, signed_delegate_action) = create_delegate_action_receipt();
+        let sender_id = signed_delegate_action.delegate_action.sender_id.clone();
+        let sender_pub_key = signed_delegate_action.delegate_action.public_key.clone();
+        let access_key = AccessKey { nonce: 19000000, permission: AccessKeyPermission::FullAccess };
+
+        let apply_state =
+            create_apply_state(signed_delegate_action.delegate_action.max_block_height);
+        let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
+
+        apply_delegate_action(
+            &mut state_update,
+            &apply_state,
+            &action_receipt,
+            &sender_id,
+            &signed_delegate_action,
+            &mut result,
+        )
+        .expect("Expect ok");
+
+        assert!(result.result.is_ok(), "Result error: {:?}", result.result.err());
+        assert_eq!(
+            result.new_receipts,
+            vec![Receipt {
+                predecessor_id: sender_id.clone(),
+                receiver_id: signed_delegate_action.delegate_action.receiver_id.clone(),
+                receipt_id: CryptoHash::default(),
+                receipt: ReceiptEnum::Action(ActionReceipt {
+                    signer_id: action_receipt.signer_id.clone(),
+                    signer_public_key: action_receipt.signer_public_key.clone(),
+                    gas_price: action_receipt.gas_price,
+                    output_data_receivers: Vec::new(),
+                    input_data_ids: Vec::new(),
+                    actions: signed_delegate_action.delegate_action.get_actions(),
+                })
+            }]
+        );
+    }
+
+    #[test]
+    fn test_delegate_action_signature_verification() {
+        let mut result = ActionResult::default();
+        let (action_receipt, mut signed_delegate_action) = create_delegate_action_receipt();
+        let sender_id = signed_delegate_action.delegate_action.sender_id.clone();
+        let sender_pub_key = signed_delegate_action.delegate_action.public_key.clone();
+        let access_key = AccessKey { nonce: 19000000, permission: AccessKeyPermission::FullAccess };
+
+        let apply_state =
+            create_apply_state(signed_delegate_action.delegate_action.max_block_height);
+        let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
+
+        // Corrupt receiver_id. Signature verifycation must fail.
+        signed_delegate_action.delegate_action.receiver_id = "www.test.near".parse().unwrap();
+
+        apply_delegate_action(
+            &mut state_update,
+            &apply_state,
+            &action_receipt,
+            &sender_id,
+            &signed_delegate_action,
+            &mut result,
+        )
+        .expect("Expect ok");
+
+        assert_eq!(result.result, Err(ActionErrorKind::DelegateActionInvalidSignature.into()));
+    }
+
+    #[test]
+    fn test_delegate_action_max_height() {
+        let mut result = ActionResult::default();
+        let (action_receipt, signed_delegate_action) = create_delegate_action_receipt();
+        let sender_id = signed_delegate_action.delegate_action.sender_id.clone();
+        let sender_pub_key = signed_delegate_action.delegate_action.public_key.clone();
+        let access_key = AccessKey { nonce: 19000000, permission: AccessKeyPermission::FullAccess };
+
+        // Setup current block as higher than max_block_height. Must fail.
+        let apply_state =
+            create_apply_state(signed_delegate_action.delegate_action.max_block_height + 1);
+        let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
+
+        apply_delegate_action(
+            &mut state_update,
+            &apply_state,
+            &action_receipt,
+            &sender_id,
+            &signed_delegate_action,
+            &mut result,
+        )
+        .expect("Expect ok");
+
+        assert_eq!(result.result, Err(ActionErrorKind::DelegateActionExpired.into()));
+    }
+
+    #[test]
+    fn test_delegate_action_validate_sender_account() {
+        let mut result = ActionResult::default();
+        let (action_receipt, signed_delegate_action) = create_delegate_action_receipt();
+        let sender_id = signed_delegate_action.delegate_action.sender_id.clone();
+        let sender_pub_key = signed_delegate_action.delegate_action.public_key.clone();
+        let access_key = AccessKey { nonce: 19000000, permission: AccessKeyPermission::FullAccess };
+
+        let apply_state =
+            create_apply_state(signed_delegate_action.delegate_action.max_block_height);
+        let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
+
+        // Use a different sender_id. Must fail.
+        apply_delegate_action(
+            &mut state_update,
+            &apply_state,
+            &action_receipt,
+            &"www.test.near".parse().unwrap(),
+            &signed_delegate_action,
+            &mut result,
+        )
+        .expect("Expect ok");
+
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::DelegateActionSenderDoesNotMatchTxReceiver {
+                sender_id: sender_id.clone(),
+                receiver_id: "www.test.near".parse().unwrap(),
+            }
+            .into())
+        );
+
+        // Sender account doesn't exist. Must fail.
+        assert_eq!(
+            check_account_existence(
+                &Action::Delegate(signed_delegate_action),
+                &mut None,
+                &sender_id,
+                1,
+                false,
+                false
+            ),
+            Err(ActionErrorKind::AccountDoesNotExist { account_id: sender_id.clone() }.into())
+        );
+    }
+
+    #[test]
+    fn test_validate_delegate_action_key_update_nonce() {
+        let (_, signed_delegate_action) = create_delegate_action_receipt();
+        let sender_id = signed_delegate_action.delegate_action.sender_id.clone();
+        let sender_pub_key = signed_delegate_action.delegate_action.public_key.clone();
+        let access_key = AccessKey { nonce: 19000000, permission: AccessKeyPermission::FullAccess };
+
+        let apply_state =
+            create_apply_state(signed_delegate_action.delegate_action.max_block_height);
+        let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
+
+        // Everything is ok
+        let mut result = ActionResult::default();
+        validate_delegate_action_key(
+            &mut state_update,
+            &apply_state,
+            &signed_delegate_action.delegate_action,
+            &mut result,
+        )
+        .expect("Expect ok");
+        assert!(result.result.is_ok(), "Result error: {:?}", result.result);
+
+        // Must fail, Nonce had been updated by previous step.
+        result = ActionResult::default();
+        validate_delegate_action_key(
+            &mut state_update,
+            &apply_state,
+            &signed_delegate_action.delegate_action,
+            &mut result,
+        )
+        .expect("Expect ok");
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::DelegateActionInvalidNonce {
+                delegate_nonce: signed_delegate_action.delegate_action.nonce,
+                ak_nonce: signed_delegate_action.delegate_action.nonce,
+            }
+            .into())
+        );
+
+        // Increment nonce. Must pass.
+        result = ActionResult::default();
+        let mut delegate_action = signed_delegate_action.delegate_action.clone();
+        delegate_action.nonce += 1;
+        validate_delegate_action_key(
+            &mut state_update,
+            &apply_state,
+            &delegate_action,
+            &mut result,
+        )
+        .expect("Expect ok");
+        assert!(result.result.is_ok(), "Result error: {:?}", result.result);
+    }
+
+    #[test]
+    fn test_delegate_action_key_doesnt_exist() {
+        let mut result = ActionResult::default();
+        let (_, signed_delegate_action) = create_delegate_action_receipt();
+        let sender_id = signed_delegate_action.delegate_action.sender_id.clone();
+        let sender_pub_key = signed_delegate_action.delegate_action.public_key.clone();
+        let access_key = AccessKey { nonce: 19000000, permission: AccessKeyPermission::FullAccess };
+
+        let apply_state =
+            create_apply_state(signed_delegate_action.delegate_action.max_block_height);
+        let mut state_update = setup_account(
+            &sender_id,
+            &PublicKey::empty(near_crypto::KeyType::ED25519),
+            &access_key,
+        );
+
+        validate_delegate_action_key(
+            &mut state_update,
+            &apply_state,
+            &signed_delegate_action.delegate_action,
+            &mut result,
+        )
+        .expect("Expect ok");
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::DelegateActionAccessKeyError(
+                InvalidAccessKeyError::AccessKeyNotFound {
+                    account_id: sender_id.clone(),
+                    public_key: sender_pub_key.clone(),
+                },
+            )
+            .into())
+        );
+    }
+
+    #[test]
+    fn test_delegate_action_key_incorrect_nonce() {
+        let mut result = ActionResult::default();
+        let (_, signed_delegate_action) = create_delegate_action_receipt();
+        let sender_id = signed_delegate_action.delegate_action.sender_id.clone();
+        let sender_pub_key = signed_delegate_action.delegate_action.public_key.clone();
+        let access_key = AccessKey {
+            nonce: signed_delegate_action.delegate_action.nonce,
+            permission: AccessKeyPermission::FullAccess,
+        };
+
+        let apply_state =
+            create_apply_state(signed_delegate_action.delegate_action.max_block_height);
+        let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
+
+        validate_delegate_action_key(
+            &mut state_update,
+            &apply_state,
+            &signed_delegate_action.delegate_action,
+            &mut result,
+        )
+        .expect("Expect ok");
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::DelegateActionInvalidNonce {
+                delegate_nonce: signed_delegate_action.delegate_action.nonce,
+                ak_nonce: signed_delegate_action.delegate_action.nonce,
+            }
+            .into())
+        );
+    }
+
+    #[test]
+    fn test_delegate_action_key_nonce_too_large() {
+        let mut result = ActionResult::default();
+        let (_, signed_delegate_action) = create_delegate_action_receipt();
+        let sender_id = signed_delegate_action.delegate_action.sender_id.clone();
+        let sender_pub_key = signed_delegate_action.delegate_action.public_key.clone();
+        let access_key = AccessKey { nonce: 19000000, permission: AccessKeyPermission::FullAccess };
+
+        let apply_state = create_apply_state(1);
+        let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
+
+        validate_delegate_action_key(
+            &mut state_update,
+            &apply_state,
+            &signed_delegate_action.delegate_action,
+            &mut result,
+        )
+        .expect("Expect ok");
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::DelegateActionNonceTooLarge {
+                delegate_nonce: signed_delegate_action.delegate_action.nonce,
+                upper_bound: 1000000,
+            }
+            .into())
+        );
+    }
+
+    fn test_delegate_action_key_permissions(
+        access_key: &AccessKey,
+        delegate_action: &DelegateAction,
+    ) -> ActionResult {
+        let mut result = ActionResult::default();
+        let sender_id = delegate_action.sender_id.clone();
+        let sender_pub_key = delegate_action.public_key.clone();
+
+        let apply_state = create_apply_state(delegate_action.max_block_height);
+        let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
+
+        validate_delegate_action_key(
+            &mut state_update,
+            &apply_state,
+            &delegate_action,
+            &mut result,
+        )
+        .expect("Expect ok");
+
+        result
+    }
+
+    #[test]
+    fn test_delegate_action_key_permissions_fncall() {
+        let (_, signed_delegate_action) = create_delegate_action_receipt();
+        let access_key = AccessKey {
+            nonce: 19000000,
+            permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                allowance: None,
+                receiver_id: signed_delegate_action.delegate_action.receiver_id.to_string(),
+                method_names: vec!["test_method".parse().unwrap()],
+            }),
+        };
+
+        let mut delegate_action = signed_delegate_action.delegate_action.clone();
+        delegate_action.actions =
+            vec![non_delegate_action(Action::FunctionCall(FunctionCallAction {
+                args: Vec::new(),
+                deposit: 0,
+                gas: 300,
+                method_name: "test_method".parse().unwrap(),
+            }))];
+        let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
+        assert!(result.result.is_ok(), "Result error {:?}", result.result);
+    }
+
+    #[test]
+    fn test_delegate_action_key_permissions_incorrect_action() {
+        let (_, signed_delegate_action) = create_delegate_action_receipt();
+        let access_key = AccessKey {
+            nonce: 19000000,
+            permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                allowance: None,
+                receiver_id: signed_delegate_action.delegate_action.receiver_id.to_string(),
+                method_names: vec!["test_method".parse().unwrap()],
+            }),
+        };
+
+        let mut delegate_action = signed_delegate_action.delegate_action.clone();
+        delegate_action.actions =
+            vec![non_delegate_action(Action::CreateAccount(CreateAccountAction {}))];
+
+        let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
+
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::DelegateActionAccessKeyError(
+                InvalidAccessKeyError::RequiresFullAccess,
+            )
+            .into())
+        );
+    }
+
+    #[test]
+    fn test_delegate_action_key_permissions_actions_number() {
+        let (_, signed_delegate_action) = create_delegate_action_receipt();
+        let access_key = AccessKey {
+            nonce: 19000000,
+            permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                allowance: None,
+                receiver_id: signed_delegate_action.delegate_action.receiver_id.to_string(),
+                method_names: vec!["test_method".parse().unwrap()],
+            }),
+        };
+
+        let mut delegate_action = signed_delegate_action.delegate_action.clone();
+        delegate_action.actions = vec![
+            non_delegate_action(Action::FunctionCall(FunctionCallAction {
+                args: Vec::new(),
+                deposit: 0,
+                gas: 300,
+                method_name: "test_method".parse().unwrap(),
+            })),
+            non_delegate_action(Action::FunctionCall(FunctionCallAction {
+                args: Vec::new(),
+                deposit: 0,
+                gas: 300,
+                method_name: "test_method".parse().unwrap(),
+            })),
+        ];
+
+        let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
+
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::DelegateActionAccessKeyError(
+                InvalidAccessKeyError::RequiresFullAccess,
+            )
+            .into())
+        );
+    }
+
+    #[test]
+    fn test_delegate_action_key_permissions_fncall_deposit() {
+        let (_, signed_delegate_action) = create_delegate_action_receipt();
+        let access_key = AccessKey {
+            nonce: 19000000,
+            permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                allowance: None,
+                receiver_id: signed_delegate_action.delegate_action.receiver_id.to_string(),
+                method_names: Vec::new(),
+            }),
+        };
+
+        let mut delegate_action = signed_delegate_action.delegate_action.clone();
+        delegate_action.actions =
+            vec![non_delegate_action(Action::FunctionCall(FunctionCallAction {
+                args: Vec::new(),
+                deposit: 1,
+                gas: 300,
+                method_name: "test_method".parse().unwrap(),
+            }))];
+
+        let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
+
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::DelegateActionAccessKeyError(
+                InvalidAccessKeyError::DepositWithFunctionCall,
+            )
+            .into())
+        );
+    }
+
+    #[test]
+    fn test_delegate_action_key_permissions_receiver_id() {
+        let (_, signed_delegate_action) = create_delegate_action_receipt();
+        let access_key = AccessKey {
+            nonce: 19000000,
+            permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                allowance: None,
+                receiver_id: "another.near".parse().unwrap(),
+                method_names: Vec::new(),
+            }),
+        };
+
+        let mut delegate_action = signed_delegate_action.delegate_action.clone();
+        delegate_action.actions =
+            vec![non_delegate_action(Action::FunctionCall(FunctionCallAction {
+                args: Vec::new(),
+                deposit: 0,
+                gas: 300,
+                method_name: "test_method".parse().unwrap(),
+            }))];
+
+        let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
+
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::DelegateActionAccessKeyError(
+                InvalidAccessKeyError::ReceiverMismatch {
+                    tx_receiver: delegate_action.receiver_id.clone(),
+                    ak_receiver: "another.near".parse().unwrap(),
+                },
+            )
+            .into())
+        );
+    }
+
+    #[test]
+    fn test_delegate_action_key_permissions_method() {
+        let (_, signed_delegate_action) = create_delegate_action_receipt();
+        let access_key = AccessKey {
+            nonce: 19000000,
+            permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                allowance: None,
+                receiver_id: signed_delegate_action.delegate_action.receiver_id.to_string(),
+                method_names: vec!["another_method".parse().unwrap()],
+            }),
+        };
+
+        let mut delegate_action = signed_delegate_action.delegate_action.clone();
+        delegate_action.actions =
+            vec![non_delegate_action(Action::FunctionCall(FunctionCallAction {
+                args: Vec::new(),
+                deposit: 0,
+                gas: 300,
+                method_name: "test_method".parse().unwrap(),
+            }))];
+
+        let result = test_delegate_action_key_permissions(&access_key, &delegate_action);
+
+        assert_eq!(
+            result.result,
+            Err(ActionErrorKind::DelegateActionAccessKeyError(
+                InvalidAccessKeyError::MethodNameMismatch {
+                    method_name: "test_method".parse().unwrap(),
+                },
+            )
+            .into())
         );
     }
 }

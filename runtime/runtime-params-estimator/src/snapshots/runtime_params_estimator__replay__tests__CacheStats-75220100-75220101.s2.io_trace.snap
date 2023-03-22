@@ -1,0 +1,16 @@
+---
+source: runtime/runtime-params-estimator/src/replay.rs
+expression: output
+---
+top-level:
+  GET   4 Block  4 BlockHeader  2 BlockHeight  4 BlockInfo  2 BlockMisc  2 ChunkExtra  2 Chunks  4 EpochInfo  2 IncomingReceipts  242 State  
+  DB GET              268 requests for a total of   187304 B
+  DB SET                0 requests for a total of        0 B
+  STORAGE READ          0 requests for a total of        0 B
+  STORAGE WRITE         0 requests for a total of        0 B
+  TRIE NODES (guest)    0 /   0 /   0  (chunk-cache/shard-cache/DB)
+  TRIE NODES (host)         469 / 238  (shard-cache/DB)
+  SHARD CACHE         66.34% hit rate
+  CHUNK CACHE not accessed
+
+

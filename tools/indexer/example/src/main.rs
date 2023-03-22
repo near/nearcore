@@ -1,11 +1,11 @@
 use actix;
 
 use anyhow::Result;
-use clap::Clap;
+use clap::Parser;
 use tokio::sync::mpsc;
 use tracing::info;
 
-use configs::{init_logging, Opts, SubCommand};
+use configs::{Opts, SubCommand};
 use near_indexer;
 
 mod configs;
@@ -260,12 +260,14 @@ fn main() -> Result<()> {
     // We use it to automatically search the for root certificates to perform HTTPS calls
     // (sending telemetry and downloading genesis)
     openssl_probe::init_ssl_cert_env_vars();
-    init_logging();
-
+    let env_filter = near_o11y::tracing_subscriber::EnvFilter::new(
+        "nearcore=info,indexer_example=info,tokio_reactor=info,near=info,\
+         stats=info,telemetry=info,indexer=info,near-performance-metrics=info",
+    );
+    let _subscriber = near_o11y::default_subscriber(env_filter, &Default::default()).global();
     let opts: Opts = Opts::parse();
 
-    let home_dir =
-        opts.home_dir.unwrap_or(std::path::PathBuf::from(near_indexer::get_default_home()));
+    let home_dir = opts.home_dir.unwrap_or(near_indexer::get_default_home());
 
     match opts.subcmd {
         SubCommand::Run => {
@@ -273,6 +275,7 @@ fn main() -> Result<()> {
                 home_dir,
                 sync_mode: near_indexer::SyncModeEnum::FromInterruption,
                 await_for_node_synced: near_indexer::AwaitForNodeSyncedEnum::WaitForFullSync,
+                validate_genesis: true,
             };
             let system = actix::System::new();
             system.block_on(async move {

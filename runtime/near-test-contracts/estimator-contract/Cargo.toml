@@ -1,0 +1,24 @@
+[package]
+name = "estimator-contract"
+version = "0.1.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+publish = false
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[profile.release]
+codegen-units = 1
+# Tell `rustc` to optimize for small code size.
+opt-level = "z"
+strip = true
+lto = true
+debug = false
+panic = "abort"
+
+[workspace]
+members = []
+
+[features]
+nightly = []

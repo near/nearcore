@@ -35,10 +35,6 @@ impl From<near_client::TxStatusError> for ErrorKind {
             near_client::TxStatusError::MissingTransaction(err) => {
                 Self::NotFound(format!("Transaction is missing: {:?}", err))
             }
-            near_client::TxStatusError::InvalidTx(err) => Self::NotFound(format!(
-                "Transaction is invalid, so it will never be included to the chain: {:?}",
-                err
-            )),
             near_client::TxStatusError::InternalError(_)
             | near_client::TxStatusError::TimeoutError => {
                 // TODO: remove the statuses from TxStatusError since they are

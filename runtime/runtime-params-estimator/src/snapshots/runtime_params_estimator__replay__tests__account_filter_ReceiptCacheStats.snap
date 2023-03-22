@@ -1,0 +1,37 @@
+---
+source: runtime/runtime-params-estimator/src/replay.rs
+expression: output
+---
+            process_receipt receiver=alice.near receipt_id=id0
+              GET   2 State  
+              DB GET                2 requests for a total of       30 B
+              DB SET                0 requests for a total of        0 B
+              STORAGE READ          0 requests for a total of        0 B
+              STORAGE WRITE         0 requests for a total of        0 B
+              TRIE NODES (guest)    0 /   0 /   0  (chunk-cache/shard-cache/DB)
+              TRIE NODES (host)           6 /   2  (shard-cache/DB)
+              SHARD CACHE         75.00% hit rate
+              CHUNK CACHE not accessed
+
+            process_receipt receiver=alice.near receipt_id=id2
+              GET   2 State  
+              DB GET                2 requests for a total of       35 B
+              DB SET                0 requests for a total of        0 B
+              STORAGE READ          1 requests for a total of     1000 B
+              STORAGE WRITE         0 requests for a total of        0 B
+              TRIE NODES (guest)    1 /  19 /   1  (chunk-cache/shard-cache/DB)
+              TRIE NODES (host)           6 /   1  (shard-cache/DB)
+              SHARD CACHE         92.59% hit rate
+              CHUNK CACHE          4.76% hit rate
+
+            process_receipt receiver=alice.near receipt_id=id3
+              DB GET                0 requests for a total of        0 B
+              DB SET                0 requests for a total of        0 B
+              STORAGE READ          0 requests for a total of        0 B
+              STORAGE WRITE         0 requests for a total of        0 B
+              TRIE NODES (guest)    0 /   0 /   0  (chunk-cache/shard-cache/DB)
+              TRIE NODES (host)          15 /   0  (shard-cache/DB)
+              SHARD CACHE        100.00% hit rate
+              CHUNK CACHE not accessed
+
+

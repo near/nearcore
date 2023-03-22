@@ -6,7 +6,7 @@ import sys
 import pathlib
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
-from cluster import start_cluster, Key
+import cluster
 from utils import load_test_contract
 import transaction
 
@@ -36,27 +36,42 @@ def submit_tx_and_check(nodes, node_index, tx):
         f'receipt id from receipts {receipt_id_from_receipts}')
 
 
-def test_tx_status():
-    nodes = start_cluster(
-        4, 0, 1, None,
-        [["epoch_length", 1000], ["block_producer_kickout_threshold", 80],
-         ["transaction_validity_period", 10000]], {})
-
+def test_tx_status(nodes, *, nonce_offset: int = 0):
     signer_key = nodes[0].signer_key
     encoded_block_hash = nodes[0].get_latest_block().hash_bytes
-    payment_tx = transaction.sign_payment_tx(signer_key, 'test1', 100, 1,
+    payment_tx = transaction.sign_payment_tx(signer_key, 'test1', 100,
+                                             nonce_offset + 1,
                                              encoded_block_hash)
     submit_tx_and_check(nodes, 0, payment_tx)
 
     deploy_contract_tx = transaction.sign_deploy_contract_tx(
-        signer_key, load_test_contract(), 2, encoded_block_hash)
+        signer_key, load_test_contract(), nonce_offset + 2, encoded_block_hash)
     submit_tx_and_check(nodes, 0, deploy_contract_tx)
 
     function_call_tx = transaction.sign_function_call_tx(
         signer_key, signer_key.account_id, 'write_key_value',
-        struct.pack('<QQ', 42, 24), 300000000000000, 0, 3, encoded_block_hash)
+        struct.pack('<QQ', 42, 24), 300000000000000, 0, nonce_offset + 3,
+        encoded_block_hash)
     submit_tx_and_check(nodes, 0, deploy_contract_tx)
 
 
+def start_cluster(*, archive: bool = False):
+    num_nodes = 4
+    genesis_changes = [["epoch_length", 1000],
+                       ["block_producer_kickout_threshold", 80],
+                       ["transaction_validity_period", 10000]]
+    config_changes = dict.fromkeys(range(num_nodes), {'archive': archive})
+    return cluster.start_cluster(num_nodes=num_nodes,
+                                 num_observers=0,
+                                 num_shards=1,
+                                 config=None,
+                                 genesis_config_changes=genesis_changes,
+                                 client_config_changes=config_changes)
+
+
+def main():
+    test_tx_status(start_cluster())
+
+
 if __name__ == '__main__':
-    test_tx_status()
+    main()

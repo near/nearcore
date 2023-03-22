@@ -1,5 +1,12 @@
 {
   "schema": {
+    "AltBn128InvalidInput": {
+      "name": "AltBn128InvalidInput",
+      "subtypes": [],
+      "props": {
+        "msg": ""
+      }
+    },
     "BadUTF16": {
       "name": "BadUTF16",
       "subtypes": [],
@@ -42,8 +49,7 @@
       "subtypes": [
         "CodeDoesNotExist",
         "PrepareError",
-        "WasmerCompileError",
-        "UnsupportedCompiler"
+        "WasmerCompileError"
       ],
       "props": {}
     },
@@ -69,6 +75,13 @@
     },
     "ECRecoverError": {
       "name": "ECRecoverError",
+      "subtypes": [],
+      "props": {
+        "msg": ""
+      }
+    },
+    "Ed25519VerifyInvalidInput": {
+      "name": "Ed25519VerifyInvalidInput",
       "subtypes": [],
       "props": {
         "msg": ""
@@ -139,7 +152,9 @@
         "ReturnedValueLengthExceeded",
         "ContractSizeExceeded",
         "Deprecated",
-        "ECRecoverError"
+        "ECRecoverError",
+        "AltBn128InvalidInput",
+        "Ed25519VerifyInvalidInput"
       ],
       "props": {}
     },
@@ -317,7 +332,8 @@
         "StackHeightInstrumentation",
         "Instantiate",
         "Memory",
-        "TooManyFunctions"
+        "TooManyFunctions",
+        "TooManyLocals"
       ],
       "props": {}
     },
@@ -356,6 +372,11 @@
       "subtypes": [],
       "props": {}
     },
+    "TooManyLocals": {
+      "name": "TooManyLocals",
+      "subtypes": [],
+      "props": {}
+    },
     "TotalLogLengthExceeded": {
       "name": "TotalLogLengthExceeded",
       "subtypes": [],
@@ -368,13 +389,6 @@
       "name": "Unreachable",
       "subtypes": [],
       "props": {}
-    },
-    "UnsupportedCompiler": {
-      "name": "UnsupportedCompiler",
-      "subtypes": [],
-      "props": {
-        "msg": ""
-      }
     },
     "ValueLengthExceeded": {
       "name": "ValueLengthExceeded",
@@ -446,7 +460,13 @@
         "FunctionCallError",
         "NewReceiptValidationError",
         "OnlyImplicitAccountCreationAllowed",
-        "DeleteAccountWithLargeState"
+        "DeleteAccountWithLargeState",
+        "DelegateActionInvalidSignature",
+        "DelegateActionSenderDoesNotMatchTxReceiver",
+        "DelegateActionExpired",
+        "DelegateActionAccessKeyError",
+        "DelegateActionInvalidNonce",
+        "DelegateActionNonceTooLarge"
       ],
       "props": {
         "index": ""
@@ -466,7 +486,9 @@
         "FunctionCallMethodNameLengthExceeded",
         "FunctionCallArgumentsLengthExceeded",
         "UnsuitableStakingKey",
-        "FunctionCallZeroAttachedGas"
+        "FunctionCallZeroAttachedGas",
+        "DelegateActionMustBeOnlyOne",
+        "UnsupportedProtocolFeature"
       ],
       "props": {}
     },
@@ -520,15 +542,6 @@
         "tx_burnt_amount": ""
       }
     },
-    "ContractCallError": {
-      "name": "ContractCallError",
-      "subtypes": [
-        "MethodResolveError",
-        "CompilationError",
-        "ExecutionError"
-      ],
-      "props": {}
-    },
     "CostOverflow": {
       "name": "CostOverflow",
       "subtypes": [],
@@ -549,6 +562,45 @@
         "account_id": "",
         "predecessor_id": "",
         "registrar_account_id": ""
+      }
+    },
+    "DelegateActionExpired": {
+      "name": "DelegateActionExpired",
+      "subtypes": [],
+      "props": {}
+    },
+    "DelegateActionInvalidNonce": {
+      "name": "DelegateActionInvalidNonce",
+      "subtypes": [],
+      "props": {
+        "ak_nonce": "",
+        "delegate_nonce": ""
+      }
+    },
+    "DelegateActionInvalidSignature": {
+      "name": "DelegateActionInvalidSignature",
+      "subtypes": [],
+      "props": {}
+    },
+    "DelegateActionMustBeOnlyOne": {
+      "name": "DelegateActionMustBeOnlyOne",
+      "subtypes": [],
+      "props": {}
+    },
+    "DelegateActionNonceTooLarge": {
+      "name": "DelegateActionNonceTooLarge",
+      "subtypes": [],
+      "props": {
+        "delegate_nonce": "",
+        "upper_bound": ""
+      }
+    },
+    "DelegateActionSenderDoesNotMatchTxReceiver": {
+      "name": "DelegateActionSenderDoesNotMatchTxReceiver",
+      "subtypes": [],
+      "props": {
+        "receiver_id": "",
+        "sender_id": ""
       }
     },
     "DeleteAccountStaking": {
@@ -582,13 +634,6 @@
       "name": "DepositWithFunctionCall",
       "subtypes": [],
       "props": {}
-    },
-    "ExecutionError": {
-      "name": "ExecutionError",
-      "subtypes": [],
-      "props": {
-        "msg": ""
-      }
     },
     "Expired": {
       "name": "Expired",
@@ -839,6 +884,14 @@
       "subtypes": [],
       "props": {
         "public_key": ""
+      }
+    },
+    "UnsupportedProtocolFeature": {
+      "name": "UnsupportedProtocolFeature",
+      "subtypes": [],
+      "props": {
+        "protocol_feature": "",
+        "version": ""
       }
     },
     "Closed": {

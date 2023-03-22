@@ -1,4 +1,7 @@
+use std::sync::Arc;
+
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_primitives_core::types::EpochHeight;
 
 use crate::block_header::BlockHeader;
 use crate::epoch_manager::block_info::BlockInfo;
@@ -8,26 +11,21 @@ use crate::merkle::{MerklePath, PartialMerkleTree};
 use crate::sharding::{
     ReceiptProof, ShardChunk, ShardChunkHeader, ShardChunkHeaderV1, ShardChunkV1,
 };
-use crate::types::{BlockHeight, ShardId, StateRoot, StateRootNode};
+use crate::types::{BlockHeight, EpochId, ShardId, StateRoot, StateRootNode};
 use crate::views::LightClientBlockView;
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
-pub struct ReceiptProofResponse(pub CryptoHash, pub Vec<ReceiptProof>);
+pub struct ReceiptProofResponse(pub CryptoHash, pub Arc<Vec<ReceiptProof>>);
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct RootProof(pub CryptoHash, pub MerklePath);
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct StateHeaderKey(pub ShardId, pub CryptoHash);
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct StatePartKey(pub CryptoHash, pub ShardId, pub u64 /* PartId */);
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct ShardStateSyncResponseHeaderV1 {
     pub chunk: ShardChunkV1,
@@ -39,7 +37,6 @@ pub struct ShardStateSyncResponseHeaderV1 {
     pub state_root_node: StateRootNode,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct ShardStateSyncResponseHeaderV2 {
     pub chunk: ShardChunk,
@@ -51,7 +48,6 @@ pub struct ShardStateSyncResponseHeaderV2 {
     pub state_root_node: StateRootNode,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum ShardStateSyncResponseHeader {
     V1(ShardStateSyncResponseHeaderV1),
@@ -116,7 +112,7 @@ impl ShardStateSyncResponseHeader {
     }
 
     #[inline]
-    pub fn incoming_receipts_proofs(&self) -> &Vec<ReceiptProofResponse> {
+    pub fn incoming_receipts_proofs(&self) -> &[ReceiptProofResponse] {
         match self {
             Self::V1(header) => &header.incoming_receipts_proofs,
             Self::V2(header) => &header.incoming_receipts_proofs,
@@ -124,7 +120,7 @@ impl ShardStateSyncResponseHeader {
     }
 
     #[inline]
-    pub fn root_proofs(&self) -> &Vec<Vec<RootProof>> {
+    pub fn root_proofs(&self) -> &[Vec<RootProof>] {
         match self {
             Self::V1(header) => &header.root_proofs,
             Self::V2(header) => &header.root_proofs,
@@ -140,21 +136,18 @@ impl ShardStateSyncResponseHeader {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct ShardStateSyncResponseV1 {
     pub header: Option<ShardStateSyncResponseHeaderV1>,
     pub part: Option<(u64, Vec<u8>)>,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct ShardStateSyncResponseV2 {
     pub header: Option<ShardStateSyncResponseHeaderV2>,
     pub part: Option<(u64, Vec<u8>)>,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum ShardStateSyncResponse {
     V1(ShardStateSyncResponseV1),
@@ -197,7 +190,6 @@ impl ShardStateSyncResponseV1 {
     }
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Eq, PartialEq, Debug, Clone)]
 pub struct EpochSyncFinalizationResponse {
     pub cur_epoch_header: BlockHeader,
@@ -220,7 +212,6 @@ pub struct EpochSyncFinalizationResponse {
     pub next_epoch_info: EpochInfo,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, Eq, PartialEq, Debug, Clone)]
 pub enum EpochSyncResponse {
     UpToDate,
@@ -235,4 +226,33 @@ pub fn get_num_state_parts(memory_usage: u64) -> u64 {
     // several parts to make sure that partitioning always works.
     // TODO #1708
     memory_usage / STATE_PART_MEMORY_LIMIT.as_u64() + 3
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
+/// Represents the progress of dumps state of a shard.
+pub enum StateSyncDumpProgress {
+    /// Represents two cases:
+    /// * An epoch dump is complete
+    /// * The node is running its first epoch and there is nothing to dump.
+    AllDumped {
+        /// The dumped state corresponds to the state at the beginning of the specified epoch.
+        epoch_id: EpochId,
+        epoch_height: EpochHeight,
+        // Missing in case of a node running the first epoch.
+        num_parts: Option<u64>,
+    },
+    /// Represents the case of an epoch being partially dumped.
+    InProgress {
+        /// The dumped state corresponds to the state at the beginning of the specified epoch.
+        epoch_id: EpochId,
+        epoch_height: EpochHeight,
+        /// Block hash of the first block of the epoch.
+        /// The dumped state corresponds to the state before applying this block.
+        sync_hash: CryptoHash,
+        /// Root of the state being dumped.
+        state_root: StateRoot,
+        /// Progress made.
+        parts_dumped: u64,
+        num_parts: u64,
+    },
 }

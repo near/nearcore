@@ -14,57 +14,42 @@ deny = [
     { name = "keccak-hash", version = "<0.4.1" },
     { name = "primitive-types", version = "<0.10.1" },
     { name = "uint", version = "<0.8.2" },
+
+    # https://github.com/near/nearcore/pull/8562
+    { name = "borsh", version = "0.10, <0.10.2" },
 ]
 
 skip = [
-    { name = "clap", version = "=2.33.3" },
-    { name = "humantime", version = "=2.1.0" },
-    { name = "textwrap", version = "=0.12.1" },
+    { name = "clap", version = "=2.34.0" },
+    # criterion uses clap=2.34.0 which relies on an older textwrap
+    { name = "textwrap", version = "=0.11.0" },
 
-    # insta uses older version of console
-    { name = "console", version = "=0.14.1" },
-    # near-epoch-manager fixed the rand version to ensure protocol stability
-    { name = "rand", version = "=0.6.5" },
-    # rand 0.6.5 uses two versions of rand_core due to weird dependencies mismatch with rand_chacha
-    { name = "rand_core", version = "=0.3.1" },
-    { name = "rand_chacha", version = "=0.1.1" },
-    { name = "autocfg", version = "=0.1.7" },
     # wasmer 0.17 and wasmtime 0.17 use conflicting versions of those
-    { name = "base64", version = "=0.11.0" },
     { name = "wasmparser", version = "=0.51.4" },
-    { name = "rand_core", version = "=0.4.2" },
     # wasmer 0.17 and wasmtime 0.17 uses older versions of some crates
     { name = "generic-array", version = "=0.12.4" },
 
     # `sha2` uses it
     { name = "cfg-if", version = "=1.0.0" },
 
-    # Wasmer 2.0 indirectly uses this outdated version.
-    { name = "memmap2", version = "=0.2.3" },
-    # Wasmer 2.0 uses newer object
-    { name = "object", version = "=0.27.1" },
-    # Wasmer 2.0 uses both region 2.2.0 and 3.0.0 via dependencies
-    { name = "region", version = "=2.2.0" },
-    # Wasmtime 0.33 use relies on a newer wasmparser, the main version stays the one in production.
-    { name = "wasmparser", version = "=0.81.0" },
+    # `sha2`, `blake3` and `curve25519-dalek` need to be updated.
+    { name = "block-buffer", version = "=0.9.0" },
+    { name = "digest", version = "=0.9.0" },
+    { name = "sha2", version = "=0.9.9" },
+
+    # near-vm-runner and wasmer-compiler-near use 0.78.2
+    { name = "wasmparser", version = "=0.78.2" },
     # Need this specific version of pwasm-utils for backwards-compatible
     # stack limiting.
     { name = "pwasm-utils", version = "=0.12.0" },
     { name = "parity-wasm", version = "=0.41.0" },
 
-    # param estimator uses newer imports, but it's not part of neard
-    { name = "indicatif", version = "=0.15.0" },
-    { name = "rand_xorshift", version = "=0.2.0" },
-    { name = "wasmparser", version = "=0.59.0" },
-
     # wasmer and wasmtime
     { name = "target-lexicon", version = "=0.10.0" },
+    { name = "wasmparser", version = "=0.84.0" },
 
     # chain and param estimator
     { name = "num-rational", version = "=0.3.2" },
-
-    # tracing-subscriber via near-logger-utils and clap via bindgen
-    { name = "ansi_term", version = "=0.12.1" },
 
     # wasmer 0.17.x
     { name = "parking_lot", version = "=0.10.2" },
@@ -72,11 +57,15 @@ skip = [
     { name = "lock_api", version = "=0.3.4" },
     { name = "digest", version = "=0.8.1" },
 
-    # chrono uses old time crate
-    { name = "time", version = "=0.1.43" },
+    # wasmer 0.18
+    { name = "nix", version = "=0.15.0" },
 
-    # clap v2 uses old versions
-    { name = "strsim", version = "0.8.0" },
+    # old version of tokio, parking_lot
+    { name = "windows-sys", version = "=0.36.1" },
+    { name = "windows_x86_64_msvc", version = "=0.36.1" },
+
+    # chrono uses old time crate
+    { name = "time", version = "=0.1.44" },
 
     # ed25519-dalek uses older versions of rand and rand_core
     { name = "rand", version = "=0.7.3" },
@@ -96,5 +85,40 @@ skip = [
 
     # criterion and wasmer-runtime-core-near depend on this older
     # version of the crate.
-    { name = "rustc_version", version = "=0.2.3" }
+    { name = "rustc_version", version = "=0.2.3" },
+
+    # paperclip-macros, strum_macros, walrus-macro depend on this while clap3.1.6 uses heck=0.4.0
+    { name = "heck", version = "=0.3.3" },
+
+    # actix-http depends on an old version
+    { name = "itoa", version = "=0.4.8" },
+
+    # Wasmer requires a newer version and the rest of the ecosystem hasn't caught up yet.
+    { name = "hashbrown", version = "0.11.0" },
+
+    # prometheus depends on an old version of protobuf
+    { name = "protobuf", version = "=2.27.1" },
+
+    # opentelemetry-otlp depends on an old version of tonic which depends on an old version of tokio-util
+    { name = "tokio-util", version = "=0.6.10" },
+
+    # redis we’re using uses ancient sha
+    { name = "sha1", version = "=0.6.1" },
+
+    # rust-s3 is using an old version of smartstring
+    { name = "smartstring", version = "=0.2.10" },
+
+    # validator 0.12 ~ 0.16 is still using an old version of idna
+    { name = "idna", version = "=0.2.3" },
+
+    # v0.0.0 is the local code, whereas the published crate must depend on a
+    # published crate when they are published.
+    # TODO(#8604) Remove this skip entry.
+    { name = "near-stdx", version = "0.0.0" },
+
+    # zeropool-bn uses borsh 0.9
+    { name = "borsh", version = "=0.9.3" },
+    { name = "borsh-derive", version = "=0.9.3" },
+    { name = "borsh-derive-internal", version = "=0.9.3" },
+    { name = "borsh-schema-derive-internal", version = "=0.9.3" },
 ]

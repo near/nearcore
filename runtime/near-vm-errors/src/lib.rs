@@ -1,25 +1,47 @@
 #![doc = include_str!("../README.md")]
-
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_account_id::AccountId;
 use near_rpc_error_macro::RpcError;
-use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::fmt::{self, Error, Formatter};
+use std::io;
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum VMError {
-    FunctionCallError(FunctionCallError),
-    /// Type erased error from `External` trait implementation.
-    ExternalError(AnyError),
+/// For bugs in the runtime itself, crash and die is the usual response.
+///
+/// See the doc comment on `VMResult` for an explanation what the difference
+/// between this and a `FunctionCallError` is.
+#[derive(Debug, thiserror::Error)]
+pub enum VMRunnerError {
     /// An error that is caused by an operation on an inconsistent state.
     /// E.g. an integer overflow by using a value from the given context.
+    #[error("{0}")]
     InconsistentStateError(InconsistentStateError),
     /// Error caused by caching.
-    CacheError(CacheError),
+    #[error("cache error: {0}")]
+    CacheError(#[from] CacheError),
+    /// Error (eg, resource exhausting) when loading a successfully compiled
+    /// contract into executable memory.
+    #[error("loading error: {0}")]
+    LoadingError(String),
+    /// Type erased error from `External` trait implementation.
+    #[error("external error")]
+    ExternalError(AnyError),
+    /// Non-deterministic error.
+    #[error("non-deterministic error during contract execution: {0}")]
+    Nondeterministic(String),
+    #[error("unknown error during contract execution: {debug_message}")]
+    WasmUnknownError { debug_message: String },
 }
 
-#[derive(Debug, PartialEq, Eq)]
+/// Permitted errors that cause a function call to fail gracefully.
+///
+/// Occurrence of such errors will be included in the merklize state on chain
+/// using a single bit to signal failure vs Success.
+///
+/// See the doc comment on `VMResult` for an explanation what the difference
+/// between this and a `VMRunnerError` is. And see `PartialExecutionStatus`
+/// for what gets stored on chain.
+#[derive(Debug, PartialEq, Eq, strum::IntoStaticStr)]
 pub enum FunctionCallError {
     /// Wasm compilation error
     CompilationError(CompilationError),
@@ -31,35 +53,39 @@ pub enum FunctionCallError {
     MethodResolveError(MethodResolveError),
     /// A trap happened during execution of a binary
     WasmTrap(WasmTrap),
-    WasmUnknownError {
-        debug_message: String,
-    },
     HostError(HostError),
-    // Unused, can be reused by a future error but must be exactly one error to keep Nondeterministic
-    // error borsh serialized at correct index
-    _EVMError,
-    /// Non-deterministic error.
-    Nondeterministic(String),
 }
 
 /// Serializable version of `FunctionCallError`. Must never reorder/remove elements, can only
-/// add new variants at the end (but do that very carefully). This type must be never used
-/// directly, and must be converted to `ContractCallError` instead using `into()` converter.
+/// add new variants at the end (but do that very carefully).
 /// It describes stable serialization format, and only used by serialization logic.
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Serialize, Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    BorshDeserialize,
+    BorshSerialize,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub enum FunctionCallErrorSer {
     /// Wasm compilation error
     CompilationError(CompilationError),
     /// Wasm binary env link error
+    ///
+    /// Note: this is only to deserialize old data, use execution error for new data
     LinkError {
         msg: String,
     },
     /// Import/export resolve error
     MethodResolveError(MethodResolveError),
     /// A trap happened during execution of a binary
+    ///
+    /// Note: this is only to deserialize old data, use execution error for new data
     WasmTrap(WasmTrap),
     WasmUnknownError,
+    /// Note: this is only to deserialize old data, use execution error for new data
     HostError(HostError),
     // Unused, can be reused by a future error but must be exactly one error to keep ExecutionError
     // error borsh serialized at correct index
@@ -67,17 +93,29 @@ pub enum FunctionCallErrorSer {
     ExecutionError(String),
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, strum::IntoStaticStr, thiserror::Error)]
 pub enum CacheError {
-    ReadError,
-    WriteError,
+    #[error("cache read error")]
+    ReadError(#[source] io::Error),
+    #[error("cache write error")]
+    WriteError(#[source] io::Error),
+    #[error("cache deserialization error")]
     DeserializationError,
+    #[error("cache serialization error")]
     SerializationError { hash: [u8; 32] },
 }
 /// A kind of a trap happened during execution of a binary
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
-    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    BorshDeserialize,
+    BorshSerialize,
+    RpcError,
+    serde::Deserialize,
+    serde::Serialize,
+    strum::IntoStaticStr,
 )]
 pub enum WasmTrap {
     /// An `unreachable` opcode was executed.
@@ -100,9 +138,17 @@ pub enum WasmTrap {
     GenericTrap,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
-    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    BorshDeserialize,
+    BorshSerialize,
+    RpcError,
+    serde::Deserialize,
+    serde::Serialize,
+    strum::IntoStaticStr,
 )]
 pub enum MethodResolveError {
     MethodEmptyName,
@@ -110,20 +156,41 @@ pub enum MethodResolveError {
     MethodInvalidSignature,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
-    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    BorshDeserialize,
+    BorshSerialize,
+    RpcError,
+    serde::Deserialize,
+    serde::Serialize,
+    strum::IntoStaticStr,
 )]
 pub enum CompilationError {
-    CodeDoesNotExist { account_id: AccountId },
+    CodeDoesNotExist {
+        account_id: AccountId,
+    },
     PrepareError(PrepareError),
-    WasmerCompileError { msg: String },
-    UnsupportedCompiler { msg: String },
+    /// This is for defense in depth.
+    /// We expect our runtime-independent preparation code to fully catch all invalid wasms,
+    /// but, if it ever misses something we’ll emit this error
+    WasmerCompileError {
+        msg: String,
+    },
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
-    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    BorshDeserialize,
+    BorshSerialize,
+    RpcError,
+    serde::Deserialize,
+    serde::Serialize,
 )]
 /// Error that can occur while preparing or executing Wasm smart-contract.
 pub enum PrepareError {
@@ -150,11 +217,21 @@ pub enum PrepareError {
     Memory,
     /// Contract contains too many functions.
     TooManyFunctions,
+    /// Contract contains too many locals.
+    TooManyLocals,
 }
 
-#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(
-    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    BorshDeserialize,
+    BorshSerialize,
+    RpcError,
+    serde::Deserialize,
+    serde::Serialize,
+    strum::IntoStaticStr,
 )]
 pub enum HostError {
     /// String encoding is bad UTF-16 sequence
@@ -219,15 +296,15 @@ pub enum HostError {
     Deprecated { method_name: String },
     /// General errors for ECDSA recover.
     ECRecoverError { msg: String },
-    /// Deserialization error for alt_bn128 functions
-    #[cfg(feature = "protocol_feature_alt_bn128")]
-    AltBn128DeserializationError { msg: String },
-    /// Serialization error for alt_bn128 functions
-    #[cfg(feature = "protocol_feature_alt_bn128")]
-    AltBn128SerializationError { msg: String },
+    /// Invalid input to alt_bn128 familiy of functions (e.g., point which isn't
+    /// on the curve).
+    AltBn128InvalidInput { msg: String },
+    /// Invalid input to ed25519 signature verification function (e.g. signature cannot be
+    /// derived from bytes).
+    Ed25519VerifyInvalidInput { msg: String },
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum VMLogicError {
     /// Errors coming from native Wasm VM.
     HostError(HostError),
@@ -247,6 +324,27 @@ pub enum InconsistentStateError {
     IntegerOverflow,
 }
 
+impl From<FunctionCallError> for FunctionCallErrorSer {
+    fn from(outer_err: FunctionCallError) -> Self {
+        match outer_err {
+            FunctionCallError::CompilationError(e) => FunctionCallErrorSer::CompilationError(e),
+            FunctionCallError::MethodResolveError(e) => FunctionCallErrorSer::MethodResolveError(e),
+            // Note: We deliberately collapse all execution errors for
+            // serialization to make the DB representation less dependent
+            // on specific types in Rust code.
+            FunctionCallError::HostError(ref _e) => {
+                FunctionCallErrorSer::ExecutionError(outer_err.to_string())
+            }
+            FunctionCallError::LinkError { msg } => {
+                FunctionCallErrorSer::ExecutionError(format!("Link Error: {}", msg))
+            }
+            FunctionCallError::WasmTrap(ref _e) => {
+                FunctionCallErrorSer::ExecutionError(outer_err.to_string())
+            }
+        }
+    }
+}
+
 impl From<HostError> for VMLogicError {
     fn from(err: HostError) -> Self {
         VMLogicError::HostError(err)
@@ -259,22 +357,29 @@ impl From<InconsistentStateError> for VMLogicError {
     }
 }
 
-impl From<PrepareError> for VMError {
+impl From<PrepareError> for FunctionCallError {
     fn from(err: PrepareError) -> Self {
-        VMError::FunctionCallError(FunctionCallError::CompilationError(
-            CompilationError::PrepareError(err),
-        ))
+        FunctionCallError::CompilationError(CompilationError::PrepareError(err))
     }
 }
 
-impl From<VMLogicError> for VMError {
-    fn from(err: VMLogicError) -> Self {
+/// Try to convert a general error that happened at the `VMLogic` level to a
+/// `FunctionCallError` that can be included in a `VMOutcome`.
+///
+/// `VMLogicError` have two very different types of errors. Some are just
+/// a result from the guest code doing incorrect things, other are bugs in
+/// nearcore.
+/// The first type can be converted to a `FunctionCallError`, the other becomes
+/// a `VMRunnerError` instead and must be treated differently.
+impl TryFrom<VMLogicError> for FunctionCallError {
+    type Error = VMRunnerError;
+    fn try_from(err: VMLogicError) -> Result<Self, Self::Error> {
         match err {
-            VMLogicError::HostError(h) => {
-                VMError::FunctionCallError(FunctionCallError::HostError(h))
+            VMLogicError::HostError(h) => Ok(FunctionCallError::HostError(h)),
+            VMLogicError::ExternalError(s) => Err(VMRunnerError::ExternalError(s)),
+            VMLogicError::InconsistentStateError(e) => {
+                Err(VMRunnerError::InconsistentStateError(e))
             }
-            VMLogicError::ExternalError(s) => VMError::ExternalError(s),
-            VMLogicError::InconsistentStateError(e) => VMError::InconsistentStateError(e),
         }
     }
 }
@@ -288,18 +393,17 @@ impl fmt::Display for VMLogicError {
 impl fmt::Display for PrepareError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         use PrepareError::*;
-        match self {
-            Serialization => write!(f, "Error happened while serializing the module."),
-            Deserialization => write!(f, "Error happened while deserializing the module."),
-            InternalMemoryDeclared => {
-                write!(f, "Internal memory declaration has been found in the module.")
-            }
-            GasInstrumentation => write!(f, "Gas instrumentation failed."),
-            StackHeightInstrumentation => write!(f, "Stack instrumentation failed."),
-            Instantiate => write!(f, "Error happened during instantiation."),
-            Memory => write!(f, "Error creating memory."),
-            TooManyFunctions => write!(f, "Too many functions in contract."),
-        }
+        f.write_str(match self {
+            Serialization => "Error happened while serializing the module.",
+            Deserialization => "Error happened while deserializing the module.",
+            InternalMemoryDeclared => "Internal memory declaration has been found in the module.",
+            GasInstrumentation => "Gas instrumentation failed.",
+            StackHeightInstrumentation => "Stack instrumentation failed.",
+            Instantiate => "Error happened during instantiation.",
+            Memory => "Error creating memory.",
+            TooManyFunctions => "Too many functions in contract.",
+            TooManyLocals => "Too many locals declared in the contract.",
+        })
     }
 }
 
@@ -311,13 +415,6 @@ impl fmt::Display for FunctionCallError {
             FunctionCallError::HostError(e) => e.fmt(f),
             FunctionCallError::LinkError { msg } => write!(f, "{}", msg),
             FunctionCallError::WasmTrap(trap) => write!(f, "WebAssembly trap: {}", trap),
-            FunctionCallError::WasmUnknownError { debug_message } => {
-                write!(f, "Unknown error during Wasm contract execution: {}", debug_message)
-            }
-            FunctionCallError::Nondeterministic(msg) => {
-                write!(f, "Nondeterministic error during contract execution: {}", msg)
-            }
-            FunctionCallError::_EVMError => unreachable!(),
         }
     }
 }
@@ -352,9 +449,6 @@ impl fmt::Display for CompilationError {
             CompilationError::WasmerCompileError { msg } => {
                 write!(f, "Wasmer compilation error: {}", msg)
             }
-            CompilationError::UnsupportedCompiler { msg } => {
-                write!(f, "Unsupported compiler: {}", msg)
-            }
         }
     }
 }
@@ -362,17 +456,6 @@ impl fmt::Display for CompilationError {
 impl fmt::Display for MethodResolveError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         fmt::Debug::fmt(self, f)
-    }
-}
-
-impl fmt::Display for VMError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            VMError::FunctionCallError(err) => fmt::Display::fmt(err, f),
-            VMError::ExternalError(_err) => write!(f, "Serialized ExternalError"),
-            VMError::InconsistentStateError(err) => fmt::Display::fmt(err, f),
-            VMError::CacheError(err) => write!(f, "Cache error: {:?}", err),
-        }
     }
 }
 
@@ -421,11 +504,9 @@ impl std::fmt::Display for HostError {
             ReturnedValueLengthExceeded { length, limit } => write!(f, "The length of a returned value {} exceeds the limit {}", length, limit),
             ContractSizeExceeded { size, limit } => write!(f, "The size of a contract code in DeployContract action {} exceeds the limit {}", size, limit),
             Deprecated {method_name}=> write!(f, "Attempted to call deprecated host function {}", method_name),
-            #[cfg(feature = "protocol_feature_alt_bn128")]
-            AltBn128DeserializationError { msg } => write!(f, "AltBn128 deserialization error: {}", msg),
-            #[cfg(feature = "protocol_feature_alt_bn128")]
-            AltBn128SerializationError { msg } => write!(f, "AltBn128 serialization error: {}", msg),
+            AltBn128InvalidInput { msg } => write!(f, "AltBn128 invalid input: {}", msg),
             ECRecoverError { msg } => write!(f, "ECDSA recover error: {}", msg),
+            Ed25519VerifyInvalidInput { msg } => write!(f, "ED25519 signature verification error: {}", msg),
         }
     }
 }
@@ -439,14 +520,18 @@ pub struct AnyError {
     any: Box<dyn AnyEq>,
 }
 
+#[derive(Debug, thiserror::Error)]
+#[error("failed to downcast")]
+pub struct DowncastFailedError;
+
 impl AnyError {
     pub fn new<E: Any + Eq + Send + Sync + 'static>(err: E) -> AnyError {
         AnyError { any: Box::new(err) }
     }
-    pub fn downcast<E: Any + Eq + Send + Sync + 'static>(self) -> Result<E, ()> {
+    pub fn downcast<E: Any + Eq + Send + Sync + 'static>(self) -> Result<E, DowncastFailedError> {
         match self.any.into_any().downcast::<E>() {
             Ok(it) => Ok(*it),
-            Err(_) => Err(()),
+            Err(_) => Err(DowncastFailedError),
         }
     }
 }
@@ -479,7 +564,7 @@ impl<T: Any + Eq + Sized + Send + Sync> AnyEq for T {
         }
     }
     fn as_any(&self) -> &dyn Any {
-        &*self
+        self
     }
     fn into_any(self: Box<Self>) -> Box<dyn Any> {
         self
@@ -488,21 +573,19 @@ impl<T: Any + Eq + Sized + Send + Sync> AnyEq for T {
 
 #[cfg(test)]
 mod tests {
-    use crate::{CompilationError, FunctionCallError, MethodResolveError, PrepareError, VMError};
+    use crate::{CompilationError, FunctionCallError, MethodResolveError, PrepareError};
 
     #[test]
     fn test_display() {
         // TODO: proper printing
         assert_eq!(
-            VMError::FunctionCallError(FunctionCallError::MethodResolveError(
-                MethodResolveError::MethodInvalidSignature
-            ))
-            .to_string(),
+            FunctionCallError::MethodResolveError(MethodResolveError::MethodInvalidSignature)
+                .to_string(),
             "MethodInvalidSignature"
         );
         assert_eq!(
-            VMError::FunctionCallError(FunctionCallError::CompilationError(
-                CompilationError::PrepareError(PrepareError::StackHeightInstrumentation)
+            FunctionCallError::CompilationError(CompilationError::PrepareError(
+                PrepareError::StackHeightInstrumentation
             ))
             .to_string(),
             "PrepareError: Stack instrumentation failed."

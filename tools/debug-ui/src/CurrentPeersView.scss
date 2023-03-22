@@ -1,0 +1,30 @@
+.current-peers-view {
+    padding: 10px;
+
+    .peer_in_sync {
+        background-color: green;
+        color: white;
+    }
+
+    .peer_ahead {
+        background-color: lightblue;
+    }
+
+    .peer_ahead_alot {
+        background-color: blueviolet;
+        color: white;
+    }
+
+    .peer_behind_a_little {
+        background-color: yellowgreen;
+    }
+
+    .peer_behind {
+        background-color: yellow;
+    }
+
+    .peer_far_behind {
+        background-color: red;
+        color: white;
+    }
+}

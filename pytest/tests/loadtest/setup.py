@@ -1,5 +1,4 @@
 import subprocess
-from time import sleep
 import mocknet_helpers
 import account
 import key
@@ -11,6 +10,8 @@ if __name__ == '__main__':
 
     parser.add_argument('--home', type=str, required=True)
     parser.add_argument('--num_accounts', type=int, default=5)
+    parser.add_argument('--host', type=str, default='127.0.0.1')
+    parser.add_argument('--account_id', type=str, default=None)
     parser.add_argument('--contract_dir',
                         type=str,
                         default='pytest/tests/loadtest/contract')
@@ -22,38 +23,21 @@ if __name__ == '__main__':
     ],
                           cwd=args.contract_dir)
 
-    validator_key = key.Key.from_json_file(join(args.home,
-                                                "validator_key.json"))
-
-    base_block_hash = mocknet_helpers.get_latest_block_hash()
-    nonce = mocknet_helpers.get_nonce_for_key(validator_key)
-
-    my_account = account.Account(validator_key,
-                                 init_nonce=nonce,
-                                 base_block_hash=base_block_hash,
-                                 rpc_infos=[("localhost", "3030")])
-
-    print(f"Creating {args.num_accounts} accounts.")
     for i in range(args.num_accounts):
-        account_name = f"shard{i}.test.near"
-        tx = my_account.send_create_account_tx(account_name)
-        print(f"Created account {tx}")
-        account_key = key.Key(account_name, validator_key.pk, validator_key.sk)
-        base_block_hash = mocknet_helpers.get_latest_block_hash()
-        while True:
-            try:
-                nonce = mocknet_helpers.get_nonce_for_key(account_key)
-                break
-            except KeyError:
-                print("Account not ready yet..")
-                sleep(3)
+        account_name = args.account_id or f"shard{i}"
 
-        new_account = account.Account(account_key,
-                                      nonce,
-                                      base_block_hash=base_block_hash,
-                                      rpc_infos=[("localhost", "3030")])
+        shard_key = key.Key.from_json_file(
+            join(args.home, f"{account_name}_key.json"))
 
-        new_account.send_deploy_contract_tx(
+        base_block_hash = mocknet_helpers.get_latest_block_hash(addr=args.host)
+        nonce = mocknet_helpers.get_nonce_for_key(shard_key, addr=args.host)
+
+        shard_account = account.Account(shard_key,
+                                        init_nonce=nonce,
+                                        base_block_hash=base_block_hash,
+                                        rpc_infos=[(args.host, "3030")])
+
+        shard_account.send_deploy_contract_tx(
             join(
                 args.contract_dir,
                 "target/wasm32-unknown-unknown/release/loadtest_contract.wasm"))

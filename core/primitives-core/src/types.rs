@@ -24,18 +24,18 @@ pub type ShardId = u64;
 pub type Balance = u128;
 /// Gas is a type for storing amount of gas.
 pub type Gas = u64;
+/// Compute is a type for storing compute time. Measured in femtoseconds (10^-15 seconds).
+pub type Compute = u64;
 
 /// Weight of unused gas to distribute to scheduled function call actions.
 /// Used in `promise_batch_action_function_call_weight` host function.
-#[cfg(feature = "protocol_feature_function_call_weight")]
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GasWeight(pub u64);
 
 /// Result from a gas distribution among function calls with ratios.
-#[cfg(feature = "protocol_feature_function_call_weight")]
 #[must_use]
 #[non_exhaustive]
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum GasDistribution {
     /// All remaining gas was distributed to functions.
     All,
@@ -51,8 +51,6 @@ pub type NumShards = u64;
 pub type NumSeats = u64;
 /// Block height delta that measures the difference between `BlockHeight`s.
 pub type BlockHeightDelta = u64;
-
-pub type GCCount = u64;
 
 pub type ReceiptIndex = usize;
 pub type PromiseId = Vec<ReceiptIndex>;

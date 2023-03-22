@@ -1,12 +1,10 @@
-use std::path::Path;
-use std::sync::Arc;
-
 use crate::key_conversion::convert_secret_key;
 use crate::key_file::KeyFile;
 use crate::{KeyType, PublicKey, SecretKey, Signature};
 use near_account_id::AccountId;
-
-use serde::{Deserialize, Serialize};
+use std::io;
+use std::path::Path;
+use std::sync::Arc;
 
 /// Generic signer trait, that can sign with some subset of supported curves.
 pub trait Signer: Sync + Send {
@@ -20,7 +18,7 @@ pub trait Signer: Sync + Send {
     fn compute_vrf_with_proof(&self, _data: &[u8]) -> (crate::vrf::Value, crate::vrf::Proof);
 
     /// Used by test infrastructure, only implement if make sense for testing otherwise raise `unimplemented`.
-    fn write_to_file(&self, _path: &Path) -> std::io::Result<()> {
+    fn write_to_file(&self, _path: &Path) -> io::Result<()> {
         unimplemented!();
     }
 }
@@ -43,7 +41,7 @@ impl Signer for EmptySigner {
 }
 
 /// Signer that keeps secret key in memory.
-#[derive(Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct InMemorySigner {
     pub account_id: AccountId,
     pub public_key: PublicKey,
@@ -60,8 +58,8 @@ impl InMemorySigner {
         Self { account_id, public_key: secret_key.public_key(), secret_key }
     }
 
-    pub fn from_file(path: &Path) -> Self {
-        KeyFile::from_file(path).into()
+    pub fn from_file(path: &Path) -> io::Result<Self> {
+        KeyFile::from_file(path).map(Self::from)
     }
 }
 
@@ -79,7 +77,7 @@ impl Signer for InMemorySigner {
         secret_key.compute_vrf_with_proof(&data)
     }
 
-    fn write_to_file(&self, path: &Path) -> std::io::Result<()> {
+    fn write_to_file(&self, path: &Path) -> io::Result<()> {
         KeyFile::from(self).write_to_file(path)
     }
 }

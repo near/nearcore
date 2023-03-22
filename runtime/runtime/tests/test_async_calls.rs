@@ -4,6 +4,7 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, ReceiptEnum};
+use near_primitives::serialize::to_base64;
 use near_primitives::types::AccountId;
 
 pub mod runtime_group_tools;
@@ -613,7 +614,7 @@ fn test_create_account_with_transfer_and_full_key() {
         }, "id": 0 },
         {"action_add_key_with_full_access": {
             "promise_index": 0,
-            "public_key": base64::encode(&signer_new_account.public_key.try_to_vec().unwrap()),
+            "public_key": to_base64(&signer_new_account.public_key.try_to_vec().unwrap()),
             "nonce": 0,
         }, "id": 0 }
     ]);
@@ -682,19 +683,19 @@ fn test_account_factory() {
         }, "id": 0 },
         {"action_transfer": {
             "promise_index": 0,
-            "amount": format!("{}", TESTING_INIT_BALANCE / 2),
+            "amount": (TESTING_INIT_BALANCE / 2).to_string(),
         }, "id": 0 },
         {"action_add_key_with_function_call": {
             "promise_index": 0,
-            "public_key": base64::encode(&signer_new_account.public_key.try_to_vec().unwrap()),
+            "public_key": to_base64(&signer_new_account.public_key.try_to_vec().unwrap()),
             "nonce": 0,
-            "allowance": format!("{}", TESTING_INIT_BALANCE / 2),
+            "allowance": (TESTING_INIT_BALANCE / 2).to_string(),
             "receiver_id": "near_1",
             "method_names": "call_promise,hello"
         }, "id": 0 },
         {"action_deploy_contract": {
             "promise_index": 0,
-            "code": base64::encode(near_test_contracts::rs_contract()),
+            "code": to_base64(near_test_contracts::rs_contract()),
         }, "id": 0 },
         {"action_function_call": {
             "promise_index": 0,
@@ -791,7 +792,7 @@ fn test_account_factory() {
                      => [r3, ref1] );
     assert_receipts!(group, "near_1" => r2 @ "near_2",
                      ReceiptEnum::Action(ActionReceipt{actions, input_data_ids, ..}), {
-                        assert_eq!(input_data_ids, &vec![data_id]);
+                        assert_eq!(input_data_ids, &[data_id]);
                      },
                      actions,
                      a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
@@ -839,16 +840,16 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
         }, "id": 0 },
         {"action_transfer": {
             "promise_index": 0,
-            "amount": format!("{}", TESTING_INIT_BALANCE / 2),
+            "amount": (TESTING_INIT_BALANCE / 2).to_string(),
         }, "id": 0 },
         {"action_add_key_with_full_access": {
             "promise_index": 0,
-            "public_key": base64::encode(&signer_new_account.public_key.try_to_vec().unwrap()),
+            "public_key": to_base64(&signer_new_account.public_key.try_to_vec().unwrap()),
             "nonce": 1,
         }, "id": 0 },
         {"action_deploy_contract": {
             "promise_index": 0,
-            "code": base64::encode(near_test_contracts::rs_contract()),
+            "code": to_base64(near_test_contracts::rs_contract()),
         }, "id": 0 },
         {"action_function_call": {
             "promise_index": 0,
@@ -867,7 +868,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
         }, "id": 0 },
         {"action_delete_key": {
             "promise_index": 0,
-            "public_key": base64::encode(&signer_new_account.public_key.try_to_vec().unwrap()),
+            "public_key": to_base64(&signer_new_account.public_key.try_to_vec().unwrap()),
             "nonce": 0,
         }, "id": 0 },
         {"action_delete_account": {
@@ -966,7 +967,7 @@ fn test_transfer_64len_hex() {
         }, "id": 0 },
         {"action_transfer": {
             "promise_index": 0,
-            "amount": format!("{}", TESTING_INIT_BALANCE / 2),
+            "amount": (TESTING_INIT_BALANCE / 2).to_string(),
         }, "id": 0 },
     ]);
 
@@ -1032,7 +1033,7 @@ fn test_create_transfer_64len_hex_fail() {
         }, "id": 0 },
         {"action_transfer": {
             "promise_index": 0,
-            "amount": format!("{}", TESTING_INIT_BALANCE / 2),
+            "amount": (TESTING_INIT_BALANCE / 2).to_string(),
         }, "id": 0 },
     ]);
 

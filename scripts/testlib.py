@@ -24,10 +24,7 @@ def clean_binary_tests():
 def build_tests(nightly=False):
     command = ['cargo', 'test', '--workspace', '--no-run']
     if nightly:
-        command += [
-            "--features", "nightly_protocol", "--features",
-            "nightly_protocol_features"
-        ]
+        command += ['--features', 'nightly']
     print("Building tests using command: ", ' '.join(command))
     p = subprocess.run(command)
     if p.returncode != 0:
@@ -37,10 +34,7 @@ def build_tests(nightly=False):
 def run_doc_tests(nightly=False):
     command = ['cargo', 'test', '--workspace', '--doc']
     if nightly:
-        command += [
-            "--features", "nightly_protocol", "--features",
-            "nightly_protocol_features"
-        ]
+        command += ['--features', 'nightly']
     print("Building doc tests using command: ", ' '.join(command))
     p = subprocess.run(command)
     if p.returncode != 0:

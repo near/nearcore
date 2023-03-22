@@ -1,0 +1,8 @@
+---
+source: integration-tests/src/tests/runtime/sanity_checks.rs
+expression: receipts_status
+
+---
+- SuccessValue: ""
+- SuccessValue: ""
+

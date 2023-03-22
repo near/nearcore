@@ -1,5 +1,4 @@
 use crate::{signature, vrf, PublicKey};
-use arrayref::array_ref;
 use curve25519_dalek::edwards::{CompressedEdwardsY, EdwardsPoint};
 use curve25519_dalek::ristretto::RistrettoPoint;
 use curve25519_dalek::scalar::Scalar;
@@ -29,7 +28,7 @@ pub fn convert_secret_key(key: &signature::ED25519SecretKey) -> vrf::SecretKey {
         &ed25519_dalek::SecretKey::from_bytes(&key.0[..32]).unwrap(),
     )
     .to_bytes();
-    vrf::SecretKey::from_scalar(Scalar::from_bytes_mod_order(*array_ref!(&b, 0, 32)))
+    vrf::SecretKey::from_scalar(Scalar::from_bytes_mod_order(b[0..32].try_into().unwrap()))
 }
 
 #[cfg(test)]

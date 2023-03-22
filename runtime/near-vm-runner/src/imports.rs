@@ -83,7 +83,6 @@ imports! {
     signer_account_pk<[register_id: u64] -> []>,
     predecessor_account_id<[register_id: u64] -> []>,
     input<[register_id: u64] -> []>,
-    // TODO #1903 rename to `block_height`
     block_index<[] -> [u64]>,
     block_timestamp<[] -> [u64]>,
     epoch_height<[] -> [u64]>,
@@ -103,6 +102,13 @@ imports! {
     sha256<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
     keccak256<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
     keccak512<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
+    #[Ed25519Verify] ed25519_verify<[sig_len: u64,
+        sig_ptr: u64,
+        msg_len: u64,
+        msg_ptr: u64,
+        pub_key_len: u64,
+        pub_key_ptr: u64
+    ] -> [u64]>,
     #[MathExtension] ripemd160<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
     #[MathExtension] ecrecover<[hash_len: u64, hash_ptr: u64, sign_len: u64, sig_ptr: u64, v: u64, malleability_flag: u64, register_id: u64] -> [u64]>,
     // #####################
@@ -155,7 +161,7 @@ imports! {
         amount_ptr: u64,
         gas: u64
     ] -> []>,
-    #["protocol_feature_function_call_weight", FunctionCallRatio] promise_batch_action_function_call_weight<[
+    #[FunctionCallWeight] promise_batch_action_function_call_weight<[
         promise_index: u64,
         method_name_len: u64,
         method_name_ptr: u64,
@@ -225,9 +231,9 @@ imports! {
     // #############
     // # Alt BN128 #
     // #############
-    #["protocol_feature_alt_bn128", AltBn128] alt_bn128_g1_multiexp<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
-    #["protocol_feature_alt_bn128", AltBn128] alt_bn128_g1_sum<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
-    #["protocol_feature_alt_bn128", AltBn128] alt_bn128_pairing_check<[value_len: u64, value_ptr: u64] -> [u64]>,
+    #[AltBn128] alt_bn128_g1_multiexp<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
+    #[AltBn128] alt_bn128_g1_sum<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
+    #[AltBn128] alt_bn128_pairing_check<[value_len: u64, value_ptr: u64] -> [u64]>,
     // #############
     // #  Sandbox  #
     // #############
@@ -293,15 +299,19 @@ pub(crate) mod wasmer2 {
 
     use super::str_eq;
     use near_vm_logic::{ProtocolVersion, VMLogic};
-    use wasmer_engine::{ExportFunction, ExportFunctionMetadata, Resolver};
-    use wasmer_vm::{VMFunction, VMFunctionKind, VMMemory};
+    use wasmer_engine::Engine;
+    use wasmer_engine_universal::UniversalEngine;
+    use wasmer_vm::{
+        ExportFunction, ExportFunctionMetadata, Resolver, VMFunction, VMFunctionKind, VMMemory,
+    };
 
-    pub(crate) struct Wasmer2Imports<'vmlogic, 'vmlogic_refs> {
+    pub(crate) struct Wasmer2Imports<'engine, 'vmlogic, 'vmlogic_refs> {
         pub(crate) memory: VMMemory,
         // Note: this same object is also referenced by the `metadata` field!
         pub(crate) vmlogic: &'vmlogic mut VMLogic<'vmlogic_refs>,
         pub(crate) metadata: Arc<ExportFunctionMetadata>,
         pub(crate) protocol_version: ProtocolVersion,
+        pub(crate) engine: &'engine UniversalEngine,
     }
 
     trait Wasmer2Type {
@@ -339,13 +349,13 @@ pub(crate) mod wasmer2 {
         }
     }
 
-    impl<'vmlogic, 'vmlogic_refs> Resolver for Wasmer2Imports<'vmlogic, 'vmlogic_refs> {
-        fn resolve(&self, _index: u32, module: &str, field: &str) -> Option<wasmer_engine::Export> {
+    impl<'e, 'l, 'lr> Resolver for Wasmer2Imports<'e, 'l, 'lr> {
+        fn resolve(&self, _index: u32, module: &str, field: &str) -> Option<wasmer_vm::Export> {
             if module != "env" {
                 return None;
             }
             if field == "memory" {
-                return Some(wasmer_engine::Export::Memory(self.memory.clone()));
+                return Some(wasmer_vm::Export::Memory(self.memory.clone()));
             }
 
             macro_rules! add_import {
@@ -397,7 +407,11 @@ pub(crate) mod wasmer2 {
                     }
                     // TODO: a phf hashmap would probably work better here.
                     if field == stringify!($func) {
-                        return Some(wasmer_engine::Export::Function(ExportFunction {
+                        let args = [$(<$arg_type as Wasmer2Type>::ty()),*];
+                        let rets = [$(<$returns as Wasmer2Type>::ty()),*];
+                        let signature = wasmer_types::FunctionTypeRef::new(&args[..], &rets[..]);
+                        let signature = self.engine.register_signature(signature);
+                        return Some(wasmer_vm::Export::Function(ExportFunction {
                             vm_function: VMFunction {
                                 address: $func as *const _,
                                 // SAFETY: here we erase the lifetime of the `vmlogic` reference,
@@ -407,11 +421,7 @@ pub(crate) mod wasmer2 {
                                 vmctx: wasmer_vm::VMFunctionEnvironment {
                                     host_env: self.vmlogic as *const _ as *mut _
                                 },
-                                signature: wasmer_types::FunctionType::new([
-                                    $(<$arg_type as Wasmer2Type>::ty()),*
-                                ], [
-                                    $(<$returns as Wasmer2Type>::ty()),*
-                                ]),
+                                signature,
                                 kind: VMFunctionKind::Static,
                                 call_trampoline: None,
                                 instance_ref: None,
@@ -426,18 +436,25 @@ pub(crate) mod wasmer2 {
         }
     }
 
-    pub(crate) fn build<'a, 'b>(
+    pub(crate) fn build<'e, 'a, 'b>(
         memory: VMMemory,
         logic: &'a mut VMLogic<'b>,
         protocol_version: ProtocolVersion,
-    ) -> Wasmer2Imports<'a, 'b> {
+        engine: &'e UniversalEngine,
+    ) -> Wasmer2Imports<'e, 'a, 'b> {
         let metadata = unsafe {
             // SAFETY: the functions here are thread-safe. We ensure that the lifetime of `VMLogic`
             // is sufficiently long by tying the lifetime of VMLogic to the return type which
             // contains this metadata.
             ExportFunctionMetadata::new(logic as *mut _ as *mut _, None, |ptr| ptr, |_| {})
         };
-        Wasmer2Imports { memory, vmlogic: logic, metadata: Arc::new(metadata), protocol_version }
+        Wasmer2Imports {
+            memory,
+            vmlogic: logic,
+            metadata: Arc::new(metadata),
+            protocol_version,
+            engine,
+        }
     }
 }
 
@@ -445,12 +462,29 @@ pub(crate) mod wasmer2 {
 pub(crate) mod wasmtime {
     use super::str_eq;
     use near_vm_logic::{ProtocolVersion, VMLogic, VMLogicError};
-    use std::cell::{RefCell, UnsafeCell};
+    use std::cell::UnsafeCell;
     use std::ffi::c_void;
+
+    /// This is a container from which an error can be taken out by value. This is necessary as
+    /// `anyhow` does not really give any opportunity to grab causes by value and the VM Logic
+    /// errors end up a couple layers deep in a causal chain.
+    #[derive(Debug)]
+    pub(crate) struct ErrorContainer(std::sync::Mutex<Option<VMLogicError>>);
+    impl ErrorContainer {
+        pub(crate) fn take(&self) -> Option<VMLogicError> {
+            let mut guard = self.0.lock().unwrap_or_else(|e| e.into_inner());
+            guard.take()
+        }
+    }
+    impl std::error::Error for ErrorContainer {}
+    impl std::fmt::Display for ErrorContainer {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("VMLogic error occurred and is now stored in an opaque storage container")
+        }
+    }
 
     thread_local! {
         static CALLER_CONTEXT: UnsafeCell<*mut c_void> = UnsafeCell::new(0 as *mut c_void);
-        static EMBEDDER_ERROR: RefCell<Option<VMLogicError>> = RefCell::new(None);
     }
 
     pub(crate) fn link(
@@ -467,7 +501,7 @@ pub(crate) mod wasmtime {
               $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >
             ) => {
                 #[allow(unused_parens)]
-                fn $func(caller: wasmtime::Caller<'_, ()>, $( $arg_name: $arg_type ),* ) -> Result<($( $returns ),*), wasmtime::Trap> {
+                fn $func(caller: wasmtime::Caller<'_, ()>, $( $arg_name: $arg_type ),* ) -> anyhow::Result<($( $returns ),*)> {
                     const IS_GAS: bool = str_eq(stringify!($func), "gas");
                     let _span = if IS_GAS {
                         None
@@ -490,12 +524,7 @@ pub(crate) mod wasmtime {
                     match logic.$func( $( $arg_name as $arg_type, )* ) {
                         Ok(result) => Ok(result as ($( $returns ),* ) ),
                         Err(err) => {
-                            // Wasmtime doesn't have proper mechanism for wrapping custom errors
-                            // into traps. So, just store error into TLS and use special exit code here.
-                            EMBEDDER_ERROR.with(|embedder_error| {
-                                *embedder_error.borrow_mut() = Some(err)
-                            });
-                            Err(wasmtime::Trap::i32_exit(239))
+                            Err(ErrorContainer(std::sync::Mutex::new(Some(err))).into())
                         }
                     }
                 }
@@ -504,10 +533,6 @@ pub(crate) mod wasmtime {
             };
         }
         for_each_available_import!(protocol_version, add_import);
-    }
-
-    pub(crate) fn last_error() -> Option<near_vm_logic::VMLogicError> {
-        EMBEDDER_ERROR.with(|embedder_error| embedder_error.replace(None))
     }
 }
 

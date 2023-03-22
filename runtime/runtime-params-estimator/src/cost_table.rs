@@ -1,9 +1,9 @@
+use anyhow::Context;
+use near_primitives::types::Gas;
+use num_rational::Ratio;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::str::FromStr;
-
-use near_primitives::types::Gas;
-use num_rational::Ratio;
 
 use crate::cost::Cost;
 
@@ -40,20 +40,20 @@ impl CostTable {
 }
 
 impl FromStr for CostTable {
-    type Err = ();
+    type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut res = CostTable::default();
         for line in s.lines() {
             let mut words = line.split_ascii_whitespace();
-            let cost = words.next().ok_or(())?;
-            let gas = words.next().ok_or(())?;
-            if words.next().is_some() {
-                return Err(());
+            let cost = words.next().context("expected cost name")?;
+            let gas = words.next().context("expected gas value")?;
+            if let Some(word) = words.next() {
+                anyhow::bail!("unexpected token {word}");
             }
 
             let cost = cost.parse()?;
-            let value = gas.replace('_', "").parse().map_err(drop)?;
+            let value = gas.replace('_', "").parse()?;
 
             res.add(cost, value)
         }

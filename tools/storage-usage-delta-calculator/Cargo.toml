@@ -1,19 +1,19 @@
 [package]
 name = "storage-usage-delta-calculator"
 version = "0.0.0"
-authors = ["Near Inc <hello@nearprotocol.com>", "Egor Kulikov <egor@near.org>"]
+authors.workspace = true
 publish = false
-# Please update rust-toolchain.toml as well when changing version here:
-rust-version = "1.56.0"
-edition = "2021"
+edition.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-serde_json = "1.0"
-tracing = "0.1.13"
-tracing-subscriber = "0.2.4"
+anyhow.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
 
 near-chain-configs = { path = "../../core/chain-configs" }
 near-primitives = { path = "../../core/primitives" }
 node-runtime = { path = "../../runtime/runtime" }
+near-o11y = { path = "../../core/o11y" }

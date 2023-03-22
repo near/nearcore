@@ -1,4 +1,5 @@
 use crate::runtime::config::RuntimeConfig;
+use crate::runtime::parameter_table::{ParameterTable, ParameterTableDiff};
 use crate::types::ProtocolVersion;
 use std::collections::BTreeMap;
 use std::ops::Bound;
@@ -6,25 +7,33 @@ use std::sync::Arc;
 
 macro_rules! include_config {
     ($file:expr) => {
-        include_bytes!(concat!("../../res/runtime_configs/", $file))
+        include_str!(concat!("../../res/runtime_configs/", $file))
     };
 }
 
+/// The base config file with all initial parameter values defined.
+/// Later version are calculated by applying diffs to this base.
+static BASE_CONFIG: &str = include_config!("parameters.yaml");
+
 /// Stores pairs of protocol versions for which runtime config was updated and
-/// the new runtime config in bytes.
-/// Protocol versions are given in increasing order. First one is always 0, so that each version is
-/// mapped to some config.
-static CONFIGS: &[(ProtocolVersion, &[u8])] = &[
-    (0, include_config!("29.json")),
-    (42, include_config!("42.json")),
-    (48, include_config!("48.json")),
-    (49, include_config!("49.json")),
-    (50, include_config!("50.json")),
+/// the file containing the diffs in bytes.
+static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
+    (42, include_config!("42.yaml")),
+    (48, include_config!("48.yaml")),
+    (49, include_config!("49.yaml")),
+    (50, include_config!("50.yaml")),
     // max_gas_burnt increased to 300 TGas
-    (52, include_config!("52.json")),
+    (52, include_config!("52.yaml")),
+    // Increased deployment costs, increased wasmer2 stack_limit, added limiting of contract locals,
+    // set read_cached_trie_node cost, decrease storage key limit
+    (53, include_config!("53.yaml")),
+    (57, include_config!("57.yaml")),
+    // Introduce Zero Balance Account and increase account creation cost to 7.7Tgas
+    (59, include_config!("59.yaml")),
 ];
 
-pub static INITIAL_TESTNET_CONFIG: &[u8] = include_config!("29_testnet.json");
+/// Testnet parameters for versions <= 29, which (incorrectly) differed from mainnet parameters
+pub static INITIAL_TESTNET_CONFIG: &str = include_config!("parameters_testnet.yaml");
 
 /// Stores runtime config for each protocol version where it was updated.
 #[derive(Debug)]
@@ -40,18 +49,48 @@ impl RuntimeConfigStore {
     /// this config and config with lowered storage cost, respectively.
     /// This is done to preserve compatibility with previous implementation, where we updated
     /// runtime config by sequential modifications to the genesis runtime config.
+    /// calimero_zero_storage flag sets all storages fees to zero by setting
+    /// storage_amount_per_byte to zero, to keep calimero private shards compatible with future
+    /// protocol upgrades this is done for all protocol versions
     /// TODO #4775: introduce new protocol version to have the same runtime config for all chains
     pub fn new(genesis_runtime_config: Option<&RuntimeConfig>) -> Self {
-        let mut store =
-            BTreeMap::from_iter(CONFIGS.iter().cloned().map(|(protocol_version, config_bytes)| {
-                (protocol_version, Arc::new(serde_json::from_slice(config_bytes).unwrap()))
-            }));
+        let mut params: ParameterTable =
+            BASE_CONFIG.parse().expect("Failed parsing base parameter file.");
+
+        let mut store = BTreeMap::new();
+        #[cfg(not(feature = "calimero_zero_storage"))]
+        {
+            let initial_config = RuntimeConfig::new(&params).unwrap_or_else(|err| panic!("Failed generating `RuntimeConfig` from parameters for base parameter file. Error: {err}"));
+            store.insert(0, Arc::new(initial_config));
+        }
+        #[cfg(feature = "calimero_zero_storage")]
+        {
+            let mut initial_config = RuntimeConfig::new(&params).unwrap_or_else(|err| panic!("Failed generating `RuntimeConfig` from parameters for base parameter file. Error: {err}"));
+            initial_config.fees.storage_usage_config.storage_amount_per_byte = 0;
+            store.insert(0, Arc::new(initial_config));
+        }
+
+        for (protocol_version, diff_bytes) in CONFIG_DIFFS {
+            let diff :ParameterTableDiff= diff_bytes.parse().unwrap_or_else(|err| panic!("Failed parsing runtime parameters diff for version {protocol_version}. Error: {err}"));
+            params.apply_diff(diff).unwrap_or_else(|err| panic!("Failed applying diff to `RuntimeConfig` for version {protocol_version}. Error: {err}"));
+            #[cfg(not(feature = "calimero_zero_storage"))]
+            store.insert(
+                *protocol_version,
+                Arc::new(RuntimeConfig::new(&params).unwrap_or_else(|err| panic!("Failed generating `RuntimeConfig` from parameters for version {protocol_version}. Error: {err}"))),
+            );
+            #[cfg(feature = "calimero_zero_storage")]
+            {
+                let mut runtime_config = RuntimeConfig::new(&params).unwrap_or_else(|err| panic!("Failed generating `RuntimeConfig` from parameters for version {protocol_version}. Error: {err}"));
+                runtime_config.fees.storage_usage_config.storage_amount_per_byte = 0;
+                store.insert(*protocol_version, Arc::new(runtime_config));
+            }
+        }
 
         if let Some(runtime_config) = genesis_runtime_config {
             let mut config = runtime_config.clone();
             store.insert(0, Arc::new(config.clone()));
 
-            config.storage_amount_per_byte = 10u128.pow(19);
+            config.fees.storage_usage_config.storage_amount_per_byte = 10u128.pow(19);
             store.insert(42, Arc::new(config));
         }
 
@@ -88,53 +127,13 @@ impl RuntimeConfigStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::serialize::to_base;
-    use crate::version::ProtocolFeature::LowerDataReceiptAndEcrecoverBaseCost;
-    use crate::version::ProtocolFeature::LowerStorageCost;
-    use near_primitives_core::hash::hash;
+    use crate::version::ProtocolFeature::{
+        LowerDataReceiptAndEcrecoverBaseCost, LowerStorageCost, LowerStorageKeyLimit,
+    };
+    use near_primitives_core::config::{ActionCosts, ExtCosts};
 
     const GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
     const RECEIPTS_DEPTH: u64 = 63;
-
-    fn check_config(protocol_version: ProtocolVersion, config_bytes: &[u8]) {
-        assert_eq!(
-            RuntimeConfigStore::new(None).get_config(protocol_version).as_ref(),
-            &serde_json::from_slice::<RuntimeConfig>(config_bytes).unwrap()
-        );
-    }
-
-    #[test]
-    fn test_get_config() {
-        check_config(0, CONFIGS[0].1);
-        check_config(GENESIS_PROTOCOL_VERSION - 1, CONFIGS[0].1);
-        check_config(GENESIS_PROTOCOL_VERSION, CONFIGS[0].1);
-        // First non-trivial version for which runtime config was updated.
-        check_config(LowerStorageCost.protocol_version(), CONFIGS[1].1);
-        check_config(ProtocolVersion::MAX, CONFIGS.last().unwrap().1);
-    }
-
-    #[test]
-    fn test_runtime_config_data() {
-        let expected_hashes = vec![
-            "FF2Qg5qSM6iWQjD5ZyzEhdAV2g5MyQKXGYh4kyt8mMcE",
-            "97UzHtVFBc4235jdur3DgNSUGNfGQfzRDLmAkYdZ19Re",
-            "C6uw6BoeXr3KoKpVP34hBA7TqoywMbwMtJgqbTpPCiSB",
-            "2cuq2HvuHT7Z27LUbgEtMxP2ejqrHK34J2V1GL1joiMn",
-            "HFetcNKaC5s8Mj7bQz7jGMF7Rsvtuc3kjZRevWQ334n4",
-            "EP9bv2znwbuBuimUgrSQm48ymHqwbHyUArZcWavSbPce",
-        ];
-        let actual_hashes = CONFIGS
-            .iter()
-            .map(|(_protocol_version, config_bytes)| to_base(&hash(config_bytes)))
-            .collect::<Vec<_>>();
-        assert_eq!(
-            expected_hashes, actual_hashes,
-            "\n
-Config hashes changed. \n
-If you add new config version, add a missing hash to the end of `expected_hashes` array.
-"
-        )
-    }
 
     #[test]
     fn test_max_prepaid_gas() {
@@ -142,7 +141,7 @@ If you add new config version, add a missing hash to the end of `expected_hashes
         for (protocol_version, config) in store.store.iter() {
             assert!(
                 config.wasm_config.limit_config.max_total_prepaid_gas
-                    / config.transaction_costs.min_receipt_with_function_call_gas()
+                    / config.fees.min_receipt_with_function_call_gas()
                     <= 63,
                 "The maximum desired depth of receipts for protocol version {} should be at most {}",
                 protocol_version,
@@ -152,11 +151,12 @@ If you add new config version, add a missing hash to the end of `expected_hashes
     }
 
     #[test]
+    #[cfg(not(feature = "calimero_zero_storage"))]
     fn test_lower_storage_cost() {
         let store = RuntimeConfigStore::new(None);
         let base_cfg = store.get_config(GENESIS_PROTOCOL_VERSION);
         let new_cfg = store.get_config(LowerStorageCost.protocol_version());
-        assert!(base_cfg.storage_amount_per_byte > new_cfg.storage_amount_per_byte);
+        assert!(base_cfg.storage_amount_per_byte() > new_cfg.storage_amount_per_byte());
     }
 
     #[test]
@@ -181,37 +181,52 @@ If you add new config version, add a missing hash to the end of `expected_hashes
         let base_cfg = store.get_config(LowerStorageCost.protocol_version());
         let new_cfg = store.get_config(LowerDataReceiptAndEcrecoverBaseCost.protocol_version());
         assert!(
-            base_cfg.transaction_costs.data_receipt_creation_config.base_cost.send_sir
-                > new_cfg.transaction_costs.data_receipt_creation_config.base_cost.send_sir
+            base_cfg.fees.fee(ActionCosts::new_data_receipt_base).send_sir
+                > new_cfg.fees.fee(ActionCosts::new_data_receipt_base).send_sir
         );
         assert!(
-            base_cfg.transaction_costs.data_receipt_creation_config.cost_per_byte.send_sir
-                > new_cfg.transaction_costs.data_receipt_creation_config.cost_per_byte.send_sir
+            base_cfg.fees.fee(ActionCosts::new_data_receipt_byte).send_sir
+                > new_cfg.fees.fee(ActionCosts::new_data_receipt_byte).send_sir
         );
     }
 
     // Check that for protocol version with lowered data receipt cost, runtime config passed to
     // config store is overridden.
     #[test]
+    #[cfg(not(feature = "calimero_zero_storage"))]
     fn test_override_runtime_config() {
-        let store = RuntimeConfigStore::new(Some(&RuntimeConfig::free()));
+        let store = RuntimeConfigStore::new(None);
         let config = store.get_config(0);
-        assert_eq!(config.as_ref(), &RuntimeConfig::free());
+
+        let mut base_params = BASE_CONFIG.parse().unwrap();
+        let base_config = RuntimeConfig::new(&base_params).unwrap();
+        assert_eq!(config.as_ref(), &base_config);
 
         let config = store.get_config(LowerStorageCost.protocol_version());
-        assert_eq!(config.transaction_costs.action_creation_config.transfer_cost.send_sir, 0);
-        assert_eq!(config.account_creation_config.min_allowed_top_level_account_length, 0);
+        assert_eq!(base_config.storage_amount_per_byte(), 100_000_000_000_000_000_000u128);
+        assert_eq!(config.storage_amount_per_byte(), 10_000_000_000_000_000_000u128);
+        assert_eq!(config.fees.fee(ActionCosts::new_data_receipt_base).send_sir, 4_697_339_419_375);
+        assert_ne!(config.as_ref(), &base_config);
         assert_ne!(
             config.as_ref(),
-            &serde_json::from_slice::<RuntimeConfig>(CONFIGS[1].1).unwrap()
+            store.get_config(LowerStorageCost.protocol_version() - 1).as_ref()
         );
 
+        let expected_config = {
+            let first_diff = CONFIG_DIFFS[0].1.parse().unwrap();
+            base_params.apply_diff(first_diff).unwrap();
+            RuntimeConfig::new(&base_params).unwrap()
+        };
+        assert_eq!(**config, expected_config);
+
         let config = store.get_config(LowerDataReceiptAndEcrecoverBaseCost.protocol_version());
-        assert_eq!(config.account_creation_config.min_allowed_top_level_account_length, 32);
-        assert_eq!(
-            config.as_ref(),
-            &serde_json::from_slice::<RuntimeConfig>(CONFIGS[2].1).unwrap()
-        );
+        assert_eq!(config.fees.fee(ActionCosts::new_data_receipt_base).send_sir, 36_486_732_312);
+        let expected_config = {
+            let second_diff = CONFIG_DIFFS[1].1.parse().unwrap();
+            base_params.apply_diff(second_diff).unwrap();
+            RuntimeConfig::new(&base_params).unwrap()
+        };
+        assert_eq!(config.as_ref(), &expected_config);
     }
 
     #[test]
@@ -220,8 +235,74 @@ If you add new config version, add a missing hash to the end of `expected_hashes
         let base_cfg = store.get_config(LowerStorageCost.protocol_version());
         let new_cfg = store.get_config(LowerDataReceiptAndEcrecoverBaseCost.protocol_version());
         assert!(
-            base_cfg.wasm_config.ext_costs.ecrecover_base
-                > new_cfg.wasm_config.ext_costs.ecrecover_base
+            base_cfg.wasm_config.ext_costs.gas_cost(ExtCosts::ecrecover_base)
+                > new_cfg.wasm_config.ext_costs.gas_cost(ExtCosts::ecrecover_base)
         );
+    }
+
+    #[test]
+    fn test_lower_max_length_storage_key() {
+        let store = RuntimeConfigStore::new(None);
+        let base_cfg = store.get_config(LowerStorageKeyLimit.protocol_version() - 1);
+        let new_cfg = store.get_config(LowerStorageKeyLimit.protocol_version());
+        assert!(
+            base_cfg.wasm_config.limit_config.max_length_storage_key
+                > new_cfg.wasm_config.limit_config.max_length_storage_key
+        );
+    }
+
+    /// Use snapshot testing to check that the JSON representation of the
+    /// configurations of each version is unchanged.
+    /// If tests fail after an intended change, run `cargo insta review` accept
+    /// the new snapshot if it looks right.
+    #[test]
+    #[cfg(not(feature = "nightly"))]
+    #[cfg(not(feature = "calimero_zero_storage"))]
+    fn test_json_unchanged() {
+        use crate::views::RuntimeConfigView;
+
+        let store = RuntimeConfigStore::new(None);
+
+        for version in store.store.keys() {
+            let snapshot_name = format!("{version}.json");
+            let config_view = RuntimeConfigView::from(store.get_config(*version).as_ref().clone());
+            insta::assert_json_snapshot!(snapshot_name, config_view);
+        }
+
+        // Store the latest values of parameters in a human-readable snapshot.
+        {
+            let mut params: ParameterTable = BASE_CONFIG.parse().unwrap();
+            for (_, diff_bytes) in CONFIG_DIFFS {
+                params.apply_diff(diff_bytes.parse().unwrap()).unwrap();
+            }
+            insta::with_settings!({
+                snapshot_path => "../../res/runtime_configs",
+                prepend_module_to_snapshot => false,
+                description => "THIS IS AN AUTOGENERATED FILE. DO NOT EDIT THIS FILE DIRECTLY.",
+                omit_expression => true,
+            }, {
+                insta::assert_display_snapshot!("parameters", params);
+            });
+        }
+
+        // Testnet initial config for old version was different, thus needs separate testing
+        let params = INITIAL_TESTNET_CONFIG.parse().unwrap();
+        let new_genesis_runtime_config = RuntimeConfig::new(&params).unwrap();
+        let testnet_store = RuntimeConfigStore::new(Some(&new_genesis_runtime_config));
+
+        for version in testnet_store.store.keys() {
+            let snapshot_name = format!("testnet_{version}.json");
+            let config_view = RuntimeConfigView::from(store.get_config(*version).as_ref().clone());
+            insta::assert_json_snapshot!(snapshot_name, config_view);
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "calimero_zero_storage")]
+    fn test_calimero_storage_costs_zero() {
+        let store = RuntimeConfigStore::new(None);
+        for (_, config) in store.store.iter() {
+            assert_eq!(config.storage_amount_per_byte(), 0u128);
+        }
     }
 }

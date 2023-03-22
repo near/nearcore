@@ -8,88 +8,86 @@ use actix::{Addr, MailboxError, System};
 use futures::{future, FutureExt};
 
 use near_actix_test_utils::run_actix;
-use near_chain::test_utils::account_id_to_shard_id;
+use near_chain::test_utils::{account_id_to_shard_id, ValidatorSchedule};
 use near_crypto::{InMemorySigner, KeyType};
-use near_logger_utils::init_integration_logger;
+use near_network::types::PeerInfo;
 use near_network::types::{
-    NetworkClientMessages, NetworkClientResponses, NetworkResponses, PeerManagerMessageRequest,
-    PeerManagerMessageResponse,
+    NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
 };
-use near_network_primitives::types::PeerInfo;
+use near_o11y::testonly::init_integration_logger;
+use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockReference};
 use near_primitives::views::QueryResponseKind::ViewAccount;
 use near_primitives::views::{QueryRequest, QueryResponse};
 
-use crate::test_utils::{setup_mock_all_validators, BlockStats};
+use crate::adapter::{ProcessTxRequest, ProcessTxResponse};
+use crate::test_utils::{setup_mock_all_validators, ActorHandlesForTesting, BlockStats};
 use crate::{ClientActor, Query, ViewClientActor};
 
 /// Tests that the KeyValueRuntime properly sets balances in genesis and makes them queriable
 #[test]
 fn test_keyvalue_runtime_balances() {
-    let validator_groups = 2;
     let successful_queries = Arc::new(AtomicUsize::new(0));
     init_integration_logger();
     run_actix(async move {
-        let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
-            Arc::new(RwLock::new(vec![]));
+        let connectors: Arc<RwLock<Vec<ActorHandlesForTesting>>> = Arc::new(RwLock::new(vec![]));
 
-        let validators = vec![vec![
-            "test1".parse().unwrap(),
-            "test2".parse().unwrap(),
-            "test3".parse().unwrap(),
-            "test4".parse().unwrap(),
-        ]];
+        let vs = ValidatorSchedule::new()
+            .num_shards(4)
+            .block_producers_per_epoch(vec![vec![
+                "test1".parse().unwrap(),
+                "test2".parse().unwrap(),
+                "test3".parse().unwrap(),
+                "test4".parse().unwrap(),
+            ]])
+            .validator_groups(2);
+        let validators = vs.all_block_producers().cloned().collect::<Vec<_>>();
         let key_pairs =
             vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
-
         let (_, conn, _) = setup_mock_all_validators(
-            validators.clone(),
+            vs,
             key_pairs,
-            validator_groups,
             true,
             100,
             false,
             false,
             5,
             false,
-            vec![false; validators.iter().map(|x| x.len()).sum()],
-            vec![true; validators.iter().map(|x| x.len()).sum()],
+            vec![false; validators.len()],
+            vec![true; validators.len()],
             false,
-            Arc::new(RwLock::new(Box::new(
-                move |_account_id: _, _msg: &PeerManagerMessageRequest| {
-                    (NetworkResponses::NoResponse.into(), true)
-                },
-            ))),
+            Box::new(move |_, _account_id: _, _msg: &PeerManagerMessageRequest| {
+                (NetworkResponses::NoResponse.into(), true)
+            }),
         );
         *connectors.write().unwrap() = conn;
 
         let connectors_ = connectors.write().unwrap();
-        let flat_validators = validators.iter().flatten().collect::<Vec<_>>();
         for i in 0..4 {
             let expected = (1000 + i * 100) as u128;
 
             let successful_queries2 = successful_queries.clone();
-            actix::spawn(
-                connectors_[i]
-                    .1
-                    .send(Query::new(
-                        BlockReference::latest(),
-                        QueryRequest::ViewAccount { account_id: flat_validators[i].clone() },
-                    ))
-                    .then(move |res| {
-                        let query_response = res.unwrap().unwrap();
-                        if let ViewAccount(view_account_result) = query_response.kind {
-                            assert_eq!(view_account_result.amount, expected);
-                            successful_queries2.fetch_add(1, Ordering::Relaxed);
-                            if successful_queries2.load(Ordering::Relaxed) >= 4 {
-                                System::current().stop();
-                            }
-                        }
-                        future::ready(())
-                    }),
+            let actor = connectors_[i].view_client_actor.send(
+                Query::new(
+                    BlockReference::latest(),
+                    QueryRequest::ViewAccount { account_id: validators[i].clone() },
+                )
+                .with_span_context(),
             );
+            let actor = actor.then(move |res| {
+                let query_response = res.unwrap().unwrap();
+                if let ViewAccount(view_account_result) = query_response.kind {
+                    assert_eq!(view_account_result.amount, expected);
+                    successful_queries2.fetch_add(1, Ordering::Relaxed);
+                    if successful_queries2.load(Ordering::Relaxed) >= 4 {
+                        System::current().stop();
+                    }
+                }
+                future::ready(())
+            });
+            actix::spawn(actor);
         }
 
         near_network::test_utils::wait_or_panic(5000);
@@ -98,7 +96,7 @@ fn test_keyvalue_runtime_balances() {
 
 fn send_tx(
     num_validators: usize,
-    connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>>,
+    connectors: Arc<RwLock<Vec<ActorHandlesForTesting>>>,
     connector_ordinal: usize,
     from: AccountId,
     to: AccountId,
@@ -110,22 +108,25 @@ fn send_tx(
     let signer = InMemorySigner::from_seed(from.clone(), KeyType::ED25519, from.as_ref());
     actix::spawn(
         connectors.write().unwrap()[connector_ordinal]
-            .0
-            .send(NetworkClientMessages::Transaction {
-                transaction: SignedTransaction::send_money(
-                    nonce,
-                    from.clone(),
-                    to.clone(),
-                    &signer,
-                    amount,
-                    block_hash,
-                ),
-                is_forwarded: false,
-                check_only: false,
-            })
+            .client_actor
+            .send(
+                ProcessTxRequest {
+                    transaction: SignedTransaction::send_money(
+                        nonce,
+                        from.clone(),
+                        to.clone(),
+                        &signer,
+                        amount,
+                        block_hash,
+                    ),
+                    is_forwarded: false,
+                    check_only: false,
+                }
+                .with_span_context(),
+            )
             .then(move |x| {
                 match x.unwrap() {
-                    NetworkClientResponses::NoResponse | NetworkClientResponses::RequestRouted => {
+                    ProcessTxResponse::NoResponse | ProcessTxResponse::RequestRouted => {
                         assert_eq!(num_validators, 24);
                         send_tx(
                             num_validators,
@@ -138,7 +139,7 @@ fn send_tx(
                             block_hash,
                         );
                     }
-                    NetworkClientResponses::ValidTx => {
+                    ProcessTxResponse::ValidTx => {
                         println!("Transaction was received by validator {:?}", connector_ordinal);
                     }
                     other @ _ => {
@@ -157,7 +158,7 @@ fn send_tx(
 fn test_cross_shard_tx_callback(
     res: Result<Result<QueryResponse, crate::QueryError>, MailboxError>,
     account_id: AccountId,
-    connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>>,
+    connectors: Arc<RwLock<Vec<ActorHandlesForTesting>>>,
     iteration: Arc<AtomicUsize>,
     nonce: Arc<AtomicUsize>,
     validators: Vec<AccountId>,
@@ -181,44 +182,46 @@ fn test_cross_shard_tx_callback(
             *presumable_epoch.write().unwrap() += 1;
             let connectors_ = connectors.write().unwrap();
             let connectors1 = connectors.clone();
-            let iteration1 = iteration.clone();
-            let nonce1 = nonce.clone();
-            let validators1 = validators.clone();
-            let successful_queries1 = successful_queries.clone();
-            let unsuccessful_queries1 = unsuccessful_queries.clone();
-            let balances1 = balances.clone();
-            let observed_balances1 = observed_balances.clone();
+            let iteration1 = iteration;
+            let nonce1 = nonce;
+            let validators1 = validators;
+            let successful_queries1 = successful_queries;
+            let unsuccessful_queries1 = unsuccessful_queries;
+            let balances1 = balances;
+            let observed_balances1 = observed_balances;
             let presumable_epoch1 = presumable_epoch.clone();
-            actix::spawn(
-                connectors_[account_id_to_shard_id(&account_id, 8) as usize
-                    + (*presumable_epoch.read().unwrap() * 8) % 24]
-                    .1
-                    .send(Query::new(
-                        BlockReference::latest(),
-                        QueryRequest::ViewAccount { account_id: account_id.clone() },
-                    ))
-                    .then(move |x| {
-                        test_cross_shard_tx_callback(
-                            x,
-                            account_id,
-                            connectors1,
-                            iteration1,
-                            nonce1,
-                            validators1,
-                            successful_queries1,
-                            unsuccessful_queries1,
-                            balances1,
-                            observed_balances1,
-                            presumable_epoch1,
-                            num_iters,
-                            block_hash,
-                            block_stats,
-                            min_ratio,
-                            max_ratio,
-                        );
-                        future::ready(())
-                    }),
+            let actor = &connectors_[account_id_to_shard_id(&account_id, 8) as usize
+                + (*presumable_epoch.read().unwrap() * 8) % 24]
+                .view_client_actor;
+            let actor = actor.send(
+                Query::new(
+                    BlockReference::latest(),
+                    QueryRequest::ViewAccount { account_id: account_id.clone() },
+                )
+                .with_span_context(),
             );
+            let actor = actor.then(move |x| {
+                test_cross_shard_tx_callback(
+                    x,
+                    account_id,
+                    connectors1,
+                    iteration1,
+                    nonce1,
+                    validators1,
+                    successful_queries1,
+                    unsuccessful_queries1,
+                    balances1,
+                    observed_balances1,
+                    presumable_epoch1,
+                    num_iters,
+                    block_hash,
+                    block_stats,
+                    min_ratio,
+                    max_ratio,
+                );
+                future::ready(())
+            });
+            actix::spawn(actor);
             return;
         }
     };
@@ -235,7 +238,7 @@ fn test_cross_shard_tx_callback(
         if view_account_result.amount == expected {
             let mut successful_queries_local = successful_queries.write().unwrap();
             assert!(!successful_queries_local.contains(&account_id));
-            successful_queries_local.insert(account_id.clone());
+            successful_queries_local.insert(account_id);
             if successful_queries_local.len() == 8 {
                 println!("Finished iteration {}", iteration.load(Ordering::Relaxed));
 
@@ -285,36 +288,38 @@ fn test_cross_shard_tx_callback(
                     let presumable_epoch1 = presumable_epoch.clone();
                     let account_id1 = validators[i].clone();
                     let block_stats1 = block_stats.clone();
-                    actix::spawn(
-                        connectors_[account_id_to_shard_id(&validators[i], 8) as usize
-                            + (*presumable_epoch.read().unwrap() * 8) % 24]
-                            .1
-                            .send(Query::new(
-                                BlockReference::latest(),
-                                QueryRequest::ViewAccount { account_id: validators[i].clone() },
-                            ))
-                            .then(move |x| {
-                                test_cross_shard_tx_callback(
-                                    x,
-                                    account_id1,
-                                    connectors1,
-                                    iteration1,
-                                    nonce1,
-                                    validators1,
-                                    successful_queries1,
-                                    unsuccessful_queries1,
-                                    balances1,
-                                    observed_balances1,
-                                    presumable_epoch1,
-                                    num_iters,
-                                    block_hash,
-                                    block_stats1,
-                                    min_ratio,
-                                    max_ratio,
-                                );
-                                future::ready(())
-                            }),
+                    let actor = &connectors_[account_id_to_shard_id(&validators[i], 8) as usize
+                        + (*presumable_epoch.read().unwrap() * 8) % 24]
+                        .view_client_actor;
+                    let actor = actor.send(
+                        Query::new(
+                            BlockReference::latest(),
+                            QueryRequest::ViewAccount { account_id: validators[i].clone() },
+                        )
+                        .with_span_context(),
                     );
+                    let actor = actor.then(move |x| {
+                        test_cross_shard_tx_callback(
+                            x,
+                            account_id1,
+                            connectors1,
+                            iteration1,
+                            nonce1,
+                            validators1,
+                            successful_queries1,
+                            unsuccessful_queries1,
+                            balances1,
+                            observed_balances1,
+                            presumable_epoch1,
+                            num_iters,
+                            block_hash,
+                            block_stats1,
+                            min_ratio,
+                            max_ratio,
+                        );
+                        future::ready(())
+                    });
+                    actix::spawn(actor);
                 }
             }
         } else {
@@ -337,40 +342,55 @@ fn test_cross_shard_tx_callback(
             let connectors_ = connectors.write().unwrap();
             let connectors1 = connectors.clone();
             let presumable_epoch1 = presumable_epoch.clone();
-            actix::spawn(
-                connectors_[account_id_to_shard_id(&account_id, 8) as usize
-                    + (*presumable_epoch.read().unwrap() * 8) % 24]
-                    .1
-                    .send(Query::new(
-                        BlockReference::latest(),
-                        QueryRequest::ViewAccount { account_id: account_id.clone() },
-                    ))
-                    .then(move |x| {
-                        test_cross_shard_tx_callback(
-                            x,
-                            account_id,
-                            connectors1,
-                            iteration,
-                            nonce,
-                            validators,
-                            successful_queries,
-                            unsuccessful_queries,
-                            balances,
-                            observed_balances,
-                            presumable_epoch1,
-                            num_iters,
-                            block_hash,
-                            block_stats,
-                            min_ratio,
-                            max_ratio,
-                        );
-                        future::ready(())
-                    }),
+            let actor = &connectors_[account_id_to_shard_id(&account_id, 8) as usize
+                + (*presumable_epoch.read().unwrap() * 8) % 24]
+                .view_client_actor;
+            let actor = actor.send(
+                Query::new(
+                    BlockReference::latest(),
+                    QueryRequest::ViewAccount { account_id: account_id.clone() },
+                )
+                .with_span_context(),
             );
+            let actor = actor.then(move |x| {
+                test_cross_shard_tx_callback(
+                    x,
+                    account_id,
+                    connectors1,
+                    iteration,
+                    nonce,
+                    validators,
+                    successful_queries,
+                    unsuccessful_queries,
+                    balances,
+                    observed_balances,
+                    presumable_epoch1,
+                    num_iters,
+                    block_hash,
+                    block_stats,
+                    min_ratio,
+                    max_ratio,
+                );
+                future::ready(())
+            });
+            actix::spawn(actor);
         }
     }
 }
 
+/// The basic flow of the test spins up validators, and starts sending to them
+/// several (at most 64) cross-shard transactions. i-th transaction sends money from
+/// validator i/8 to validator i%8. What makes the test good is that due to very low
+/// block production time, it creates lots of forks, delaying both the transaction
+/// acceptance, and the receipt delivery.
+///
+/// It submits txs one at a time, and waits for their completion before sending the
+/// next. Whenever the transaction completed, it traces "Finished iteration 1" (with
+/// the ordinal increasing). Given the test takes a while, checking how far below
+/// the last some message is a good way to early tell that the test has stalled.
+/// E.g. if the last message is not in the last 15% of the output, it is likely that
+/// the test will not make further progress, depending on the mode (with validator
+/// rotation some iterations are way longer than other).
 fn test_cross_shard_tx_common(
     num_iters: usize,
     rotate_validators: bool,
@@ -380,37 +400,42 @@ fn test_cross_shard_tx_common(
     min_ratio: Option<f64>,
     max_ratio: Option<f64>,
 ) {
-    let validator_groups = 4;
     init_integration_logger();
     run_actix(async move {
-        let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
-            Arc::new(RwLock::new(vec![]));
+        let connectors: Arc<RwLock<Vec<ActorHandlesForTesting>>> = Arc::new(RwLock::new(vec![]));
 
-        let validators: Vec<Vec<_>> = if rotate_validators {
-            [
-                [
-                    "test1.1", "test1.2", "test1.3", "test1.4", "test1.5", "test1.6", "test1.7",
-                    "test1.8",
-                ],
-                [
-                    "test2.1", "test2.2", "test2.3", "test2.4", "test2.5", "test2.6", "test2.7",
-                    "test2.8",
-                ],
-                [
-                    "test3.1", "test3.2", "test3.3", "test3.4", "test3.5", "test3.6", "test3.7",
-                    "test3.8",
-                ],
-            ]
-            .iter()
-        } else {
-            [[
-                "test1.1", "test1.2", "test1.3", "test1.4", "test1.5", "test1.6", "test1.7",
-                "test1.8",
-            ]]
-            .iter()
-        }
-        .map(|l| l.iter().map(|account_id| account_id.parse().unwrap()).collect())
-        .collect();
+        let vs = ValidatorSchedule::new()
+            .num_shards(8)
+            .block_producers_per_epoch(
+                if rotate_validators {
+                    [
+                        [
+                            "test1.1", "test1.2", "test1.3", "test1.4", "test1.5", "test1.6",
+                            "test1.7", "test1.8",
+                        ],
+                        [
+                            "test2.1", "test2.2", "test2.3", "test2.4", "test2.5", "test2.6",
+                            "test2.7", "test2.8",
+                        ],
+                        [
+                            "test3.1", "test3.2", "test3.3", "test3.4", "test3.5", "test3.6",
+                            "test3.7", "test3.8",
+                        ],
+                    ]
+                    .iter()
+                } else {
+                    [[
+                        "test1.1", "test1.2", "test1.3", "test1.4", "test1.5", "test1.6",
+                        "test1.7", "test1.8",
+                    ]]
+                    .iter()
+                }
+                .map(|l| l.iter().map(|account_id| account_id.parse().unwrap()).collect())
+                .collect(),
+            )
+            .validator_groups(4);
+        let validators = vs.all_block_producers().cloned().collect::<Vec<_>>();
+
         let key_pairs = (0..32).map(|_| PeerInfo::random()).collect::<Vec<_>>();
         let balances = Arc::new(RwLock::new(vec![]));
         let observed_balances = Arc::new(RwLock::new(vec![]));
@@ -424,26 +449,20 @@ fn test_cross_shard_tx_common(
         }
 
         let (genesis_block, conn, block_stats) = setup_mock_all_validators(
-            validators.clone(),
-            key_pairs.clone(),
-            validator_groups,
+            vs,
+            key_pairs,
             true,
             block_production_time,
             drop_chunks,
             !test_doomslug,
             20,
             test_doomslug,
-            vec![true; validators.iter().map(|x| x.len()).sum()],
-            vec![false; validators.iter().map(|x| x.len()).sum()],
+            vec![true; validators.len()],
+            vec![false; validators.len()],
             true,
-            Arc::new(RwLock::new(Box::new(
-                move |_account_id: _, _msg: &PeerManagerMessageRequest| {
-                    (
-                        PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse),
-                        true,
-                    )
-                },
-            ))),
+            Box::new(move |_, _account_id: _, _msg: &PeerManagerMessageRequest| {
+                (PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse), true)
+            }),
         );
         *connectors.write().unwrap() = conn;
         let block_hash = *genesis_block.hash();
@@ -453,50 +472,51 @@ fn test_cross_shard_tx_common(
         let nonce = Arc::new(AtomicUsize::new(1));
         let successful_queries = Arc::new(RwLock::new(HashSet::new()));
         let unsuccessful_queries = Arc::new(AtomicUsize::new(0));
-        let flat_validators = validators.iter().flatten().cloned().collect::<Vec<_>>();
 
         for i in 0..8 {
             let connectors1 = connectors.clone();
             let iteration1 = iteration.clone();
             let nonce1 = nonce.clone();
-            let flat_validators1 = flat_validators.clone();
+            let validators1 = validators.clone();
             let successful_queries1 = successful_queries.clone();
             let unsuccessful_queries1 = unsuccessful_queries.clone();
             let balances1 = balances.clone();
             let observed_balances1 = observed_balances.clone();
             let presumable_epoch1 = presumable_epoch.clone();
-            let account_id1 = flat_validators[i].clone();
+            let account_id1 = validators[i].clone();
             let block_stats1 = block_stats.clone();
-            actix::spawn(
-                connectors_[account_id_to_shard_id(&flat_validators[i], 8) as usize
-                    + *presumable_epoch.read().unwrap() * 8]
-                    .1
-                    .send(Query::new(
-                        BlockReference::latest(),
-                        QueryRequest::ViewAccount { account_id: flat_validators[i].clone() },
-                    ))
-                    .then(move |x| {
-                        test_cross_shard_tx_callback(
-                            x,
-                            account_id1,
-                            connectors1,
-                            iteration1,
-                            nonce1,
-                            flat_validators1,
-                            successful_queries1,
-                            unsuccessful_queries1,
-                            balances1,
-                            observed_balances1,
-                            presumable_epoch1,
-                            num_iters,
-                            block_hash,
-                            block_stats1,
-                            min_ratio,
-                            max_ratio,
-                        );
-                        future::ready(())
-                    }),
+            let actor = &connectors_[account_id_to_shard_id(&validators[i], 8) as usize
+                + *presumable_epoch.read().unwrap() * 8]
+                .view_client_actor;
+            let actor = actor.send(
+                Query::new(
+                    BlockReference::latest(),
+                    QueryRequest::ViewAccount { account_id: validators[i].clone() },
+                )
+                .with_span_context(),
             );
+            let actor = actor.then(move |x| {
+                test_cross_shard_tx_callback(
+                    x,
+                    account_id1,
+                    connectors1,
+                    iteration1,
+                    nonce1,
+                    validators1,
+                    successful_queries1,
+                    unsuccessful_queries1,
+                    balances1,
+                    observed_balances1,
+                    presumable_epoch1,
+                    num_iters,
+                    block_hash,
+                    block_stats1,
+                    min_ratio,
+                    max_ratio,
+                );
+                future::ready(())
+            });
+            actix::spawn(actor);
         }
 
         near_network::test_utils::wait_or_panic(if rotate_validators {
@@ -507,18 +527,22 @@ fn test_cross_shard_tx_common(
     });
 }
 
+/// Doesn't drop chunks, disabled doomslug, no validator rotation (each epoch
+/// has the same set of validators).
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_cross_shard_tx() {
     test_cross_shard_tx_common(64, false, false, false, 70, Some(2.3), None);
 }
 
+/// Same as above, but doomslug is enabled.
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_cross_shard_tx_doomslug() {
     test_cross_shard_tx_common(64, false, false, true, 200, None, Some(1.5));
 }
 
+/// Same as the first one but the chunks are sometimes dropped.
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_cross_shard_tx_drop_chunks() {
@@ -537,6 +561,11 @@ fn test_cross_shard_tx_8_iterations_drop_chunks() {
     test_cross_shard_tx_common(8, false, true, false, 200, Some(2.4), None);
 }
 
+/// The next two tests are the same as the first one, but with validator
+/// rotation. The two versions of the test have slightly different block
+/// production times, and different number of iterations we expect to finish in
+/// the allocated time. (the one with lower block production time is expected to
+/// finish fewer because it has higher forkfulness).
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_cross_shard_tx_with_validator_rotation_1() {

@@ -1,25 +1,25 @@
 # python stress tests
 pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions
-pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions --features nightly_protocol,nightly_protocol_features
+pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions --features nightly
 pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions local_network
-pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions local_network --features nightly_protocol,nightly_protocol_features
+pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions local_network --features nightly
 # pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions local_network packets_drop
-# pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions local_network packets_drop --features nightly_protocol,nightly_protocol_features
+# pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions local_network packets_drop --features nightly
 pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions node_restart
-pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions node_restart --features nightly_protocol,nightly_protocol_features
+pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions node_restart --features nightly
 pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions node_restart packets_drop
-pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions node_restart packets_drop --features nightly_protocol,nightly_protocol_features
+pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions node_restart packets_drop --features nightly
 # pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions node_restart wipe_data
-# pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions node_restart wipe_data --features nightly_protocol,nightly_protocol_features
+# pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions node_restart wipe_data --features nightly
 # pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions node_restart packets_drop wipe_data
-# pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions node_restart packets_drop wipe_data --features nightly_protocol,nightly_protocol_features
+# pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions node_restart packets_drop wipe_data --features nightly
 # pytest --timeout=2000 stress/stress.py 3 2 4 0 staking transactions node_set
-# pytest --timeout=2000 stress/stress.py 3 2 4 0 staking transactions node_set --features nightly_protocol,nightly_protocol_features
+# pytest --timeout=2000 stress/stress.py 3 2 4 0 staking transactions node_set --features nightly
 
 pytest --timeout=300 stress/saturate_routing_table.py
-pytest --timeout=300 stress/saturate_routing_table.py --features nightly_protocol,nightly_protocol_features
+pytest --timeout=300 stress/saturate_routing_table.py --features nightly
 
 # TODO(#4618): Those tests are currently broken.  Comment out while we’re
 # working on a fix / deciding whether to remove them.
 # pytest stress/network_stress.py
-# pytest stress/network_stress.py --features nightly_protocol,nightly_protocol_features
+# pytest stress/network_stress.py --features nightly

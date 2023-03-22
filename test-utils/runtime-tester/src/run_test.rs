@@ -1,23 +1,18 @@
-use std::io;
-use std::path::Path;
-use std::sync::Arc;
-use std::time::Duration;
-
 use near_chain::{Block, ChainGenesis, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client_primitives::types::Error;
 use near_crypto::InMemorySigner;
 use near_primitives::hash::CryptoHash;
+use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::transaction::{Action, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, Gas, Nonce};
-use near_store::create_store;
 use near_store::test_utils::create_test_store;
 use nearcore::TrackedConfig;
 use nearcore::{config::GenesisExt, NightshadeRuntime};
-
-use near_primitives::runtime::config_store::RuntimeConfigStore;
-use serde::{Deserialize, Serialize};
+use std::io;
+use std::path::Path;
+use std::time::Duration;
 
 pub struct ScenarioResult<T, E> {
     pub result: std::result::Result<T, E>,
@@ -48,22 +43,21 @@ impl Scenario {
         let (tempdir, store) = if self.use_in_memory_store {
             (None, create_test_store())
         } else {
-            let tempdir = tempfile::tempdir()
-                .unwrap_or_else(|err| panic!("failed to create temporary directory: {}", err));
-            let store = create_store(&nearcore::get_store_path(tempdir.path()));
-            (Some(tempdir), store)
+            let (tempdir, opener) = near_store::NodeStorage::test_opener();
+            let store = opener.open().unwrap();
+            (Some(tempdir), store.get_hot_store())
         };
 
-        let mut env = TestEnv::builder(ChainGenesis::from(&genesis))
+        let mut env = TestEnv::builder(ChainGenesis::new(&genesis))
             .clients(clients.clone())
             .validators(clients)
-            .runtime_adapters(vec![Arc::new(NightshadeRuntime::test_with_runtime_config_store(
+            .runtime_adapters(vec![NightshadeRuntime::test_with_runtime_config_store(
                 if let Some(tempdir) = &tempdir { tempdir.path() } else { Path::new(".") },
                 store,
                 &genesis,
                 TrackedConfig::new_empty(),
                 runtime_config_store,
-            ))])
+            )])
             .build();
 
         let result = self.process_blocks(&mut env);
@@ -71,7 +65,7 @@ impl Scenario {
     }
 
     fn process_blocks(&self, env: &mut TestEnv) -> Result<RuntimeStats, Error> {
-        let mut last_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+        let mut last_block = env.clients[0].chain.get_block_by_height(0).unwrap();
 
         let mut runtime_stats = RuntimeStats::default();
 
@@ -100,7 +94,7 @@ impl Scenario {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct Scenario {
     pub network_config: NetworkConfig,
     pub runtime_config: RuntimeConfig,
@@ -108,25 +102,25 @@ pub struct Scenario {
     pub use_in_memory_store: bool,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct NetworkConfig {
     pub seeds: Vec<String>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct RuntimeConfig {
     pub max_total_prepaid_gas: Gas,
     pub gas_limit: Gas,
     pub epoch_length: BlockHeightDelta,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct BlockConfig {
     pub height: BlockHeight,
     pub transactions: Vec<TransactionConfig>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct TransactionConfig {
     pub nonce: Nonce,
     pub signer_id: AccountId,
@@ -135,12 +129,12 @@ pub struct TransactionConfig {
     pub actions: Vec<Action>,
 }
 
-#[derive(Serialize, Deserialize, Default, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Default, Debug)]
 pub struct RuntimeStats {
     pub blocks_stats: Vec<BlockStats>,
 }
 
-#[derive(Serialize, Deserialize, Default, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Default, Debug)]
 pub struct BlockStats {
     pub height: u64,
     pub block_production_time: Duration,
@@ -185,7 +179,7 @@ mod test {
     use std::path::Path;
     use std::time::{Duration, Instant};
 
-    use near_logger_utils::init_test_logger;
+    use near_o11y::testonly::init_test_logger;
     use tracing::info;
 
     #[test]

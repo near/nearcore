@@ -3,12 +3,12 @@
 
 use near_vm_errors::PrepareError;
 use near_vm_logic::VMConfig;
-use pwasm_utils::parity_wasm::builder;
-use pwasm_utils::parity_wasm::elements::{self, External, MemorySection};
+use parity_wasm::builder;
+use parity_wasm::elements::{self, External, MemorySection};
 
 pub(crate) const WASM_FEATURES: wasmparser::WasmFeatures = wasmparser::WasmFeatures {
     reference_types: false,
-    // wasmer singlepass compiler most likely requires multi_value return values to be disabled.
+    // wasmer singlepass compiler requires multi_value return values to be disabled.
     multi_value: false,
     bulk_memory: false,
     module_linking: false,
@@ -20,6 +20,82 @@ pub(crate) const WASM_FEATURES: wasmparser::WasmFeatures = wasmparser::WasmFeatu
     exceptions: false,
     memory64: false,
 };
+
+/// Decode and validate the provided WebAssembly code with the `wasmparser` crate.
+///
+/// This function will return the number of functions defined globally in the provided WebAssembly
+/// module as well as the number of locals declared by all functions. If either counter overflows,
+/// `None` is returned in its place.
+fn wasmparser_decode(
+    code: &[u8],
+) -> Result<(Option<u64>, Option<u64>), wasmparser::BinaryReaderError> {
+    use wasmparser::{ImportSectionEntryType, ValidPayload};
+    let mut validator = wasmparser::Validator::new();
+    validator.wasm_features(WASM_FEATURES);
+    let mut function_count = Some(0u64);
+    let mut local_count = Some(0u64);
+    for payload in wasmparser::Parser::new(0).parse_all(code) {
+        let payload = payload?;
+
+        // The validator does not output `ValidPayload::Func` for imported functions.
+        if let wasmparser::Payload::ImportSection(ref import_section_reader) = payload {
+            let mut import_section_reader = import_section_reader.clone();
+            for _ in 0..import_section_reader.get_count() {
+                match import_section_reader.read()?.ty {
+                    ImportSectionEntryType::Function(_) => {
+                        function_count = function_count.and_then(|f| f.checked_add(1))
+                    }
+                    ImportSectionEntryType::Table(_)
+                    | ImportSectionEntryType::Memory(_)
+                    | ImportSectionEntryType::Event(_)
+                    | ImportSectionEntryType::Global(_)
+                    | ImportSectionEntryType::Module(_)
+                    | ImportSectionEntryType::Instance(_) => {}
+                }
+            }
+        }
+
+        match validator.payload(&payload)? {
+            ValidPayload::Ok => (),
+            ValidPayload::Submodule(_) => panic!("submodules are not reachable (not enabled)"),
+            ValidPayload::Func(mut validator, body) => {
+                validator.validate(&body)?;
+                function_count = function_count.and_then(|f| f.checked_add(1));
+                // Count the global number of local variables.
+                let mut local_reader = body.get_locals_reader()?;
+                for _ in 0..local_reader.get_count() {
+                    let (count, _type) = local_reader.read()?;
+                    local_count = local_count.and_then(|l| l.checked_add(count.into()));
+                }
+            }
+        }
+    }
+    Ok((function_count, local_count))
+}
+
+fn validate_contract(code: &[u8], config: &VMConfig) -> Result<(), PrepareError> {
+    let (function_count, local_count) = wasmparser_decode(code).map_err(|e| {
+        tracing::debug!(err=?e, "wasmparser failed decoding a contract");
+        PrepareError::Deserialization
+    })?;
+    // Verify the number of functions does not exceed the limit we imposed. Note that the ordering
+    // of this check is important. In the past we first validated the entire module and only then
+    // verified that the limit is not exceeded. While it would be more efficient to check for this
+    // before validating the function bodies, it would change the results for malformed WebAssembly
+    // modules.
+    if let Some(max_functions) = config.limit_config.max_functions_number_per_contract {
+        if function_count.ok_or(PrepareError::TooManyFunctions)? > max_functions {
+            return Err(PrepareError::TooManyFunctions);
+        }
+    }
+    // Similarly, do the same for the number of locals.
+    if let Some(max_locals) = config.limit_config.max_locals_per_contract {
+        if local_count.ok_or(PrepareError::TooManyLocals)? > max_locals {
+            return Err(PrepareError::TooManyLocals);
+        }
+    }
+    Ok(())
+}
 
 /// Loads the given module given in `original_code`, performs some checks on it and
 /// does some preprocessing.
@@ -33,11 +109,7 @@ pub(crate) const WASM_FEATURES: wasmparser::WasmFeatures = wasmparser::WasmFeatu
 ///
 /// The preprocessing includes injecting code for gas metering and metering the height of stack.
 pub fn prepare_contract(original_code: &[u8], config: &VMConfig) -> Result<Vec<u8>, PrepareError> {
-    wasmparser::Validator::new()
-        .wasm_features(WASM_FEATURES)
-        .validate_all(original_code)
-        .map_err(|_| PrepareError::Deserialization)?;
-
+    validate_contract(original_code, config)?;
     match config.limit_config.stack_limiter_version {
         // Support for old protocol versions, where we incorrectly didn't
         // account for many locals of the same type.
@@ -45,12 +117,11 @@ pub fn prepare_contract(original_code: &[u8], config: &VMConfig) -> Result<Vec<u
         // See `test_stack_instrumentation_protocol_upgrade` test.
         near_vm_logic::StackLimiterVersion::V0 => pwasm_12::prepare_contract(original_code, config),
         near_vm_logic::StackLimiterVersion::V1 => ContractModule::init(original_code, config)?
-            .validate_functions_number()?
+            .scan_imports()?
             .standardize_mem()
             .ensure_no_internal_memory()?
             .inject_gas_metering()?
             .inject_stack_height_metering()?
-            .scan_imports()?
             .into_wasm_code(),
     }
 }
@@ -62,8 +133,10 @@ struct ContractModule<'a> {
 
 impl<'a> ContractModule<'a> {
     fn init(original_code: &[u8], config: &'a VMConfig) -> Result<Self, PrepareError> {
-        let module = pwasm_utils::parity_wasm::deserialize_buffer(original_code)
-            .map_err(|_| PrepareError::Deserialization)?;
+        let module = parity_wasm::deserialize_buffer(original_code).map_err(|e| {
+            tracing::debug!(err=?e, "parity_wasm failed decoding a contract");
+            PrepareError::Deserialization
+        })?;
         Ok(ContractModule { module, config })
     }
 
@@ -108,18 +181,20 @@ impl<'a> ContractModule<'a> {
         if config.regular_op_cost == 0 {
             return Ok(Self { module, config });
         }
-        let gas_rules = pwasm_utils::rules::Set::new(1, Default::default())
+        let gas_rules = crate::instrument::rules::Set::new(1, Default::default())
             .with_grow_cost(config.grow_mem_cost);
-        let module = pwasm_utils::inject_gas_counter(module, &gas_rules, "env")
+        let module = crate::instrument::gas::inject_gas_counter(module, &gas_rules, "env")
             .map_err(|_| PrepareError::GasInstrumentation)?;
         Ok(Self { module, config })
     }
 
     fn inject_stack_height_metering(self) -> Result<Self, PrepareError> {
         let Self { module, config } = self;
-        let module =
-            pwasm_utils::stack_height::inject_limiter(module, config.limit_config.max_stack_height)
-                .map_err(|_| PrepareError::StackHeightInstrumentation)?;
+        let module = crate::instrument::stack_height::inject_limiter(
+            module,
+            config.limit_config.max_stack_height,
+        )
+        .map_err(|_| PrepareError::StackHeightInstrumentation)?;
         Ok(Self { module, config })
     }
 
@@ -137,8 +212,6 @@ impl<'a> ContractModule<'a> {
         let import_entries =
             module.import_section().map(elements::ImportSection::entries).unwrap_or(&[]);
 
-        let mut imported_mem_type = None;
-
         for import in import_entries {
             if import.module() != "env" {
                 // This import tries to import something from non-"env" module,
@@ -148,10 +221,7 @@ impl<'a> ContractModule<'a> {
 
             let type_idx = match *import.external() {
                 External::Function(ref type_idx) => type_idx,
-                External::Memory(ref memory_type) => {
-                    imported_mem_type = Some(memory_type);
-                    continue;
-                }
+                External::Memory(_) => return Err(PrepareError::Memory),
                 _ => continue,
             };
 
@@ -170,30 +240,7 @@ impl<'a> ContractModule<'a> {
             }
             */
         }
-        if let Some(memory_type) = imported_mem_type {
-            // Inspect the module to extract the initial and maximum page count.
-            let limits = memory_type.limits();
-            if limits.initial() != config.limit_config.initial_memory_pages
-                || limits.maximum() != Some(config.limit_config.max_memory_pages)
-            {
-                return Err(PrepareError::Memory);
-            }
-        } else {
-            return Err(PrepareError::Memory);
-        };
         Ok(Self { module, config })
-    }
-
-    fn validate_functions_number(self) -> Result<Self, PrepareError> {
-        if let Some(max_functions_number) =
-            self.config.limit_config.max_functions_number_per_contract
-        {
-            let functions_number = self.module.functions_space() as u64;
-            if functions_number > max_functions_number {
-                return Err(PrepareError::TooManyFunctions);
-            }
-        }
-        Ok(self)
     }
 
     fn into_wasm_code(self) -> Result<Vec<u8>, PrepareError> {
@@ -214,7 +261,6 @@ mod pwasm_12 {
         config: &VMConfig,
     ) -> Result<Vec<u8>, PrepareError> {
         ContractModule::init(original_code, config)?
-            .validate_functions_number()?
             .standardize_mem()
             .ensure_no_internal_memory()?
             .inject_gas_metering()?
@@ -230,8 +276,10 @@ mod pwasm_12 {
 
     impl<'a> ContractModule<'a> {
         fn init(original_code: &[u8], config: &'a VMConfig) -> Result<Self, PrepareError> {
-            let module = elements::deserialize_buffer(original_code)
-                .map_err(|_| PrepareError::Deserialization)?;
+            let module = elements::deserialize_buffer(original_code).map_err(|e| {
+                tracing::debug!(err=?e, "parity_wasm_41 failed decoding a contract");
+                PrepareError::Deserialization
+            })?;
             Ok(ContractModule { module, config })
         }
 
@@ -354,18 +402,6 @@ mod pwasm_12 {
             Ok(Self { module, config })
         }
 
-        fn validate_functions_number(self) -> Result<Self, PrepareError> {
-            if let Some(max_functions_number) =
-                self.config.limit_config.max_functions_number_per_contract
-            {
-                let functions_number = self.module.functions_space() as u64;
-                if functions_number > max_functions_number {
-                    return Err(PrepareError::TooManyFunctions);
-                }
-            }
-            Ok(self)
-        }
-
         fn into_wasm_code(self) -> Result<Vec<u8>, PrepareError> {
             elements::serialize(self.module).map_err(|_| PrepareError::Serialization)
         }
@@ -391,12 +427,12 @@ mod tests {
     }
 
     #[test]
-    fn memory() {
+    fn memory_imports() {
         // This test assumes that maximum page number is configured to a certain number.
         assert_eq!(VMConfig::test().limit_config.max_memory_pages, 2048);
 
         let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 1 1)))"#);
-        assert_matches!(r, Ok(_));
+        assert_matches!(r, Err(PrepareError::Memory));
 
         // No memory import
         let r = parse_and_prepare_wat(r#"(module)"#);
@@ -408,11 +444,11 @@ mod tests {
 
         // no maximum
         let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 1)))"#);
-        assert_matches!(r, Ok(_));
+        assert_matches!(r, Err(PrepareError::Memory));
 
         // requested maximum exceed configured maximum
         let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 1 33)))"#);
-        assert_matches!(r, Ok(_));
+        assert_matches!(r, Err(PrepareError::Memory));
     }
 
     #[test]
@@ -455,5 +491,29 @@ mod tests {
         let r = parse_and_prepare_wat(r#"(module (import "env" "unknown_func" (func)))"#);
         assert_matches!(r, Err(Error::Instantiate));
         */
+    }
+
+    #[test]
+    fn preparation_generates_valid_contract() {
+        bolero::check!().for_each(|input: &[u8]| {
+            // DO NOT use ArbitraryModule. We do want modules that may be invalid here, if they pass our validation step!
+            let config = VMConfig::test();
+            if let Ok(_) = validate_contract(input, &config) {
+                match prepare_contract(input, &config) {
+                    Err(_e) => (), // TODO: this should be a panic, but for now it’d actually trigger
+                    Ok(code) => {
+                        let mut validator = wasmparser::Validator::new();
+                        validator.wasm_features(WASM_FEATURES);
+                        match validator.validate_all(&code) {
+                            Ok(()) => (),
+                            Err(e) => panic!(
+                                "prepared code failed validation: {e:?}\ncontract: {}",
+                                hex::encode(input),
+                            ),
+                        }
+                    }
+                }
+            }
+        });
     }
 }

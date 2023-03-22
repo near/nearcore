@@ -7,10 +7,10 @@ use futures::{future, FutureExt, TryFutureExt};
 use near_actix_test_utils::run_actix;
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::client::new_client;
-use near_logger_utils::{init_integration_logger, init_test_logger};
 use near_network::test_utils::WaitOrTimeoutActor;
+use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::serialize::{to_base, to_base64};
+use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockReference;
 use near_primitives::views::FinalExecutionStatus;
@@ -25,11 +25,11 @@ fn test_send_tx_async() {
     run_actix(async {
         let (_, addr) = test_utils::start_all(test_utils::NodeType::Validator);
 
-        let client = new_client(&format!("http://{}", addr.clone()));
+        let client = new_client(&format!("http://{}", addr));
 
         let tx_hash2 = Arc::new(Mutex::new(None));
         let tx_hash2_1 = tx_hash2.clone();
-        let tx_hash2_2 = tx_hash2.clone();
+        let tx_hash2_2 = tx_hash2;
         let signer_account_id = "test1".to_string();
 
         actix::spawn(client.block(BlockReference::latest()).then(move |res| {
@@ -93,7 +93,7 @@ fn test_send_tx_commit() {
         );
         let bytes = tx.try_to_vec().unwrap();
         let result = client.broadcast_tx_commit(to_base64(&bytes)).await.unwrap();
-        assert_eq!(result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
+        assert_eq!(result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
     });
 }
 
@@ -118,8 +118,8 @@ fn test_expired_tx() {
                 let client = new_client(&format!("http://{}", addr));
                 actix::spawn(client.block(BlockReference::latest()).then(move |res| {
                     let header = res.unwrap().header;
-                    let hash = block_hash.lock().unwrap().clone();
-                    let height = block_height.lock().unwrap().clone();
+                    let hash = *block_hash.lock().unwrap();
+                    let height = *block_height.lock().unwrap();
                     if let Some(block_hash) = hash {
                         if let Some(height) = height {
                             if header.height - height >= 2 {
@@ -190,7 +190,7 @@ fn test_replay_protection() {
 #[test]
 fn test_tx_status_missing_tx() {
     test_with_client!(test_utils::NodeType::Validator, client, async move {
-        match client.tx(to_base(&CryptoHash::default()), "test1".parse().unwrap()).await {
+        match client.tx(CryptoHash::new().to_string(), "test1".parse().unwrap()).await {
             Err(e) => {
                 let s = serde_json::to_string(&e.data.unwrap()).unwrap();
                 assert_eq!(s, "\"Transaction 11111111111111111111111111111111 doesn't exist\"");

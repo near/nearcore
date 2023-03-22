@@ -3,7 +3,7 @@ extern crate bencher;
 
 use bencher::{black_box, Bencher};
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_primitives::time::Clock;
+use near_primitives::static_clock::StaticClock;
 
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_primitives::account::Account;
@@ -16,7 +16,7 @@ use near_primitives::types::{EpochId, StateRoot};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::types::MerkleHash;
-use num_rational::Rational;
+use num_rational::Rational32;
 
 fn create_transaction() -> SignedTransaction {
     let mut actions = vec![];
@@ -37,11 +37,11 @@ fn create_transaction() -> SignedTransaction {
 }
 
 fn create_block() -> Block {
-    let genesis_chunks = genesis_chunks(vec![StateRoot::default()], 1, 1_000, 0, PROTOCOL_VERSION);
+    let genesis_chunks = genesis_chunks(vec![StateRoot::new()], 1, 1_000, 0, PROTOCOL_VERSION);
     let genesis = Block::genesis(
         PROTOCOL_VERSION,
         genesis_chunks.into_iter().map(|chunk| chunk.take_header()).collect(),
-        Clock::utc(),
+        StaticClock::utc(),
         0,
         1_000,
         1_000,
@@ -59,7 +59,7 @@ fn create_block() -> Block {
         EpochId::default(),
         None,
         vec![],
-        Rational::from_integer(0),
+        Rational32::from_integer(0),
         0,
         0,
         Some(0),
@@ -68,6 +68,7 @@ fn create_block() -> Block {
         &signer,
         CryptoHash::default(),
         CryptoHash::default(),
+        None,
     )
 }
 

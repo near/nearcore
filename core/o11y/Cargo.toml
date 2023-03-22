@@ -1,0 +1,44 @@
+[package]
+name = "near-o11y"
+version = "0.0.0"
+authors.workspace = true
+publish = true
+rust-version.workspace = true
+edition.workspace = true
+readme = "README.md"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/near/nearcore"
+description = "Observability helpers for the near codebase"
+
+[dependencies]
+near-crypto = { path = "../../core/crypto" }
+near-primitives-core = { path = "../../core/primitives-core" }
+
+actix.workspace = true
+atty.workspace = true
+clap.workspace = true
+once_cell.workspace = true
+opentelemetry.workspace = true
+opentelemetry-otlp.workspace = true
+opentelemetry-semantic-conventions.workspace = true
+prometheus.workspace = true
+serde.workspace = true
+strum.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-appender.workspace = true
+tracing-opentelemetry.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+bencher.workspace = true
+itoa.workspace = true
+smartstring.workspace = true
+
+[features]
+io_trace = []
+
+[[bench]]
+name = "metrics"
+harness = false

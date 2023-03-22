@@ -12,7 +12,6 @@ use near_primitives::{
         apply_state::ApplyState,
         migration_data::{MigrationData, MigrationFlags},
     },
-    serialize::to_base64,
     transaction::FunctionCallAction,
     trie_key::trie_key_parsers,
     types::{AccountId, EpochInfoProvider, Gas},
@@ -119,6 +118,7 @@ impl TrieViewer {
         state_update: &TrieUpdate,
         account_id: &AccountId,
         prefix: &[u8],
+        include_proof: bool,
     ) -> Result<ViewStateResult, errors::ViewStateError> {
         match get_account(state_update, account_id)? {
             Some(account) => {
@@ -143,21 +143,19 @@ impl TrieViewer {
         let mut values = vec![];
         let query = trie_key_parsers::get_raw_prefix_for_contract_data(account_id, prefix);
         let acc_sep_len = query.len() - prefix.len();
-        let mut iter = state_update.trie.iter(&state_update.get_root())?;
-        iter.seek(&query)?;
-        for item in iter {
+        let mut iter = state_update.trie().iter()?;
+        iter.remember_visited_nodes(include_proof);
+        iter.seek_prefix(&query)?;
+        for item in &mut iter {
             let (key, value) = item?;
-            if !key.starts_with(query.as_ref()) {
-                break;
-            }
             values.push(StateItem {
-                key: to_base64(&key[acc_sep_len..]),
-                value: to_base64(&value),
+                key: key[acc_sep_len..].to_vec(),
+                value: value,
                 proof: vec![],
             });
         }
-        // TODO(2076): Add proofs for the storage items.
-        Ok(ViewStateResult { values, proof: vec![] })
+        let proof = iter.into_visited_nodes();
+        Ok(ViewStateResult { values, proof })
     }
 
     pub fn call_function(
@@ -171,7 +169,7 @@ impl TrieViewer {
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<Vec<u8>, errors::CallFunctionError> {
         let now = Instant::now();
-        let root = state_update.get_root();
+        let root = *state_update.get_root();
         let mut account = get_account(&state_update, contract_id)?.ok_or_else(|| {
             errors::CallFunctionError::AccountDoesNotExist {
                 requested_account_id: contract_id.clone(),
@@ -184,9 +182,6 @@ impl TrieViewer {
         let mut runtime_ext = RuntimeExt::new(
             &mut state_update,
             contract_id,
-            originator_id,
-            &public_key,
-            0,
             &empty_hash,
             &view_state.epoch_id,
             &view_state.prev_block_hash,
@@ -197,7 +192,7 @@ impl TrieViewer {
         let config_store = RuntimeConfigStore::new(None);
         let config = config_store.get_config(PROTOCOL_VERSION);
         let apply_state = ApplyState {
-            block_index: view_state.block_height,
+            block_height: view_state.block_height,
             // Used for legacy reasons
             prev_block_hash: view_state.prev_block_hash,
             block_hash: view_state.block_hash,
@@ -216,7 +211,7 @@ impl TrieViewer {
         };
         let action_receipt = ActionReceipt {
             signer_id: originator_id.clone(),
-            signer_public_key: public_key.clone(),
+            signer_public_key: public_key,
             gas_price: 0,
             output_data_receivers: vec![],
             input_data_ids: vec![],
@@ -228,7 +223,7 @@ impl TrieViewer {
             gas: self.max_gas_burnt_view,
             deposit: 0,
         };
-        let (outcome, err) = execute_function_call(
+        let outcome = execute_function_call(
             &apply_state,
             &mut runtime_ext,
             &mut account,
@@ -240,21 +235,19 @@ impl TrieViewer {
             config,
             true,
             Some(ViewConfig { max_gas_burnt: self.max_gas_burnt_view }),
-        );
+        )
+        .map_err(|e| errors::CallFunctionError::InternalError { error_message: e.to_string() })?;
         let elapsed = now.elapsed();
         let time_ms =
             (elapsed.as_secs() as f64 / 1_000.0) + f64::from(elapsed.subsec_nanos()) / 1_000_000.0;
         let time_str = format!("{:.*}ms", 2, time_ms);
 
-        if let Some(err) = err {
-            if let Some(outcome) = outcome {
-                logs.extend(outcome.logs);
-            }
+        if let Some(err) = outcome.aborted {
+            logs.extend(outcome.logs);
             let message = format!("wasm execution failed with error: {:?}", err);
             debug!(target: "runtime", "(exec time {}) {}", time_str, message);
             Err(errors::CallFunctionError::VMError { error_message: message })
         } else {
-            let outcome = outcome.unwrap();
             debug!(target: "runtime", "(exec time {}) result of execution: {:?}", time_str, outcome);
             logs.extend(outcome.logs);
             let result = match outcome.return_data {

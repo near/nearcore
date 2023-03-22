@@ -3,30 +3,18 @@
 //! NOTE: chain-configs is not the best place for `GenesisConfig` since it
 //! contains `RuntimeConfig`, but we keep it here for now until we figure
 //! out the better place.
-use std::fs::File;
-use std::io::{BufReader, Read};
-use std::path::{Path, PathBuf};
-use std::{fmt, io};
-
+use crate::genesis_validate::validate_genesis;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
-use num_rational::Rational;
-use serde::de::{self, DeserializeSeed, IgnoredAny, MapAccess, SeqAccess, Visitor};
-use serde::{Deserialize, Deserializer, Serialize};
-use serde_json::Serializer;
-use sha2::digest::Digest;
-use smart_default::SmartDefault;
-use tracing::{info, warn};
-
-use crate::genesis_validate::validate_genesis;
-use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig, ShardConfig};
+use near_config_utils::ValidationError;
+use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::version::ProtocolFeature;
+use near_primitives::views::RuntimeConfigView;
 use near_primitives::{
     hash::CryptoHash,
     runtime::config::RuntimeConfig,
-    serialize::{u128_dec_format, u128_dec_format_compatible},
+    serialize::dec_format,
     state_record::StateRecord,
     types::{
         AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, EpochHeight, Gas,
@@ -34,56 +22,62 @@ use near_primitives::{
     },
     version::ProtocolVersion,
 };
+use num_rational::Rational32;
+use serde::de::{self, DeserializeSeed, IgnoredAny, MapAccess, SeqAccess, Visitor};
+use serde::{Deserializer, Serialize};
+use serde_json::Serializer;
+use sha2::digest::Digest;
+use smart_default::SmartDefault;
+use std::collections::HashSet;
+use std::fs::File;
+use std::io::{BufReader, Read};
+use std::path::{Path, PathBuf};
+use std::{fmt, io};
+use tracing::warn;
 
 const MAX_GAS_PRICE: Balance = 10_000_000_000_000_000_000_000;
 
-fn default_online_min_threshold() -> Rational {
-    Rational::new(90, 100)
+fn default_online_min_threshold() -> Rational32 {
+    Rational32::new(90, 100)
 }
 
-fn default_online_max_threshold() -> Rational {
-    Rational::new(99, 100)
+fn default_online_max_threshold() -> Rational32 {
+    Rational32::new(99, 100)
 }
 
 fn default_minimum_stake_divisor() -> u64 {
     10
 }
 
-fn default_protocol_upgrade_stake_threshold() -> Rational {
-    Rational::new(8, 10)
+fn default_protocol_upgrade_stake_threshold() -> Rational32 {
+    Rational32::new(8, 10)
 }
 
 fn default_shard_layout() -> ShardLayout {
     ShardLayout::v0_single_shard()
 }
 
-fn default_minimum_stake_ratio() -> Rational {
-    Rational::new(160, 1_000_000)
+fn default_minimum_stake_ratio() -> Rational32 {
+    Rational32::new(160, 1_000_000)
 }
 
-#[cfg(feature = "protocol_feature_chunk_only_producers")]
 fn default_minimum_validators_per_shard() -> u64 {
     1
 }
 
-#[cfg(feature = "protocol_feature_chunk_only_producers")]
 fn default_num_chunk_only_producer_seats() -> u64 {
     300
 }
 
-fn default_simple_nightshade_shard_layout() -> Option<ShardLayout> {
-    Some(ShardLayout::v1(
-        vec![],
-        vec!["aurora", "aurora-0", "kkuuue2akv_1630967379.near"]
-            .into_iter()
-            .map(|s| s.parse().unwrap())
-            .collect(),
-        Some(vec![vec![0, 1, 2, 3]]),
-        1,
-    ))
+fn default_use_production_config() -> bool {
+    false
 }
 
-#[derive(Debug, Clone, SmartDefault, Serialize, Deserialize)]
+fn default_max_kickout_stake_threshold() -> u8 {
+    100
+}
+
+#[derive(Debug, Clone, SmartDefault, serde::Serialize, serde::Deserialize)]
 pub struct GenesisConfig {
     /// Protocol version that this genesis works with.
     pub protocol_version: ProtocolVersion,
@@ -107,8 +101,8 @@ pub struct GenesisConfig {
     pub dynamic_resharding: bool,
     /// Threshold of stake that needs to indicate that they ready for upgrade.
     #[serde(default = "default_protocol_upgrade_stake_threshold")]
-    #[default(Rational::new(8, 10))]
-    pub protocol_upgrade_stake_threshold: Rational,
+    #[default(Rational32::new(8, 10))]
+    pub protocol_upgrade_stake_threshold: Rational32,
     /// Number of epochs after stake threshold was achieved to start next prtocol version.
     pub protocol_upgrade_num_epochs: EpochHeight,
     /// Epoch length counted in block heights.
@@ -116,9 +110,9 @@ pub struct GenesisConfig {
     /// Initial gas limit.
     pub gas_limit: Gas,
     /// Minimum gas price. It is also the initial gas price.
-    #[serde(with = "u128_dec_format_compatible")]
+    #[serde(with = "dec_format")]
     pub min_gas_price: Balance,
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     #[default(MAX_GAS_PRICE)]
     pub max_gas_price: Balance,
     /// Criterion for kicking out block producers (this is a number between 0 and 100)
@@ -127,27 +121,27 @@ pub struct GenesisConfig {
     pub chunk_producer_kickout_threshold: u8,
     /// Online minimum threshold below which validator doesn't receive reward.
     #[serde(default = "default_online_min_threshold")]
-    #[default(Rational::new(90, 100))]
-    pub online_min_threshold: Rational,
+    #[default(Rational32::new(90, 100))]
+    pub online_min_threshold: Rational32,
     /// Online maximum threshold above which validator gets full reward.
     #[serde(default = "default_online_max_threshold")]
-    #[default(Rational::new(99, 100))]
-    pub online_max_threshold: Rational,
+    #[default(Rational32::new(99, 100))]
+    pub online_max_threshold: Rational32,
     /// Gas price adjustment rate
-    #[default(Rational::from_integer(0))]
-    pub gas_price_adjustment_rate: Rational,
+    #[default(Rational32::from_integer(0))]
+    pub gas_price_adjustment_rate: Rational32,
     /// List of initial validators.
     pub validators: Vec<AccountInfo>,
     /// Number of blocks for which a given transaction is valid
     pub transaction_validity_period: NumBlocks,
     /// Protocol treasury rate
-    #[default(Rational::from_integer(0))]
-    pub protocol_reward_rate: Rational,
+    #[default(Rational32::from_integer(0))]
+    pub protocol_reward_rate: Rational32,
     /// Maximum inflation on the total supply every epoch.
-    #[default(Rational::from_integer(0))]
-    pub max_inflation_rate: Rational,
+    #[default(Rational32::from_integer(0))]
+    pub max_inflation_rate: Rational32,
     /// Total supply of tokens at genesis.
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub total_supply: Balance,
     /// Expected number of blocks per year
     pub num_blocks_per_year: NumBlocks,
@@ -155,7 +149,7 @@ pub struct GenesisConfig {
     #[default("near".parse().unwrap())]
     pub protocol_treasury_account: AccountId,
     /// Fishermen stake threshold.
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub fishermen_threshold: Balance,
     /// The minimum stake required for staking is last seat price divided by this number.
     #[serde(default = "default_minimum_stake_divisor")]
@@ -165,22 +159,34 @@ pub struct GenesisConfig {
     #[serde(default = "default_shard_layout")]
     #[default(ShardLayout::v0_single_shard())]
     pub shard_layout: ShardLayout,
-    #[serde(default = "default_simple_nightshade_shard_layout")]
-    pub simple_nightshade_shard_layout: Option<ShardLayout>,
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
     #[serde(default = "default_num_chunk_only_producer_seats")]
     #[default(300)]
     pub num_chunk_only_producer_seats: NumSeats,
     /// The minimum number of validators each shard must have
-    #[cfg(feature = "protocol_feature_chunk_only_producers")]
     #[serde(default = "default_minimum_validators_per_shard")]
     #[default(1)]
     pub minimum_validators_per_shard: NumSeats,
+    #[serde(default = "default_max_kickout_stake_threshold")]
+    #[default(100)]
+    /// Max stake percentage of the validators we will kick out.
+    pub max_kickout_stake_perc: u8,
     /// The lowest ratio s/s_total any block producer can have.
-    /// See https://github.com/near/NEPs/pull/167 for details
+    /// See <https://github.com/near/NEPs/pull/167> for details
     #[serde(default = "default_minimum_stake_ratio")]
-    #[default(Rational::new(160, 1_000_000))]
-    pub minimum_stake_ratio: Rational,
+    #[default(Rational32::new(160, 1_000_000))]
+    pub minimum_stake_ratio: Rational32,
+    #[serde(default = "default_use_production_config")]
+    #[default(false)]
+    /// This is only for test purposes. We hard code some configs for mainnet and testnet
+    /// in AllEpochConfig, and we want to have a way to test that code path. This flag is for that.
+    /// If set to true, the node will use the same config override path as mainnet and testnet.
+    pub use_production_config: bool,
+}
+
+impl GenesisConfig {
+    pub fn use_production_config(&self) -> bool {
+        self.use_production_config || self.chain_id == "testnet" || self.chain_id == "mainnet"
+    }
 }
 
 impl From<&GenesisConfig> for EpochConfig {
@@ -202,12 +208,11 @@ impl From<&GenesisConfig> for EpochConfig {
             minimum_stake_divisor: config.minimum_stake_divisor,
             shard_layout: config.shard_layout.clone(),
             validator_selection_config: near_primitives::epoch_manager::ValidatorSelectionConfig {
-                #[cfg(feature = "protocol_feature_chunk_only_producers")]
                 num_chunk_only_producer_seats: config.num_chunk_only_producer_seats,
-                #[cfg(feature = "protocol_feature_chunk_only_producers")]
                 minimum_validators_per_shard: config.minimum_validators_per_shard,
                 minimum_stake_ratio: config.minimum_stake_ratio,
             },
+            validator_max_kickout_stake_perc: config.max_kickout_stake_perc,
         }
     }
 }
@@ -215,38 +220,7 @@ impl From<&GenesisConfig> for EpochConfig {
 impl From<&GenesisConfig> for AllEpochConfig {
     fn from(genesis_config: &GenesisConfig) -> Self {
         let initial_epoch_config = EpochConfig::from(genesis_config);
-        let shard_config = if let Some(shard_layout) =
-            &genesis_config.simple_nightshade_shard_layout
-        {
-            if genesis_config.protocol_version
-                < ProtocolFeature::SimpleNightshade.protocol_version()
-            {
-                info!(target: "genesis", "setting epoch config simple nightshade");
-                let num_shards = shard_layout.num_shards() as usize;
-                Some(ShardConfig {
-                    num_block_producer_seats_per_shard: vec![
-                        genesis_config.num_block_producer_seats;
-                        num_shards
-                    ],
-                    avg_hidden_validator_seats_per_shard: vec![
-                            genesis_config.avg_hidden_validator_seats_per_shard[0];
-                            num_shards
-                        ],
-                    shard_layout: shard_layout.clone(),
-                })
-            } else {
-                info!(target: "genesis", "no simple nightshade");
-                None
-            }
-        } else {
-            info!(target: "genesis", "no simple nightshade");
-            None
-        };
-        let epoch_config = Self::new(initial_epoch_config.clone(), shard_config);
-        assert_eq!(
-            initial_epoch_config,
-            epoch_config.for_protocol_version(genesis_config.protocol_version).clone()
-        );
+        let epoch_config = Self::new(genesis_config.use_production_config(), initial_epoch_config);
         epoch_config
     }
 }
@@ -259,50 +233,51 @@ impl From<&GenesisConfig> for AllEpochConfig {
     derive_more::AsRef,
     derive_more::AsMut,
     derive_more::From,
-    Serialize,
-    Deserialize,
+    serde::Serialize,
+    serde::Deserialize,
 )]
 pub struct GenesisRecords(pub Vec<StateRecord>);
 
 /// `Genesis` has an invariant that `total_supply` is equal to the supply seen in the records.
 /// However, we can't enfore that invariant. All fields are public, but the clients are expected to
 /// use the provided methods for instantiation, serialization and deserialization.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct Genesis {
     #[serde(flatten)]
     pub config: GenesisConfig,
-    pub records: GenesisRecords,
+    records: GenesisRecords,
     /// Genesis object may not contain records.
     /// In this case records can be found in records_file.
     /// The idea is that all records consume too much memory,
     /// so they should be processed in streaming fashion with for_each_record.
     #[serde(skip)]
-    pub records_file: PathBuf,
-}
-
-impl AsRef<GenesisConfig> for &Genesis {
-    fn as_ref(&self) -> &GenesisConfig {
-        &self.config
-    }
+    records_file: PathBuf,
 }
 
 impl GenesisConfig {
     /// Parses GenesisConfig from a JSON string.
-    ///
+    /// The string can be a JSON with comments.
     /// It panics if the contents cannot be parsed from JSON to the GenesisConfig structure.
     pub fn from_json(value: &str) -> Self {
-        serde_json::from_str(value).expect("Failed to deserialize the genesis config.")
+        let json_str_without_comments: String =
+            near_config_utils::strip_comments_from_json_str(&value.to_string())
+                .expect("Failed to strip comments from genesis config.");
+        serde_json::from_str(&json_str_without_comments)
+            .expect("Failed to deserialize the genesis config.")
     }
 
     /// Reads GenesisConfig from a JSON file.
-    ///
+    /// The file can be a JSON with comments.
     /// It panics if file cannot be open or read, or the contents cannot be parsed from JSON to the
     /// GenesisConfig structure.
     pub fn from_file<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
-        let file = File::open(path).with_context(|| "Could not open genesis config file.")?;
-        let reader = BufReader::new(file);
-        let genesis_config: GenesisConfig = serde_json::from_reader(reader)
-            .with_context(|| "Failed to deserialize the genesis records.")?;
+        let mut file = File::open(path).with_context(|| "Could not open genesis config file.")?;
+        let mut json_str = String::new();
+        file.read_to_string(&mut json_str)?;
+        let json_str_without_comments: String =
+            near_config_utils::strip_comments_from_json_str(&json_str)?;
+        let genesis_config: GenesisConfig = serde_json::from_str(&json_str_without_comments)
+            .with_context(|| "Failed to deserialize the genesis config.")?;
         Ok(genesis_config)
     }
 
@@ -322,14 +297,8 @@ impl GenesisConfig {
             .map(|account_info| {
                 ValidatorStake::new(
                     account_info.account_id.clone(),
-                    account_info
-                        .public_key
-                        .clone()
-                        .try_into()
-                        .expect("Failed to deserialize validator public key"),
+                    account_info.public_key.clone(),
                     account_info.amount,
-                    #[cfg(feature = "protocol_feature_chunk_only_producers")]
-                    false,
                 )
             })
             .collect()
@@ -345,12 +314,19 @@ impl GenesisRecords {
     }
 
     /// Reads GenesisRecords from a JSON file.
-    ///
+    /// The file can be a JSON with comments.
     /// It panics if file cannot be open or read, or the contents cannot be parsed from JSON to the
     /// GenesisConfig structure.
     pub fn from_file<P: AsRef<Path>>(path: P) -> Self {
-        let reader = BufReader::new(File::open(path).expect("Could not open genesis config file."));
-        serde_json::from_reader(reader).expect("Failed to deserialize the genesis records.")
+        let mut file = File::open(path).expect("Failed to open genesis config file.");
+        let mut json_str = String::new();
+        file.read_to_string(&mut json_str)
+            .expect("Failed to read the genesis config file to string. ");
+        let json_str_without_comments: String =
+            near_config_utils::strip_comments_from_json_str(&json_str)
+                .expect("Failed to strip comments from Genesis config file.");
+        serde_json::from_str(&json_str_without_comments)
+            .expect("Failed to deserialize the genesis records.")
     }
 
     /// Writes GenesisRecords to the file.
@@ -430,11 +406,13 @@ impl<'de, F: FnMut(StateRecord)> DeserializeSeed<'de> for RecordsProcessor<&'_ m
     }
 }
 
-fn stream_records_from_file(
+/// The file can be a JSON with comments
+pub fn stream_records_from_file(
     reader: impl Read,
     mut callback: impl FnMut(StateRecord),
 ) -> serde_json::Result<()> {
-    let mut deserializer = serde_json::Deserializer::from_reader(reader);
+    let reader_without_comments = near_config_utils::strip_comments_from_json_reader(reader);
+    let mut deserializer = serde_json::Deserializer::from_reader(reader_without_comments);
     let records_processor = RecordsProcessor { sink: &mut callback };
     deserializer.deserialize_any(records_processor)
 }
@@ -476,21 +454,47 @@ pub enum GenesisValidationMode {
 }
 
 impl Genesis {
-    pub fn new(config: GenesisConfig, records: GenesisRecords) -> Self {
+    pub fn new(config: GenesisConfig, records: GenesisRecords) -> Result<Self, ValidationError> {
         Self::new_validated(config, records, GenesisValidationMode::Full)
     }
 
-    pub fn new_with_path<P: AsRef<Path>>(config: GenesisConfig, records_file: P) -> Self {
+    pub fn new_with_path<P: AsRef<Path>>(
+        config: GenesisConfig,
+        records_file: P,
+    ) -> Result<Self, ValidationError> {
         Self::new_with_path_validated(config, records_file, GenesisValidationMode::Full)
     }
 
-    /// Reads Genesis from a single file.
-    pub fn from_file<P: AsRef<Path>>(path: P, genesis_validation: GenesisValidationMode) -> Self {
-        let reader = BufReader::new(File::open(path).expect("Could not open genesis config file."));
-        let genesis: Genesis =
-            serde_json::from_reader(reader).expect("Failed to deserialize the genesis records.");
-        // As serde skips the `records_file` field, we can assume that `Genesis` has `records` and
-        // doesn't have `records_file`.
+    /// Reads Genesis from a single JSON file, the file can be JSON with comments
+    /// This function will collect all errors regarding genesis.json and push them to validation_errors
+    pub fn from_file<P: AsRef<Path>>(
+        path: P,
+        genesis_validation: GenesisValidationMode,
+    ) -> Result<Self, ValidationError> {
+        let mut file = File::open(&path).map_err(|_| ValidationError::GenesisFileError {
+            error_message: format!(
+                "Could not open genesis config file at path {}.",
+                &path.as_ref().display()
+            ),
+        })?;
+
+        let mut json_str = String::new();
+        file.read_to_string(&mut json_str).map_err(|_| ValidationError::GenesisFileError {
+            error_message: format!("Failed to read genesis config file to string. "),
+        })?;
+
+        let json_str_without_comments = near_config_utils::strip_comments_from_json_str(&json_str)
+            .map_err(|_| ValidationError::GenesisFileError {
+                error_message: format!("Failed to strip comments from genesis config file"),
+            })?;
+
+        let genesis =
+            serde_json::from_str::<Genesis>(&json_str_without_comments).map_err(|_| {
+                ValidationError::GenesisFileError {
+                    error_message: format!("Failed to deserialize the genesis records."),
+                }
+            })?;
+
         Self::new_validated(genesis.config, genesis.records, genesis_validation)
     }
 
@@ -499,48 +503,55 @@ impl Genesis {
         config_path: P1,
         records_path: P2,
         genesis_validation: GenesisValidationMode,
-    ) -> Self
+    ) -> Result<Self, ValidationError>
     where
         P1: AsRef<Path>,
         P2: AsRef<Path>,
     {
-        let config = GenesisConfig::from_file(config_path).unwrap();
-        Self::new_with_path_validated(config, records_path, genesis_validation)
+        let genesis_config = GenesisConfig::from_file(config_path).map_err(|error| {
+            let error_message = error.to_string();
+            ValidationError::GenesisFileError { error_message: error_message }
+        })?;
+        Self::new_with_path_validated(genesis_config, records_path, genesis_validation)
     }
 
     fn new_validated(
         config: GenesisConfig,
         records: GenesisRecords,
         genesis_validation: GenesisValidationMode,
-    ) -> Self {
+    ) -> Result<Self, ValidationError> {
         let genesis = Self { config, records, records_file: PathBuf::new() };
-        genesis.validate(genesis_validation)
+        genesis.validate(genesis_validation)?;
+        Ok(genesis)
     }
 
     fn new_with_path_validated<P: AsRef<Path>>(
         config: GenesisConfig,
         records_file: P,
         genesis_validation: GenesisValidationMode,
-    ) -> Self {
+    ) -> Result<Self, ValidationError> {
         let genesis = Self {
             config,
             records: GenesisRecords(vec![]),
             records_file: records_file.as_ref().to_path_buf(),
         };
-        genesis.validate(genesis_validation)
+        genesis.validate(genesis_validation)?;
+        Ok(genesis)
     }
 
-    fn validate(self, genesis_validation: GenesisValidationMode) -> Self {
+    pub fn validate(
+        &self,
+        genesis_validation: GenesisValidationMode,
+    ) -> Result<(), ValidationError> {
         match genesis_validation {
-            GenesisValidationMode::Full => {
-                validate_genesis(&self);
-            }
+            GenesisValidationMode::Full => validate_genesis(self),
             GenesisValidationMode::UnsafeFast => {
                 warn!(target: "genesis", "Skipped genesis validation");
+                Ok(())
             }
         }
-        self
     }
+
     /// Writes Genesis to the file.
     pub fn to_file<P: AsRef<Path>>(&self, path: P) {
         std::fs::write(
@@ -563,6 +574,14 @@ impl Genesis {
         stream_records_from_file(reader, callback).map_err(io::Error::from)
     }
 
+    /// Returns number of records in the genesis or path to records file.
+    pub fn records_len(&self) -> Result<usize, &Path> {
+        match self.records.0.len() {
+            0 => Err(&self.records_file),
+            n => Ok(n),
+        }
+    }
+
     /// If records vector is empty processes records stream from records_file.
     /// May panic if records_file is removed or is in wrong format.
     pub fn for_each_record(&self, mut callback: impl FnMut(&StateRecord)) {
@@ -578,12 +597,53 @@ impl Genesis {
             }
         }
     }
+
+    /// Forces loading genesis records into memory.
+    ///
+    /// This is meant for **tests only**.  In production code you should be
+    /// using [`Self::for_each_record`] instead to iterate over records.
+    ///
+    /// If the records are already loaded, simply returns mutable reference to
+    /// them.  Otherwise, reads them from `records_file`, stores them in memory
+    /// and then returns mutable reference to them.
+    pub fn force_read_records(&mut self) -> &mut GenesisRecords {
+        if self.records.as_ref().is_empty() {
+            self.records = GenesisRecords::from_file(&self.records_file);
+        }
+        &mut self.records
+    }
+}
+
+/// Config for changes applied to state dump.
+#[derive(Debug, Default)]
+pub struct GenesisChangeConfig {
+    pub select_account_ids: Option<Vec<AccountId>>,
+    pub whitelist_validators: Option<HashSet<AccountId>>,
+}
+
+impl GenesisChangeConfig {
+    pub fn with_select_account_ids(mut self, select_account_ids: Option<Vec<AccountId>>) -> Self {
+        self.select_account_ids = select_account_ids;
+        self
+    }
+
+    pub fn with_whitelist_validators(
+        mut self,
+        whitelist_validators: Option<Vec<AccountId>>,
+    ) -> Self {
+        self.whitelist_validators = match whitelist_validators {
+            None => None,
+            Some(whitelist) => Some(whitelist.into_iter().collect::<HashSet<AccountId>>()),
+        };
+        self
+    }
 }
 
 // Note: this type cannot be placed in primitives/src/view.rs because of `RuntimeConfig` dependency issues.
 // Ideally we should create `RuntimeConfigView`, but given the deeply nested nature and the number of fields inside
 // `RuntimeConfig`, it should be its own endeavor.
-#[derive(Serialize, Deserialize, Debug)]
+// TODO: This has changed, there is now `RuntimeConfigView`. Reconsider if moving this is possible now.
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct ProtocolConfigView {
     /// Current Protocol Version
     pub protocol_version: ProtocolVersion,
@@ -603,41 +663,41 @@ pub struct ProtocolConfigView {
     /// Enable dynamic re-sharding.
     pub dynamic_resharding: bool,
     /// Threshold of stake that needs to indicate that they ready for upgrade.
-    pub protocol_upgrade_stake_threshold: Rational,
+    pub protocol_upgrade_stake_threshold: Rational32,
     /// Epoch length counted in block heights.
     pub epoch_length: BlockHeightDelta,
     /// Initial gas limit.
     pub gas_limit: Gas,
     /// Minimum gas price. It is also the initial gas price.
-    #[serde(with = "u128_dec_format_compatible")]
+    #[serde(with = "dec_format")]
     pub min_gas_price: Balance,
     /// Maximum gas price.
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub max_gas_price: Balance,
     /// Criterion for kicking out block producers (this is a number between 0 and 100)
     pub block_producer_kickout_threshold: u8,
     /// Criterion for kicking out chunk producers (this is a number between 0 and 100)
     pub chunk_producer_kickout_threshold: u8,
     /// Online minimum threshold below which validator doesn't receive reward.
-    pub online_min_threshold: Rational,
+    pub online_min_threshold: Rational32,
     /// Online maximum threshold above which validator gets full reward.
-    pub online_max_threshold: Rational,
+    pub online_max_threshold: Rational32,
     /// Gas price adjustment rate
-    pub gas_price_adjustment_rate: Rational,
+    pub gas_price_adjustment_rate: Rational32,
     /// Runtime configuration (mostly economics constants).
-    pub runtime_config: RuntimeConfig,
+    pub runtime_config: RuntimeConfigView,
     /// Number of blocks for which a given transaction is valid
     pub transaction_validity_period: NumBlocks,
     /// Protocol treasury rate
-    pub protocol_reward_rate: Rational,
+    pub protocol_reward_rate: Rational32,
     /// Maximum inflation on the total supply every epoch.
-    pub max_inflation_rate: Rational,
+    pub max_inflation_rate: Rational32,
     /// Expected number of blocks per year
     pub num_blocks_per_year: NumBlocks,
     /// Protocol treasury account
     pub protocol_treasury_account: AccountId,
     /// Fishermen stake threshold.
-    #[serde(with = "u128_dec_format")]
+    #[serde(with = "dec_format")]
     pub fishermen_threshold: Balance,
     /// The minimum stake required for staking is last seat price divided by this number.
     pub minimum_stake_divisor: u64,
@@ -672,7 +732,7 @@ impl From<ProtocolConfig> for ProtocolConfigView {
             online_min_threshold: genesis_config.online_min_threshold,
             online_max_threshold: genesis_config.online_max_threshold,
             gas_price_adjustment_rate: genesis_config.gas_price_adjustment_rate,
-            runtime_config,
+            runtime_config: RuntimeConfigView::from(runtime_config),
             transaction_validity_period: genesis_config.transaction_validity_period,
             protocol_reward_rate: genesis_config.protocol_reward_rate,
             max_inflation_rate: genesis_config.max_inflation_rate,

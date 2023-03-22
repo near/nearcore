@@ -1,21 +1,18 @@
 //! Constructs state of token holders from the csv file.
-use std::fs::File;
-use std::io::Read;
-use std::path::PathBuf;
-
 use chrono::DateTime;
+use chrono::Utc;
 use csv::ReaderBuilder;
-use near_primitives::time::Utc;
-use serde::{Deserialize, Serialize};
-
 use near_crypto::{KeyType, PublicKey};
-use near_network_primitives::types::PeerInfo;
+use near_network::types::PeerInfo;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{Action, FunctionCallAction};
 use near_primitives::types::{AccountId, AccountInfo, Balance, Gas};
+use std::fs::File;
+use std::io::Read;
+use std::path::PathBuf;
 
 /// Methods that can be called by a non-privileged access key.
 const REGULAR_METHOD_NAMES: &[&str] = &["stake", "transfer"];
@@ -94,7 +91,7 @@ impl Row {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 struct Row {
     genesis_time: Option<DateTime<Utc>>,
     account_id: AccountId,
@@ -157,7 +154,7 @@ where
         if let Some(ref validator_key) = row.validator_key {
             initial_validators.push(AccountInfo {
                 account_id: row.account_id.clone(),
-                public_key: validator_key.clone().into(),
+                public_key: validator_key.clone(),
                 amount: row.validator_stake,
             });
         }
@@ -190,7 +187,7 @@ fn account_records(row: &Row, gas_price: Balance) -> Vec<StateRecord> {
 
     let mut res = vec![StateRecord::Account {
         account_id: row.account_id.clone(),
-        account: Account::new(row.amount, row.validator_stake, smart_contract_hash.into(), 0),
+        account: Account::new(row.amount, row.validator_stake, smart_contract_hash, 0),
     }];
 
     // Add restricted access keys.
@@ -269,13 +266,15 @@ fn account_records(row: &Row, gas_price: Balance) -> Vec<StateRecord> {
                 })],
             }),
         };
-        res.push(StateRecord::PostponedReceipt(Box::new(receipt.into())));
+        res.push(StateRecord::PostponedReceipt(Box::new(receipt)));
     }
     res
 }
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use chrono::TimeZone;
     use csv::WriterBuilder;
     use tempfile::NamedTempFile;
@@ -342,9 +341,8 @@ mod tests {
 
     #[test]
     fn test_res_file() {
-        lazy_static_include::lazy_static_include_bytes! {
-            RES => "res/test_accounts.csv"
-        }
-        keys_to_state_records(&RES[..], 1).unwrap();
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("res/test_accounts.csv");
+        let res = std::fs::read(path).unwrap();
+        keys_to_state_records(&res[..], 1).unwrap();
     }
 }

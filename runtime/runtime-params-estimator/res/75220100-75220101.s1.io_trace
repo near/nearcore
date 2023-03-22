@@ -1,0 +1,36 @@
+GET BlockMisc "'GENESIS_JSON_HASH'" size=32
+GET BlockMisc "'GENESIS_STATE_ROOTS'" size=36
+GET EpochInfo "'AGGREGATOR'" size=16400
+GET EpochInfo "`11111111111111111111111111111111`" size=2266
+GET BlockHeight "hMR7BAAAAAA=" size=32
+GET Block "`2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9`" size=7706
+GET EpochInfo "`7XciHBpUitLPSu8QBrsWp6sghvVhwXj7nzjm5FxNZbjn`" size=28482
+GET ChunkExtra "HYEildYa9ga54ruYJ1xPfRDohXpl/k0TpI24NPOuKlQBAAAAAQAAAA==" size=101
+GET Chunks "`4hpzBA6CJtipJqWz9vxW9M24BW6cWh9sQE9sLBXcYRAN`" size=521
+GET Block "`DwSdhqzB18RJAew3XoMKrjHpHyWJdetAbrKFt2AJgSt8`" size=6796
+GET BlockHeader "`2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9`" size=6293
+GET IncomingReceipts "HYEildYa9ga54ruYJ1xPfRDohXpl/k0TpI24NPOuKlQBAAAAAAAAAA==" size=364
+GET BlockHeader "`DwSdhqzB18RJAew3XoMKrjHpHyWJdetAbrKFt2AJgSt8`" size=5383
+GET BlockInfo "`DwSdhqzB18RJAew3XoMKrjHpHyWJdetAbrKFt2AJgSt8`" size=221
+GET BlockInfo "`9TxV9KzgAaxqVcQPmh6tce9Dy1XQXWgDNyatRG3HBS9`" size=302
+GET BlockInfo "`FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR`" size=221
+GET EpochInfo "`235gTuzMxiALmnyykDmZmhoK1JKgoNkUyegQMjirTVwM`" size=36184
+apply_transactions shard_id=1
+  process_state_update 
+    apply num_transactions=0 shard_cache_miss=4 shard_cache_hit=9
+      GET State "AQAAAAEAAABm9MM1w7gSH9LRbO8R5aV7EItNZH52gbY2DLiFjC21hA==" size=46
+      GET State "AQAAAAEAAABvWoZUnIg1q5ytq0zR9Jh4thXOAiliK2xiuRJqWv/1aw==" size=171
+      GET State "AQAAAAEAAADXHzG4DYj4HS2N3TODVKd/NzekVNxdyrObNNxmqWjcng==" size=50
+      GET State "AQAAAAEAAAA2jfkPJ0NdXyW/qKL2I1VUM8GHECAwjOIjzbb1vLBPTw==" size=16
+GET BlockHeight "hcR7BAAAAAA=" size=32
+GET Block "`B4epTA1V54DmRbFhFEaLyyzLBQuqq688bHNq3sNRDnTF`" size=7771
+GET ChunkExtra "lYRfbjKj7tNaKloWPka4gdGd4rVxVOL4e1KqjqSwTkYBAAAAAQAAAA==" size=101
+GET Chunks "`C9mtizUsXRLGy9KG7voyLsshWxuJHXPkQdD6wWinModM`" size=368
+GET Block "`2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9`" size=7706
+GET BlockHeader "`B4epTA1V54DmRbFhFEaLyyzLBQuqq688bHNq3sNRDnTF`" size=6358
+GET IncomingReceipts "lYRfbjKj7tNaKloWPka4gdGd4rVxVOL4e1KqjqSwTkYBAAAAAAAAAA==" size=364
+GET BlockHeader "`2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9`" size=6293
+GET BlockInfo "`2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9`" size=221
+apply_transactions shard_id=1
+  process_state_update 
+    apply num_transactions=0 shard_cache_hit=13

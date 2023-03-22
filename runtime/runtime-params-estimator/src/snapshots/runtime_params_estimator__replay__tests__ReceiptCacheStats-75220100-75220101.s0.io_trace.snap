@@ -1,0 +1,258 @@
+---
+source: runtime/runtime-params-estimator/src/replay.rs
+expression: output
+---
+      process_transaction tx_hash=6wbch2CCuvqhbnknr7HhNW9PoyK6FSUmoCGJKpKEahvi block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
+        GET   37 State  
+        DB GET               37 requests for a total of     4473 B
+        DB SET                0 requests for a total of        0 B
+        STORAGE READ          0 requests for a total of        0 B
+        STORAGE WRITE         0 requests for a total of        0 B
+        TRIE NODES (guest)    0 /   0 /   0  (chunk-cache/shard-cache/DB)
+        TRIE NODES (host)           2 /  37  (shard-cache/DB)
+        SHARD CACHE          5.13% hit rate
+        CHUNK CACHE not accessed
+
+      process_transaction tx_hash=8P2uMiA96mwRDnoqzwQijEHc1eFpZNJYJFKxHz69sYgj block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
+        GET   30 State  
+        DB GET               30 requests for a total of     5549 B
+        DB SET                0 requests for a total of        0 B
+        STORAGE READ          0 requests for a total of        0 B
+        STORAGE WRITE         0 requests for a total of        0 B
+        TRIE NODES (guest)    0 /   0 /   0  (chunk-cache/shard-cache/DB)
+        TRIE NODES (host)           6 /  30  (shard-cache/DB)
+        SHARD CACHE         16.67% hit rate
+        CHUNK CACHE not accessed
+
+      process_transaction tx_hash=GREvhhJebp73HsJh8dXJYgdMURBPbpMebDti4AVi6UdC block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
+        GET   3 State  
+        DB GET                3 requests for a total of      165 B
+        DB SET                0 requests for a total of        0 B
+        STORAGE READ          0 requests for a total of        0 B
+        STORAGE WRITE         0 requests for a total of        0 B
+        TRIE NODES (guest)    0 /   0 /   0  (chunk-cache/shard-cache/DB)
+        TRIE NODES (host)          18 /   3  (shard-cache/DB)
+        SHARD CACHE         85.71% hit rate
+        CHUNK CACHE not accessed
+
+      process_receipt receiver=app.nearcrowd.near receipt_id=HSkLwmSscYqj6DekmxRTUACkBUAUS7sUVBnxPC2wKVj8 block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
+        GET   64 State  
+        DB GET               64 requests for a total of   549798 B
+        DB SET                0 requests for a total of        0 B
+        STORAGE READ          3 requests for a total of      288 B
+        STORAGE WRITE         3 requests for a total of      288 B
+        TRIE NODES (guest)  146 /   2 /  50  (chunk-cache/shard-cache/DB)
+        TRIE NODES (host)           2 /  14  (shard-cache/DB)
+        SHARD CACHE          5.88% hit rate,   5.97% if removing 1 too large nodes from total
+        CHUNK CACHE         73.74% hit rate
+
+      process_receipt receiver=app.nearcrowd.near receipt_id=HRR3EXitfuoA7yFoa1239GW13ZErmdq6J8vt1MoZgpiu block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
+        GET   28 State  
+        DB GET               28 requests for a total of   545285 B
+        DB SET                0 requests for a total of        0 B
+        STORAGE READ          3 requests for a total of      288 B
+        STORAGE WRITE         3 requests for a total of      288 B
+        TRIE NODES (guest)  138 /   0 /  27  (chunk-cache/shard-cache/DB)
+        TRIE NODES (host)          13 /   1  (shard-cache/DB)
+        SHARD CACHE         31.71% hit rate,  32.50% if removing 1 too large nodes from total
+        CHUNK CACHE         83.64% hit rate
+
+      process_receipt receiver=app.nearcrowd.near receipt_id=28ozHpuL1WZ3ExMm3UrNQYco31XHHaBiUXbyMD1firye block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
+        GET   17 State  
+        DB GET               17 requests for a total of   543852 B
+        DB SET                0 requests for a total of        0 B
+        STORAGE READ          3 requests for a total of      224 B
+        STORAGE WRITE         4 requests for a total of      305 B
+        TRIE NODES (guest)  116 /   0 /  16  (chunk-cache/shard-cache/DB)
+        TRIE NODES (host)          13 /   1  (shard-cache/DB)
+        SHARD CACHE         43.33% hit rate,  44.83% if removing 1 too large nodes from total
+        CHUNK CACHE         87.88% hit rate
+
+      process_receipt receiver=6f25217bc63c86d36e0cdc620d05b2f1381eb43eac560d4f1261380b255e2176 receipt_id=Fp2sJPeBSPX5eXNanJ5Jh1shgBKn6omvUCWcUNEAMd4W block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
+        GET   26 State  
+        DB GET               26 requests for a total of     5023 B
+        DB SET                0 requests for a total of        0 B
+        STORAGE READ          0 requests for a total of        0 B
+        STORAGE WRITE         0 requests for a total of        0 B
+        TRIE NODES (guest)    0 /   0 /   0  (chunk-cache/shard-cache/DB)
+        TRIE NODES (host)           4 /  26  (shard-cache/DB)
+        SHARD CACHE         13.33% hit rate
+        CHUNK CACHE not accessed
+
+      process_receipt receiver=76248d053a8e8b47cfecab60c5f6f1befe74bcbd923c4ef5950bfeb2945fadff receipt_id=6d7ZrM9yztyWvAVtYbA4nQhtfchiyXbbBmJzYyMe3nht block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
+        GET   24 State  
+        DB GET               24 requests for a total of     4519 B
+        DB SET                0 requests for a total of        0 B
+        STORAGE READ          0 requests for a total of        0 B
+        STORAGE WRITE         0 requests for a total of        0 B
+        TRIE NODES (guest)    0 /   0 /   0  (chunk-cache/shard-cache/DB)
+        TRIE NODES (host)           4 /  24  (shard-cache/DB)
+        SHARD CACHE         14.29% hit rate
+        CHUNK CACHE not accessed
+
+      process_receipt receiver=7a5de36efdbcd23489dcfd7a3c63966b9bcbddfbe4ba8db7d1df109ecd37ef5e receipt_id=wDN56cf2bf3sz16RzF6H3UaC1pGnYJ7XFvUdzLTiTS3 block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
+        GET   28 State  
+        DB GET               28 requests for a total of     4505 B
+        DB SET                0 requests for a total of        0 B
+        STORAGE READ          0 requests for a total of        0 B
+        STORAGE WRITE         0 requests for a total of        0 B
+        TRIE NODES (guest)    0 /   0 /   0  (chunk-cache/shard-cache/DB)
+        TRIE NODES (host)           6 /  28  (shard-cache/DB)
+        SHARD CACHE         17.65% hit rate
+        CHUNK CACHE not accessed
+
+      process_receipt receiver=27b8a4173e15829829159b39c620e9a5da908a3f68d94a70cd489188d478f37f receipt_id=D3noeb84wCn3hym3TyGarXfJZJvnFEBiQRk1fQ3W1jws block=FhsQS1zgTLpZjYitRKevStmzJfUgweUTjQA1rUeNW6QR
+        GET   28 State  
+        DB GET               28 requests for a total of     5009 B
+        DB SET                0 requests for a total of        0 B
+        STORAGE READ          0 requests for a total of        0 B
+        STORAGE WRITE         0 requests for a total of        0 B
+        TRIE NODES (guest)    0 /   0 /   0  (chunk-cache/shard-cache/DB)
+        TRIE NODES (host)           4 /  28  (shard-cache/DB)
+        SHARD CACHE         12.50% hit rate
+        CHUNK CACHE not accessed
+
+      process_transaction tx_hash=2Aw4SPFoD6ia1Vr6NxqHpxKmK73JM9ZBw2HisUzgaUB5 block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
+        GET   30 State  
+        DB GET               30 requests for a total of     5607 B
+        DB SET                0 requests for a total of        0 B
+        STORAGE READ          0 requests for a total of        0 B
+        STORAGE WRITE         0 requests for a total of        0 B
+        TRIE NODES (guest)    0 /   0 /   0  (chunk-cache/shard-cache/DB)
+        TRIE NODES (host)           4 /  30  (shard-cache/DB)
+        SHARD CACHE         11.76% hit rate
+        CHUNK CACHE not accessed
+
+      process_transaction tx_hash=EZ9GhJxWQgcTpEQBH2JutymJU8jcUAzGE45a4wym3mK9 block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
+        GET   26 State  
+        DB GET               26 requests for a total of     4545 B
+        DB SET                0 requests for a total of        0 B
+        STORAGE READ          0 requests for a total of        0 B
+        STORAGE WRITE         0 requests for a total of        0 B
+        TRIE NODES (guest)    0 /   0 /   0  (chunk-cache/shard-cache/DB)
+        TRIE NODES (host)          10 /  26  (shard-cache/DB)
+        SHARD CACHE         27.78% hit rate
+        CHUNK CACHE not accessed
+
+      process_transaction tx_hash=6ysp5YTw2enoSzjn5hZBp6K8NunF7noEHesY65PF4WDv block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
+        GET   22 State  
+        DB GET               22 requests for a total of     4177 B
+        DB SET                0 requests for a total of        0 B
+        STORAGE READ          0 requests for a total of        0 B
+        STORAGE WRITE         0 requests for a total of        0 B
+        TRIE NODES (guest)    0 /   0 /   0  (chunk-cache/shard-cache/DB)
+        TRIE NODES (host)          10 /  22  (shard-cache/DB)
+        SHARD CACHE         31.25% hit rate
+        CHUNK CACHE not accessed
+
+      process_transaction tx_hash=8GExB7nr4wRqCYMhU6y5PK74q2sWjqSZmRkZb3MVGFXV block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
+        GET   26 State  
+        DB GET               26 requests for a total of     4929 B
+        DB SET                0 requests for a total of        0 B
+        STORAGE READ          0 requests for a total of        0 B
+        STORAGE WRITE         0 requests for a total of        0 B
+        TRIE NODES (guest)    0 /   0 /   0  (chunk-cache/shard-cache/DB)
+        TRIE NODES (host)          10 /  26  (shard-cache/DB)
+        SHARD CACHE         27.78% hit rate
+        CHUNK CACHE not accessed
+
+      process_receipt receiver=app.nearcrowd.near receipt_id=5csXkacKhAAQ6F6eckGqZycLgD7cY5aKHimCxw1iNfqP block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
+        GET   33 State  
+        DB GET               33 requests for a total of     4106 B
+        DB SET                0 requests for a total of        0 B
+        STORAGE READ          0 requests for a total of        0 B
+        STORAGE WRITE         0 requests for a total of        0 B
+        TRIE NODES (guest)    0 /   0 /   0  (chunk-cache/shard-cache/DB)
+        TRIE NODES (host)           6 /  33  (shard-cache/DB)
+        SHARD CACHE         15.38% hit rate
+        CHUNK CACHE not accessed
+
+      process_receipt receiver=app.nearcrowd.near receipt_id=3DVei5MvayiThUdrtgXDDeWRSfCG7QD859f4rtADLDNk block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
+        GET   3 State  
+        DB GET                3 requests for a total of      165 B
+        DB SET                0 requests for a total of        0 B
+        STORAGE READ          0 requests for a total of        0 B
+        STORAGE WRITE         0 requests for a total of        0 B
+        TRIE NODES (guest)    0 /   0 /   0  (chunk-cache/shard-cache/DB)
+        TRIE NODES (host)          18 /   3  (shard-cache/DB)
+        SHARD CACHE         85.71% hit rate
+        CHUNK CACHE not accessed
+
+      process_receipt receiver=app.nearcrowd.near receipt_id=2CZ3nibSbAFYF2rZYJdxdBc2NwLEVQyrxbfmkjsL1X14 block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
+        GET   70 State  
+        DB GET               70 requests for a total of   552562 B
+        DB SET                0 requests for a total of        0 B
+        STORAGE READ          6 requests for a total of      608 B
+        STORAGE WRITE         7 requests for a total of      383 B
+        TRIE NODES (guest)  235 /   2 /  69  (chunk-cache/shard-cache/DB)
+        TRIE NODES (host)          15 /   1  (shard-cache/DB)
+        SHARD CACHE         19.54% hit rate,  19.77% if removing 1 too large nodes from total
+        CHUNK CACHE         76.80% hit rate
+
+      process_receipt receiver=app.nearcrowd.near receipt_id=GTWiUssUkNTmHnUCHgQo91G1ML5i6y1tAWznVsoKog1z block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
+        GET   26 State  
+        DB GET               26 requests for a total of   544804 B
+        DB SET                0 requests for a total of        0 B
+        STORAGE READ          3 requests for a total of      337 B
+        STORAGE WRITE         4 requests for a total of      409 B
+        TRIE NODES (guest)  116 /   0 /  25  (chunk-cache/shard-cache/DB)
+        TRIE NODES (host)          13 /   1  (shard-cache/DB)
+        SHARD CACHE         33.33% hit rate,  34.21% if removing 1 too large nodes from total
+        CHUNK CACHE         82.27% hit rate
+
+      process_receipt receiver=27b8a4173e15829829159b39c620e9a5da908a3f68d94a70cd489188d478f37f receipt_id=GFRjGJ7J92VBZAkdSpUwN7z4v1mCmtWgrf2SU7f4MGCN block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
+        GET   14 State  
+        DB GET               14 requests for a total of     2519 B
+        DB SET                0 requests for a total of        0 B
+        STORAGE READ          0 requests for a total of        0 B
+        STORAGE WRITE         0 requests for a total of        0 B
+        TRIE NODES (guest)    0 /   0 /   0  (chunk-cache/shard-cache/DB)
+        TRIE NODES (host)          18 /  14  (shard-cache/DB)
+        SHARD CACHE         56.25% hit rate
+        CHUNK CACHE not accessed
+
+      process_receipt receiver=14ca6570b456a5f904641d1005b9499aee5cfa60216bb3b73871d2256ad1cc2a receipt_id=CuNBQKsiVcZH9Nc9QcWY65oE1w4ifYtiPC5SNKDfA7fL block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
+        GET   24 State  
+        DB GET               24 requests for a total of     5159 B
+        DB SET                0 requests for a total of        0 B
+        STORAGE READ          0 requests for a total of        0 B
+        STORAGE WRITE         0 requests for a total of        0 B
+        TRIE NODES (guest)    0 /   0 /   0  (chunk-cache/shard-cache/DB)
+        TRIE NODES (host)           4 /  24  (shard-cache/DB)
+        SHARD CACHE         14.29% hit rate
+        CHUNK CACHE not accessed
+
+      process_receipt receiver=2cd58e2eab52381a893c42b8dc47d66633b58c16303c4398f44dbd149b6e1411 receipt_id=D3ww9qmfxoyDuJjsyGtsoCZ1MSPwhCDLtny75AsJcTMi block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
+        GET   24 State  
+        DB GET               24 requests for a total of     4901 B
+        DB SET                0 requests for a total of        0 B
+        STORAGE READ          0 requests for a total of        0 B
+        STORAGE WRITE         0 requests for a total of        0 B
+        TRIE NODES (guest)    0 /   0 /   0  (chunk-cache/shard-cache/DB)
+        TRIE NODES (host)           6 /  24  (shard-cache/DB)
+        SHARD CACHE         20.00% hit rate
+        CHUNK CACHE not accessed
+
+      process_receipt receiver=91505032331ede720873cf84a36609dd8755a09f816735a60ffa3ee40b4a4a67 receipt_id=G2AYqug5LN3FS2SN9GPEQERkVpK9dY6g5hQgcnSArswd block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
+        GET   26 State  
+        DB GET               26 requests for a total of     4795 B
+        DB SET                0 requests for a total of        0 B
+        STORAGE READ          0 requests for a total of        0 B
+        STORAGE WRITE         0 requests for a total of        0 B
+        TRIE NODES (guest)    0 /   0 /   0  (chunk-cache/shard-cache/DB)
+        TRIE NODES (host)           6 /  26  (shard-cache/DB)
+        SHARD CACHE         18.75% hit rate
+        CHUNK CACHE not accessed
+
+      process_receipt receiver=6b0021d947b74d8ab24d379f80803c5224767d3777c3d92899806dc5cecc2f77 receipt_id=88WWQXk4nrVqe2si34jS9fhouD73uaGHU5f994c46B9G block=2zB2oBqRj8dFECSaBeGP6hGGDs7KowYBVwcVfq8Ukjf9
+        GET   20 State  
+        DB GET               20 requests for a total of     3643 B
+        DB SET                0 requests for a total of        0 B
+        STORAGE READ          0 requests for a total of        0 B
+        STORAGE WRITE         0 requests for a total of        0 B
+        TRIE NODES (guest)    0 /   0 /   0  (chunk-cache/shard-cache/DB)
+        TRIE NODES (host)           8 /  20  (shard-cache/DB)
+        SHARD CACHE         28.57% hit rate
+        CHUNK CACHE not accessed
+
+

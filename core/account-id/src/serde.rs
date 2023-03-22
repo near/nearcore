@@ -30,11 +30,12 @@ mod tests {
         super::tests::{BAD_ACCOUNT_IDS, OK_ACCOUNT_IDS},
         AccountId,
     };
+
     use serde_json::json;
 
     #[test]
     fn test_is_valid_account_id() {
-        for account_id in OK_ACCOUNT_IDS.iter().cloned() {
+        for account_id in OK_ACCOUNT_IDS.iter() {
             let parsed_account_id = account_id.parse::<AccountId>().unwrap_or_else(|err| {
                 panic!("Valid account id {:?} marked invalid: {}", account_id, err)
             });
@@ -52,12 +53,26 @@ mod tests {
             assert_eq!(serialized_account_id, json!(account_id));
         }
 
-        for account_id in BAD_ACCOUNT_IDS.iter().cloned() {
+        for account_id in BAD_ACCOUNT_IDS.iter() {
             assert!(
                 serde_json::from_value::<AccountId>(json!(account_id)).is_err(),
                 "successfully deserialized invalid account ID {:?}",
                 account_id
             );
         }
+    }
+
+    #[test]
+    fn fuzz() {
+        bolero::check!().for_each(|input: &[u8]| {
+            if let Ok(account_id) = std::str::from_utf8(input) {
+                if let Ok(account_id) = serde_json::from_value::<AccountId>(json!(account_id)) {
+                    assert_eq!(
+                        account_id,
+                        serde_json::from_value(serde_json::to_value(&account_id).unwrap()).unwrap()
+                    );
+                }
+            }
+        });
     }
 }
