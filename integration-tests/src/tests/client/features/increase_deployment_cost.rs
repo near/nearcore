@@ -33,13 +33,13 @@ fn test_deploy_cost_increased() {
         genesis.config.protocol_version = old_protocol_version;
         let chain_genesis = ChainGenesis::new(&genesis);
         let runtimes: Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> =
-            vec![Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(
+            vec![nearcore::NightshadeRuntime::test_with_runtime_config_store(
                 Path::new("../../../.."),
                 create_test_store(),
                 &genesis,
                 TrackedConfig::new_empty(),
                 RuntimeConfigStore::new(None),
-            ))];
+            )];
         TestEnv::builder(chain_genesis).runtime_adapters(runtimes).build()
     };
 

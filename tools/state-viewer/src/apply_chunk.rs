@@ -423,7 +423,6 @@ mod test {
     use rand::rngs::StdRng;
     use rand::SeedableRng;
     use std::path::Path;
-    use std::sync::Arc;
 
     fn send_txs(env: &mut TestEnv, signers: &[InMemorySigner], height: u64, hash: CryptoHash) {
         for (i, signer) in signers.iter().enumerate() {
@@ -457,13 +456,13 @@ mod test {
 
         let store = create_test_store();
         let mut chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height, false);
-        let runtime = Arc::new(NightshadeRuntime::test_with_runtime_config_store(
+        let runtime = NightshadeRuntime::test_with_runtime_config_store(
             Path::new("."),
             store,
             &genesis,
             TrackedConfig::AllShards,
             RuntimeConfigStore::test(),
-        ));
+        );
         let chain_genesis = ChainGenesis::test();
 
         let signers = (0..4)
@@ -534,13 +533,13 @@ mod test {
 
         let store = create_test_store();
         let chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height, false);
-        let runtime = Arc::new(NightshadeRuntime::test_with_runtime_config_store(
+        let runtime = NightshadeRuntime::test_with_runtime_config_store(
             Path::new("."),
             store.clone(),
             &genesis,
             TrackedConfig::AllShards,
             RuntimeConfigStore::test(),
-        ));
+        );
         let mut chain_genesis = ChainGenesis::test();
         // receipts get delayed with the small ChainGenesis::test() limit
         chain_genesis.gas_limit = genesis.config.gas_limit;

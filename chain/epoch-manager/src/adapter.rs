@@ -33,7 +33,7 @@ pub trait EpochManagerAdapter: Send + Sync {
     fn epoch_exists(&self, epoch_id: &EpochId) -> bool;
 
     /// Get current number of shards.
-    fn num_shards(&self, epoch_id: &EpochId) -> Result<ShardId, Error>;
+    fn num_shards(&self, epoch_id: &EpochId) -> Result<ShardId, EpochError>;
 
     /// Number of Reed-Solomon parts we split each chunk into.
     ///
@@ -48,44 +48,51 @@ pub trait EpochManagerAdapter: Send + Sync {
     fn num_data_parts(&self) -> usize;
 
     /// Returns `account_id` that is supposed to have the `part_id`.
-    fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, Error>;
+    fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, EpochError>;
 
     /// Which shard the account belongs to in the given epoch.
     fn account_id_to_shard_id(
         &self,
         account_id: &AccountId,
         epoch_id: &EpochId,
-    ) -> Result<ShardId, Error>;
+    ) -> Result<ShardId, EpochError>;
 
     /// Converts `ShardId` (index of shard in the *current* layout) to
     /// `ShardUId` (`ShardId` + the version of shard layout itself.)
-    fn shard_id_to_uid(&self, shard_id: ShardId, epoch_id: &EpochId) -> Result<ShardUId, Error>;
+    fn shard_id_to_uid(
+        &self,
+        shard_id: ShardId,
+        epoch_id: &EpochId,
+    ) -> Result<ShardUId, EpochError>;
 
-    fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, Error>;
+    fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError>;
 
-    fn get_epoch_config(&self, epoch_id: &EpochId) -> Result<EpochConfig, Error>;
+    fn get_epoch_config(&self, epoch_id: &EpochId) -> Result<EpochConfig, EpochError>;
 
-    fn get_epoch_info(&self, epoch_id: &EpochId) -> Result<Arc<EpochInfo>, Error>;
+    fn get_epoch_info(&self, epoch_id: &EpochId) -> Result<Arc<EpochInfo>, EpochError>;
 
-    fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error>;
+    fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError>;
 
-    fn get_shard_config(&self, epoch_id: &EpochId) -> Result<ShardConfig, Error>;
+    fn get_shard_config(&self, epoch_id: &EpochId) -> Result<ShardConfig, EpochError>;
 
     /// Returns true, if given hash is last block in it's epoch.
-    fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, Error>;
+    fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError>;
 
     /// Get epoch id given hash of previous block.
-    fn get_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash) -> Result<EpochId, Error>;
+    fn get_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash)
+        -> Result<EpochId, EpochError>;
 
     /// Get epoch height given hash of previous block.
     fn get_epoch_height_from_prev_block(
         &self,
         parent_hash: &CryptoHash,
-    ) -> Result<EpochHeight, Error>;
+    ) -> Result<EpochHeight, EpochError>;
 
     /// Get next epoch id given hash of previous block.
-    fn get_next_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash)
-        -> Result<EpochId, Error>;
+    fn get_next_epoch_id_from_prev_block(
+        &self,
+        parent_hash: &CryptoHash,
+    ) -> Result<EpochId, EpochError>;
 
     /// For each `ShardId` in the current block, returns its parent `ShardId`
     /// from previous block.
@@ -102,10 +109,10 @@ pub trait EpochManagerAdapter: Send + Sync {
     fn get_shard_layout_from_prev_block(
         &self,
         parent_hash: &CryptoHash,
-    ) -> Result<ShardLayout, Error>;
+    ) -> Result<ShardLayout, EpochError>;
 
     /// Get [`EpochId`] from a block belonging to the epoch.
-    fn get_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, Error>;
+    fn get_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError>;
 
     /// Which of the two epochs is earlier.
     ///
@@ -115,16 +122,16 @@ pub trait EpochManagerAdapter: Send + Sync {
         &self,
         epoch_id: &EpochId,
         other_epoch_id: &EpochId,
-    ) -> Result<Ordering, Error>;
+    ) -> Result<Ordering, EpochError>;
 
     /// Get epoch start from a block belonging to the epoch.
-    fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error>;
+    fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, EpochError>;
 
     /// Get previous epoch id by hash of previous block.
     fn get_prev_epoch_id_from_prev_block(
         &self,
         prev_block_hash: &CryptoHash,
-    ) -> Result<EpochId, Error>;
+    ) -> Result<EpochId, EpochError>;
 
     /// _If_ the next epoch will use a new protocol version, returns an
     /// estimated block height for when the epoch switch occurs.
@@ -136,49 +143,52 @@ pub trait EpochManagerAdapter: Send + Sync {
     ) -> Result<Option<BlockHeight>, EpochError>;
 
     /// Epoch block producers ordered by their order in the proposals.
-    /// Returns error if height is outside of known boundaries.
+    /// Returns EpochError if height is outside of known boundaries.
     fn get_epoch_block_producers_ordered(
         &self,
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
-    ) -> Result<Vec<(ValidatorStake, bool)>, Error>;
+    ) -> Result<Vec<(ValidatorStake, bool)>, EpochError>;
 
     fn get_epoch_block_approvers_ordered(
         &self,
         parent_hash: &CryptoHash,
-    ) -> Result<Vec<(ApprovalStake, bool)>, Error>;
+    ) -> Result<Vec<(ApprovalStake, bool)>, EpochError>;
 
     /// Returns all the chunk producers for a given epoch.
-    fn get_epoch_chunk_producers(&self, epoch_id: &EpochId) -> Result<Vec<ValidatorStake>, Error>;
+    fn get_epoch_chunk_producers(
+        &self,
+        epoch_id: &EpochId,
+    ) -> Result<Vec<ValidatorStake>, EpochError>;
 
-    /// Block producers for given height for the main block. Return error if outside of known boundaries.
+    /// Block producers for given height for the main block. Return EpochError if outside of known boundaries.
     fn get_block_producer(
         &self,
         epoch_id: &EpochId,
         height: BlockHeight,
-    ) -> Result<AccountId, Error>;
+    ) -> Result<AccountId, EpochError>;
 
-    /// Chunk producer for given height for given shard. Return error if outside of known boundaries.
+    /// Chunk producer for given height for given shard. Return EpochError if outside of known boundaries.
     fn get_chunk_producer(
         &self,
         epoch_id: &EpochId,
         height: BlockHeight,
         shard_id: ShardId,
-    ) -> Result<AccountId, Error>;
+    ) -> Result<AccountId, EpochError>;
 
     fn get_validator_by_account_id(
         &self,
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
         account_id: &AccountId,
-    ) -> Result<(ValidatorStake, bool), Error>;
+    ) -> Result<(ValidatorStake, bool), EpochError>;
 
     fn get_fisherman_by_account_id(
         &self,
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
         account_id: &AccountId,
-    ) -> Result<(ValidatorStake, bool), Error>;
+    ) -> Result<(ValidatorStake, bool), EpochError>;
 
     /// WARNING: this call may be expensive.
     ///
@@ -187,13 +197,14 @@ pub trait EpochManagerAdapter: Send + Sync {
     fn get_validator_info(
         &self,
         epoch_id: ValidatorInfoIdentifier,
-    ) -> Result<EpochValidatorInfo, Error>;
+    ) -> Result<EpochValidatorInfo, EpochError>;
 
     /// Amount of tokens minted in given epoch.
-    fn get_epoch_minted_amount(&self, epoch_id: &EpochId) -> Result<Balance, Error>;
+    fn get_epoch_minted_amount(&self, epoch_id: &EpochId) -> Result<Balance, EpochError>;
 
     /// Epoch active protocol version.
-    fn get_epoch_protocol_version(&self, epoch_id: &EpochId) -> Result<ProtocolVersion, Error>;
+    fn get_epoch_protocol_version(&self, epoch_id: &EpochId)
+        -> Result<ProtocolVersion, EpochError>;
 
     // TODO #3488 this likely to be updated
     /// Data that is necessary for prove Epochs in Epoch Sync.
@@ -211,7 +222,7 @@ pub trait EpochManagerAdapter: Send + Sync {
             Arc<EpochInfo>,
             Arc<EpochInfo>,
         ),
-        Error,
+        EpochError,
     >;
 
     // TODO #3488 this likely to be updated
@@ -221,7 +232,7 @@ pub trait EpochManagerAdapter: Send + Sync {
         prev_epoch_last_block_hash: &CryptoHash,
         epoch_id: &EpochId,
         next_epoch_id: &EpochId,
-    ) -> Result<CryptoHash, Error> {
+    ) -> Result<CryptoHash, EpochError> {
         let (
             prev_epoch_first_block_info,
             prev_epoch_prev_last_block_info,
@@ -252,7 +263,7 @@ pub trait EpochManagerAdapter: Send + Sync {
         epoch_info: EpochInfo,
         next_epoch_id: &EpochId,
         next_epoch_info: EpochInfo,
-    ) -> Result<(), Error>;
+    ) -> Result<(), EpochError>;
 
     fn verify_block_vrf(
         &self,
@@ -290,7 +301,7 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// Verify chunk header signature.
     /// return false if the header signature does not match the key for the assigned chunk producer
     /// for this chunk, or if the chunk producer has been slashed
-    /// return `Error::NotAValidator` if cannot find chunk producer info for this chunk
+    /// return `EpochError::NotAValidator` if cannot find chunk producer info for this chunk
     /// `header`: chunk header
     /// `epoch_id`: epoch_id that the chunk header belongs to
     /// `last_known_hash`: used to determine the list of chunk producers that are slashed
@@ -371,9 +382,9 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
         epoch_manager.get_epoch_info(epoch_id).is_ok()
     }
 
-    fn num_shards(&self, epoch_id: &EpochId) -> Result<NumShards, Error> {
+    fn num_shards(&self, epoch_id: &EpochId) -> Result<NumShards, EpochError> {
         let epoch_manager = self.read();
-        Ok(epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?.num_shards())
+        Ok(epoch_manager.get_shard_layout(epoch_id).map_err(EpochError::from)?.num_shards())
     }
 
     fn num_total_parts(&self) -> usize {
@@ -394,7 +405,7 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
         }
     }
 
-    fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, Error> {
+    fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, EpochError> {
         let epoch_manager = self.read();
         let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
         let settlement = epoch_info.block_producers_settlement();
@@ -406,69 +417,79 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
         &self,
         account_id: &AccountId,
         epoch_id: &EpochId,
-    ) -> Result<ShardId, Error> {
+    ) -> Result<ShardId, EpochError> {
         let epoch_manager = self.read();
-        let shard_layout = epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?;
+        let shard_layout = epoch_manager.get_shard_layout(epoch_id).map_err(EpochError::from)?;
         Ok(account_id_to_shard_id(account_id, &shard_layout))
     }
 
-    fn shard_id_to_uid(&self, shard_id: ShardId, epoch_id: &EpochId) -> Result<ShardUId, Error> {
+    fn shard_id_to_uid(
+        &self,
+        shard_id: ShardId,
+        epoch_id: &EpochId,
+    ) -> Result<ShardUId, EpochError> {
         let epoch_manager = self.read();
-        let shard_layout = epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?;
+        let shard_layout = epoch_manager.get_shard_layout(epoch_id).map_err(EpochError::from)?;
         Ok(ShardUId::from_shard_id_and_layout(shard_id, &shard_layout))
     }
 
-    fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, Error> {
+    fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {
         let epoch_manager = self.read();
-        Ok(epoch_manager.get_block_info(hash).map_err(Error::from)?)
+        Ok(epoch_manager.get_block_info(hash).map_err(EpochError::from)?)
     }
 
-    fn get_epoch_config(&self, epoch_id: &EpochId) -> Result<EpochConfig, Error> {
+    fn get_epoch_config(&self, epoch_id: &EpochId) -> Result<EpochConfig, EpochError> {
         let epoch_manager = self.read();
-        Ok(epoch_manager.get_epoch_config(epoch_id).map_err(Error::from)?)
+        Ok(epoch_manager.get_epoch_config(epoch_id).map_err(EpochError::from)?)
     }
 
-    fn get_epoch_info(&self, epoch_id: &EpochId) -> Result<Arc<EpochInfo>, Error> {
+    fn get_epoch_info(&self, epoch_id: &EpochId) -> Result<Arc<EpochInfo>, EpochError> {
         let epoch_manager = self.read();
-        Ok(epoch_manager.get_epoch_info(epoch_id).map_err(Error::from)?)
+        Ok(epoch_manager.get_epoch_info(epoch_id).map_err(EpochError::from)?)
     }
 
-    fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error> {
+    fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError> {
         let epoch_manager = self.read();
-        Ok(epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?)
+        epoch_manager.get_shard_layout(epoch_id)
     }
 
-    fn get_shard_config(&self, epoch_id: &EpochId) -> Result<ShardConfig, Error> {
+    fn get_shard_config(&self, epoch_id: &EpochId) -> Result<ShardConfig, EpochError> {
         let epoch_manager = self.read();
-        let epoch_config = epoch_manager.get_epoch_config(epoch_id).map_err(Error::from)?;
+        let epoch_config = epoch_manager.get_epoch_config(epoch_id).map_err(EpochError::from)?;
         Ok(ShardConfig::new(epoch_config))
     }
 
-    fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, Error> {
+    fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError> {
         let epoch_manager = self.read();
-        epoch_manager.is_next_block_epoch_start(parent_hash).map_err(Error::from)
+        epoch_manager.is_next_block_epoch_start(parent_hash).map_err(EpochError::from)
     }
 
-    fn get_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash) -> Result<EpochId, Error> {
+    fn get_epoch_id_from_prev_block(
+        &self,
+        parent_hash: &CryptoHash,
+    ) -> Result<EpochId, EpochError> {
         let epoch_manager = self.read();
-        epoch_manager.get_epoch_id_from_prev_block(parent_hash).map_err(Error::from)
+        epoch_manager.get_epoch_id_from_prev_block(parent_hash)
     }
 
     fn get_epoch_height_from_prev_block(
         &self,
         prev_block_hash: &CryptoHash,
-    ) -> Result<EpochHeight, Error> {
+    ) -> Result<EpochHeight, EpochError> {
         let epoch_manager = self.read();
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
-        epoch_manager.get_epoch_info(&epoch_id).map(|info| info.epoch_height()).map_err(Error::from)
+        epoch_manager
+            .get_epoch_info(&epoch_id)
+            .map(|info| info.epoch_height())
+            .map_err(EpochError::from)
     }
 
     fn get_next_epoch_id_from_prev_block(
         &self,
         parent_hash: &CryptoHash,
-    ) -> Result<EpochId, Error> {
+    ) -> Result<EpochId, EpochError> {
         let epoch_manager = self.read();
-        epoch_manager.get_next_epoch_id_from_prev_block(parent_hash).map_err(Error::from)
+        epoch_manager.get_next_epoch_id_from_prev_block(parent_hash).map_err(EpochError::from)
     }
 
     fn get_prev_shard_ids(
@@ -501,39 +522,39 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
     fn get_shard_layout_from_prev_block(
         &self,
         parent_hash: &CryptoHash,
-    ) -> Result<ShardLayout, Error> {
+    ) -> Result<ShardLayout, EpochError> {
         let epoch_id = self.get_epoch_id_from_prev_block(parent_hash)?;
         self.get_shard_layout(&epoch_id)
     }
 
-    fn get_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, Error> {
+    fn get_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
         let epoch_manager = self.read();
-        epoch_manager.get_epoch_id(block_hash).map_err(Error::from)
+        epoch_manager.get_epoch_id(block_hash).map_err(EpochError::from)
     }
 
     fn compare_epoch_id(
         &self,
         epoch_id: &EpochId,
         other_epoch_id: &EpochId,
-    ) -> Result<Ordering, Error> {
+    ) -> Result<Ordering, EpochError> {
         let epoch_manager = self.read();
         epoch_manager.compare_epoch_id(epoch_id, other_epoch_id).map_err(|e| e.into())
     }
 
-    fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error> {
+    fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, EpochError> {
         let epoch_manager = self.read();
-        epoch_manager.get_epoch_start_height(block_hash).map_err(Error::from)
+        epoch_manager.get_epoch_start_height(block_hash).map_err(EpochError::from)
     }
 
     fn get_prev_epoch_id_from_prev_block(
         &self,
         prev_block_hash: &CryptoHash,
-    ) -> Result<EpochId, Error> {
+    ) -> Result<EpochId, EpochError> {
         let epoch_manager = self.read();
         if epoch_manager.is_next_block_epoch_start(prev_block_hash)? {
-            epoch_manager.get_epoch_id(prev_block_hash).map_err(Error::from)
+            epoch_manager.get_epoch_id(prev_block_hash).map_err(EpochError::from)
         } else {
-            epoch_manager.get_prev_epoch_id(prev_block_hash).map_err(Error::from)
+            epoch_manager.get_prev_epoch_id(prev_block_hash).map_err(EpochError::from)
         }
     }
 
@@ -549,7 +570,7 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
         &self,
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
-    ) -> Result<Vec<(ValidatorStake, bool)>, Error> {
+    ) -> Result<Vec<(ValidatorStake, bool)>, EpochError> {
         let epoch_manager = self.read();
         Ok(epoch_manager.get_all_block_producers_ordered(epoch_id, last_known_block_hash)?.to_vec())
     }
@@ -557,12 +578,15 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
     fn get_epoch_block_approvers_ordered(
         &self,
         parent_hash: &CryptoHash,
-    ) -> Result<Vec<(ApprovalStake, bool)>, Error> {
+    ) -> Result<Vec<(ApprovalStake, bool)>, EpochError> {
         let epoch_manager = self.read();
-        epoch_manager.get_all_block_approvers_ordered(parent_hash).map_err(Error::from)
+        epoch_manager.get_all_block_approvers_ordered(parent_hash)
     }
 
-    fn get_epoch_chunk_producers(&self, epoch_id: &EpochId) -> Result<Vec<ValidatorStake>, Error> {
+    fn get_epoch_chunk_producers(
+        &self,
+        epoch_id: &EpochId,
+    ) -> Result<Vec<ValidatorStake>, EpochError> {
         let epoch_manager = self.read();
         Ok(epoch_manager.get_all_chunk_producers(epoch_id)?.to_vec())
     }
@@ -571,7 +595,7 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
         &self,
         epoch_id: &EpochId,
         height: BlockHeight,
-    ) -> Result<AccountId, Error> {
+    ) -> Result<AccountId, EpochError> {
         let epoch_manager = self.read();
         Ok(epoch_manager.get_block_producer_info(epoch_id, height)?.take_account_id())
     }
@@ -581,7 +605,7 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
         epoch_id: &EpochId,
         height: BlockHeight,
         shard_id: ShardId,
-    ) -> Result<AccountId, Error> {
+    ) -> Result<AccountId, EpochError> {
         let epoch_manager = self.read();
         Ok(epoch_manager.get_chunk_producer_info(epoch_id, height, shard_id)?.take_account_id())
     }
@@ -591,7 +615,7 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
         account_id: &AccountId,
-    ) -> Result<(ValidatorStake, bool), Error> {
+    ) -> Result<(ValidatorStake, bool), EpochError> {
         let epoch_manager = self.read();
         let validator = epoch_manager.get_validator_by_account_id(epoch_id, account_id)?;
         let block_info = epoch_manager.get_block_info(last_known_block_hash)?;
@@ -603,7 +627,7 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
         account_id: &AccountId,
-    ) -> Result<(ValidatorStake, bool), Error> {
+    ) -> Result<(ValidatorStake, bool), EpochError> {
         let epoch_manager = self.read();
         let fisherman = epoch_manager.get_fisherman_by_account_id(epoch_id, account_id)?;
         let block_info = epoch_manager.get_block_info(last_known_block_hash)?;
@@ -615,17 +639,20 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
     fn get_validator_info(
         &self,
         epoch_id: ValidatorInfoIdentifier,
-    ) -> Result<EpochValidatorInfo, Error> {
+    ) -> Result<EpochValidatorInfo, EpochError> {
         let epoch_manager = self.read();
         epoch_manager.get_validator_info(epoch_id).map_err(|e| e.into())
     }
 
-    fn get_epoch_minted_amount(&self, epoch_id: &EpochId) -> Result<Balance, Error> {
+    fn get_epoch_minted_amount(&self, epoch_id: &EpochId) -> Result<Balance, EpochError> {
         let epoch_manager = self.read();
         Ok(epoch_manager.get_epoch_info(epoch_id)?.minted_amount())
     }
 
-    fn get_epoch_protocol_version(&self, epoch_id: &EpochId) -> Result<ProtocolVersion, Error> {
+    fn get_epoch_protocol_version(
+        &self,
+        epoch_id: &EpochId,
+    ) -> Result<ProtocolVersion, EpochError> {
         let epoch_manager = self.read();
         Ok(epoch_manager.get_epoch_info(epoch_id)?.protocol_version())
     }
@@ -645,7 +672,7 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
             Arc<EpochInfo>,
             Arc<EpochInfo>,
         ),
-        Error,
+        EpochError,
     > {
         let epoch_manager = self.read();
         let last_block_info = epoch_manager.get_block_info(prev_epoch_last_block_hash)?;
@@ -671,7 +698,7 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
         epoch_info: EpochInfo,
         next_epoch_id: &EpochId,
         next_epoch_info: EpochInfo,
-    ) -> Result<(), Error> {
+    ) -> Result<(), EpochError> {
         let mut epoch_manager = self.write();
         epoch_manager
             .init_after_epoch_sync(
@@ -796,7 +823,9 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
     ) -> Result<bool, Error> {
         let info = {
             let epoch_manager = self.read();
-            epoch_manager.get_all_block_approvers_ordered(prev_block_hash).map_err(Error::from)?
+            epoch_manager
+                .get_all_block_approvers_ordered(prev_block_hash)
+                .map_err(EpochError::from)?
         };
         if approvals.len() > info.len() {
             return Ok(false);
@@ -836,7 +865,9 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
     ) -> Result<(), Error> {
         let info = {
             let epoch_manager = self.read();
-            epoch_manager.get_heuristic_block_approvers_ordered(epoch_id).map_err(Error::from)?
+            epoch_manager
+                .get_heuristic_block_approvers_ordered(epoch_id)
+                .map_err(EpochError::from)?
         };
 
         let message_to_sign = Approval::get_data_for_sig(
