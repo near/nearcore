@@ -654,3 +654,16 @@ macro_rules! log_assert {
         }
     };
 }
+
+/// The same as 'log_assert' but always fails.
+///
+/// `log_assert_fail!` panics in debug mode, while in release mode it emits
+/// a `tracing::error!` log line. Use it for sanity-checking non-essential
+/// invariants, whose violation signals a bug in the code, where we'd rather
+/// avoid shutting the whole node down.
+#[macro_export]
+macro_rules! log_assert_fail {
+    ($fmt:literal $($arg:tt)*) => {
+        $crate::log_assert!(false, $fmt $($arg)*);
+    };
+}
