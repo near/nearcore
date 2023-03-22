@@ -37,9 +37,9 @@ impl SplitDB {
     /// lists but should not be used for anything more complex like sorting.
     fn db_iter_item_cmp(a: &DBIteratorItem, b: &DBIteratorItem) -> Ordering {
         match (a, b) {
-            // Always put errors first (compare less).
+            // Always put errors first.
             (Err(_), _) => Ordering::Less,
-            (_, Err(_)) => Ordering::Less,
+            (_, Err(_)) => Ordering::Greater,
             // When comparing two (key, value) paris only compare the keys.
             // - values in hot and cold may differ in rc but they are still the same
             // - values written to cold should be immutable anyway
@@ -124,7 +124,7 @@ impl Database for SplitDB {
     /// and the hot store. The items will be unique and sorted.
     fn iter_prefix<'a>(&'a self, col: DBCol, key_prefix: &'a [u8]) -> DBIterator<'a> {
         if !col.is_cold() {
-            return self.hot.iter(col);
+            return self.hot.iter_prefix(col, key_prefix);
         }
 
         return Self::merge_iter(
@@ -201,6 +201,8 @@ impl Database for SplitDB {
 
 #[cfg(test)]
 mod test {
+    use itertools::Itertools;
+
     use super::*;
 
     use crate::db::{testdb::TestDB, ColdDB, DBOp, DBTransaction};
@@ -209,6 +211,10 @@ mod test {
     const BAR: &[u8] = b"BAR";
     const BAZ: &[u8] = b"BAZ";
     const NOT_FOO: &[u8] = b"NOT_FOO";
+
+    const FOO_VALUE: &[u8] = b"FOO_VALUE";
+    const BAR_VALUE: &[u8] = b"BAR_VALUE";
+    const BAZ_VALUE: &[u8] = b"BAZ_VALUE";
 
     fn create_hot() -> Arc<dyn Database> {
         TestDB::new()
@@ -227,6 +233,15 @@ mod test {
         const ONE: &[u8] = &1i64.to_le_bytes();
         let op = DBOp::UpdateRefcount { col, key: key.to_vec(), value: [&value, ONE].concat() };
         db.write(DBTransaction { ops: vec![op] }).unwrap();
+    }
+
+    fn bx<const SIZE: usize>(literal: &[u8; SIZE]) -> Box<[u8]> {
+        Box::new(*literal)
+    }
+
+    fn append_rc(value: &[u8]) -> Box<[u8]> {
+        const ONE: &[u8] = &1i64.to_le_bytes();
+        [&value, ONE].concat().into()
     }
 
     #[test]
@@ -272,8 +287,6 @@ mod test {
         let cold = create_cold();
         let split = SplitDB::new(hot.clone(), cold.clone());
 
-        // Transactions is a nice reference counted column for testing because
-        // is is a cold column but cold doesn't do anything funny to it.
         let col = DBCol::Transactions;
 
         // Test 1: Write two different values to the hot db and to the cold db
@@ -294,5 +307,129 @@ mod test {
         assert_eq!(value.as_deref(), Some(BAR));
 
         // Test 3: nothing, there aren't any non-cold reference counted columns.
+    }
+
+    #[test]
+    fn test_iter() {
+        let hot = create_hot();
+        let cold = create_cold();
+        let split = SplitDB::new(hot.clone(), cold.clone());
+
+        let col = DBCol::Transactions;
+
+        // Set values so that hot has foo and bar and cold has foo and baz.
+
+        set_rc(&hot, col, FOO, FOO_VALUE);
+        set_rc(&hot, col, BAR, BAR_VALUE);
+
+        set_rc(&cold, col, FOO, FOO_VALUE);
+        set_rc(&cold, col, BAZ, BAZ_VALUE);
+
+        // Check that the resulting iterator is sorted and unique.
+
+        let iter = split.iter(col);
+        let iter = iter.map(|item| item.unwrap());
+        let result = iter.collect_vec();
+        let expected_result: Vec<(Box<[u8]>, Box<[u8]>)> = vec![
+            (BAR.into(), BAR_VALUE.into()),
+            (BAZ.into(), BAZ_VALUE.into()),
+            (FOO.into(), FOO_VALUE.into()),
+        ];
+        assert_eq!(result, expected_result);
+    }
+
+    #[test]
+    fn test_iter_raw_bytes() {
+        let hot = create_hot();
+        let cold = create_cold();
+        let split = SplitDB::new(hot.clone(), cold.clone());
+
+        let col = DBCol::Transactions;
+
+        // Set values so that hot has foo and bar and cold has foo and baz.
+
+        set_rc(&hot, col, FOO, FOO_VALUE);
+        set_rc(&hot, col, BAR, BAR_VALUE);
+
+        set_rc(&cold, col, FOO, FOO_VALUE);
+        set_rc(&cold, col, BAZ, BAZ_VALUE);
+
+        let iter = split.iter_raw_bytes(col);
+        let iter = iter.map(|item| item.unwrap());
+        let result = iter.collect_vec();
+        let expected_result: Vec<(Box<[u8]>, Box<[u8]>)> = vec![
+            (BAR.into(), append_rc(BAR_VALUE)),
+            (BAZ.into(), append_rc(BAZ_VALUE)),
+            (FOO.into(), append_rc(FOO_VALUE)),
+        ];
+        assert_eq!(result, expected_result);
+    }
+
+    #[test]
+    fn test_iter_prefix() {
+        let hot = create_hot();
+        let cold = create_cold();
+        let split = SplitDB::new(hot.clone(), cold.clone());
+
+        let col = DBCol::Transactions;
+
+        // Set values so that hot has foo and bar and cold has foo and baz.
+
+        set_rc(&hot, col, FOO, FOO_VALUE);
+        set_rc(&hot, col, BAR, BAR_VALUE);
+
+        set_rc(&cold, col, FOO, FOO_VALUE);
+        set_rc(&cold, col, BAZ, BAZ_VALUE);
+
+        // Check that the resulting iterator contains only keys starting with
+        // the prefix.
+
+        let key_prefix = b"BA";
+        let iter = split.iter_prefix(col, key_prefix);
+        let iter = iter.map(|item| item.unwrap());
+        let result = iter.collect_vec();
+        let expected_result: Vec<(Box<[u8]>, Box<[u8]>)> =
+            vec![(BAR.into(), BAR_VALUE.into()), (BAZ.into(), BAZ_VALUE.into())];
+        assert_eq!(result, expected_result);
+    }
+
+    #[test]
+    fn test_iter_range() {
+        let hot = create_hot();
+        let cold = create_cold();
+        let split = SplitDB::new(hot.clone(), cold.clone());
+
+        let col = DBCol::Transactions;
+
+        // Set values so that hot has the lower FOOs and cold has the higher
+        // FOOs, with some overlap.
+
+        set_rc(&hot, col, b"FOO1", b"FOO1_VALUE");
+        set_rc(&hot, col, b"FOO2", b"FOO2_VALUE");
+        set_rc(&hot, col, b"FOO3", b"FOO3_VALUE");
+        set_rc(&hot, col, b"FOO4", b"FOO4_VALUE");
+        set_rc(&hot, col, b"FOO5", b"FOO5_VALUE");
+
+        set_rc(&cold, col, b"FOO4", b"FOO4_VALUE");
+        set_rc(&cold, col, b"FOO5", b"FOO5_VALUE");
+        set_rc(&cold, col, b"FOO6", b"FOO6_VALUE");
+        set_rc(&cold, col, b"FOO7", b"FOO7_VALUE");
+
+        // Check that the resulting iterator contains only keys starting with
+        // the prefix from both hot and cold.
+        let lower_bound = Some(b"FOO2".as_slice());
+        let upper_bound = Some(b"FOO7".as_slice());
+
+        let iter = split.iter_range(col, lower_bound, upper_bound);
+        let iter = iter.map(|item| item.unwrap());
+        let result = iter.collect_vec();
+        let expected_result: Vec<(Box<[u8]>, Box<[u8]>)> = vec![
+            (bx(b"FOO2"), bx(b"FOO2_VALUE")),
+            (bx(b"FOO3"), bx(b"FOO3_VALUE")),
+            (bx(b"FOO4"), bx(b"FOO4_VALUE")),
+            (bx(b"FOO5"), bx(b"FOO5_VALUE")),
+            (bx(b"FOO6"), bx(b"FOO6_VALUE")),
+        ];
+        assert_eq!(result, expected_result);
     }
 }

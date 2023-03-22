@@ -655,7 +655,7 @@ macro_rules! log_assert {
     };
 }
 
-/// The same as 'log_assert' but where the condition is false.
+/// The same as 'log_assert' but always fails.
 ///
 /// `log_assert_fail!` panics in debug mode, while in release mode it emits
 /// a `tracing::error!` log line. Use it for sanity-checking non-essential
