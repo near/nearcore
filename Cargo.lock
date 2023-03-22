@@ -3857,6 +3857,7 @@ dependencies = [
  "enum-map",
  "fs2",
  "insta",
+ "itertools",
  "itoa 1.0.2",
  "lru",
  "near-crypto",
