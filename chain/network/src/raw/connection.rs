@@ -2,7 +2,6 @@ use crate::network_protocol::{
     Encoding, Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash,
     PeerMessage, Ping, Pong, RawRoutedMessage, RoutedMessageBody, RoutingTableUpdate,
 };
-use crate::routing::route_back_cache::RouteBackCache;
 use crate::types::StateResponseInfo;
 use bytes::buf::{Buf, BufMut};
 use bytes::BytesMut;
@@ -10,7 +9,7 @@ use near_crypto::{KeyType, SecretKey};
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::time::{Clock, Duration, Instant, Utc};
+use near_primitives::time::{Duration, Instant, Utc};
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use std::io;
@@ -31,8 +30,7 @@ pub struct Connection {
     recv_timeout: Duration,
     // this is used to keep track of routed messages we've sent so that when we get a reply
     // that references one of our previously sent messages, we can determine that the message is for us
-    route_cache: RouteBackCache,
-    clock: Clock,
+    route_cache: lru::LruCache<CryptoHash, ()>,
 }
 
 // The types of messages it's possible to route to a target PeerId via the connected peer as a first hop
@@ -125,11 +123,7 @@ impl Connection {
             secret_key,
             my_peer_id,
             recv_timeout,
-            // we set remove_frequent_min_size to 1 because the only peer ID we're ever
-            // going to add to the cache is our own, so just remove one entry
-            // at a time when the cache is full
-            route_cache: RouteBackCache::new(100_000, time::Duration::seconds(1_000), 1),
-            clock: Clock::real(),
+            route_cache: lru::LruCache::new(1_000_000),
         };
         peer.do_handshake(
             my_protocol_version.unwrap_or(PROTOCOL_VERSION),
@@ -236,7 +230,7 @@ impl Connection {
             ttl,
             Some(Utc::now_utc()),
         );
-        self.route_cache.insert(&self.clock, msg.hash(), self.my_peer_id.clone());
+        self.route_cache.put(msg.hash(), ());
         self.write_message(&PeerMessage::Routed(Box::new(msg))).await
     }
 
@@ -305,10 +299,7 @@ impl Connection {
     fn target_is_for_me(&mut self, target: &PeerIdOrHash) -> bool {
         match target {
             PeerIdOrHash::PeerId(peer_id) => peer_id == &self.my_peer_id,
-            PeerIdOrHash::Hash(hash) => {
-                let target = self.route_cache.remove(&self.clock, hash);
-                target.as_ref() == Some(&self.my_peer_id)
-            }
+            PeerIdOrHash::Hash(hash) => self.route_cache.pop(hash).is_some(),
         }
     }
 
