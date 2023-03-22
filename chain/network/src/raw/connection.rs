@@ -1,6 +1,6 @@
 use crate::network_protocol::{
     Encoding, Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash,
-    PeerMessage, Ping, RawRoutedMessage, RoutedMessageBody,
+    PeerMessage, Ping, Pong, RawRoutedMessage, RoutedMessageBody, RoutingTableUpdate,
 };
 use crate::types::StateResponseInfo;
 use bytes::buf::{Buf, BufMut};
@@ -8,9 +8,9 @@ use bytes::BytesMut;
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
-use near_primitives::network::PeerId;
+use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::time::{Duration, Instant, Utc};
-use near_primitives::types::{AccountId, BlockHeight, EpochId, ShardId};
+use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use std::io;
 use std::net::SocketAddr;
@@ -18,10 +18,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
 /// Represents a connection to a peer, and provides only minimal functionality.
-/// Almost none of the usual NEAR network logic is implemented, and the caller
-/// will receive messages via the recv() function. Currently the only message
-/// you can send is a Ping message, but in the future we can add more stuff there
-/// (e.g. sending blocks/chunk parts/etc)
+/// Almost none of the usual NEAR network logic is implemented, and the user
+/// will receive messages via the recv() function and send messages via
+/// send_message() and send_routed_message()
 pub struct Connection {
     my_peer_id: PeerId,
     peer_id: PeerId,
@@ -29,47 +28,55 @@ pub struct Connection {
     stream: TcpStream,
     buf: BytesMut,
     recv_timeout: Duration,
+    // this is used to keep track of routed messages we've sent so that when we get a reply
+    // that references one of our previously sent messages, we can determine that the message is for us
+    route_cache: lru::LruCache<CryptoHash, ()>,
 }
 
-/// The types of messages it's possible to receive from a `Peer`. Any PeerMessage
-/// we receive that doesn't fit one of these will just be logged and dropped.
-#[derive(Debug)]
-pub enum ReceivedMessage {
-    AnnounceAccounts(Vec<(AccountId, PeerId, EpochId)>),
+// The types of messages it's possible to route to a target PeerId via the connected peer as a first hop
+// These can be sent with Connection::send_routed_message(), and received in Message::Routed() from
+// Connection::recv()
+#[derive(Clone, Debug)]
+pub enum RoutedMessage {
+    Ping { nonce: u64 },
     Pong { nonce: u64, source: PeerId },
+    StateRequestPart(ShardId, CryptoHash, u64),
     VersionedStateResponse(StateResponseInfo),
 }
 
-impl TryFrom<PeerMessage> for ReceivedMessage {
-    // the only possible error here is that it's not implemented
-    type Error = ();
+// The types of messages it's possible to send directly to the connected peer.
+// These can be sent with Connection::send_message(), and received in Message::Direct() from
+// Connection::recv()
+#[derive(Clone, Debug)]
+pub enum DirectMessage {
+    AnnounceAccounts(Vec<AnnounceAccount>),
+}
 
-    fn try_from(m: PeerMessage) -> Result<Self, Self::Error> {
-        match m {
-            PeerMessage::Routed(r) => match &r.body {
-                RoutedMessageBody::Pong(p) => {
-                    Ok(Self::Pong { nonce: p.nonce, source: p.source.clone() })
-                }
-                RoutedMessageBody::VersionedStateResponse(state_response_info) => {
-                    Ok(Self::VersionedStateResponse(state_response_info.clone()))
-                }
-                _ => Err(()),
-            },
-            PeerMessage::SyncRoutingTable(r) => Ok(Self::AnnounceAccounts(
-                r.accounts.into_iter().map(|a| (a.account_id, a.peer_id, a.epoch_id)).collect(),
-            )),
-            _ => Err(()),
-        }
+/// The types of messages it's possible to send/receive from a `Connection`. Any PeerMessage
+/// we receive that doesn't fit one of the types we've enumerated will just be logged and dropped.
+#[derive(Clone, Debug)]
+pub enum Message {
+    Direct(DirectMessage),
+    Routed(RoutedMessage),
+}
+
+fn sprint_addr(addr: std::io::Result<SocketAddr>) -> String {
+    match addr {
+        Ok(addr) => addr.to_string(),
+        Err(e) => format!("<socket addr unknown: {:?}>", e),
     }
 }
 
 impl std::fmt::Debug for Connection {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        let addr = match self.stream.peer_addr() {
-            Ok(a) => format!("{:?}", a),
-            Err(e) => format!("Err({:?})", e),
-        };
-        write!(f, "{:?}@{:?}", &self.peer_id, addr)
+        write!(
+            f,
+            "raw::Connection({:?}@{} -> {:?}@{})",
+            &self.my_peer_id,
+            sprint_addr(self.stream.local_addr()),
+            &self.peer_id,
+            sprint_addr(self.stream.peer_addr())
+        )
     }
 }
 
@@ -116,6 +123,7 @@ impl Connection {
             secret_key,
             my_peer_id,
             recv_timeout,
+            route_cache: lru::LruCache::new(1_000_000),
         };
         peer.do_handshake(
             my_protocol_version.unwrap_or(PROTOCOL_VERSION),
@@ -185,6 +193,47 @@ impl Connection {
         self.stream.write_all(&buf).await
     }
 
+    // Try to send a PeerMessage corresponding to the given DirectMessage
+    pub async fn send_message(&mut self, msg: DirectMessage) -> io::Result<()> {
+        let peer_msg = match msg {
+            DirectMessage::AnnounceAccounts(accounts) => {
+                PeerMessage::SyncRoutingTable(RoutingTableUpdate { edges: Vec::new(), accounts })
+            }
+        };
+
+        self.write_message(&peer_msg).await
+    }
+
+    // Try to send a routed PeerMessage corresponding to the given RoutedMessage
+    pub async fn send_routed_message(
+        &mut self,
+        msg: RoutedMessage,
+        target: PeerId,
+        ttl: u8,
+    ) -> io::Result<()> {
+        let body = match msg {
+            RoutedMessage::Ping { nonce } => {
+                RoutedMessageBody::Ping(Ping { nonce, source: self.my_peer_id.clone() })
+            }
+            RoutedMessage::Pong { nonce, source } => {
+                RoutedMessageBody::Pong(Pong { nonce, source })
+            }
+            RoutedMessage::StateRequestPart(shard_id, block_hash, part_id) => {
+                RoutedMessageBody::StateRequestPart(shard_id, block_hash, part_id)
+            }
+            RoutedMessage::VersionedStateResponse(response) => {
+                RoutedMessageBody::VersionedStateResponse(response)
+            }
+        };
+        let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target), body }.sign(
+            &self.secret_key,
+            ttl,
+            Some(Utc::now_utc()),
+        );
+        self.route_cache.put(msg.hash(), ());
+        self.write_message(&PeerMessage::Routed(Box::new(msg))).await
+    }
+
     async fn do_read(&mut self) -> io::Result<()> {
         let n = tokio::time::timeout(
             self.recv_timeout.try_into().unwrap(),
@@ -247,49 +296,58 @@ impl Connection {
         })
     }
 
-    /// Reads from the socket until we receive some message that we care to pass to the caller
-    /// (that is, represented in `ReceivedMessage`).
-    pub async fn recv(&mut self) -> io::Result<(ReceivedMessage, Instant)> {
-        loop {
-            let (msg, timestamp) = self.recv_message().await?;
-            if let Ok(m) = ReceivedMessage::try_from(msg) {
-                return Ok((m, timestamp));
-            }
+    fn target_is_for_me(&mut self, target: &PeerIdOrHash) -> bool {
+        match target {
+            PeerIdOrHash::PeerId(peer_id) => peer_id == &self.my_peer_id,
+            PeerIdOrHash::Hash(hash) => self.route_cache.pop(hash).is_some(),
         }
     }
 
-    /// Try to send a Ping message to the given target, with the given nonce and ttl
-    pub async fn send_ping(&mut self, target: &PeerId, nonce: u64, ttl: u8) -> anyhow::Result<()> {
-        let body = RoutedMessageBody::Ping(Ping { nonce, source: self.my_peer_id.clone() });
-        let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target.clone()), body }.sign(
-            &self.secret_key,
-            ttl,
-            Some(Utc::now_utc()),
-        );
-
-        self.write_message(&PeerMessage::Routed(Box::new(msg))).await?;
-
-        Ok(())
+    fn recv_routed_msg(
+        &mut self,
+        msg: &crate::network_protocol::RoutedMessage,
+    ) -> Option<RoutedMessage> {
+        if !self.target_is_for_me(&msg.target) {
+            tracing::debug!(
+                target: "network", "{:?} dropping routed message {} for {:?}",
+                &self, <&'static str>::from(&msg.body), &msg.target
+            );
+            return None;
+        }
+        match &msg.body {
+            RoutedMessageBody::Ping(p) => Some(RoutedMessage::Ping { nonce: p.nonce }),
+            RoutedMessageBody::Pong(p) => {
+                Some(RoutedMessage::Pong { nonce: p.nonce, source: p.source.clone() })
+            }
+            RoutedMessageBody::VersionedStateResponse(state_response_info) => {
+                Some(RoutedMessage::VersionedStateResponse(state_response_info.clone()))
+            }
+            RoutedMessageBody::StateRequestPart(shard_id, hash, part_id) => {
+                Some(RoutedMessage::StateRequestPart(*shard_id, *hash, *part_id))
+            }
+            _ => None,
+        }
     }
 
-    /// Try to send a StateRequestPart message to the given target, with the given nonce and ttl
-    pub async fn send_state_part_request(
-        &mut self,
-        target: &PeerId,
-        shard_id: ShardId,
-        block_hash: CryptoHash,
-        part_id: u64,
-        ttl: u8,
-    ) -> anyhow::Result<()> {
-        let body = RoutedMessageBody::StateRequestPart(shard_id, block_hash, part_id);
-        let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target.clone()), body }.sign(
-            &self.secret_key,
-            ttl,
-            Some(Utc::now_utc()),
-        );
-
-        self.write_message(&PeerMessage::Routed(Box::new(msg))).await?;
-
-        Ok(())
+    /// Reads from the socket until we receive some message that we care to pass to the caller
+    /// (that is, represented in `DirectMessage` or `RoutedMessage`).
+    pub async fn recv(&mut self) -> io::Result<(Message, Instant)> {
+        loop {
+            let (msg, timestamp) = self.recv_message().await?;
+            match msg {
+                PeerMessage::Routed(r) => {
+                    if let Some(msg) = self.recv_routed_msg(&r) {
+                        return Ok((Message::Routed(msg), timestamp));
+                    }
+                }
+                PeerMessage::SyncRoutingTable(r) => {
+                    return Ok((
+                        Message::Direct(DirectMessage::AnnounceAccounts(r.accounts)),
+                        timestamp,
+                    ))
+                }
+                _ => {}
+            }
+        }
     }
 }
