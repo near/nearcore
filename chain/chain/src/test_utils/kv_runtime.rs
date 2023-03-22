@@ -136,16 +136,6 @@ impl KeyValueRuntime {
         epoch_length: u64,
         no_gc: bool,
     ) -> Arc<Self> {
-        Self::new_with_validators_and_no_gc_and_tracking(store, vs, epoch_length, no_gc, false)
-    }
-
-    pub fn new_with_validators_and_no_gc_and_tracking(
-        store: Store,
-        vs: ValidatorSchedule,
-        epoch_length: u64,
-        no_gc: bool,
-        tracks_all_shards: bool,
-    ) -> Arc<Self> {
         let tries = ShardTries::test(store.clone(), vs.num_shards);
         let mut initial_amounts = HashMap::new();
         for (i, validator) in vs.block_producers.iter().flatten().enumerate() {
@@ -230,7 +220,7 @@ impl KeyValueRuntime {
             validators,
             validators_by_valset,
             num_shards: vs.num_shards,
-            tracks_all_shards,
+            tracks_all_shards: false,
             epoch_length,
             state: RwLock::new(state),
             state_size: RwLock::new(state_size),
@@ -349,17 +339,6 @@ impl KeyValueRuntime {
             .get(epoch_id)
             .ok_or_else(|| EpochError::EpochOutOfBounds(epoch_id.clone()))? as usize
             % self.validators_by_valset.len())
-    }
-
-    pub fn get_chunk_only_producers_for_shard(
-        &self,
-        epoch_id: &EpochId,
-        shard_id: ShardId,
-    ) -> Result<Vec<&ValidatorStake>, EpochError> {
-        let valset = self.get_valset_for_epoch(epoch_id)?;
-        let block_producers = &self.validators_by_valset[valset].block_producers;
-        let chunk_producers = &self.validators_by_valset[valset].chunk_producers[shard_id as usize];
-        Ok(chunk_producers.iter().filter(|it| !block_producers.contains(it)).collect())
     }
 }
 
@@ -534,6 +513,12 @@ impl EpochManagerAdapter for KeyValueRuntime {
         _prev_block_hash: &CryptoHash,
     ) -> Result<EpochHeight, EpochError> {
         Ok(0)
+    }
+
+    fn get_next_epoch_id(&self, _block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
+        // Not actually needed in any tests; function added just to satisfy
+        // EpochManagerAdapter API.
+        unimplemented!()
     }
 
     fn get_next_epoch_id_from_prev_block(
@@ -1408,14 +1393,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         } else {
             0
         }
-    }
-
-    fn chunk_needs_to_be_fetched_from_archival(
-        &self,
-        _chunk_prev_block_hash: &CryptoHash,
-        _header_head: &CryptoHash,
-    ) -> Result<bool, Error> {
-        Ok(false)
     }
 
     fn get_protocol_config(&self, _epoch_id: &EpochId) -> Result<ProtocolConfig, Error> {
