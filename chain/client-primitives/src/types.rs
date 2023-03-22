@@ -605,7 +605,6 @@ pub struct NetworkInfoResponse {
 }
 
 /// Status of given transaction including all the subsequent receipts.
-
 #[derive(Debug)]
 pub struct TxStatus {
     pub tx_hash: CryptoHash,
