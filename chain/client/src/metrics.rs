@@ -451,3 +451,13 @@ pub static STATE_SYNC_APPLY_PART_DELAY: Lazy<near_o11y::metrics::HistogramVec> =
     )
     .unwrap()
 });
+
+pub static STATE_SYNC_EXTERNAL_PARTS_SIZE_DOWNLOADED: Lazy<near_o11y::metrics::IntCounterVec> =
+    Lazy::new(|| {
+        try_create_int_counter_vec(
+            "near_state_sync_external_parts_size_downloaded_bytes_total",
+            "Amount of bytes downloaded from an external storage when requesting state parts for a shard",
+            &["shard_id"],
+        )
+            .unwrap()
+    });

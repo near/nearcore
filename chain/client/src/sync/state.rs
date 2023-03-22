@@ -1245,6 +1245,9 @@ fn check_external_storage_part_response(
                     metrics::STATE_SYNC_EXTERNAL_PARTS_DONE
                         .with_label_values(&[&shard_id.to_string()])
                         .inc();
+                    metrics::STATE_SYNC_EXTERNAL_PARTS_SIZE_DOWNLOADED
+                        .with_label_values(&[&shard_id.to_string()])
+                        .inc_by(data.len() as u64);
                     part_download.done = true;
                     tracing::debug!(target: "sync", %shard_id, part_id, ?part_download, "Set state part success");
                 }
