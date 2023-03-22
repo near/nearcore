@@ -1,23 +1,16 @@
 //! Client is responsible for tracking the chain, chunks, and producing them when needed.
 //! This client works completely synchronously and must be operated by some async actor outside.
 
-use std::cmp::max;
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-
+use crate::adapter::ProcessTxResponse;
+use crate::debug::BlockProductionTracker;
+use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
+use crate::sync::block::BlockSync;
+use crate::sync::epoch::EpochSync;
+use crate::sync::header::HeaderSync;
+use crate::sync::state::{StateSync, StateSyncResult};
+use crate::{metrics, SyncStatus};
 use lru::LruCache;
 use near_async::messaging::{CanSend, Sender};
-use near_chunks::adapter::ShardsManagerRequestFromClient;
-use near_chunks::client::ShardedTransactionPool;
-use near_chunks::logic::{
-    cares_about_shard_this_or_next_epoch, decode_encoded_chunk, persist_chunk,
-};
-use near_client_primitives::debug::ChunkProduction;
-use near_primitives::static_clock::StaticClock;
-use near_store::metadata::DbKind;
-use tracing::{debug, error, info, trace, warn};
-
 use near_chain::chain::{
     ApplyStatePartsRequest, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
     OrphanMissingChunks, StateSplitRequest, TX_ROUTING_HEIGHT_HORIZON,
@@ -30,43 +23,47 @@ use near_chain::{
     DoneApplyChunkCallback, Doomslug, DoomslugThresholdMode, Provenance,
     RuntimeWithEpochManagerAdapter,
 };
-use near_chain_configs::{ClientConfig, UpdateableClientConfig};
+use near_chain_configs::{ClientConfig, LogSummaryStyle, UpdateableClientConfig};
+use near_chunks::adapter::ShardsManagerRequestFromClient;
+use near_chunks::client::ShardedTransactionPool;
+use near_chunks::logic::{
+    cares_about_shard_this_or_next_epoch, decode_encoded_chunk, persist_chunk,
+};
 use near_chunks::ShardsManager;
+use near_client_primitives::debug::ChunkProduction;
+use near_client_primitives::types::{Error, ShardSyncDownload, ShardSyncStatus};
+use near_network::types::{AccountKeys, ChainInfo, PeerManagerMessageRequest, SetChainInfo};
 use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter, ReasonForBan,
 };
+use near_o11y::log_assert;
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
+use near_primitives::block_header::ApprovalType;
 use near_primitives::challenge::{Challenge, ChallengeBody};
+use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
+use near_primitives::network::PeerId;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReedSolomonWrapper, ShardChunk,
     ShardChunkHeader, ShardInfo,
 };
+use near_primitives::static_clock::StaticClock;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, NumBlocks, ShardId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
-
-use crate::adapter::ProcessTxResponse;
-use crate::debug::BlockProductionTracker;
-use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
-use crate::sync::block::BlockSync;
-use crate::sync::epoch::EpochSync;
-use crate::sync::header::HeaderSync;
-use crate::sync::state::{StateSync, StateSyncResult};
-use crate::{metrics, SyncStatus};
-use near_client_primitives::types::{Error, ShardSyncDownload, ShardSyncStatus};
-use near_network::types::{AccountKeys, ChainInfo, PeerManagerMessageRequest, SetChainInfo};
-use near_o11y::log_assert;
-use near_primitives::block_header::ApprovalType;
-use near_primitives::epoch_manager::RngSeed;
-use near_primitives::network::PeerId;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{CatchupStatusView, DroppedReason};
+use near_store::metadata::DbKind;
+use std::cmp::max;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tracing::{debug, error, info, trace, warn};
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 const CHUNK_HEADERS_FOR_INCLUSION_CACHE_SIZE: usize = 2048;
@@ -2126,6 +2123,7 @@ impl Client {
                 "Catchup me: {:?}: sync_hash: {:?}, sync_info: {:?}", me, sync_hash, new_shard_sync
             );
 
+            let use_colour = matches!(self.config.log_summary_style, LogSummaryStyle::Colored);
             match state_sync.run(
                 me,
                 sync_hash,
@@ -2136,6 +2134,7 @@ impl Client {
                 state_sync_info.shards.iter().map(|tuple| tuple.0).collect(),
                 state_parts_task_scheduler,
                 state_split_scheduler,
+                use_colour,
             )? {
                 StateSyncResult::Unchanged => {}
                 StateSyncResult::Changed(fetch_block) => {

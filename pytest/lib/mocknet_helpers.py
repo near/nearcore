@@ -56,8 +56,10 @@ def get_nonce_for_pk(
 
 
 def get_latest_block_hash(addr=LOCAL_ADDR, port=RPC_PORT):
-    last_block_hash = get_status(addr=addr,
-                                 port=port)['sync_info']['latest_block_hash']
+    last_block_hash = get_status(
+        addr=addr,
+        port=port,
+    )['sync_info']['latest_block_hash']
     return base58.b58decode(last_block_hash.encode('utf-8'))
 
 

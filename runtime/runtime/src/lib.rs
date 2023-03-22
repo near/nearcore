@@ -1,57 +1,3 @@
-use std::cmp::max;
-use std::collections::{HashMap, HashSet};
-use std::rc::Rc;
-use std::sync::Arc;
-
-use config::total_prepaid_send_fees;
-use tracing::debug;
-
-use near_chain_configs::Genesis;
-pub use near_crypto;
-use near_crypto::PublicKey;
-pub use near_primitives;
-use near_primitives::contract::ContractCode;
-use near_primitives::profile::ProfileDataV3;
-pub use near_primitives::runtime::apply_state::ApplyState;
-use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
-use near_primitives::sandbox::state_patch::SandboxStatePatch;
-use near_primitives::transaction::ExecutionMetadata;
-use near_primitives::version::{
-    is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
-};
-use near_primitives::{
-    account::Account,
-    checked_feature,
-    errors::{ActionError, ActionErrorKind, RuntimeError, TxExecutionError},
-    hash::CryptoHash,
-    receipt::{
-        ActionReceipt, DataReceipt, DelayedReceiptIndices, Receipt, ReceiptEnum, ReceivedData,
-    },
-    state_record::StateRecord,
-    transaction::{
-        Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry,
-        SignedTransaction,
-    },
-    trie_key::TrieKey,
-    types::{
-        validator_stake::ValidatorStake, AccountId, Balance, EpochInfoProvider, Gas,
-        RawStateChangesWithTrieKey, ShardId, StateChangeCause, StateRoot,
-    },
-    utils::{
-        create_action_hash, create_receipt_id_from_receipt, create_receipt_id_from_transaction,
-    },
-};
-use near_store::{
-    get, get_account, get_postponed_receipt, get_received_data, remove_postponed_receipt, set,
-    set_account, set_postponed_receipt, set_received_data, PartialStorage, ShardTries,
-    StorageError, Trie, TrieChanges, TrieUpdate,
-};
-use near_store::{set_access_key, set_code};
-use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{ActionCosts, ReturnData};
-pub use near_vm_runner::with_ext_cost_counter;
-
 use crate::actions::*;
 use crate::balance_checker::check_balance;
 use crate::config::{
@@ -64,6 +10,53 @@ use crate::verifier::{check_storage_stake, validate_receipt, StorageStakingError
 pub use crate::verifier::{
     validate_transaction, verify_and_charge_transaction, ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT,
 };
+use config::total_prepaid_send_fees;
+use near_chain_configs::Genesis;
+pub use near_crypto;
+use near_crypto::PublicKey;
+pub use near_primitives;
+use near_primitives::account::Account;
+use near_primitives::checked_feature;
+use near_primitives::contract::ContractCode;
+use near_primitives::errors::{ActionError, ActionErrorKind, RuntimeError, TxExecutionError};
+use near_primitives::hash::CryptoHash;
+use near_primitives::profile::ProfileDataV3;
+use near_primitives::receipt::{
+    ActionReceipt, DataReceipt, DelayedReceiptIndices, Receipt, ReceiptEnum, ReceivedData,
+};
+pub use near_primitives::runtime::apply_state::ApplyState;
+use near_primitives::runtime::fees::RuntimeFeesConfig;
+use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
+use near_primitives::sandbox::state_patch::SandboxStatePatch;
+use near_primitives::state_record::StateRecord;
+use near_primitives::transaction::ExecutionMetadata;
+use near_primitives::transaction::{
+    Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry, SignedTransaction,
+};
+use near_primitives::trie_key::TrieKey;
+use near_primitives::types::{
+    validator_stake::ValidatorStake, AccountId, Balance, EpochInfoProvider, Gas,
+    RawStateChangesWithTrieKey, ShardId, StateChangeCause, StateRoot,
+};
+use near_primitives::utils::{
+    create_action_hash, create_receipt_id_from_receipt, create_receipt_id_from_transaction,
+};
+use near_primitives::version::{
+    is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
+};
+use near_store::{
+    get, get_account, get_postponed_receipt, get_received_data, remove_postponed_receipt, set,
+    set_account, set_postponed_receipt, set_received_data, PartialStorage, ShardTries,
+    StorageError, Trie, TrieChanges, TrieUpdate,
+};
+use near_store::{set_access_key, set_code};
+use near_vm_logic::types::PromiseResult;
+use near_vm_logic::{ActionCosts, ReturnData};
+pub use near_vm_runner::with_ext_cost_counter;
+use std::cmp::max;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use tracing::debug;
 
 mod actions;
 pub mod adapter;
@@ -1198,9 +1191,8 @@ impl Runtime {
             num_transactions = transactions.len())
         .entered();
 
-        let trie = Rc::new(trie);
-        let mut state_update = TrieUpdate::new(trie.clone());
-        let mut prefetcher = TriePrefetcher::new_if_enabled(trie.clone());
+        let mut prefetcher = TriePrefetcher::new_if_enabled(&trie);
+        let mut state_update = TrieUpdate::new(trie);
 
         if let Some(prefetcher) = &mut prefetcher {
             // Prefetcher is allowed to fail
@@ -1237,7 +1229,7 @@ impl Runtime {
             && apply_state.current_protocol_version
                 >= ProtocolFeature::FixApplyChunks.protocol_version()
         {
-            let (trie_changes, state_changes) = state_update.finalize()?;
+            let (trie, trie_changes, state_changes) = state_update.finalize()?;
             let proof = trie.recorded_storage();
             return Ok(ApplyResult {
                 state_root: trie_changes.new_root,
@@ -1417,7 +1409,7 @@ impl Runtime {
 
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
         self.apply_state_patch(&mut state_update, state_patch);
-        let (trie_changes, state_changes) = state_update.finalize()?;
+        let (trie, trie_changes, state_changes) = state_update.finalize()?;
 
         // Dedup proposals from the same account.
         // The order is deterministically changed.
@@ -1522,6 +1514,7 @@ impl Runtime {
     /// Balances are account, publickey, initial_balance, initial_tx_stake
     pub fn apply_genesis_state(
         &self,
+        op_limit: &std::sync::atomic::AtomicUsize,
         tries: ShardTries,
         shard_id: ShardId,
         validators: &[(AccountId, PublicKey, Balance)],
@@ -1529,7 +1522,15 @@ impl Runtime {
         config: &RuntimeConfig,
         shard_account_ids: HashSet<AccountId>,
     ) -> StateRoot {
-        GenesisStateApplier::apply(tries, shard_id, validators, config, genesis, shard_account_ids)
+        GenesisStateApplier::apply(
+            op_limit,
+            tries,
+            shard_id,
+            validators,
+            config,
+            genesis,
+            shard_account_ids,
+        )
     }
 }
 
@@ -1603,7 +1604,7 @@ mod tests {
         let account_id = bob_account();
         set_account(&mut state_update, account_id.clone(), &test_account);
         state_update.commit(StateChangeCause::InitialState);
-        let trie_changes = state_update.finalize().unwrap().0;
+        let trie_changes = state_update.finalize().unwrap().1;
         let mut store_update = tries.store_update();
         let new_root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
         store_update.commit().unwrap();
@@ -1645,7 +1646,7 @@ mod tests {
             &AccessKey::full_access(),
         );
         initial_state.commit(StateChangeCause::InitialState);
-        let trie_changes = initial_state.finalize().unwrap().0;
+        let trie_changes = initial_state.finalize().unwrap().1;
         let mut store_update = tries.store_update();
         let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
         store_update.commit().unwrap();
@@ -2416,7 +2417,7 @@ mod tests {
         initial_account_state.set_storage_usage(10);
         set_account(&mut state_update, alice_account(), &initial_account_state);
         state_update.commit(StateChangeCause::InitialState);
-        let trie_changes = state_update.finalize().unwrap().0;
+        let trie_changes = state_update.finalize().unwrap().1;
         let mut store_update = tries.store_update();
         let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
         store_update.commit().unwrap();

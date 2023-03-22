@@ -8,6 +8,7 @@ import random
 import sys
 import time
 import argparse
+import requests
 
 # Don't use the pathlib magic because this file runs on a remote machine.
 sys.path.append('lib')
@@ -108,10 +109,10 @@ def main():
     # call the contract before it is deployed).
     delay = args.contract_deploy_time / test_state.num_test_accounts()
     logger.info(f'Start deploying, delay between deployments: {delay}')
+    assert delay >= 1
 
     time.sleep(random.random() * delay)
     start_time = time.monotonic()
-    assert delay >= 1
     load_test_utils.init_ft(test_state.node_account)
     for i, account in enumerate(test_state.test_accounts):
         logger.info(f'Deploying contract for account {account.key.account_id}')
@@ -135,21 +136,33 @@ def main():
     last_staking = 0
     start_time = time.monotonic()
     while time.monotonic() - start_time < args.test_timeout:
-        # Repeat the staking transactions in case the validator selection algorithm changes.
-        staked_time = mocknet.stake_available_amount(
-            test_state.node_account,
-            last_staking,
-        )
-        if staked_time is not None:
-            last_staking = staked_time
+        try:
+            # Repeat the staking transactions in case the validator selection algorithm changes.
+            staked_time = mocknet.stake_available_amount(
+                test_state.node_account,
+                last_staking,
+            )
+            if staked_time is not None:
+                last_staking = staked_time
 
-        elapsed_time = time.monotonic() - start_time
-        total_tx_sent = mocknet_helpers.throttle_txns(
-            load_test_utils.send_random_transactions,
-            total_tx_sent,
-            elapsed_time,
-            test_state,
-        )
+            elapsed_time = time.monotonic() - start_time
+            total_tx_sent = mocknet_helpers.throttle_txns(
+                load_test_utils.send_random_transactions,
+                total_tx_sent,
+                elapsed_time,
+                test_state,
+            )
+        except (
+                ConnectionRefusedError,
+                requests.exceptions.ConnectionError,
+        ) as e:
+            # If this happens only occasionally the loop will retry immediately,
+            # eventually pick a healthy rpc node and all will be fine. If it
+            # happens every time, it indicates that something is wrong and
+            # should be visible in grafana tx rate.
+            logger.warning(
+                f'Error when staking or sending tx. This may happen when the '
+                f'selected RPC node is being upgraded. The exception is {e}')
     logger.info('Stop the test')
 
 

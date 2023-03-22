@@ -2845,13 +2845,13 @@ fn test_execution_metadata() {
       {
         "cost_category": "WASM_HOST_COST",
         "cost": "BASE",
-        "gas_used": config.wasm_config.ext_costs.cost(ExtCosts::base).to_string()
+        "gas_used": config.wasm_config.ext_costs.gas_cost(ExtCosts::base).to_string()
       },
       // We include compilation costs into running the function.
       {
         "cost_category": "WASM_HOST_COST",
         "cost": "CONTRACT_LOADING_BASE",
-        "gas_used": config.wasm_config.ext_costs.cost(ExtCosts::contract_loading_base).to_string()
+        "gas_used": config.wasm_config.ext_costs.gas_cost(ExtCosts::contract_loading_base).to_string()
       },
       {
         "cost_category": "WASM_HOST_COST",
@@ -3495,7 +3495,6 @@ mod contract_precompilation_tests {
     use near_vm_runner::get_contract_cache_key;
     use near_vm_runner::internal::VMKind;
     use node_runtime::state_viewer::TrieViewer;
-    use std::rc::Rc;
 
     const EPOCH_LENGTH: u64 = 5;
 
@@ -3593,12 +3592,10 @@ mod contract_precompilation_tests {
 
         let viewer = TrieViewer::default();
         // TODO (#7327): set use_flat_storage to true when we implement support for state sync for FlatStorage
-        let trie = Rc::new(
-            env.clients[1]
-                .runtime_adapter
-                .get_trie_for_shard(0, block.header().prev_hash(), state_root, false)
-                .unwrap(),
-        );
+        let trie = env.clients[1]
+            .runtime_adapter
+            .get_trie_for_shard(0, block.header().prev_hash(), state_root, false)
+            .unwrap();
         let state_update = TrieUpdate::new(trie);
 
         let mut logs = vec![];

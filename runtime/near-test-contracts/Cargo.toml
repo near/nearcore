@@ -1,10 +1,17 @@
 [package]
 name = "near-test-contracts"
 version = "0.0.0"
-publish = false
-authors = ["Near Inc <hello@nearprotocol.com>"]
-edition = "2021"
-license = "Apache-2.0"
+authors.workspace = true
+publish = true
+# Please update rust-toolchain.toml as well when changing version here:
+rust-version.workspace = true
+edition.workspace = true
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/near/nearcore"
+description ="""
+A collection of smart-contract used in nearcore tests.
+"""
 
 [dependencies]
 once_cell = "1.5.0"

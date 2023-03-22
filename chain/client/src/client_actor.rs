@@ -32,7 +32,7 @@ use near_chain::{
     byzantine_assert, near_chain_primitives, Block, BlockHeader, BlockProcessingArtifact,
     ChainGenesis, DoneApplyChunkCallback, Provenance, RuntimeWithEpochManagerAdapter,
 };
-use near_chain_configs::ClientConfig;
+use near_chain_configs::{ClientConfig, LogSummaryStyle};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::logic::cares_about_shard_this_or_next_epoch;
@@ -1619,6 +1619,8 @@ impl ClientActor {
                     unwrap_and_report!(self.client.chain.reset_data_pre_state_sync(sync_hash));
                 }
 
+                let use_colour =
+                    matches!(self.client.config.log_summary_style, LogSummaryStyle::Colored);
                 match unwrap_and_report!(self.client.state_sync.run(
                     &me,
                     sync_hash,
@@ -1629,6 +1631,7 @@ impl ClientActor {
                     shards_to_sync,
                     &self.state_parts_task_scheduler,
                     &self.state_split_scheduler,
+                    use_colour,
                 )) {
                     StateSyncResult::Unchanged => (),
                     StateSyncResult::Changed(fetch_block) => {

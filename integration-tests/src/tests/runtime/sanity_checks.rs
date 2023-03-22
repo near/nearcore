@@ -234,7 +234,7 @@ fn test_sanity_used_gas() {
     // Executing `used_gas` costs `base_cost`. When executing `used_gas` twice
     // within a metered block, the returned values should differ by that amount.
     let base_cost =
-        node.client.read().unwrap().runtime_config.wasm_config.ext_costs.cost(ExtCosts::base);
+        node.client.read().unwrap().runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::base);
     assert_eq!(used_gas[1] - used_gas[0], base_cost);
 
     // The fees for executing a metered block's WASM code should be paid before
