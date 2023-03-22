@@ -1,10 +1,10 @@
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::{EpochManagerAdapter, RngSeed};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_part::PartId;
 use num_rational::Ratio;
@@ -190,6 +190,7 @@ impl KeyValueRuntime {
         if !vs.chunk_only_producers.is_empty() {
             assert_eq!(validators_by_valset.len(), vs.chunk_only_producers.len());
             for (epoch_idx, epoch_cops) in vs.chunk_only_producers.into_iter().enumerate() {
+                assert_eq!(epoch_cops.len() as u64, vs.num_shards);
                 for (shard_idx, shard_cops) in epoch_cops.into_iter().enumerate() {
                     for account_id in shard_cops {
                         let stake = ValidatorStake::new(
@@ -439,8 +440,50 @@ impl EpochManagerAdapter for KeyValueRuntime {
         })
     }
 
+    /// Return the epoch info containing the mocked data.
+    /// Epoch id is unused.
+    /// Available mocked data:
+    /// - validators
+    /// - block producers
+    /// - chunk producers
+    /// All the other fields have a hardcoded value or left empty.
     fn get_epoch_info(&self, _epoch_id: &EpochId) -> Result<Arc<EpochInfo>, Error> {
-        Ok(Arc::new(EpochInfo::v1_test()))
+        let validators = self.validators.iter().map(|(_, stake)| stake.clone()).collect();
+        let mut validator_to_index = HashMap::new();
+        for (i, (account_id, _)) in self.validators.iter().enumerate() {
+            validator_to_index.insert(account_id.clone(), i as u64);
+        }
+        let bp_settlement = self.validators_by_valset[0]
+            .block_producers
+            .iter()
+            .map(|stake| *validator_to_index.get(stake.account_id()).unwrap())
+            .collect();
+        let cp_settlement = self.validators_by_valset[0]
+            .chunk_producers
+            .iter()
+            .map(|vec| {
+                vec.iter()
+                    .map(|stake| *validator_to_index.get(stake.account_id()).unwrap())
+                    .collect()
+            })
+            .collect();
+        Ok(Arc::new(EpochInfo::new(
+            10,
+            validators,
+            validator_to_index,
+            bp_settlement,
+            cp_settlement,
+            vec![],
+            vec![],
+            HashMap::new(),
+            BTreeMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            1,
+            1,
+            1,
+            RngSeed::default(),
+        )))
     }
 
     fn get_shard_layout(&self, _epoch_id: &EpochId) -> Result<ShardLayout, Error> {
