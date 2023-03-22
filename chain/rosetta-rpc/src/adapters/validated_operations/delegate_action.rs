@@ -51,7 +51,6 @@ impl TryFrom<crate::models::Operation> for DelegateActionOperation {
         let public_key = metadata.public_key.ok_or_else(required_fields_error)?;
         let max_block_height = metadata.max_block_height.ok_or_else(required_fields_error)?;
         let nonce = metadata.nonce.ok_or_else(required_fields_error)?;
-        // let operations = metadata.operations.ok_or_else(required_fields_error)?;
 
         Ok(Self { receiver_id: operation.account, public_key, max_block_height, nonce })
     }
