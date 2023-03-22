@@ -4,6 +4,7 @@ use near_async::messaging::CanSend;
 use near_chain::{ChainGenesis, Provenance, RuntimeWithEpochManagerAdapter};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
+use near_epoch_manager::shard_tracker::TrackedConfig;
 use near_network::{
     shards_manager::ShardsManagerRequestFromNetwork,
     types::{NetworkRequests, PeerManagerMessageRequest},
@@ -15,7 +16,7 @@ use near_primitives::{
     types::{AccountId, EpochId, ShardId},
 };
 use near_store::test_utils::create_test_store;
-use nearcore::{config::GenesisExt, TrackedConfig};
+use nearcore::config::GenesisExt;
 use tracing::log::debug;
 
 struct AdversarialBehaviorTestData {

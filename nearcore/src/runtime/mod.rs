@@ -1,6 +1,5 @@
 use crate::metrics;
 use crate::migrations::load_migration_data;
-use crate::shard_tracker::{ShardTracker, TrackedConfig};
 use crate::NearConfig;
 use borsh::ser::BorshSerialize;
 use borsh::BorshDeserialize;
@@ -15,6 +14,7 @@ use near_chain_configs::{
 };
 use near_client_primitives::types::StateSplitApplyingStatus;
 use near_crypto::PublicKey;
+use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_o11y::log_assert;
 use near_pool::types::PoolIterator;
@@ -153,7 +153,7 @@ impl NightshadeRuntime {
             EpochManager::new_from_genesis_config(store.clone().into(), &genesis_config)
                 .expect("Failed to start Epoch Manager")
                 .into_handle();
-        let shard_tracker = ShardTracker::new(tracked_config, epoch_manager.clone());
+        let shard_tracker = ShardTracker::new(tracked_config, Arc::new(epoch_manager.clone()));
         Arc::new_cyclic(|myself| NightshadeRuntime {
             genesis_config,
             runtime_config_store,
@@ -1474,6 +1474,10 @@ impl RuntimeWithEpochManagerAdapter for NightshadeRuntime {
     fn epoch_manager_adapter_arc(&self) -> Arc<dyn EpochManagerAdapter> {
         self.myself.upgrade().unwrap()
     }
+
+    fn shard_tracker(&self) -> ShardTracker {
+        self.shard_tracker.clone()
+    }
 }
 
 impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
@@ -1576,6 +1580,7 @@ mod test {
     use std::collections::BTreeSet;
 
     use near_chain::{Chain, ChainGenesis};
+    use near_epoch_manager::shard_tracker::TrackedConfig;
     use near_primitives::test_utils::create_test_signer;
     use near_primitives::types::validator_stake::ValidatorStake;
     use near_store::flat::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};

@@ -3,6 +3,7 @@ use assert_matches::assert_matches;
 use near_chain::{ChainGenesis, RuntimeWithEpochManagerAdapter};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
+use near_epoch_manager::shard_tracker::TrackedConfig;
 use near_primitives::errors::{ActionErrorKind, TxExecutionError};
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::version::ProtocolFeature;
@@ -10,7 +11,6 @@ use near_primitives::views::FinalExecutionStatus;
 use near_store::test_utils::create_test_store;
 use near_vm_errors::{CompilationError, FunctionCallErrorSer, PrepareError};
 use nearcore::config::GenesisExt;
-use nearcore::TrackedConfig;
 use std::path::Path;
 use std::sync::Arc;
 
