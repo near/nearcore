@@ -2,7 +2,7 @@ use near_primitives::runtime::config::AccountCreationConfig;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::runtime::fees::{Fee, RuntimeFeesConfig};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_vm_logic::{ActionCosts, ExtCosts, ExtCostsConfig, VMConfig};
+use near_vm_logic::{ActionCosts, ExtCosts, ExtCostsConfig, ParameterCost, VMConfig};
 use node_runtime::config::RuntimeConfig;
 
 use anyhow::Context;
@@ -95,7 +95,7 @@ fn ext_costs_config(cost_table: &CostTable) -> anyhow::Result<ExtCostsConfig> {
                 let estimation = estimation(cost).with_context(|| format!("external WASM cost has no estimation defined: {}", cost))?;
                 cost_table.get(estimation).with_context(|| format!("undefined external WASM cost: {}", cost))?
             },
-        },
+        }.map(|_, value| ParameterCost { gas: value, compute: value }),
     })
 }
 

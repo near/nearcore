@@ -31,7 +31,7 @@ const CREATION_TIMEOUT: BlockHeight = 30;
 fn setup_env(genesis: &Genesis, store: Store) -> TestEnv {
     let chain_genesis = ChainGenesis::new(genesis);
     let runtimes: Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> =
-        vec![Arc::new(nearcore::NightshadeRuntime::test(Path::new("../../../.."), store, genesis))];
+        vec![nearcore::NightshadeRuntime::test(Path::new("../../../.."), store, genesis)];
     TestEnv::builder(chain_genesis).runtime_adapters(runtimes).build()
 }
 

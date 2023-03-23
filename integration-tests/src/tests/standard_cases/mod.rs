@@ -1340,11 +1340,14 @@ fn get_trie_nodes_count(
         match cost.cost.as_str() {
             "TOUCHING_TRIE_NODE" => {
                 count.db_reads += cost.gas_used
-                    / runtime_config.wasm_config.ext_costs.cost(ExtCosts::touching_trie_node);
+                    / runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::touching_trie_node);
             }
             "READ_CACHED_TRIE_NODE" => {
                 count.mem_reads += cost.gas_used
-                    / runtime_config.wasm_config.ext_costs.cost(ExtCosts::read_cached_trie_node);
+                    / runtime_config
+                        .wasm_config
+                        .ext_costs
+                        .gas_cost(ExtCosts::read_cached_trie_node);
             }
             _ => {}
         };

@@ -744,8 +744,7 @@ mod tests {
         let store = near_store::test_utils::create_test_store();
         let vs =
             ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test".parse().unwrap()]]);
-        let runtime =
-            Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(store, vs, 123, false));
+        let runtime = KeyValueRuntime::new_with_validators_and_no_gc(store, vs, 123, false);
         let chain_genesis = ChainGenesis {
             time: StaticClock::utc(),
             height: 0,

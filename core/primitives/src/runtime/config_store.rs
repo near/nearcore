@@ -235,8 +235,8 @@ mod tests {
         let base_cfg = store.get_config(LowerStorageCost.protocol_version());
         let new_cfg = store.get_config(LowerDataReceiptAndEcrecoverBaseCost.protocol_version());
         assert!(
-            base_cfg.wasm_config.ext_costs.cost(ExtCosts::ecrecover_base)
-                > new_cfg.wasm_config.ext_costs.cost(ExtCosts::ecrecover_base)
+            base_cfg.wasm_config.ext_costs.gas_cost(ExtCosts::ecrecover_base)
+                > new_cfg.wasm_config.ext_costs.gas_cost(ExtCosts::ecrecover_base)
         );
     }
 
