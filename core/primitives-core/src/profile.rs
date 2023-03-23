@@ -1,7 +1,7 @@
 pub use profile_v2::ProfileDataV2;
 
-use crate::config::{ActionCosts, ExtCosts};
-use crate::types::Gas;
+use crate::config::{ActionCosts, ExtCosts, ExtCostsConfig};
+use crate::types::{Compute, Gas};
 use borsh::{BorshDeserialize, BorshSerialize};
 use enum_map::{enum_map, Enum, EnumMap};
 use std::fmt;
@@ -104,6 +104,34 @@ impl ProfileDataV3 {
 
     pub fn action_gas(&self) -> Gas {
         self.actions_profile.as_slice().iter().copied().fold(0, Gas::saturating_add)
+    }
+
+    /// Returns total compute usage of host calls.
+    pub fn total_compute_usage(&self, ext_costs_config: &ExtCostsConfig) -> Compute {
+        let ext_compute_cost = self
+            .wasm_ext_profile
+            .iter()
+            .map(|(key, value)| {
+                // Technically, gas cost might be zero while the compute cost is non-zero. To
+                // handle this case, we would need to explicitly count number of calls, not just
+                // the total gas usage.
+                // We don't have such costs at the moment, so this case is not implemented.
+                debug_assert!(key.gas(ext_costs_config) > 0 || key.compute(ext_costs_config) == 0);
+
+                if *value == 0 {
+                    return *value;
+                }
+                // If the `value` is non-zero, the gas cost also must be non-zero.
+                debug_assert!(key.gas(ext_costs_config) != 0);
+                debug_assert!(*value % key.gas(ext_costs_config) == 0);
+                // TODO(#8795): Consider storing the count of calls and avoid division here.
+                (*value / key.gas(ext_costs_config)).saturating_mul(key.compute(ext_costs_config))
+            })
+            .fold(0, Compute::saturating_add);
+
+        // We currently only support compute costs for host calls. In the future we might add
+        // them for actions as well.
+        ext_compute_cost.saturating_add(self.action_gas()).saturating_add(self.get_wasm_cost())
     }
 }
 
@@ -252,6 +280,26 @@ mod test {
         profile_data.merge(&profile_data2);
         assert_eq!(profile_data.get_action_cost(ActionCosts::add_full_access_key), 333);
         assert_eq!(profile_data.get_ext_cost(ExtCosts::storage_read_base), 33);
+    }
+
+    #[test]
+    fn test_total_compute_usage() {
+        let ext_costs_config = ExtCostsConfig::test_with_undercharging_factor(3);
+        let mut profile_data = ProfileDataV3::default();
+        profile_data.add_ext_cost(
+            ExtCosts::storage_read_base,
+            2 * ExtCosts::storage_read_base.gas(&ext_costs_config),
+        );
+        profile_data.add_ext_cost(
+            ExtCosts::storage_write_base,
+            5 * ExtCosts::storage_write_base.gas(&ext_costs_config),
+        );
+        profile_data.add_action_cost(ActionCosts::function_call_base, 100);
+
+        assert_eq!(
+            profile_data.total_compute_usage(&ext_costs_config),
+            3 * profile_data.host_gas() + profile_data.action_gas()
+        );
     }
 
     #[test]
