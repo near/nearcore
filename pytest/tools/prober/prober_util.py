@@ -82,9 +82,7 @@ def get_chunk(chunk, url):
         chunk = json_rpc('chunk', {'chunk_id': chunk_hash}, url)
         chunk = chunk['result']
 
-        logger.debug(
-            f'Got chunk {chunk_hash} for shard {shard_id} chunk: {pretty_print(chunk)}'
-        )
+        logger.debug(f'Got chunk {chunk_hash} for shard {shard_id}')
         return chunk
     except Exception as e:
         logger.error(f'get_chunk({chunk_hash}, {url}) failed: {e}')
