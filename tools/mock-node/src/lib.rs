@@ -527,11 +527,11 @@ mod test {
     fn setup_mock() -> (ChainHistoryAccess, TestEnv) {
         let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         let chain_genesis = ChainGenesis::new(&genesis);
-        let runtimes = vec![Arc::new(nearcore::NightshadeRuntime::test(
+        let runtimes = vec![nearcore::NightshadeRuntime::test(
             Path::new("../../../.."),
             create_test_store(),
             &genesis,
-        )) as Arc<dyn RuntimeWithEpochManagerAdapter>];
+        ) as Arc<dyn RuntimeWithEpochManagerAdapter>];
         let mut env = TestEnv::builder(chain_genesis.clone())
             .validator_seats(1)
             .runtime_adapters(runtimes.clone())

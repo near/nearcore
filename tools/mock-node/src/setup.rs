@@ -41,7 +41,7 @@ fn setup_runtime(
             .get_hot_store()
     };
 
-    Arc::new(NightshadeRuntime::from_config(home_dir, store, config))
+    NightshadeRuntime::from_config(home_dir, store, config)
 }
 
 fn setup_mock_peer_manager_actor(

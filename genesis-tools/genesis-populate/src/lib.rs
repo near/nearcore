@@ -57,7 +57,7 @@ pub struct GenesisBuilder {
     tmpdir: tempfile::TempDir,
     genesis: Arc<Genesis>,
     store: Store,
-    runtime: NightshadeRuntime,
+    runtime: Arc<NightshadeRuntime>,
     unflushed_records: BTreeMap<ShardId, Vec<StateRecord>>,
     roots: BTreeMap<ShardId, StateRoot>,
     state_updates: BTreeMap<ShardId, TrieUpdate>,
@@ -208,7 +208,7 @@ impl GenesisBuilder {
             self.genesis.config.min_gas_price,
             self.genesis.config.total_supply,
             Chain::compute_bp_hash(
-                &self.runtime,
+                &*self.runtime,
                 EpochId::default(),
                 EpochId::default(),
                 &CryptoHash::default(),
