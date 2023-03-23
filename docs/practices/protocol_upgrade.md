@@ -26,14 +26,14 @@ and that it doesn't break other parts of the system.
 ### Protocol version voting and upgrade
 
 When a new neard version, containing a new protocol version, is released, all node maintainers need 
-to upgarde their binary. That typically means stopping neard, downloading or compiling the new neard
+to upgrade their binary. That typically means stopping neard, downloading or compiling the new neard
 binary and restarting neard. However the protocol version of the whole network is not immediately 
 bumped to the new protocol version. Instead a process called voting takes place and determines if and 
 when the protocol version upgrade will take place. 
 
 Voting is a fully automated process in which all nodes across network (TODO - all or just validators? equal or weighted voting?)
 vote in support or against upgrading the protocol version. If the majority of nodes vote in support then
-the protocol version will be upgraded at an epoch change roughly 24 hours after the vote. The vote date is predetermined 
+the protocol version will be upgraded at an epoch change roughly 24 hours (TODO what is the exact timeframe? 2 epochs?) after the vote. The vote date is predetermined 
 and configured by the neard release owner in the release branch [like this](https://github.com/near/nearcore/commit/9b0275de057a01f87c259580f93e58f746da75aa). 
 For mainnet releases, the release on github typically happens on a Monday or Tuesday, the voting 
 typically happens a week later and the protocol version upgrade happens a day after voting. This ensures 
