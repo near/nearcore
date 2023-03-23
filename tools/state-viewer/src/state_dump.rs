@@ -19,12 +19,13 @@ use std::env;
 use std::fs;
 use std::fs::File;
 use std::path::Path;
+use std::sync::Arc;
 
 /// Returns a `NearConfig` with genesis records taken from the current state.
 /// If `records_path` argument is provided, then records will be streamed into a separate file,
 /// otherwise the returned `NearConfig` will contain all the records within itself.
 pub fn state_dump(
-    runtime: NightshadeRuntime,
+    runtime: Arc<NightshadeRuntime>,
     state_roots: &[StateRoot],
     last_block_header: BlockHeader,
     near_config: &NearConfig,
@@ -129,7 +130,7 @@ pub fn state_dump(
 }
 
 pub fn state_dump_redis(
-    runtime: NightshadeRuntime,
+    runtime: Arc<NightshadeRuntime>,
     state_roots: &[StateRoot],
     last_block_header: BlockHeader,
 ) -> redis::RedisResult<()> {
@@ -213,7 +214,7 @@ fn should_include_record(
 
 /// Iterates over the state, calling `callback` for every record that genesis needs to contain.
 fn iterate_over_records(
-    runtime: NightshadeRuntime,
+    runtime: Arc<NightshadeRuntime>,
     state_roots: &[StateRoot],
     last_block_header: BlockHeader,
     validators: &HashMap<AccountId, (PublicKey, Balance)>,
@@ -335,7 +336,7 @@ mod test {
         chain_genesis.gas_limit = genesis.config.gas_limit;
         let env = TestEnv::builder(chain_genesis)
             .validator_seats(2)
-            .runtime_adapters(vec![Arc::new(nightshade_runtime)])
+            .runtime_adapters(vec![nightshade_runtime])
             .build();
 
         let near_config = NearConfig::new(
@@ -660,7 +661,7 @@ mod test {
         genesis.config.epoch_length = epoch_length;
         let store1 = create_test_store();
         let store2 = create_test_store();
-        let create_runtime = |store| -> NightshadeRuntime {
+        let create_runtime = |store| -> Arc<NightshadeRuntime> {
             NightshadeRuntime::test(Path::new("."), store, &genesis)
         };
         let mut chain_genesis = ChainGenesis::test();
@@ -668,10 +669,7 @@ mod test {
         chain_genesis.gas_limit = genesis.config.gas_limit;
         let mut env = TestEnv::builder(chain_genesis)
             .clients_count(2)
-            .runtime_adapters(vec![
-                Arc::new(create_runtime(store1)),
-                Arc::new(create_runtime(store2.clone())),
-            ])
+            .runtime_adapters(vec![create_runtime(store1), create_runtime(store2.clone())])
             .build();
         let genesis_hash = *env.clients[0].chain.genesis().hash();
         let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
@@ -740,7 +738,7 @@ mod test {
         chain_genesis.epoch_length = epoch_length;
         let mut env = TestEnv::builder(chain_genesis)
             .validator_seats(2)
-            .runtime_adapters(vec![Arc::new(nightshade_runtime)])
+            .runtime_adapters(vec![nightshade_runtime])
             .build();
         let genesis_hash = *env.clients[0].chain.genesis().hash();
         let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");

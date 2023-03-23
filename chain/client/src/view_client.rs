@@ -4,6 +4,7 @@
 use actix::{Actor, Addr, Handler, SyncArbiter, SyncContext};
 use near_async::messaging::CanSend;
 use near_chain::types::Tip;
+use near_chain_primitives::error::EpochErrorResultToChainError;
 use near_primitives::receipt::Receipt;
 use near_primitives::static_clock::StaticClock;
 use near_store::{DBCol, COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY};
@@ -552,7 +553,8 @@ impl Handler<WithSpanContext<GetBlock>> for ViewClientActor {
         let block = self.get_block_by_reference(&msg.0)?.ok_or(GetBlockError::NotSyncedYet)?;
         let block_author = self
             .runtime_adapter
-            .get_block_producer(block.header().epoch_id(), block.header().height())?;
+            .get_block_producer(block.header().epoch_id(), block.header().height())
+            .into_chain_error()?;
         Ok(BlockView::from_author_block(block_author, block))
     }
 }
@@ -623,13 +625,14 @@ impl Handler<WithSpanContext<GetChunk>> for ViewClientActor {
         };
 
         let chunk_inner = chunk.cloned_header().take_inner();
-        let epoch_id =
-            self.runtime_adapter.get_epoch_id_from_prev_block(chunk_inner.prev_block_hash())?;
-        let author = self.runtime_adapter.get_chunk_producer(
-            &epoch_id,
-            chunk_inner.height_created(),
-            chunk_inner.shard_id(),
-        )?;
+        let epoch_id = self
+            .runtime_adapter
+            .get_epoch_id_from_prev_block(chunk_inner.prev_block_hash())
+            .into_chain_error()?;
+        let author = self
+            .runtime_adapter
+            .get_chunk_producer(&epoch_id, chunk_inner.height_created(), chunk_inner.shard_id())
+            .into_chain_error()?;
 
         Ok(ChunkView::from_author_chunk(author, chunk))
     }
@@ -693,9 +696,7 @@ impl Handler<WithSpanContext<GetValidatorInfo>> for ViewClientActor {
                 ValidatorInfoIdentifier::BlockHash(self.chain.header_head()?.last_block_hash)
             }
         };
-        self.runtime_adapter
-            .get_validator_info(epoch_identifier)
-            .map_err(GetValidatorInfoError::from)
+        Ok(self.runtime_adapter.get_validator_info(epoch_identifier).into_chain_error()?)
     }
 }
 
@@ -914,8 +915,10 @@ impl Handler<WithSpanContext<GetExecutionOutcome>> for ViewClientActor {
                 let mut outcome_proof = outcome;
                 let epoch_id =
                     self.chain.get_block(&outcome_proof.block_hash)?.header().epoch_id().clone();
-                let target_shard_id =
-                    self.runtime_adapter.account_id_to_shard_id(&account_id, &epoch_id)?;
+                let target_shard_id = self
+                    .runtime_adapter
+                    .account_id_to_shard_id(&account_id, &epoch_id)
+                    .into_chain_error()?;
                 let res = self.chain.get_next_block_hash_with_new_chunk(
                     &outcome_proof.block_hash,
                     target_shard_id,
@@ -948,8 +951,10 @@ impl Handler<WithSpanContext<GetExecutionOutcome>> for ViewClientActor {
             }
             Err(near_chain::Error::DBNotFoundErr(_)) => {
                 let head = self.chain.head()?;
-                let target_shard_id =
-                    self.runtime_adapter.account_id_to_shard_id(&account_id, &head.epoch_id)?;
+                let target_shard_id = self
+                    .runtime_adapter
+                    .account_id_to_shard_id(&account_id, &head.epoch_id)
+                    .into_chain_error()?;
                 if self.runtime_adapter.cares_about_shard(
                     self.validator_account_id.as_ref(),
                     &head.last_block_hash,

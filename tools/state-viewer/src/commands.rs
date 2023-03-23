@@ -132,7 +132,7 @@ pub(crate) fn apply_block_at_height(
         near_config.client_config.save_trie_changes,
     );
     let runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter> =
-        Arc::new(NightshadeRuntime::from_config(home_dir, store, &near_config));
+        NightshadeRuntime::from_config(home_dir, store, &near_config);
     let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
     let (block, apply_result) =
         apply_block(block_hash, shard_id, runtime_adapter.as_ref(), &mut chain_store);
@@ -159,7 +159,7 @@ pub(crate) fn apply_chunk(
         near_config.client_config.save_trie_changes,
     );
     let (apply_result, gas_limit) =
-        apply_chunk::apply_chunk(&runtime, &mut chain_store, chunk_hash, target_height, None)?;
+        apply_chunk::apply_chunk(&*runtime, &mut chain_store, chunk_hash, target_height, None)?;
     println!("resulting chunk extra:\n{:?}", resulting_chunk_extra(&apply_result, gas_limit));
     Ok(())
 }
@@ -200,7 +200,7 @@ pub(crate) fn apply_receipt(
     hash: CryptoHash,
 ) -> anyhow::Result<()> {
     let runtime = NightshadeRuntime::from_config(home_dir, store.clone(), &near_config);
-    apply_chunk::apply_receipt(near_config.genesis.config.genesis_height, &runtime, store, hash)
+    apply_chunk::apply_receipt(near_config.genesis.config.genesis_height, &*runtime, store, hash)
         .map(|_| ())
 }
 
@@ -211,7 +211,7 @@ pub(crate) fn apply_tx(
     hash: CryptoHash,
 ) -> anyhow::Result<()> {
     let runtime = NightshadeRuntime::from_config(home_dir, store.clone(), &near_config);
-    apply_chunk::apply_tx(near_config.genesis.config.genesis_height, &runtime, store, hash)
+    apply_chunk::apply_tx(near_config.genesis.config.genesis_height, &*runtime, store, hash)
         .map(|_| ())
 }
 
@@ -754,7 +754,7 @@ pub(crate) fn print_epoch_info(
         EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)
             .expect("Failed to start Epoch Manager");
     let runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter> =
-        Arc::new(NightshadeRuntime::from_config(&home_dir, store.clone(), &near_config));
+        NightshadeRuntime::from_config(&home_dir, store.clone(), &near_config);
 
     epoch_info::print_epoch_info(
         epoch_selection,
@@ -812,7 +812,7 @@ fn load_trie(
     store: Store,
     home_dir: &Path,
     near_config: &NearConfig,
-) -> (NightshadeRuntime, Vec<StateRoot>, BlockHeader) {
+) -> (Arc<NightshadeRuntime>, Vec<StateRoot>, BlockHeader) {
     load_trie_stop_at_height(store, home_dir, near_config, LoadTrieMode::Latest)
 }
 
@@ -821,7 +821,7 @@ fn load_trie_stop_at_height(
     home_dir: &Path,
     near_config: &NearConfig,
     mode: LoadTrieMode,
-) -> (NightshadeRuntime, Vec<StateRoot>, BlockHeader) {
+) -> (Arc<NightshadeRuntime>, Vec<StateRoot>, BlockHeader) {
     let chain_store = ChainStore::new(
         store.clone(),
         near_config.genesis.config.genesis_height,
