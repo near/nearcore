@@ -3,12 +3,4 @@ name = "near-stable-hasher"
 version = "0.0.0"
 authors.workspace = true
 edition.workspace = true
-publish = true
-# Please update rust-toolchain.toml as well when changing version here:
-rust-version.workspace = true
-license = "MIT OR Apache-2.0"
-readme = "README.md"
-repository = "https://github.com/near/nearcore"
-description = """
-`near-stable-hasher` is a library that is essentially a wrapper around, now deprecated, `std::hash::SipHasher`.
-"""
+publish = false
