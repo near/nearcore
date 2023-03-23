@@ -1,5 +1,3 @@
-use crate::adapters::NearActions;
-
 use super::ValidatedOperation;
 
 pub(crate) struct DelegateActionOperation {
@@ -58,19 +56,6 @@ impl TryFrom<crate::models::Operation> for DelegateActionOperation {
 
 impl From<near_primitives::delegate_action::DelegateAction> for DelegateActionOperation {
     fn from(delegate_action: near_primitives::delegate_action::DelegateAction) -> Self {
-        let near_action = NearActions {
-            sender_account_id: delegate_action.sender_id,
-            receiver_account_id: delegate_action.receiver_id.clone(),
-            actions: delegate_action.actions.into_iter().map(|a| a.into()).collect(),
-        };
-
-        let operations: Vec<crate::models::Operation> = near_action.into();
-        let mut non_delegate_operations: Vec<crate::models::NonDelegateActionOperation> = vec![];
-        for operation in operations {
-            // unwrap is safe because these actions were converted from `NonDelegateAction`s above
-            non_delegate_operations.push(operation.try_into().unwrap());
-        }
-
         DelegateActionOperation {
             receiver_id: delegate_action.receiver_id.into(),
             max_block_height: delegate_action.max_block_height,
