@@ -2426,6 +2426,16 @@ impl Chain {
             byzantine_assert!(false);
             return Err(Error::InvalidGasPrice);
         }
+        let minted_amount = if self.runtime_adapter.is_next_block_epoch_start(&prev_hash)? {
+            Some(self.runtime_adapter.get_epoch_minted_amount(block.header().next_epoch_id())?)
+        } else {
+            None
+        };
+
+        if !block.verify_total_supply(prev.total_supply(), minted_amount) {
+            byzantine_assert!(false);
+            return Err(Error::InvalidGasPrice);
+        }
 
         let (challenges_result, challenged_blocks) = self.verify_challenges(
             block.challenges(),
