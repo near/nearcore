@@ -729,17 +729,12 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                                 sender_id: initiate_delegate_action_operation
                                     .sender_account
                                     .address
-                                    .parse()
-                                    .unwrap(),
-                                receiver_id: delegate_action_operation
-                                    .receiver_id
-                                    .address
-                                    .parse()
-                                    .unwrap(),
+                                    .into(),
+                                receiver_id: delegate_action_operation.receiver_id.address.into(),
                                 actions: {
-                                    let mut nda = vec![];
-                                    for a in actions.into_iter() {
-                                        nda.push(match a.try_into() {
+                                    let mut non_delegate_actions = vec![];
+                                    for action in actions.into_iter() {
+                                        non_delegate_actions.push(match action.try_into() {
                                             Ok(a) => a,
                                             Err(_) => {
                                                 return Err(crate::errors::ErrorKind::InvalidInput(
@@ -749,7 +744,7 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                                             }
                                         });
                                     }
-                                    nda
+                                    non_delegate_actions
                                 },
                                 nonce: delegate_action_operation.nonce,
                                 max_block_height: delegate_action_operation.max_block_height,
