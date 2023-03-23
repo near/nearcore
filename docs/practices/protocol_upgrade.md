@@ -32,9 +32,10 @@ bumped to the new protocol version. Instead a process called voting takes place 
 when the protocol version upgrade will take place. 
 
 Voting is a fully automated process in which all block producers across the network vote in support 
-or against upgrading the protocol version. The voting happens in the last block of an epoch after a 
-predetermined voting date. The voting date is configured by the release owner [like this](https://github.com/near/nearcore/commit/9b0275de057a01f87c259580f93e58f746da75aa). 
-If at least 80% of the stake votes for the protocol change in the last block of epoch X then the 
+or against upgrading the protocol version. The voting happens in the last block every epoch. Upgraded
+nodes will begin voting in favour of the new protocol version after a predetermined date. The voting 
+date is configured by the release owner [like this](https://github.com/near/nearcore/commit/9b0275de057a01f87c259580f93e58f746da75aa). 
+Once at least 80% of the stake votes for the protocol change in the last block of epoch X then the 
 protocol version will be upgraded in the first block of epoch X+2. 
 
 For mainnet releases, the release on github typically happens on a Monday or Tuesday, the voting 
