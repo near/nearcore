@@ -1829,11 +1829,7 @@ impl Chain {
         // there is no block, we need to make sure that the last block before tail is cleaned.
         let tail = self.store.tail()?;
         let mut tail_prev_block_cleaned = false;
-        tracing::trace!(target: "sync", tail, gc_height, "reset_data_pre_state_sync");
         for height in tail..gc_height {
-            if height % 1000 == 0 {
-                tracing::trace!(target: "sync", tail, gc_height, progress = height, "reset_data_pre_state_sync");
-            }
             if let Ok(blocks_current_height) = self.store.get_all_block_hashes_by_height(height) {
                 let blocks_current_height =
                     blocks_current_height.values().flatten().cloned().collect::<Vec<_>>();
@@ -1861,7 +1857,6 @@ impl Chain {
                 }
             }
         }
-        tracing::trace!(target: "sync", progress = "loop done", "reset_data_pre_state_sync");
 
         // Clear Chunks data
         let mut chain_store_update = self.mut_store().store_update();
@@ -1869,9 +1864,9 @@ impl Chain {
         let chunk_height = std::cmp::min(head.height + 2, sync_height);
         chain_store_update.clear_chunk_data_and_headers(chunk_height)?;
         chain_store_update.commit()?;
-        tracing::trace!(target: "sync", progress = "chunks data cleaned up", "reset_data_pre_state_sync");
 
         // clear all trie data
+
         let tries = self.runtime_adapter.get_tries();
         let mut chain_store_update = self.mut_store().store_update();
         let mut store_update = StoreUpdate::new_with_tries(tries);
@@ -1881,8 +1876,6 @@ impl Chain {
         // The reason to reset tail here is not to allow Tail be greater than Head
         chain_store_update.reset_tail();
         chain_store_update.commit()?;
-        tracing::trace!(target: "sync", progress = "state data cleaned up", "reset_data_pre_state_sync");
-
         Ok(())
     }
 
