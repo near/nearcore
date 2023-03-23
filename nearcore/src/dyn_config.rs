@@ -2,6 +2,7 @@ use crate::config::Config;
 use near_chain_configs::UpdateableClientConfig;
 use near_dyn_configs::{UpdateableConfigLoaderError, UpdateableConfigs};
 use near_o11y::log_config::LogConfig;
+use near_primitives::validator_signer::InMemoryValidatorSigner;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
@@ -45,7 +46,14 @@ pub fn read_updateable_configs(
 pub fn get_updateable_client_config(config: Config) -> UpdateableClientConfig {
     // All fields that can be updated while the node is running should be explicitly set here.
     // Keep this list in-sync with `core/dyn-configs/README.md`.
-    UpdateableClientConfig { expected_shutdown: config.expected_shutdown }
+    UpdateableClientConfig {
+        expected_shutdown: config.expected_shutdown,
+        validator_signer: if config.update_key_file.unwrap_or_default() {
+            InMemoryValidatorSigner::from_file(&Path::new(&config.validator_key_file)).ok()
+        } else {
+            None
+        },
+    }
 }
 
 fn read_log_config(home_dir: &Path) -> Result<Option<LogConfig>, UpdateableConfigLoaderError> {

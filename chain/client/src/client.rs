@@ -152,8 +152,11 @@ pub struct Client {
 }
 
 impl Client {
-    pub(crate) fn update_client_config(&self, update_client_config: UpdateableClientConfig) {
+    pub(crate) fn update_client_config(&mut self, update_client_config: UpdateableClientConfig) {
         self.config.expected_shutdown.update(update_client_config.expected_shutdown);
+        if let Some(validator_signer) = update_client_config.validator_signer {
+            self.validator_signer = Some(Arc::new(validator_signer));
+        }
     }
 }
 

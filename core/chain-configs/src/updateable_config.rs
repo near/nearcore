@@ -2,6 +2,7 @@ use crate::metrics;
 use chrono::{DateTime, Utc};
 use near_primitives::static_clock::StaticClock;
 use near_primitives::types::BlockHeight;
+use near_primitives::validator_signer::InMemoryValidatorSigner;
 use serde::{Deserialize, Serialize, Serializer};
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
@@ -85,4 +86,6 @@ impl<T: Copy + PartialEq + Debug> MutableConfigValue<T> {
 pub struct UpdateableClientConfig {
     /// Graceful shutdown at expected block height.
     pub expected_shutdown: Option<BlockHeight>,
+    #[serde(skip)]
+    pub validator_signer: Option<InMemoryValidatorSigner>,
 }

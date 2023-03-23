@@ -359,6 +359,8 @@ pub struct Config {
     /// Whether to use state sync (unreliable and corrupts the DB if fails) or do a block sync instead.
     #[serde(skip_serializing_if = "is_false")]
     pub state_sync_enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub update_key_file: Option<bool>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -397,6 +399,7 @@ impl Default for Config {
             expected_shutdown: None,
             state_sync: None,
             state_sync_enabled: false,
+            update_key_file: None,
         }
     }
 }
