@@ -50,3 +50,21 @@ flags = ["-len_control=0", "-prefer_small=0", "-max_len=4000000"]
 # runner = "fuzz_target_1"
 # weight = 0
 # flags = ["-len_control=0", "-prefer_small=0", "-max_len=4000000"]
+
+[[target]]
+crate = "runtime/near-vm/fuzz"
+runner = "equivalence_universal"
+weight = 0
+flags = []
+
+[[target]]
+crate = "runtime/near-vm/fuzz"
+runner = "metering"
+weight = 0
+flags = []
+
+[[target]]
+crate = "runtime/near-vm/fuzz"
+runner = "universal_singlepass"
+weight = 0
+flags = []
