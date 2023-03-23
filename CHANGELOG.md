@@ -4,6 +4,8 @@
 
 ### Protocol Changes
 
+* Flat Storage for reads, reducing number of DB accesses for state read from `2 * key.len()` in the worst case to 2. [#8761](https://github.com/near/nearcore/pull/8761) [NEP-399](https://github.com/near/NEPs/pull/399)
+
 ### Non-protocol Changes
 
 * State-viewer tool to dump and apply state changes from/to a range of blocks. [#8628](https://github.com/near/nearcore/pull/8628)
