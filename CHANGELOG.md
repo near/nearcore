@@ -12,7 +12,7 @@
 * State sync is disabled by default [#8730](https://github.com/near/nearcore/pull/8730)
 * Node can restart if State Sync gets interrupted. [#8732](https://github.com/near/nearcore/pull/8732)
 * Merged two `neard view-state` commands: `apply-state-parts` and `dump-state-parts` into a single `state-parts` command. [#8739](https://github.com/near/nearcore/pull/8739)
-* Node can sync State from S3. [#XXXX](https://github.com/near/nearcore/pull/XXXX)
+* Node can sync State from S3. [#8789](https://github.com/near/nearcore/pull/8789)
 
 ## 1.32.0
 

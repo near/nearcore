@@ -1,7 +1,6 @@
 use crate::cold_storage::spawn_cold_store_loop;
 pub use crate::config::{init_configs, load_config, load_test_config, NearConfig, NEAR_BASE};
 pub use crate::runtime::NightshadeRuntime;
-pub use crate::shard_tracker::TrackedConfig;
 use crate::state_sync::{spawn_state_sync_dump, StateSyncDumpHandle};
 use actix::{Actor, Addr};
 use actix_rt::ArbiterHandle;
@@ -33,7 +32,6 @@ pub mod dyn_config;
 mod metrics;
 pub mod migrations;
 mod runtime;
-mod shard_tracker;
 mod state_sync;
 
 pub fn get_default_home() -> PathBuf {
