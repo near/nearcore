@@ -22,7 +22,7 @@ pub fn read_updateable_configs(
     };
     let updateable_client_config =
         match Config::from_file(&home_dir.join(crate::config::CONFIG_FILENAME))
-            .map(get_updateable_client_config)
+            .map(|c| get_updateable_client_config(&home_dir, c))
         {
             Ok(config) => Some(config),
             Err(err) => {
@@ -43,13 +43,13 @@ pub fn read_updateable_configs(
     }
 }
 
-pub fn get_updateable_client_config(config: Config) -> UpdateableClientConfig {
+pub fn get_updateable_client_config(home_dir: &Path, config: Config) -> UpdateableClientConfig {
     // All fields that can be updated while the node is running should be explicitly set here.
     // Keep this list in-sync with `core/dyn-configs/README.md`.
     UpdateableClientConfig {
         expected_shutdown: config.expected_shutdown,
         validator_signer: if config.update_key_file.unwrap_or_default() {
-            InMemoryValidatorSigner::from_file(&Path::new(&config.validator_key_file)).ok()
+            InMemoryValidatorSigner::from_file(&home_dir.join(config.validator_key_file)).ok()
         } else {
             None
         },
