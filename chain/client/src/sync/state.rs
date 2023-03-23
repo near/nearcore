@@ -154,7 +154,7 @@ impl StateSync {
         state_sync_from_s3_enabled: bool,
         s3_bucket: &str,
         s3_region: &str,
-        num_s3_requests_per_shard: u64,
+        num_concurrent_s3_requests: u64,
     ) -> Self {
         let (mode, parts_request_state) = if state_sync_from_s3_enabled {
             tracing::debug!(target: "sync", s3_bucket, s3_region, "Initializing S3 bucket connection.");
@@ -193,7 +193,7 @@ impl StateSync {
             timeout,
             state_parts_apply_results: HashMap::new(),
             split_state_roots: HashMap::new(),
-            requests_remaining: Arc::new(AtomicI64::new(num_s3_requests_per_shard as i64)),
+            requests_remaining: Arc::new(AtomicI64::new(num_concurrent_s3_requests as i64)),
         }
     }
 

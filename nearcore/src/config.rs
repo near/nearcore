@@ -729,10 +729,10 @@ impl NearConfig {
                     .map(|x| x.sync_from_s3_enabled)
                     .flatten()
                     .unwrap_or(false),
-                state_sync_num_s3_requests_per_shard: config
+                state_sync_num_concurrent_s3_requests: config
                     .state_sync
                     .as_ref()
-                    .map(|x| x.num_s3_requests_per_shard)
+                    .map(|x| x.num_concurrent_s3_requests)
                     .flatten()
                     .unwrap_or(100),
             },
@@ -1579,7 +1579,7 @@ pub struct StateSyncConfig {
     /// When syncing state from S3, throttle requests to this many concurrent
     /// requests per shard.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub num_s3_requests_per_shard: Option<u64>,
+    pub num_concurrent_s3_requests: Option<u64>,
 }
 
 #[test]
