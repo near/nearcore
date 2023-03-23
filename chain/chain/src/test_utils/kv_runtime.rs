@@ -1184,6 +1184,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                         logs: vec![],
                         receipt_ids: new_receipt_hashes,
                         gas_burnt: 0,
+                        compute_usage: 0,
                         tokens_burnt: 0,
                         executor_id: to.clone(),
                         metadata: ExecutionMetadata::V1,

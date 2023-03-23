@@ -1,7 +1,7 @@
 use crate::actions::*;
 use crate::balance_checker::check_balance;
 use crate::config::{
-    exec_fee, safe_add_balance, safe_add_gas, safe_gas_to_balance, total_deposit,
+    exec_fee, safe_add_balance, safe_add_compute, safe_add_gas, safe_gas_to_balance, total_deposit,
     total_prepaid_exec_fees, total_prepaid_gas, RuntimeConfig,
 };
 use crate::genesis::{GenesisStateApplier, StorageComputer};
@@ -35,7 +35,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
-    validator_stake::ValidatorStake, AccountId, Balance, EpochInfoProvider, Gas,
+    validator_stake::ValidatorStake, AccountId, Balance, Compute, EpochInfoProvider, Gas,
     RawStateChangesWithTrieKey, ShardId, StateChangeCause, StateRoot,
 };
 use near_primitives::utils::{
@@ -125,6 +125,7 @@ pub struct ActionResult {
     pub gas_burnt: Gas,
     pub gas_burnt_for_function_call: Gas,
     pub gas_used: Gas,
+    pub compute_usage: Compute,
     pub result: Result<ReturnData, ActionError>,
     pub logs: Vec<LogEntry>,
     pub new_receipts: Vec<Receipt>,
@@ -147,6 +148,7 @@ impl ActionResult {
             next_result.gas_burnt_for_function_call,
         )?;
         self.gas_used = safe_add_gas(self.gas_used, next_result.gas_used)?;
+        self.compute_usage = safe_add_compute(self.compute_usage, next_result.compute_usage)?;
         self.profile.merge(&next_result.profile);
         self.result = next_result.result;
         self.logs.append(&mut next_result.logs);
@@ -171,6 +173,7 @@ impl Default for ActionResult {
             gas_burnt: 0,
             gas_burnt_for_function_call: 0,
             gas_used: 0,
+            compute_usage: 0,
             result: Ok(ReturnData::None),
             logs: vec![],
             new_receipts: vec![],
@@ -263,6 +266,9 @@ impl Runtime {
                         logs: vec![],
                         receipt_ids: vec![receipt.receipt_id],
                         gas_burnt: verification_result.gas_burnt,
+                        // Compute usage matches gas burnt because we currently don't support
+                        // compute costs for actions. In this future this might change.
+                        compute_usage: verification_result.gas_burnt,
                         tokens_burnt: verification_result.burnt_amount,
                         executor_id: transaction.signer_id.clone(),
                         // TODO: profile data is only counted in apply_action, which only happened at process_receipt
@@ -749,6 +755,7 @@ impl Runtime {
                 logs: result.logs,
                 receipt_ids,
                 gas_burnt: result.gas_burnt,
+                compute_usage: result.compute_usage,
                 tokens_burnt,
                 executor_id: account_id.clone(),
                 metadata: ExecutionMetadata::V3(result.profile),
@@ -1253,6 +1260,7 @@ impl Runtime {
         // charge any gas for refund receipts, we still count the gas use towards the block gas
         // limit
         let mut total_gas_burnt = gas_used_for_migrations;
+        let mut total_compute_usage = gas_used_for_migrations;
 
         for signed_transaction in transactions {
             let (receipt, outcome_with_id) = self.process_transaction(
@@ -1267,7 +1275,10 @@ impl Runtime {
                 outgoing_receipts.push(receipt);
             }
 
+            // TODO(akashin): Why don't we have safe adds here? Do have some guarantee that there
+            // will be no overflow?
             total_gas_burnt += outcome_with_id.outcome.gas_burnt;
+            total_compute_usage += outcome_with_id.outcome.compute_usage;
 
             outcomes.push(outcome_with_id);
         }
@@ -1278,7 +1289,8 @@ impl Runtime {
 
         let mut process_receipt = |receipt: &Receipt,
                                    state_update: &mut TrieUpdate,
-                                   total_gas_burnt: &mut Gas|
+                                   total_gas_burnt: &mut Gas,
+                                   total_compute_usage: &mut Compute|
          -> Result<_, RuntimeError> {
             let _span = tracing::debug_span!(
                 target: "runtime",
@@ -1303,6 +1315,8 @@ impl Runtime {
             if let Some(outcome_with_id) = result? {
                 *total_gas_burnt =
                     safe_add_gas(*total_gas_burnt, outcome_with_id.outcome.gas_burnt)?;
+                *total_compute_usage =
+                    safe_add_compute(*total_compute_usage, outcome_with_id.outcome.compute_usage)?;
                 outcomes.push(outcome_with_id);
             }
             Ok(())
@@ -1317,10 +1331,15 @@ impl Runtime {
             _ = prefetcher.prefetch_receipts_data(&local_receipts);
         }
         for receipt in local_receipts.iter() {
-            if total_gas_burnt < gas_limit {
+            if total_compute_usage < gas_limit {
                 // NOTE: We don't need to validate the local receipt, because it's just validated in
                 // the `verify_and_charge_transaction`.
-                process_receipt(receipt, &mut state_update, &mut total_gas_burnt)?;
+                process_receipt(
+                    receipt,
+                    &mut state_update,
+                    &mut total_gas_burnt,
+                    &mut total_compute_usage,
+                )?;
             } else {
                 Self::delay_receipt(&mut state_update, &mut delayed_receipts_indices, receipt)?;
             }
@@ -1328,7 +1347,7 @@ impl Runtime {
 
         // Then we process the delayed receipts. It's a backlog of receipts from the past blocks.
         while delayed_receipts_indices.first_index < delayed_receipts_indices.next_available_index {
-            if total_gas_burnt >= gas_limit {
+            if total_compute_usage >= gas_limit {
                 break;
             }
             let key = TrieKey::DelayedReceipt { index: delayed_receipts_indices.first_index };
@@ -1361,7 +1380,12 @@ impl Runtime {
             state_update.remove(key);
             // Math checked above: first_index is less than next_available_index
             delayed_receipts_indices.first_index += 1;
-            process_receipt(&receipt, &mut state_update, &mut total_gas_burnt)?;
+            process_receipt(
+                &receipt,
+                &mut state_update,
+                &mut total_gas_burnt,
+                &mut total_compute_usage,
+            )?;
             processed_delayed_receipts.push(receipt);
         }
 
@@ -1380,8 +1404,13 @@ impl Runtime {
                 apply_state.current_protocol_version,
             )
             .map_err(RuntimeError::ReceiptValidationError)?;
-            if total_gas_burnt < gas_limit {
-                process_receipt(receipt, &mut state_update, &mut total_gas_burnt)?;
+            if total_compute_usage < gas_limit {
+                process_receipt(
+                    receipt,
+                    &mut state_update,
+                    &mut total_gas_burnt,
+                    &mut total_compute_usage,
+                )?;
             } else {
                 Self::delay_receipt(&mut state_update, &mut delayed_receipts_indices, receipt)?;
             }

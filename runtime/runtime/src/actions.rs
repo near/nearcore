@@ -1,6 +1,6 @@
 use crate::config::{
     safe_add_gas, total_prepaid_exec_fees, total_prepaid_gas, total_prepaid_send_fees,
-    RuntimeConfig,
+    RuntimeConfig, safe_add_compute,
 };
 use crate::ext::{ExternalError, RuntimeExt};
 use crate::{metrics, ActionResult, ApplyState};
@@ -254,6 +254,7 @@ pub(crate) fn action_function_call(
     // return a real `gas_used` instead of the `gas_burnt` into `ActionResult` even for
     // `FunctionCall`s error.
     result.gas_used = safe_add_gas(result.gas_used, outcome.used_gas)?;
+    result.compute_usage = safe_add_compute(result.compute_usage, outcome.compute_usage)?;
     result.logs.extend(outcome.logs);
     result.profile.merge(&outcome.profile);
     if execution_succeeded {
