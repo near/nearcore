@@ -1,0 +1,44 @@
+[package]
+name = "wasmer-compiler-singlepass-near"
+version = "2.4.0"
+description = "Singlepass compiler for Wasmer WebAssembly runtime"
+categories = ["wasm"]
+keywords = ["wasm", "webassembly", "compiler", "singlepass"]
+authors = ["Wasmer Engineering Team <engineering@wasmer.io>"]
+repository = "https://github.com/wasmerio/wasmer"
+documentation = "https://docs.rs/wasmer-compiler-singlepass/"
+license = "MIT"
+readme = "README.md"
+edition = "2018"
+
+[lib]
+name = "wasmer_compiler_singlepass"
+
+[dependencies]
+finite-wasm = "0.3.0"
+wasmer-compiler = { path = "../compiler", package = "wasmer-compiler-near", version = "=2.4.0", features = ["translator"], default-features = false }
+wasmer-vm = { path = "../vm", package = "wasmer-vm-near", version = "=2.4.0" }
+wasmer-types = { path = "../types", package = "wasmer-types-near", version = "=2.4.0", default-features = false, features = ["std"] }
+byteorder = "1.3"
+dynasm = "1.0"
+dynasmrt = "1.0"
+enumset = "1.0"
+hashbrown = { version = "0.11", optional = true }
+lazy_static = "1.4"
+memoffset = "0.6"
+more-asserts = "0.2"
+rayon = { version = "1.5", optional = true }
+smallvec = "1.6"
+strum = { version = "0.24", features = ["derive"] }
+tracing = "0.1"
+
+[dev-dependencies]
+target-lexicon = { version = "0.12.2", default-features = false }
+
+[badges]
+maintenance = { status = "actively-developed" }
+
+[features]
+default = ["std", "rayon"]
+std = ["wasmer-compiler/std", "wasmer-types/std"]
+core = ["hashbrown", "wasmer-types/core"]

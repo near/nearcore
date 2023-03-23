@@ -1,0 +1,32 @@
+[package]
+name = "wasmer-types-near"
+version = "2.4.0"
+description = "Wasmer Common Types"
+categories = ["wasm", "no-std", "data-structures"]
+keywords = ["wasm", "webassembly", "types"]
+authors = ["Wasmer Engineering Team <engineering@wasmer.io>"]
+repository = "https://github.com/wasmerio/wasmer"
+license = "MIT OR Apache-2.0 WITH LLVM-exception"
+readme = "README.md"
+edition = "2018"
+
+[lib]
+name = "wasmer_types"
+
+[dependencies]
+thiserror = "1.0"
+indexmap = { version = "1.6" }
+num-traits = "0.2.15"
+rkyv = { version = "0.7.20" }
+
+[dev-dependencies]
+bolero = "0.6.0"
+
+[features]
+default = ["std"]
+std = []
+core = []
+
+[[test]]
+name = "partial-sum-map"
+harness = false
