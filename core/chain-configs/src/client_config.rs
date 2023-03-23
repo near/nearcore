@@ -175,11 +175,9 @@ pub struct ClientConfig {
     /// Restart dumping state of selected shards.
     /// Use for troubleshooting of the state dumping process.
     pub state_sync_restart_dump_for_shards: Vec<ShardId>,
-    /// Whether to enable state sync from S3.
-    /// If disabled will perform state sync from the peers.
-    pub state_sync_from_s3_enabled: bool,
-    /// Number of parallel in-flight requests allowed per shard.
-    pub state_sync_num_concurrent_s3_requests: u64,
+    /// Whether to use the State Sync mechanism.
+    /// If disabled, the node will do Block Sync instead of State Sync.
+    pub state_sync_enabled: bool,
 }
 
 impl ClientConfig {
@@ -253,8 +251,7 @@ impl ClientConfig {
             state_sync_s3_bucket: String::new(),
             state_sync_s3_region: String::new(),
             state_sync_restart_dump_for_shards: vec![],
-            state_sync_from_s3_enabled: false,
-            state_sync_num_concurrent_s3_requests: 10,
+            state_sync_enabled: true,
         }
     }
 }
