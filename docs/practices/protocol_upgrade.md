@@ -23,6 +23,33 @@ especially if the change is invasive. For those changes, we may want to have
 several months of testing before we are confident that the change itself works
 and that it doesn't break other parts of the system.
 
+### Protocol version voting and upgrade
+
+When a new neard version, containing a new protocol version, is released, all node maintainers need 
+to upgrade their binary. That typically means stopping neard, downloading or compiling the new neard
+binary and restarting neard. However the protocol version of the whole network is not immediately 
+bumped to the new protocol version. Instead a process called voting takes place and determines if and 
+when the protocol version upgrade will take place. 
+
+Voting is a fully automated process in which all block producers across the network vote in support 
+or against upgrading the protocol version. The voting happens in the last block every epoch. Upgraded
+nodes will begin voting in favour of the new protocol version after a predetermined date. The voting 
+date is configured by the release owner [like this](https://github.com/near/nearcore/commit/9b0275de057a01f87c259580f93e58f746da75aa). 
+Once at least 80% of the stake votes in favour of the protocol change in the last block of epoch X, the 
+protocol version will be upgraded in the first block of epoch X+2. 
+
+For mainnet releases, the release on github typically happens on a Monday or Tuesday, the voting 
+typically happens a week later and the protocol version upgrade happens 1-2 epochs after the voting. This 
+gives the node maintainers enough time to upgrade their neard nodes. The node maintainers can upgrade
+their nodes at any time between the release and the voting but it is recommended to upgrade soon after the
+release. This is to accomodate for any database migrations or miscellaneous delays. 
+
+Starting a neard node with protocol version voting in the future in a network that is already operating 
+at that protocol version is supported as well. This is useful in the scenario where there is a mainnet 
+security release where mainnet has not yet voted or upgraded to the new version. That same binary with
+protocol voting date in the future can be released in testnet even though it has already upgraded to 
+the new protocol version.
+
 ### Nightly Protocol features
 
 To make protocol upgrades more robust, we introduce the concept of a nightly
