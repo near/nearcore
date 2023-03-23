@@ -1430,10 +1430,10 @@ mod test {
         let mut state_sync = StateSync::new(
             mock_peer_manager.clone().into(),
             TimeDuration::from_secs(1),
-            "chain_id".to_string(),
+            "chain_id",
             false,
-            "".to_string(),
-            "".to_string(),
+            "",
+            "",
             100,
         );
         let mut new_shard_sync = HashMap::new();
