@@ -396,7 +396,7 @@ impl Default for Config {
             split_storage: None,
             expected_shutdown: None,
             state_sync: None,
-            state_sync_enabled: false,
+            state_sync_enabled: None,
         }
     }
 }
@@ -739,7 +739,7 @@ impl NearConfig {
                     .map(|x| x.num_concurrent_s3_requests)
                     .flatten()
                     .unwrap_or(100),
-                state_sync_enabled: config.state_sync_enabled,
+                state_sync_enabled: config.state_sync_enabled.unwrap_or(false),
             },
             network_config: NetworkConfig::new(
                 config.network,

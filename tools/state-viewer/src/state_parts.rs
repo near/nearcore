@@ -1,7 +1,6 @@
 use crate::epoch_info::iterate_and_filter;
-use near_chain::types::RuntimeAdapter;
-use near_chain::{ChainStore, ChainStoreAccess};
-use near_epoch_manager::EpochManager;
+use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
+use near_client::sync::state::StateSync;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::state_part::PartId;
 use near_primitives::syncing::get_num_state_parts;
@@ -15,7 +14,6 @@ use std::fs::DirEntry;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::sync::Arc;
 use std::time::Instant;
 
 #[derive(clap::Subcommand, Debug, Clone)]
@@ -68,8 +66,7 @@ impl StatePartsSubCommand {
         near_config: NearConfig,
         store: Store,
     ) {
-        let runtime =
-            Arc::new(NightshadeRuntime::from_config(home_dir, store.clone(), &near_config));
+        let runtime = NightshadeRuntime::from_config(home_dir, store.clone(), &near_config);
         let chain_genesis = ChainGenesis::new(&near_config.genesis);
         let mut chain = Chain::new_for_view_client(
             runtime.clone(),
@@ -402,6 +399,7 @@ fn get_part_ids(part_from: Option<u64>, part_to: Option<u64>, num_parts: u64) ->
     part_from.unwrap_or(0)..part_to.unwrap_or(num_parts)
 }
 
+// Needs to be in sync with `fn s3_location()`.
 fn location_prefix(chain_id: &str, epoch_height: u64, shard_id: u64) -> String {
     format!("chain_id={}/epoch_height={}/shard_id={}", chain_id, epoch_height, shard_id)
 }
