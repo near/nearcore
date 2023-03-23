@@ -49,7 +49,7 @@ impl ResetHeadToPrevCommand {
         let mut chain_store_update = ChainStoreUpdate::new(&mut chain_store);
 
         // stop if it's already the final block
-        if chain_store.final_head()?.height >= prev_tip.height {
+        if chain_store.final_head()?.height >= current_head.height {
             return Err(anyhow::anyhow!("cannot revert past final block"));
         }
 
