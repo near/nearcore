@@ -38,7 +38,7 @@ fn run_test(
     let migration_data = load_migration_data(&genesis.config.chain_id);
 
     let mut env = TestEnv::builder(chain_genesis)
-        .runtime_adapters(vec![Arc::new(runtime) as Arc<dyn RuntimeWithEpochManagerAdapter>])
+        .runtime_adapters(vec![runtime as Arc<dyn RuntimeWithEpochManagerAdapter>])
         .build();
 
     let get_restored_receipt_hashes = |migration_data: &MigrationData| -> HashSet<CryptoHash> {

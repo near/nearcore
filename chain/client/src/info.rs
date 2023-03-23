@@ -107,6 +107,7 @@ impl InfoHelper {
         last_final_block_height: BlockHeight,
         last_final_ds_block_height: BlockHeight,
         epoch_height: EpochHeight,
+        last_final_block_height_in_epoch: BlockHeight,
     ) {
         self.num_blocks_processed += 1;
         self.num_chunks_in_blocks_processed += num_chunks;
@@ -119,6 +120,61 @@ impl InfoHelper {
         metrics::FINAL_BLOCK_HEIGHT.set(last_final_block_height as i64);
         metrics::FINAL_DOOMSLUG_BLOCK_HEIGHT.set(last_final_ds_block_height as i64);
         metrics::EPOCH_HEIGHT.set(epoch_height as i64);
+        metrics::FINAL_BLOCK_HEIGHT_IN_EPOCH.set(last_final_block_height_in_epoch as i64);
+    }
+
+    /// Count which shards are tracked by the node in the epoch indicated by head parameter.
+    fn record_tracked_shards(head: &Tip, client: &crate::client::Client) {
+        if let Ok(num_shards) = client.runtime_adapter.num_shards(&head.epoch_id) {
+            for shard_id in 0..num_shards {
+                let tracked = client.runtime_adapter.cares_about_shard(
+                    None,
+                    &head.last_block_hash,
+                    shard_id,
+                    false,
+                );
+                metrics::TRACKED_SHARDS
+                    .with_label_values(&[&shard_id.to_string()])
+                    .set(if tracked { 1 } else { 0 });
+            }
+        }
+    }
+
+    fn record_block_producers(head: &Tip, client: &crate::client::Client) {
+        let me = client.validator_signer.as_ref().map(|x| x.validator_id().clone());
+        let is_bp = me.map_or(false, |account_id| {
+            client
+                .runtime_adapter
+                .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash)
+                .unwrap()
+                .iter()
+                .any(|bp| bp.0.account_id() == &account_id)
+        });
+        metrics::IS_BLOCK_PRODUCER.set(if is_bp { 1 } else { 0 });
+    }
+
+    fn record_chunk_producers(head: &Tip, client: &crate::client::Client) {
+        if let (Some(account_id), Ok(epoch_info)) = (
+            client.validator_signer.as_ref().map(|x| x.validator_id().clone()),
+            client.runtime_adapter.get_epoch_info(&head.epoch_id),
+        ) {
+            for (shard_id, validators) in
+                epoch_info.chunk_producers_settlement().into_iter().enumerate()
+            {
+                let is_chunk_producer_for_shard = validators.iter().any(|&validator_id| {
+                    *epoch_info.validator_account_id(validator_id) == account_id
+                });
+                metrics::IS_CHUNK_PRODUCER_FOR_SHARD
+                    .with_label_values(&[&shard_id.to_string()])
+                    .set(if is_chunk_producer_for_shard { 1 } else { 0 });
+            }
+        } else if let Ok(num_shards) = client.runtime_adapter.num_shards(&head.epoch_id) {
+            for shard_id in 0..num_shards {
+                metrics::IS_CHUNK_PRODUCER_FOR_SHARD
+                    .with_label_values(&[&shard_id.to_string()])
+                    .set(0);
+            }
+        }
     }
 
     /// Print current summary.
@@ -178,6 +234,11 @@ impl InfoHelper {
         } else {
             None
         };
+
+        InfoHelper::record_tracked_shards(&head, &client);
+        InfoHelper::record_block_producers(&head, &client);
+        InfoHelper::record_chunk_producers(&head, &client);
+
         self.info(
             &head,
             &client.sync_status,
@@ -245,11 +306,6 @@ impl InfoHelper {
         let avg_bls = (self.num_blocks_processed as f64)
             / (self.started.elapsed().as_millis() as f64)
             * 1000.0;
-        let chunks_per_block = if self.num_blocks_processed > 0 {
-            (self.num_chunks_in_blocks_processed as f64) / (self.num_blocks_processed as f64)
-        } else {
-            0.
-        };
         let avg_gas_used =
             ((self.gas_used as f64) / (self.started.elapsed().as_millis() as f64) * 1000.0) as u64;
         let blocks_info_log =
@@ -289,13 +345,6 @@ impl InfoHelper {
         (metrics::CPU_USAGE.set(cpu_usage as i64));
         (metrics::MEMORY_USAGE.set((memory_usage * 1024) as i64));
         (metrics::PROTOCOL_UPGRADE_BLOCK_HEIGHT.set(protocol_upgrade_block_height as i64));
-
-        // TODO: Deprecated.
-        (metrics::BLOCKS_PER_MINUTE.set((avg_bls * (60 as f64)) as i64));
-        // TODO: Deprecated.
-        (metrics::CHUNKS_PER_BLOCK_MILLIS.set((1000. * chunks_per_block) as i64));
-        // TODO: Deprecated.
-        (metrics::AVG_TGAS_USAGE.set((avg_gas_used as f64 / TERAGAS).round() as i64));
 
         // In case we can't get the list of validators for the current and the previous epoch,
         // skip updating the per-validator metrics.
@@ -695,8 +744,7 @@ mod tests {
         let store = near_store::test_utils::create_test_store();
         let vs =
             ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test".parse().unwrap()]]);
-        let runtime =
-            Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(store, vs, 123, false));
+        let runtime = KeyValueRuntime::new_with_validators_and_no_gc(store, vs, 123, false);
         let chain_genesis = ChainGenesis {
             time: StaticClock::utc(),
             height: 0,

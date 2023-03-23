@@ -313,6 +313,16 @@ impl From<EpochError> for Error {
     }
 }
 
+pub trait EpochErrorResultToChainError<T> {
+    fn into_chain_error(self) -> Result<T, Error>;
+}
+
+impl<T> EpochErrorResultToChainError<T> for Result<T, EpochError> {
+    fn into_chain_error(self: Result<T, EpochError>) -> Result<T, Error> {
+        self.map_err(|err| err.into())
+    }
+}
+
 impl From<ShardLayoutError> for Error {
     fn from(error: ShardLayoutError) -> Self {
         match error {

@@ -1231,7 +1231,7 @@ impl JsonRpcHandler {
         actix::spawn(
             self.client_addr
                 .send(
-                    near_network::types::NetworkAdversarialMessage::AdvDisableHeaderSync
+                    near_client::NetworkAdversarialMessage::AdvDisableHeaderSync
                         .with_span_context(),
                 )
                 .map(|_| ()),
@@ -1239,7 +1239,7 @@ impl JsonRpcHandler {
         actix::spawn(
             self.view_client_addr
                 .send(
-                    near_network::types::NetworkAdversarialMessage::AdvDisableHeaderSync
+                    near_client::NetworkAdversarialMessage::AdvDisableHeaderSync
                         .with_span_context(),
                 )
                 .map(|_| ()),
@@ -1251,16 +1251,14 @@ impl JsonRpcHandler {
         actix::spawn(
             self.client_addr
                 .send(
-                    near_network::types::NetworkAdversarialMessage::AdvDisableDoomslug
-                        .with_span_context(),
+                    near_client::NetworkAdversarialMessage::AdvDisableDoomslug.with_span_context(),
                 )
                 .map(|_| ()),
         );
         actix::spawn(
             self.view_client_addr
                 .send(
-                    near_network::types::NetworkAdversarialMessage::AdvDisableDoomslug
-                        .with_span_context(),
+                    near_client::NetworkAdversarialMessage::AdvDisableDoomslug.with_span_context(),
                 )
                 .map(|_| ()),
         );
@@ -1272,7 +1270,7 @@ impl JsonRpcHandler {
         actix::spawn(
             self.client_addr
                 .send(
-                    near_network::types::NetworkAdversarialMessage::AdvProduceBlocks(
+                    near_client::NetworkAdversarialMessage::AdvProduceBlocks(
                         num_blocks, only_valid,
                     )
                     .with_span_context(),
@@ -1287,7 +1285,7 @@ impl JsonRpcHandler {
         actix::spawn(
             self.client_addr
                 .send(
-                    near_network::types::NetworkAdversarialMessage::AdvSwitchToHeight(height)
+                    near_client::NetworkAdversarialMessage::AdvSwitchToHeight(height)
                         .with_span_context(),
                 )
                 .map(|_| ()),
@@ -1295,7 +1293,7 @@ impl JsonRpcHandler {
         actix::spawn(
             self.view_client_addr
                 .send(
-                    near_network::types::NetworkAdversarialMessage::AdvSwitchToHeight(height)
+                    near_client::NetworkAdversarialMessage::AdvSwitchToHeight(height)
                         .with_span_context(),
                 )
                 .map(|_| ()),
@@ -1306,10 +1304,7 @@ impl JsonRpcHandler {
     async fn adv_get_saved_blocks(&self, _params: Value) -> Result<Value, RpcError> {
         match self
             .client_addr
-            .send(
-                near_network::types::NetworkAdversarialMessage::AdvGetSavedBlocks
-                    .with_span_context(),
-            )
+            .send(near_client::NetworkAdversarialMessage::AdvGetSavedBlocks.with_span_context())
             .await
         {
             Ok(result) => match result {
@@ -1324,7 +1319,7 @@ impl JsonRpcHandler {
         match self
             .client_addr
             .send(
-                near_network::types::NetworkAdversarialMessage::AdvCheckStorageConsistency
+                near_client::NetworkAdversarialMessage::AdvCheckStorageConsistency
                     .with_span_context(),
             )
             .await

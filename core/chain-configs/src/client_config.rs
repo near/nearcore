@@ -167,6 +167,15 @@ pub struct ClientConfig {
     pub client_background_migration_threads: usize,
     /// Duration to perform background flat storage creation step.
     pub flat_storage_creation_period: Duration,
+    /// If enabled, will dump state of every epoch to external storage.
+    pub state_sync_dump_enabled: bool,
+    /// S3 bucket for storing state dumps.
+    pub state_sync_s3_bucket: String,
+    /// S3 region for storing state dumps.
+    pub state_sync_s3_region: String,
+    /// Restart dumping state of selected shards.
+    /// Use for troubleshooting of the state dumping process.
+    pub state_sync_restart_dump_for_shards: Vec<ShardId>,
 }
 
 impl ClientConfig {
@@ -237,6 +246,10 @@ impl ClientConfig {
             enable_statistics_export: true,
             client_background_migration_threads: 1,
             flat_storage_creation_period: Duration::from_secs(1),
+            state_sync_dump_enabled: false,
+            state_sync_s3_bucket: String::new(),
+            state_sync_s3_region: String::new(),
+            state_sync_restart_dump_for_shards: vec![],
         }
     }
 }

@@ -19,7 +19,7 @@ use near_primitives::sharding::{
 };
 use near_primitives::syncing::{
     get_num_state_parts, ReceiptProofResponse, ShardStateSyncResponseHeader, StateHeaderKey,
-    StatePartKey,
+    StatePartKey, StateSyncDumpProgress,
 };
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof,
@@ -47,7 +47,6 @@ use crate::chunks_store::ReadOnlyChunksStore;
 use crate::types::{Block, BlockHeader, LatestKnown};
 use crate::{byzantine_assert, RuntimeWithEpochManagerAdapter};
 use near_store::db::StoreStatistics;
-use near_store::flat_state::{BlockInfo, ChainAccessForFlatStorage};
 use std::sync::Arc;
 
 /// lru cache size
@@ -839,6 +838,39 @@ impl ChainStore {
         }
         Ok(None)
     }
+
+    /// Constructs key 'STATE_SYNC_DUMP:<ShardId>',
+    /// for example 'STATE_SYNC_DUMP:2' for shard_id=2.
+    /// Doesn't contain epoch_id, because only one dump process per shard is allowed.
+    fn state_sync_dump_progress_key(shard_id: ShardId) -> Vec<u8> {
+        let mut key = b"STATE_SYNC_DUMP:".to_vec();
+        key.extend(shard_id.to_le_bytes());
+        key
+    }
+
+    /// Retrieves STATE_SYNC_DUMP for the given shard.
+    pub fn get_state_sync_dump_progress(
+        &self,
+        shard_id: ShardId,
+    ) -> Result<Option<StateSyncDumpProgress>, Error> {
+        option_to_not_found(
+            self.store
+                .get_ser(DBCol::BlockMisc, &ChainStore::state_sync_dump_progress_key(shard_id)),
+            "STATE_SYNC_DUMP",
+        )
+    }
+
+    /// Updates STATE_SYNC_DUMP for the given shard.
+    pub fn set_state_sync_dump_progress(
+        &self,
+        shard_id: ShardId,
+        value: Option<StateSyncDumpProgress>,
+    ) -> Result<(), Error> {
+        let mut store_update = self.store.store_update();
+        let key = ChainStore::state_sync_dump_progress_key(shard_id);
+        store_update.set_ser(DBCol::BlockMisc, &key, &value)?;
+        store_update.commit().map_err(|err| err.into())
+    }
 }
 
 impl ChainStoreAccess for ChainStore {
@@ -1130,20 +1162,6 @@ impl ChainStoreAccess for ChainStore {
         )
         .map(|r| r.is_some())
         .map_err(|e| e.into())
-    }
-}
-
-impl ChainAccessForFlatStorage for ChainStore {
-    fn get_block_info(&self, block_hash: &CryptoHash) -> BlockInfo {
-        let header = self.get_block_header(block_hash).unwrap();
-        BlockInfo { hash: *block_hash, height: header.height(), prev_hash: *header.prev_hash() }
-    }
-
-    fn get_block_hashes_at_height(&self, height: BlockHeight) -> HashSet<CryptoHash> {
-        match self.get_all_block_hashes_by_height(height) {
-            Ok(hashes) => hashes.values().flatten().copied().collect::<HashSet<_>>(),
-            Err(_) => Default::default(),
-        }
     }
 }
 
@@ -2417,7 +2435,10 @@ impl<'a> ChainStoreUpdate<'a> {
                 unreachable!();
             }
             #[cfg(feature = "protocol_feature_flat_state")]
-            DBCol::FlatState | DBCol::FlatStateDeltas | DBCol::FlatStateMisc => {
+            DBCol::FlatState
+            | DBCol::FlatStateChanges
+            | DBCol::FlatStateDeltaMetadata
+            | DBCol::FlatStorageStatus => {
                 unreachable!();
             }
         }
@@ -3005,8 +3026,7 @@ mod tests {
         let chain_genesis = ChainGenesis::test();
         let vs = ValidatorSchedule::new()
             .block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]]);
-        let runtime_adapter =
-            Arc::new(KeyValueRuntime::new_with_validators(store, vs, epoch_length));
+        let runtime_adapter = KeyValueRuntime::new_with_validators(store, vs, epoch_length);
         Chain::new(
             runtime_adapter,
             &chain_genesis,

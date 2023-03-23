@@ -39,6 +39,12 @@ pub enum Error {
     Other(String),
 }
 
+impl From<near_primitives::errors::EpochError> for Error {
+    fn from(err: near_primitives::errors::EpochError) -> Self {
+        Error::Chain(err.into())
+    }
+}
+
 #[derive(Clone, Debug, serde::Serialize, PartialEq)]
 pub enum AccountOrPeerIdOrHash {
     AccountId(AccountId),
@@ -605,6 +611,7 @@ pub struct NetworkInfoResponse {
 }
 
 /// Status of given transaction including all the subsequent receipts.
+#[derive(Debug)]
 pub struct TxStatus {
     pub tx_hash: CryptoHash,
     pub signer_account_id: AccountId,

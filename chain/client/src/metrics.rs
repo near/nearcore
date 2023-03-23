@@ -23,8 +23,28 @@ pub(crate) static CHUNK_PRODUCED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
 });
 
 pub(crate) static IS_VALIDATOR: Lazy<IntGauge> = Lazy::new(|| {
-    try_create_int_gauge("near_is_validator", "Bool to denote if it is currently validating")
-        .unwrap()
+    try_create_int_gauge(
+        "near_is_validator",
+        "Bool to denote if it is validating in the current epoch",
+    )
+    .unwrap()
+});
+
+pub(crate) static IS_BLOCK_PRODUCER: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge(
+        "near_is_block_producer",
+        "Bool to denote if the node is a block producer in the current epoch",
+    )
+    .unwrap()
+});
+
+pub(crate) static IS_CHUNK_PRODUCER_FOR_SHARD: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_is_chunk_producer_for_shard",
+        "Bool to denote if the node is a chunk producer for a shard in the current epoch",
+        &["shard_id"],
+    )
+    .unwrap()
 });
 
 pub(crate) static RECEIVED_BYTES_PER_SECOND: Lazy<IntGauge> = Lazy::new(|| {
@@ -43,20 +63,6 @@ pub(crate) static SENT_BYTES_PER_SECOND: Lazy<IntGauge> = Lazy::new(|| {
     .unwrap()
 });
 
-// Deprecated.
-pub(crate) static BLOCKS_PER_MINUTE: Lazy<IntGauge> = Lazy::new(|| {
-    try_create_int_gauge("near_blocks_per_minute", "Blocks produced per minute").unwrap()
-});
-
-// Deprecated.
-pub(crate) static CHUNKS_PER_BLOCK_MILLIS: Lazy<IntGauge> = Lazy::new(|| {
-    try_create_int_gauge(
-        "near_chunks_per_block_millis",
-        "Average number of chunks included in blocks",
-    )
-    .unwrap()
-});
-
 pub(crate) static CPU_USAGE: Lazy<IntGauge> =
     Lazy::new(|| try_create_int_gauge("near_cpu_usage_ratio", "Percent of CPU usage").unwrap());
 
@@ -66,15 +72,6 @@ pub(crate) static MEMORY_USAGE: Lazy<IntGauge> = Lazy::new(|| {
 
 pub(crate) static GC_TIME: Lazy<Histogram> = Lazy::new(|| {
     try_create_histogram("near_gc_time", "Time taken to do garbage collection").unwrap()
-});
-
-// Deprecated.
-pub(crate) static AVG_TGAS_USAGE: Lazy<IntGauge> = Lazy::new(|| {
-    try_create_int_gauge(
-        "near_chunk_tgas_used",
-        "Number of Tgas (10^12 of gas) used by the last processed chunks",
-    )
-    .unwrap()
 });
 
 pub(crate) static TGAS_USAGE_HIST: Lazy<HistogramVec> = Lazy::new(|| {
@@ -126,12 +123,24 @@ pub(crate) static VALIDATORS_BLOCKS_EXPECTED: Lazy<IntGaugeVec> = Lazy::new(|| {
     .unwrap()
 });
 
+pub(crate) static TRACKED_SHARDS: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec("near_client_tracked_shards", "Tracked shards", &["shard_id"]).unwrap()
+});
+
 pub(crate) static SYNC_STATUS: Lazy<IntGauge> =
     Lazy::new(|| try_create_int_gauge("near_sync_status", "Node sync status").unwrap());
 
 pub(crate) static EPOCH_HEIGHT: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge("near_epoch_height", "Height of the epoch at the head of the blockchain")
         .unwrap()
+});
+
+pub(crate) static FINAL_BLOCK_HEIGHT_IN_EPOCH: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge(
+        "near_final_block_height_in_epoch",
+        "Height of the last block within the epoch.",
+    )
+    .unwrap()
 });
 
 pub(crate) static PROTOCOL_UPGRADE_BLOCK_HEIGHT: Lazy<IntGauge> = Lazy::new(|| {
