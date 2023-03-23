@@ -1566,7 +1566,7 @@ pub struct StateSyncConfig {
     /// Region is very important on S3.
     pub s3_region: String,
     /// Whether a node should dump state of each epoch to the external storage.
-    #[serde(skip_serializing_if = "is_false")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub dump_enabled: Option<bool>,
     /// Use carefully in case a node that dumps state to the external storage
     /// gets in trouble.
@@ -1574,7 +1574,7 @@ pub struct StateSyncConfig {
     pub drop_state_of_dump: Option<Vec<ShardId>>,
     /// If enabled, will download state parts from external storage and not from
     /// the peers.
-    #[serde(skip_serializing_if = "is_false")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub sync_from_s3_enabled: Option<bool>,
     /// When syncing state from S3, throttle requests to this many concurrent
     /// requests per shard.

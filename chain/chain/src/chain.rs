@@ -1861,7 +1861,6 @@ impl Chain {
                 }
             }
         }
-
         tracing::trace!(target: "sync", progress = "loop done", "reset_data_pre_state_sync");
 
         // Clear Chunks data
@@ -1870,7 +1869,6 @@ impl Chain {
         let chunk_height = std::cmp::min(head.height + 2, sync_height);
         chain_store_update.clear_chunk_data_and_headers(chunk_height)?;
         chain_store_update.commit()?;
-
         tracing::trace!(target: "sync", progress = "chunks data cleaned up", "reset_data_pre_state_sync");
 
         // clear all trie data
@@ -1883,7 +1881,6 @@ impl Chain {
         // The reason to reset tail here is not to allow Tail be greater than Head
         chain_store_update.reset_tail();
         chain_store_update.commit()?;
-
         tracing::trace!(target: "sync", progress = "state data cleaned up", "reset_data_pre_state_sync");
 
         Ok(())
@@ -3144,9 +3141,6 @@ impl Chain {
         part_id: PartId,
         data: &[u8],
     ) -> Result<(), Error> {
-        let _timer = metrics::STATE_SYNC_SET_STATE_PART_DELAY
-            .with_label_values(&[&shard_id.to_string()])
-            .start_timer();
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let chunk = shard_state_header.take_chunk();
         let state_root = *chunk.take_header().take_inner().prev_state_root();

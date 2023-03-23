@@ -110,13 +110,3 @@ pub static STATE_PART_ELAPSED: Lazy<HistogramVec> = Lazy::new(|| {
 pub static NUM_INVALID_BLOCKS: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge("near_num_invalid_blocks", "Number of invalid blocks").unwrap()
 });
-pub static STATE_SYNC_SET_STATE_PART_DELAY: Lazy<near_o11y::metrics::HistogramVec> =
-    Lazy::new(|| {
-        try_create_histogram_vec(
-            "near_state_sync_set_state_part_delay",
-            "Delay for saving a state part in the DB",
-            &["shard_id"],
-            Some(exponential_buckets(0.001, 2.0, 20).unwrap()),
-        )
-        .unwrap()
-    });

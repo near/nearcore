@@ -3,7 +3,7 @@ use borsh::BorshSerialize;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error};
 use near_chain_configs::ClientConfig;
-use near_client::sync::state::StateSync;
+use near_client::sync::state::{s3_location, StateSync};
 use near_crypto::PublicKey;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::hash::CryptoHash;
@@ -175,7 +175,7 @@ async fn state_sync_dump(
                         .with_label_values(&[&shard_id.to_string()])
                         .start_timer();
 
-                    let state_part = match get_state_part(
+                    let state_part = match obtain_and_store_state_part(
                         &runtime,
                         &shard_id,
                         &sync_hash,
@@ -328,7 +328,8 @@ fn set_metrics(
     }
 }
 
-fn get_state_part(
+/// Obtains and then saves the part data.
+fn obtain_and_store_state_part(
     runtime: &Arc<NightshadeRuntime>,
     shard_id: &ShardId,
     sync_hash: &CryptoHash,
@@ -337,19 +338,13 @@ fn get_state_part(
     num_parts: u64,
     chain: &Chain,
 ) -> Result<Vec<u8>, Error> {
-    let state_part = {
-        let _timer = metrics::STATE_SYNC_DUMP_OBTAIN_PART_ELAPSED
-            .with_label_values(&[&shard_id.to_string()])
-            .start_timer();
-        runtime.obtain_state_part(
-            *shard_id,
-            &sync_hash,
-            &state_root,
-            PartId::new(part_id, num_parts),
-        )?
-    };
+    let state_part = runtime.obtain_state_part(
+        *shard_id,
+        &sync_hash,
+        &state_root,
+        PartId::new(part_id, num_parts),
+    )?;
 
-    // Save the part data.
     let key = StatePartKey(*sync_hash, *shard_id, part_id).try_to_vec()?;
     let mut store_update = chain.store().store().store_update();
     store_update.set(DBCol::StateParts, &key, &state_part);
@@ -425,17 +420,4 @@ fn check_new_epoch(
             start_dumping(head.epoch_id, sync_hash, shard_id, &chain, runtime)
         }
     }
-}
-
-fn s3_location(
-    chain_id: &str,
-    epoch_height: u64,
-    shard_id: u64,
-    part_id: u64,
-    num_parts: u64,
-) -> String {
-    format!(
-        "chain_id={}/epoch_height={}/shard_id={}/state_part_{:06}_of_{:06}",
-        chain_id, epoch_height, shard_id, part_id, num_parts
-    )
 }

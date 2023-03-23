@@ -203,7 +203,7 @@ impl ShardSyncDownload {
     /// Creates a instance of self which includes initial statuses for shard state header download at the given time.
     pub fn new_download_state_header(now: DateTime<Utc>) -> Self {
         Self {
-            downloads: vec![DownloadStatus::new(now); 1],
+            downloads: vec![DownloadStatus::new(now)],
             status: ShardSyncStatus::StateDownloadHeader,
         }
     }
