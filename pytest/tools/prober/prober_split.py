@@ -4,7 +4,8 @@ Prober that is compatible with cloudprober.
 
 The ProberSplit queries two nodes for blocks and chunks at random heights and
 compares the results. The expectation is that the block and chunks at each
-height will be identical even when fetched from two different nodes.
+height will be identical even when fetched from two different nodes. It also
+executes a contract view call on both nodes and compares the results.
 
 The prober runs continuously for the duration specified in the command line
 arguments. It runs at least one block and chunk check at a random height.
@@ -13,7 +14,7 @@ The intended goal of this prober is ensure that a legacy archival node and a
 split storage archival node contain the same data.
 
 Run like this:
-./prober_split.py --legacy-url http://legacy.archival.node:3030 --split-url http://split.archival.node:3030
+./prober_split.py --chain-id testnet --split-url http://split.archival.node:3030 --duration-ms 20000
 
 """
 
@@ -88,7 +89,6 @@ def check_chunks(legacy_url: str, split_url: str, block):
         return
 
     logger.info(f"Checking chunks.")
-
     for chunk in block['chunks']:
         legacy_chunk = get_chunk(chunk, legacy_url)
         split_chunk = get_chunk(chunk, split_url)
