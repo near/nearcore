@@ -995,12 +995,16 @@ impl StateSync {
                 let prev = part_download.prev_update_time;
                 let part_timeout = now - prev > self.timeout; // Retry parts that failed.
                 if part_timeout || part_download.error {
-                    metrics::STATE_SYNC_RETRY_PART
-                        .with_label_values(&[&shard_id.to_string()])
-                        .inc();
                     download_timeout |= part_timeout;
                     if part_timeout ||
                         part_download.last_target != Some(near_client_primitives::types::AccountOrPeerIdOrHash::ExternalStorage) {
+                        // Don't immediately retry failed requests from external
+                        // storage. Most often error is a state part not
+                        // available. That error doesn't get fixed by retrying,
+                        // but rather by waiting.
+                        metrics::STATE_SYNC_RETRY_PART
+                            .with_label_values(&[&shard_id.to_string()])
+                            .inc();
                         part_download.run_me.store(true, Ordering::SeqCst);
                         part_download.error = false;
                         part_download.prev_update_time = now;
