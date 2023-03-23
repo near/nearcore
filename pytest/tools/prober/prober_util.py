@@ -5,12 +5,17 @@ import json
 import time
 import pathlib
 import requests
+import json
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 import configured_logger
 
 logger = configured_logger.new_logger("stderr", stderr=True)
+
+
+def pretty_print(value) -> str:
+    return json.dumps(value, indent=2)
 
 
 def json_rpc(method, params, url):
@@ -76,7 +81,10 @@ def get_chunk(chunk, url):
         chunk_hash = chunk['chunk_hash']
         chunk = json_rpc('chunk', {'chunk_id': chunk_hash}, url)
         chunk = chunk['result']
-        logger.debug(f'Got chunk {chunk_hash} for shard {shard_id}')
+
+        logger.debug(
+            f'Got chunk {chunk_hash} for shard {shard_id} chunk: {pretty_print(chunk)}'
+        )
         return chunk
     except Exception as e:
         logger.error(f'get_chunk({chunk_hash}, {url}) failed: {e}')
