@@ -2250,7 +2250,6 @@ impl<'a> ChainStoreUpdate<'a> {
     // Clearing block data of `block_hash`, which is the head of the chain
     pub fn clear_block_data_head_reset(
         &mut self,
-        //runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
         block_hash: CryptoHash,
     ) -> Result<(), Error> {
         let store_update = self.store().store_update();

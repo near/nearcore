@@ -9,9 +9,7 @@ use nearcore::load_config;
 use std::path::Path;
 
 #[derive(clap::Parser)]
-pub struct ResetHeadToPrevCommand {
-    // store_temperature: Temperature,
-}
+pub struct ResetHeadToPrevCommand {}
 
 impl ResetHeadToPrevCommand {
     pub fn run(
@@ -39,27 +37,19 @@ impl ResetHeadToPrevCommand {
             near_config.client_config.save_trie_changes,
         );
 
-        // let runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter> =
-        //     Arc::new(NightshadeRuntime::from_config(home_dir, store, &near_config));
-
-        let head = chain_store.head().unwrap();
-        let current_final_head = chain_store.final_head().unwrap();
-        // let head_height = head.height;
-        let head_hash = head.last_block_hash;
-        // let head_block = chain_store.get_block(&head_hash);
-        let prev_hash = head.prev_block_hash;
-        let prev_header = chain_store.get_block_header(&prev_hash).unwrap();
+        let current_head = chain_store.head()?;
+        let current_head_hash = current_head.last_block_hash;
+        let prev_hash = current_head.prev_block_hash;
+        let prev_header = chain_store.get_block_header(&prev_hash)?;
         let prev_tip = Tip::from_header(&prev_header);
-        // let prev_block = chain_store.get_block(&prev_hash).unwrap();
 
         tracing::info!(target: "neard", "trying to update head from block hash {} to block hash {}", head_hash, prev_hash);
         tracing::info!(target: "neard", "current head height is {}, trying to update to height {}", head.height, prev_tip.height);
+        
         let mut chain_store_update = ChainStoreUpdate::new(&mut chain_store);
 
-        // chain_store_update.dec_block_refcount(&prev_hash)?;
-
         // stop if it's already the final block
-        if current_final_head.height >= prev_tip.height {
+        if chain_store.final_head()?.height >= prev_tip.height {
             return Err(anyhow::anyhow!("cannot revert past final block"));
         }
 
@@ -68,16 +58,6 @@ impl ResetHeadToPrevCommand {
 
         chain_store_update.save_head(&prev_tip)?;
 
-        // // This shouldn't be required if we are only reverting 1-2 heights
-        // if current_final_head.height >= prev_tip.height {
-        //     chain_store_update.save_final_head(&prev_tip)?;
-        // }
-
-        // // update tail if tail is higher than the new head
-        // if chain_store_update.tail().unwrap() > prev_tip.height {
-        //     chain_store_update.update_tail(prev_tip.height)?;
-        // }
-
         chain_store_update.commit()?;
 
         chain_store.save_latest_known(LatestKnown {
@@ -85,12 +65,11 @@ impl ResetHeadToPrevCommand {
             seen: to_timestamp(Utc::now()),
         })?;
 
-        let new_chain_store_head = chain_store.head().unwrap();
-        let new_chain_store_header_head = chain_store.header_head().unwrap();
+        let new_chain_store_head = chain_store.head()?;
+        let new_chain_store_header_head = chain_store.header_head()?;
 
         tracing::info!(target: "neard", "The current chain store shows head is at height {}", new_chain_store_head.height);
         tracing::info!(target: "neard", "The current chain store shows header head is at height {}", new_chain_store_header_head.height);
-        //tracing::info!(target: "neard", "The current chain store shows head is at block hash {}", new_chain_store_head.last_block_hash);
         Ok(())
     }
 }
