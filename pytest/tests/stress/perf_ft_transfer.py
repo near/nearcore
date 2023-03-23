@@ -40,10 +40,10 @@ import account
 import mocknet_helpers
 from configured_logger import new_logger
 
-N_ACCOUNTS = 1000
-MAX_INFLIGHT_TXS = 1000 # aka. TXs per test iteration
+N_ACCOUNTS = 100000
+MAX_INFLIGHT_TXS = 2500 # aka. TXs per test iteration
 GAS_PER_BLOCK = 10E14
-TRANSACTIONS_PER_BLOCK = 101
+TRANSACTIONS_PER_BLOCK = 121
 SEED = random.uniform(0, 0xFFFFFFFF)
 logger = new_logger(level = logging.INFO)
 
@@ -54,9 +54,11 @@ def main():
     parser.add_argument('--setup-cluster', default=False,
         help='Whether to start a dedicated cluster instead of connecting to an existing local node',
         action='store_true')
+    parser.add_argument('--key', default=None, 
+        help='Key to use to send near for implicit account creation')
     args = parser.parse_args()
 
-    logger.warn(f"SEED is {SEED}")
+    logger.warning(f"SEED is {SEED}")
     rng = random.Random(SEED)
 
     if args.setup_cluster:
@@ -66,14 +68,21 @@ def main():
                 "tracked_shards": [0, 1, 2, 3],
             }
         })
-        signer_key = nodes[0].signer_key
+        if args.key is None:
+            signer_key = nodes[0].signer_key
+        else:
+            signer_key = key.Key.from_json_file(args.key)
+
     else:
         nodes = [
             cluster.RpcNode("127.0.0.1", 3030),
         ]
         # The `nearup` localnet setup stores the keys in this directory.
-        key_path = pathlib.Path.home() / ".near/localnet/node0/shard0_key.json"
-        signer_key = key.Key.from_json_file(key_path.resolve())
+        if args.key is None:
+            key_path = (pathlib.Path.home() / ".near/localnet/node0/shard0_key.json").resolve()
+        else:
+            key_path = args.key
+        signer_key = key.Key.from_json_file(key_path)
 
     block_hash = nodes[0].get_latest_block().hash
     block_hash = base58.b58decode(block_hash)
@@ -87,33 +96,42 @@ def main():
         block_hash,
         rpc_infos=[("127.0.0.1", nodes[0].rpc_port)])
 
+    logger.warning(f"DEPLOYING CONTRACT TO {node0_acct.key.account_id}")
     contract_tx = node0_acct.send_deploy_contract_tx(args.fungible_token_wasm)
     assert wait_tx(nodes[0], contract_tx["result"], node0_acct.key.account_id)
 
     accounts = []
-    for i in range(N_ACCOUNTS):
-        k = key.Key.implicit_account()
-        accounts.append(account.Account(k, 0, block_hash, rpc_info=("127.0.0.1", nodes[0].rpc_port)))
-    for_each_account_until_all_succeed(nodes[0], accounts, 10, create_account_factory(node0_acct))
+    for i in range(N_ACCOUNTS // 2500):
+        new_accounts = []
+        logger.warning(f"CREATING 2500 TEST ACCOUNTS")
+        for j in range(2500):
+            k = key.Key.implicit_account()
+            new_accounts.append(account.Account(k, 0, block_hash, rpc_info=("127.0.0.1", nodes[0].rpc_port)))
+        for_each_account_until_all_succeed(nodes[0], new_accounts, 10, create_account_factory(node0_acct))
+        accounts.extend(new_accounts)
 
+    logger.warning(f"INITIALIZING THE FT CONTRACT")
     s = f'{{"owner_id": "{node0_acct.key.account_id}", "total_supply": "{10**33}"}}'
     tx = node0_acct.send_call_contract_tx("new_default_meta", s.encode('utf-8'))
     assert wait_tx(nodes[0], tx["result"], node0_acct.key.account_id)
 
+    logger.warning(f"GETTING NONCES FOR ALL ACCOUNTS")
     for acct in accounts:
         acct.nonce = mocknet_helpers.get_nonce_for_pk(
             acct.key.account_id,
             acct.key.pk,
             port = nodes[0].rpc_port
         )
+    logger.warning(f"INITIALIZING ACCOUNTS' FT CONTRACT")
     for_each_account_until_all_succeed(nodes[0], accounts, 10, ft_account_init_factory(node0_acct))
+    logger.warning(f"INITIALIZING ACCOUNTS' FT CONTRACT PART 2")
     for_each_account_until_all_succeed(nodes[0], accounts, 10, transfer_tokens_factory(node0_acct, node0_acct))
     # Setup is complete at this point.
 
     for iteration in itertools.count():
         block_hash = nodes[0].get_latest_block().hash
         block_hash = base58.b58decode(block_hash)
-        logger.info(f"TEST ITERATION {iteration}")
+        logger.warning(f"TEST ITERATION {iteration}")
         txs = set()
         failed = 0
         for _ in range(MAX_INFLIGHT_TXS):
@@ -165,7 +183,7 @@ def transfer_tokens_factory(node, sender):
 
 def create_account_factory(sender):
     def create_account(acct):
-        result = sender.send_transfer_tx(acct.key.account_id, 10**24)
+        result = sender.send_transfer_tx(acct.key.account_id, 2 * 10**24)
         return result["result"], acct.key.account_id
     return create_account
 
@@ -182,6 +200,8 @@ def for_each_account_until_all_succeed(node, accounts, limit, send_tx):
             (tx_id, recipient), v = waitlist.popitem()
             if not wait_tx(node, tx_id, recipient):
                 accounts_to_succeed.add(v)
+        if accounts_to_succeed:
+            logger.warning(f"RETRYING {len(accounts_to_succeed)} TRANSACTIONS!")
 
 
 def wait_tx_once(node, tx_id, recipient):
