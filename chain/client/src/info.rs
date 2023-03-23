@@ -543,6 +543,14 @@ pub fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
             for (shard_id, shard_status) in shard_statuses {
                 write!(res, "[{}: {}]", shard_id, shard_status.status.to_string(),).unwrap();
             }
+            // TODO #8719
+            tracing::warn!(target: "stats",
+                "The node is syncing its State. The current implementation of this mechanism is known to be unreliable. It may never complete, or fail randomly and corrupt the DB.\n\
+                 Suggestions:\n\
+                 * Download a recent data snapshot and restart the node.\n\
+                 * Disable state sync in the config. Add `\"state_sync_enabled\": false` to `config.json`.\n\
+                 \n\
+                 A better implementation of State Sync is work in progress.");
             res
         }
         SyncStatus::StateSyncDone => "State sync done".to_string(),

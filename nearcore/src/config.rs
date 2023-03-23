@@ -356,6 +356,9 @@ pub struct Config {
     /// Options for dumping state of every epoch to S3.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state_sync: Option<StateSyncConfig>,
+    /// Whether to use state sync (unreliable and corrupts the DB if fails) or do a block sync instead.
+    #[serde(skip_serializing_if = "is_false")]
+    pub state_sync_enabled: bool,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -393,6 +396,7 @@ impl Default for Config {
             split_storage: None,
             expected_shutdown: None,
             state_sync: None,
+            state_sync_enabled: false,
         }
     }
 }
@@ -717,6 +721,7 @@ impl NearConfig {
                     .state_sync
                     .as_ref()
                     .map_or(vec![], |x| x.drop_state_of_dump.clone().unwrap_or(vec![])),
+                state_sync_enabled: config.state_sync_enabled,
             },
             network_config: NetworkConfig::new(
                 config.network,
