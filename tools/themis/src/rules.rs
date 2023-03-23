@@ -2,6 +2,7 @@ use super::types::{ComplianceError, Expected, Outlier, Workspace};
 use super::{style, utils};
 use crate::utils::read_toml;
 use anyhow::bail;
+use cargo_metadata::DependencyKind;
 use std::collections::{BTreeMap, HashMap};
 
 /// Ensure all crates have the `publish = <true/false>` specification
@@ -330,12 +331,14 @@ pub fn recursively_publishable(workspace: &Workspace) -> anyhow::Result<()> {
     let mut outliers = BTreeMap::new();
     for pkg in workspace.members.iter().filter(|pkg| utils::is_publishable(pkg)) {
         for dep in &pkg.parsed.dependencies {
-            if let Some(dep) = workspace.members.iter().find(|p| p.parsed.name == dep.name) {
-                if !utils::is_publishable(dep) {
-                    outliers
-                        .entry(dep.parsed.manifest_path.clone())
-                        .or_insert_with(Vec::new)
-                        .push(pkg.parsed.name.clone())
+            if matches!(dep.kind, DependencyKind::Normal | DependencyKind::Build) {
+                if let Some(dep) = workspace.members.iter().find(|p| p.parsed.name == dep.name) {
+                    if !utils::is_publishable(dep) {
+                        outliers
+                            .entry(dep.parsed.manifest_path.clone())
+                            .or_insert_with(Vec::new)
+                            .push(pkg.parsed.name.clone())
+                    }
                 }
             }
         }
