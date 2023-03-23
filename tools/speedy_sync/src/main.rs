@@ -17,7 +17,6 @@ use near_store::{DBCol, Mode, NodeStorage, Store, StoreUpdate};
 use nearcore::NightshadeRuntime;
 use std::fs;
 use std::path::Path;
-use std::sync::Arc;
 
 #[derive(serde::Serialize, BorshSerialize, BorshDeserialize)]
 pub struct BlockCheckpoint {
@@ -227,7 +226,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
         .unwrap()
         .get_hot_store();
     let chain_genesis = ChainGenesis::new(&config.genesis);
-    let runtime = Arc::new(NightshadeRuntime::from_config(home_dir, store.clone(), &config));
+    let runtime = NightshadeRuntime::from_config(home_dir, store.clone(), &config);
     // This will initialize the database (add genesis block etc)
     let _chain = Chain::new(
         runtime,

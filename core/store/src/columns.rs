@@ -325,7 +325,7 @@ impl DBCol {
     ///   release.
     /// * GC (and only GC) is allowed to remove any value.
     ///
-    /// In some sence, insert-only column acts as an rc-column, where rc is
+    /// In some sense, insert-only column acts as an rc-column, where rc is
     /// always one.
     pub const fn is_insert_only(&self) -> bool {
         match self {

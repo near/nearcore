@@ -5,6 +5,7 @@ use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType};
+use near_o11y::pretty;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
 use near_primitives::sharding::ShardChunk;
@@ -24,12 +25,13 @@ use std::collections::HashSet;
 use strum::IntoEnumIterator;
 
 fn check_key(first_store: &Store, second_store: &Store, col: DBCol, key: &[u8]) {
-    tracing::debug!("Checking {:?} {:?}", col, key);
+    let pretty_key = pretty::StorageKey(key);
+    tracing::debug!("Checking {:?} {:?}", col, pretty_key);
 
     let first_res = first_store.get(col, key);
     let second_res = second_store.get(col, key);
 
-    assert_eq!(first_res.unwrap(), second_res.unwrap());
+    assert_eq!(first_res.unwrap(), second_res.unwrap(), "col: {:?} key: {:?}", col, pretty_key);
 }
 
 fn check_iter(
@@ -252,11 +254,11 @@ fn test_cold_db_copy_with_height_skips() {
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
 
-    let store = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
+    let storage = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
 
-    test_cold_genesis_update(&*store.cold_db().unwrap(), &env.clients[0].runtime_adapter.store())
+    test_cold_genesis_update(&*storage.cold_db().unwrap(), &env.clients[0].runtime_adapter.store())
         .unwrap();
 
     for h in 1..max_height {
@@ -291,7 +293,7 @@ fn test_cold_db_copy_with_height_skips() {
         };
 
         update_cold_db(
-            &*store.cold_db().unwrap(),
+            &*storage.cold_db().unwrap(),
             &env.clients[0].runtime_adapter.store(),
             &env.clients[0]
                 .runtime_adapter
@@ -327,7 +329,7 @@ fn test_cold_db_copy_with_height_skips() {
         if col.is_cold() {
             let num_checks = check_iter(
                 &env.clients[0].runtime_adapter.store(),
-                &store.get_cold_store().unwrap(),
+                &storage.get_cold_store().unwrap(),
                 col,
                 &no_check_rules,
             );
