@@ -108,8 +108,6 @@ pub enum StateSyncMode {
         chain_id: String,
         /// Connection to the external storage.
         bucket: Arc<s3::Bucket>,
-        /// Number state part requests allowed to be in-flight in parallel per shard.
-        num_s3_requests_per_shard: u64,
     },
 }
 
@@ -174,7 +172,6 @@ impl StateSync {
                 StateSyncMode::HeaderFromPeersAndPartsFromExternal {
                     chain_id: chain_id.to_string(),
                     bucket,
-                    num_s3_requests_per_shard,
                 },
                 None,
             )
@@ -671,11 +668,7 @@ impl StateSync {
                         sync_hash,
                     );
                 }
-                StateSyncMode::HeaderFromPeersAndPartsFromExternal {
-                    chain_id,
-                    bucket,
-                    num_s3_requests_per_shard: _,
-                } => {
+                StateSyncMode::HeaderFromPeersAndPartsFromExternal { chain_id, bucket } => {
                     self.request_part_from_external_storage(
                         part_id as u64,
                         download,
@@ -720,7 +713,7 @@ impl StateSync {
         let scheduled = StaticClock::utc();
         near_performance_metrics::actix::spawn(std::any::type_name::<Self>(), {
             async move {
-                tracing::info!(target: "sync", %shard_id, part_id, location, "Getting an object from the external storage");
+                tracing::debug!(target: "sync", %shard_id, part_id, location, "Getting an object from the external storage");
                 let started = StaticClock::utc();
                 metrics::STATE_SYNC_EXTERNAL_PARTS_SCHEDULING_DELAY
                     .with_label_values(&[&shard_id.to_string()])
@@ -741,12 +734,12 @@ impl StateSync {
                     );
                 match result {
                     Ok(response) => {
-                        tracing::info!(target: "sync", %shard_id, part_id, location, response_code = response.status_code(), num_bytes = response.bytes().len(), "S3 request finished");
+                        tracing::debug!(target: "sync", %shard_id, part_id, location, response_code = response.status_code(), num_bytes = response.bytes().len(), "S3 request finished");
                         let mut lock = download_response.lock().unwrap();
                         *lock = Some(Ok((response.status_code(), response.bytes().to_vec())));
                     }
                     Err(err) => {
-                        tracing::info!(target: "sync", %shard_id, part_id, location, ?err, "S3 request failed");
+                        tracing::debug!(target: "sync", %shard_id, part_id, location, ?err, "S3 request failed");
                         let mut lock = download_response.lock().unwrap();
                         *lock = Some(Err(err.to_string()));
                     }
@@ -1188,6 +1181,7 @@ impl StateSync {
     }
 }
 
+/// Verifies that one more concurrent request can be started.
 fn allow_request(requests_remaining: &AtomicI64) -> bool {
     let remaining = requests_remaining.fetch_sub(1, Ordering::SeqCst);
     if remaining >= 0 {
@@ -1198,6 +1192,7 @@ fn allow_request(requests_remaining: &AtomicI64) -> bool {
     }
 }
 
+/// Notify about a request finishing.
 fn finished_request(requests_remaining: &AtomicI64) {
     requests_remaining.fetch_add(1, Ordering::SeqCst);
 }
@@ -1221,8 +1216,8 @@ fn check_external_storage_part_response(
         if let Some(response) = lock.clone() {
             tracing::debug!(target: "sync", %shard_id, part_id, "Got response from external storage");
             // Remove the response from DownloadStatus, because
-            // we're going to write positive responses to the DB
-            // and retry negative responses.
+            // we're going to write state parts to DB and don't need to keep
+            // them in `DownloadStatus`.
             *lock = None;
             response
         } else {
@@ -1294,9 +1289,10 @@ pub fn s3_location(
     )
 }
 
-fn paint(s: &str, colour: Style, use_colour: bool) -> String {
-    if use_colour {
-        colour.paint(s).to_string()
+/// Applies style if `use_colour` is enabled.
+fn paint(s: &str, style: Style, use_style: bool) -> String {
+    if use_style {
+        style.paint(s).to_string()
     } else {
         s.to_string()
     }

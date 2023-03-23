@@ -1817,7 +1817,6 @@ impl Chain {
     }
 
     pub fn reset_data_pre_state_sync(&mut self, sync_hash: CryptoHash) -> Result<(), Error> {
-        let mut d = DelayDetector::new(|| "reset_data_pre_state_sync".into());
         let _span = tracing::debug_span!(target: "sync", "reset_data_pre_state_sync").entered();
         let head = self.head()?;
         // Get header we were syncing into.
@@ -1830,11 +1829,10 @@ impl Chain {
         // there is no block, we need to make sure that the last block before tail is cleaned.
         let tail = self.store.tail()?;
         let mut tail_prev_block_cleaned = false;
-        tracing::debug!(target: "sync", tail, gc_height, "reset_data_pre_state_sync");
+        tracing::trace!(target: "sync", tail, gc_height, "reset_data_pre_state_sync");
         for height in tail..gc_height {
-            if height % 100 == 0 {
-                d.snapshot(&format!("reset_data_pre_state_sync height={}", height));
-                tracing::debug!(target: "sync", height, tail, gc_height, "reset_data_pre_state_sync progress");
+            if height % 1000 == 0 {
+                tracing::trace!(target: "sync", tail, gc_height, progress = height, "reset_data_pre_state_sync");
             }
             if let Ok(blocks_current_height) = self.store.get_all_block_hashes_by_height(height) {
                 let blocks_current_height =
@@ -1864,8 +1862,7 @@ impl Chain {
             }
         }
 
-        d.snapshot("reset_data_pre_state_sync loop done");
-        tracing::debug!(target: "sync", "reset_data_pre_state_sync loop done");
+        tracing::trace!(target: "sync", progress = "loop done", "reset_data_pre_state_sync");
 
         // Clear Chunks data
         let mut chain_store_update = self.mut_store().store_update();
@@ -1874,8 +1871,7 @@ impl Chain {
         chain_store_update.clear_chunk_data_and_headers(chunk_height)?;
         chain_store_update.commit()?;
 
-        d.snapshot("reset_data_pre_state_sync chunks data cleaned up");
-        tracing::debug!(target: "sync", "reset_data_pre_state_sync chunks data cleaned up");
+        tracing::trace!(target: "sync", progress = "chunks data cleaned up", "reset_data_pre_state_sync");
 
         // clear all trie data
         let tries = self.runtime_adapter.get_tries();
@@ -1888,8 +1884,7 @@ impl Chain {
         chain_store_update.reset_tail();
         chain_store_update.commit()?;
 
-        d.snapshot("reset_data_pre_state_sync chunks trie data cleaned up");
-        tracing::debug!(target: "sync", "reset_data_pre_state_sync chunks trie data cleaned up");
+        tracing::trace!(target: "sync", progress = "state data cleaned up", "reset_data_pre_state_sync");
 
         Ok(())
     }
@@ -3149,6 +3144,9 @@ impl Chain {
         part_id: PartId,
         data: &[u8],
     ) -> Result<(), Error> {
+        let _timer = metrics::STATE_SYNC_SET_STATE_PART_DELAY
+            .with_label_values(&[&shard_id.to_string()])
+            .start_timer();
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let chunk = shard_state_header.take_chunk();
         let state_root = *chunk.take_header().take_inner().prev_state_root();

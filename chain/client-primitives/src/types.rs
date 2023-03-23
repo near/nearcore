@@ -86,12 +86,13 @@ impl Clone for DownloadStatus {
         DownloadStatus {
             start_time: self.start_time,
             prev_update_time: self.prev_update_time,
+            // Creates a new `Arc` holding the same value.
             run_me: Arc::new(AtomicBool::new(self.run_me.load(Ordering::SeqCst))),
             error: self.error,
             done: self.done,
             state_requests_count: self.state_requests_count,
             last_target: self.last_target.clone(),
-            // Copy the contents of `response`, but make it an independent object.
+            // Clones the `Arc` containing the value.
             response: self.response.clone(),
         }
     }
@@ -199,7 +200,7 @@ pub struct ShardSyncDownload {
 }
 
 impl ShardSyncDownload {
-    /// Creates a instance of self which includes initial statuses for shard sync and download at the given time.
+    /// Creates a instance of self which includes initial statuses for shard state header download at the given time.
     pub fn new_download_state_header(now: DateTime<Utc>) -> Self {
         Self {
             downloads: vec![DownloadStatus::new(now); 1],
@@ -207,8 +208,10 @@ impl ShardSyncDownload {
         }
     }
 
+    /// Creates a instance of self which includes initial statuses for shard state parts download at the given time.
     pub fn new_download_state_parts(now: DateTime<Utc>, num_parts: u64) -> Self {
-        // Avoid using `vec![x; num_parts]`, because cloning DownloadStatus::response is a terrible idea.
+        // Avoid using `vec![x; num_parts]`, because each element needs to have
+        // its own independent value of `response`.
         let mut downloads = Vec::with_capacity(num_parts as usize);
         for _ in 0..num_parts {
             downloads.push(DownloadStatus::new(now));

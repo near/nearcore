@@ -69,7 +69,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, trace, warn};
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
@@ -256,7 +256,7 @@ impl Actor for ClientActor {
         self.catchup(ctx);
 
         if let Err(err) = self.client.send_network_chain_info() {
-            tracing::error!(target: "client", ?err, "Failed to update network chain info");
+            error!(target: "client", ?err, "Failed to update network chain info");
         }
     }
 }
@@ -500,7 +500,7 @@ impl Handler<WithSpanContext<BlockApproval>> for ClientActor {
     fn handle(&mut self, msg: WithSpanContext<BlockApproval>, ctx: &mut Context<Self>) {
         self.wrap(msg, ctx, "BlockApproval", |this, msg| {
             let BlockApproval(approval, peer_id) = msg;
-            tracing::debug!(target: "client", "Receive approval {:?} from peer {:?}", approval, peer_id);
+            debug!(target: "client", "Receive approval {:?} from peer {:?}", approval, peer_id);
             this.client.collect_block_approval(&approval, ApprovalType::PeerApproval(peer_id));
         })
     }
@@ -518,7 +518,7 @@ impl Handler<WithSpanContext<StateResponse>> for ClientActor {
             let hash = state_response_info.sync_hash();
             let state_response = state_response_info.take_state_response();
 
-            tracing::trace!(target: "sync", "Received state response shard_id: {} sync_hash: {:?} part(id/size): {:?}",
+            trace!(target: "sync", "Received state response shard_id: {} sync_hash: {:?} part(id/size): {:?}",
                    shard_id,
                    hash,
                    state_response.part().as_ref().map(|(part_id, data)| (part_id, data.len()))
@@ -815,7 +815,7 @@ impl ClientActor {
     fn check_send_announce_account(&mut self, prev_block_hash: CryptoHash) {
         // If no peers, there is no one to announce to.
         if self.network_info.num_connected_peers == 0 {
-            tracing::debug!(target: "client", "No peers: skip account announce");
+            debug!(target: "client", "No peers: skip account announce");
             return;
         }
 
@@ -835,7 +835,7 @@ impl ClientActor {
             }
         }
 
-        tracing::debug!(target: "client", "Check announce account for {}, last announce time {:?}", validator_signer.validator_id(), self.last_validator_announce_time);
+        debug!(target: "client", "Check announce account for {}, last announce time {:?}", validator_signer.validator_id(), self.last_validator_announce_time);
 
         // Announce AccountId if client is becoming a validator soon.
         let next_epoch_id = unwrap_or_return!(self
@@ -845,7 +845,7 @@ impl ClientActor {
 
         // Check client is part of the futures validators
         if self.client.is_validator(&next_epoch_id, &prev_block_hash) {
-            tracing::debug!(target: "client", "Sending announce account for {}", validator_signer.validator_id());
+            debug!(target: "client", "Sending announce account for {}", validator_signer.validator_id());
             self.last_validator_announce_time = Some(now);
 
             let signature = validator_signer.sign_account_announce(
@@ -948,7 +948,7 @@ impl ClientActor {
         let _span = tracing::debug_span!(target: "client", "handle_block_production").entered();
         // If syncing, don't try to produce blocks.
         if self.client.sync_status.is_syncing() {
-            tracing::debug!(target:"client", sync_status=?self.client.sync_status, "Syncing - block production disabled");
+            debug!(target:"client", sync_status=?self.client.sync_status, "Syncing - block production disabled");
             return Ok(());
         }
 
@@ -979,9 +979,9 @@ impl ClientActor {
 
         // We try to produce block for multiple heights (up to the highest height for which we've seen 2/3 of approvals).
         if latest_known.height + 1 <= self.client.doomslug.get_largest_height_crossing_threshold() {
-            tracing::debug!(target: "client", "Considering blocks for production between {} and {} ", latest_known.height + 1, self.client.doomslug.get_largest_height_crossing_threshold());
+            debug!(target: "client", "Considering blocks for production between {} and {} ", latest_known.height + 1, self.client.doomslug.get_largest_height_crossing_threshold());
         } else {
-            tracing::debug!(target: "client", "Cannot produce any block: not enough approvals beyond {}", latest_known.height);
+            debug!(target: "client", "Cannot produce any block: not enough approvals beyond {}", latest_known.height);
         }
 
         let me = if let Some(me) = &self.client.validator_signer {
@@ -1331,7 +1331,7 @@ impl ClientActor {
                     error!(target: "client", "Error processing sync blocks: {}", err);
                     false
                 } else {
-                    tracing::debug!(target: "client", "Block headers refused by chain: {}", err);
+                    debug!(target: "client", "Block headers refused by chain: {}", err);
                     true
                 }
             }
@@ -1441,7 +1441,6 @@ impl ClientActor {
     /// Usually `state_fetch_horizon` is much less than the expected number of produced blocks on an epoch,
     /// so this is only relevant on epoch boundaries.
     fn find_sync_hash(&mut self) -> Result<CryptoHash, near_chain::Error> {
-        let _d = delay_detector::DelayDetector::new(|| "find_sync_hash".into());
         let header_head = self.client.chain.header_head()?;
         let mut sync_hash = header_head.prev_block_hash;
         for _ in 0..self.client.config.state_fetch_horizon {
@@ -1547,7 +1546,7 @@ impl ClientActor {
 
         if !self.needs_syncing(needs_syncing) {
             if currently_syncing {
-                tracing::debug!(
+                debug!(
                     target: "client",
                     "{:?} transitions to no sync",
                     self.client.validator_signer.as_ref().map(|vs| vs.validator_id()),
