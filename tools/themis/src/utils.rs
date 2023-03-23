@@ -4,8 +4,8 @@ use cargo_metadata::{camino::Utf8PathBuf, CargoOpt, MetadataCommand};
 
 use super::types::{Package, Workspace};
 
-pub fn read_toml(path: &Utf8PathBuf) -> anyhow::Result<toml::Value> {
-    Ok(toml::from_slice(&fs::read(path)?)?)
+pub fn read_toml(path: &Utf8PathBuf) -> anyhow::Result<Option<toml::Value>> {
+    Ok(fs::read(path).ok().map(|p| toml::from_slice(&p)).transpose()?)
 }
 
 pub fn parse_workspace() -> anyhow::Result<Workspace> {
@@ -22,12 +22,17 @@ pub fn parse_workspace() -> anyhow::Result<Workspace> {
         .cloned()
         .filter(|package| metadata.workspace_members.contains(&package.id))
         .map(|package| {
-            let raw = read_toml(&package.manifest_path)?;
+            let raw = match read_toml(&package.manifest_path)? {
+                Some(raw) => raw,
+                _ => return Err(anyhow::anyhow!("failed to read package manifest")),
+            };
             Ok(Package { parsed: package, raw })
         })
         .collect::<anyhow::Result<_>>()?;
-    let raw = read_toml(&metadata.workspace_root.join("Cargo.toml"))?;
-
+    let raw = match read_toml(&metadata.workspace_root.join("Cargo.toml"))? {
+        Some(raw) => raw,
+        _ => return Err(anyhow::anyhow!("failed to read workspace manifest")),
+    };
     Ok(Workspace { root: metadata.workspace_root, members, raw })
 }
 
