@@ -60,7 +60,7 @@ impl ResetHeadToPrevCommand {
 
         // stop if it's already the final block
         if current_final_head.height >= prev_tip.height {
-            return Err(anyhow::anyhow!("cannot revert past final block"))
+            return Err(anyhow::anyhow!("cannot revert past final block"));
         }
 
         // clear block data for current head
