@@ -25,6 +25,7 @@ tracing.workspace = true
 
 near-chain = { path = "../../chain/chain" }
 near-chain-configs = { path = "../../core/chain-configs" }
+near-client = { path = "../../chain/client" }
 near-crypto = { path = "../../core/crypto" }
 near-epoch-manager = { path = "../../chain/epoch-manager" }
 near-network = { path = "../../chain/network" }

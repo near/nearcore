@@ -32,7 +32,8 @@ use near_chain::{
     byzantine_assert, near_chain_primitives, Block, BlockHeader, BlockProcessingArtifact,
     ChainGenesis, DoneApplyChunkCallback, Provenance, RuntimeWithEpochManagerAdapter,
 };
-use near_chain_configs::ClientConfig;
+use near_chain_configs::{ClientConfig, LogSummaryStyle};
+use near_chain_primitives::error::EpochErrorResultToChainError;
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::logic::cares_about_shard_this_or_next_epoch;
@@ -40,8 +41,6 @@ use near_client_primitives::types::{
     Error, GetClientConfig, GetClientConfigError, GetNetworkInfo, NetworkInfoResponse, Status,
     StatusError, StatusSyncInfo, SyncStatus,
 };
-#[cfg(feature = "test_features")]
-use near_network::types::NetworkAdversarialMessage;
 use near_network::types::ReasonForBan;
 use near_network::types::{
     NetworkInfo, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
@@ -257,7 +256,9 @@ impl Actor for ClientActor {
         // Start catchup job.
         self.catchup(ctx);
 
-        self.client.send_network_chain_info().unwrap();
+        if let Err(err) = self.client.send_network_chain_info() {
+            error!(target: "client", ?err, "Failed to update network chain info");
+        }
     }
 }
 
@@ -290,6 +291,18 @@ impl ClientActor {
 }
 
 #[cfg(feature = "test_features")]
+#[derive(actix::Message, Debug)]
+#[rtype(result = "Option<u64>")]
+pub enum NetworkAdversarialMessage {
+    AdvProduceBlocks(u64, bool),
+    AdvSwitchToHeight(u64),
+    AdvDisableHeaderSync,
+    AdvDisableDoomslug,
+    AdvGetSavedBlocks,
+    AdvCheckStorageConsistency,
+}
+
+#[cfg(feature = "test_features")]
 impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ClientActor {
     type Result = Option<u64>;
 
@@ -299,19 +312,19 @@ impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ClientActor {
         ctx: &mut Context<Self>,
     ) -> Self::Result {
         self.wrap(msg, ctx, "NetworkAdversarialMessage", |this, msg| match msg {
-            near_network::types::NetworkAdversarialMessage::AdvDisableDoomslug => {
+            NetworkAdversarialMessage::AdvDisableDoomslug => {
                 info!(target: "adversary", "Turning Doomslug off");
                 this.adv.set_disable_doomslug(true);
                 this.client.doomslug.adv_disable();
                 this.client.chain.adv_disable_doomslug();
                 None
             }
-            near_network::types::NetworkAdversarialMessage::AdvDisableHeaderSync => {
+            NetworkAdversarialMessage::AdvDisableHeaderSync => {
                 info!(target: "adversary", "Blocking header sync");
                 this.adv.set_disable_header_sync(true);
                 None
             }
-            near_network::types::NetworkAdversarialMessage::AdvProduceBlocks(
+            NetworkAdversarialMessage::AdvProduceBlocks(
                 num_blocks,
                 only_valid,
             ) => {
@@ -348,7 +361,7 @@ impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ClientActor {
                 }
                 None
             }
-            near_network::types::NetworkAdversarialMessage::AdvSwitchToHeight(height) => {
+            NetworkAdversarialMessage::AdvSwitchToHeight(height) => {
                 info!(target: "adversary", "Switching to height {:?}", height);
                 let mut chain_store_update = this.client.chain.mut_store().store_update();
                 chain_store_update.save_largest_target_height(height);
@@ -358,7 +371,7 @@ impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ClientActor {
                 chain_store_update.commit().expect("adv method should not fail");
                 None
             }
-            near_network::types::NetworkAdversarialMessage::AdvGetSavedBlocks => {
+            NetworkAdversarialMessage::AdvGetSavedBlocks => {
                 info!(target: "adversary", "Requested number of saved blocks");
                 let store = this.client.chain.store().store();
                 let mut num_blocks = 0;
@@ -367,7 +380,7 @@ impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ClientActor {
                 }
                 Some(num_blocks)
             }
-            near_network::types::NetworkAdversarialMessage::AdvCheckStorageConsistency => {
+            NetworkAdversarialMessage::AdvCheckStorageConsistency => {
                 // timeout is set to 1.5 seconds to give some room as we wait in Nightly for 2 seconds
                 let timeout = 1500;
                 info!(target: "adversary", "Check Storage Consistency, timeout set to {:?} milliseconds", timeout);
@@ -640,7 +653,8 @@ impl Handler<WithSpanContext<Status>> for ClientActor {
         let validators: Vec<ValidatorInfo> = self
             .client
             .runtime_adapter
-            .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash)?
+            .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash)
+            .into_chain_error()?
             .into_iter()
             .map(|(validator_stake, is_slashed)| ValidatorInfo {
                 account_id: validator_stake.take_account_id(),
@@ -651,8 +665,11 @@ impl Handler<WithSpanContext<Status>> for ClientActor {
         let epoch_start_height =
             self.client.runtime_adapter.get_epoch_start_height(&head.last_block_hash).ok();
 
-        let protocol_version =
-            self.client.runtime_adapter.get_epoch_protocol_version(&head.epoch_id)?;
+        let protocol_version = self
+            .client
+            .runtime_adapter
+            .get_epoch_protocol_version(&head.epoch_id)
+            .into_chain_error()?;
 
         let node_public_key = self.node_id.public_key().clone();
         let (validator_account_id, validator_public_key) = match &self.client.validator_signer {
@@ -1227,6 +1244,59 @@ impl ClientActor {
         Ok(())
     }
 
+    fn send_chunks_metrics(&mut self, block: &Block) {
+        let chunks = block.chunks();
+        for (chunk, &included) in chunks.iter().zip(block.header().chunk_mask().iter()) {
+            if included {
+                self.info_helper.chunk_processed(
+                    chunk.shard_id(),
+                    chunk.gas_used(),
+                    chunk.balance_burnt(),
+                );
+            } else {
+                self.info_helper.chunk_skipped(chunk.shard_id());
+            }
+        }
+    }
+
+    fn send_block_metrics(&mut self, block: &Block) {
+        let chunks_in_block = block.header().chunk_mask().iter().filter(|&&m| m).count();
+        let gas_used = Block::compute_gas_used(block.chunks().iter(), block.header().height());
+
+        let last_final_hash = block.header().last_final_block();
+        let last_final_ds_hash = block.header().last_ds_final_block();
+        let last_final_block_height = self
+            .client
+            .chain
+            .get_block(&last_final_hash)
+            .map_or(0, |block| block.header().height());
+        let last_final_ds_block_height = self
+            .client
+            .chain
+            .get_block(&last_final_ds_hash)
+            .map_or(0, |block| block.header().height());
+
+        let epoch_height =
+            self.client.runtime_adapter.get_epoch_height_from_prev_block(block.hash()).unwrap_or(0);
+        let epoch_start_height = self
+            .client
+            .runtime_adapter
+            .get_epoch_start_height(&last_final_hash)
+            .unwrap_or(last_final_block_height);
+        let last_final_block_height_in_epoch = last_final_block_height - epoch_start_height;
+
+        self.info_helper.block_processed(
+            gas_used,
+            chunks_in_block as u64,
+            block.header().gas_price(),
+            block.header().total_supply(),
+            last_final_block_height,
+            last_final_ds_block_height,
+            epoch_height,
+            last_final_block_height_in_epoch,
+        );
+    }
+
     /// Process all blocks that were accepted by calling other relevant services.
     fn process_accepted_blocks(&mut self, accepted_blocks: Vec<CryptoHash>) {
         let _span = tracing::debug_span!(
@@ -1236,51 +1306,9 @@ impl ClientActor {
         .entered();
         for accepted_block in accepted_blocks {
             let block = self.client.chain.get_block(&accepted_block).unwrap().clone();
-            let chunks_in_block = block.header().chunk_mask().iter().filter(|&&m| m).count();
-            let gas_used = Block::compute_gas_used(block.chunks().iter(), block.header().height());
-
-            let last_final_hash = block.header().last_final_block();
-            let last_final_ds_hash = block.header().last_ds_final_block();
-            let last_final_block_height = self
-                .client
-                .chain
-                .get_block(&last_final_hash)
-                .map_or(0, |block| block.header().height());
-            let last_final_ds_block_height = self
-                .client
-                .chain
-                .get_block(&last_final_ds_hash)
-                .map_or(0, |block| block.header().height());
-
-            let chunks = block.chunks();
-            for (chunk, &included) in chunks.iter().zip(block.header().chunk_mask().iter()) {
-                if included {
-                    self.info_helper.chunk_processed(
-                        chunk.shard_id(),
-                        chunk.gas_used(),
-                        chunk.balance_burnt(),
-                    );
-                } else {
-                    self.info_helper.chunk_skipped(chunk.shard_id());
-                }
-            }
-
-            let epoch_height = self
-                .client
-                .runtime_adapter
-                .get_epoch_height_from_prev_block(block.hash())
-                .unwrap_or(0);
-
-            self.info_helper.block_processed(
-                gas_used,
-                chunks_in_block as u64,
-                block.header().gas_price(),
-                block.header().total_supply(),
-                last_final_block_height,
-                last_final_ds_block_height,
-                epoch_height,
-            );
-            self.check_send_announce_account(*last_final_hash);
+            self.send_chunks_metrics(&block);
+            self.send_block_metrics(&block);
+            self.check_send_announce_account(*block.header().last_final_block());
         }
     }
 
@@ -1596,6 +1624,8 @@ impl ClientActor {
                     unwrap_and_report!(self.client.chain.reset_data_pre_state_sync(sync_hash));
                 }
 
+                let use_colour =
+                    matches!(self.client.config.log_summary_style, LogSummaryStyle::Colored);
                 match unwrap_and_report!(self.client.state_sync.run(
                     &me,
                     sync_hash,
@@ -1606,6 +1636,7 @@ impl ClientActor {
                     shards_to_sync,
                     &self.state_parts_task_scheduler,
                     &self.state_split_scheduler,
+                    use_colour,
                 )) {
                     StateSyncResult::Unchanged => (),
                     StateSyncResult::Changed(fetch_block) => {

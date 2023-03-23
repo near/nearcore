@@ -288,8 +288,13 @@ message SyncAccountsData {
 
 // Request to send a list of known healthy peers
 // (i.e. considered honest and available by the receiver).
+// max_peers limits the number of peers to send back.
+// max_direct_peers limits the number of direct peers to send back.
 // See PeersResponse below for the response.
-message PeersRequest {}
+message PeersRequest {
+  optional uint32 max_peers = 1;
+  optional uint32 max_direct_peers = 2;
+}
 
 // Response to PeersRequest
 message PeersResponse {

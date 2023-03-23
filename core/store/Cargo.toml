@@ -17,6 +17,7 @@ elastic-array.workspace = true
 enum-map.workspace = true
 fs2.workspace = true
 itoa.workspace = true
+itertools.workspace = true
 lru.workspace = true
 num_cpus.workspace = true
 once_cell.workspace = true
@@ -40,6 +41,7 @@ assert_matches.workspace = true
 bencher.workspace = true
 insta.workspace = true
 rand.workspace = true
+thiserror.workspace = true
 
 [[bench]]
 name = "trie_bench"
@@ -55,7 +57,8 @@ io_trace = []
 no_cache = []
 single_thread_rocksdb = [] # Deactivate RocksDB IO background threads
 test_features = []
-protocol_feature_flat_state = []
+protocol_feature_flat_state = ["near-primitives/protocol_feature_flat_state"]
+serialize_all_state_changes = []
 
 nightly_protocol = []
 nightly = [

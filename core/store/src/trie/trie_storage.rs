@@ -288,9 +288,11 @@ impl TrieCache {
 }
 
 pub trait TrieStorage {
-    /// Get bytes of a serialized TrieNode.
+    /// Get bytes of a serialized `TrieNode`.
+    ///
     /// # Errors
-    /// StorageError if the storage fails internally or the hash is not present.
+    ///
+    /// [`StorageError`] if the storage fails internally or the hash is not present.
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError>;
 
     fn as_caching_storage(&self) -> Option<&TrieCachingStorage> {

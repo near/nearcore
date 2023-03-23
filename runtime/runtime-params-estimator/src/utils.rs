@@ -205,11 +205,10 @@ pub(crate) fn fn_cost_with_setup(
             aggregate_per_block_measurements(block_size, measurements, Some(overhead));
 
         // flat storage check: we only expect TTN costs for writes
-        #[cfg(feature = "protocol_feature_flat_state")]
         // TODO(#7327): This assertion is ignored, we know flat storage doesn't
         // work for the estimator. Remove cfg once it once it works.
         #[cfg(ignore)]
-        {
+        if cfg!(feature = "protocol_feature_flat_state") {
             let is_write = [ExtCosts::storage_write_base, ExtCosts::storage_remove_base]
                 .iter()
                 .any(|cost| *ext_costs.get(cost).unwrap_or(&0) > 0);
@@ -433,6 +432,11 @@ pub(crate) fn generate_data_only_contract(data_size: usize, config: &VMConfig) -
     // Validate generated code is valid.
     near_vm_runner::prepare::prepare_contract(&wasm, config).unwrap();
     wasm
+}
+
+pub(crate) fn random_vec(len: usize) -> Vec<u8> {
+    let mut rng = rand::thread_rng();
+    (0..len).map(|_| rng.gen()).collect()
 }
 
 #[cfg(test)]
