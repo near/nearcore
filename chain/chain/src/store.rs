@@ -1985,7 +1985,7 @@ impl<'a> ChainStoreUpdate<'a> {
         for header_hash in header_hashes {
             // 3. Delete header_hash-indexed data
             let mut store_update = self.store().store_update();
-            let key = header_hash.as_bytes();
+            let key: &[u8] = header_hash.as_bytes();
             store_update.delete(DBCol::BlockHeader, key);
             self.chain_store.headers.pop(key);
         }
