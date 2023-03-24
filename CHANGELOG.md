@@ -9,6 +9,7 @@
 * State-viewer tool to dump and apply state changes from/to a range of blocks. [#8628](https://github.com/near/nearcore/pull/8628)
 * Experimental option to dump state of every epoch to external storage. [#8661](https://github.com/near/nearcore/pull/8661)
 * Add prometheus metrics for tracked shards, block height within epoch, if is block/chunk producer. [#8728](https://github.com/near/nearcore/pull/8728)
+* State sync is disabled by default [#8730](https://github.com/near/nearcore/pull/8730)
 * Node can restart if State Sync gets interrupted. [#8732](https://github.com/near/nearcore/pull/8732)
 * Merged two `neard view-state` commands: `apply-state-parts` and `dump-state-parts` into a single `state-parts` command. [#8739](https://github.com/near/nearcore/pull/8739)
 

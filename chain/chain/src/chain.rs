@@ -2426,6 +2426,16 @@ impl Chain {
             byzantine_assert!(false);
             return Err(Error::InvalidGasPrice);
         }
+        let minted_amount = if self.runtime_adapter.is_next_block_epoch_start(&prev_hash)? {
+            Some(self.runtime_adapter.get_epoch_minted_amount(block.header().next_epoch_id())?)
+        } else {
+            None
+        };
+
+        if !block.verify_total_supply(prev.total_supply(), minted_amount) {
+            byzantine_assert!(false);
+            return Err(Error::InvalidGasPrice);
+        }
 
         let (challenges_result, challenged_blocks) = self.verify_challenges(
             block.challenges(),
@@ -3547,7 +3557,7 @@ impl Chain {
     ) -> Result<AccountId, Error> {
         let head = self.head()?;
         let target_height = head.height + horizon - 1;
-        self.runtime_adapter.get_chunk_producer(epoch_id, target_height, shard_id)
+        Ok(self.runtime_adapter.get_chunk_producer(epoch_id, target_height, shard_id)?)
     }
 
     /// Find a validator that is responsible for a given shard to forward requests to
@@ -4503,7 +4513,7 @@ impl Chain {
         {
             let prev_hash = *sync_block.header().prev_hash();
             // If sync_hash is not on the Epoch boundary, it's malicious behavior
-            self.runtime_adapter.is_next_block_epoch_start(&prev_hash)
+            Ok(self.runtime_adapter.is_next_block_epoch_start(&prev_hash)?)
         } else {
             Ok(false) // invalid Epoch of sync_hash, possible malicious behavior
         }

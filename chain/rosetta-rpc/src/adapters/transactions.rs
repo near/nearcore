@@ -57,7 +57,7 @@ impl ExecutionToReceipts {
             .await?
             .map_err(crate::errors::ErrorKind::InternalInvariantError)?
             .into_values()
-            .flat_map(|outcomes| outcomes)
+            .flatten()
             .filter(|exec| !exec.outcome.receipt_ids.is_empty())
             .map(|exec| (exec.id, exec.outcome.receipt_ids))
             .collect();
@@ -110,13 +110,13 @@ fn convert_cause_to_transaction_id(
 
     match cause {
         StateChangeCauseView::TransactionProcessing { tx_hash } => {
-            Ok((TransactionIdentifier::transaction(&tx_hash), Some(*tx_hash)))
+            Ok((TransactionIdentifier::transaction(tx_hash), Some(*tx_hash)))
         }
         StateChangeCauseView::ActionReceiptProcessingStarted { receipt_hash }
         | StateChangeCauseView::ActionReceiptGasReward { receipt_hash }
         | StateChangeCauseView::ReceiptProcessing { receipt_hash }
         | StateChangeCauseView::PostponedReceipt { receipt_hash } => {
-            Ok((TransactionIdentifier::receipt(&receipt_hash), Some(*receipt_hash)))
+            Ok((TransactionIdentifier::receipt(receipt_hash), Some(*receipt_hash)))
         }
         StateChangeCauseView::InitialState => {
             Ok((TransactionIdentifier::block_event("block", block_hash), None))
@@ -214,7 +214,7 @@ impl<'a> RosettaTransactions<'a> {
         &mut self,
         cause: &near_primitives::views::StateChangeCauseView,
     ) -> crate::errors::Result<&mut crate::models::Transaction> {
-        let (id, exec_hash) = convert_cause_to_transaction_id(&self.block_hash, cause)?;
+        let (id, exec_hash) = convert_cause_to_transaction_id(self.block_hash, cause)?;
         let tx = self.map.entry(id.hash).or_insert_with_key(|hash| {
             let related_transactions = exec_hash
                 .map(|exec_hash| self.exec_to_rx.get_related(exec_hash))
@@ -278,8 +278,8 @@ pub(crate) async fn convert_block_changes_to_transactions(
                 let predecessor_id = get_predecessor_id_from_receipt_or_transaction(
                     view_client_addr,
                     &account_change.cause,
-                    &transactions_in_block,
-                    &receipts_in_block,
+                    transactions_in_block,
+                    receipts_in_block,
                 )
                 .await;
                 let previous_account_state = accounts_previous_state.get(&account_id);

@@ -65,7 +65,7 @@ members = [
 ]
 
 [workspace.metadata.workspaces]
-version = "0.16.0"
+version = "0.16.1"
 exclude = [ "neard" ]
 
 [workspace.dependencies]

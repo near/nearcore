@@ -33,6 +33,13 @@ impl<'a> ConfigValidator<'a> {
             self.validation_errors.push_config_semantics_error(error_message)
         }
 
+        // Checking that if cold storage is configured, trie changes are definitely saved.
+        // Unlike in the previous case, None is not a valid option here.
+        if self.config.cold_store.is_some() && self.config.save_trie_changes != Some(true) {
+            let error_message = format!("cold_store is configured, but save_trie_changes is {:?}. Trie changes should be saved to support cold storage.", self.config.save_trie_changes);
+            self.validation_errors.push_config_semantics_error(error_message)
+        }
+
         if self.config.consensus.min_block_production_delay
             > self.config.consensus.max_block_production_delay
         {
@@ -118,6 +125,27 @@ mod test {
         config.gc.gc_blocks_limit = 0;
         // set tracked_shards to be non-empty
         config.tracked_shards.push(20);
+        validate_config(&config).unwrap();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "\\nconfig.json semantic issue: cold_store is configured, but save_trie_changes is None. Trie changes should be saved to support cold storage."
+    )]
+    fn test_cold_store_without_save_trie_changes() {
+        let mut config = Config::default();
+        config.cold_store = Some(config.store.clone());
+        validate_config(&config).unwrap();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "\\nconfig.json semantic issue: cold_store is configured, but save_trie_changes is Some(false). Trie changes should be saved to support cold storage."
+    )]
+    fn test_cold_store_with_save_trie_changes_false() {
+        let mut config = Config::default();
+        config.cold_store = Some(config.store.clone());
+        config.save_trie_changes = Some(false);
         validate_config(&config).unwrap();
     }
 }

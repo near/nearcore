@@ -3026,8 +3026,7 @@ mod tests {
         let chain_genesis = ChainGenesis::test();
         let vs = ValidatorSchedule::new()
             .block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]]);
-        let runtime_adapter =
-            Arc::new(KeyValueRuntime::new_with_validators(store, vs, epoch_length));
+        let runtime_adapter = KeyValueRuntime::new_with_validators(store, vs, epoch_length);
         Chain::new(
             runtime_adapter,
             &chain_genesis,

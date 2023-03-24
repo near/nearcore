@@ -1,12 +1,12 @@
 use actix_web::{web, App, HttpServer};
 use anyhow::Context;
 pub use cli::PingCommand;
-use near_network::raw::{ConnectError, Connection, ReceivedMessage};
+use near_network::raw::{ConnectError, Connection, DirectMessage, Message, RoutedMessage};
 use near_network::types::HandshakeFailureReason;
 use near_primitives::hash::CryptoHash;
-use near_primitives::network::PeerId;
+use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::time;
-use near_primitives::types::{AccountId, BlockHeight, EpochId};
+use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::version::ProtocolVersion;
 use std::cmp;
 use std::collections::hash_map::Entry;
@@ -264,9 +264,9 @@ impl AppInfo {
         );
     }
 
-    fn add_peer(&mut self, peer_id: &PeerId, account_id: Option<&AccountId>) {
+    fn add_peer(&mut self, peer_id: PeerId, account_id: Option<AccountId>) {
         if let Some(filter) = self.account_filter.as_ref() {
-            if let Some(account_id) = account_id {
+            if let Some(account_id) = account_id.as_ref() {
                 if !filter.contains(account_id) {
                     tracing::debug!(target: "ping", "skipping AnnounceAccount for {}", account_id);
                     return;
@@ -278,7 +278,7 @@ impl AppInfo {
                 if let Some(account_id) = account_id {
                     let state = e.get_mut();
                     if let Some(old) = state.account_id.as_ref() {
-                        if old != account_id {
+                        if old != &account_id {
                             // TODO: we should just keep track of all accounts that map
                             // to this peer id, since it's valid for there to be more than one.
                             // We only use the accounts in the account filter and when displaying
@@ -290,26 +290,19 @@ impl AppInfo {
                             );
                         }
                     } else {
-                        state.account_id = Some(account_id.clone());
+                        state.account_id = Some(account_id);
                     }
                 }
             }
             Entry::Vacant(e) => {
-                e.insert(PingState {
-                    account_id: account_id.cloned(),
-                    last_pinged: None,
-                    stats: PingStats::default(),
-                });
-                self.requests.insert(
-                    PingTarget { peer_id: peer_id.clone(), last_pinged: None },
-                    HashMap::new(),
-                );
+                e.insert(PingState { account_id, last_pinged: None, stats: PingStats::default() });
+                self.requests.insert(PingTarget { peer_id, last_pinged: None }, HashMap::new());
             }
         }
     }
 
-    fn add_announce_accounts(&mut self, accounts: &[(AccountId, PeerId, EpochId)]) {
-        for (account_id, peer_id, _epoch_id) in accounts.iter() {
+    fn add_announce_accounts(&mut self, accounts: Vec<AnnounceAccount>) {
+        for AnnounceAccount { account_id, peer_id, .. } in accounts {
             self.add_peer(peer_id, Some(account_id));
         }
     }
@@ -321,24 +314,25 @@ impl AppInfo {
 
 fn handle_message(
     app_info: &mut AppInfo,
-    msg: &ReceivedMessage,
+    msg: Message,
     received_at: time::Instant,
     latencies_csv: Option<&mut crate::csv::LatenciesCsv>,
 ) -> anyhow::Result<()> {
-    match &msg {
-        ReceivedMessage::Pong { nonce, source } => {
+    match msg {
+        Message::Routed(RoutedMessage::Pong { nonce, source }) => {
             let chain_id = app_info.chain_id.clone(); // Avoid an immutable borrow during a mutable borrow.
-            if let Some((latency, account_id)) = app_info.pong_received(source, *nonce, received_at)
+            if let Some((latency, account_id)) = app_info.pong_received(&source, nonce, received_at)
             {
                 crate::metrics::PONG_RECEIVED
                     .with_label_values(&[&chain_id, &peer_str(&source, account_id)])
                     .observe(latency.as_seconds_f64());
                 if let Some(csv) = latencies_csv {
-                    csv.write(source, account_id, latency).context("Failed writing to CSV file")?;
+                    csv.write(&source, account_id, latency)
+                        .context("Failed writing to CSV file")?;
                 }
             }
         }
-        ReceivedMessage::AnnounceAccounts(a) => {
+        Message::Direct(DirectMessage::AnnounceAccounts(a)) => {
             app_info.add_announce_accounts(a);
         }
         _ => {}
@@ -394,7 +388,7 @@ async fn ping_via_node(
 ) -> anyhow::Result<()> {
     let mut app_info = AppInfo::new(account_filter, chain_id);
 
-    app_info.add_peer(&peer_id, None);
+    app_info.add_peer(peer_id.clone(), None);
 
     let mut peer = match Connection::connect(
         peer_addr,
@@ -453,7 +447,8 @@ async fn ping_via_node(
         tokio::select! {
             _ = &mut next_ping, if target.is_some() => {
                 let target = target.unwrap();
-                result = peer.send_ping(&target, nonce, ttl).await.with_context(|| format!("Failed sending ping to {:?}", &target));
+                result = peer.send_routed_message(RoutedMessage::Ping{nonce}, target.clone(), ttl)
+                            .await.with_context(|| format!("Failed sending ping to {:?}", &target));
                 if result.is_err() {
                     break;
                 }
@@ -471,7 +466,7 @@ async fn ping_via_node(
                 };
                 result = handle_message(
                             &mut app_info,
-                            &msg,
+                            msg,
                             first_byte_time.try_into().unwrap(),
                             latencies_csv.as_mut()
                         );

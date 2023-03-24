@@ -40,14 +40,16 @@ async fn test_raw_conn_pings() {
 
     let num_pings = 5;
     for nonce in 1..num_pings {
-        conn.send_ping(&peer_id, nonce, 2).await.unwrap();
+        conn.send_routed_message(raw::RoutedMessage::Ping { nonce }, peer_id.clone(), 2)
+            .await
+            .unwrap();
     }
 
     let mut nonce_received = 0;
     loop {
         let (msg, _timestamp) = conn.recv().await.unwrap();
 
-        if let raw::ReceivedMessage::Pong { nonce, .. } = msg {
+        if let raw::Message::Routed(raw::RoutedMessage::Pong { nonce, .. }) = msg {
             if nonce != nonce_received + 1 {
                 panic!(
                     "received out of order nonce {} when {} was expected",
@@ -101,13 +103,21 @@ async fn test_raw_conn_state_parts() {
     // But the fake node simply ignores the block hash.
     let block_hash = CryptoHash::new();
     for part_id in 0..num_parts {
-        conn.send_state_part_request(&peer_id, 0, block_hash, part_id, ttl).await.unwrap();
+        conn.send_routed_message(
+            raw::RoutedMessage::StateRequestPart(0, block_hash, part_id),
+            peer_id.clone(),
+            ttl,
+        )
+        .await
+        .unwrap();
     }
 
     let mut part_id_received = -1i64;
     loop {
         let (msg, _timestamp) = conn.recv().await.unwrap();
-        if let raw::ReceivedMessage::VersionedStateResponse(state_response) = msg {
+        if let raw::Message::Routed(raw::RoutedMessage::VersionedStateResponse(state_response)) =
+            msg
+        {
             let response = state_response.take_state_response();
             let part_id = response.part_id();
             if part_id.is_none() || part_id.unwrap() as i64 != (part_id_received + 1) {
