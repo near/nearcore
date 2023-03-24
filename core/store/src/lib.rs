@@ -53,7 +53,6 @@ pub mod test_utils;
 mod trie;
 
 pub use crate::config::{Mode, StoreConfig};
-pub use crate::metrics::{flat_state_metrics, FLAT_STORAGE_HEAD_HEIGHT};
 pub use crate::opener::{StoreMigrator, StoreOpener, StoreOpenerError};
 
 /// Specifies temperature of a storage.
@@ -655,13 +654,13 @@ impl StoreUpdate {
         for op in &self.transaction.ops {
             match op {
                 DBOp::Insert { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "insert", col = %col, key = %pretty::StorageKey(key), size = value.len())
+                    tracing::trace!(target: "store", db_op = "insert", col = %col, key = %pretty::StorageKey(key), size = value.len(), value = %pretty::AbbrBytes(value),)
                 }
                 DBOp::Set { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "set", col = %col, key = %pretty::StorageKey(key), size = value.len())
+                    tracing::trace!(target: "store", db_op = "set", col = %col, key = %pretty::StorageKey(key), size = value.len(), value = %pretty::AbbrBytes(value))
                 }
                 DBOp::UpdateRefcount { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "update_rc", col = %col, key = %pretty::StorageKey(key), size = value.len())
+                    tracing::trace!(target: "store", db_op = "update_rc", col = %col, key = %pretty::StorageKey(key), size = value.len(), value = %pretty::AbbrBytes(value))
                 }
                 DBOp::Delete { col, key } => {
                     tracing::trace!(target: "store", db_op = "delete", col = %col, key = %pretty::StorageKey(key))

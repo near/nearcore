@@ -57,7 +57,7 @@ pub struct GenesisBuilder {
     tmpdir: tempfile::TempDir,
     genesis: Arc<Genesis>,
     store: Store,
-    runtime: NightshadeRuntime,
+    runtime: Arc<NightshadeRuntime>,
     unflushed_records: BTreeMap<ShardId, Vec<StateRecord>>,
     roots: BTreeMap<ShardId, StateRoot>,
     state_updates: BTreeMap<ShardId, TrieUpdate>,
@@ -176,7 +176,7 @@ impl GenesisBuilder {
         }
         let tries = self.runtime.get_tries();
         state_update.commit(StateChangeCause::InitialState);
-        let (trie_changes, state_changes) = state_update.finalize()?;
+        let (_, trie_changes, state_changes) = state_update.finalize()?;
         let genesis_shard_version = self.genesis.config.shard_layout.version();
         let shard_uid = ShardUId { version: genesis_shard_version, shard_id: shard_idx as u32 };
         let mut store_update = tries.store_update();
@@ -208,7 +208,7 @@ impl GenesisBuilder {
             self.genesis.config.min_gas_price,
             self.genesis.config.total_supply,
             Chain::compute_bp_hash(
-                &self.runtime,
+                &*self.runtime,
                 EpochId::default(),
                 EpochId::default(),
                 &CryptoHash::default(),

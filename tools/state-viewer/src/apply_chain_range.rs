@@ -1,10 +1,3 @@
-use std::fs::File;
-use std::io::Write;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
-
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
-
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::ApplyTransactionResult;
@@ -19,6 +12,11 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_store::{get, DBCol, Store};
 use nearcore::NightshadeRuntime;
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use std::fs::File;
+use std::io::Write;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
 
 fn timestamp_ms() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -336,7 +334,7 @@ pub fn apply_chain_range(
     start_height: Option<BlockHeight>,
     end_height: Option<BlockHeight>,
     shard_id: ShardId,
-    runtime: NightshadeRuntime,
+    runtime_adapter: Arc<NightshadeRuntime>,
     verbose_output: bool,
     csv_file: Option<&mut File>,
     only_contracts: bool,
@@ -351,7 +349,6 @@ pub fn apply_chain_range(
         only_contracts,
         sequential)
     .entered();
-    let runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter> = Arc::new(runtime);
     let chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height, false);
     let end_height = end_height.unwrap_or_else(|| chain_store.head().unwrap().height);
     let start_height = start_height.unwrap_or_else(|| chain_store.tail().unwrap());
@@ -451,7 +448,6 @@ fn smart_equals(extra1: &ChunkExtra, extra2: &ChunkExtra) -> bool {
 mod test {
     use std::io::{Read, Seek, SeekFrom};
     use std::path::Path;
-    use std::sync::Arc;
 
     use near_chain::{ChainGenesis, Provenance};
     use near_chain_configs::Genesis;
@@ -480,7 +476,7 @@ mod test {
         chain_genesis.gas_limit = genesis.config.gas_limit;
         let env = TestEnv::builder(chain_genesis)
             .validator_seats(2)
-            .runtime_adapters(vec![Arc::new(nightshade_runtime)])
+            .runtime_adapters(vec![nightshade_runtime])
             .build();
         (store, genesis, env)
     }

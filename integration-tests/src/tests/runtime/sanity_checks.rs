@@ -235,7 +235,7 @@ fn test_sanity_used_gas() {
     // within a metered block, the returned values should differ by that amount
     // plus 2 regular_op_cost, one for the local.set and one for the call.
     let base_cost =
-        node.client.read().unwrap().runtime_config.wasm_config.ext_costs.cost(ExtCosts::base);
+        node.client.read().unwrap().runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::base);
     let regular_op_cost =
         u64::from(node.client.read().unwrap().runtime_config.wasm_config.regular_op_cost);
     assert_eq!(used_gas[1] - used_gas[0], base_cost + 2 * regular_op_cost);

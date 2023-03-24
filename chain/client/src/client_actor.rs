@@ -32,7 +32,8 @@ use near_chain::{
     byzantine_assert, near_chain_primitives, Block, BlockHeader, BlockProcessingArtifact,
     ChainGenesis, DoneApplyChunkCallback, Provenance, RuntimeWithEpochManagerAdapter,
 };
-use near_chain_configs::ClientConfig;
+use near_chain_configs::{ClientConfig, LogSummaryStyle};
+use near_chain_primitives::error::EpochErrorResultToChainError;
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::logic::cares_about_shard_this_or_next_epoch;
@@ -652,7 +653,8 @@ impl Handler<WithSpanContext<Status>> for ClientActor {
         let validators: Vec<ValidatorInfo> = self
             .client
             .runtime_adapter
-            .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash)?
+            .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash)
+            .into_chain_error()?
             .into_iter()
             .map(|(validator_stake, is_slashed)| ValidatorInfo {
                 account_id: validator_stake.take_account_id(),
@@ -663,8 +665,11 @@ impl Handler<WithSpanContext<Status>> for ClientActor {
         let epoch_start_height =
             self.client.runtime_adapter.get_epoch_start_height(&head.last_block_hash).ok();
 
-        let protocol_version =
-            self.client.runtime_adapter.get_epoch_protocol_version(&head.epoch_id)?;
+        let protocol_version = self
+            .client
+            .runtime_adapter
+            .get_epoch_protocol_version(&head.epoch_id)
+            .into_chain_error()?;
 
         let node_public_key = self.node_id.public_key().clone();
         let (validator_account_id, validator_public_key) = match &self.client.validator_signer {
@@ -1278,7 +1283,8 @@ impl ClientActor {
             .runtime_adapter
             .get_epoch_start_height(&last_final_hash)
             .unwrap_or(last_final_block_height);
-        let last_final_block_height_in_epoch = last_final_block_height - epoch_start_height;
+        let last_final_block_height_in_epoch =
+            last_final_block_height.checked_sub(epoch_start_height);
 
         self.info_helper.block_processed(
             gas_used,
@@ -1619,6 +1625,8 @@ impl ClientActor {
                     unwrap_and_report!(self.client.chain.reset_data_pre_state_sync(sync_hash));
                 }
 
+                let use_colour =
+                    matches!(self.client.config.log_summary_style, LogSummaryStyle::Colored);
                 match unwrap_and_report!(self.client.state_sync.run(
                     &me,
                     sync_hash,
@@ -1629,6 +1637,7 @@ impl ClientActor {
                     shards_to_sync,
                     &self.state_parts_task_scheduler,
                     &self.state_split_scheduler,
+                    use_colour,
                 )) {
                     StateSyncResult::Unchanged => (),
                     StateSyncResult::Changed(fetch_block) => {

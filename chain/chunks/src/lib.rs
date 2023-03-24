@@ -2038,7 +2038,7 @@ mod test {
             epoch_id: EpochId::default(),
             next_epoch_id: EpochId::default(),
         };
-        let runtime_adapter = Arc::new(KeyValueRuntime::new(store.clone(), 5));
+        let runtime_adapter = KeyValueRuntime::new(store.clone(), 5);
         let network_adapter = Arc::new(MockPeerManagerAdapter::default());
         let client_adapter = Arc::new(MockClientAdapterForShardsManager::default());
         let clock = FakeClock::default();

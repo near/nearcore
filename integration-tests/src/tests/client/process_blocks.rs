@@ -108,8 +108,7 @@ pub fn create_nightshade_runtime_with_store(
     genesis: &Genesis,
     store: &Store,
 ) -> Arc<dyn RuntimeWithEpochManagerAdapter> {
-    Arc::new(nearcore::NightshadeRuntime::test(Path::new("../../../.."), store.clone(), genesis))
-        as Arc<dyn RuntimeWithEpochManagerAdapter>
+    nearcore::NightshadeRuntime::test(Path::new("../../../.."), store.clone(), genesis)
 }
 
 /// Produce `blocks_number` block in the given environment, starting from the given height.
@@ -2142,9 +2141,8 @@ fn test_invalid_block_root() {
 fn test_incorrect_validator_key_produce_block() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 2);
     let chain_genesis = ChainGenesis::new(&genesis);
-    let runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter> = Arc::new(
-        nearcore::NightshadeRuntime::test(Path::new("../../../.."), create_test_store(), &genesis),
-    );
+    let runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter> =
+        nearcore::NightshadeRuntime::test(Path::new("../../../.."), create_test_store(), &genesis);
     let signer = Arc::new(InMemoryValidatorSigner::from_seed(
         "test0".parse().unwrap(),
         KeyType::ED25519,
@@ -2425,6 +2423,8 @@ fn test_validate_chunk_extra() {
         block.mut_header().get_mut().inner_lite.prev_state_root =
             Block::compute_state_root(&chunk_headers);
         block.mut_header().get_mut().inner_rest.chunk_mask = vec![true];
+        block.mut_header().get_mut().inner_lite.outcome_root =
+            Block::compute_outcome_root(block.chunks().iter());
         block.mut_header().resign(&validator_signer);
         let res = env.clients[0].process_block_test(block.clone().into(), Provenance::NONE);
         assert_matches!(res.unwrap_err(), near_chain::Error::ChunksMissing(_));
@@ -2845,13 +2845,13 @@ fn test_execution_metadata() {
       {
         "cost_category": "WASM_HOST_COST",
         "cost": "BASE",
-        "gas_used": config.wasm_config.ext_costs.cost(ExtCosts::base).to_string()
+        "gas_used": config.wasm_config.ext_costs.gas_cost(ExtCosts::base).to_string()
       },
       // We include compilation costs into running the function.
       {
         "cost_category": "WASM_HOST_COST",
         "cost": "CONTRACT_LOADING_BASE",
-        "gas_used": config.wasm_config.ext_costs.cost(ExtCosts::contract_loading_base).to_string()
+        "gas_used": config.wasm_config.ext_costs.gas_cost(ExtCosts::contract_loading_base).to_string()
       },
       {
         "cost_category": "WASM_HOST_COST",
@@ -3495,7 +3495,6 @@ mod contract_precompilation_tests {
     use near_vm_runner::get_contract_cache_key;
     use near_vm_runner::internal::VMKind;
     use node_runtime::state_viewer::TrieViewer;
-    use std::rc::Rc;
 
     const EPOCH_LENGTH: u64 = 5;
 
@@ -3533,11 +3532,8 @@ mod contract_precompilation_tests {
         let runtime_adapters = stores
             .iter()
             .map(|store| {
-                Arc::new(nearcore::NightshadeRuntime::test(
-                    Path::new("../../../.."),
-                    store.clone(),
-                    &genesis,
-                )) as Arc<dyn RuntimeWithEpochManagerAdapter>
+                nearcore::NightshadeRuntime::test(Path::new("../../../.."), store.clone(), &genesis)
+                    as Arc<dyn RuntimeWithEpochManagerAdapter>
             })
             .collect();
 
@@ -3593,12 +3589,10 @@ mod contract_precompilation_tests {
 
         let viewer = TrieViewer::default();
         // TODO (#7327): set use_flat_storage to true when we implement support for state sync for FlatStorage
-        let trie = Rc::new(
-            env.clients[1]
-                .runtime_adapter
-                .get_trie_for_shard(0, block.header().prev_hash(), state_root, false)
-                .unwrap(),
-        );
+        let trie = env.clients[1]
+            .runtime_adapter
+            .get_trie_for_shard(0, block.header().prev_hash(), state_root, false)
+            .unwrap();
         let state_update = TrieUpdate::new(trie);
 
         let mut logs = vec![];
@@ -3636,11 +3630,8 @@ mod contract_precompilation_tests {
         let runtime_adapters = stores
             .iter()
             .map(|store| {
-                Arc::new(nearcore::NightshadeRuntime::test(
-                    Path::new("../../../.."),
-                    store.clone(),
-                    &genesis,
-                )) as Arc<dyn RuntimeWithEpochManagerAdapter>
+                nearcore::NightshadeRuntime::test(Path::new("../../../.."), store.clone(), &genesis)
+                    as Arc<dyn RuntimeWithEpochManagerAdapter>
             })
             .collect();
 
@@ -3720,11 +3711,8 @@ mod contract_precompilation_tests {
         let runtime_adapters = stores
             .iter()
             .map(|store| {
-                Arc::new(nearcore::NightshadeRuntime::test(
-                    Path::new("../../../.."),
-                    store.clone(),
-                    &genesis,
-                )) as Arc<dyn RuntimeWithEpochManagerAdapter>
+                nearcore::NightshadeRuntime::test(Path::new("../../../.."), store.clone(), &genesis)
+                    as Arc<dyn RuntimeWithEpochManagerAdapter>
             })
             .collect();
 

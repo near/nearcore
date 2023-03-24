@@ -3950,6 +3950,7 @@ dependencies = [
  "serde",
  "serde_json",
  "strum",
+ "thiserror",
  "tokio",
  "validator",
 ]
@@ -4022,6 +4023,7 @@ dependencies = [
  "enum-map",
  "fs2",
  "insta",
+ "itertools",
  "itoa 1.0.2",
  "lru",
  "near-crypto",
@@ -5636,6 +5638,7 @@ dependencies = [
  "near-client",
  "near-client-primitives",
  "near-crypto",
+ "near-epoch-manager",
  "near-o11y",
  "near-primitives",
  "near-store",

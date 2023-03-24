@@ -53,7 +53,7 @@ where
     where
         D: serde::Deserializer<'de>,
     {
-        let blob = hex::decode(&<String as serde::Deserialize>::deserialize(deserializer)?)
+        let blob = hex::decode(<String as serde::Deserialize>::deserialize(deserializer)?)
             .map_err(|err| {
                 serde::de::Error::invalid_value(
                     serde::de::Unexpected::Other(&format!(
@@ -118,7 +118,7 @@ where
         D: serde::Deserializer<'de>,
     {
         Ok(Self(T::from(
-            hex::decode(&<String as serde::Deserialize>::deserialize(deserializer)?).map_err(
+            hex::decode(<String as serde::Deserialize>::deserialize(deserializer)?).map_err(
                 |err| {
                     serde::de::Error::invalid_value(
                         serde::de::Unexpected::Other(&format!(
@@ -203,7 +203,7 @@ where
     T: Copy + PartialEq + std::string::ToString,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "SignedDiff({})", self.to_string())
+        write!(f, "SignedDiff({})", self)
     }
 }
 
@@ -469,6 +469,15 @@ where
     }
 }
 
+impl<'a, T> AsRef<Option<T>> for InitializeOnce<'a, T>
+where
+    T: std::fmt::Debug + std::clone::Clone + std::cmp::Eq,
+{
+    fn as_ref(&self) -> &Option<T> {
+        &self.known_value
+    }
+}
+
 /// Get a block with `block_id`.
 /// Returns `Ok(Some(_))` if the block exists and is final.
 /// Returns `Ok(None)` if the block does not exist or is not final.
@@ -557,7 +566,7 @@ pub(crate) async fn get_nonces(
                     err
                 ))
             })?,
-            &view_client_addr,
+            view_client_addr,
         )
         .await?;
         nonces.push(access_key.nonce);

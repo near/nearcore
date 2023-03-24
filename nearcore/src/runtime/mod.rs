@@ -1,6 +1,5 @@
 use crate::metrics;
 use crate::migrations::load_migration_data;
-use crate::shard_tracker::{ShardTracker, TrackedConfig};
 use crate::NearConfig;
 use borsh::ser::BorshSerialize;
 use borsh::BorshDeserialize;
@@ -15,6 +14,7 @@ use near_chain_configs::{
 };
 use near_client_primitives::types::StateSplitApplyingStatus;
 use near_crypto::PublicKey;
+use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_o11y::log_assert;
 use near_pool::types::PoolIterator;
@@ -64,10 +64,11 @@ use node_runtime::{
     validate_transaction, verify_and_charge_transaction, ApplyState, Runtime,
     ValidatorAccountsUpdate,
 };
+use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
-use std::sync::{Arc, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{Arc, RwLockReadGuard, RwLockWriteGuard, Weak};
 use std::time::Instant;
 use tracing::{debug, error, info, warn};
 
@@ -92,10 +93,14 @@ pub struct NightshadeRuntime {
     genesis_state_roots: Vec<StateRoot>,
     migration_data: Arc<MigrationData>,
     gc_num_epochs_to_keep: u64,
+
+    // For RuntimeAdapter migration only, allows ability to reference an Arc of
+    // itself.
+    myself: Weak<NightshadeRuntime>,
 }
 
 impl NightshadeRuntime {
-    pub fn from_config(home_dir: &Path, store: Store, config: &NearConfig) -> Self {
+    pub fn from_config(home_dir: &Path, store: Store, config: &NearConfig) -> Arc<Self> {
         Self::new(
             home_dir,
             store,
@@ -119,7 +124,7 @@ impl NightshadeRuntime {
         runtime_config_store: Option<RuntimeConfigStore>,
         gc_num_epochs_to_keep: u64,
         trie_config: TrieConfig,
-    ) -> Self {
+    ) -> Arc<Self> {
         let runtime_config_store = match runtime_config_store {
             Some(store) => store,
             None => NightshadeRuntime::create_runtime_config_store(&genesis.config.chain_id),
@@ -144,11 +149,12 @@ impl NightshadeRuntime {
             &genesis_config.shard_layout.get_shard_uids(),
             flat_storage_manager.clone(),
         );
-        let epoch_manager = EpochManager::new_from_genesis_config(store.clone(), &genesis_config)
-            .expect("Failed to start Epoch Manager")
-            .into_handle();
-        let shard_tracker = ShardTracker::new(tracked_config, epoch_manager.clone());
-        NightshadeRuntime {
+        let epoch_manager =
+            EpochManager::new_from_genesis_config(store.clone().into(), &genesis_config)
+                .expect("Failed to start Epoch Manager")
+                .into_handle();
+        let shard_tracker = ShardTracker::new(tracked_config, Arc::new(epoch_manager.clone()));
+        Arc::new_cyclic(|myself| NightshadeRuntime {
             genesis_config,
             runtime_config_store,
             store,
@@ -161,7 +167,8 @@ impl NightshadeRuntime {
             genesis_state_roots: state_roots,
             migration_data: Arc::new(load_migration_data(&genesis.config.chain_id)),
             gc_num_epochs_to_keep: gc_num_epochs_to_keep.max(MIN_GC_NUM_EPOCHS_TO_KEEP),
-        }
+            myself: myself.clone(),
+        })
     }
 
     pub fn test_with_runtime_config_store(
@@ -170,7 +177,7 @@ impl NightshadeRuntime {
         genesis: &Genesis,
         tracked_config: TrackedConfig,
         runtime_config_store: RuntimeConfigStore,
-    ) -> Self {
+    ) -> Arc<Self> {
         Self::new(
             home_dir,
             store,
@@ -184,7 +191,7 @@ impl NightshadeRuntime {
         )
     }
 
-    pub fn test(home_dir: &Path, store: Store, genesis: &Genesis) -> Self {
+    pub fn test(home_dir: &Path, store: Store, genesis: &Genesis) -> Arc<Self> {
         Self::test_with_runtime_config_store(
             home_dir,
             store,
@@ -226,19 +233,29 @@ impl NightshadeRuntime {
     fn genesis_state_from_records(store: Store, genesis: &Genesis) -> Vec<StateRoot> {
         match genesis.records_len() {
             Ok(count) => {
-                info!(target: "runtime", "Genesis state has {count} records, computing state roots")
+                info!(
+                    target: "runtime",
+                    "genesis state has {count} records, computing state roots"
+                )
             }
             Err(path) => {
-                info!(target: "runtime", "Computing state roots from records in file {}", path.display())
+                info!(
+                    target: "runtime",
+                    path=%path.display(),
+                    message="computing state roots from records",
+                )
             }
         }
-        let mut state_roots = vec![];
         let initial_epoch_config = EpochConfig::from(&genesis.config);
         let shard_layout = initial_epoch_config.shard_layout;
         let num_shards = shard_layout.num_shards();
         let mut shard_account_ids: Vec<HashSet<AccountId>> =
             (0..num_shards).map(|_| HashSet::new()).collect();
         let mut has_protocol_account = false;
+        info!(
+            target: "runtime",
+            "distributing records to shards"
+        );
         genesis.for_each_record(|record: &StateRecord| {
             shard_account_ids[state_record_to_shard_id(record, &shard_layout) as usize]
                 .insert(state_record_to_account_id(record).clone());
@@ -259,35 +276,40 @@ impl NightshadeRuntime {
         let runtime_config_store =
             NightshadeRuntime::create_runtime_config_store(&genesis.config.chain_id);
         let runtime_config = runtime_config_store.get_config(genesis.config.protocol_version);
+        let writers = std::sync::atomic::AtomicUsize::new(0);
+        (0..num_shards)
+            .into_par_iter()
+            .map(|shard_id| {
+                let validators = genesis
+                    .config
+                    .validators
+                    .iter()
+                    .filter_map(|account_info| {
+                        if account_id_to_shard_id(&account_info.account_id, &shard_layout)
+                            == shard_id
+                        {
+                            Some((
+                                account_info.account_id.clone(),
+                                account_info.public_key.clone(),
+                                account_info.amount,
+                            ))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>();
 
-        for shard_id in 0..num_shards {
-            let validators = genesis
-                .config
-                .validators
-                .iter()
-                .filter_map(|account_info| {
-                    if account_id_to_shard_id(&account_info.account_id, &shard_layout) == shard_id {
-                        Some((
-                            account_info.account_id.clone(),
-                            account_info.public_key.clone(),
-                            account_info.amount,
-                        ))
-                    } else {
-                        None
-                    }
-                })
-                .collect::<Vec<_>>();
-
-            state_roots.push(runtime.apply_genesis_state(
-                tries.clone(),
-                shard_id,
-                &validators,
-                genesis,
-                runtime_config,
-                shard_account_ids[shard_id as usize].clone(),
-            ));
-        }
-        state_roots
+                runtime.apply_genesis_state(
+                    &writers,
+                    tries.clone(),
+                    shard_id,
+                    &validators,
+                    genesis,
+                    runtime_config,
+                    shard_account_ids[shard_id as usize].clone(),
+                )
+            })
+            .collect()
     }
 
     /// On first start: compute state roots, load genesis state into storage.
@@ -857,8 +879,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         // of parameters, this corresponds to about 13megs worth of
         // transactions.
         let size_limit = transactions_gas_limit
-            / (runtime_config.wasm_config.ext_costs.cost(ExtCosts::storage_write_value_byte)
-                + runtime_config.wasm_config.ext_costs.cost(ExtCosts::storage_read_value_byte));
+            / (runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::storage_write_value_byte)
+                + runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::storage_read_value_byte));
 
         while total_gas_burnt < transactions_gas_limit && total_size < size_limit {
             if let Some(iter) = pool_iterator.next() {
@@ -1444,7 +1466,19 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 }
 
-impl RuntimeWithEpochManagerAdapter for NightshadeRuntime {}
+impl RuntimeWithEpochManagerAdapter for NightshadeRuntime {
+    fn epoch_manager_adapter(&self) -> &dyn EpochManagerAdapter {
+        self
+    }
+
+    fn epoch_manager_adapter_arc(&self) -> Arc<dyn EpochManagerAdapter> {
+        self.myself.upgrade().unwrap()
+    }
+
+    fn shard_tracker(&self) -> ShardTracker {
+        self.shard_tracker.clone()
+    }
+}
 
 impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
     fn view_account(
@@ -1546,6 +1580,7 @@ mod test {
     use std::collections::BTreeSet;
 
     use near_chain::{Chain, ChainGenesis};
+    use near_epoch_manager::shard_tracker::TrackedConfig;
     use near_primitives::test_utils::create_test_signer;
     use near_primitives::types::validator_stake::ValidatorStake;
     use near_store::flat::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
@@ -1662,7 +1697,7 @@ mod test {
     /// Runtime operates in a mock chain where i-th block is attached to (i-1)-th one, has height `i` and hash
     /// `hash([i])`.
     struct TestEnv {
-        pub runtime: NightshadeRuntime,
+        pub runtime: Arc<NightshadeRuntime>,
         pub head: Tip,
         state_roots: Vec<StateRoot>,
         pub last_receipts: HashMap<ShardId, Vec<Receipt>>,
@@ -3107,15 +3142,15 @@ mod test {
         let store = near_store::test_utils::create_test_store();
 
         let tempdir = tempfile::tempdir().unwrap();
-        let runtime = Arc::new(NightshadeRuntime::test_with_runtime_config_store(
+        let runtime = NightshadeRuntime::test_with_runtime_config_store(
             tempdir.path(),
             store.clone(),
             &genesis,
             TrackedConfig::new_empty(),
             RuntimeConfigStore::new(None),
-        ));
+        );
 
-        let block = Chain::make_genesis_block(&*runtime, &chain_genesis).unwrap();
+        let block = Chain::make_genesis_block(runtime.as_ref(), &chain_genesis).unwrap();
         assert_eq!(
             block.header().hash().to_string(),
             "EPnLgE7iEq9s7yTkos96M3cWymH5avBAPm3qx3NXqR8H"
