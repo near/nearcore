@@ -343,7 +343,7 @@ pub(crate) async fn query_account(
 
 pub(crate) async fn query_accounts<R>(
     block_id: &near_primitives::types::BlockReference,
-    account_ids: impl Iterator<Item = &near_primitives::types::AccountId>,
+    account_ids: impl IntoIterator<Item = &near_primitives::types::AccountId>,
     view_client_addr: &Addr<ViewClientActor>,
 ) -> Result<R, crate::errors::ErrorKind>
 where
