@@ -28,16 +28,14 @@ pub fn parse_workspace() -> anyhow::Result<Workspace> {
         .map(|package| {
             let raw = match read_toml(&package.manifest_path)? {
                 Some(raw) => raw,
-                None => {
-                    return Err(anyhow::anyhow!("package manifest `{}` not found", package.name))
-                }
+                None => anyhow::bail!("package manifest `{}` not found", package.name),
             };
             Ok(Package { parsed: package, raw })
         })
         .collect::<anyhow::Result<_>>()?;
     let raw = match read_toml(&metadata.workspace_root.join("Cargo.toml"))? {
         Some(raw) => raw,
-        None => return Err(anyhow::anyhow!("workspace manifest not found")),
+        None => anyhow::bail!("workspace manifest not found"),
     };
     Ok(Workspace { root: metadata.workspace_root, members, raw })
 }
