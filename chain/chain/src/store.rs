@@ -2285,10 +2285,12 @@ impl<'a> ChainStoreUpdate<'a> {
                 self.gc_col(DBCol::StateHeaders, &state_header_key);
             }
             // delete flat storage columns: FlatStateChanges and FlatStateDeltaMetadata
+            #[cfg(feature = "protocol_feature_flat_state")]
             let shard_uid_flat_storage = ShardUId::from_shard_id_and_layout(
                 shard_id as u64,
                 &ShardLayout::get_simple_nightshade_layout(),
             );
+            #[cfg(feature = "protocol_feature_flat_state")]
             store_helper::remove_delta(&mut store_update, shard_uid_flat_storage, block_hash);
         }
 
