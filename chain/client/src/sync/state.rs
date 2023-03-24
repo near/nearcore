@@ -1263,12 +1263,11 @@ fn check_external_storage_part_response(
         // Other HTTP status codes are considered errors.
         Ok((status_code, _)) => {
             tracing::debug!(target: "sync", %shard_id, %sync_hash, part_id, status_code, "Wrong response code, expected 200");
-            err_to_retry =
-                Some(near_chain::Error::Other(format!("status_code: {}", status_code).to_string()));
+            err_to_retry = Some(near_chain::Error::Other(format!("status_code: {}", status_code)));
         }
         // The request failed without reaching the external storage.
         Err(err) => {
-            err_to_retry = Some(near_chain::Error::Other(err.to_string()));
+            err_to_retry = Some(near_chain::Error::Other(err));
         }
     };
 
