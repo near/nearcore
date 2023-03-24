@@ -71,6 +71,9 @@ skip = [
     # finite-wasm
     { name = "wasmparser", version = "=0.99.0" },
 
+    # near-vm
+    { name = "wasm-smith", version = "=0.4.4" },
+
     # chain and param estimator
     { name = "num-rational", version = "=0.3.2" },
 

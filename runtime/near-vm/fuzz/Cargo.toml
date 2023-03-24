@@ -10,7 +10,7 @@ cargo-fuzz = true
 
 [dependencies]
 anyhow = "1"
-wasm-smith.workspace = true
+wasm-smith = "0.4.4"
 libfuzzer-sys = "0.4.0"
 wasmer = { path = "../lib/api", package = "near-vm" }
 wasmer-compiler-singlepass = { path = "../lib/compiler-singlepass", package = "near-vm-compiler-singlepass", optional = true }
