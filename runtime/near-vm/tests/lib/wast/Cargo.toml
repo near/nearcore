@@ -14,7 +14,7 @@ publish = false
 [dependencies]
 anyhow = "1.0"
 wasmer = { path = "../../../lib/api", package = "near-vm", default-features = false }
-wast = "38.0"
+wast = "40.0"
 tempfile = "3"
 thiserror = "1.0"
 
