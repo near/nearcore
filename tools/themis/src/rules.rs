@@ -59,7 +59,7 @@ pub fn rust_version_matches_toolchain(workspace: &Workspace) -> anyhow::Result<(
 
     let toolchain_file = match read_toml(&workspace.root.join("rust-toolchain.toml"))? {
         Some(toolchain_file) => toolchain_file,
-        _ => return Ok(()),
+        None => return Ok(()),
     };
     let toolchain_version = get(&toolchain_file, &["toolchain", "channel"])?;
     let workspace_version = get(&workspace.raw, &["workspace", "package", "rust-version"])?;
