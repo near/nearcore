@@ -3975,19 +3975,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "near-vm-bin-fuzz"
-version = "0.0.0"
-dependencies = [
- "anyhow",
- "libfuzzer-sys",
- "near-vm",
- "near-vm-compiler-singlepass",
- "near-vm-engine-universal",
- "wasm-smith",
- "wasmprinter",
-]
-
-[[package]]
 name = "near-vm-compiler"
 version = "0.0.0"
 dependencies = [
