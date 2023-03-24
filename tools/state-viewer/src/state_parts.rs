@@ -14,7 +14,6 @@ use std::fs::DirEntry;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::sync::Arc;
 use std::time::Instant;
 
 #[derive(clap::Subcommand, Debug, Clone)]
@@ -68,7 +67,7 @@ impl StatePartsSubCommand {
         store: Store,
     ) {
         let runtime =
-            Arc::new(NightshadeRuntime::from_config(home_dir, store.clone(), &near_config));
+            NightshadeRuntime::from_config(home_dir, store.clone(), &near_config);
         let chain_genesis = ChainGenesis::new(&near_config.genesis);
         let mut chain = Chain::new_for_view_client(
             runtime.clone(),
