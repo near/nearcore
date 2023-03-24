@@ -1,13 +1,10 @@
-use std::fmt::Debug;
-
-use near_primitives::time;
-
-use crate::messaging::CanSend;
-
 use super::{
     delay_sender::DelaySender,
     event_handler::{LoopEventHandler, TryIntoOrSelf},
 };
+use crate::messaging::CanSend;
+use near_primitives::time;
+use std::fmt::Debug;
 
 /// Any arbitrary logic that runs as part of the test loop.
 ///
