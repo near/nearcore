@@ -71,7 +71,7 @@ impl StatePartsSubCommand {
         let runtime = NightshadeRuntime::from_config(home_dir, store.clone(), &near_config);
         let chain_genesis = ChainGenesis::new(&near_config.genesis);
         let mut chain = Chain::new_for_view_client(
-            runtime.clone(),
+            runtime,
             &chain_genesis,
             DoomslugThresholdMode::TwoThirds,
             false,
