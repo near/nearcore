@@ -65,6 +65,12 @@ skip = [
     { name = "target-lexicon", version = "=0.10.0" },
     { name = "wasmparser", version = "=0.84.0" },
 
+    # wasmtime v4
+    { name = "wasmparser", version = "=0.95.0" },
+
+    # finite-wasm
+    { name = "wasmparser", version = "=0.99.0" },
+
     # chain and param estimator
     { name = "num-rational", version = "=0.3.2" },
 
