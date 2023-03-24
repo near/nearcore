@@ -26,7 +26,7 @@ region = "3.0"
 rkyv = { version = "0.7.20" }
 thiserror = "1.0"
 tracing = "0.1"
-wasmer-types = { path = "../types", package = "near-vm-types", version = "=2.4.0" }
+wasmer-types = { path = "../types", package = "near-vm-types" }
 wasmparser = "0.99.0"
 
 [target.'cfg(target_os = "windows")'.dependencies]

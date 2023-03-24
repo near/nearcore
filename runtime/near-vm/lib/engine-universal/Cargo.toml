@@ -16,10 +16,10 @@ name = "wasmer_engine_universal"
 
 [dependencies]
 finite-wasm = "0.3.0"
-wasmer-compiler = { path = "../compiler", version = "=2.4.0", package = "near-vm-compiler", features = ["translator"] }
-wasmer-engine = { path = "../engine", package = "near-vm-engine", version = "=2.4.0" }
-wasmer-types = { path = "../types", version = "=2.4.0", package = "near-vm-types" }
-wasmer-vm = { path = "../vm", version = "=2.4.0", package = "near-vm-vm" }
+wasmer-compiler = { path = "../compiler", package = "near-vm-compiler", features = ["translator"] }
+wasmer-engine = { path = "../engine", package = "near-vm-engine" }
+wasmer-types = { path = "../types", package = "near-vm-types" }
+wasmer-vm = { path = "../vm", package = "near-vm-vm" }
 
 cfg-if = "1.0"
 enumset = "1.0"
