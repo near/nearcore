@@ -1,13 +1,15 @@
 use crate::epoch_info::iterate_and_filter;
+use borsh::BorshDeserialize;
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use near_client::sync::state::StateSync;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::state_part::PartId;
+use near_primitives::state_record::StateRecord;
 use near_primitives::syncing::get_num_state_parts;
 use near_primitives::types::{EpochId, StateRoot};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{BlockHeight, EpochHeight, ShardId};
-use near_store::Store;
+use near_store::{PartialStorage, Store, Trie};
 use nearcore::{NearConfig, NightshadeRuntime};
 use s3::serde_types::ListBucketResult;
 use std::fs::DirEntry;
@@ -340,10 +342,35 @@ fn dump_state_parts(
             .runtime_adapter
             .obtain_state_part(shard_id, &sync_hash, &state_root, PartId::new(part_id, num_parts))
             .unwrap();
+        let (first_sr, last_sr) = analyze_state_part(&state_root, &state_part);
+        tracing::info!(target: "state-parts", part_id, ?first_sr, ?last_sr);
         part_storage.write(&state_part, part_id, num_parts);
         tracing::info!(target: "state-parts", part_id, part_length = state_part.len(), elapsed_sec = timer.elapsed().as_secs_f64(), "Wrote a state part");
     }
     tracing::info!(target: "state-parts", total_elapsed_sec = timer.elapsed().as_secs_f64(), "Wrote all requested state parts");
+}
+
+fn analyze_state_part(
+    state_root: &StateRoot,
+    data: &[u8],
+) -> (Option<StateRecord>, Option<StateRecord>) {
+    let trie_nodes = BorshDeserialize::try_from_slice(data).unwrap();
+    let trie = Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes }, *state_root);
+
+    let mut first_sr = None;
+    let mut last_sr = None;
+    for item in trie.iter().unwrap() {
+        if let Ok((key, value)) = item {
+            if let Some(sr) = StateRecord::from_raw_key_value(key, value) {
+                if first_sr.is_none() {
+                    first_sr = Some(sr);
+                } else {
+                    last_sr = Some(sr);
+                }
+            }
+        }
+    }
+    (first_sr, last_sr)
 }
 
 /// Reads `StateHeader` stored in the DB.
