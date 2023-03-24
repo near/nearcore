@@ -1982,10 +1982,12 @@ impl<'a> ChainStoreUpdate<'a> {
         }
 
         let header_hashes = self.chain_store.get_all_header_hashes_by_height(height)?;
-        for _header_hash in header_hashes {
+        for header_hash in header_hashes {
             // 3. Delete header_hash-indexed data
-            // TODO #3488: enable
-            // self.gc_col(DBCol::BlockHeader, _header_hash.as_bytes());
+            let mut store_update = self.store().store_update();
+            let key = header_hash.as_bytes();
+            store_update.delete(DBCol::BlockHeader, key);
+            self.chain_store.headers.pop(key);
         }
 
         // 4. Delete chunks_tail-related data
@@ -2268,7 +2270,7 @@ impl<'a> ChainStoreUpdate<'a> {
             self.gc_outgoing_receipts(&block_hash, shard_id);
             self.gc_col(DBCol::IncomingReceipts, &block_shard_id);
 
-            // gc DBCol::ChunkExtra based on shard_uid since it's indexed by shard_uid in the storage
+            // delete DBCol::ChunkExtra based on shard_uid since it's indexed by shard_uid in the storage
             self.gc_col(DBCol::ChunkExtra, &block_shard_id);
 
             // For incoming State Parts it's done in chain.clear_downloaded_parts()
@@ -2285,6 +2287,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 self.gc_col(DBCol::StateHeaders, &state_header_key);
             }
             // delete flat storage columns: FlatStateChanges and FlatStateDeltaMetadata
+            // not working yet
             #[cfg(feature = "protocol_feature_flat_state")]
             let shard_uid_flat_storage = ShardUId::from_shard_id_and_layout(
                 shard_id as u64,
