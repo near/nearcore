@@ -7080,19 +7080,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "wasmer-bin-fuzz"
-version = "0.0.0"
-dependencies = [
- "anyhow",
- "libfuzzer-sys",
- "near-vm",
- "near-vm-compiler-singlepass",
- "near-vm-engine-universal",
- "wasm-smith",
- "wasmprinter",
-]
-
-[[package]]
 name = "wasmer-compiler-near"
 version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
