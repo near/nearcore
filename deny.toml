@@ -123,4 +123,7 @@ skip = [
     { name = "borsh-derive", version = "=0.9.3" },
     { name = "borsh-derive-internal", version = "=0.9.3" },
     { name = "borsh-schema-derive-internal", version = "=0.9.3" },
+
+    # finite-wasm
+    { name = "wasm-encoder", version = "=0.22.1" },
 ]
