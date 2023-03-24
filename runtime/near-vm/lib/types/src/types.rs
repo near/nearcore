@@ -220,8 +220,8 @@ implement_from_pair_to_functiontype! {
     9,0 9,1 9,2 9,3 9,4 9,5 9,6 9,7 9,8 9,9
 }
 
-impl From<&FunctionType> for FunctionType {
-    fn from(as_ref: &FunctionType) -> Self {
+impl From<&Self> for FunctionType {
+    fn from(as_ref: &Self) -> Self {
         as_ref.clone()
     }
 }
@@ -556,7 +556,7 @@ pub struct FastGasCounter {
 impl FastGasCounter {
     /// New fast gas counter.
     pub fn new(limit: u64) -> Self {
-        FastGasCounter { burnt_gas: 0, gas_limit: limit }
+        Self { burnt_gas: 0, gas_limit: limit }
     }
     /// Amount of gas burnt, maybe load as atomic to avoid aliasing issues.
     pub fn burnt(&self) -> u64 {

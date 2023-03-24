@@ -207,8 +207,8 @@ pub struct ArchivableModuleInfo {
 }
 
 impl From<ModuleInfo> for ArchivableModuleInfo {
-    fn from(it: ModuleInfo) -> ArchivableModuleInfo {
-        ArchivableModuleInfo {
+    fn from(it: ModuleInfo) -> Self {
+        Self {
             name: it.name,
             imports: ArchivableIndexMap::from(it.imports),
             exports: ArchivableIndexMap::from(it.exports),
@@ -231,8 +231,8 @@ impl From<ModuleInfo> for ArchivableModuleInfo {
 }
 
 impl From<ArchivableModuleInfo> for ModuleInfo {
-    fn from(it: ArchivableModuleInfo) -> ModuleInfo {
-        ModuleInfo {
+    fn from(it: ArchivableModuleInfo) -> Self {
+        Self {
             id: Default::default(),
             name: it.name,
             imports: it.imports.into(),
@@ -256,8 +256,8 @@ impl From<ArchivableModuleInfo> for ModuleInfo {
 }
 
 impl From<&ModuleInfo> for ArchivableModuleInfo {
-    fn from(it: &ModuleInfo) -> ArchivableModuleInfo {
-        ArchivableModuleInfo::from(it.clone())
+    fn from(it: &ModuleInfo) -> Self {
+        Self::from(it.clone())
     }
 }
 
@@ -290,7 +290,7 @@ impl<D: Fallible + ?Sized + SharedDeserializeRegistry> rkyv::Deserialize<ModuleI
 
 // For test serialization correctness, everything except module id should be same
 impl PartialEq for ModuleInfo {
-    fn eq(&self, other: &ModuleInfo) -> bool {
+    fn eq(&self, other: &Self) -> bool {
         self.name == other.name
             && self.imports == other.imports
             && self.exports == other.exports

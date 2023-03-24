@@ -150,8 +150,8 @@ impl<K, V> Default for PrimaryMap<K, V>
 where
     K: EntityRef,
 {
-    fn default() -> PrimaryMap<K, V> {
-        PrimaryMap::new()
+    fn default() -> Self {
+        Self::new()
     }
 }
 

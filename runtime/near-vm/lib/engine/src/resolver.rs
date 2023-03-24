@@ -16,13 +16,13 @@ fn is_compatible_table(ex: &TableType, im: &TableType) -> bool {
     (ex.ty == wasmer_types::Type::FuncRef || ex.ty == im.ty)
         && im.minimum <= ex.minimum
         && (im.maximum.is_none()
-            || (!ex.maximum.is_none() && im.maximum.unwrap() >= ex.maximum.unwrap()))
+            || (ex.maximum.is_some() && im.maximum.unwrap() >= ex.maximum.unwrap()))
 }
 
 fn is_compatible_memory(ex: &MemoryType, im: &MemoryType) -> bool {
     im.minimum <= ex.minimum
         && (im.maximum.is_none()
-            || (!ex.maximum.is_none() && im.maximum.unwrap() >= ex.maximum.unwrap()))
+            || (ex.maximum.is_some() && im.maximum.unwrap() >= ex.maximum.unwrap()))
         && ex.shared == im.shared
 }
 
@@ -67,8 +67,7 @@ pub fn resolve_imports(
             Export::Function(ref f) => ExternType::Function(
                 engine
                     .lookup_signature(f.vm_function.signature)
-                    .expect("VMSharedSignatureIndex not registered with engine (wrong engine?)")
-                    .clone(),
+                    .expect("VMSharedSignatureIndex not registered with engine (wrong engine?)"),
             ),
             Export::Table(ref t) => ExternType::Table(*t.ty()),
             Export::Memory(ref m) => ExternType::Memory(m.ty()),
