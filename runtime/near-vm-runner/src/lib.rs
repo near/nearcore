@@ -8,6 +8,7 @@ mod instrument;
 mod memory;
 // TODO: this will need to be turned into an actual near_vm feature as soon as it’s implemented
 #[cfg(all(feature = "wasmer2_vm", target_arch = "x86_64"))]
+#[allow(dead_code)]
 mod near_vm_runner;
 pub mod prepare;
 mod runner;
