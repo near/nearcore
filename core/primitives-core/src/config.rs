@@ -286,7 +286,7 @@ impl ExtCostsConfig {
 
     /// Convenience constructor to use in tests where the exact gas cost does
     /// not need to correspond to a specific protocol version.
-    pub fn test() -> ExtCostsConfig {
+    pub fn test_with_undercharging_factor(factor: u64) -> ExtCostsConfig {
         let costs = enum_map! {
             ExtCosts::base => SAFETY_MULTIPLIER * 88256037,
             ExtCosts::contract_loading_base => SAFETY_MULTIPLIER * 11815321,
@@ -352,8 +352,13 @@ impl ExtCostsConfig {
             ExtCosts::alt_bn128_g1_sum_base => 3_000_000_000,
             ExtCosts::alt_bn128_g1_sum_element => 5_000_000_000,
         }
-        .map(|_, value| ParameterCost { gas: value, compute: value });
+        .map(|_, value| ParameterCost { gas: value, compute: value * factor });
         ExtCostsConfig { costs }
+    }
+
+    /// `test_with_undercharging_factor` with a factor of 1.
+    pub fn test() -> ExtCostsConfig {
+        Self::test_with_undercharging_factor(1)
     }
 
     fn free() -> ExtCostsConfig {
@@ -482,8 +487,12 @@ pub enum ActionCosts {
 }
 
 impl ExtCosts {
-    pub fn value(self, config: &ExtCostsConfig) -> Gas {
+    pub fn gas(self, config: &ExtCostsConfig) -> Gas {
         config.gas_cost(self)
+    }
+
+    pub fn compute(self, config: &ExtCostsConfig) -> Compute {
+        config.compute_cost(self)
     }
 
     pub fn param(&self) -> Parameter {
