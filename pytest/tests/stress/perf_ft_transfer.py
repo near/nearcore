@@ -47,7 +47,7 @@ from configured_logger import new_logger
 DEFAULT_TRANSACTION_TTL_SECONDS = 10
 GAS_PER_BLOCK = 10E14
 TRANSACTIONS_PER_BLOCK = 121
-MAX_INFLIGHT_TRANSACTIONS = 2500
+MAX_INFLIGHT_TRANSACTIONS = 5000
 BLOCK_HASH = ''
 SEED = random.uniform(0, 0xFFFFFFFF)
 logger = new_logger(level = logging.INFO)
@@ -76,10 +76,8 @@ class Transaction:
         """
         Returns True if transaction has completed.
         """
-        self.ttl = self.expiration - time.time()
         if self.is_complete():
             return True
-
         # Send the transaction if the previous expired or we didn't send one in the first place.
         if self.transaction_id is None or self.ttl <= 0:
             if self.transaction_id is not None:
@@ -88,7 +86,6 @@ class Transaction:
             self.expiration = time.time() + DEFAULT_TRANSACTION_TTL_SECONDS
             self.ttl = DEFAULT_TRANSACTION_TTL_SECONDS
             return False # almost guaranteed to not produce any results right now.
-
         logger.debug(f"checking {self.transaction_id} from {self.caller.key.account_id}")
         try:
             tx_result = self.caller.json_rpc('tx', [self.transaction_id, self.caller.key.account_id])
@@ -109,6 +106,8 @@ class Transaction:
         success = 'error' not in tx_result
         if not success:
             logger.debug(f"transaction {self.transaction_id} for {self.caller} is not successful: {tx_result}")
+        # only set TTL if we managed to check for success or failure...
+        self.ttl = self.expiration - time.time()
         return success
 
 
@@ -207,6 +206,19 @@ class InitFTAccount(Transaction):
         return (result["result"], self.contract)
 
 
+class TxQueue(queue.SimpleQueue):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.pending = 0
+
+    def add(self, tx):
+        self.pending += 1
+        self.put(tx)
+
+    def complete(self):
+        self.pending -= 1
+
+
 def transaction_executor(tx_queue):
     while True:
         tx = tx_queue.get()
@@ -215,6 +227,8 @@ def transaction_executor(tx_queue):
             tx_queue.put(tx)
             if tx.ttl != DEFAULT_TRANSACTION_TTL_SECONDS:
                 time.sleep(0.25) # don't spam RPC too hard...
+        else:
+            tx_queue.complete()
 
 
 def block_hash_updater(node):
@@ -273,11 +287,12 @@ def main():
             key_path = args.contract_key
         signer_key = key.Key.from_json_file(key_path)
 
-    tx_queue = queue.SimpleQueue()
+    tx_queue = TxQueue()
     threading.Thread(target=block_hash_updater, args=(nodes[0],), daemon=True).start()
     while not BLOCK_HASH:
         time.sleep(0.1)
         continue
+    threading.Thread(target=transaction_executor, args=(tx_queue,), daemon=True).start()
     threading.Thread(target=transaction_executor, args=(tx_queue,), daemon=True).start()
     init_nonce = mocknet_helpers.get_nonce_for_key(
         signer_key,
@@ -290,14 +305,14 @@ def main():
         '',
         rpc_infos=[node.rpc_addr() for node in nodes]
     )
-    tx_queue.put(DeployFT(contract_account, args.fungible_token_wasm))
+    tx_queue.add(DeployFT(contract_account, args.fungible_token_wasm))
     wait_empty(tx_queue, "deployment")
-    tx_queue.put(InitFT(contract_account))
+    tx_queue.add(InitFT(contract_account))
     wait_empty(tx_queue, "contract initialization")
 
     if not args.no_account_topup:
         for test_account in accounts:
-            tx_queue.put(TransferNear(contract_account, test_account.account_id, 2.0))
+            tx_queue.add(TransferNear(contract_account, test_account.account_id, 2.0))
         wait_empty(tx_queue, "account creation and top-up")
 
     # Replace implicit account keys with proper accoutns. We can only do so now, because otherwise
@@ -314,26 +329,26 @@ def main():
     ]
 
     for test_account in accounts:
-        tx_queue.put(InitFTAccount(contract_account, test_account))
+        tx_queue.add(InitFTAccount(contract_account, test_account))
     wait_empty(tx_queue, "init accounts with the FT contract")
 
     for test_account in accounts:
-        tx_queue.put(TransferFT(contract_account, contract_account, test_account, how_much=1E8))
+        tx_queue.add(TransferFT(contract_account, contract_account, test_account, how_much=1E8))
     wait_empty(tx_queue, "distribution of initial FT")
 
     transfers = 0
     while True:
         sender, receiver = rng.sample(accounts, k=2)
-        tx_queue.put(TransferFT(contract_account, sender, receiver, how_much=1))
+        tx_queue.add(TransferFT(contract_account, sender, receiver, how_much=1))
         transfers += 1
         if transfers % 10000 == 0:
-            logger.info(f"{transfers} so far ({tx_queue.qsize()} in the queue)")
-        while tx_queue.qsize() >= MAX_INFLIGHT_TRANSACTIONS:
+            logger.info(f"{transfers} so far ({tx_queue.pending} pending)")
+        while tx_queue.pending >= MAX_INFLIGHT_TRANSACTIONS:
             time.sleep(0.1)
 
 def wait_empty(queue, why):
-    while not queue.empty():
-        logger.info(f"waiting for {why} ({queue.qsize()} remain)")
+    while queue.pending != 0:
+        logger.info(f"waiting for {why} ({queue.pending} remain)")
         time.sleep(0.25)
     logger.info(f"wait for {why} completed!")
 
