@@ -1,15 +1,15 @@
 [package]
 name = "near-vm-compiler-singlepass"
-version = "2.4.0"
+version = "0.0.0"
 description = "Singlepass compiler for Wasmer WebAssembly runtime"
 categories = ["wasm"]
 keywords = ["wasm", "webassembly", "compiler", "singlepass"]
-authors = ["Wasmer Engineering Team <engineering@wasmer.io>"]
+authors = ["Near Inc <hello@nearprotocol.com>"]
 repository = "https://github.com/wasmerio/wasmer"
 documentation = "https://docs.rs/wasmer-compiler-singlepass/"
 license = "MIT"
 readme = "README.md"
-edition = "2018"
+edition = "2021"
 publish = false
 
 [lib]
