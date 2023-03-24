@@ -1,0 +1,39 @@
+[package]
+name = "wasmer-compiler-near"
+version = "2.4.0"
+description = "Base compiler abstraction for Wasmer WebAssembly runtime"
+categories = ["wasm", "no-std"]
+keywords = ["wasm", "webassembly", "compiler"]
+authors = ["Wasmer Engineering Team <engineering@wasmer.io>"]
+repository = "https://github.com/wasmerio/wasmer"
+license = "MIT OR Apache-2.0 WITH LLVM-exception"
+readme = "README.md"
+edition = "2018"
+
+[lib]
+name = "wasmer_compiler"
+
+[dependencies]
+finite-wasm = "0.3.0"
+wasmer-vm = { path = "../vm", package = "wasmer-vm-near", version = "=2.4.0" }
+wasmer-types = { path = "../types", package = "wasmer-types-near", version = "=2.4.0", default-features = false }
+wasmparser = { version = "0.99.0", optional = true, default-features = false }
+target-lexicon = { version = "0.12.2", default-features = false }
+enumset = "1.0"
+hashbrown = { version = "0.11", optional = true }
+thiserror = "1.0"
+smallvec = "1.6"
+rkyv = { version = "0.7.20" }
+tracing = "0.1"
+
+[features]
+default = ["std" ]
+# This feature is for compiler implementors, it enables using `Compiler` and
+# `CompilerConfig`, as well as the included wasmparser.
+# Disable this feature if you just want a headless engine.
+translator = ["wasmparser"]
+std = ["wasmer-types/std"]
+core = ["hashbrown", "wasmer-types/core"]
+
+[badges]
+maintenance = { status = "experimental" }
