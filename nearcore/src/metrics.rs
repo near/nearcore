@@ -50,15 +50,6 @@ pub(crate) static STATE_SYNC_DUMP_PUT_OBJECT_ELAPSED: Lazy<HistogramVec> = Lazy:
     )
     .unwrap()
 });
-pub(crate) static STATE_SYNC_DUMP_OBTAIN_PART_ELAPSED: Lazy<HistogramVec> = Lazy::new(|| {
-    try_create_histogram_vec(
-        "near_state_sync_dump_obtain_part_elapsed_sec",
-        "Time needed to obtain a part",
-        &["shard_id"],
-        Some(exponential_buckets(0.001, 1.6, 25).unwrap()),
-    )
-    .unwrap()
-});
 pub(crate) static STATE_SYNC_DUMP_NUM_PARTS_TOTAL: Lazy<IntGaugeVec> = Lazy::new(|| {
     try_create_int_gauge_vec(
         "near_state_sync_dump_num_parts_total",
