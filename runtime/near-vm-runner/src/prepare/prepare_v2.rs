@@ -113,7 +113,6 @@ impl<'a> finite_wasm::wasmparser::VisitOperator<'a> for SimpleGasCostCfg {
     finite_wasm::wasmparser::for_each_operator!(gas_cost);
 }
 
-
 #[cfg(test)]
 mod test {
     use crate::internal::VMKind;
@@ -129,7 +128,8 @@ mod test {
                 match super::prepare_contract(input, &config, VMKind::Wasmtime) {
                     Err(_e) => (), // TODO: this should be a panic, but for now it’d actually trigger
                     Ok(code) => {
-                        let mut validator = wasmparser::Validator::new_with_features(crate::prepare::WASM_FEATURES);
+                        let mut validator =
+                            wasmparser::Validator::new_with_features(crate::prepare::WASM_FEATURES);
                         match validator.validate_all(&code) {
                             Ok(_) => (),
                             Err(e) => panic!(
@@ -153,7 +153,8 @@ mod test {
                 match super::prepare_contract(input, &config, VMKind::NearVm) {
                     Err(_e) => (), // TODO: this should be a panic, but for now it’d actually trigger
                     Ok(code) => {
-                        let mut validator = wasmparser::Validator::new_with_features(crate::prepare::WASM_FEATURES);
+                        let mut validator =
+                            wasmparser::Validator::new_with_features(crate::prepare::WASM_FEATURES);
                         match validator.validate_all(&code) {
                             Ok(_) => (),
                             Err(e) => panic!(

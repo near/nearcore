@@ -218,16 +218,20 @@ impl<'a> VMLogic<'a> {
     }
 
     pub fn finite_wasm_stack(&mut self, operand_size: u64, frame_size: u64) -> Result<()> {
-        self.remaining_stack = match self.remaining_stack.checked_sub(operand_size.saturating_add(frame_size)) {
-            Some(s) => s,
-            None => return Err(VMLogicError::HostError(HostError::MemoryAccessViolation)),
-        };
+        self.remaining_stack =
+            match self.remaining_stack.checked_sub(operand_size.saturating_add(frame_size)) {
+                Some(s) => s,
+                None => return Err(VMLogicError::HostError(HostError::MemoryAccessViolation)),
+            };
         self.gas(((frame_size + 7) / 8) * u64::from(self.config.regular_op_cost))?;
         Ok(())
     }
 
     pub fn finite_wasm_unstack(&mut self, operand_size: u64, frame_size: u64) -> Result<()> {
-        self.remaining_stack = self.remaining_stack.checked_add(operand_size.saturating_add(frame_size)).expect("remaining stack integer overflow");
+        self.remaining_stack = self
+            .remaining_stack
+            .checked_add(operand_size.saturating_add(frame_size))
+            .expect("remaining stack integer overflow");
         Ok(())
     }
 
