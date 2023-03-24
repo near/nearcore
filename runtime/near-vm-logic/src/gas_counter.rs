@@ -347,7 +347,6 @@ mod tests {
         let mut counter = make_test_counter(MAX_GAS, MAX_GAS, false);
         counter.pay_base(near_primitives::config::ExtCosts::storage_write_base).unwrap();
         counter.pay_per(near_primitives::config::ExtCosts::storage_write_value_byte, 10).unwrap();
-        counter.pay_wasm_gas(20).unwrap();
         counter
             .pay_action_accumulated(
                 100,
