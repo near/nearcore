@@ -1,0 +1,1 @@
+{"rustc":16758913376447658119,"features":"[\"default\"]","target":16422917379160699365,"profile":17388113529072896295,"path":8705063322734950163,"deps":[],"local":[{"CheckDepInfo":{"dep_info":"release/.fingerprint/ipnet-09498a509cb1ec0f/dep-lib-ipnet"}}],"rustflags":["-Ctarget-cpu=native"],"metadata":18359272829728453201,"config":2202906307356721367,"compile_kind":0}

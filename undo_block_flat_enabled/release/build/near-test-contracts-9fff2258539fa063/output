@@ -1,0 +1,12 @@
+cargo:rerun-if-changed=././test-contract-rs/src/lib.rs
+cargo:rerun-if-changed=././test-contract-rs/Cargo.toml
+cargo:rerun-if-changed=././test-contract-rs/src/lib.rs
+cargo:rerun-if-changed=././test-contract-rs/Cargo.toml
+cargo:rerun-if-changed=././test-contract-rs/src/lib.rs
+cargo:rerun-if-changed=././test-contract-rs/Cargo.toml
+cargo:rerun-if-changed=././contract-for-fuzzing-rs/src/lib.rs
+cargo:rerun-if-changed=././contract-for-fuzzing-rs/Cargo.toml
+cargo:rerun-if-changed=././estimator-contract/src/lib.rs
+cargo:rerun-if-changed=././estimator-contract/Cargo.toml
+cargo:rerun-if-changed=././estimator-contract/src/lib.rs
+cargo:rerun-if-changed=././estimator-contract/Cargo.toml

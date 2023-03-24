@@ -1,0 +1,11 @@
+   Compiling test-contract-rs v0.1.0 (/Users/xiangyiz/workspace/near/nearcore_fork/runtime/near-test-contracts/test-contract-rs)
+    Finished release [optimized] target(s) in 1.80s
+   Compiling test-contract-rs v0.1.0 (/Users/xiangyiz/workspace/near/nearcore_fork/runtime/near-test-contracts/test-contract-rs)
+    Finished release [optimized] target(s) in 1.10s
+   Compiling test-contract-rs v0.1.0 (/Users/xiangyiz/workspace/near/nearcore_fork/runtime/near-test-contracts/test-contract-rs)
+    Finished release [optimized] target(s) in 0.92s
+    Finished release [optimized] target(s) in 0.00s
+   Compiling estimator-contract v0.1.0 (/Users/xiangyiz/workspace/near/nearcore_fork/runtime/near-test-contracts/estimator-contract)
+    Finished release [optimized] target(s) in 0.76s
+   Compiling estimator-contract v0.1.0 (/Users/xiangyiz/workspace/near/nearcore_fork/runtime/near-test-contracts/estimator-contract)
+    Finished release [optimized] target(s) in 0.77s

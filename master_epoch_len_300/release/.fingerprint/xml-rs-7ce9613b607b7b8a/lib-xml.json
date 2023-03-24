@@ -1,0 +1,1 @@
+{"rustc":16758913376447658119,"features":"[]","target":13483017978031403360,"profile":17388113529072896295,"path":6310871458150470735,"deps":[],"local":[{"CheckDepInfo":{"dep_info":"release/.fingerprint/xml-rs-7ce9613b607b7b8a/dep-lib-xml"}}],"rustflags":["-Ctarget-cpu=native"],"metadata":10673766203625363549,"config":2202906307356721367,"compile_kind":0}

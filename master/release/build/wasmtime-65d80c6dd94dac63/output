@@ -1,0 +1,2 @@
+cargo:rustc-cfg=compiler
+cargo:rerun-if-changed=build.rs

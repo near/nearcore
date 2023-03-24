@@ -1,0 +1,1 @@
+{"rustc":16758913376447658119,"features":"[]","target":5007061006276476584,"profile":7934862414020363347,"path":11343643652941015201,"deps":[],"local":[{"CheckDepInfo":{"dep_info":"release/.fingerprint/multimap-2cbfa2e9a41439d5/dep-lib-multimap"}}],"rustflags":["-Ctarget-cpu=native"],"metadata":15243632052237775108,"config":2202906307356721367,"compile_kind":0}

@@ -1,0 +1,1 @@
+{"rustc":16758913376447658119,"features":"[]","target":6261915670221056969,"profile":17388113529072896295,"path":3878915090504286119,"deps":[],"local":[{"CheckDepInfo":{"dep_info":"release/.fingerprint/local-waker-ede9f2665d97b1e9/dep-lib-local-waker"}}],"rustflags":["-Ctarget-cpu=native"],"metadata":16227952171242140710,"config":2202906307356721367,"compile_kind":0}

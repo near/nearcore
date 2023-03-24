@@ -1,0 +1,1 @@
+{"rustc":16758913376447658119,"features":"[\"default\", \"std\"]","target":9581043667714295872,"profile":7934862414020363347,"path":2023728919522803088,"deps":[],"local":[{"CheckDepInfo":{"dep_info":"release/.fingerprint/fnv-7c8f8d8b1c58e6f8/dep-lib-fnv"}}],"rustflags":["-Ctarget-cpu=native"],"metadata":17205452474433819084,"config":2202906307356721367,"compile_kind":0}

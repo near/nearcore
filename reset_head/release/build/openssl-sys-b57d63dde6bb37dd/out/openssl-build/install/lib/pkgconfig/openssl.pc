@@ -1,0 +1,9 @@
+prefix=/Users/xiangyiz/workspace/near/nearcore_fork/reset_head/release/build/openssl-sys-b57d63dde6bb37dd/out/openssl-build/install
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: OpenSSL
+Description: Secure Sockets Layer and cryptography libraries and tools
+Version: 1.1.1t
+Requires: libssl libcrypto

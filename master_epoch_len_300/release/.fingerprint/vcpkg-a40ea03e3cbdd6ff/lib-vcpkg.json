@@ -1,0 +1,1 @@
+{"rustc":16758913376447658119,"features":"[]","target":8613261457991872412,"profile":7934862414020363347,"path":17735831625626542188,"deps":[],"local":[{"CheckDepInfo":{"dep_info":"release/.fingerprint/vcpkg-a40ea03e3cbdd6ff/dep-lib-vcpkg"}}],"rustflags":["-Ctarget-cpu=native"],"metadata":17947694350758495060,"config":2202906307356721367,"compile_kind":0}

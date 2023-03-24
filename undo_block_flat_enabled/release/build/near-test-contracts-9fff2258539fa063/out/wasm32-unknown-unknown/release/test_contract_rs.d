@@ -1,0 +1,1 @@
+/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_flat_enabled/release/build/near-test-contracts-9fff2258539fa063/out/wasm32-unknown-unknown/release/test_contract_rs.wasm: /Users/xiangyiz/workspace/near/nearcore_fork/runtime/near-test-contracts/test-contract-rs/src/lib.rs

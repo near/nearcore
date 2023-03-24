@@ -1,0 +1,3 @@
+cargo:rerun-if-changed=build.rs
+cargo:rustc-cfg=libc
+cargo:rerun-if-env-changed=CARGO_CFG_RUSTIX_USE_EXPERIMENTAL_ASM

@@ -1,0 +1,1 @@
+{"rustc":16758913376447658119,"features":"[]","target":10747535316399790682,"profile":17388113529072896295,"path":2318743508269527811,"deps":[],"local":[{"CheckDepInfo":{"dep_info":"release/.fingerprint/unsafe-libyaml-0885a7d0ac8a85a6/dep-lib-unsafe-libyaml"}}],"rustflags":["-Ctarget-cpu=native"],"metadata":10881934440177039864,"config":2202906307356721367,"compile_kind":0}

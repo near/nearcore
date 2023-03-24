@@ -1,0 +1,6 @@
+cargo:rerun-if-changed=src/build/manifest.hbs
+cargo:rerun-if-changed=src/build/client_mod.hbs
+cargo:rerun-if-changed=src/build/clap_yaml.hbs
+cargo:rerun-if-changed=src/build/cli_main.hbs
+cargo:rerun-if-changed=src/build/util_mod.hbs
+cargo:rerun-if-changed=src/build/cli_util.hbs

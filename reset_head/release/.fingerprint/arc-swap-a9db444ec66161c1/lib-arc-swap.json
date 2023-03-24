@@ -1,0 +1,1 @@
+{"rustc":16758913376447658119,"features":"[]","target":10971961334288609536,"profile":17388113529072896295,"path":4903915882062581170,"deps":[],"local":[{"CheckDepInfo":{"dep_info":"release/.fingerprint/arc-swap-a9db444ec66161c1/dep-lib-arc-swap"}}],"rustflags":["-Ctarget-cpu=native"],"metadata":5403683474337919509,"config":2202906307356721367,"compile_kind":0}

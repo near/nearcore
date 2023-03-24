@@ -1,0 +1,10 @@
+cargo:rerun-if-env-changed=CARGO_PKG_VERSION
+cargo:rustc-env=NEARD_VERSION=trunk
+cargo:rerun-if-env-changed=CARGO_MANIFEST_DIR
+cargo:rerun-if-env-changed=PATH
+cargo:rerun-if-changed=/Users/xiangyiz/workspace/near/nearcore_fork/.git/HEAD
+cargo:rerun-if-changed=/Users/xiangyiz/workspace/near/nearcore_fork/.git/logs/HEAD
+cargo:rerun-if-changed=/Users/xiangyiz/workspace/near/nearcore_fork/.git/index
+cargo:rerun-if-env-changed=PATH
+cargo:rustc-env=NEARD_BUILD=1.1.0-3558-g5727fef42-modified
+cargo:rustc-env=NEARD_RUSTC_VERSION=1.68.0

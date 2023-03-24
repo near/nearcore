@@ -18,7 +18,7 @@ use near_ping::PingCommand;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::compute_root_from_path;
 use near_primitives::types::{Gas, NumSeats, NumShards};
-use near_reset_head::cli::ResetHeadToPrevCommand;
+use near_undo_block::cli::UndoBlockCommand;
 use near_state_parts::cli::StatePartsCommand;
 use near_state_viewer::StateViewerSubCommand;
 use near_store::db::RocksDB;
@@ -124,7 +124,7 @@ impl NeardCmd {
             NeardSubCommand::ValidateConfig(cmd) => {
                 cmd.run(&home_dir)?;
             }
-            NeardSubCommand::ResetHead(cmd) => {
+            NeardSubCommand::UndoBlock(cmd) => {
                 // let mode = if cmd.readwrite { Mode::ReadWrite } else { Mode::ReadOnly };
                 cmd.run(&home_dir, genesis_validation)?;
             }
@@ -245,7 +245,7 @@ pub(super) enum NeardSubCommand {
     /// validate config files including genesis.json and config.json
     ValidateConfig(ValidateConfigCommand),
 
-    ResetHead(ResetHeadToPrevCommand),
+    UndoBlock(UndoBlockCommand),
 }
 
 #[derive(clap::Parser)]

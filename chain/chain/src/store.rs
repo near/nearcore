@@ -12,7 +12,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::receipt::Receipt;
-use near_primitives::shard_layout::{account_id_to_shard_id, get_block_shard_uid, ShardUId};
+use near_primitives::shard_layout::{account_id_to_shard_id, get_block_shard_uid, ShardLayout, ShardUId};
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk, ShardChunkHeader,
     StateSyncInfo,
@@ -37,6 +37,7 @@ use near_primitives::utils::{
     to_timestamp,
 };
 use near_primitives::views::LightClientBlockView;
+use near_store::flat::store_helper;
 use near_store::{
     DBCol, KeyForStateChanges, ShardTries, Store, StoreUpdate, WrappedTrieChanges, CHUNK_TAIL_KEY,
     FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
@@ -2247,12 +2248,9 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(())
     }
 
-    // Clearing block data of `block_hash`, which is the head of the chain
-    pub fn clear_block_data_head_reset(
-        &mut self,
-        block_hash: CryptoHash,
-    ) -> Result<(), Error> {
-        let store_update = self.store().store_update();
+    // Clearing block data of `block_hash`, for the purpose of undo-block tool
+    pub fn clear_block_data_undo_block(&mut self, block_hash: CryptoHash) -> Result<(), Error> {
+        let mut store_update = self.store().store_update();
         let block =
             self.get_block(&block_hash).expect("block data is not expected to be already cleaned");
 
@@ -2286,6 +2284,12 @@ impl<'a> ChainStoreUpdate<'a> {
                 let state_header_key = StateHeaderKey(shard_id, block_hash).try_to_vec()?;
                 self.gc_col(DBCol::StateHeaders, &state_header_key);
             }
+            // delete flat storage columns: FlatStateChanges and FlatStateDeltaMetadata
+            let shard_uid_flat_storage = ShardUId::from_shard_id_and_layout(
+                shard_id as u64,
+                &ShardLayout::get_simple_nightshade_layout(),
+            );
+            store_helper::remove_delta(&mut store_update, shard_uid_flat_storage, block_hash);
         }
 
         // 3. Delete block_hash-indexed data
@@ -2317,6 +2321,7 @@ impl<'a> ChainStoreUpdate<'a> {
         self.gc_col_block_per_height(&block_hash, height, block.header().epoch_id())?;
 
         self.clear_chunk_data_and_headers_at_height(height)?;
+
         self.merge(store_update);
         Ok(())
     }

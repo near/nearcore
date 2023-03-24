@@ -1,0 +1,1 @@
+{"rustc":16758913376447658119,"features":"[]","target":5460720123658875332,"profile":17388113529072896295,"path":15208720087113234784,"deps":[],"local":[{"CheckDepInfo":{"dep_info":"release/.fingerprint/alloc-no-stdlib-5d2f6846a9ff9e6c/dep-lib-alloc-no-stdlib"}}],"rustflags":["-Ctarget-cpu=native"],"metadata":15282669772895570077,"config":2202906307356721367,"compile_kind":0}

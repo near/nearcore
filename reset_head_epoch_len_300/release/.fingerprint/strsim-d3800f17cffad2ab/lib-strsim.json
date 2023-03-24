@@ -1,0 +1,1 @@
+{"rustc":16758913376447658119,"features":"[]","target":10894662688460380994,"profile":17388113529072896295,"path":18276817651637989957,"deps":[],"local":[{"CheckDepInfo":{"dep_info":"release/.fingerprint/strsim-d3800f17cffad2ab/dep-lib-strsim"}}],"rustflags":["-Ctarget-cpu=native"],"metadata":13471714363280858619,"config":2202906307356721367,"compile_kind":0}

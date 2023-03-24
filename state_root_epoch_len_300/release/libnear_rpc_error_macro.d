@@ -1,0 +1,1 @@
+/Users/xiangyiz/workspace/near/nearcore_fork/state_root_epoch_len_300/release/libnear_rpc_error_macro.dylib: /Users/xiangyiz/workspace/near/nearcore_fork/tools/rpctypegen/core/src/lib.rs /Users/xiangyiz/workspace/near/nearcore_fork/tools/rpctypegen/macro/src/lib.rs

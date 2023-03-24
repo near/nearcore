@@ -1,0 +1,1 @@
+cargo:rustc-cfg=path_buf_capacity

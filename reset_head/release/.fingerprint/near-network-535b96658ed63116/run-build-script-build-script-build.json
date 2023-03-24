@@ -1,0 +1,1 @@
+{"rustc":16758913376447658119,"features":"","target":0,"profile":0,"path":0,"deps":[[2098729951194991495,"build_script_build",false,12246454956687672330]],"local":[{"RerunIfChanged":{"output":"release/build/near-network-535b96658ed63116/output","paths":["src/network_protocol/network.proto"]}}],"rustflags":[],"metadata":0,"config":0,"compile_kind":0}

@@ -1,0 +1,1 @@
+{"rustc":16758913376447658119,"features":"[]","target":466655805008103514,"profile":17388113529072896295,"path":16929395268763097990,"deps":[],"local":[{"CheckDepInfo":{"dep_info":"release/.fingerprint/wildmatch-9c4b4c452ac02e6c/dep-lib-wildmatch"}}],"rustflags":["-Ctarget-cpu=native"],"metadata":2997543911810327439,"config":2202906307356721367,"compile_kind":0}

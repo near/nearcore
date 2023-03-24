@@ -3786,21 +3786,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "near-reset-head"
-version = "0.0.0"
-dependencies = [
- "anyhow",
- "chrono",
- "clap 3.1.18",
- "near-chain",
- "near-chain-configs",
- "near-primitives",
- "near-store",
- "nearcore",
- "tracing",
-]
-
-[[package]]
 name = "near-rosetta-rpc"
 version = "0.0.0"
 dependencies = [
@@ -4010,6 +3995,19 @@ dependencies = [
  "smallvec",
  "strum",
  "target-lexicon 0.12.3",
+
+[[package]]
+name = "near-undo-block"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap 3.1.18",
+ "near-chain",
+ "near-chain-configs",
+ "near-primitives",
+ "near-store",
+ "nearcore",
  "tracing",
 ]
 
@@ -4286,9 +4284,9 @@ dependencies = [
  "near-performance-metrics",
  "near-ping",
  "near-primitives",
- "near-reset-head",
  "near-state-parts",
  "near-store",
+ "near-undo-block",
  "nearcore",
  "once_cell",
  "openssl-probe",

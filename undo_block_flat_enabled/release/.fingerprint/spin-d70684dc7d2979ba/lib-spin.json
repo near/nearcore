@@ -1,0 +1,1 @@
+{"rustc":16758913376447658119,"features":"[]","target":1472938512845949657,"profile":1589904452951497929,"path":6929385134670252541,"deps":[],"local":[{"CheckDepInfo":{"dep_info":"release/.fingerprint/spin-d70684dc7d2979ba/dep-lib-spin"}}],"rustflags":["-Ctarget-cpu=native"],"metadata":6620005600999123125,"config":2202906307356721367,"compile_kind":0}

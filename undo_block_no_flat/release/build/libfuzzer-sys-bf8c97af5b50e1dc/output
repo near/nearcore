@@ -1,0 +1,101 @@
+cargo:rerun-if-changed=libfuzzer/FuzzerLoop.cpp
+cargo:rerun-if-changed=libfuzzer/FuzzerIOPosix.cpp
+cargo:rerun-if-changed=libfuzzer/FuzzerUtil.cpp
+cargo:rerun-if-changed=libfuzzer/FuzzerFork.cpp
+cargo:rerun-if-changed=libfuzzer/FuzzerMutate.cpp
+cargo:rerun-if-changed=libfuzzer/FuzzerDataFlowTrace.cpp
+cargo:rerun-if-changed=libfuzzer/FuzzerExtFunctionsDlsym.cpp
+cargo:rerun-if-changed=libfuzzer/FuzzerUtilLinux.cpp
+cargo:rerun-if-changed=libfuzzer/FuzzerExtFunctionsWeak.cpp
+cargo:rerun-if-changed=libfuzzer/FuzzerIOWindows.cpp
+cargo:rerun-if-changed=libfuzzer/FuzzerSHA1.cpp
+cargo:rerun-if-changed=libfuzzer/FuzzerUtilWindows.cpp
+cargo:rerun-if-changed=libfuzzer/FuzzerDriver.cpp
+cargo:rerun-if-changed=libfuzzer/FuzzerExtFunctionsWindows.cpp
+cargo:rerun-if-changed=libfuzzer/FuzzerUtilPosix.cpp
+cargo:rerun-if-changed=libfuzzer/FuzzerMerge.cpp
+cargo:rerun-if-changed=libfuzzer/FuzzerCrossOver.cpp
+cargo:rerun-if-changed=libfuzzer/FuzzerUtilFuchsia.cpp
+cargo:rerun-if-changed=libfuzzer/FuzzerExtraCounters.cpp
+cargo:rerun-if-changed=libfuzzer/FuzzerInterceptors.cpp
+cargo:rerun-if-changed=libfuzzer/FuzzerUtilDarwin.cpp
+cargo:rerun-if-changed=libfuzzer/FuzzerMain.cpp
+cargo:rerun-if-changed=libfuzzer/FuzzerIO.cpp
+cargo:rerun-if-changed=libfuzzer/FuzzerTracePC.cpp
+TARGET = Some("aarch64-apple-darwin")
+OPT_LEVEL = Some("3")
+HOST = Some("aarch64-apple-darwin")
+CXX_aarch64-apple-darwin = None
+CXX_aarch64_apple_darwin = None
+HOST_CXX = None
+CXX = None
+CXXFLAGS_aarch64-apple-darwin = None
+CXXFLAGS_aarch64_apple_darwin = None
+HOST_CXXFLAGS = None
+CXXFLAGS = None
+CRATE_CC_NO_DEFAULTS = None
+DEBUG = Some("false")
+CARGO_CFG_TARGET_FEATURE = Some("aes,crc,dit,dotprod,dpb,dpb2,fcma,fhm,flagm,fp16,frintts,jsconv,lor,lse,neon,paca,pacg,pan,pmuv3,ras,rcpc,rcpc2,rdm,sb,sha2,sha3,ssbs,vh")
+running: "c++" "-O3" "-ffunction-sections" "-fdata-sections" "-fPIC" "-arch" "arm64" "-Wall" "-Wextra" "-std=c++11" "-fno-omit-frame-pointer" "-w" "-o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerLoop.o" "-c" "libfuzzer/FuzzerLoop.cpp"
+exit status: 0
+running: "c++" "-O3" "-ffunction-sections" "-fdata-sections" "-fPIC" "-arch" "arm64" "-Wall" "-Wextra" "-std=c++11" "-fno-omit-frame-pointer" "-w" "-o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerIOPosix.o" "-c" "libfuzzer/FuzzerIOPosix.cpp"
+exit status: 0
+running: "c++" "-O3" "-ffunction-sections" "-fdata-sections" "-fPIC" "-arch" "arm64" "-Wall" "-Wextra" "-std=c++11" "-fno-omit-frame-pointer" "-w" "-o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerUtil.o" "-c" "libfuzzer/FuzzerUtil.cpp"
+exit status: 0
+running: "c++" "-O3" "-ffunction-sections" "-fdata-sections" "-fPIC" "-arch" "arm64" "-Wall" "-Wextra" "-std=c++11" "-fno-omit-frame-pointer" "-w" "-o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerFork.o" "-c" "libfuzzer/FuzzerFork.cpp"
+running: "c++" "-O3" "-ffunction-sections" "-fdata-sections" "-fPIC" "-arch" "arm64" "-Wall" "-Wextra" "-std=c++11" "-fno-omit-frame-pointer" "-w" "-o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerMutate.o" "-c" "libfuzzer/FuzzerMutate.cpp"
+exit status: 0
+exit status: 0
+running: "c++" "-O3" "-ffunction-sections" "-fdata-sections" "-fPIC" "-arch" "arm64" "-Wall" "-Wextra" "-std=c++11" "-fno-omit-frame-pointer" "-w" "-o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerDataFlowTrace.o" "-c" "libfuzzer/FuzzerDataFlowTrace.cpp"
+running: "c++" "-O3" "-ffunction-sections" "-fdata-sections" "-fPIC" "-arch" "arm64" "-Wall" "-Wextra" "-std=c++11" "-fno-omit-frame-pointer" "-w" "-o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerExtFunctionsDlsym.o" "-c" "libfuzzer/FuzzerExtFunctionsDlsym.cpp"
+exit status: 0
+running: "c++" "-O3" "-ffunction-sections" "-fdata-sections" "-fPIC" "-arch" "arm64" "-Wall" "-Wextra" "-std=c++11" "-fno-omit-frame-pointer" "-w" "-o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerUtilLinux.o" "-c" "libfuzzer/FuzzerUtilLinux.cpp"
+exit status: 0
+exit status: 0
+running: "c++" "-O3" "-ffunction-sections" "-fdata-sections" "-fPIC" "-arch" "arm64" "-Wall" "-Wextra" "-std=c++11" "-fno-omit-frame-pointer" "-w" "-o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerExtFunctionsWeak.o" "-c" "libfuzzer/FuzzerExtFunctionsWeak.cpp"
+exit status: 0
+running: "c++" "-O3" "-ffunction-sections" "-fdata-sections" "-fPIC" "-arch" "arm64" "-Wall" "-Wextra" "-std=c++11" "-fno-omit-frame-pointer" "-w" "-o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerIOWindows.o" "-c" "libfuzzer/FuzzerIOWindows.cpp"
+exit status: 0
+running: "c++" "-O3" "-ffunction-sections" "-fdata-sections" "-fPIC" "-arch" "arm64" "-Wall" "-Wextra" "-std=c++11" "-fno-omit-frame-pointer" "-w" "-o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerSHA1.o" "-c" "libfuzzer/FuzzerSHA1.cpp"
+exit status: 0
+running: "c++" "-O3" "-ffunction-sections" "-fdata-sections" "-fPIC" "-arch" "arm64" "-Wall" "-Wextra" "-std=c++11" "-fno-omit-frame-pointer" "-w" "-o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerUtilWindows.o" "-c" "libfuzzer/FuzzerUtilWindows.cpp"
+exit status: 0
+running: "c++" "-O3" "-ffunction-sections" "-fdata-sections" "-fPIC" "-arch" "arm64" "-Wall" "-Wextra" "-std=c++11" "-fno-omit-frame-pointer" "-w" "-o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerDriver.o" "-c" "libfuzzer/FuzzerDriver.cpp"
+running: "c++" "-O3" "-ffunction-sections" "-fdata-sections" "-fPIC" "-arch" "arm64" "-Wall" "-Wextra" "-std=c++11" "-fno-omit-frame-pointer" "-w" "-o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerExtFunctionsWindows.o" "-c" "libfuzzer/FuzzerExtFunctionsWindows.cpp"
+exit status: 0
+running: "c++" "-O3" "-ffunction-sections" "-fdata-sections" "-fPIC" "-arch" "arm64" "-Wall" "-Wextra" "-std=c++11" "-fno-omit-frame-pointer" "-w" "-o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerUtilPosix.o" "-c" "libfuzzer/FuzzerUtilPosix.cpp"
+running: "c++" "-O3" "-ffunction-sections" "-fdata-sections" "-fPIC" "-arch" "arm64" "-Wall" "-Wextra" "-std=c++11" "-fno-omit-frame-pointer" "-w" "-o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerMerge.o" "-c" "libfuzzer/FuzzerMerge.cpp"
+exit status: 0
+running: "c++" "-O3" "-ffunction-sections" "-fdata-sections" "-fPIC" "-arch" "arm64" "-Wall" "-Wextra" "-std=c++11" "-fno-omit-frame-pointer" "-w" "-o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerCrossOver.o" "-c" "libfuzzer/FuzzerCrossOver.cpp"
+running: "c++" "-O3" "-ffunction-sections" "-fdata-sections" "-fPIC" "-arch" "arm64" "-Wall" "-Wextra" "-std=c++11" "-fno-omit-frame-pointer" "-w" "-o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerUtilFuchsia.o" "-c" "libfuzzer/FuzzerUtilFuchsia.cpp"
+exit status: 0
+running: "c++" "-O3" "-ffunction-sections" "-fdata-sections" "-fPIC" "-arch" "arm64" "-Wall" "-Wextra" "-std=c++11" "-fno-omit-frame-pointer" "-w" "-o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerExtraCounters.o" "-c" "libfuzzer/FuzzerExtraCounters.cpp"
+running: "c++" "-O3" "-ffunction-sections" "-fdata-sections" "-fPIC" "-arch" "arm64" "-Wall" "-Wextra" "-std=c++11" "-fno-omit-frame-pointer" "-w" "-o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerInterceptors.o" "-c" "libfuzzer/FuzzerInterceptors.cpp"
+exit status: 0
+exit status: 0
+running: "c++" "-O3" "-ffunction-sections" "-fdata-sections" "-fPIC" "-arch" "arm64" "-Wall" "-Wextra" "-std=c++11" "-fno-omit-frame-pointer" "-w" "-o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerUtilDarwin.o" "-c" "libfuzzer/FuzzerUtilDarwin.cpp"
+running: "c++" "-O3" "-ffunction-sections" "-fdata-sections" "-fPIC" "-arch" "arm64" "-Wall" "-Wextra" "-std=c++11" "-fno-omit-frame-pointer" "-w" "-o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerMain.o" "-c" "libfuzzer/FuzzerMain.cpp"
+exit status: 0
+exit status: 0
+exit status: 0
+exit status: 0
+running: "c++" "-O3" "-ffunction-sections" "-fdata-sections" "-fPIC" "-arch" "arm64" "-Wall" "-Wextra" "-std=c++11" "-fno-omit-frame-pointer" "-w" "-o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerIO.o" "-c" "libfuzzer/FuzzerIO.cpp"
+running: "c++" "-O3" "-ffunction-sections" "-fdata-sections" "-fPIC" "-arch" "arm64" "-Wall" "-Wextra" "-std=c++11" "-fno-omit-frame-pointer" "-w" "-o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerTracePC.o" "-c" "libfuzzer/FuzzerTracePC.cpp"
+exit status: 0
+exit status: 0
+exit status: 0
+AR_aarch64-apple-darwin = None
+AR_aarch64_apple_darwin = None
+HOST_AR = None
+AR = None
+running: ZERO_AR_DATE="1" "ar" "cq" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer.a" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerLoop.o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerIOPosix.o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerUtil.o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerFork.o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerMutate.o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerDataFlowTrace.o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerExtFunctionsDlsym.o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerUtilLinux.o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerExtFunctionsWeak.o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerIOWindows.o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerSHA1.o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerUtilWindows.o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerDriver.o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerExtFunctionsWindows.o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerUtilPosix.o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerMerge.o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerCrossOver.o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerUtilFuchsia.o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerExtraCounters.o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerInterceptors.o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerUtilDarwin.o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerMain.o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerIO.o" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer/FuzzerTracePC.o"
+exit status: 0
+running: "ar" "s" "/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out/libfuzzer.a"
+exit status: 0
+cargo:rustc-link-lib=static=fuzzer
+cargo:rustc-link-search=native=/Users/xiangyiz/workspace/near/nearcore_fork/undo_block_no_flat/release/build/libfuzzer-sys-bf8c97af5b50e1dc/out
+CXXSTDLIB_aarch64-apple-darwin = None
+CXXSTDLIB_aarch64_apple_darwin = None
+HOST_CXXSTDLIB = None
+CXXSTDLIB = None
+cargo:rustc-link-lib=c++
