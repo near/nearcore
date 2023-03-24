@@ -75,7 +75,7 @@ impl VMExternRef {
         // bug on systems that can address `usize` sized memory blocks or smaller because
         // the reference itself is at least `usize` in size and all virtual memory would be
         // taken by references to the data leaving no room for the data itself.
-        if old_size.checked_add(growth_amount).map(|v| v > Self::MAX_REFCOUNT).unwrap_or(true) {
+        if old_size.checked_add(growth_amount).map_or(true, |v| v > Self::MAX_REFCOUNT) {
             panic!("Too many references to `ExternRef`");
         }
     }

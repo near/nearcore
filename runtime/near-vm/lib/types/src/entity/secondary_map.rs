@@ -126,8 +126,8 @@ where
     K: EntityRef,
     V: Clone + Default,
 {
-    fn default() -> SecondaryMap<K, V> {
-        SecondaryMap::new()
+    fn default() -> Self {
+        Self::new()
     }
 }
 

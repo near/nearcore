@@ -113,7 +113,7 @@ impl Instance {
     ///  * Link errors that happen when plugging the imports into the instance
     ///  * Runtime errors that happen when running the module `start` function.
     pub fn new(module: &Module, resolver: &dyn Resolver) -> Result<Self, InstantiationError> {
-        Instance::new_with_config(module, InstanceConfig::default(), resolver)
+        Self::new_with_config(module, InstanceConfig::default(), resolver)
     }
 
     /// New instance with config.

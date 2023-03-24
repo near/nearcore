@@ -74,6 +74,6 @@ impl<'a> From<&'a ArchivedOwnedDataInitializer> for DataInitializer<'a> {
 
 impl<'a> From<DataInitializer<'a>> for OwnedDataInitializer {
     fn from(init: DataInitializer<'a>) -> Self {
-        OwnedDataInitializer { location: init.location.clone(), data: init.data.to_vec() }
+        Self { location: init.location.clone(), data: init.data.to_vec() }
     }
 }

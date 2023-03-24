@@ -95,13 +95,13 @@ impl Function {
                 instance_ref: None,
             },
         };
-        Some(Function::from_vm_export(store, export))
+        Some(Self::from_vm_export(store, export))
     }
 }
 
 impl From<Function> for TableElement {
     fn from(f: Function) -> Self {
-        TableElement::FuncRef(f.vm_funcref())
+        Self::FuncRef(f.vm_funcref())
     }
 }
 
