@@ -9,6 +9,7 @@ repository = "https://github.com/wasmerio/wasmer"
 license = "MIT"
 readme = "README.md"
 edition = "2018"
+publish = false
 
 [lib]
 name = "wasmer"
