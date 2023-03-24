@@ -244,7 +244,7 @@ def main():
     rng = random.Random(SEED)
 
     accounts = []
-    for i in range(args.accounts):
+    for i in range(int(args.accounts)):
         keys = ed25519.create_keypair(entropy=rng.randbytes)
         account_id = keys[1].to_bytes().hex()
         sk = 'ed25519:' + base58.b58encode(keys[0].to_bytes()).decode('ascii')
@@ -260,14 +260,14 @@ def main():
         if args.contract_key is None:
             signer_key = nodes[0].signer_key
         else:
-            signer_key = key.Key.from_json_file(args.key)
+            signer_key = key.Key.from_json_file(args.contract_key)
 
     else:
         nodes = [
             cluster.RpcNode("127.0.0.1", 3030),
         ]
         # The `nearup` localnet setup stores the keys in this directory.
-        if args.key is None:
+        if args.contract_key is None:
             key_path = (pathlib.Path.home() / ".near/localnet/node0/shard0_key.json").resolve()
         else:
             key_path = args.contract_key
@@ -281,14 +281,14 @@ def main():
     threading.Thread(target=transaction_executor, args=(tx_queue,), daemon=True).start()
     init_nonce = mocknet_helpers.get_nonce_for_key(
         signer_key,
-        addr=nodes[0].addr()[0],
-        port=nodes[0].rpc_port,
+        addr=nodes[0].rpc_addr()[0],
+        port=nodes[0].rpc_addr()[1],
     )
     contract_account = account.Account(
         signer_key,
         init_nonce,
         '',
-        rpc_infos=[(node.addr()[0], node.rpc_port) for node in nodes]
+        rpc_infos=[node.rpc_addr() for node in nodes]
     )
     tx_queue.put(DeployFT(contract_account, args.fungible_token_wasm))
     wait_empty(tx_queue, "deployment")
@@ -306,10 +306,10 @@ def main():
         account.Account(
             key,
                 mocknet_helpers.get_nonce_for_key(
-                    key, addr=nodes[0].addr()[0], port=nodes[0].rpc_port,
+                    key, addr=nodes[0].rpc_addr()[0], port=nodes[0].rpc_addr()[1],
             ),
             '',
-            rpc_infos=[(node.addr()[0], node.rpc_port) for node in nodes]
+            rpc_infos=[node.rpc_addr() for node in nodes]
         ) for key in accounts
     ]
 
