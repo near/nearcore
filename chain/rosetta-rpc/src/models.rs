@@ -709,8 +709,10 @@ pub(crate) enum OperationType {
     CreateAccount,
     InitiateDeleteAccount,
     DeleteAccount,
+    DelegateAction,
     RefundDeleteAccount,
     InitiateAddKey,
+    SignedDelegateAction,
     AddKey,
     InitiateDeleteKey,
     DeleteKey,
@@ -719,6 +721,8 @@ pub(crate) enum OperationType {
     InitiateDeployContract,
     DeployContract,
     InitiateFunctionCall,
+    InitiateSignedDelegateAction,
+    InitiateDelegateAction,
     FunctionCall,
 }
 
@@ -763,7 +767,7 @@ pub(crate) struct OperationMetadata {
     /// Has to be specified for TRANSFER operations which represent gas prepayments or gas refunds
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transfer_fee_type: Option<OperationMetadataTransferFeeType>,
-    /// Has to be specified for ADD_KEY, REMOVE_KEY, and STAKE operations
+    /// Has to be specified for ADD_KEY, REMOVE_KEY, DELEGATE_ACTION and STAKE operations
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_key: Option<PublicKey>,
     // /// Has to be specified for ADD_KEY
@@ -785,6 +789,15 @@ pub(crate) struct OperationMetadata {
     pub attached_gas: Option<crate::utils::SignedDiff<near_primitives::types::Gas>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub predecessor_id: Option<AccountIdentifier>,
+    /// Has to be specified for DELEGATE_ACTION operation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_block_height: Option<near_primitives::types::BlockHeight>,
+    /// Has to be specified for DELEGATE_ACTION operation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nonce: Option<Nonce>,
+    /// Has to be specified for SIGNED_DELEGATE_ACTION operation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
 }
 
 impl OperationMetadata {
@@ -842,6 +855,47 @@ pub(crate) struct Operation {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<OperationMetadata>,
+}
+
+/// This is Operation which mustn't contain DelegateActionOperation.
+///
+/// This struct is needed to avoid the recursion when Action/DelegateAction is deserialized.
+///
+/// Important: Don't make the inner Action public, this must only be constructed
+/// through the correct interface that ensures the inner Action is actually not
+/// a delegate action. That would break an assumption of this type, which we use
+/// in several places. For example, borsh de-/serialization relies on it. If the
+/// invariant is broken, we may end up with a `Transaction` or `Receipt` that we
+/// can serialize but deserializing it back causes a parsing error.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
+pub(crate) struct NonDelegateActionOperation(crate::models::Operation);
+
+impl From<NonDelegateActionOperation> for crate::models::Operation {
+    fn from(action: NonDelegateActionOperation) -> Self {
+        action.0
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize, PartialEq, Clone, Debug, thiserror::Error)]
+#[error("Delegate operation cannot contain a delegate operation")]
+pub struct IsDelegateOperation;
+
+impl TryFrom<crate::models::Operation> for NonDelegateActionOperation {
+    type Error = IsDelegateOperation;
+
+    fn try_from(operation: crate::models::Operation) -> Result<Self, IsDelegateOperation> {
+        if matches!(operation.type_, crate::models::OperationType::DelegateAction) {
+            Err(IsDelegateOperation)
+        } else {
+            Ok(Self(operation))
+        }
+    }
+}
+
+impl From<IsDelegateOperation> for crate::errors::ErrorKind {
+    fn from(value: IsDelegateOperation) -> Self {
+        crate::errors::ErrorKind::InvalidInput(value.to_string())
+    }
 }
 
 /// The operation_identifier uniquely identifies an operation within a
