@@ -21,7 +21,7 @@ num-traits = "0.2.15"
 rkyv = { version = "0.7.20" }
 
 [dev-dependencies]
-bolero = "0.6.0"
+bolero.workspace = true
 
 [features]
 default = ["std"]
