@@ -350,6 +350,7 @@ fn dump_state_parts(
     tracing::info!(target: "state-parts", total_elapsed_sec = timer.elapsed().as_secs_f64(), "Wrote all requested state parts");
 }
 
+/// Returns the first and the last `StateRecord`s encountered while iterating over a state part.
 fn analyze_state_part(
     state_root: &StateRoot,
     data: &[u8],
