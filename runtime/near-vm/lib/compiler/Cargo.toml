@@ -16,8 +16,8 @@ name = "wasmer_compiler"
 
 [dependencies]
 finite-wasm.workspace = true
-wasmer-vm = { path = "../vm", package = "near-vm-vm", version = "=2.4.0" }
-wasmer-types = { path = "../types", package = "near-vm-types", version = "=2.4.0", default-features = false }
+wasmer-vm = { path = "../vm", package = "near-vm-vm" }
+wasmer-types = { path = "../types", package = "near-vm-types", default-features = false }
 wasmparser = { version = "0.99.0", optional = true, default-features = false }
 target-lexicon = { version = "0.12.2", default-features = false }
 enumset = "1.0"

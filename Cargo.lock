@@ -1235,7 +1235,7 @@ dependencies = [
 
 [[package]]
 name = "compiler-test-derive"
-version = "0.0.1"
+version = "0.0.0"
 dependencies = [
  "pretty_assertions",
  "proc-macro2",
@@ -4075,7 +4075,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm"
-version = "2.4.0"
+version = "0.0.0"
 dependencies = [
  "anyhow",
  "cfg-if 1.0.0",
@@ -4099,7 +4099,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-compiler"
-version = "2.4.0"
+version = "0.0.0"
 dependencies = [
  "enumset",
  "finite-wasm",
@@ -4116,7 +4116,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-compiler-singlepass"
-version = "2.4.0"
+version = "0.0.0"
 dependencies = [
  "byteorder",
  "dynasm",
@@ -4139,7 +4139,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-engine"
-version = "2.4.0"
+version = "0.0.0"
 dependencies = [
  "backtrace",
  "enumset",
@@ -4157,7 +4157,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-engine-universal"
-version = "2.4.0"
+version = "0.0.0"
 dependencies = [
  "cfg-if 1.0.0",
  "enumset",
@@ -4278,7 +4278,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-types"
-version = "2.4.0"
+version = "0.0.0"
 dependencies = [
  "bolero 0.6.2",
  "indexmap",
@@ -4289,7 +4289,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-vm"
-version = "2.4.0"
+version = "0.0.0"
 dependencies = [
  "backtrace",
  "cc",
@@ -7450,7 +7450,7 @@ dependencies = [
 
 [[package]]
 name = "wasmer-wast"
-version = "2.1.0"
+version = "0.0.0"
 dependencies = [
  "anyhow",
  "near-vm",
