@@ -1,14 +1,14 @@
 [package]
 name = "wasmer-compiler-near"
-version = "2.4.0"
+version = "0.0.0"
 description = "Base compiler abstraction for Wasmer WebAssembly runtime"
 categories = ["wasm", "no-std"]
 keywords = ["wasm", "webassembly", "compiler"]
-authors = ["Wasmer Engineering Team <engineering@wasmer.io>"]
+authors = ["Near Inc <hello@nearprotocol.com>"]
 repository = "https://github.com/wasmerio/wasmer"
 license = "MIT OR Apache-2.0 WITH LLVM-exception"
 readme = "README.md"
-edition = "2018"
+edition = "2021"
 publish = false
 
 [lib]
