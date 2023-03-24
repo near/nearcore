@@ -2423,6 +2423,8 @@ fn test_validate_chunk_extra() {
         block.mut_header().get_mut().inner_lite.prev_state_root =
             Block::compute_state_root(&chunk_headers);
         block.mut_header().get_mut().inner_rest.chunk_mask = vec![true];
+        block.mut_header().get_mut().inner_lite.outcome_root =
+            Block::compute_outcome_root(block.chunks().iter());
         block.mut_header().resign(&validator_signer);
         let res = env.clients[0].process_block_test(block.clone().into(), Provenance::NONE);
         assert_matches!(res.unwrap_err(), near_chain::Error::ChunksMissing(_));
