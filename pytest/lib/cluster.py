@@ -762,10 +762,11 @@ def init_cluster(num_nodes,
     out, err = process.communicate()
     assert 0 == process.returncode, err
 
+    jsons = [json.loads(line) for line in err.decode('utf8').split('\n') if line]
     node_dirs = [
-        line.split()[-1]
-        for line in err.decode('utf8').split('\n')
-        if '/test' in line
+        json.get('fields', {}).get("message").split()[-1]
+        for json in jsons
+        if '/test' in json.get('fields', {}).get('message', '')
     ]
     assert len(
         node_dirs
