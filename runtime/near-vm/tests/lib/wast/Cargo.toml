@@ -1,5 +1,5 @@
 [package]
-name = "wasmer-wast"
+name = "near-vm-wast"
 version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 description = "wast testing support for wasmer"
@@ -13,7 +13,7 @@ publish = false
 
 [dependencies]
 anyhow = "1.0"
-wasmer = { path = "../../../lib/api", version = "=2.4.0", package = "wasmer-near", default-features = false }
+wasmer = { path = "../../../lib/api", version = "=2.4.0", package = "near-vm", default-features = false }
 wast = "38.0"
 tempfile = "3"
 thiserror = "1.0"

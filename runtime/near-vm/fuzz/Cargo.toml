@@ -1,5 +1,5 @@
 [package]
-name = "wasmer-bin-fuzz"
+name = "near-vm-bin-fuzz"
 version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
@@ -12,9 +12,9 @@ cargo-fuzz = true
 anyhow = "1"
 wasm-smith = "0.4.4"
 libfuzzer-sys = "0.4.0"
-wasmer = { path = "../lib/api", package = "wasmer-near" }
-wasmer-compiler-singlepass = { path = "../lib/compiler-singlepass", package = "wasmer-compiler-singlepass-near", optional = true }
-wasmer-engine-universal = { path = "../lib/engine-universal", package = "wasmer-engine-universal-near", optional = true }
+wasmer = { path = "../lib/api", package = "near-vm" }
+wasmer-compiler-singlepass = { path = "../lib/compiler-singlepass", package = "near-vm-compiler-singlepass", optional = true }
+wasmer-engine-universal = { path = "../lib/engine-universal", package = "near-vm-engine-universal", optional = true }
 wasmprinter = "0.2"
 
 [features]

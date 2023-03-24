@@ -1,5 +1,5 @@
 [package]
-name = "test-generator"
+name = "near-vm-test-generator"
 version = "0.0.0"
 edition = "2021"
 authors = ["Near Inc <hello@nearprotocol.com>"]

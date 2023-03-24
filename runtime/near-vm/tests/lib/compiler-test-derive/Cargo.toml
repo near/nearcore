@@ -2,7 +2,7 @@
 proc-macro = true
 
 [package]
-name = "compiler-test-derive"
+name = "near-vm-compiler-test-derive"
 version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2021"
