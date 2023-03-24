@@ -124,10 +124,7 @@ impl Instance {
         resolver: &dyn Resolver,
     ) -> Result<Self, InstantiationError> {
         let handle = module.instantiate(resolver, config)?;
-        let instance = Self {
-            handle: Arc::new(Mutex::new(handle)),
-            module: module.clone(),
-        };
+        let instance = Self { handle: Arc::new(Mutex::new(handle)), module: module.clone() };
 
         // # Safety
         // `initialize_host_envs` should be called after instantiation but before

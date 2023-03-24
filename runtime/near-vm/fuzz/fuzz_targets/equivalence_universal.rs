@@ -92,14 +92,11 @@ impl PartialEq for FunctionResult {
         match (self, other) {
             (FunctionResult::Values(self_values), FunctionResult::Values(other_values)) => {
                 self_values.len() == other_values.len()
-                    && self_values
-                        .iter()
-                        .zip(other_values.iter())
-                        .all(|(x, y)| match (x, y) {
-                            (Val::F32(x), Val::F32(y)) => x.to_bits() == y.to_bits(),
-                            (Val::F64(x), Val::F64(y)) => x.to_bits() == y.to_bits(),
-                            _ => x == y,
-                        })
+                    && self_values.iter().zip(other_values.iter()).all(|(x, y)| match (x, y) {
+                        (Val::F32(x), Val::F32(y)) => x.to_bits() == y.to_bits(),
+                        (Val::F64(x), Val::F64(y)) => x.to_bits() == y.to_bits(),
+                        _ => x == y,
+                    })
             }
             _ => true,
         }
@@ -154,7 +151,5 @@ fuzz_target!(|module: WasmSmithModule| {
     }
 
     #[cfg(feature = "singlepass")]
-    let singlepass = maybe_instantiate_singlepass(&wasm_bytes)
-        .transpose()
-        .map(evaluate_instance);
+    let singlepass = maybe_instantiate_singlepass(&wasm_bytes).transpose().map(evaluate_instance);
 });

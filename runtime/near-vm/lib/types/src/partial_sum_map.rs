@@ -30,11 +30,7 @@ impl<K: Clone + Ord + num_traits::Unsigned + num_traits::CheckedAdd, V> PartialS
     ///
     /// Does not allocate.
     pub fn new() -> Self {
-        Self {
-            keys: vec![],
-            values: vec![],
-            size: K::zero(),
-        }
+        Self { keys: vec![], values: vec![], size: K::zero() }
     }
 
     /// Push `count` number of `value`s.

@@ -37,9 +37,7 @@ impl ModuleId {
 impl Default for ModuleId {
     fn default() -> Self {
         static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
-        Self {
-            id: NEXT_ID.fetch_add(1, SeqCst),
-        }
+        Self { id: NEXT_ID.fetch_add(1, SeqCst) }
     }
 }
 
@@ -64,10 +62,7 @@ pub struct ImportCounts {
 
 impl ImportCounts {
     fn make_local<R: EntityRef, I: EntityRef>(idx: I, imports: u32) -> Result<R, I> {
-        EntityRef::index(idx)
-            .checked_sub(imports as _)
-            .map(R::new)
-            .ok_or(idx)
+        EntityRef::index(idx).checked_sub(imports as _).map(R::new).ok_or(idx)
     }
 
     /// Convert the `FunctionIndex` to a `LocalFunctionIndex`.
@@ -346,14 +341,12 @@ impl ModuleInfo {
 
     /// Get the custom sections of the module given a `name`.
     pub fn custom_sections<'a>(&'a self, name: &'a str) -> impl Iterator<Item = Arc<[u8]>> + 'a {
-        self.custom_sections
-            .iter()
-            .filter_map(move |(section_name, section_index)| {
-                if name != section_name {
-                    return None;
-                }
-                Some(self.custom_sections_data[*section_index].clone())
-            })
+        self.custom_sections.iter().filter_map(move |(section_name, section_index)| {
+            if name != section_name {
+                return None;
+            }
+            Some(self.custom_sections_data[*section_index].clone())
+        })
     }
 
     /// Convert a `LocalFunctionIndex` into a `FunctionIndex`.
