@@ -42,4 +42,3 @@ maintenance = { status = "actively-developed" }
 [features]
 default = ["std", "rayon"]
 std = ["wasmer-compiler/std", "wasmer-types/std"]
-core = ["hashbrown", "wasmer-types/core"]
