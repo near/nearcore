@@ -11,6 +11,7 @@ actix.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 futures.workspace = true
+pin-project.workspace = true
 rand.workspace = true
 rayon.workspace = true
 serde.workspace = true
@@ -28,6 +29,7 @@ near-crypto = { path = "../../core/crypto" }
 near-chunks = { path = "../../chain/chunks" }
 near-epoch-manager = { path = "../../chain/epoch-manager"}
 near-jsonrpc = { path = "../../chain/jsonrpc" }
+near-jsonrpc-client = { path = "../../chain/jsonrpc/client" }
 near-network = { path = "../../chain/network" }
 near-store = { path = "../../core/store" }
 near-o11y = { path = "../../core/o11y" }

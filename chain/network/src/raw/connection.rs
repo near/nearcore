@@ -495,6 +495,10 @@ impl Connection {
             }
         }
     }
+
+    pub fn peer_id(&self) -> &PeerId {
+        &self.peer_id
+    }
 }
 
 #[derive(thiserror::Error, Debug)]

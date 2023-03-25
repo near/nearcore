@@ -9,13 +9,12 @@ use mock_node::setup::{setup_mock_node, MockNode};
 use mock_node::MockNetworkConfig;
 use near_actix_test_utils::run_actix;
 use near_chain_configs::GenesisValidationMode;
-use near_client::{GetBlock, Status};
 use near_crypto::{InMemorySigner, KeyType};
-use near_network::test_utils::wait_or_timeout;
+use near_jsonrpc_client::JsonRpcClient;
+use near_network::tcp;
 use near_o11y::testonly::init_integration_logger;
-use near_o11y::WithSpanContextExt;
 use near_primitives::types::BlockHeight;
-use std::ops::ControlFlow;
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -81,6 +80,25 @@ struct Cli {
     /// If true, use in memory storage instead of rocksdb for the client
     #[clap(short = 'i', long)]
     in_memory_storage: bool,
+    /// port the mock node should listen on
+    #[clap(long)]
+    mock_port: Option<u16>,
+}
+
+async fn target_height_reached(client: &JsonRpcClient, target_height: BlockHeight) -> bool {
+    let t = Instant::now();
+    let status = client.status().await;
+    let latency = t.elapsed();
+    if latency > Duration::from_millis(100) {
+        tracing::warn!(
+            target: "mock_node", latency = %format_args!("{latency:0.2?}"),
+            "client is unresponsive, took too long to handle status request"
+        );
+    }
+    match status {
+        Ok(status) => status.sync_info.latest_block_height >= target_height,
+        Err(_) => false,
+    }
 }
 
 fn main() -> anyhow::Result<()> {
@@ -95,7 +113,9 @@ fn main() -> anyhow::Result<()> {
     near_config.network_config.node_key = signer.secret_key;
     near_config.client_config.tracked_shards =
         (0..near_config.genesis.config.shard_layout.num_shards()).collect();
-
+    if near_config.rpc_config.is_none() {
+        near_config.rpc_config = Some(near_jsonrpc::RpcConfig::default());
+    }
     let tempdir;
     let client_home_dir = match &args.client_home_dir {
         Some(it) => it.as_path(),
@@ -119,8 +139,13 @@ fn main() -> anyhow::Result<()> {
 
     let client_height = args.start_height.unwrap_or(args.client_height);
     let network_height = args.start_height.or(args.network_height);
+    let addr = tcp::ListenerAddr::new(SocketAddr::new(
+        "127.0.0.1".parse().unwrap(),
+        args.mock_port.unwrap_or(24566),
+    ));
+
     run_actix(async move {
-        let MockNode { client, view_client, target_height, .. } = setup_mock_node(
+        let MockNode { target_height, mut mock_peer, rpc_client } = setup_mock_node(
             Path::new(&client_home_dir),
             home_dir,
             near_config,
@@ -129,45 +154,48 @@ fn main() -> anyhow::Result<()> {
             network_height,
             args.target_height,
             args.in_memory_storage,
+            addr,
         );
-        let ping_handle = actix::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_millis(100));
-            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-            loop {
-                interval.tick().await;
 
-                let latency = {
-                    let t = Instant::now();
-                    let _ = client
-                        .send(
-                            Status { is_health_check: false, detailed: false }.with_span_context(),
-                        )
-                        .await;
-                    t.elapsed()
-                };
+        // TODO: would be nice to be able to somehow quit right after the target block
+        // is applied rather than polling like this
+        let mut interval = tokio::time::interval(Duration::from_millis(100));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
-                if latency > Duration::from_millis(100) {
-                    tracing::warn!(target: "mock_node", latency = %format_args!("{latency:0.2?}"), "client is unresponsive, took to long to handle status request")
+        let start = Instant::now();
+        // Let's set the timeout to 5 seconds per block - just in case we test on very full blocks.
+        let timeout = target_height * 5;
+        let timeout = u32::try_from(timeout).unwrap_or(u32::MAX) * Duration::from_secs(1);
+
+        loop {
+            if start.elapsed() > timeout {
+                tracing::error!(
+                    "node still hasn't made it to #{} after {:?}",
+                    target_height,
+                    timeout
+                );
+                mock_peer.abort();
+                break;
+            }
+            tokio::select! {
+                _ = interval.tick() => {
+                    if target_height_reached(&rpc_client, target_height).await {
+                        tracing::info!("node reached target height");
+                        mock_peer.abort();
+                        break;
+                    }
+                }
+                result = &mut mock_peer => {
+                    match result {
+                        Ok(Ok(_)) => tracing::info!("mock peer exited"),
+                        Ok(Err(e)) => tracing::error!("mock peer exited with error: {:?}", e),
+                        Err(e) => tracing::error!("failed running mock peer task: {:?}", e),
+                    };
+                    break;
                 }
             }
-        });
+        }
 
-        // Wait until the client reach target_height.
-        wait_or_timeout(
-            100,
-            // Let's set the timeout to 5 seconds per block - just in case we test on very full blocks.
-            target_height * 5_000,
-            || async {
-                match view_client.send(GetBlock::latest().with_span_context()).await {
-                    Ok(Ok(block)) if block.header.height >= target_height => ControlFlow::Break(()),
-                    _ => ControlFlow::Continue(()),
-                }
-            },
-        )
-        .await
-        .unwrap();
-
-        ping_handle.abort();
         System::current().stop();
     });
     Ok(())
