@@ -32,6 +32,10 @@ pub struct Connection {
     // this is used to keep track of routed messages we've sent so that when we get a reply
     // that references one of our previously sent messages, we can determine that the message is for us
     route_cache: lru::LruCache<CryptoHash, ()>,
+    // when a peer connects to us, it'll send two handshakes. One as a proto and one borsh-encoded.
+    // If this field is true, it means we expect to receive a message that won't parse as a proto, and
+    // will accept and drop one such message without giving an error.
+    borsh_message_expected: bool,
 }
 
 // The types of messages it's possible to route to a target PeerId via the connected peer as a first hop
@@ -166,6 +170,49 @@ pub enum ConnectError {
     Other(anyhow::Error),
 }
 
+impl From<RecvError> for ConnectError {
+    fn from(err: RecvError) -> Self {
+        match err {
+            RecvError::IO(io) => Self::IO(io),
+            RecvError::Parse(len) => {
+                Self::Other(anyhow::anyhow!("failed parsing protobuf of length {}", len))
+            }
+        }
+    }
+}
+
+fn new_handshake(
+    secret_key: &SecretKey,
+    my_peer_id: &PeerId,
+    target_peer_id: &PeerId,
+    listen_port: u16,
+    nonce: u64,
+    protocol_version: ProtocolVersion,
+    chain_id: &str,
+    genesis_hash: CryptoHash,
+    head_height: BlockHeight,
+    tracked_shards: Vec<ShardId>,
+    archival: bool,
+) -> PeerMessage {
+    PeerMessage::Tier2Handshake(Handshake {
+        protocol_version,
+        oldest_supported_version: protocol_version - 2,
+        sender_peer_id: my_peer_id.clone(),
+        target_peer_id: target_peer_id.clone(),
+        // we have to set this even if we have no intention of listening since otherwise
+        // the peer will drop our connection
+        sender_listen_port: Some(listen_port),
+        sender_chain_info: PeerChainInfoV2 {
+            genesis_id: GenesisId { chain_id: chain_id.to_string(), hash: genesis_hash },
+            height: head_height,
+            tracked_shards,
+            archival,
+        },
+        partial_edge_info: PartialEdgeInfo::new(my_peer_id, target_peer_id, nonce, secret_key),
+        owned_account: None,
+    })
+}
+
 impl Connection {
     /// Connect to the NEAR node at `peer_id`@`addr`. The inputs are used to build out handshake,
     /// and this function will return a `Peer` when a handshake has been received successfully.
@@ -195,6 +242,7 @@ impl Connection {
             secret_key,
             my_peer_id,
             route_cache: lru::LruCache::new(1_000_000),
+            borsh_message_expected: false,
         };
         peer.do_handshake(
             my_protocol_version.unwrap_or(PROTOCOL_VERSION),
@@ -207,6 +255,64 @@ impl Connection {
         Ok(peer)
     }
 
+    async fn on_accept(
+        stream: tcp::Stream,
+        secret_key: SecretKey,
+        chain_id: &str,
+        genesis_hash: CryptoHash,
+        head_height: BlockHeight,
+        tracked_shards: Vec<ShardId>,
+        archival: bool,
+        recv_timeout: Duration,
+    ) -> Result<Self, ConnectError> {
+        let mut stream = PeerStream::new(stream, recv_timeout);
+        let mut borsh_message_expected = true;
+        let (message, _timestamp) = match stream.recv_message().await {
+            Ok(m) => m,
+            Err(RecvError::Parse(len)) => {
+                tracing::debug!(target: "network", "dropping a non protobuf message of length {}. Probably an extra handshake.", len);
+                borsh_message_expected = false;
+                stream.recv_message().await?
+            }
+            Err(RecvError::IO(e)) => return Err(ConnectError::IO(e)),
+        };
+
+        let (peer_id, nonce) = match message {
+            // TODO: maybe check the handshake for sanity
+            PeerMessage::Tier2Handshake(h) => (h.sender_peer_id, h.partial_edge_info.nonce),
+            PeerMessage::HandshakeFailure(_peer_info, reason) => {
+                return Err(ConnectError::HandshakeFailure(reason))
+            }
+            _ => return Err(ConnectError::UnexpectedFirstMessage(message)),
+        };
+
+        let my_peer_id = PeerId::new(secret_key.public_key());
+        let handshake = new_handshake(
+            &secret_key,
+            &my_peer_id,
+            &peer_id,
+            stream.stream.local_addr.port(),
+            nonce,
+            PROTOCOL_VERSION,
+            chain_id,
+            genesis_hash,
+            head_height,
+            tracked_shards,
+            archival,
+        );
+
+        stream.write_message(&handshake).await.map_err(ConnectError::IO)?;
+
+        Ok(Self {
+            secret_key,
+            my_peer_id,
+            stream,
+            peer_id,
+            route_cache: lru::LruCache::new(1_000_000),
+            borsh_message_expected,
+        })
+    }
+
     async fn do_handshake(
         &mut self,
         protocol_version: ProtocolVersion,
@@ -214,34 +320,25 @@ impl Connection {
         genesis_hash: CryptoHash,
         head_height: BlockHeight,
     ) -> Result<(), ConnectError> {
-        let handshake = PeerMessage::Tier2Handshake(Handshake {
+        let handshake = new_handshake(
+            &self.secret_key,
+            &self.my_peer_id,
+            &self.peer_id,
+            self.stream.stream.local_addr.port(),
+            1,
             protocol_version,
-            oldest_supported_version: protocol_version - 2,
-            sender_peer_id: self.my_peer_id.clone(),
-            target_peer_id: self.peer_id.clone(),
-            // we have to set this even if we have no intention of listening since otherwise
-            // the peer will drop our connection
-            sender_listen_port: Some(24567),
-            sender_chain_info: PeerChainInfoV2 {
-                genesis_id: GenesisId { chain_id: chain_id.to_string(), hash: genesis_hash },
-                height: head_height,
-                tracked_shards: vec![0],
-                archival: false,
-            },
-            partial_edge_info: PartialEdgeInfo::new(
-                &self.my_peer_id,
-                &self.peer_id,
-                1,
-                &self.secret_key,
-            ),
-            owned_account: None,
-        });
+            chain_id,
+            genesis_hash,
+            head_height,
+            vec![0, 1, 2, 3],
+            false,
+        );
 
         self.stream.write_message(&handshake).await.map_err(ConnectError::IO)?;
 
         let start = Instant::now();
 
-        let (message, timestamp) = self.stream.recv_message().await.map_err(ConnectError::IO)?;
+        let (message, timestamp) = self.stream.recv_message().await?;
 
         match message {
             // TODO: maybe check the handshake for sanity
@@ -351,7 +448,22 @@ impl Connection {
     /// (that is, represented in `DirectMessage` or `RoutedMessage`).
     pub async fn recv(&mut self) -> io::Result<(Message, Instant)> {
         loop {
-            let (msg, timestamp) = self.stream.recv_message().await?;
+            let (msg, timestamp) = match self.stream.recv_message().await {
+                Ok(m) => m,
+                Err(RecvError::Parse(len)) => {
+                    if self.borsh_message_expected {
+                        tracing::debug!(target: "network", "{:?} dropping a non protobuf message. Probably an extra handshake.", &self);
+                        self.borsh_message_expected = false;
+                        continue;
+                    } else {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            format!("error parsing protobuf of length {}", len),
+                        ));
+                    }
+                }
+                Err(RecvError::IO(e)) => return Err(e),
+            };
             match msg {
                 PeerMessage::Routed(r) => {
                     if let Some(msg) = self.recv_routed_msg(&r) {
@@ -385,10 +497,24 @@ impl Connection {
     }
 }
 
+#[derive(thiserror::Error, Debug)]
+enum RecvError {
+    #[error(transparent)]
+    IO(#[from] std::io::Error),
+    #[error("error parsing protobuf of length {0}")]
+    Parse(usize),
+}
+
 struct PeerStream {
     stream: tcp::Stream,
     buf: BytesMut,
     recv_timeout: Duration,
+}
+
+impl std::fmt::Debug for PeerStream {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "raw::PeerStream({} -> {})", &self.stream.local_addr, &self.stream.peer_addr)
+    }
 }
 
 impl PeerStream {
@@ -437,7 +563,7 @@ impl PeerStream {
     }
 
     // Reads from the socket until there is at least one full PeerMessage available.
-    async fn recv_message(&mut self) -> io::Result<(PeerMessage, Instant)> {
+    async fn recv_message(&mut self) -> Result<(PeerMessage, Instant), RecvError> {
         let (msg_length, first_byte_time) = self.read_msg_length().await?;
 
         while self.buf.remaining() < msg_length + 4 {
@@ -454,14 +580,59 @@ impl PeerStream {
             self.buf.reserve(512 - max_len_after_next_read);
         }
         msg.map(|m| {
-            tracing::debug!(target: "network", "received PeerMessage::{} len: {}", &m, msg_length);
+            tracing::debug!(target: "network", "{:?} received PeerMessage::{} len: {}", &self, &m, msg_length);
             (m, first_byte_time)
         })
-        .map_err(|_| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("error parsing protobuf of length {}", msg_length),
-            )
+        .map_err(|_| RecvError::Parse(msg_length))
+    }
+}
+
+pub struct Listener {
+    listener: tcp::Listener,
+    secret_key: SecretKey,
+    chain_id: String,
+    genesis_hash: CryptoHash,
+    head_height: BlockHeight,
+    tracked_shards: Vec<ShardId>,
+    archival: bool,
+    recv_timeout: Duration,
+}
+
+impl Listener {
+    pub async fn bind(
+        addr: tcp::ListenerAddr,
+        secret_key: SecretKey,
+        chain_id: &str,
+        genesis_hash: &CryptoHash,
+        head_height: BlockHeight,
+        tracked_shards: Vec<ShardId>,
+        archival: bool,
+        recv_timeout: Duration,
+    ) -> io::Result<Self> {
+        Ok(Self {
+            listener: addr.listener()?,
+            secret_key,
+            chain_id: chain_id.to_string(),
+            genesis_hash: genesis_hash.clone(),
+            head_height,
+            tracked_shards,
+            archival,
+            recv_timeout,
         })
+    }
+
+    pub async fn accept(&mut self) -> Result<Connection, ConnectError> {
+        let stream = self.listener.accept().await.map_err(ConnectError::IO)?;
+        Connection::on_accept(
+            stream,
+            self.secret_key.clone(),
+            &self.chain_id,
+            self.genesis_hash,
+            self.head_height,
+            self.tracked_shards.clone(),
+            self.archival,
+            self.recv_timeout,
+        )
+        .await
     }
 }
