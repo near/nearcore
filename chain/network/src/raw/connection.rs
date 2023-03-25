@@ -2,16 +2,19 @@ use crate::network_protocol::{
     Encoding, Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash,
     PeerMessage, Ping, Pong, RawRoutedMessage, RoutedMessageBody, RoutingTableUpdate,
 };
-use crate::types::StateResponseInfo;
+use crate::types::{
+    PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, StateResponseInfo,
+};
 use bytes::buf::{Buf, BufMut};
 use bytes::BytesMut;
 use near_crypto::{KeyType, SecretKey};
-use near_primitives::block::GenesisId;
+use near_primitives::block::{Block, BlockHeader, GenesisId};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::time::{Duration, Instant, Utc};
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
+use std::fmt;
 use std::io;
 use std::net::SocketAddr;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -34,28 +37,108 @@ pub struct Connection {
 // The types of messages it's possible to route to a target PeerId via the connected peer as a first hop
 // These can be sent with Connection::send_routed_message(), and received in Message::Routed() from
 // Connection::recv()
-#[derive(Clone, Debug)]
+#[derive(Clone, strum::IntoStaticStr)]
 pub enum RoutedMessage {
     Ping { nonce: u64 },
     Pong { nonce: u64, source: PeerId },
     StateRequestPart(ShardId, CryptoHash, u64),
     VersionedStateResponse(StateResponseInfo),
+    PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg),
+    PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg),
+}
+
+impl fmt::Display for RoutedMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(<&'static str>::from(self), f)
+    }
+}
+
+impl fmt::Debug for RoutedMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Ping { nonce } => write!(f, "Ping({})", nonce),
+            Self::Pong { nonce, source } => write!(f, "Pong({}, {})", nonce, source),
+            Self::StateRequestPart(shard_id, hash, part_id) => {
+                write!(f, "StateRequestPart({}, {}, {})", shard_id, hash, part_id)
+            }
+            Self::VersionedStateResponse(r) => write!(
+                f,
+                "VersionedStateResponse(shard_id: {} sync_hash: {})",
+                r.shard_id(),
+                r.sync_hash()
+            ),
+            Self::PartialEncodedChunkRequest(r) => write!(f, "PartialEncodedChunkRequest({:?})", r),
+            Self::PartialEncodedChunkResponse(r) => write!(
+                f,
+                "PartialEncodedChunkResponse(chunk_hash: {} parts_ords: {:?} num_receipts: {})",
+                &r.chunk_hash.0,
+                r.parts.iter().map(|p| p.part_ord).collect::<Vec<_>>(),
+                r.receipts.len()
+            ),
+        }
+    }
 }
 
 // The types of messages it's possible to send directly to the connected peer.
 // These can be sent with Connection::send_message(), and received in Message::Direct() from
 // Connection::recv()
-#[derive(Clone, Debug)]
+#[derive(Clone, strum::IntoStaticStr)]
 pub enum DirectMessage {
     AnnounceAccounts(Vec<AnnounceAccount>),
+    BlockRequest(CryptoHash),
+    Block(Block),
+    BlockHeadersRequest(Vec<CryptoHash>),
+    BlockHeaders(Vec<BlockHeader>),
+}
+
+impl fmt::Display for DirectMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(<&'static str>::from(self), f)
+    }
+}
+
+impl fmt::Debug for DirectMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::AnnounceAccounts(a) => write!(f, "AnnounceAccounts({:?})", a),
+            Self::BlockRequest(r) => write!(f, "BlockRequest({})", r),
+            Self::Block(b) => write!(f, "Block(#{} {})", b.header().height(), b.header().hash()),
+            Self::BlockHeadersRequest(r) => write!(f, "BlockHeadersRequest({:?})", r),
+            Self::BlockHeaders(h) => {
+                write!(
+                    f,
+                    "BlockHeaders({:?})",
+                    h.iter().map(|h| format!("#{} {}", h.height(), h.hash())).collect::<Vec<_>>()
+                )
+            }
+        }
+    }
 }
 
 /// The types of messages it's possible to send/receive from a `Connection`. Any PeerMessage
 /// we receive that doesn't fit one of the types we've enumerated will just be logged and dropped.
-#[derive(Clone, Debug)]
+#[derive(Clone, strum::IntoStaticStr)]
 pub enum Message {
     Direct(DirectMessage),
     Routed(RoutedMessage),
+}
+
+impl fmt::Display for Message {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Direct(msg) => write!(f, "raw::{}", msg),
+            Self::Routed(msg) => write!(f, "raw::Routed({})", msg),
+        }
+    }
+}
+
+impl fmt::Debug for Message {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Direct(msg) => write!(f, "raw::{:?}", msg),
+            Self::Routed(msg) => write!(f, "raw::Routed({:?})", msg),
+        }
+    }
 }
 
 fn sprint_addr(addr: std::io::Result<SocketAddr>) -> String {
@@ -188,6 +271,10 @@ impl Connection {
             DirectMessage::AnnounceAccounts(accounts) => {
                 PeerMessage::SyncRoutingTable(RoutingTableUpdate { edges: Vec::new(), accounts })
             }
+            DirectMessage::BlockRequest(h) => PeerMessage::BlockRequest(h),
+            DirectMessage::Block(b) => PeerMessage::Block(b),
+            DirectMessage::BlockHeadersRequest(h) => PeerMessage::BlockHeadersRequest(h),
+            DirectMessage::BlockHeaders(h) => PeerMessage::BlockHeaders(h),
         };
 
         self.stream.write_message(&peer_msg).await
@@ -212,6 +299,12 @@ impl Connection {
             }
             RoutedMessage::VersionedStateResponse(response) => {
                 RoutedMessageBody::VersionedStateResponse(response)
+            }
+            RoutedMessage::PartialEncodedChunkRequest(request) => {
+                RoutedMessageBody::PartialEncodedChunkRequest(request)
+            }
+            RoutedMessage::PartialEncodedChunkResponse(response) => {
+                RoutedMessageBody::PartialEncodedChunkResponse(response)
             }
         };
         let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target), body }.sign(
@@ -252,6 +345,12 @@ impl Connection {
             RoutedMessageBody::StateRequestPart(shard_id, hash, part_id) => {
                 Some(RoutedMessage::StateRequestPart(*shard_id, *hash, *part_id))
             }
+            RoutedMessageBody::PartialEncodedChunkRequest(request) => {
+                Some(RoutedMessage::PartialEncodedChunkRequest(request.clone()))
+            }
+            RoutedMessageBody::PartialEncodedChunkResponse(response) => {
+                Some(RoutedMessage::PartialEncodedChunkResponse(response.clone()))
+            }
             _ => None,
         }
     }
@@ -271,7 +370,22 @@ impl Connection {
                     return Ok((
                         Message::Direct(DirectMessage::AnnounceAccounts(r.accounts)),
                         timestamp,
-                    ))
+                    ));
+                }
+                PeerMessage::BlockRequest(hash) => {
+                    return Ok((Message::Direct(DirectMessage::BlockRequest(hash)), timestamp));
+                }
+                PeerMessage::Block(b) => {
+                    return Ok((Message::Direct(DirectMessage::Block(b)), timestamp));
+                }
+                PeerMessage::BlockHeadersRequest(hashes) => {
+                    return Ok((
+                        Message::Direct(DirectMessage::BlockHeadersRequest(hashes)),
+                        timestamp,
+                    ));
+                }
+                PeerMessage::BlockHeaders(headers) => {
+                    return Ok((Message::Direct(DirectMessage::BlockHeaders(headers)), timestamp));
                 }
                 _ => {}
             }
