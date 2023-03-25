@@ -34,10 +34,10 @@ async fn convert_genesis_records_to_transaction(
     let genesis_accounts: std::collections::BTreeMap<_, _> = crate::utils::query_accounts(
         &near_primitives::types::BlockId::Hash(block.header.hash).into(),
         genesis_account_ids.iter(),
-        &view_client_addr,
+        view_client_addr,
     )
     .await?;
-    let runtime_config = crate::utils::query_protocol_config(block.header.hash, &view_client_addr)
+    let runtime_config = crate::utils::query_protocol_config(block.header.hash, view_client_addr)
         .await?
         .runtime_config;
 
@@ -147,7 +147,7 @@ pub(crate) async fn convert_block_to_transactions(
         near_primitives::types::BlockId::Hash(block.header.prev_hash),
     );
     let accounts_previous_state =
-        crate::utils::query_accounts(&prev_block_id, touched_account_ids.iter(), &view_client_addr)
+        crate::utils::query_accounts(&prev_block_id, touched_account_ids.iter(), view_client_addr)
             .await?;
 
     let accounts_changes = view_client_addr
@@ -163,13 +163,13 @@ pub(crate) async fn convert_block_to_transactions(
         )
         .await??;
 
-    let runtime_config = crate::utils::query_protocol_config(block.header.hash, &view_client_addr)
+    let runtime_config = crate::utils::query_protocol_config(block.header.hash, view_client_addr)
         .await?
         .runtime_config;
     let exec_to_rx =
-        transactions::ExecutionToReceipts::for_block(&view_client_addr, block.header.hash).await?;
+        transactions::ExecutionToReceipts::for_block(view_client_addr, block.header.hash).await?;
     transactions::convert_block_changes_to_transactions(
-        &view_client_addr,
+        view_client_addr,
         &runtime_config,
         &block.header.hash,
         accounts_changes,
@@ -202,7 +202,7 @@ pub(crate) async fn collect_transactions(
 /// There are some helper Operation Types defined since a single operation
 /// has only a single "account" field, so to indicate "sender" and "receiver"
 /// we use two operations (e.g. InitiateAddKey and AddKey).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct NearActions {
     pub sender_account_id: near_primitives::types::AccountId,
     pub receiver_account_id: near_primitives::types::AccountId,
@@ -419,8 +419,63 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                     );
                     operations.push(deploy_contract_operation);
                 }
-                // TODO(#8469): Implement delegate action support, for now they are ignored.
-                near_primitives::transaction::Action::Delegate(_) => (),
+                near_primitives::transaction::Action::Delegate(action) => {
+                    let initiate_signed_delegate_action_operation_id =
+                        crate::models::OperationIdentifier::new(&operations);
+                    operations.push(
+                        validated_operations::InitiateSignedDelegateActionOperation {
+                            sender_account: sender_account_identifier.clone(),
+                        }
+                        .into_operation(initiate_signed_delegate_action_operation_id.clone()),
+                    );
+
+                    let signed_delegate_action_operation_id =
+                        crate::models::OperationIdentifier::new(&operations);
+
+                    operations.push(
+                        validated_operations::signed_delegate_action::SignedDelegateActionOperation {
+                            receiver_id: receiver_account_identifier.clone(),
+                            signature: action.signature,
+                        }
+                        .into_related_operation(
+                            signed_delegate_action_operation_id.clone(),
+                            vec![initiate_signed_delegate_action_operation_id],
+                        )
+                    );
+
+                    let initiate_delegate_action_operation_id =
+                        crate::models::OperationIdentifier::new(&operations);
+
+                    operations.push(validated_operations::initiate_delegate_action::InitiateDelegateActionOperation{
+                        sender_account: action.delegate_action.sender_id.clone().into()
+                    }.into_related_operation(initiate_delegate_action_operation_id.clone(), vec![signed_delegate_action_operation_id]));
+
+                    let delegate_action_operation_id =
+                        crate::models::OperationIdentifier::new(&operations);
+                    let delegate_action_operation: validated_operations::DelegateActionOperation =
+                        action.delegate_action.clone().into();
+
+                    operations.push(delegate_action_operation.into_related_operation(
+                        delegate_action_operation_id,
+                        vec![initiate_delegate_action_operation_id],
+                    ));
+
+                    // We know that there are no delegate actions inside so this is guaranteed to
+                    // be a single-level recursion.
+                    let delegated_operations: Vec<crate::models::Operation> = NearActions {
+                        sender_account_id: action.delegate_action.sender_id.clone(),
+                        receiver_account_id: action.delegate_action.receiver_id.clone(),
+                        actions: action
+                            .delegate_action
+                            .actions
+                            .into_iter()
+                            .map(|a| a.into())
+                            .collect::<Vec<near_primitives::transaction::Action>>(),
+                    }
+                    .into();
+
+                    operations.extend(delegated_operations);
+                } // TODO(#8469): Implement delegate action support, for now they are ignored.
             }
         }
         operations
@@ -437,12 +492,15 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
     /// Operations. The implementations are bijective (there is a test below).
     fn try_from(operations: Vec<crate::models::Operation>) -> Result<Self, Self::Error> {
         let mut sender_account_id = crate::utils::InitializeOnce::new(
-            "A single transaction cannot be send from multiple senders",
+            "A single transaction cannot be sent from multiple senders",
         );
         let mut receiver_account_id = crate::utils::InitializeOnce::new(
-            "A single transaction cannot be send to multiple recipients",
+            "A single transaction cannot be sent to multiple recipients",
         );
-        let mut actions = vec![];
+        let mut delegate_proxy_account_id = crate::utils::InitializeOnce::new(
+            "A single transaction cannot be sent by multiple proxies",
+        );
+        let mut actions: Vec<near_primitives::transaction::Action> = vec![];
 
         // Iterate over operations backwards to handle the related operations
         let mut operations = operations.into_iter().rev();
@@ -639,7 +697,6 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                         }
                         sender_account_id.try_set(&transfer_operation.account)?;
                     }
-
                     actions.push(
                         near_primitives::transaction::FunctionCallAction {
                             method_name: function_call_operation.method_name,
@@ -650,13 +707,72 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                         .into(),
                     )
                 }
+                crate::models::OperationType::DelegateAction => {
+                    let delegate_action_operation =
+                        validated_operations::delegate_action::DelegateActionOperation::try_from(
+                            tail_operation,
+                        )?;
 
+                    let initiate_delegate_action_operation = validated_operations::initiate_delegate_action::InitiateDelegateActionOperation::try_from_option(operations.next())?;
+
+                    let signed_delegate_action_operation = validated_operations::signed_delegate_action::SignedDelegateActionOperation::try_from_option(operations.next())?;
+                    // the "sender" of this group of operations is considered to be the delegating account, not the proxy
+                    sender_account_id.try_set(&signed_delegate_action_operation.receiver_id)?;
+
+                    let intitiate_signed_delegate_action_operation = validated_operations::intitiate_signed_delegate_action::InitiateSignedDelegateActionOperation::try_from_option(operations.next())?;
+                    delegate_proxy_account_id
+                        .try_set(&intitiate_signed_delegate_action_operation.sender_account)?;
+
+                    let delegate_action: near_primitives::transaction::Action =
+                        near_primitives::delegate_action::SignedDelegateAction {
+                            delegate_action: near_primitives::delegate_action::DelegateAction {
+                                sender_id: initiate_delegate_action_operation
+                                    .sender_account
+                                    .address
+                                    .into(),
+                                receiver_id: delegate_action_operation.receiver_id.address.into(),
+                                actions: {
+                                    let mut non_delegate_actions = vec![];
+                                    for action in actions.into_iter() {
+                                        non_delegate_actions.push(match action.try_into() {
+                                            Ok(a) => a,
+                                            Err(_) => {
+                                                return Err(crate::errors::ErrorKind::InvalidInput(
+                                                    "Nested delegate actions not allowed"
+                                                        .to_string(),
+                                                ))
+                                            }
+                                        });
+                                    }
+                                    non_delegate_actions
+                                },
+                                nonce: delegate_action_operation.nonce,
+                                max_block_height: delegate_action_operation.max_block_height,
+                                public_key: match (&delegate_action_operation.public_key).try_into()
+                                {
+                                    Ok(o) => o,
+                                    Err(_) => {
+                                        return Err(crate::errors::ErrorKind::InvalidInput(
+                                            "Invalid public key on delegate action".to_string(),
+                                        ))
+                                    }
+                                },
+                            },
+                            signature: signed_delegate_action_operation.signature,
+                        }
+                        .into();
+
+                    actions = vec![delegate_action];
+                }
                 crate::models::OperationType::InitiateCreateAccount
                 | crate::models::OperationType::InitiateDeleteAccount
                 | crate::models::OperationType::InitiateAddKey
                 | crate::models::OperationType::InitiateDeleteKey
                 | crate::models::OperationType::InitiateDeployContract
                 | crate::models::OperationType::InitiateFunctionCall
+                | crate::models::OperationType::SignedDelegateAction
+                | crate::models::OperationType::InitiateSignedDelegateAction
+                | crate::models::OperationType::InitiateDelegateAction
                 | crate::models::OperationType::DeleteAccount => {
                     return Err(crate::errors::ErrorKind::InvalidInput(format!(
                         "Unexpected operation `{:?}`",
@@ -679,12 +795,25 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
             })?
             .address
             .into();
+
+        let delegate_proxy_account_id: Option<near_account_id::AccountId> =
+            delegate_proxy_account_id.into_inner().map(|a| a.address.into());
+        let sender_account_id: Option<near_account_id::AccountId> =
+            sender_account_id.into_inner().map(|a| a.address.into());
+
+        let actual_receiver_account_id = if delegate_proxy_account_id.is_some() {
+            sender_account_id.clone().unwrap_or_else(|| receiver_account_id.clone())
+        } else {
+            receiver_account_id.clone()
+        };
+        let actual_sender_account_id =
+            delegate_proxy_account_id.or_else(|| sender_account_id.clone()).unwrap_or_else(|| {
+                // in case of reflexive action
+                receiver_account_id.clone()
+            });
         Ok(Self {
-            sender_account_id: sender_account_id
-                .into_inner()
-                .map(|account_identifier| account_identifier.address.into())
-                .unwrap_or_else(|| receiver_account_id.clone()),
-            receiver_account_id,
+            sender_account_id: actual_sender_account_id,
+            receiver_account_id: actual_receiver_account_id,
             actions,
         })
     }
@@ -696,7 +825,10 @@ mod tests {
     use actix::System;
     use near_actix_test_utils::run_actix;
     use near_client::test_utils::setup_no_network;
+    use near_crypto::{KeyType, SecretKey};
+    use near_primitives::delegate_action::{DelegateAction, SignedDelegateAction};
     use near_primitives::runtime::config::RuntimeConfig;
+    use near_primitives::transaction::{Action, TransferAction};
     use near_primitives::views::RuntimeConfigView;
 
     #[test]
@@ -954,6 +1086,37 @@ mod tests {
             );
             assert_eq!(near_actions_recreated.actions, near_actions.actions);
         }
+    }
+
+    #[test]
+    fn test_delegate_actions_bijection() {
+        // dummy key
+        let sk = SecretKey::from_seed(KeyType::ED25519, "");
+
+        let original_near_actions = NearActions {
+            sender_account_id: "proxy.near".parse().unwrap(),
+            receiver_account_id: "account.near".parse().unwrap(),
+            actions: vec![Action::Delegate(SignedDelegateAction {
+                delegate_action: DelegateAction {
+                    sender_id: "account.near".parse().unwrap(),
+                    receiver_id: "receiver.near".parse().unwrap(),
+                    actions: vec![Action::Transfer(TransferAction { deposit: 1 })
+                        .try_into()
+                        .unwrap()],
+                    nonce: 0,
+                    max_block_height: 0,
+                    public_key: sk.public_key(),
+                },
+                signature: sk.sign(&[0]),
+            })],
+        };
+
+        let operations: Vec<crate::models::Operation> =
+            original_near_actions.clone().try_into().unwrap();
+
+        let converted_near_actions = NearActions::try_from(operations).unwrap();
+
+        assert_eq!(converted_near_actions, original_near_actions);
     }
 
     #[test]

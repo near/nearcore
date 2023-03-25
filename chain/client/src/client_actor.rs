@@ -1283,7 +1283,8 @@ impl ClientActor {
             .runtime_adapter
             .get_epoch_start_height(&last_final_hash)
             .unwrap_or(last_final_block_height);
-        let last_final_block_height_in_epoch = last_final_block_height - epoch_start_height;
+        let last_final_block_height_in_epoch =
+            last_final_block_height.checked_sub(epoch_start_height);
 
         self.info_helper.block_processed(
             gas_used,

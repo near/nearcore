@@ -1,10 +1,16 @@
-#[derive(Debug, strum::EnumIter)]
+#[derive(Debug, strum::EnumIter, thiserror::Error)]
 pub(crate) enum ErrorKind {
+    #[error("Invalid input: {0}")]
     InvalidInput(String),
+    #[error("Not found: {0}")]
     NotFound(String),
+    #[error("Wrong network: {0}")]
     WrongNetwork(String),
+    #[error("Timeout: {0}")]
     Timeout(String),
+    #[error("Internal invariant violation: {0}")]
     InternalInvariantError(String),
+    #[error("Internal error: {0}")]
     InternalError(String),
 }
 
