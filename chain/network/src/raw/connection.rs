@@ -2,8 +2,9 @@ use crate::network_protocol::{
     Encoding, Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash,
     PeerMessage, Ping, Pong, RawRoutedMessage, RoutedMessageBody, RoutingTableUpdate,
 };
+use crate::tcp;
 use crate::types::{
-    PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, StateResponseInfo,
+    PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerInfo, StateResponseInfo,
 };
 use bytes::buf::{Buf, BufMut};
 use bytes::BytesMut;
@@ -18,7 +19,6 @@ use std::fmt;
 use std::io;
 use std::net::SocketAddr;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
 
 /// Represents a connection to a peer, and provides only minimal functionality.
 /// Almost none of the usual NEAR network logic is implemented, and the user
@@ -141,22 +141,15 @@ impl fmt::Debug for Message {
     }
 }
 
-fn sprint_addr(addr: std::io::Result<SocketAddr>) -> String {
-    match addr {
-        Ok(addr) => addr.to_string(),
-        Err(e) => format!("<socket addr unknown: {:?}>", e),
-    }
-}
-
 impl std::fmt::Debug for Connection {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(
             f,
             "raw::Connection({:?}@{} -> {:?}@{})",
             &self.my_peer_id,
-            sprint_addr(self.stream.stream.local_addr()),
+            &self.stream.stream.local_addr,
             &self.peer_id,
-            sprint_addr(self.stream.stream.peer_addr())
+            &self.stream.stream.peer_addr
         )
     }
 }
@@ -169,6 +162,8 @@ pub enum ConnectError {
     HandshakeFailure(HandshakeFailureReason),
     #[error("received unexpected message before the handshake: {0:?}")]
     UnexpectedFirstMessage(PeerMessage),
+    #[error(transparent)]
+    TcpConnect(anyhow::Error),
 }
 
 impl Connection {
@@ -187,16 +182,13 @@ impl Connection {
         let my_peer_id = PeerId::new(secret_key.public_key());
 
         let start = Instant::now();
-        let stream =
-            tokio::time::timeout(recv_timeout.try_into().unwrap(), TcpStream::connect(addr))
-                .await
-                .map_err(|e| ConnectError::IO(e.into()))?
-                .map_err(ConnectError::IO)?;
+        let stream = tcp::Stream::connect(&PeerInfo::new(peer_id.clone(), addr), tcp::Tier::T2)
+            .await
+            .map_err(ConnectError::TcpConnect)?;
         tracing::info!(
             target: "network", "Connection to {}@{:?} established. latency: {}",
             &peer_id, &addr, start.elapsed(),
         );
-
         let mut peer = Self {
             stream: PeerStream::new(stream, recv_timeout),
             peer_id,
@@ -394,13 +386,13 @@ impl Connection {
 }
 
 struct PeerStream {
-    stream: TcpStream,
+    stream: tcp::Stream,
     buf: BytesMut,
     recv_timeout: Duration,
 }
 
 impl PeerStream {
-    fn new(stream: TcpStream, recv_timeout: Duration) -> Self {
+    fn new(stream: tcp::Stream, recv_timeout: Duration) -> Self {
         Self { stream, buf: BytesMut::with_capacity(1024), recv_timeout }
     }
 
@@ -408,16 +400,16 @@ impl PeerStream {
         let mut msg = msg.serialize(Encoding::Proto);
         let mut buf = (msg.len() as u32).to_le_bytes().to_vec();
         buf.append(&mut msg);
-        self.stream.write_all(&buf).await
+        self.stream.stream.write_all(&buf).await
     }
 
     async fn do_read(&mut self) -> io::Result<()> {
         let n = tokio::time::timeout(
             self.recv_timeout.try_into().unwrap(),
-            self.stream.read_buf(&mut self.buf),
+            self.stream.stream.read_buf(&mut self.buf),
         )
         .await??;
-        tracing::trace!(target: "network", "Read {} bytes from {:?}", n, self.stream.peer_addr());
+        tracing::trace!(target: "network", "Read {} bytes from {:?}", n, self.stream.peer_addr);
         if n == 0 {
             return Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
