@@ -56,14 +56,9 @@ pub fn compiler_test(attrs: TokenStream, input: TokenStream) -> TokenStream {
         let engine_name = engine_name.to_lowercase();
         // We construct the path manually because we can't get the
         // source_file location from the `Span` (it's only available in nightly)
-        let full_path = format!(
-            "{}::{}::{}::{}",
-            quote! { #path },
-            test_name,
-            compiler_name,
-            engine_name
-        )
-        .replace(" ", "");
+        let full_path =
+            format!("{}::{}::{}::{}", quote! { #path }, test_name, compiler_name, engine_name)
+                .replace(" ", "");
         let should_ignore = ignores.should_ignore_host(&engine_name, &compiler_name, &full_path);
         // println!("{} -> Should ignore: {}", full_path, should_ignore);
         return should_ignore;
@@ -77,11 +72,7 @@ pub fn compiler_test(attrs: TokenStream, input: TokenStream) -> TokenStream {
         let config_engine = ::quote::format_ident!("{}", engine_name);
         let test_name = ::quote::format_ident!("{}", engine_name.to_lowercase());
         let mut new_sig = func.sig.clone();
-        let attrs = func
-            .attrs
-            .clone()
-            .iter()
-            .fold(quote! {}, |acc, new| quote! {#acc #new});
+        let attrs = func.attrs.clone().iter().fold(quote! {}, |acc, new| quote! {#acc #new});
         new_sig.ident = test_name;
         new_sig.inputs = ::syn::punctuated::Punctuated::new();
         let f = quote! {
@@ -92,11 +83,8 @@ pub fn compiler_test(attrs: TokenStream, input: TokenStream) -> TokenStream {
                 #fn_name(crate::Config::new(crate::Engine::#config_engine, crate::Compiler::#config_compiler))
             }
         };
-        if should_ignore(
-            &func.sig.ident.to_string().replace("r#", ""),
-            compiler_name,
-            engine_name,
-        ) && !cfg!(test)
+        if should_ignore(&func.sig.ident.to_string().replace("r#", ""), compiler_name, engine_name)
+            && !cfg!(test)
         {
             quote! {
                 #[ignore]

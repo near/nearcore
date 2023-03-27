@@ -31,10 +31,7 @@ pub struct ModuleTranslationState {
 impl ModuleTranslationState {
     /// Creates a new empty ModuleTranslationState.
     pub fn new() -> Self {
-        Self {
-            wasm_types: PrimaryMap::new(),
-            import_map: HashMap::new(),
-        }
+        Self { wasm_types: PrimaryMap::new(), import_map: HashMap::new() }
     }
 
     /// Build map of imported functions names for intrinsification.

@@ -59,10 +59,7 @@ impl Global {
         if !val.comes_from_same_store(store) {
             return Err(RuntimeError::new("cross-`Store` globals are not supported"));
         }
-        let global = RuntimeGlobal::new(GlobalType {
-            mutability,
-            ty: val.ty(),
-        });
+        let global = RuntimeGlobal::new(GlobalType { mutability, ty: val.ty() });
         unsafe {
             global
                 .set_unchecked(val.clone())
@@ -71,10 +68,7 @@ impl Global {
 
         Ok(Self {
             store: store.clone(),
-            vm_global: VMGlobal {
-                from: Arc::new(global),
-                instance_ref: None,
-            },
+            vm_global: VMGlobal { from: Arc::new(global), instance_ref: None },
         })
     }
 
@@ -174,19 +168,13 @@ impl Global {
             return Err(RuntimeError::new("cross-`Store` values are not supported"));
         }
         unsafe {
-            self.vm_global
-                .from
-                .set(val)
-                .map_err(|e| RuntimeError::new(format!("{}", e)))?;
+            self.vm_global.from.set(val).map_err(|e| RuntimeError::new(format!("{}", e)))?;
         }
         Ok(())
     }
 
     pub(crate) fn from_vm_export(store: &Store, vm_global: VMGlobal) -> Self {
-        Self {
-            store: store.clone(),
-            vm_global,
-        }
+        Self { store: store.clone(), vm_global }
     }
 }
 
@@ -195,10 +183,7 @@ impl Clone for Global {
         let mut vm_global = self.vm_global.clone();
         vm_global.upgrade_instance_ref().unwrap();
 
-        Self {
-            store: self.store.clone(),
-            vm_global,
-        }
+        Self { store: self.store.clone(), vm_global }
     }
 }
 

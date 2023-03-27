@@ -37,9 +37,7 @@ impl ModuleId {
 impl Default for ModuleId {
     fn default() -> Self {
         static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
-        Self {
-            id: NEXT_ID.fetch_add(1, SeqCst),
-        }
+        Self { id: NEXT_ID.fetch_add(1, SeqCst) }
     }
 }
 
@@ -64,10 +62,7 @@ pub struct ImportCounts {
 
 impl ImportCounts {
     fn make_local<R: EntityRef, I: EntityRef>(idx: I, imports: u32) -> Result<R, I> {
-        EntityRef::index(idx)
-            .checked_sub(imports as _)
-            .map(R::new)
-            .ok_or(idx)
+        EntityRef::index(idx).checked_sub(imports as _).map(R::new).ok_or(idx)
     }
 
     /// Convert the `FunctionIndex` to a `LocalFunctionIndex`.
@@ -212,8 +207,8 @@ pub struct ArchivableModuleInfo {
 }
 
 impl From<ModuleInfo> for ArchivableModuleInfo {
-    fn from(it: ModuleInfo) -> ArchivableModuleInfo {
-        ArchivableModuleInfo {
+    fn from(it: ModuleInfo) -> Self {
+        Self {
             name: it.name,
             imports: ArchivableIndexMap::from(it.imports),
             exports: ArchivableIndexMap::from(it.exports),
@@ -236,8 +231,8 @@ impl From<ModuleInfo> for ArchivableModuleInfo {
 }
 
 impl From<ArchivableModuleInfo> for ModuleInfo {
-    fn from(it: ArchivableModuleInfo) -> ModuleInfo {
-        ModuleInfo {
+    fn from(it: ArchivableModuleInfo) -> Self {
+        Self {
             id: Default::default(),
             name: it.name,
             imports: it.imports.into(),
@@ -261,8 +256,8 @@ impl From<ArchivableModuleInfo> for ModuleInfo {
 }
 
 impl From<&ModuleInfo> for ArchivableModuleInfo {
-    fn from(it: &ModuleInfo) -> ArchivableModuleInfo {
-        ArchivableModuleInfo::from(it.clone())
+    fn from(it: &ModuleInfo) -> Self {
+        Self::from(it.clone())
     }
 }
 
@@ -295,7 +290,7 @@ impl<D: Fallible + ?Sized + SharedDeserializeRegistry> rkyv::Deserialize<ModuleI
 
 // For test serialization correctness, everything except module id should be same
 impl PartialEq for ModuleInfo {
-    fn eq(&self, other: &ModuleInfo) -> bool {
+    fn eq(&self, other: &Self) -> bool {
         self.name == other.name
             && self.imports == other.imports
             && self.exports == other.exports
@@ -346,14 +341,12 @@ impl ModuleInfo {
 
     /// Get the custom sections of the module given a `name`.
     pub fn custom_sections<'a>(&'a self, name: &'a str) -> impl Iterator<Item = Arc<[u8]>> + 'a {
-        self.custom_sections
-            .iter()
-            .filter_map(move |(section_name, section_index)| {
-                if name != section_name {
-                    return None;
-                }
-                Some(self.custom_sections_data[*section_index].clone())
-            })
+        self.custom_sections.iter().filter_map(move |(section_name, section_index)| {
+            if name != section_name {
+                return None;
+            }
+            Some(self.custom_sections_data[*section_index].clone())
+        })
     }
 
     /// Convert a `LocalFunctionIndex` into a `FunctionIndex`.

@@ -2,15 +2,15 @@
 proc-macro = true
 
 [package]
-name = "compiler-test-derive"
-version = "0.0.1"
-authors = ["Wasmer Engineering <engineering@wasmer.io>"]
-edition = "2018"
+name = "near-vm-compiler-test-derive"
+version = "0.0.0"
+authors = ["Wasmer Engineering Team <engineering@wasmer.io>", "Near Inc <hello@nearprotocol.com>"]
+edition = "2021"
 license = "MIT"
-
 description = "A macro to generate easily tests across compilers and engines"
 keywords = ["unsafe", "body", "fn", "safety", "hygiene"]
-categories = ["rust-patterns", ]
+categories = ["rust-patterns"]
+publish = false
 
 [dependencies]
 proc-macro2 = "1.*"
