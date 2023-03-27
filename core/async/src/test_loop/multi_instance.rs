@@ -31,4 +31,12 @@ impl<Data, Event> LoopEventHandlerImpl<Vec<Data>, (usize, Event)>
             Err(event)
         }
     }
+
+    fn try_drop(&self, event: (usize, Event)) -> Result<(), (usize, Event)> {
+        if event.0 == self.index {
+            self.inner.try_drop(event.1).map_err(|event| (self.index, event))
+        } else {
+            Err(event)
+        }
+    }
 }
