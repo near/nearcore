@@ -34,10 +34,7 @@ pub struct SignatureRegistry {
 impl SignatureRegistry {
     /// Create a new `SignatureRegistry`.
     pub fn new() -> Self {
-        Self {
-            type_to_index: HashMap::new(),
-            index_to_data: Vec::new(),
-        }
+        Self { type_to_index: HashMap::new(), index_to_data: Vec::new() }
     }
 
     /// Register a signature and return its unique index.

@@ -58,14 +58,10 @@ impl Compiler for SinglepassCompiler {
             ));
         }*/
         if target.triple().architecture != Architecture::X86_64 {
-            return Err(CompileError::UnsupportedTarget(
-                target.triple().architecture.to_string(),
-            ));
+            return Err(CompileError::UnsupportedTarget(target.triple().architecture.to_string()));
         }
         if !target.cpu_features().contains(CpuFeature::AVX) {
-            return Err(CompileError::UnsupportedTarget(
-                "x86_64 without AVX".to_string(),
-            ));
+            return Err(CompileError::UnsupportedTarget("x86_64 without AVX".to_string()));
         }
         if compile_info.features.multi_value {
             return Err(CompileError::UnsupportedFeature("multivalue".to_string()));
@@ -274,12 +270,7 @@ mod tests {
             gas_costs: Vec::new(),
             gas_kinds: Vec::new(),
         };
-        (
-            compile_info,
-            module_translation,
-            function_body_inputs,
-            analysis,
-        )
+        (compile_info, module_translation, function_body_inputs, analysis)
     }
 
     #[test]

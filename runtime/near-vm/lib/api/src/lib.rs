@@ -2,16 +2,11 @@
     html_logo_url = "https://github.com/wasmerio.png?size=200",
     html_favicon_url = "https://wasmer.io/images/icons/favicon-32x32.png"
 )]
-#![deny(
-    missing_docs,
-    trivial_numeric_casts,
-    unused_extern_crates,
-    rustdoc::broken_intra_doc_links
-)]
+#![deny(missing_docs, trivial_numeric_casts, unused_extern_crates, rustdoc::broken_intra_doc_links)]
 #![warn(unused_import_braces)]
 #![cfg_attr(
     feature = "cargo-clippy",
-    allow(clippy::new_without_default, vtable_address_comparisons)
+    allow(clippy::new_without_default, clippy::vtable_address_comparisons)
 )]
 #![cfg_attr(
     feature = "cargo-clippy",
@@ -19,8 +14,7 @@
         clippy::float_arithmetic,
         clippy::mut_mut,
         clippy::nonminimal_bool,
-        clippy::option_map_unwrap_or,
-        clippy::option_map_unwrap_or_else,
+        clippy::map_unwrap_or,
         clippy::print_stdout,
         clippy::unicode_not_nfc,
         clippy::use_self
@@ -271,14 +265,8 @@
 //! 1. `sys`
 //!    where `wasmer` will be compiled to a native executable
 //!    which provides compilers, engines, a full VM etc.
-#![cfg_attr(
-    feature = "sys",
-    doc = "## Features for the `sys` feature group (enabled)"
-)]
-#![cfg_attr(
-    not(feature = "sys"),
-    doc = "## Features for the `sys` feature group (disabled)"
-)]
+#![cfg_attr(feature = "sys", doc = "## Features for the `sys` feature group (enabled)")]
+#![cfg_attr(not(feature = "sys"), doc = "## Features for the `sys` feature group (disabled)")]
 //!
 //! The default features can be enabled with the `sys-default` feature.
 //!

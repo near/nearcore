@@ -77,11 +77,8 @@ impl Function {
         if func_ref.is_null() {
             return None;
         }
-        let wasmer_vm::VMCallerCheckedAnyfunc {
-            func_ptr: address,
-            type_index: signature,
-            vmctx,
-        } = **func_ref;
+        let wasmer_vm::VMCallerCheckedAnyfunc { func_ptr: address, type_index: signature, vmctx } =
+            **func_ref;
         let export = wasmer_vm::ExportFunction {
             // TODO:
             // figure out if we ever need a value here: need testing with complicated import patterns
@@ -98,13 +95,13 @@ impl Function {
                 instance_ref: None,
             },
         };
-        Some(Function::from_vm_export(store, export))
+        Some(Self::from_vm_export(store, export))
     }
 }
 
 impl From<Function> for TableElement {
     fn from(f: Function) -> Self {
-        TableElement::FuncRef(f.vm_funcref())
+        Self::FuncRef(f.vm_funcref())
     }
 }
 
@@ -123,9 +120,7 @@ where
     });
     let host_env_clone_fn = |ptr: *mut c_void| -> *mut c_void {
         let env_ref: &Env = unsafe {
-            ptr.cast::<Env>()
-                .as_ref()
-                .expect("`ptr` to the environment is null when cloning it")
+            ptr.cast::<Env>().as_ref().expect("`ptr` to the environment is null when cloning it")
         };
         Box::into_raw(Box::new(env_ref.clone())) as _
     };
@@ -322,9 +317,7 @@ impl Function {
         }
         let function = inner::Function::<Args, Rets>::new(func);
         let address = function.address() as *const VMFunctionBody;
-        let vmctx = VMFunctionEnvironment {
-            host_env: std::ptr::null_mut() as *mut _,
-        };
+        let vmctx = VMFunctionEnvironment { host_env: std::ptr::null_mut() as *mut _ };
         let signature = store
             .engine()
             // TODO(0-copy):
@@ -442,11 +435,7 @@ impl Function {
         results: &mut [Val],
     ) -> Result<(), RuntimeError> {
         let format_types_for_error_message = |items: &[Val]| {
-            items
-                .iter()
-                .map(|param| param.ty().to_string())
-                .collect::<Vec<String>>()
-                .join(", ")
+            items.iter().map(|param| param.ty().to_string()).collect::<Vec<String>>().join(", ")
         };
         let signature = self.ty();
         if signature.params().len() != params.len() {
@@ -597,10 +586,7 @@ impl Function {
     }
 
     pub(crate) fn from_vm_export(store: &Store, wasmer_export: ExportFunction) -> Self {
-        Self {
-            store: store.clone(),
-            exported: wasmer_export,
-        }
+        Self { store: store.clone(), exported: wasmer_export }
     }
 
     pub(crate) fn vm_funcref(&self) -> VMFuncRef {
@@ -747,19 +733,13 @@ impl Clone for Function {
         let mut exported = self.exported.clone();
         exported.vm_function.upgrade_instance_ref().unwrap();
 
-        Self {
-            store: self.store.clone(),
-            exported,
-        }
+        Self { store: self.store.clone(), exported }
     }
 }
 
 impl fmt::Debug for Function {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        formatter
-            .debug_struct("Function")
-            .field("ty", &self.ty())
-            .finish()
+        formatter.debug_struct("Function").field("ty", &self.ty()).finish()
     }
 }
 
@@ -815,10 +795,7 @@ trait VMDynamicFunctionCall<T: VMDynamicFunction> {
 
 impl<T: VMDynamicFunction> VMDynamicFunctionCall<T> for VMDynamicFunctionContext<T> {
     fn from_context(ctx: T) -> Self {
-        Self {
-            address: Self::address_ptr(),
-            ctx,
-        }
+        Self { address: Self::address_ptr(), ctx }
     }
 
     fn address_ptr() -> *const VMFunctionBody {
@@ -1188,10 +1165,7 @@ mod inner {
             T: HostFunctionKind,
             E: Sized,
         {
-            Self {
-                address: function.function_body_ptr(),
-                _phantom: PhantomData,
-            }
+            Self { address: function.function_body_ptr(), _phantom: PhantomData }
         }
 
         /// Get the function type of this `Function`.
@@ -1564,14 +1538,8 @@ mod inner {
         #[test]
         fn test_function_types() {
             assert_eq!(Function::new(func).ty(), FunctionType::new(vec![], vec![]));
-            assert_eq!(
-                Function::new(func__i32).ty(),
-                FunctionType::new(vec![], vec![Type::I32])
-            );
-            assert_eq!(
-                Function::new(func_i32).ty(),
-                FunctionType::new(vec![Type::I32], vec![])
-            );
+            assert_eq!(Function::new(func__i32).ty(), FunctionType::new(vec![], vec![Type::I32]));
+            assert_eq!(Function::new(func_i32).ty(), FunctionType::new(vec![Type::I32], vec![]));
             assert_eq!(
                 Function::new(func_i32__i32).ty(),
                 FunctionType::new(vec![Type::I32], vec![Type::I32])
