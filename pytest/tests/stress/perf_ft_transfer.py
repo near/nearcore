@@ -83,7 +83,7 @@ class Transaction:
         # Send the transaction if the previous expired or we didn't send one in the first place.
         if self.transaction_id is None or self.ttl <= 0:
             if self.transaction_id is not None:
-                logger.debug(f"transaction {self.transaction_id} expired, submitting a new one!")
+                logger.warn(f"transaction {self.transaction_id} expired, submitting a new one!")
             (self.transaction_id, self.caller) = self.send(node, block_hash)
             self.expiration = time.time() + DEFAULT_TRANSACTION_TTL_SECONDS
             self.ttl = DEFAULT_TRANSACTION_TTL_SECONDS
@@ -337,7 +337,7 @@ def main():
         ACCOUNTS.append(Account(key.Key(account_id, pk, sk)))
 
 
-    queue_size = min(10240, int(args.accounts) + 50)
+    queue_size = max(MAX_INFLIGHT_TRANSACTIONS, int(args.accounts)) + 16
     tx_queue = TxQueue(queue_size)
     multiprocessing.Process(target=transaction_executor, args=(nodes, tx_queue,), daemon=True).start()
     multiprocessing.Process(target=transaction_executor, args=(nodes, tx_queue,), daemon=True).start()
