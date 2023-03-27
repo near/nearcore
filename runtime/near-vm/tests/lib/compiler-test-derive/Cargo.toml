@@ -4,7 +4,7 @@ proc-macro = true
 [package]
 name = "near-vm-compiler-test-derive"
 version = "0.0.0"
-authors = ["Near Inc <hello@nearprotocol.com>"]
+authors = ["Wasmer Engineering Team <engineering@wasmer.io>", "Near Inc <hello@nearprotocol.com>"]
 edition = "2021"
 license = "MIT"
 description = "A macro to generate easily tests across compilers and engines"
