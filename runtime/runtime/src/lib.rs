@@ -594,6 +594,7 @@ impl Runtime {
                 apply_state.current_protocol_version
             ) {
                 result.gas_burnt = 0;
+                result.compute_usage = 0;
                 result.gas_used = 0;
             }
 

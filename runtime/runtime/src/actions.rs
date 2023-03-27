@@ -688,6 +688,8 @@ pub(crate) fn apply_delegate_action(
     // gas_used is incremented because otherwise the gas will be refunded. Refund function checks only gas_used.
     result.gas_used = safe_add_gas(result.gas_used, prepaid_send_fees)?;
     result.gas_burnt = safe_add_gas(result.gas_burnt, prepaid_send_fees)?;
+    // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
+    result.compute_usage = safe_add_compute(result.compute_usage, prepaid_send_fees)?;
     result.new_receipts.push(new_receipt);
 
     Ok(())
