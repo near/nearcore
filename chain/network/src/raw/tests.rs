@@ -166,7 +166,7 @@ async fn test_listener() {
         addr,
         secret_key,
         &genesis_id.chain_id,
-        &genesis_id.hash,
+        genesis_id.hash,
         0,
         vec![0],
         false,

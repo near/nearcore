@@ -300,7 +300,7 @@ impl MockPeer {
             listen_addr,
             secret_key,
             &chain_id,
-            chain.genesis().hash(),
+            *chain.genesis().hash(),
             network_start_height,
             (0..num_shards).collect(),
             archival,
