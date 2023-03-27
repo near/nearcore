@@ -1,9 +1,8 @@
 use crate::config::TrieCacheConfig;
-use crate::trie::trie_storage::TrieCacheInner;
 use crate::StoreConfig;
 use near_primitives::types::AccountId;
 use std::str::FromStr;
-use tracing::{error, warn};
+use tracing::error;
 
 /// Default memory limit, if nothing else is configured.
 /// It is chosen to correspond roughly to the old limit, which was
