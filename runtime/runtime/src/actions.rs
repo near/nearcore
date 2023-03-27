@@ -1,6 +1,6 @@
 use crate::config::{
-    safe_add_gas, total_prepaid_exec_fees, total_prepaid_gas, total_prepaid_send_fees,
-    RuntimeConfig, safe_add_compute,
+    safe_add_compute, safe_add_gas, total_prepaid_exec_fees, total_prepaid_gas,
+    total_prepaid_send_fees, RuntimeConfig,
 };
 use crate::ext::{ExternalError, RuntimeExt};
 use crate::{metrics, ActionResult, ApplyState};

@@ -14,7 +14,7 @@ use near_primitives::runtime::fees::{transfer_exec_fee, transfer_send_fee, Runti
 use near_primitives::transaction::{
     Action, AddKeyAction, DeployContractAction, FunctionCallAction, Transaction,
 };
-use near_primitives::types::{AccountId, Balance, Gas, Compute};
+use near_primitives::types::{AccountId, Balance, Compute, Gas};
 use near_primitives::version::{is_implicit_account_creation_enabled, ProtocolVersion};
 
 /// Describes the cost of converting this transaction into a receipt.
