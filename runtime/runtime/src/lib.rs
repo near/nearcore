@@ -301,16 +301,18 @@ impl Runtime {
         actions: &[Action],
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ActionResult, RuntimeError> {
-        // println!("enter apply_action");
-        let mut result = ActionResult::default();
         let exec_fees = exec_fee(
             &apply_state.config.fees,
             action,
             &receipt.receiver_id,
             apply_state.current_protocol_version,
         );
-        result.gas_burnt += exec_fees;
-        result.gas_used += exec_fees;
+        let mut result = ActionResult::default();
+        result.gas_used = exec_fees;
+        result.gas_burnt = exec_fees;
+        // Compute usage matches gas burnt because we currently don't support compute costs for
+        // actions. In this future this might change.
+        result.compute_usage = exec_fees;
         let account_id = &receipt.receiver_id;
         let is_the_only_action = actions.len() == 1;
         let is_refund = AccountId::is_system(&receipt.predecessor_id);
@@ -505,9 +507,12 @@ impl Runtime {
         let mut account = get_account(state_update, account_id)?;
         let mut actor_id = receipt.predecessor_id.clone();
         let mut result = ActionResult::default();
-        let exec_fee = apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee();
-        result.gas_used = exec_fee;
-        result.gas_burnt = exec_fee;
+        let exec_fees = apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee();
+        result.gas_used = exec_fees;
+        result.gas_burnt = exec_fees;
+        // Compute usage matches gas burnt because we currently don't support compute costs for
+        // actions. In this future this might change.
+        result.compute_usage = exec_fees;
         // Executing actions one by one
         for (action_index, action) in action_receipt.actions.iter().enumerate() {
             let action_hash = create_action_hash(
