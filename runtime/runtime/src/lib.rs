@@ -266,8 +266,7 @@ impl Runtime {
                         logs: vec![],
                         receipt_ids: vec![receipt.receipt_id],
                         gas_burnt: verification_result.gas_burnt,
-                        // Compute usage matches gas burnt because we currently don't support
-                        // compute costs for actions. In this future this might change.
+                        // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
                         compute_usage: verification_result.gas_burnt,
                         tokens_burnt: verification_result.burnt_amount,
                         executor_id: transaction.signer_id.clone(),
@@ -310,8 +309,7 @@ impl Runtime {
         let mut result = ActionResult::default();
         result.gas_used = exec_fees;
         result.gas_burnt = exec_fees;
-        // Compute usage matches gas burnt because we currently don't support compute costs for
-        // actions. In this future this might change.
+        // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
         result.compute_usage = exec_fees;
         let account_id = &receipt.receiver_id;
         let is_the_only_action = actions.len() == 1;
@@ -510,8 +508,7 @@ impl Runtime {
         let exec_fees = apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee();
         result.gas_used = exec_fees;
         result.gas_burnt = exec_fees;
-        // Compute usage matches gas burnt because we currently don't support compute costs for
-        // actions. In this future this might change.
+        // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
         result.compute_usage = exec_fees;
         // Executing actions one by one
         for (action_index, action) in action_receipt.actions.iter().enumerate() {
