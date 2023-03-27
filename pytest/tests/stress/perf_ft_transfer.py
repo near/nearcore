@@ -83,7 +83,7 @@ class Transaction:
         # Send the transaction if the previous expired or we didn't send one in the first place.
         if self.transaction_id is None or self.ttl <= 0:
             if self.transaction_id is not None:
-                logger.warn(f"transaction {self.transaction_id} expired, submitting a new one!")
+                logger.warning(f"transaction {self.transaction_id} expired, submitting a new one!")
             (self.transaction_id, self.caller) = self.send(node, block_hash)
             self.expiration = time.time() + DEFAULT_TRANSACTION_TTL_SECONDS
             self.ttl = DEFAULT_TRANSACTION_TTL_SECONDS
@@ -273,7 +273,7 @@ def transaction_executor(nodes, tx_queue):
         # neard can handle somewhat stale block hashes, but not too stale.
         # update the block hash if it is been a while since we did so.
         now = time.time()
-        if now - last_block_hash_update >= 5:
+        if now - last_block_hash_update >= 0.5:
             block_hash = base58.b58decode(nodes[0].get_latest_block().hash)
             last_block_hash_update = now
 
