@@ -185,20 +185,12 @@ impl Machine {
     }
 
     fn increase_rsp(&mut self, a: &mut impl Emitter, sz: usize) {
-        a.emit_add(
-            Size::S64,
-            Location::Imm32(u32::try_from(sz).unwrap()),
-            Location::GPR(GPR::RSP),
-        );
+        a.emit_add(Size::S64, Location::Imm32(u32::try_from(sz).unwrap()), Location::GPR(GPR::RSP));
         self.stack_offset.0 -= sz;
     }
 
     fn decrease_rsp(&mut self, a: &mut impl Emitter, sz: usize) {
-        a.emit_sub(
-            Size::S64,
-            Location::Imm32(u32::try_from(sz).unwrap()),
-            Location::GPR(GPR::RSP),
-        );
+        a.emit_sub(Size::S64, Location::Imm32(u32::try_from(sz).unwrap()), Location::GPR(GPR::RSP));
         self.stack_offset.0 += sz;
     }
 
@@ -227,10 +219,7 @@ impl Machine {
                 x
             } else {
                 delta_stack_offset += 8;
-                Location::Memory(
-                    GPR::RBP,
-                    -((self.stack_offset.0 + delta_stack_offset) as i32),
-                )
+                Location::Memory(GPR::RBP, -((self.stack_offset.0 + delta_stack_offset) as i32))
             };
             if let Location::GPR(x) = loc {
                 self.set_gpr_used(x);
@@ -362,23 +351,15 @@ impl Machine {
         // small (< 32), and `idx` is bounded to `51000` due to limits imposed by the wasmparser
         // validator. We introduce a debug_assert here to ensure that `idx` never really exceeds
         // some incredibly large value.
-        debug_assert!(
-            idx <= 999_999,
-            "this runtime can't deal with unreasonable number of locals"
-        );
-        Self::LOCAL_REGISTERS
-            .get(idx as usize)
-            .map(|r| Location::GPR(*r))
-            .unwrap_or_else(|| {
-                let local_offset = idx
-                    .checked_sub(Self::LOCAL_REGISTERS.len() as u32)
-                    .unwrap()
-                    .wrapping_mul(8);
-                Location::Memory(
-                    GPR::RBP,
-                    (local_offset.wrapping_add(self.locals_offset.0 as u32) as i32).wrapping_neg(),
-                )
-            })
+        debug_assert!(idx <= 999_999, "this runtime can't deal with unreasonable number of locals");
+        Self::LOCAL_REGISTERS.get(idx as usize).map(|r| Location::GPR(*r)).unwrap_or_else(|| {
+            let local_offset =
+                idx.checked_sub(Self::LOCAL_REGISTERS.len() as u32).unwrap().wrapping_mul(8);
+            Location::Memory(
+                GPR::RBP,
+                (local_offset.wrapping_add(self.locals_offset.0 as u32) as i32).wrapping_neg(),
+            )
+        })
     }
 
     // `setup_registers`, `init_locals`, `finalize_locals` and `restore_registers` work together,
@@ -429,11 +410,7 @@ impl Machine {
         }
 
         // Save R15 for vmctx use.
-        a.emit_mov(
-            Size::S64,
-            Location::GPR(GPR::R15),
-            Location::Memory(GPR::RSP, 0),
-        );
+        a.emit_mov(Size::S64, Location::GPR(GPR::R15), Location::Memory(GPR::RSP, 0));
 
         // For Windows ABI, save RDI and RSI
         if calling_convention == CallingConvention::WindowsFastcall {
@@ -454,10 +431,8 @@ impl Machine {
         // Locals are allocated on the stack from higher address to lower address,
         // so we won't skip the stack guard page here.
         self.locals_offset = MachineStackOffset(self.stack_offset.0 + 8); // + 8 because locals_offset is supposed to point to 1st local
-        let params_size = (n_params as usize)
-            .saturating_sub(Self::LOCAL_REGISTERS.len())
-            .checked_mul(8)
-            .unwrap();
+        let params_size =
+            (n_params as usize).saturating_sub(Self::LOCAL_REGISTERS.len()).checked_mul(8).unwrap();
         self.decrease_rsp(a, params_size);
         for i in 0..n_params {
             // NB: the 0th parameter is used for passing around the internal VM data (vmctx).
@@ -498,14 +473,11 @@ impl Machine {
         n_params: u32,
         _calling_convention: CallingConvention,
     ) {
-        let registers_remaining_for_locals = Self::LOCAL_REGISTERS
-            .len()
-            .saturating_sub(n_params as usize);
+        let registers_remaining_for_locals =
+            Self::LOCAL_REGISTERS.len().saturating_sub(n_params as usize);
         let locals_to_init = (n - n_params) as usize;
-        let locals_size = locals_to_init
-            .saturating_sub(registers_remaining_for_locals)
-            .checked_mul(8)
-            .unwrap();
+        let locals_size =
+            locals_to_init.saturating_sub(registers_remaining_for_locals).checked_mul(8).unwrap();
 
         // Allocate the stack, without actually writing to it.
         self.decrease_rsp(a, locals_size);
@@ -525,10 +497,8 @@ impl Machine {
         // the fact that we allocate some registers to the first couple local slots.
         //
         // First: handle the locals that are allocated to registers...
-        for local_reg_idx in Self::LOCAL_REGISTERS
-            .iter()
-            .skip(n_params as usize)
-            .take((n_params..n).len())
+        for local_reg_idx in
+            Self::LOCAL_REGISTERS.iter().skip(n_params as usize).take((n_params..n).len())
         {
             a.emit_mov(Size::S64, Location::Imm32(0), Location::GPR(*local_reg_idx));
         }
@@ -542,11 +512,7 @@ impl Machine {
                 Location::GPR(GPR::RCX),
             );
             a.emit_xor(Size::S64, Location::GPR(GPR::RAX), Location::GPR(GPR::RAX));
-            a.emit_lea(
-                Size::S64,
-                self.get_local_location(n - 1),
-                Location::GPR(GPR::RDI),
-            );
+            a.emit_lea(Size::S64, self.get_local_location(n - 1), Location::GPR(GPR::RDI));
             a.emit_rep_stosq();
         }
     }
@@ -555,10 +521,7 @@ impl Machine {
         // Unwind stack to the "save area".
         a.emit_lea(
             Size::S64,
-            Location::Memory(
-                GPR::RBP,
-                -(self.save_area_offset.as_ref().unwrap().0 as i32),
-            ),
+            Location::Memory(GPR::RBP, -(self.save_area_offset.as_ref().unwrap().0 as i32)),
             Location::GPR(GPR::RSP),
         );
     }
@@ -578,11 +541,7 @@ impl Machine {
         a.emit_pop(Size::S64, Location::GPR(GPR::R15));
 
         // Restore callee-saved registers that we used for locals.
-        for reg in Self::LOCAL_REGISTERS
-            .iter()
-            .take(local_count as usize)
-            .rev()
-        {
+        for reg in Self::LOCAL_REGISTERS.iter().take(local_count as usize).rev() {
             a.emit_pop(Size::S64, Location::GPR(*reg));
         }
     }

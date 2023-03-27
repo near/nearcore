@@ -101,10 +101,7 @@ mod test_vmfunction_import {
     fn check_vmfunction_import_offsets() {
         let module = ModuleInfo::new();
         let offsets = VMOffsets::new(size_of::<*mut u8>() as u8).with_module_info(&module);
-        assert_eq!(
-            size_of::<VMFunctionImport>(),
-            usize::from(offsets.size_of_vmfunction_import())
-        );
+        assert_eq!(size_of::<VMFunctionImport>(), usize::from(offsets.size_of_vmfunction_import()));
         assert_eq!(
             offset_of!(VMFunctionImport, body),
             usize::from(offsets.vmfunction_import_body())
@@ -162,10 +159,7 @@ unsafe impl<T: Sized + Send + Sync> Sync for VMDynamicFunctionContext<T> {}
 
 impl<T: Sized + Clone + Send + Sync> Clone for VMDynamicFunctionContext<T> {
     fn clone(&self) -> Self {
-        Self {
-            address: self.address,
-            ctx: self.ctx.clone(),
-        }
+        Self { address: self.address, ctx: self.ctx.clone() }
     }
 }
 
@@ -279,18 +273,12 @@ mod test_vmtable_import {
     fn check_vmtable_import_offsets() {
         let module = ModuleInfo::new();
         let offsets = VMOffsets::new(size_of::<*mut u8>() as u8).with_module_info(&module);
-        assert_eq!(
-            size_of::<VMTableImport>(),
-            usize::from(offsets.size_of_vmtable_import())
-        );
+        assert_eq!(size_of::<VMTableImport>(), usize::from(offsets.size_of_vmtable_import()));
         assert_eq!(
             offset_of!(VMTableImport, definition),
             usize::from(offsets.vmtable_import_definition())
         );
-        assert_eq!(
-            offset_of!(VMTableImport, from),
-            usize::from(offsets.vmtable_import_from())
-        );
+        assert_eq!(offset_of!(VMTableImport, from), usize::from(offsets.vmtable_import_from()));
     }
 }
 
@@ -318,18 +306,12 @@ mod test_vmmemory_import {
     fn check_vmmemory_import_offsets() {
         let module = ModuleInfo::new();
         let offsets = VMOffsets::new(size_of::<*mut u8>() as u8).with_module_info(&module);
-        assert_eq!(
-            size_of::<VMMemoryImport>(),
-            usize::from(offsets.size_of_vmmemory_import())
-        );
+        assert_eq!(size_of::<VMMemoryImport>(), usize::from(offsets.size_of_vmmemory_import()));
         assert_eq!(
             offset_of!(VMMemoryImport, definition),
             usize::from(offsets.vmmemory_import_definition())
         );
-        assert_eq!(
-            offset_of!(VMMemoryImport, from),
-            usize::from(offsets.vmmemory_import_from())
-        );
+        assert_eq!(offset_of!(VMMemoryImport, from), usize::from(offsets.vmmemory_import_from()));
     }
 }
 
@@ -369,18 +351,12 @@ mod test_vmglobal_import {
     fn check_vmglobal_import_offsets() {
         let module = ModuleInfo::new();
         let offsets = VMOffsets::new(size_of::<*mut u8>() as u8).with_module_info(&module);
-        assert_eq!(
-            size_of::<VMGlobalImport>(),
-            usize::from(offsets.size_of_vmglobal_import())
-        );
+        assert_eq!(size_of::<VMGlobalImport>(), usize::from(offsets.size_of_vmglobal_import()));
         assert_eq!(
             offset_of!(VMGlobalImport, definition),
             usize::from(offsets.vmglobal_import_definition())
         );
-        assert_eq!(
-            offset_of!(VMGlobalImport, from),
-            usize::from(offsets.vmglobal_import_from())
-        );
+        assert_eq!(offset_of!(VMGlobalImport, from), usize::from(offsets.vmglobal_import_from()));
     }
 }
 
@@ -422,9 +398,7 @@ impl VMMemoryDefinition {
     /// caller's responsibility to synchronize.
     pub(crate) unsafe fn memory_copy(&self, dst: u32, src: u32, len: u32) -> Result<(), Trap> {
         // https://webassembly.github.io/reference-types/core/exec/instructions.html#exec-memory-copy
-        if src
-            .checked_add(len)
-            .map_or(true, |n| usize::try_from(n).unwrap() > self.current_length)
+        if src.checked_add(len).map_or(true, |n| usize::try_from(n).unwrap() > self.current_length)
             || dst
                 .checked_add(len)
                 .map_or(true, |m| usize::try_from(m).unwrap() > self.current_length)
@@ -455,9 +429,7 @@ impl VMMemoryDefinition {
     /// The memory is not filled atomically and is not synchronized: it's the
     /// caller's responsibility to synchronize.
     pub(crate) unsafe fn memory_fill(&self, dst: u32, val: u32, len: u32) -> Result<(), Trap> {
-        if dst
-            .checked_add(len)
-            .map_or(true, |m| usize::try_from(m).unwrap() > self.current_length)
+        if dst.checked_add(len).map_or(true, |m| usize::try_from(m).unwrap() > self.current_length)
         {
             return Err(Trap::lib(TrapCode::HeapAccessOutOfBounds));
         }
@@ -564,9 +536,7 @@ pub union VMGlobalDefinitionStorage {
 
 impl fmt::Debug for VMGlobalDefinitionStorage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("VMGlobalDefinitionStorage")
-            .field("bytes", unsafe { &self.bytes })
-            .finish()
+        f.debug_struct("VMGlobalDefinitionStorage").field("bytes", unsafe { &self.bytes }).finish()
     }
 }
 
@@ -620,9 +590,7 @@ mod test_vmglobal_definition {
 impl VMGlobalDefinition {
     /// Construct a `VMGlobalDefinition`.
     pub fn new() -> Self {
-        Self {
-            storage: VMGlobalDefinitionStorage { bytes: [0; 16] },
-        }
+        Self { storage: VMGlobalDefinitionStorage { bytes: [0; 16] } }
     }
 
     /// Return the value as an i32.
@@ -832,10 +800,7 @@ mod test_vmshared_signature_index {
 
     #[test]
     fn check_target_shared_signature_index() {
-        assert_eq!(
-            size_of::<VMSharedSignatureIndex>(),
-            size_of::<TargetSharedSignatureIndex>()
-        );
+        assert_eq!(size_of::<VMSharedSignatureIndex>(), size_of::<TargetSharedSignatureIndex>());
     }
 }
 

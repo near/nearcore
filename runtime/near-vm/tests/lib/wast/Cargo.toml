@@ -1,19 +1,20 @@
 [package]
-name = "wasmer-wast"
-version = "2.1.0"
-authors = ["Wasmer Engineering Team <engineering@wasmer.io>"]
+name = "near-vm-wast"
+version = "0.0.0"
+authors = ["Wasmer Engineering Team <engineering@wasmer.io>", "Near Inc <hello@nearprotocol.com>"]
 description = "wast testing support for wasmer"
 license = "MIT OR Apache-2.0 WITH LLVM-exception"
 categories = ["wasm"]
 keywords = ["wasm", "webassembly"]
 repository = "https://github.com/wasmerio/wasmer"
 readme = "README.md"
-edition = "2018"
+edition = "2021"
+publish = false
 
 [dependencies]
 anyhow = "1.0"
-wasmer = { path = "../../../lib/api", version = "=2.4.0", package = "wasmer-near", default-features = false }
-wast = "38.0"
+wasmer = { path = "../../../lib/api", package = "near-vm", default-features = false }
+wast = "40.0"
 tempfile = "3"
 thiserror = "1.0"
 

@@ -52,19 +52,13 @@ pub struct OwnedDataInitializer {
 impl OwnedDataInitializer {
     /// Creates a new `OwnedDataInitializer` from a `DataInitializer`.
     pub fn new(borrowed: &DataInitializer<'_>) -> Self {
-        Self {
-            location: borrowed.location.clone(),
-            data: borrowed.data.to_vec(),
-        }
+        Self { location: borrowed.location.clone(), data: borrowed.data.to_vec() }
     }
 }
 
 impl<'a> From<&'a OwnedDataInitializer> for DataInitializer<'a> {
     fn from(init: &'a OwnedDataInitializer) -> Self {
-        DataInitializer {
-            location: init.location.clone(),
-            data: &*init.data,
-        }
+        DataInitializer { location: init.location.clone(), data: &*init.data }
     }
 }
 
@@ -80,9 +74,6 @@ impl<'a> From<&'a ArchivedOwnedDataInitializer> for DataInitializer<'a> {
 
 impl<'a> From<DataInitializer<'a>> for OwnedDataInitializer {
     fn from(init: DataInitializer<'a>) -> Self {
-        OwnedDataInitializer {
-            location: init.location.clone(),
-            data: init.data.to_vec(),
-        }
+        Self { location: init.location.clone(), data: init.data.to_vec() }
     }
 }

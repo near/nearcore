@@ -90,9 +90,7 @@ impl Tunables for BaseTunables {
                 offset_guard_size: self.static_memory_offset_guard_size,
             }
         } else {
-            MemoryStyle::Dynamic {
-                offset_guard_size: self.dynamic_memory_offset_guard_size,
-            }
+            MemoryStyle::Dynamic { offset_guard_size: self.dynamic_memory_offset_guard_size }
         }
     }
 
@@ -121,11 +119,7 @@ impl Tunables for BaseTunables {
         style: &MemoryStyle,
         vm_definition_location: NonNull<VMMemoryDefinition>,
     ) -> Result<Arc<dyn Memory>, MemoryError> {
-        Ok(Arc::new(LinearMemory::from_definition(
-            &ty,
-            &style,
-            vm_definition_location,
-        )?))
+        Ok(Arc::new(LinearMemory::from_definition(&ty, &style, vm_definition_location)?))
     }
 
     /// Create a table owned by the host given a [`TableType`] and a [`TableStyle`].
@@ -148,11 +142,7 @@ impl Tunables for BaseTunables {
         style: &TableStyle,
         vm_definition_location: NonNull<VMTableDefinition>,
     ) -> Result<Arc<dyn Table>, String> {
-        Ok(Arc::new(LinearTable::from_definition(
-            &ty,
-            &style,
-            vm_definition_location,
-        )?))
+        Ok(Arc::new(LinearTable::from_definition(&ty, &style, vm_definition_location)?))
     }
 
     fn stack_init_gas_cost(&self, stack_size: u64) -> u64 {
@@ -190,11 +180,7 @@ impl finite_wasm::max_stack::SizeConfig for SimpleMaxStackCfg {
         locals: &prefix_sum_vec::PrefixSumVec<finite_wasm::wasmparser::ValType, u32>,
     ) -> u64 {
         let mut res = 0;
-        res += locals
-            .max_index()
-            .map(|l| u64::from(*l).saturating_add(1))
-            .unwrap_or(0)
-            * 8;
+        res += locals.max_index().map_or(0, |l| u64::from(*l).saturating_add(1)) * 8;
         // TODO: make the above take into account the types of locals by adding an iter on PrefixSumVec that returns (count, type)
         res += 32; // Rough accounting for rip, rbp and some registers spilled. Not exact.
         res
@@ -264,10 +250,7 @@ mod tests {
         let requested = MemoryType::new(3, Some(16), true);
         let style = tunables.memory_style(&requested);
         match style {
-            MemoryStyle::Static {
-                bound,
-                offset_guard_size,
-            } => {
+            MemoryStyle::Static { bound, offset_guard_size } => {
                 assert_eq!(bound, Pages(2048));
                 assert_eq!(offset_guard_size, 128);
             }

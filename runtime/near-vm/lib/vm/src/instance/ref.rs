@@ -114,10 +114,7 @@ impl InstanceRef {
     /// [`InstanceAllocator`] for an example of how to correctly use
     /// this API.
     pub(super) unsafe fn new(instance: NonNull<Instance>, instance_layout: Layout) -> Self {
-        Self(Arc::new(InstanceInner {
-            instance_layout,
-            instance,
-        }))
+        Self(Arc::new(InstanceInner { instance_layout, instance }))
     }
 
     /// Get a reference to the `Instance`.
