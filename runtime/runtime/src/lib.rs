@@ -1282,7 +1282,10 @@ impl Runtime {
             total_gas_burnt += outcome_with_id.outcome.gas_burnt;
             total_compute_usage += outcome_with_id.outcome.compute_usage;
             // TODO(#8032): Remove when compute costs are stabilized.
-            debug_assert_eq!(total_compute_usage, total_gas_burnt, "Compute usage must match burnt gas");
+            debug_assert_eq!(
+                total_compute_usage, total_gas_burnt,
+                "Compute usage must match burnt gas"
+            );
 
             outcomes.push(outcome_with_id);
         }
@@ -1322,7 +1325,10 @@ impl Runtime {
                 *total_compute_usage =
                     safe_add_compute(*total_compute_usage, outcome_with_id.outcome.compute_usage)?;
                 // TODO(#8032): Remove when compute costs are stabilized.
-                debug_assert_eq!(total_compute_usage, total_gas_burnt, "Compute usage must match burnt gas");
+                debug_assert_eq!(
+                    total_compute_usage, total_gas_burnt,
+                    "Compute usage must match burnt gas"
+                );
                 outcomes.push(outcome_with_id);
             }
             Ok(())
