@@ -16,7 +16,6 @@ use std::fs::DirEntry;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::sync::Arc;
 use std::time::Instant;
 
 #[derive(clap::Subcommand, Debug, Clone)]
@@ -69,11 +68,10 @@ impl StatePartsSubCommand {
         near_config: NearConfig,
         store: Store,
     ) {
-        let runtime =
-            Arc::new(NightshadeRuntime::from_config(home_dir, store.clone(), &near_config));
+        let runtime = NightshadeRuntime::from_config(home_dir, store.clone(), &near_config);
         let chain_genesis = ChainGenesis::new(&near_config.genesis);
         let mut chain = Chain::new_for_view_client(
-            runtime,
+            runtime.clone(),
             &chain_genesis,
             DoomslugThresholdMode::TwoThirds,
             false,
@@ -344,10 +342,23 @@ fn dump_state_parts(
             .runtime_adapter
             .obtain_state_part(shard_id, &sync_hash, &state_root, PartId::new(part_id, num_parts))
             .unwrap();
-        let (first_sr, last_sr) = analyze_state_part(&state_root, &state_part);
-        tracing::info!(target: "state-parts", part_id, ?first_sr, ?last_sr);
         part_storage.write(&state_part, part_id, num_parts);
-        tracing::info!(target: "state-parts", part_id, part_length = state_part.len(), elapsed_sec = timer.elapsed().as_secs_f64(), "Wrote a state part");
+        let elapsed_sec = timer.elapsed().as_secs_f64();
+        let (first_sr, last_sr) = analyze_state_part(&state_root, &state_part);
+        let (first_sr, first_sr_key_len) =
+            first_sr.map_or((None, None), |sr| (Some(sr.0), Some(sr.1)));
+        let (last_sr, last_sr_key_len) =
+            last_sr.map_or((None, None), |sr| (Some(sr.0), Some(sr.1)));
+        tracing::info!(
+            target: "state-parts",
+            part_id,
+            part_length = state_part.len(),
+            elapsed_sec,
+            ?first_sr,
+            ?first_sr_key_len,
+            ?last_sr,
+            ?last_sr_key_len,
+            "Wrote a state part");
     }
     tracing::info!(target: "state-parts", total_elapsed_sec = timer.elapsed().as_secs_f64(), "Wrote all requested state parts");
 }
@@ -356,7 +367,7 @@ fn dump_state_parts(
 fn analyze_state_part(
     state_root: &StateRoot,
     data: &[u8],
-) -> (Option<StateRecord>, Option<StateRecord>) {
+) -> (Option<(StateRecord, usize)>, Option<(StateRecord, usize)>) {
     let trie_nodes = BorshDeserialize::try_from_slice(data).unwrap();
     let trie = Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes }, *state_root);
 
@@ -364,11 +375,12 @@ fn analyze_state_part(
     let mut last_sr = None;
     for item in trie.iter().unwrap() {
         if let Ok((key, value)) = item {
+            let key_len = key.len();
             if let Some(sr) = StateRecord::from_raw_key_value(key, value) {
                 if first_sr.is_none() {
-                    first_sr = Some(sr);
+                    first_sr = Some((sr, key_len));
                 } else {
-                    last_sr = Some(sr);
+                    last_sr = Some((sr, key_len));
                 }
             }
         }
