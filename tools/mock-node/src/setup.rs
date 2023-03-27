@@ -78,8 +78,6 @@ pub struct MockNode {
     pub client: Addr<ClientActor>,
     // view client under test
     pub view_client: Addr<ViewClientActor>,
-    // RPC servers started by the client
-    pub servers: Option<Vec<(&'static str, actix_web::dev::ServerHandle)>>,
     // target height actually available to sync to in the chain history database
     pub target_height: BlockHeight,
 }
@@ -307,17 +305,7 @@ pub fn setup_mock_node(
         });
     network_adapter.bind(mock_network_actor.with_auto_span_context());
 
-    let servers = config.rpc_config.map(|rpc_config| {
-        near_jsonrpc::start_http(
-            rpc_config,
-            config.genesis.config,
-            client.clone(),
-            view_client.clone(),
-            None,
-        )
-    });
-
-    MockNode { client, view_client, servers, target_height }
+    MockNode { client, view_client, target_height }
 }
 
 #[cfg(test)]

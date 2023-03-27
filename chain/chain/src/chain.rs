@@ -2699,17 +2699,12 @@ impl Chain {
         )
     }
 
-    pub fn get_state_response_header(
+    /// Computes ShardStateSyncResponseHeader.
+    pub fn compute_state_response_header(
         &self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
     ) -> Result<ShardStateSyncResponseHeader, Error> {
-        // Check cache
-        let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
-        if let Ok(Some(header)) = self.store.store().get_ser(DBCol::StateHeaders, &key) {
-            return Ok(header);
-        }
-
         // Consistency rules:
         // 1. Everything prefixed with `sync_` indicates new epoch, for which we are syncing.
         // 1a. `sync_prev` means the last of the prev epoch.
@@ -2875,6 +2870,24 @@ impl Chain {
                 })
             }
         };
+        Ok(shard_state_header)
+    }
+
+    /// Returns ShardStateSyncResponseHeader for the given epoch and shard.
+    /// If the header is already available in the DB, returns the cached version and doesn't recompute it.
+    /// If the header was computed then it also gets cached in the DB.
+    pub fn get_state_response_header(
+        &self,
+        shard_id: ShardId,
+        sync_hash: CryptoHash,
+    ) -> Result<ShardStateSyncResponseHeader, Error> {
+        // Check cache
+        let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
+        if let Ok(Some(header)) = self.store.store().get_ser(DBCol::StateHeaders, &key) {
+            return Ok(header);
+        }
+
+        let shard_state_header = self.compute_state_response_header(shard_id, sync_hash)?;
 
         // Saving the header data
         let mut store_update = self.store.store().store_update();
