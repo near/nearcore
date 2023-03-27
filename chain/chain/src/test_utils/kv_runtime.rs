@@ -115,6 +115,9 @@ struct KVState {
     tx_nonces: HashSet<AccountNonce>,
 }
 
+/// DEPRECATED. DO NOT USE for new tests. Consider the `TestLoop` framework in
+/// core/async. The KeyValueRuntime is inaccurate, and deviates a lot from the
+/// production validator selection and epoch management behavior.
 impl KeyValueRuntime {
     pub fn new(store: Store, epoch_length: u64) -> Arc<Self> {
         let vs =
@@ -515,10 +518,9 @@ impl EpochManagerAdapter for KeyValueRuntime {
         Ok(0)
     }
 
-    fn get_next_epoch_id(&self, _block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
-        // Not actually needed in any tests; function added just to satisfy
-        // EpochManagerAdapter API.
-        unimplemented!()
+    fn get_next_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
+        let (_, _, next_epoch_id) = self.get_epoch_and_valset(*block_hash)?;
+        Ok(next_epoch_id)
     }
 
     fn get_next_epoch_id_from_prev_block(

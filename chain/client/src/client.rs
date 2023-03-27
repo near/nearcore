@@ -11,7 +11,6 @@ use crate::sync::state::{StateSync, StateSyncResult};
 use crate::{metrics, SyncStatus};
 use lru::LruCache;
 use near_async::messaging::{CanSend, Sender};
-use near_epoch_manager::shard_tracker::ShardTracker;
 use near_chain::chain::{
     ApplyStatePartsRequest, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
     OrphanMissingChunks, StateSplitRequest, TX_ROUTING_HEIGHT_HORIZON,
@@ -33,6 +32,7 @@ use near_chunks::logic::{
 use near_chunks::ShardsManager;
 use near_client_primitives::debug::ChunkProduction;
 use near_client_primitives::types::{Error, ShardSyncDownload, ShardSyncStatus};
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::types::{AccountKeys, ChainInfo, PeerManagerMessageRequest, SetChainInfo};
 use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter, ReasonForBan,
