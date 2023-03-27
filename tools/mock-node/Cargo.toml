@@ -7,17 +7,14 @@ edition.workspace = true
 
 [dependencies]
 actix-rt.workspace = true
-actix-web.workspace = true
 actix.workspace = true
 anyhow.workspace = true
 clap.workspace = true
-flate2.workspace = true
 futures.workspace = true
 rand.workspace = true
 rayon.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-tar.workspace = true
 tempfile.workspace = true
 tokio.workspace = true
 tracing.workspace = true
@@ -38,13 +35,6 @@ near-telemetry = { path = "../../chain/telemetry" }
 near-performance-metrics = { path = "../../utils/near-performance-metrics" }
 near-primitives = { path = "../../core/primitives" }
 nearcore = { path = "../../nearcore" }
-
-[dev-dependencies]
-criterion.workspace = true
-
-[[bench]]
-name = "sync"
-harness = false
 
 [[bin]]
 name = "mock-node"
