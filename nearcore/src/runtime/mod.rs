@@ -1246,6 +1246,10 @@ impl RuntimeAdapter for NightshadeRuntime {
             %block_hash,
             num_parts = part_id.total)
         .entered();
+        let _timer = metrics::STATE_SYNC_OBTAIN_PART_DELAY
+            .with_label_values(&[&shard_id.to_string()])
+            .start_timer();
+
         let epoch_id = self.get_epoch_id(block_hash)?;
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
         let trie = self.tries.get_view_trie_for_shard(shard_uid, *state_root);
@@ -1270,11 +1274,27 @@ impl RuntimeAdapter for NightshadeRuntime {
                 match Trie::validate_trie_nodes_for_part(state_root, part_id, trie_nodes) {
                     Ok(_) => true,
                     // Storage error should not happen
-                    Err(_) => false,
+                    Err(err) => {
+                        tracing::error!(
+                            target: "state-parts",
+                            ?state_root,
+                            ?part_id,
+                            ?err,
+                            "State part storage error");
+                        false
+                    }
                 }
             }
             // Deserialization error means we've got the data from malicious peer
-            Err(_) => false,
+            Err(err) => {
+                tracing::error!(
+                    target: "state-parts",
+                    ?state_root,
+                    ?part_id,
+                    ?err,
+                    "State part deserialization error");
+                false
+            }
         }
     }
 
@@ -1371,6 +1391,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         data: &[u8],
         epoch_id: &EpochId,
     ) -> Result<(), Error> {
+        let _timer = metrics::STATE_SYNC_APPLY_PART_DELAY
+            .with_label_values(&[&shard_id.to_string()])
+            .start_timer();
+
         let part = BorshDeserialize::try_from_slice(data)
             .expect("Part was already validated earlier, so could never fail here");
         let ApplyStatePartResult { trie_changes, flat_state_delta, contract_codes } =
