@@ -1,6 +1,5 @@
 use crate::metrics;
 use crate::migrations::load_migration_data;
-use crate::shard_tracker::{ShardTracker, TrackedConfig};
 use crate::NearConfig;
 use borsh::ser::BorshSerialize;
 use borsh::BorshDeserialize;
@@ -15,6 +14,7 @@ use near_chain_configs::{
 };
 use near_client_primitives::types::StateSplitApplyingStatus;
 use near_crypto::PublicKey;
+use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_o11y::log_assert;
 use near_pool::types::PoolIterator;
@@ -68,7 +68,7 @@ use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
-use std::sync::{Arc, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{Arc, RwLockReadGuard, RwLockWriteGuard, Weak};
 use std::time::Instant;
 use tracing::{debug, error, info, warn};
 
@@ -93,10 +93,14 @@ pub struct NightshadeRuntime {
     genesis_state_roots: Vec<StateRoot>,
     migration_data: Arc<MigrationData>,
     gc_num_epochs_to_keep: u64,
+
+    // For RuntimeAdapter migration only, allows ability to reference an Arc of
+    // itself.
+    myself: Weak<NightshadeRuntime>,
 }
 
 impl NightshadeRuntime {
-    pub fn from_config(home_dir: &Path, store: Store, config: &NearConfig) -> Self {
+    pub fn from_config(home_dir: &Path, store: Store, config: &NearConfig) -> Arc<Self> {
         Self::new(
             home_dir,
             store,
@@ -120,7 +124,7 @@ impl NightshadeRuntime {
         runtime_config_store: Option<RuntimeConfigStore>,
         gc_num_epochs_to_keep: u64,
         trie_config: TrieConfig,
-    ) -> Self {
+    ) -> Arc<Self> {
         let runtime_config_store = match runtime_config_store {
             Some(store) => store,
             None => NightshadeRuntime::create_runtime_config_store(&genesis.config.chain_id),
@@ -145,11 +149,12 @@ impl NightshadeRuntime {
             &genesis_config.shard_layout.get_shard_uids(),
             flat_storage_manager.clone(),
         );
-        let epoch_manager = EpochManager::new_from_genesis_config(store.clone(), &genesis_config)
-            .expect("Failed to start Epoch Manager")
-            .into_handle();
-        let shard_tracker = ShardTracker::new(tracked_config, epoch_manager.clone());
-        NightshadeRuntime {
+        let epoch_manager =
+            EpochManager::new_from_genesis_config(store.clone().into(), &genesis_config)
+                .expect("Failed to start Epoch Manager")
+                .into_handle();
+        let shard_tracker = ShardTracker::new(tracked_config, Arc::new(epoch_manager.clone()));
+        Arc::new_cyclic(|myself| NightshadeRuntime {
             genesis_config,
             runtime_config_store,
             store,
@@ -162,7 +167,8 @@ impl NightshadeRuntime {
             genesis_state_roots: state_roots,
             migration_data: Arc::new(load_migration_data(&genesis.config.chain_id)),
             gc_num_epochs_to_keep: gc_num_epochs_to_keep.max(MIN_GC_NUM_EPOCHS_TO_KEEP),
-        }
+            myself: myself.clone(),
+        })
     }
 
     pub fn test_with_runtime_config_store(
@@ -171,7 +177,7 @@ impl NightshadeRuntime {
         genesis: &Genesis,
         tracked_config: TrackedConfig,
         runtime_config_store: RuntimeConfigStore,
-    ) -> Self {
+    ) -> Arc<Self> {
         Self::new(
             home_dir,
             store,
@@ -185,7 +191,7 @@ impl NightshadeRuntime {
         )
     }
 
-    pub fn test(home_dir: &Path, store: Store, genesis: &Genesis) -> Self {
+    pub fn test(home_dir: &Path, store: Store, genesis: &Genesis) -> Arc<Self> {
         Self::test_with_runtime_config_store(
             home_dir,
             store,
@@ -1484,7 +1490,19 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 }
 
-impl RuntimeWithEpochManagerAdapter for NightshadeRuntime {}
+impl RuntimeWithEpochManagerAdapter for NightshadeRuntime {
+    fn epoch_manager_adapter(&self) -> &dyn EpochManagerAdapter {
+        self
+    }
+
+    fn epoch_manager_adapter_arc(&self) -> Arc<dyn EpochManagerAdapter> {
+        self.myself.upgrade().unwrap()
+    }
+
+    fn shard_tracker(&self) -> ShardTracker {
+        self.shard_tracker.clone()
+    }
+}
 
 impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
     fn view_account(
@@ -1586,6 +1604,7 @@ mod test {
     use std::collections::BTreeSet;
 
     use near_chain::{Chain, ChainGenesis};
+    use near_epoch_manager::shard_tracker::TrackedConfig;
     use near_primitives::test_utils::create_test_signer;
     use near_primitives::types::validator_stake::ValidatorStake;
     use near_store::flat::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
@@ -1702,7 +1721,7 @@ mod test {
     /// Runtime operates in a mock chain where i-th block is attached to (i-1)-th one, has height `i` and hash
     /// `hash([i])`.
     struct TestEnv {
-        pub runtime: NightshadeRuntime,
+        pub runtime: Arc<NightshadeRuntime>,
         pub head: Tip,
         state_roots: Vec<StateRoot>,
         pub last_receipts: HashMap<ShardId, Vec<Receipt>>,
@@ -3147,15 +3166,15 @@ mod test {
         let store = near_store::test_utils::create_test_store();
 
         let tempdir = tempfile::tempdir().unwrap();
-        let runtime = Arc::new(NightshadeRuntime::test_with_runtime_config_store(
+        let runtime = NightshadeRuntime::test_with_runtime_config_store(
             tempdir.path(),
             store.clone(),
             &genesis,
             TrackedConfig::new_empty(),
             RuntimeConfigStore::new(None),
-        ));
+        );
 
-        let block = Chain::make_genesis_block(&*runtime, &chain_genesis).unwrap();
+        let block = Chain::make_genesis_block(runtime.as_ref(), &chain_genesis).unwrap();
         assert_eq!(
             block.header().hash().to_string(),
             "EPnLgE7iEq9s7yTkos96M3cWymH5avBAPm3qx3NXqR8H"
