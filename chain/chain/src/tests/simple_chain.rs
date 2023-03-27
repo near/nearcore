@@ -45,7 +45,7 @@ fn build_chain() {
     if cfg!(feature = "nightly") {
         insta::assert_display_snapshot!(hash, @"6RefKUxXco18otaEoq2X8WZzXvmFpE8bCrScfJxw6TsJ");
     } else {
-        insta::assert_display_snapshot!(hash, @"HC1942JdWWxiJb8zm5VyepB7iysDbBq8MfnZC7aSq7mK");
+        insta::assert_display_snapshot!(hash, @"3fK7Uu3HC9y9DPMsDNaAP8sv56UCK2ZV1txRhTriF9qb");
     }
 
     for i in 1..5 {
@@ -75,7 +75,7 @@ fn build_chain() {
     if cfg!(feature = "nightly") {
         insta::assert_display_snapshot!(hash, @"AV8UPQ2WvJyieSHVf6SDLYmycE4xwWuTvaHiR5hPdoX2");
     } else {
-        insta::assert_display_snapshot!(hash, @"8L1cHCc7Cx9SRPWpVtjPtEzQWamztMoHE3cxAcZtHTKv");
+        insta::assert_display_snapshot!(hash, @"7hQ4bvvu2TmgFVhELFThZPHFoBPwa74VT6D8uk79xPzB");
     }
 }
 
