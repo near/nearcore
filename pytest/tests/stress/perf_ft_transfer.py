@@ -29,8 +29,9 @@ import requests
 import random
 import logging
 import json
-import threading
-import queue
+import multiprocessing
+import multiprocessing.queues
+import ctypes
 import ed25519
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
@@ -48,9 +49,10 @@ DEFAULT_TRANSACTION_TTL_SECONDS = 10
 GAS_PER_BLOCK = 10E14
 TRANSACTIONS_PER_BLOCK = 121
 MAX_INFLIGHT_TRANSACTIONS = 5000
-BLOCK_HASH = ''
 SEED = random.uniform(0, 0xFFFFFFFF)
 logger = new_logger(level = logging.INFO)
+ACCOUNTS = []
+CONTRACT_ACCOUNT = None
 
 class Transaction:
     """
@@ -72,7 +74,7 @@ class Transaction:
         # The outcome of a successful transaction execution
         self.outcome = None
 
-    def poll(self):
+    def poll(self, node, block_hash):
         """
         Returns True if transaction has completed.
         """
@@ -82,13 +84,14 @@ class Transaction:
         if self.transaction_id is None or self.ttl <= 0:
             if self.transaction_id is not None:
                 logger.debug(f"transaction {self.transaction_id} expired, submitting a new one!")
-            (self.transaction_id, self.caller) = self.send()
+            (self.transaction_id, self.caller) = self.send(node, block_hash)
             self.expiration = time.time() + DEFAULT_TRANSACTION_TTL_SECONDS
             self.ttl = DEFAULT_TRANSACTION_TTL_SECONDS
             return False # almost guaranteed to not produce any results right now.
-        logger.debug(f"checking {self.transaction_id} from {self.caller.key.account_id}")
+        caller = ACCOUNTS[self.caller]
+        logger.debug(f"checking {self.transaction_id} from {caller.key.account_id}")
         try:
-            tx_result = self.caller.json_rpc('tx', [self.transaction_id, self.caller.key.account_id])
+            tx_result = node.json_rpc('tx', [self.transaction_id, caller.key.account_id])
             if self.is_success(tx_result):
                 self.outcome = tx_result
                 return True
@@ -96,7 +99,7 @@ class Transaction:
             pass
         return False
 
-    def send(self):
+    def send(self, block_hash):
         return (self.transaction_id, self.caller)
 
     def is_complete(self):
@@ -117,9 +120,17 @@ class DeployFT(Transaction):
         self.account = account
         self.contract = contract
 
-    def send(self):
-        logger.warning(f"deploying FT to {self.account.key.account_id}")
-        result = self.account.send_deploy_contract_tx(self.contract, base_block_hash=BLOCK_HASH)
+    def send(self, node, block_hash):
+        account = ACCOUNTS[self.account]
+        logger.warning(f"deploying FT to {account.key.account_id}")
+        wasm_binary = utils.load_binary_file(self.contract)
+        tx = transaction.sign_deploy_contract_tx(
+            account.key,
+            wasm_binary,
+            account.use_nonce(),
+            block_hash
+        )
+        result = node.send_tx(tx)
         return (result["result"], self.account)
 
 
@@ -131,25 +142,25 @@ class TransferFT(Transaction):
         self.recipient = recipient
         self.how_much = how_much
 
-    def send(self):
-        logger.debug(f"sending {self.how_much} FT from {self.sender.key.account_id} to {self.recipient.key.account_id}")
+    def send(self, node, block_hash):
+        (ft, sender, recipient) = ACCOUNTS[self.ft], ACCOUNTS[self.sender], ACCOUNTS[self.recipient]
+        logger.debug(f"sending {self.how_much} FT from {sender.key.account_id} to {recipient.key.account_id}")
         args = {
-            "receiver_id": self.recipient.key.account_id,
+            "receiver_id": recipient.key.account_id,
             "amount": str(int(self.how_much)),
         }
-        self.sender.prep_tx()
         tx = transaction.sign_function_call_tx(
-            self.sender.key,
-            self.ft.key.account_id,
+            sender.key,
+            ft.key.account_id,
             "ft_transfer",
             json.dumps(args).encode('utf-8'),
             # About enough gas per call to fit N such transactions into an average block.
             int(GAS_PER_BLOCK // TRANSACTIONS_PER_BLOCK),
             # Gotta deposit some NEAR for storage?
             1,
-            self.sender.nonce,
-            BLOCK_HASH)
-        result = self.sender.send_tx(tx)
+            sender.use_nonce(),
+            block_hash)
+        result = node.send_tx(tx)
         return (result["result"], self.sender)
 
 
@@ -160,13 +171,16 @@ class TransferNear(Transaction):
         self.sender = sender
         self.how_much = how_much
 
-    def send(self):
-        logger.debug(f"sending {self.how_much} NEAR from {self.sender.key.account_id} to {self.recipient_id}")
-        result = self.sender.send_transfer_tx(
+    def send(self, node, block_hash):
+        sender = ACCOUNTS[self.sender]
+        logger.debug(f"sending {self.how_much} NEAR from {sender.key.account_id} to {self.recipient_id}")
+        tx = transaction.sign_payment_tx(
+            sender.key,
             self.recipient_id,
             int(self.how_much * 1E24),
-            base_block_hash=BLOCK_HASH
-        )
+            sender.use_nonce(),
+            block_hash)
+        result = node.send_tx(tx)
         return (result["result"], self.sender)
 
 
@@ -175,16 +189,22 @@ class InitFT(Transaction):
         super().__init__()
         self.contract = contract
 
-    def send(self):
+    def send(self, node, block_hash):
+        contract = ACCOUNTS[self.contract]
         args = json.dumps({
-            "owner_id": self.contract.key.account_id,
+            "owner_id": contract.key.account_id,
             "total_supply": str(10**33)
         })
-        result = self.contract.send_call_contract_tx(
+        tx = transaction.sign_function_call_tx(
+            contract.key,
+            contract.key.account_id,
             "new_default_meta",
             args.encode('utf-8'),
-            base_block_hash=BLOCK_HASH
-        )
+            int(3E14),
+            0,
+            contract.use_nonce(),
+            block_hash)
+        result = node.send_tx(tx)
         return (result["result"], self.contract)
 
 
@@ -194,50 +214,77 @@ class InitFTAccount(Transaction):
         self.contract = contract
         self.account = account
 
-    def send(self):
-        args = json.dumps({"account_id": self.account.key.account_id})
-        result = self.contract.send_call_contract_raw_tx(
-            self.contract.key.account_id,
+    def send(self, node, block_hash):
+        contract, account = ACCOUNTS[self.contract], ACCOUNTS[self.account]
+        args = json.dumps({"account_id": account.key.account_id})
+        tx = transaction.sign_function_call_tx(
+            contract.key,
+            contract.key.account_id,
             "storage_deposit",
             args.encode('utf-8'),
-            10**23,
-            base_block_hash=BLOCK_HASH,
-        )
+            int(3E14),
+            int(1E23),
+            contract.use_nonce(),
+            block_hash)
+        result = node.send_tx(tx)
         return (result["result"], self.contract)
 
 
-class TxQueue(queue.SimpleQueue):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.pending = 0
+class TxQueue(multiprocessing.queues.Queue):
+    def __init__(self, size, *args, **kwargs):
+        super().__init__(size, ctx=multiprocessing.get_context(), *args, **kwargs)
+        self.pending = multiprocessing.Value(ctypes.c_ulong, 0)
 
     def add(self, tx):
-        self.pending += 1
+        with self.pending.get_lock():
+            self.pending.value += 1
         self.put(tx)
 
     def complete(self):
-        self.pending -= 1
+        with self.pending.get_lock():
+            self.pending.value -= 1
 
 
-def transaction_executor(tx_queue):
+class Account:
+    def __init__(self, key):
+        self.key = key
+        self.nonce = multiprocessing.Value(ctypes.c_ulong, 0)
+
+    def refresh_nonce(self, node):
+        with self.nonce.get_lock():
+            self.nonce.value = mocknet_helpers.get_nonce_for_key(
+                self.key,
+                addr=node.rpc_addr()[0],
+                port=node.rpc_addr()[1],
+            )
+
+    def use_nonce(self):
+        with self.nonce.get_lock():
+            new_nonce = self.nonce.value + 1
+            self.nonce.value = new_nonce
+            return new_nonce
+
+
+def transaction_executor(nodes, tx_queue):
+    block_hash = base58.b58decode(nodes[0].get_latest_block().hash)
+    last_block_hash_update = time.time()
     while True:
+        # TODO: pick RPC node randomly.
+        # neard can handle somewhat stale block hashes, but not too stale.
+        # update the block hash if it is been a while since we did so.
+        now = time.time()
+        if now - last_block_hash_update >= 5:
+            block_hash = base58.b58decode(nodes[0].get_latest_block().hash)
+            last_block_hash_update = now
+
         tx = tx_queue.get()
-        if not tx.poll():
+        if not tx.poll(nodes[0], block_hash):
             # Gotta make sure whoever is pushing to the queue is not filling the queue up fully.
             tx_queue.put(tx)
             if tx.ttl != DEFAULT_TRANSACTION_TTL_SECONDS:
-                time.sleep(0.25) # don't spam RPC too hard...
+                time.sleep(0.1) # don't spam RPC too hard...
         else:
             tx_queue.complete()
-
-
-def block_hash_updater(node):
-    global BLOCK_HASH
-    while True:
-        block_hash = node.get_latest_block().hash
-        BLOCK_HASH = base58.b58decode(block_hash)
-        time.sleep(0.25)
-
 
 def main():
     parser = argparse.ArgumentParser(description='FT transfer benchmark.')
@@ -256,14 +303,6 @@ def main():
 
     logger.warning(f"SEED is {SEED}")
     rng = random.Random(SEED)
-
-    accounts = []
-    for i in range(int(args.accounts)):
-        keys = ed25519.create_keypair(entropy=rng.randbytes)
-        account_id = keys[1].to_bytes().hex()
-        sk = 'ed25519:' + base58.b58encode(keys[0].to_bytes()).decode('ascii')
-        pk = 'ed25519:' + base58.b58encode(keys[1].to_bytes()).decode('ascii')
-        accounts.append(key.Key(account_id, pk, sk))
 
     if args.setup_cluster:
         config = cluster.load_config()
@@ -287,69 +326,66 @@ def main():
             key_path = args.contract_key
         signer_key = key.Key.from_json_file(key_path)
 
-    tx_queue = TxQueue()
-    threading.Thread(target=block_hash_updater, args=(nodes[0],), daemon=True).start()
-    while not BLOCK_HASH:
-        time.sleep(0.1)
-        continue
-    threading.Thread(target=transaction_executor, args=(tx_queue,), daemon=True).start()
-    threading.Thread(target=transaction_executor, args=(tx_queue,), daemon=True).start()
-    init_nonce = mocknet_helpers.get_nonce_for_key(
-        signer_key,
-        addr=nodes[0].rpc_addr()[0],
-        port=nodes[0].rpc_addr()[1],
-    )
-    contract_account = account.Account(
-        signer_key,
-        init_nonce,
-        '',
-        rpc_infos=[node.rpc_addr() for node in nodes]
-    )
-    tx_queue.add(DeployFT(contract_account, args.fungible_token_wasm))
+    ACCOUNTS.append(Account(signer_key))
+    ACCOUNTS[0].refresh_nonce(nodes[0])
+    contract_account_idx = 0
+    for i in range(int(args.accounts)):
+        keys = ed25519.create_keypair(entropy=rng.randbytes)
+        account_id = keys[1].to_bytes().hex()
+        sk = 'ed25519:' + base58.b58encode(keys[0].to_bytes()).decode('ascii')
+        pk = 'ed25519:' + base58.b58encode(keys[1].to_bytes()).decode('ascii')
+        ACCOUNTS.append(Account(key.Key(account_id, pk, sk)))
+
+
+    queue_size = min(10240, int(args.accounts) + 50)
+    tx_queue = TxQueue(queue_size)
+    multiprocessing.Process(target=transaction_executor, args=(nodes, tx_queue,), daemon=True).start()
+    multiprocessing.Process(target=transaction_executor, args=(nodes, tx_queue,), daemon=True).start()
+    multiprocessing.Process(target=transaction_executor, args=(nodes, tx_queue,), daemon=True).start()
+    multiprocessing.Process(target=transaction_executor, args=(nodes, tx_queue,), daemon=True).start()
+
+    tx_queue.add(DeployFT(contract_account_idx, args.fungible_token_wasm))
     wait_empty(tx_queue, "deployment")
-    tx_queue.add(InitFT(contract_account))
+    tx_queue.add(InitFT(contract_account_idx))
     wait_empty(tx_queue, "contract initialization")
 
     if not args.no_account_topup:
-        for test_account in accounts:
-            tx_queue.add(TransferNear(contract_account, test_account.account_id, 2.0))
+        for test_account in ACCOUNTS[contract_account_idx:]:
+            tx_queue.add(TransferNear(contract_account_idx, test_account.key.account_id, 2.0))
         wait_empty(tx_queue, "account creation and top-up")
 
-    # Replace implicit account keys with proper accoutns. We can only do so now, because otherwise
-    # the account might not have been created yet and we wouldn't be able to get account's nonce.
-    accounts = [
-        account.Account(
-            key,
-                mocknet_helpers.get_nonce_for_key(
-                    key, addr=nodes[0].rpc_addr()[0], port=nodes[0].rpc_addr()[1],
-            ),
-            '',
-            rpc_infos=[node.rpc_addr() for node in nodes]
-        ) for key in accounts
-    ]
+    # Refresh nonces for all real accounts.
+    for account in ACCOUNTS[contract_account_idx:]:
+        account.refresh_nonce(nodes[0])
 
-    for test_account in accounts:
-        tx_queue.add(InitFTAccount(contract_account, test_account))
+    for test_account_idx in range(contract_account_idx, len(ACCOUNTS)):
+        tx_queue.add(InitFTAccount(contract_account_idx, test_account_idx))
     wait_empty(tx_queue, "init accounts with the FT contract")
 
-    for test_account in accounts:
-        tx_queue.add(TransferFT(contract_account, contract_account, test_account, how_much=1E8))
+    for test_account_idx in range(contract_account_idx, len(ACCOUNTS)):
+        tx_queue.add(TransferFT(
+            contract_account_idx, contract_account_idx, test_account_idx, how_much=1E8
+        ))
     wait_empty(tx_queue, "distribution of initial FT")
 
     transfers = 0
     while True:
-        sender, receiver = rng.sample(accounts, k=2)
-        tx_queue.add(TransferFT(contract_account, sender, receiver, how_much=1))
+        sender_idx, receiver_idx = rng.sample(range(contract_account_idx, len(ACCOUNTS)), k=2)
+        tx_queue.add(TransferFT(contract_account_idx, sender_idx, receiver_idx, how_much=1))
         transfers += 1
         if transfers % 10000 == 0:
-            logger.info(f"{transfers} so far ({tx_queue.pending} pending)")
-        while tx_queue.pending >= MAX_INFLIGHT_TRANSACTIONS:
-            time.sleep(0.1)
+            logger.info(f"{transfers} so far ({tx_queue.pending.value} pending)")
+        while tx_queue.pending.value >= MAX_INFLIGHT_TRANSACTIONS:
+            time.sleep(0.25)
 
 def wait_empty(queue, why):
-    while queue.pending != 0:
-        logger.info(f"waiting for {why} ({queue.pending} remain)")
-        time.sleep(0.25)
+    with queue.pending.get_lock():
+        remaining = queue.pending.value
+    while remaining != 0:
+        logger.info(f"waiting for {why} ({remaining} remain)")
+        time.sleep(0.5)
+        with queue.pending.get_lock():
+            remaining = queue.pending.value
     logger.info(f"wait for {why} completed!")
 
 if __name__ == "__main__":
