@@ -416,7 +416,7 @@ pub struct ExecutionOutcome {
     pub receipt_ids: Vec<CryptoHash>,
     /// The amount of the gas burnt by the given transaction or receipt.
     pub gas_burnt: Gas,
-    /// The amount of compute time spent by given transaction or receipt.
+    /// The amount of compute time spent by the given transaction or receipt.
     pub compute_usage: Compute,
     /// The amount of tokens burnt corresponding to the burnt gas amount.
     /// This value doesn't always equal to the `gas_burnt` multiplied by the gas price, because
@@ -601,7 +601,7 @@ mod tests {
             logs: vec!["123".to_string(), "321".to_string()],
             receipt_ids: vec![],
             gas_burnt: 123,
-            compute_usage: 42,
+            compute_usage: 456,
             tokens_burnt: 1234000,
             executor_id: "alice".parse().unwrap(),
             metadata: ExecutionMetadata::V1,

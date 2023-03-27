@@ -1279,6 +1279,8 @@ impl Runtime {
             // will be no overflow?
             total_gas_burnt += outcome_with_id.outcome.gas_burnt;
             total_compute_usage += outcome_with_id.outcome.compute_usage;
+            // TODO(#8032): Remove when compute costs are stabilized.
+            debug_assert_eq!(total_compute_usage, total_gas_burnt);
 
             outcomes.push(outcome_with_id);
         }
@@ -1317,12 +1319,14 @@ impl Runtime {
                     safe_add_gas(*total_gas_burnt, outcome_with_id.outcome.gas_burnt)?;
                 *total_compute_usage =
                     safe_add_compute(*total_compute_usage, outcome_with_id.outcome.compute_usage)?;
+                // TODO(#8032): Remove when compute costs are stabilized.
+                debug_assert_eq!(*total_compute_usage, *total_gas_burnt);
                 outcomes.push(outcome_with_id);
             }
             Ok(())
         };
 
-        let gas_limit = apply_state.gas_limit.unwrap_or(Gas::max_value());
+        let compute_limit = apply_state.gas_limit.unwrap_or(Gas::max_value());
 
         // We first process local receipts. They contain staking, local contract calls, etc.
         if let Some(prefetcher) = &mut prefetcher {
@@ -1331,7 +1335,7 @@ impl Runtime {
             _ = prefetcher.prefetch_receipts_data(&local_receipts);
         }
         for receipt in local_receipts.iter() {
-            if total_compute_usage < gas_limit {
+            if total_compute_usage < compute_limit {
                 // NOTE: We don't need to validate the local receipt, because it's just validated in
                 // the `verify_and_charge_transaction`.
                 process_receipt(
@@ -1347,7 +1351,7 @@ impl Runtime {
 
         // Then we process the delayed receipts. It's a backlog of receipts from the past blocks.
         while delayed_receipts_indices.first_index < delayed_receipts_indices.next_available_index {
-            if total_compute_usage >= gas_limit {
+            if total_compute_usage >= compute_limit {
                 break;
             }
             let key = TrieKey::DelayedReceipt { index: delayed_receipts_indices.first_index };
@@ -1404,7 +1408,7 @@ impl Runtime {
                 apply_state.current_protocol_version,
             )
             .map_err(RuntimeError::ReceiptValidationError)?;
-            if total_compute_usage < gas_limit {
+            if total_compute_usage < compute_limit {
                 process_receipt(
                     receipt,
                     &mut state_update,
