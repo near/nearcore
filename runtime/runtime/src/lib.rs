@@ -1278,10 +1278,9 @@ impl Runtime {
                 outgoing_receipts.push(receipt);
             }
 
-            // TODO(akashin): Why don't we have safe adds here? Do have some guarantee that there
-            // will be no overflow?
-            total_gas_burnt += outcome_with_id.outcome.gas_burnt;
-            total_compute_usage += outcome_with_id.outcome.compute_usage;
+            total_gas_burnt = safe_add_gas(total_gas_burnt, outcome_with_id.outcome.gas_burnt)?;
+            total_compute_usage =
+                safe_add_compute(total_compute_usage, outcome_with_id.outcome.compute_usage)?;
             // TODO(#8032): Remove when compute costs are stabilized.
             debug_assert_eq!(
                 total_compute_usage, total_gas_burnt,
