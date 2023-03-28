@@ -1983,7 +1983,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
         let header_hashes = self.chain_store.get_all_header_hashes_by_height(height)?;
         for header_hash in header_hashes {
-            // 3. Delete header_hash-indexed data
+            // 3. Delete header_hash-indexed data: block header
             let mut store_update = self.store().store_update();
             let key: &[u8] = header_hash.as_bytes();
             store_update.delete(DBCol::BlockHeader, key);
@@ -2250,8 +2250,13 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(())
     }
 
-    // Clearing block data of `block_hash`, for the purpose of undo-block tool
+    // Delete all data in rocksdb that are partially or wholly indexed and can be looked up by hash of the current head of the chain
+    // Delete all data in rocksdb that indicates a link between current head and its prev block
     pub fn clear_block_data_undo_block(&mut self, block_hash: CryptoHash) -> Result<(), Error> {
+        if self.head().unwrap().last_block_hash != block_hash {
+            return Err(Error::Other(format!("block_hash is not the hash of current head of the chain.")))
+        }
+
         let mut store_update = self.store().store_update();
         let block =
             self.get_block(&block_hash).expect("block data is not expected to be already cleaned");
@@ -2273,11 +2278,7 @@ impl<'a> ChainStoreUpdate<'a> {
             // delete DBCol::ChunkExtra based on shard_uid since it's indexed by shard_uid in the storage
             self.gc_col(DBCol::ChunkExtra, &block_shard_id);
 
-            // For incoming State Parts it's done in chain.clear_downloaded_parts()
-            // The following code is mostly for outgoing State Parts.
-            // However, if node crashes while State Syncing, it may never clear
-            // downloaded State parts in `clear_downloaded_parts`.
-            // We need to make sure all State Parts are removed.
+            // delete state parts and state headers
             if let Ok(shard_state_header) = self.chain_store.get_state_header(shard_id, block_hash)
             {
                 let state_num_parts =
@@ -2286,8 +2287,8 @@ impl<'a> ChainStoreUpdate<'a> {
                 let state_header_key = StateHeaderKey(shard_id, block_hash).try_to_vec()?;
                 self.gc_col(DBCol::StateHeaders, &state_header_key);
             }
+
             // delete flat storage columns: FlatStateChanges and FlatStateDeltaMetadata
-            // not working yet
             #[cfg(feature = "protocol_feature_flat_state")]
             let shard_uid_flat_storage = ShardUId::from_shard_id_and_layout(
                 shard_id as u64,

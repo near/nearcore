@@ -3935,6 +3935,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-undo-block"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap 3.1.18",
+ "near-chain",
+ "near-chain-configs",
+ "near-primitives",
+ "near-store",
+ "nearcore",
+ "tracing",
+]
+
+[[package]]
 name = "near-vm"
 version = "0.0.0"
 dependencies = [
@@ -3995,19 +4010,6 @@ dependencies = [
  "smallvec",
  "strum",
  "target-lexicon 0.12.3",
-
-[[package]]
-name = "near-undo-block"
-version = "0.0.0"
-dependencies = [
- "anyhow",
- "chrono",
- "clap 3.1.18",
- "near-chain",
- "near-chain-configs",
- "near-primitives",
- "near-store",
- "nearcore",
  "tracing",
 ]
 
