@@ -165,6 +165,7 @@ near-chain = { path = "chain/chain" }
 near-chain-configs = { path = "core/chain-configs" }
 near-chain-primitives = { path = "chain/chain-primitives" }
 near-chunks = { path = "chain/chunks" }
+near-chunks-primitives = { path = "chain/chunks-primitives" }
 near-client = { path = "chain/client" }
 near-client-primitives = {path = "chain/client-primitives"}
 near-config-utils = { path = "utils/config" }
