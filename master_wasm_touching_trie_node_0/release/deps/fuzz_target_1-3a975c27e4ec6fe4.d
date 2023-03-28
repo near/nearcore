@@ -1,5 +1,0 @@
-/Users/xiangyiz/workspace/near/nearcore_fork/master_wasm_touching_trie_node_0/release/deps/fuzz_target_1-3a975c27e4ec6fe4: chain/jsonrpc/fuzz/fuzz_targets_disabled/fuzz_target_1.rs
-
-/Users/xiangyiz/workspace/near/nearcore_fork/master_wasm_touching_trie_node_0/release/deps/fuzz_target_1-3a975c27e4ec6fe4.d: chain/jsonrpc/fuzz/fuzz_targets_disabled/fuzz_target_1.rs
-
-chain/jsonrpc/fuzz/fuzz_targets_disabled/fuzz_target_1.rs:

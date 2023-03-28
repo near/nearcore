@@ -1,1 +1,0 @@
-/Users/xiangyiz/workspace/near/nearcore_fork/master/release/libnear_account_id.rlib: /Users/xiangyiz/workspace/near/nearcore_fork/core/account-id/src/borsh.rs /Users/xiangyiz/workspace/near/nearcore_fork/core/account-id/src/errors.rs /Users/xiangyiz/workspace/near/nearcore_fork/core/account-id/src/lib.rs /Users/xiangyiz/workspace/near/nearcore_fork/core/account-id/src/serde.rs

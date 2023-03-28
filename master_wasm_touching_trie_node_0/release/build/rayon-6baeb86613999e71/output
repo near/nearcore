@@ -1,3 +1,0 @@
-cargo:rustc-cfg=has_step_by_rev
-cargo:rustc-cfg=has_min_const_generics
-cargo:rustc-cfg=has_control_flow

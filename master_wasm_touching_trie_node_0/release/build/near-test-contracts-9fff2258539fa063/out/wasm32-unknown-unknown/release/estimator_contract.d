@@ -1,1 +1,0 @@
-/Users/xiangyiz/workspace/near/nearcore_fork/master_wasm_touching_trie_node_0/release/build/near-test-contracts-9fff2258539fa063/out/wasm32-unknown-unknown/release/estimator_contract.wasm: /Users/xiangyiz/workspace/near/nearcore_fork/runtime/near-test-contracts/estimator-contract/src/lib.rs

@@ -1,1 +1,0 @@
-/Users/xiangyiz/workspace/near/nearcore_fork/undo_block/release/build/near-test-contracts-9fff2258539fa063/out/wasm32-unknown-unknown/release/estimator_contract.wasm: /Users/xiangyiz/workspace/near/nearcore_fork/runtime/near-test-contracts/estimator-contract/src/lib.rs

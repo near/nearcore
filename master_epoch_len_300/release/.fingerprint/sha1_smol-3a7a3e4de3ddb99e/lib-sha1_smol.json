@@ -1,1 +1,0 @@
-{"rustc":16758913376447658119,"features":"[]","target":15684285756228337969,"profile":17388113529072896295,"path":4021035015460296219,"deps":[],"local":[{"CheckDepInfo":{"dep_info":"release/.fingerprint/sha1_smol-3a7a3e4de3ddb99e/dep-lib-sha1_smol"}}],"rustflags":["-Ctarget-cpu=native"],"metadata":9318883331900924677,"config":2202906307356721367,"compile_kind":0}

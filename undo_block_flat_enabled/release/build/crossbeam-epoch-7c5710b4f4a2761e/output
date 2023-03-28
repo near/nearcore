@@ -1,2 +1,0 @@
-cargo:rustc-cfg=crossbeam_const_fn_trait_bound
-cargo:rerun-if-changed=no_atomic.rs
