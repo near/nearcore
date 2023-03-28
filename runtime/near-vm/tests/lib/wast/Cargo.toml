@@ -1,7 +1,7 @@
 [package]
-name = "wasmer-wast"
+name = "near-vm-wast"
 version = "0.0.0"
-authors = ["Near Inc <hello@nearprotocol.com>"]
+authors = ["Wasmer Engineering Team <engineering@wasmer.io>", "Near Inc <hello@nearprotocol.com>"]
 description = "wast testing support for wasmer"
 license = "MIT OR Apache-2.0 WITH LLVM-exception"
 categories = ["wasm"]
