@@ -274,9 +274,14 @@ fn get_liquid_balance_for_storage(
     account: &near_primitives::account::Account,
     storage_amount_per_byte: near_primitives::types::Balance,
 ) -> near_primitives::types::Balance {
-    let required_amount =
-        near_primitives::types::Balance::from(account.storage_usage()) * storage_amount_per_byte;
-    required_amount.saturating_sub(account.locked())
+    let staked_for_storage = if account.storage_usage() <= 770 {
+        // zero-balance account (NEP-448)
+        0
+    } else {
+        near_primitives::types::Balance::from(account.storage_usage()) * storage_amount_per_byte
+    };
+
+    staked_for_storage.saturating_sub(account.locked())
 }
 
 pub(crate) struct RosettaAccountBalances {
