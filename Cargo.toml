@@ -248,6 +248,7 @@ ripemd = "0.1.1"
 rkyv = { version = "0.7.31", features = ["strict"] }
 rlimit = "0.7"
 rocksdb = { version = "0.19.0", default-features = false, features = ["snappy", "lz4", "zstd", "zlib", "jemalloc"] }
+runtime-tester = { path = "test-utils/runtime-tester" }
 rust-s3 = { version = "0.32.3", features = ["blocking"] }
 rustc-demangle = "0.1"
 rusqlite = {version = "0.27.0", features = ["bundled", "chrono", "functions"] }
