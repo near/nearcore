@@ -180,6 +180,7 @@ near-mainnet-res = { path = "utils/mainnet-res" }
 near-network = { path = "chain/network" }
 near-o11y = { path = "core/o11y" }
 near-performance-metrics = { path = "utils/near-performance-metrics" }
+near-performance-metrics-macros = { path = "utils/near-performance-metrics-macros" }
 near-pool = { path = "chain/pool" }
 near-primitives = { path = "core/primitives" }
 near-primitives-core = { path = "core/primitives-core" }
