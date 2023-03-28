@@ -192,11 +192,11 @@ impl Default for StoreConfig {
                 // patterns on shard 3 more stable. It was chosen by the estimation
                 // of the largest contract storage size we are aware as of 23/08/2022.
                 // Consider removing after implementing flat storage. (#7327)
-                // Note: 1_000_000_000 is correct size for RPC node, use 3_000_000_000
-                // for archival node.
+                // Note: on >= 1.34 nearcore version use 1_000_000_000 if you have
+                // minimal hardware.
                 per_shard_max_bytes: HashMap::from_iter([(
                     ShardUId { version: 1, shard_id: 3 },
-                    1_000_000_000,
+                    3_000_000_000,
                 )]),
             },
 
