@@ -30,19 +30,18 @@ START_AT_BLOCK = int(sys.argv[2])
 TIMEOUT = 150 + START_AT_BLOCK * 10
 
 config = load_config()
+node_config = {
+    "tracked_shards": [0],
+    "state_sync_enabled": True,
+}
+
 near_root, node_dirs = init_cluster(
     2, 1, 1, config,
     [["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", 10],
      ["block_producer_kickout_threshold", 80]], {
-         0: {
-             "tracked_shards": [0]
-         },
-         1: {
-             "tracked_shards": [0]
-         },
-         2: {
-             "tracked_shards": [0]
-         }
+         0: node_config,
+         1: node_config,
+         2: node_config,
      })
 
 started = time.time()
