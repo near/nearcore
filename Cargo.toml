@@ -159,6 +159,7 @@ memoffset = "0.6"
 more-asserts = "0.2"
 near-actix-test-utils = { path = "test-utils/actix-test-utils" }
 near-async = { path = "core/async" }
+near-cache = { path = "utils/near-cache" }
 near-chain = { path = "chain/chain" }
 near-chain-configs = { path = "core/chain-configs" }
 near-chunks = { path = "chain/chunks" }
@@ -177,6 +178,7 @@ near-performance-metrics = { path = "utils/near-performance-metrics" }
 near-pool = { path = "chain/pool" }
 near-primitives = { path = "core/primitives" }
 near-rosetta-rpc = { path = "chain/rosetta-rpc" }
+near-stable-hasher = { path = "utils/near-stable-hasher" }
 near-store = { path = "core/store" }
 near-telemetry = { path = "chain/telemetry" }
 near-test-contracts = { path = "runtime/near-test-contracts" }
@@ -208,6 +210,7 @@ proc-macro2 = "1"
 prometheus = "0.13.1"
 protobuf = "3.0.1"
 protobuf-codegen = "3.0.1"
+pwasm-utils_12 = { package = "pwasm-utils", version = "0.12" }
 quote = "1.0"
 rand = "0.8.5"
 rand_chacha = "0.3.1"
