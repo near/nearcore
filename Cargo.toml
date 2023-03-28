@@ -154,6 +154,7 @@ libfuzzer-sys = { version = "0.4", features = ["arbitrary-derive"] }
 log = "0.4"
 loupe = "0.1"
 lru = "0.7.2"
+memmap2 = "0.5"
 memoffset = "0.6"
 more-asserts = "0.2"
 near-actix-test-utils = { path = "test-utils/actix-test-utils" }
@@ -222,6 +223,7 @@ rkyv = { version = "0.7.31", features = ["strict"] }
 rlimit = "0.7"
 rocksdb = { version = "0.19.0", default-features = false, features = ["snappy", "lz4", "zstd", "zlib", "jemalloc"] }
 rust-s3 = { version = "0.32.3", features = ["blocking"] }
+rustc-demangle = "0.1"
 rusqlite = {version = "0.27.0", features = ["bundled", "chrono", "functions"] }
 secp256k1 = { version = "0.24", features = ["recovery", "rand-std"] }
 semver = "1.0.4"

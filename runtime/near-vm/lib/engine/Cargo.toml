@@ -15,19 +15,18 @@ publish = false
 name = "wasmer_engine"
 
 [dependencies]
-finite-wasm = "0.3.0"
+finite-wasm.workspace = true
 wasmer-types = { path = "../types", package = "near-vm-types" }
 wasmer-compiler = { path = "../compiler", package = "near-vm-compiler" }
 wasmer-vm = { path = "../vm", package = "near-vm-vm" }
-target-lexicon = { version = "0.12.2", default-features = false }
-# flexbuffers = { path = "../../../flatbuffers/rust/flexbuffers", version = "0.1.0" }
-backtrace = "0.3"
-rustc-demangle = "0.1"
-memmap2 = "0.5"
-more-asserts = "0.2"
-thiserror = "1.0"
-lazy_static = "1.4"
-enumset = "1.0"
+target-lexicon.workspace = true
+backtrace.workspace = true
+rustc-demangle.workspace = true
+memmap2.workspace = true
+more-asserts.workspace = true
+thiserror.workspace = true
+lazy_static.workspace = true
+enumset.workspace = true
 
 [badges]
 maintenance = { status = "actively-developed" }
