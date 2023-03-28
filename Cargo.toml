@@ -124,6 +124,7 @@ ed25519-dalek = "1"
 elastic-array = "0.11"
 enum-map = "2.1.0"
 expect-test = "1.3.0"
+finite-wasm = "0.3.0"
 flate2 = "1.0.22"
 fs2 = "0.4"
 futures = "0.3.5"
@@ -134,6 +135,7 @@ hkdf = "0.12.3"
 hyper = { version = "0.14", features = ["full"] }
 hyper-tls = "0.5.0"
 im = "15"
+indexmap = "1.6"
 indicatif = { version = "0.15.0", features = ["with_rayon"] }
 insta = { version = "1.26.0", features = ["json", "yaml"] }
 itertools = "0.10.0"
@@ -145,6 +147,7 @@ log = "0.4"
 loupe = "0.1"
 lru = "0.7.2"
 memoffset = "0.6"
+more-asserts = "0.2"
 near-actix-test-utils = { path = "test-utils/actix-test-utils" }
 near-async = { path = "core/async" }
 near-chain = { path = "chain/chain" }
@@ -188,6 +191,7 @@ parity-wasm = { version = "0.42", default-features = false }
 parity-wasm_41 = { package = "parity-wasm", version = "0.41" }
 parking_lot = "0.12.1"
 pin-project = "1.0"
+prefix-sum-vec = "0.1.2"
 pretty_assertions = "1.2"
 primitive-types = { version = "0.10", default-features = false }
 prometheus = "0.13.1"
@@ -227,6 +231,7 @@ subtle = "2.2"
 syn = { version = "1.0.54", features = ["extra-traits", "full"] }
 sysinfo = "0.24.5"
 tar = "0.4.38"
+target-lexicon = { version = "0.12.2", default-features = false }
 tempfile = "3.3"
 testlib = { path = "test-utils/testlib" }
 thiserror = "1.0.30"
@@ -251,6 +256,7 @@ wasmprinter = "0.2"
 wasmtime = { version = "4.0.0", default-features = false, features = ["cranelift"] }
 wat = "1.0.40"
 webrtc-util = "0.7"
+winapi = "0.3"
 xshell = "0.2.1"
 xz2 = "0.1.6"
 
