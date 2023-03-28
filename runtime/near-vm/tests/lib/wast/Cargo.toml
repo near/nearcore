@@ -12,11 +12,11 @@ edition = "2021"
 publish = false
 
 [dependencies]
-anyhow = "1.0"
+anyhow.workspace = true
 wasmer = { path = "../../../lib/api", package = "near-vm", default-features = false }
-wast = "40.0"
-tempfile = "3"
-thiserror = "1.0"
+wast.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
 
 [features]
 default = ["wat"]
