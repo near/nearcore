@@ -795,9 +795,10 @@ def apply_config_changes(node_dir, client_config_change):
     # when None.
     allowed_missing_configs = (
         'archive',
-        'save_trie_changes',
         'max_gas_burnt_view',
         'rosetta_rpc',
+        'save_trie_changes',
+        'state_sync_enabled',
     )
 
     for k, v in client_config_change.items():
