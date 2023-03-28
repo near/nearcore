@@ -128,6 +128,7 @@ flate2 = "1.0.22"
 fs2 = "0.4"
 futures = "0.3.5"
 futures-util = "0.3"
+genesis-populate = { path = "genesis-tools/genesis-populate"}
 hex = { version = "0.4.2", features = ["serde"] }
 hkdf = "0.12.3"
 hyper = { version = "0.14", features = ["full"] }
@@ -151,6 +152,7 @@ near-chain-configs = { path = "core/chain-configs" }
 near-chunks = { path = "chain/chunks" }
 near-client = { path = "chain/client" }
 near-client-primitives = {path = "chain/client-primitives"}
+near-config-utils = { path = "utils/config" }
 near-crypto = { path = "core/crypto" }
 near-dyn-configs = { path = "core/dyn-configs" }
 near-epoch-manager = { path = "chain/epoch-manager" }
@@ -165,10 +167,12 @@ near-primitives = { path = "core/primitives" }
 near-rosetta-rpc = { path = "chain/rosetta-rpc" }
 near-store = { path = "core/store" }
 near-telemetry = { path = "chain/telemetry" }
+near-test-contracts = { path = "runtime/near-test-contracts" }
+near-vm-logic = {path = "runtime/near-vm-logic"  }
 near-vm-runner = { path = "runtime/near-vm-runner"}
-node-runtime = { path = "runtime/runtime" }
-near-config-utils = { path = "utils/config" }
+nearcore = { path = "nearcore" }
 nix = "0.24"
+node-runtime = { path = "runtime/runtime" }
 num-bigint = "0.3"
 num-rational = { version = "0.3.1", features = ["serde"] }
 num-traits = "0.2.12"
