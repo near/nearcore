@@ -15,25 +15,25 @@ publish = false
 name = "wasmer_vm"
 
 [dependencies]
-backtrace = "0.3"
-cfg-if = "1.0"
-finite-wasm = "0.3.0"
-indexmap = { version = "1.6" }
-libc = { version = "^0.2", default-features = false }
-memoffset = "0.6"
-more-asserts = "0.2"
-region = "3.0"
-rkyv = { version = "0.7.20" }
-thiserror = "1.0"
-tracing = "0.1"
+backtrace.workspace = true
+cfg-if.workspace = true
+finite-wasm.workspace = true
+indexmap.workspace = true
+libc.workspace = true
+memoffset.workspace = true
+more-asserts.workspace = true
+region.workspace = true
+rkyv.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
 wasmer-types = { path = "../types", package = "near-vm-types" }
 wasmparser = "0.99.0"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-winapi = { version = "0.3", features = ["winbase", "memoryapi", "errhandlingapi"] }
+winapi.workspace = true
 
 [build-dependencies]
-cc = "1.0"
+cc.workspace = true
 
 [badges]
 maintenance = { status = "actively-developed" }

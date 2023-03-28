@@ -92,6 +92,7 @@ async-recursion = "0.3.2"
 async-trait = "0.1.58"
 atty = "0.2"
 awc = { version = "3", features = ["openssl"] }
+backtrace = "0.3"
 base64 = "0.13"
 bencher = "0.1.5"
 bitflags = "1.2"
@@ -105,7 +106,8 @@ bytes = "1"
 bytesize = { version = "1.1", features = ["serde"] }
 c2-chacha = "0.3"
 cargo_metadata = "0.14.1"
-cfg-if = "1"
+cc = "1.0"
+cfg-if = "1.0"
 chrono = { version = "0.4.19", features = ["serde"] }
 clap = { version = "3.1.6", features = ["derive", "env"] }
 conqueue = "0.4.0"
@@ -209,9 +211,10 @@ rayon = "1.5"
 redis = "0.21.5"
 reed-solomon-erasure = "4"
 regex = "1.7.1"
+region = "3.0"
 reqwest = { version = "0.11.0", features = ["blocking"] }
 ripemd = "0.1.1"
-rkyv = { version = "0.7", features = ["strict"] }
+rkyv = { version = "0.7.20", features = ["strict"] }
 rlimit = "0.7"
 rocksdb = { version = "0.19.0", default-features = false, features = ["snappy", "lz4", "zstd", "zlib", "jemalloc"] }
 rust-s3 = { version = "0.32.3", features = ["blocking"] }
@@ -259,7 +262,7 @@ wasmprinter = "0.2"
 wasmtime = { version = "4.0.0", default-features = false, features = ["cranelift"] }
 wat = "1.0.40"
 webrtc-util = "0.7"
-winapi = "0.3"
+winapi = { version = "0.3", features = ["winbase", "memoryapi", "errhandlingapi"] }
 xshell = "0.2.1"
 xz2 = "0.1.6"
 
