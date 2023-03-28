@@ -145,6 +145,7 @@ im = "15"
 indexmap = "1.6"
 indicatif = { version = "0.15.0", features = ["with_rayon"] }
 insta = { version = "1.26.0", features = ["json", "yaml"] }
+integration-tests = { path = "integration-tests" }
 itertools = "0.10.0"
 itoa = "1.0"
 json_comments = "0.2.1"
