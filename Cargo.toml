@@ -121,6 +121,8 @@ delay-detector = { path = "tools/delay-detector" }
 derive-enum-from-into = "0.1.1"
 derive_more = "0.99.9"
 dirs = "4"
+dynasm = "1.0"
+dynasmrt = "1.0"
 easy-ext = "0.2"
 ed25519-dalek = "1"
 elastic-array = "0.11"
@@ -145,6 +147,7 @@ insta = { version = "1.26.0", features = ["json", "yaml"] }
 itertools = "0.10.0"
 itoa = "1.0"
 json_comments = "0.2.1"
+lazy_static = "1.4"
 leb128 = "0.2"
 libc = "0.2.81"
 libfuzzer-sys = { version = "0.4", features = ["arbitrary-derive"] }
