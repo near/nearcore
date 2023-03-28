@@ -1,1 +1,0 @@
-{"rustc":16758913376447658119,"features":"[]","target":13737188875701239413,"profile":17388113529072896295,"path":8606945656972236699,"deps":[],"local":[{"CheckDepInfo":{"dep_info":"release/.fingerprint/firestorm-2bb25220b9cf4a05/dep-lib-firestorm"}}],"rustflags":["-Ctarget-cpu=native"],"metadata":16778752165704145665,"config":2202906307356721367,"compile_kind":0}

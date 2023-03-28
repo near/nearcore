@@ -1,2 +1,0 @@
-cargo:rustc-env=TYPENUM_BUILD_CONSTS=/Users/xiangyiz/workspace/near/nearcore_fork/state_root_epoch_len_300/release/build/typenum-c0aed6118a9f2a0c/out/consts.rs
-cargo:rustc-env=TYPENUM_BUILD_OP=/Users/xiangyiz/workspace/near/nearcore_fork/state_root_epoch_len_300/release/build/typenum-c0aed6118a9f2a0c/out/op.rs

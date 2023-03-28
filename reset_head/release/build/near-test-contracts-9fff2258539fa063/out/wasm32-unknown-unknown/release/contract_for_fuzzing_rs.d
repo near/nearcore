@@ -1,1 +1,0 @@
-/Users/xiangyiz/workspace/near/nearcore_fork/reset_head/release/build/near-test-contracts-9fff2258539fa063/out/wasm32-unknown-unknown/release/contract_for_fuzzing_rs.wasm: /Users/xiangyiz/workspace/near/nearcore_fork/runtime/near-test-contracts/contract-for-fuzzing-rs/src/lib.rs
