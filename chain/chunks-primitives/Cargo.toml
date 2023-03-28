@@ -11,5 +11,5 @@ repository = "https://github.com/near/nearcore"
 description = "This crate hosts NEAR chunks-related error types"
 
 [dependencies]
-near-chain-primitives = { path = "../chain-primitives" }
-near-primitives = { path = "../../core/primitives" }
+near-chain-primitives.workspace = true
+near-primitives.workspace = true
