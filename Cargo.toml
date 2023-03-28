@@ -174,8 +174,9 @@ near-dyn-configs = { path = "core/dyn-configs" }
 near-epoch-manager = { path = "chain/epoch-manager" }
 near-indexer-primitives = { path = "chain/indexer-primitives" }
 near-jsonrpc = { path = "chain/jsonrpc" }
+near-jsonrpc-adversarial-primitives = { path = "chain/jsonrpc-adversarial-primitives" }
 near-jsonrpc-client = { path = "chain/jsonrpc/client" }
-near-jsonrpc-primitives = { path = "chain/jsonrpc-primitives" }
+near-jsonrpc-primitives = { path = "chain/jsonrpc-primitives", features = ["full"] }
 near-mainnet-res = { path = "utils/mainnet-res" }
 near-network = { path = "chain/network" }
 near-o11y = { path = "core/o11y" }
