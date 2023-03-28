@@ -18,10 +18,10 @@ serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 
-near-jsonrpc = { path = ".." }
-near-jsonrpc-primitives = { path = "../../jsonrpc-primitives" }
-near-jsonrpc-tests = { path = "../jsonrpc-tests" }
-near-primitives = { path = "../../../core/primitives" }
+near-jsonrpc.workspace = true
+near-jsonrpc-primitives.workspace = true
+near-jsonrpc-tests.workspace = true
+near-primitives.workspace = true
 
 [[bin]]
 name = "fuzz_target_1"

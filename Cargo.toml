@@ -177,6 +177,7 @@ near-jsonrpc = { path = "chain/jsonrpc" }
 near-jsonrpc-adversarial-primitives = { path = "chain/jsonrpc-adversarial-primitives" }
 near-jsonrpc-client = { path = "chain/jsonrpc/client" }
 near-jsonrpc-primitives = { path = "chain/jsonrpc-primitives", features = ["full"] }
+near-jsonrpc-tests = { path = "chain/jsonrpc/jsonrpc-tests" }
 near-mainnet-res = { path = "utils/mainnet-res" }
 near-network = { path = "chain/network" }
 near-o11y = { path = "core/o11y" }
