@@ -21,7 +21,7 @@ serde_json = { workspace = true, optional = true, features = ["preserve_order"] 
 syn.workspace = true
 fs2.workspace = true
 
-near-rpc-error-core = { path = "../core" }
+near-rpc-error-core.workspace = true
 
 [features]
 test = []

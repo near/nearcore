@@ -21,14 +21,14 @@ sha2.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 
-near-chain-configs = { path = "../../core/chain-configs" }
-near-crypto = { path = "../../core/crypto" }
-near-o11y = { path = "../../core/o11y" }
-near-primitives = { path = "../../core/primitives" }
-near-store = { path = "../../core/store" }
-near-vm-errors = { path = "../../runtime/near-vm-errors" }
-near-vm-logic = { path = "../../runtime/near-vm-logic" }
-near-vm-runner = { path = "../../runtime/near-vm-runner" }
+near-chain-configs.workspace = true
+near-crypto.workspace = true
+near-o11y.workspace = true
+near-primitives.workspace = true
+near-store.workspace = true
+near-vm-errors.workspace = true
+near-vm-logic.workspace = true
+near-vm-runner.workspace = true
 
 [features]
 default = []
@@ -52,7 +52,7 @@ rayon.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
 
-near-chain-configs = { path = "../../core/chain-configs" }
-near-store = { path = "../../core/store", features = ["test_features"] }
-near-test-contracts = { path = "../../runtime/near-test-contracts" }
-testlib = { path = "../../test-utils/testlib" }
+near-chain-configs.workspace = true
+near-store = { workspace = true, features = ["test_features"] }
+near-test-contracts.workspace = true
+testlib.workspace = true

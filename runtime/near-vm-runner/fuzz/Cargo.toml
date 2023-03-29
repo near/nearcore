@@ -14,11 +14,11 @@ libfuzzer-sys.workspace = true
 wasm-smith.workspace = true
 wasmprinter.workspace = true
 
-near-primitives = { path = "../../../core/primitives" }
-near-test-contracts = { path = "../../near-test-contracts" }
-near-vm-errors = { path = "../../near-vm-errors" }
-near-vm-logic = { path = "../../near-vm-logic", default-features = false }
-near-vm-runner = { path = ".." }
+near-primitives.workspace = true
+near-test-contracts.workspace = true
+near-vm-errors.workspace = true
+near-vm-logic.workspace = true
+near-vm-runner.workspace = true
 
 [[bin]]
 name = "runner"

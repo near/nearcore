@@ -28,18 +28,18 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
-nearcore = { path = "../../nearcore" }
-near-chain-configs = { path = "../../core/chain-configs" }
-near-chain = { path = "../../chain/chain" }
-near-chain-primitives = { path = "../../chain/chain-primitives" }
-near-client = { path = "../../chain/client" }
-near-client-primitives = { path = "../../chain/client-primitives" }
-near-epoch-manager = { path = "../../chain/epoch-manager" }
-near-indexer-primitives = { path = "../../chain/indexer-primitives" }
-near-indexer = { path = "../../chain/indexer" }
-near-network = { path = "../../chain/network" }
-near-primitives = { path = "../../core/primitives" }
-near-primitives-core = { path = "../../core/primitives-core" }
-near-o11y = { path = "../../core/o11y" }
-near-store = { path = "../../core/store" }
-near-crypto = { path = "../../core/crypto" }
+nearcore.workspace = true
+near-chain-configs.workspace = true
+near-chain.workspace = true
+near-chain-primitives.workspace = true
+near-client.workspace = true
+near-client-primitives.workspace = true
+near-epoch-manager.workspace = true
+near-indexer-primitives.workspace = true
+near-indexer.workspace = true
+near-network.workspace = true
+near-primitives.workspace = true
+near-primitives-core.workspace = true
+near-o11y.workspace = true
+near-store.workspace = true
+near-crypto.workspace = true
