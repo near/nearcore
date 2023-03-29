@@ -457,9 +457,8 @@ impl NearVmVM {
                     // expected layout. `gas` remains dereferenceable throughout this function
                     // by the virtue of it being contained within `import` which lives for the
                     // entirety of this function.
-                    InstanceConfig::default()
-                        .with_counter(gas)
-                        .with_stack_limit(self.config.limit_config.max_stack_height),
+                    InstanceConfig::with_stack_limit(self.config.limit_config.max_stack_height)
+                        .with_counter(gas),
                 );
                 let handle = match maybe_handle {
                     Ok(handle) => handle,
