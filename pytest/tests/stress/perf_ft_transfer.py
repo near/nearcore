@@ -98,13 +98,10 @@ class Transaction:
             return False # almost guaranteed to not produce any results right now.
         caller = ACCOUNTS[self.caller]
         logger.debug(f"checking {self.transaction_id} from {caller.key.account_id}")
-        try:
-            tx_result = node.json_rpc('tx', [self.transaction_id, caller.key.account_id])
-            if self.is_success(tx_result):
-                self.outcome = tx_result
-                return True
-        except requests.exceptions.ReadTimeout:
-            pass
+        tx_result = node.json_rpc('tx', [self.transaction_id, caller.key.account_id])
+        if self.is_success(tx_result):
+            self.outcome = tx_result
+            return True
         return False
 
     def send(self, block_hash):
@@ -274,35 +271,43 @@ class Account:
 
 
 def transaction_executor(nodes, tx_queue):
-    block_hash = base58.b58decode(nodes[0].get_latest_block().hash)
-    last_block_hash_update = time.time()
+    last_block_hash_update = 0
     my_transactions = queue.SimpleQueue()
+    rng = random.Random()
     while True:
-        # TODO: pick RPC node randomly.
-        # neard can handle somewhat stale block hashes, but not too stale.
-        # update the block hash if it is been a while since we did so.
-        now = time.time()
-        if now - last_block_hash_update >= 0.5:
-            block_hash = base58.b58decode(nodes[0].get_latest_block().hash)
-            last_block_hash_update = now
-
+        node = rng.choice(nodes)
         try:
-            while my_transactions.qsize() < MAX_INFLIGHT_TRANSACTIONS_PER_EXECUTOR:
+            now = time.time()
+            if now - last_block_hash_update >= 0.5:
+                block_hash = base58.b58decode(node.get_latest_block().hash)
+                last_block_hash_update = now
+        except requests.exceptions.ReadTimeout:
+            continue
+
+        while my_transactions.qsize() < MAX_INFLIGHT_TRANSACTIONS_PER_EXECUTOR:
+            try:
                 tx = tx_queue.get_nowait()
-                # Send out the transaction immediately.
-                tx.poll(nodes[0], block_hash)
-                my_transactions.put(tx)
-        except queue.Empty:
-            pass
+            except queue.Empty:
+                break
+            # Send out the transaction immediately.
+            try:
+                tx.poll(node, block_hash)
+            except requests.exceptions.ReadTimeout:
+                pass
+            my_transactions.put(tx)
 
         try:
             tx = my_transactions.get_nowait()
         except queue.Empty:
             time.sleep(0.1)
             continue
-
-        if not tx.poll(nodes[0], block_hash):
-            tx_queue.put(tx)
+        try:
+            poll_result = tx.poll(node, block_hash)
+        except requests.exceptions.ReadTimeout:
+            my_transactions.put(tx)
+            continue
+        if not poll_result:
+            my_transactions.put(tx)
             if tx.ttl != DEFAULT_TRANSACTION_TTL_SECONDS:
                 time.sleep(0.1) # don't spam RPC too hard...
         else:
