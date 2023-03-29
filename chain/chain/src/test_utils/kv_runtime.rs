@@ -451,7 +451,6 @@ impl EpochManagerAdapter for KeyValueRuntime {
             fishermen_threshold: 1,
             minimum_stake_divisor: 1,
             protocol_upgrade_stake_threshold: Ratio::new(3i32, 4i32),
-            protocol_upgrade_num_epochs: 100,
             shard_layout: ShardLayout::v1_test(),
             validator_selection_config: ValidatorSelectionConfig::default(),
         })
