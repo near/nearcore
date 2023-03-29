@@ -10,7 +10,7 @@ pub enum FlatStateValue {
     // TODO(8243): add variant here for the inlined value
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Display, Clone, PartialEq, Eq)]
 pub struct BlockInfo {
     pub hash: CryptoHash,
     pub height: BlockHeight,

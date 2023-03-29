@@ -10,6 +10,7 @@ use near_store::flat::{store_helper, FlatStorageStatus};
 use near_store::{Mode, NodeStorage, ShardUId, Store, StoreOpener};
 use nearcore::{load_config, NearConfig, NightshadeRuntime};
 use std::{path::PathBuf, sync::Arc, time::Duration};
+use borsh::BorshDeserialize;
 use tqdm::tqdm;
 
 #[derive(Parser)]
@@ -79,26 +80,26 @@ impl FlatStorageCommand {
 
     pub fn run(&self, home_dir: &PathBuf) -> anyhow::Result<()> {
         let near_config =
-            load_config(home_dir, near_chain_configs::GenesisValidationMode::Full).unwrap();
+            load_config(home_dir, near_chain_configs::GenesisValidationMode::Full)?;
         let opener = NodeStorage::opener(home_dir, false, &near_config.config.store, None);
 
         match &self.subcmd {
             SubCommand::View => {
                 let (_, hot_runtime, chain_store, hot_store) =
                     Self::get_db(&opener, home_dir, &near_config, near_store::Mode::ReadOnly);
-                let tip = chain_store.final_head().unwrap();
-                let shards = hot_runtime.num_shards(&tip.epoch_id).unwrap();
                 println!("DB version: {:?}", hot_store.get_db_version());
-                println!("Current final tip @{:?} - shards: {:?}", tip.height, shards);
-
-                for shard in 0..shards {
-                    let shard_uid = hot_runtime.shard_id_to_uid(shard, &tip.epoch_id)?;
-                    match store_helper::get_flat_storage_status(&hot_store, shard_uid) {
+                for item in hot_store.iter(store_helper::FlatStateColumn::Status.to_db_col()) {
+                    let (bytes_shard_uid, status) = item?;
+                    let shard_uid = ShardUId::try_from(&bytes_shard_uid)?;
+                    let status = FlatStorageStatus::try_from_slice(&status)?;
+                    match status {
                         FlatStorageStatus::Ready(ready_status) => {
                             println!(
                                 "Shard: {shard:?} - flat storage @{:?}",
                                 ready_status.flat_head.height
                             );
+                            let deltas = store_helper::get_all_deltas_metadata(&hot_store, shard_uid)?;
+                            println!("Deltas: {:?}", deltas);
                         }
                         status => {
                             println!("Shard: {shard:?} - no flat storage: {status:?}");
