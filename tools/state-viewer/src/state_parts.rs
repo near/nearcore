@@ -344,13 +344,13 @@ fn dump_state_parts(
             .unwrap();
         part_storage.write(&state_part, part_id, num_parts);
         let elapsed_sec = timer.elapsed().as_secs_f64();
-        let first_sr = get_first_state_record(&state_root, &state_part);
+        let first_state_record = get_first_state_record(&state_root, &state_part);
         tracing::info!(
             target: "state-parts",
             part_id,
             part_length = state_part.len(),
             elapsed_sec,
-            ?first_sr,
+            ?first_state_record,
             "Wrote a state part");
     }
     tracing::info!(target: "state-parts", total_elapsed_sec = timer.elapsed().as_secs_f64(), "Wrote all requested state parts");
