@@ -349,12 +349,12 @@ impl Instance {
     }
 
     /// Return a pointer to initial stack limit.
-    pub fn stack_limit_initial_ptr(&self) -> *mut i32 {
+    pub fn stack_limit_initial_ptr(&self) -> *mut u32 {
         unsafe { self.vmctx_plus_offset(self.offsets().vmctx_stack_limit_initial_begin()) }
     }
 
     /// Return a pointer to current stack limit.
-    pub fn stack_limit_ptr(&self) -> *mut i32 {
+    pub fn stack_limit_ptr(&self) -> *mut u32 {
         unsafe { self.vmctx_plus_offset(self.offsets().vmctx_stack_limit_begin()) }
     }
 
@@ -930,7 +930,7 @@ impl InstanceHandle {
         &self.instance
     }
 
-    /// Finishes the instantiation process started by `Instance::new`.
+    /// Finishes the instantiation process started by `Instance::new_with_config`.
     ///
     /// # Safety
     ///

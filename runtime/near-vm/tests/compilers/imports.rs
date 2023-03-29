@@ -49,8 +49,9 @@ fn dynamic_function(config: crate::Config) -> Result<()> {
     let store = config.store();
     let module = get_module(&store)?;
     static HITS: AtomicUsize = AtomicUsize::new(0);
-    Instance::new(
+    Instance::new_with_config(
         &module,
+        InstanceConfig::with_stack_limit(1000000),
         &imports! {
             "host" => {
                 "0" => Function::new(&store, FunctionType::new(vec![], vec![]), |_values| {
@@ -105,8 +106,9 @@ fn dynamic_function_with_env(config: crate::Config) -> Result<()> {
     let env: Env = Env {
         counter: Arc::new(AtomicUsize::new(0)),
     };
-    Instance::new(
+    Instance::new_with_config(
         &module,
+        InstanceConfig::with_stack_limit(1000000),
         &imports! {
             "host" => {
                 "0" => Function::new_with_env(&store, FunctionType::new(vec![], vec![]), env.clone(), |env, _values| {
@@ -147,8 +149,9 @@ fn static_function(config: crate::Config) -> Result<()> {
     let module = get_module(&store)?;
 
     static HITS: AtomicUsize = AtomicUsize::new(0);
-    Instance::new(
+    Instance::new_with_config(
         &module,
+        InstanceConfig::with_stack_limit(1000000),
         &imports! {
             "host" => {
                 "0" => Function::new_native(&store, || {
@@ -186,8 +189,9 @@ fn static_function_with_results(config: crate::Config) -> Result<()> {
     let module = get_module(&store)?;
 
     static HITS: AtomicUsize = AtomicUsize::new(0);
-    Instance::new(
+    Instance::new_with_config(
         &module,
+        InstanceConfig::with_stack_limit(1000000),
         &imports! {
             "host" => {
                 "0" => Function::new_native(&store, || {
@@ -235,8 +239,9 @@ fn static_function_with_env(config: crate::Config) -> Result<()> {
     }
 
     let env: Env = Env(Arc::new(AtomicUsize::new(0)));
-    Instance::new(
+    Instance::new_with_config(
         &module,
+        InstanceConfig::with_stack_limit(1000000),
         &imports! {
             "host" => {
                 "0" => Function::new_native_with_env(&store, env.clone(), |env: &Env| {
@@ -281,8 +286,9 @@ fn static_function_that_fails(config: crate::Config) -> Result<()> {
 
     let module = Module::new(&store, &wat)?;
 
-    let result = Instance::new(
+    let result = Instance::new_with_config(
         &module,
+        InstanceConfig::with_stack_limit(1000000),
         &imports! {
             "host" => {
                 "0" => Function::new_native(&store, || -> Result<Infallible, RuntimeError> {
@@ -346,8 +352,9 @@ fn dynamic_function_with_env_wasmer_env_init_works(config: crate::Config) -> Res
         env.clone(),
         |env, _values| Ok(vec![]),
     );
-    let instance = Instance::new(
+    let instance = Instance::new_with_config(
         &module,
+        InstanceConfig::with_stack_limit(1000000),
         &imports! {
             "host" => {
                 "fn" => function_fn,
@@ -384,7 +391,7 @@ fn regression_import_trampolines(config: crate::Config) -> Result<()> {
             "gas" => gas,
         }
     };
-    let instance = Instance::new(&module, &imports)?;
+    let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &imports)?;
     let panic = instance.lookup_function("panic").unwrap();
     panic.call(&[])?;
     let gas = instance.lookup_function("gas").unwrap();
@@ -427,8 +434,8 @@ fn regression_import_trampolines(config: crate::Config) -> Result<()> {
 //             "fn" => Function::new_native_with_env(&store, env.clone(), host_fn),
 //         },
 //     };
-//     let instance1 = Instance::new(&module, &imports)?;
-//     let instance2 = Instance::new(&module, &imports)?;
+//     let instance1 = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &imports)?;
+//     let instance2 = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &imports)?;
 //     {
 //         let f1: NativeFunc<(), ()> = instance1.get_native_function("main")?;
 //         f1.call()?;
@@ -452,7 +459,7 @@ fn regression_import_trampolines(config: crate::Config) -> Result<()> {
 //     (export "memory" (memory $mem))
 // )"#;
 //         let module = Module::new(&store, wat)?;
-//         let instance = Instance::new(&module, &imports! {})?;
+//         let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &imports! {})?;
 //         instance.exports.get_memory("memory")?.clone()
 //     };
 //
@@ -473,7 +480,7 @@ fn regression_import_trampolines(config: crate::Config) -> Result<()> {
 //             "memory" => memory,
 //         },
 //     };
-//     let instance = Instance::new(&module, &imports)?;
+//     let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &imports)?;
 //     let set_at: NativeFunc<(i32, i32), ()> = instance.get_native_function("set_at")?;
 //     let get_at: NativeFunc<i32, i32> = instance.get_native_function("get_at")?;
 //     set_at.call(200, 123)?;
