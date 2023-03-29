@@ -3,7 +3,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::hash::{hash, CryptoHash};
 
 /// State value reference. Used to charge fees for value length before retrieving the value itself.
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Hash)]
 pub struct ValueRef {
     /// Value length in bytes.
     pub length: u32,
