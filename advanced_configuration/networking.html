@@ -141,7 +141,29 @@
                 <div id="content" class="content">
                     <main>
                         <p>This document describes the advanced network options that you can configure
-by modifying the &quot;network&quot; section of your &quot;config.json&quot; file.</p>
+by modifying the &quot;network&quot; section of your &quot;config.json&quot; file:</p>
+<pre><code>{
+  // ...
+  &quot;network&quot;: {
+    // ...
+    &quot;public_addrs&quot;: [],
+    &quot;allow_private_ip_in_public_addrs&quot;: false,
+    &quot;experimental&quot;: {
+      &quot;inbound_disabled&quot;: false,
+      &quot;connect_only_to_boot_nodes&quot;: false,
+      &quot;skip_sending_tombstones_seconds&quot;: 0,
+      &quot;tier1_enable_inbound&quot;: true,
+      &quot;tier1_enable_outbound&quot;: false,
+      &quot;tier1_connect_interval&quot;: {
+        &quot;secs&quot;: 60,
+        &quot;nanos&quot;: 0
+      },
+      &quot;tier1_new_connections_per_attempt&quot;: 50
+    }
+  },
+  // ...
+}
+</code></pre>
 <h3 id="tier1-network"><a class="header" href="#tier1-network">TIER1 network</a></h3>
 <p>Participants of the BFT consensus (block &amp; chunk producers) now can establish
 direct (aka TIER1) connections between each other, which will optimize the
