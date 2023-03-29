@@ -8,12 +8,12 @@ edition.workspace = true
 [dependencies]
 once_cell.workspace = true
 
-near-chain-configs = { path = "../../core/chain-configs" }
-near-chain = { path = "../../chain/chain" }
-near-crypto = { path = "../../core/crypto" }
-near-primitives = { path = "../../core/primitives" }
-near-test-contracts = { path = "../../runtime/near-test-contracts" }
-node-runtime = { path = "../../runtime/runtime" }
+near-chain-configs.workspace = true
+near-chain.workspace = true
+near-crypto.workspace = true
+near-primitives.workspace = true
+near-test-contracts.workspace = true
+node-runtime.workspace = true
 
 [features]
 default = []

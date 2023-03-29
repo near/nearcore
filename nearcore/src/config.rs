@@ -33,8 +33,8 @@ use near_primitives::shard_layout::account_id_to_shard_id;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, EpochHeight, Gas, NumBlocks,
-    NumSeats, NumShards, ShardId,
+    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats,
+    NumShards, ShardId,
 };
 use near_primitives::utils::{generate_random_string, get_num_seats_per_shard};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
@@ -66,9 +66,6 @@ pub const MAX_BLOCK_PRODUCTION_DELAY: u64 = 2_000;
 
 /// Maximum time until skipping the previous block is ms.
 pub const MAX_BLOCK_WAIT_DELAY: u64 = 6_000;
-
-/// Reduce wait time for every missing block in ms.
-const REDUCE_DELAY_FOR_MISSING_BLOCKS: u64 = 100;
 
 /// Horizon at which instead of fetching block, fetch full state.
 const BLOCK_FETCH_HORIZON: BlockHeightDelta = 50;
@@ -123,9 +120,6 @@ pub const NUM_BLOCK_PRODUCER_SEATS: NumSeats = 50;
 /// The minimum stake required for staking is last seat price divided by this number.
 pub const MINIMUM_STAKE_DIVISOR: u64 = 10;
 
-/// Number of epochs before protocol upgrade.
-pub const PROTOCOL_UPGRADE_NUM_EPOCHS: EpochHeight = 2;
-
 pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
 pub const NODE_KEY_FILE: &str = "node_key.json";
@@ -151,11 +145,6 @@ pub const MAX_INFLATION_RATE: Rational32 = Rational32::new_raw(1, 20);
 
 /// Protocol upgrade stake threshold.
 pub const PROTOCOL_UPGRADE_STAKE_THRESHOLD: Rational32 = Rational32::new_raw(4, 5);
-
-/// Serde default only supports functions without parameters.
-fn default_reduce_wait_for_missing_block() -> Duration {
-    Duration::from_millis(REDUCE_DELAY_FOR_MISSING_BLOCKS)
-}
 
 fn default_header_sync_initial_timeout() -> Duration {
     Duration::from_secs(10)
@@ -217,9 +206,6 @@ pub struct Consensus {
     pub max_block_production_delay: Duration,
     /// Maximum duration before skipping given height.
     pub max_block_wait_delay: Duration,
-    /// Duration to reduce the wait for each missed block by validator.
-    #[serde(default = "default_reduce_wait_for_missing_block")]
-    pub reduce_wait_for_missing_block: Duration,
     /// Produce empty blocks, use `false` for testing.
     pub produce_empty_blocks: bool,
     /// Horizon at which instead of fetching block, fetch full state.
@@ -268,7 +254,6 @@ impl Default for Consensus {
             min_block_production_delay: Duration::from_millis(MIN_BLOCK_PRODUCTION_DELAY),
             max_block_production_delay: Duration::from_millis(MAX_BLOCK_PRODUCTION_DELAY),
             max_block_wait_delay: Duration::from_millis(MAX_BLOCK_WAIT_DELAY),
-            reduce_wait_for_missing_block: default_reduce_wait_for_missing_block(),
             produce_empty_blocks: true,
             block_fetch_horizon: BLOCK_FETCH_HORIZON,
             state_fetch_horizon: STATE_FETCH_HORIZON,
@@ -313,8 +298,8 @@ pub struct Config {
     /// save_trie_changes = !archive
     /// save_trie_changes should be set to true iff
     /// - archive if false - non-archival nodes need trie changes to perform garbage collection
-    /// - archive is true, cold_store is configured and migration to split_storage is finished - node
-    /// working in split storage mode needs trie changes in order to do garbage collection on hot.
+    /// - archive is true and cold_store is configured - node working in split storage mode
+    /// needs trie changes in order to do garbage collection on hot and populate cold State column.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub save_trie_changes: Option<bool>,
     pub log_summary_style: LogSummaryStyle,
@@ -356,6 +341,9 @@ pub struct Config {
     /// Options for dumping state of every epoch to S3.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state_sync: Option<StateSyncConfig>,
+    /// Whether to use state sync (unreliable and corrupts the DB if fails) or do a block sync instead.
+    #[serde(skip_serializing_if = "is_false")]
+    pub state_sync_enabled: bool,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -393,6 +381,7 @@ impl Default for Config {
             split_storage: None,
             expected_shutdown: None,
             state_sync: None,
+            state_sync_enabled: false,
         }
     }
 }
@@ -567,7 +556,6 @@ impl Genesis {
             avg_hidden_validator_seats_per_shard: vec![0; num_validator_seats_per_shard.len()],
             dynamic_resharding: false,
             protocol_upgrade_stake_threshold: PROTOCOL_UPGRADE_STAKE_THRESHOLD,
-            protocol_upgrade_num_epochs: PROTOCOL_UPGRADE_NUM_EPOCHS,
             epoch_length: FAST_EPOCH_LENGTH,
             gas_limit: INITIAL_GAS_LIMIT,
             gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
@@ -661,7 +649,6 @@ impl NearConfig {
                 min_block_production_delay: config.consensus.min_block_production_delay,
                 max_block_production_delay: config.consensus.max_block_production_delay,
                 max_block_wait_delay: config.consensus.max_block_wait_delay,
-                reduce_wait_for_missing_block: config.consensus.reduce_wait_for_missing_block,
                 skip_sync_wait: config.network.skip_sync_wait,
                 sync_check_period: config.consensus.sync_check_period,
                 sync_step_period: config.consensus.sync_step_period,
@@ -678,7 +665,6 @@ impl NearConfig {
                 produce_empty_blocks: config.consensus.produce_empty_blocks,
                 epoch_length: genesis.config.epoch_length,
                 num_block_producer_seats: genesis.config.num_block_producer_seats,
-                announce_account_horizon: genesis.config.epoch_length / 2,
                 ttl_account_id_router: config.network.ttl_account_id_router,
                 // TODO(1047): this should be adjusted depending on the speed of sync of state.
                 block_fetch_horizon: config.consensus.block_fetch_horizon,
@@ -717,6 +703,7 @@ impl NearConfig {
                     .state_sync
                     .as_ref()
                     .map_or(vec![], |x| x.drop_state_of_dump.clone().unwrap_or(vec![])),
+                state_sync_enabled: config.state_sync_enabled,
             },
             network_config: NetworkConfig::new(
                 config.network,
@@ -1155,7 +1142,6 @@ pub fn init_configs(
                 avg_hidden_validator_seats_per_shard: (0..num_shards).map(|_| 0).collect(),
                 dynamic_resharding: false,
                 protocol_upgrade_stake_threshold: PROTOCOL_UPGRADE_STAKE_THRESHOLD,
-                protocol_upgrade_num_epochs: PROTOCOL_UPGRADE_NUM_EPOCHS,
                 epoch_length: if fast { FAST_EPOCH_LENGTH } else { EXPECTED_EPOCH_LENGTH },
                 gas_limit: INITIAL_GAS_LIMIT,
                 gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,

@@ -2426,6 +2426,16 @@ impl Chain {
             byzantine_assert!(false);
             return Err(Error::InvalidGasPrice);
         }
+        let minted_amount = if self.runtime_adapter.is_next_block_epoch_start(&prev_hash)? {
+            Some(self.runtime_adapter.get_epoch_minted_amount(block.header().next_epoch_id())?)
+        } else {
+            None
+        };
+
+        if !block.verify_total_supply(prev.total_supply(), minted_amount) {
+            byzantine_assert!(false);
+            return Err(Error::InvalidGasPrice);
+        }
 
         let (challenges_result, challenged_blocks) = self.verify_challenges(
             block.challenges(),
@@ -2689,17 +2699,12 @@ impl Chain {
         )
     }
 
-    pub fn get_state_response_header(
+    /// Computes ShardStateSyncResponseHeader.
+    pub fn compute_state_response_header(
         &self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
     ) -> Result<ShardStateSyncResponseHeader, Error> {
-        // Check cache
-        let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
-        if let Ok(Some(header)) = self.store.store().get_ser(DBCol::StateHeaders, &key) {
-            return Ok(header);
-        }
-
         // Consistency rules:
         // 1. Everything prefixed with `sync_` indicates new epoch, for which we are syncing.
         // 1a. `sync_prev` means the last of the prev epoch.
@@ -2865,6 +2870,24 @@ impl Chain {
                 })
             }
         };
+        Ok(shard_state_header)
+    }
+
+    /// Returns ShardStateSyncResponseHeader for the given epoch and shard.
+    /// If the header is already available in the DB, returns the cached version and doesn't recompute it.
+    /// If the header was computed then it also gets cached in the DB.
+    pub fn get_state_response_header(
+        &self,
+        shard_id: ShardId,
+        sync_hash: CryptoHash,
+    ) -> Result<ShardStateSyncResponseHeader, Error> {
+        // Check cache
+        let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
+        if let Ok(Some(header)) = self.store.store().get_ser(DBCol::StateHeaders, &key) {
+            return Ok(header);
+        }
+
+        let shard_state_header = self.compute_state_response_header(shard_id, sync_hash)?;
 
         // Saving the header data
         let mut store_update = self.store.store().store_update();
@@ -3547,7 +3570,7 @@ impl Chain {
     ) -> Result<AccountId, Error> {
         let head = self.head()?;
         let target_height = head.height + horizon - 1;
-        self.runtime_adapter.get_chunk_producer(epoch_id, target_height, shard_id)
+        Ok(self.runtime_adapter.get_chunk_producer(epoch_id, target_height, shard_id)?)
     }
 
     /// Find a validator that is responsible for a given shard to forward requests to
@@ -4503,7 +4526,7 @@ impl Chain {
         {
             let prev_hash = *sync_block.header().prev_hash();
             // If sync_hash is not on the Epoch boundary, it's malicious behavior
-            self.runtime_adapter.is_next_block_epoch_start(&prev_hash)
+            Ok(self.runtime_adapter.is_next_block_epoch_start(&prev_hash)?)
         } else {
             Ok(false) // invalid Epoch of sync_hash, possible malicious behavior
         }

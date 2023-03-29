@@ -22,7 +22,6 @@ use near_vm_logic::{ExtCosts, VMLimitConfig};
 use node_runtime::{ApplyState, Runtime};
 use std::collections::HashMap;
 use std::iter;
-use std::rc::Rc;
 use std::sync::Arc;
 
 /// Global context shared by all cost calculating functions.
@@ -353,7 +352,7 @@ impl Testbed<'_> {
         tx: &SignedTransaction,
         metric: GasMetric,
     ) -> GasCost {
-        let mut state_update = TrieUpdate::new(Rc::new(self.trie()));
+        let mut state_update = TrieUpdate::new(self.trie());
         // gas price and block height can be anything, it doesn't affect performance
         // but making it too small affects max_depth and thus pessimistic inflation
         let gas_price = 100_000_000;
@@ -379,7 +378,7 @@ impl Testbed<'_> {
     ///
     /// Use this method to estimate action exec costs.
     pub(crate) fn apply_action_receipt(&mut self, receipt: &Receipt, metric: GasMetric) -> GasCost {
-        let mut state_update = TrieUpdate::new(Rc::new(self.trie()));
+        let mut state_update = TrieUpdate::new(self.trie());
         let mut outgoing_receipts = vec![];
         let mut validator_proposals = vec![];
         let mut stats = node_runtime::ApplyStats::default();

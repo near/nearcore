@@ -30,6 +30,7 @@ impl<Data, Event> LoopEventHandler<Data, Event> {
             inner: Box::new(LoopEventHandlerImplByFunction {
                 initial_event: None,
                 handler: Box::new(handler),
+                ok_to_drop: Box::new(|_| false),
                 context: None,
             }),
         }
@@ -50,11 +51,13 @@ impl<Data, Event> LoopEventHandler<Data, Event> {
         initial_event: Event,
         initial_delay: time::Duration,
         handler: impl FnMut(Event, &mut Data, &LoopHandlerContext<Event>) -> Result<(), Event> + 'static,
+        ok_to_drop: impl Fn(&Event) -> bool + 'static,
     ) -> Self {
         Self {
             inner: Box::new(LoopEventHandlerImplByFunction {
                 initial_event: Some((initial_event, initial_delay)),
                 handler: Box::new(handler),
+                ok_to_drop: Box::new(ok_to_drop),
                 context: None,
             }),
         }
@@ -88,6 +91,10 @@ impl<Data, Event> LoopEventHandler<Data, Event> {
     pub(crate) fn handle(&mut self, event: Event, data: &mut Data) -> Result<(), Event> {
         self.inner.handle(event, data)
     }
+
+    pub(crate) fn try_drop(&self, event: Event) -> Result<(), Event> {
+        self.inner.try_drop(event)
+    }
 }
 
 /// Internal implementation of LoopEventHandler.
@@ -96,6 +103,14 @@ pub(crate) trait LoopEventHandlerImpl<Data, Event> {
     fn init(&mut self, context: LoopHandlerContext<Event>);
     /// handle is called when we have a pending event from the test loop.
     fn handle(&mut self, event: Event, data: &mut Data) -> Result<(), Event>;
+    /// try_drop is called when the TestLoop is dropped, but an event
+    /// remains in the event queue. If this handler knows that it's OK to
+    /// drop the event, it should return Ok(()); otherwise it should return
+    /// the original event as an Err.
+    ///
+    /// This is basically used for periodic timers, as it's OK to drop timers,
+    /// but not OK to drop an event that forgot to be handled.
+    fn try_drop(&self, event: Event) -> Result<(), Event>;
 }
 
 /// Implementation of LoopEventHandlerImpl by a closure. We cache the context
@@ -104,6 +119,7 @@ pub(crate) trait LoopEventHandlerImpl<Data, Event> {
 struct LoopEventHandlerImplByFunction<Data, Event> {
     initial_event: Option<(Event, time::Duration)>,
     handler: Box<dyn FnMut(Event, &mut Data, &LoopHandlerContext<Event>) -> Result<(), Event>>,
+    ok_to_drop: Box<dyn Fn(&Event) -> bool>,
     context: Option<LoopHandlerContext<Event>>,
 }
 
@@ -120,6 +136,14 @@ impl<Data, Event> LoopEventHandlerImpl<Data, Event>
     fn handle(&mut self, event: Event, data: &mut Data) -> Result<(), Event> {
         let context = self.context.as_ref().unwrap();
         (self.handler)(event, data, context)
+    }
+
+    fn try_drop(&self, event: Event) -> Result<(), Event> {
+        if (self.ok_to_drop)(&event) {
+            Ok(())
+        } else {
+            Err(event)
+        }
     }
 }
 
@@ -155,6 +179,12 @@ impl<
         self.0.handle(inner_event, &mut inner_data)?;
         Ok(())
     }
+
+    fn try_drop(&self, event: OuterEvent) -> Result<(), OuterEvent> {
+        let inner_event = event.try_into_or_self()?;
+        self.0.try_drop(inner_event)?;
+        Ok(())
+    }
 }
 
 /// An event handler that puts the event into a vector in the Data, as long as
@@ -174,6 +204,7 @@ pub fn interval<Data, Event: Clone + PartialEq>(
     event: Event,
     func: impl Fn(&mut Data) + 'static,
 ) -> LoopEventHandler<Data, Event> {
+    let event_cloned = event.clone();
     LoopEventHandler::new_with_initial_event(
         event.clone(),
         interval,
@@ -186,5 +217,6 @@ pub fn interval<Data, Event: Clone + PartialEq>(
                 Err(actual_event)
             }
         },
+        move |actual_event| actual_event == &event_cloned,
     )
 }

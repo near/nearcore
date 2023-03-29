@@ -59,6 +59,7 @@
 //! timestamp are executed in FIFO order. For example, if the events are emitted in the
 //! following order: (A due 100ms), (B due 0ms), (C due 200ms), (D due 0ms), (E due 100ms)
 //! then the actual order of execution is B, D, A, E, C.
+pub mod adhoc;
 pub mod delay_sender;
 pub mod event_handler;
 pub mod futures;
@@ -243,6 +244,10 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
         }
     }
 
+    pub fn sender(&self) -> DelaySender<Event> {
+        self.sender.clone()
+    }
+
     /// Registers a new event handler to the test loop.
     pub fn register_handler(&mut self, handler: LoopEventHandler<Data, Event>) {
         assert!(!self.handlers_initialized, "Cannot register more handlers after run() is called");
@@ -261,6 +266,18 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
         }
     }
 
+    /// Helper to push events we have just received into the heap.
+    fn queue_received_events(&mut self) {
+        while let Ok(event) = self.pending_events.try_recv() {
+            self.events.push(EventInHeap {
+                due: self.current_time + event.delay,
+                event: event.event,
+                id: self.next_event_index,
+            });
+            self.next_event_index += 1;
+        }
+    }
+
     /// Runs the test loop for the given duration. This function may be called
     /// multiple times, but further test handlers may not be registered after
     /// the first call.
@@ -269,14 +286,7 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
         let deadline = self.current_time + duration;
         'outer: loop {
             // Push events we have just received into the heap.
-            while let Ok(event) = self.pending_events.try_recv() {
-                self.events.push(EventInHeap {
-                    due: self.current_time + event.delay,
-                    event: event.event,
-                    id: self.next_event_index,
-                });
-                self.next_event_index += 1;
-            }
+            self.queue_received_events();
             // Don't execute any more events if we have reached the deadline.
             match self.events.peek() {
                 Some(event) => {
@@ -308,6 +318,28 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
                 }
             }
             panic!("Unhandled event: {:?}", current_event);
+        }
+        self.current_time = deadline;
+    }
+}
+
+impl<Data: 'static, Event: Debug + Send + 'static> Drop for TestLoop<Data, Event> {
+    fn drop(&mut self) {
+        self.queue_received_events();
+        'outer: for event in self.events.drain() {
+            let mut current_event = event.event;
+            for handler in &mut self.handlers {
+                if let Err(event) = handler.try_drop(current_event) {
+                    current_event = event;
+                } else {
+                    continue 'outer;
+                }
+            }
+            panic!(
+                "Important event scheduled at {} is not handled at the end of the test: {:?}.
+                 Consider calling `test.run()` again, or with a longer duration.",
+                event.due, current_event
+            );
         }
     }
 }

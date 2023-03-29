@@ -309,7 +309,7 @@ impl std::fmt::Debug for TrieNode {
 }
 
 pub struct Trie {
-    pub storage: Box<dyn TrieStorage>,
+    pub storage: Box<dyn TrieStorage + Send>,
     root: StateRoot,
     pub flat_storage_chunk_view: Option<FlatStorageChunkView>,
 }
@@ -409,7 +409,7 @@ impl Trie {
     pub const EMPTY_ROOT: StateRoot = StateRoot::new();
 
     pub fn new(
-        storage: Box<dyn TrieStorage>,
+        storage: Box<dyn TrieStorage + Send>,
         root: StateRoot,
         flat_storage_chunk_view: Option<FlatStorageChunkView>,
     ) -> Self {

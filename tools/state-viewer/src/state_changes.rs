@@ -72,8 +72,7 @@ fn dump_state_changes(
 ) {
     assert!(height_from <= height_to, "--height-from must be less than or equal to --height-to");
 
-    let runtime: NightshadeRuntime =
-        NightshadeRuntime::from_config(home_dir, store.clone(), &near_config);
+    let runtime = NightshadeRuntime::from_config(home_dir, store.clone(), &near_config);
     let chain_store = ChainStore::new(
         store.clone(),
         near_config.genesis.config.genesis_height,
@@ -89,7 +88,7 @@ fn dump_state_changes(
 
         for row in key.find_rows_iter(&store) {
             let (key, value) = row.unwrap();
-            let shard_id = get_state_change_shard_id(key.as_ref(), &value.trie_key, block_hash, epoch_id, &runtime).unwrap();
+            let shard_id = get_state_change_shard_id(key.as_ref(), &value.trie_key, block_hash, epoch_id, runtime.as_ref()).unwrap();
             state_changes_per_shard[shard_id as usize].push(value);
         }
 
@@ -135,8 +134,7 @@ fn apply_state_changes(
     near_config: NearConfig,
     store: Store,
 ) {
-    let runtime: NightshadeRuntime =
-        NightshadeRuntime::from_config(home_dir, store.clone(), &near_config);
+    let runtime = NightshadeRuntime::from_config(home_dir, store.clone(), &near_config);
     let mut chain_store = ChainStore::new(
         store,
         near_config.genesis.config.genesis_height,

@@ -16,6 +16,7 @@ elastic-array.workspace = true
 enum-map.workspace = true
 fs2.workspace = true
 itoa.workspace = true
+itertools.workspace = true
 lru.workspace = true
 num_cpus.workspace = true
 once_cell.workspace = true
@@ -30,9 +31,9 @@ tempfile.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 
-near-crypto = { path = "../crypto" }
-near-o11y = { path = "../o11y" }
-near-primitives = { path = "../primitives" }
+near-crypto.workspace = true
+near-o11y.workspace = true
+near-primitives.workspace = true
 
 [dev-dependencies]
 assert_matches.workspace = true

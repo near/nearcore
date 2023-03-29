@@ -3,6 +3,7 @@ use assert_matches::assert_matches;
 use near_chain::{ChainGenesis, RuntimeWithEpochManagerAdapter};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
+use near_epoch_manager::shard_tracker::TrackedConfig;
 use near_primitives::errors::{ActionErrorKind, TxExecutionError};
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::version::ProtocolFeature;
@@ -10,7 +11,6 @@ use near_primitives::views::FinalExecutionStatus;
 use near_store::test_utils::create_test_store;
 use near_vm_errors::{CompilationError, FunctionCallErrorSer, PrepareError};
 use nearcore::config::GenesisExt;
-use nearcore::TrackedConfig;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -32,13 +32,13 @@ fn verify_contract_limits_upgrade(
         genesis.config.protocol_version = old_protocol_version;
         let chain_genesis = ChainGenesis::new(&genesis);
         let runtimes: Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> =
-            vec![Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(
+            vec![nearcore::NightshadeRuntime::test_with_runtime_config_store(
                 Path::new("../../../.."),
                 create_test_store(),
                 &genesis,
                 TrackedConfig::new_empty(),
                 RuntimeConfigStore::new(None),
-            ))];
+            )];
         let mut env = TestEnv::builder(chain_genesis).runtime_adapters(runtimes).build();
 
         deploy_test_contract(

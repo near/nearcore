@@ -45,15 +45,15 @@ tokio-util.workspace = true
 tracing.workspace = true
 time.workspace = true
 
-delay-detector = { path = "../../tools/delay-detector" }
-near-async = { path = "../../core/async" }
-near-o11y = { path = "../../core/o11y" }
-near-crypto = { path = "../../core/crypto" }
-near-performance-metrics = { path = "../../utils/near-performance-metrics" }
-near-performance-metrics-macros = { path = "../../utils/near-performance-metrics-macros" }
-near-primitives = { path = "../../core/primitives" }
-near-stable-hasher = { path = "../../utils/near-stable-hasher"}
-near-store = { path = "../../core/store" }
+delay-detector.workspace = true
+near-async.workspace = true
+near-o11y.workspace = true
+near-crypto.workspace = true
+near-performance-metrics.workspace = true
+near-performance-metrics-macros.workspace = true
+near-primitives.workspace = true
+near-stable-hasher.workspace = true
+near-store.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true

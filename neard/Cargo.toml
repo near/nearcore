@@ -29,25 +29,25 @@ tikv-jemallocator.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
-nearcore = { path = "../nearcore" }
-near-amend-genesis = { path = "../tools/amend-genesis" }
-near-chain-configs = { path = "../core/chain-configs" }
-near-client = { path = "../chain/client" }
-near-cold-store-tool = { path = "../tools/cold-store", package = "cold-store-tool" }
-near-config-utils = { path = "../utils/config" }
-near-crypto = { path = "../core/crypto" }
-near-dyn-configs = { path = "../core/dyn-configs" }
-near-flat-storage = { path = "../tools/flat-storage" }
-near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }
-near-mirror = { path = "../tools/mirror" }
-near-network = { path = "../chain/network" }
-near-o11y = { path = "../core/o11y" }
-near-performance-metrics = { path = "../utils/near-performance-metrics" }
-near-ping = { path = "../tools/ping" }
-near-primitives = { path = "../core/primitives" }
-near-state-parts = { path = "../tools/state-parts" }
-near-state-viewer = { path = "../tools/state-viewer", package = "state-viewer" }
-near-store = { path = "../core/store" }
+nearcore.workspace = true
+near-amend-genesis.workspace = true
+near-chain-configs.workspace = true
+near-client.workspace = true
+near-cold-store-tool.workspace = true
+near-config-utils.workspace = true
+near-crypto.workspace = true
+near-dyn-configs.workspace = true
+near-flat-storage.workspace = true
+near-jsonrpc-primitives.workspace = true
+near-mirror.workspace = true
+near-network.workspace = true
+near-o11y.workspace = true
+near-performance-metrics.workspace = true
+near-ping.workspace = true
+near-primitives.workspace = true
+near-state-parts.workspace = true
+near-state-viewer.workspace = true
+near-store.workspace = true
 
 [build-dependencies]
 anyhow.workspace = true

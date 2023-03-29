@@ -1,7 +1,6 @@
 use crate::cold_storage::spawn_cold_store_loop;
 pub use crate::config::{init_configs, load_config, load_test_config, NearConfig, NEAR_BASE};
 pub use crate::runtime::NightshadeRuntime;
-pub use crate::shard_tracker::TrackedConfig;
 use crate::state_sync::{spawn_state_sync_dump, StateSyncDumpHandle};
 use actix::{Actor, Addr};
 use actix_rt::ArbiterHandle;
@@ -33,7 +32,6 @@ pub mod dyn_config;
 mod metrics;
 pub mod migrations;
 mod runtime;
-mod shard_tracker;
 mod state_sync;
 
 pub fn get_default_home() -> PathBuf {
@@ -208,14 +206,13 @@ pub fn start_with_config_and_synchronization(
 ) -> anyhow::Result<NearNode> {
     let store = open_storage(home_dir, &mut config)?;
 
-    let runtime =
-        Arc::new(NightshadeRuntime::from_config(home_dir, store.get_hot_store(), &config));
+    let runtime = NightshadeRuntime::from_config(home_dir, store.get_hot_store(), &config);
 
     // Get the split store. If split store is some then create a new runtime for
     // the view client. Otherwise just re-use the existing runtime.
     let split_store = get_split_store(&config, &store)?;
     let view_runtime = if let Some(split_store) = split_store {
-        Arc::new(NightshadeRuntime::from_config(home_dir, split_store, &config))
+        NightshadeRuntime::from_config(home_dir, split_store, &config)
     } else {
         runtime.clone()
     };

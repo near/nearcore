@@ -1,5 +1,6 @@
 pub(crate) use self::add_key::AddKeyOperation;
 pub(crate) use self::create_account::CreateAccountOperation;
+pub(crate) use self::delegate_action::DelegateActionOperation;
 pub(crate) use self::delete_account::DeleteAccountOperation;
 pub(crate) use self::delete_key::DeleteKeyOperation;
 pub(crate) use self::deploy_contract::DeployContractOperation;
@@ -10,23 +11,28 @@ pub(crate) use self::initiate_delete_account::InitiateDeleteAccountOperation;
 pub(crate) use self::initiate_delete_key::InitiateDeleteKeyOperation;
 pub(crate) use self::initiate_deploy_contract::InitiateDeployContractOperation;
 pub(crate) use self::initiate_function_call::InitiateFunctionCallOperation;
+pub(crate) use self::intitiate_signed_delegate_action::InitiateSignedDelegateActionOperation;
 pub(crate) use self::refund_delete_account::RefundDeleteAccountOperation;
 pub(crate) use self::stake::StakeOperation;
 pub(crate) use self::transfer::TransferOperation;
 
 mod add_key;
 mod create_account;
+pub mod delegate_action;
 mod delete_account;
 mod delete_key;
 mod deploy_contract;
 mod function_call;
 mod initiate_add_key;
 mod initiate_create_account;
+pub mod initiate_delegate_action;
 mod initiate_delete_account;
 mod initiate_delete_key;
 mod initiate_deploy_contract;
 mod initiate_function_call;
+pub mod intitiate_signed_delegate_action;
 mod refund_delete_account;
+pub mod signed_delegate_action;
 mod stake;
 mod transfer;
 
