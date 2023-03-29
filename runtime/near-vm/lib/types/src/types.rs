@@ -580,12 +580,6 @@ pub struct InstanceConfig {
     pub stack_limit: u32,
 }
 
-<<<<<<< HEAD
-// Default stack limit, in bytes.
-const DEFAULT_STACK_LIMIT: u32 = 256 * 1024;
-
-=======
->>>>>>> upstream/master
 impl InstanceConfig {
     /// Create default instance configuration.
     pub fn with_stack_limit(stack_limit: u32) -> Self {
