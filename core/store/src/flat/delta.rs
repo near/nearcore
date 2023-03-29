@@ -5,19 +5,24 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::ValueRef;
 use near_primitives::types::RawStateChangesWithTrieKey;
 use std::collections::HashMap;
-use std::fmt::Display;
 use std::sync::Arc;
 
 use super::{store_helper, BlockInfo};
 use crate::{CryptoHash, StoreUpdate};
 
-#[derive(Display)]
+#[derive(Debug)]
 pub struct FlatStateDelta {
     pub metadata: FlatStateDeltaMetadata,
     pub changes: FlatStateChanges,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Display)]
+impl std::fmt::Display for FlatStateDelta {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "FlatStateDelta metadata - {:?} changes - {}", self.metadata, self.changes)
+    }
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Debug)]
 pub struct FlatStateDeltaMetadata {
     pub block: BlockInfo,
 }
@@ -37,7 +42,7 @@ impl KeyForFlatStateDelta {
 }
 /// Delta of the state for some shard and block, stores mapping from keys to value refs or None, if key was removed in
 /// this block.
-#[derive(BorshSerialize, BorshDeserialize, Clone, Default, Debug, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Default, PartialEq, Eq)]
 pub struct FlatStateChanges(pub(crate) HashMap<Vec<u8>, Option<ValueRef>>);
 
 impl<T> From<T> for FlatStateChanges
@@ -49,7 +54,7 @@ where
     }
 }
 
-impl Display for FlatStateChanges {
+impl std::fmt::Display for FlatStateChanges {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         if self.len() <= 5 {
             write!(f, "{:?}", self.0)

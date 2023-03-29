@@ -6,7 +6,7 @@ use near_chain::{
 };
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::{state::ValueRef, trie_key::trie_key_parsers::parse_account_id_from_raw_key};
-use near_store::flat::{store_helper, FlatStorageStatus};
+use near_store::flat::{store_helper, FlatStorageStatus, FlatStateChanges, FlatStateDeltaMetadata, FlatStateDelta};
 use near_store::{Mode, NodeStorage, ShardUId, Store, StoreOpener};
 use nearcore::{load_config, NearConfig, NightshadeRuntime};
 use std::{path::PathBuf, sync::Arc, time::Duration};
@@ -63,6 +63,30 @@ pub struct VerifyCmd {
     shard_id: u64,
 }
 
+fn display_delta(store: &Store, shard_uid: ShardUId, metadata: FlatStateDeltaMetadata) {
+    let changes = store_helper::get_delta_changes(store, shard_uid, metadata.block.hash)?.unwrap();
+    println!("{}", FlatStateDelta { metadata, changes });
+}
+
+fn display_deltas(store: &Store, shard_uid: ShardUId) -> anyhow::Result<()> {
+    let deltas_metadata = store_helper::get_all_deltas_metadata(store, shard_uid)?;
+    println!("Deltas: {}", deltas_metadata.len());
+    if deltas_metadata.len() <= 10 {
+        for delta_metadata in deltas_metadata {
+            display_delta(store, shard_uid, delta_metadata);
+        }
+    } else {
+        for delta_metadata in deltas_metadata[..5] {
+            display_delta(store, shard_uid, delta_metadata);
+        }
+        println!("... skipped {} deltas ...", deltas_metadata.len() - 10);
+        for delta_metadata in deltas_metadata[deltas_metadata.len() - 5..] {
+            display_delta(store, shard_uid, delta_metadata);
+        }
+    }
+    Ok(())
+}
+
 impl FlatStorageCommand {
     fn get_db(
         opener: &StoreOpener,
@@ -98,8 +122,7 @@ impl FlatStorageCommand {
                                 "Shard: {shard:?} - flat storage @{:?}",
                                 ready_status.flat_head.height
                             );
-                            let deltas = store_helper::get_all_deltas_metadata(&hot_store, shard_uid)?;
-                            println!("Deltas: {:?}", deltas);
+                            display_deltas(&hot_store, shard_uid)?;
                         }
                         status => {
                             println!("Shard: {shard:?} - no flat storage: {status:?}");
