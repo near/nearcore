@@ -24,8 +24,10 @@ JsonDict = typing.Dict[str, typing.Any]
 BlockIdentifier = typing.Union[str, int, JsonDict]
 TxIdentifier = typing.Union[str, JsonDict]
 
+
 def account_identifier(account_id: str) -> JsonDict:
     return {'address': account_id}
+
 
 def block_identifier(block_id: BlockIdentifier) -> JsonDict:
     if isinstance(block_id, int):
@@ -263,10 +265,10 @@ class RosettaRPC:
                 },
             }, **kw)
 
-    def add_full_access_key(self, account: key.Key, public_key_hex: str, **kw) -> RosettaExecResult:
+    def add_full_access_key(self, account: key.Key, public_key_hex: str,
+                            **kw) -> RosettaExecResult:
         return self.exec_operations(
-            account,
-            {
+            account, {
                 "operation_identifier": {
                     "index": 0
                 },
@@ -274,16 +276,13 @@ class RosettaRPC:
                 "account": {
                     "address": account.account_id
                 }
-            },
-            {
+            }, {
                 "operation_identifier": {
                     "index": 1
                 },
-                "related_operations": [
-                    {
-                        "index": 0
-                    }
-                ],
+                "related_operations": [{
+                    "index": 0
+                }],
                 "type": "ADD_KEY",
                 "account": {
                     "address": account.account_id
@@ -391,14 +390,24 @@ class RosettaTestCase(unittest.TestCase):
         cls.node.cleanup()
 
     def test_zero_balance_account(self) -> None:
+        """Tests storage staking requirements for low-storage accounts.
+
+        Creates an implicit account by sending it 1 yoctoNEAR (not enough to
+        cover storage). However, the zero-balance allowance established in
+        NEP-448 should cover the storage staking requirement. Then, we
+        transfer 10**22 yoctoNEAR to the account, which should be enough to
+        cover the storage staking requirement for the 6 full-access keys we
+        then add to the account, exceeding the zero-balance account allowance.
+        """
+
         test_amount = 10**22
         key_space_cost = 41964925000000000000
         validator = self.node.validator_key
         implicit = key.Key.implicit_account()
 
-        result = self.rosetta.transfer(src=validator,
-                              dst=implicit,
-                              amount=test_amount)
+        # first transfer 1 yoctoNEAR to create the account
+        # not enough to cover storage, but the zero-balance allowance should cover it
+        result = self.rosetta.transfer(src=validator, dst=implicit, amount=1)
 
         block = result.block()
         tx = result.transaction()
@@ -411,7 +420,38 @@ class RosettaTestCase(unittest.TestCase):
         result = RosettaExecResult(self.rosetta, block, receipt_id)
         related = result.related(0)
 
-        balances = self.rosetta.get_account_balances(account_id=implicit.account_id)
+        balances = self.rosetta.get_account_balances(
+            account_id=implicit.account_id)
+
+        # even though 1 yoctoNEAR is not enough to cover the storage cost,
+        # since the account should be consuming less than 770 bytes of storage,
+        # it should be allowed nonetheless.
+        self.assertEqual(balances, [{
+            'value': '1',
+            'currency': {
+                'symbol': 'NEAR',
+                'decimals': 24
+            }
+        }])
+
+        # transfer the rest of the amount
+        result = self.rosetta.transfer(src=validator,
+                                       dst=implicit,
+                                       amount=(test_amount - 1))
+
+        block = result.block()
+        tx = result.transaction()
+        json_res = self.node.get_tx(result.near_hash, implicit.account_id)
+        json_res = json_res['result']
+        receipt_ids = json_res['transaction_outcome']['outcome']['receipt_ids']
+        receipt_id = {'hash': 'receipt:' + receipt_ids[0]}
+
+        # Fetch the receipt through Rosetta RPC.
+        result = RosettaExecResult(self.rosetta, block, receipt_id)
+        related = result.related(0)
+
+        balances = self.rosetta.get_account_balances(
+            account_id=implicit.account_id)
 
         self.assertEqual(balances, [{
             'value': str(test_amount),
@@ -437,17 +477,20 @@ class RosettaTestCase(unittest.TestCase):
             tx = result.transaction()
             json_res = self.node.get_tx(result.near_hash, implicit.account_id)
             json_res = json_res['result']
-            receipt_ids = json_res['transaction_outcome']['outcome']['receipt_ids']
+            receipt_ids = json_res['transaction_outcome']['outcome'][
+                'receipt_ids']
             receipt_id = {'hash': 'receipt:' + receipt_ids[0]}
 
             # Fetch the receipt through Rosetta RPC.
             result = RosettaExecResult(self.rosetta, block, receipt_id)
             related = result.related(0)
 
-        balances = self.rosetta.get_account_balances(account_id=implicit.account_id)
+        balances = self.rosetta.get_account_balances(
+            account_id=implicit.account_id)
 
         # no longer a zero-balance account
-        self.assertEqual(test_amount - key_space_cost * len(public_keys_hex), int(balances[0]['value']))
+        self.assertEqual(test_amount - key_space_cost * len(public_keys_hex),
+                         int(balances[0]['value']))
 
     def test_get_block(self) -> None:
         """Tests getting blocks and transactions.
@@ -647,7 +690,7 @@ class RosettaTestCase(unittest.TestCase):
         validator = self.node.validator_key
         implicit = key.Key.implicit_account()
 
-        ### 1. Create implicit account.
+        # 1. Create implicit account.
         logger.info(f'Creating implicit account: {implicit.account_id}')
         result = self.rosetta.transfer(src=validator,
                                        dst=implicit,
@@ -794,7 +837,7 @@ class RosettaTestCase(unittest.TestCase):
                 'transaction_identifier': related.identifier
             }, related.transaction())
 
-        ### 2. Delete the account.
+        # 2. Delete the account.
         logger.info(f'Deleting implicit account: {implicit.account_id}')
         result = self.rosetta.delete_account(implicit, refund_to=validator)
 
