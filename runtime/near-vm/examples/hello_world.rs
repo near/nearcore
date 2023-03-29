@@ -71,7 +71,7 @@ fn main() -> anyhow::Result<()> {
     //
     // An `Instance` is a compiled WebAssembly module that has been set up
     // and is ready to execute.
-    let instance = Instance::new(&module, &import_object)?;
+    let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &import_object)?;
 
     // We get the `NativeFunc` with no parameters and no results from the instance.
     //

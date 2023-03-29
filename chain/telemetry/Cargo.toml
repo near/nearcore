@@ -15,7 +15,7 @@ serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
 
-near-o11y = { path = "../../core/o11y" }
-near-performance-metrics = { path = "../../utils/near-performance-metrics" }
-near-performance-metrics-macros = { path = "../../utils/near-performance-metrics-macros" }
-near-primitives = { path = "../../core/primitives" }
+near-o11y.workspace = true
+near-performance-metrics.workspace = true
+near-performance-metrics-macros.workspace = true
+near-primitives.workspace = true

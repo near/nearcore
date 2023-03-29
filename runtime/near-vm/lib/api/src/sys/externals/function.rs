@@ -544,7 +544,7 @@ impl Function {
     /// # Examples
     ///
     /// ```
-    /// # use wasmer::{imports, wat2wasm, Function, Instance, Module, Store, Type, Value};
+    /// # use wasmer::{imports, wat2wasm, Function, Instance, InstanceConfig, Module, Store, Type, Value};
     /// # let store = Store::default();
     /// # let wasm_bytes = wat2wasm(r#"
     /// # (module
@@ -556,7 +556,7 @@ impl Function {
     /// # "#.as_bytes()).unwrap();
     /// # let module = Module::new(&store, wasm_bytes).unwrap();
     /// # let import_object = imports! {};
-    /// # let instance = Instance::new(&module, &import_object).unwrap();
+    /// # let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &import_object).unwrap();
     /// #
     /// let sum = instance.lookup_function("sum").unwrap();
     ///
@@ -604,7 +604,7 @@ impl Function {
     /// # Examples
     ///
     /// ```
-    /// # use wasmer::{imports, wat2wasm, Function, Instance, Module, Store, Type, Value};
+    /// # use wasmer::{imports, wat2wasm, Function, Instance, InstanceConfig, Module, Store, Type, Value};
     /// # let store = Store::default();
     /// # let wasm_bytes = wat2wasm(r#"
     /// # (module
@@ -616,7 +616,7 @@ impl Function {
     /// # "#.as_bytes()).unwrap();
     /// # let module = Module::new(&store, wasm_bytes).unwrap();
     /// # let import_object = imports! {};
-    /// # let instance = Instance::new(&module, &import_object).unwrap();
+    /// # let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &import_object).unwrap();
     /// #
     /// let sum = instance.lookup_function("sum").unwrap();
     /// let sum_native = sum.native::<(i32, i32), i32>().unwrap();
@@ -630,7 +630,7 @@ impl Function {
     /// an error will be raised:
     ///
     /// ```should_panic
-    /// # use wasmer::{imports, wat2wasm, Function, Instance, Module, Store, Type, Value};
+    /// # use wasmer::{imports, wat2wasm, Function, Instance, InstanceConfig, Module, Store, Type, Value};
     /// # let store = Store::default();
     /// # let wasm_bytes = wat2wasm(r#"
     /// # (module
@@ -642,7 +642,7 @@ impl Function {
     /// # "#.as_bytes()).unwrap();
     /// # let module = Module::new(&store, wasm_bytes).unwrap();
     /// # let import_object = imports! {};
-    /// # let instance = Instance::new(&module, &import_object).unwrap();
+    /// # let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &import_object).unwrap();
     /// #
     /// let sum = instance.lookup_function("sum").unwrap();
     ///
@@ -654,7 +654,7 @@ impl Function {
     /// an error will be raised:
     ///
     /// ```should_panic
-    /// # use wasmer::{imports, wat2wasm, Function, Instance, Module, Store, Type, Value};
+    /// # use wasmer::{imports, wat2wasm, Function, Instance, InstanceConfig, Module, Store, Type, Value};
     /// # let store = Store::default();
     /// # let wasm_bytes = wat2wasm(r#"
     /// # (module
@@ -666,7 +666,7 @@ impl Function {
     /// # "#.as_bytes()).unwrap();
     /// # let module = Module::new(&store, wasm_bytes).unwrap();
     /// # let import_object = imports! {};
-    /// # let instance = Instance::new(&module, &import_object).unwrap();
+    /// # let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &import_object).unwrap();
     /// #
     /// let sum = instance.lookup_function("sum").unwrap();
     ///

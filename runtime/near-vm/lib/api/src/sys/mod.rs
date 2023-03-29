@@ -28,7 +28,7 @@ pub use crate::sys::externals::{
     Extern, FromToNativeWasmType, Function, Global, HostFunction, Memory, Table, WasmTypeList,
 };
 pub use crate::sys::import_object::{ImportObject, ImportObjectIterator, LikeNamespace};
-pub use crate::sys::instance::{Instance, InstantiationError};
+pub use crate::sys::instance::{Instance, InstanceConfig, InstantiationError};
 pub use crate::sys::module::Module;
 pub use crate::sys::native::NativeFunc;
 pub use crate::sys::ptr::{Array, Item, WasmPtr};

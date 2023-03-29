@@ -33,7 +33,7 @@
 //! written with its WAT format (textual format):
 //!
 //! ```rust
-//! use wasmer::{Store, Module, Instance, Value, Export, imports};
+//! use wasmer::{Store, Module, Instance, InstanceConfig, Value, Export, imports};
 //!
 //! fn main() -> anyhow::Result<()> {
 //!     let module_wat = r#"
@@ -49,7 +49,7 @@
 //!     let module = Module::new(&store, &module_wat)?;
 //!     // The module doesn't import anything, so we create an empty import object.
 //!     let import_object = imports! {};
-//!     let instance = Instance::new(&module, &import_object)?;
+//!     let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &import_object)?;
 //!
 //!     let add_one = instance.lookup_function("add_one").unwrap();
 //!     let result = add_one.call(&[Value::I32(42)])?;

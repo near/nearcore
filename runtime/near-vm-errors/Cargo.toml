@@ -20,8 +20,8 @@ serde.workspace = true
 strum.workspace = true
 thiserror.workspace = true
 
-near-account-id = { path = "../../core/account-id" }
-near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
+near-account-id.workspace = true
+near-rpc-error-macro.workspace = true
 
 [features]
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]

@@ -327,7 +327,8 @@ impl Wast {
 
     fn instantiate(&self, module: &[u8]) -> Result<Instance> {
         let module = Module::new(&self.store, module)?;
-        let instance = Instance::new(&module, &self)?;
+        let instance =
+            Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &self)?;
         Ok(instance)
     }
 
