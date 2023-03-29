@@ -3807,6 +3807,7 @@ dependencies = [
  "near-network",
  "near-o11y",
  "near-primitives",
+ "node-runtime",
  "paperclip",
  "serde",
  "serde_json",

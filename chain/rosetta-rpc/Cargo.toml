@@ -1,9 +1,9 @@
 [package]
-name = "near-rosetta-rpc"
-version = "0.0.0"
 authors.workspace = true
-publish = false
 edition.workspace = true
+name = "near-rosetta-rpc"
+publish = false
+version = "0.0.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -24,19 +24,19 @@ thiserror.workspace = true
 tokio.workspace = true
 validator.workspace = true
 
-near-primitives = { path = "../../core/primitives" }
-near-account-id = { path = "../../core/account-id" }
-near-crypto = { path = "../../core/crypto" }
-near-chain-configs = { path = "../../core/chain-configs" }
-near-client = { path = "../client" }
-near-client-primitives = { path = "../client-primitives" }
-near-network = { path = "../network" }
-near-o11y = { path = "../../core/o11y" }
-
+near-account-id = {path = "../../core/account-id"}
+near-chain-configs = {path = "../../core/chain-configs"}
+near-client = {path = "../client"}
+near-client-primitives = {path = "../client-primitives"}
+near-crypto = {path = "../../core/crypto"}
+near-network = {path = "../network"}
+near-o11y = {path = "../../core/o11y"}
+near-primitives = {path = "../../core/primitives"}
+node-runtime = {path = "../../runtime/runtime"}
 
 [dev-dependencies]
 insta = "1"
-near-actix-test-utils = { path = "../../test-utils/actix-test-utils" }
+near-actix-test-utils = {path = "../../test-utils/actix-test-utils"}
 
 [features]
 nightly = []
