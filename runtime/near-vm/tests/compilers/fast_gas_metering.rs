@@ -109,7 +109,7 @@ fn test_gas_intrinsic_in_start() {
     static HITS: AtomicUsize = AtomicUsize::new(0);
     let result = Instance::new_with_config(
         &module,
-        unsafe { InstanceConfig::default().with_counter(ptr::addr_of_mut!(gas_counter)) },
+        unsafe { InstanceConfig::with_stack_limit(1000000).with_counter(ptr::addr_of_mut!(gas_counter)) },
         &imports! {
             "host" => {
                 "func" => Function::new(&store, FunctionType::new(vec![], vec![]), |_values| {
@@ -145,7 +145,7 @@ fn test_gas_regular(opcode_cost: u64) {
     let hits = std::sync::Arc::new(AtomicUsize::new(0));
     let instance = Instance::new_with_config(
         &module,
-        unsafe { InstanceConfig::default().with_counter(ptr::addr_of_mut!(gas_counter)) },
+        unsafe { InstanceConfig::with_stack_limit(1000000).with_counter(ptr::addr_of_mut!(gas_counter)) },
         &imports! {
             "host" => {
                 "func" => Function::new(&store, FunctionType::new(vec![], vec![]), {
