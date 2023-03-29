@@ -49,8 +49,7 @@ from configured_logger import new_logger
 DEFAULT_TRANSACTION_TTL_SECONDS = 10
 GAS_PER_BLOCK = 10E14
 TRANSACTIONS_PER_BLOCK = 121
-MAX_INFLIGHT_TRANSACTIONS_PER_EXECUTOR = 500
-EXECUTORS = 4
+MAX_INFLIGHT_TRANSACTIONS_PER_EXECUTOR = 1000
 SEED = random.uniform(0, 0xFFFFFFFF)
 logger = new_logger(level = logging.INFO)
 ACCOUNTS = []
@@ -281,7 +280,7 @@ def transaction_executor(nodes, tx_queue):
             if now - last_block_hash_update >= 0.5:
                 block_hash = base58.b58decode(node.get_latest_block().hash)
                 last_block_hash_update = now
-        except requests.exceptions.ReadTimeout:
+        except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectionError):
             continue
 
         while my_transactions.qsize() < MAX_INFLIGHT_TRANSACTIONS_PER_EXECUTOR:
@@ -292,7 +291,7 @@ def transaction_executor(nodes, tx_queue):
             # Send out the transaction immediately.
             try:
                 tx.poll(node, block_hash)
-            except requests.exceptions.ReadTimeout:
+            except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectionError):
                 pass
             my_transactions.put(tx)
 
@@ -303,7 +302,7 @@ def transaction_executor(nodes, tx_queue):
             continue
         try:
             poll_result = tx.poll(node, block_hash)
-        except requests.exceptions.ReadTimeout:
+        except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectionError):
             my_transactions.put(tx)
             continue
         if not poll_result:
@@ -326,6 +325,7 @@ def main():
     parser.add_argument('--no-account-topup', default=False,
         action='store_true', help='Fill accounts with additional NEAR prior to testing')
     parser.add_argument('--shards', default=10, help='number of shards')
+    parser.add_argument('--executors', default=2, help='number of transaction executors')
     args = parser.parse_args()
 
     logger.warning(f"SEED is {SEED}")
@@ -364,9 +364,10 @@ def main():
         ACCOUNTS.append(Account(key.Key(account_id, pk, sk)))
 
 
+    executors = int(args.executors)
     queue_size = max(MAX_INFLIGHT_TRANSACTIONS_PER_EXECUTOR, int(args.accounts)) + 16
     tx_queue = TxQueue(queue_size)
-    for executor in range(EXECUTORS):
+    for executor in range(executors):
         multiprocessing.Process(target=transaction_executor, args=(nodes, tx_queue,), daemon=True).start()
 
     tx_queue.add(DeployFT(contract_account_idx, args.fungible_token_wasm))
@@ -400,7 +401,7 @@ def main():
         transfers += 1
         if transfers % 10000 == 0:
             logger.info(f"{transfers} so far ({tx_queue.pending.value} pending)")
-        while tx_queue.pending.value >= MAX_INFLIGHT_TRANSACTIONS_PER_EXECUTOR * EXECUTORS:
+        while tx_queue.pending.value >= MAX_INFLIGHT_TRANSACTIONS_PER_EXECUTOR * executors:
             time.sleep(0.25)
 
 def wait_empty(queue, why):
