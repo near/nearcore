@@ -18,11 +18,11 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 
-near-crypto = { path = "../../core/crypto" }
-near-primitives = { path = "../../core/primitives" }
-near-chain-configs = { path = "../../core/chain-configs" }
-near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
-near-client-primitives = { path = "../client-primitives", optional = true }
+near-crypto.workspace = true
+near-primitives.workspace = true
+near-chain-configs.workspace = true
+near-rpc-error-macro.workspace = true
+near-client-primitives = { workspace = true, optional = true }
 
 [features]
 full = ["debug_types"]

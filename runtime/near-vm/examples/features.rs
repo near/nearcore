@@ -45,7 +45,7 @@ fn main() -> anyhow::Result<()> {
     // Finally, let's instantiate the module, and execute something
     // :-).
     let import_object = imports! {};
-    let instance = Instance::new(&module, &import_object)?;
+    let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &import_object)?;
     let swap = instance
         .lookup_function("swap")
         .ok_or(anyhow::anyhow!("could not find `swap` export"))?;

@@ -10,6 +10,6 @@ publish = false
 [dependencies]
 serde_json.workspace = true
 
-near-account-id = { path = "../../core/account-id" }
-near-chain-configs = { path = "../../core/chain-configs" }
-near-primitives = { path = "../../core/primitives" }
+near-account-id.workspace = true
+near-chain-configs.workspace = true
+near-primitives.workspace = true

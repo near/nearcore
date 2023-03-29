@@ -86,23 +86,16 @@ impl RuntimeError {
                 Self::new_with_trace(&info, None, RuntimeErrorSource::OOM, backtrace)
             }
             // A trap caused by an error on the generated machine code for a Wasm function
-            Trap::Wasm {
-                pc,
-                signal_trap,
-                backtrace,
-            } => {
+            Trap::Wasm { pc, signal_trap, backtrace } => {
                 let code = info
                     .lookup_trap_info(pc)
-                    .map_or(signal_trap.unwrap_or(TrapCode::StackOverflow), |info| {
-                        info.trap_code
-                    });
+                    .map_or(signal_trap.unwrap_or(TrapCode::StackOverflow), |info| info.trap_code);
                 Self::new_with_trace(&info, Some(pc), RuntimeErrorSource::Trap(code), backtrace)
             }
             // A trap triggered manually from the Wasmer runtime
-            Trap::Lib {
-                trap_code,
-                backtrace,
-            } => Self::new_with_trace(&info, None, RuntimeErrorSource::Trap(trap_code), backtrace),
+            Trap::Lib { trap_code, backtrace } => {
+                Self::new_with_trace(&info, None, RuntimeErrorSource::Trap(trap_code), backtrace)
+            }
         }
     }
 
@@ -142,18 +135,10 @@ impl RuntimeError {
             .collect();
 
         // Let's construct the trace
-        let wasm_trace = frames
-            .into_iter()
-            .filter_map(|pc| info.lookup_frame_info(pc))
-            .collect::<Vec<_>>();
+        let wasm_trace =
+            frames.into_iter().filter_map(|pc| info.lookup_frame_info(pc)).collect::<Vec<_>>();
 
-        Self {
-            inner: Arc::new(RuntimeErrorInner {
-                source,
-                wasm_trace,
-                native_trace,
-            }),
-        }
+        Self { inner: Arc::new(RuntimeErrorInner { source, wasm_trace, native_trace }) }
     }
 
     /// Returns a reference the `message` stored in `Trap`.
@@ -171,13 +156,12 @@ impl RuntimeError {
     pub fn downcast<T: Error + 'static>(self) -> Result<T, Self> {
         match Arc::try_unwrap(self.inner) {
             // We only try to downcast user errors
-            Ok(RuntimeErrorInner {
-                source: RuntimeErrorSource::User(err),
-                ..
-            }) if err.is::<T>() => Ok(*err.downcast::<T>().unwrap()),
-            Ok(inner) => Err(Self {
-                inner: Arc::new(inner),
-            }),
+            Ok(RuntimeErrorInner { source: RuntimeErrorSource::User(err), .. })
+                if err.is::<T>() =>
+            {
+                Ok(*err.downcast::<T>().unwrap())
+            }
+            Ok(inner) => Err(Self { inner: Arc::new(inner) }),
             Err(inner) => Err(Self { inner }),
         }
     }
@@ -229,13 +213,7 @@ impl fmt::Display for RuntimeError {
                 },
                 None => write!(f, "<unnamed>")?,
             }
-            write!(
-                f,
-                " ({}[{}]:0x{:x})",
-                name,
-                func_index,
-                frame.module_offset()
-            )?;
+            write!(f, " ({}[{}]:0x{:x})", name, func_index, frame.module_offset())?;
         }
         Ok(())
     }

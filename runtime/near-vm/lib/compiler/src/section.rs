@@ -66,10 +66,7 @@ pub struct CustomSectionRef<'a> {
 
 impl<'a> From<&'a CustomSection> for CustomSectionRef<'a> {
     fn from(section: &'a CustomSection) -> Self {
-        CustomSectionRef {
-            protection: section.protection.clone(),
-            bytes: section.bytes.as_slice(),
-        }
+        CustomSectionRef { protection: section.protection, bytes: section.bytes.as_slice() }
     }
 }
 

@@ -67,7 +67,7 @@ fn issue_2329(mut config: crate::Config) -> Result<()> {
             ),
         }
     };
-    let instance = Instance::new(&module, &imports)?;
+    let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &imports)?;
     instance.lookup_function("read_memory").unwrap().call(&[])?;
     Ok(())
 }
@@ -107,6 +107,6 @@ fn regression_gpr_exhaustion_for_calls(mut config: crate::Config) -> Result<()> 
     "#;
     let module = Module::new(&store, wat)?;
     let imports: ImportObject = imports! {};
-    let instance = Instance::new(&module, &imports)?;
+    let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &imports)?;
     Ok(())
 }

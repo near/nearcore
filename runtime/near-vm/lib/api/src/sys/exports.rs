@@ -15,7 +15,7 @@ use wasmer_vm::Export;
 /// ## Incompatible export type
 ///
 /// ```should_panic
-/// # use wasmer::{imports, wat2wasm, Function, Instance, Module, Store, Type, Value, ExportError};
+/// # use wasmer::{imports, wat2wasm, Function, Instance, InstanceConfig, Module, Store, Type, Value, ExportError};
 /// # let store = Store::default();
 /// # let wasm_bytes = wat2wasm(r#"
 /// # (module
@@ -23,7 +23,7 @@ use wasmer_vm::Export;
 /// # "#.as_bytes()).unwrap();
 /// # let module = Module::new(&store, wasm_bytes).unwrap();
 /// # let import_object = imports! {};
-/// # let instance = Instance::new(&module, &import_object).unwrap();
+/// # let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &import_object).unwrap();
 /// #
 /// // This results in an error.
 /// let export = instance.lookup_function("glob").unwrap();
@@ -32,12 +32,12 @@ use wasmer_vm::Export;
 /// ## Missing export
 ///
 /// ```should_panic
-/// # use wasmer::{imports, wat2wasm, Function, Instance, Module, Store, Type, Value, ExportError};
+/// # use wasmer::{imports, wat2wasm, Function, Instance, InstanceConfig, Module, Store, Type, Value, ExportError};
 /// # let store = Store::default();
 /// # let wasm_bytes = wat2wasm("(module)".as_bytes()).unwrap();
 /// # let module = Module::new(&store, wasm_bytes).unwrap();
 /// # let import_object = imports! {};
-/// # let instance = Instance::new(&module, &import_object).unwrap();
+/// # let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &import_object).unwrap();
 /// #
 /// // This results with an error: `ExportError::Missing`.
 /// let export = instance.lookup("unknown").unwrap();
@@ -74,9 +74,7 @@ impl Exports {
         S: Into<String>,
         E: Into<Extern>,
     {
-        Arc::get_mut(&mut self.map)
-            .unwrap()
-            .insert(name.into(), value.into());
+        Arc::get_mut(&mut self.map).unwrap().insert(name.into(), value.into());
     }
 }
 
@@ -86,10 +84,7 @@ impl LikeNamespace for Exports {
     }
 
     fn get_namespace_exports(&self) -> Vec<(String, Export)> {
-        self.map
-            .iter()
-            .map(|(k, v)| (k.clone(), v.to_export()))
-            .collect()
+        self.map.iter().map(|(k, v)| (k.clone(), v.to_export())).collect()
     }
 }
 

@@ -32,9 +32,9 @@ tempfile.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 
-near-crypto = { path = "../crypto" }
-near-o11y = { path = "../o11y" }
-near-primitives = { path = "../primitives" }
+near-crypto.workspace = true
+near-o11y.workspace = true
+near-primitives.workspace = true
 
 [dev-dependencies]
 assert_matches.workspace = true

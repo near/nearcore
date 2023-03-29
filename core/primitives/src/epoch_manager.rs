@@ -46,8 +46,6 @@ pub struct EpochConfig {
     pub minimum_stake_divisor: u64,
     /// Threshold of stake that needs to indicate that they ready for upgrade.
     pub protocol_upgrade_stake_threshold: Rational32,
-    /// Number of epochs after stake threshold was achieved to start next prtocol version.
-    pub protocol_upgrade_num_epochs: EpochHeight,
     /// Shard layout of this epoch, may change from epoch to epoch
     pub shard_layout: ShardLayout,
     /// Additional config for validator selection algorithm

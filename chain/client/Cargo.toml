@@ -27,28 +27,28 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
-near-async = { path = "../../core/async" }
-near-chain-primitives = { path = "../chain-primitives" }
-near-crypto = { path = "../../core/crypto" }
-near-primitives = { path = "../../core/primitives" }
-near-store = { path = "../../core/store" }
-near-chain-configs = { path = "../../core/chain-configs" }
-near-chain = { path = "../chain" }
-near-client-primitives = { path = "../client-primitives" }
-near-dyn-configs = { path = "../../core/dyn-configs" }
-near-network = { path = "../network" }
-near-pool = { path = "../pool" }
-near-chunks = { path = "../chunks" }
-near-telemetry = { path = "../telemetry" }
-near-o11y = { path = "../../core/o11y" }
-near-performance-metrics = { path = "../../utils/near-performance-metrics" }
-near-performance-metrics-macros = { path = "../../utils/near-performance-metrics-macros" }
-near-epoch-manager = { path = "../epoch-manager" }
-delay-detector = { path = "../../tools/delay-detector" }
+near-async.workspace = true
+near-chain-primitives.workspace = true
+near-crypto.workspace = true
+near-primitives.workspace = true
+near-store.workspace = true
+near-chain-configs.workspace = true
+near-chain.workspace = true
+near-client-primitives.workspace = true
+near-dyn-configs.workspace = true
+near-network.workspace = true
+near-pool.workspace = true
+near-chunks.workspace = true
+near-telemetry.workspace = true
+near-o11y.workspace = true
+near-performance-metrics.workspace = true
+near-performance-metrics-macros.workspace = true
+near-epoch-manager.workspace = true
+delay-detector.workspace = true
 
 [dev-dependencies]
 assert_matches.workspace = true
-near-actix-test-utils = { path = "../../test-utils/actix-test-utils" }
+near-actix-test-utils.workspace = true
 
 [features]
 # if enabled, we assert in most situations that are impossible unless some byzantine behavior is observed.

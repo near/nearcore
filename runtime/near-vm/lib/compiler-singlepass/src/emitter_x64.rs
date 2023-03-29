@@ -1066,10 +1066,7 @@ impl Emitter for Assembler {
                 dynasm!(self ; movzx Rq(dst as u8), WORD [Rq(src as u8) + disp]);
             }
             _ => {
-                panic!(
-                    "singlepass can't emit MOVZX {:?} {:?} {:?} {:?}",
-                    sz_src, src, sz_dst, dst
-                )
+                panic!("singlepass can't emit MOVZX {:?} {:?} {:?} {:?}", sz_src, src, sz_dst, dst)
             }
         }
     }
@@ -1106,10 +1103,7 @@ impl Emitter for Assembler {
                 dynasm!(self ; movsx Rq(dst as u8), DWORD [Rq(src as u8) + disp]);
             }
             _ => {
-                panic!(
-                    "singlepass can't emit MOVSX {:?} {:?} {:?} {:?}",
-                    sz_src, src, sz_dst, dst
-                )
+                panic!("singlepass can't emit MOVSX {:?} {:?} {:?} {:?}", sz_src, src, sz_dst, dst)
             }
         }
     }
@@ -1170,10 +1164,7 @@ impl Emitter for Assembler {
             (Size::S64, Location::GPR(src), Location::Memory(dst, disp)) => {
                 dynasm!(self ; lock xadd [Rq(dst as u8) + disp], Rq(src as u8));
             }
-            _ => panic!(
-                "singlepass can't emit LOCK XADD {:?} {:?} {:?}",
-                sz, src, dst
-            ),
+            _ => panic!("singlepass can't emit LOCK XADD {:?} {:?} {:?}", sz, src, dst),
         }
     }
 
@@ -1191,10 +1182,7 @@ impl Emitter for Assembler {
             (Size::S64, Location::GPR(src), Location::Memory(dst, disp)) => {
                 dynasm!(self ; lock cmpxchg [Rq(dst as u8) + disp], Rq(src as u8));
             }
-            _ => panic!(
-                "singlepass can't emit LOCK CMPXCHG {:?} {:?} {:?}",
-                sz, src, dst
-            ),
+            _ => panic!("singlepass can't emit LOCK CMPXCHG {:?} {:?} {:?}", sz, src, dst),
         }
     }
 

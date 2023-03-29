@@ -584,7 +584,6 @@ mod test {
                 dynamic_resharding: false,
                 protocol_upgrade_stake_threshold:
                     nearcore::config::PROTOCOL_UPGRADE_STAKE_THRESHOLD,
-                protocol_upgrade_num_epochs: nearcore::config::PROTOCOL_UPGRADE_NUM_EPOCHS,
                 epoch_length: 1000,
                 gas_limit: nearcore::config::INITIAL_GAS_LIMIT,
                 gas_price_adjustment_rate: nearcore::config::GAS_PRICE_ADJUSTMENT_RATE,

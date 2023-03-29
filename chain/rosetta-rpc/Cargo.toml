@@ -24,19 +24,19 @@ thiserror.workspace = true
 tokio.workspace = true
 validator.workspace = true
 
-near-primitives = { path = "../../core/primitives" }
-near-account-id = { path = "../../core/account-id" }
-near-crypto = { path = "../../core/crypto" }
-near-chain-configs = { path = "../../core/chain-configs" }
-near-client = { path = "../client" }
-near-client-primitives = { path = "../client-primitives" }
-near-network = { path = "../network" }
-near-o11y = { path = "../../core/o11y" }
+near-primitives.workspace = true
+near-account-id.workspace = true
+near-crypto.workspace = true
+near-chain-configs.workspace = true
+near-client.workspace = true
+near-client-primitives.workspace = true
+near-network.workspace = true
+near-o11y.workspace = true
 
 
 [dev-dependencies]
-insta = "1"
-near-actix-test-utils = { path = "../../test-utils/actix-test-utils" }
+insta.workspace = true
+near-actix-test-utils.workspace = true
 
 [features]
 nightly = []

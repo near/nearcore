@@ -19,19 +19,19 @@ curve25519-dalek.workspace = true
 derive_more.workspace = true
 ed25519-dalek.workspace = true
 hex.workspace = true
-near-account-id = { path = "../account-id" }
+near-account-id.workspace = true
 once_cell.workspace = true
 primitive-types.workspace = true
-rand = "0.7"
+rand = "0.7" # TODO: this is probably wrong?
 secp256k1.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 stdx.workspace = true
 subtle.workspace = true
 thiserror.workspace = true
-near-config-utils = { path = "../../utils/config" }
+near-config-utils.workspace = true
 
 [dev-dependencies]
-hex-literal = "0.2"
+hex-literal.workspace = true
 sha2.workspace = true
 tempfile.workspace = true
