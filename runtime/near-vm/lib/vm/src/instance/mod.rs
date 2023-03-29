@@ -930,7 +930,7 @@ impl InstanceHandle {
         &self.instance
     }
 
-    /// Finishes the instantiation process started by `Instance::new`.
+    /// Finishes the instantiation process started by `Instance::new_with_config`.
     ///
     /// # Safety
     ///

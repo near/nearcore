@@ -215,8 +215,9 @@ fn test_gas_intrinsic_default() {
     let store = get_store(0);
     let module = get_module(&store);
     static HITS: AtomicUsize = AtomicUsize::new(0);
-    let instance = Instance::new(
+    let instance = Instance::new_with_config(
         &module,
+        InstanceConfig::with_stack_limit(1000000),
         &imports! {
             "host" => {
                 "func" => Function::new(&store, FunctionType::new(vec![], vec![]), |_values| {
@@ -260,8 +261,9 @@ fn test_gas_intrinsic_tricky() {
     let module = get_module_tricky_arg(&store);
     static BURNT_GAS: AtomicUsize = AtomicUsize::new(0);
     static HITS: AtomicUsize = AtomicUsize::new(0);
-    let instance = Instance::new(
+    let instance = Instance::new_with_config(
         &module,
+        InstanceConfig::with_stack_limit(1000000),
         &imports! {
             "host" => {
                 "func" => Function::new(&store, FunctionType::new(vec![], vec![]), |_values| {
