@@ -24,32 +24,26 @@ tracing.workspace = true
 wasmparser.workspace = true
 wasmtime = { workspace = true, optional = true }
 
-near-cache = { path = "../../utils/near-cache" }
-near-vm-logic = { path = "../near-vm-logic", default-features = false }
-near-vm-errors = { path = "../near-vm-errors" }
-near-primitives = { path = "../../core/primitives" }
-near-stable-hasher = { path = "../../utils/near-stable-hasher" }
+near-cache.workspace = true
+near-vm-logic.workspace = true
+near-vm-errors.workspace = true
+near-primitives.workspace = true
+near-stable-hasher.workspace = true
 
 # Old versions of pwasm-utils we need to preserve backwards compatibility under
 # old protocol versions.
-pwasm-utils_12 = { package = "pwasm-utils", version = "0.12" }
+pwasm-utils_12.workspace = true
 parity-wasm_41.workspace = true
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
-wasmer-runtime = { version = "0.18.0", features = ["default-backend-singlepass"], default-features = false, package = "wasmer-runtime-near", optional = true }
-wasmer-runtime-core = { version = "0.18.2", package = "wasmer-runtime-core-near", optional = true}
-
-# Use the following for development versions of Wasmer.
-# wasmer-types = { package = "wasmer-types-near", git = "https://github.com/near/wasmer", branch = "near-main", optional = true }
-# wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", git = "https://github.com/near/wasmer", branch = "near-main", optional = true }
-# wasmer-engine-universal = { package = "wasmer-engine-universal-near", git = "https://github.com/near/wasmer", branch = "near-main", optional = true }
-# wasmer-vm = { package = "wasmer-vm-near", git = "https://github.com/near/wasmer", branch = "near-main" }
-wasmer-compiler = { package = "wasmer-compiler-near", version = "=2.4.0", optional = true }
-wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", version = "=2.4.0", optional = true }
-wasmer-engine = { package = "wasmer-engine-near", version = "=2.4.0", optional = true }
-wasmer-engine-universal = { package = "wasmer-engine-universal-near", version = "=2.4.0", optional = true, features = ["compiler"] }
-wasmer-types = { package = "wasmer-types-near", version = "=2.4.0", optional = true }
-wasmer-vm = { package = "wasmer-vm-near", version = "=2.4.0", optional = true }
+wasmer-runtime = { workspace = true, optional = true }
+wasmer-runtime-core = { workspace = true, optional = true}
+wasmer-compiler = { workspace = true, optional = true }
+wasmer-compiler-singlepass = { workspace = true, optional = true }
+wasmer-engine = { workspace = true, optional = true }
+wasmer-engine-universal = { workspace = true, optional = true }
+wasmer-types = { workspace = true, optional = true }
+wasmer-vm = { workspace = true, optional = true }
 
 [dev-dependencies]
 arbitrary.workspace = true
@@ -62,7 +56,7 @@ wasm-smith.workspace = true
 wasmprinter.workspace = true
 wat.workspace = true
 
-near-test-contracts = { path = "../near-test-contracts" }
+near-test-contracts.workspace = true
 
 [features]
 # all vms enabled for now

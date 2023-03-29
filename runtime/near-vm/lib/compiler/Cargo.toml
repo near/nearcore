@@ -15,17 +15,17 @@ publish = false
 name = "wasmer_compiler"
 
 [dependencies]
-finite-wasm = "0.3.0"
+finite-wasm.workspace = true
 wasmer-vm = { path = "../vm", package = "near-vm-vm" }
 wasmer-types = { path = "../types", package = "near-vm-types", default-features = false }
 wasmparser = { version = "0.99.0", optional = true, default-features = false }
-target-lexicon = { version = "0.12.2", default-features = false }
-enumset = "1.0"
-hashbrown = { version = "0.11", optional = true }
-thiserror = "1.0"
-smallvec = "1.6"
-rkyv = { version = "0.7.20" }
-tracing = "0.1"
+target-lexicon.workspace = true
+enumset.workspace = true
+hashbrown = { workspace = true, optional = true }
+thiserror.workspace = true
+smallvec.workspace = true
+rkyv.workspace = true
+tracing.workspace = true
 
 [features]
 default = ["std" ]

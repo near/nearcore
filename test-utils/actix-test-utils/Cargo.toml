@@ -10,4 +10,4 @@ actix-rt.workspace = true
 futures.workspace = true
 once_cell.workspace = true
 
-near-store = { path = "../../core/store" }
+near-store.workspace = true
