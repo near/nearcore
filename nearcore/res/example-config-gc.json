@@ -76,10 +76,6 @@
             "secs": 6,
             "nanos": 0
         },
-        "reduce_wait_for_missing_block": {
-            "secs": 0,
-            "nanos": 100000000
-        },
         "produce_empty_blocks": true,
         "block_fetch_horizon": 50,
         "state_fetch_horizon": 5,

@@ -15,7 +15,6 @@
     4,
     5
   ],
-  "protocol_upgrade_num_epochs": 2,
   "epoch_length": 500,
   "gas_limit": 1000000000000000,
   "min_gas_price": "100000000",
