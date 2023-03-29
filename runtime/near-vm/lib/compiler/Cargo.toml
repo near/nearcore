@@ -1,22 +1,23 @@
 [package]
-name = "wasmer-compiler-near"
-version = "2.4.0"
+name = "near-vm-compiler"
+version = "0.0.0"
 description = "Base compiler abstraction for Wasmer WebAssembly runtime"
 categories = ["wasm", "no-std"]
 keywords = ["wasm", "webassembly", "compiler"]
-authors = ["Wasmer Engineering Team <engineering@wasmer.io>"]
+authors = ["Wasmer Engineering Team <engineering@wasmer.io>", "Near Inc <hello@nearprotocol.com>"]
 repository = "https://github.com/wasmerio/wasmer"
 license = "MIT OR Apache-2.0 WITH LLVM-exception"
 readme = "README.md"
-edition = "2018"
+edition = "2021"
+publish = false
 
 [lib]
 name = "wasmer_compiler"
 
 [dependencies]
 finite-wasm = "0.3.0"
-wasmer-vm = { path = "../vm", package = "wasmer-vm-near", version = "=2.4.0" }
-wasmer-types = { path = "../types", package = "wasmer-types-near", version = "=2.4.0", default-features = false }
+wasmer-vm = { path = "../vm", package = "near-vm-vm" }
+wasmer-types = { path = "../types", package = "near-vm-types", default-features = false }
 wasmparser = { version = "0.99.0", optional = true, default-features = false }
 target-lexicon = { version = "0.12.2", default-features = false }
 enumset = "1.0"
@@ -33,7 +34,6 @@ default = ["std" ]
 # Disable this feature if you just want a headless engine.
 translator = ["wasmparser"]
 std = ["wasmer-types/std"]
-core = ["hashbrown", "wasmer-types/core"]
 
 [badges]
 maintenance = { status = "experimental" }

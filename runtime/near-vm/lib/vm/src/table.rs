@@ -71,10 +71,7 @@ pub trait Table: fmt::Debug + Send + Sync {
     ) -> Result<(), Trap> {
         // https://webassembly.github.io/bulk-memory-operations/core/exec/instructions.html#exec-table-copy
 
-        if src_index
-            .checked_add(len)
-            .map_or(true, |n| n > src_table.size())
-        {
+        if src_index.checked_add(len).map_or(true, |n| n > src_table.size()) {
             return Err(Trap::lib(TrapCode::TableAccessOutOfBounds));
         }
 
@@ -117,9 +114,7 @@ pub enum TableElement {
 impl From<TableElement> for RawTableElement {
     fn from(other: TableElement) -> Self {
         match other {
-            TableElement::ExternRef(extern_ref) => Self {
-                extern_ref: extern_ref.into(),
-            },
+            TableElement::ExternRef(extern_ref) => Self { extern_ref: extern_ref.into() },
             TableElement::FuncRef(func_ref) => Self { func_ref },
         }
     }
@@ -148,9 +143,7 @@ impl fmt::Debug for RawTableElement {
 
 impl Default for RawTableElement {
     fn default() -> Self {
-        Self {
-            func_ref: VMFuncRef::null(),
-        }
+        Self { func_ref: VMFuncRef::null() }
     }
 }
 
@@ -223,12 +216,7 @@ impl LinearTable {
     ) -> Result<Self, String> {
         match table.ty {
             ValType::FuncRef | ValType::ExternRef => (),
-            ty => {
-                return Err(format!(
-                    "tables of types other than funcref or externref ({})",
-                    ty
-                ))
-            }
+            ty => return Err(format!("tables of types other than funcref or externref ({})", ty)),
         };
         if let Some(max) = table.maximum {
             if max < table.minimum {
@@ -258,10 +246,7 @@ impl LinearTable {
                     VMTableDefinitionOwnership::VMOwned(table_loc)
                 } else {
                     VMTableDefinitionOwnership::HostOwned(Box::new(UnsafeCell::new(
-                        VMTableDefinition {
-                            base: base as _,
-                            current_elements: table_minimum as _,
-                        },
+                        VMTableDefinition { base: base as _, current_elements: table_minimum as _ },
                     )))
                 },
             }),
@@ -388,10 +373,7 @@ impl Table for LinearTable {
                     // This path should never be hit by the generated code due to Wasm
                     // validation.
                     (ty, v) => {
-                        panic!(
-                            "Attempted to set a table of type {} with the value {:?}",
-                            ty, v
-                        )
+                        panic!("Attempted to set a table of type {} with the value {:?}", ty, v)
                     }
                 };
 

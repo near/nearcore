@@ -33,6 +33,15 @@ members = [
     "integration-tests",
     "nearcore",
     "neard",
+    "runtime/near-vm/lib/api",
+    "runtime/near-vm/lib/compiler",
+    "runtime/near-vm/lib/compiler-singlepass",
+    "runtime/near-vm/lib/engine",
+    "runtime/near-vm/lib/engine-universal",
+    "runtime/near-vm/lib/vm",
+    "runtime/near-vm/lib/types",
+    "runtime/near-vm/tests/lib/wast",
+    "runtime/near-vm/tests/lib/compiler-test-derive",
     "runtime/near-vm-logic",
     "runtime/near-vm-runner",
     "runtime/near-vm-runner/fuzz",
@@ -257,4 +266,4 @@ opt-level = 3
 [workspace.package]
 edition = "2021"
 authors = ["Near Inc <hello@nearprotocol.com>"]
-rust-version = "1.68.0"
+rust-version = "1.68.2"

@@ -20,10 +20,8 @@ impl<K: Hash + Ord + Archive, V: Archive> ArchivedArchivableIndexMap<K, V> {
 impl<K: Hash + Ord + Archive + Clone, V: Archive> From<IndexMap<K, V>>
     for ArchivableIndexMap<K, V>
 {
-    fn from(it: IndexMap<K, V>) -> ArchivableIndexMap<K, V> {
-        let mut r = ArchivableIndexMap {
-            entries: Vec::new(),
-        };
+    fn from(it: IndexMap<K, V>) -> Self {
+        let mut r = Self { entries: Vec::new() };
         for (k, v) in it.into_iter() {
             r.entries.push((k, v));
         }

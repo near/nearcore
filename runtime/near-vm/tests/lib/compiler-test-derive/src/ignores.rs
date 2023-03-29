@@ -29,10 +29,7 @@ impl IgnorePattern {
     ) -> bool {
         self.os.as_ref().map_or(true, |val| val == os)
             && self.arch.as_ref().map_or(true, |val| val == arch)
-            && self
-                .target_env
-                .as_ref()
-                .map_or(true, |val| val == target_env)
+            && self.target_env.as_ref().map_or(true, |val| val == target_env)
             && self.engine.as_ref().map_or(true, |val| val == engine)
             && self.compiler.as_ref().map_or(true, |val| val == compiler)
             && (self.pattern_to_ignore == "*" || canonical_path.contains(&*self.pattern_to_ignore))

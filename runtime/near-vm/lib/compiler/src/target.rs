@@ -20,7 +20,7 @@ pub use target_lexicon::{
 ///
 /// [`cpuid` crate]: https://docs.rs/cpuid/0.1.1/cpuid/enum.CpuFeature.html
 /// [`cranelift-native`]: https://github.com/bytecodealliance/cranelift/blob/6988545fd20249b084c53f4761b8c861266f5d31/cranelift-native/src/lib.rs#L51-L92
-#[allow(missing_docs, clippy::derive_hash_xor_eq)]
+#[allow(missing_docs, clippy::derived_hash_with_manual_eq)]
 #[derive(EnumSetType, Debug, Hash)]
 pub enum CpuFeature {
     // X86 features
@@ -169,10 +169,7 @@ pub struct Target {
 impl Target {
     /// Creates a new target given a triple
     pub fn new(triple: Triple, cpu_features: EnumSet<CpuFeature>) -> Self {
-        Self {
-            triple,
-            cpu_features,
-        }
+        Self { triple, cpu_features }
     }
 
     /// The triple associated for the target.
@@ -189,9 +186,6 @@ impl Target {
 /// The default for the Target will use the HOST as the triple
 impl Default for Target {
     fn default() -> Self {
-        Self {
-            triple: Triple::host(),
-            cpu_features: CpuFeature::for_host(),
-        }
+        Self { triple: Triple::host(), cpu_features: CpuFeature::for_host() }
     }
 }

@@ -92,9 +92,7 @@ impl GlobalFrameInfo {
         // map that to a wasm original source location.
         let rel_pos = pc - func.start;
         let instr_map = &module.function_debug_info(func.local_index).address_map;
-        let pos = match instr_map
-            .instructions
-            .binary_search_by_key(&rel_pos, |map| map.code_offset)
+        let pos = match instr_map.instructions.binary_search_by_key(&rel_pos, |map| map.code_offset)
         {
             // Exact hit!
             Ok(pos) => Some(pos),

@@ -128,9 +128,7 @@ impl TryFrom<Bytes> for Pages {
     type Error = PageCountOutOfRange;
 
     fn try_from(bytes: Bytes) -> Result<Self, Self::Error> {
-        let pages: u32 = (bytes.0 / WASM_PAGE_SIZE)
-            .try_into()
-            .or(Err(PageCountOutOfRange))?;
+        let pages: u32 = (bytes.0 / WASM_PAGE_SIZE).try_into().or(Err(PageCountOutOfRange))?;
         Ok(Self(pages))
     }
 }

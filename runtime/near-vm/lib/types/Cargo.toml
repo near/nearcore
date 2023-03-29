@@ -1,14 +1,15 @@
 [package]
-name = "wasmer-types-near"
-version = "2.4.0"
+name = "near-vm-types"
+version = "0.0.0"
 description = "Wasmer Common Types"
 categories = ["wasm", "no-std", "data-structures"]
 keywords = ["wasm", "webassembly", "types"]
-authors = ["Wasmer Engineering Team <engineering@wasmer.io>"]
+authors = ["Wasmer Engineering Team <engineering@wasmer.io>", "Near Inc <hello@nearprotocol.com>"]
 repository = "https://github.com/wasmerio/wasmer"
 license = "MIT OR Apache-2.0 WITH LLVM-exception"
 readme = "README.md"
-edition = "2018"
+edition = "2021"
+publish = false
 
 [lib]
 name = "wasmer_types"
@@ -20,12 +21,11 @@ num-traits = "0.2.15"
 rkyv = { version = "0.7.20" }
 
 [dev-dependencies]
-bolero = "0.6.0"
+bolero.workspace = true
 
 [features]
 default = ["std"]
 std = []
-core = []
 
 [[test]]
 name = "partial-sum-map"
