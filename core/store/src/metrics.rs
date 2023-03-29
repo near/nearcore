@@ -1,9 +1,15 @@
+use actix_rt::ArbiterHandle;
+
 use near_o11y::metrics::{
     try_create_histogram, try_create_histogram_vec, try_create_int_counter_vec,
     try_create_int_gauge, try_create_int_gauge_vec, Histogram, HistogramVec, IntCounterVec,
     IntGauge, IntGaugeVec,
 };
 use once_cell::sync::Lazy;
+
+use crate::{NodeStorage, Store, Temperature};
+
+use crate::rocksdb_metrics::export_stats_as_metrics;
 
 pub(crate) static DATABASE_OP_LATENCY_HIST: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
@@ -334,3 +340,73 @@ pub static COLD_STORE_MIGRATION_BATCH_WRITE_TIME: Lazy<HistogramVec> = Lazy::new
     )
     .unwrap()
 });
+
+fn export_store_stats(store: &Store, temperature: Temperature) {
+    if let Some(stats) = store.get_store_statistics() {
+        tracing::debug!(target:"metrics", "Exporting the db metrics for {temperature:?} store.");
+        export_stats_as_metrics(stats, temperature);
+    } else {
+        // TODO Does that happen under normal circumstances?
+        // Should this log be a warning or error instead?
+        tracing::debug!(target:"metrics", "Exporting the db metrics for {temperature:?} store failed. The statistics are missing.");
+    }
+}
+
+pub fn spawn_db_metrics_loop(
+    storage: &NodeStorage,
+    period: std::time::Duration,
+) -> anyhow::Result<ArbiterHandle> {
+    tracing::debug!(target:"metrics", "Spawning the db metrics loop.");
+    let db_metrics_arbiter = actix_rt::Arbiter::new();
+
+    let start = tokio::time::Instant::now();
+    let mut interval = actix_rt::time::interval_at(start, period);
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+    let hot_store = storage.get_hot_store();
+    let cold_store = storage.get_cold_store();
+
+    db_metrics_arbiter.spawn(async move {
+        tracing::debug!(target:"metrics", "Starting the db metrics loop.");
+        loop {
+            interval.tick().await;
+
+            export_store_stats(&hot_store, Temperature::Hot);
+            if let Some(cold_store) = &cold_store {
+                export_store_stats(cold_store, Temperature::Cold);
+            }
+        }
+    });
+
+    Ok(db_metrics_arbiter.handle())
+}
+
+#[cfg(test)]
+mod test {
+    use std::time::Duration;
+
+    use actix;
+
+    use crate::metadata::{DbKind, DB_VERSION};
+    use crate::test_utils::create_test_node_storage_with_cold;
+
+    use near_o11y::testonly::init_test_logger;
+
+    use super::spawn_db_metrics_loop;
+
+    #[test]
+    fn test_db_metrics_loop() {
+        init_test_logger();
+        let storage = create_test_node_storage_with_cold(DB_VERSION, DbKind::Cold);
+        let period = Duration::new(1, 0);
+        let sys = actix::System::new();
+
+        sys.block_on(async move {
+            let _handle =
+                spawn_db_metrics_loop(&storage, period).expect("failed to create arbiter");
+
+            actix::clock::sleep(5 * period).await;
+        });
+        actix::System::current().stop();
+    }
+}

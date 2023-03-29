@@ -3,7 +3,6 @@ use near_o11y::metrics::{
     try_create_int_gauge, try_create_int_gauge_vec, HistogramVec, IntCounterVec, IntGauge,
     IntGaugeVec,
 };
-use near_store::{NodeStorage, Store, Temperature};
 use once_cell::sync::Lazy;
 
 pub static APPLY_CHUNK_DELAY: Lazy<HistogramVec> = Lazy::new(|| {
@@ -101,43 +100,3 @@ pub static STATE_SYNC_OBTAIN_PART_DELAY: Lazy<near_o11y::metrics::HistogramVec> 
     )
     .unwrap()
 });
-
-fn export_store_stats(store: &Store, temperature: Temperature) {
-    if let Some(stats) = store.get_store_statistics() {
-        tracing::debug!(target:"metrics", "Exporting the db metrics for {temperature:?} store.");
-        near_client::export_stats_as_metrics(stats, temperature);
-    } else {
-        // TODO Does that happen under normal circumstances?
-        // Should this log be a warning?
-        tracing::debug!(target:"metrics", "Exporting the db metrics for {temperature:?} store failed. The statistics are missing.");
-    }
-}
-
-pub fn spawn_db_metrics_loop(
-    storage: &NodeStorage,
-    period: std::time::Duration,
-) -> anyhow::Result<actix_rt::ArbiterHandle> {
-    tracing::debug!(target:"metrics", "Spawning the db metrics loop.");
-    let db_metrics_arbiter = actix_rt::Arbiter::new();
-    let db_metrics_arbiter_handle = db_metrics_arbiter.handle();
-
-    let start = tokio::time::Instant::now();
-    let mut interval = actix_rt::time::interval_at(start, period);
-    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-
-    let hot_store = storage.get_hot_store();
-    let cold_store = storage.get_cold_store();
-
-    db_metrics_arbiter.spawn(async move {
-        tracing::debug!(target:"metrics", "Starting the db metrics loop.");
-        loop {
-            interval.tick().await;
-
-            export_store_stats(&hot_store, Temperature::Hot);
-            if let Some(cold_store) = &cold_store {
-                export_store_stats(cold_store, Temperature::Cold);
-            }
-        }
-    });
-    Ok(db_metrics_arbiter_handle)
-}

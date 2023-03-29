@@ -2,7 +2,6 @@ pub use crate::config::{init_configs, load_config, load_test_config, NearConfig,
 pub use crate::runtime::NightshadeRuntime;
 
 use crate::cold_storage::spawn_cold_store_loop;
-use crate::metrics::spawn_db_metrics_loop;
 use crate::state_sync::{spawn_state_sync_dump, StateSyncDumpHandle};
 use actix::{Actor, Addr};
 use actix_rt::ArbiterHandle;
@@ -18,6 +17,7 @@ use near_network::PeerManagerActor;
 use near_primitives::block::GenesisId;
 use near_primitives::time;
 use near_store::metadata::DbKind;
+use near_store::metrics::spawn_db_metrics_loop;
 use near_store::{DBCol, Mode, NodeStorage, Store, StoreOpenerError};
 use near_telemetry::TelemetryActor;
 use std::path::{Path, PathBuf};

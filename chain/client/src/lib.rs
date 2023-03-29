@@ -19,7 +19,6 @@ pub use crate::client_actor::NetworkAdversarialMessage;
 pub use crate::client_actor::{start_client, ClientActor};
 pub use crate::config_updater::ConfigUpdater;
 pub use crate::view_client::{start_view_client, ViewClientActor};
-pub use rocksdb_metrics::export_stats_as_metrics;
 
 pub mod adapter;
 pub mod adversarial;
@@ -29,7 +28,6 @@ mod config_updater;
 pub mod debug;
 mod info;
 mod metrics;
-mod rocksdb_metrics;
 pub mod sync;
 pub mod test_utils;
 #[cfg(test)]

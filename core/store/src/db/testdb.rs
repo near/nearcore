@@ -115,5 +115,6 @@ impl Database for TestDB {
 
     fn get_store_statistics(&self) -> Option<StoreStatistics> {
         None
+        // TODO return some stats and verify them
     }
 }

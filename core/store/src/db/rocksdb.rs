@@ -374,9 +374,12 @@ impl Database for RocksDB {
     fn get_store_statistics(&self) -> Option<StoreStatistics> {
         let mut result = StoreStatistics { data: vec![] };
         if let Some(stats_str) = self.db_opt.get_statistics() {
+            tracing::info!("BOOM stats {stats_str}");
             if let Err(err) = parse_statistics(&stats_str, &mut result) {
                 warn!(target: "store", "Failed to parse store statistics: {:?}", err);
             }
+        } else {
+            tracing::info!("BOOM stats none");
         }
         self.get_cf_statistics(&mut result);
         if result.data.is_empty() {

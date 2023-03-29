@@ -1,15 +1,16 @@
+use crate::db::{StatsValue, StoreStatistics};
+use crate::Temperature;
 use near_o11y::metrics::{
     try_create_gauge_vec, try_create_int_gauge, try_create_int_gauge_vec, GaugeVec, IntGauge,
     IntGaugeVec,
 };
-use near_store::db::{StatsValue, StoreStatistics};
 use once_cell::sync::Lazy;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use tracing::warn;
 
-pub fn export_stats_as_metrics(stats: StoreStatistics, temperature: near_store::Temperature) {
+pub fn export_stats_as_metrics(stats: StoreStatistics, temperature: Temperature) {
     match ROCKSDB_METRICS.lock().unwrap().export_stats_as_metrics(stats, temperature) {
         Ok(_) => {}
         Err(err) => {
@@ -37,7 +38,7 @@ impl RocksDBMetrics {
     pub fn export_stats_as_metrics(
         &mut self,
         stats: StoreStatistics,
-        temperature: near_store::Temperature,
+        temperature: Temperature,
     ) -> Result<(), Box<dyn std::error::Error>> {
         for (stat_name_without_temperature, values) in stats.data {
             let stat_name = stat_name_without_temperature + get_temperature_str(&temperature);
@@ -137,10 +138,10 @@ impl RocksDBMetrics {
     }
 }
 
-fn get_temperature_str(temperature: &near_store::Temperature) -> &'static str {
+fn get_temperature_str(temperature: &Temperature) -> &'static str {
     match temperature {
-        near_store::Temperature::Hot => "_hot",
-        near_store::Temperature::Cold => "_cold",
+        Temperature::Hot => "_hot",
+        Temperature::Cold => "_cold",
     }
 }
 
