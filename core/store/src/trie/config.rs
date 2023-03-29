@@ -1,9 +1,8 @@
 use crate::config::TrieCacheConfig;
-use crate::trie::trie_storage::TrieCacheInner;
 use crate::StoreConfig;
 use near_primitives::types::AccountId;
 use std::str::FromStr;
-use tracing::{error, warn};
+use tracing::error;
 
 /// Default memory limit, if nothing else is configured.
 /// It is chosen to correspond roughly to the old limit, which was
@@ -37,14 +36,6 @@ impl TrieConfig {
     /// Create a new `TrieConfig` with default values or the values specified in `StoreConfig`.
     pub fn from_store_config(config: &StoreConfig) -> Self {
         let mut this = TrieConfig::default();
-
-        if !config.trie_cache_capacities.is_empty() {
-            warn!(target: "store", "`trie_cache_capacities` is deprecated, use `trie_cache` and `view_trie_cache` instead");
-            for (shard_uid, capacity) in &config.trie_cache_capacities {
-                let bytes_limit = Self::deprecated_num_entry_to_memory_limit(*capacity);
-                this.shard_cache_config.per_shard_max_bytes.insert(*shard_uid, bytes_limit);
-            }
-        }
 
         this.shard_cache_config = config.trie_cache.clone();
         this.view_shard_cache_config = config.view_trie_cache.clone();
@@ -80,24 +71,5 @@ impl TrieConfig {
     /// delays the actual eviction.
     pub fn deletions_queue_capacity(&self) -> usize {
         DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY
-    }
-
-    /// Given a number of max entries in the old config format, calculate how
-    /// many bytes the limit should be set to such that AT LEAST THE SAME NUMBER
-    /// can fit.
-    ///
-    /// TODO(#7894): Remove this when `trie_cache_capacities` is removed from config.
-    ///
-    /// As long as `trie_cache_capacities` is a config option, it should be respected.
-    /// We no longer commit to a hard limit on this. But we make sure that the old
-    /// worst-case assumption of how much memory would be consumed still works.
-    /// Specifically, the old calculation ignored `PER_ENTRY_OVERHEAD` and used
-    /// `max_cached_value_size()` only to figure out a good value for how many
-    /// nodes we want in the cache at most.
-    /// This implicit limit should result in the same min number of nodes and
-    /// same max memory consumption as the old config.
-    pub(crate) fn deprecated_num_entry_to_memory_limit(max_num_entries: u64) -> u64 {
-        max_num_entries
-            * (TrieCacheInner::PER_ENTRY_OVERHEAD + TrieConfig::max_cached_value_size() as u64)
     }
 }
