@@ -23,16 +23,19 @@ near_root, node_dirs = init_cluster(
      ["protocol_version", 47], ["use_production_config", True],
      ["block_producer_kickout_threshold", 80]], {
          0: {
-             "tracked_shards": [0]
+             "tracked_shards": [0],
+             "state_sync_enabled": True,
          },
          1: {
-             "tracked_shards": [0]
+             "tracked_shards": [0],
+             "state_sync_enabled": True,
          },
          2: {
              "tracked_shards": [0],
              "consensus": {
                  "block_fetch_horizon": 20,
              },
+             "state_sync_enabled": True,
          }
      })
 
