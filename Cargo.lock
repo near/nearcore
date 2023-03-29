@@ -3979,7 +3979,6 @@ dependencies = [
 name = "near-vm-compiler-singlepass"
 version = "0.0.0"
 dependencies = [
- "byteorder",
  "dynasm",
  "dynasmrt",
  "enumset",
