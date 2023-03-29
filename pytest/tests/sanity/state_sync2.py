@@ -20,16 +20,34 @@ BLOCKS = 105  # should be enough to trigger state sync for node 1 later, see com
 
 nightly = len(sys.argv) > 1
 
+node_config = {
+    "state_sync_enabled": True,
+}
+client_config_overrides = {
+    0: node_config,
+    1: node_config,
+}
+
 nodes = start_cluster(
-    2, 0, 2, None, [["minimum_validators_per_shard", 2], ["epoch_length", 10],
-                    ["block_producer_kickout_threshold", 10],
-                    ["chunk_producer_kickout_threshold", 10]],
-    {}) if nightly else start_cluster(
-        2, 0, 2, None,
-        [["num_block_producer_seats", 199],
-         ["num_block_producer_seats_per_shard", [99, 100]],
-         ["epoch_length", 10], ["block_producer_kickout_threshold", 10],
-         ["chunk_producer_kickout_threshold", 10]], {})
+    2,
+    0,
+    2,
+    None,
+    [["minimum_validators_per_shard", 2], ["epoch_length", 10],
+     ["block_producer_kickout_threshold", 10],
+     ["chunk_producer_kickout_threshold", 10]],
+    client_config_overrides,
+) if nightly else start_cluster(
+    2,
+    0,
+    2,
+    None,
+    [["num_block_producer_seats", 199],
+     ["num_block_producer_seats_per_shard", [99, 100]], ["epoch_length", 10],
+     ["block_producer_kickout_threshold", 10],
+     ["chunk_producer_kickout_threshold", 10]],
+    client_config_overrides,
+)
 logger.info('cluster started')
 
 started = time.time()

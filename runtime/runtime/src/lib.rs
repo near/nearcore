@@ -1267,8 +1267,7 @@ impl Runtime {
                 outgoing_receipts.push(receipt);
             }
 
-            total_gas_burnt += outcome_with_id.outcome.gas_burnt;
-
+            total_gas_burnt = safe_add_gas(total_gas_burnt, outcome_with_id.outcome.gas_burnt)?;
             outcomes.push(outcome_with_id);
         }
 
