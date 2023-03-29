@@ -269,13 +269,17 @@ where
     }
 }
 
+/// Zero-balance account (NEP-448)
+fn is_zero_balance_account(account: &near_primitives::account::Account) -> bool {
+    account.storage_usage() <= 770
+}
+
 /// Tokens not locked due to staking (=liquid) but reserved for state.
 fn get_liquid_balance_for_storage(
     account: &near_primitives::account::Account,
     storage_amount_per_byte: near_primitives::types::Balance,
 ) -> near_primitives::types::Balance {
-    let staked_for_storage = if account.storage_usage() <= 770 {
-        // zero-balance account (NEP-448)
+    let staked_for_storage = if is_zero_balance_account(account) {
         0
     } else {
         near_primitives::types::Balance::from(account.storage_usage()) * storage_amount_per_byte
