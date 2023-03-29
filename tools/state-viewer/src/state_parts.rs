@@ -356,7 +356,7 @@ fn dump_state_parts(
     tracing::info!(target: "state-parts", total_elapsed_sec = timer.elapsed().as_secs_f64(), "Wrote all requested state parts");
 }
 
-/// Returns the first and the last `StateRecord`s encountered while iterating over a state part.
+/// Returns the first `StateRecord` encountered while iterating over a sub-trie in the state part.
 fn get_first_state_record(state_root: &StateRoot, data: &[u8]) -> Option<StateRecord> {
     let trie_nodes = BorshDeserialize::try_from_slice(data).unwrap();
     let trie = Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes }, *state_root);
