@@ -259,6 +259,12 @@ impl Runtime {
                 };
                 stats.tx_burnt_amount =
                     safe_add_balance(stats.tx_burnt_amount, verification_result.burnt_amount)?;
+
+                let mut profile = ProfileDataV3::default();
+                profile.add_action_cost(
+                    ActionCosts::new_action_receipt,
+                    verification_result.gas_burnt,
+                );
                 let outcome = ExecutionOutcomeWithId {
                     id: signed_transaction.get_hash(),
                     outcome: ExecutionOutcome {
@@ -272,7 +278,7 @@ impl Runtime {
                         executor_id: transaction.signer_id.clone(),
                         // TODO: profile data is only counted in apply_action, which only happened at process_receipt
                         // VerificationResult needs updates to incorporate profile data to support profile data of txns
-                        metadata: ExecutionMetadata::V1,
+                        metadata: ExecutionMetadata::V3(profile),
                     },
                 };
                 Ok((receipt, outcome))
@@ -311,6 +317,7 @@ impl Runtime {
         result.gas_burnt = exec_fees;
         // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
         result.compute_usage = exec_fees;
+        result.profile.add_action_cost(ActionCosts::new_action_receipt, exec_fees);
         let account_id = &receipt.receiver_id;
         let is_the_only_action = actions.len() == 1;
         let is_refund = AccountId::is_system(&receipt.predecessor_id);
@@ -510,6 +517,7 @@ impl Runtime {
         result.gas_burnt = exec_fees;
         // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
         result.compute_usage = exec_fees;
+        result.profile.add_action_cost(ActionCosts::new_action_receipt, exec_fees);
         // Executing actions one by one
         for (action_index, action) in action_receipt.actions.iter().enumerate() {
             let action_hash = create_action_hash(
@@ -1279,8 +1287,18 @@ impl Runtime {
             }
 
             total_gas_burnt = safe_add_gas(total_gas_burnt, outcome_with_id.outcome.gas_burnt)?;
-            total_compute_usage =
-                safe_add_compute(total_compute_usage, outcome_with_id.outcome.compute_usage)?;
+
+            // total_compute_usage =
+            //     safe_add_compute(total_compute_usage, outcome_with_id.outcome.compute_usage)?;
+
+            let compute_usage =
+                if let ExecutionMetadata::V3(profile) = &outcome_with_id.outcome.metadata {
+                    profile.total_compute_usage(&apply_state.config.wasm_config.ext_costs)
+                } else {
+                    panic!("No profile found");
+                };
+            total_compute_usage = safe_add_compute(total_compute_usage, compute_usage)?;
+
             // TODO(#8032): Remove when compute costs are stabilized.
             debug_assert_eq!(
                 total_compute_usage, total_gas_burnt,
@@ -1322,8 +1340,17 @@ impl Runtime {
             if let Some(outcome_with_id) = result? {
                 *total_gas_burnt =
                     safe_add_gas(*total_gas_burnt, outcome_with_id.outcome.gas_burnt)?;
-                *total_compute_usage =
-                    safe_add_compute(*total_compute_usage, outcome_with_id.outcome.compute_usage)?;
+
+                let compute_usage =
+                    if let ExecutionMetadata::V3(profile) = &outcome_with_id.outcome.metadata {
+                        profile.total_compute_usage(&apply_state.config.wasm_config.ext_costs)
+                    } else {
+                        panic!("No profile found");
+                    };
+                *total_compute_usage = safe_add_compute(*total_compute_usage, compute_usage)?;
+
+                // *total_compute_usage =
+                //     safe_add_compute(*total_compute_usage, outcome_with_id.outcome.compute_usage)?;
                 // TODO(#8032): Remove when compute costs are stabilized.
                 debug_assert_eq!(
                     total_compute_usage, total_gas_burnt,
