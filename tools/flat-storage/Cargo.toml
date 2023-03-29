@@ -11,15 +11,15 @@ borsh.workspace = true
 clap.workspace = true
 rayon.workspace = true
 
-tqdm = "0.4.4"
+tqdm.workspace = true
 
-near-chain = { path = "../../chain/chain" }
-near-chain-configs = { path = "../../core/chain-configs" }
+near-chain.workspace = true
+near-chain-configs.workspace = true
 
-near-epoch-manager = { path = "../../chain/epoch-manager" }
-near-primitives = { path = "../../core/primitives" }
-near-store = { path = "../../core/store" }
-nearcore = { path = "../../nearcore" }
+near-epoch-manager.workspace = true
+near-primitives.workspace = true
+near-store.workspace = true
+nearcore.workspace = true
 
 [features]
 protocol_feature_flat_state = [

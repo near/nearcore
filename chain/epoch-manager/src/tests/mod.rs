@@ -2202,7 +2202,6 @@ fn test_protocol_version_switch_with_many_seats() {
         online_min_threshold: Ratio::new(90, 100),
         online_max_threshold: Ratio::new(99, 100),
         protocol_upgrade_stake_threshold: Ratio::new(80, 100),
-        protocol_upgrade_num_epochs: 2,
         minimum_stake_divisor: 1,
         shard_layout: ShardLayout::v0_single_shard(),
         validator_selection_config: Default::default(),

@@ -7,4 +7,4 @@ edition.workspace = true
 
 [dependencies]
 tracing.workspace = true
-near-o11y = { path = "../../core/o11y" }
+near-o11y.workspace = true

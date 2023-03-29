@@ -129,10 +129,11 @@ impl InfoHelper {
 
     /// Count which shards are tracked by the node in the epoch indicated by head parameter.
     fn record_tracked_shards(head: &Tip, client: &crate::client::Client) {
+        let me = client.validator_signer.as_ref().map(|x| x.validator_id());
         if let Ok(num_shards) = client.runtime_adapter.num_shards(&head.epoch_id) {
             for shard_id in 0..num_shards {
                 let tracked = client.runtime_adapter.cares_about_shard(
-                    None,
+                    me,
                     &head.last_block_hash,
                     shard_id,
                     false,
