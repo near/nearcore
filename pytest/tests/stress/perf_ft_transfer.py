@@ -33,6 +33,7 @@ import multiprocessing
 import multiprocessing.queues
 import ctypes
 import ed25519
+import queue
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -48,17 +49,24 @@ from configured_logger import new_logger
 DEFAULT_TRANSACTION_TTL_SECONDS = 10
 GAS_PER_BLOCK = 10E14
 TRANSACTIONS_PER_BLOCK = 121
-MAX_INFLIGHT_TRANSACTIONS = 5000
+MAX_INFLIGHT_TRANSACTIONS_PER_EXECUTOR = 500
+EXECUTORS = 4
 SEED = random.uniform(0, 0xFFFFFFFF)
 logger = new_logger(level = logging.INFO)
 ACCOUNTS = []
 CONTRACT_ACCOUNT = None
+
+ID = 0
 
 class Transaction:
     """
     A transaction future.
     """
     def __init__(self):
+        global ID
+        self.id = ID
+        ID += 1
+
         # Number of times we are going to check this transaction for completion before retrying
         # submission
         self.ttl = 0
@@ -268,6 +276,7 @@ class Account:
 def transaction_executor(nodes, tx_queue):
     block_hash = base58.b58decode(nodes[0].get_latest_block().hash)
     last_block_hash_update = time.time()
+    my_transactions = queue.SimpleQueue()
     while True:
         # TODO: pick RPC node randomly.
         # neard can handle somewhat stale block hashes, but not too stale.
@@ -277,9 +286,22 @@ def transaction_executor(nodes, tx_queue):
             block_hash = base58.b58decode(nodes[0].get_latest_block().hash)
             last_block_hash_update = now
 
-        tx = tx_queue.get()
+        try:
+            while my_transactions.qsize() < MAX_INFLIGHT_TRANSACTIONS_PER_EXECUTOR:
+                tx = tx_queue.get_nowait()
+                # Send out the transaction immediately.
+                tx.poll(nodes[0], block_hash)
+                my_transactions.put(tx)
+        except queue.Empty:
+            pass
+
+        try:
+            tx = my_transactions.get_nowait()
+        except queue.Empty:
+            time.sleep(0.1)
+            continue
+
         if not tx.poll(nodes[0], block_hash):
-            # Gotta make sure whoever is pushing to the queue is not filling the queue up fully.
             tx_queue.put(tx)
             if tx.ttl != DEFAULT_TRANSACTION_TTL_SECONDS:
                 time.sleep(0.1) # don't spam RPC too hard...
@@ -337,12 +359,10 @@ def main():
         ACCOUNTS.append(Account(key.Key(account_id, pk, sk)))
 
 
-    queue_size = max(MAX_INFLIGHT_TRANSACTIONS, int(args.accounts)) + 16
+    queue_size = max(MAX_INFLIGHT_TRANSACTIONS_PER_EXECUTOR, int(args.accounts)) + 16
     tx_queue = TxQueue(queue_size)
-    multiprocessing.Process(target=transaction_executor, args=(nodes, tx_queue,), daemon=True).start()
-    multiprocessing.Process(target=transaction_executor, args=(nodes, tx_queue,), daemon=True).start()
-    multiprocessing.Process(target=transaction_executor, args=(nodes, tx_queue,), daemon=True).start()
-    multiprocessing.Process(target=transaction_executor, args=(nodes, tx_queue,), daemon=True).start()
+    for executor in range(EXECUTORS):
+        multiprocessing.Process(target=transaction_executor, args=(nodes, tx_queue,), daemon=True).start()
 
     tx_queue.add(DeployFT(contract_account_idx, args.fungible_token_wasm))
     wait_empty(tx_queue, "deployment")
@@ -375,7 +395,7 @@ def main():
         transfers += 1
         if transfers % 10000 == 0:
             logger.info(f"{transfers} so far ({tx_queue.pending.value} pending)")
-        while tx_queue.pending.value >= MAX_INFLIGHT_TRANSACTIONS:
+        while tx_queue.pending.value >= MAX_INFLIGHT_TRANSACTIONS_PER_EXECUTOR * EXECUTORS:
             time.sleep(0.25)
 
 def wait_empty(queue, why):
