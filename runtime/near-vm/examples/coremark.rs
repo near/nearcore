@@ -24,7 +24,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
     println!("Instantiating module...");
-    let instance = Instance::new(&module, &import_object)?;
+    let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &import_object)?;
     let run = instance.lookup_function("run").expect("function lookup");
     println!("Calling CoreMark 1.0. Should take 12~20 seconds...");
     let results = run.call(&[])?;

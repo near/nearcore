@@ -15,25 +15,24 @@ publish = false
 name = "wasmer_engine_universal"
 
 [dependencies]
-finite-wasm = "0.3.0"
+finite-wasm.workspace = true
 wasmer-compiler = { path = "../compiler", package = "near-vm-compiler", features = ["translator"] }
 wasmer-engine = { path = "../engine", package = "near-vm-engine" }
 wasmer-types = { path = "../types", package = "near-vm-types" }
 wasmer-vm = { path = "../vm", package = "near-vm-vm" }
 
-cfg-if = "1.0"
-enumset = "1.0"
-# flexbuffers = { path = "../../../flatbuffers/rust/flexbuffers", version = "0.1.0" }
-leb128 = "0.2"
-prefix-sum-vec = "0.1.1"
-region = "3.0"
-rkyv = "0.7.31"
-thiserror = "1"
-tracing = "0.1"
+cfg-if.workspace = true
+enumset.workspace = true
+leb128.workspace = true
+prefix-sum-vec.workspace = true
+region.workspace = true
+rkyv.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
 wasmparser = "0.99.0"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-winapi = { version = "0.3", features = ["winnt", "impl-default"] }
+winapi.workspace = true
 
 [features]
 # Enable the `compiler` feature if you want the engine to compile

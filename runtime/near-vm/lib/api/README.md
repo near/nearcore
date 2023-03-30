@@ -29,7 +29,7 @@ fn main() -> anyhow::Result<()> {
     let module = Module::new(&store, &module_wat)?;
     // The module doesn't import anything, so we create an empty import object.
     let import_object = imports! {};
-    let instance = Instance::new(&module, &import_object)?;
+    let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &import_object)?;
 
     let add_one = instance.exports.get_function("add_one")?;
     let result = add_one.call(&[Value::I32(42)])?;

@@ -8,5 +8,5 @@ edition.workspace = true
 [dependencies]
 clap.workspace = true
 
-nearcore = { path = "../../nearcore" }
-near-crypto = { path = "../../core/crypto" }
+nearcore.workspace = true
+near-crypto.workspace = true

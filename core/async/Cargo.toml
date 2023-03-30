@@ -19,6 +19,6 @@ serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 
-near-primitives = { path = "../primitives" }
-near-o11y = { path = "../o11y" }
-near-performance-metrics = { path = "../../utils/near-performance-metrics" }       
+near-primitives.workspace = true
+near-o11y.workspace = true
+near-performance-metrics.workspace = true

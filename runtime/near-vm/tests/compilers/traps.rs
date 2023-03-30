@@ -16,8 +16,9 @@ fn test_trap_return(config: crate::Config) -> Result<()> {
     let hello_type = FunctionType::new(vec![], vec![]);
     let hello_func = Function::new(&store, &hello_type, |_| Err(RuntimeError::new("test 123")));
 
-    let instance = Instance::new(
+    let instance = Instance::new_with_config(
         &module,
+        InstanceConfig::with_stack_limit(1000000),
         &imports! {
             "" => {
                 "hello" => hello_func
@@ -47,7 +48,7 @@ fn test_trap_trace(config: crate::Config) -> Result<()> {
     "#;
 
     let module = Module::new(&store, wat)?;
-    let instance = Instance::new(&module, &imports! {})?;
+    let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &imports! {})?;
     let run_func = instance
         .lookup_function("run")
         .expect("expected function export");
@@ -86,8 +87,9 @@ fn test_trap_trace_cb(config: crate::Config) -> Result<()> {
     let fn_func = Function::new(&store, &fn_type, |_| Err(RuntimeError::new("cb throw")));
 
     let module = Module::new(&store, wat)?;
-    let instance = Instance::new(
+    let instance = Instance::new_with_config(
         &module,
+        InstanceConfig::with_stack_limit(1000000),
         &imports! {
             "" => {
                 "throw" => fn_func
@@ -124,7 +126,7 @@ fn test_trap_stack_overflow(config: crate::Config) -> Result<()> {
     "#;
 
     let module = Module::new(&store, wat)?;
-    let instance = Instance::new(&module, &imports! {})?;
+    let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &imports! {})?;
     let run_func = instance
         .lookup_function("run")
         .expect("expected function export");
@@ -157,7 +159,7 @@ fn trap_display_pretty(config: crate::Config) -> Result<()> {
     "#;
 
     let module = Module::new(&store, wat)?;
-    let instance = Instance::new(&module, &imports! {})?;
+    let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &imports! {})?;
     let run_func = instance
         .lookup_function("bar")
         .expect("expected function export");
@@ -189,7 +191,7 @@ fn trap_display_multi_module(config: crate::Config) -> Result<()> {
     "#;
 
     let module = Module::new(&store, wat)?;
-    let instance = Instance::new(&module, &imports! {})?;
+    let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &imports! {})?;
     let bar = instance.lookup_function("bar").unwrap();
 
     let wat = r#"
@@ -200,8 +202,9 @@ fn trap_display_multi_module(config: crate::Config) -> Result<()> {
         )
     "#;
     let module = Module::new(&store, wat)?;
-    let instance = Instance::new(
+    let instance = Instance::new_with_config(
         &module,
+        InstanceConfig::with_stack_limit(1000000),
         &imports! {
             "" => {
                 "" => bar
@@ -240,8 +243,9 @@ fn trap_start_function_import(config: crate::Config) -> Result<()> {
     let module = Module::new(&store, &binary)?;
     let sig = FunctionType::new(vec![], vec![]);
     let func = Function::new(&store, &sig, |_| Err(RuntimeError::new("user trap")));
-    let err = Instance::new(
+    let err = Instance::new_with_config(
         &module,
+        InstanceConfig::with_stack_limit(1000000),
         &imports! {
             "" => {
                 "" => func
@@ -277,8 +281,9 @@ fn rust_panic_import(config: crate::Config) -> Result<()> {
     let module = Module::new(&store, &binary)?;
     let sig = FunctionType::new(vec![], vec![]);
     let func = Function::new(&store, &sig, |_| panic!("this is a panic"));
-    let instance = Instance::new(
+    let instance = Instance::new_with_config(
         &module,
+        InstanceConfig::with_stack_limit(1000000),
         &imports! {
             "" => {
                 "foo" => func,
@@ -321,8 +326,9 @@ fn rust_panic_start_function(config: crate::Config) -> Result<()> {
     let sig = FunctionType::new(vec![], vec![]);
     let func = Function::new(&store, &sig, |_| panic!("this is a panic"));
     let err = panic::catch_unwind(AssertUnwindSafe(|| {
-        drop(Instance::new(
+        drop(Instance::new_with_config(
             &module,
+            InstanceConfig::with_stack_limit(1000000),
             &imports! {
                 "" => {
                     "" => func
@@ -335,8 +341,9 @@ fn rust_panic_start_function(config: crate::Config) -> Result<()> {
 
     let func = Function::new_native(&store, || panic!("this is another panic"));
     let err = panic::catch_unwind(AssertUnwindSafe(|| {
-        drop(Instance::new(
+        drop(Instance::new_with_config(
             &module,
+            InstanceConfig::with_stack_limit(1000000),
             &imports! {
                 "" => {
                     "" => func
@@ -362,7 +369,7 @@ fn mismatched_arguments(config: crate::Config) -> Result<()> {
     "#;
 
     let module = Module::new(&store, &binary)?;
-    let instance = Instance::new(&module, &imports! {})?;
+    let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &imports! {})?;
     let func: Function = instance.lookup_function("foo").unwrap();
     assert_eq!(
         func.call(&[]).unwrap_err().message(),
@@ -399,7 +406,7 @@ fn call_signature_mismatch(config: crate::Config) -> Result<()> {
     "#;
 
     let module = Module::new(&store, &binary)?;
-    let err = Instance::new(&module, &imports! {})
+    let err = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &imports! {})
         .err()
         .expect("expected error");
     assert_eq!(
@@ -427,7 +434,7 @@ fn start_trap_pretty(config: crate::Config) -> Result<()> {
     "#;
 
     let module = Module::new(&store, wat)?;
-    let err = Instance::new(&module, &imports! {})
+    let err = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &imports! {})
         .err()
         .expect("expected error");
 
@@ -448,7 +455,7 @@ RuntimeError: unreachable
 fn present_after_module_drop(config: crate::Config) -> Result<()> {
     let store = config.store();
     let module = Module::new(&store, r#"(func (export "foo") unreachable)"#)?;
-    let instance = Instance::new(&module, &imports! {})?;
+    let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &imports! {})?;
     let func: Function = instance.lookup_function("foo").unwrap();
 
     println!("asserting before we drop modules");

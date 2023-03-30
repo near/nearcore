@@ -11,8 +11,8 @@ repository = "https://github.com/near/nearcore"
 description = "Observability helpers for the near codebase"
 
 [dependencies]
-near-crypto = { path = "../../core/crypto" }
-near-primitives-core = { path = "../../core/primitives-core" }
+near-crypto.workspace = true
+near-primitives-core.workspace = true
 
 actix.workspace = true
 atty.workspace = true

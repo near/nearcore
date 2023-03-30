@@ -12,8 +12,8 @@ rand.workspace = true
 strum.workspace = true
 tracing.workspace = true
 
-nearcore = { path = "../../nearcore"}
-near-chain-configs = { path = "../../core/chain-configs"}
-near-epoch-manager = { path = "../../chain/epoch-manager" }
-near-primitives = { path = "../../core/primitives" }
-near-store = { path = "../../core/store"}
+nearcore.workspace = true
+near-chain-configs.workspace = true
+near-epoch-manager.workspace = true
+near-primitives.workspace = true
+near-store.workspace = true

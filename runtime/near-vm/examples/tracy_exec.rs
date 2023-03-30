@@ -50,7 +50,7 @@ fn main() -> anyhow::Result<()> {
             "gas" => Function::new_native(&store, gas),
         }
     };
-    let _instance = Instance::new(&module, &import_object)?;
+    let _instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &import_object)?;
 
     // Then everything is ready and compiled, so there is nothing more to trace.
 

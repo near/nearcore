@@ -9,14 +9,14 @@ edition.workspace = true
 ansi_term.workspace = true
 clap.workspace = true
 
-near-chain-configs = { path = "../../core/chain-configs" }
-near-primitives = { path = "../../core/primitives" }
-near-store = { path = "../../core/store" }
-near-o11y = { path = "../../core/o11y" }
-near-chain = { path = "../../chain/chain" }
-nearcore = { path = "../../nearcore" }
+near-chain-configs.workspace = true
+near-primitives.workspace = true
+near-store.workspace = true
+near-o11y.workspace = true
+near-chain.workspace = true
+nearcore.workspace = true
 
 [dev-dependencies]
-testlib = { path = "../../test-utils/testlib" }
+testlib.workspace = true
 serde_json.workspace = true
-near-client = { path = "../../chain/client" }
+near-client.workspace = true

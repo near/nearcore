@@ -84,13 +84,13 @@ fn many_functions(c: &mut Criterion) {
             b.iter(|| {
                 let module = Module::new(&store, &wasm).unwrap();
                 let imports = imports! {};
-                let _ = Instance::new(&module, &imports).unwrap();
+                let _ = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &imports).unwrap();
             })
         });
 
         let module = Module::new(&store, &wasm).unwrap();
         let imports = imports! {};
-        let instance = Instance::new(&module, &imports).unwrap();
+        let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &imports).unwrap();
         group.bench_function(BenchmarkId::new("lookup_main", functions), |b| {
             b.iter(|| {
                 let _: Function = instance.lookup_function("main").unwrap();
@@ -137,7 +137,7 @@ fn many_locals(c: &mut Criterion) {
             b.iter(|| {
                 let module = Module::new(&store, &wasm).unwrap();
                 let imports = imports! {};
-                let _ = Instance::new(&module, &imports).unwrap();
+                let _ = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &imports).unwrap();
             })
         });
 

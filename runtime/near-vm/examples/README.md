@@ -27,7 +27,7 @@ together.
    ![Module serialization](../assets/diagrams/Diagram_module_serialization.png)
 
 3. **Module instantiation**, illustrates what happens when
-   `wasmer::Instance::new` is called.
+   `wasmer::Instance::new_with_config` is called.
 
    ![Module instantiation](../assets/diagrams/Diagram_module_instantiation.png)
 
