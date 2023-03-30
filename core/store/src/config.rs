@@ -41,10 +41,6 @@ pub struct StoreConfig {
     /// the performance of the storage
     pub block_size: bytesize::ByteSize,
 
-    /// DEPRECATED: use `trie_cache` instead.
-    /// TODO(#7894): Remove in version >1.31
-    pub trie_cache_capacities: Vec<(ShardUId, u64)>,
-
     /// Trie cache configuration per shard for normal (non-view) caches.
     pub trie_cache: TrieCacheConfig,
     /// Trie cache configuration per shard for view caches.
@@ -190,20 +186,22 @@ impl Default for StoreConfig {
             // we use it since then.
             block_size: bytesize::ByteSize::kib(16),
 
-            // deprecated
-            trie_cache_capacities: vec![],
-
             trie_cache: TrieCacheConfig {
                 default_max_bytes: DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
                 // Temporary solution to make contracts with heavy trie access
                 // patterns on shard 3 more stable. It was chosen by the estimation
                 // of the largest contract storage size we are aware as of 23/08/2022.
                 // Consider removing after implementing flat storage. (#7327)
+                // Note: on >= 1.34 nearcore version use 1_000_000_000 if you have
+                // minimal hardware.
                 per_shard_max_bytes: HashMap::from_iter([(
                     ShardUId { version: 1, shard_id: 3 },
                     3_000_000_000,
                 )]),
             },
+
+            // Use default sized caches for view calls, because they don't impact
+            // block processing.
             view_trie_cache: TrieCacheConfig::default(),
 
             enable_receipt_prefetching: true,

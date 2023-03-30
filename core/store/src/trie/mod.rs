@@ -1118,6 +1118,7 @@ mod tests {
 
     #[test]
     fn test_encode_decode() {
+        #[track_caller]
         fn test(node: RawTrieNode, encoded: &[u8]) {
             let mut buf = Vec::new();
             let node = RawTrieNodeWithSize { node, memory_usage: 42 };
@@ -1133,37 +1134,73 @@ mod tests {
 
         let value = ValueRef { length: 3, hash: CryptoHash::hash_bytes(&[123, 245, 255]) };
         let node = RawTrieNode::Leaf(vec![1, 2, 3], value.clone());
+        #[rustfmt::skip]
         let encoded = [
-            0, 3, 0, 0, 0, 1, 2, 3, 3, 0, 0, 0, 194, 40, 8, 24, 64, 219, 69, 132, 86, 52, 110, 175,
-            57, 198, 165, 200, 83, 237, 211, 11, 194, 83, 251, 33, 145, 138, 234, 226, 7, 242, 186,
-            73, 42, 0, 0, 0, 0, 0, 0, 0,
+            /* node type: */ 0,
+            /* key: */ 3, 0, 0, 0, 1, 2, 3,
+            /* value: */ 3, 0, 0, 0, 194, 40, 8, 24, 64, 219, 69, 132, 86, 52, 110, 175, 57, 198, 165, 200, 83, 237, 211, 11, 194, 83, 251, 33, 145, 138, 234, 226, 7, 242, 186, 73,
+            /* memory usage: */ 42, 0, 0, 0, 0, 0, 0, 0,
         ];
         test(node, &encoded);
 
         let mut children = Children::default();
-        children[3] = Some(Trie::EMPTY_ROOT);
+        children[3] = Some(CryptoHash([1; 32]));
+        children[5] = Some(CryptoHash([2; 32]));
         let node = RawTrieNode::Branch(children, None);
+        #[rustfmt::skip]
         let encoded = [
-            1, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 42, 0, 0, 0, 0, 0, 0, 0,
+            /* node type: */ 1,
+            /* bitmask: */ 40, 0,
+            /* child: */ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+            /* child: */ 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+            /* memory usage: */ 42, 0, 0, 0, 0, 0, 0, 0
         ];
         test(node, &encoded);
 
         let mut children = Children::default();
-        children[3] = Some(Trie::EMPTY_ROOT);
-        let node = RawTrieNode::Branch(children, Some(value));
+        children[0] = Some(CryptoHash([1; 32]));
+        let node = RawTrieNode::Branch(children, None);
+        #[rustfmt::skip]
         let encoded = [
-            2, 3, 0, 0, 0, 194, 40, 8, 24, 64, 219, 69, 132, 86, 52, 110, 175, 57, 198, 165, 200,
-            83, 237, 211, 11, 194, 83, 251, 33, 145, 138, 234, 226, 7, 242, 186, 73, 8, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            42, 0, 0, 0, 0, 0, 0, 0,
+            /* node type: */ 1,
+            /* bitmask: */ 1, 0,
+            /* child: */ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+            /* memory usage: */ 42, 0, 0, 0, 0, 0, 0, 0
+        ];
+        test(node, &encoded);
+
+        let mut children = Children::default();
+        children[15] = Some(CryptoHash([1; 32]));
+        let node = RawTrieNode::Branch(children, None);
+        #[rustfmt::skip]
+        let encoded = [
+            /* node type: */ 1,
+            /* bitmask: */ 0, 128,
+            /* child: */ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+            /* memory usage: */ 42, 0, 0, 0, 0, 0, 0, 0
+        ];
+        test(node, &encoded);
+
+        let mut children = Children::default();
+        children[3] = Some(CryptoHash([1; 32]));
+        let node = RawTrieNode::Branch(children, Some(value));
+        #[rustfmt::skip]
+        let encoded = [
+            /* node type: */ 2,
+            /* value: */ 3, 0, 0, 0, 194, 40, 8, 24, 64, 219, 69, 132, 86, 52, 110, 175, 57, 198, 165, 200, 83, 237, 211, 11, 194, 83, 251, 33, 145, 138, 234, 226, 7, 242, 186, 73,
+            /* bitmask: */ 8, 0,
+            /* child: */ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+            /* memory usage: */ 42, 0, 0, 0, 0, 0, 0, 0
         ];
         test(node, &encoded);
 
         let node = RawTrieNode::Extension(vec![123, 245, 255], Trie::EMPTY_ROOT);
+        #[rustfmt::skip]
         let encoded = [
-            3, 3, 0, 0, 0, 123, 245, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 42, 0, 0, 0, 0, 0, 0, 0,
+            /* node type: */ 3,
+            /* key: */ 3, 0, 0, 0, 123, 245, 255,
+            /* node: */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            /* memory usage: */ 42, 0, 0, 0, 0, 0, 0, 0
         ];
         test(node, &encoded);
     }
