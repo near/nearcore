@@ -49,8 +49,8 @@ impl RocksDBMetrics {
         stats: StoreStatistics,
         temperature: Temperature,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        for (stat_name_without_temperature, values) in stats.data {
-            let stat_name = stat_name_without_temperature + get_temperature_str(&temperature);
+        for (stat_name, values) in stats.data {
+            let stat_name = stat_name + get_temperature_str(&temperature);
             if values.is_empty() {
                 continue;
             }

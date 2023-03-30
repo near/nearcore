@@ -403,7 +403,7 @@ mod test {
         let (storage, hot, cold) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Cold);
         let period = Duration::from_millis(100);
 
-        let _handle = spawn_db_metrics_loop(&storage, period)?;
+        let handle = spawn_db_metrics_loop(&storage, period)?;
 
         let hot_column_name = "hot.colum".to_string();
         let cold_column_name = "cold.colum".to_string();
@@ -441,6 +441,8 @@ mod test {
         assert_eq!(hot_gauge.get(), 42);
         assert_eq!(cold_gauge.get(), 52);
 
+        handle.stop();
+
         Ok(())
     }
 
@@ -451,10 +453,7 @@ mod test {
         let sys = actix::System::new();
         sys.block_on(test_db_metrics_loop_impl()).expect("test impl failed");
 
-        // There is a race condition between stop and run.
-        // It doesn't break but logs an ugly error message.
         actix::System::current().stop();
-        std::thread::sleep(Duration::from_millis(100));
         sys.run().unwrap();
     }
 }
