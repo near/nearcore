@@ -12,6 +12,7 @@ use near_primitives::types::{AccountId, EpochId, ShardId};
 pub enum TrackedConfig {
     Accounts(Vec<AccountId>),
     AllShards,
+    Schedule(Vec<Vec<ShardId>>),
 }
 
 impl TrackedConfig {
@@ -20,10 +21,12 @@ impl TrackedConfig {
     }
 
     pub fn from_config(config: &ClientConfig) -> Self {
-        if config.tracked_shards.is_empty() {
-            TrackedConfig::Accounts(config.tracked_accounts.clone())
-        } else {
+        if !config.tracked_shards.is_empty() {
             TrackedConfig::AllShards
+        } else if !config.tracked_shard_schedule.is_empty() {
+            TrackedConfig::Schedule(config.tracked_shard_schedule.clone())
+        } else {
+            TrackedConfig::Accounts(config.tracked_accounts.clone())
         }
     }
 }
@@ -73,11 +76,28 @@ impl ShardTracker {
                 Ok(tracking_mask.get(shard_id as usize).copied().unwrap_or(false))
             }
             TrackedConfig::AllShards => Ok(true),
+            TrackedConfig::Schedule(schedule) => {
+                assert_ne!(schedule.len(), 0);
+                let epoch_info = self.epoch_manager.get_epoch_info(epoch_id)?;
+                let epoch_height = epoch_info.epoch_height();
+                let index = epoch_height % schedule.len() as u64;
+                let subset = &schedule[index as usize];
+                Ok(subset.contains(&shard_id))
+            }
         }
     }
 
     fn tracks_shard(&self, shard_id: ShardId, prev_hash: &CryptoHash) -> Result<bool, EpochError> {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
+        self.tracks_shard_at_epoch(shard_id, &epoch_id)
+    }
+
+    fn tracks_shard_next_epoch_from_prev_block(
+        &self,
+        shard_id: ShardId,
+        prev_hash: &CryptoHash,
+    ) -> Result<bool, EpochError> {
+        let epoch_id = self.epoch_manager.get_next_epoch_id_from_prev_block(prev_hash)?;
         self.tracks_shard_at_epoch(shard_id, &epoch_id)
     }
 
@@ -101,8 +121,13 @@ impl ShardTracker {
                 return true;
             }
         }
-        matches!(self.tracked_config, TrackedConfig::AllShards)
-            || self.tracks_shard(shard_id, parent_hash).unwrap_or(false)
+        match self.tracked_config {
+            TrackedConfig::AllShards => {
+                // Avoid looking up EpochId.
+                true
+            }
+            _ => self.tracks_shard(shard_id, parent_hash).unwrap_or(false),
+        }
     }
 
     // `shard_id` always refers to a shard in the current epoch that the next block from `parent_hash` belongs
@@ -127,8 +152,15 @@ impl ShardTracker {
                 return true;
             }
         }
-        matches!(self.tracked_config, TrackedConfig::AllShards)
-            || self.tracks_shard(shard_id, parent_hash).unwrap_or(false)
+        match self.tracked_config {
+            TrackedConfig::AllShards => {
+                // Avoid looking up EpochId.
+                true
+            }
+            _ => {
+                self.tracks_shard_next_epoch_from_prev_block(shard_id, parent_hash).unwrap_or(false)
+            }
+        }
     }
 }
 
@@ -291,6 +323,54 @@ mod tests {
             get_all_shards_will_care_about(&tracker, num_shards, &CryptoHash::default()),
             total_tracked_shards
         );
+    }
+
+    #[test]
+    fn test_track_schedule() {
+        let num_shards = 4;
+        let epoch_manager = Arc::new(get_epoch_manager(PROTOCOL_VERSION, num_shards, false));
+        let subset1 = HashSet::from([0 as ShardId, 1 as ShardId]);
+        let subset2 = HashSet::from([1 as ShardId, 2 as ShardId]);
+        let subset3 = HashSet::from([2 as ShardId, 3 as ShardId]);
+        let tracker = ShardTracker::new(
+            TrackedConfig::Schedule(vec![
+                subset1.clone().into_iter().collect(),
+                subset2.clone().into_iter().collect(),
+                subset3.clone().into_iter().collect(),
+            ]),
+            epoch_manager.clone(),
+        );
+
+        let h = hash_range(8);
+        {
+            let mut epoch_manager = epoch_manager.write();
+            record_block(
+                &mut epoch_manager,
+                CryptoHash::default(),
+                h[0],
+                0,
+                vec![],
+                PROTOCOL_VERSION,
+            );
+            for i in 1..8 {
+                record_block(
+                    &mut epoch_manager,
+                    h[i - 1],
+                    h[i],
+                    i as u64,
+                    vec![],
+                    PROTOCOL_VERSION,
+                );
+            }
+        }
+
+        assert_eq!(get_all_shards_care_about(&tracker, num_shards, &h[5]), subset3);
+        assert_eq!(get_all_shards_care_about(&tracker, num_shards, &h[6]), subset1);
+        assert_eq!(get_all_shards_care_about(&tracker, num_shards, &h[7]), subset2);
+
+        assert_eq!(get_all_shards_will_care_about(&tracker, num_shards, &h[5]), subset1);
+        assert_eq!(get_all_shards_will_care_about(&tracker, num_shards, &h[6]), subset2);
+        assert_eq!(get_all_shards_will_care_about(&tracker, num_shards, &h[7]), subset3);
     }
 
     #[test]
