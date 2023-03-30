@@ -329,9 +329,9 @@ mod tests {
     fn test_track_schedule() {
         let num_shards = 4;
         let epoch_manager = Arc::new(get_epoch_manager(PROTOCOL_VERSION, num_shards, false));
-        let subset1 = HashSet::from([0 as ShardId, 1 as ShardId]);
-        let subset2 = HashSet::from([1 as ShardId, 2 as ShardId]);
-        let subset3 = HashSet::from([2 as ShardId, 3 as ShardId]);
+        let subset1 = HashSet::from([0, 1]);
+        let subset2 = HashSet::from([1, 2]);
+        let subset3 = HashSet::from([2, 3]);
         let tracker = ShardTracker::new(
             TrackedConfig::Schedule(vec![
                 subset1.clone().into_iter().collect(),
@@ -364,10 +364,12 @@ mod tests {
             }
         }
 
+        assert_eq!(get_all_shards_care_about(&tracker, num_shards, &h[4]), subset2);
         assert_eq!(get_all_shards_care_about(&tracker, num_shards, &h[5]), subset3);
         assert_eq!(get_all_shards_care_about(&tracker, num_shards, &h[6]), subset1);
         assert_eq!(get_all_shards_care_about(&tracker, num_shards, &h[7]), subset2);
 
+        assert_eq!(get_all_shards_will_care_about(&tracker, num_shards, &h[4]), subset3);
         assert_eq!(get_all_shards_will_care_about(&tracker, num_shards, &h[5]), subset1);
         assert_eq!(get_all_shards_will_care_about(&tracker, num_shards, &h[6]), subset2);
         assert_eq!(get_all_shards_will_care_about(&tracker, num_shards, &h[7]), subset3);
