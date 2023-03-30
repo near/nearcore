@@ -1,6 +1,6 @@
 use chrono::{DateTime, NaiveDateTime, ParseError, Utc};
 use near_primitives_core::types::ProtocolVersion;
-use std::{env, str::FromStr};
+use std::env;
 
 /// Defines the point in time after which validators are expected to vote on the
 /// new protocol version.
@@ -25,8 +25,12 @@ impl ProtocolUpgradeVotingSchedule {
         self.timestamp.timestamp()
     }
 
-    /// This method will first check if NEAR_TESTS_IMMEDIATE_PROTOCOL_UPGRADE is
+    /// This method creates an instance of the ProtocolUpgradeVotingSchedule.
+    ///
+    /// It will first check if the NEAR_TESTS_IMMEDIATE_PROTOCOL_UPGRADE is
     /// set in the environment and if so return the immediate upgrade schedule.
+    /// This should only be used in tests, in particular in tests the in some
+    /// way test neard upgrades.
     ///
     /// Otherwise it will parse the given string and return the corresponding
     /// upgrade schedule.
@@ -141,7 +145,8 @@ mod tests {
     #[test]
     fn test_before_scheduled_time() {
         let client_protocol_version = 100;
-        let schedule = ProtocolUpgradeVotingSchedule::from_str("2050-01-01 00:00:00").unwrap();
+        let schedule =
+            ProtocolUpgradeVotingSchedule::from_env_or_str("2050-01-01 00:00:00").unwrap();
 
         // The client supports a newer version than the version of the next epoch.
         // Upgrade voting will start in the far future, therefore don't announce the newest supported version.
@@ -181,7 +186,8 @@ mod tests {
     #[test]
     fn test_after_scheduled_time() {
         let client_protocol_version = 100;
-        let schedule = ProtocolUpgradeVotingSchedule::from_str("1900-01-01 00:00:00").unwrap();
+        let schedule =
+            ProtocolUpgradeVotingSchedule::from_env_or_str("1900-01-01 00:00:00").unwrap();
 
         // Regardless of the protocol version of the next epoch, return the version supported by the client.
         assert_eq!(
@@ -212,17 +218,22 @@ mod tests {
 
     #[test]
     fn test_parse() {
-        assert!(ProtocolUpgradeVotingSchedule::from_str("2001-02-03 23:59:59").is_ok());
-        assert!(ProtocolUpgradeVotingSchedule::from_str("123").is_err());
+        assert!(ProtocolUpgradeVotingSchedule::from_env_or_str("2001-02-03 23:59:59").is_ok());
+        assert!(ProtocolUpgradeVotingSchedule::from_env_or_str("123").is_err());
     }
 
     #[test]
     fn test_is_in_future() {
-        assert!(ProtocolUpgradeVotingSchedule::from_str("2999-02-03 23:59:59")
+        assert!(ProtocolUpgradeVotingSchedule::from_env_or_str("2999-02-03 23:59:59")
             .unwrap()
             .is_in_future());
-        assert!(!ProtocolUpgradeVotingSchedule::from_str("1999-02-03 23:59:59")
+        assert!(!ProtocolUpgradeVotingSchedule::from_env_or_str("1999-02-03 23:59:59")
             .unwrap()
             .is_in_future());
+    }
+
+    #[test]
+    fn test_env_overwrite() {
+        todo!();
     }
 }
