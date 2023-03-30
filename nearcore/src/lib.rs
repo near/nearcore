@@ -138,10 +138,10 @@ fn open_storage(home_dir: &Path, near_config: &mut NearConfig) -> anyhow::Result
                  {latest_release} release"
             ))
         },
-        Err(StoreOpenerError::DbVersionTooNew { got, .. }) => {
+        Err(StoreOpenerError::DbVersionTooNew { got, want }) => {
             Err(anyhow::anyhow!(
-                "Database version {got} is created by a newer version of \
-                 neard, please update neard"
+                "Database version {got} is higher than the expected version {want}. \
+                It was likely created by newer version of neard. Please upgrade your neard."
             ))
         },
         Err(StoreOpenerError::MigrationError(err)) => {

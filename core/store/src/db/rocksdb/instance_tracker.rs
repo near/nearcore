@@ -4,7 +4,7 @@ use tracing::info;
 /// Describes number of RocksDB instances and sum of their max_open_files.
 ///
 /// This is modified by [`InstanceTracker`] which uses RAII to automatically
-/// update the trackers when new RocksDB instances are created and dropped.
+/// update the trackers when new RocksDB instances are opened and closed.
 #[derive(Default)]
 struct Inner {
     /// Number of RocksDB instances open.
@@ -59,11 +59,11 @@ impl State {
             inner.count += 1;
             inner.count
         };
-        info!(target: "db", num_instances, "Created a new RocksDB instance.");
+        info!(target: "db", num_instances, "Opened a new RocksDB instance.");
         Ok(())
     }
 
-    fn drop_instance(&self, max_open_files: u32) {
+    fn close_instance(&self, max_open_files: u32) {
         let num_instances = {
             let mut inner = self.inner.lock().unwrap();
             inner.max_open_files = inner.max_open_files.saturating_sub(max_open_files.into());
@@ -73,18 +73,18 @@ impl State {
             }
             inner.count
         };
-        info!(target: "db", num_instances, "Dropped a RocksDB instance.");
+        info!(target: "db", num_instances, "Closed a RocksDB instance.");
     }
 
     /// Blocks until all RocksDB instances (usually 0 or 1) shut down.
-    fn block_until_all_instances_are_dropped(&self) {
+    fn block_until_all_instances_are_closed(&self) {
         let mut inner = self.inner.lock().unwrap();
         while inner.count != 0 {
             info!(target: "db", num_instances=inner.count,
-                  "Waiting for remaining RocksDB instances to shut down");
+                  "Waiting for remaining RocksDB instances to close");
             inner = self.zero_cvar.wait(inner).unwrap();
         }
-        info!(target: "db", "All RocksDB instances shut down");
+        info!(target: "db", "All RocksDB instances closed.");
     }
 }
 
@@ -92,8 +92,8 @@ impl State {
 static STATE: State = State::new();
 
 /// Blocks until all RocksDB instances (usually 0 or 1) shut down.
-pub(super) fn block_until_all_instances_are_dropped() {
-    STATE.block_until_all_instances_are_dropped();
+pub(super) fn block_until_all_instances_are_closed() {
+    STATE.block_until_all_instances_are_closed();
 }
 
 /// RAII style object which updates the instance tracker stats.
@@ -131,7 +131,7 @@ impl Drop for InstanceTracker {
     ///
     /// The instance is unregistered once this object is dropped.
     fn drop(&mut self) {
-        STATE.drop_instance(self.max_open_files);
+        STATE.close_instance(self.max_open_files);
     }
 }
 
