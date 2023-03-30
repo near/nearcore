@@ -179,12 +179,14 @@ pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protoco
 /// nightly builds will vote for new protocols immediately).  On release builds
 /// it’s set according to the schedule for that protocol upgrade.  Release
 /// candidates usually have separate schedule to final releases.
-pub const PROTOCOL_UPGRADE_SCHEDULE: Lazy<ProtocolUpgradeVotingSchedule> =
-    Lazy::new(|| ProtocolUpgradeVotingSchedule::from_env_or_str("2023-04-05 15:00:00").unwrap());
-// Lazy::new(|| {
-// Update to according to schedule when making a release.
-// ProtocolUpgradeVotingSchedule::default()
-// });
+pub const PROTOCOL_UPGRADE_SCHEDULE: Lazy<ProtocolUpgradeVotingSchedule> = Lazy::new(|| {
+    // Update to according to schedule when making a release.
+    // Keep in mind that the protocol upgrade will happen 1-2 epochs (15h-30h)
+    // after the set date. Ideally that should be during working hours.
+    // e.g. ProtocolUpgradeVotingSchedule::from_env_or_str("2000-01-01 15:00:00").unwrap());
+
+    ProtocolUpgradeVotingSchedule::default()
+});
 
 /// Gives new clients an option to upgrade without announcing that they support
 /// the new version.  This gives non-validator nodes time to upgrade.  See
