@@ -47,6 +47,7 @@ use crate::chunks_store::ReadOnlyChunksStore;
 use crate::types::{Block, BlockHeader, LatestKnown};
 use crate::{byzantine_assert, RuntimeWithEpochManagerAdapter};
 use near_store::db::StoreStatistics;
+use near_store::flat::store_helper;
 use std::sync::Arc;
 
 /// lru cache size
@@ -2254,17 +2255,19 @@ impl<'a> ChainStoreUpdate<'a> {
         let block =
             self.get_block(&block_hash).expect("block data is not expected to be already cleaned");
 
-        // 1. delete TrieChanges
-        for shard_id in 0..block.header().chunk_mask().len() as ShardId {
-            let block_shard_id = get_block_shard_id(&block_hash, shard_id);
-            self.gc_col(DBCol::TrieChanges, &block_shard_id);
-        }
+        let epoch_id = block.header().epoch_id();
 
         let height = block.header().height();
 
-        // 2. Delete shard_id-indexed data (Receipts, ChunkExtra, State Headers and Parts)
+        // 1. Delete shard_id-indexed data (TrieChanges, Receipts, ChunkExtra, State Headers and Parts, FlatStorage data)
         for shard_id in 0..block.header().chunk_mask().len() as ShardId {
-            let block_shard_id = get_block_shard_id(&block_hash, shard_id);
+            let shard_uid = runtime_adapter.shard_id_to_uid(shard_id, epoch_id).unwrap();
+            let block_shard_id = get_block_shard_uid(&block_hash, &shard_uid);
+
+            // delete TrieChanges
+            self.gc_col(DBCol::TrieChanges, &block_shard_id);
+
+            // delete Receipts
             self.gc_outgoing_receipts(&block_hash, shard_id);
             self.gc_col(DBCol::IncomingReceipts, &block_shard_id);
 
@@ -2282,16 +2285,14 @@ impl<'a> ChainStoreUpdate<'a> {
             }
 
             // delete flat storage columns: FlatStateChanges and FlatStateDeltaMetadata
-            #[cfg(feature = "protocol_feature_flat_state")]
-            {
+            if cfg!(feature = "protocol_feature_flat_state") {
                 let mut store_update = self.store().store_update();
-                let shard_uid = runtime_adapter.shard_id_to_uid(shard_id);
-                store_helper::remove_delta(&mut store_update, shard_uid_flat_storage, block_hash);
+                store_helper::remove_delta(&mut store_update, shard_uid, block_hash);
                 self.merge(store_update);
             }
         }
 
-        // 3. Delete block_hash-indexed data
+        // 2. Delete block_hash-indexed data
         self.gc_col(DBCol::Block, block_hash.as_bytes());
         self.gc_col(DBCol::BlockExtra, block_hash.as_bytes());
         self.gc_col(DBCol::NextBlockHashes, block_hash.as_bytes());
@@ -2312,11 +2313,11 @@ impl<'a> ChainStoreUpdate<'a> {
         self.gc_col(DBCol::BlockInfo, block_hash.as_bytes());
         self.gc_col(DBCol::StateDlInfos, block_hash.as_bytes());
 
-        // 4. update columns related to prev block (block refcount and NextBlockHashes)
+        // 3. update columns related to prev block (block refcount and NextBlockHashes)
         self.dec_block_refcount(block.header().prev_hash())?;
         self.gc_col(DBCol::NextBlockHashes, block.header().prev_hash().as_bytes());
 
-        // 5. Update or delete block_hash_per_height
+        // 4. Update or delete block_hash_per_height
         self.gc_col_block_per_height(&block_hash, height, block.header().epoch_id())?;
 
         self.clear_chunk_data_and_headers_at_height(height)?;
