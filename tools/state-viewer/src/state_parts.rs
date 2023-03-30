@@ -1,13 +1,15 @@
 use crate::epoch_info::iterate_and_filter;
+use borsh::BorshDeserialize;
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use near_client::sync::state::StateSync;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::state_part::PartId;
+use near_primitives::state_record::StateRecord;
 use near_primitives::syncing::get_num_state_parts;
 use near_primitives::types::{EpochId, StateRoot};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{BlockHeight, EpochHeight, ShardId};
-use near_store::Store;
+use near_store::{PartialStorage, Store, Trie};
 use nearcore::{NearConfig, NightshadeRuntime};
 use s3::serde_types::ListBucketResult;
 use std::fs::DirEntry;
@@ -341,9 +343,32 @@ fn dump_state_parts(
             .obtain_state_part(shard_id, &sync_hash, &state_root, PartId::new(part_id, num_parts))
             .unwrap();
         part_storage.write(&state_part, part_id, num_parts);
-        tracing::info!(target: "state-parts", part_id, part_length = state_part.len(), elapsed_sec = timer.elapsed().as_secs_f64(), "Wrote a state part");
+        let elapsed_sec = timer.elapsed().as_secs_f64();
+        let first_state_record = get_first_state_record(&state_root, &state_part);
+        tracing::info!(
+            target: "state-parts",
+            part_id,
+            part_length = state_part.len(),
+            elapsed_sec,
+            ?first_state_record,
+            "Wrote a state part");
     }
     tracing::info!(target: "state-parts", total_elapsed_sec = timer.elapsed().as_secs_f64(), "Wrote all requested state parts");
+}
+
+/// Returns the first `StateRecord` encountered while iterating over a sub-trie in the state part.
+fn get_first_state_record(state_root: &StateRoot, data: &[u8]) -> Option<StateRecord> {
+    let trie_nodes = BorshDeserialize::try_from_slice(data).unwrap();
+    let trie = Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes }, *state_root);
+
+    for item in trie.iter().unwrap() {
+        if let Ok((key, value)) = item {
+            if let Some(sr) = StateRecord::from_raw_key_value(key, value) {
+                return Some(sr);
+            }
+        }
+    }
+    None
 }
 
 /// Reads `StateHeader` stored in the DB.
