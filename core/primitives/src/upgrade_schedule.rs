@@ -1,6 +1,6 @@
 use chrono::{DateTime, NaiveDateTime, ParseError, Utc};
 use near_primitives_core::types::ProtocolVersion;
-use std::str::FromStr;
+use std::{env, str::FromStr};
 
 /// Defines the point in time after which validators are expected to vote on the
 /// new protocol version.
@@ -16,19 +16,6 @@ impl Default for ProtocolUpgradeVotingSchedule {
     }
 }
 
-impl FromStr for ProtocolUpgradeVotingSchedule {
-    type Err = ParseError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Self {
-            timestamp: DateTime::<Utc>::from_utc(
-                NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S")?,
-                Utc,
-            ),
-        })
-    }
-}
-
 impl ProtocolUpgradeVotingSchedule {
     pub fn is_in_future(&self) -> bool {
         chrono::Utc::now() < self.timestamp
@@ -36,6 +23,26 @@ impl ProtocolUpgradeVotingSchedule {
 
     pub fn timestamp(&self) -> i64 {
         self.timestamp.timestamp()
+    }
+
+    /// This method will first check if NEAR_TESTS_IMMEDIATE_PROTOCOL_UPGRADE is
+    /// set in the environment and if so return the immediate upgrade schedule.
+    ///
+    /// Otherwise it will parse the given string and return the corresponding
+    /// upgrade schedule.
+    pub fn from_env_or_str(s: &str) -> Result<Self, ParseError> {
+        let immediate_upgrade = env::var("NEAR_TESTS_IMMEDIATE_PROTOCOL_UPGRADE");
+        if let Ok(_) = immediate_upgrade {
+            tracing::warn!("Setting immediate protocol upgrade. This is fine in tests but should be avoided otherwise");
+            return Ok(Self::default());
+        }
+
+        Ok(Self {
+            timestamp: DateTime::<Utc>::from_utc(
+                NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S")?,
+                Utc,
+            ),
+        })
     }
 }
 
