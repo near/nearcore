@@ -437,7 +437,7 @@ class LocalNode(BaseNode):
               *,
               boot_node: BootNode = None,
               skip_starting_proxy=False,
-              extra_env: typing.Dict[str, str] = {}):
+              extra_env: typing.Dict[str, str] = dict()):
         if self._proxy_local_stopped is not None:
             while self._proxy_local_stopped.value != 2:
                 logger.info(f'Waiting for previous proxy instance to close')

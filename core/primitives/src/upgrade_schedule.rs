@@ -4,7 +4,7 @@ use std::env;
 
 /// Defines the point in time after which validators are expected to vote on the
 /// new protocol version.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ProtocolUpgradeVotingSchedule {
     timestamp: chrono::DateTime<Utc>,
 }
@@ -234,6 +234,13 @@ mod tests {
 
     #[test]
     fn test_env_overwrite() {
-        // TODO
+        // The immediate protocol upgrade needs to be set for this test to pass in
+        // the release branch where the protocol upgrade date is set.
+        std::env::set_var("NEAR_TESTS_IMMEDIATE_PROTOCOL_UPGRADE", "1");
+
+        assert_eq!(
+            ProtocolUpgradeVotingSchedule::from_env_or_str("2999-02-03 23:59:59").unwrap(),
+            ProtocolUpgradeVotingSchedule::default()
+        );
     }
 }
