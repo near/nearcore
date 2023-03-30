@@ -3,8 +3,9 @@ use crate::sys::{HostEnvInitError, LinkError, RuntimeError};
 use crate::{ExportError, NativeFunc, WasmTypeList};
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
-use wasmer_types::InstanceConfig;
 use wasmer_vm::{InstanceHandle, Resolver};
+
+pub use wasmer_types::InstanceConfig;
 
 /// A WebAssembly Instance is a stateful, executable
 /// instance of a WebAssembly [`Module`].
@@ -91,7 +92,7 @@ impl Instance {
     /// [`ImportObject`]: crate::ImportObject
     ///
     /// ```
-    /// # use wasmer::{imports, Store, Module, Global, Value, Instance};
+    /// # use wasmer::{imports, Store, Module, Global, Value, Instance, InstanceConfig};
     /// # fn main() -> anyhow::Result<()> {
     /// let store = Store::default();
     /// let module = Module::new(&store, "(module)")?;
@@ -100,7 +101,7 @@ impl Instance {
     ///     "var" => Global::new(&store, Value::I32(2))
     ///   }
     /// };
-    /// let instance = Instance::new(&module, &imports)?;
+    /// let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000), &imports)?;
     /// # Ok(())
     /// # }
     /// ```
@@ -112,11 +113,6 @@ impl Instance {
     /// Those are, as defined by the spec:
     ///  * Link errors that happen when plugging the imports into the instance
     ///  * Runtime errors that happen when running the module `start` function.
-    pub fn new(module: &Module, resolver: &dyn Resolver) -> Result<Self, InstantiationError> {
-        Self::new_with_config(module, InstanceConfig::default(), resolver)
-    }
-
-    /// New instance with config.
     #[tracing::instrument(skip_all)]
     pub fn new_with_config(
         module: &Module,

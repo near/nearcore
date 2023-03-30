@@ -68,7 +68,7 @@ fn main() -> anyhow::Result<()> {
 
     println!("Instantiating module...");
     // Let's instantiate the Wasm module.
-    let instance = Instance::new(&module, &import_object)?;
+    let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &import_object)?;
 
     // The module exports some utility functions, let's get them.
     //
