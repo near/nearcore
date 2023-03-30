@@ -12,7 +12,9 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::receipt::Receipt;
-use near_primitives::shard_layout::{account_id_to_shard_id, get_block_shard_uid, ShardLayout, ShardUId};
+use near_primitives::shard_layout::{
+    account_id_to_shard_id, get_block_shard_uid, ShardUId,
+};
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk, ShardChunkHeader,
     StateSyncInfo,
@@ -37,7 +39,6 @@ use near_primitives::utils::{
     to_timestamp,
 };
 use near_primitives::views::LightClientBlockView;
-use near_store::flat::store_helper;
 use near_store::{
     DBCol, KeyForStateChanges, ShardTries, Store, StoreUpdate, WrappedTrieChanges, CHUNK_TAIL_KEY,
     FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
@@ -1957,11 +1958,7 @@ impl<'a> ChainStoreUpdate<'a> {
         self.chunk_tail = Some(height);
     }
 
-    pub fn clear_chunk_data_and_headers_at_height(
-        &mut self,
-        height: BlockHeight,
-    ) -> Result<(), Error> {
-        let chunk_tail = self.chunk_tail()?;
+    fn clear_chunk_data_and_headers_at_height(&mut self, height: BlockHeight) -> Result<(), Error> {
         let chunk_hashes = self.chain_store.get_all_chunk_hashes_by_height(height)?;
         for chunk_hash in chunk_hashes {
             // 1. Delete chunk-related data
@@ -1988,6 +1985,7 @@ impl<'a> ChainStoreUpdate<'a> {
             let key: &[u8] = header_hash.as_bytes();
             store_update.delete(DBCol::BlockHeader, key);
             self.chain_store.headers.pop(key);
+            self.merge(store_update);
         }
 
         // 4. Delete chunks_tail-related data
@@ -1995,9 +1993,6 @@ impl<'a> ChainStoreUpdate<'a> {
         self.gc_col(DBCol::ChunkHashesByHeight, &key);
         self.gc_col(DBCol::HeaderHashesByHeight, &key);
 
-        if chunk_tail > height {
-            self.update_chunk_tail(height);
-        }
         Ok(())
     }
 
@@ -2251,13 +2246,10 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     // Delete all data in rocksdb that are partially or wholly indexed and can be looked up by hash of the current head of the chain
-    // Delete all data in rocksdb that indicates a link between current head and its prev block
-    pub fn clear_block_data_undo_block(&mut self, block_hash: CryptoHash) -> Result<(), Error> {
-        if self.head().unwrap().last_block_hash != block_hash {
-            return Err(Error::Other(format!("block_hash is not the hash of current head of the chain.")))
-        }
+    // and that indicates a link between current head and its prev block
+    pub fn clear_head_block_data(&mut self, runtime_adapter: &dyn RuntimeWithEpochManagerAdapter) -> Result<(), Error> {
+        let block_hash = self.head().unwrap().last_block_hash;
 
-        let mut store_update = self.store().store_update();
         let block =
             self.get_block(&block_hash).expect("block data is not expected to be already cleaned");
 
@@ -2289,13 +2281,12 @@ impl<'a> ChainStoreUpdate<'a> {
             }
 
             // delete flat storage columns: FlatStateChanges and FlatStateDeltaMetadata
-            #[cfg(feature = "protocol_feature_flat_state")]
-            let shard_uid_flat_storage = ShardUId::from_shard_id_and_layout(
-                shard_id as u64,
-                &ShardLayout::get_simple_nightshade_layout(),
-            );
-            #[cfg(feature = "protocol_feature_flat_state")]
-            store_helper::remove_delta(&mut store_update, shard_uid_flat_storage, block_hash);
+            #[cfg(feature = "protocol_feature_flat_state")] {
+                let mut store_update = self.store().store_update();
+                let shard_uid= runtime_adapter.shard_id_to_uid(shard_id);
+                store_helper::remove_delta(&mut store_update, shard_uid_flat_storage, block_hash);
+                self.merge(store_update);
+            }
         }
 
         // 3. Delete block_hash-indexed data
@@ -2328,7 +2319,6 @@ impl<'a> ChainStoreUpdate<'a> {
 
         self.clear_chunk_data_and_headers_at_height(height)?;
 
-        self.merge(store_update);
         Ok(())
     }
 

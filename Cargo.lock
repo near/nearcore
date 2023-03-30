@@ -2558,6 +2558,7 @@ dependencies = [
  "near-store",
  "near-telemetry",
  "near-test-contracts",
+ "near-undo-block",
  "near-vm-errors",
  "near-vm-runner",
  "nearcore",
