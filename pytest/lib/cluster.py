@@ -447,7 +447,7 @@ class LocalNode(BaseNode):
         env["RUST_BACKTRACE"] = "1"
         env["RUST_LOG"] = "actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn," + env.get(
             "RUST_LOG", "debug")
-        env = env | extra_env
+        env.update(extra_env)
 
         cmd = self._get_command_line(
             self.near_root,
@@ -605,7 +605,7 @@ chmod +x neard
     def start(self,
               *,
               boot_node: BootNode = None,
-              extra_env: typing.Dict[str, str] = {}):
+              extra_env: typing.Dict[str, str] = dict()):
         if "RUST_BACKTRACE" not in extra_env:
             extra_env["RUST_BACKTRACE"] = "1"
         extra_env = [f"{k}={v}" for (k, v) in extra_env]
