@@ -1,8 +1,8 @@
-use nearcore::NightshadeRuntime;
 use near_chain::ChainStore;
 use near_chain_configs::GenesisValidationMode;
 use near_store::{Mode, NodeStorage};
 use nearcore::load_config;
+use nearcore::NightshadeRuntime;
 use std::path::Path;
 
 #[derive(clap::Parser)]

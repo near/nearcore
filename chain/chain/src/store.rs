@@ -12,9 +12,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::receipt::Receipt;
-use near_primitives::shard_layout::{
-    account_id_to_shard_id, get_block_shard_uid, ShardUId,
-};
+use near_primitives::shard_layout::{account_id_to_shard_id, get_block_shard_uid, ShardUId};
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk, ShardChunkHeader,
     StateSyncInfo,
@@ -2247,7 +2245,10 @@ impl<'a> ChainStoreUpdate<'a> {
 
     // Delete all data in rocksdb that are partially or wholly indexed and can be looked up by hash of the current head of the chain
     // and that indicates a link between current head and its prev block
-    pub fn clear_head_block_data(&mut self, runtime_adapter: &dyn RuntimeWithEpochManagerAdapter) -> Result<(), Error> {
+    pub fn clear_head_block_data(
+        &mut self,
+        runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
+    ) -> Result<(), Error> {
         let block_hash = self.head().unwrap().last_block_hash;
 
         let block =
@@ -2281,9 +2282,10 @@ impl<'a> ChainStoreUpdate<'a> {
             }
 
             // delete flat storage columns: FlatStateChanges and FlatStateDeltaMetadata
-            #[cfg(feature = "protocol_feature_flat_state")] {
+            #[cfg(feature = "protocol_feature_flat_state")]
+            {
                 let mut store_update = self.store().store_update();
-                let shard_uid= runtime_adapter.shard_id_to_uid(shard_id);
+                let shard_uid = runtime_adapter.shard_id_to_uid(shard_id);
                 store_helper::remove_delta(&mut store_update, shard_uid_flat_storage, block_hash);
                 self.merge(store_update);
             }

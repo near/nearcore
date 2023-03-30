@@ -1,13 +1,16 @@
 use chrono::Utc;
-use near_chain::RuntimeWithEpochManagerAdapter;
 use near_chain::types::LatestKnown;
+use near_chain::RuntimeWithEpochManagerAdapter;
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use near_primitives::block::Tip;
 use near_primitives::utils::to_timestamp;
 
 pub mod cli;
 
-pub fn undo_block(chain_store: &mut ChainStore, runtime: &dyn RuntimeWithEpochManagerAdapter) -> anyhow::Result<()> {
+pub fn undo_block(
+    chain_store: &mut ChainStore,
+    runtime: &dyn RuntimeWithEpochManagerAdapter,
+) -> anyhow::Result<()> {
     let current_head = chain_store.head()?;
     let current_head_hash = current_head.last_block_hash;
     let prev_block_hash = current_head.prev_block_hash;

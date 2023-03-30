@@ -12,11 +12,17 @@ use std::path::Path;
 use std::sync::Arc;
 
 /// Setup environment with one Near client for testing.
-fn setup_env(genesis: &Genesis, store: Store) -> (TestEnv, Arc<dyn RuntimeWithEpochManagerAdapter>) {
+fn setup_env(
+    genesis: &Genesis,
+    store: Store,
+) -> (TestEnv, Arc<dyn RuntimeWithEpochManagerAdapter>) {
     let chain_genesis = ChainGenesis::new(genesis);
     let runtimes: Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> =
         vec![nearcore::NightshadeRuntime::test(Path::new("../../../.."), store, genesis)];
-    (TestEnv::builder(chain_genesis).runtime_adapters(runtimes.clone()).build(), runtimes[0].clone())
+    (
+        TestEnv::builder(chain_genesis).runtime_adapters(runtimes.clone()).build(),
+        runtimes[0].clone(),
+    )
 }
 
 fn test_undo_block(epoch_length: u64, stop_height: u64) {
