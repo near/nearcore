@@ -16,6 +16,10 @@ use std::sync::Arc;
 
 #[test]
 fn test_account_id_in_function_call_permission_upgrade() {
+    // The immediate protocol upgrade needs to be set for this test to pass in
+    // the release branch where the protocol upgrade date is set.
+    std::env::set_var("NEAR_TESTS_IMMEDIATE_PROTOCOL_UPGRADE", "1");
+
     let old_protocol_version =
         near_primitives::version::ProtocolFeature::AccountIdInFunctionCallPermission
             .protocol_version()
