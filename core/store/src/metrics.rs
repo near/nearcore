@@ -387,6 +387,7 @@ mod test {
 
     use actix;
 
+    use crate::db::{StatsValue, StoreStatistics};
     use crate::metadata::{DbKind, DB_VERSION};
     use crate::test_utils::create_test_node_storage_with_cold;
 
@@ -394,19 +395,66 @@ mod test {
 
     use super::spawn_db_metrics_loop;
 
+    fn stat(name: &str, count: i64) -> (String, Vec<StatsValue>) {
+        (name.into(), vec![StatsValue::Count(count)])
+    }
+
+    async fn test_db_metrics_loop_impl() -> anyhow::Result<()> {
+        let (storage, hot, cold) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Cold);
+        let period = Duration::from_millis(100);
+
+        let _handle = spawn_db_metrics_loop(&storage, period)?;
+
+        let hot_column_name = "hot.colum".to_string();
+        let cold_column_name = "cold.colum".to_string();
+
+        let hot_gauge_name = hot_column_name.clone() + "_hot";
+        let cold_gauge_name = cold_column_name.clone() + "_cold";
+
+        let hot_stats = StoreStatistics { data: vec![stat(&hot_column_name, 42)] };
+        let cold_stats = StoreStatistics { data: vec![stat(&cold_column_name, 52)] };
+
+        hot.set_store_statistics(hot_stats);
+        cold.set_store_statistics(cold_stats);
+
+        actix::clock::sleep(period).await;
+        for _ in 0..10 {
+            let int_gauges = crate::rocksdb_metrics::get_int_gauges();
+
+            let has_hot_gauge = int_gauges.contains_key(&hot_gauge_name);
+            let has_cold_gauge = int_gauges.contains_key(&cold_gauge_name);
+            if has_hot_gauge && has_cold_gauge {
+                break;
+            }
+            actix::clock::sleep(period / 10).await;
+        }
+
+        let int_gauges = crate::rocksdb_metrics::get_int_gauges();
+        tracing::debug!("int_gauges {int_gauges:#?}");
+
+        let hot_gauge = int_gauges.get(&hot_gauge_name);
+        let hot_gauge = hot_gauge.ok_or(anyhow::anyhow!("hot gauge is missing"))?;
+
+        let cold_gauge = int_gauges.get(&cold_gauge_name);
+        let cold_gauge = cold_gauge.ok_or(anyhow::anyhow!("cold gauge is missing"))?;
+
+        assert_eq!(hot_gauge.get(), 42);
+        assert_eq!(cold_gauge.get(), 52);
+
+        Ok(())
+    }
+
     #[test]
     fn test_db_metrics_loop() {
         init_test_logger();
-        let storage = create_test_node_storage_with_cold(DB_VERSION, DbKind::Cold);
-        let period = Duration::new(1, 0);
+
         let sys = actix::System::new();
+        sys.block_on(test_db_metrics_loop_impl()).expect("test impl failed");
 
-        sys.block_on(async move {
-            let _handle =
-                spawn_db_metrics_loop(&storage, period).expect("failed to create arbiter");
-
-            actix::clock::sleep(5 * period).await;
-        });
+        // There is a race condition between stop and run.
+        // It doesn't break but logs an ugly error message.
         actix::System::current().stop();
+        std::thread::sleep(Duration::from_millis(100));
+        sys.run().unwrap();
     }
 }

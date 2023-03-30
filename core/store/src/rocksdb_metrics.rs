@@ -19,6 +19,15 @@ pub fn export_stats_as_metrics(stats: StoreStatistics, temperature: Temperature)
     }
 }
 
+/// Returns a copy of the int gauges. This method is needed because the gauges
+/// are created on demand and owned by the RockDBMetrics.
+///
+/// Only for unit test usage.
+#[cfg(test)]
+pub fn get_int_gauges() -> HashMap<String, IntGauge> {
+    ROCKSDB_METRICS.lock().unwrap().int_gauges.clone()
+}
+
 /// Wrapper for re-exporting RocksDB stats into Prometheus metrics.
 static ROCKSDB_METRICS: Lazy<Mutex<RocksDBMetrics>> =
     Lazy::new(|| Mutex::new(RocksDBMetrics::default()));
