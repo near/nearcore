@@ -19,16 +19,16 @@ reed-solomon-erasure.workspace = true
 time.workspace = true
 tracing.workspace = true
 
-near-async = { path = "../../core/async" }
-near-crypto = { path = "../../core/crypto" }
-near-primitives = { path = "../../core/primitives" }
-near-chunks-primitives = { path = "../chunks-primitives" }
-near-store = { path = "../../core/store" }
-near-network = { path = "../network" }
-near-o11y = { path = "../../core/o11y" }
-near-chain = { path = "../chain" }
-near-pool = { path = "../pool" }
-near-performance-metrics = { path = "../../utils/near-performance-metrics" }
+near-async.workspace = true
+near-crypto.workspace = true
+near-primitives.workspace = true
+near-chunks-primitives.workspace = true
+near-store.workspace = true
+near-network.workspace = true
+near-o11y.workspace = true
+near-chain.workspace = true
+near-pool.workspace = true
+near-performance-metrics.workspace = true
 
 [dev-dependencies]
 assert_matches.workspace = true

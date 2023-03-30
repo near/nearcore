@@ -11,9 +11,7 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys.workspace = true
 serde_json.workspace = true
-
-[dependencies.runtime-tester]
-path = ".."
+runtime-tester.workspace = true
 
 [[bin]]
 name = "runtime_fuzzer"

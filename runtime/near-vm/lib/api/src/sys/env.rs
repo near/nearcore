@@ -50,7 +50,7 @@ pub trait WasmerEnv: Clone + Send + Sync {
     /// setting up the environment with data from the `Instance`.
     ///
     /// This function is called after `Instance` is created but before it is
-    /// returned to the user via `Instance::new`.
+    /// returned to the user via `Instance::new_with_config`.
     fn init_with_instance(&mut self, _instance: &Instance) -> Result<(), HostEnvInitError> {
         Ok(())
     }
