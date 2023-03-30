@@ -175,7 +175,7 @@ expression: config_view
     "limit_config": {
       "max_gas_burnt": 200000000000000,
       "max_stack_height": 16384,
-      "stack_limiter_version": 0,
+      "contract_prepare_version": 0,
       "initial_memory_pages": 1024,
       "max_memory_pages": 2048,
       "registers_memory_limit": 1073741824,
