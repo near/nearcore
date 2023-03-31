@@ -281,16 +281,16 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
     /// Runs the test loop for the given duration. This function may be called
     /// multiple times, but further test handlers may not be registered after
     /// the first call.
-    pub fn run(&mut self, duration: time::Duration) {
+    pub fn run_for(&mut self, duration: time::Duration) {
         self.maybe_initialize_handlers();
         let deadline = self.current_time + duration;
         'outer: loop {
             // Push events we have just received into the heap.
             self.queue_received_events();
-            // Don't execute any more events if we have reached the deadline.
+            // Don't execute any more events after the deadline.
             match self.events.peek() {
                 Some(event) => {
-                    if event.due >= deadline {
+                    if event.due > deadline {
                         break;
                     }
                 }
@@ -320,6 +320,10 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
             panic!("Unhandled event: {:?}", current_event);
         }
         self.current_time = deadline;
+    }
+
+    pub fn run_instant(&mut self) {
+        self.run_for(time::Duration::ZERO);
     }
 }
 

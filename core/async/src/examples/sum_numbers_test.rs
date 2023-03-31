@@ -4,7 +4,7 @@ use near_primitives::time;
 use crate::{
     messaging::{CanSend, IntoSender},
     test_loop::{
-        adhoc::{handle_adhoc_events, AdhocEvent, AdhocRunner},
+        adhoc::{handle_adhoc_events, AdhocEvent, AdhocEventSender},
         event_handler::{capture_events, LoopEventHandler},
         TestLoopBuilder,
     },
@@ -51,7 +51,7 @@ fn test_simple() {
     test.sender().send(SumRequest::Number(5));
     test.sender().send(SumRequest::GetSum);
 
-    test.run(time::Duration::milliseconds(1));
+    test.run_for(time::Duration::milliseconds(1));
     assert_eq!(test.data.sums, vec![ReportSumMsg(3), ReportSumMsg(12)]);
 }
 
@@ -79,7 +79,7 @@ fn test_simple_with_adhoc() {
     // up in the visualizer too, with any of its logging shown under the
     // adhoc event.
     let sender = test.sender().clone();
-    test.sender().run("initial events", move |_| {
+    test.sender().send_adhoc_event("initial events", move |_| {
         sender.send(SumRequest::Number(1));
         sender.send(SumRequest::Number(2));
         sender.send(SumRequest::GetSum);
@@ -89,7 +89,7 @@ fn test_simple_with_adhoc() {
         sender.send(SumRequest::GetSum);
     });
 
-    test.run(time::Duration::milliseconds(1));
+    test.run_instant();
 
     // We can put assertions inside an adhoc event as well. This is
     // especially useful if we had a multi-instance test, so that in the
@@ -97,13 +97,13 @@ fn test_simple_with_adhoc() {
     //
     // Here, we queue these events after the first test.run call, so we
     // need to remember to call test.run again to actually execute them.
-    // Alternatively we can use test.sender().run_with_delay to queue
+    // Alternatively we can use test.sender().schedule_adhoc_event to queue
     // the assertion events after the logic we expect to execute has been
     // executed; that way we only need to call test.run once. Either way,
     // don't worry if you forget to call test.run again; the test will
     // panic at the end if there are unhandled events.
-    test.sender().run("assertions", |data| {
+    test.sender().send_adhoc_event("assertions", |data| {
         assert_eq!(data.sums, vec![ReportSumMsg(3), ReportSumMsg(12)]);
     });
-    test.run(time::Duration::milliseconds(1));
+    test.run_instant();
 }

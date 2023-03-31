@@ -2,7 +2,7 @@ use derive_enum_from_into::{EnumFrom, EnumTryInto};
 use near_async::{
     messaging::IntoSender,
     test_loop::{
-        adhoc::{handle_adhoc_events, AdhocEvent, AdhocRunner},
+        adhoc::{handle_adhoc_events, AdhocEvent, AdhocEventSender},
         event_handler::capture_events,
     },
 };
@@ -21,8 +21,8 @@ use crate::{
     client::ShardsManagerResponse,
     test_loop::{
         forward_client_request_to_shards_manager, forward_network_request_to_shards_manager,
-        periodically_resend_shards_manager_requests, route_shards_manager_network_messages,
-        MockChainForShardsManager, MockChainForShardsManagerConfig, ShardsManagerResendRequests,
+        route_shards_manager_network_messages, MockChainForShardsManager,
+        MockChainForShardsManagerConfig,
     },
     test_utils::default_tip,
     ShardsManager,
@@ -41,7 +41,6 @@ enum TestEvent {
     Adhoc(AdhocEvent<TestData>),
     ClientToShardsManager(ShardsManagerRequestFromClient),
     NetworkToShardsManager(ShardsManagerRequestFromNetwork),
-    ShardsManagerResendRequests(ShardsManagerResendRequests),
     ShardsManagerToClient(ShardsManagerResponse),
     OutboundNetwork(PeerManagerMessageRequest),
 }
@@ -56,6 +55,8 @@ struct BasicSetupConfig {
     num_shards: NumShards,
     track_all_shards: bool,
 }
+
+const NETWORK_DELAY: time::Duration = time::Duration::milliseconds(10);
 
 fn basic_setup(config: BasicSetupConfig) -> ShardsManagerTestLoop {
     let builder = ShardsManagerTestLoopBuilder::new();
@@ -96,38 +97,36 @@ fn basic_setup(config: BasicSetupConfig) -> ShardsManagerTestLoop {
         test.register_handler(forward_client_request_to_shards_manager().widen().for_index(idx));
         test.register_handler(forward_network_request_to_shards_manager().widen().for_index(idx));
         test.register_handler(capture_events::<ShardsManagerResponse>().widen().for_index(idx));
-        test.register_handler(route_shards_manager_network_messages(time::Duration::milliseconds(
-            10,
-        )));
-        test.register_handler(
-            periodically_resend_shards_manager_requests(time::Duration::milliseconds(400))
-                .widen()
-                .for_index(idx),
-        )
+        test.register_handler(route_shards_manager_network_messages(NETWORK_DELAY));
+        // Note that we don't have the periodically resending requests handler, because
+        // our forwarding logic means that we don't need to resend requests, unless
+        // there is unreliable network, which is tested separately.
     }
     test
 }
 
+/// Tests that when we have some block producers (validators) in the network,
+/// and one block producer produces a chunk, the chunk is distributed to the
+/// other block producers properly and all other block producers report the
+/// completion of the chunk to the client.
 #[test]
 fn test_distribute_chunk_basic() {
     let mut test = basic_setup(BasicSetupConfig {
         block_producers: (0..10).map(|idx| format!("validator_{}", idx).parse().unwrap()).collect(),
         chunk_only_producers: Vec::new(),
-        epoch_length: 4,
-        num_shards: 3,
+        epoch_length: 4, // arbitrary
+        num_shards: 3,   // arbitrary
         track_all_shards: false,
     });
     let chunk_producer = test.data[0].chain.next_chunk_producer(1);
     let chunk_producer_idx = test.data.index_for_account(&chunk_producer);
-    test.sender().for_index(chunk_producer_idx).run("produce chunk", |data| {
+    test.sender().for_index(chunk_producer_idx).send_adhoc_event("produce chunk", |data| {
         let chunk = data.chain.produce_chunk(1);
         data.chain.distribute_chunk(&chunk);
     });
-    // Run for 100 virtual milliseconds. This isn't long enough to trigger
-    // resends (of partial chunk requests), but that should be enough because
-    // each node should have forwarded the parts to those block producers that
-    // need them.
-    test.run(time::Duration::milliseconds(100));
+    // Two network rounds is enough because each node should have
+    // forwarded the parts to those block producers that need them.
+    test.run_for(NETWORK_DELAY * 2);
 
     // All other nodes should have received the chunk header and their owned
     // parts, but only those that track the shard should have persisted the
@@ -166,27 +165,32 @@ fn test_distribute_chunk_basic() {
     }
 }
 
+/// Tests that when we have some block producers (validators) in the network,
+/// and one block producer produces a chunk, the chunk is distributed to the
+/// other block producers properly and all other block producers report the
+/// completion of the chunk to the client. Unlike test_distribute_chunk_basic,
+/// this test has all block producers track all shards.
 #[test]
 fn test_distribute_chunk_track_all_shards() {
     let mut test = basic_setup(BasicSetupConfig {
         block_producers: (0..10).map(|idx| format!("validator_{}", idx).parse().unwrap()).collect(),
         chunk_only_producers: Vec::new(),
-        epoch_length: 4,
-        num_shards: 3,
+        epoch_length: 4, // arbitrary
+        num_shards: 3,   // arbitrary
         track_all_shards: true,
     });
     let chunk_producer = test.data[0].chain.next_chunk_producer(1);
     let chunk_producer_idx = test.data.index_for_account(&chunk_producer);
-    test.sender().for_index(chunk_producer_idx).run("produce chunk", |data| {
+    test.sender().for_index(chunk_producer_idx).send_adhoc_event("produce chunk", |data| {
         let chunk = data.chain.produce_chunk(1);
         data.chain.distribute_chunk(&chunk);
     });
-    // Run for 100 virtual milliseconds. This isn't long enough to trigger
-    // resends (of partial chunk requests), but for phase 1 we forward all
-    // parts to all block producers, so we should not need to rely on retries.
-    // TODO: Remove this once we have phase 2 and no longer forward every
-    // part to every block producer.
-    test.run(time::Duration::seconds(1));
+    // Two network rounds is enough because each node should have
+    // forwarded the parts to those block producers that need them.
+    // TODO: after phase 2, we will need a longer delay because validators
+    // that don't track the shard will not get forwards. We may also need
+    // to add the periodic resending handler.
+    test.run_for(NETWORK_DELAY * 2);
 
     // All other nodes should have received the complete chunk.
     for idx in 0..test.data.len() {
@@ -214,10 +218,13 @@ fn test_distribute_chunk_track_all_shards() {
     }
 }
 
+/// Tests that when the network has some block producers and also some chunk-
+/// only producers, the chunk-only producers are also able to request and
+/// complete chunks.
 #[test]
 fn test_distribute_chunk_with_chunk_only_producers() {
-    const NUM_BLOCK_PRODUCERS: usize = 8;
-    const NUM_CHUNK_ONLY_PRODUCERS: usize = 6;
+    const NUM_BLOCK_PRODUCERS: usize = 8; // arbitrary
+    const NUM_CHUNK_ONLY_PRODUCERS: usize = 6; // arbitrary
     let mut test = basic_setup(BasicSetupConfig {
         block_producers: (0..NUM_BLOCK_PRODUCERS)
             .map(|idx| format!("bp_{}", idx).parse().unwrap())
@@ -225,8 +232,8 @@ fn test_distribute_chunk_with_chunk_only_producers() {
         chunk_only_producers: (0..NUM_CHUNK_ONLY_PRODUCERS)
             .map(|idx| format!("cp_{}", idx).parse().unwrap())
             .collect(),
-        epoch_length: 4,
-        num_shards: 3,
+        epoch_length: 4, // arbitrary
+        num_shards: 3,   // arbitrary
         track_all_shards: false,
     });
 
@@ -234,7 +241,11 @@ fn test_distribute_chunk_with_chunk_only_producers() {
     let chunk_producer_idx = test.data.index_for_account(&chunk_producer);
 
     let sender = test.sender();
-    test.sender().for_index(chunk_producer_idx).run("produce chunk", move |data| {
+    // Typically the chunk-only producer would receive a block later because the block
+    // producer would need to first produce a block. So we'll just have some arbitrary
+    // delay here.
+    let chunk_producer_receive_block_at: time::Duration = time::Duration::milliseconds(50);
+    test.sender().for_index(chunk_producer_idx).send_adhoc_event("produce chunk", move |data| {
         let chunk = data.chain.produce_chunk(1);
         data.chain.distribute_chunk(&chunk);
 
@@ -243,17 +254,17 @@ fn test_distribute_chunk_with_chunk_only_producers() {
         // via a produced block.
         for idx in NUM_BLOCK_PRODUCERS..NUM_BLOCK_PRODUCERS + NUM_CHUNK_ONLY_PRODUCERS {
             let chunk_header = chunk.header();
-            sender.clone().for_index(idx).run_with_delay(
+            sender.clone().for_index(idx).schedule_adhoc_event(
                 "request chunk from block",
                 move |data| data.chain.request_chunk_for_block(chunk_header),
-                time::Duration::milliseconds(100),
+                chunk_producer_receive_block_at,
             );
         }
     });
-    // Run for only 200ms virtual time, because the chunk only producers should
-    // not need a timeout to request the chunk parts; they should immediately
-    // request them.
-    test.run(time::Duration::milliseconds(200));
+    // Run for a network roundtrip after the chunk producers receive the block.
+    // This should be enough time for the chunk producers to request and
+    // receive the missing chunk parts.
+    test.run_for(chunk_producer_receive_block_at + NETWORK_DELAY * 2);
 
     for idx in 0..test.data.len() {
         if idx == chunk_producer_idx {
@@ -262,7 +273,7 @@ fn test_distribute_chunk_with_chunk_only_producers() {
         let chunk_producer = chunk_producer.clone();
         // Run assertions in the test loop so if something fails we know which
         // instance failed.
-        test.sender().for_index(idx).run("assertions", move |data| {
+        test.sender().for_index(idx).send_adhoc_event("assertions", move |data| {
             assert_eq!(data.client_events.len(), 2);
             match &data.client_events[0] {
                 ShardsManagerResponse::ChunkHeaderReadyForInclusion {
@@ -312,5 +323,5 @@ fn test_distribute_chunk_with_chunk_only_producers() {
             }
         });
     }
-    test.run(time::Duration::milliseconds(1));
+    test.run_instant();
 }

@@ -4,7 +4,7 @@ use derive_enum_from_into::{EnumFrom, EnumTryInto};
 use near_async::{
     messaging::{CanSend, IntoSender, Sender},
     test_loop::{
-        adhoc::{handle_adhoc_events, AdhocEvent, AdhocRunner},
+        adhoc::{handle_adhoc_events, AdhocEvent, AdhocEventSender},
         event_handler::capture_events,
     },
 };
@@ -26,11 +26,11 @@ use crate::{
     client::ShardsManagerResponse,
     test_loop::{
         forward_client_request_to_shards_manager, forward_network_request_to_shards_manager,
-        periodically_resend_shards_manager_requests, MockChainForShardsManager,
-        MockChainForShardsManagerConfig, ShardsManagerResendRequests,
+        periodically_resend_chunk_requests, MockChainForShardsManager,
+        MockChainForShardsManagerConfig, ShardsManagerResendChunkRequests,
     },
     test_utils::default_tip,
-    ShardsManager,
+    ShardsManager, CHUNK_REQUEST_RETRY,
 };
 
 #[derive(derive_more::AsMut)]
@@ -55,14 +55,16 @@ enum TestEvent {
     NetworkToShardsManager(ShardsManagerRequestFromNetwork),
     ShardsManagerToClient(ShardsManagerResponse),
     ShardsManagerToNetwork(PeerManagerMessageRequest),
-    ShardsManagerResendRequests(ShardsManagerResendRequests),
+    ShardsManagerResendRequests(ShardsManagerResendChunkRequests),
     Adhoc(AdhocEvent<TestData>),
 }
 
 type ShardsManagerTestLoopBuilder = near_async::test_loop::TestLoopBuilder<TestEvent>;
 
+/// Basic test that sends a full chunk to one ShardsManager and checks that it
+/// reports the complete chunk to the client.
 #[test]
-fn test_basic() {
+fn test_basic_receive_complete_chunk() {
     let builder = ShardsManagerTestLoopBuilder::new();
     let validators = (0..5)
         .map(|i| format!("validator_{}", i).parse::<AccountId>().unwrap())
@@ -106,7 +108,7 @@ fn test_basic() {
             chunk.make_partial_encoded_chunk(&chunk.part_ords(), &[]),
         ),
     ));
-    test.run(time::Duration::seconds(1));
+    test.run_for(time::Duration::seconds(1));
 
     assert_eq!(test.data.client_events.len(), 2);
     match &test.data.client_events[0] {
@@ -122,12 +124,26 @@ fn test_basic() {
     }
 }
 
+/// Tests that one node forwards chunk parts correctly to other nodes.
+/// When a validator V receives a PartialEncodedChunk from the chunk producer,
+/// containing the parts that the V owns, it is responsible for forwarding
+/// these parts to the next chunk producer as well as the any block producer
+/// that tracks the shard, as an optimization so that they don't have to
+/// request what we already know they will request. This test checks that
+/// behavior.
+///
+/// Note that before Phase 2 of sharding is launched, we actually forward to
+/// all block producers, not just those tracking the shard, because all
+/// block producers are required to track all shards.
+///
+/// See the comment on top of chain/chunks/src/lib.rs for more details.
 #[test]
 fn test_chunk_forward() {
     let builder = ShardsManagerTestLoopBuilder::new();
-    // Need at least 7 block producers for this test, so that the validator
-    // who receives one part cannot decode the entire chunk and needs to
-    // request more.
+    // For this test we need to ensure that 1 part is not enough to decode
+    // the whole chunk. For that, we need at least 7 block producers, so that
+    // the total number of parts is 7, and the number of parts needed to
+    // decode the chunk is 2, since the formula is (num_block_producers - 1)/3.
     let block_producers: Vec<AccountId> =
         (0..10).map(|idx| format!("bp_{}", idx).parse().unwrap()).collect();
     let chunk_only_producers: Vec<AccountId> =
@@ -161,16 +177,19 @@ fn test_chunk_forward() {
     test.register_handler(capture_events::<PeerManagerMessageRequest>().widen());
     test.register_handler(forward_client_request_to_shards_manager().widen());
     test.register_handler(forward_network_request_to_shards_manager().widen());
-    test.register_handler(
-        periodically_resend_shards_manager_requests(time::Duration::milliseconds(400)).widen(),
-    );
+    test.register_handler(periodically_resend_chunk_requests(CHUNK_REQUEST_RETRY).widen());
     test.register_handler(handle_adhoc_events());
 
-    test.sender().run("produce chunk", {
+    // We'll produce a single chunk whose next chunk producer is a chunk-only
+    // producer, so that we can test that the chunk is forwarded to the next
+    // chunk producer (since we forward it to block producers anyway).
+    // We do that by producing *blocks* until we get to a height where the
+    // next chunk producer is a chunk-only producer.
+    test.sender().send_adhoc_event("produce chunk", {
         let sender = test.sender();
         let chunk_only_producers = chunk_only_producers.clone();
         move |data| {
-            let hashes = hash_range(100);
+            let hashes = hash_range(100);  // 100 blocks should be more than enough to get lucky.
             for (i, hash) in hashes.iter().enumerate() {
                 let partial_encoded_chunk = data.chain.produce_chunk_signed_by_chunk_producer(0);
                 data.chain.record_block(*hash, i as BlockHeight + 1);
@@ -189,7 +208,7 @@ fn test_chunk_forward() {
             }
         }
     });
-    test.run(time::Duration::milliseconds(100));
+    test.run_instant();
 
     // The logic implemented right now is that all block producers will get the
     // forwarding (due to tracking all shards), and for chunk only producers,
@@ -223,7 +242,7 @@ fn test_chunk_forward() {
 
     // Now run for a bit longer to trigger resend. The validator should now
     // request the missing parts.
-    test.run(time::Duration::milliseconds(400));
+    test.run_for(CHUNK_REQUEST_RETRY);
     let mut seen_part_request = false;
     while let Some(r) = test.data.network_events.pop() {
         match r.as_network_requests_ref() {

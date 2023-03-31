@@ -143,13 +143,13 @@ pub fn route_shards_manager_network_messages<
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ShardsManagerResendRequests;
+pub struct ShardsManagerResendChunkRequests;
 
 /// Periodically call resend_chunk_requests.
-pub fn periodically_resend_shards_manager_requests(
+pub fn periodically_resend_chunk_requests(
     every: time::Duration,
-) -> LoopEventHandler<ShardsManager, ShardsManagerResendRequests> {
-    interval(every, ShardsManagerResendRequests, |data: &mut ShardsManager| {
+) -> LoopEventHandler<ShardsManager, ShardsManagerResendChunkRequests> {
+    interval(every, ShardsManagerResendChunkRequests, |data: &mut ShardsManager| {
         data.resend_chunk_requests()
     })
 }
