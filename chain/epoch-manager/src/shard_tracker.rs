@@ -342,15 +342,18 @@ mod tests {
         );
 
         let h = hash_range(8);
-        for i in 0..8 {
-            record_block(
-                &mut epoch_manager,
-                if i > 0 { h[i - 1] } else { CryptoHash::default() },
-                h[i],
-                i as u64,
-                vec![],
-                PROTOCOL_VERSION,
-            );
+        {
+            let mut epoch_manager = epoch_manager.write();
+            for i in 0..8 {
+                record_block(
+                    &mut epoch_manager,
+                    if i > 0 { h[i - 1] } else { CryptoHash::default() },
+                    h[i],
+                    i as u64,
+                    vec![],
+                    PROTOCOL_VERSION,
+                );
+            }
         }
 
         assert_eq!(get_all_shards_care_about(&tracker, num_shards, &h[4]), subset2);
