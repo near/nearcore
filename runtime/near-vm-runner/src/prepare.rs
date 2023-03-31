@@ -1,11 +1,13 @@
 //! Module that takes care of loading, checking and preprocessing of a
 //! wasm module before execution.
 
+use crate::internal::VMKind;
 use near_vm_errors::PrepareError;
 use near_vm_logic::VMConfig;
 
 mod prepare_v0;
 mod prepare_v1;
+mod prepare_v2;
 
 pub(crate) const WASM_FEATURES: wasmparser::WasmFeatures = wasmparser::WasmFeatures {
     reference_types: false,
@@ -33,14 +35,23 @@ pub(crate) const WASM_FEATURES: wasmparser::WasmFeatures = wasmparser::WasmFeatu
 /// - functions number does not exceed limit specified in VMConfig,
 ///
 /// The preprocessing includes injecting code for gas metering and metering the height of stack.
-pub fn prepare_contract(original_code: &[u8], config: &VMConfig) -> Result<Vec<u8>, PrepareError> {
-    prepare_v1::validate_contract(original_code, config)?;
+pub fn prepare_contract(
+    original_code: &[u8],
+    config: &VMConfig,
+    kind: VMKind,
+) -> Result<Vec<u8>, PrepareError> {
     match config.limit_config.contract_prepare_version {
         near_vm_logic::ContractPrepareVersion::V0 => {
+            // NB: v1 here is not a bug, we are reusing the code.
+            prepare_v1::validate_contract(original_code, config)?;
             prepare_v0::prepare_contract(original_code, config)
         }
         near_vm_logic::ContractPrepareVersion::V1 => {
+            prepare_v1::validate_contract(original_code, config)?;
             prepare_v1::prepare_contract(original_code, config)
+        }
+        near_vm_logic::ContractPrepareVersion::V2 => {
+            prepare_v2::prepare_contract(original_code, config, kind)
         }
     }
 }
@@ -53,7 +64,7 @@ mod tests {
     fn parse_and_prepare_wat(wat: &str) -> Result<Vec<u8>, PrepareError> {
         let wasm = wat::parse_str(wat).unwrap();
         let config = VMConfig::test();
-        prepare_contract(wasm.as_ref(), &config)
+        prepare_contract(wasm.as_ref(), &config, VMKind::Wasmtime)
     }
 
     #[test]
@@ -135,7 +146,7 @@ mod tests {
             // DO NOT use ArbitraryModule. We do want modules that may be invalid here, if they pass our validation step!
             let config = VMConfig::test();
             if let Ok(_) = prepare_v1::validate_contract(input, &config) {
-                match prepare_contract(input, &config) {
+                match prepare_contract(input, &config, VMKind::Wasmtime) {
                     Err(_e) => (), // TODO: this should be a panic, but for now it’d actually trigger
                     Ok(code) => {
                         let mut validator = wasmparser::Validator::new();

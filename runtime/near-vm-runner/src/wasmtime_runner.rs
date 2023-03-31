@@ -1,4 +1,5 @@
 use crate::errors::{ContractPrecompilatonResult, IntoVMError};
+use crate::internal::VMKind;
 use crate::prepare::WASM_FEATURES;
 use crate::{imports, prepare};
 use near_primitives::config::VMConfig;
@@ -201,7 +202,7 @@ impl crate::runner::VM for WasmtimeVM {
             return Ok(VMOutcome::abort(logic, e));
         }
 
-        let prepared_code = match prepare::prepare_contract(code.code(), &self.config) {
+        let prepared_code = match prepare::prepare_contract(code.code(), &self.config, VMKind::Wasmtime) {
             Ok(code) => code,
             Err(err) => return Ok(VMOutcome::abort(logic, FunctionCallError::from(err))),
         };
