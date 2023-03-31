@@ -5,11 +5,12 @@ description = "Wasmer Common Types"
 categories = ["wasm", "no-std", "data-structures"]
 keywords = ["wasm", "webassembly", "types"]
 authors = ["Wasmer Engineering Team <engineering@wasmer.io>", "Near Inc <hello@nearprotocol.com>"]
-repository = "https://github.com/wasmerio/wasmer"
+repository = "https://github.com/near/nearcore"
 license = "MIT OR Apache-2.0 WITH LLVM-exception"
 readme = "README.md"
 edition = "2021"
-publish = false
+publish = true
+rust-version.workspace = true
 
 [lib]
 name = "wasmer_types"
