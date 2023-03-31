@@ -35,6 +35,10 @@ fn protocol_upgrade() {
         .collect();
     let epoch_length: BlockHeight = 5;
 
+    // The immediate protocol upgrade needs to be set for this test to pass in
+    // the release branch where the protocol upgrade date is set.
+    std::env::set_var("NEAR_TESTS_IMMEDIATE_PROTOCOL_UPGRADE", "1");
+
     // Prepare TestEnv with a contract at the old protocol version.
     let mut env = {
         let mut genesis =
