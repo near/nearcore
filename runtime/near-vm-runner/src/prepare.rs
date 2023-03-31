@@ -30,16 +30,23 @@ pub(crate) const WASM_FEATURES: wasmparser::WasmFeatures = wasmparser::WasmFeatu
     memory_control: false,
 };
 
+/// Loads the given module given in `original_code`, performs some checks on it and
+/// does some preprocessing.
+///
+/// The checks are:
+///
+/// - module doesn't define an internal memory instance,
+/// - imported memory (if any) doesn't reserve more memory than permitted by the `config`,
+/// - all imported functions from the external environment matches defined by `env` module,
+/// - functions number does not exceed limit specified in VMConfig,
+///
+/// The preprocessing includes injecting code for gas metering and metering the height of stack.
 pub fn prepare_contract(
     original_code: &[u8],
     config: &VMConfig,
     kind: VMKind,
 ) -> Result<Vec<u8>, PrepareError> {
     match config.limit_config.contract_prepare_version {
-        // Support for old protocol versions, where we incorrectly didn't
-        // account for many locals of the same type.
-        //
-        // See `test_stack_instrumentation_protocol_upgrade` test.
         near_vm_logic::ContractPrepareVersion::V0 => {
             // NB: v1 here is not a bug, we are reusing the code.
             prepare_v1::validate_contract(original_code, config)?;
