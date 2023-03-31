@@ -507,6 +507,9 @@ impl ViewClientActor {
     }
 
     fn check_state_sync_request(&self) -> bool {
+        tracing::error!(target: "client", "Refuse state sync requests because my parts are huge");
+        false
+        /*
         let mut cache = self.state_request_cache.lock().expect(POISONED_LOCK_ERR);
         let now = StaticClock::instant();
         while let Some(&instant) = cache.front() {
@@ -523,6 +526,7 @@ impl ViewClientActor {
         }
         cache.push_back(now);
         true
+             */
     }
 }
 
@@ -1201,6 +1205,9 @@ impl Handler<WithSpanContext<StateRequestHeader>> for ViewClientActor {
         msg: WithSpanContext<StateRequestHeader>,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
+        tracing::error!(target: "sync", "Refuse StateRequestHeader because my state parts are huge");
+        ShardStateSyncResponse::V2(ShardStateSyncResponseV2 { header: None, part: None })
+        /*
         let (_span, msg) = handler_debug_span!(target: "client", msg);
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["StateRequestHeader"])
@@ -1278,6 +1285,7 @@ impl Handler<WithSpanContext<StateRequestHeader>> for ViewClientActor {
                 Some(StateResponse(Box::new(info)))
             }
         }
+        */
     }
 }
 
