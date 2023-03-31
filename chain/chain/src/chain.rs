@@ -1189,8 +1189,12 @@ impl Chain {
             if let Some(block_hashes) = epoch_id_to_blocks.get(header.epoch_id()) {
                 // This should be guaranteed but it doesn't hurt to check again
                 if !block_hashes.contains(header.hash()) {
+                    debug!(target: "chain", "BlockHeadersResponse, header height {}", header.height());
                     let other_header =
-                        self.get_block_header(block_hashes.iter().next().unwrap())?;
+                        self.get_block_header(block_hashes.iter().next().unwrap()).map_err(|err| {
+                            debug!(target: "chain", "BlockHeadersResponse, chain.rs L1194 get_block_header returns error");
+                            err
+                        })?;
 
                     challenges.push(ChallengeBody::BlockDoubleSign(BlockDoubleSign {
                         left_block_header: header.try_to_vec().expect("Failed to serialize"),
@@ -1738,6 +1742,8 @@ impl Chain {
             false
         };
 
+        debug!(target: "chain", "BlockHeadersResponse, Value of all_known is {}", all_known);
+
         if !all_known {
             // Validate header and then add to the chain.
             for header in headers.iter() {
@@ -1746,7 +1752,10 @@ impl Chain {
                     Err(_) => continue,
                 }
 
-                self.validate_header(header, &Provenance::SYNC, challenges)?;
+                self.validate_header(header, &Provenance::SYNC, challenges).map_err(|err| {
+                    debug!(target: "chain", "BlockHeadersResponse, validate header returns error");
+                    err
+                })?;
                 let mut chain_update = self.chain_update();
                 chain_update.chain_store_update.save_block_header(header.clone())?;
 
@@ -1765,7 +1774,10 @@ impl Chain {
 
         if let Some(header) = headers.last() {
             // Update header_head if it's the new tip
-            chain_update.update_header_head_if_not_challenged(header)?;
+            chain_update.update_header_head_if_not_challenged(header).map_err(|err| {
+                debug!(target: "chain", "BlockHeadersResponse, update_header_head_if_not_challenged erred out");
+                err
+            })?;
         }
 
         chain_update.commit()
@@ -5227,7 +5239,10 @@ impl<'a> ChainUpdate<'a> {
         let header_head = self.chain_store_update.header_head()?;
         if header.height() > header_head.height {
             let tip = Tip::from_header(header);
-            self.chain_store_update.save_header_head_if_not_challenged(&tip)?;
+            self.chain_store_update.save_header_head_if_not_challenged(&tip).map_err(|err| {
+                debug!(target: "chain", "save_header_head_if_not_challenged erred out");
+                err
+            })?;
             debug!(target: "chain", "Header head updated to {} at {}", tip.last_block_hash, tip.height);
             metrics::HEADER_HEAD_HEIGHT.set(tip.height as i64);
 

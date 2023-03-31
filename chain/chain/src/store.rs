@@ -49,6 +49,7 @@ use crate::{byzantine_assert, RuntimeWithEpochManagerAdapter};
 use near_store::db::StoreStatistics;
 use near_store::flat::store_helper;
 use std::sync::Arc;
+use tracing::debug;
 
 /// lru cache size
 #[cfg(not(feature = "no_cache"))]
@@ -286,7 +287,10 @@ pub trait ChainStoreAccess {
         if hash == &CryptoHash::default() {
             Ok(self.get_genesis_height())
         } else {
-            Ok(self.get_block_header(hash)?.height())
+            Ok(self.get_block_header(hash).map_err(|err| {
+                debug!(target: "chain", "BlockHeadersResponse, store.rs L290 get_block_height erred out");
+                err
+            })?.height())
         }
     }
 
@@ -1600,7 +1604,11 @@ impl<'a> ChainStoreUpdate<'a> {
         let mut prev_hash = hash;
         let mut prev_height = height;
         loop {
-            let header = self.get_block_header(&prev_hash)?;
+            debug!(target: "chain", ?prev_hash, ?prev_height, "BlockHeadersResponse, ");
+            let header = self.get_block_header(&prev_hash).map_err(|err|{
+                debug!(target: "chain", ?prev_hash, ?prev_height, "BlockHeadersResponse, get_block_header erred out for ");
+                err
+            })?;
             let (header_height, header_hash, header_prev_hash) =
                 (header.height(), *header.hash(), *header.prev_hash());
             // Clean up block indices between blocks.
@@ -1655,9 +1663,15 @@ impl<'a> ChainStoreUpdate<'a> {
     /// Update header head and height to hash index for this branch.
     pub fn save_header_head_if_not_challenged(&mut self, t: &Tip) -> Result<(), Error> {
         if t.height > self.chain_store.genesis_height {
-            self.update_height_if_not_challenged(t.height, t.prev_block_hash)?;
+            self.update_height_if_not_challenged(t.height, t.prev_block_hash).map_err(|err| {
+                debug!(target: "chain", "update_height_if_not_challenged erred out");
+                err
+            })?;
         }
-        self.try_save_latest_known(t.height)?;
+        self.try_save_latest_known(t.height).map_err(|err| {
+            debug!(target: "chain", "try_save_latest_known erred out");
+            err
+        })?;
 
         match self.header_head() {
             Ok(prev_tip) => {
@@ -1957,7 +1971,24 @@ impl<'a> ChainStoreUpdate<'a> {
         self.chunk_tail = Some(height);
     }
 
-    fn clear_chunk_data_and_headers_at_height(&mut self, height: BlockHeight) -> Result<(), Error> {
+    fn clear_header_data_for_heights(&mut self, start: BlockHeight, end: BlockHeight) -> Result<(), Error> {
+        for height in start..end+1 {
+            let header_hashes = self.chain_store.get_all_header_hashes_by_height(height)?;
+            for header_hash in header_hashes {
+            // 3. Delete header_hash-indexed data: block header
+                let mut store_update = self.store().store_update();
+                let key: &[u8] = header_hash.as_bytes();
+                store_update.delete(DBCol::BlockHeader, key);
+                self.chain_store.headers.pop(key);
+                self.merge(store_update);
+            }
+            let key = index_to_bytes(height);
+            self.gc_col(DBCol::HeaderHashesByHeight, &key);
+        }
+        Ok(())
+    }
+
+    fn clear_chunk_data_at_height(&mut self, height: BlockHeight) -> Result<(), Error> {
         let chunk_hashes = self.chain_store.get_all_chunk_hashes_by_height(height)?;
         for chunk_hash in chunk_hashes {
             // 1. Delete chunk-related data
@@ -1977,20 +2008,9 @@ impl<'a> ChainStoreUpdate<'a> {
             self.gc_col(DBCol::InvalidChunks, chunk_hash);
         }
 
-        let header_hashes = self.chain_store.get_all_header_hashes_by_height(height)?;
-        for header_hash in header_hashes {
-            // 3. Delete header_hash-indexed data: block header
-            let mut store_update = self.store().store_update();
-            let key: &[u8] = header_hash.as_bytes();
-            store_update.delete(DBCol::BlockHeader, key);
-            self.chain_store.headers.pop(key);
-            self.merge(store_update);
-        }
-
-        // 4. Delete chunks_tail-related data
+        // 4. Delete chun, header and blocks per height
         let key = index_to_bytes(height);
         self.gc_col(DBCol::ChunkHashesByHeight, &key);
-        self.gc_col(DBCol::HeaderHashesByHeight, &key);
 
         Ok(())
     }
@@ -2250,6 +2270,8 @@ impl<'a> ChainStoreUpdate<'a> {
         &mut self,
         runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
     ) -> Result<(), Error> {
+        let header_head = self.header_head().unwrap();
+        let header_head_height = header_head.height;
         let block_hash = self.head().unwrap().last_block_hash;
 
         let block =
@@ -2257,7 +2279,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
         let epoch_id = block.header().epoch_id();
 
-        let height = block.header().height();
+        let head_height = block.header().height();
 
         // 1. Delete shard_id-indexed data (TrieChanges, Receipts, ChunkExtra, State Headers and Parts, FlatStorage data)
         for shard_id in 0..block.header().chunk_mask().len() as ShardId {
@@ -2318,9 +2340,11 @@ impl<'a> ChainStoreUpdate<'a> {
         self.gc_col(DBCol::NextBlockHashes, block.header().prev_hash().as_bytes());
 
         // 4. Update or delete block_hash_per_height
-        self.gc_col_block_per_height(&block_hash, height, block.header().epoch_id())?;
+        self.gc_col_block_per_height(&block_hash, head_height, block.header().epoch_id())?;
 
-        self.clear_chunk_data_and_headers_at_height(height)?;
+        self.clear_chunk_data_at_height(head_height)?;
+
+        self.clear_header_data_for_heights(head_height, header_head_height)?;
 
         Ok(())
     }
