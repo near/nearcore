@@ -38,7 +38,7 @@ pub fn run_basic_static_function(store: &Store, compiler_name: &str, c: &mut Cri
             "multiply" => Function::new_native(&store, |a: i32, b: i32| a * b),
         },
     };
-    let instance = Instance::new(&module, &import_object).unwrap();
+    let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &import_object).unwrap();
     let dyn_f = instance.lookup_function("add").unwrap();
     let f: NativeFunc<(i32, i32), i32> = dyn_f.native().unwrap();
 
@@ -99,7 +99,7 @@ pub fn run_basic_dynamic_function(store: &Store, compiler_name: &str, c: &mut Cr
             "multiply" => Function::new_native(&store, |a: i32, b: i32| a * b),
         },
     };
-    let instance = Instance::new(&module, &import_object).unwrap();
+    let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &import_object).unwrap();
 
     let dyn_f = instance.lookup_function("add").unwrap();
     c.bench_function(&format!("basic dynfunc {}", compiler_name), |b| {

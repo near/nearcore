@@ -17,16 +17,16 @@ serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
-nearcore = { path = "../../nearcore" }
-near-client = { path = "../client" }
-near-chain-configs = { path = "../../core/chain-configs" }
-near-dyn-configs = { path = "../../core/dyn-configs" }
-near-crypto = { path = "../../core/crypto" }
-near-indexer-primitives = { path = "../indexer-primitives" }
-near-o11y = { path = "../../core/o11y" }
-near-primitives = { path = "../../core/primitives" }
-near-store = { path = "../../core/store" }
-node-runtime = { path = "../../runtime/runtime" }
+nearcore.workspace = true
+near-client.workspace = true
+near-chain-configs.workspace = true
+near-dyn-configs.workspace = true
+near-crypto.workspace = true
+near-indexer-primitives.workspace = true
+near-o11y.workspace = true
+near-primitives.workspace = true
+near-store.workspace = true
+node-runtime.workspace = true
 
 [features]
 calimero_zero_storage = ["near-primitives/calimero_zero_storage"]

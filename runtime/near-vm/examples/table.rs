@@ -57,7 +57,7 @@ fn main() -> anyhow::Result<()> {
     let module = Module::new(&store, wasm_bytes)?;
     let import_object = imports! {};
     // And instantiate it with no imports.
-    let instance = Instance::new(&module, &import_object)?;
+    let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &import_object)?;
 
     // We get our function that calls (i32, i32) -> i32 functions via table.
     // The first argument is the table index and the next 2 are the 2 arguments

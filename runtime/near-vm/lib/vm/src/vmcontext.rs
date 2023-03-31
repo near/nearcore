@@ -101,10 +101,7 @@ mod test_vmfunction_import {
     fn check_vmfunction_import_offsets() {
         let module = ModuleInfo::new();
         let offsets = VMOffsets::new(size_of::<*mut u8>() as u8).with_module_info(&module);
-        assert_eq!(
-            size_of::<VMFunctionImport>(),
-            usize::from(offsets.size_of_vmfunction_import())
-        );
+        assert_eq!(size_of::<VMFunctionImport>(), usize::from(offsets.size_of_vmfunction_import()));
         assert_eq!(
             offset_of!(VMFunctionImport, body),
             usize::from(offsets.vmfunction_import_body())
@@ -162,10 +159,7 @@ unsafe impl<T: Sized + Send + Sync> Sync for VMDynamicFunctionContext<T> {}
 
 impl<T: Sized + Clone + Send + Sync> Clone for VMDynamicFunctionContext<T> {
     fn clone(&self) -> Self {
-        Self {
-            address: self.address,
-            ctx: self.ctx.clone(),
-        }
+        Self { address: self.address, ctx: self.ctx.clone() }
     }
 }
 
@@ -279,18 +273,12 @@ mod test_vmtable_import {
     fn check_vmtable_import_offsets() {
         let module = ModuleInfo::new();
         let offsets = VMOffsets::new(size_of::<*mut u8>() as u8).with_module_info(&module);
-        assert_eq!(
-            size_of::<VMTableImport>(),
-            usize::from(offsets.size_of_vmtable_import())
-        );
+        assert_eq!(size_of::<VMTableImport>(), usize::from(offsets.size_of_vmtable_import()));
         assert_eq!(
             offset_of!(VMTableImport, definition),
             usize::from(offsets.vmtable_import_definition())
         );
-        assert_eq!(
-            offset_of!(VMTableImport, from),
-            usize::from(offsets.vmtable_import_from())
-        );
+        assert_eq!(offset_of!(VMTableImport, from), usize::from(offsets.vmtable_import_from()));
     }
 }
 
@@ -318,18 +306,12 @@ mod test_vmmemory_import {
     fn check_vmmemory_import_offsets() {
         let module = ModuleInfo::new();
         let offsets = VMOffsets::new(size_of::<*mut u8>() as u8).with_module_info(&module);
-        assert_eq!(
-            size_of::<VMMemoryImport>(),
-            usize::from(offsets.size_of_vmmemory_import())
-        );
+        assert_eq!(size_of::<VMMemoryImport>(), usize::from(offsets.size_of_vmmemory_import()));
         assert_eq!(
             offset_of!(VMMemoryImport, definition),
             usize::from(offsets.vmmemory_import_definition())
         );
-        assert_eq!(
-            offset_of!(VMMemoryImport, from),
-            usize::from(offsets.vmmemory_import_from())
-        );
+        assert_eq!(offset_of!(VMMemoryImport, from), usize::from(offsets.vmmemory_import_from()));
     }
 }
 
@@ -369,18 +351,12 @@ mod test_vmglobal_import {
     fn check_vmglobal_import_offsets() {
         let module = ModuleInfo::new();
         let offsets = VMOffsets::new(size_of::<*mut u8>() as u8).with_module_info(&module);
-        assert_eq!(
-            size_of::<VMGlobalImport>(),
-            usize::from(offsets.size_of_vmglobal_import())
-        );
+        assert_eq!(size_of::<VMGlobalImport>(), usize::from(offsets.size_of_vmglobal_import()));
         assert_eq!(
             offset_of!(VMGlobalImport, definition),
             usize::from(offsets.vmglobal_import_definition())
         );
-        assert_eq!(
-            offset_of!(VMGlobalImport, from),
-            usize::from(offsets.vmglobal_import_from())
-        );
+        assert_eq!(offset_of!(VMGlobalImport, from), usize::from(offsets.vmglobal_import_from()));
     }
 }
 
@@ -422,9 +398,7 @@ impl VMMemoryDefinition {
     /// caller's responsibility to synchronize.
     pub(crate) unsafe fn memory_copy(&self, dst: u32, src: u32, len: u32) -> Result<(), Trap> {
         // https://webassembly.github.io/reference-types/core/exec/instructions.html#exec-memory-copy
-        if src
-            .checked_add(len)
-            .map_or(true, |n| usize::try_from(n).unwrap() > self.current_length)
+        if src.checked_add(len).map_or(true, |n| usize::try_from(n).unwrap() > self.current_length)
             || dst
                 .checked_add(len)
                 .map_or(true, |m| usize::try_from(m).unwrap() > self.current_length)
@@ -455,9 +429,7 @@ impl VMMemoryDefinition {
     /// The memory is not filled atomically and is not synchronized: it's the
     /// caller's responsibility to synchronize.
     pub(crate) unsafe fn memory_fill(&self, dst: u32, val: u32, len: u32) -> Result<(), Trap> {
-        if dst
-            .checked_add(len)
-            .map_or(true, |m| usize::try_from(m).unwrap() > self.current_length)
+        if dst.checked_add(len).map_or(true, |m| usize::try_from(m).unwrap() > self.current_length)
         {
             return Err(Trap::lib(TrapCode::HeapAccessOutOfBounds));
         }
@@ -564,9 +536,7 @@ pub union VMGlobalDefinitionStorage {
 
 impl fmt::Debug for VMGlobalDefinitionStorage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("VMGlobalDefinitionStorage")
-            .field("bytes", unsafe { &self.bytes })
-            .finish()
+        f.debug_struct("VMGlobalDefinitionStorage").field("bytes", unsafe { &self.bytes }).finish()
     }
 }
 
@@ -620,9 +590,7 @@ mod test_vmglobal_definition {
 impl VMGlobalDefinition {
     /// Construct a `VMGlobalDefinition`.
     pub fn new() -> Self {
-        Self {
-            storage: VMGlobalDefinitionStorage { bytes: [0; 16] },
-        }
+        Self { storage: VMGlobalDefinitionStorage { bytes: [0; 16] } }
     }
 
     /// Return the value as an i32.
@@ -832,10 +800,7 @@ mod test_vmshared_signature_index {
 
     #[test]
     fn check_target_shared_signature_index() {
-        assert_eq!(
-            size_of::<VMSharedSignatureIndex>(),
-            size_of::<TargetSharedSignatureIndex>()
-        );
+        assert_eq!(size_of::<VMSharedSignatureIndex>(), size_of::<TargetSharedSignatureIndex>());
     }
 }
 
@@ -1024,61 +989,61 @@ impl VMBuiltinFunctionsArray {
         let mut ptrs = [0; Self::len()];
 
         ptrs[VMBuiltinFunctionIndex::get_memory32_grow_index().index() as usize] =
-            wasmer_vm_memory32_grow as usize;
+            near_vm_memory32_grow as usize;
         ptrs[VMBuiltinFunctionIndex::get_imported_memory32_grow_index().index() as usize] =
-            wasmer_vm_imported_memory32_grow as usize;
+            near_vm_imported_memory32_grow as usize;
 
         ptrs[VMBuiltinFunctionIndex::get_memory32_size_index().index() as usize] =
-            wasmer_vm_memory32_size as usize;
+            near_vm_memory32_size as usize;
         ptrs[VMBuiltinFunctionIndex::get_imported_memory32_size_index().index() as usize] =
-            wasmer_vm_imported_memory32_size as usize;
+            near_vm_imported_memory32_size as usize;
 
         ptrs[VMBuiltinFunctionIndex::get_table_copy_index().index() as usize] =
-            wasmer_vm_table_copy as usize;
+            near_vm_table_copy as usize;
 
         ptrs[VMBuiltinFunctionIndex::get_table_init_index().index() as usize] =
-            wasmer_vm_table_init as usize;
+            near_vm_table_init as usize;
         ptrs[VMBuiltinFunctionIndex::get_elem_drop_index().index() as usize] =
-            wasmer_vm_elem_drop as usize;
+            near_vm_elem_drop as usize;
 
         ptrs[VMBuiltinFunctionIndex::get_memory_copy_index().index() as usize] =
-            wasmer_vm_memory32_copy as usize;
+            near_vm_memory32_copy as usize;
         ptrs[VMBuiltinFunctionIndex::get_imported_memory_copy_index().index() as usize] =
-            wasmer_vm_imported_memory32_copy as usize;
+            near_vm_imported_memory32_copy as usize;
         ptrs[VMBuiltinFunctionIndex::get_memory_fill_index().index() as usize] =
-            wasmer_vm_memory32_fill as usize;
+            near_vm_memory32_fill as usize;
         ptrs[VMBuiltinFunctionIndex::get_imported_memory_fill_index().index() as usize] =
-            wasmer_vm_imported_memory32_fill as usize;
+            near_vm_imported_memory32_fill as usize;
         ptrs[VMBuiltinFunctionIndex::get_memory_init_index().index() as usize] =
-            wasmer_vm_memory32_init as usize;
+            near_vm_memory32_init as usize;
         ptrs[VMBuiltinFunctionIndex::get_data_drop_index().index() as usize] =
-            wasmer_vm_data_drop as usize;
+            near_vm_data_drop as usize;
         ptrs[VMBuiltinFunctionIndex::get_raise_trap_index().index() as usize] =
-            wasmer_vm_raise_trap as usize;
+            near_vm_raise_trap as usize;
         ptrs[VMBuiltinFunctionIndex::get_table_size_index().index() as usize] =
-            wasmer_vm_table_size as usize;
+            near_vm_table_size as usize;
         ptrs[VMBuiltinFunctionIndex::get_imported_table_size_index().index() as usize] =
-            wasmer_vm_imported_table_size as usize;
+            near_vm_imported_table_size as usize;
         ptrs[VMBuiltinFunctionIndex::get_table_grow_index().index() as usize] =
-            wasmer_vm_table_grow as usize;
+            near_vm_table_grow as usize;
         ptrs[VMBuiltinFunctionIndex::get_imported_table_grow_index().index() as usize] =
-            wasmer_vm_imported_table_grow as usize;
+            near_vm_imported_table_grow as usize;
         ptrs[VMBuiltinFunctionIndex::get_table_get_index().index() as usize] =
-            wasmer_vm_table_get as usize;
+            near_vm_table_get as usize;
         ptrs[VMBuiltinFunctionIndex::get_imported_table_get_index().index() as usize] =
-            wasmer_vm_imported_table_get as usize;
+            near_vm_imported_table_get as usize;
         ptrs[VMBuiltinFunctionIndex::get_table_set_index().index() as usize] =
-            wasmer_vm_table_set as usize;
+            near_vm_table_set as usize;
         ptrs[VMBuiltinFunctionIndex::get_imported_table_set_index().index() as usize] =
-            wasmer_vm_imported_table_set as usize;
+            near_vm_imported_table_set as usize;
         ptrs[VMBuiltinFunctionIndex::get_func_ref_index().index() as usize] =
-            wasmer_vm_func_ref as usize;
+            near_vm_func_ref as usize;
         ptrs[VMBuiltinFunctionIndex::get_table_fill_index().index() as usize] =
-            wasmer_vm_table_fill as usize;
+            near_vm_table_fill as usize;
         ptrs[VMBuiltinFunctionIndex::get_externref_inc_index().index() as usize] =
-            wasmer_vm_externref_inc as usize;
+            near_vm_externref_inc as usize;
         ptrs[VMBuiltinFunctionIndex::get_externref_dec_index().index() as usize] =
-            wasmer_vm_externref_dec as usize;
+            near_vm_externref_dec as usize;
 
         debug_assert!(ptrs.iter().cloned().all(|p| p != 0));
 

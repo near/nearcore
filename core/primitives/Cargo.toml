@@ -38,11 +38,11 @@ time.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
-near-crypto = { path = "../crypto" }
-near-o11y = { path = "../o11y" }
-near-primitives-core = { path = "../primitives-core"}
-near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
-near-vm-errors = { path = "../../runtime/near-vm-errors" }
+near-crypto.workspace = true
+near-o11y.workspace = true
+near-primitives-core.workspace = true
+near-rpc-error-macro.workspace = true
+near-vm-errors.workspace = true
 
 [features]
 sandbox = []

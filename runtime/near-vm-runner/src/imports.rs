@@ -48,9 +48,23 @@
 //! `for_each_available_import` takes care to invoke `M!` only for currently
 //! available imports.
 
+macro_rules! call_with_name {
+    ( $M:ident => @in $mod:ident : $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] > ) => {
+        $M!($mod / $func : $func < [ $( $arg_name : $arg_type ),* ] -> [ $( $returns ),* ] >)
+    };
+    ( $M:ident => @as $name:ident : $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] > ) => {
+        $M!(env / $name : $func < [ $( $arg_name : $arg_type ),* ] -> [ $( $returns ),* ] >)
+    };
+    ( $M:ident => $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] > ) => {
+        $M!(env / $func : $func < [ $( $arg_name : $arg_type ),* ] -> [ $( $returns ),* ] >)
+    };
+}
+
 macro_rules! imports {
     (
       $($(#[$stable_feature:ident])? $(#[$feature_name:literal, $feature:ident])* $(##[$feature_name2:literal])?
+        $( @in $mod:ident : )?
+        $( @as $name:ident : )?
         $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >,)*
     ) => {
         macro_rules! for_each_available_import {
@@ -61,7 +75,7 @@ macro_rules! imports {
                     $(&& near_primitives::checked_feature!($feature_name, $feature, $protocol_version))*
                     $(&& near_primitives::checked_feature!("stable", $stable_feature, $protocol_version))?
                 {
-                    $M!($func < [ $( $arg_name : $arg_type ),* ] -> [ $( $returns ),* ] >);
+                    call_with_name!($M => $( @in $mod : )? $( @as $name : )? $func < [ $( $arg_name : $arg_type ),* ] -> [ $( $returns ),* ] >);
                 }
             )*}
         }
@@ -69,6 +83,12 @@ macro_rules! imports {
 }
 
 imports! {
+    // #########################
+    // # Finite-wasm internals #
+    // #########################
+    @in internal: finite_wasm_gas<[gas: u64] -> []>,
+    @in internal: finite_wasm_stack<[operand_size: u64, frame_size: u64] -> []>,
+    @in internal: finite_wasm_unstack<[operand_size: u64, frame_size: u64] -> []>,
     // #############
     // # Registers #
     // #############
@@ -222,7 +242,7 @@ imports! {
     storage_iter_range<[start_len: u64, start_ptr: u64, end_len: u64, end_ptr: u64] -> [u64]>,
     storage_iter_next<[iterator_id: u64, key_register_id: u64, value_register_id: u64] -> [u64]>,
     // Function for the injected gas counter. Automatically called by the gas meter.
-    gas<[gas_amount: u32] -> []>,
+    @as gas: gas_seen_from_wasm<[gas_amount: u32] -> []>,
     // ###############
     // # Validator API #
     // ###############
@@ -264,31 +284,37 @@ pub(crate) mod wasmer {
             (import_reference.0, dtor)
         });
 
-        let mut ns = wasmer_runtime_core::import::Namespace::new();
-        ns.insert("memory", memory);
+        let mut ns_internal = wasmer_runtime_core::import::Namespace::new();
+        let mut ns_env = wasmer_runtime_core::import::Namespace::new();
+        ns_env.insert("memory", memory);
 
         macro_rules! add_import {
             (
-              $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >
+              $mod:ident / $name:ident : $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >
             ) => {
                 #[allow(unused_parens)]
-                fn $func( ctx: &mut wasmer_runtime::Ctx, $( $arg_name: $arg_type ),* ) -> Result<($( $returns ),*), VMLogicError> {
-                    const IS_GAS: bool = str_eq(stringify!($func), "gas");
+                fn $name( ctx: &mut wasmer_runtime::Ctx, $( $arg_name: $arg_type ),* ) -> Result<($( $returns ),*), VMLogicError> {
+                    const IS_GAS: bool = str_eq(stringify!($name), "gas");
                     let _span = if IS_GAS {
                         None
                     } else {
-                        Some(tracing::trace_span!(target: "host-function", stringify!($func)).entered())
+                        Some(tracing::trace_span!(target: "host-function", stringify!($name)).entered())
                     };
                     let logic: &mut VMLogic<'_> = unsafe { &mut *(ctx.data as *mut VMLogic<'_>) };
                     logic.$func( $( $arg_name, )* )
                 }
 
-                ns.insert(stringify!($func), wasmer_runtime::func!($func));
+                match stringify!($mod) {
+                    "env" => ns_env.insert(stringify!($name), wasmer_runtime::func!($name)),
+                    "internal" => ns_internal.insert(stringify!($name), wasmer_runtime::func!($name)),
+                    _ => unimplemented!(),
+                }
             };
         }
         for_each_available_import!(protocol_version, add_import);
 
-        import_object.register("env", ns);
+        import_object.register("env", ns_env);
+        import_object.register("internal", ns_internal);
         import_object
     }
 }
@@ -351,32 +377,29 @@ pub(crate) mod wasmer2 {
 
     impl<'e, 'l, 'lr> Resolver for Wasmer2Imports<'e, 'l, 'lr> {
         fn resolve(&self, _index: u32, module: &str, field: &str) -> Option<wasmer_vm::Export> {
-            if module != "env" {
-                return None;
-            }
-            if field == "memory" {
+            if module == "env" && field == "memory" {
                 return Some(wasmer_vm::Export::Memory(self.memory.clone()));
             }
 
             macro_rules! add_import {
                 (
-                  $func:ident <
+                  $mod:ident / $name:ident : $func:ident <
                     [ $( $arg_name:ident : $arg_type:ident ),* ]
                     -> [ $( $returns:ident ),* ]
                   >
                 ) => {
                     return_ty!(Ret = [ $($returns),* ]);
 
-                    extern "C" fn $func(env: *mut VMLogic<'_>, $( $arg_name: $arg_type ),* )
+                    extern "C" fn $name(env: *mut VMLogic<'_>, $( $arg_name: $arg_type ),* )
                     -> Ret {
                         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            const IS_GAS: bool = str_eq(stringify!($func), "gas");
+                            const IS_GAS: bool = str_eq(stringify!($name), "gas");
                             let _span = if IS_GAS {
                                 None
                             } else {
                                 Some(tracing::trace_span!(
                                     target: "host-function",
-                                    stringify!($func)
+                                    stringify!($name)
                                 ).entered())
                             };
 
@@ -406,14 +429,14 @@ pub(crate) mod wasmer2 {
                         }
                     }
                     // TODO: a phf hashmap would probably work better here.
-                    if field == stringify!($func) {
+                    if module == stringify!($mod) && field == stringify!($name) {
                         let args = [$(<$arg_type as Wasmer2Type>::ty()),*];
                         let rets = [$(<$returns as Wasmer2Type>::ty()),*];
                         let signature = wasmer_types::FunctionTypeRef::new(&args[..], &rets[..]);
                         let signature = self.engine.register_signature(signature);
                         return Some(wasmer_vm::Export::Function(ExportFunction {
                             vm_function: VMFunction {
-                                address: $func as *const _,
+                                address: $name as *const _,
                                 // SAFETY: here we erase the lifetime of the `vmlogic` reference,
                                 // but we believe that the lifetimes on `Wasmer2Imports` enforce
                                 // sufficiently that it isn't possible to call this exported
@@ -498,15 +521,15 @@ pub(crate) mod wasmtime {
 
         macro_rules! add_import {
             (
-              $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >
+              $mod:ident / $name:ident : $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >
             ) => {
                 #[allow(unused_parens)]
-                fn $func(caller: wasmtime::Caller<'_, ()>, $( $arg_name: $arg_type ),* ) -> anyhow::Result<($( $returns ),*)> {
-                    const IS_GAS: bool = str_eq(stringify!($func), "gas");
+                fn $name(caller: wasmtime::Caller<'_, ()>, $( $arg_name: $arg_type ),* ) -> anyhow::Result<($( $returns ),*)> {
+                    const IS_GAS: bool = str_eq(stringify!($name), "gas");
                     let _span = if IS_GAS {
                         None
                     } else {
-                        Some(tracing::trace_span!(target: "host-function", stringify!($func)).entered())
+                        Some(tracing::trace_span!(target: "host-function", stringify!($name)).entered())
                     };
                     // the below is bad. don't do this at home. it probably works thanks to the exact way the system is setup.
                     // Thanksfully, this doesn't run in production, and hopefully should be possible to remove before we even
@@ -529,7 +552,7 @@ pub(crate) mod wasmtime {
                     }
                 }
 
-                linker.func_wrap("env", stringify!($func), $func).expect("cannot link external");
+                linker.func_wrap(stringify!($mod), stringify!($name), $name).expect("cannot link external");
             };
         }
         for_each_available_import!(protocol_version, add_import);

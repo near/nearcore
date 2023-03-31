@@ -11,11 +11,11 @@ clap.workspace = true
 csv.workspace = true
 serde.workspace = true
 
-nearcore = { path = "../../nearcore" }
-near-chain-configs = { path = "../../core/chain-configs" }
-near-crypto = { path = "../../core/crypto" }
-near-primitives = { path = "../../core/primitives" }
-near-network = { path = "../../chain/network" }
+nearcore.workspace = true
+near-chain-configs.workspace = true
+near-crypto.workspace = true
+near-primitives.workspace = true
+near-network.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
