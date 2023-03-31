@@ -11,9 +11,6 @@ readme = "README.md"
 edition = "2021"
 publish = false
 
-[lib]
-name = "wasmer_engine"
-
 [dependencies]
 finite-wasm.workspace = true
 wasmer-types = { path = "../types", package = "near-vm-types" }

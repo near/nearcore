@@ -11,9 +11,6 @@ readme = "README.md"
 edition = "2021"
 publish = false
 
-[lib]
-name = "wasmer_types"
-
 [dependencies]
 thiserror.workspace = true
 indexmap.workspace = true
