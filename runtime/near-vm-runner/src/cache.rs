@@ -37,6 +37,10 @@ fn vm_hash(vm_kind: VMKind) -> u64 {
         VMKind::Wasmtime => crate::wasmtime_runner::wasmtime_vm_hash(),
         #[cfg(not(feature = "wasmtime_vm"))]
         VMKind::Wasmtime => panic!("Wasmtime is not enabled"),
+        #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
+        VMKind::NearVm => crate::near_vm_runner::near_vm_vm_hash(),
+        #[cfg(not(all(feature = "near_vm", target_arch = "x86_64")))]
+        VMKind::NearVm => panic!("NearVM is not enabled"),
     }
 }
 
