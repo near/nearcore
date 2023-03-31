@@ -1,15 +1,12 @@
+use crate::rocksdb_metrics::export_stats_as_metrics;
+use crate::{NodeStorage, Store, Temperature};
 use actix_rt::ArbiterHandle;
-
 use near_o11y::metrics::{
     try_create_histogram, try_create_histogram_vec, try_create_int_counter_vec,
     try_create_int_gauge, try_create_int_gauge_vec, Histogram, HistogramVec, IntCounterVec,
     IntGauge, IntGaugeVec,
 };
 use once_cell::sync::Lazy;
-
-use crate::{NodeStorage, Store, Temperature};
-
-use crate::rocksdb_metrics::export_stats_as_metrics;
 
 pub(crate) static DATABASE_OP_LATENCY_HIST: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
@@ -408,7 +405,7 @@ mod test {
         let hot_column_name = "hot.colum".to_string();
         let cold_column_name = "cold.colum".to_string();
 
-        let hot_gauge_name = hot_column_name.clone() + "_hot";
+        let hot_gauge_name = hot_column_name.clone() + "";
         let cold_gauge_name = cold_column_name.clone() + "_cold";
 
         let hot_stats = StoreStatistics { data: vec![stat(&hot_column_name, 42)] };

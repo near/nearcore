@@ -149,7 +149,7 @@ impl RocksDBMetrics {
 
 fn get_temperature_str(temperature: &Temperature) -> &'static str {
     match temperature {
-        Temperature::Hot => "_hot",
+        Temperature::Hot => "",
         Temperature::Cold => "_cold",
     }
 }

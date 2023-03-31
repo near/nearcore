@@ -15,7 +15,7 @@ pub struct TestDB {
     db: RwLock<enum_map::EnumMap<DBCol, BTreeMap<Vec<u8>, Vec<u8>>>>,
 
     // The store statistics. Can be set with the set_store_statistics.
-    // The TestDB doesn't produce any stats on it's own, it's up to the user of
+    // The TestDB doesn't produce any stats on its own, it's up to the user of
     // this class to set the stats as they need it.
     stats: RwLock<Option<StoreStatistics>>,
 }
