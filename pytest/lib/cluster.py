@@ -1,8 +1,6 @@
 import atexit
 import base64
-import collections
 import json
-import multiprocessing
 import os
 import pathlib
 import rc
@@ -435,7 +433,11 @@ class LocalNode(BaseNode):
             logger.info(f'=== stdout: available at {stdout}')
             logger.info(f'=== stderr: available at {stderr}')
 
-    def start(self, *, boot_node: BootNode = None, skip_starting_proxy=False):
+    def start(self,
+              *,
+              boot_node: BootNode = None,
+              skip_starting_proxy=False,
+              extra_env: typing.Dict[str, str] = dict()):
         if self._proxy_local_stopped is not None:
             while self._proxy_local_stopped.value != 2:
                 logger.info(f'Waiting for previous proxy instance to close')
@@ -445,9 +447,14 @@ class LocalNode(BaseNode):
         env["RUST_BACKTRACE"] = "1"
         env["RUST_LOG"] = "actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn," + env.get(
             "RUST_LOG", "debug")
+        env.update(extra_env)
 
-        cmd = self._get_command_line(self.near_root, self.node_dir, boot_node,
-                                     self.binary_name)
+        cmd = self._get_command_line(
+            self.near_root,
+            self.node_dir,
+            boot_node,
+            self.binary_name,
+        )
         node_dir = pathlib.Path(self.node_dir)
         self.stdout_name = node_dir / 'stdout'
         self.stderr_name = node_dir / 'stderr'
@@ -595,9 +602,16 @@ chmod +x neard
     def rpc_addr(self):
         return (self.ip, self.rpc_port)
 
-    def start(self, *, boot_node: BootNode = None):
+    def start(self,
+              *,
+              boot_node: BootNode = None,
+              extra_env: typing.Dict[str, str] = dict()):
+        if "RUST_BACKTRACE" not in extra_env:
+            extra_env["RUST_BACKTRACE"] = "1"
+        extra_env = [f"{k}={v}" for (k, v) in extra_env]
+        extra_env = " ".join(extra_env)
         self.machine.run_detach_tmux(
-            "RUST_BACKTRACE=1 " +
+            extra_env +
             " ".join(self._get_command_line('.', '.near', boot_node)))
         self.wait_for_rpc(timeout=30)
 
