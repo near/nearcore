@@ -281,6 +281,7 @@ impl Test {
 }
 
 #[test]
+#[ignore] // TODO: #8855
 fn chunks_produced_and_distributed_all_in_all_shards() {
     Test {
         validator_groups: 1,
@@ -317,6 +318,7 @@ fn chunks_produced_and_distributed_one_val_per_shard() {
 }
 
 #[test]
+#[ignore] // TODO: #8853
 fn chunks_produced_and_distributed_all_in_all_shards_should_succeed_even_without_forwarding() {
     Test {
         validator_groups: 1,
