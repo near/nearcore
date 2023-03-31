@@ -158,6 +158,8 @@ def main():
     args = parser.parse_args()
 
     logger.setLevel(args.log_level)
+    # log an empty line for cloudprober nice formatting
+    logger.info('')
     logger.info('Running Prober Split')
 
     legacy_url = get_random_legacy_url(args.chain_id)
