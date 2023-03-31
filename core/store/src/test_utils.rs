@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use rand::seq::SliceRandom;
 use rand::Rng;
@@ -35,15 +36,20 @@ pub fn create_test_node_storage_default() -> NodeStorage {
 }
 
 /// Creates an in-memory node storage with ColdDB
-pub fn create_test_node_storage_with_cold(version: DbVersion, hot_kind: DbKind) -> NodeStorage {
-    let storage = NodeStorage::new_with_cold(TestDB::new(), TestDB::new());
+pub fn create_test_node_storage_with_cold(
+    version: DbVersion,
+    hot_kind: DbKind,
+) -> (NodeStorage, Arc<TestDB>, Arc<TestDB>) {
+    let hot = TestDB::new();
+    let cold = TestDB::new();
+    let storage = NodeStorage::new_with_cold(hot.clone(), cold.clone());
 
     storage.get_hot_store().set_db_version(version).unwrap();
     storage.get_hot_store().set_db_kind(hot_kind).unwrap();
     storage.get_cold_store().unwrap().set_db_version(version).unwrap();
     storage.get_cold_store().unwrap().set_db_kind(DbKind::Cold).unwrap();
 
-    storage
+    (storage, hot, cold)
 }
 
 /// Creates an in-memory database.
