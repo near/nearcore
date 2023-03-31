@@ -191,13 +191,9 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::ActionFunctionCallPerByteSendNotSir, action_costs::function_call_byte_send_not_sir),
     (Cost::ActionFunctionCallPerByteSendSir, action_costs::function_call_byte_send_sir),
     (Cost::ActionFunctionCallPerByteExec, action_costs::function_call_byte_exec),
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     (Cost::ActionDelegate, action_delegate_base),
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     (Cost::ActionDelegateSendNotSir, action_costs::delegate_send_not_sir),
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     (Cost::ActionDelegateSendSir, action_costs::delegate_send_sir),
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     (Cost::ActionDelegateExec, action_costs::delegate_exec),
     (Cost::HostFunctionCall, host_function_call),
     (Cost::WasmInstruction, wasm_instruction),
@@ -827,7 +823,6 @@ fn data_receipt_creation_per_byte(ctx: &mut EstimatorContext) -> GasCost {
     total_cost.saturating_sub(&base_cost, &NonNegativeTolerance::PER_MILLE) / bytes_per_transaction
 }
 
-#[cfg(feature = "protocol_feature_nep366_delegate_action")]
 fn action_delegate_base(ctx: &mut EstimatorContext) -> GasCost {
     let total_cost = {
         let mut nonce = 1;

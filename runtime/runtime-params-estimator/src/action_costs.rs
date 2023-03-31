@@ -63,7 +63,7 @@ struct ActionEstimation {
     /// the gas metric to measure
     metric: crate::config::GasMetric,
     /// subtract the cost of an empty receipt from the measured cost
-    /// (`fasle` is only really useful for action receipt creation cost)
+    /// (`false` is only really useful for action receipt creation cost)
     subtract_base: bool,
     /// Constant to which the estimation is rounded up in case the estimation
     /// turns out smaller, to avoid unstable estimations.
@@ -703,7 +703,6 @@ fn function_call_action(size: ActionSize) -> Action {
     })
 }
 
-#[cfg(feature = "protocol_feature_nep366_delegate_action")]
 pub(crate) fn empty_delegate_action(
     nonce: u64,
     receiver_id: AccountId,
