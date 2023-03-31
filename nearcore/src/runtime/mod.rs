@@ -1275,24 +1275,14 @@ impl RuntimeAdapter for NightshadeRuntime {
                     Ok(_) => true,
                     // Storage error should not happen
                     Err(err) => {
-                        tracing::error!(
-                            target: "state-parts",
-                            ?state_root,
-                            ?part_id,
-                            ?err,
-                            "State part storage error");
+                        tracing::error!(target: "state-parts", ?err, "State part storage error");
                         false
                     }
                 }
             }
             // Deserialization error means we've got the data from malicious peer
             Err(err) => {
-                tracing::error!(
-                    target: "state-parts",
-                    ?state_root,
-                    ?part_id,
-                    ?err,
-                    "State part deserialization error");
+                tracing::error!(target: "state-parts", ?err, "State part deserialization error");
                 false
             }
         }

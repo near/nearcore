@@ -11,6 +11,6 @@ borsh.workspace = true
 once_cell.workspace = true
 rand.workspace = true
 
-near-crypto = { path = "../../core/crypto" }
-near-o11y = { path = "../../core/o11y" }
-near-primitives = { path = "../../core/primitives" }
+near-crypto.workspace = true
+near-o11y.workspace = true
+near-primitives.workspace = true
