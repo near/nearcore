@@ -33,7 +33,7 @@ use near_client_primitives::types::{
 };
 use near_network::types::{
     NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest, ReasonForBan,
-    StateResponseInfo, StateResponseInfoV1, StateResponseInfoV2,
+    StateResponseInfo, StateResponseInfoV1,
 };
 use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
 use near_performance_metrics_macros::perf;
@@ -43,10 +43,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, PartialMerkleTree};
 use near_primitives::network::AnnounceAccount;
 use near_primitives::sharding::ShardChunk;
-use near_primitives::syncing::{
-    ShardStateSyncResponse, ShardStateSyncResponseHeader, ShardStateSyncResponseV1,
-    ShardStateSyncResponseV2,
-};
+use near_primitives::syncing::ShardStateSyncResponseV1;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, EpochReference, Finality, MaybeBlockId,
     ShardId, SyncCheckpoint, TransactionOrReceiptId, ValidatorInfoIdentifier,
@@ -117,7 +114,7 @@ impl ViewClientRequestManager {
 
 impl ViewClientActor {
     /// Maximum number of state requests allowed per `view_client_throttle_period`.
-    const MAX_NUM_STATE_REQUESTS: usize = 30;
+    const _MAX_NUM_STATE_REQUESTS: usize = 30;
 
     pub fn new(
         validator_account_id: Option<AccountId>,
@@ -508,9 +505,9 @@ impl ViewClientActor {
 
     fn check_state_sync_request(&self) -> bool {
         tracing::error!(target: "client", "Refuse state sync requests because my parts are huge");
+        let mut _cache = self.state_request_cache.lock().expect(POISONED_LOCK_ERR);
         false
         /*
-        let mut cache = self.state_request_cache.lock().expect(POISONED_LOCK_ERR);
         let now = StaticClock::instant();
         while let Some(&instant) = cache.front() {
             if now.saturating_duration_since(instant) > self.config.view_client_throttle_period {
@@ -1205,8 +1202,9 @@ impl Handler<WithSpanContext<StateRequestHeader>> for ViewClientActor {
         msg: WithSpanContext<StateRequestHeader>,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
-        tracing::error!(target: "sync", "Refuse StateRequestHeader because my state parts are huge");
-        ShardStateSyncResponse::V2(ShardStateSyncResponseV2 { header: None, part: None })
+        let msg = msg.msg;
+        tracing::error!(target: "sync", ?msg, shard_id = ?msg.shard_id, sync_hash = ?msg.sync_hash, "Refuse StateRequestHeader because my state parts are huge");
+        None
         /*
         let (_span, msg) = handler_debug_span!(target: "client", msg);
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
