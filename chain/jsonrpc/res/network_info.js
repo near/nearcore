@@ -38,10 +38,23 @@ function computeTraffic(bytes_received, bytes_sent) {
     return "⬇ " + convertBps(bytes_received) + "<br>⬆ " + convertBps(bytes_sent);
 }
 
-function add_debug_port_link(peer_addr) {
+function add_debug_port_link(peer_network_addr) {
+    // Assume rpc port is always 3030 and network port is always 24567 for the first neard process on a machine
+    // Then, each subsequence neard process on the same machine will are strict increments of a fix constant from both ports
+    // peer_num should only be > 0 for nearup's localnet and 0 otherwise
+    // Reference to nearup's localnet port assumptions
+    // https://github.com/near/nearup/blob/0b9a7b60236f3164dd32677b6fa58c531a586200/nearuplib/localnet.py#L93-L94
+    // Reference to mainnet's assumption of network port
+    // https://github.com/near/nearcore/blob/e61da3d26e3614d3f6c1b669d31fca7a12d55296/chain/network/src/raw/connection.rs#L153
+    rpc_port_assumption = 3030
+    network_port_assumption = 24567
+    peer_network_port = peer_network_addr.split(":").pop()
+    peer_num = peer_network_port - network_port_assumption
+    peer_rpc_port = rpc_port_assumption + peer_num;
+    peer_rpc_address = "http://" + peer_network_addr.replace(/:.*/, ":") + peer_rpc_port + "/debug"
     return $('<a>', {
-        href: "http://" + peer_addr.replace(/:.*/, ":3030/debug"),
-        text: peer_addr
+        href: peer_rpc_address,
+        text: peer_network_addr
     });
 }
 
