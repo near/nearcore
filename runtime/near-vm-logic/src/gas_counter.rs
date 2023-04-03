@@ -25,7 +25,8 @@ pub fn with_ext_cost_counter(f: impl FnOnce(&mut HashMap<ExtCosts, u64>)) {
 
 type Result<T> = ::std::result::Result<T, VMLogicError>;
 
-/// Fast gas counter with very simple structure, could be exposed to compiled code in the VM.
+/// Fast gas counter with very simple structure, could be exposed to compiled code in the VM. For
+/// instance by intrinsifying host functions responsible for gas metering.
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FastGasCounter {
