@@ -25,7 +25,7 @@ impl Global {
     /// # Example
     ///
     /// ```
-    /// # use wasmer::{Global, Mutability, Store, Value};
+    /// # use near_vm::{Global, Mutability, Store, Value};
     /// # let store = Store::default();
     /// #
     /// let g = Global::new(&store, Value::I32(1));
@@ -42,7 +42,7 @@ impl Global {
     /// # Example
     ///
     /// ```
-    /// # use wasmer::{Global, Mutability, Store, Value};
+    /// # use near_vm::{Global, Mutability, Store, Value};
     /// # let store = Store::default();
     /// #
     /// let g = Global::new_mut(&store, Value::I32(1));
@@ -77,7 +77,7 @@ impl Global {
     /// # Example
     ///
     /// ```
-    /// # use wasmer::{Global, Mutability, Store, Type, Value, GlobalType};
+    /// # use near_vm::{Global, Mutability, Store, Type, Value, GlobalType};
     /// # let store = Store::default();
     /// #
     /// let c = Global::new(&store, Value::I32(1));
@@ -95,7 +95,7 @@ impl Global {
     /// # Example
     ///
     /// ```
-    /// # use wasmer::{Global, Store, Value};
+    /// # use near_vm::{Global, Store, Value};
     /// # let store = Store::default();
     /// #
     /// let g = Global::new(&store, Value::I32(1));
@@ -111,7 +111,7 @@ impl Global {
     /// # Example
     ///
     /// ```
-    /// # use wasmer::{Global, Store, Value};
+    /// # use near_vm::{Global, Store, Value};
     /// # let store = Store::default();
     /// #
     /// let g = Global::new(&store, Value::I32(1));
@@ -127,7 +127,7 @@ impl Global {
     /// # Example
     ///
     /// ```
-    /// # use wasmer::{Global, Store, Value};
+    /// # use near_vm::{Global, Store, Value};
     /// # let store = Store::default();
     /// #
     /// let g = Global::new_mut(&store, Value::I32(1));
@@ -144,7 +144,7 @@ impl Global {
     /// Trying to mutate a immutable global will raise an error:
     ///
     /// ```should_panic
-    /// # use wasmer::{Global, Store, Value};
+    /// # use near_vm::{Global, Store, Value};
     /// # let store = Store::default();
     /// #
     /// let g = Global::new(&store, Value::I32(1));
@@ -155,7 +155,7 @@ impl Global {
     /// Trying to set a value of a incompatible type will raise an error:
     ///
     /// ```should_panic
-    /// # use wasmer::{Global, Store, Value};
+    /// # use near_vm::{Global, Store, Value};
     /// # let store = Store::default();
     /// #
     /// let g = Global::new(&store, Value::I32(1));

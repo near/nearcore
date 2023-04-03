@@ -29,7 +29,7 @@ impl From<ExportError> for HostEnvInitError {
 ///
 /// This trait may also be implemented manually:
 /// ```
-/// # use wasmer::{WasmerEnv, LazyInit, Memory, Instance, HostEnvInitError};
+/// # use near_vm::{WasmerEnv, LazyInit, Memory, Instance, HostEnvInitError};
 /// #[derive(Clone)]
 /// pub struct MyEnv {
 ///    memory: LazyInit<Memory>,
