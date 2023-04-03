@@ -45,6 +45,7 @@ wasmer-engine = { workspace = true, optional = true }
 wasmer-engine-universal = { workspace = true, optional = true }
 wasmer-types = { workspace = true, optional = true }
 wasmer-vm = { workspace = true, optional = true }
+
 near-vm-compiler = { workspace = true, optional = true }
 near-vm-compiler-singlepass = { workspace = true, optional = true }
 near-vm-engine = { workspace = true, optional = true }
@@ -54,12 +55,6 @@ near-vm-vm = { workspace = true, optional = true }
 
 finite-wasm.workspace = true
 prefix-sum-vec = "0.1.2"
-near-vm-compiler = { package = "near-vm-compiler", path = "../near-vm/lib/compiler", optional = true }
-near-vm-compiler-singlepass = { package = "near-vm-compiler-singlepass", path = "../near-vm/lib/compiler-singlepass", optional = true }
-near-vm-engine = { package = "near-vm-engine", path = "../near-vm/lib/engine", optional = true }
-near-vm-engine-universal = { package = "near-vm-engine-universal", path = "../near-vm/lib/engine-universal", features = ["compiler"], optional = true }
-near-vm-types = { package = "near-vm-types", path = "../near-vm/lib/types", optional = true }
-near-vm-vm = { package = "near-vm-vm", path = "../near-vm/lib/vm", optional = true }
 
 [dev-dependencies]
 arbitrary.workspace = true
