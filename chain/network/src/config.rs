@@ -168,6 +168,47 @@ pub struct NetworkConfig {
 }
 
 impl NetworkConfig {
+    /// Overrides values of NetworkConfig with values for the JSON config.
+    /// We need all the values from NetworkConfig to be configurable.
+    /// We need this in case of emergency. It is faster to change the config than to recompile.
+    fn override_config(&mut self, overrides: crate::config_json::NetworkConfigOverrides) {
+        if let Some(connect_to_reliable_peers_on_startup) =
+            overrides.connect_to_reliable_peers_on_startup
+        {
+            self.connect_to_reliable_peers_on_startup = connect_to_reliable_peers_on_startup
+        }
+        if let Some(max_send_peers) = overrides.max_send_peers {
+            self.max_send_peers = max_send_peers
+        }
+        if let Some(routed_message_ttl) = overrides.routed_message_ttl {
+            self.routed_message_ttl = routed_message_ttl
+        }
+        if let Some(max_routes_to_store) = overrides.max_routes_to_store {
+            self.max_routes_to_store = max_routes_to_store
+        }
+        if let Some(highest_peer_horizon) = overrides.highest_peer_horizon {
+            self.highest_peer_horizon = highest_peer_horizon
+        }
+        if let Some(millis) = overrides.push_info_period_millis {
+            self.push_info_period = time::Duration::milliseconds(millis)
+        }
+        if let Some(outbound_disabled) = overrides.outbound_disabled {
+            self.outbound_disabled = outbound_disabled
+        }
+        if let (Some(qps), Some(burst)) = (
+            overrides.accounts_data_broadcast_rate_limit_qps,
+            overrides.accounts_data_broadcast_rate_limit_burst,
+        ) {
+            self.accounts_data_broadcast_rate_limit = rate::Limit { qps, burst }
+        }
+        if let (Some(qps), Some(burst)) = (
+            overrides.routing_table_update_rate_limit_qps,
+            overrides.routing_table_update_rate_limit_burst,
+        ) {
+            self.routing_table_update_rate_limit = rate::Limit { qps, burst }
+        }
+    }
+
     pub fn new(
         cfg: crate::config_json::Config,
         node_key: SecretKey,
@@ -205,7 +246,7 @@ impl NetworkConfig {
                 }
             }
         }
-        let this = Self {
+        let mut this = Self {
             node_key,
             validator: validator_signer.map(|signer| ValidatorConfig {
                 signer,
@@ -293,6 +334,7 @@ impl NetworkConfig {
             },
             event_sink: Sink::null(),
         };
+        this.override_config(cfg.experimental.network_config_overrides);
         Ok(this)
     }
 
