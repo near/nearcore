@@ -15,11 +15,12 @@ This crate implements the specification of the interface that Near blockchain ex
 [dependencies]
 anyhow = { workspace = true, optional = true }
 borsh.workspace = true
+finite-wasm.workspace = true
 loupe.workspace = true
 memoffset.workspace = true
 once_cell.workspace = true
 parity-wasm.workspace = true
-finite-wasm.workspace = true
+prefix-sum-vec.workspace = true
 serde.workspace = true
 tracing.workspace = true
 wasmparser.workspace = true
@@ -52,9 +53,6 @@ near-vm-engine = { workspace = true, optional = true }
 near-vm-engine-universal = { workspace = true, features = ["compiler"], optional = true }
 near-vm-types = { workspace = true, optional = true }
 near-vm-vm = { workspace = true, optional = true }
-
-finite-wasm.workspace = true
-prefix-sum-vec = "0.1.2"
 
 [dev-dependencies]
 arbitrary.workspace = true
