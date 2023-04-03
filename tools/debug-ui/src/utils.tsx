@@ -47,7 +47,7 @@ export function formatTraffic(bytes_received: number, bytes_sent: number): React
 
 export function addDebugPortLink(peer_network_addr: string): ReactElement {
     // Assume rpc port is always 3030 and network port is always 24567 for the first neard process on a machine
-    // Then, each subsequence neard process on the same machine will are strict increments of a fix constant from both ports
+    // Then, each subsequence neard process on the same machine will be strict increments of a fix constant from both ports
     // peer_num should only be > 0 for nearup's localnet and 0 otherwise
     // Reference to nearup's localnet port assumptions
     // https://github.com/near/nearup/blob/0b9a7b60236f3164dd32677b6fa58c531a586200/nearuplib/localnet.py#L93-L94
