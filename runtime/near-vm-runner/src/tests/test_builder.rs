@@ -27,7 +27,7 @@ pub(crate) fn test_builder() -> TestBuilder {
         view_config: None,
         output_data_receivers: vec![],
     };
-    let res = TestBuilder {
+    TestBuilder {
         code: ContractCode::new(Vec::new(), None),
         context,
         method: "main".to_string(),
@@ -35,8 +35,7 @@ pub(crate) fn test_builder() -> TestBuilder {
         skip: HashSet::new(),
         opaque_error: false,
         opaque_outcome: false,
-    };
-    res
+    }
 }
 
 pub(crate) struct TestBuilder {
