@@ -1,1 +1,2 @@
 **/package-lock.json linguist-generated=true -diff
+/runtime/near-vm/tests/wast/spec/* linguist-detectable=false
