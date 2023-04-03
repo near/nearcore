@@ -12,9 +12,6 @@ edition = "2021"
 publish = true
 rust-version.workspace = true
 
-[lib]
-name = "wasmer_engine"
-
 [dependencies]
 finite-wasm.workspace = true
 wasmer-types = { path = "../types", package = "near-vm-types" }

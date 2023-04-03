@@ -12,9 +12,6 @@ edition = "2021"
 publish = true
 rust-version.workspace = true
 
-[lib]
-name = "wasmer_types"
-
 [dependencies]
 thiserror.workspace = true
 indexmap.workspace = true

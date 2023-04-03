@@ -13,7 +13,7 @@ use crate::values::{Value, WasmValueType};
 /// Wasm type associated with a native Rust type.
 ///
 /// ```
-/// use wasmer_types::{NativeWasmType, Type};
+/// use near_vm_types::{NativeWasmType, Type};
 ///
 /// let wasm_type = i32::WASM_TYPE;
 /// assert_eq!(wasm_type, Type::I32);

@@ -16,7 +16,7 @@ Here is a small example of using Wasmer to run a WebAssembly module
 written with its WAT format (textual format):
 
 ```rust
-use wasmer::{Store, Module, Instance, Value, imports};
+use near_vm::{Store, Module, Instance, Value, imports};
 
 fn main() -> anyhow::Result<()> {
     let module_wat = r#"

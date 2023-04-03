@@ -12,9 +12,6 @@ edition = "2021"
 publish = true
 rust-version.workspace = true
 
-[lib]
-name = "wasmer_compiler"
-
 [dependencies]
 finite-wasm.workspace = true
 wasmer-vm = { path = "../vm", package = "near-vm-vm" }
