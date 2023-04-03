@@ -245,7 +245,7 @@ pub enum StatsValue {
     ColumnValue(DBCol, i64),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct StoreStatistics {
     pub data: Vec<(String, Vec<StatsValue>)>,
 }

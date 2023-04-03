@@ -181,6 +181,10 @@ pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protoco
 /// candidates usually have separate schedule to final releases.
 pub const PROTOCOL_UPGRADE_SCHEDULE: Lazy<ProtocolUpgradeVotingSchedule> = Lazy::new(|| {
     // Update to according to schedule when making a release.
+    // Keep in mind that the protocol upgrade will happen 1-2 epochs (15h-30h)
+    // after the set date. Ideally that should be during working hours.
+    // e.g. ProtocolUpgradeVotingSchedule::from_env_or_str("2000-01-01 15:00:00").unwrap());
+
     ProtocolUpgradeVotingSchedule::default()
 });
 
