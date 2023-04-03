@@ -1,5 +1,5 @@
 **/package-lock.json linguist-generated=true -diff
-# Disable linguist for wasm files.
+# Disable linguist for WebAssembly files.
 # Those are used to test the runtime and should not be indexed.
 *.wasm linguist-detectable=false
 *.wast linguist-detectable=false
