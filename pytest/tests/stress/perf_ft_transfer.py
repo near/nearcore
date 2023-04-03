@@ -34,6 +34,7 @@ import multiprocessing.queues
 import ctypes
 import ed25519
 import queue
+import string
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -53,7 +54,6 @@ MAX_INFLIGHT_TRANSACTIONS_PER_EXECUTOR = 1000
 SEED = random.uniform(0, 0xFFFFFFFF)
 logger = new_logger(level = logging.INFO)
 ACCOUNTS = []
-CONTRACT_ACCOUNT = None
 
 ID = 0
 
@@ -182,6 +182,29 @@ class TransferNear(Transaction):
             sender.key,
             self.recipient_id,
             int(self.how_much * 1E24),
+            sender.use_nonce(),
+            block_hash)
+        result = node.send_tx(tx)
+        return (result["result"], self.sender)
+
+
+class CreateSubAccount(Transaction):
+    def __init__(self, sender, sub, balance = 50.0):
+        super().__init__()
+        self.sender = sender
+        self.sub = sub
+        self.balance = balance
+
+    def send(self, node, block_hash):
+        sender = ACCOUNTS[self.sender]
+        sub = ACCOUNTS[self.sub]
+        new_account_id = f"{sub.key.account_id}.{sender.key.account_id}"
+        logger.debug(f"creating {new_account_id}")
+        tx = transaction.sign_create_account_with_full_access_key_and_balance_tx(
+            sender.key,
+            sub.key.account_id,
+            sub.key,
+            int(self.balance * 1E24),
             sender.use_nonce(),
             block_hash)
         result = node.send_tx(tx)
@@ -319,6 +342,8 @@ def main():
     parser.add_argument('--setup-cluster', default=False,
         help='Whether to start a dedicated cluster instead of connecting to an existing local node',
         action='store_true')
+    parser.add_argument('--contracts', default='0,2,4,6,8,a,c,e',
+        help='Number of contract accounts, or alternatively list of subnames, separated by commas')
     parser.add_argument('--contract-key', default=None,
         help='Account to deploy contract to and use as source of NEAR for account creation')
     parser.add_argument('--accounts', default=1000, help='Number of accounts to use')
@@ -355,7 +380,24 @@ def main():
 
     ACCOUNTS.append(Account(signer_key))
     ACCOUNTS[0].refresh_nonce(nodes[0])
-    contract_account_idx = 0
+    funding_account = 0
+    start_of_accounts = len(ACCOUNTS) - 1
+    contract_accounts = []
+
+    try:
+        for sub in sorted(rng.sample(string.ascii_lowercase + string.digits, k=int(args.contracts))):
+            funding_key = ACCOUNTS[funding_account].key
+            sub_key = key.Key(f"{sub}.{funding_key.account_id}", funding_key.pk, funding_key.sk)
+            contract_accounts.append(len(ACCOUNTS))
+            ACCOUNTS.append(Account(sub_key))
+    except ValueError:
+        for sub in args.contracts.split(","):
+            funding_key = ACCOUNTS[funding_account].key
+            sub_key = key.Key(f"{sub}.{funding_key.account_id}", funding_key.pk, funding_key.sk)
+            contract_accounts.append(len(ACCOUNTS))
+            ACCOUNTS.append(Account(sub_key))
+
+
     for i in range(int(args.accounts)):
         keys = ed25519.create_keypair(entropy=rng.randbytes)
         account_id = keys[1].to_bytes().hex()
@@ -363,41 +405,52 @@ def main():
         pk = 'ed25519:' + base58.b58encode(keys[1].to_bytes()).decode('ascii')
         ACCOUNTS.append(Account(key.Key(account_id, pk, sk)))
 
-
     executors = int(args.executors)
-    queue_size = max(MAX_INFLIGHT_TRANSACTIONS_PER_EXECUTOR, int(args.accounts)) + 16
+    queue_size = 16 + max(
+        MAX_INFLIGHT_TRANSACTIONS_PER_EXECUTOR,
+        int(args.accounts) * len(contract_accounts)
+    )
     tx_queue = TxQueue(queue_size)
     for executor in range(executors):
         multiprocessing.Process(target=transaction_executor, args=(nodes, tx_queue,), daemon=True).start()
 
-    tx_queue.add(DeployFT(contract_account_idx, args.fungible_token_wasm))
+    for contract_account in contract_accounts:
+        tx_queue.add(CreateSubAccount(funding_account, contract_account))
+    wait_empty(tx_queue, "creating contract sub accounts")
+    for contract_account in contract_accounts:
+        ACCOUNTS[contract_account].refresh_nonce(nodes[0])
+        tx_queue.add(DeployFT(contract_account, args.fungible_token_wasm))
     wait_empty(tx_queue, "deployment")
-    tx_queue.add(InitFT(contract_account_idx))
+    for contract_account in contract_accounts:
+        tx_queue.add(InitFT(contract_account))
     wait_empty(tx_queue, "contract initialization")
 
     if not args.no_account_topup:
-        for test_account in ACCOUNTS[contract_account_idx:]:
-            tx_queue.add(TransferNear(contract_account_idx, test_account.key.account_id, 2.0))
+        for test_account in ACCOUNTS[start_of_accounts:]:
+            tx_queue.add(TransferNear(funding_account, test_account.key.account_id, 2.0))
         wait_empty(tx_queue, "account creation and top-up")
 
-    # Refresh nonces for all real accounts.
-    for account in ACCOUNTS[contract_account_idx:]:
-        account.refresh_nonce(nodes[0])
+    for contract_account in contract_accounts:
+        for test_account_idx in range(start_of_accounts, len(ACCOUNTS)):
+            # Initialize nonces for all real accounts. But we only want to do that for the first
+            # iteration... Otherwise there's a risk of a race. And O(n^2) doesn't help...
+            if contract_account == contract_accounts[0]:
+                ACCOUNTS[test_account_idx].refresh_nonce(nodes[0])
+            tx_queue.add(InitFTAccount(contract_account, test_account_idx))
+    wait_empty(tx_queue, "registeration of accounts with the FT contracts")
 
-    for test_account_idx in range(contract_account_idx, len(ACCOUNTS)):
-        tx_queue.add(InitFTAccount(contract_account_idx, test_account_idx))
-    wait_empty(tx_queue, "init accounts with the FT contract")
-
-    for test_account_idx in range(contract_account_idx, len(ACCOUNTS)):
-        tx_queue.add(TransferFT(
-            contract_account_idx, contract_account_idx, test_account_idx, how_much=1E8
-        ))
+    for contract_account in contract_accounts:
+        for test_account_idx in range(start_of_accounts, len(ACCOUNTS)):
+            tx_queue.add(TransferFT(
+                contract_account, contract_account, test_account_idx, how_much=1E8
+            ))
     wait_empty(tx_queue, "distribution of initial FT")
 
     transfers = 0
     while True:
-        sender_idx, receiver_idx = rng.sample(range(contract_account_idx, len(ACCOUNTS)), k=2)
-        tx_queue.add(TransferFT(contract_account_idx, sender_idx, receiver_idx, how_much=1))
+        sender_idx, receiver_idx = rng.sample(range(start_of_accounts, len(ACCOUNTS)), k=2)
+        ft_contract = rng.choice(contract_accounts)
+        tx_queue.add(TransferFT(ft_contract, sender_idx, receiver_idx, how_much=1))
         transfers += 1
         if transfers % 10000 == 0:
             logger.info(f"{transfers} so far ({tx_queue.pending.value} pending)")
