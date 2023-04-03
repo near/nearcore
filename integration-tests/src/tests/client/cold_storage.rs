@@ -78,7 +78,7 @@ fn test_storage_after_commit_of_cold_update() {
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
 
-    let store = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
+    let (store, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
 
@@ -208,7 +208,7 @@ fn test_cold_db_head_update() {
     genesis.config.epoch_length = epoch_length;
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
-    let store = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
+    let (store, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
     let hot_store = &store.get_hot_store();
     let cold_store = &store.get_cold_store().unwrap();
     let runtime_adapter = create_nightshade_runtime_with_store(&genesis, &hot_store);
@@ -254,7 +254,7 @@ fn test_cold_db_copy_with_height_skips() {
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
 
-    let storage = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
+    let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
 
@@ -365,7 +365,7 @@ fn test_initial_copy_to_cold(batch_size: usize) {
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
 
-    let store = create_test_node_storage_with_cold(DB_VERSION, DbKind::Archive);
+    let (store, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Archive);
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
 

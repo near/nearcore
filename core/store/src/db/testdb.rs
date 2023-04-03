@@ -13,11 +13,22 @@ pub struct TestDB {
     // a BTreeMap is used since it is an ordered map. A HashMap would
     // give the aforementioned guarantee, and therefore is discarded.
     db: RwLock<enum_map::EnumMap<DBCol, BTreeMap<Vec<u8>, Vec<u8>>>>,
+
+    // The store statistics. Can be set with the set_store_statistics.
+    // The TestDB doesn't produce any stats on its own, it's up to the user of
+    // this class to set the stats as they need it.
+    stats: RwLock<Option<StoreStatistics>>,
 }
 
 impl TestDB {
-    pub fn new() -> Arc<dyn Database> {
+    pub fn new() -> Arc<TestDB> {
         Arc::new(Self::default())
+    }
+}
+
+impl TestDB {
+    pub fn set_store_statistics(&self, stats: StoreStatistics) {
+        *self.stats.write().unwrap() = Some(stats);
     }
 }
 
@@ -114,6 +125,6 @@ impl Database for TestDB {
     }
 
     fn get_store_statistics(&self) -> Option<StoreStatistics> {
-        None
+        self.stats.read().unwrap().clone()
     }
 }
