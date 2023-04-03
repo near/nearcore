@@ -640,7 +640,12 @@ impl crate::runner::VM for Wasmer2VM {
         // TODO: remove this function once this file switches to actually implementing the near-vm VM
         #[allow(dead_code, unreachable_code)]
         fn mark_imports_near_vm_used() {
-            imports::near_vm::build(unimplemented!(), unimplemented!(), unimplemented!(), unimplemented!());
+            imports::near_vm::build(
+                unimplemented!(),
+                unimplemented!(),
+                unimplemented!(),
+                unimplemented!(),
+            );
         }
         let import = imports::wasmer2::build(
             vmmemory,
