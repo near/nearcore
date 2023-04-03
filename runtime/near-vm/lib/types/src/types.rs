@@ -537,7 +537,9 @@ impl<T> ExportType<T> {
     }
 }
 
-/// Fast gas counter with very simple structure, could be exposed to compiled code in the VM.
+/// Fast gas counter with very simple structure, could be exposed to compiled code in the VM. For
+/// instance by intrinsifying host functions responsible for gas metering.
+
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FastGasCounter {
