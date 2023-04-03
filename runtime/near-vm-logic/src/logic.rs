@@ -1221,6 +1221,8 @@ impl<'a> VMLogic<'a> {
     ///
     /// For now it is consuming the gas for `gas` opcodes. When we switch to finite-wasm it’ll
     /// be made to be a no-op.
+    ///
+    /// This function might be intrinsified.
     pub fn gas_seen_from_wasm(&mut self, gas: u32) -> Result<()> {
         self.gas_opcodes(gas)
     }
