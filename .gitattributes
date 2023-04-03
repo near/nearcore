@@ -1,2 +1,6 @@
 **/package-lock.json linguist-generated=true -diff
-/runtime/near-vm/tests/wast/spec/* linguist-detectable=false
+# Disable linguist for wasm files.
+# Those are used to test the runtime and should not be indexed.
+*.wasm linguist-detectable=false
+*.wast linguist-detectable=false
+*.wat linguist-detectable=false
