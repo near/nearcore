@@ -1652,7 +1652,7 @@ fn test_archival_gc_common(
 #[test]
 fn test_archival_gc_migration() {
     // Split storage in the middle of migration has hot store kind set to archive.
-    let storage = create_test_node_storage_with_cold(DB_VERSION, DbKind::Archive);
+    let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Archive);
 
     let epoch_length = 10;
     let max_height = epoch_length * (DEFAULT_GC_NUM_EPOCHS_TO_KEEP + 2);
@@ -1667,7 +1667,7 @@ fn test_archival_gc_migration() {
 #[test]
 fn test_archival_gc_split_storage_current() {
     // Fully migrated split storage has each store configured with kind = temperature.
-    let storage = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
+    let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
 
     let epoch_length = 10;
     let max_height = epoch_length * (DEFAULT_GC_NUM_EPOCHS_TO_KEEP + 2);
@@ -1682,7 +1682,7 @@ fn test_archival_gc_split_storage_current() {
 #[test]
 fn test_archival_gc_split_storage_behind() {
     // Fully migrated split storage has each store configured with kind = temperature.
-    let storage = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
+    let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
 
     let epoch_length = 10;
     let max_height = epoch_length * (DEFAULT_GC_NUM_EPOCHS_TO_KEEP + 2);

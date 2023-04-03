@@ -1,6 +1,7 @@
-use crate::cold_storage::spawn_cold_store_loop;
 pub use crate::config::{init_configs, load_config, load_test_config, NearConfig, NEAR_BASE};
 pub use crate::runtime::NightshadeRuntime;
+
+use crate::cold_storage::spawn_cold_store_loop;
 use crate::state_sync::{spawn_state_sync_dump, StateSyncDumpHandle};
 use actix::{Actor, Addr};
 use actix_rt::ArbiterHandle;
@@ -16,6 +17,7 @@ use near_network::PeerManagerActor;
 use near_primitives::block::GenesisId;
 use near_primitives::time;
 use near_store::metadata::DbKind;
+use near_store::metrics::spawn_db_metrics_loop;
 use near_store::{DBCol, Mode, NodeStorage, Store, StoreOpenerError};
 use near_telemetry::TelemetryActor;
 use std::path::{Path, PathBuf};
@@ -204,20 +206,27 @@ pub fn start_with_config_and_synchronization(
     shutdown_signal: Option<broadcast::Sender<()>>,
     config_updater: Option<ConfigUpdater>,
 ) -> anyhow::Result<NearNode> {
-    let store = open_storage(home_dir, &mut config)?;
+    let storage = open_storage(home_dir, &mut config)?;
+    let db_metrics_arbiter = if config.client_config.enable_statistics_export {
+        let period = config.client_config.log_summary_period;
+        let db_metrics_arbiter_handle = spawn_db_metrics_loop(&storage, period)?;
+        Some(db_metrics_arbiter_handle)
+    } else {
+        None
+    };
 
-    let runtime = NightshadeRuntime::from_config(home_dir, store.get_hot_store(), &config);
+    let runtime = NightshadeRuntime::from_config(home_dir, storage.get_hot_store(), &config);
 
     // Get the split store. If split store is some then create a new runtime for
     // the view client. Otherwise just re-use the existing runtime.
-    let split_store = get_split_store(&config, &store)?;
+    let split_store = get_split_store(&config, &storage)?;
     let view_runtime = if let Some(split_store) = split_store {
         NightshadeRuntime::from_config(home_dir, split_store, &config)
     } else {
         runtime.clone()
     };
 
-    let cold_store_loop_handle = spawn_cold_store_loop(&config, &store, runtime.clone())?;
+    let cold_store_loop_handle = spawn_cold_store_loop(&config, &storage, runtime.clone())?;
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
     let chain_genesis = ChainGenesis::new(&config.genesis);
@@ -260,7 +269,7 @@ pub fn start_with_config_and_synchronization(
         network_adapter.as_sender(),
         client_adapter_for_shards_manager.as_sender(),
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
-        store.get_hot_store(),
+        storage.get_hot_store(),
         config.client_config.chunk_request_retry_period,
     );
     shards_manager_adapter.bind(shards_manager_actor);
@@ -276,7 +285,7 @@ pub fn start_with_config_and_synchronization(
     let mut rpc_servers = Vec::new();
     let network_actor = PeerManagerActor::spawn(
         time::Clock::real(),
-        store.into_inner(near_store::Temperature::Hot),
+        storage.into_inner(near_store::Temperature::Hot),
         config.network_config,
         Arc::new(near_client::adapter::Adapter::new(client_actor.clone(), view_client.clone())),
         shards_manager_adapter.as_sender(),
@@ -314,11 +323,16 @@ pub fn start_with_config_and_synchronization(
 
     tracing::trace!(target: "diagnostic", key = "log", "Starting NEAR node with diagnostic activated");
 
+    let mut arbiters = vec![client_arbiter_handle, shards_manager_arbiter_handle];
+    if let Some(db_metrics_arbiter) = db_metrics_arbiter {
+        arbiters.push(db_metrics_arbiter);
+    }
+
     Ok(NearNode {
         client: client_actor,
         view_client,
         rpc_servers,
-        arbiters: vec![client_arbiter_handle, shards_manager_arbiter_handle],
+        arbiters,
         cold_store_loop_handle,
         state_sync_dump_handle,
     })

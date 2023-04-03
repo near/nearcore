@@ -45,6 +45,12 @@ wasmer-engine = { workspace = true, optional = true }
 wasmer-engine-universal = { workspace = true, optional = true }
 wasmer-types = { workspace = true, optional = true }
 wasmer-vm = { workspace = true, optional = true }
+near-vm-compiler = { workspace = true, optional = true }
+near-vm-compiler-singlepass = { workspace = true, optional = true }
+near-vm-engine = { workspace = true, optional = true }
+near-vm-engine-universal = { workspace = true, features = ["compiler"], optional = true }
+near-vm-types = { workspace = true, optional = true }
+near-vm-vm = { workspace = true, optional = true }
 
 finite-wasm.workspace = true
 prefix-sum-vec = "0.1.2"

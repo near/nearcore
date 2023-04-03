@@ -1,4 +1,6 @@
-# `wasmer-vm` [![Build Status](https://github.com/wasmerio/wasmer/workflows/build/badge.svg?style=flat-square)](https://github.com/wasmerio/wasmer/actions?query=workflow%3Abuild) [![Join Wasmer Slack](https://img.shields.io/static/v1?label=Slack&message=join%20chat&color=brighgreen&style=flat-square)](https://slack.wasmer.io) [![MIT License](https://img.shields.io/github/license/wasmerio/wasmer.svg?style=flat-square)](https://github.com/wasmerio/wasmer/blob/master/LICENSE)
+# `near-vm-vm`
+
+This crate is a fork of `wasmer-vm`. A significant number of things changed, but the documentation is not up-to-date yet.
 
 This crate contains the Wasmer VM runtime library, supporting the Wasm ABI used by any [`wasmer-engine`] implementation.
 
