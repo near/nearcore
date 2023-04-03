@@ -2,7 +2,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state::ValueRef;
-use near_primitives::types::BlockHeight;
+use near_primitives::types::{BlockHeight, StateRoot};
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
 pub enum FlatStateValue {
@@ -88,7 +88,7 @@ pub struct FlatStorageReadyStatus {
 /// Because this is a heavy work requiring ~5h for testnet rpc node and ~10h for testnet archival node, we do it on
 /// background during regular block processing.
 /// This struct reveals what is the current status of creating flat storage data on disk.
-#[derive(BorshSerialize, BorshDeserialize, Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
 pub enum FlatStorageCreationStatus {
     /// Flat storage state does not exist. We are saving `FlatStorageDelta`s to disk.
     /// During this step, we save current chain head, start saving all deltas for blocks after chain head and wait until
@@ -109,14 +109,20 @@ pub enum FlatStorageCreationStatus {
 }
 
 /// Current step of fetching state to fill flat storage.
-#[derive(BorshSerialize, BorshDeserialize, Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
 pub struct FetchingStateStatus {
     /// Hash of block on top of which we create flat storage.
-    pub block_hash: CryptoHash,
+    pub block: BlockInfo,
+    pub state_root: StateRoot,
     /// Number of the first state part to be fetched in this step.
     pub part_id: u64,
     /// Number of parts fetched in one step.
     pub num_parts_in_step: u64,
     /// Total number of state parts.
     pub num_parts: u64,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+pub struct CatchingUpStatus {
+    flat_head: BlockInfo
 }
