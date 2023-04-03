@@ -3872,6 +3872,8 @@ checksum = "6c05ded9a90c087aaebfafdf01f2801f5d31817f9a3514ce09aed270001d650e"
 name = "near-store"
 version = "0.0.0"
 dependencies = [
+ "actix",
+ "actix-rt",
  "anyhow",
  "assert_matches",
  "bencher",
@@ -3901,6 +3903,7 @@ dependencies = [
  "strum",
  "tempfile",
  "thiserror",
+ "tokio",
  "tracing",
 ]
 
