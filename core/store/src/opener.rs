@@ -1,9 +1,10 @@
 use std::sync::Arc;
+use strum::IntoEnumIterator;
 
 use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError, SnapshotRemoveError};
 use crate::db::rocksdb::RocksDB;
 use crate::metadata::{DbKind, DbMetadata, DbVersion, DB_VERSION};
-use crate::{Mode, NodeStorage, Store, StoreConfig, Temperature};
+use crate::{DBCol, DBTransaction, Mode, NodeStorage, Store, StoreConfig, Temperature};
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreOpenerError {
@@ -568,4 +569,49 @@ pub trait StoreMigrator {
     /// check support via [`Self::check_support`] method) or if it’s greater or
     /// equal to [`DB_VERSION`].
     fn migrate(&self, store: &Store, version: DbVersion) -> anyhow::Result<()>;
+}
+
+/// Creates checkpoint of hot storage in `home_dir.join(checkpoint_relative_path)`
+///
+/// If `columns_to_keep` is None doesn't cleanup columns.
+/// Otherwise deletes all columns that are not in `columns_to_keep`.
+///
+/// Returns NodeStorage of checkpoint db.
+///
+/// `config` -- StoreConfig for hot storage (needed to open checkpoint).
+/// `archive` -- is hot storage archival (needed to open checkpoint).
+#[allow(dead_code)]
+pub fn checkpoint_hot_storage_and_cleanup_columns(
+    db_storage: &NodeStorage,
+    home_dir: &std::path::Path,
+    checkpoint_relative_path: std::path::PathBuf,
+    columns_to_keep: Option<Vec<DBCol>>,
+    mut config: StoreConfig,
+    archive: bool,
+) -> anyhow::Result<NodeStorage> {
+    let checkpoint_path = home_dir.join(checkpoint_relative_path);
+
+    db_storage.hot_storage.create_checkpoint(&checkpoint_path)?;
+
+    config.path = Some(checkpoint_path);
+    let opener = StoreOpener::new(home_dir, archive, &config, None);
+    let node_storage = opener.open()?;
+
+    if let Some(columns_to_keep) = columns_to_keep {
+        let columns_to_keep_set: std::collections::HashSet<
+            DBCol,
+            std::collections::hash_map::RandomState,
+        > = std::collections::HashSet::from_iter(columns_to_keep.into_iter());
+        let mut transaction = DBTransaction::new();
+
+        for col in DBCol::iter() {
+            if !columns_to_keep_set.contains(&col) {
+                transaction.delete_all(col);
+            }
+        }
+
+        node_storage.hot_storage.write(transaction)?;
+    }
+
+    Ok(node_storage)
 }

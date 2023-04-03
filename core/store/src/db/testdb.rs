@@ -127,4 +127,8 @@ impl Database for TestDB {
     fn get_store_statistics(&self) -> Option<StoreStatistics> {
         self.stats.read().unwrap().clone()
     }
+
+    fn create_checkpoint(&self, _path: &std::path::Path) -> anyhow::Result<()> {
+        Ok(())
+    }
 }
