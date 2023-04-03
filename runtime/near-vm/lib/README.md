@@ -1,4 +1,7 @@
-# The Wasmer runtime crates
+# The NearVM runtime crates
+
+This crate set is a fork of Wasmer. A significant number of things
+changed, but the documentation is not up-to-date yet.
 
 The philosophy of Wasmer is to be very modular by design. It's
 composed of a set of crates. We can group them as follows:
