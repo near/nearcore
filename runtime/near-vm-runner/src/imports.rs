@@ -543,7 +543,6 @@ pub(crate) mod near_vm {
     impl<'e, 'l, 'lr> Resolver for Wasmer2Imports<'e, 'l, 'lr> {
         fn resolve(&self, _index: u32, module: &str, field: &str) -> Option<wasmer_vm::Export> {
             if module == "env" && field == "memory" {
-
                 return Some(wasmer_vm::Export::Memory(self.memory.clone()));
             }
 

@@ -101,6 +101,12 @@ impl ShardTracker {
         self.tracks_shard_at_epoch(shard_id, &epoch_id)
     }
 
+    /// Whether the client cares about some shard right now.
+    /// * If `account_id` is None, `is_me` is not checked and the
+    /// result indicates whether the client is tracking the shard
+    /// * If `account_id` is not None, it is supposed to be a validator
+    /// account and `is_me` indicates whether we check what shards
+    /// the client tracks.
     pub fn care_about_shard(
         &self,
         account_id: Option<&AccountId>,
@@ -123,16 +129,22 @@ impl ShardTracker {
         }
         match self.tracked_config {
             TrackedConfig::AllShards => {
-                // Avoid looking up EpochId.
+                // Avoid looking up EpochId as a performance optimization.
                 true
             }
             _ => self.tracks_shard(shard_id, parent_hash).unwrap_or(false),
         }
     }
 
-    // `shard_id` always refers to a shard in the current epoch that the next block from `parent_hash` belongs
-    // If shard layout will change next epoch, returns true if it cares about any shard
-    // that `shard_id` will split to
+    /// Whether the client cares about some shard in the next epoch.
+    //  Note that `shard_id` always refers to a shard in the current epoch
+    //  If shard layout will change next epoch,
+    //  returns true if it cares about any shard that `shard_id` will split to
+    /// * If `account_id` is None, `is_me` is not checked and the
+    /// result indicates whether the client will track the shard
+    /// * If `account_id` is not None, it is supposed to be a validator
+    /// account and `is_me` indicates whether we check what shards
+    /// the client will track.
     pub fn will_care_about_shard(
         &self,
         account_id: Option<&AccountId>,
@@ -154,7 +166,7 @@ impl ShardTracker {
         }
         match self.tracked_config {
             TrackedConfig::AllShards => {
-                // Avoid looking up EpochId.
+                // Avoid looking up EpochId as a performance optimization.
                 true
             }
             _ => {
@@ -327,6 +339,7 @@ mod tests {
 
     #[test]
     fn test_track_schedule() {
+        // Creates a ShardTracker that changes every epoch tracked shards.
         let num_shards = 4;
         let epoch_manager = Arc::new(get_epoch_manager(PROTOCOL_VERSION, num_shards, false));
         let subset1 = HashSet::from([0, 1]);
