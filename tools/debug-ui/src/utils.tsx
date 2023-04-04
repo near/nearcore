@@ -55,12 +55,8 @@ export function addDebugPortLink(peer_network_addr: string): ReactElement {
     const peer_network_port = parseInt(peer_network_addr_array.pop() || '24567');
     const peer_network_ip = peer_network_addr_array.pop() || peer_network_addr;
     let peer_num = 0;
-    const localhost_ips = ["127.0.0.1", "localhost", "0.0.0.0"];
-    for (const localhost_ip of localhost_ips) {
-        if (peer_network_ip.includes(localhost_ip)) {
-            peer_num = peer_network_port - DEFAULT_NETWORK_PORT;
-            break;
-        }
+    if (peer_network_ip.includes("127.0.0.1")) {
+        peer_num = peer_network_port - DEFAULT_NETWORK_PORT;
     }
     const peer_rpc_port = DEFAULT_RPC_PORT + peer_num;
     const peer_rpc_address =
