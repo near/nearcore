@@ -451,7 +451,6 @@ impl EpochManagerAdapter for KeyValueRuntime {
             fishermen_threshold: 1,
             minimum_stake_divisor: 1,
             protocol_upgrade_stake_threshold: Ratio::new(3i32, 4i32),
-            protocol_upgrade_num_epochs: 100,
             shard_layout: ShardLayout::v1_test(),
             validator_selection_config: ValidatorSelectionConfig::default(),
         })
@@ -1184,6 +1183,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                         logs: vec![],
                         receipt_ids: new_receipt_hashes,
                         gas_burnt: 0,
+                        compute_usage: Some(0),
                         tokens_burnt: 0,
                         executor_id: to.clone(),
                         metadata: ExecutionMetadata::V1,

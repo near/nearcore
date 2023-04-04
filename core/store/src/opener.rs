@@ -1,9 +1,10 @@
 use std::sync::Arc;
+use strum::IntoEnumIterator;
 
 use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError, SnapshotRemoveError};
 use crate::db::rocksdb::RocksDB;
 use crate::metadata::{DbKind, DbMetadata, DbVersion, DB_VERSION};
-use crate::{Mode, NodeStorage, Store, StoreConfig, Temperature};
+use crate::{DBCol, DBTransaction, Mode, NodeStorage, Store, StoreConfig, Temperature};
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreOpenerError {
@@ -568,4 +569,122 @@ pub trait StoreMigrator {
     /// check support via [`Self::check_support`] method) or if it’s greater or
     /// equal to [`DB_VERSION`].
     fn migrate(&self, store: &Store, version: DbVersion) -> anyhow::Result<()>;
+}
+
+/// Creates checkpoint of hot storage in `home_dir.join(checkpoint_relative_path)`
+///
+/// If `columns_to_keep` is None doesn't cleanup columns.
+/// Otherwise deletes all columns that are not in `columns_to_keep`.
+///
+/// Returns NodeStorage of checkpoint db.
+/// `archive` -- is hot storage archival (needed to open checkpoint).
+#[allow(dead_code)]
+pub fn checkpoint_hot_storage_and_cleanup_columns(
+    db_storage: &NodeStorage,
+    home_dir: &std::path::Path,
+    checkpoint_relative_path: std::path::PathBuf,
+    columns_to_keep: Option<Vec<DBCol>>,
+    archive: bool,
+) -> anyhow::Result<NodeStorage> {
+    let checkpoint_path = home_dir.join(checkpoint_relative_path);
+
+    db_storage.hot_storage.create_checkpoint(&checkpoint_path)?;
+
+    // As only path from config is used in StoreOpener, default config with custom path will do.
+    let mut config = StoreConfig::default();
+    config.path = Some(checkpoint_path);
+    let opener = StoreOpener::new(home_dir, archive, &config, None);
+    let node_storage = opener.open()?;
+
+    if let Some(columns_to_keep) = columns_to_keep {
+        let columns_to_keep_set: std::collections::HashSet<DBCol> =
+            std::collections::HashSet::from_iter(columns_to_keep.into_iter());
+        let mut transaction = DBTransaction::new();
+
+        for col in DBCol::iter() {
+            if !columns_to_keep_set.contains(&col) {
+                transaction.delete_all(col);
+            }
+        }
+
+        node_storage.hot_storage.write(transaction)?;
+    }
+
+    Ok(node_storage)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn check_keys_existence(store: &Store, column: &DBCol, keys: &Vec<Vec<u8>>, expected: bool) {
+        for key in keys {
+            assert_eq!(store.exists(*column, &key).unwrap(), expected, "Column {:?}", column);
+        }
+    }
+
+    #[test]
+    fn test_checkpoint_hot_storage_and_cleanup_columns() {
+        let (home_dir, opener) = NodeStorage::test_opener();
+        let node_storage = opener.open().unwrap();
+
+        let keys = vec![vec![0], vec![1], vec![2], vec![3]];
+        let columns = vec![DBCol::Block, DBCol::Chunks, DBCol::BlockHeader];
+
+        let mut store_update = node_storage.get_hot_store().store_update();
+        for column in columns {
+            for key in &keys {
+                store_update.insert(column, key, &vec![42]);
+            }
+        }
+        store_update.commit().unwrap();
+
+        let store = checkpoint_hot_storage_and_cleanup_columns(
+            &node_storage,
+            &home_dir.path(),
+            std::path::PathBuf::from("checkpoint_none"),
+            None,
+            false,
+        )
+        .unwrap();
+        check_keys_existence(&store.get_hot_store(), &DBCol::Block, &keys, true);
+        check_keys_existence(&store.get_hot_store(), &DBCol::Chunks, &keys, true);
+        check_keys_existence(&store.get_hot_store(), &DBCol::BlockHeader, &keys, true);
+
+        let store = checkpoint_hot_storage_and_cleanup_columns(
+            &node_storage,
+            &home_dir.path(),
+            std::path::PathBuf::from("checkpoint_some"),
+            Some(vec![DBCol::Block]),
+            false,
+        )
+        .unwrap();
+        check_keys_existence(&store.get_hot_store(), &DBCol::Block, &keys, true);
+        check_keys_existence(&store.get_hot_store(), &DBCol::Chunks, &keys, false);
+        check_keys_existence(&store.get_hot_store(), &DBCol::BlockHeader, &keys, false);
+
+        let store = checkpoint_hot_storage_and_cleanup_columns(
+            &node_storage,
+            &home_dir.path(),
+            std::path::PathBuf::from("checkpoint_all"),
+            Some(vec![DBCol::Block, DBCol::Chunks, DBCol::BlockHeader]),
+            false,
+        )
+        .unwrap();
+        check_keys_existence(&store.get_hot_store(), &DBCol::Block, &keys, true);
+        check_keys_existence(&store.get_hot_store(), &DBCol::Chunks, &keys, true);
+        check_keys_existence(&store.get_hot_store(), &DBCol::BlockHeader, &keys, true);
+
+        let store = checkpoint_hot_storage_and_cleanup_columns(
+            &node_storage,
+            &home_dir.path(),
+            std::path::PathBuf::from("checkpoint_empty"),
+            Some(vec![]),
+            false,
+        )
+        .unwrap();
+        check_keys_existence(&store.get_hot_store(), &DBCol::Block, &keys, false);
+        check_keys_existence(&store.get_hot_store(), &DBCol::Chunks, &keys, false);
+        check_keys_existence(&store.get_hot_store(), &DBCol::BlockHeader, &keys, false);
+    }
 }

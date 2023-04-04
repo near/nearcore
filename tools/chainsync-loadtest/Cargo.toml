@@ -23,11 +23,11 @@ parking_lot.workspace = true
 rand.workspace = true
 tokio.workspace = true
 
-near-async = { path = "../../core/async" }
-near-chain-configs = { path = "../../core/chain-configs" }
-near-crypto = { path = "../../core/crypto" }
-near-primitives = { path = "../../core/primitives" }
-near-store = { path = "../../core/store" }
-nearcore = { path = "../../nearcore" }
-near-network = { path = "../../chain/network" }
-near-o11y = { path = "../../core/o11y" }
+near-async.workspace = true
+near-chain-configs.workspace = true
+near-crypto.workspace = true
+near-primitives.workspace = true
+near-store.workspace = true
+nearcore.workspace = true
+near-network.workspace = true
+near-o11y.workspace = true

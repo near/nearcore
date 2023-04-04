@@ -5,27 +5,25 @@ description = "Base compiler abstraction for Wasmer WebAssembly runtime"
 categories = ["wasm", "no-std"]
 keywords = ["wasm", "webassembly", "compiler"]
 authors = ["Wasmer Engineering Team <engineering@wasmer.io>", "Near Inc <hello@nearprotocol.com>"]
-repository = "https://github.com/wasmerio/wasmer"
+repository = "https://github.com/near/nearcore"
 license = "MIT OR Apache-2.0 WITH LLVM-exception"
 readme = "README.md"
 edition = "2021"
-publish = false
-
-[lib]
-name = "wasmer_compiler"
+publish = true
+rust-version.workspace = true
 
 [dependencies]
-finite-wasm = "0.3.0"
+finite-wasm.workspace = true
 wasmer-vm = { path = "../vm", package = "near-vm-vm" }
 wasmer-types = { path = "../types", package = "near-vm-types", default-features = false }
 wasmparser = { version = "0.99.0", optional = true, default-features = false }
-target-lexicon = { version = "0.12.2", default-features = false }
-enumset = "1.0"
-hashbrown = { version = "0.11", optional = true }
-thiserror = "1.0"
-smallvec = "1.6"
-rkyv = { version = "0.7.20" }
-tracing = "0.1"
+target-lexicon.workspace = true
+enumset.workspace = true
+hashbrown = { workspace = true, optional = true }
+thiserror.workspace = true
+smallvec.workspace = true
+rkyv.workspace = true
+tracing.workspace = true
 
 [features]
 default = ["std" ]

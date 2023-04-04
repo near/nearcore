@@ -182,7 +182,7 @@ impl finite_wasm::max_stack::SizeConfig for SimpleMaxStackCfg {
         let mut res = 0;
         res += locals.max_index().map_or(0, |l| u64::from(*l).saturating_add(1)) * 8;
         // TODO: make the above take into account the types of locals by adding an iter on PrefixSumVec that returns (count, type)
-        res += 32; // Rough accounting for rip, rbp and some registers spilled. Not exact.
+        res += 64; // Rough accounting for rip, rbp and some registers spilled. Not exact.
         res
     }
 }

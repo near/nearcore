@@ -2234,22 +2234,16 @@ impl Chain {
 
         if let Some(tip) = &new_head {
             // TODO: move this logic of tracking validators metrics to EpochManager
-            if let Ok(producers) = self
-                .runtime_adapter
-                .get_epoch_block_producers_ordered(&tip.epoch_id, &tip.last_block_hash)
-            {
-                let mut count = 0;
-                let mut stake = 0;
-                for (info, is_slashed) in producers.iter() {
-                    if !*is_slashed {
-                        stake += info.stake();
-                        count += 1;
-                    }
-                }
-                stake /= NEAR_BASE;
-                metrics::VALIDATOR_AMOUNT_STAKED.set(i64::try_from(stake).unwrap_or(i64::MAX));
-                metrics::VALIDATOR_ACTIVE_TOTAL.set(count);
+            let mut count = 0;
+            let mut stake = 0;
+            if let Ok(producers) = self.runtime_adapter.get_epoch_chunk_producers(&tip.epoch_id) {
+                stake += producers.iter().map(|info| info.stake()).sum::<Balance>();
+                count += producers.len();
             }
+
+            stake /= NEAR_BASE;
+            metrics::VALIDATOR_AMOUNT_STAKED.set(i64::try_from(stake).unwrap_or(i64::MAX));
+            metrics::VALIDATOR_ACTIVE_TOTAL.set(i64::try_from(count).unwrap_or(i64::MAX));
 
             self.last_time_head_updated = StaticClock::instant();
         };

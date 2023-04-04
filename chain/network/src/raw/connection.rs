@@ -162,21 +162,21 @@ impl std::fmt::Debug for Connection {
 pub enum ConnectError {
     #[error(transparent)]
     IO(std::io::Error),
+    #[error("failed parsing protobuf of length {0}")]
+    Parse(usize),
     #[error("handshake failed {0:?}")]
     HandshakeFailure(HandshakeFailureReason),
     #[error("received unexpected message before the handshake: {0:?}")]
     UnexpectedFirstMessage(PeerMessage),
     #[error(transparent)]
-    Other(anyhow::Error),
+    TcpConnect(anyhow::Error),
 }
 
 impl From<RecvError> for ConnectError {
     fn from(err: RecvError) -> Self {
         match err {
             RecvError::IO(io) => Self::IO(io),
-            RecvError::Parse(len) => {
-                Self::Other(anyhow::anyhow!("failed parsing protobuf of length {}", len))
-            }
+            RecvError::Parse(len) => Self::Parse(len),
         }
     }
 }
@@ -223,6 +223,7 @@ impl Connection {
         chain_id: &str,
         genesis_hash: CryptoHash,
         head_height: BlockHeight,
+        tracked_shards: Vec<ShardId>,
         recv_timeout: Duration,
     ) -> Result<Self, ConnectError> {
         let secret_key = SecretKey::from_random(KeyType::ED25519);
@@ -231,7 +232,7 @@ impl Connection {
         let start = Instant::now();
         let stream = tcp::Stream::connect(&PeerInfo::new(peer_id.clone(), addr), tcp::Tier::T2)
             .await
-            .map_err(ConnectError::Other)?;
+            .map_err(ConnectError::TcpConnect)?;
         tracing::info!(
             target: "network", "Connection to {}@{:?} established. latency: {}",
             &peer_id, &addr, start.elapsed(),
@@ -249,6 +250,7 @@ impl Connection {
             chain_id,
             genesis_hash,
             head_height,
+            tracked_shards,
         )
         .await?;
 
@@ -319,6 +321,7 @@ impl Connection {
         chain_id: &str,
         genesis_hash: CryptoHash,
         head_height: BlockHeight,
+        tracked_shards: Vec<ShardId>,
     ) -> Result<(), ConnectError> {
         let handshake = new_handshake(
             &self.secret_key,
@@ -330,7 +333,7 @@ impl Connection {
             chain_id,
             genesis_hash,
             head_height,
-            vec![0, 1, 2, 3],
+            tracked_shards,
             false,
         );
 

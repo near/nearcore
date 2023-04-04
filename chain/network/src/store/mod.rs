@@ -137,16 +137,16 @@ impl Store {
     }
 }
 
-// TODO(mina86): Get rid of it.
-#[cfg(test)]
-impl From<near_store::NodeStorage> for Store {
-    fn from(store: near_store::NodeStorage) -> Self {
-        Self::from(store.into_inner(near_store::Temperature::Hot))
-    }
-}
-
 impl From<Arc<dyn near_store::db::Database>> for Store {
     fn from(store: Arc<dyn near_store::db::Database>) -> Self {
         Self(schema::Store::from(store))
+    }
+}
+
+#[cfg(test)]
+impl From<Arc<near_store::db::TestDB>> for Store {
+    fn from(store: Arc<near_store::db::TestDB>) -> Self {
+        let database: Arc<dyn near_store::db::Database> = store;
+        Self(schema::Store::from(database))
     }
 }

@@ -224,6 +224,9 @@ pub trait Database: Sync + Send {
 
     /// Returns statistics about the database if available.
     fn get_store_statistics(&self) -> Option<StoreStatistics>;
+
+    /// Create checkpoint in provided path
+    fn create_checkpoint(&self, path: &std::path::Path) -> anyhow::Result<()>;
 }
 
 fn assert_no_overwrite(col: DBCol, key: &[u8], value: &[u8], old_value: &[u8]) {
@@ -245,7 +248,7 @@ pub enum StatsValue {
     ColumnValue(DBCol, i64),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct StoreStatistics {
     pub data: Vec<(String, Vec<StatsValue>)>,
 }

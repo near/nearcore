@@ -37,6 +37,7 @@ async fn test_raw_conn_pings() {
         &genesis_id.chain_id,
         genesis_id.hash,
         0,
+        vec![0],
         time::Duration::SECOND,
     )
     .await
@@ -96,6 +97,7 @@ async fn test_raw_conn_state_parts() {
         &genesis_id.chain_id,
         genesis_id.hash,
         0,
+        vec![0],
         time::Duration::SECOND,
     )
     .await
