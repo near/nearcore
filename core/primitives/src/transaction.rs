@@ -418,7 +418,7 @@ pub struct ExecutionOutcome {
     pub gas_burnt: Gas,
     /// The amount of compute time spent by the given transaction or receipt.
     // TODO(#8859): Treat this field in the same way as `gas_burnt`.
-    // At the moment this field is only set at runtime and is not persisted in the database. 
+    // At the moment this field is only set at runtime and is not persisted in the database.
     // This means that when execution outcomes are read from the database, this value will not be
     // set and any code that attempts to use it will crash.
     #[borsh_skip]
