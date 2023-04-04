@@ -48,7 +48,6 @@ function add_debug_port_link(peer_network_addr) {
     peer_network_port = peer_network_addr_array.pop()
     peer_network_ip = peer_network_addr_array.pop()
     peer_num = 0;
-    localhost_ips = ["127.0.0.1", "localhost", "0.0.0.0"]
     if (peer_network_ip.includes("127.0.0.1")) {
         peer_num = peer_network_port - DEFAULT_NETWORK_PORT;
     }
