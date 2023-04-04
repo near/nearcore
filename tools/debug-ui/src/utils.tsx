@@ -46,18 +46,25 @@ export function formatTraffic(bytes_received: number, bytes_sent: number): React
 }
 
 export function addDebugPortLink(peer_network_addr: string): ReactElement {
-    // Assume rpc port is always 3030 and network port is always 24567 for the first neard process on a machine
+    // Default rpc port is 3030 and default network port is 24567 for the first neard process on a machine
     // Then, each subsequence neard process on the same machine will be strict increments of a fix constant from both ports
-    // peer_num should only be > 0 for nearup's localnet and 0 otherwise
-    // Reference to nearup's localnet port assumptions
-    // https://github.com/near/nearup/blob/0b9a7b60236f3164dd32677b6fa58c531a586200/nearuplib/localnet.py#L93-L94
-    // Reference to mainnet's assumption of network port
-    // https://github.com/near/nearcore/blob/e61da3d26e3614d3f6c1b669d31fca7a12d55296/chain/network/src/raw/connection.rs#L153
-    const rpc_port_assumption = 3030;
-    const network_port_assumption = 24567;
-    const peer_network_port = parseInt(peer_network_addr.split(':').pop() || '24567');
-    const peer_num = peer_network_port - network_port_assumption;
-    const peer_rpc_port = rpc_port_assumption + peer_num;
+    // In other words, peer_num increments by 1 from 0 for each additional neard process on the same machine.
+    // peer_rpc_address is not shared between peer nodes. Hence, it cannot be programmatically fetched.
+    // https://github.com/near/nearcore/blob/700ec29270f72f2e78a17029b4799a8228926c07/chain/network/src/network_protocol/peer.rs#L13-L19
+    const DEFAULT_RPC_PORT = 3030;
+    const DEFAULT_NETWORK_PORT = 24567;
+    const peer_network_addr_array = peer_network_addr.split(":");
+    const peer_network_port = parseInt(peer_network_addr_array.pop() || '24567');
+    const peer_network_ip = peer_network_addr_array.pop() || peer_network_addr;
+    let peer_num = 0;
+    const localhost_ips = ["127.0.0.1", "localhost", "0.0.0.0"];
+    for (const localhost_ip of localhost_ips) {
+        if (peer_network_ip.includes(localhost_ip)) {
+            peer_num = peer_network_port - DEFAULT_NETWORK_PORT;
+            break;
+        }
+    }
+    const peer_rpc_port = DEFAULT_RPC_PORT + peer_num;
     const peer_rpc_address =
         peer_network_addr.replace(/:.*/, ':') + peer_rpc_port.toString() + '/debug';
     return <a href={'http://localhost:3000/' + peer_rpc_address}>{peer_network_addr}</a>;
