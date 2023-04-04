@@ -139,6 +139,7 @@ pub struct ClientConfig {
     /// Shards that this client tracks
     pub tracked_shards: Vec<ShardId>,
     /// Rotate between these sets of tracked shards.
+    /// Used to simulate the behavior of chunk only producers without staking tokens.
     pub tracked_shard_schedule: Vec<Vec<ShardId>>,
     /// Not clear old data, set `true` for archive nodes.
     pub archive: bool,

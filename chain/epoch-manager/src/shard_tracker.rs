@@ -12,6 +12,7 @@ use near_primitives::types::{AccountId, EpochId, ShardId};
 pub enum TrackedConfig {
     Accounts(Vec<AccountId>),
     AllShards,
+    // Rotates between sets of shards to track.
     Schedule(Vec<Vec<ShardId>>),
 }
 
@@ -137,9 +138,9 @@ impl ShardTracker {
     }
 
     /// Whether the client cares about some shard in the next epoch.
-    //  Note that `shard_id` always refers to a shard in the current epoch
-    //  If shard layout will change next epoch,
-    //  returns true if it cares about any shard that `shard_id` will split to
+    ///  Note that `shard_id` always refers to a shard in the current epoch
+    ///  If shard layout will change next epoch,
+    ///  returns true if it cares about any shard that `shard_id` will split to
     /// * If `account_id` is None, `is_me` is not checked and the
     /// result indicates whether the client will track the shard
     /// * If `account_id` is not None, it is supposed to be a validator
@@ -181,7 +182,7 @@ mod tests {
     use super::{account_id_to_shard_id, ShardTracker};
     use crate::shard_tracker::TrackedConfig;
     use crate::test_utils::hash_range;
-    use crate::{EpochManager, EpochManagerHandle, RewardCalculator};
+    use crate::{EpochManager, EpochManagerAdapter, EpochManagerHandle, RewardCalculator};
     use near_crypto::{KeyType, PublicKey};
     use near_primitives::epoch_manager::block_info::BlockInfo;
     use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
@@ -384,7 +385,8 @@ mod tests {
     fn test_track_shards_shard_layout_change() {
         let simple_nightshade_version = SimpleNightshade.protocol_version();
         let epoch_manager = get_epoch_manager(simple_nightshade_version - 1, 1, true);
-        let tracked_accounts = vec!["near".parse().unwrap(), "zoo".parse().unwrap()];
+        let tracked_accounts =
+            vec!["a.near".parse().unwrap(), "near".parse().unwrap(), "zoo".parse().unwrap()];
         let tracker = ShardTracker::new(
             TrackedConfig::Accounts(tracked_accounts.clone()),
             Arc::new(epoch_manager.clone()),
@@ -423,24 +425,30 @@ mod tests {
 
         // verify tracker is tracking the correct shards before and after resharding
         for i in 1..8 {
+            let mut total_next_tracked_shards = HashSet::new();
+            let next_epoch_id =
+                epoch_manager.get_next_epoch_id_from_prev_block(parent_hash).unwrap();
+            let next_shard_layout = epoch_manager.get_shard_layout(&next_epoch_id).unwrap();
+
             let mut total_tracked_shards = HashSet::new();
-            let num_shards = {
-                let epoch_manager = epoch_manager.read();
-                let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&h[i - 1]).unwrap();
-                let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
-                for account_id in tracked_accounts.iter() {
-                    total_tracked_shards.insert(account_id_to_shard_id(account_id, &shard_layout));
-                }
-                shard_layout.num_shards()
-            };
+            let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&h[i - 1]).unwrap();
+            let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+
+            for account_id in tracked_accounts.iter() {
+                let shard_id = account_id_to_shard_id(account_id, &shard_layout);
+                total_tracked_shards.insert(shard_id);
+
+                let next_shard_id = account_id_to_shard_id(account_id, &next_shard_layout);
+                total_next_tracked_shards.insert(next_shard_id);
+            }
 
             assert_eq!(
-                get_all_shards_care_about(&tracker, num_shards, &h[i - 1]),
+                get_all_shards_care_about(&tracker, shard_layout.num_shards(), &h[i - 1]),
                 total_tracked_shards
             );
             assert_eq!(
-                get_all_shards_will_care_about(&tracker, num_shards, &h[i - 1]),
-                total_tracked_shards
+                get_all_shards_will_care_about(&tracker, next_shard_layout.num_shards(), &h[i - 1]),
+                total_next_tracked_shards
             );
         }
     }
