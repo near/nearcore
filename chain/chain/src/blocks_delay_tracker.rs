@@ -3,7 +3,7 @@ use near_primitives::block::{Block, Tip};
 use near_primitives::borsh::maybestd::collections::hash_map::Entry;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
-use near_primitives::time::Clock;
+use near_primitives::static_clock::StaticClock;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::views::{
     BlockProcessingInfo, BlockProcessingStatus, ChainProcessingInfo, ChunkProcessingInfo,
@@ -298,7 +298,7 @@ impl BlocksDelayTracker {
 
     pub fn finish_block_processing(&mut self, block_hash: &CryptoHash, new_head: Option<Tip>) {
         if let Some(processed_block) = self.blocks.get_mut(&block_hash) {
-            processed_block.processed_timestamp = Some(Clock::instant());
+            processed_block.processed_timestamp = Some(StaticClock::instant());
         }
         // To get around the rust reference scope check
         if let Some(processed_block) = self.blocks.get(&block_hash) {
@@ -369,7 +369,7 @@ impl BlocksDelayTracker {
                     }
                 })
                 .collect();
-            let now = Clock::instant();
+            let now = StaticClock::instant();
             let block_status = chain.get_block_status(block_hash, block_stats);
             let in_progress_ms = block_stats
                 .processed_timestamp

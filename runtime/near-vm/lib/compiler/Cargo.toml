@@ -1,0 +1,37 @@
+[package]
+name = "near-vm-compiler"
+version = "0.0.0"
+description = "Base compiler abstraction for Wasmer WebAssembly runtime"
+categories = ["wasm", "no-std"]
+keywords = ["wasm", "webassembly", "compiler"]
+authors = ["Wasmer Engineering Team <engineering@wasmer.io>", "Near Inc <hello@nearprotocol.com>"]
+repository = "https://github.com/near/nearcore"
+license = "MIT OR Apache-2.0 WITH LLVM-exception"
+readme = "README.md"
+edition = "2021"
+publish = true
+rust-version.workspace = true
+
+[dependencies]
+finite-wasm.workspace = true
+wasmer-vm = { path = "../vm", package = "near-vm-vm" }
+wasmer-types = { path = "../types", package = "near-vm-types", default-features = false }
+wasmparser = { version = "0.99.0", optional = true, default-features = false }
+target-lexicon.workspace = true
+enumset.workspace = true
+hashbrown = { workspace = true, optional = true }
+thiserror.workspace = true
+smallvec.workspace = true
+rkyv.workspace = true
+tracing.workspace = true
+
+[features]
+default = ["std" ]
+# This feature is for compiler implementors, it enables using `Compiler` and
+# `CompilerConfig`, as well as the included wasmparser.
+# Disable this feature if you just want a headless engine.
+translator = ["wasmparser"]
+std = ["wasmer-types/std"]
+
+[badges]
+maintenance = { status = "experimental" }

@@ -350,11 +350,23 @@ pub fn default_subscriber(
     let subscriber = tracing_subscriber::registry();
     let subscriber = add_simple_log_layer(env_filter, make_writer, color_output, subscriber);
 
+    #[allow(unused_mut)]
+    let mut io_trace_guard = None;
+    #[cfg(feature = "io_trace")]
+    let subscriber = subscriber.with(options.record_io_trace.as_ref().map(|output_path| {
+        let (sub, guard) = make_io_tracing_layer(
+            std::fs::File::create(output_path)
+                .expect("unable to create or truncate IO trace output file"),
+        );
+        io_trace_guard = Some(guard);
+        sub
+    }));
+
     DefaultSubscriberGuard {
         subscriber: Some(subscriber),
         local_subscriber_guard: None,
         writer_guard: None,
-        io_trace_guard: None,
+        io_trace_guard,
     }
 }
 
@@ -444,8 +456,8 @@ pub enum ReloadError {
     Parse(#[source] BuildEnvFilterError),
 }
 
-pub fn reload_log_config(config: Option<&log_config::LogConfig>) -> Result<(), Vec<ReloadError>> {
-    if let Some(config) = config {
+pub fn reload_log_config(config: Option<&log_config::LogConfig>) {
+    let result = if let Some(config) = config {
         reload(
             config.rust_log.as_ref().map(|s| s.as_str()),
             config.verbose_module.as_ref().map(|s| s.as_str()),
@@ -455,6 +467,14 @@ pub fn reload_log_config(config: Option<&log_config::LogConfig>) -> Result<(), V
         // When the LOG_CONFIG_FILENAME is not available, reset to the tracing and logging config
         // when the node was started.
         reload(None, None, None)
+    };
+    match result {
+        Ok(_) => {
+            println!("Updated the logging layer according to `log_config.json`");
+        }
+        Err(err) => {
+            println!("Failed to update the logging layer according to the changed `log_config.json`. Errors: {:?}", err);
+        }
     }
 }
 
@@ -640,5 +660,18 @@ macro_rules! log_assert {
                 $crate::tracing::error!($fmt $($arg)*);
             }
         }
+    };
+}
+
+/// The same as 'log_assert' but always fails.
+///
+/// `log_assert_fail!` panics in debug mode, while in release mode it emits
+/// a `tracing::error!` log line. Use it for sanity-checking non-essential
+/// invariants, whose violation signals a bug in the code, where we'd rather
+/// avoid shutting the whole node down.
+#[macro_export]
+macro_rules! log_assert_fail {
+    ($fmt:literal $($arg:tt)*) => {
+        $crate::log_assert!(false, $fmt $($arg)*);
     };
 }

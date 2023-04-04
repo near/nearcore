@@ -1,11 +1,12 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use rand::seq::SliceRandom;
 use rand::Rng;
 
 use crate::db::TestDB;
 use crate::metadata::{DbKind, DbVersion, DB_VERSION};
-use crate::{DBCol, NodeStorage, ShardTries, Store, Temperature};
+use crate::{DBCol, NodeStorage, ShardTries, Store};
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{DataReceipt, Receipt, ReceiptEnum};
@@ -19,8 +20,8 @@ use std::str::from_utf8;
 pub fn create_test_node_storage(version: DbVersion, hot_kind: DbKind) -> NodeStorage {
     let storage = NodeStorage::new(TestDB::new());
 
-    storage.get_store(Temperature::Hot).set_db_version(version).unwrap();
-    storage.get_store(Temperature::Hot).set_db_kind(hot_kind).unwrap();
+    storage.get_hot_store().set_db_version(version).unwrap();
+    storage.get_hot_store().set_db_kind(hot_kind).unwrap();
 
     storage
 }
@@ -34,24 +35,26 @@ pub fn create_test_node_storage_default() -> NodeStorage {
     create_test_node_storage(DB_VERSION, DbKind::RPC)
 }
 
-/// Creates an in-memory node storage with ColdDB<TestDB>
+/// Creates an in-memory node storage with ColdDB
 pub fn create_test_node_storage_with_cold(
     version: DbVersion,
     hot_kind: DbKind,
-) -> NodeStorage<TestDB> {
-    let storage = NodeStorage::new_with_cold(TestDB::new(), TestDB::default());
+) -> (NodeStorage, Arc<TestDB>, Arc<TestDB>) {
+    let hot = TestDB::new();
+    let cold = TestDB::new();
+    let storage = NodeStorage::new_with_cold(hot.clone(), cold.clone());
 
-    storage.get_store(Temperature::Hot).set_db_version(version).unwrap();
-    storage.get_store(Temperature::Hot).set_db_kind(hot_kind).unwrap();
-    storage.get_store(Temperature::Cold).set_db_version(version).unwrap();
-    storage.get_store(Temperature::Cold).set_db_kind(DbKind::Cold).unwrap();
+    storage.get_hot_store().set_db_version(version).unwrap();
+    storage.get_hot_store().set_db_kind(hot_kind).unwrap();
+    storage.get_cold_store().unwrap().set_db_version(version).unwrap();
+    storage.get_cold_store().unwrap().set_db_kind(DbKind::Cold).unwrap();
 
-    storage
+    (storage, hot, cold)
 }
 
 /// Creates an in-memory database.
 pub fn create_test_store() -> Store {
-    create_test_node_storage(DB_VERSION, DbKind::RPC).get_store(crate::Temperature::Hot)
+    create_test_node_storage(DB_VERSION, DbKind::RPC).get_hot_store()
 }
 
 /// Creates a Trie using an in-memory database.

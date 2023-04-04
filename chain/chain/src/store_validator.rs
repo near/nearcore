@@ -26,7 +26,7 @@ use validate::StoreValidatorError;
 
 use crate::RuntimeWithEpochManagerAdapter;
 use near_primitives::shard_layout::get_block_shard_uid_rev;
-use near_primitives::time::Clock;
+use near_primitives::static_clock::StaticClock;
 
 mod validate;
 
@@ -95,7 +95,7 @@ impl StoreValidator {
             store: store,
             inner: StoreValidatorCache::new(),
             timeout: None,
-            start_time: Clock::instant(),
+            start_time: StaticClock::instant(),
             is_archival,
             errors: vec![],
             tests: 0,
@@ -315,7 +315,7 @@ impl StoreValidator {
     }
 
     pub fn validate(&mut self) {
-        self.start_time = Clock::instant();
+        self.start_time = StaticClock::instant();
 
         // Init checks
         // Check Head-Tail validity and fill cache with their values
@@ -388,8 +388,7 @@ mod tests {
     fn init() -> (Chain, StoreValidator) {
         let store = create_test_store();
         let chain_genesis = ChainGenesis::test();
-        let runtime_adapter =
-            Arc::new(KeyValueRuntime::new(store.clone(), chain_genesis.epoch_length));
+        let runtime_adapter = KeyValueRuntime::new(store.clone(), chain_genesis.epoch_length);
         let mut genesis = GenesisConfig::default();
         genesis.genesis_height = 0;
         let chain = Chain::new(

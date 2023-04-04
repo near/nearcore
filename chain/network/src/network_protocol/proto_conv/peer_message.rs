@@ -3,12 +3,14 @@ use super::*;
 
 use crate::network_protocol::proto;
 use crate::network_protocol::proto::peer_message::Message_type as ProtoMT;
-use crate::network_protocol::{Disconnect, PeerMessage, RoutingTableUpdate, SyncAccountsData};
+use crate::network_protocol::{
+    Disconnect, PeerMessage, PeersRequest, PeersResponse, RoutingTableUpdate, SyncAccountsData,
+};
 use crate::network_protocol::{RoutedMessage, RoutedMessageV2};
-use crate::time::error::ComponentRange;
 use borsh::{BorshDeserialize as _, BorshSerialize as _};
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::challenge::Challenge;
+use near_primitives::time::error::ComponentRange;
 use near_primitives::transaction::SignedTransaction;
 use protobuf::MessageField as MF;
 use std::sync::Arc;
@@ -109,9 +111,14 @@ impl From<&PeerMessage> for proto::PeerMessage {
                         ..Default::default()
                     })
                 }
-                PeerMessage::PeersRequest => ProtoMT::PeersRequest(proto::PeersRequest::new()),
-                PeerMessage::PeersResponse(pis) => ProtoMT::PeersResponse(proto::PeersResponse {
-                    peers: pis.iter().map(Into::into).collect(),
+                PeerMessage::PeersRequest(pr) => ProtoMT::PeersRequest(proto::PeersRequest {
+                    max_peers: pr.max_peers,
+                    max_direct_peers: pr.max_direct_peers,
+                    ..Default::default()
+                }),
+                PeerMessage::PeersResponse(pr) => ProtoMT::PeersResponse(proto::PeersResponse {
+                    peers: pr.peers.iter().map(Into::into).collect(),
+                    direct_peers: pr.direct_peers.iter().map(Into::into).collect(),
                     ..Default::default()
                 }),
                 PeerMessage::BlockHeadersRequest(bhs) => {
@@ -158,6 +165,7 @@ impl From<&PeerMessage> for proto::PeerMessage {
     }
 }
 
+pub type ParsePeersRequestError = borsh::maybestd::io::Error;
 pub type ParseTransactionError = borsh::maybestd::io::Error;
 pub type ParseRoutedError = borsh::maybestd::io::Error;
 pub type ParseChallengeError = borsh::maybestd::io::Error;
@@ -178,6 +186,8 @@ pub enum ParsePeerMessageError {
     UpdateNonceRequest(ParseRequiredError<ParsePartialEdgeInfoError>),
     #[error("update_nonce_response: {0}")]
     UpdateNonceResponse(ParseRequiredError<ParseEdgeError>),
+    #[error("peers_request: {0}")]
+    PeersRequest(ParsePeersRequestError),
     #[error("peers_response: {0}")]
     PeersResponse(ParseVecError<ParsePeerInfoError>),
     #[error("block_headers_request: {0}")]
@@ -241,10 +251,15 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
                 incremental: msg.incremental,
                 requesting_full_sync: msg.requesting_full_sync,
             }),
-            ProtoMT::PeersRequest(_) => PeerMessage::PeersRequest,
-            ProtoMT::PeersResponse(pr) => PeerMessage::PeersResponse(
-                try_from_slice(&pr.peers).map_err(Self::Error::PeersResponse)?,
-            ),
+            ProtoMT::PeersRequest(pr) => PeerMessage::PeersRequest(PeersRequest {
+                max_peers: pr.max_peers,
+                max_direct_peers: pr.max_direct_peers,
+            }),
+            ProtoMT::PeersResponse(pr) => PeerMessage::PeersResponse(PeersResponse {
+                peers: try_from_slice(&pr.peers).map_err(Self::Error::PeersResponse)?,
+                direct_peers: try_from_slice(&pr.direct_peers)
+                    .map_err(Self::Error::PeersResponse)?,
+            }),
             ProtoMT::BlockHeadersRequest(bhr) => PeerMessage::BlockHeadersRequest(
                 try_from_slice(&bhr.block_hashes).map_err(Self::Error::BlockHeadersRequest)?,
             ),

@@ -19,14 +19,21 @@ consensus_config = {
     "consensus": {
         "block_fetch_horizon": 10,
         "block_header_fetch_horizon": 10
-    }
+    },
+    "state_sync_enabled": True,
 }
+node_config = {
+    "state_sync_enabled": True,
+}
+
 nodes = start_cluster(
     4, 0, 1, None,
     [["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 10],
      ["chunk_producer_kickout_threshold", 10]], {
          0: consensus_config,
-         1: consensus_config
+         1: consensus_config,
+         2: node_config,
+         3: node_config
      })
 time.sleep(2)
 nodes[1].kill()

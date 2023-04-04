@@ -24,11 +24,11 @@ pub fn create_nightshade_runtimes(
 ) -> Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> {
     (0..n)
         .map(|_| {
-            Arc::new(nearcore::NightshadeRuntime::test(
+            nearcore::NightshadeRuntime::test(
                 Path::new("../../../.."),
                 create_test_store(),
                 genesis,
-            )) as Arc<dyn RuntimeWithEpochManagerAdapter>
+            ) as Arc<dyn RuntimeWithEpochManagerAdapter>
         })
         .collect()
 }

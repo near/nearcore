@@ -13,7 +13,6 @@ use near_network::blacklist;
 use near_network::config;
 use near_network::tcp;
 use near_network::test_utils::{expected_routing_tables, peer_id_from_seed, GetInfo};
-use near_network::time;
 use near_network::types::{
     PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, ROUTED_MESSAGE_TTL,
 };
@@ -23,6 +22,7 @@ use near_o11y::WithSpanContextExt;
 use near_primitives::block::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
+use near_primitives::time;
 use near_primitives::types::{AccountId, ValidatorId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
@@ -51,11 +51,7 @@ fn setup_network_node(
     let num_validators = validators.len() as ValidatorId;
 
     let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![validators]);
-    let runtime = Arc::new(KeyValueRuntime::new_with_validators(
-        store.get_store(near_store::Temperature::Hot),
-        vs,
-        5,
-    ));
+    let runtime = KeyValueRuntime::new_with_validators(store.get_hot_store(), vs, 5);
     let signer = Arc::new(create_test_signer(account_id.as_str()));
     let telemetry_actor = TelemetryActor::new(TelemetryConfig::default()).start();
 
@@ -118,21 +114,12 @@ fn setup_network_node(
 // TODO: Deprecate this in favor of separate functions.
 #[derive(Debug, Clone)]
 pub(crate) enum Action {
-    AddEdge {
-        from: usize,
-        to: usize,
-        force: bool,
-    },
+    AddEdge { from: usize, to: usize, force: bool },
     CheckRoutingTable(usize, Vec<(usize, Vec<usize>)>),
     // Send stop signal to some node.
     Stop(usize),
     // Wait time in milliseconds
     Wait(time::Duration),
-    #[allow(dead_code)]
-    SetOptions {
-        target: usize,
-        max_num_peers: Option<u64>,
-    },
 }
 
 pub(crate) struct RunningInfo {
@@ -182,16 +169,6 @@ impl StateMachine {
         let num_prev_actions = self.actions.len();
         let action_clone = 0; // action.clone();
         match action {
-            #[allow(unused_variables)]
-            Action::SetOptions { target, max_num_peers } => {
-                self.actions.push(Box::new(move |info:&mut RunningInfo| Box::pin(async move {
-                    debug!(target: "test", num_prev_actions, action = ?action_clone, "runner.rs: Action");
-                    info.get_node(target)?.actix.addr.send(PeerManagerMessageRequest::SetAdvOptions(near_network::test_utils::SetAdvOptions {
-                        set_max_peers: max_num_peers,
-                    }).with_span_context()).await?;
-                    Ok(ControlFlow::Break(()))
-                })));
-            }
             Action::AddEdge { from, to, force } => {
                 self.actions.push(Box::new(move |info: &mut RunningInfo| Box::pin(async move {
                     debug!(target: "test", num_prev_actions, action = ?action_clone, "runner.rs: Action");

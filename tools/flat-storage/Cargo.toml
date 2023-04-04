@@ -1,0 +1,29 @@
+[package]
+name = "near-flat-storage"
+version = "0.0.0"
+authors.workspace = true
+publish = false
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+borsh.workspace = true
+clap.workspace = true
+rayon.workspace = true
+
+tqdm.workspace = true
+
+near-chain.workspace = true
+near-chain-configs.workspace = true
+
+near-epoch-manager.workspace = true
+near-primitives.workspace = true
+near-store.workspace = true
+nearcore.workspace = true
+
+[features]
+protocol_feature_flat_state = [
+  "nearcore/protocol_feature_flat_state",
+  "near-chain/protocol_feature_flat_state",
+  "near-store/protocol_feature_flat_state",
+]

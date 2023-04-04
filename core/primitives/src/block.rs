@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use crate::time::{Clock, Utc};
+use crate::static_clock::StaticClock;
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use chrono::DateTime;
+use chrono::{DateTime, Utc};
 use near_crypto::Signature;
 use primitive_types::U256;
 
@@ -239,7 +239,7 @@ impl Block {
         );
 
         let new_total_supply = prev.total_supply() + minted_amount.unwrap_or(0) - balance_burnt;
-        let now = to_timestamp(timestamp_override.unwrap_or_else(Clock::utc));
+        let now = to_timestamp(timestamp_override.unwrap_or_else(StaticClock::utc));
         let time = if now <= prev.raw_timestamp() { prev.raw_timestamp() + 1 } else { now };
 
         let (vrf_value, vrf_proof) = signer.compute_vrf_with_proof(prev.random_value().as_ref());
@@ -302,6 +302,23 @@ impl Block {
             vrf_value,
             vrf_proof,
         )
+    }
+
+    pub fn verify_total_supply(
+        &self,
+        prev_total_supply: Balance,
+        minted_amount: Option<Balance>,
+    ) -> bool {
+        let mut balance_burnt = 0;
+
+        for chunk in self.chunks().iter() {
+            if chunk.height_included() == self.header().height() {
+                balance_burnt += chunk.balance_burnt();
+            }
+        }
+
+        let new_total_supply = prev_total_supply + minted_amount.unwrap_or(0) - balance_burnt;
+        self.header().total_supply() == new_total_supply
     }
 
     pub fn verify_gas_price(
@@ -512,6 +529,11 @@ impl Block {
         // Check that chunk tx root stored in the header matches the tx root of the chunks
         let chunk_tx_root = Block::compute_chunk_tx_root(self.chunks().iter());
         if self.header().chunk_tx_root() != &chunk_tx_root {
+            return Err(InvalidTransactionRoot);
+        }
+
+        let outcome_root = Block::compute_outcome_root(self.chunks().iter());
+        if self.header().outcome_root() != &outcome_root {
             return Err(InvalidTransactionRoot);
         }
 

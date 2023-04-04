@@ -5,6 +5,7 @@ use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType};
+use near_o11y::pretty;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
 use near_primitives::sharding::ShardChunk;
@@ -18,18 +19,19 @@ use near_store::cold_storage::{
 use near_store::metadata::DbKind;
 use near_store::metadata::DB_VERSION;
 use near_store::test_utils::create_test_node_storage_with_cold;
-use near_store::{DBCol, Store, Temperature, COLD_HEAD_KEY, HEAD_KEY};
+use near_store::{DBCol, Store, COLD_HEAD_KEY, HEAD_KEY};
 use nearcore::config::GenesisExt;
 use std::collections::HashSet;
 use strum::IntoEnumIterator;
 
 fn check_key(first_store: &Store, second_store: &Store, col: DBCol, key: &[u8]) {
-    tracing::debug!("Checking {:?} {:?}", col, key);
+    let pretty_key = pretty::StorageKey(key);
+    tracing::debug!("Checking {:?} {:?}", col, pretty_key);
 
     let first_res = first_store.get(col, key);
     let second_res = second_store.get(col, key);
 
-    assert_eq!(first_res.unwrap(), second_res.unwrap());
+    assert_eq!(first_res.unwrap(), second_res.unwrap(), "col: {:?} key: {:?}", col, pretty_key);
 }
 
 fn check_iter(
@@ -76,7 +78,7 @@ fn test_storage_after_commit_of_cold_update() {
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
 
-    let store = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
+    let (store, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
 
@@ -177,11 +179,12 @@ fn test_storage_after_commit_of_cold_update() {
         if col.is_cold() {
             let num_checks = check_iter(
                 &env.clients[0].runtime_adapter.store(),
-                &store.get_store(Temperature::Cold),
+                &store.get_cold_store().unwrap(),
                 col,
                 &no_check_rules,
             );
             // assert that this test actually checks something
+            // apart from StateChangesForSplitStates and StateHeaders, that are empty
             assert!(
                 col == DBCol::StateChangesForSplitStates
                     || col == DBCol::StateHeaders
@@ -205,9 +208,9 @@ fn test_cold_db_head_update() {
     genesis.config.epoch_length = epoch_length;
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
-    let store = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
-    let hot_store = &store.get_store(Temperature::Hot);
-    let cold_store = &store.get_store(Temperature::Cold);
+    let (store, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
+    let hot_store = &store.get_hot_store();
+    let cold_store = &store.get_cold_store().unwrap();
     let runtime_adapter = create_nightshade_runtime_with_store(&genesis, &hot_store);
     let mut env = TestEnv::builder(chain_genesis).runtime_adapters(vec![runtime_adapter]).build();
 
@@ -251,11 +254,11 @@ fn test_cold_db_copy_with_height_skips() {
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
 
-    let store = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
+    let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
 
-    test_cold_genesis_update(&*store.cold_db().unwrap(), &env.clients[0].runtime_adapter.store())
+    test_cold_genesis_update(&*storage.cold_db().unwrap(), &env.clients[0].runtime_adapter.store())
         .unwrap();
 
     for h in 1..max_height {
@@ -290,7 +293,7 @@ fn test_cold_db_copy_with_height_skips() {
         };
 
         update_cold_db(
-            &*store.cold_db().unwrap(),
+            &*storage.cold_db().unwrap(),
             &env.clients[0].runtime_adapter.store(),
             &env.clients[0]
                 .runtime_adapter
@@ -326,11 +329,12 @@ fn test_cold_db_copy_with_height_skips() {
         if col.is_cold() {
             let num_checks = check_iter(
                 &env.clients[0].runtime_adapter.store(),
-                &store.get_store(Temperature::Cold),
+                &storage.get_cold_store().unwrap(),
                 col,
                 &no_check_rules,
             );
             // assert that this test actually checks something
+            // apart from StateChangesForSplitStates and StateHeaders, that are empty
             assert!(
                 col == DBCol::StateChangesForSplitStates
                     || col == DBCol::StateHeaders
@@ -342,9 +346,9 @@ fn test_cold_db_copy_with_height_skips() {
 
 /// Producing 4 epochs of blocks with some transactions.
 /// Call copying full contents of cold columns to cold storage in batches of specified max_size.
-/// Currently only supports super small or super big batch.
-/// If batch_size = 0, check that every value was copied in a separate batch.
-/// If batch_size = usize::MAX, check that everything was copied in one batch.
+/// Checks COLD_STORE_MIGRATION_BATCH_WRITE_COUNT metric for some batch_sizes:
+/// - If batch_size = 0, check that every value was copied in a separate batch.
+/// - If batch_size = usize::MAX, check that everything was copied in one batch.
 /// Most importantly, checking that everything from cold columns was indeed copied into cold storage.
 fn test_initial_copy_to_cold(batch_size: usize) {
     init_test_logger();
@@ -361,7 +365,7 @@ fn test_initial_copy_to_cold(batch_size: usize) {
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
 
-    let store = create_test_node_storage_with_cold(DB_VERSION, DbKind::Archive);
+    let (store, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Archive);
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
 
@@ -384,31 +388,36 @@ fn test_initial_copy_to_cold(batch_size: usize) {
         last_hash = *block.hash();
     }
 
+    let keep_going = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+
     copy_all_data_to_cold(
         (*store.cold_db().unwrap()).clone(),
         &env.clients[0].runtime_adapter.store(),
         batch_size,
+        &keep_going,
     )
     .unwrap();
 
     for col in DBCol::iter() {
-        if col.is_cold() {
-            let num_checks = check_iter(
-                &env.clients[0].runtime_adapter.store(),
-                &store.get_store(Temperature::Cold),
-                col,
-                &vec![],
-            );
-            if col == DBCol::StateChangesForSplitStates || col == DBCol::StateHeaders {
-                continue;
-            }
-            // assert that this test actually checks something
-            assert!(num_checks > 0);
-            if batch_size == 0 {
-                assert_eq!(num_checks, test_get_store_initial_writes(col));
-            } else if batch_size == usize::MAX {
-                assert_eq!(1, test_get_store_initial_writes(col));
-            }
+        if !col.is_cold() {
+            continue;
+        }
+        let num_checks = check_iter(
+            &env.clients[0].runtime_adapter.store(),
+            &store.get_cold_store().unwrap(),
+            col,
+            &vec![],
+        );
+        // StateChangesForSplitStates and StateHeaders are empty
+        if col == DBCol::StateChangesForSplitStates || col == DBCol::StateHeaders {
+            continue;
+        }
+        // assert that this test actually checks something
+        assert!(num_checks > 0);
+        if batch_size == 0 {
+            assert_eq!(num_checks, test_get_store_initial_writes(col));
+        } else if batch_size == usize::MAX {
+            assert_eq!(1, test_get_store_initial_writes(col));
         }
     }
 }

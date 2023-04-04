@@ -1,23 +1,20 @@
 use std::cmp::min;
-
 use std::time::Duration as TimeDuration;
 
-use chrono::{DateTime, Duration};
+use chrono::{DateTime, Duration, Utc};
 use near_async::messaging::CanSend;
-use rand::seq::SliceRandom;
-use rand::thread_rng;
-use tracing::{debug, warn};
-
 use near_chain::{Chain, ChainStoreAccess};
+use near_client_primitives::types::SyncStatus;
+use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter};
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
-use near_primitives::time::{Clock, Utc};
+use near_primitives::static_clock::StaticClock;
 use near_primitives::types::BlockHeight;
 use near_primitives::utils::to_timestamp;
-
-use near_client_primitives::types::SyncStatus;
-use near_network::types::PeerManagerMessageRequest;
+use rand::seq::SliceRandom;
+use rand::thread_rng;
+use tracing::{debug, warn};
 
 /// Maximum number of block headers send over the network.
 pub const MAX_BLOCK_HEADERS: u64 = 512;
@@ -51,7 +48,7 @@ impl HeaderSync {
     ) -> Self {
         HeaderSync {
             network_adapter,
-            prev_header_sync: (Clock::utc(), 0, 0, 0),
+            prev_header_sync: (StaticClock::utc(), 0, 0, 0),
             syncing_peer: None,
             stalling_ts: None,
             initial_timeout: Duration::from_std(initial_timeout).unwrap(),
@@ -125,7 +122,7 @@ impl HeaderSync {
         header_head: &Tip,
         highest_height: BlockHeight,
     ) -> bool {
-        let now = Clock::utc();
+        let now = StaticClock::utc();
         let (timeout, old_expected_height, prev_height, prev_highest_height) =
             self.prev_header_sync;
 
@@ -645,7 +642,7 @@ mod test {
 
         let vs = ValidatorSchedule::new()
             .block_producers_per_epoch(vec![vec!["test0".parse().unwrap()]]);
-        let genesis_time = Clock::utc();
+        let genesis_time = StaticClock::utc();
         // Don't bother with epoch switches. It's not relevant.
         let (mut chain, _, _) =
             setup_with_validators_and_start_time(vs.clone(), 10000, 100, genesis_time);

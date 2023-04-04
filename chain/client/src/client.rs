@@ -1,23 +1,16 @@
 //! Client is responsible for tracking the chain, chunks, and producing them when needed.
 //! This client works completely synchronously and must be operated by some async actor outside.
 
-use std::cmp::max;
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-
+use crate::adapter::ProcessTxResponse;
+use crate::debug::BlockProductionTracker;
+use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
+use crate::sync::block::BlockSync;
+use crate::sync::epoch::EpochSync;
+use crate::sync::header::HeaderSync;
+use crate::sync::state::{StateSync, StateSyncResult};
+use crate::{metrics, SyncStatus};
 use lru::LruCache;
 use near_async::messaging::{CanSend, Sender};
-use near_chunks::adapter::ShardsManagerRequestFromClient;
-use near_chunks::client::ShardedTransactionPool;
-use near_chunks::logic::{
-    cares_about_shard_this_or_next_epoch, decode_encoded_chunk, persist_chunk,
-};
-use near_client_primitives::debug::ChunkProduction;
-use near_primitives::time::Clock;
-use near_store::metadata::DbKind;
-use tracing::{debug, error, info, trace, warn};
-
 use near_chain::chain::{
     ApplyStatePartsRequest, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
     OrphanMissingChunks, StateSplitRequest, TX_ROUTING_HEIGHT_HORIZON,
@@ -30,43 +23,48 @@ use near_chain::{
     DoneApplyChunkCallback, Doomslug, DoomslugThresholdMode, Provenance,
     RuntimeWithEpochManagerAdapter,
 };
-use near_chain_configs::{ClientConfig, UpdateableClientConfig};
+use near_chain_configs::{ClientConfig, LogSummaryStyle, UpdateableClientConfig};
+use near_chunks::adapter::ShardsManagerRequestFromClient;
+use near_chunks::client::ShardedTransactionPool;
+use near_chunks::logic::{
+    cares_about_shard_this_or_next_epoch, decode_encoded_chunk, persist_chunk,
+};
 use near_chunks::ShardsManager;
+use near_client_primitives::debug::ChunkProduction;
+use near_client_primitives::types::{Error, ShardSyncDownload, ShardSyncStatus};
+use near_network::types::{AccountKeys, ChainInfo, PeerManagerMessageRequest, SetChainInfo};
 use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter, ReasonForBan,
 };
+use near_o11y::log_assert;
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
+use near_primitives::block_header::ApprovalType;
 use near_primitives::challenge::{Challenge, ChallengeBody};
+use near_primitives::epoch_manager::RngSeed;
+use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
+use near_primitives::network::PeerId;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReedSolomonWrapper, ShardChunk,
     ShardChunkHeader, ShardInfo,
 };
+use near_primitives::static_clock::StaticClock;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, NumBlocks, ShardId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
-
-use crate::adapter::ProcessTxResponse;
-use crate::debug::BlockProductionTracker;
-use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
-use crate::sync::block::BlockSync;
-use crate::sync::epoch::EpochSync;
-use crate::sync::header::HeaderSync;
-use crate::sync::state::{StateSync, StateSyncResult};
-use crate::{metrics, SyncStatus};
-use near_client_primitives::types::{Error, ShardSyncDownload, ShardSyncStatus};
-use near_network::types::{AccountKeys, ChainInfo, PeerManagerMessageRequest, SetChainInfo};
-use near_o11y::log_assert;
-use near_primitives::block_header::ApprovalType;
-use near_primitives::epoch_manager::RngSeed;
-use near_primitives::network::PeerId;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{CatchupStatusView, DroppedReason};
+use near_store::metadata::DbKind;
+use std::cmp::max;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tracing::{debug, error, info, trace, warn};
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 const CHUNK_HEADERS_FOR_INCLUSION_CACHE_SIZE: usize = 2048;
@@ -242,8 +240,12 @@ impl Client {
             config.header_sync_stall_ban_timeout,
             config.header_sync_expected_height_per_second,
         );
-        let block_sync =
-            BlockSync::new(network_adapter.clone(), config.block_fetch_horizon, config.archive);
+        let block_sync = BlockSync::new(
+            network_adapter.clone(),
+            config.block_fetch_horizon,
+            config.archive,
+            config.state_sync_enabled,
+        );
         let state_sync = StateSync::new(network_adapter.clone(), config.state_sync_timeout);
         let num_block_producer_seats = config.num_block_producer_seats as usize;
         let data_parts = runtime_adapter.num_data_parts();
@@ -293,7 +295,7 @@ impl Client {
             challenges: Default::default(),
             rs_for_chunk_production: ReedSolomonWrapper::new(data_parts, parity_parts),
             rebroadcasted_blocks: lru::LruCache::new(NUM_REBROADCAST_BLOCKS),
-            last_time_head_progress_made: Clock::instant(),
+            last_time_head_progress_made: StaticClock::instant(),
             block_production_info: BlockProductionTracker::new(),
             chunk_production_info: lru::LruCache::new(PRODUCTION_TIMES_CACHE_SIZE),
             tier1_accounts_cache: None,
@@ -304,14 +306,14 @@ impl Client {
     // Checks if it's been at least `stall_timeout` since the last time the head was updated, or
     // this method was called. If yes, rebroadcasts the current head.
     pub fn check_head_progress_stalled(&mut self, stall_timeout: Duration) -> Result<(), Error> {
-        if Clock::instant() > self.last_time_head_progress_made + stall_timeout
+        if StaticClock::instant() > self.last_time_head_progress_made + stall_timeout
             && !self.sync_status.is_syncing()
         {
             let block = self.chain.get_block(&self.chain.head()?.last_block_hash)?;
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::Block { block: block },
             ));
-            self.last_time_head_progress_made = Clock::instant();
+            self.last_time_head_progress_made = StaticClock::instant();
         }
         Ok(())
     }
@@ -610,7 +612,7 @@ impl Client {
         };
 
         #[cfg(feature = "sandbox")]
-        let timestamp_override = Some(Clock::utc() + self.sandbox_delta_time());
+        let timestamp_override = Some(StaticClock::utc() + self.sandbox_delta_time());
         #[cfg(not(feature = "sandbox"))]
         let timestamp_override = None;
 
@@ -833,7 +835,7 @@ impl Client {
         self.chunk_production_info.put(
             (next_height, shard_id),
             ChunkProduction {
-                chunk_production_time: Some(Clock::utc()),
+                chunk_production_time: Some(StaticClock::utc()),
                 chunk_production_duration_millis: Some(timer.elapsed().as_millis() as u64),
             },
         );
@@ -979,7 +981,11 @@ impl Client {
         was_requested: bool,
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) -> Result<(), near_chain::Error> {
-        self.chain.blocks_delay_tracker.mark_block_received(&block, Clock::instant(), Clock::utc());
+        self.chain.blocks_delay_tracker.mark_block_received(
+            &block,
+            StaticClock::instant(),
+            StaticClock::utc(),
+        );
         // To protect ourselves from spamming, we do some pre-check on block height before we do any
         // real processing.
         if !self.check_block_height(&block, was_requested)? {
@@ -1256,7 +1262,7 @@ impl Client {
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) {
         let chunk_header = partial_chunk.cloned_header();
-        self.chain.blocks_delay_tracker.mark_chunk_completed(&chunk_header, Clock::utc());
+        self.chain.blocks_delay_tracker.mark_chunk_completed(&chunk_header, StaticClock::utc());
         self.block_production_info
             .record_chunk_collected(partial_chunk.height_created(), partial_chunk.shard_id());
         persist_chunk(partial_chunk, shard_chunk, self.chain.mut_store())
@@ -1319,7 +1325,7 @@ impl Client {
                 self.chain.get_block_header(&last_final_hash)?.height()
             };
             self.doomslug.set_tip(
-                Clock::instant(),
+                StaticClock::instant(),
                 tip.last_block_hash,
                 tip.height,
                 last_final_height,
@@ -1340,7 +1346,12 @@ impl Client {
         } else {
             self.chain.get_block_header(&last_final_hash)?.height()
         };
-        self.doomslug.set_tip(Clock::instant(), tip.last_block_hash, height, last_final_height);
+        self.doomslug.set_tip(
+            StaticClock::instant(),
+            tip.last_block_hash,
+            height,
+            last_final_height,
+        );
 
         Ok(())
     }
@@ -1445,7 +1456,7 @@ impl Client {
             // send_network_chain_info should be called whenever the chain head changes.
             // See send_network_chain_info() for more details.
             if let Err(err) = self.send_network_chain_info() {
-                error!(target:"client","Failed to update network chain info: {err}");
+                error!(target: "client", ?err, "Failed to update network chain info");
             }
         }
 
@@ -1595,7 +1606,7 @@ impl Client {
         blocks_missing_chunks: Vec<BlockMissingChunks>,
         orphans_missing_chunks: Vec<OrphanMissingChunks>,
     ) {
-        let now = Clock::utc();
+        let now = StaticClock::utc();
         for BlockMissingChunks { prev_hash, missing_chunks } in blocks_missing_chunks {
             for chunk in &missing_chunks {
                 self.chain.blocks_delay_tracker.mark_chunk_requested(chunk, now);
@@ -1748,7 +1759,7 @@ impl Client {
         let next_block_epoch_id =
             match self.runtime_adapter.get_epoch_id_from_prev_block(&parent_hash) {
                 Err(e) => {
-                    self.handle_process_approval_error(approval, approval_type, true, e);
+                    self.handle_process_approval_error(approval, approval_type, true, e.into());
                     return;
                 }
                 Ok(next_epoch_id) => next_epoch_id,
@@ -1769,7 +1780,7 @@ impl Client {
                 account_id,
             ) {
                 Ok(_) => next_block_epoch_id.clone(),
-                Err(near_chain::Error::NotAValidator) => {
+                Err(EpochError::NotAValidator(_, _)) => {
                     match self.runtime_adapter.get_next_epoch_id_from_prev_block(&parent_hash) {
                         Ok(next_block_next_epoch_id) => next_block_next_epoch_id,
                         Err(_) => return,
@@ -1822,7 +1833,7 @@ impl Client {
                     return;
                 }
             };
-        self.doomslug.on_approval_message(Clock::instant(), approval, &block_producer_stakes);
+        self.doomslug.on_approval_message(StaticClock::instant(), approval, &block_producer_stakes);
     }
 
     /// Forwards given transaction to upcoming validators.
@@ -2117,6 +2128,7 @@ impl Client {
                 "Catchup me: {:?}: sync_hash: {:?}, sync_info: {:?}", me, sync_hash, new_shard_sync
             );
 
+            let use_colour = matches!(self.config.log_summary_style, LogSummaryStyle::Colored);
             match state_sync.run(
                 me,
                 sync_hash,
@@ -2127,6 +2139,7 @@ impl Client {
                 state_sync_info.shards.iter().map(|tuple| tuple.0).collect(),
                 state_parts_task_scheduler,
                 state_split_scheduler,
+                use_colour,
             )? {
                 StateSyncResult::Unchanged => {}
                 StateSyncResult::Changed(fetch_block) => {

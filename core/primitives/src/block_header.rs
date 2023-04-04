@@ -2,14 +2,13 @@ use crate::challenge::ChallengesResult;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::combine_hash;
 use crate::network::PeerId;
-use crate::time::Utc;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
 use crate::types::{AccountId, Balance, BlockHeight, EpochId, MerkleHash, NumBlocks};
 use crate::utils::{from_timestamp, to_timestamp};
 use crate::validator_signer::ValidatorSigner;
 use crate::version::{get_protocol_version, ProtocolVersion, PROTOCOL_VERSION};
 use borsh::{BorshDeserialize, BorshSerialize};
-use chrono::DateTime;
+use chrono::{DateTime, Utc};
 use near_crypto::{KeyType, PublicKey, Signature};
 use std::sync::Arc;
 

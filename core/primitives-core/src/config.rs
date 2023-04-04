@@ -1,5 +1,5 @@
 use crate::parameter::Parameter;
-use crate::types::Gas;
+use crate::types::{Compute, Gas};
 use enum_map::{enum_map, EnumMap};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -35,19 +35,18 @@ pub struct VMLimitConfig {
 
     /// How tall the stack is allowed to grow?
     ///
-    /// See <https://wiki.parity.io/WebAssembly-StackHeight> to find out
-    /// how the stack frame cost is calculated.
+    /// See <https://wiki.parity.io/WebAssembly-StackHeight> to find out how the stack frame cost
+    /// is calculated.
     pub max_stack_height: u32,
     /// Whether a legacy version of stack limiting should be used, see
-    /// [`StackLimiterVersion`].
-    #[serde(default = "StackLimiterVersion::v0")]
-    pub stack_limiter_version: StackLimiterVersion,
+    /// [`ContractPrepareVersion`].
+    #[serde(default = "ContractPrepareVersion::v0")]
+    pub contract_prepare_version: ContractPrepareVersion,
 
     /// The initial number of memory pages.
     /// NOTE: It's not a limiter itself, but it's a value we use for initial_memory_pages.
     pub initial_memory_pages: u32,
-    /// What is the maximal memory pages amount is allowed to have for
-    /// a contract.
+    /// What is the maximal memory pages amount is allowed to have for a contract.
     pub max_memory_pages: u32,
 
     /// Limit of memory used by registers.
@@ -131,16 +130,16 @@ fn wasmer2_stack_limit_default() -> i32 {
     serde_repr::Deserialize_repr,
 )]
 #[repr(u8)]
-pub enum StackLimiterVersion {
+pub enum ContractPrepareVersion {
     /// Old, buggy version, don't use it unless specifically to support old protocol version.
     V0,
     /// What we use in today's protocol.
     V1,
 }
 
-impl StackLimiterVersion {
-    pub fn v0() -> StackLimiterVersion {
-        StackLimiterVersion::V0
+impl ContractPrepareVersion {
+    pub fn v0() -> ContractPrepareVersion {
+        ContractPrepareVersion::V0
     }
 }
 
@@ -206,7 +205,7 @@ impl VMLimitConfig {
             // NOTE: Stack height has to be 16K, otherwise Wasmer produces non-deterministic results.
             // For experimentation try `test_stack_overflow`.
             max_stack_height: 16 * 1024, // 16Kib of stack.
-            stack_limiter_version: StackLimiterVersion::V1,
+            contract_prepare_version: ContractPrepareVersion::V1,
             initial_memory_pages: 2u32.pow(10), // 64Mib of memory.
             max_memory_pages: 2u32.pow(11),     // 128Mib of memory.
 
@@ -261,8 +260,14 @@ pub struct ViewConfig {
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct ParameterCost {
+    pub gas: Gas,
+    pub compute: Compute,
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct ExtCostsConfig {
-    pub costs: EnumMap<ExtCosts, Gas>,
+    pub costs: EnumMap<ExtCosts, ParameterCost>,
 }
 
 // We multiply the actual computed costs by the fixed factor to ensure we
@@ -270,13 +275,17 @@ pub struct ExtCostsConfig {
 const SAFETY_MULTIPLIER: u64 = 3;
 
 impl ExtCostsConfig {
-    pub fn cost(&self, param: ExtCosts) -> Gas {
-        self.costs[param]
+    pub fn gas_cost(&self, param: ExtCosts) -> Gas {
+        self.costs[param].gas
+    }
+
+    pub fn compute_cost(&self, param: ExtCosts) -> Compute {
+        self.costs[param].compute
     }
 
     /// Convenience constructor to use in tests where the exact gas cost does
     /// not need to correspond to a specific protocol version.
-    pub fn test() -> ExtCostsConfig {
+    pub fn test_with_undercharging_factor(factor: u64) -> ExtCostsConfig {
         let costs = enum_map! {
             ExtCosts::base => SAFETY_MULTIPLIER * 88256037,
             ExtCosts::contract_loading_base => SAFETY_MULTIPLIER * 11815321,
@@ -341,14 +350,20 @@ impl ExtCostsConfig {
             ExtCosts::alt_bn128_pairing_check_element => 5_102_000_000_000,
             ExtCosts::alt_bn128_g1_sum_base => 3_000_000_000,
             ExtCosts::alt_bn128_g1_sum_element => 5_000_000_000,
-        };
+        }
+        .map(|_, value| ParameterCost { gas: value, compute: value * factor });
         ExtCostsConfig { costs }
+    }
+
+    /// `test_with_undercharging_factor` with a factor of 1.
+    pub fn test() -> ExtCostsConfig {
+        Self::test_with_undercharging_factor(1)
     }
 
     fn free() -> ExtCostsConfig {
         ExtCostsConfig {
             costs: enum_map! {
-                _ => 0
+                _ => ParameterCost { gas: 0, compute: 0 }
             },
         }
     }
@@ -471,8 +486,12 @@ pub enum ActionCosts {
 }
 
 impl ExtCosts {
-    pub fn value(self, config: &ExtCostsConfig) -> Gas {
-        config.cost(self)
+    pub fn gas(self, config: &ExtCostsConfig) -> Gas {
+        config.gas_cost(self)
+    }
+
+    pub fn compute(self, config: &ExtCostsConfig) -> Compute {
+        config.compute_cost(self)
     }
 
     pub fn param(&self) -> Parameter {

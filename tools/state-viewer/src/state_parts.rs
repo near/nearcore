@@ -1,25 +1,117 @@
 use crate::epoch_info::iterate_and_filter;
-use clap::Subcommand;
-use near_chain::types::RuntimeAdapter;
-use near_chain::{ChainStore, ChainStoreAccess};
-use near_epoch_manager::EpochManager;
+use borsh::BorshDeserialize;
+use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
+use near_client::sync::state::StateSync;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::state_part::PartId;
+use near_primitives::state_record::StateRecord;
 use near_primitives::syncing::get_num_state_parts;
-use near_primitives::types::EpochId;
+use near_primitives::types::{EpochId, StateRoot};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{BlockHeight, EpochHeight, ShardId};
-use near_store::Store;
+use near_store::{PartialStorage, Store, Trie};
 use nearcore::{NearConfig, NightshadeRuntime};
 use s3::serde_types::ListBucketResult;
 use std::fs::DirEntry;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::sync::Arc;
 use std::time::Instant;
 
-#[derive(Subcommand, Debug, Clone)]
+#[derive(clap::Subcommand, Debug, Clone)]
+pub(crate) enum StatePartsSubCommand {
+    /// Apply all or a single state part of a shard.
+    Apply {
+        /// If true, validate the state part but don't write it to the DB.
+        #[clap(long)]
+        dry_run: bool,
+        /// If provided, this value will be used instead of looking it up in the headers.
+        /// Use if those headers or blocks are not available.
+        #[clap(long)]
+        state_root: Option<StateRoot>,
+        /// Choose a single part id.
+        /// If None - affects all state parts.
+        #[clap(long)]
+        part_id: Option<u64>,
+        /// Select an epoch to work on.
+        #[clap(subcommand)]
+        epoch_selection: EpochSelection,
+    },
+    /// Dump all or a single state part of a shard.
+    Dump {
+        /// Dump part ids starting from this part.
+        #[clap(long)]
+        part_from: Option<u64>,
+        /// Dump part ids up to this part (exclusive).
+        #[clap(long)]
+        part_to: Option<u64>,
+        /// Select an epoch to work on.
+        #[clap(subcommand)]
+        epoch_selection: EpochSelection,
+    },
+    /// Read State Header from the DB
+    ReadStateHeader {
+        /// Select an epoch to work on.
+        #[clap(subcommand)]
+        epoch_selection: EpochSelection,
+    },
+}
+
+impl StatePartsSubCommand {
+    pub(crate) fn run(
+        self,
+        shard_id: ShardId,
+        root_dir: Option<PathBuf>,
+        s3_bucket: Option<String>,
+        s3_region: Option<String>,
+        home_dir: &Path,
+        near_config: NearConfig,
+        store: Store,
+    ) {
+        let runtime = NightshadeRuntime::from_config(home_dir, store.clone(), &near_config);
+        let chain_genesis = ChainGenesis::new(&near_config.genesis);
+        let mut chain = Chain::new_for_view_client(
+            runtime,
+            &chain_genesis,
+            DoomslugThresholdMode::TwoThirds,
+            false,
+        )
+        .unwrap();
+        let chain_id = &near_config.genesis.config.chain_id;
+        match self {
+            StatePartsSubCommand::Apply { dry_run, state_root, part_id, epoch_selection } => {
+                apply_state_parts(
+                    epoch_selection,
+                    shard_id,
+                    part_id,
+                    dry_run,
+                    state_root,
+                    &mut chain,
+                    chain_id,
+                    store,
+                    Location::new(root_dir, (s3_bucket, s3_region)),
+                );
+            }
+            StatePartsSubCommand::Dump { part_from, part_to, epoch_selection } => {
+                dump_state_parts(
+                    epoch_selection,
+                    shard_id,
+                    part_from,
+                    part_to,
+                    &chain,
+                    chain_id,
+                    store,
+                    Location::new(root_dir, (s3_bucket, s3_region)),
+                );
+            }
+            StatePartsSubCommand::ReadStateHeader { epoch_selection } => {
+                read_state_header(epoch_selection, shard_id, &chain, store)
+            }
+        }
+    }
+}
+
+#[derive(clap::Subcommand, Debug, Clone)]
 pub(crate) enum EpochSelection {
     /// Current epoch.
     Current,
@@ -34,15 +126,10 @@ pub(crate) enum EpochSelection {
 }
 
 impl EpochSelection {
-    pub fn to_epoch_id(
-        &self,
-        store: Store,
-        chain_store: &ChainStore,
-        epoch_manager: &EpochManager,
-    ) -> EpochId {
+    fn to_epoch_id(&self, store: Store, chain: &Chain) -> EpochId {
         match self {
             EpochSelection::Current => {
-                epoch_manager.get_epoch_id(&chain_store.head().unwrap().last_block_hash).unwrap()
+                chain.runtime_adapter.get_epoch_id(&chain.head().unwrap().last_block_hash).unwrap()
             }
             EpochSelection::EpochId { epoch_id } => {
                 EpochId(CryptoHash::from_str(&epoch_id).unwrap())
@@ -59,24 +146,24 @@ impl EpochSelection {
             }
             EpochSelection::BlockHash { block_hash } => {
                 let block_hash = CryptoHash::from_str(&block_hash).unwrap();
-                epoch_manager.get_epoch_id(&block_hash).unwrap()
+                chain.runtime_adapter.get_epoch_id(&block_hash).unwrap()
             }
             EpochSelection::BlockHeight { block_height } => {
                 // Fetch an epoch containing the given block height.
-                let block_hash = chain_store.get_block_hash_by_height(*block_height).unwrap();
-                epoch_manager.get_epoch_id(&block_hash).unwrap()
+                let block_hash = chain.store().get_block_hash_by_height(*block_height).unwrap();
+                chain.runtime_adapter.get_epoch_id(&block_hash).unwrap()
             }
         }
     }
 }
 
-pub(crate) enum Location {
+enum Location {
     Files(PathBuf),
     S3 { bucket: String, region: String },
 }
 
 impl Location {
-    pub(crate) fn new(
+    fn new(
         root_dir: Option<PathBuf>,
         s3_bucket_and_region: (Option<String>, Option<String>),
     ) -> Self {
@@ -99,21 +186,18 @@ impl Location {
     }
 }
 
-/// Returns block hash of the last block of an epoch preceding the given `epoch_info`.
-fn get_prev_hash_of_epoch(
-    epoch_info: &EpochInfo,
-    chain_store: &ChainStore,
-    epoch_manager: &EpochManager,
-) -> CryptoHash {
-    let head = chain_store.head().unwrap();
-    let mut cur_block_info = epoch_manager.get_block_info(&head.last_block_hash).unwrap();
+/// Returns block hash of some block of the given `epoch_info` epoch.
+fn get_any_block_hash_of_epoch(epoch_info: &EpochInfo, chain: &Chain) -> CryptoHash {
+    let head = chain.store().head().unwrap();
+    let mut cur_block_info = chain.runtime_adapter.get_block_info(&head.last_block_hash).unwrap();
     // EpochManager doesn't have an API that maps EpochId to Blocks, and this function works
     // around that limitation by iterating over the epochs.
     // This workaround is acceptable because:
     // 1) Extending EpochManager's API is a major change.
     // 2) This use case is not critical at all.
     loop {
-        let cur_epoch_info = epoch_manager.get_epoch_info(cur_block_info.epoch_id()).unwrap();
+        let cur_epoch_info =
+            chain.runtime_adapter.get_epoch_info(cur_block_info.epoch_id()).unwrap();
         let cur_epoch_height = cur_epoch_info.epoch_height();
         assert!(
             cur_epoch_height >= epoch_info.epoch_height(),
@@ -122,195 +206,227 @@ fn get_prev_hash_of_epoch(
             epoch_info.epoch_height()
         );
         let epoch_first_block_info =
-            epoch_manager.get_block_info(cur_block_info.epoch_first_block()).unwrap();
+            chain.runtime_adapter.get_block_info(cur_block_info.epoch_first_block()).unwrap();
         let prev_epoch_last_block_info =
-            epoch_manager.get_block_info(epoch_first_block_info.prev_hash()).unwrap();
+            chain.runtime_adapter.get_block_info(epoch_first_block_info.prev_hash()).unwrap();
 
         if cur_epoch_height == epoch_info.epoch_height() {
-            return *prev_epoch_last_block_info.hash();
+            return *cur_block_info.hash();
         }
 
         cur_block_info = prev_epoch_last_block_info;
     }
 }
 
-pub(crate) fn apply_state_parts(
+fn apply_state_parts(
     epoch_selection: EpochSelection,
     shard_id: ShardId,
     part_id: Option<u64>,
-    home_dir: &Path,
-    near_config: NearConfig,
+    dry_run: bool,
+    maybe_state_root: Option<StateRoot>,
+    chain: &mut Chain,
+    chain_id: &str,
     store: Store,
     location: Location,
 ) {
-    let runtime_adapter: Arc<dyn RuntimeAdapter> =
-        Arc::new(NightshadeRuntime::from_config(home_dir, store.clone(), &near_config));
-    let epoch_manager =
-        EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)
-            .expect("Failed to start Epoch Manager");
-    let chain_store = ChainStore::new(
-        store.clone(),
-        near_config.genesis.config.genesis_height,
-        near_config.client_config.save_trie_changes,
-    );
+    let (state_root, epoch_height, epoch_id, sync_hash) =
+        if let (Some(state_root), EpochSelection::EpochHeight { epoch_height }) =
+            (maybe_state_root, &epoch_selection)
+        {
+            (state_root, *epoch_height, None, None)
+        } else {
+            let epoch_id = epoch_selection.to_epoch_id(store, &chain);
+            let epoch = chain.runtime_adapter.get_epoch_info(&epoch_id).unwrap();
 
-    let epoch_id = epoch_selection.to_epoch_id(store, &chain_store, &epoch_manager);
-    let epoch = epoch_manager.get_epoch_info(&epoch_id).unwrap();
-    let sync_prev_hash = get_prev_hash_of_epoch(&epoch, &chain_store, &epoch_manager);
-    let sync_prev_block = chain_store.get_block(&sync_prev_hash).unwrap();
+            let sync_hash = get_any_block_hash_of_epoch(&epoch, &chain);
+            let sync_hash = StateSync::get_epoch_start_sync_hash(&chain, &sync_hash).unwrap();
 
-    assert!(epoch_manager.is_next_block_epoch_start(&sync_prev_hash).unwrap());
-    assert!(
-        shard_id < sync_prev_block.chunks().len() as u64,
-        "shard_id: {}, #shards: {}",
-        shard_id,
-        sync_prev_block.chunks().len()
-    );
-    let state_root = sync_prev_block.chunks()[shard_id as usize].prev_state_root();
+            let state_header = chain.get_state_response_header(shard_id, sync_hash).unwrap();
+            let state_root = state_header.chunk_prev_state_root();
 
-    let part_storage = get_state_part_reader(
-        location,
-        &near_config.client_config.chain_id,
-        epoch.epoch_height(),
-        shard_id,
-    );
+            (state_root, epoch.epoch_height(), Some(epoch_id), Some(sync_hash))
+        };
+
+    let part_storage = get_state_part_reader(location, &chain_id, epoch_height, shard_id);
+
     let num_parts = part_storage.num_parts();
+    assert_ne!(num_parts, 0, "Too few num_parts: {}", num_parts);
+    let part_ids = get_part_ids(part_id, part_id.map(|x| x + 1), num_parts);
     tracing::info!(
         target: "state-parts",
-        epoch_height = epoch.epoch_height(),
-        epoch_id = ?epoch_id.0,
+        epoch_height,
         shard_id,
         num_parts,
-        ?sync_prev_hash,
-        part_id = format_part_id(part_id),
+        ?sync_hash,
+        ?part_ids,
         "Applying state as seen at the beginning of the specified epoch.",
     );
 
     let timer = Instant::now();
-    for part_id in get_part_ids(part_id, num_parts) {
+    for part_id in part_ids {
         let timer = Instant::now();
         assert!(part_id < num_parts, "part_id: {}, num_parts: {}", part_id, num_parts);
-        let part = part_storage.read(part_id);
-        runtime_adapter
-            .apply_state_part(
-                shard_id,
+        let part = part_storage.read(part_id, num_parts);
+
+        if dry_run {
+            assert!(chain.runtime_adapter.validate_state_part(
                 &state_root,
                 PartId::new(part_id, num_parts),
-                &part,
-                &epoch_id,
-            )
-            .unwrap();
-        tracing::info!(target: "state-parts", part_id, part_length = part.len(), elapsed_sec = timer.elapsed().as_secs_f64(), "Applied a state part");
+                &part
+            ));
+            tracing::info!(target: "state-parts", part_id, part_length = part.len(), elapsed_sec = timer.elapsed().as_secs_f64(), "Validated a state part");
+        } else {
+            chain
+                .set_state_part(
+                    shard_id,
+                    sync_hash.unwrap(),
+                    PartId::new(part_id, num_parts),
+                    &part,
+                )
+                .unwrap();
+            chain
+                .runtime_adapter
+                .apply_state_part(
+                    shard_id,
+                    &state_root,
+                    PartId::new(part_id, num_parts),
+                    &part,
+                    epoch_id.as_ref().unwrap(),
+                )
+                .unwrap();
+            tracing::info!(target: "state-parts", part_id, part_length = part.len(), elapsed_sec = timer.elapsed().as_secs_f64(), "Applied a state part");
+        }
     }
     tracing::info!(target: "state-parts", total_elapsed_sec = timer.elapsed().as_secs_f64(), "Applied all requested state parts");
 }
 
-pub(crate) fn dump_state_parts(
+fn dump_state_parts(
     epoch_selection: EpochSelection,
     shard_id: ShardId,
-    part_id: Option<u64>,
-    home_dir: &Path,
-    near_config: NearConfig,
+    part_from: Option<u64>,
+    part_to: Option<u64>,
+    chain: &Chain,
+    chain_id: &str,
     store: Store,
     location: Location,
 ) {
-    let runtime_adapter: Arc<dyn RuntimeAdapter> =
-        Arc::new(NightshadeRuntime::from_config(home_dir, store.clone(), &near_config));
-    let epoch_manager =
-        EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)
-            .expect("Failed to start Epoch Manager");
-    let chain_store = ChainStore::new(
-        store.clone(),
-        near_config.genesis.config.genesis_height,
-        near_config.client_config.save_trie_changes,
-    );
+    let epoch_id = epoch_selection.to_epoch_id(store, &chain);
+    let epoch = chain.runtime_adapter.get_epoch_info(&epoch_id).unwrap();
+    let sync_hash = get_any_block_hash_of_epoch(&epoch, &chain);
+    let sync_hash = StateSync::get_epoch_start_sync_hash(&chain, &sync_hash).unwrap();
 
-    let epoch_id = epoch_selection.to_epoch_id(store, &chain_store, &epoch_manager);
-    let epoch = epoch_manager.get_epoch_info(&epoch_id).unwrap();
-    let sync_prev_hash = get_prev_hash_of_epoch(&epoch, &chain_store, &epoch_manager);
-    let sync_prev_block = chain_store.get_block(&sync_prev_hash).unwrap();
+    let state_header = chain.compute_state_response_header(shard_id, sync_hash).unwrap();
+    let state_root = state_header.chunk_prev_state_root();
+    let num_parts = get_num_state_parts(state_header.state_root_node().memory_usage);
+    let part_ids = get_part_ids(part_from, part_to, num_parts);
 
-    assert!(epoch_manager.is_next_block_epoch_start(&sync_prev_hash).unwrap());
-    assert!(
-        shard_id < sync_prev_block.chunks().len() as u64,
-        "shard_id: {}, #shards: {}",
-        shard_id,
-        sync_prev_block.chunks().len()
-    );
-    let state_root = sync_prev_block.chunks()[shard_id as usize].prev_state_root();
-    let state_root_node =
-        runtime_adapter.get_state_root_node(shard_id, &sync_prev_hash, &state_root).unwrap();
-
-    let num_parts = get_num_state_parts(state_root_node.memory_usage);
     tracing::info!(
         target: "state-parts",
         epoch_height = epoch.epoch_height(),
         epoch_id = ?epoch_id.0,
         shard_id,
         num_parts,
-        ?sync_prev_hash,
-        part_id = format_part_id(part_id),
+        ?sync_hash,
+        ?part_ids,
+        ?state_root,
         "Dumping state as seen at the beginning of the specified epoch.",
     );
 
-    let part_storage = get_state_part_writer(
-        location,
-        &near_config.client_config.chain_id,
-        epoch.epoch_height(),
-        shard_id,
-    );
+    let part_storage = get_state_part_writer(location, chain_id, epoch.epoch_height(), shard_id);
 
     let timer = Instant::now();
-    for part_id in get_part_ids(part_id, num_parts) {
+    for part_id in part_ids {
         let timer = Instant::now();
         assert!(part_id < num_parts, "part_id: {}, num_parts: {}", part_id, num_parts);
-        let state_part = runtime_adapter
-            .obtain_state_part(
-                shard_id,
-                &sync_prev_hash,
-                &state_root,
-                PartId::new(part_id, num_parts),
-            )
+        let state_part = chain
+            .runtime_adapter
+            .obtain_state_part(shard_id, &sync_hash, &state_root, PartId::new(part_id, num_parts))
             .unwrap();
-        part_storage.write(&state_part, part_id);
-        tracing::info!(target: "state-parts", part_id, part_length = state_part.len(), elapsed_sec = timer.elapsed().as_secs_f64(), "Wrote a state part");
+        part_storage.write(&state_part, part_id, num_parts);
+        let elapsed_sec = timer.elapsed().as_secs_f64();
+        let first_state_record = get_first_state_record(&state_root, &state_part);
+        tracing::info!(
+            target: "state-parts",
+            part_id,
+            part_length = state_part.len(),
+            elapsed_sec,
+            ?first_state_record,
+            "Wrote a state part");
     }
     tracing::info!(target: "state-parts", total_elapsed_sec = timer.elapsed().as_secs_f64(), "Wrote all requested state parts");
 }
 
-fn format_part_id(part_id: Option<u64>) -> String {
-    match part_id {
-        Some(part_id) => part_id.to_string(),
-        None => "<all_parts>".to_string(),
+/// Returns the first `StateRecord` encountered while iterating over a sub-trie in the state part.
+fn get_first_state_record(state_root: &StateRoot, data: &[u8]) -> Option<StateRecord> {
+    let trie_nodes = BorshDeserialize::try_from_slice(data).unwrap();
+    let trie = Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes }, *state_root);
+
+    for item in trie.iter().unwrap() {
+        if let Ok((key, value)) = item {
+            if let Some(sr) = StateRecord::from_raw_key_value(key, value) {
+                return Some(sr);
+            }
+        }
     }
+    None
 }
 
-fn get_part_ids(part_id: Option<u64>, num_parts: u64) -> Range<u64> {
-    match part_id {
-        Some(part_id) => part_id..(part_id + 1),
-        None => 0..num_parts,
-    }
+/// Reads `StateHeader` stored in the DB.
+fn read_state_header(
+    epoch_selection: EpochSelection,
+    shard_id: ShardId,
+    chain: &Chain,
+    store: Store,
+) {
+    let epoch_id = epoch_selection.to_epoch_id(store, &chain);
+    let epoch = chain.runtime_adapter.get_epoch_info(&epoch_id).unwrap();
+
+    let sync_hash = get_any_block_hash_of_epoch(&epoch, &chain);
+    let sync_hash = StateSync::get_epoch_start_sync_hash(&chain, &sync_hash).unwrap();
+
+    let state_header = chain.store().get_state_header(shard_id, sync_hash);
+    tracing::info!(target: "state-parts", ?epoch_id, ?sync_hash, ?state_header);
 }
 
+fn get_part_ids(part_from: Option<u64>, part_to: Option<u64>, num_parts: u64) -> Range<u64> {
+    part_from.unwrap_or(0)..part_to.unwrap_or(num_parts)
+}
+
+// Needs to be in sync with `fn s3_location()`.
 fn location_prefix(chain_id: &str, epoch_height: u64, shard_id: u64) -> String {
     format!("chain_id={}/epoch_height={}/shard_id={}", chain_id, epoch_height, shard_id)
 }
 
-fn is_part_filename(s: &str) -> bool {
-    let re = regex::Regex::new(r"^state_part_(\d{6})$").unwrap();
-    re.is_match(s)
+fn match_filename(s: &str) -> Option<regex::Captures> {
+    let re = regex::Regex::new(r"^state_part_(\d{6})_of_(\d{6})$").unwrap();
+    re.captures(s)
 }
 
-fn part_filename(part_id: u64) -> String {
-    format!("state_part_{:06}", part_id)
+fn is_part_filename(s: &str) -> bool {
+    match_filename(s).is_some()
+}
+
+fn get_num_parts_from_filename(s: &str) -> Option<u64> {
+    if let Some(captures) = match_filename(s) {
+        if let Some(num_parts) = captures.get(2) {
+            if let Ok(num_parts) = num_parts.as_str().parse::<u64>() {
+                return Some(num_parts);
+            }
+        }
+    }
+    None
+}
+
+fn part_filename(part_id: u64, num_parts: u64) -> String {
+    format!("state_part_{:06}_of_{:06}", part_id, num_parts)
 }
 
 trait StatePartWriter {
-    fn write(&self, state_part: &[u8], part_id: u64);
+    fn write(&self, state_part: &[u8], part_id: u64, num_parts: u64);
 }
 
 trait StatePartReader {
-    fn read(&self, part_id: u64) -> Vec<u8>;
+    fn read(&self, part_id: u64, num_parts: u64) -> Vec<u8>;
     fn num_parts(&self) -> u64;
 }
 
@@ -364,40 +480,58 @@ impl FileSystemStorage {
             tracing::info!(target: "state-parts", ?root_dir, ?prefix, ?state_parts_dir, "Ensuring the directory exists");
             std::fs::create_dir_all(&state_parts_dir).unwrap();
         }
+        tracing::info!(target: "state-parts", ?state_parts_dir, "Initialized FileSystemStorage");
         Self { state_parts_dir }
     }
 
-    fn get_location(&self, part_id: u64) -> PathBuf {
-        (&self.state_parts_dir).join(part_filename(part_id))
+    fn get_location(&self, part_id: u64, num_parts: u64) -> PathBuf {
+        (&self.state_parts_dir).join(part_filename(part_id, num_parts))
     }
 }
 
 impl StatePartWriter for FileSystemStorage {
-    fn write(&self, state_part: &[u8], part_id: u64) {
-        let filename = self.get_location(part_id);
+    fn write(&self, state_part: &[u8], part_id: u64, num_parts: u64) {
+        let filename = self.get_location(part_id, num_parts);
         std::fs::write(&filename, state_part).unwrap();
         tracing::info!(target: "state-parts", part_id, part_length = state_part.len(), ?filename, "Wrote a state part to disk");
     }
 }
 
 impl StatePartReader for FileSystemStorage {
-    fn read(&self, part_id: u64) -> Vec<u8> {
-        let filename = self.get_location(part_id);
+    fn read(&self, part_id: u64, num_parts: u64) -> Vec<u8> {
+        let filename = self.get_location(part_id, num_parts);
+        tracing::debug!(target: "state-parts", part_id, num_parts, ?filename, "Reading state part file");
         let part = std::fs::read(filename).unwrap();
         part
     }
 
     fn num_parts(&self) -> u64 {
         let paths = std::fs::read_dir(&self.state_parts_dir).unwrap();
-        let num_parts = paths
+        let mut known_num_parts = None;
+        let num_files = paths
             .filter(|path| {
                 let full_path = path.as_ref().unwrap();
                 tracing::debug!(target: "state-parts", ?full_path);
-                is_part_filename(full_path.file_name().to_str().unwrap())
+                let filename = full_path.file_name().to_str().unwrap().to_string();
+                if let Some(num_parts) = get_num_parts_from_filename(&filename) {
+                    if let Some(known_num_parts) = known_num_parts {
+                        assert_eq!(known_num_parts, num_parts);
+                    }
+                    known_num_parts = Some(num_parts);
+                }
+                is_part_filename(&filename)
             })
             .collect::<Vec<std::io::Result<DirEntry>>>()
             .len();
-        num_parts as u64
+        if known_num_parts != Some(num_files as u64) {
+            // This is expected when a user saves time and downloads a few parts instead of all parts.
+            tracing::warn!(target: "state-parts",
+                dir = ?self.state_parts_dir,
+                ?known_num_parts,
+                num_files,
+                "Filename indicates that number of files expected doesn't match the number of files available");
+        }
+        known_num_parts.unwrap()
     }
 }
 
@@ -417,7 +551,7 @@ impl S3Storage {
         let location = location_prefix(chain_id, epoch_height, shard_id);
         let bucket = s3::Bucket::new(
             &s3_bucket,
-            s3_region.parse().unwrap(),
+            s3_region.parse::<s3::Region>().unwrap(),
             s3::creds::Credentials::default().unwrap(),
         )
         .unwrap();
@@ -426,22 +560,22 @@ impl S3Storage {
         Self { location, bucket }
     }
 
-    fn get_location(&self, part_id: u64) -> String {
-        format!("{}/{}", self.location, part_filename(part_id))
+    fn get_location(&self, part_id: u64, num_parts: u64) -> String {
+        format!("{}/{}", self.location, part_filename(part_id, num_parts))
     }
 }
 
 impl StatePartWriter for S3Storage {
-    fn write(&self, state_part: &[u8], part_id: u64) {
-        let location = self.get_location(part_id);
+    fn write(&self, state_part: &[u8], part_id: u64, num_parts: u64) {
+        let location = self.get_location(part_id, num_parts);
         self.bucket.put_object_blocking(&location, &state_part).unwrap();
         tracing::info!(target: "state-parts", part_id, part_length = state_part.len(), ?location, "Wrote a state part to S3");
     }
 }
 
 impl StatePartReader for S3Storage {
-    fn read(&self, part_id: u64) -> Vec<u8> {
-        let location = self.get_location(part_id);
+    fn read(&self, part_id: u64, num_parts: u64) -> Vec<u8> {
+        let location = self.get_location(part_id, num_parts);
         let response = self.bucket.get_object_blocking(location.clone()).unwrap();
         tracing::info!(target: "state-parts", part_id, location, response_code = response.status_code(), "Got an object from S3");
         assert_eq!(response.status_code(), 200);
@@ -454,17 +588,27 @@ impl StatePartReader for S3Storage {
         let list: Vec<ListBucketResult> =
             self.bucket.list_blocking(location, Some("/".to_string())).unwrap();
         assert_eq!(list.len(), 1);
-        let num_parts = list[0]
+        let mut known_num_parts = None;
+        let num_objects = list[0]
             .contents
             .iter()
             .filter(|object| {
                 let filename = Path::new(&object.key);
                 let filename = filename.file_name().unwrap().to_str().unwrap();
                 tracing::debug!(target: "state-parts", object_key = ?object.key, ?filename);
+                if let Some(num_parts) = get_num_parts_from_filename(filename) {
+                    if let Some(known_num_parts) = known_num_parts {
+                        assert_eq!(known_num_parts, num_parts);
+                    }
+                    known_num_parts = Some(num_parts);
+                }
                 is_part_filename(filename)
             })
             .collect::<Vec<&s3::serde_types::Object>>()
             .len();
-        num_parts as u64
+        if let Some(known_num_parts) = known_num_parts {
+            assert_eq!(known_num_parts, num_objects as u64);
+        }
+        num_objects as u64
     }
 }

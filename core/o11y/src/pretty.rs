@@ -1,7 +1,8 @@
 use std::ops::RangeInclusive;
 
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::serialize::base64_display;
+use near_primitives_core::serialize::{base64_display, from_base64};
+use std::str::FromStr;
 
 /// A wrapper for bytes slice which tries to guess best way to format it.
 ///
@@ -37,6 +38,35 @@ impl<'a> std::fmt::Display for Bytes<'a> {
     }
 }
 
+impl<'a> std::fmt::Debug for Bytes<'a> {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        bytes_format(self.0, fmt, false)
+    }
+}
+
+impl<'a> Bytes<'a> {
+    /// Reverses `bytes_format` to allow decoding `Bytes` written with `Display`.
+    ///
+    /// This looks  similar to `FromStr` but due to lifetime constraints on
+    /// input and output, the trait cannot be implemented.
+    ///
+    /// Error: Returns an error when the input does not look like an output from
+    /// `bytes_format`.
+    pub fn from_str(s: &str) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+        if s.len() >= 2 && s.starts_with("`") && s.ends_with("`") {
+            // hash encoded as base58
+            let hash = CryptoHash::from_str(&s[1..s.len().checked_sub(1).expect("s.len() >= 2 ")])?;
+            Ok(hash.as_bytes().to_vec())
+        } else if s.len() >= 2 && s.starts_with("'") && s.ends_with("'") {
+            // plain string
+            Ok(s[1..s.len().checked_sub(1).expect("s.len() >= 2 ")].as_bytes().to_vec())
+        } else {
+            // encoded with base64
+            from_base64(s)
+        }
+    }
+}
+
 /// A wrapper for bytes slice which tries to guess best way to format it
 /// truncating the value if it’s too long.
 ///
@@ -45,6 +75,27 @@ impl<'a> std::fmt::Display for Bytes<'a> {
 /// bytes is included at the beginning and ellipsis is included at the end of
 /// the value.
 pub struct AbbrBytes<T>(pub T);
+
+impl<'a> std::fmt::Debug for AbbrBytes<&'a [u8]> {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        truncated_bytes_format(self.0, fmt)
+    }
+}
+
+impl<'a> std::fmt::Debug for AbbrBytes<&'a Vec<u8>> {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        AbbrBytes(self.0.as_slice()).fmt(fmt)
+    }
+}
+
+impl<'a> std::fmt::Debug for AbbrBytes<Option<&'a [u8]>> {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.0 {
+            None => fmt.write_str("None"),
+            Some(bytes) => truncated_bytes_format(bytes, fmt),
+        }
+    }
+}
 
 impl<'a> std::fmt::Display for AbbrBytes<&'a [u8]> {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -98,6 +149,12 @@ impl<'a> std::fmt::Display for AbbrBytes<Option<&'a [u8]>> {
 pub struct StorageKey<'a>(pub &'a [u8]);
 
 impl<'a> std::fmt::Display for StorageKey<'a> {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        bytes_format(self.0, fmt, true)
+    }
+}
+
+impl<'a> std::fmt::Debug for StorageKey<'a> {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         bytes_format(self.0, fmt, true)
     }
@@ -186,7 +243,10 @@ macro_rules! do_test_bytes_formatting {
     ($type:ident, $consider_hash:expr, $truncate:expr) => {{
         #[track_caller]
         fn test(want: &str, slice: &[u8]) {
-            assert_eq!(want, $type(slice).to_string())
+            assert_eq!(want, $type(slice).to_string(), "unexpected formatting");
+            if !$truncate {
+                assert_eq!(&Bytes::from_str(want).expect("decode fail"), slice, "wrong decoding");
+            }
         }
 
         #[track_caller]

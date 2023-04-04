@@ -7,20 +7,22 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
+use near_primitives::state::ValueRef;
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Gas, MerkleHash};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_store::flat_state::FlatStateFactory;
+use near_store::flat::{
+    BlockInfo, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorage,
+    FlatStorageManager,
+};
 use near_store::{ShardTries, ShardUId, Store, StoreCompiledContractCache, TrieUpdate};
 use near_store::{TrieCache, TrieCachingStorage, TrieConfig};
 use near_vm_logic::{ExtCosts, VMLimitConfig};
 use node_runtime::{ApplyState, Runtime};
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::iter;
 use std::sync::Arc;
-
-const FLAT_STATE_HEAD: CryptoHash = CryptoHash::new();
 
 /// Global context shared by all cost calculating functions.
 pub(crate) struct EstimatorContext<'c> {
@@ -72,12 +74,16 @@ impl<'c> EstimatorContext<'c> {
         let shard_uids = [ShardUId { shard_id: 0, version: 0 }];
         let mut trie_config = near_store::TrieConfig::default();
         trie_config.enable_receipt_prefetching = true;
-        let tries = ShardTries::new(
-            store.clone(),
-            trie_config,
-            &shard_uids,
-            Self::create_flat_state_factory(store.clone()),
-        );
+
+        let flat_head = CryptoHash::hash_borsh(0usize);
+        let flat_storage_manager = FlatStorageManager::test(store.clone(), &shard_uids, flat_head);
+        if cfg!(feature = "protocol_feature_flat_state") {
+            let flat_storage =
+                flat_storage_manager.get_flat_storage_for_shard(shard_uids[0]).unwrap();
+            self.generate_deltas(&flat_storage);
+        }
+
+        let tries = ShardTries::new(store.clone(), trie_config, &shard_uids, flat_storage_manager);
 
         Testbed {
             config: self.config,
@@ -139,56 +145,47 @@ impl<'c> EstimatorContext<'c> {
         }
     }
 
-    #[cfg(feature = "protocol_feature_flat_state")]
-    fn create_flat_state_factory(store: Store) -> FlatStateFactory {
-        // function-level `use` statements here to avoid `unused import` warning
-        // when flat state feature is disabled
-        use near_primitives::types::BlockHeight;
-        use near_store::flat_state::{
-            store_helper, BlockInfo, ChainAccessForFlatStorage, FlatStorageState,
-        };
-        use std::collections::HashSet;
+    /// Construct a chain of fake blocks with fake deltas for flat storage.
+    ///
+    /// Use `hash(height)` as the supposed block hash.
+    /// Keys are randomly generated, values are a constant that's not even stored.
+    ///
+    /// The blocks aren't valid, nor are the values stored anywhere. They only
+    /// exist within `FlatStorage` and simulate the performance decrease
+    /// observed when the flat head lags behind.
+    fn generate_deltas(&self, flat_storage: &FlatStorage) {
+        // Assumption: One delta per non-final block, which is configurable.
+        // There could be forks but that's considered to e outside the normal
+        // operating conditions for this estimation.
+        let num_deltas = self.config.finality_lag;
+        // Number of keys changed is the same for all deltas and configurable.
+        let num_changes_per_delta = self.config.fs_keys_per_delta;
+        // This is the longest key we allow in storage.
+        let delta_key_len = 2000;
+        for idx in 0..num_deltas {
+            // We want different keys and to avoid all optimization potential.
+            // But the values are never read, so let's just use a dummy constant.
+            let random_data = iter::repeat_with(|| {
+                (
+                    crate::utils::random_vec(delta_key_len),
+                    Some(ValueRef::new(b"this is never stored or accessed, we only need it to blow up in-memory deltas")),
+                )
+            })
+            .take(num_changes_per_delta);
+            let height = 1 + idx as u64;
+            let block = BlockInfo {
+                hash: fs_fake_block_height_to_hash(height),
+                height,
+                prev_hash: fs_fake_block_height_to_hash(height - 1),
+            };
 
-        const BLOCK_HEIGHT: BlockHeight = 0;
-
-        /// Dummy ChainAccessForFlatStorage implementation to be able to create
-        /// FlatStorageState.
-        struct ChainAccess;
-
-        impl ChainAccessForFlatStorage for ChainAccess {
-            fn get_block_info(&self, block_hash: &CryptoHash) -> BlockInfo {
-                BlockInfo {
-                    hash: block_hash.clone(),
-                    prev_hash: Default::default(),
-                    height: BLOCK_HEIGHT,
-                }
-            }
-
-            fn get_block_hashes_at_height(
-                &self,
-                _block_height: BlockHeight,
-            ) -> HashSet<CryptoHash> {
-                // This is only needed to accumulate deltas when flat head doesn't
-                // match the latest block height, so it won't be called in our case.
-                unimplemented!()
-            }
+            flat_storage
+                .add_delta(FlatStateDelta {
+                    changes: FlatStateChanges::from(random_data),
+                    metadata: FlatStateDeltaMetadata { block },
+                })
+                .unwrap();
         }
-
-        let shard_id = ShardUId::single_shard().shard_id();
-        // Set up flat head to be equal to the latest block height
-        let mut store_update = store.store_update();
-        store_helper::set_flat_head(&mut store_update, shard_id, &FLAT_STATE_HEAD);
-        store_update.commit().expect("failed to set flat head");
-        let factory = FlatStateFactory::new(store.clone());
-        let flat_storage_state =
-            FlatStorageState::new(store.clone(), shard_id, BLOCK_HEIGHT, &ChainAccess {});
-        factory.add_flat_storage_state_for_shard(shard_id, flat_storage_state);
-        factory
-    }
-
-    #[cfg(not(feature = "protocol_feature_flat_state"))]
-    fn create_flat_state_factory(store: Store) -> FlatStateFactory {
-        FlatStateFactory::new(store)
     }
 }
 
@@ -312,14 +309,12 @@ impl Testbed<'_> {
             .unwrap();
 
         let mut store_update = self.tries.store_update();
-        self.root = self.tries.apply_all(
-            &apply_result.trie_changes,
-            ShardUId::single_shard(),
-            &mut store_update,
-        );
-        #[cfg(feature = "protocol_feature_flat_state")]
-        near_store::FlatStateDelta::from_state_changes(&apply_result.state_changes)
-            .apply_to_flat_state(&mut store_update);
+        let shard_uid = ShardUId::single_shard();
+        self.root = self.tries.apply_all(&apply_result.trie_changes, shard_uid, &mut store_update);
+        if cfg!(feature = "protocol_feature_flat_state") {
+            near_store::flat::FlatStateChanges::from_state_changes(&apply_result.state_changes)
+                .apply_to_flat_state(&mut store_update, shard_uid);
+        }
         store_update.commit().unwrap();
         self.apply_state.block_height += 1;
 
@@ -357,7 +352,7 @@ impl Testbed<'_> {
         tx: &SignedTransaction,
         metric: GasMetric,
     ) -> GasCost {
-        let mut state_update = TrieUpdate::new(Rc::new(self.trie()));
+        let mut state_update = TrieUpdate::new(self.trie());
         // gas price and block height can be anything, it doesn't affect performance
         // but making it too small affects max_depth and thus pessimistic inflation
         let gas_price = 100_000_000;
@@ -383,7 +378,7 @@ impl Testbed<'_> {
     ///
     /// Use this method to estimate action exec costs.
     pub(crate) fn apply_action_receipt(&mut self, receipt: &Receipt, metric: GasMetric) -> GasCost {
-        let mut state_update = TrieUpdate::new(Rc::new(self.trie()));
+        let mut state_update = TrieUpdate::new(self.trie());
         let mut outgoing_receipts = vec![];
         let mut validator_proposals = vec![];
         let mut stats = node_runtime::ApplyStats::default();
@@ -411,10 +406,17 @@ impl Testbed<'_> {
 
     /// Instantiate a new trie for the estimator.
     fn trie(&mut self) -> near_store::Trie {
-        self.tries.get_trie_with_block_hash_for_shard(
-            ShardUId::single_shard(),
-            self.root,
-            &FLAT_STATE_HEAD,
-        )
+        // We generated `finality_lag` fake blocks earlier, so the fake height
+        // will be at the same number.
+        let tip_height = self.config.finality_lag;
+        let tip = fs_fake_block_height_to_hash(tip_height as u64);
+        self.tries.get_trie_with_block_hash_for_shard(ShardUId::single_shard(), self.root, &tip)
     }
+}
+
+/// Maps fake block heights to block hashes.
+///
+/// This is ued to generate and access fake deltas for flat storage.
+fn fs_fake_block_height_to_hash(height: u64) -> CryptoHash {
+    CryptoHash::hash_borsh(height)
 }

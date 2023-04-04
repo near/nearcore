@@ -1,22 +1,23 @@
 use crate::accounts_data;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
+use crate::config::PEERS_RESPONSE_MAX_PEERS;
 use crate::network_protocol::{
     Edge, EdgeState, Encoding, OwnedAccount, ParsePeerMessageError, PartialEdgeInfo,
-    PeerChainInfoV2, PeerIdOrHash, PeerInfo, RawRoutedMessage, RoutedMessageBody, RoutedMessageV2,
-    RoutingTableUpdate, StateResponseInfo, SyncAccountsData,
+    PeerChainInfoV2, PeerIdOrHash, PeerInfo, PeersRequest, PeersResponse, RawRoutedMessage,
+    RoutedMessageBody, RoutedMessageV2, RoutingTableUpdate, StateResponseInfo, SyncAccountsData,
 };
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::{NetworkState, PRUNE_EDGES_AFTER};
 use crate::peer_manager::peer_manager_actor::Event;
+use crate::peer_manager::peer_manager_actor::MAX_TIER2_PEERS;
 use crate::private_actix::{RegisterPeerError, SendMessage};
 use crate::routing::edge::verify_nonce;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::stats::metrics;
 use crate::tcp;
-use crate::time;
 use crate::types::{
     BlockInfo, Disconnect, Handshake, HandshakeFailureReason, PeerMessage, PeerType, ReasonForBan,
 };
@@ -28,12 +29,16 @@ use near_o11y::{handler_debug_span, log_assert, pretty, OpenTelemetrySpanExt, Wi
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::time;
 use near_primitives::types::EpochId;
 use near_primitives::utils::DisplayOption;
 use near_primitives::version::{
     ProtocolVersion, PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION,
 };
 use parking_lot::Mutex;
+use rand::seq::IteratorRandom;
+use rand::thread_rng;
+use std::cmp::min;
 use std::fmt::Debug;
 use std::io;
 use std::net::SocketAddr;
@@ -361,7 +366,7 @@ impl PeerActor {
     }
 
     fn send_message(&self, msg: &PeerMessage) {
-        if let (PeerStatus::Ready(conn), PeerMessage::PeersRequest) = (&self.peer_status, msg) {
+        if let (PeerStatus::Ready(conn), PeerMessage::PeersRequest(_)) = (&self.peer_status, msg) {
             conn.last_time_peer_requested.store(Some(self.clock.now()));
         }
         if let Some(enc) = self.encoding() {
@@ -719,7 +724,10 @@ impl PeerActor {
                                 async move {
                                     loop {
                                         interval.tick(&clock).await;
-                                        conn.send_message(Arc::new(PeerMessage::PeersRequest));
+                                        conn.send_message(Arc::new(PeerMessage::PeersRequest( PeersRequest{
+                                            max_peers: Some(PEERS_RESPONSE_MAX_PEERS as u32),
+                                            max_direct_peers: Some(MAX_TIER2_PEERS as u32),
+                                        })));
                                     }
                                 }
                             }));
@@ -834,11 +842,7 @@ impl PeerActor {
                     }
                     HandshakeFailureReason::InvalidTarget => {
                         tracing::debug!(target: "network", "Peer found was not what expected. Updating peer info with {:?}", peer_info);
-                        if let Err(err) =
-                            self.network_state.peer_store.add_direct_peer(&self.clock, peer_info)
-                        {
-                            tracing::error!(target: "network", ?err, "Fail to update peer store");
-                        }
+                        self.network_state.peer_store.add_direct_peer(&self.clock, peer_info);
                         self.stop(ctx, ClosingReason::HandshakeFailed);
                     }
                 }
@@ -1116,29 +1120,59 @@ impl PeerActor {
                 // Received handshake after already have seen handshake from this peer.
                 tracing::debug!(target: "network", "Duplicate handshake from {}", self.peer_info);
             }
-            PeerMessage::PeersRequest => {
-                let peers = self
-                    .network_state
-                    .peer_store
-                    .healthy_peers(self.network_state.config.max_send_peers as usize);
-                if !peers.is_empty() {
-                    tracing::debug!(target: "network", "Peers request from {}: sending {} peers.", self.peer_info, peers.len());
-                    self.send_message_or_log(&PeerMessage::PeersResponse(peers));
+            PeerMessage::PeersRequest(PeersRequest { max_peers, max_direct_peers }) => {
+                let mut num_peers = self.network_state.config.max_send_peers;
+                if let Some(max_peers) = max_peers {
+                    num_peers = min(num_peers, max_peers);
+                }
+                let peers = self.network_state.peer_store.healthy_peers(num_peers as usize);
+
+                let mut direct_peers = self.network_state.get_direct_peers();
+                if let Some(max_direct_peers) = max_direct_peers {
+                    if direct_peers.len() > max_direct_peers as usize {
+                        direct_peers = direct_peers
+                            .into_iter()
+                            .choose_multiple(&mut thread_rng(), max_direct_peers as usize);
+                    }
+                }
+
+                if !peers.is_empty() || !direct_peers.is_empty() {
+                    tracing::debug!(target: "network", "Peers request from {}: sending {} peers and {} direct peers.", self.peer_info, peers.len(), direct_peers.len());
+                    self.send_message_or_log(&PeerMessage::PeersResponse(PeersResponse {
+                        peers,
+                        direct_peers,
+                    }));
                 }
                 self.network_state
                     .config
                     .event_sink
                     .push(Event::MessageProcessed(conn.tier, peer_msg));
             }
-            PeerMessage::PeersResponse(peers) => {
-                tracing::debug!(target: "network", "Received peers from {}: {} peers.", self.peer_info, peers.len());
+            PeerMessage::PeersResponse(PeersResponse { peers, direct_peers }) => {
+                tracing::debug!(target: "network", "Received peers from {}: {} peers and {} direct peers.", self.peer_info, peers.len(), direct_peers.len());
+
+                // Check for abusive behavior (sending too many peers)
+                if peers.len() > PEERS_RESPONSE_MAX_PEERS.try_into().unwrap() {
+                    self.stop(ctx, ClosingReason::Ban(ReasonForBan::Abusive));
+                }
+                // Check for abusive behavior (sending too many direct peers)
+                if direct_peers.len() > MAX_TIER2_PEERS {
+                    self.stop(ctx, ClosingReason::Ban(ReasonForBan::Abusive));
+                }
+
+                // Add received peers to the peer store
                 let node_id = self.network_state.config.node_id();
-                if let Err(err) = self.network_state.peer_store.add_indirect_peers(
+                self.network_state.peer_store.add_indirect_peers(
                     &self.clock,
                     peers.into_iter().filter(|peer_info| peer_info.id != node_id),
-                ) {
-                    tracing::error!(target: "network", ?err, "Fail to update peer store");
-                };
+                );
+                // Direct peers of the responding peer are still indirect peers for this node.
+                // However, we may treat them with more trust in the future.
+                self.network_state.peer_store.add_indirect_peers(
+                    &self.clock,
+                    direct_peers.into_iter().filter(|peer_info| peer_info.id != node_id),
+                );
+
                 self.network_state
                     .config
                     .event_sink

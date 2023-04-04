@@ -1,11 +1,11 @@
 use actix::Message;
 use chrono::DateTime;
+use chrono::Utc;
 use near_chain_configs::{ClientConfig, ProtocolConfigView};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::network::PeerId;
 use near_primitives::sharding::ChunkHash;
-use near_primitives::time::Utc;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockReference, EpochId, EpochReference, MaybeBlockId, ShardId,
     TransactionOrReceiptId,
@@ -37,6 +37,12 @@ pub enum Error {
     ChunkProducer(String),
     #[error("Other: {0}")]
     Other(String),
+}
+
+impl From<near_primitives::errors::EpochError> for Error {
+    fn from(err: near_primitives::errors::EpochError) -> Self {
+        Error::Chain(err.into())
+    }
 }
 
 #[derive(Clone, Debug, serde::Serialize, PartialEq)]
@@ -605,6 +611,7 @@ pub struct NetworkInfoResponse {
 }
 
 /// Status of given transaction including all the subsequent receipts.
+#[derive(Debug)]
 pub struct TxStatus {
     pub tx_hash: CryptoHash,
     pub signer_account_id: AccountId,

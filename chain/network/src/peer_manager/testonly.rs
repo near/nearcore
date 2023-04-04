@@ -13,7 +13,6 @@ use crate::tcp;
 use crate::test_utils;
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
-use crate::time;
 use crate::types::{
     AccountKeys, ChainInfo, KnownPeerStatus, NetworkRequests, PeerManagerMessageRequest,
     ReasonForBan,
@@ -22,6 +21,7 @@ use crate::PeerManagerActor;
 use near_async::messaging::IntoSender;
 use near_o11y::WithSpanContextExt;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::time;
 use near_primitives::types::AccountId;
 use std::collections::HashSet;
 use std::future::Future;
@@ -365,12 +365,12 @@ impl ActorHandler {
         self.with_state(move |s| async move { s.peer_store.update(&clock) }).await;
     }
 
-    pub async fn send_ping(&self, nonce: u64, target: PeerId) {
-        self.actix
-            .addr
-            .send(PeerManagerMessageRequest::PingTo { nonce, target }.with_span_context())
-            .await
-            .unwrap();
+    pub async fn send_ping(&self, clock: &time::Clock, nonce: u64, target: PeerId) {
+        let clock = clock.clone();
+        self.with_state(move |s| async move {
+            s.send_ping(&clock, tcp::Tier::T2, nonce, target);
+        })
+        .await;
     }
 
     pub async fn announce_account(&self, aa: AnnounceAccount) {

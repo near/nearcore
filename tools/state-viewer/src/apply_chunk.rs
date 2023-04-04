@@ -188,7 +188,7 @@ fn apply_tx_in_block(
                     println!("Found tx in block {} shard {}. equivalent command:\nview_state apply --height {} --shard-id {}\n",
                              &block_hash, shard_id, chain_store.get_block_header(&block_hash)?.height(), shard_id);
                     let (block, apply_result) = crate::commands::apply_block(block_hash, shard_id, runtime, chain_store);
-                    crate::commands::print_apply_block_result(&block, &apply_result, runtime, chain_store, shard_id);
+                    crate::commands::check_apply_block_result(&block, &apply_result, runtime, chain_store, shard_id)?;
                     Ok(apply_result)
                 },
                 HashType::Receipt => {
@@ -292,7 +292,7 @@ fn apply_receipt_in_block(
                     println!("Found receipt in block {}. Receiver is in shard {}. equivalent command:\nview_state apply --height {} --shard-id {}\n",
                              &block_hash, shard_id, chain_store.get_block_header(&block_hash)?.height(), shard_id);
                     let (block, apply_result) = crate::commands::apply_block(block_hash, shard_id, runtime, chain_store);
-                    crate::commands::print_apply_block_result(&block, &apply_result, runtime, chain_store, shard_id);
+                    crate::commands::check_apply_block_result(&block, &apply_result, runtime, chain_store, shard_id)?;
                     Ok(apply_result)
                 },
             }
@@ -410,6 +410,7 @@ mod test {
     use near_client::test_utils::TestEnv;
     use near_client::ProcessTxResponse;
     use near_crypto::{InMemorySigner, KeyType};
+    use near_epoch_manager::shard_tracker::TrackedConfig;
     use near_epoch_manager::EpochManagerAdapter;
     use near_primitives::hash::CryptoHash;
     use near_primitives::runtime::config_store::RuntimeConfigStore;
@@ -419,11 +420,9 @@ mod test {
     use near_store::test_utils::create_test_store;
     use nearcore::config::GenesisExt;
     use nearcore::NightshadeRuntime;
-    use nearcore::TrackedConfig;
     use rand::rngs::StdRng;
     use rand::SeedableRng;
     use std::path::Path;
-    use std::sync::Arc;
 
     fn send_txs(env: &mut TestEnv, signers: &[InMemorySigner], height: u64, hash: CryptoHash) {
         for (i, signer) in signers.iter().enumerate() {
@@ -457,13 +456,13 @@ mod test {
 
         let store = create_test_store();
         let mut chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height, false);
-        let runtime = Arc::new(NightshadeRuntime::test_with_runtime_config_store(
+        let runtime = NightshadeRuntime::test_with_runtime_config_store(
             Path::new("."),
             store,
             &genesis,
             TrackedConfig::AllShards,
             RuntimeConfigStore::test(),
-        ));
+        );
         let chain_genesis = ChainGenesis::test();
 
         let signers = (0..4)
@@ -534,13 +533,13 @@ mod test {
 
         let store = create_test_store();
         let chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height, false);
-        let runtime = Arc::new(NightshadeRuntime::test_with_runtime_config_store(
+        let runtime = NightshadeRuntime::test_with_runtime_config_store(
             Path::new("."),
             store.clone(),
             &genesis,
             TrackedConfig::AllShards,
             RuntimeConfigStore::test(),
-        ));
+        );
         let mut chain_genesis = ChainGenesis::test();
         // receipts get delayed with the small ChainGenesis::test() limit
         chain_genesis.gas_limit = genesis.config.gas_limit;

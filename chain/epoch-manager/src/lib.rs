@@ -38,6 +38,7 @@ mod adapter;
 mod proposals;
 mod reward_calculator;
 mod shard_assignment;
+pub mod shard_tracker;
 pub mod test_utils;
 #[cfg(test)]
 mod tests;

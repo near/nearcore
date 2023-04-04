@@ -59,16 +59,29 @@
 //! timestamp are executed in FIFO order. For example, if the events are emitted in the
 //! following order: (A due 100ms), (B due 0ms), (C due 200ms), (D due 0ms), (E due 100ms)
 //! then the actual order of execution is B, D, A, E, C.
+pub mod adhoc;
 pub mod delay_sender;
 pub mod event_handler;
+pub mod futures;
 pub mod multi_instance;
 
-use std::{collections::BinaryHeap, fmt::Debug, sync, time::Duration};
+use std::{
+    collections::BinaryHeap,
+    fmt::Debug,
+    sync::{self, Arc},
+};
 
 use near_o11y::{testonly::init_test_logger, tracing::log::info};
+use near_primitives::time;
 use serde::Serialize;
 
-use self::{delay_sender::DelaySender, event_handler::LoopEventHandler};
+use crate::test_loop::event_handler::LoopHandlerContext;
+
+use self::{
+    delay_sender::DelaySender,
+    event_handler::LoopEventHandler,
+    futures::{TestLoopFutureSpawner, TestLoopTask},
+};
 
 /// Main struct for the Test Loop framework.
 /// The `Data` type should contain all the business logic state that is relevant
@@ -83,7 +96,7 @@ use self::{delay_sender::DelaySender, event_handler::LoopEventHandler};
 ///    implements TryInto<Variant> and From<Variant> for each of its variants.
 /// and that for multi-instance tests, `Data` is `Vec<SingleData>` and `Event` is
 /// `(usize, SingleEvent)`.
-pub struct TestLoop<Data, Event: Debug + Send + 'static> {
+pub struct TestLoop<Data: 'static, Event: Debug + Send + 'static> {
     pub data: Data,
 
     /// The sender is used to send events to the event loop.
@@ -99,20 +112,22 @@ pub struct TestLoop<Data, Event: Debug + Send + 'static> {
     /// The next ID to assign to an event we receive.
     next_event_index: usize,
     /// The current virtual time.
-    current_time: Duration,
+    current_time: time::Duration,
+    /// Fake clock that always returns the virtual time.
+    clock: time::FakeClock,
 
     /// Handlers are initialized only once, upon the first call to run().
     handlers_initialized: bool,
     /// All the event handlers that are registered. We invoke them one by one
     /// for each event, until one of them handles the event (or panic if no one
     /// handles it).
-    handlers: Vec<Box<dyn LoopEventHandler<Data, Event>>>,
+    handlers: Vec<LoopEventHandler<Data, Event>>,
 }
 
 /// An event waiting to be executed, ordered by the due time and then by ID.
 struct EventInHeap<Event> {
     event: Event,
-    due: Duration,
+    due: time::Duration,
     id: usize,
 }
 
@@ -142,7 +157,7 @@ impl<Event> Ord for EventInHeap<Event> {
 /// a 10ms delay).
 struct EventInFlight<Event> {
     event: Event,
-    delay: Duration,
+    delay: time::Duration,
 }
 
 /// Builder that should be used to construct a `TestLoop`. The reason why the
@@ -150,6 +165,7 @@ struct EventInFlight<Event> {
 /// the event sender provided by the test loop, so this way we can avoid a
 /// construction dependency cycle.
 pub struct TestLoopBuilder<Event: Debug + Send + 'static> {
+    clock: time::FakeClock,
     pending_events: sync::mpsc::Receiver<EventInFlight<Event>>,
     pending_events_sender: DelaySender<Event>,
 }
@@ -160,6 +176,7 @@ impl<Event: Debug + Send + 'static> TestLoopBuilder<Event> {
         init_test_logger();
         let (pending_events_sender, pending_events) = sync::mpsc::sync_channel(65536);
         Self {
+            clock: time::FakeClock::default(),
             pending_events,
             pending_events_sender: DelaySender::new(move |event, delay| {
                 pending_events_sender.send(EventInFlight { event, delay }).unwrap();
@@ -172,8 +189,21 @@ impl<Event: Debug + Send + 'static> TestLoopBuilder<Event> {
         self.pending_events_sender.clone()
     }
 
+    /// Returns a clock that will always return the current virtual time.
+    pub fn clock(&self) -> time::Clock {
+        self.clock.clock()
+    }
+
+    /// Returns a FutureSpawner that can be used to spawn futures into the loop.
+    pub fn future_spawner(&self) -> TestLoopFutureSpawner
+    where
+        Event: From<Arc<TestLoopTask>>,
+    {
+        self.sender().narrow()
+    }
+
     pub fn build<Data>(self, data: Data) -> TestLoop<Data, Event> {
-        TestLoop::new(self.pending_events, self.pending_events_sender, data)
+        TestLoop::new(self.pending_events, self.pending_events_sender, self.clock, data)
     }
 }
 
@@ -198,6 +228,7 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
     fn new(
         pending_events: sync::mpsc::Receiver<EventInFlight<Event>>,
         sender: DelaySender<Event>,
+        clock: time::FakeClock,
         data: Data,
     ) -> Self {
         Self {
@@ -206,16 +237,21 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
             events: BinaryHeap::new(),
             pending_events,
             next_event_index: 0,
-            current_time: Duration::ZERO,
+            current_time: time::Duration::ZERO,
+            clock,
             handlers_initialized: false,
             handlers: Vec::new(),
         }
     }
 
+    pub fn sender(&self) -> DelaySender<Event> {
+        self.sender.clone()
+    }
+
     /// Registers a new event handler to the test loop.
-    pub fn register_handler<T: LoopEventHandler<Data, Event> + 'static>(&mut self, handler: T) {
+    pub fn register_handler(&mut self, handler: LoopEventHandler<Data, Event>) {
         assert!(!self.handlers_initialized, "Cannot register more handlers after run() is called");
-        self.handlers.push(Box::new(handler));
+        self.handlers.push(handler);
     }
 
     fn maybe_initialize_handlers(&mut self) {
@@ -223,26 +259,34 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
             return;
         }
         for handler in &mut self.handlers {
-            handler.init(self.sender.clone());
+            handler.init(LoopHandlerContext {
+                sender: self.sender.clone(),
+                clock: self.clock.clock(),
+            });
+        }
+    }
+
+    /// Helper to push events we have just received into the heap.
+    fn queue_received_events(&mut self) {
+        while let Ok(event) = self.pending_events.try_recv() {
+            self.events.push(EventInHeap {
+                due: self.current_time + event.delay,
+                event: event.event,
+                id: self.next_event_index,
+            });
+            self.next_event_index += 1;
         }
     }
 
     /// Runs the test loop for the given duration. This function may be called
     /// multiple times, but further test handlers may not be registered after
     /// the first call.
-    pub fn run(&mut self, duration: Duration) {
+    pub fn run(&mut self, duration: time::Duration) {
         self.maybe_initialize_handlers();
         let deadline = self.current_time + duration;
         'outer: loop {
             // Push events we have just received into the heap.
-            while let Ok(event) = self.pending_events.try_recv() {
-                self.events.push(EventInHeap {
-                    due: self.current_time + event.delay,
-                    event: event.event,
-                    id: self.next_event_index,
-                });
-                self.next_event_index += 1;
-            }
+            self.queue_received_events();
             // Don't execute any more events if we have reached the deadline.
             match self.events.peek() {
                 Some(event) => {
@@ -258,10 +302,11 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
                 current_index: event.id,
                 total_events: self.next_event_index,
                 current_event: format!("{:?}", event.event),
-                current_time_ms: event.due.as_millis() as u64,
+                current_time_ms: event.due.whole_milliseconds() as u64,
             })
             .unwrap();
             info!(target: "test_loop", "TEST_LOOP_EVENT_START {}", json_printout);
+            self.clock.advance(event.due - self.current_time);
             self.current_time = event.due;
 
             let mut current_event = event.event;
@@ -273,6 +318,28 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
                 }
             }
             panic!("Unhandled event: {:?}", current_event);
+        }
+        self.current_time = deadline;
+    }
+}
+
+impl<Data: 'static, Event: Debug + Send + 'static> Drop for TestLoop<Data, Event> {
+    fn drop(&mut self) {
+        self.queue_received_events();
+        'outer: for event in self.events.drain() {
+            let mut current_event = event.event;
+            for handler in &mut self.handlers {
+                if let Err(event) = handler.try_drop(current_event) {
+                    current_event = event;
+                } else {
+                    continue 'outer;
+                }
+            }
+            panic!(
+                "Important event scheduled at {} is not handled at the end of the test: {:?}.
+                 Consider calling `test.run()` again, or with a longer duration.",
+                event.due, current_event
+            );
         }
     }
 }

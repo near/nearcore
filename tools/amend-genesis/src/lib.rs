@@ -387,7 +387,7 @@ mod test {
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::state_record::StateRecord;
-    use near_primitives::time::Clock;
+    use near_primitives::static_clock::StaticClock;
     use near_primitives::types::{AccountId, AccountInfo};
     use near_primitives::utils;
     use near_primitives::version::PROTOCOL_VERSION;
@@ -572,7 +572,7 @@ mod test {
 
             let genesis_config = GenesisConfig {
                 protocol_version: PROTOCOL_VERSION,
-                genesis_time: Clock::utc(),
+                genesis_time: StaticClock::utc(),
                 chain_id: "rusttestnet".to_string(),
                 genesis_height: 0,
                 num_block_producer_seats: nearcore::config::NUM_BLOCK_PRODUCER_SEATS,
@@ -584,7 +584,6 @@ mod test {
                 dynamic_resharding: false,
                 protocol_upgrade_stake_threshold:
                     nearcore::config::PROTOCOL_UPGRADE_STAKE_THRESHOLD,
-                protocol_upgrade_num_epochs: nearcore::config::PROTOCOL_UPGRADE_NUM_EPOCHS,
                 epoch_length: 1000,
                 gas_limit: nearcore::config::INITIAL_GAS_LIMIT,
                 gas_price_adjustment_rate: nearcore::config::GAS_PRICE_ADJUSTMENT_RATE,

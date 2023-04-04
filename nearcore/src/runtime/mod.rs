@@ -1,6 +1,5 @@
 use crate::metrics;
 use crate::migrations::load_migration_data;
-use crate::shard_tracker::{ShardTracker, TrackedConfig};
 use crate::NearConfig;
 use borsh::ser::BorshSerialize;
 use borsh::BorshDeserialize;
@@ -15,6 +14,7 @@ use near_chain_configs::{
 };
 use near_client_primitives::types::StateSplitApplyingStatus;
 use near_crypto::PublicKey;
+use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_o11y::log_assert;
 use near_pool::types::PoolIterator;
@@ -48,10 +48,7 @@ use near_primitives::views::{
     AccessKeyInfoView, CallResult, QueryRequest, QueryResponse, QueryResponseKind, ViewApplyState,
     ViewStateResult,
 };
-use near_store::flat_state::ChainAccessForFlatStorage;
-use near_store::flat_state::{
-    store_helper, FlatStateFactory, FlatStorageCreationStatus, FlatStorageState,
-};
+use near_store::flat::{store_helper, FlatStorage, FlatStorageManager, FlatStorageStatus};
 use near_store::metadata::DbKind;
 use near_store::split_state::get_delayed_receipts;
 use near_store::{
@@ -67,10 +64,11 @@ use node_runtime::{
     validate_transaction, verify_and_charge_transaction, ApplyState, Runtime,
     ValidatorAccountsUpdate,
 };
+use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
-use std::sync::{Arc, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{Arc, RwLockReadGuard, RwLockWriteGuard, Weak};
 use std::time::Instant;
 use tracing::{debug, error, info, warn};
 
@@ -88,17 +86,21 @@ pub struct NightshadeRuntime {
     store: Store,
     tries: ShardTries,
     trie_viewer: TrieViewer,
-    flat_state_factory: FlatStateFactory,
+    flat_storage_manager: FlatStorageManager,
     pub runtime: Runtime,
     epoch_manager: EpochManagerHandle,
     shard_tracker: ShardTracker,
     genesis_state_roots: Vec<StateRoot>,
     migration_data: Arc<MigrationData>,
     gc_num_epochs_to_keep: u64,
+
+    // For RuntimeAdapter migration only, allows ability to reference an Arc of
+    // itself.
+    myself: Weak<NightshadeRuntime>,
 }
 
 impl NightshadeRuntime {
-    pub fn from_config(home_dir: &Path, store: Store, config: &NearConfig) -> Self {
+    pub fn from_config(home_dir: &Path, store: Store, config: &NearConfig) -> Arc<Self> {
         Self::new(
             home_dir,
             store,
@@ -122,7 +124,7 @@ impl NightshadeRuntime {
         runtime_config_store: Option<RuntimeConfigStore>,
         gc_num_epochs_to_keep: u64,
         trie_config: TrieConfig,
-    ) -> Self {
+    ) -> Arc<Self> {
         let runtime_config_store = match runtime_config_store {
             Some(store) => store,
             None => NightshadeRuntime::create_runtime_config_store(&genesis.config.chain_id),
@@ -140,18 +142,19 @@ impl NightshadeRuntime {
         );
         let state_roots =
             Self::initialize_genesis_state_if_needed(store.clone(), home_dir, genesis);
-        let flat_state_factory = FlatStateFactory::new(store.clone());
+        let flat_storage_manager = FlatStorageManager::new(store.clone());
         let tries = ShardTries::new(
             store.clone(),
             trie_config,
             &genesis_config.shard_layout.get_shard_uids(),
-            flat_state_factory.clone(),
+            flat_storage_manager.clone(),
         );
-        let epoch_manager = EpochManager::new_from_genesis_config(store.clone(), &genesis_config)
-            .expect("Failed to start Epoch Manager")
-            .into_handle();
-        let shard_tracker = ShardTracker::new(tracked_config, epoch_manager.clone());
-        NightshadeRuntime {
+        let epoch_manager =
+            EpochManager::new_from_genesis_config(store.clone().into(), &genesis_config)
+                .expect("Failed to start Epoch Manager")
+                .into_handle();
+        let shard_tracker = ShardTracker::new(tracked_config, Arc::new(epoch_manager.clone()));
+        Arc::new_cyclic(|myself| NightshadeRuntime {
             genesis_config,
             runtime_config_store,
             store,
@@ -160,11 +163,12 @@ impl NightshadeRuntime {
             trie_viewer,
             epoch_manager,
             shard_tracker,
-            flat_state_factory,
+            flat_storage_manager,
             genesis_state_roots: state_roots,
             migration_data: Arc::new(load_migration_data(&genesis.config.chain_id)),
             gc_num_epochs_to_keep: gc_num_epochs_to_keep.max(MIN_GC_NUM_EPOCHS_TO_KEEP),
-        }
+            myself: myself.clone(),
+        })
     }
 
     pub fn test_with_runtime_config_store(
@@ -173,7 +177,7 @@ impl NightshadeRuntime {
         genesis: &Genesis,
         tracked_config: TrackedConfig,
         runtime_config_store: RuntimeConfigStore,
-    ) -> Self {
+    ) -> Arc<Self> {
         Self::new(
             home_dir,
             store,
@@ -187,7 +191,7 @@ impl NightshadeRuntime {
         )
     }
 
-    pub fn test(home_dir: &Path, store: Store, genesis: &Genesis) -> Self {
+    pub fn test(home_dir: &Path, store: Store, genesis: &Genesis) -> Arc<Self> {
         Self::test_with_runtime_config_store(
             home_dir,
             store,
@@ -229,19 +233,29 @@ impl NightshadeRuntime {
     fn genesis_state_from_records(store: Store, genesis: &Genesis) -> Vec<StateRoot> {
         match genesis.records_len() {
             Ok(count) => {
-                info!(target: "runtime", "Genesis state has {count} records, computing state roots")
+                info!(
+                    target: "runtime",
+                    "genesis state has {count} records, computing state roots"
+                )
             }
             Err(path) => {
-                info!(target: "runtime", "Computing state roots from records in file {}", path.display())
+                info!(
+                    target: "runtime",
+                    path=%path.display(),
+                    message="computing state roots from records",
+                )
             }
         }
-        let mut state_roots = vec![];
         let initial_epoch_config = EpochConfig::from(&genesis.config);
         let shard_layout = initial_epoch_config.shard_layout;
         let num_shards = shard_layout.num_shards();
         let mut shard_account_ids: Vec<HashSet<AccountId>> =
             (0..num_shards).map(|_| HashSet::new()).collect();
         let mut has_protocol_account = false;
+        info!(
+            target: "runtime",
+            "distributing records to shards"
+        );
         genesis.for_each_record(|record: &StateRecord| {
             shard_account_ids[state_record_to_shard_id(record, &shard_layout) as usize]
                 .insert(state_record_to_account_id(record).clone());
@@ -256,41 +270,46 @@ impl NightshadeRuntime {
             store.clone(),
             TrieConfig::default(),
             &genesis.config.shard_layout.get_shard_uids(),
-            FlatStateFactory::new(store),
+            FlatStorageManager::new(store),
         );
         let runtime = Runtime::new();
         let runtime_config_store =
             NightshadeRuntime::create_runtime_config_store(&genesis.config.chain_id);
         let runtime_config = runtime_config_store.get_config(genesis.config.protocol_version);
+        let writers = std::sync::atomic::AtomicUsize::new(0);
+        (0..num_shards)
+            .into_par_iter()
+            .map(|shard_id| {
+                let validators = genesis
+                    .config
+                    .validators
+                    .iter()
+                    .filter_map(|account_info| {
+                        if account_id_to_shard_id(&account_info.account_id, &shard_layout)
+                            == shard_id
+                        {
+                            Some((
+                                account_info.account_id.clone(),
+                                account_info.public_key.clone(),
+                                account_info.amount,
+                            ))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>();
 
-        for shard_id in 0..num_shards {
-            let validators = genesis
-                .config
-                .validators
-                .iter()
-                .filter_map(|account_info| {
-                    if account_id_to_shard_id(&account_info.account_id, &shard_layout) == shard_id {
-                        Some((
-                            account_info.account_id.clone(),
-                            account_info.public_key.clone(),
-                            account_info.amount,
-                        ))
-                    } else {
-                        None
-                    }
-                })
-                .collect::<Vec<_>>();
-
-            state_roots.push(runtime.apply_genesis_state(
-                tries.clone(),
-                shard_id,
-                &validators,
-                genesis,
-                runtime_config,
-                shard_account_ids[shard_id as usize].clone(),
-            ));
-        }
-        state_roots
+                runtime.apply_genesis_state(
+                    &writers,
+                    tries.clone(),
+                    shard_id,
+                    &validators,
+                    genesis,
+                    runtime_config,
+                    shard_account_ids[shard_id as usize].clone(),
+                )
+            })
+            .collect()
     }
 
     /// On first start: compute state roots, load genesis state into storage.
@@ -534,11 +553,6 @@ impl NightshadeRuntime {
         metrics::APPLY_CHUNK_DELAY
             .with_label_values(&[&format_total_gas_burnt(total_gas_burnt)])
             .observe(elapsed.as_secs_f64());
-        if total_gas_burnt > 0 {
-            metrics::SECONDS_PER_PETAGAS
-                .with_label_values(&[])
-                .observe(elapsed.as_secs_f64() * 1e15 / total_gas_burnt as f64);
-        }
         let total_balance_burnt = apply_result
             .stats
             .tx_burnt_amount
@@ -732,49 +746,46 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(self.tries.get_view_trie_for_shard(shard_uid, state_root))
     }
 
-    fn get_flat_storage_state_for_shard(&self, shard_id: ShardId) -> Option<FlatStorageState> {
-        self.flat_state_factory.get_flat_storage_state_for_shard(shard_id)
+    fn get_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Option<FlatStorage> {
+        self.flat_storage_manager.get_flat_storage_for_shard(shard_uid)
     }
 
-    fn get_flat_storage_creation_status(&self, shard_id: ShardId) -> FlatStorageCreationStatus {
-        store_helper::get_flat_storage_creation_status(&self.store, shard_id)
+    fn get_flat_storage_status(&self, shard_uid: ShardUId) -> FlatStorageStatus {
+        store_helper::get_flat_storage_status(&self.store, shard_uid)
     }
 
     // TODO (#7327): consider passing flat storage errors here to handle them gracefully
-    fn create_flat_storage_state_for_shard(
-        &self,
-        shard_id: ShardId,
-        latest_block_height: BlockHeight,
-        chain_access: &dyn ChainAccessForFlatStorage,
-    ) {
-        let flat_storage_state =
-            FlatStorageState::new(self.store.clone(), shard_id, latest_block_height, chain_access);
-        self.flat_state_factory.add_flat_storage_state_for_shard(shard_id, flat_storage_state);
+    fn create_flat_storage_for_shard(&self, shard_uid: ShardUId) {
+        let flat_storage = FlatStorage::new(self.store.clone(), shard_uid);
+        self.flat_storage_manager.add_flat_storage_for_shard(shard_uid, flat_storage);
     }
 
-    fn remove_flat_storage_state_for_shard(
+    fn remove_flat_storage_for_shard(
         &self,
-        shard_id: ShardId,
+        shard_uid: ShardUId,
         epoch_id: &EpochId,
     ) -> Result<(), Error> {
         let shard_layout = self.get_shard_layout(epoch_id)?;
-        self.flat_state_factory
-            .remove_flat_storage_state_for_shard(shard_id, shard_layout)
+        self.flat_storage_manager
+            .remove_flat_storage_for_shard(shard_uid, shard_layout)
             .map_err(|e| Error::StorageError(e))?;
         Ok(())
     }
 
-    fn set_flat_storage_state_for_genesis(
+    fn set_flat_storage_for_genesis(
         &self,
         genesis_block: &CryptoHash,
+        genesis_block_height: BlockHeight,
         genesis_epoch_id: &EpochId,
     ) -> Result<StoreUpdate, Error> {
         let mut store_update = self.store.store_update();
         for shard_id in 0..self.num_shards(genesis_epoch_id)? {
-            self.flat_state_factory.set_flat_storage_state_for_genesis(
+            let shard_uid = self.shard_id_to_uid(shard_id, genesis_epoch_id)?;
+            self.flat_storage_manager.set_flat_storage_for_genesis(
                 &mut store_update,
-                shard_id,
+                shard_uid,
                 genesis_block,
+                genesis_block_height,
             );
         }
         Ok(store_update)
@@ -868,8 +879,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         // of parameters, this corresponds to about 13megs worth of
         // transactions.
         let size_limit = transactions_gas_limit
-            / (runtime_config.wasm_config.ext_costs.cost(ExtCosts::storage_write_value_byte)
-                + runtime_config.wasm_config.ext_costs.cost(ExtCosts::storage_read_value_byte));
+            / (runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::storage_write_value_byte)
+                + runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::storage_read_value_byte));
 
         while total_gas_burnt < transactions_gas_limit && total_size < size_limit {
             if let Some(iter) = pool_iterator.next() {
@@ -1026,7 +1037,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             Ok(result) => Ok(result),
             Err(e) => match e {
                 Error::StorageError(err) => match &err {
-                    StorageError::FlatStorageError(_) => Err(err.into()),
+                    StorageError::FlatStorageBlockNotSupported(_) => Err(err.into()),
                     _ => panic!("{err}"),
                 },
                 _ => Err(e),
@@ -1235,6 +1246,10 @@ impl RuntimeAdapter for NightshadeRuntime {
             %block_hash,
             num_parts = part_id.total)
         .entered();
+        let _timer = metrics::STATE_SYNC_OBTAIN_PART_DELAY
+            .with_label_values(&[&shard_id.to_string()])
+            .start_timer();
+
         let epoch_id = self.get_epoch_id(block_hash)?;
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
         let trie = self.tries.get_view_trie_for_shard(shard_uid, *state_root);
@@ -1259,11 +1274,17 @@ impl RuntimeAdapter for NightshadeRuntime {
                 match Trie::validate_trie_nodes_for_part(state_root, part_id, trie_nodes) {
                     Ok(_) => true,
                     // Storage error should not happen
-                    Err(_) => false,
+                    Err(err) => {
+                        tracing::error!(target: "state-parts", ?err, "State part storage error");
+                        false
+                    }
                 }
             }
             // Deserialization error means we've got the data from malicious peer
-            Err(_) => false,
+            Err(err) => {
+                tracing::error!(target: "state-parts", ?err, "State part deserialization error");
+                false
+            }
         }
     }
 
@@ -1360,6 +1381,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         data: &[u8],
         epoch_id: &EpochId,
     ) -> Result<(), Error> {
+        let _timer = metrics::STATE_SYNC_APPLY_PART_DELAY
+            .with_label_values(&[&shard_id.to_string()])
+            .start_timer();
+
         let part = BorshDeserialize::try_from_slice(data)
             .expect("Part was already validated earlier, so could never fail here");
         let ApplyStatePartResult { trie_changes, flat_state_delta, contract_codes } =
@@ -1368,8 +1393,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, epoch_id)?;
         let mut store_update = tries.store_update();
         tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-        debug!(target: "chain", %shard_id, "Inserting {} values to flat storage", flat_state_delta.len());
-        flat_state_delta.apply_to_flat_state(&mut store_update);
+        if cfg!(feature = "protocol_feature_flat_state") {
+            debug!(target: "chain", %shard_id, "Inserting {} values to flat storage", flat_state_delta.len());
+            flat_state_delta.apply_to_flat_state(&mut store_update, shard_uid);
+        }
         self.precompile_contracts(epoch_id, contract_codes)?;
         Ok(store_update.commit()?)
     }
@@ -1453,7 +1480,19 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 }
 
-impl RuntimeWithEpochManagerAdapter for NightshadeRuntime {}
+impl RuntimeWithEpochManagerAdapter for NightshadeRuntime {
+    fn epoch_manager_adapter(&self) -> &dyn EpochManagerAdapter {
+        self
+    }
+
+    fn epoch_manager_adapter_arc(&self) -> Arc<dyn EpochManagerAdapter> {
+        self.myself.upgrade().unwrap()
+    }
+
+    fn shard_tracker(&self) -> ShardTracker {
+        self.shard_tracker.clone()
+    }
+}
 
 impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
     fn view_account(
@@ -1555,8 +1594,10 @@ mod test {
     use std::collections::BTreeSet;
 
     use near_chain::{Chain, ChainGenesis};
+    use near_epoch_manager::shard_tracker::TrackedConfig;
     use near_primitives::test_utils::create_test_signer;
     use near_primitives::types::validator_stake::ValidatorStake;
+    use near_store::flat::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
     use num_rational::Ratio;
 
     use crate::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
@@ -1575,7 +1616,7 @@ mod test {
         AccountView, CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo,
         ValidatorKickoutView,
     };
-    use near_store::{flat_state, FlatStateDelta, NodeStorage, Temperature};
+    use near_store::NodeStorage;
 
     use super::*;
 
@@ -1637,21 +1678,25 @@ mod test {
                 )
                 .unwrap();
             let mut store_update = self.store.store_update();
-            let flat_state_delta =
-                FlatStateDelta::from_state_changes(&result.trie_changes.state_changes());
+            let flat_state_changes =
+                FlatStateChanges::from_state_changes(&result.trie_changes.state_changes());
             result.trie_changes.insertions_into(&mut store_update);
             result.trie_changes.state_changes_into(&mut store_update);
 
-            match self.get_flat_storage_state_for_shard(shard_id) {
-                Some(flat_storage_state) => {
-                    let block_info = flat_state::BlockInfo {
-                        hash: *block_hash,
-                        height,
-                        prev_hash: *prev_block_hash,
+            let shard_uid = self.shard_id_to_uid(shard_id, &EpochId::default()).unwrap();
+            match self.get_flat_storage_for_shard(shard_uid) {
+                Some(flat_storage) => {
+                    let delta = FlatStateDelta {
+                        changes: flat_state_changes,
+                        metadata: FlatStateDeltaMetadata {
+                            block: near_store::flat::BlockInfo {
+                                hash: *block_hash,
+                                height,
+                                prev_hash: *prev_block_hash,
+                            },
+                        },
                     };
-                    let new_store_update = flat_storage_state
-                        .add_block(&block_hash, flat_state_delta, block_info)
-                        .unwrap();
+                    let new_store_update = flat_storage.add_delta(delta).unwrap();
                     store_update.merge(new_store_update);
                 }
                 None => {}
@@ -1662,48 +1707,11 @@ mod test {
         }
     }
 
-    /// Stores chain data for genesis block to initialize flat storage in test environment.
-    struct MockChainForFlatStorage {
-        height_to_hashes: HashMap<BlockHeight, CryptoHash>,
-        blocks: HashMap<CryptoHash, flat_state::BlockInfo>,
-    }
-
-    impl ChainAccessForFlatStorage for MockChainForFlatStorage {
-        fn get_block_info(&self, block_hash: &CryptoHash) -> flat_state::BlockInfo {
-            self.blocks.get(block_hash).unwrap().clone()
-        }
-
-        fn get_block_hashes_at_height(&self, block_height: BlockHeight) -> HashSet<CryptoHash> {
-            HashSet::from([self.get_block_hash(block_height)])
-        }
-    }
-
-    impl MockChainForFlatStorage {
-        /// Creates mock chain containing only genesis block data.
-        pub fn new(genesis_height: BlockHeight, genesis_hash: CryptoHash) -> Self {
-            Self {
-                height_to_hashes: HashMap::from([(genesis_height, genesis_hash)]),
-                blocks: HashMap::from([(
-                    genesis_hash,
-                    flat_state::BlockInfo {
-                        hash: genesis_hash,
-                        height: genesis_height,
-                        prev_hash: CryptoHash::default(),
-                    },
-                )]),
-            }
-        }
-
-        fn get_block_hash(&self, height: BlockHeight) -> CryptoHash {
-            *self.height_to_hashes.get(&height).unwrap()
-        }
-    }
-
     /// Environment to test runtime behaviour separate from Chain.
     /// Runtime operates in a mock chain where i-th block is attached to (i-1)-th one, has height `i` and hash
     /// `hash([i])`.
     struct TestEnv {
-        pub runtime: NightshadeRuntime,
+        pub runtime: Arc<NightshadeRuntime>,
         pub head: Tip,
         state_roots: Vec<StateRoot>,
         pub last_receipts: HashMap<ShardId, Vec<Receipt>>,
@@ -1764,7 +1772,7 @@ mod test {
             minimum_stake_divisor: Option<u64>,
         ) -> Self {
             let (dir, opener) = NodeStorage::test_opener();
-            let store = opener.open().unwrap().get_store(Temperature::Hot);
+            let store = opener.open().unwrap().get_hot_store();
             let all_validators = validators.iter().fold(BTreeSet::new(), |acc, x| {
                 acc.union(&x.iter().cloned().collect()).cloned().collect()
             });
@@ -1802,18 +1810,18 @@ mod test {
 
             // Create flat storage. Naturally it happens on Chain creation, but here we test only Runtime behaviour
             // and use a mock chain, so we need to initialize flat storage manually.
-            let store_update = runtime
-                .set_flat_storage_state_for_genesis(&genesis_hash, &EpochId::default())
-                .unwrap();
-            store_update.commit().unwrap();
-            let mock_chain = MockChainForFlatStorage::new(0, genesis_hash);
-            for shard_id in 0..runtime.num_shards(&EpochId::default()).unwrap() {
-                let status = runtime.get_flat_storage_creation_status(shard_id);
-                if cfg!(feature = "protocol_feature_flat_state") {
-                    assert_eq!(status, FlatStorageCreationStatus::Ready);
-                    runtime.create_flat_storage_state_for_shard(shard_id, 0, &mock_chain);
-                } else {
-                    assert_eq!(status, FlatStorageCreationStatus::DontCreate);
+            if cfg!(feature = "protocol_feature_flat_state") {
+                let store_update = runtime
+                    .set_flat_storage_for_genesis(&genesis_hash, 0, &EpochId::default())
+                    .unwrap();
+                store_update.commit().unwrap();
+                for shard_id in 0..runtime.num_shards(&EpochId::default()).unwrap() {
+                    let shard_uid = runtime.shard_id_to_uid(shard_id, &EpochId::default()).unwrap();
+                    assert!(matches!(
+                        runtime.get_flat_storage_status(shard_uid),
+                        FlatStorageStatus::Ready(_)
+                    ));
+                    runtime.create_flat_storage_for_shard(shard_uid);
                 }
             }
 
@@ -3081,13 +3089,16 @@ mod test {
             .runtime
             .get_trie_for_shard(0, &env.head.prev_block_hash, Trie::EMPTY_ROOT, true)
             .unwrap();
-        assert_eq!(trie.flat_state.is_some(), cfg!(feature = "protocol_feature_flat_state"));
+        assert_eq!(
+            trie.flat_storage_chunk_view.is_some(),
+            cfg!(feature = "protocol_feature_flat_state")
+        );
 
         let trie = env
             .runtime
             .get_view_trie_for_shard(0, &env.head.prev_block_hash, Trie::EMPTY_ROOT)
             .unwrap();
-        assert!(trie.flat_state.is_none());
+        assert!(trie.flat_storage_chunk_view.is_none());
     }
 
     /// Check that querying trie and flat state gives the same result.
@@ -3145,15 +3156,15 @@ mod test {
         let store = near_store::test_utils::create_test_store();
 
         let tempdir = tempfile::tempdir().unwrap();
-        let runtime = Arc::new(NightshadeRuntime::test_with_runtime_config_store(
+        let runtime = NightshadeRuntime::test_with_runtime_config_store(
             tempdir.path(),
             store.clone(),
             &genesis,
             TrackedConfig::new_empty(),
             RuntimeConfigStore::new(None),
-        ));
+        );
 
-        let block = Chain::make_genesis_block(&*runtime, &chain_genesis).unwrap();
+        let block = Chain::make_genesis_block(runtime.as_ref(), &chain_genesis).unwrap();
         assert_eq!(
             block.header().hash().to_string(),
             "EPnLgE7iEq9s7yTkos96M3cWymH5avBAPm3qx3NXqR8H"

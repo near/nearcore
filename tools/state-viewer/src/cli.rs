@@ -1,8 +1,6 @@
 use crate::commands::*;
 use crate::contract_accounts::ContractAccountFilter;
 use crate::rocksdb_stats::get_rocksdb_stats;
-use crate::state_parts::{apply_state_parts, dump_state_parts};
-use crate::{epoch_info, state_parts};
 use near_chain_configs::{GenesisChangeConfig, GenesisValidationMode};
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
@@ -28,8 +26,6 @@ pub enum StateViewerSubCommand {
     /// even if it's not included in any block on disk
     #[clap(alias = "apply_receipt")]
     ApplyReceipt(ApplyReceiptCmd),
-    /// Apply all or a single state part of a shard.
-    ApplyStateParts(ApplyStatePartsCmd),
     /// Apply a transaction if it occurs in some chunk we know about,
     /// even if it's not included in any block on disk
     #[clap(alias = "apply_tx")]
@@ -53,8 +49,6 @@ pub enum StateViewerSubCommand {
     /// Generate a genesis file from the current state of the DB.
     #[clap(alias = "dump_state")]
     DumpState(DumpStateCmd),
-    /// Dump all or a single state part of a shard.
-    DumpStateParts(DumpStatePartsCmd),
     /// Writes state to a remote redis server.
     #[clap(alias = "dump_state_redis")]
     DumpStateRedis(DumpStateRedisCmd),
@@ -67,8 +61,6 @@ pub enum StateViewerSubCommand {
     /// Looks up a certain partial chunk.
     #[clap(alias = "partial_chunks")]
     PartialChunks(PartialChunksCmd),
-    /// Prints stored peers information from the DB.
-    Peers,
     /// Looks up a certain receipt.
     Receipts(ReceiptsCmd),
     /// Replay headers from chain.
@@ -78,6 +70,11 @@ pub enum StateViewerSubCommand {
     RocksDBStats(RocksDBStatsCmd),
     /// Iterates over a trie and prints the StateRecords.
     State,
+    /// Dumps or applies StateChanges.
+    /// Experimental tool for shard shadowing development.
+    StateChanges(StateChangesCmd),
+    /// Dump or apply state parts.
+    StateParts(StatePartsCmd),
     /// View head of the storage.
     #[clap(alias = "view_chain")]
     ViewChain(ViewChainCmd),
@@ -106,14 +103,17 @@ impl StateViewerSubCommand {
         );
 
         let storage = store_opener.open_in_mode(mode).unwrap();
-        let store = storage.get_store(temperature);
-        let db = storage.into_inner(temperature);
+        let store = match temperature {
+            Temperature::Hot => storage.get_hot_store(),
+            // Cold store on it's own is useless in majority of subcommands
+            Temperature::Cold => storage.get_split_store().unwrap(),
+        };
+
         match self {
             StateViewerSubCommand::Apply(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ApplyChunk(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ApplyRange(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ApplyReceipt(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::ApplyStateParts(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ApplyTx(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::Chain(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::CheckBlock => check_block_chunk_existence(near_config, store),
@@ -122,16 +122,16 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::DumpAccountStorage(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::DumpCode(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::DumpState(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::DumpStateParts(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::DumpStateRedis(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::DumpTx(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::EpochInfo(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::PartialChunks(cmd) => cmd.run(near_config, store),
-            StateViewerSubCommand::Peers => peers(db),
             StateViewerSubCommand::Receipts(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::Replay(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::RocksDBStats(cmd) => cmd.run(store_opener.path()),
             StateViewerSubCommand::State => state(home_dir, near_config, store),
+            StateViewerSubCommand::StateChanges(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::StateParts(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ViewChain(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::ViewTrie(cmd) => cmd.run(store),
         }
@@ -148,7 +148,7 @@ pub struct ApplyCmd {
 
 impl ApplyCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
-        apply_block_at_height(self.height, self.shard_id, home_dir, near_config, store);
+        apply_block_at_height(self.height, self.shard_id, home_dir, near_config, store).unwrap();
     }
 }
 
@@ -212,42 +212,6 @@ impl ApplyReceiptCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         let hash = CryptoHash::from_str(&self.hash).unwrap();
         apply_receipt(home_dir, near_config, store, hash).unwrap();
-    }
-}
-
-#[derive(clap::Parser)]
-pub struct ApplyStatePartsCmd {
-    /// Selects an epoch. The dump will be of the state at the beginning of this epoch.
-    #[clap(subcommand)]
-    epoch_selection: state_parts::EpochSelection,
-    /// Shard id.
-    #[clap(long)]
-    shard_id: ShardId,
-    /// State part id. Leave empty to go through every part in the shard.
-    #[clap(long)]
-    part_id: Option<u64>,
-    /// Where to write the state parts to.
-    #[clap(long)]
-    root_dir: Option<PathBuf>,
-    /// Store state parts in an S3 bucket.
-    #[clap(long)]
-    s3_bucket: Option<String>,
-    /// Store state parts in an S3 bucket.
-    #[clap(long)]
-    s3_region: Option<String>,
-}
-
-impl ApplyStatePartsCmd {
-    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
-        apply_state_parts(
-            self.epoch_selection,
-            self.shard_id,
-            self.part_id,
-            home_dir,
-            near_config,
-            store,
-            state_parts::Location::new(self.root_dir, (self.s3_bucket, self.s3_region)),
-        );
     }
 }
 
@@ -399,42 +363,6 @@ impl DumpStateCmd {
 }
 
 #[derive(clap::Parser)]
-pub struct DumpStatePartsCmd {
-    /// Selects an epoch. The dump will be of the state at the beginning of this epoch.
-    #[clap(subcommand)]
-    epoch_selection: state_parts::EpochSelection,
-    /// Shard id.
-    #[clap(long)]
-    shard_id: ShardId,
-    /// State part id. Leave empty to go through every part in the shard.
-    #[clap(long)]
-    part_id: Option<u64>,
-    /// Where to write the state parts to.
-    #[clap(long)]
-    root_dir: Option<PathBuf>,
-    /// Store state parts in an S3 bucket.
-    #[clap(long)]
-    s3_bucket: Option<String>,
-    /// S3 region to store state parts.
-    #[clap(long)]
-    s3_region: Option<String>,
-}
-
-impl DumpStatePartsCmd {
-    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
-        dump_state_parts(
-            self.epoch_selection,
-            self.shard_id,
-            self.part_id,
-            home_dir,
-            near_config,
-            store,
-            state_parts::Location::new(self.root_dir, (self.s3_bucket, self.s3_region)),
-        );
-    }
-}
-
-#[derive(clap::Parser)]
 pub struct DumpStateRedisCmd {
     /// Optionally, can specify at which height to dump state.
     #[clap(long)]
@@ -482,7 +410,7 @@ impl DumpTxCmd {
 #[derive(clap::Args)]
 pub struct EpochInfoCmd {
     #[clap(subcommand)]
-    epoch_selection: epoch_info::EpochSelection,
+    epoch_selection: crate::epoch_info::EpochSelection,
     /// Displays kickouts of the given validator and expected and missed blocks and chunks produced.
     #[clap(long)]
     validator_account_id: Option<String>,
@@ -550,6 +478,18 @@ pub struct RocksDBStatsCmd {
 impl RocksDBStatsCmd {
     pub fn run(self, store_dir: &Path) {
         get_rocksdb_stats(store_dir, self.file).expect("Couldn't get RocksDB stats");
+    }
+}
+
+#[derive(clap::Parser)]
+pub struct StateChangesCmd {
+    #[clap(subcommand)]
+    command: crate::state_changes::StateChangesSubCommand,
+}
+
+impl StateChangesCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        self.command.run(home_dir, near_config, store)
     }
 }
 
@@ -630,5 +570,38 @@ impl ViewTrieCmd {
                     .unwrap();
             }
         }
+    }
+}
+
+#[derive(clap::Parser)]
+pub struct StatePartsCmd {
+    /// Shard id.
+    #[clap(long)]
+    shard_id: ShardId,
+    /// Location of serialized state parts.
+    #[clap(long)]
+    root_dir: Option<PathBuf>,
+    /// Store state parts in an S3 bucket.
+    #[clap(long)]
+    s3_bucket: Option<String>,
+    /// Store state parts in an S3 bucket.
+    #[clap(long)]
+    s3_region: Option<String>,
+    /// Dump or Apply state parts.
+    #[clap(subcommand)]
+    command: crate::state_parts::StatePartsSubCommand,
+}
+
+impl StatePartsCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        self.command.run(
+            self.shard_id,
+            self.root_dir,
+            self.s3_bucket,
+            self.s3_region,
+            home_dir,
+            near_config,
+            store,
+        );
     }
 }

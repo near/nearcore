@@ -1,176 +1,85 @@
+use near_o11y::{log_assert, log_assert_fail};
+
+use crate::db::refcount::set_refcount;
 use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database};
 use crate::DBCol;
 
 /// A database which provides access to the cold storage.
 ///
-/// Some of the data we’re storing in cold storage is saved in slightly
-/// different format than it is in the main database.  Specifically:
-///
-/// - Reference counts are not saved.  Since data is never removed from cold
-///   storage, reference counts are not preserved and when fetching data are
-///   always assumed to be one.
-///
-/// - Keys of DBCol::State column are not prefixed by ShardUId.  The prefix
-///   isn’t needed to disambiguate the value.  It is used on hot storage to
-///   provide some isolation by putting data of different shards in different
-///   ranges of keys.  This is not beneficial is cold storage so we’re not using
-///   the prefix to reduce space usage and avoid heavy data migration in case of
-///   resharding.
-///
-/// - Keys of columns which include block height are encoded using big-endian
-///   rather than little-endian as in hot storage.  Big-endian has the advantage
-///   of being sorted in the same order the numbers themselves which in turn
-///   means that when we add new heights they are always appended at the end of
-///   the column.
-///
-/// This struct handles all those transformations transparently to the user so
-/// that they don’t need to worry about accessing hot and cold storage
-/// differently.
-///
-/// Note however that this also means that some operations, specifically
-/// iterations, are limited and not implemented for all columns.  When trying to
-/// implement over unsupported column the code will panic.  Refer to particular
-/// iteration method in Database trait implementation for more details.
+/// The data is stored in the same format as in the regular database but for the
+/// reference counted columns the rc is always set to 1. This struct handles
+/// setting the rc to one transparently to the user.
 ///
 /// Lastly, since no data is ever deleted from cold storage, trying to decrease
 /// reference of a value count or delete data is ignored and if debug assertions
 /// are enabled will cause a panic.
-pub struct ColdDB<D = crate::db::RocksDB> {
-    hot: std::sync::Arc<dyn Database>,
-    cold: D,
+pub struct ColdDB {
+    cold: std::sync::Arc<dyn Database>,
 }
 
-impl<D> ColdDB<D> {
-    pub fn new(hot: std::sync::Arc<dyn Database>, cold: D) -> Self {
-        Self { hot, cold }
+impl ColdDB {
+    pub fn new(cold: std::sync::Arc<dyn Database>) -> Self {
+        Self { cold }
     }
 
-    /// Checks which database columns should be accessed from.
-    ///
-    /// For columns present in cold database (see [`DBCol::is_in_colddb`],
-    /// returns false.  For [`DBCol::BlockHeader`] and [`DBCol::EpochInfo`]
-    /// returns true.  For other (hot) columns logs an error and returns false
-    /// (i.e. they are still read from cold database which will result in empty
-    /// read).
-    fn is_hot_column(col: DBCol) -> bool {
-        if matches!(col, DBCol::BlockHeader | DBCol::EpochInfo) {
-            // TODO(#3488): Remove BlockHeader from this case once it becomes
-            // garbage collected.
-            //
-            // Note that at that point it might be beneficial to rather than
-            // storing BlockHeader in cold database to translate all accesses to
-            // the column to read data from DBCol::Block instead (since headers
-            // are embedded within a block).
-            true
-        } else {
-            // TODO: Convert this to near_o11y::log_assert!(col.is_in_colddb(),
-            // ...)  once all cold columns are marked as such.
-            if !col.is_in_colddb() {
-                tracing::debug!(
-                    target: "store",
-                    %col, "Trying to read hot column from cold storage"
-                );
-            }
-            false
+    fn err_msg(col: DBCol) -> String {
+        format!("Reading from column missing from cold storage. {col:?}")
+    }
+
+    // Checks if the column is is the cold db and returns an error if not.
+    fn check_is_in_colddb(col: DBCol) -> std::io::Result<()> {
+        if !col.is_in_colddb() {
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, Self::err_msg(col)));
         }
+        Ok(())
+    }
+
+    // Checks if the column is is the cold db and panics if not.
+    fn log_assert_is_in_colddb(col: DBCol) {
+        log_assert!(col.is_in_colddb(), "{}", Self::err_msg(col));
     }
 }
 
-impl<D: Database> ColdDB<D> {
-    /// Returns raw bytes from the underlying storage.
-    ///
-    /// Adjusts the key if necessary (see [`get_cold_key`]) and retrieves data
-    /// corresponding to it from the database and returns it as it resides in
-    /// the database.  This is common code used by [`Self::get_raw_bytes`] and
-    /// [`Self::get_with_rc_stripped`] methods.
-    fn get_cold_impl(&self, col: DBCol, key: &[u8]) -> std::io::Result<Option<DBSlice<'_>>> {
-        let mut buffer = [0; 32];
-        let key = get_cold_key(col, key, &mut buffer).unwrap_or(key);
+impl Database for ColdDB {
+    /// Returns raw bytes for given `key` ignoring any reference count decoding if any.
+    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> std::io::Result<Option<DBSlice<'_>>> {
+        Self::check_is_in_colddb(col)?;
         self.cold.get_raw_bytes(col, key)
     }
-}
 
-impl<D: Database> super::Database for ColdDB<D> {
-    fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> std::io::Result<Option<DBSlice<'_>>> {
-        if Self::is_hot_column(col) {
-            return self.hot.get_raw_bytes(col, key);
-        }
-        match self.get_cold_impl(col, key) {
-            Ok(Some(value)) if col.is_rc() => {
-                // Since we’ve stripped the reference count from the data stored
-                // in the database, we need to reintroduce it.  In practice this
-                // should be never called in production since reading of rc
-                // columns is done with get_with_rc_stripped.
-                const ONE: [u8; 8] = 1i64.to_le_bytes();
-                let vec = [value.as_slice(), &ONE[..]].concat();
-                Ok(Some(DBSlice::from_vec(vec)))
-            }
-            result => result,
-        }
-    }
-
+    /// Returns value for given `key` forcing a reference count decoding.
     fn get_with_rc_stripped(&self, col: DBCol, key: &[u8]) -> std::io::Result<Option<DBSlice<'_>>> {
-        assert!(col.is_rc());
-        if Self::is_hot_column(col) {
-            self.hot.get_with_rc_stripped(col, key)
-        } else {
-            self.get_cold_impl(col, key)
-        }
+        Self::check_is_in_colddb(col)?;
+        self.cold.get_with_rc_stripped(col, key)
     }
 
     /// Iterates over all values in a column.
-    ///
-    /// This is implemented only for a few columns.  Specifically for Block,
-    /// BlockHeader, ChunkHashesByHeight and EpochInfo.  It’ll panic if used for
-    /// any other column.
-    ///
-    /// Furthermore, because key of ChunkHashesByHeight is modified in cold
-    /// storage, the order of iteration of that column is different than if it
-    /// would be in hot storage.
-    fn iter<'a>(&'a self, column: DBCol) -> DBIterator<'a> {
-        match column {
-            DBCol::BlockHeader | DBCol::EpochInfo => return self.hot.iter(column),
-            // Those are the only columns we’re ever iterating over.
-            DBCol::Block | DBCol::ChunkHashesByHeight => (),
-            _ => panic!("iter on cold storage is not supported for {column}"),
-        }
-        let it = self.cold.iter_raw_bytes(column);
-        if column == DBCol::ChunkHashesByHeight {
-            // For the column we need to swap bytes in the key.
-            Box::new(it.map(|result| {
-                let (mut key, value) = result?;
-                let num = u64::from_le_bytes(key.as_ref().try_into().unwrap());
-                key.as_mut().copy_from_slice(&num.to_be_bytes());
-                Ok((key, value))
-            }))
-        } else {
-            it
-        }
+    fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
+        Self::log_assert_is_in_colddb(col);
+        self.cold.iter(col)
     }
 
     /// Iterates over values in a given column whose key has given prefix.
-    ///
-    /// This is only implemented for StateChanges column and will panic if used
-    /// for any other column.
     fn iter_prefix<'a>(&'a self, col: DBCol, key_prefix: &'a [u8]) -> DBIterator<'a> {
-        // We only ever call iter_prefix on DBCol::StateChanges so we don’t need
-        // to worry about implementing it for any other column.
-        assert_eq!(
-            DBCol::StateChanges,
-            col,
-            "iter_prefix on cold storage is supported for StateChanges only; \
-             tried to iterate over {col}"
-        );
-        // StateChanges is neither reference counted, nor do we do any
-        // adjustments to that column’s keys so we can pass the iter_prefix
-        // request directly to the underlying database.
+        Self::log_assert_is_in_colddb(col);
         self.cold.iter_prefix(col, key_prefix)
     }
 
-    /// Unimplemented; always panics.
-    fn iter_raw_bytes<'a>(&'a self, _column: DBCol) -> DBIterator<'a> {
-        // We’re actually never call iter_raw_bytes on cold store.
-        unreachable!();
+    /// Iterate over items in given column bypassing reference count decoding if any.
+    fn iter_raw_bytes<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
+        Self::log_assert_is_in_colddb(col);
+        self.cold.iter_raw_bytes(col)
+    }
+
+    /// Iterate over items in given column whose keys are between [lower_bound, upper_bound)
+    fn iter_range<'a>(
+        &'a self,
+        col: DBCol,
+        lower_bound: Option<&'a [u8]>,
+        upper_bound: Option<&'a [u8]>,
+    ) -> DBIterator<'a> {
+        Self::log_assert_is_in_colddb(col);
+        self.cold.iter_range(col, lower_bound, upper_bound)
     }
 
     /// Atomically applies operations in given transaction.
@@ -178,13 +87,6 @@ impl<D: Database> super::Database for ColdDB<D> {
     /// If debug assertions are enabled, panics if there are any delete
     /// operations or operations decreasing reference count of a value.  If
     /// debug assertions are not enabled, such operations are filtered out.
-    ///
-    /// As per documentation of [the type](Self), some keys and values are
-    /// adjusted before they are written to the database.  In particular,
-    /// ShardUId is removed from keys of DBCol::State column.  This means that
-    /// write of hash α to shard X and to shard Y will result in the same write.
-    /// If convenient at transaction generation time, it’s beneficial to
-    /// deduplicate such writes.
     fn write(&self, mut transaction: DBTransaction) -> std::io::Result<()> {
         let mut idx = 0;
         while idx < transaction.ops.len() {
@@ -210,93 +112,46 @@ impl<D: Database> super::Database for ColdDB<D> {
     }
 }
 
-/// Returns key as used in cold database for given column in hot database.
-///
-/// Some columns use different keys in cold storage compared to what they use in
-/// hot storage.  Most column use the same key and for those this function
-/// returns None.  However, there are two adjustments that the method performs:
-///
-/// 1. Due to historical reasons, when integers are keys they are stored as
-///    little-endian.  In cold storage we’re swapping the bytes for those
-///    identifiers to use big-endian instead.  Big-endian is a much better
-///    choice since it sorts in the same order as the numbers themselves.
-///
-/// 2. In hot storage, entries in the DBCol::State are prefixed by 8-byte
-///    ShardUId.  Keys in the column are hashes of the stored value so the
-///    ShardUId isn’t necessary to identify or disambiguate different values.
-///    The prefix can be removed which will also help with deduplicating values.
-///
-/// When doing the transformations of the key, the new value is stored in the
-/// provided `buffer` and the function returns a slice pointing at it.
-fn get_cold_key<'a>(col: DBCol, key: &[u8], buffer: &'a mut [u8; 32]) -> Option<&'a [u8]> {
-    match col {
-        DBCol::BlockHeight
-        | DBCol::BlockPerHeight
-        | DBCol::ChunkHashesByHeight
-        | DBCol::ProcessedBlockHeights
-        | DBCol::HeaderHashesByHeight => {
-            // Key is `little_endian(height)`
-            let num = u64::from_le_bytes(key.try_into().unwrap());
-            buffer[..8].copy_from_slice(&num.to_be_bytes());
-            Some(&buffer[..8])
-        }
-        DBCol::State => {
-            // Key is `ShardUId || CryptoHash(node_or_value)`.  We’re stripping
-            // the ShardUId.
-            buffer[..32].copy_from_slice(&key[8..]);
-            Some(&buffer[..32])
-        }
-        _ => None,
-    }
-}
-
-/// Adjusts cold storage key as described in [`get_cold_key`].
-fn adjust_key(col: DBCol, key: &mut Vec<u8>) {
-    let mut buffer = [0; 32];
-    if let Some(new_key) = get_cold_key(col, key.as_slice(), &mut buffer) {
-        key.truncate(new_key.len());
-        key.copy_from_slice(new_key);
-    }
-}
-
 /// Adjust database operation to be performed on cold storage.
 ///
 /// Returns whether the operation should be kept or dropped.  Generally, dropped
 /// columns indicate an unexpected operation which should have never been issued
 /// for cold storage.
 fn adjust_op(op: &mut DBOp) -> bool {
+    if !op.col().is_in_colddb() {
+        return false;
+    }
+
     match op {
-        DBOp::Set { col, key, .. } | DBOp::Insert { col, key, .. } => {
-            adjust_key(*col, key);
-            true
-        }
+        DBOp::Set { .. } | DBOp::Insert { .. } => true,
         DBOp::UpdateRefcount { col, key, value } => {
             assert!(col.is_rc());
-            let value = core::mem::take(value);
-            if let Some(value) = crate::db::refcount::strip_refcount(value) {
-                *op = DBOp::Set { col: *col, key: core::mem::take(key), value };
-                true
-            } else {
-                near_o11y::log_assert!(
-                    false,
-                    "Unexpected non-positive reference count in {col} in cold store: {key:?}"
-                );
-                false
-            }
+            // There is no point in keeping track of ref count in the cold store so
+            // just always hardcode it to 1.
+            let mut value = core::mem::take(value);
+            match set_refcount(&mut value, 1) {
+                Ok(_) => {
+                    *op = DBOp::Set { col: *col, key: core::mem::take(key), value };
+                    return true;
+                }
+                Err(err) => {
+                    log_assert_fail!(
+                        "Failed to set refcount when writing to cold store. Error: {err}"
+                    );
+                    return false;
+                }
+            };
         }
         DBOp::Delete { col, key } => {
-            near_o11y::log_assert!(false, "Unexpected delete from {col} in cold store: {key:?}");
+            log_assert_fail!("Unexpected delete from {col} in cold store: {key:?}");
             false
         }
         DBOp::DeleteAll { col } => {
-            near_o11y::log_assert!(false, "Unexpected delete of {col} in cold store");
+            log_assert_fail!("Unexpected delete from {col} in cold store");
             false
         }
         DBOp::DeleteRange { col, from, to } => {
-            near_o11y::log_assert!(
-                false,
-                "Unexpected delete range from {col} in cold store: {from:?} {to:?}"
-            );
+            log_assert_fail!("Unexpected delete range from {col} in cold store: {from:?} {to:?}");
             false
         }
     }
@@ -307,19 +162,24 @@ mod test {
     use super::*;
 
     const HEIGHT_LE: &[u8] = &42u64.to_le_bytes();
-    const HEIGHT_BE: &[u8] = &42u64.to_be_bytes();
     const SHARD: &[u8] = "ShardUId".as_bytes();
     const HASH: &[u8] = [0u8; 32].as_slice();
     const VALUE: &[u8] = "FooBar".as_bytes();
+    const ONE: &[u8] = &1i64.to_le_bytes();
 
     /// Constructs test in-memory database.
-    fn create_test_db() -> ColdDB<crate::db::TestDB> {
-        let hot = crate::db::testdb::TestDB::default();
-        ColdDB::new(std::sync::Arc::new(hot), crate::db::testdb::TestDB::default())
+    fn create_test_cold_db() -> ColdDB {
+        let cold = crate::db::testdb::TestDB::new();
+        ColdDB::new(cold)
     }
 
     fn set(col: DBCol, key: &[u8]) -> DBOp {
         DBOp::Set { col, key: key.to_vec(), value: VALUE.to_vec() }
+    }
+
+    fn set_with_rc(col: DBCol, key: &[u8]) -> DBOp {
+        let value = [VALUE, ONE].concat();
+        DBOp::Set { col, key: key.to_vec(), value: value }
     }
 
     /// Prettifies raw key for display.
@@ -363,18 +223,14 @@ mod test {
     /// Tests that keys are correctly adjusted when saved in cold store.
     #[test]
     fn test_adjust_key() {
-        let db = create_test_db();
+        let db = create_test_cold_db();
 
-        // Populate data
-        let height_columns = [
-            DBCol::BlockHeight,
-            DBCol::BlockPerHeight,
-            DBCol::ChunkHashesByHeight,
-            DBCol::ProcessedBlockHeights,
-            DBCol::HeaderHashesByHeight,
-        ];
-        let mut ops: Vec<_> = height_columns.iter().map(|col| set(*col, HEIGHT_LE)).collect();
-        ops.push(set(DBCol::State, &[SHARD, HASH].concat()));
+        // Test on two columns, one with rc and one without.
+        // State -> rc
+        // Block -> no rc
+
+        let mut ops = vec![];
+        ops.push(set_with_rc(DBCol::State, &[SHARD, HASH].concat()));
         ops.push(set(DBCol::Block, HASH));
         db.write(DBTransaction { ops }).unwrap();
 
@@ -382,7 +238,7 @@ mod test {
         let mut result = Vec::<String>::new();
         let mut fetch = |col, key: &[u8], raw_only: bool| {
             result.push(format!("{col} {}", pretty_key(key)));
-            let dbs: [(bool, &dyn Database); 2] = [(false, &db), (true, &db.cold)];
+            let dbs: [(bool, &dyn Database); 2] = [(false, &db), (true, &*db.cold)];
             for (is_raw, db) in dbs {
                 if raw_only && !is_raw {
                     continue;
@@ -392,21 +248,17 @@ mod test {
                 let value = db.get_raw_bytes(col, &key).unwrap();
                 // When fetching reference counted column ColdDB adds reference
                 // count to it.
-                let value = pretty_value(value.as_deref(), col.is_rc() && !is_raw);
-                result.push(format!("    [{name}] get_raw_bytes → {value}"));
+                let value = pretty_value(value.as_deref(), col.is_rc());
+                result.push(format!("    [{name}] get_raw_bytes        → {value}"));
 
-                if col.is_rc() && !is_raw {
+                if col.is_rc() {
                     let value = db.get_with_rc_stripped(col, &key).unwrap();
                     let value = pretty_value(value.as_deref(), false);
-                    result.push(format!("    [{name}] get_sans_rc   → {value}"));
+                    result.push(format!("    [{name}] get_with_rc_stripped → {value}"));
                 }
             }
         };
 
-        for col in height_columns {
-            fetch(col, HEIGHT_LE, false);
-            fetch(col, HEIGHT_BE, false);
-        }
         fetch(DBCol::State, &[SHARD, HASH].concat(), false);
         fetch(DBCol::State, &[HASH].concat(), true);
         fetch(DBCol::Block, HASH, false);
@@ -415,73 +267,38 @@ mod test {
         //     cargo install cargo-insta
         //     cargo insta test --accept -p near-store  -- db::colddb
         insta::assert_display_snapshot!(result.join("\n"), @r###"
-        BlockHeight le(42)
-            [cold] get_raw_bytes → FooBar
-            [raw ] get_raw_bytes → ∅
-        BlockHeight be(42)
-            [cold] get_raw_bytes → ∅
-            [raw ] get_raw_bytes → FooBar
-        BlockPerHeight le(42)
-            [cold] get_raw_bytes → FooBar
-            [raw ] get_raw_bytes → ∅
-        BlockPerHeight be(42)
-            [cold] get_raw_bytes → ∅
-            [raw ] get_raw_bytes → FooBar
-        ChunkHashesByHeight le(42)
-            [cold] get_raw_bytes → FooBar
-            [raw ] get_raw_bytes → ∅
-        ChunkHashesByHeight be(42)
-            [cold] get_raw_bytes → ∅
-            [raw ] get_raw_bytes → FooBar
-        ProcessedBlockHeights le(42)
-            [cold] get_raw_bytes → FooBar
-            [raw ] get_raw_bytes → ∅
-        ProcessedBlockHeights be(42)
-            [cold] get_raw_bytes → ∅
-            [raw ] get_raw_bytes → FooBar
-        HeaderHashesByHeight le(42)
-            [cold] get_raw_bytes → FooBar
-            [raw ] get_raw_bytes → ∅
-        HeaderHashesByHeight be(42)
-            [cold] get_raw_bytes → ∅
-            [raw ] get_raw_bytes → FooBar
         State `ShardUId || 11111111111111111111111111111111`
-            [cold] get_raw_bytes → FooBar; rc: 1
-            [cold] get_sans_rc   → FooBar
-            [raw ] get_raw_bytes → ∅
+            [cold] get_raw_bytes        → FooBar; rc: 1
+            [cold] get_with_rc_stripped → FooBar
+            [raw ] get_raw_bytes        → FooBar; rc: 1
+            [raw ] get_with_rc_stripped → FooBar
         State 11111111111111111111111111111111
-            [raw ] get_raw_bytes → FooBar
+            [raw ] get_raw_bytes        → ∅
+            [raw ] get_with_rc_stripped → ∅
         Block 11111111111111111111111111111111
-            [cold] get_raw_bytes → FooBar
-            [raw ] get_raw_bytes → FooBar
+            [cold] get_raw_bytes        → FooBar
+            [raw ] get_raw_bytes        → FooBar
         "###);
     }
 
     /// Tests that iterator works correctly and adjusts keys when necessary.
     #[test]
     fn test_iterator() {
-        let db = create_test_db();
+        let db = create_test_cold_db();
 
-        let mut ops: Vec<_> = [DBCol::BlockHeader, DBCol::Block, DBCol::EpochInfo]
-            .into_iter()
-            .map(|col| set(col, HASH))
-            .collect();
-        ops.push(set(DBCol::ChunkHashesByHeight, HEIGHT_LE));
+        // Test on two columns, one with rc and one without.
+        // State -> rc
+        // Block -> no rc
+
+        // Populate data
+        let mut ops = vec![];
+        ops.push(set_with_rc(DBCol::State, &[SHARD, HASH].concat()));
+        ops.push(set(DBCol::Block, HASH));
         db.write(DBTransaction { ops }).unwrap();
 
-        fn hot(col: DBCol) -> DBOp {
-            let value = String::from("Hot FooBar").into();
-            DBOp::Set { col, key: HASH.to_vec(), value }
-        }
-
-        let ops: Vec<_> =
-            [DBCol::BlockHeader, DBCol::Block, DBCol::EpochInfo].into_iter().map(hot).collect();
-        db.hot.write(DBTransaction { ops }).unwrap();
-
         let mut result = Vec::<String>::new();
-        for col in [DBCol::BlockHeader, DBCol::Block, DBCol::EpochInfo, DBCol::ChunkHashesByHeight]
-        {
-            let dbs: [(bool, &dyn Database); 2] = [(false, &db), (true, &db.cold)];
+        for col in [DBCol::State, DBCol::Block] {
+            let dbs: [(bool, &dyn Database); 2] = [(false, &db), (true, &*db.cold)];
             result.push(col.to_string());
             for (is_raw, db) in dbs {
                 let name = if is_raw { "raw " } else { "cold" };
@@ -498,25 +315,18 @@ mod test {
         //     cargo install cargo-insta
         //     cargo insta test --accept -p near-store  -- db::colddb
         insta::assert_display_snapshot!(result.join("\n"), @r###"
-        BlockHeader
-        [cold] (11111111111111111111111111111111, Hot FooBar)
-        [raw ] (11111111111111111111111111111111, FooBar)
+        State
+        [cold] (`ShardUId || 11111111111111111111111111111111`, FooBar)
+        [raw ] (`ShardUId || 11111111111111111111111111111111`, FooBar)
         Block
         [cold] (11111111111111111111111111111111, FooBar)
         [raw ] (11111111111111111111111111111111, FooBar)
-        EpochInfo
-        [cold] (11111111111111111111111111111111, Hot FooBar)
-        [raw ] (11111111111111111111111111111111, FooBar)
-        ChunkHashesByHeight
-        [cold] (le(42), FooBar)
-        [raw ] (be(42), FooBar)
         "###);
     }
 
-    /// Tests that stripping and adding refcount works correctly.
     #[test]
     fn test_refcount() {
-        let db = create_test_db();
+        let db = create_test_cold_db();
         let col = DBCol::Transactions;
         let key = HASH;
 
@@ -524,12 +334,12 @@ mod test {
             DBOp::UpdateRefcount { col, key: key.to_vec(), value: [VALUE, HEIGHT_LE].concat() };
         db.write(DBTransaction { ops: vec![op] }).unwrap();
 
-        // Refcount is not kept in the underlying database.
+        // Refcount is set to 1 in the underlying database.
         let got = db.cold.get_raw_bytes(col, key).unwrap();
-        assert_eq!(Some(VALUE), got.as_deref());
+        assert_eq!(Some([VALUE, ONE].concat().as_slice()), got.as_deref());
 
         // When fetching raw bytes, refcount of 1 is returned.
         let got = db.get_raw_bytes(col, key).unwrap();
-        assert_eq!(Some([VALUE, &1i64.to_le_bytes()].concat()).as_deref(), got.as_deref());
+        assert_eq!(Some([VALUE, ONE].concat().as_slice()), got.as_deref());
     }
 }

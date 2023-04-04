@@ -4,6 +4,23 @@ targets = [
     { triple = "x86_64-apple-darwin" },
 ]
 
+[licenses]
+unlicensed = "deny"
+allow = ["MIT", "Apache-2.0", "Apache-2.0 WITH LLVM-exception"]
+deny = ["AGPL-1.0", "AGPL-3.0",]
+copyleft = "warn"
+allow-osi-fsf-free = "either"
+default = "deny"
+confidence-threshold = 0.8
+exceptions = []
+private = { ignore = false, registries = [] }
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
+
 [bans]
 multiple-versions = "deny"
 deny = [
@@ -47,6 +64,12 @@ skip = [
     # wasmer and wasmtime
     { name = "target-lexicon", version = "=0.10.0" },
     { name = "wasmparser", version = "=0.84.0" },
+
+    # wasmtime v4
+    { name = "wasmparser", version = "=0.95.0" },
+
+    # finite-wasm
+    { name = "wasmparser", version = "=0.99.0" },
 
     # chain and param estimator
     { name = "num-rational", version = "=0.3.2" },

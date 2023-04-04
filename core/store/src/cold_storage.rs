@@ -24,8 +24,9 @@ struct StoreWithCache<'a> {
 
 /// The BatchTransaction can be used to write multiple set operations to the cold db in batches.
 /// [`write`] is called every time `transaction_size` overgrows `threshold_transaction_size`.
-struct BatchTransaction<D: Database + 'static> {
-    cold_db: std::sync::Arc<ColdDB<D>>,
+/// [`write`] should also be called manually before dropping BatchTransaction to write any leftovers.
+struct BatchTransaction {
+    cold_db: std::sync::Arc<ColdDB>,
     transaction: DBTransaction,
     /// Size of all values keys and values in `transaction` in bytes.
     transaction_size: usize,
@@ -53,8 +54,8 @@ struct BatchTransaction<D: Database + 'static> {
 /// 1. add it to `DBCol::is_cold` list
 /// 2. define `DBCol::key_type` for it (if it isn't already defined)
 /// 3. add new clause in `get_keys_from_store` for new key types used for this column (if there are any)
-pub fn update_cold_db<D: Database>(
-    cold_db: &ColdDB<D>,
+pub fn update_cold_db(
+    cold_db: &ColdDB,
     hot_store: &Store,
     shard_layout: &ShardLayout,
     height: &BlockHeight,
@@ -83,11 +84,36 @@ pub fn update_cold_db<D: Database>(
     Ok(true)
 }
 
+// Correctly set the key and value on DBTransaction, taking reference counting
+// into account. For non-rc columns it just sets the value. For rc columns it
+// appends rc = 1 to the value and sets it.
+fn rc_aware_set(
+    transaction: &mut DBTransaction,
+    col: DBCol,
+    key: Vec<u8>,
+    mut value: Vec<u8>,
+) -> usize {
+    const ONE: &[u8] = &1i64.to_le_bytes();
+    match col.is_rc() {
+        false => {
+            let size = key.len() + value.len();
+            transaction.set(col, key, value);
+            return size;
+        }
+        true => {
+            value.extend_from_slice(&ONE);
+            let size = key.len() + value.len();
+            transaction.update_refcount(col, key, value);
+            return size;
+        }
+    };
+}
+
 /// Gets values for given keys in a column from provided hot_store.
 /// Creates a transaction based on that values with set DBOp s.
 /// Writes that transaction to cold_db.
-fn copy_from_store<D: Database>(
-    cold_db: &ColdDB<D>,
+fn copy_from_store(
+    cold_db: &ColdDB,
     hot_store: &mut StoreWithCache,
     col: DBCol,
     keys: Vec<StoreKey>,
@@ -104,10 +130,12 @@ fn copy_from_store<D: Database>(
         if let Some(value) = data {
             // TODO: As an optimisation, we might consider breaking the
             // abstraction layer.  Since we’re always writing to cold database,
-            // rather than using `cold_db: &dyn Database` argument we cloud have
+            // rather than using `cold_db: &dyn Database` argument we could have
             // `cold_db: &ColdDB` and then some custom function which lets us
-            // write raw bytes.
-            transaction.set(col, key, value);
+            // write raw bytes. This would also allow us to bypass stripping and
+            // re-adding the reference count.
+
+            rc_aware_set(&mut transaction, col, key, value);
         }
     }
     cold_db.write(transaction)?;
@@ -122,8 +150,8 @@ fn copy_from_store<D: Database>(
 /// This method relies on the fact that BlockHeight and BlockHeader are not garbage collectable.
 /// (to construct the Tip we query hot_store for block hash and block header)
 /// If this is to change, caller should be careful about `height` not being garbage collected in hot storage yet.
-pub fn update_cold_head<D: Database>(
-    cold_db: &ColdDB<D>,
+pub fn update_cold_head(
+    cold_db: &ColdDB,
     hot_store: &Store,
     height: &BlockHeight,
 ) -> io::Result<()> {
@@ -143,6 +171,13 @@ pub fn update_cold_head<D: Database>(
         cold_db.write(transaction)?;
     }
 
+    // Write COLD_HEAD_KEY to the cold db.
+    {
+        let mut transaction = DBTransaction::new();
+        transaction.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), tip.try_to_vec()?);
+        cold_db.write(transaction)?;
+    }
+
     // Write COLD_HEAD to the hot db.
     {
         let mut transaction = DBTransaction::new();
@@ -155,30 +190,37 @@ pub fn update_cold_head<D: Database>(
     return Ok(());
 }
 
+pub enum CopyAllDataToColdStatus {
+    EverythingCopied,
+    Interrupted,
+}
+
 /// Copies all contents of all cold columns from `hot_store` to `cold_db`.
 /// Does it column by column, and because columns can be huge, writes in batches of ~`batch_size`.
-pub fn copy_all_data_to_cold<D: Database + 'static>(
-    cold_db: std::sync::Arc<ColdDB<D>>,
+pub fn copy_all_data_to_cold(
+    cold_db: std::sync::Arc<ColdDB>,
     hot_store: &Store,
     batch_size: usize,
-) -> io::Result<()> {
+    keep_going: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+) -> io::Result<CopyAllDataToColdStatus> {
     for col in DBCol::iter() {
         if col.is_cold() {
             let mut transaction = BatchTransaction::new(cold_db.clone(), batch_size);
             for result in hot_store.iter(col) {
+                if !keep_going.load(std::sync::atomic::Ordering::Relaxed) {
+                    tracing::debug!(target: "cold_store", "stopping copy_all_data_to_cold");
+                    return Ok(CopyAllDataToColdStatus::Interrupted);
+                }
                 let (key, value) = result?;
-                transaction.set(col, key.to_vec(), value.to_vec())?;
+                transaction.set_and_write_if_full(col, key.to_vec(), value.to_vec())?;
             }
             transaction.write()?;
         }
     }
-    Ok(())
+    Ok(CopyAllDataToColdStatus::EverythingCopied)
 }
 
-pub fn test_cold_genesis_update<D: Database>(
-    cold_db: &ColdDB<D>,
-    hot_store: &Store,
-) -> io::Result<()> {
+pub fn test_cold_genesis_update(cold_db: &ColdDB, hot_store: &Store) -> io::Result<()> {
     let mut store_with_cache = StoreWithCache { store: hot_store, cache: StoreCache::new() };
     for col in DBCol::iter() {
         if col.is_cold() {
@@ -198,7 +240,9 @@ pub fn test_get_store_reads(column: DBCol) -> u64 {
 }
 
 pub fn test_get_store_initial_writes(column: DBCol) -> u64 {
-    crate::metrics::COLD_MIGRATION_INITIAL_WRITES.with_label_values(&[<&str>::from(column)]).get()
+    crate::metrics::COLD_STORE_MIGRATION_BATCH_WRITE_COUNT
+        .with_label_values(&[<&str>::from(column)])
+        .get()
 }
 
 /// Returns HashMap from DBKeyType to possible keys of that type for provided height.
@@ -439,8 +483,8 @@ impl StoreWithCache<'_> {
     }
 }
 
-impl<D: Database + 'static> BatchTransaction<D> {
-    pub fn new(cold_db: std::sync::Arc<ColdDB<D>>, batch_size: usize) -> Self {
+impl BatchTransaction {
+    pub fn new(cold_db: std::sync::Arc<ColdDB>, batch_size: usize) -> Self {
         Self {
             cold_db,
             transaction: DBTransaction::new(),
@@ -451,10 +495,13 @@ impl<D: Database + 'static> BatchTransaction<D> {
 
     /// Adds a set DBOp to `self.transaction`. Updates `self.transaction_size`.
     /// If `self.transaction_size` becomes too big, calls for write.
-    pub fn set(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) -> io::Result<()> {
-        let size = key.len() + value.len();
-
-        self.transaction.set(col, key, value);
+    pub fn set_and_write_if_full(
+        &mut self,
+        col: DBCol,
+        key: Vec<u8>,
+        value: Vec<u8>,
+    ) -> io::Result<()> {
+        let size = rc_aware_set(&mut self.transaction, col, key, value);
         self.transaction_size += size;
 
         if self.transaction_size > self.threshold_transaction_size {
@@ -472,8 +519,10 @@ impl<D: Database + 'static> BatchTransaction<D> {
 
         let column_label = [<&str>::from(self.transaction.ops[0].col())];
 
-        crate::metrics::COLD_MIGRATION_INITIAL_WRITES.with_label_values(&column_label).inc();
-        let _timer = crate::metrics::COLD_MIGRATION_INITIAL_WRITES_TIME
+        crate::metrics::COLD_STORE_MIGRATION_BATCH_WRITE_COUNT
+            .with_label_values(&column_label)
+            .inc();
+        let _timer = crate::metrics::COLD_STORE_MIGRATION_BATCH_WRITE_TIME
             .with_label_values(&column_label)
             .start_timer();
 

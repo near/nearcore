@@ -52,7 +52,11 @@ pub trait User {
         signed_transaction: SignedTransaction,
     ) -> Result<FinalExecutionOutcomeView, ServerError>;
 
-    fn add_receipts(&self, receipts: Vec<Receipt>) -> Result<(), ServerError>;
+    fn add_receipts(
+        &self,
+        receipts: Vec<Receipt>,
+        _use_flat_storage: bool,
+    ) -> Result<(), ServerError>;
 
     fn get_access_key_nonce_for_signer(&self, account_id: &AccountId) -> Result<u64, String> {
         self.get_access_key(account_id, &self.signer().public_key())

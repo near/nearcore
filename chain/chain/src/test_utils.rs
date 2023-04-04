@@ -28,7 +28,7 @@ use crate::store::ChainStoreAccess;
 use crate::types::{AcceptedBlock, ChainConfig, ChainGenesis};
 use crate::DoomslugThresholdMode;
 use crate::{BlockProcessingArtifact, Provenance};
-use near_primitives::time::Clock;
+use near_primitives::static_clock::StaticClock;
 use near_primitives::utils::MaybeValidated;
 
 pub use self::kv_runtime::account_id_to_shard_id;
@@ -88,11 +88,11 @@ pub fn setup_with_tx_validity_period(
 ) -> (Chain, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {
     let store = create_test_store();
     let epoch_length = 1000;
-    let runtime = Arc::new(KeyValueRuntime::new(store, epoch_length));
+    let runtime = KeyValueRuntime::new(store, epoch_length);
     let chain = Chain::new(
         runtime.clone(),
         &ChainGenesis {
-            time: Clock::utc(),
+            time: StaticClock::utc(),
             height: 0,
             gas_limit: 1_000_000,
             min_gas_price: 100,
@@ -120,11 +120,11 @@ pub fn setup_with_validators(
     let store = create_test_store();
     let signers =
         vs.all_block_producers().map(|x| Arc::new(create_test_signer(x.as_str()))).collect();
-    let runtime = Arc::new(KeyValueRuntime::new_with_validators(store, vs, epoch_length));
+    let runtime = KeyValueRuntime::new_with_validators(store, vs, epoch_length);
     let chain = Chain::new(
         runtime.clone(),
         &ChainGenesis {
-            time: Clock::utc(),
+            time: StaticClock::utc(),
             height: 0,
             gas_limit: 1_000_000,
             min_gas_price: 100,
@@ -151,7 +151,7 @@ pub fn setup_with_validators_and_start_time(
     let store = create_test_store();
     let signers =
         vs.all_block_producers().map(|x| Arc::new(create_test_signer(x.as_str()))).collect();
-    let runtime = Arc::new(KeyValueRuntime::new_with_validators(store, vs, epoch_length));
+    let runtime = KeyValueRuntime::new_with_validators(store, vs, epoch_length);
     let chain = Chain::new(
         runtime.clone(),
         &ChainGenesis {
@@ -277,7 +277,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
 impl ChainGenesis {
     pub fn test() -> Self {
         ChainGenesis {
-            time: Clock::utc(),
+            time: StaticClock::utc(),
             height: 0,
             gas_limit: 10u64.pow(15),
             min_gas_price: 0,
@@ -300,7 +300,7 @@ mod test {
     use near_primitives::hash::CryptoHash;
     use near_primitives::receipt::Receipt;
     use near_primitives::sharding::ReceiptList;
-    use near_primitives::time::Clock;
+    use near_primitives::static_clock::StaticClock;
     use near_primitives::types::{AccountId, NumShards};
 
     use crate::Chain;
@@ -338,10 +338,10 @@ mod test {
                 )
             })
             .collect::<Vec<_>>();
-        let start = Clock::instant();
+        let start = StaticClock::instant();
         let naive_result = naive_build_receipt_hashes(&receipts, &shard_layout);
         let naive_duration = start.elapsed();
-        let start = Clock::instant();
+        let start = StaticClock::instant();
         let prod_result = Chain::build_receipts_hashes(&receipts, &shard_layout);
         let prod_duration = start.elapsed();
         assert_eq!(naive_result, prod_result);

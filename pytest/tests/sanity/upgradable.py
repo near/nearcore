@@ -17,8 +17,7 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 import branches
 import cluster
 from configured_logger import logger
-from transaction import sign_deploy_contract_tx, sign_function_call_tx, sign_payment_tx, \
-    sign_create_account_tx, sign_delete_account_tx, sign_create_account_with_full_access_key_and_balance_tx
+from transaction import sign_deploy_contract_tx, sign_function_call_tx, sign_payment_tx
 import utils
 
 _EXECUTABLES = None
@@ -146,7 +145,10 @@ def test_upgrade() -> None:
     for i in range(3):
         nodes[i].kill()
         nodes[i].binary_name = config['binary_name']
-        nodes[i].start(boot_node=nodes[0])
+        nodes[i].start(
+            boot_node=nodes[0],
+            extra_env={"NEAR_TESTS_IMMEDIATE_PROTOCOL_UPGRADE": "1"},
+        )
 
     utils.wait_for_blocks(nodes[3], count=60)
     status0 = nodes[0].get_status()

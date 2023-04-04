@@ -1,6 +1,6 @@
-use crate::time;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
+use near_primitives::time;
 use std::collections::{btree_map, BTreeMap, BTreeSet, HashMap};
 
 /// default value for `capacity`
