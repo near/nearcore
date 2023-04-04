@@ -202,10 +202,11 @@ impl crate::runner::VM for WasmtimeVM {
             return Ok(VMOutcome::abort(logic, e));
         }
 
-        let prepared_code = match prepare::prepare_contract(code.code(), &self.config, VMKind::Wasmtime) {
-            Ok(code) => code,
-            Err(err) => return Ok(VMOutcome::abort(logic, FunctionCallError::from(err))),
-        };
+        let prepared_code =
+            match prepare::prepare_contract(code.code(), &self.config, VMKind::Wasmtime) {
+                Ok(code) => code,
+                Err(err) => return Ok(VMOutcome::abort(logic, FunctionCallError::from(err))),
+            };
         let module = match Module::new(&engine, prepared_code) {
             Ok(module) => module,
             Err(err) => return Ok(VMOutcome::abort(logic, err.into_vm_error()?)),
