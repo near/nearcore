@@ -96,6 +96,10 @@ impl TryFrom<&ParameterValue> for ParameterCost {
     fn try_from(value: &ParameterValue) -> Result<Self, Self::Error> {
         match value {
             ParameterValue::ParameterCost { gas, compute } => {
+                if !cfg!(feature = "protocol_feature_compute_costs") {
+                    assert_eq!(compute, gas, "Compute cost must match gas cost");
+                }
+
                 Ok(ParameterCost { gas: *gas, compute: *compute })
             }
             // If not specified, compute costs default to gas costs.
