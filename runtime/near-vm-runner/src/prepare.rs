@@ -35,11 +35,11 @@ pub(crate) const WASM_FEATURES: wasmparser::WasmFeatures = wasmparser::WasmFeatu
 /// The preprocessing includes injecting code for gas metering and metering the height of stack.
 pub fn prepare_contract(original_code: &[u8], config: &VMConfig) -> Result<Vec<u8>, PrepareError> {
     prepare_v1::validate_contract(original_code, config)?;
-    match config.limit_config.stack_limiter_version {
-        near_vm_logic::StackLimiterVersion::V0 => {
+    match config.limit_config.contract_prepare_version {
+        near_vm_logic::ContractPrepareVersion::V0 => {
             prepare_v0::prepare_contract(original_code, config)
         }
-        near_vm_logic::StackLimiterVersion::V1 => {
+        near_vm_logic::ContractPrepareVersion::V1 => {
             prepare_v1::prepare_contract(original_code, config)
         }
     }
@@ -47,9 +47,8 @@ pub fn prepare_contract(original_code: &[u8], config: &VMConfig) -> Result<Vec<u
 
 #[cfg(test)]
 mod tests {
-    use assert_matches::assert_matches;
-
     use super::*;
+    use assert_matches::assert_matches;
 
     fn parse_and_prepare_wat(wat: &str) -> Result<Vec<u8>, PrepareError> {
         let wasm = wat::parse_str(wat).unwrap();

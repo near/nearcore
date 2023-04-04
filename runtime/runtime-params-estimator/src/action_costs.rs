@@ -251,6 +251,10 @@ impl ActionEstimation {
         testbed: &mut Testbed,
         estimated_fn: fn(&Self, &mut Testbed, Vec<Action>) -> GasCost,
     ) -> GasCost {
+        assert!(
+            self.actions.len() > 0 || self.inner_iters == 1,
+            "inner iterations don't work if there are no actions to multiply"
+        );
         let num_total_actions = self.actions.len() * self.inner_iters;
         let actions: Vec<Action> =
             self.actions.iter().cloned().cycle().take(num_total_actions).collect();
@@ -567,15 +571,24 @@ pub(crate) fn delete_key_exec(ctx: &mut EstimatorContext) -> GasCost {
 }
 
 pub(crate) fn new_action_receipt_send_sir(ctx: &mut EstimatorContext) -> GasCost {
-    ActionEstimation::new_sir(ctx).subtract_base(false).verify_cost(&mut ctx.testbed())
+    ActionEstimation::new_sir(ctx)
+        .inner_iters(1) // inner iterations don't work with empty action lists
+        .subtract_base(false)
+        .verify_cost(&mut ctx.testbed())
 }
 
 pub(crate) fn new_action_receipt_send_not_sir(ctx: &mut EstimatorContext) -> GasCost {
-    ActionEstimation::new(ctx).subtract_base(false).verify_cost(&mut ctx.testbed())
+    ActionEstimation::new(ctx)
+        .inner_iters(1) // inner iterations don't work with empty action lists
+        .subtract_base(false)
+        .verify_cost(&mut ctx.testbed())
 }
 
 pub(crate) fn new_action_receipt_exec(ctx: &mut EstimatorContext) -> GasCost {
-    ActionEstimation::new_sir(ctx).subtract_base(false).apply_cost(&mut ctx.testbed())
+    ActionEstimation::new_sir(ctx)
+        .inner_iters(1) // inner iterations don't work with empty action lists
+        .subtract_base(false)
+        .apply_cost(&mut ctx.testbed())
 }
 
 fn create_account_action() -> Action {

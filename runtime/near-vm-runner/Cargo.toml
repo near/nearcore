@@ -44,6 +44,12 @@ wasmer-engine = { workspace = true, optional = true }
 wasmer-engine-universal = { workspace = true, optional = true }
 wasmer-types = { workspace = true, optional = true }
 wasmer-vm = { workspace = true, optional = true }
+near-vm-compiler = { workspace = true, optional = true }
+near-vm-compiler-singlepass = { workspace = true, optional = true }
+near-vm-engine = { workspace = true, optional = true }
+near-vm-engine-universal = { workspace = true, features = ["compiler"], optional = true }
+near-vm-types = { workspace = true, optional = true }
+near-vm-vm = { workspace = true, optional = true }
 
 [dev-dependencies]
 arbitrary.workspace = true
@@ -64,6 +70,7 @@ default = [
   "wasmer0_vm",
   "wasmtime_vm",
   "wasmer2_vm",
+  "near_vm",
 ]
 wasmer0_vm = [ "wasmer-runtime", "wasmer-runtime-core" ]
 wasmtime_vm = [ "wasmtime", "anyhow"]
@@ -75,11 +82,20 @@ wasmer2_vm = [
     "wasmer-types",
     "wasmer-vm"
 ]
+near_vm = [
+    "near-vm-compiler",
+    "near-vm-compiler-singlepass",
+    "near-vm-engine",
+    "near-vm-engine-universal",
+    "near-vm-types",
+    "near-vm-vm"
+]
 
 # Force usage of a specific wasm vm irrespective of protocol version.
 force_wasmer0 = ["wasmer0_vm"]
 force_wasmtime = ["wasmtime_vm"]
 force_wasmer2 = ["wasmer2_vm"]
+force_near_vm = ["near_vm"]
 
 no_cpu_compatibility_checks = []
 

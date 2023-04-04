@@ -45,15 +45,18 @@ pub mod config;
 pub mod db;
 pub mod flat;
 pub mod metadata;
-mod metrics;
+pub mod metrics;
 pub mod migrations;
 mod opener;
+mod rocksdb_metrics;
 mod sync_utils;
 pub mod test_utils;
 mod trie;
 
 pub use crate::config::{Mode, StoreConfig};
-pub use crate::opener::{StoreMigrator, StoreOpener, StoreOpenerError};
+pub use crate::opener::{
+    checkpoint_hot_storage_and_cleanup_columns, StoreMigrator, StoreOpener, StoreOpenerError,
+};
 
 /// Specifies temperature of a storage.
 ///

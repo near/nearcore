@@ -61,7 +61,7 @@ impl Module {
     /// Reading from a WAT file.
     ///
     /// ```
-    /// use wasmer::*;
+    /// use near_vm::*;
     /// # fn main() -> anyhow::Result<()> {
     /// # let store = Store::default();
     /// let wat = "(module)";
@@ -73,7 +73,7 @@ impl Module {
     /// Reading from bytes:
     ///
     /// ```
-    /// use wasmer::*;
+    /// use near_vm::*;
     /// # fn main() -> anyhow::Result<()> {
     /// # let store = Store::default();
     /// // The following is the same as:
