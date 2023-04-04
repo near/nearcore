@@ -3873,6 +3873,8 @@ checksum = "6c05ded9a90c087aaebfafdf01f2801f5d31817f9a3514ce09aed270001d650e"
 name = "near-store"
 version = "0.0.0"
 dependencies = [
+ "actix",
+ "actix-rt",
  "anyhow",
  "assert_matches",
  "bencher",
@@ -3902,6 +3904,7 @@ dependencies = [
  "strum",
  "tempfile",
  "thiserror",
+ "tokio",
  "tracing",
 ]
 
@@ -4102,8 +4105,14 @@ dependencies = [
  "near-primitives",
  "near-stable-hasher",
  "near-test-contracts",
+ "near-vm-compiler",
+ "near-vm-compiler-singlepass",
+ "near-vm-engine",
+ "near-vm-engine-universal",
  "near-vm-errors",
  "near-vm-logic",
+ "near-vm-types",
+ "near-vm-vm",
  "once_cell",
  "parity-wasm 0.41.0",
  "parity-wasm 0.42.2",

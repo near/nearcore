@@ -121,7 +121,7 @@ pub enum Parameter {
     MaxGasBurnt,
     MaxGasBurntView,
     MaxStackHeight,
-    StackLimiterVersion,
+    ContractPrepareVersion,
     InitialMemoryPages,
     MaxMemoryPages,
     RegistersMemoryLimit,
@@ -186,7 +186,7 @@ impl Parameter {
         [
             Parameter::MaxGasBurnt,
             Parameter::MaxStackHeight,
-            Parameter::StackLimiterVersion,
+            Parameter::ContractPrepareVersion,
             Parameter::InitialMemoryPages,
             Parameter::MaxMemoryPages,
             Parameter::RegistersMemoryLimit,

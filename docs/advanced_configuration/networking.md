@@ -1,5 +1,30 @@
 This document describes the advanced network options that you can configure
-by modifying the "network" section of your "config.json" file.
+by modifying the "network" section of your "config.json" file:
+
+
+```
+{
+  // ...
+  "network": {
+    // ...
+    "public_addrs": [],
+    "allow_private_ip_in_public_addrs": false,
+    "experimental": {
+      "inbound_disabled": false,
+      "connect_only_to_boot_nodes": false,
+      "skip_sending_tombstones_seconds": 0,
+      "tier1_enable_inbound": true,
+      "tier1_enable_outbound": false,
+      "tier1_connect_interval": {
+        "secs": 60,
+        "nanos": 0
+      },
+      "tier1_new_connections_per_attempt": 50
+    }
+  },
+  // ...
+}
+```
 
 ### TIER1 network
 
