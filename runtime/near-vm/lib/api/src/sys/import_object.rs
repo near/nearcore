@@ -27,7 +27,7 @@ pub trait LikeNamespace {
 ///
 /// # Usage:
 /// ```ignore
-/// use wasmer::{Exports, ImportObject, Function};
+/// use near_vm::{Exports, ImportObject, Function};
 ///
 /// let mut import_object = ImportObject::new();
 /// let mut env = Exports::new();
@@ -182,9 +182,9 @@ impl fmt::Debug for ImportObject {
 /// # Usage
 ///
 /// ```
-/// # use wasmer::{Function, Store};
+/// # use near_vm::{Function, Store};
 /// # let store = Store::default();
-/// use wasmer::imports;
+/// use near_vm::imports;
 ///
 /// let import_object = imports! {
 ///     "env" => {

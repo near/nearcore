@@ -33,7 +33,7 @@
 //! written with its WAT format (textual format):
 //!
 //! ```rust
-//! use wasmer::{Store, Module, Instance, InstanceConfig, Value, Export, imports};
+//! use near_vm::{Store, Module, Instance, InstanceConfig, Value, Export, imports};
 //!
 //! fn main() -> anyhow::Result<()> {
 //!     let module_wat = r#"
@@ -144,7 +144,7 @@
 //! [`imports`] macro:
 //!
 //! ```
-//! # use wasmer::{imports, Function, Memory, MemoryType, Store, ImportObject};
+//! # use near_vm::{imports, Function, Memory, MemoryType, Store, ImportObject};
 //! # fn imports_example(store: &Store) -> ImportObject {
 //! let memory = Memory::new(&store, MemoryType::new(1, None, false)).unwrap();
 //! imports! {
@@ -160,7 +160,7 @@
 //! from any instance via `instance.exports`:
 //!
 //! ```
-//! # use wasmer::{imports, Instance, Function, Memory, NativeFunc};
+//! # use near_vm::{imports, Instance, Function, Memory, NativeFunc};
 //! # fn exports_example(instance: &Instance) -> anyhow::Result<()> {
 //! let memory = instance.lookup("memory").unwrap();
 //! let memory = instance.lookup("some_other_memory").unwrap();

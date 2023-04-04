@@ -35,8 +35,8 @@ pub struct VMLimitConfig {
 
     /// How tall the stack is allowed to grow?
     ///
-    /// See <https://wiki.parity.io/WebAssembly-StackHeight> to find out
-    /// how the stack frame cost is calculated.
+    /// See <https://wiki.parity.io/WebAssembly-StackHeight> to find out how the stack frame cost
+    /// is calculated.
     pub max_stack_height: u32,
     /// Whether a legacy version of stack limiting should be used, see
     /// [`ContractPrepareVersion`].
@@ -46,8 +46,7 @@ pub struct VMLimitConfig {
     /// The initial number of memory pages.
     /// NOTE: It's not a limiter itself, but it's a value we use for initial_memory_pages.
     pub initial_memory_pages: u32,
-    /// What is the maximal memory pages amount is allowed to have for
-    /// a contract.
+    /// What is the maximal memory pages amount is allowed to have for a contract.
     pub max_memory_pages: u32,
 
     /// Limit of memory used by registers.

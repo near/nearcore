@@ -25,7 +25,7 @@ use wasmer_engine::Executable;
 fn test_caches_compilation_error() {
     with_vm_variants(|vm_kind: VMKind| {
         match vm_kind {
-            VMKind::Wasmer0 | VMKind::Wasmer2 => {}
+            VMKind::Wasmer0 | VMKind::Wasmer2 | VMKind::NearVm => {}
             VMKind::Wasmtime => return,
         }
         let cache = MockCompiledContractCache::default();
@@ -48,7 +48,7 @@ fn test_caches_compilation_error() {
 fn test_does_not_cache_io_error() {
     with_vm_variants(|vm_kind: VMKind| {
         match vm_kind {
-            VMKind::Wasmer0 | VMKind::Wasmer2 => {}
+            VMKind::Wasmer0 | VMKind::Wasmer2 | VMKind::NearVm => {}
             VMKind::Wasmtime => return,
         }
 
