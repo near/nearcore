@@ -50,14 +50,12 @@ protocol_feature_fix_staking_threshold = []
 protocol_feature_fix_contract_loading_cost = []
 protocol_feature_reject_blocks_with_outdated_protocol_version = []
 protocol_feature_flat_state = []
-protocol_feature_compute_costs = []
 nightly = [
   "nightly_protocol",
   "protocol_feature_fix_staking_threshold",
   "protocol_feature_fix_contract_loading_cost",
   "protocol_feature_reject_blocks_with_outdated_protocol_version",
   "protocol_feature_flat_state",
-  "protocol_feature_compute_costs",
 ]
 
 nightly_protocol = []
