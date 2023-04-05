@@ -292,6 +292,8 @@ pub struct Config {
     pub consensus: Consensus,
     pub tracked_accounts: Vec<AccountId>,
     pub tracked_shards: Vec<ShardId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tracked_shard_schedule: Option<Vec<Vec<ShardId>>>,
     #[serde(skip_serializing_if = "is_false")]
     pub archive: bool,
     /// If save_trie_changes is not set it will get inferred from the `archive` field as follows:
@@ -365,6 +367,7 @@ impl Default for Config {
             consensus: Consensus::default(),
             tracked_accounts: vec![],
             tracked_shards: vec![],
+            tracked_shard_schedule: None,
             archive: false,
             save_trie_changes: None,
             log_summary_style: LogSummaryStyle::Colored,
@@ -675,6 +678,7 @@ impl NearConfig {
                 doosmslug_step_period: config.consensus.doomslug_step_period,
                 tracked_accounts: config.tracked_accounts,
                 tracked_shards: config.tracked_shards,
+                tracked_shard_schedule: config.tracked_shard_schedule.unwrap_or(vec![]),
                 archive: config.archive,
                 save_trie_changes: config.save_trie_changes.unwrap_or(!config.archive),
                 log_summary_style: config.log_summary_style,
