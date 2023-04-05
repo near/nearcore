@@ -426,8 +426,7 @@ mod tests {
         // verify tracker is tracking the correct shards before and after resharding
         for i in 1..8 {
             let mut total_next_tracked_shards = HashSet::new();
-            let next_epoch_id =
-                epoch_manager.get_next_epoch_id_from_prev_block(parent_hash).unwrap();
+            let next_epoch_id = epoch_manager.get_next_epoch_id_from_prev_block(&h[i - 1]).unwrap();
             let next_shard_layout = epoch_manager.get_shard_layout(&next_epoch_id).unwrap();
 
             let mut total_tracked_shards = HashSet::new();
