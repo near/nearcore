@@ -197,6 +197,11 @@ impl Database for SplitDB {
         log_assert_fail!("get_store_statistics is not allowed - the split storage has two stores");
         None
     }
+
+    fn create_checkpoint(&self, _path: &std::path::Path) -> anyhow::Result<()> {
+        log_assert_fail!("create_checkpoint is not allowed - the split storage has two stores");
+        Ok(())
+    }
 }
 
 #[cfg(test)]

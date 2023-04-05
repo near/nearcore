@@ -40,7 +40,7 @@ pub struct FastGasCounter {
     pub burnt_gas: u64,
     /// Hard gas limit for execution
     pub gas_limit: u64,
-    /// Single WASM opcode cost
+    /// Cost for one opcode. Used only by VMs preceding near_vm.
     pub opcode_cost: u64,
 }
 
@@ -178,11 +178,6 @@ impl GasCounter {
         } else {
             HostError::GasExceeded
         }
-    }
-
-    pub fn pay_wasm_gas(&mut self, opcodes: u32) -> Result<()> {
-        let value = Gas::from(opcodes) * self.fast_counter.opcode_cost;
-        self.burn_gas(value)
     }
 
     /// Very special function to get the gas counter pointer for generated machine code.
@@ -353,7 +348,6 @@ mod tests {
         let mut counter = make_test_counter(MAX_GAS, MAX_GAS, false);
         counter.pay_base(near_primitives::config::ExtCosts::storage_write_base).unwrap();
         counter.pay_per(near_primitives::config::ExtCosts::storage_write_value_byte, 10).unwrap();
-        counter.pay_wasm_gas(20).unwrap();
         counter
             .pay_action_accumulated(
                 100,

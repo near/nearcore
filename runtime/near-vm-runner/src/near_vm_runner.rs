@@ -238,7 +238,7 @@ const WASMER2_CONFIG: Wasmer2Config = Wasmer2Config {
     compiler: WasmerCompiler::Singlepass,
 };
 
-pub(crate) fn wasmer2_vm_hash() -> u64 {
+pub(crate) fn near_vm_vm_hash() -> u64 {
     WASMER2_CONFIG.config_hash()
 }
 

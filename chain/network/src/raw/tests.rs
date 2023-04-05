@@ -1,8 +1,12 @@
 use crate::network_protocol::testonly as data;
 use crate::raw;
+use crate::tcp;
 use crate::testonly;
+use crate::types::PeerInfo;
+use near_crypto::{KeyType, SecretKey};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
+use near_primitives::network::PeerId;
 use near_primitives::time;
 use std::sync::Arc;
 
@@ -33,6 +37,7 @@ async fn test_raw_conn_pings() {
         &genesis_id.chain_id,
         genesis_id.hash,
         0,
+        vec![0],
         time::Duration::SECOND,
     )
     .await
@@ -92,6 +97,7 @@ async fn test_raw_conn_state_parts() {
         &genesis_id.chain_id,
         genesis_id.hash,
         0,
+        vec![0],
         time::Duration::SECOND,
     )
     .await
@@ -133,4 +139,46 @@ async fn test_raw_conn_state_parts() {
             }
         }
     }
+}
+
+#[tokio::test]
+async fn test_listener() {
+    init_test_logger();
+    let mut rng = testonly::make_rng(33955575545);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+    let mut cfg = chain.make_config(rng);
+    let genesis_id = chain.genesis_id.clone();
+
+    let addr = tcp::ListenerAddr::reserve_for_test();
+    let secret_key = SecretKey::from_random(KeyType::ED25519);
+    let peer_id = PeerId::new(secret_key.public_key());
+    cfg.peer_store.boot_nodes.push(PeerInfo::new(peer_id, *addr));
+    cfg.outbound_disabled = false;
+    let _pm = crate::peer_manager::testonly::start(
+        clock.clock(),
+        near_store::db::TestDB::new(),
+        cfg,
+        chain,
+    )
+    .await;
+
+    let mut l = raw::Listener::bind(
+        addr,
+        secret_key,
+        &genesis_id.chain_id,
+        genesis_id.hash,
+        0,
+        vec![0],
+        false,
+        time::Duration::SECOND,
+    )
+    .await
+    .unwrap();
+
+    let mut conn = l.accept().await.unwrap();
+    // just test that we can receive some message, which checks that
+    // at least the handshake logic has gotten exercised somewhat
+    let _ = conn.recv().await.unwrap();
 }
