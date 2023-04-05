@@ -1908,6 +1908,7 @@ dependencies = [
  "prefix-sum-vec",
  "thiserror",
  "wasm-encoder 0.22.1",
+ "wasm-encoder 0.22.1",
  "wasmparser 0.99.0",
  "wasmprinter",
 ]

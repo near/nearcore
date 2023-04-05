@@ -15,7 +15,7 @@ This crate implements the specification of the interface that Near blockchain ex
 [dependencies]
 anyhow = { workspace = true, optional = true }
 borsh.workspace = true
-finite-wasm.workspace = true
+finite-wasm = { workspace = true, features = ["instrument"] }
 loupe.workspace = true
 memoffset.workspace = true
 once_cell.workspace = true

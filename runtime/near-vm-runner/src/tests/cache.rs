@@ -131,9 +131,8 @@ fn test_near_vm_artifact_output_stability() {
         let contract = ContractCode::new(near_test_contracts::arbitrary_contract(seed), None);
 
         let config = VMConfig::test();
-        // TODO: adjust this test to run for all VMKinds
         let prepared_code =
-            prepare::prepare_contract(contract.code(), &config, VMKind::NearVm).unwrap();
+            prepare::prepare_contract(contract.code(), &config, VMKind::Wasmer2).unwrap();
         let mut hasher = StableHasher::new();
         (&contract.code(), &prepared_code).hash(&mut hasher);
         got_prepared_hashes.push(hasher.finish());

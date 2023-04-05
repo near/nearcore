@@ -29,7 +29,6 @@ pub(crate) fn prepare_contract(
         .into_wasm_code()
 }
 
-// TODO: make private once prepare_module_for_near_vm is gone (and same for all but prepare_contract below)
 pub(crate) struct ContractModule<'a> {
     module: elements::Module,
     config: &'a VMConfig,
