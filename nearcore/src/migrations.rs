@@ -86,42 +86,8 @@ impl<'a> Migrator<'a> {
     }
 }
 
-/// Asserts that node’s configuration does not use deprecated snapshot config
-/// options.
-///
-/// The `use_db_migration_snapshot` and `db_migration_snapshot_path`
-/// configuration options have been deprecated in favour of
-/// `store.migration_snapshot`.
-///
-/// This function panics if the old options are set and shows instruction how to
-/// migrate to the new options.
-///
-/// This is a hack which stops `StoreOpener` before it attempts migration.
-/// Ideally we would propagate errors nicely but that would complicate the API
-/// a wee bit so instead we’re panicking.  This shouldn’t be a big deal since
-/// the deprecated options are going away ‘soon’.
-fn assert_no_deprecated_config(config: &crate::config::NearConfig) {
-    use near_store::config::MigrationSnapshot;
-
-    let example = match (
-        config.config.use_db_migration_snapshot,
-        config.config.db_migration_snapshot_path.as_ref(),
-    ) {
-        (None, None) => return,
-        (Some(false), _) => MigrationSnapshot::Enabled(false),
-        (_, None) => MigrationSnapshot::Enabled(true),
-        (_, Some(path)) => MigrationSnapshot::Path(path.join("migration-snapshot")),
-    };
-    panic!(
-        "‘use_db_migration_snapshot’ and ‘db_migration_snapshot_path’ options \
-         are deprecated.\nSet ‘store.migration_snapshot’ to instead, e.g.:\n{}",
-        example.format_example()
-    )
-}
-
 impl<'a> near_store::StoreMigrator for Migrator<'a> {
     fn check_support(&self, version: DbVersion) -> Result<(), &'static str> {
-        assert_no_deprecated_config(self.config);
         // TODO(mina86): Once open ranges in match are stabilised, get rid of
         // this constant and change the match to be 27..DB_VERSION.
         const LAST_SUPPORTED: DbVersion = DB_VERSION - 1;
