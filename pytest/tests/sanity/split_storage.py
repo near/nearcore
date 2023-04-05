@@ -431,6 +431,8 @@ class TestSplitStorage(unittest.TestCase):
         logger.info("")
         # Wait for split storage to relly on cold db to sync archival node
         wait_for_blocks(split, target=n + epoch_length * gc_epoch_num * 2 + 1)
+        # Kill validator just so legacy archival doesn't have any peers that may accidentally have some useful data.
+        validator.kill()
 
         logger.info("")
         logger.info("Restart legacy archival node.")
