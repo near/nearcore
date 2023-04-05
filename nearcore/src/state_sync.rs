@@ -119,7 +119,6 @@ async fn state_sync_dump(
     _node_key: PublicKey,
 ) {
     tracing::info!(target: "state_sync_dump", shard_id, "Running StateSyncDump loop");
-    let mut interval = actix_rt::time::interval(std::time::Duration::from_secs(10));
 
     if config.state_sync_restart_dump_for_shards.contains(&shard_id) {
         tracing::debug!(target: "state_sync_dump", shard_id, "Dropped existing progress");
@@ -128,7 +127,7 @@ async fn state_sync_dump(
 
     loop {
         // Avoid a busy-loop when there is nothing to do.
-        interval.tick().await;
+        std::thread::sleep(std::time::Duration::from_secs(10));
 
         let progress = chain.store().get_state_sync_dump_progress(shard_id);
         tracing::debug!(target: "state_sync_dump", shard_id, ?progress, "Running StateSyncDump loop iteration");
@@ -287,7 +286,7 @@ fn update_progress(
 ) {
     // Record that a part was obtained and dumped.
     metrics::STATE_SYNC_DUMP_SIZE_TOTAL
-        .with_label_values(&[&shard_id.to_string()])
+        .with_label_values(&[&epoch_height.to_string(), &shard_id.to_string()])
         .inc_by(part_len as u64);
     let next_progress = StateSyncDumpProgress::InProgress {
         epoch_id: epoch_id.clone(),

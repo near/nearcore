@@ -92,7 +92,7 @@ fn make_account_or_peer_id_or_hash(
         From::AccountId(a) => To::AccountId(a),
         From::PeerId(p) => To::PeerId(p),
         From::Hash(h) => To::Hash(h),
-        From::ExternalStorage() => To::ExternalStorage(),
+        From::ExternalStorage => To::ExternalStorage,
     }
 }
 
@@ -707,7 +707,7 @@ impl StateSync {
         }
         download.state_requests_count += 1;
         download.last_target =
-            Some(make_account_or_peer_id_or_hash(AccountOrPeerIdOrHash::ExternalStorage()));
+            Some(make_account_or_peer_id_or_hash(AccountOrPeerIdOrHash::ExternalStorage));
 
         let location = s3_location(chain_id, epoch_height, shard_id, part_id, num_parts);
         let download_response = download.response.clone();
@@ -1236,17 +1236,19 @@ fn check_external_storage_part_response(
                         .with_label_values(&[&shard_id.to_string()])
                         .inc();
                     tracing::warn!(target: "sync", %shard_id, %sync_hash, part_id, ?err, "Failed to save a state part");
-                    err_to_retry = Some(Error::Other("Failed to save a state part".to_string()));
+                    err_to_retry =
+                        Some(near_chain::Error::Other("Failed to save a state part".to_string()));
                 }
             }
         }
         // Other HTTP status codes are considered errors.
         Ok((status_code, _)) => {
-            err_to_retry = Some(Error::Other(format!("status_code: {}", status_code).to_string()));
+            err_to_retry =
+                Some(near_chain::Error::Other(format!("status_code: {}", status_code).to_string()));
         }
         // The request failed without reaching the external storage.
         Err(err) => {
-            err_to_retry = Some(Error::Other(err.to_string()));
+            err_to_retry = Some(near_chain::Error::Other(err.to_string()));
         }
     };
 

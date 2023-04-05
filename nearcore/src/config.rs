@@ -357,8 +357,8 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state_sync: Option<StateSyncConfig>,
     /// Whether to use state sync (unreliable and corrupts the DB if fails) or do a block sync instead.
-    #[serde(skip_serializing_if = "is_false")]
-    pub state_sync_enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state_sync_enabled: Option<bool>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -396,7 +396,7 @@ impl Default for Config {
             split_storage: None,
             expected_shutdown: None,
             state_sync: None,
-            state_sync_enabled: false,
+            state_sync_enabled: None,
         }
     }
 }
@@ -709,6 +709,7 @@ impl NearConfig {
                     .state_sync
                     .as_ref()
                     .map(|x| x.dump_enabled)
+                    .flatten()
                     .unwrap_or(false),
                 state_sync_s3_bucket: config
                     .state_sync
@@ -723,7 +724,7 @@ impl NearConfig {
                 state_sync_restart_dump_for_shards: config
                     .state_sync
                     .as_ref()
-                    .map(|x| x.drop_state_of_dump.clone())
+                    .map(|x| x.restart_dump_for_shards.clone())
                     .flatten()
                     .unwrap_or(vec![]),
                 state_sync_from_s3_enabled: config
@@ -732,12 +733,13 @@ impl NearConfig {
                     .map(|x| x.sync_from_s3_enabled)
                     .flatten()
                     .unwrap_or(false),
-                state_sync_num_s3_requests_per_shard: config
+                state_sync_num_concurrent_s3_requests: config
                     .state_sync
                     .as_ref()
-                    .map(|x| x.num_s3_requests_per_shard)
+                    .map(|x| x.num_concurrent_s3_requests)
                     .flatten()
                     .unwrap_or(100),
+                state_sync_enabled: config.state_sync_enabled.unwrap_or(false),
             },
             network_config: NetworkConfig::new(
                 config.network,
@@ -1571,14 +1573,18 @@ pub struct StateSyncConfig {
     /// Whether a node should dump state of each epoch to the external storage.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dump_enabled: Option<bool>,
-    /// Use carefully in case a node that dumps state to the external storage gets in trouble.
+    /// Use carefully in case a node that dumps state to the external storage
+    /// gets in trouble.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub drop_state_of_dump: Option<Vec<ShardId>>,
-    /// If enabled, will download state parts from external storage and not from the peers.
+    pub restart_dump_for_shards: Option<Vec<ShardId>>,
+    /// If enabled, will download state parts from external storage and not from
+    /// the peers.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sync_from_s3_enabled: Option<bool>,
+    /// When syncing state from S3, throttle requests to this many concurrent
+    /// requests per shard.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub num_s3_requests_per_shard: Option<u64>,
+    pub num_concurrent_s3_requests: Option<u64>,
 }
 
 #[test]
