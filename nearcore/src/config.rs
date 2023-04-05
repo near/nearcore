@@ -313,8 +313,8 @@ pub struct Config {
     /// save_trie_changes = !archive
     /// save_trie_changes should be set to true iff
     /// - archive if false - non-archival nodes need trie changes to perform garbage collection
-    /// - archive is true, cold_store is configured and migration to split_storage is finished - node
-    /// working in split storage mode needs trie changes in order to do garbage collection on hot.
+    /// - archive is true and cold_store is configured - node working in split storage mode
+    /// needs trie changes in order to do garbage collection on hot and populate cold State column.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub save_trie_changes: Option<bool>,
     pub log_summary_style: LogSummaryStyle,
@@ -356,6 +356,9 @@ pub struct Config {
     /// Options for dumping state of every epoch to S3.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state_sync: Option<StateSyncConfig>,
+    /// Whether to use state sync (unreliable and corrupts the DB if fails) or do a block sync instead.
+    #[serde(skip_serializing_if = "is_false")]
+    pub state_sync_enabled: bool,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -393,6 +396,7 @@ impl Default for Config {
             split_storage: None,
             expected_shutdown: None,
             state_sync: None,
+            state_sync_enabled: false,
         }
     }
 }
