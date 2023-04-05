@@ -265,9 +265,17 @@ impl ActionEstimation {
         let actions: Vec<Action> =
             self.actions.iter().cloned().cycle().take(num_total_actions).collect();
 
+        let outer_iters = if self.report_percentile {
+            // If the percentile of a distribution is reported, the typical
+            // number of outer iterations (3-5) is just too small. Let's do at
+            // least 12 iterations, this way the 3rd largest ~ 75th percentile.
+            self.outer_iters.max(12)
+        } else {
+            self.outer_iters
+        };
         let gas_results = iter::repeat_with(|| estimated_fn(self, testbed, actions.clone()))
             .skip(self.warmup)
-            .take(self.outer_iters)
+            .take(outer_iters)
             .collect();
 
         // This could be cached for efficiency. But experience so far shows that
