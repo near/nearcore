@@ -18,7 +18,7 @@ const PREDECESSOR_ACCOUNT_ID: &str = "carol";
 
 const LATEST_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::MAX;
 
-fn with_vm_variants(runner: fn(VMKind) -> ()) {
+pub(crate) fn with_vm_variants(runner: fn(VMKind) -> ()) {
     #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
     runner(VMKind::Wasmer0);
 

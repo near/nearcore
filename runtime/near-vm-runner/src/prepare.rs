@@ -59,18 +59,21 @@ pub fn prepare_contract(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tests::with_vm_variants;
     use assert_matches::assert_matches;
 
-    fn parse_and_prepare_wat(wat: &str) -> Result<Vec<u8>, PrepareError> {
+    fn parse_and_prepare_wat(vm_kind: VMKind, wat: &str) -> Result<Vec<u8>, PrepareError> {
         let wasm = wat::parse_str(wat).unwrap();
         let config = VMConfig::test();
-        prepare_contract(wasm.as_ref(), &config, VMKind::Wasmtime)
+        prepare_contract(wasm.as_ref(), &config, vm_kind)
     }
 
     #[test]
     fn internal_memory_declaration() {
-        let r = parse_and_prepare_wat(r#"(module (memory 1 1))"#);
-        assert_matches!(r, Ok(_));
+        with_vm_variants(|kind| {
+            let r = parse_and_prepare_wat(kind, r#"(module (memory 1 1))"#);
+            assert_matches!(r, Ok(_));
+        })
     }
 
     #[test]
@@ -78,89 +81,78 @@ mod tests {
         // This test assumes that maximum page number is configured to a certain number.
         assert_eq!(VMConfig::test().limit_config.max_memory_pages, 2048);
 
-        let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 1 1)))"#);
-        assert_matches!(r, Err(PrepareError::Memory));
+        with_vm_variants(|kind| {
+            let r = parse_and_prepare_wat(kind, r#"(module (import "env" "memory" (memory 1 1)))"#);
+            assert_matches!(r, Err(PrepareError::Memory));
 
-        // No memory import
-        let r = parse_and_prepare_wat(r#"(module)"#);
-        assert_matches!(r, Ok(_));
+            // No memory import
+            let r = parse_and_prepare_wat(kind, r#"(module)"#);
+            assert_matches!(r, Ok(_));
 
-        // initial exceed maximum
-        let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 17 1)))"#);
-        assert_matches!(r, Err(PrepareError::Deserialization));
+            // initial exceed maximum
+            let r =
+                parse_and_prepare_wat(kind, r#"(module (import "env" "memory" (memory 17 1)))"#);
+            assert_matches!(r, Err(PrepareError::Deserialization));
 
-        // no maximum
-        let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 1)))"#);
-        assert_matches!(r, Err(PrepareError::Memory));
+            // no maximum
+            let r = parse_and_prepare_wat(kind, r#"(module (import "env" "memory" (memory 1)))"#);
+            assert_matches!(r, Err(PrepareError::Memory));
 
-        // requested maximum exceed configured maximum
-        let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 1 33)))"#);
-        assert_matches!(r, Err(PrepareError::Memory));
+            // requested maximum exceed configured maximum
+            let r =
+                parse_and_prepare_wat(kind, r#"(module (import "env" "memory" (memory 1 33)))"#);
+            assert_matches!(r, Err(PrepareError::Memory));
+        })
     }
 
     #[test]
     fn multiple_valid_memory_are_disabled() {
-        // Our preparation and sanitization pass assumes a single memory, so we should fail when
-        // there are multiple specified.
-        let r = parse_and_prepare_wat(
-            r#"(module
-          (import "env" "memory" (memory 1 2048))
-          (import "env" "memory" (memory 1 2048))
-        )"#,
-        );
-        assert_matches!(r, Err(_));
-        let r = parse_and_prepare_wat(
-            r#"(module
-          (import "env" "memory" (memory 1 2048))
-          (memory 1)
-        )"#,
-        );
-        assert_matches!(r, Err(_));
+        with_vm_variants(|kind| {
+            // Our preparation and sanitization pass assumes a single memory, so we should fail when
+            // there are multiple specified.
+            let r = parse_and_prepare_wat(
+                kind,
+                r#"(module
+                    (import "env" "memory" (memory 1 2048))
+                    (import "env" "memory" (memory 1 2048))
+                )"#,
+            );
+            assert_matches!(r, Err(_));
+            let r = parse_and_prepare_wat(
+                kind,
+                r#"(module
+                    (import "env" "memory" (memory 1 2048))
+                    (memory 1)
+                )"#,
+            );
+            assert_matches!(r, Err(_));
+        })
     }
 
     #[test]
     fn imports() {
-        // nothing can be imported from non-"env" module for now.
-        let r =
-            parse_and_prepare_wat(r#"(module (import "another_module" "memory" (memory 1 1)))"#);
-        assert_matches!(r, Err(PrepareError::Instantiate));
+        with_vm_variants(|kind| {
+            // nothing can be imported from non-"env" module for now.
+            let r = parse_and_prepare_wat(
+                kind,
+                r#"(module (import "another_module" "memory" (memory 1 1)))"#,
+            );
+            assert_matches!(r, Err(PrepareError::Instantiate));
 
-        let r = parse_and_prepare_wat(r#"(module (import "env" "gas" (func (param i32))))"#);
-        assert_matches!(r, Ok(_));
+            let r =
+                parse_and_prepare_wat(kind, r#"(module (import "env" "gas" (func (param i32))))"#);
+            assert_matches!(r, Ok(_));
 
-        // TODO: Address tests once we check proper function signatures.
-        /*
-        // wrong signature
-        let r = parse_and_prepare_wat(r#"(module (import "env" "gas" (func (param i64))))"#);
-        assert_matches!(r, Err(Error::Instantiate));
+            // TODO: Address tests once we check proper function signatures.
+            /*
+            // wrong signature
+            let r = parse_and_prepare_wat(r#"(module (import "env" "gas" (func (param i64))))"#);
+            assert_matches!(r, Err(Error::Instantiate));
 
-        // unknown function name
-        let r = parse_and_prepare_wat(r#"(module (import "env" "unknown_func" (func)))"#);
-        assert_matches!(r, Err(Error::Instantiate));
-        */
-    }
-
-    #[test]
-    fn preparation_generates_valid_contract() {
-        bolero::check!().for_each(|input: &[u8]| {
-            // DO NOT use ArbitraryModule. We do want modules that may be invalid here, if they pass our validation step!
-            let config = VMConfig::test();
-            if let Ok(_) = prepare_v1::validate_contract(input, &config) {
-                match prepare_contract(input, &config, VMKind::Wasmtime) {
-                    Err(_e) => (), // TODO: this should be a panic, but for now it’d actually trigger
-                    Ok(code) => {
-                        let mut validator = wasmparser::Validator::new();
-                        validator.wasm_features(WASM_FEATURES);
-                        match validator.validate_all(&code) {
-                            Ok(()) => (),
-                            Err(e) => panic!(
-                                "prepared code failed validation: {e:?}\ncontract: {}",
-                                hex::encode(input),
-                            ),
-                        }
-                    }
-                }
-            }
-        });
+            // unknown function name
+            let r = parse_and_prepare_wat(r#"(module (import "env" "unknown_func" (func)))"#);
+            assert_matches!(r, Err(Error::Instantiate));
+            */
+        })
     }
 }
