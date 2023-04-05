@@ -1,3 +1,5 @@
+//! Legacy validation for very old protocol versions.
+
 use near_vm_errors::PrepareError;
 use near_vm_logic::VMConfig;
 use parity_wasm_41::builder;

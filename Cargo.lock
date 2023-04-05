@@ -1921,6 +1921,7 @@ dependencies = [
  "num-traits",
  "prefix-sum-vec",
  "thiserror",
+ "wasm-encoder 0.22.1",
  "wasmparser 0.99.0",
  "wasmprinter",
 ]
@@ -3933,7 +3934,7 @@ dependencies = [
  "arbitrary",
  "once_cell",
  "rand 0.8.5",
- "wasm-encoder",
+ "wasm-encoder 0.11.0",
  "wasm-smith",
  "wat",
 ]
@@ -4098,6 +4099,7 @@ dependencies = [
  "bolero",
  "borsh 0.10.2",
  "expect-test",
+ "finite-wasm",
  "hex",
  "loupe",
  "memoffset",
@@ -4116,6 +4118,7 @@ dependencies = [
  "once_cell",
  "parity-wasm 0.41.0",
  "parity-wasm 0.42.2",
+ "prefix-sum-vec",
  "pwasm-utils",
  "rand 0.8.5",
  "serde",
@@ -7056,6 +7059,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "wasm-encoder"
+version = "0.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a584273ccc2d9311f1dd19dc3fb26054661fa3e373d53ede5d1144ba07a9acd"
+dependencies = [
+ "leb128",
+]
+
+[[package]]
 name = "wasm-smith"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7065,7 +7077,7 @@ dependencies = [
  "flagset",
  "indexmap",
  "leb128",
- "wasm-encoder",
+ "wasm-encoder 0.11.0",
  "wasmparser 0.84.0",
 ]
 
