@@ -394,7 +394,7 @@ pub static STATE_SYNC_PARTS_TOTAL: Lazy<near_o11y::metrics::IntGaugeVec> = Lazy:
 pub static STATE_SYNC_DISCARD_PARTS: Lazy<near_o11y::metrics::IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_state_sync_discard_parts_total",
-        "Number of times all downloaded parts so far were discarded to try again",
+        "Number of times all downloaded parts were discarded to try again",
         &["shard_id"],
     )
     .unwrap()
