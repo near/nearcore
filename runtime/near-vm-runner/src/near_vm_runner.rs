@@ -286,7 +286,7 @@ impl Wasmer2VM {
         code: &ContractCode,
     ) -> Result<UniversalExecutable, CompilationError> {
         let _span = tracing::debug_span!(target: "vm", "Wasmer2VM::compile_uncached").entered();
-        let prepared_code = prepare::prepare_contract(code.code(), &self.config)
+        let prepared_code = prepare::prepare_contract(code.code(), &self.config, VMKind::Wasmer2)
             .map_err(CompilationError::PrepareError)?;
 
         debug_assert!(
@@ -636,6 +636,16 @@ impl crate::runner::VM for Wasmer2VM {
         let result = logic.after_loading_executable(current_protocol_version, code.code().len());
         if let Err(e) = result {
             return Ok(VMOutcome::abort(logic, e));
+        }
+        // TODO: remove this function once this file switches to actually implementing the near-vm VM
+        #[allow(dead_code, unreachable_code)]
+        fn mark_imports_near_vm_used() {
+            imports::near_vm::build(
+                unimplemented!(),
+                unimplemented!(),
+                unimplemented!(),
+                unimplemented!(),
+            );
         }
         let import = imports::wasmer2::build(
             vmmemory,

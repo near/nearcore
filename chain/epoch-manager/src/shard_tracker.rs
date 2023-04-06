@@ -12,6 +12,8 @@ use near_primitives::types::{AccountId, EpochId, ShardId};
 pub enum TrackedConfig {
     Accounts(Vec<AccountId>),
     AllShards,
+    // Rotates between sets of shards to track.
+    Schedule(Vec<Vec<ShardId>>),
 }
 
 impl TrackedConfig {
@@ -20,10 +22,12 @@ impl TrackedConfig {
     }
 
     pub fn from_config(config: &ClientConfig) -> Self {
-        if config.tracked_shards.is_empty() {
-            TrackedConfig::Accounts(config.tracked_accounts.clone())
-        } else {
+        if !config.tracked_shards.is_empty() {
             TrackedConfig::AllShards
+        } else if !config.tracked_shard_schedule.is_empty() {
+            TrackedConfig::Schedule(config.tracked_shard_schedule.clone())
+        } else {
+            TrackedConfig::Accounts(config.tracked_accounts.clone())
         }
     }
 }
@@ -73,6 +77,14 @@ impl ShardTracker {
                 Ok(tracking_mask.get(shard_id as usize).copied().unwrap_or(false))
             }
             TrackedConfig::AllShards => Ok(true),
+            TrackedConfig::Schedule(schedule) => {
+                assert_ne!(schedule.len(), 0);
+                let epoch_info = self.epoch_manager.get_epoch_info(epoch_id)?;
+                let epoch_height = epoch_info.epoch_height();
+                let index = epoch_height % schedule.len() as u64;
+                let subset = &schedule[index as usize];
+                Ok(subset.contains(&shard_id))
+            }
         }
     }
 
@@ -81,6 +93,21 @@ impl ShardTracker {
         self.tracks_shard_at_epoch(shard_id, &epoch_id)
     }
 
+    fn tracks_shard_next_epoch_from_prev_block(
+        &self,
+        shard_id: ShardId,
+        prev_hash: &CryptoHash,
+    ) -> Result<bool, EpochError> {
+        let epoch_id = self.epoch_manager.get_next_epoch_id_from_prev_block(prev_hash)?;
+        self.tracks_shard_at_epoch(shard_id, &epoch_id)
+    }
+
+    /// Whether the client cares about some shard right now.
+    /// * If `account_id` is None, `is_me` is not checked and the
+    /// result indicates whether the client is tracking the shard
+    /// * If `account_id` is not None, it is supposed to be a validator
+    /// account and `is_me` indicates whether we check what shards
+    /// the client tracks.
     pub fn care_about_shard(
         &self,
         account_id: Option<&AccountId>,
@@ -101,13 +128,24 @@ impl ShardTracker {
                 return true;
             }
         }
-        matches!(self.tracked_config, TrackedConfig::AllShards)
-            || self.tracks_shard(shard_id, parent_hash).unwrap_or(false)
+        match self.tracked_config {
+            TrackedConfig::AllShards => {
+                // Avoid looking up EpochId as a performance optimization.
+                true
+            }
+            _ => self.tracks_shard(shard_id, parent_hash).unwrap_or(false),
+        }
     }
 
-    // `shard_id` always refers to a shard in the current epoch that the next block from `parent_hash` belongs
-    // If shard layout will change next epoch, returns true if it cares about any shard
-    // that `shard_id` will split to
+    /// Whether the client cares about some shard in the next epoch.
+    ///  Note that `shard_id` always refers to a shard in the current epoch
+    ///  If shard layout will change next epoch,
+    ///  returns true if it cares about any shard that `shard_id` will split to
+    /// * If `account_id` is None, `is_me` is not checked and the
+    /// result indicates whether the client will track the shard
+    /// * If `account_id` is not None, it is supposed to be a validator
+    /// account and `is_me` indicates whether we check what shards
+    /// the client will track.
     pub fn will_care_about_shard(
         &self,
         account_id: Option<&AccountId>,
@@ -127,8 +165,15 @@ impl ShardTracker {
                 return true;
             }
         }
-        matches!(self.tracked_config, TrackedConfig::AllShards)
-            || self.tracks_shard(shard_id, parent_hash).unwrap_or(false)
+        match self.tracked_config {
+            TrackedConfig::AllShards => {
+                // Avoid looking up EpochId as a performance optimization.
+                true
+            }
+            _ => {
+                self.tracks_shard_next_epoch_from_prev_block(shard_id, parent_hash).unwrap_or(false)
+            }
+        }
     }
 }
 
@@ -137,7 +182,7 @@ mod tests {
     use super::{account_id_to_shard_id, ShardTracker};
     use crate::shard_tracker::TrackedConfig;
     use crate::test_utils::hash_range;
-    use crate::{EpochManager, EpochManagerHandle, RewardCalculator};
+    use crate::{EpochManager, EpochManagerAdapter, EpochManagerHandle, RewardCalculator};
     use near_crypto::{KeyType, PublicKey};
     use near_primitives::epoch_manager::block_info::BlockInfo;
     use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
@@ -294,10 +339,54 @@ mod tests {
     }
 
     #[test]
+    fn test_track_schedule() {
+        // Creates a ShardTracker that changes every epoch tracked shards.
+        let num_shards = 4;
+        let epoch_manager = Arc::new(get_epoch_manager(PROTOCOL_VERSION, num_shards, false));
+        let subset1 = HashSet::from([0, 1]);
+        let subset2 = HashSet::from([1, 2]);
+        let subset3 = HashSet::from([2, 3]);
+        let tracker = ShardTracker::new(
+            TrackedConfig::Schedule(vec![
+                subset1.clone().into_iter().collect(),
+                subset2.clone().into_iter().collect(),
+                subset3.clone().into_iter().collect(),
+            ]),
+            epoch_manager.clone(),
+        );
+
+        let h = hash_range(8);
+        {
+            let mut epoch_manager = epoch_manager.write();
+            for i in 0..8 {
+                record_block(
+                    &mut epoch_manager,
+                    if i > 0 { h[i - 1] } else { CryptoHash::default() },
+                    h[i],
+                    i as u64,
+                    vec![],
+                    PROTOCOL_VERSION,
+                );
+            }
+        }
+
+        assert_eq!(get_all_shards_care_about(&tracker, num_shards, &h[4]), subset2);
+        assert_eq!(get_all_shards_care_about(&tracker, num_shards, &h[5]), subset3);
+        assert_eq!(get_all_shards_care_about(&tracker, num_shards, &h[6]), subset1);
+        assert_eq!(get_all_shards_care_about(&tracker, num_shards, &h[7]), subset2);
+
+        assert_eq!(get_all_shards_will_care_about(&tracker, num_shards, &h[4]), subset3);
+        assert_eq!(get_all_shards_will_care_about(&tracker, num_shards, &h[5]), subset1);
+        assert_eq!(get_all_shards_will_care_about(&tracker, num_shards, &h[6]), subset2);
+        assert_eq!(get_all_shards_will_care_about(&tracker, num_shards, &h[7]), subset3);
+    }
+
+    #[test]
     fn test_track_shards_shard_layout_change() {
         let simple_nightshade_version = SimpleNightshade.protocol_version();
         let epoch_manager = get_epoch_manager(simple_nightshade_version - 1, 1, true);
-        let tracked_accounts = vec!["near".parse().unwrap(), "zoo".parse().unwrap()];
+        let tracked_accounts =
+            vec!["a.near".parse().unwrap(), "near".parse().unwrap(), "zoo".parse().unwrap()];
         let tracker = ShardTracker::new(
             TrackedConfig::Accounts(tracked_accounts.clone()),
             Arc::new(epoch_manager.clone()),
@@ -336,24 +425,29 @@ mod tests {
 
         // verify tracker is tracking the correct shards before and after resharding
         for i in 1..8 {
+            let mut total_next_tracked_shards = HashSet::new();
+            let next_epoch_id = epoch_manager.get_next_epoch_id_from_prev_block(&h[i - 1]).unwrap();
+            let next_shard_layout = epoch_manager.get_shard_layout(&next_epoch_id).unwrap();
+
             let mut total_tracked_shards = HashSet::new();
-            let num_shards = {
-                let epoch_manager = epoch_manager.read();
-                let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&h[i - 1]).unwrap();
-                let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
-                for account_id in tracked_accounts.iter() {
-                    total_tracked_shards.insert(account_id_to_shard_id(account_id, &shard_layout));
-                }
-                shard_layout.num_shards()
-            };
+            let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&h[i - 1]).unwrap();
+            let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+
+            for account_id in tracked_accounts.iter() {
+                let shard_id = account_id_to_shard_id(account_id, &shard_layout);
+                total_tracked_shards.insert(shard_id);
+
+                let next_shard_id = account_id_to_shard_id(account_id, &next_shard_layout);
+                total_next_tracked_shards.insert(next_shard_id);
+            }
 
             assert_eq!(
-                get_all_shards_care_about(&tracker, num_shards, &h[i - 1]),
+                get_all_shards_care_about(&tracker, shard_layout.num_shards(), &h[i - 1]),
                 total_tracked_shards
             );
             assert_eq!(
-                get_all_shards_will_care_about(&tracker, num_shards, &h[i - 1]),
-                total_tracked_shards
+                get_all_shards_will_care_about(&tracker, next_shard_layout.num_shards(), &h[i - 1]),
+                total_next_tracked_shards
             );
         }
     }
