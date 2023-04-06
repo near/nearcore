@@ -334,6 +334,9 @@ impl StateChanges {
                         },
                     ));
                 }
+                TrieKey::RoutingTable { .. } => {
+                    // TODO: implement
+                }
                 // The next variants considered as unnecessary as too low level
                 TrieKey::ReceivedData { .. } => {}
                 TrieKey::PostponedReceiptId { .. } => {}

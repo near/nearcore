@@ -1,8 +1,10 @@
 use crate::hash::CryptoHash;
+use crate::namespace::Namespace;
 use crate::serialize::dec_format;
 use crate::types::{Balance, Nonce, StorageUsage};
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use near_account_id as id;
+use std::collections::HashMap;
 use std::io;
 
 #[derive(
@@ -36,7 +38,7 @@ pub struct Account {
     #[serde(with = "dec_format")]
     locked: Balance,
     /// Hash of the code stored in the storage for this account.
-    code_hash: CryptoHash,
+    code_hashes: HashMap<Namespace, CryptoHash>,
     /// Storage used by the given account, includes account id, this struct, access keys and other data.
     storage_usage: StorageUsage,
     /// Version of Account in re migrations and similar
@@ -55,7 +57,7 @@ impl Account {
         code_hash: CryptoHash,
         storage_usage: StorageUsage,
     ) -> Self {
-        Account { amount, locked, code_hash, storage_usage, version: AccountVersion::V1 }
+        Account { amount, locked, code_hashes: [(Namespace::default(), code_hash)].into_iter().collect(), storage_usage, version: AccountVersion::V1 }
     }
 
     #[inline]
@@ -70,7 +72,12 @@ impl Account {
 
     #[inline]
     pub fn code_hash(&self) -> CryptoHash {
-        self.code_hash
+        self.code_hashes.get(&Namespace::default()).cloned().unwrap_or_default()
+    }
+
+    #[inline]
+    pub fn code_hashes(&self) -> &HashMap<Namespace, CryptoHash> {
+        &self.code_hashes
     }
 
     #[inline]
@@ -95,7 +102,7 @@ impl Account {
 
     #[inline]
     pub fn set_code_hash(&mut self, code_hash: CryptoHash) {
-        self.code_hash = code_hash;
+        self.code_hashes.insert(Namespace::default(), code_hash);
     }
 
     #[inline]
@@ -112,7 +119,7 @@ impl Account {
 struct LegacyAccount {
     amount: Balance,
     locked: Balance,
-    code_hash: CryptoHash,
+    code_hashes: HashMap<Namespace, CryptoHash>,
     storage_usage: StorageUsage,
 }
 
@@ -124,7 +131,7 @@ impl BorshDeserialize for Account {
         Ok(Account {
             amount: deserialized_account.amount,
             locked: deserialized_account.locked,
-            code_hash: deserialized_account.code_hash,
+            code_hashes: deserialized_account.code_hashes,
             storage_usage: deserialized_account.storage_usage,
             version: AccountVersion::V1,
         })
@@ -137,7 +144,7 @@ impl BorshSerialize for Account {
             AccountVersion::V1 => LegacyAccount {
                 amount: self.amount,
                 locked: self.locked,
-                code_hash: self.code_hash,
+                code_hashes: self.code_hashes.clone(),
                 storage_usage: self.storage_usage,
             }
             .serialize(writer),
@@ -256,14 +263,14 @@ mod tests {
         let old_account = LegacyAccount {
             amount: 100,
             locked: 200,
-            code_hash: CryptoHash::default(),
+            code_hashes: HashMap::default(),
             storage_usage: 300,
         };
         let mut old_bytes = &old_account.try_to_vec().unwrap()[..];
         let new_account = <Account as BorshDeserialize>::deserialize(&mut old_bytes).unwrap();
         assert_eq!(new_account.amount, old_account.amount);
         assert_eq!(new_account.locked, old_account.locked);
-        assert_eq!(new_account.code_hash, old_account.code_hash);
+        assert_eq!(new_account.code_hashes, old_account.code_hashes);
         assert_eq!(new_account.storage_usage, old_account.storage_usage);
         assert_eq!(new_account.version, AccountVersion::V1);
         let mut new_bytes = &new_account.try_to_vec().unwrap()[..];

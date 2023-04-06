@@ -7,6 +7,7 @@ use std::{fmt, io};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use metadata::{DbKind, DbVersion, KIND_KEY, VERSION_KEY};
+use near_primitives::routing_table::RoutingTable;
 use once_cell::sync::Lazy;
 use strum;
 
@@ -852,6 +853,10 @@ pub fn get_code(
 ) -> Result<Option<ContractCode>, StorageError> {
     let key = TrieKey::ContractCode { account_id: account_id.clone() };
     trie.get(&key).map(|opt| opt.map(|code| ContractCode::new(code, code_hash)))
+}
+
+pub fn get_routing_table(trie: &dyn TrieAccess, account_id: &AccountId) -> Result<Option<RoutingTable>, StorageError> {
+    get(trie, &TrieKey::RoutingTable { account_id: account_id.clone() })
 }
 
 /// Removes account, code and all access keys associated to it.

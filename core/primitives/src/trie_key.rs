@@ -38,8 +38,9 @@ pub(crate) mod col {
     pub const DELAYED_RECEIPT: u8 = 8;
     /// This column id is used when storing Key-Value data from a contract on an `account_id`.
     pub const CONTRACT_DATA: u8 = 9;
+    pub const ROUTING_TABLE: u8 = 10;
     /// All columns
-    pub const NON_DELAYED_RECEIPT_COLUMNS: [(u8, &str); 8] = [
+    pub const NON_DELAYED_RECEIPT_COLUMNS: [(u8, &str); 9] = [
         (ACCOUNT, "Account"),
         (CONTRACT_CODE, "ContractCode"),
         (ACCESS_KEY, "AccessKey"),
@@ -48,6 +49,7 @@ pub(crate) mod col {
         (PENDING_DATA_COUNT, "PendingDataCount"),
         (POSTPONED_RECEIPT, "PostponedReceipt"),
         (CONTRACT_DATA, "ContractData"),
+        (ROUTING_TABLE, "RoutingTable"),
     ];
 }
 
@@ -86,6 +88,7 @@ pub enum TrieKey {
     /// Used to store a key-value record `Vec<u8>` within a contract deployed on a given `AccountId`
     /// and a given key.
     ContractData { account_id: AccountId, key: Vec<u8> },
+    RoutingTable { account_id: AccountId },
 }
 
 /// Provides `len` function.
@@ -142,7 +145,8 @@ impl TrieKey {
                     + account_id.len()
                     + ACCOUNT_DATA_SEPARATOR.len()
                     + key.len()
-            }
+            },
+            TrieKey::RoutingTable { account_id } => col::ROUTING_TABLE.len() + account_id.len(),
         }
     }
 
@@ -202,6 +206,10 @@ impl TrieKey {
                 buf.push(ACCOUNT_DATA_SEPARATOR);
                 buf.extend(key);
             }
+            TrieKey::RoutingTable { account_id } => {
+                buf.push(col::ROUTING_TABLE);
+                buf.extend(account_id.as_ref().as_bytes());
+            }
         };
         debug_assert_eq!(expected_len, buf.len() - start_len);
     }
@@ -225,6 +233,7 @@ impl TrieKey {
             TrieKey::DelayedReceiptIndices => None,
             TrieKey::DelayedReceipt { .. } => None,
             TrieKey::ContractData { account_id, .. } => Some(account_id.clone()),
+            TrieKey::RoutingTable { account_id } => Some(account_id.clone()),
         }
     }
 }
