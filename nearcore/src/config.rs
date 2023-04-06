@@ -117,9 +117,6 @@ pub const NUM_BLOCK_PRODUCER_SEATS: NumSeats = 50;
 /// The minimum stake required for staking is last seat price divided by this number.
 pub const MINIMUM_STAKE_DIVISOR: u64 = 10;
 
-/// Number of epochs before protocol upgrade.
-pub const PROTOCOL_UPGRADE_NUM_EPOCHS: EpochHeight = 2;
-
 pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
 pub const NODE_KEY_FILE: &str = "node_key.json";
@@ -145,11 +142,6 @@ pub const MAX_INFLATION_RATE: Rational32 = Rational32::new_raw(1, 20);
 
 /// Protocol upgrade stake threshold.
 pub const PROTOCOL_UPGRADE_STAKE_THRESHOLD: Rational32 = Rational32::new_raw(4, 5);
-
-/// Serde default only supports functions without parameters.
-fn default_reduce_wait_for_missing_block() -> Duration {
-    Duration::from_millis(REDUCE_DELAY_FOR_MISSING_BLOCKS)
-}
 
 fn default_header_sync_initial_timeout() -> Duration {
     Duration::from_secs(10)
