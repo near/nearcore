@@ -76,8 +76,15 @@ class TestSplitStorage(unittest.TestCase):
         else:
             self.assertIsNone(cold_head_height)
 
+    # Migrate archival node using rpc node as source for hot db.
+    # wait_period should be enough block for initial migration to finish, cold_head catch up to head and tail to appear.
+    # for localnet tests it is enough to use epoch size * number of epochs to keep.
     def _migrate_to_split_storage(self, rpc, archival, archival_dir,
                                   wait_period):
+
+        logger.info("")
+        logger.info("Phase 1 - Running neard before migration.")
+        logger.info("")
 
         # Wait until a few blocks are produced so that we're sure that the db is
         # properly created and populated with some data.
@@ -105,7 +112,7 @@ class TestSplitStorage(unittest.TestCase):
         # Wait for a few seconds to:
         # - Give the node enough time to get started.
         # - Give the cold store loop enough time to run - it runs every 1s.
-        # TODO(wacban) this is a quick stop-gap solution to fix nayduck, this
+        # TODO(posvyatokum) this is a quick stop-gap solution to fix nayduck, this
         # should be solved by waiting in a loop until cold store head is at
         # expected proximity to final head.
         time.sleep(4)
@@ -132,8 +139,6 @@ class TestSplitStorage(unittest.TestCase):
         logger.info("Phase 3 - Preparing hot storage from rpc backup.")
         logger.info("")
 
-        # TODO Ideally we won't need to stop the node while running prepare-hot.
-        archival.kill(gentle=True)
         # Stop the RPC node in order to dump the db to disk.
         rpc.kill(gentle=True)
 
@@ -171,13 +176,14 @@ class TestSplitStorage(unittest.TestCase):
         logger.info("Phase 4 - After migration.")
         logger.info("")
 
+        archival.kill(gentle=True)
         archival.start()
         rpc.start()
 
         # Wait for a few seconds to:
         # - Give the node enough time to get started.
         # - Give the cold store loop enough time to run - it runs every 1s.
-        # TODO(wacban) this is a quick stop-gap solution to fix nayduck, this
+        # TODO(posvyatokum) this is a quick stop-gap solution to fix nayduck, this
         # should be solved by waiting in a loop until cold store head is at
         # expected proximity to final head.
         time.sleep(4)
@@ -304,10 +310,6 @@ class TestSplitStorage(unittest.TestCase):
             prefix="test_migration_",
         )
 
-        logger.info("")
-        logger.info("Phase 1 - Starting neard before migration.")
-        logger.info("")
-
         validator = spin_up_node(
             config,
             near_root,
@@ -431,8 +433,9 @@ class TestSplitStorage(unittest.TestCase):
         logger.info("")
         # Wait for split storage to relly on cold db to sync archival node
         wait_for_blocks(split, target=n + epoch_length * gc_epoch_num * 2 + 1)
-        # Kill validator just so legacy archival doesn't have any peers that may accidentally have some useful data.
+        # Kill validator and rpc so legacy archival doesn't have any peers that may accidentally have some useful data.
         validator.kill()
+        rpc.kill()
 
         logger.info("")
         logger.info("Restart legacy archival node.")
