@@ -68,6 +68,7 @@ members = [
     "tools/storage-usage-delta-calculator",
     "tools/themis",
     "utils/config",
+    "utils/fmt",
     "utils/mainnet-res",
     "utils/near-cache",
     "utils/stdx",
@@ -177,6 +178,7 @@ near-crypto = { path = "core/crypto" }
 near-dyn-configs = { path = "core/dyn-configs" }
 near-epoch-manager = { path = "chain/epoch-manager" }
 near-flat-storage = { path = "tools/flat-storage" }
+near-fmt = { path = "utils/fmt" }
 near-indexer = { path = "chain/indexer" }
 near-indexer-primitives = { path = "chain/indexer-primitives" }
 near-jsonrpc = { path = "chain/jsonrpc" }

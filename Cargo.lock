@@ -2528,6 +2528,7 @@ dependencies = [
  "near-client-primitives",
  "near-crypto",
  "near-epoch-manager",
+ "near-fmt",
  "near-jsonrpc",
  "near-jsonrpc-client",
  "near-jsonrpc-primitives",
@@ -3372,6 +3373,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-fmt"
+version = "0.0.0"
+dependencies = [
+ "near-primitives-core",
+]
+
+[[package]]
 name = "near-indexer"
 version = "0.0.0"
 dependencies = [
@@ -3588,6 +3596,7 @@ dependencies = [
  "lru",
  "near-async",
  "near-crypto",
+ "near-fmt",
  "near-o11y",
  "near-performance-metrics",
  "near-performance-metrics-macros",
@@ -3719,7 +3728,7 @@ dependencies = [
  "hex",
  "insta",
  "near-crypto",
- "near-o11y",
+ "near-fmt",
  "near-primitives-core",
  "near-rpc-error-macro",
  "near-stdx 0.16.0",
@@ -3867,6 +3876,7 @@ dependencies = [
  "itoa",
  "lru",
  "near-crypto",
+ "near-fmt",
  "near-o11y",
  "near-primitives",
  "near-stdx 0.16.0",
@@ -4050,6 +4060,7 @@ dependencies = [
  "hex",
  "near-account-id",
  "near-crypto",
+ "near-fmt",
  "near-o11y",
  "near-primitives",
  "near-primitives-core",
@@ -5462,6 +5473,7 @@ dependencies = [
  "libc",
  "near-chain-configs",
  "near-crypto",
+ "near-fmt",
  "near-o11y",
  "near-primitives",
  "near-store",

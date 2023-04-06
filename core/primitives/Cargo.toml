@@ -39,7 +39,7 @@ tokio.workspace = true
 tracing.workspace = true
 
 near-crypto.workspace = true
-near-o11y.workspace = true
+near-fmt.workspace = true
 near-primitives-core.workspace = true
 near-rpc-error-macro.workspace = true
 near-vm-errors.workspace = true
