@@ -1,26 +1,10 @@
-use anyhow::{anyhow, bail, Context};
-use near_primitives::static_clock::StaticClock;
-use near_primitives::test_utils::create_test_signer;
-use num_rational::Rational32;
-use std::fs;
-use std::fs::File;
-use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
-use std::str::FromStr;
-use std::sync::Arc;
-use std::time::Duration;
-
-use near_config_utils::{ValidationError, ValidationErrors};
-
-#[cfg(test)]
-use tempfile::tempdir;
-use tracing::{info, warn};
-
 use crate::download_file::{run_download_file, FileDownloadError};
+use anyhow::{anyhow, bail, Context};
 use near_chain_configs::{
     get_initial_supply, ClientConfig, GCConfig, Genesis, GenesisConfig, GenesisValidationMode,
     LogSummaryStyle, MutableConfigValue,
 };
+use near_config_utils::{ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 #[cfg(feature = "json_rpc")]
 use near_jsonrpc::RpcConfig;
@@ -32,6 +16,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::account_id_to_shard_id;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
+use near_primitives::static_clock::StaticClock;
+use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{
     AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats,
     NumShards, ShardId,
@@ -42,6 +28,17 @@ use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
 use near_telemetry::TelemetryConfig;
+use num_rational::Rational32;
+use std::fs;
+use std::fs::File;
+use std::io::{Read, Write};
+use std::path::Path;
+use std::str::FromStr;
+use std::sync::Arc;
+use std::time::Duration;
+#[cfg(test)]
+use tempfile::tempdir;
+use tracing::{info, warn};
 
 /// Initial balance used in tests.
 pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
@@ -327,17 +324,8 @@ pub struct Config {
     /// Configuration for the
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub split_storage: Option<SplitStorageConfig>,
-    // TODO(mina86): Remove those two altogether at some point.  We need to be
-    // somewhat careful though and make sure that we don’t start silently
-    // ignoring this option without users setting corresponding store option.
-    // For the time being, we’re failing inside of create_db_checkpoint if this
-    // option is set.
-    /// Deprecated; use `store.migration_snapshot` instead.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub use_db_migration_snapshot: Option<bool>,
-    /// Deprecated; use `store.migration_snapshot` instead.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub db_migration_snapshot_path: Option<PathBuf>,
+    /// The node will stop after the head exceeds this height.
+    /// The node usually stops within several seconds after reaching the target height.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expected_shutdown: Option<BlockHeight>,
     /// Options for dumping state of every epoch to S3.
@@ -377,8 +365,6 @@ impl Default for Config {
             view_client_throttle_period: default_view_client_throttle_period(),
             trie_viewer_state_size_limit: default_trie_viewer_state_size_limit(),
             max_gas_burnt_view: None,
-            db_migration_snapshot_path: None,
-            use_db_migration_snapshot: None,
             store: near_store::StoreConfig::default(),
             cold_store: None,
             split_storage: None,

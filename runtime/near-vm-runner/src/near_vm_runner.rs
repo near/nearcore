@@ -246,12 +246,12 @@ pub(crate) fn near_vm_vm_hash() -> u64 {
 
 pub(crate) type VMArtifact = Arc<near_vm_engine_universal::UniversalArtifact>;
 
-pub(crate) struct NearVmVM {
+pub(crate) struct NearVM {
     pub(crate) config: VMConfig,
     pub(crate) engine: UniversalEngine,
 }
 
-impl NearVmVM {
+impl NearVM {
     pub(crate) fn new_for_target(config: VMConfig, target: near_vm_compiler::Target) -> Self {
         // We only support singlepass compiler at the moment.
         assert_eq!(VM_CONFIG.compiler, NearVmCompiler::Singlepass);
@@ -287,7 +287,7 @@ impl NearVmVM {
         &self,
         code: &ContractCode,
     ) -> Result<UniversalExecutable, CompilationError> {
-        let _span = tracing::debug_span!(target: "vm", "NearVmVM::compile_uncached").entered();
+        let _span = tracing::debug_span!(target: "vm", "NearVM::compile_uncached").entered();
         let prepared_code = prepare::prepare_contract(code.code(), &self.config, VMKind::NearVm)
             .map_err(CompilationError::PrepareError)?;
 
@@ -342,13 +342,13 @@ impl NearVmVM {
         // Caches also cache _compilation_ errors, so that we don't have to
         // re-parse invalid code (invalid code, in a sense, is a normal
         // outcome). And `cache`, being a database, can fail with an `io::Error`.
-        let _span = tracing::debug_span!(target: "vm", "NearVmVM::compile_and_load").entered();
+        let _span = tracing::debug_span!(target: "vm", "NearVM::compile_and_load").entered();
 
         let key = get_contract_cache_key(code, VMKind::NearVm, &self.config);
 
         let compile_or_read_from_cache = || -> VMResult<Result<VMArtifact, CompilationError>> {
-            let _span = tracing::debug_span!(target: "vm", "NearVmVM::compile_or_read_from_cache")
-                .entered();
+            let _span =
+                tracing::debug_span!(target: "vm", "NearVM::compile_or_read_from_cache").entered();
             let cache_record = cache
                 .map(|cache| cache.get(&key))
                 .transpose()
@@ -360,7 +360,7 @@ impl NearVmVM {
                 Some(CompiledContract::CompileModuleError(err)) => return Ok(Err(err)),
                 Some(CompiledContract::Code(serialized_module)) => {
                     let _span =
-                        tracing::debug_span!(target: "vm", "NearVmVM::read_from_cache").entered();
+                        tracing::debug_span!(target: "vm", "NearVM::read_from_cache").entered();
                     unsafe {
                         // (UN-)SAFETY: the `serialized_module` must have been produced by a prior call to
                         // `serialize`.
@@ -533,7 +533,7 @@ impl NearVmVM {
     }
 }
 
-impl near_vm_vm::Tunables for &NearVmVM {
+impl near_vm_vm::Tunables for &NearVM {
     fn memory_style(&self, memory: &MemoryType) -> MemoryStyle {
         MemoryStyle::Static {
             bound: memory.maximum.unwrap_or(Pages(self.config.limit_config.max_memory_pages)),
@@ -670,7 +670,7 @@ impl<'a> finite_wasm::wasmparser::VisitOperator<'a> for GasCostCfg {
     finite_wasm::wasmparser::for_each_operator!(gas_cost);
 }
 
-impl crate::runner::VM for NearVmVM {
+impl crate::runner::VM for NearVM {
     fn run(
         &self,
         code: &ContractCode,
