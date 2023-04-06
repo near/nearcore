@@ -2318,6 +2318,8 @@ impl<'a> ChainStoreUpdate<'a> {
             DBCol::BlockHeader => {
                 // TODO(#3488) At the moment header sync needs block headers.
                 // However, we want to eventually garbage collect headers.
+                // When that happens we should make sure that block headers is
+                // copied to the cold storage.
                 store_update.delete(col, key);
                 self.chain_store.headers.pop(key);
                 unreachable!();
