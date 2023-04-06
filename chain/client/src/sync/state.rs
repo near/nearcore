@@ -490,6 +490,7 @@ impl StateSync {
         Ok(self.select_peers(&mut peers, shard_id)?)
     }
 
+    /// Avoids peers that already have outstanding requests for parts.
     fn select_peers(
         &mut self,
         peers: &mut dyn Iterator<Item = AccountOrPeerIdOrHash>,
