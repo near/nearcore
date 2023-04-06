@@ -1287,8 +1287,7 @@ impl Runtime {
                     .expect("`process_transaction` must populate compute usage"),
             )?;
 
-            // TODO(#8032): Remove when compute costs are stabilized.
-            if !cfg!(feature = "protocol_feature_compute_costs") {
+            if !checked_feature!("stable", ComputeCosts, apply_state.current_protocol_version) {
                 assert_eq!(
                     total_compute_usage, total_gas_burnt,
                     "Compute usage must match burnt gas"
@@ -1337,8 +1336,8 @@ impl Runtime {
                         .compute_usage
                         .expect("`process_receipt` must populate compute usage"),
                 )?;
-                // TODO(#8032): Remove when compute costs are stabilized.
-                if !cfg!(feature = "protocol_feature_compute_costs") {
+
+                if !checked_feature!("stable", ComputeCosts, apply_state.current_protocol_version) {
                     assert_eq!(
                         total_compute_usage, total_gas_burnt,
                         "Compute usage must match burnt gas"
@@ -1594,7 +1593,6 @@ impl Runtime {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(feature = "protocol_feature_compute_costs")]
     use assert_matches::assert_matches;
     use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_primitives::account::AccessKey;
@@ -1611,7 +1609,6 @@ mod tests {
     use near_store::set_access_key;
     use near_store::test_utils::create_tries;
     use near_store::StoreCompiledContractCache;
-    #[cfg(feature = "protocol_feature_compute_costs")]
     use near_vm_logic::{ExtCosts, ParameterCost};
     use near_vm_runner::get_contract_cache_key;
     use near_vm_runner::internal::VMKind;
@@ -2553,7 +2550,6 @@ mod tests {
             .expect("Compilation result should be non-empty");
     }
 
-    #[cfg(feature = "protocol_feature_compute_costs")]
     #[test]
     fn test_compute_usage_limit() {
         let initial_balance = to_yocto(1_000_000);
@@ -2562,8 +2558,18 @@ mod tests {
             setup_runtime(initial_balance, initial_locked, 1);
 
         let mut free_config = RuntimeConfig::free();
-        let sha256_cost =
-            ParameterCost { gas: Gas::from(1u64), compute: Compute::from(10_000_000_000_000u64) };
+        let sha256_cost = ParameterCost {
+            gas: Gas::from(1_000_000u64),
+            compute: if checked_feature!(
+                "stable",
+                ComputeCosts,
+                apply_state.current_protocol_version
+            ) {
+                Compute::from(10_000_000_000_000u64)
+            } else {
+                Compute::from(1_000_000u64)
+            },
+        };
         free_config.wasm_config.ext_costs.costs[ExtCosts::sha256_base] = sha256_cost.clone();
         apply_state.config = Arc::new(free_config);
         // This allows us to execute 1 receipt with a function call per apply.
@@ -2583,7 +2589,7 @@ mod tests {
             vec![Action::FunctionCall(FunctionCallAction {
                 method_name: "ext_sha256".to_string(),
                 args: b"first".to_vec(),
-                gas: 1,
+                gas: sha256_cost.gas,
                 deposit: 0,
             })],
         );
@@ -2594,7 +2600,7 @@ mod tests {
             vec![Action::FunctionCall(FunctionCallAction {
                 method_name: "ext_sha256".to_string(),
                 args: b"second".to_vec(),
-                gas: 1,
+                gas: sha256_cost.gas,
                 deposit: 0,
             })],
         );
