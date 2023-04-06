@@ -28,7 +28,6 @@ mod io_tracer;
 pub mod log_config;
 pub mod macros;
 pub mod metrics;
-pub mod pretty;
 pub mod testonly;
 
 /// Produce a tracing-event for target "io_tracer" that will be consumed by the

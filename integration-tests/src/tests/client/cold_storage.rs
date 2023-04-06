@@ -5,7 +5,6 @@ use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType};
-use near_o11y::pretty;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
 use near_primitives::sharding::ShardChunk;
@@ -25,7 +24,7 @@ use std::collections::HashSet;
 use strum::IntoEnumIterator;
 
 fn check_key(first_store: &Store, second_store: &Store, col: DBCol, key: &[u8]) {
-    let pretty_key = pretty::StorageKey(key);
+    let pretty_key = near_fmt::StorageKey(key);
     tracing::debug!("Checking {:?} {:?}", col, pretty_key);
 
     let first_res = first_store.get(col, key);

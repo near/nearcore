@@ -37,6 +37,7 @@ near-client.workspace = true
 near-client-primitives.workspace = true
 near-crypto.workspace = true
 near-epoch-manager.workspace = true
+near-fmt.workspace = true
 near-jsonrpc.workspace = true
 near-jsonrpc-client.workspace = true
 near-jsonrpc-primitives.workspace = true

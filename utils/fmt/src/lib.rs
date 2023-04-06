@@ -24,7 +24,7 @@ use std::str::FromStr;
 /// ```ignore
 /// tracing::trace!(target: "state",
 ///                 db_op = "insert",
-///                 key = %near_o11y::pretty::Bytes(key),
+///                 key = %near_fmt::Bytes(key),
 ///                 size = value.len())
 /// ```
 ///
@@ -143,7 +143,7 @@ impl<'a> std::fmt::Display for AbbrBytes<Option<&'a [u8]>> {
 /// tracing::info!(target: "store",
 ///                op = "set",
 ///                col = %col,
-///                key = %near_o11y::pretty::StorageKey(key),
+///                key = %near_fmt::StorageKey(key),
 ///                size = value.len())
 /// ```
 pub struct StorageKey<'a>(pub &'a [u8]);

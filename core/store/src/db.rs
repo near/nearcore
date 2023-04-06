@@ -1,8 +1,6 @@
-use std::io;
-
-use near_o11y::pretty;
-
 use crate::DBCol;
+use near_fmt::{AbbrBytes, StorageKey};
+use std::io;
 
 pub(crate) mod rocksdb;
 
@@ -76,26 +74,24 @@ impl std::fmt::Debug for DBOp {
             Self::Set { col, key, value } => f
                 .debug_struct("Set")
                 .field("col", col)
-                .field("key", &pretty::StorageKey(key))
-                .field("value", &pretty::AbbrBytes(value))
+                .field("key", &StorageKey(key))
+                .field("value", &AbbrBytes(value))
                 .finish(),
             Self::Insert { col, key, value } => f
                 .debug_struct("Insert")
                 .field("col", col)
-                .field("key", &pretty::StorageKey(key))
-                .field("value", &pretty::AbbrBytes(value))
+                .field("key", &StorageKey(key))
+                .field("value", &AbbrBytes(value))
                 .finish(),
             Self::UpdateRefcount { col, key, value } => f
                 .debug_struct("UpdateRefcount")
                 .field("col", col)
-                .field("key", &pretty::StorageKey(key))
-                .field("value", &pretty::AbbrBytes(value))
+                .field("key", &StorageKey(key))
+                .field("value", &AbbrBytes(value))
                 .finish(),
-            Self::Delete { col, key } => f
-                .debug_struct("Delete")
-                .field("col", col)
-                .field("key", &pretty::StorageKey(key))
-                .finish(),
+            Self::Delete { col, key } => {
+                f.debug_struct("Delete").field("col", col).field("key", &StorageKey(key)).finish()
+            }
             Self::DeleteAll { col } => f.debug_struct("DeleteAll").field("col", col).finish(),
             Self::DeleteRange { col, from, to } => f
                 .debug_struct("DeleteRange")
