@@ -347,8 +347,8 @@ impl NearVM {
         let key = get_contract_cache_key(code, VMKind::NearVm, &self.config);
 
         let compile_or_read_from_cache = || -> VMResult<Result<VMArtifact, CompilationError>> {
-            let _span = tracing::debug_span!(target: "vm", "NearVM::compile_or_read_from_cache")
-                .entered();
+            let _span =
+                tracing::debug_span!(target: "vm", "NearVM::compile_or_read_from_cache").entered();
             let cache_record = cache
                 .map(|cache| cache.get(&key))
                 .transpose()
