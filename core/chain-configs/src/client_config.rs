@@ -138,6 +138,9 @@ pub struct ClientConfig {
     pub tracked_accounts: Vec<AccountId>,
     /// Shards that this client tracks
     pub tracked_shards: Vec<ShardId>,
+    /// Rotate between these sets of tracked shards.
+    /// Used to simulate the behavior of chunk only producers without staking tokens.
+    pub tracked_shard_schedule: Vec<Vec<ShardId>>,
     /// Not clear old data, set `true` for archive nodes.
     pub archive: bool,
     /// save_trie_changes should be set to true iff
@@ -232,6 +235,7 @@ impl ClientConfig {
             gc: GCConfig { gc_blocks_limit: 100, ..GCConfig::default() },
             tracked_accounts: vec![],
             tracked_shards: vec![],
+            tracked_shard_schedule: vec![],
             archive,
             save_trie_changes,
             log_summary_style: LogSummaryStyle::Colored,

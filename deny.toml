@@ -144,4 +144,7 @@ skip = [
     { name = "borsh-derive", version = "=0.9.3" },
     { name = "borsh-derive-internal", version = "=0.9.3" },
     { name = "borsh-schema-derive-internal", version = "=0.9.3" },
+
+    # near-test-contracts
+    { name = "wasm-encoder", version = "=0.11.0" },
 ]

@@ -6,6 +6,7 @@ use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
 use near_vm_logic::{ExtCosts, VMConfig};
+use near_vm_runner::internal::VMKind;
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 use rand_xorshift::XorShiftRng;
@@ -430,7 +431,7 @@ pub(crate) fn generate_data_only_contract(data_size: usize, config: &VMConfig) -
     );
     let wasm = wat::parse_str(wat_code).unwrap();
     // Validate generated code is valid.
-    near_vm_runner::prepare::prepare_contract(&wasm, config).unwrap();
+    near_vm_runner::prepare::prepare_contract(&wasm, config, VMKind::NearVm).unwrap();
     wasm
 }
 

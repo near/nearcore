@@ -1,5 +1,6 @@
 use super::test_builder::test_builder;
 use crate::prepare::prepare_contract;
+use crate::tests::with_vm_variants;
 use expect_test::expect;
 use near_vm_logic::VMConfig;
 
@@ -100,13 +101,15 @@ static EXPECTED_UNSUPPORTED: &[(&str, &str)] = &[
 
 #[test]
 fn ensure_fails_verification() {
-    for (feature_name, wat) in EXPECTED_UNSUPPORTED {
-        let wasm = wat::parse_str(wat).expect("parsing test wat should succeed");
-        let config = VMConfig::test();
-        if let Ok(_) = prepare_contract(&wasm, &config) {
-            panic!("wasm containing use of {} feature did not fail to prepare", feature_name);
+    with_vm_variants(|kind| {
+        for (feature_name, wat) in EXPECTED_UNSUPPORTED {
+            let wasm = wat::parse_str(wat).expect("parsing test wat should succeed");
+            let config = VMConfig::test();
+            if let Ok(_) = prepare_contract(&wasm, &config, kind) {
+                panic!("wasm containing use of {} feature did not fail to prepare", feature_name);
+            }
         }
-    }
+    });
 }
 
 #[test]
