@@ -71,9 +71,6 @@ skip = [
     # finite-wasm
     { name = "wasmparser", version = "=0.99.0" },
 
-    # chain and param estimator
-    { name = "num-rational", version = "=0.3.2" },
-
     # wasmer 0.17.x
     { name = "parking_lot", version = "=0.10.2" },
     { name = "parking_lot_core", version = "=0.7.2" },
@@ -113,9 +110,6 @@ skip = [
     # paperclip-macros, strum_macros, walrus-macro depend on this while clap3.1.6 uses heck=0.4.0
     { name = "heck", version = "=0.3.3" },
 
-    # actix-http depends on an old version
-    { name = "itoa", version = "=0.4.8" },
-
     # Wasmer requires a newer version and the rest of the ecosystem hasn't caught up yet.
     { name = "hashbrown", version = "0.11.0" },
 
@@ -124,9 +118,6 @@ skip = [
 
     # opentelemetry-otlp depends on an old version of tonic which depends on an old version of tokio-util
     { name = "tokio-util", version = "=0.6.10" },
-
-    # redis we’re using uses ancient sha
-    { name = "sha1", version = "=0.6.1" },
 
     # rust-s3 is using an old version of smartstring
     { name = "smartstring", version = "=0.2.10" },

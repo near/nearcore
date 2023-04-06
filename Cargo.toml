@@ -116,7 +116,7 @@ cpu-time = "1.0"
 criterion = { version = "0.3.5", default_features = false, features = ["html_reports", "cargo_bench_support"] }
 crossbeam = "0.8"
 crossbeam-channel = "0.5"
-csv = "1.1.1"
+csv = "1.2.1"
 curve25519-dalek = "3"
 delay-detector = { path = "tools/delay-detector" }
 derive-enum-from-into = "0.1.1"
@@ -247,7 +247,7 @@ rand_core = "0.5"
 rand_hc = "0.3.1"
 rand_xorshift = "0.3"
 rayon = "1.5"
-redis = "0.21.5"
+redis = "0.23.0"
 reed-solomon-erasure = "4"
 regex = "1.7.1"
 region = "3.0"
@@ -260,7 +260,7 @@ runtime-tester = { path = "test-utils/runtime-tester" }
 rust-s3 = { version = "0.32.3", features = ["blocking"] }
 rustc-demangle = "0.1"
 rusqlite = {version = "0.27.0", features = ["bundled", "chrono", "functions"] }
-secp256k1 = { version = "0.24", features = ["recovery", "rand-std"] }
+secp256k1 = { version = "0.27.0", features = ["recovery", "rand-std"] }
 semver = "1.0.4"
 serde = { version = "1.0.136", features = ["alloc", "derive", "rc"] }
 serde_ignored = "0.1"
