@@ -279,11 +279,11 @@ important (especially outside of hot path) than small performance gains.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>// GOOD
-lat hash = block_hash.to_string();
+let hash = block_hash.to_string();
 let msg = format!(&quot;{}: failed to open&quot;, path.display());
 
 // BAD
-lat hash = format!(&quot;{block_hash}&quot;);
+let hash = format!(&quot;{block_hash}&quot;);
 let msg = path.display() + &quot;: failed to open&quot;;
 <span class="boring">}
 </span></code></pre></pre>
