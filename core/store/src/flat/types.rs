@@ -71,11 +71,17 @@ impl Into<i64> for &FlatStorageStatus {
             FlatStorageStatus::Ready(_) => 2,
             // 10..20 is reserved for creation statuses
             FlatStorageStatus::Creation(creation_status) => match creation_status {
-                FlatStorageCreationStatus::SavingDeltas => 10,
+                FlatStorageCreationStatus::SavingDeltas(_) => 10,
                 FlatStorageCreationStatus::FetchingState(_) => 11,
                 FlatStorageCreationStatus::CatchingUp(_) => 12,
             },
         }
+    }
+}
+
+impl From<FlatStorageCreationStatus> for FlatStorageStatus {
+    fn from(value: FlatStorageCreationStatus) -> Self {
+        FlatStorageStatus::Creation(value)
     }
 }
 
@@ -93,7 +99,7 @@ pub enum FlatStorageCreationStatus {
     /// Flat storage state does not exist. We are saving `FlatStorageDelta`s to disk.
     /// During this step, we save current chain head, start saving all deltas for blocks after chain head and wait until
     /// final chain head moves after saved chain head.
-    SavingDeltas,
+    SavingDeltas(SavingDeltasStatus),
     /// Flat storage state misses key-value pairs. We need to fetch Trie state to fill flat storage for some final chain
     /// head. It is the heaviest work, so it is done in multiple steps, see comment for `FetchingStateStatus` for more
     /// details.
@@ -105,7 +111,12 @@ pub enum FlatStorageCreationStatus {
     /// Flat storage data exists on disk but block which is corresponds to is earlier than chain final head.
     /// We apply deltas from disk until the head reaches final head.
     /// Includes block hash of flat storage head.
-    CatchingUp(CryptoHash),
+    CatchingUp(CatchingUpStatus),
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+pub struct SavingDeltasStatus {
+    pub start_height: BlockHeight,
 }
 
 /// Current step of fetching state to fill flat storage.
@@ -116,13 +127,11 @@ pub struct FetchingStateStatus {
     pub state_root: StateRoot,
     /// Number of the first state part to be fetched in this step.
     pub part_id: u64,
-    /// Number of parts fetched in one step.
-    pub num_parts_in_step: u64,
     /// Total number of state parts.
     pub num_parts: u64,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
 pub struct CatchingUpStatus {
-    flat_head: BlockInfo
+    pub flat_head: BlockInfo
 }
