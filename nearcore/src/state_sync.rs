@@ -3,8 +3,7 @@ use borsh::BorshSerialize;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error};
 use near_chain_configs::ClientConfig;
-use near_client::sync::state::StateSync;
-use near_crypto::PublicKey;
+use near_client::sync::state::{s3_location, StateSync};
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::PartId;
@@ -19,7 +18,6 @@ pub fn spawn_state_sync_dump(
     config: &NearConfig,
     chain_genesis: ChainGenesis,
     runtime: Arc<NightshadeRuntime>,
-    node_key: &PublicKey,
 ) -> anyhow::Result<Option<StateSyncDumpHandle>> {
     if !config.client_config.state_sync_dump_enabled {
         return Ok(None);
@@ -81,7 +79,6 @@ pub fn spawn_state_sync_dump(
                 runtime,
                 client_config,
                 bucket.clone(),
-                node_key.clone(),
             )));
             arbiter_handle
         })
@@ -116,7 +113,6 @@ async fn state_sync_dump(
     runtime: Arc<NightshadeRuntime>,
     config: ClientConfig,
     bucket: s3::Bucket,
-    _node_key: PublicKey,
 ) {
     tracing::info!(target: "state_sync_dump", shard_id, "Running StateSyncDump loop");
 
@@ -421,17 +417,4 @@ fn check_new_epoch(
             start_dumping(head.epoch_id, sync_hash, shard_id, &chain, runtime)
         }
     }
-}
-
-fn s3_location(
-    chain_id: &str,
-    epoch_height: u64,
-    shard_id: u64,
-    part_id: u64,
-    num_parts: u64,
-) -> String {
-    format!(
-        "chain_id={}/epoch_height={}/shard_id={}/state_part_{:06}_of_{:06}",
-        chain_id, epoch_height, shard_id, part_id, num_parts
-    )
 }

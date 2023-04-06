@@ -97,54 +97,48 @@ fn make_account_or_peer_id_or_hash(
 }
 
 /// How to retrieve the state data.
-pub enum StateSyncMode {
+enum StateSyncInner {
     /// Request both the state header and state parts from the peers.
-    Peers,
+    Peers {
+        /// Information about which parts were requested from which peer and when.
+        last_part_id_requested: HashMap<(AccountOrPeerIdOrHash, ShardId), PendingRequestStatus>,
+        /// Map from which part we requested to whom.
+        requested_target: lru::LruCache<(u64, CryptoHash), AccountOrPeerIdOrHash>,
+    },
     /// Requests the state header from peers but gets the state parts from an
     /// external storage.
-    HeaderFromPeersAndPartsFromExternal {
+    PartsFromExternal {
         /// Chain ID.
         chain_id: String,
         /// Connection to the external storage.
         bucket: Arc<s3::Bucket>,
-        /// Number state part requests allowed to be in-flight in parallel per shard.
-        num_s3_requests_per_shard: u64,
+        /// The number of requests for state parts from external storage that are
+        /// allowed to be started for this shard.
+        requests_remaining: Arc<AtomicI64>,
     },
-}
-
-/// Information about which parts were requested from which peer and when.
-pub struct PartsRequestState {
-    last_part_id_requested: HashMap<(AccountOrPeerIdOrHash, ShardId), PendingRequestStatus>,
-    /// Map from which part we requested to whom.
-    requested_target: lru::LruCache<(u64, CryptoHash), AccountOrPeerIdOrHash>,
 }
 
 /// Helper to track state sync.
 pub struct StateSync {
     /// How to retrieve the state data.
-    mode: StateSyncMode,
+    inner: StateSyncInner,
 
     /// Is used for communication with the peers.
     network_adapter: PeerManagerAdapter,
 
+    /// When the "sync block" was requested.
+    /// The "sync block" is the last block of the previous epoch, i.e. `prev_hash` of the `sync_hash` block.
     last_time_block_requested: Option<DateTime<Utc>>,
-
-    /// Information about which parts were requested from which peer and when.
-    parts_request_state: Option<PartsRequestState>,
 
     /// Timeout (set in config - by default to 60 seconds) is used to figure out how long we should wait
     /// for the answer from the other node before giving up.
     timeout: Duration,
 
-    /// Maps shard_id to result of applying downloaded state
+    /// Maps shard_id to result of applying downloaded state.
     state_parts_apply_results: HashMap<ShardId, Result<(), near_chain_primitives::error::Error>>,
 
-    /// Maps shard_id to result of splitting state for resharding
+    /// Maps shard_id to result of splitting state for resharding.
     split_state_roots: HashMap<ShardId, Result<HashMap<ShardUId, StateRoot>, near_chain::Error>>,
-
-    /// The number of requests for state parts from external storage that are
-    /// allowed to be started for this shard.
-    requests_remaining: Arc<AtomicI64>,
 }
 
 impl StateSync {
@@ -157,9 +151,7 @@ impl StateSync {
         s3_region: &str,
         num_s3_requests_per_shard: u64,
     ) -> Self {
-        let (mode, parts_request_state) = if state_sync_from_s3_enabled {
-            tracing::debug!(target: "sync", s3_bucket, s3_region, "Initializing S3 bucket connection.");
-            assert!(!s3_bucket.is_empty() && !s3_region.is_empty(), "State sync from S3 is enabled. This requires that both `s3_bucket and `s3_region` and specified and non-empty");
+        let inner = if state_sync_from_s3_enabled {
             let mut bucket = s3::Bucket::new(
                 s3_bucket,
                 s3_region.parse::<s3::Region>().unwrap(),
@@ -169,33 +161,26 @@ impl StateSync {
             // Ensure requests finish in finite amount of time.
             bucket.set_request_timeout(Some(timeout));
             let bucket = Arc::new(bucket);
-            (
-                StateSyncMode::HeaderFromPeersAndPartsFromExternal {
-                    chain_id: chain_id.to_string(),
-                    bucket,
-                    num_s3_requests_per_shard,
-                },
-                None,
-            )
+
+            StateSyncInner::PartsFromExternal {
+                chain_id: chain_id.to_string(),
+                bucket,
+                requests_remaining: Arc::new(AtomicI64::new(num_s3_requests_per_shard as i64)),
+            }
         } else {
-            (
-                StateSyncMode::Peers,
-                Some(PartsRequestState {
-                    last_part_id_requested: Default::default(),
-                    requested_target: lru::LruCache::new(MAX_PENDING_PART as usize),
-                }),
-            )
+            StateSyncInner::Peers {
+                last_part_id_requested: Default::default(),
+                requested_target: lru::LruCache::new(MAX_PENDING_PART as usize),
+            }
         };
         let timeout = Duration::from_std(timeout).unwrap();
         StateSync {
-            mode,
+            inner,
             network_adapter,
             last_time_block_requested: None,
-            parts_request_state,
             timeout,
             state_parts_apply_results: HashMap::new(),
             split_state_roots: HashMap::new(),
-            requests_remaining: Arc::new(AtomicI64::new(num_s3_requests_per_shard as i64)),
         }
     }
 
@@ -425,25 +410,6 @@ impl StateSync {
         }
     }
 
-    fn sent_request_part(
-        &mut self,
-        target: AccountOrPeerIdOrHash,
-        part_id: u64,
-        shard_id: ShardId,
-        sync_hash: CryptoHash,
-    ) {
-        // FIXME: something is wrong - the index should have a shard_id too.
-        let parts_request_state = self.parts_request_state.as_mut().unwrap();
-        parts_request_state.requested_target.put((part_id, sync_hash), target.clone());
-        parts_request_state
-            .last_part_id_requested
-            .entry((target, shard_id))
-            .and_modify(|pending_request| {
-                pending_request.missing_parts += 1;
-            })
-            .or_insert_with(|| PendingRequestStatus::new(self.timeout));
-    }
-
     // Function called when our node receives the network response with a part.
     pub fn received_requested_part(
         &mut self,
@@ -451,19 +417,24 @@ impl StateSync {
         shard_id: ShardId,
         sync_hash: CryptoHash,
     ) {
-        let key = (part_id, sync_hash);
-        // Check that it came from the target that we requested it from.
-        let parts_request_state = self.parts_request_state.as_mut().unwrap();
-        if let Some(target) = parts_request_state.requested_target.get(&key) {
-            if parts_request_state
-                .last_part_id_requested
-                .get_mut(&(target.clone(), shard_id))
-                .map_or(false, |request| {
-                    request.missing_parts = request.missing_parts.saturating_sub(1);
-                    request.missing_parts == 0
-                })
-            {
-                parts_request_state.last_part_id_requested.remove(&(target.clone(), shard_id));
+        match &mut self.inner {
+            StateSyncInner::Peers { last_part_id_requested, requested_target } => {
+                let key = (part_id, sync_hash);
+                // Check that it came from the target that we requested it from.
+                if let Some(target) = requested_target.get(&key) {
+                    if last_part_id_requested.get_mut(&(target.clone(), shard_id)).map_or(
+                        false,
+                        |request| {
+                            request.missing_parts = request.missing_parts.saturating_sub(1);
+                            request.missing_parts == 0
+                        },
+                    ) {
+                        last_part_id_requested.remove(&(target.clone(), shard_id));
+                    }
+                }
+            }
+            StateSyncInner::PartsFromExternal { .. } => {
+                // Do nothing.
             }
         }
     }
@@ -480,17 +451,12 @@ impl StateSync {
         sync_hash: CryptoHash,
         highest_height_peers: &[HighestHeightPeerInfo],
     ) -> Result<Vec<AccountOrPeerIdOrHash>, near_chain::Error> {
-        // Remove candidates from pending list if request expired due to timeout
-        self.parts_request_state.as_mut().map(|parts_request_state| {
-            parts_request_state.last_part_id_requested.retain(|_, request| !request.expired())
-        });
-
         let prev_block_hash = *chain.get_block_header(&sync_hash)?.prev_hash();
         let epoch_hash = runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash)?;
 
         let block_producers =
             runtime_adapter.get_epoch_block_producers_ordered(&epoch_hash, &sync_hash)?;
-        let peers = block_producers
+        let mut peers = block_producers
             .iter()
             .filter_map(|(validator_stake, _slashed)| {
                 let account_id = validator_stake.account_id();
@@ -521,19 +487,30 @@ impl StateSync {
                     None
                 }
             }));
-        let result = if let Some(parts_request_state) = &self.parts_request_state {
-            peers
-                .filter(|candidate| {
-                    // If we still have a pending request from this node - don't add another one.
-                    !parts_request_state
-                        .last_part_id_requested
-                        .contains_key(&(candidate.clone(), shard_id))
-                })
-                .collect::<Vec<_>>()
-        } else {
-            peers.collect::<Vec<_>>()
+        Ok(self.select_peers(&mut peers, shard_id)?)
+    }
+
+    fn select_peers(
+        &mut self,
+        peers: &mut dyn Iterator<Item = AccountOrPeerIdOrHash>,
+        shard_id: ShardId,
+    ) -> Result<Vec<AccountOrPeerIdOrHash>, near_chain::Error> {
+        let res = match &mut self.inner {
+            StateSyncInner::Peers {
+                last_part_id_requested,
+                requested_target: _requested_target,
+            } => {
+                last_part_id_requested.retain(|_, request| !request.expired());
+                peers
+                    .filter(|candidate| {
+                        // If we still have a pending request from this node - don't add another one.
+                        !last_part_id_requested.contains_key(&(candidate.clone(), shard_id))
+                    })
+                    .collect::<Vec<_>>()
+            }
+            StateSyncInner::PartsFromExternal { .. } => peers.collect::<Vec<_>>(),
         };
-        Ok(result)
+        Ok(res)
     }
 
     /// Returns new ShardSyncDownload if successful, otherwise returns given shard_sync_download
@@ -628,161 +605,65 @@ impl StateSync {
         new_shard_sync_download: &mut ShardSyncDownload,
         chain: &Chain,
     ) {
-        // We'll select all the 'highest' peers + validators as candidates (excluding those that gave us timeout in the past).
-        // And for each one of them, we'll ask for up to 16 (MAX_STATE_PART_REQUEST) parts.
-        let mut possible_targets_sampler =
-            SamplerLimited::new(possible_targets, MAX_STATE_PART_REQUEST);
-
-        let sync_block_header = chain.get_block_header(&sync_hash).unwrap();
-        let epoch_id = sync_block_header.epoch_id();
-        let epoch_info = chain.runtime_adapter.get_epoch_info(epoch_id).unwrap();
-        let epoch_height = epoch_info.epoch_height();
-
-        let shard_state_header = chain.get_state_header(shard_id, sync_hash).unwrap();
-        let state_num_parts =
-            get_num_state_parts(shard_state_header.state_root_node().memory_usage);
-
         // Iterate over all parts that needs to be requested (i.e. download.run_me is true).
         // Parts are ordered such that its index match its part_id.
-        for (part_id, download) in new_shard_sync_download
-            .downloads
-            .iter_mut()
-            .enumerate()
-            .filter(|(_, download)| download.run_me.load(Ordering::SeqCst))
-        {
-            match &self.mode {
-                StateSyncMode::Peers => {
+        match &mut self.inner {
+            StateSyncInner::Peers { last_part_id_requested, requested_target } => {
+                // We'll select all the 'highest' peers + validators as candidates (excluding those that gave us timeout in the past).
+                // And for each one of them, we'll ask for up to 16 (MAX_STATE_PART_REQUEST) parts.
+                let mut possible_targets_sampler =
+                    SamplerLimited::new(possible_targets, MAX_STATE_PART_REQUEST);
+
+                for (part_id, download) in parts_to_fetch(new_shard_sync_download) {
                     // For every part that needs to be requested it is selected one
                     // peer (target) randomly to request the part from.
                     // IMPORTANT: here we use 'zip' with possible_target_sampler -
                     // which is limited. So at any moment we'll not request more
                     // than possible_targets.len() * MAX_STATE_PART_REQUEST parts.
                     let target = possible_targets_sampler.next().unwrap();
-                    self.request_part_from_peers(
-                        part_id as u64,
+                    sent_request_part(
+                        target.clone(),
+                        part_id,
+                        shard_id,
+                        sync_hash,
+                        last_part_id_requested,
+                        requested_target,
+                        self.timeout,
+                    );
+                    request_part_from_peers(
+                        part_id,
                         target,
                         download,
                         shard_id,
                         sync_hash,
+                        &self.network_adapter,
                     );
                 }
-                StateSyncMode::HeaderFromPeersAndPartsFromExternal {
-                    chain_id,
-                    bucket,
-                    num_s3_requests_per_shard: _,
-                } => {
-                    self.request_part_from_external_storage(
-                        part_id as u64,
+            }
+            StateSyncInner::PartsFromExternal { chain_id, bucket, requests_remaining } => {
+                let sync_block_header = chain.get_block_header(&sync_hash).unwrap();
+                let epoch_id = sync_block_header.epoch_id();
+                let epoch_info = chain.runtime_adapter.get_epoch_info(epoch_id).unwrap();
+                let epoch_height = epoch_info.epoch_height();
+
+                let shard_state_header = chain.get_state_header(shard_id, sync_hash).unwrap();
+                let state_num_parts =
+                    get_num_state_parts(shard_state_header.state_root_node().memory_usage);
+
+                for (part_id, download) in parts_to_fetch(new_shard_sync_download) {
+                    request_part_from_external_storage(
+                        part_id,
                         download,
                         shard_id,
                         epoch_height,
                         state_num_parts,
-                        &chain_id,
+                        &chain_id.clone(),
                         bucket.clone(),
+                        requests_remaining.clone(),
                     );
                 }
             }
         }
-    }
-
-    /// Starts an asynchronous network request to external storage to obtain the given state part.
-    fn request_part_from_external_storage(
-        &self,
-        part_id: u64,
-        download: &mut DownloadStatus,
-        shard_id: ShardId,
-        epoch_height: EpochHeight,
-        num_parts: u64,
-        chain_id: &str,
-        bucket: Arc<s3::Bucket>,
-    ) {
-        let requests_remaining = self.requests_remaining.clone();
-        if !allow_request(&requests_remaining) {
-            return;
-        } else {
-            if !download.run_me.swap(false, Ordering::SeqCst) {
-                tracing::info!(target: "sync", %shard_id, part_id, "run_me is already false");
-                return;
-            }
-        }
-        download.state_requests_count += 1;
-        download.last_target =
-            Some(make_account_or_peer_id_or_hash(AccountOrPeerIdOrHash::ExternalStorage));
-
-        let location = s3_location(chain_id, epoch_height, shard_id, part_id, num_parts);
-        let download_response = download.response.clone();
-        let scheduled = StaticClock::utc();
-        near_performance_metrics::actix::spawn(std::any::type_name::<Self>(), {
-            async move {
-                tracing::info!(target: "sync", %shard_id, part_id, location, "Getting an object from the external storage");
-                let started = StaticClock::utc();
-                metrics::STATE_SYNC_EXTERNAL_PARTS_SCHEDULING_DELAY
-                    .with_label_values(&[&shard_id.to_string()])
-                    .observe(
-                        started.signed_duration_since(scheduled).num_nanoseconds().unwrap_or(0)
-                            as f64
-                            / 1e9,
-                    );
-                let result = bucket.get_object(location.clone()).await;
-                let completed = StaticClock::utc();
-                finished_request(&requests_remaining);
-                metrics::STATE_SYNC_EXTERNAL_PARTS_REQUEST_DELAY
-                    .with_label_values(&[&shard_id.to_string()])
-                    .observe(
-                        completed.signed_duration_since(started).num_nanoseconds().unwrap_or(0)
-                            as f64
-                            / 1e9,
-                    );
-                match result {
-                    Ok(response) => {
-                        tracing::info!(target: "sync", %shard_id, part_id, location, response_code = response.status_code(), num_bytes = response.bytes().len(), "S3 request finished");
-                        let mut lock = download_response.lock().unwrap();
-                        *lock = Some(Ok((response.status_code(), response.bytes().to_vec())));
-                    }
-                    Err(err) => {
-                        tracing::info!(target: "sync", %shard_id, part_id, location, ?err, "S3 request failed");
-                        let mut lock = download_response.lock().unwrap();
-                        *lock = Some(Err(err.to_string()));
-                    }
-                }
-            }
-        });
-    }
-
-    /// Asynchronously requests a state part from a suitable peer.
-    fn request_part_from_peers(
-        &mut self,
-        part_id: u64,
-        target: AccountOrPeerIdOrHash,
-        download: &mut DownloadStatus,
-        shard_id: ShardId,
-        sync_hash: CryptoHash,
-    ) {
-        self.sent_request_part(target.clone(), part_id, shard_id, sync_hash);
-        download.run_me.store(false, Ordering::SeqCst);
-        download.state_requests_count += 1;
-        download.last_target = Some(make_account_or_peer_id_or_hash(target.clone()));
-        let run_me = download.run_me.clone();
-
-        near_performance_metrics::actix::spawn(
-            std::any::type_name::<Self>(),
-            self.network_adapter
-                .send_async(PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::StateRequestPart { shard_id, sync_hash, part_id, target },
-                ))
-                .then(move |result| {
-                    // TODO: possible optimization - in the current code, even if one of the targets it not present in the network graph
-                    //       (so we keep getting RouteNotFound) - we'll still keep trying to assign parts to it.
-                    //       Fortunately only once every 60 seconds (timeout value).
-                    if let Ok(NetworkResponses::RouteNotFound) =
-                        result.map(|f| f.as_network_response())
-                    {
-                        // Send a StateRequestPart on the next iteration
-                        run_me.store(true, Ordering::SeqCst);
-                    }
-                    future::ready(())
-                }),
-        );
     }
 
     /// The main 'step' function that should be called periodically to check and update the sync process.
@@ -1172,6 +1053,132 @@ impl StateSync {
         }
         Ok(this_done)
     }
+}
+
+/// Returns parts that still need to be fetched.
+fn parts_to_fetch(
+    new_shard_sync_download: &mut ShardSyncDownload,
+) -> impl Iterator<Item = (u64, &mut DownloadStatus)> {
+    new_shard_sync_download
+        .downloads
+        .iter_mut()
+        .enumerate()
+        .filter(|(_, download)| download.run_me.load(Ordering::SeqCst))
+        .map(|(part_id, download)| (part_id as u64, download))
+}
+
+/// Starts an asynchronous network request to external storage to fetch the given state part.
+fn request_part_from_external_storage(
+    part_id: u64,
+    download: &mut DownloadStatus,
+    shard_id: ShardId,
+    epoch_height: EpochHeight,
+    num_parts: u64,
+    chain_id: &str,
+    bucket: Arc<s3::Bucket>,
+    requests_remaining: Arc<AtomicI64>,
+) {
+    if !allow_request(&requests_remaining) {
+        return;
+    } else {
+        if !download.run_me.swap(false, Ordering::SeqCst) {
+            tracing::info!(target: "sync", %shard_id, part_id, "run_me is already false");
+            return;
+        }
+    }
+    download.state_requests_count += 1;
+    download.last_target =
+        Some(make_account_or_peer_id_or_hash(AccountOrPeerIdOrHash::ExternalStorage));
+
+    let location = s3_location(chain_id, epoch_height, shard_id, part_id, num_parts);
+    let download_response = download.response.clone();
+    let scheduled = StaticClock::utc();
+    near_performance_metrics::actix::spawn("StateSync", {
+        async move {
+            tracing::info!(target: "sync", %shard_id, part_id, location, "Getting an object from the external storage");
+            let started = StaticClock::utc();
+            metrics::STATE_SYNC_EXTERNAL_PARTS_SCHEDULING_DELAY
+                .with_label_values(&[&shard_id.to_string()])
+                .observe(
+                    started.signed_duration_since(scheduled).num_nanoseconds().unwrap_or(0) as f64
+                        / 1e9,
+                );
+            let result = bucket.get_object(location.clone()).await;
+            let completed = StaticClock::utc();
+            finished_request(&requests_remaining);
+            metrics::STATE_SYNC_EXTERNAL_PARTS_REQUEST_DELAY
+                .with_label_values(&[&shard_id.to_string()])
+                .observe(
+                    completed.signed_duration_since(started).num_nanoseconds().unwrap_or(0) as f64
+                        / 1e9,
+                );
+            match result {
+                Ok(response) => {
+                    tracing::info!(target: "sync", %shard_id, part_id, location, response_code = response.status_code(), num_bytes = response.bytes().len(), "S3 request finished");
+                    let mut lock = download_response.lock().unwrap();
+                    *lock = Some(Ok((response.status_code(), response.bytes().to_vec())));
+                }
+                Err(err) => {
+                    tracing::info!(target: "sync", %shard_id, part_id, location, ?err, "S3 request failed");
+                    let mut lock = download_response.lock().unwrap();
+                    *lock = Some(Err(err.to_string()));
+                }
+            }
+        }
+    });
+}
+
+/// Asynchronously requests a state part from a suitable peer.
+fn request_part_from_peers(
+    part_id: u64,
+    target: AccountOrPeerIdOrHash,
+    download: &mut DownloadStatus,
+    shard_id: ShardId,
+    sync_hash: CryptoHash,
+    network_adapter: &PeerManagerAdapter,
+) {
+    download.run_me.store(false, Ordering::SeqCst);
+    download.state_requests_count += 1;
+    download.last_target = Some(make_account_or_peer_id_or_hash(target.clone()));
+    let run_me = download.run_me.clone();
+
+    near_performance_metrics::actix::spawn(
+        "StateSync",
+        network_adapter
+            .send_async(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::StateRequestPart { shard_id, sync_hash, part_id, target },
+            ))
+            .then(move |result| {
+                // TODO: possible optimization - in the current code, even if one of the targets it not present in the network graph
+                //       (so we keep getting RouteNotFound) - we'll still keep trying to assign parts to it.
+                //       Fortunately only once every 60 seconds (timeout value).
+                if let Ok(NetworkResponses::RouteNotFound) = result.map(|f| f.as_network_response())
+                {
+                    // Send a StateRequestPart on the next iteration
+                    run_me.store(true, Ordering::SeqCst);
+                }
+                future::ready(())
+            }),
+    );
+}
+
+fn sent_request_part(
+    target: AccountOrPeerIdOrHash,
+    part_id: u64,
+    shard_id: ShardId,
+    sync_hash: CryptoHash,
+    last_part_id_requested: &mut HashMap<(AccountOrPeerIdOrHash, ShardId), PendingRequestStatus>,
+    requested_target: &mut lru::LruCache<(u64, CryptoHash), AccountOrPeerIdOrHash>,
+    timeout: Duration,
+) {
+    // FIXME: something is wrong - the index should have a shard_id too.
+    requested_target.put((part_id, sync_hash), target.clone());
+    last_part_id_requested
+        .entry((target, shard_id))
+        .and_modify(|pending_request| {
+            pending_request.missing_parts += 1;
+        })
+        .or_insert_with(|| PendingRequestStatus::new(timeout));
 }
 
 fn allow_request(requests_remaining: &AtomicI64) -> bool {

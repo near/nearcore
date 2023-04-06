@@ -82,6 +82,8 @@ impl DownloadStatus {
 }
 
 impl Clone for DownloadStatus {
+    /// Clones an object, but it clones the value of `run_me` instead of the
+    /// `Arc` that wraps that value.
     fn clone(&self) -> Self {
         DownloadStatus {
             start_time: self.start_time,
@@ -92,7 +94,6 @@ impl Clone for DownloadStatus {
             done: self.done,
             state_requests_count: self.state_requests_count,
             last_target: self.last_target.clone(),
-            // Clones the `Arc` containing the value.
             response: self.response.clone(),
         }
     }
