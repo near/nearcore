@@ -37,16 +37,16 @@ fn assert_run_result(result: VMResult, expected_value: u64) {
 
 #[test]
 pub fn test_read_write() {
-    with_vm_variants(|vm_kind: VMKind| {
+    let config = VMConfig::test();
+    with_vm_variants(&config, |vm_kind: VMKind| {
         let code = test_contract();
         let mut fake_external = MockedExternal::new();
 
         let context = create_context(encode(&[10u64, 20u64]));
-        let config = VMConfig::test();
         let fees = RuntimeFeesConfig::test();
 
         let promise_results = vec![];
-        let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
+        let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
         let result = runtime.run(
             &code,
             "write_key_value",
@@ -78,30 +78,34 @@ macro_rules! def_test_ext {
     ($name:ident, $method:expr, $expected:expr, $input:expr, $validator:expr) => {
         #[test]
         pub fn $name() {
-            with_vm_variants(|vm_kind: VMKind| {
-                run_test_ext($method, $expected, $input, $validator, vm_kind)
+            let config = VMConfig::test();
+            with_vm_variants(&config, |vm_kind: VMKind| {
+                run_test_ext(&config, $method, $expected, $input, $validator, vm_kind)
             });
         }
     };
     ($name:ident, $method:expr, $expected:expr, $input:expr) => {
         #[test]
         pub fn $name() {
-            with_vm_variants(|vm_kind: VMKind| {
-                run_test_ext($method, $expected, $input, vec![], vm_kind)
+            let config = VMConfig::test();
+            with_vm_variants(&config, |vm_kind: VMKind| {
+                run_test_ext(&config, $method, $expected, $input, vec![], vm_kind)
             });
         }
     };
     ($name:ident, $method:expr, $expected:expr) => {
         #[test]
         pub fn $name() {
-            with_vm_variants(|vm_kind: VMKind| {
-                run_test_ext($method, $expected, &[], vec![], vm_kind)
+            let config = VMConfig::test();
+            with_vm_variants(&config, |vm_kind: VMKind| {
+                run_test_ext(&config, $method, $expected, &[], vec![], vm_kind)
             })
         }
     };
 }
 
 fn run_test_ext(
+    config: &VMConfig,
     method: &str,
     expected: &[u8],
     input: &[u8],
@@ -112,10 +116,9 @@ fn run_test_ext(
     let mut fake_external = MockedExternal::new();
     fake_external.validators =
         validators.into_iter().map(|(s, b)| (s.parse().unwrap(), b)).collect();
-    let config = VMConfig::test();
     let fees = RuntimeFeesConfig::test();
     let context = create_context(input.to_vec());
-    let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
+    let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
 
     let outcome = runtime
         .run(&code, method, &mut fake_external, context, &fees, &[], LATEST_PROTOCOL_VERSION, None)
@@ -194,7 +197,8 @@ def_test_ext!(
 
 #[test]
 pub fn test_out_of_memory() {
-    with_vm_variants(|vm_kind: VMKind| {
+    let config = VMConfig::free();
+    with_vm_variants(&config, |vm_kind: VMKind| {
         // TODO: currently we only run this test on Wasmer.
         match vm_kind {
             VMKind::Wasmtime => return,
@@ -205,9 +209,8 @@ pub fn test_out_of_memory() {
         let mut fake_external = MockedExternal::new();
 
         let context = create_context(Vec::new());
-        let config = VMConfig::free();
         let fees = RuntimeFeesConfig::free();
-        let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
+        let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
 
         let promise_results = vec![];
         let result = runtime
@@ -239,24 +242,26 @@ fn function_call_weight_contract() -> ContractCode {
 
 #[test]
 fn attach_unspent_gas_but_burn_all_gas() {
-    with_vm_variants(|vm_kind: VMKind| {
+    let prepaid_gas = 100 * 10u64.pow(12);
+
+    let mut context = create_context(vec![]);
+    context.prepaid_gas = prepaid_gas;
+
+    let mut config = VMConfig::test();
+    config.limit_config.max_gas_burnt = context.prepaid_gas / 3;
+
+    with_vm_variants(&config, |vm_kind: VMKind| {
         let code = function_call_weight_contract();
         let mut external = MockedExternal::new();
-        let mut config = VMConfig::test();
         let fees = RuntimeFeesConfig::test();
-        let mut context = create_context(vec![]);
-
-        let prepaid_gas = 100 * 10u64.pow(12);
-        context.prepaid_gas = prepaid_gas;
-        config.limit_config.max_gas_burnt = context.prepaid_gas / 3;
-        let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
+        let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
 
         let outcome = runtime
             .run(
                 &code,
                 "attach_unspent_gas_but_burn_all_gas",
                 &mut external,
-                context,
+                context.clone(),
                 &fees,
                 &[],
                 LATEST_PROTOCOL_VERSION,
@@ -280,23 +285,24 @@ fn attach_unspent_gas_but_burn_all_gas() {
 
 #[test]
 fn attach_unspent_gas_but_use_all_gas() {
-    with_vm_variants(|vm_kind: VMKind| {
+    let mut context = create_context(vec![]);
+    context.prepaid_gas = 100 * 10u64.pow(12);
+
+    let mut config = VMConfig::test();
+    config.limit_config.max_gas_burnt = context.prepaid_gas / 3;
+
+    with_vm_variants(&config, |vm_kind: VMKind| {
         let code = function_call_weight_contract();
         let mut external = MockedExternal::new();
-        let mut config = VMConfig::test();
         let fees = RuntimeFeesConfig::test();
-        let mut context = create_context(vec![]);
-
-        context.prepaid_gas = 100 * 10u64.pow(12);
-        config.limit_config.max_gas_burnt = context.prepaid_gas / 3;
-        let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
+        let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
 
         let outcome = runtime
             .run(
                 &code,
                 "attach_unspent_gas_but_use_all_gas",
                 &mut external,
-                context,
+                context.clone(),
                 &fees,
                 &[],
                 LATEST_PROTOCOL_VERSION,
