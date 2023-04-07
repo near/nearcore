@@ -1,0 +1,33 @@
+.chain-and-chunk-info-view {
+    .error {
+        color: red;
+    }
+
+    table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    table,
+    th,
+    td {
+        border: 1px solid black;
+    }
+
+    td {
+        text-align: left;
+        vertical-align: top;
+        padding: 8px;
+    }
+
+    th {
+        text-align: center;
+        vertical-align: center;
+        padding: 8px;
+        background-color: lightgrey;
+    }
+
+    tr.active {
+        background-color: #eff8bf;
+    }
+}
