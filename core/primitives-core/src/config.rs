@@ -131,10 +131,16 @@ fn wasmer2_stack_limit_default() -> i32 {
 )]
 #[repr(u8)]
 pub enum ContractPrepareVersion {
-    /// Old, buggy version, don't use it unless specifically to support old protocol version.
+    /// Oldest, buggiest version.
+    ///
+    /// Don't use it unless specifically to support old protocol version.
     V0,
-    /// What we use in today's protocol.
+    /// Old, slow and buggy version.
+    ///
+    /// Better than V0, but don’t use this nevertheless.
     V1,
+    /// finite-wasm 0.3.0 based contract preparation code.
+    V2,
 }
 
 impl ContractPrepareVersion {

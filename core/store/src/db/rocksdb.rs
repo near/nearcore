@@ -385,6 +385,12 @@ impl Database for RocksDB {
             Some(result)
         }
     }
+
+    fn create_checkpoint(&self, path: &std::path::Path) -> anyhow::Result<()> {
+        let cp = ::rocksdb::checkpoint::Checkpoint::new(&self.db)?;
+        cp.create_checkpoint(path)?;
+        Ok(())
+    }
 }
 
 /// DB level options

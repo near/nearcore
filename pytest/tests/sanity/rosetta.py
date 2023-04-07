@@ -25,6 +25,10 @@ BlockIdentifier = typing.Union[str, int, JsonDict]
 TxIdentifier = typing.Union[str, JsonDict]
 
 
+def account_identifier(account_id: str) -> JsonDict:
+    return {'address': account_id}
+
+
 def block_identifier(block_id: BlockIdentifier) -> JsonDict:
     if isinstance(block_id, int):
         return {'index': block_id}
@@ -261,6 +265,36 @@ class RosettaRPC:
                 },
             }, **kw)
 
+    def add_full_access_key(self, account: key.Key, public_key_hex: str,
+                            **kw) -> RosettaExecResult:
+        return self.exec_operations(
+            account, {
+                "operation_identifier": {
+                    "index": 0
+                },
+                "type": "INITIATE_ADD_KEY",
+                "account": {
+                    "address": account.account_id
+                }
+            }, {
+                "operation_identifier": {
+                    "index": 1
+                },
+                "related_operations": [{
+                    "index": 0
+                }],
+                "type": "ADD_KEY",
+                "account": {
+                    "address": account.account_id
+                },
+                "metadata": {
+                    "public_key": {
+                        "hex_bytes": public_key_hex,
+                        "curve_type": "edwards25519"
+                    }
+                }
+            }, **kw)
+
     def delete_account(self, account: key.Key, refund_to: key.Key,
                        **kw) -> RosettaExecResult:
         return self.exec_operations(
@@ -325,6 +359,11 @@ class RosettaRPC:
                        transaction_identifier=tx_identifier(tx_id))
         return res['transaction']
 
+    def get_account_balances(self, *, account_id: str) -> JsonDict:
+        res = self.rpc('/account/balance',
+                       account_identifier=account_identifier(account_id))
+        return res['balances']
+
 
 class RosettaTestCase(unittest.TestCase):
     node = None
@@ -349,6 +388,109 @@ class RosettaTestCase(unittest.TestCase):
     @classmethod
     def tearDownClass(cls) -> None:
         cls.node.cleanup()
+
+    def test_zero_balance_account(self) -> None:
+        """Tests storage staking requirements for low-storage accounts.
+
+        Creates an implicit account by sending it 1 yoctoNEAR (not enough to
+        cover storage). However, the zero-balance allowance established in
+        NEP-448 should cover the storage staking requirement. Then, we
+        transfer 10**22 yoctoNEAR to the account, which should be enough to
+        cover the storage staking requirement for the 6 full-access keys we
+        then add to the account, exceeding the zero-balance account allowance.
+        """
+
+        test_amount = 10**22
+        key_space_cost = 41964925000000000000
+        validator = self.node.validator_key
+        implicit = key.Key.implicit_account()
+
+        # first transfer 1 yoctoNEAR to create the account
+        # not enough to cover storage, but the zero-balance allowance should cover it
+        result = self.rosetta.transfer(src=validator, dst=implicit, amount=1)
+
+        block = result.block()
+        tx = result.transaction()
+        json_res = self.node.get_tx(result.near_hash, implicit.account_id)
+        json_res = json_res['result']
+        receipt_ids = json_res['transaction_outcome']['outcome']['receipt_ids']
+        receipt_id = {'hash': 'receipt:' + receipt_ids[0]}
+
+        # Fetch the receipt through Rosetta RPC.
+        result = RosettaExecResult(self.rosetta, block, receipt_id)
+        related = result.related(0)
+
+        balances = self.rosetta.get_account_balances(
+            account_id=implicit.account_id)
+
+        # even though 1 yoctoNEAR is not enough to cover the storage cost,
+        # since the account should be consuming less than 770 bytes of storage,
+        # it should be allowed nonetheless.
+        self.assertEqual(balances, [{
+            'value': '1',
+            'currency': {
+                'symbol': 'NEAR',
+                'decimals': 24
+            }
+        }])
+
+        # transfer the rest of the amount
+        result = self.rosetta.transfer(src=validator,
+                                       dst=implicit,
+                                       amount=(test_amount - 1))
+
+        block = result.block()
+        tx = result.transaction()
+        json_res = self.node.get_tx(result.near_hash, implicit.account_id)
+        json_res = json_res['result']
+        receipt_ids = json_res['transaction_outcome']['outcome']['receipt_ids']
+        receipt_id = {'hash': 'receipt:' + receipt_ids[0]}
+
+        # Fetch the receipt through Rosetta RPC.
+        result = RosettaExecResult(self.rosetta, block, receipt_id)
+        related = result.related(0)
+
+        balances = self.rosetta.get_account_balances(
+            account_id=implicit.account_id)
+
+        self.assertEqual(balances, [{
+            'value': str(test_amount),
+            'currency': {
+                'symbol': 'NEAR',
+                'decimals': 24
+            }
+        }])
+
+        # add 6 keys to go over the zero-balance account free storage allowance
+        public_keys_hex = [
+            "17595386a67d36afc73872e60916f83217d789dc60b5d037563998e6651111cf",
+            "7940aac79a425f194621ab5c4e38b7841dddae90b20eaf28f7f78caec911bcf4",
+            "0554fffef36614d7c49b3088c4c1fb66613ff05fb30927b582b43aed0b25b549",
+            "09d36e25c5a3ac440a798252982dd92b67d8de60894df3177cb4ff30a890cafd",
+            "e0ca119be7211f3dfed1768fc9ab235b6af06a205077ef23166dd1cbfd2ac7fc",
+            "98f1a49296fb7156980d325a25e1bfeb4f123dd98c90fa0492699c55387f7ef3",
+        ]
+        for pk in public_keys_hex:
+            result = self.rosetta.add_full_access_key(implicit, pk)
+
+            block = result.block()
+            tx = result.transaction()
+            json_res = self.node.get_tx(result.near_hash, implicit.account_id)
+            json_res = json_res['result']
+            receipt_ids = json_res['transaction_outcome']['outcome'][
+                'receipt_ids']
+            receipt_id = {'hash': 'receipt:' + receipt_ids[0]}
+
+            # Fetch the receipt through Rosetta RPC.
+            result = RosettaExecResult(self.rosetta, block, receipt_id)
+            related = result.related(0)
+
+        balances = self.rosetta.get_account_balances(
+            account_id=implicit.account_id)
+
+        # no longer a zero-balance account
+        self.assertEqual(test_amount - key_space_cost * len(public_keys_hex),
+                         int(balances[0]['value']))
 
     def test_get_block(self) -> None:
         """Tests getting blocks and transactions.
@@ -375,29 +517,10 @@ class RosettaTestCase(unittest.TestCase):
                         'decimals': 24,
                         'symbol': 'NEAR'
                     },
-                    'value': '999999999998180000000000000000000'
+                    'value': '1000000000000000000000000000000000'
                 },
                 'operation_identifier': {
                     'index': 0
-                },
-                'status': 'SUCCESS',
-                'type': 'TRANSFER'
-            }, {
-                'account': {
-                    'address': 'near',
-                    'sub_account': {
-                        'address': 'LIQUID_BALANCE_FOR_STORAGE'
-                    }
-                },
-                'amount': {
-                    'currency': {
-                        'decimals': 24,
-                        'symbol': 'NEAR'
-                    },
-                    'value': '1820000000000000000000'
-                },
-                'operation_identifier': {
-                    'index': 1
                 },
                 'status': 'SUCCESS',
                 'type': 'TRANSFER'
@@ -413,7 +536,7 @@ class RosettaTestCase(unittest.TestCase):
                     'value': '950000000000000000000000000000000'
                 },
                 'operation_identifier': {
-                    'index': 2
+                    'index': 1
                 },
                 'status': 'SUCCESS',
                 'type': 'TRANSFER'
@@ -432,7 +555,7 @@ class RosettaTestCase(unittest.TestCase):
                     'value': '50000000000000000000000000000000'
                 },
                 'operation_identifier': {
-                    'index': 3
+                    'index': 2
                 },
                 'status': 'SUCCESS',
                 'type': 'TRANSFER'
@@ -567,7 +690,7 @@ class RosettaTestCase(unittest.TestCase):
         validator = self.node.validator_key
         implicit = key.Key.implicit_account()
 
-        ### 1. Create implicit account.
+        # 1. Create implicit account.
         logger.info(f'Creating implicit account: {implicit.account_id}')
         result = self.rosetta.transfer(src=validator,
                                        dst=implicit,
@@ -666,31 +789,7 @@ class RosettaTestCase(unittest.TestCase):
                         'address': implicit.account_id,
                     },
                     'amount': {
-                        'value': '8180000000000000000000',
-                        'currency': {
-                            'symbol': 'NEAR',
-                            'decimals': 24
-                        }
-                    }
-                }, {
-                    'operation_identifier': {
-                        'index': 1
-                    },
-                    'type': 'TRANSFER',
-                    'status': 'SUCCESS',
-                    'metadata': {
-                        'predecessor_id': {
-                            'address': 'test0'
-                        }
-                    },
-                    'account': {
-                        'address': implicit.account_id,
-                        'sub_account': {
-                            'address': 'LIQUID_BALANCE_FOR_STORAGE'
-                        }
-                    },
-                    'amount': {
-                        'value': '1820000000000000000000',
+                        'value': '10000000000000000000000',
                         'currency': {
                             'symbol': 'NEAR',
                             'decimals': 24
@@ -738,7 +837,7 @@ class RosettaTestCase(unittest.TestCase):
                 'transaction_identifier': related.identifier
             }, related.transaction())
 
-        ### 2. Delete the account.
+        # 2. Delete the account.
         logger.info(f'Deleting implicit account: {implicit.account_id}')
         result = self.rosetta.delete_account(implicit, refund_to=validator)
 
@@ -808,29 +907,10 @@ class RosettaTestCase(unittest.TestCase):
                             'decimals': 24,
                             'symbol': 'NEAR'
                         },
-                        'value': '-8128890300000000000000'
+                        'value': '-9948890300000000000000'
                     },
                     'operation_identifier': {
                         'index': 0
-                    },
-                    'status': 'SUCCESS',
-                    'type': 'TRANSFER'
-                }, {
-                    'account': {
-                        'address': implicit.account_id,
-                        'sub_account': {
-                            'address': 'LIQUID_BALANCE_FOR_STORAGE'
-                        }
-                    },
-                    'amount': {
-                        'currency': {
-                            'decimals': 24,
-                            'symbol': 'NEAR'
-                        },
-                        'value': '-1820000000000000000000'
-                    },
-                    'operation_identifier': {
-                        'index': 1
                     },
                     'status': 'SUCCESS',
                     'type': 'TRANSFER'

@@ -1,9 +1,9 @@
 [package]
-name = "near-rosetta-rpc"
-version = "0.0.0"
 authors.workspace = true
-publish = false
 edition.workspace = true
+name = "near-rosetta-rpc"
+publish = false
+version = "0.0.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -24,15 +24,15 @@ thiserror.workspace = true
 tokio.workspace = true
 validator.workspace = true
 
-near-primitives.workspace = true
 near-account-id.workspace = true
-near-crypto.workspace = true
 near-chain-configs.workspace = true
-near-client.workspace = true
 near-client-primitives.workspace = true
+near-client.workspace = true
+near-crypto.workspace = true
 near-network.workspace = true
 near-o11y.workspace = true
-
+near-primitives.workspace = true
+node-runtime.workspace = true
 
 [dev-dependencies]
 insta.workspace = true
