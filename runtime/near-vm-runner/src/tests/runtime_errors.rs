@@ -1,5 +1,7 @@
 use super::test_builder::test_builder;
 use expect_test::expect;
+#[allow(unused_imports)] // used only when specific features are enabled
+use near_primitives::version::ProtocolFeature;
 use std::fmt::Write;
 
 static INFINITE_INITIALIZER_CONTRACT: &str = r#"
