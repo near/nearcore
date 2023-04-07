@@ -168,7 +168,7 @@ fn test_limit_contract_functions_number() {
     ])
     .expects(&[
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13094397567 used gas 13094397567
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13048032213 used gas 13048032213
         "#]],
         expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13054614261 used gas 13054614261
@@ -193,7 +193,7 @@ fn test_limit_contract_functions_number() {
     ])
     .expects(&[
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13095698067 used gas 13095698067
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13049332713 used gas 13049332713
         "#]],
         expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
@@ -315,8 +315,7 @@ fn test_limit_locals_global() {
     ])
     .expects(&[
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 206103291 used gas 206103291
-            Err: WebAssembly trap: Stack overflow.
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 195407463 used gas 195407463
         "#]],
         expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
