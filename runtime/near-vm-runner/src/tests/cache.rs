@@ -3,7 +3,7 @@
 
 use super::{create_context, with_vm_variants, LATEST_PROTOCOL_VERSION};
 use crate::internal::VMKind;
-use crate::near_vm_runner::NearVmVM;
+use crate::near_vm_runner::NearVM;
 use crate::runner::VMResult;
 use crate::{prepare, MockCompiledContractCache};
 use assert_matches::assert_matches;
@@ -141,7 +141,7 @@ fn test_near_vm_artifact_output_stability() {
         features.insert(CpuFeature::AVX);
         let triple = "x86_64-unknown-linux-gnu".parse().unwrap();
         let target = Target::new(triple, features);
-        let vm = NearVmVM::new_for_target(config, target);
+        let vm = NearVM::new_for_target(config, target);
         let artifact = vm.compile_uncached(&contract).unwrap();
         let serialized = artifact.serialize().unwrap();
         let mut hasher = StableHasher::new();

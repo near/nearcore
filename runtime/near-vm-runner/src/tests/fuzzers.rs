@@ -225,7 +225,7 @@ fn wasmer2_is_reproducible() {
 #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
 #[test]
 fn near_vm_is_reproducible() {
-    use crate::near_vm_runner::NearVmVM;
+    use crate::near_vm_runner::NearVM;
     use near_primitives::hash::CryptoHash;
     use near_vm_engine::Executable;
 
@@ -235,7 +235,7 @@ fn near_vm_is_reproducible() {
             let config = VMConfig::test();
             let mut first_hash = None;
             for _ in 0..3 {
-                let vm = NearVmVM::new(config.clone());
+                let vm = NearVM::new(config.clone());
                 let exec = match vm.compile_uncached(&code) {
                     Ok(e) => e,
                     Err(_) => return,
