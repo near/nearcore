@@ -67,7 +67,7 @@ impl ShardTries {
                     None => {}
                 },
                 TrieKey::Account { account_id }
-                | TrieKey::ContractCode { account_id }
+                | TrieKey::ContractCode { account_id, .. }
                 | TrieKey::AccessKey { account_id, .. }
                 | TrieKey::ReceivedData { receiver_id: account_id, .. }
                 | TrieKey::PostponedReceiptId { receiver_id: account_id, .. }

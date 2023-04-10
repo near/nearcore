@@ -3,6 +3,7 @@ use std::mem::size_of;
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_crypto::PublicKey;
+use near_primitives_core::namespace::Namespace;
 
 use crate::hash::CryptoHash;
 use crate::types::AccountId;
@@ -57,38 +58,65 @@ pub(crate) mod col {
 #[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub enum TrieKey {
     /// Used to store `primitives::account::Account` struct for a given `AccountId`.
-    Account { account_id: AccountId },
+    Account {
+        account_id: AccountId,
+    },
     /// Used to store `Vec<u8>` contract code for a given `AccountId`.
-    ContractCode { account_id: AccountId },
+    ContractCode {
+        account_id: AccountId,
+        namespace: Namespace,
+    },
     /// Used to store `primitives::account::AccessKey` struct for a given `AccountId` and
     /// a given `public_key` of the `AccessKey`.
-    AccessKey { account_id: AccountId, public_key: PublicKey },
+    AccessKey {
+        account_id: AccountId,
+        public_key: PublicKey,
+    },
     /// Used to store `primitives::receipt::ReceivedData` struct for a given receiver's `AccountId`
     /// of `DataReceipt` and a given `data_id` (the unique identifier for the data).
     /// NOTE: This is one of the input data for some action receipt.
     /// The action receipt might be still not be received or requires more pending input data.
-    ReceivedData { receiver_id: AccountId, data_id: CryptoHash },
+    ReceivedData {
+        receiver_id: AccountId,
+        data_id: CryptoHash,
+    },
     /// Used to store receipt ID `primitives::hash::CryptoHash` for a given receiver's `AccountId`
     /// of the receipt and a given `data_id` (the unique identifier for the required input data).
     /// NOTE: This receipt ID indicates the postponed receipt. We store `receipt_id` for performance
     /// purposes to avoid deserializing the entire receipt.
-    PostponedReceiptId { receiver_id: AccountId, data_id: CryptoHash },
+    PostponedReceiptId {
+        receiver_id: AccountId,
+        data_id: CryptoHash,
+    },
     /// Used to store the number of still missing input data `u32` for a given receiver's
     /// `AccountId` and a given `receipt_id` of the receipt.
-    PendingDataCount { receiver_id: AccountId, receipt_id: CryptoHash },
+    PendingDataCount {
+        receiver_id: AccountId,
+        receipt_id: CryptoHash,
+    },
     /// Used to store the postponed receipt `primitives::receipt::Receipt` for a given receiver's
     /// `AccountId` and a given `receipt_id` of the receipt.
-    PostponedReceipt { receiver_id: AccountId, receipt_id: CryptoHash },
+    PostponedReceipt {
+        receiver_id: AccountId,
+        receipt_id: CryptoHash,
+    },
     /// Used to store indices of the delayed receipts queue (`node-runtime::DelayedReceiptIndices`).
     /// NOTE: It is a singleton per shard.
     DelayedReceiptIndices,
     /// Used to store a delayed receipt `primitives::receipt::Receipt` for a given index `u64`
     /// in a delayed receipt queue. The queue is unique per shard.
-    DelayedReceipt { index: u64 },
+    DelayedReceipt {
+        index: u64,
+    },
     /// Used to store a key-value record `Vec<u8>` within a contract deployed on a given `AccountId`
     /// and a given key.
-    ContractData { account_id: AccountId, key: Vec<u8> },
-    RoutingTable { account_id: AccountId },
+    ContractData {
+        account_id: AccountId,
+        key: Vec<u8>,
+    },
+    RoutingTable {
+        account_id: AccountId,
+    },
 }
 
 /// Provides `len` function.
@@ -110,7 +138,12 @@ impl TrieKey {
     pub fn len(&self) -> usize {
         match self {
             TrieKey::Account { account_id } => col::ACCOUNT.len() + account_id.len(),
-            TrieKey::ContractCode { account_id } => col::CONTRACT_CODE.len() + account_id.len(),
+            TrieKey::ContractCode { account_id, namespace } => {
+                col::CONTRACT_CODE.len()
+                    + account_id.len()
+                    + ACCOUNT_DATA_SEPARATOR.len()
+                    + namespace.len()
+            }
             TrieKey::AccessKey { account_id, public_key } => {
                 col::ACCESS_KEY.len() * 2 + account_id.len() + public_key.len()
             }
@@ -145,7 +178,7 @@ impl TrieKey {
                     + account_id.len()
                     + ACCOUNT_DATA_SEPARATOR.len()
                     + key.len()
-            },
+            }
             TrieKey::RoutingTable { account_id } => col::ROUTING_TABLE.len() + account_id.len(),
         }
     }
@@ -159,9 +192,11 @@ impl TrieKey {
                 buf.push(col::ACCOUNT);
                 buf.extend(account_id.as_ref().as_bytes());
             }
-            TrieKey::ContractCode { account_id } => {
+            TrieKey::ContractCode { account_id, namespace } => {
                 buf.push(col::CONTRACT_CODE);
                 buf.extend(account_id.as_ref().as_bytes());
+                buf.push(ACCOUNT_DATA_SEPARATOR);
+                buf.extend(namespace.as_ref().as_bytes());
             }
             TrieKey::AccessKey { account_id, public_key } => {
                 buf.push(col::ACCESS_KEY);
@@ -254,6 +289,29 @@ pub mod trie_key_parsers {
             ));
         }
         PublicKey::try_from_slice(&raw_key[prefix_len..])
+    }
+
+    pub fn parse_namespace_from_contract_code_key<'a>(
+        raw_key: &'a [u8],
+        account_id: &AccountId,
+    ) -> Result<Namespace, std::io::Error> {
+        let prefix_len = col::CONTRACT_CODE.len() + account_id.len() + ACCOUNT_DATA_SEPARATOR.len();
+        if raw_key.len() < prefix_len {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "raw key is too short for TrieKey::ContractCode",
+            ));
+        }
+        let namespace: Namespace =
+            if let Ok(namespace) = std::str::from_utf8(&raw_key[prefix_len..]).map(Into::into) {
+                namespace
+            } else {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "namespace part of contract code trie key unparsable",
+                ));
+            };
+        Ok(namespace)
     }
 
     pub fn parse_data_key_from_contract_data_key<'a>(
@@ -353,8 +411,15 @@ pub mod trie_key_parsers {
     pub fn parse_account_id_from_contract_code_key(
         raw_key: &[u8],
     ) -> Result<AccountId, std::io::Error> {
-        let account_id = parse_account_id_prefix(col::CONTRACT_CODE, raw_key)?;
-        parse_account_id_from_slice(account_id, "ContractCode")
+        let account_id_prefix = parse_account_id_prefix(col::CONTRACT_CODE, raw_key)?;
+        if let Some(account_id) = next_token(account_id_prefix, ACCOUNT_DATA_SEPARATOR) {
+            parse_account_id_from_slice(account_id, "ContractCode")
+        } else {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "raw key does not have ACCOUNT_DATA_SEPARATOR to be TrieKey::ContractCode",
+            ))
+        }
     }
 
     pub fn parse_trie_key_access_key_from_raw_key(
@@ -441,6 +506,20 @@ pub mod trie_key_parsers {
                 + prefix.len(),
         );
         res.push(col::CONTRACT_DATA);
+        res.extend(account_id.as_bytes());
+        res.push(ACCOUNT_DATA_SEPARATOR);
+        res.extend(prefix);
+        res
+    }
+
+    pub fn get_raw_prefix_for_contract_code(account_id: &AccountId, prefix: &[u8]) -> Vec<u8> {
+        let mut res = Vec::with_capacity(
+            col::CONTRACT_CODE.len()
+                + account_id.len()
+                + ACCOUNT_DATA_SEPARATOR.len()
+                + prefix.len(),
+        );
+        res.push(col::CONTRACT_CODE);
         res.extend(account_id.as_bytes());
         res.push(ACCOUNT_DATA_SEPARATOR);
         res.extend(prefix);
@@ -556,7 +635,10 @@ mod tests {
     #[test]
     fn test_key_for_code_consistency() {
         for account_id in OK_ACCOUNT_IDS.iter().map(|x| x.parse::<AccountId>().unwrap()) {
-            let key = TrieKey::ContractCode { account_id: account_id.clone() };
+            let key = TrieKey::ContractCode {
+                account_id: account_id.clone(),
+                namespace: Namespace::default(),
+            };
             let raw_key = key.to_vec();
             assert_eq!(raw_key.len(), key.len());
             assert_eq!(
@@ -662,7 +744,11 @@ mod tests {
             Some(account_id.clone())
         );
         assert_eq!(
-            TrieKey::ContractCode { account_id: account_id.clone() }.get_account_id(),
+            TrieKey::ContractCode {
+                account_id: account_id.clone(),
+                namespace: Namespace::default(),
+            }
+            .get_account_id(),
             Some(account_id.clone())
         );
         assert_eq!(

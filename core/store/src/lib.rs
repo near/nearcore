@@ -843,7 +843,10 @@ pub fn get_access_key_raw(
 }
 
 pub fn set_code(state_update: &mut TrieUpdate, account_id: AccountId, code: &ContractCode) {
-    state_update.set(TrieKey::ContractCode { account_id }, code.code().to_vec());
+    state_update.set(
+        TrieKey::ContractCode { account_id, namespace: Default::default() },
+        code.code().to_vec(),
+    );
 }
 
 pub fn get_code(
@@ -851,11 +854,15 @@ pub fn get_code(
     account_id: &AccountId,
     code_hash: Option<CryptoHash>,
 ) -> Result<Option<ContractCode>, StorageError> {
-    let key = TrieKey::ContractCode { account_id: account_id.clone() };
+    let key =
+        TrieKey::ContractCode { account_id: account_id.clone(), namespace: Default::default() };
     trie.get(&key).map(|opt| opt.map(|code| ContractCode::new(code, code_hash)))
 }
 
-pub fn get_routing_table(trie: &dyn TrieAccess, account_id: &AccountId) -> Result<Option<RoutingTable>, StorageError> {
+pub fn get_routing_table(
+    trie: &dyn TrieAccess,
+    account_id: &AccountId,
+) -> Result<Option<RoutingTable>, StorageError> {
     get(trie, &TrieKey::RoutingTable { account_id: account_id.clone() })
 }
 
@@ -865,7 +872,24 @@ pub fn remove_account(
     account_id: &AccountId,
 ) -> Result<(), StorageError> {
     state_update.remove(TrieKey::Account { account_id: account_id.clone() });
-    state_update.remove(TrieKey::ContractCode { account_id: account_id.clone() });
+    state_update.remove(TrieKey::RoutingTable { account_id: account_id.clone() });
+
+    // Remove all deployed (namespaced) contract codes
+    let namespaces = state_update
+        .iter(&trie_key_parsers::get_raw_prefix_for_contract_code(account_id, &[]))?
+        .map(|raw_key| {
+            trie_key_parsers::parse_namespace_from_contract_code_key(&raw_key?, account_id).map_err(
+                |_e| {
+                    StorageError::StorageInconsistentState(
+                        "Can't parse namespace from raw key for ContractCode".to_string(),
+                    )
+                },
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    for namespace in namespaces {
+        state_update.remove(TrieKey::ContractCode { account_id: account_id.clone(), namespace });
+    }
 
     // Removing access keys
     let public_keys = state_update

@@ -1120,7 +1120,7 @@ mod tests {
         let mut state_update =
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
         let account_id = "alice".parse::<AccountId>().unwrap();
-        let trie_key = TrieKey::ContractCode { account_id: account_id.clone() };
+        let trie_key = TrieKey::ContractCode { account_id: account_id.clone(), namespace: Default::default() };
         let empty_contract = [0; 10_000].to_vec();
         let contract_hash = hash(&empty_contract);
         state_update.set(trie_key, empty_contract);

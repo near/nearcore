@@ -143,9 +143,9 @@ mod tests {
     /// Check correctness of creating `FlatStateChanges` from state changes.
     #[test]
     fn flat_state_changes_creation() {
-        let alice_trie_key = TrieKey::ContractCode { account_id: "alice".parse().unwrap() };
-        let bob_trie_key = TrieKey::ContractCode { account_id: "bob".parse().unwrap() };
-        let carol_trie_key = TrieKey::ContractCode { account_id: "carol".parse().unwrap() };
+        let alice_trie_key = TrieKey::ContractCode { account_id: "alice".parse().unwrap(), namespace: Default::default() };
+        let bob_trie_key = TrieKey::ContractCode { account_id: "bob".parse().unwrap(), namespace: Default::default() };
+        let carol_trie_key = TrieKey::ContractCode { account_id: "carol".parse().unwrap(), namespace: Default::default() };
         let delayed_trie_key = TrieKey::DelayedReceiptIndices;
         let delayed_receipt_trie_key = TrieKey::DelayedReceipt { index: 1 };
 

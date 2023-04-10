@@ -107,7 +107,7 @@ impl StateChangesKinds {
                     TrieKey::Account { account_id } => {
                         Some(Ok(StateChangeKind::AccountTouched { account_id }))
                     }
-                    TrieKey::ContractCode { account_id } => {
+                    TrieKey::ContractCode { account_id, namespace } => {
                         Some(Ok(StateChangeKind::ContractCodeTouched { account_id }))
                     }
                     TrieKey::AccessKey { account_id, .. } => {
@@ -299,7 +299,7 @@ impl StateChanges {
                         },
                     ))
                 }
-                TrieKey::ContractCode { account_id } => {
+                TrieKey::ContractCode { account_id, namespace: _ } => { // TODO: Should this state change kind include namespace?
                     state_changes.extend(changes.into_iter().map(
                         |RawStateChange { cause, data }| StateChangeWithCause {
                             cause,
