@@ -234,7 +234,7 @@ impl MockChainForShardsManager {
             });
         } else {
             self.shards_manager.send(ShardsManagerRequestFromClient::RequestChunksForOrphan {
-                chunks_to_request: vec![chunk_header.clone()],
+                chunks_to_request: vec![chunk_header],
                 epoch_id: self
                     .epoch_manager
                     .get_epoch_id_from_prev_block(&self.tip.last_block_hash)

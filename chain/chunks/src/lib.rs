@@ -373,7 +373,7 @@ impl ShardsManager {
             && !request_from_archival
             && Some(&chunk_producer_account_id) != me
         {
-            Some(chunk_producer_account_id.clone())
+            Some(chunk_producer_account_id)
         } else {
             self.get_random_target_tracking_shard(ancestor_hash, shard_id)?
         };
