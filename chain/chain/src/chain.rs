@@ -3866,8 +3866,8 @@ impl Chain {
                                     &transaction.transaction.block_hash,
                                     transaction_validity_period,
                                 )
-                                .map_err(|_| {
-                                    tracing::warn!("Invalid Transactions for mock node");
+                                .map_err(|err| {
+                                    tracing::warn!(?err, "Invalid Transactions for mock node");
                                     Error::from(Error::InvalidTransactions)
                                 })?;
                         }

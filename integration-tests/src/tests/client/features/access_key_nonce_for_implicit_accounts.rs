@@ -219,6 +219,7 @@ fn test_transaction_hash_collision_for_implicit_account_ok() {
 /// Test that chunks with transactions that have expired are considered invalid.
 #[test]
 fn test_chunk_transaction_validity() {
+    near_o11y::testonly::init_test_logger();
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
