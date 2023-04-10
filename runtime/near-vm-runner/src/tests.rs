@@ -29,7 +29,7 @@ pub(crate) fn with_vm_variants(cfg: &VMConfig, runner: impl Fn(VMKind) -> ()) {
     #[cfg(all(feature = "wasmer2_vm", target_arch = "x86_64"))]
     runner(VMKind::Wasmer2);
 
-    #[cfg(all(feature = "wasmer2_vm", target_arch = "x86_64"))]
+    #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
     if cfg.limit_config.contract_prepare_version == ContractPrepareVersion::V2 {
         runner(VMKind::NearVm);
     }
