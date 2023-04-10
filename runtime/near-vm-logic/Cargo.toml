@@ -27,6 +27,7 @@ tracing = { workspace = true, optional = true }
 
 near-crypto.workspace = true
 near-account-id.workspace = true
+near-fmt.workspace = true
 near-o11y.workspace = true
 near-primitives.workspace = true
 near-primitives-core.workspace = true

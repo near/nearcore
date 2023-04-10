@@ -76,6 +76,132 @@ class TestSplitStorage(unittest.TestCase):
         else:
             self.assertIsNone(cold_head_height)
 
+    # Migrate archival node using rpc node as source for hot db.
+    # wait_period should be enough block for initial migration to finish, cold_head catch up to head and tail to appear.
+    # for localnet tests it is enough to use epoch size * number of epochs to keep.
+    def _migrate_to_split_storage(self, rpc, archival, archival_dir,
+                                  wait_period):
+
+        logger.info("")
+        logger.info("Phase 1 - Running neard before migration.")
+        logger.info("")
+
+        # Wait until a few blocks are produced so that we're sure that the db is
+        # properly created and populated with some data.
+        n = 5
+        n = wait_for_blocks(archival, target=n).height
+
+        self._check_split_storage_info(
+            "migration_phase_1",
+            node=archival,
+            expected_head_height=n,
+            # The hot db kind should remain archive until fully migrated.
+            expected_hot_db_kind="Archive",
+            # The cold storage is not configured so cold head should be none.
+            check_cold_head=False,
+        )
+
+        logger.info("")
+        logger.info("Phase 2 - Setting the cold storage and restarting neard.")
+        logger.info("")
+
+        self._configure_cold_storage(archival_dir)
+        archival.kill(gentle=True)
+        archival.start()
+
+        # Wait for a few seconds to:
+        # - Give the node enough time to get started.
+        # - Give the cold store loop enough time to run - it runs every 1s.
+        # TODO(posvyatokum) this is a quick stop-gap solution to fix nayduck, this
+        # should be solved by waiting in a loop until cold store head is at
+        # expected proximity to final head.
+        time.sleep(4)
+
+        # Wait until enough blocks so that we produce enough blocks to fill 5
+        # epochs to trigger GC - otherwise the tail won't be set.
+        n = max(n, wait_period) + 5
+        logger.info(f"Wait until RPC reaches #{n}")
+        wait_for_blocks(rpc, target=n)
+        logger.info(f"Wait until archival reaches #{n}")
+        wait_for_blocks(archival, target=n)
+
+        self._check_split_storage_info(
+            "migration_phase_2",
+            node=archival,
+            expected_head_height=n,
+            # The hot db kind should remain archive until fully migrated.
+            expected_hot_db_kind="Archive",
+            # The cold storage head should be fully caught up by now.
+            check_cold_head=True,
+        )
+
+        logger.info("")
+        logger.info("Phase 3 - Preparing hot storage from rpc backup.")
+        logger.info("")
+
+        # Stop the RPC node in order to dump the db to disk.
+        rpc.kill(gentle=True)
+
+        rpc_src = path.join(rpc.node_dir, "data")
+        rpc_dst = path.join(archival.node_dir, "hot_data")
+        logger.info(f"Copying rpc backup from {rpc_src} to {rpc_dst}")
+        shutil.copytree(rpc_src, rpc_dst)
+
+        archival_dir = pathlib.Path(archival.node_dir)
+        with open(archival_dir / 'prepare-hot-stdout', 'w') as stdout, \
+                open(archival_dir / 'prepare-hot-stderr', 'w') as stderr:
+            cmd = [
+                str(pathlib.Path(archival.near_root) / archival.binary_name),
+                f'--home={archival_dir}',
+                f'cold-store',
+                f'prepare-hot',
+                f'--store-relative-path',
+                f'hot_data',
+            ]
+            logger.info(f"Calling '{' '.join(cmd)}'")
+            subprocess.check_call(
+                cmd,
+                stdin=subprocess.DEVNULL,
+                stdout=stdout,
+                stderr=stderr,
+                env=dict(
+                    os.environ,
+                    RUST_LOG='debug',
+                ),
+            )
+
+        self._configure_hot_storage(archival_dir, rpc_dst)
+
+        logger.info("")
+        logger.info("Phase 4 - After migration.")
+        logger.info("")
+
+        archival.kill(gentle=True)
+        archival.start()
+        rpc.start()
+
+        # Wait for a few seconds to:
+        # - Give the node enough time to get started.
+        # - Give the cold store loop enough time to run - it runs every 1s.
+        # TODO(posvyatokum) this is a quick stop-gap solution to fix nayduck, this
+        # should be solved by waiting in a loop until cold store head is at
+        # expected proximity to final head.
+        time.sleep(4)
+
+        # Wait for just a few blocks to make sure neard correctly restarted.
+        n += 5
+        wait_for_blocks(archival, target=n)
+
+        self._check_split_storage_info(
+            "migration_phase_4",
+            node=archival,
+            expected_head_height=n,
+            # The migration is over, the hot db kind should be set to hot.
+            expected_hot_db_kind="Hot",
+            # The cold storage head should be fully caught up.
+            check_cold_head=True,
+        )
+
     # Configure cold storage and start neard. Wait for a few blocks
     # and verify that cold head is moving and that it's close behind
     # final head.
@@ -184,10 +310,6 @@ class TestSplitStorage(unittest.TestCase):
             prefix="test_migration_",
         )
 
-        logger.info("")
-        logger.info("Phase 1 - Starting neard before migration.")
-        logger.info("")
-
         validator = spin_up_node(
             config,
             near_root,
@@ -209,122 +331,124 @@ class TestSplitStorage(unittest.TestCase):
             boot_node=validator,
         )
 
-        # Wait until a few blocks are produced so that we're sure that the db is
-        # properly created and populated with some data.
-        n = 5
-        n = wait_for_blocks(archival, target=n).height
+        self._migrate_to_split_storage(rpc, archival, archival_dir,
+                                       gc_epoch_num * epoch_length)
 
-        self._check_split_storage_info(
-            "migration_phase_1",
-            node=archival,
-            expected_head_height=n,
-            # The hot db kind should remain archive until fully migrated.
-            expected_hot_db_kind="Archive",
-            # The cold storage is not configured so cold head should be none.
-            check_cold_head=False,
+    # Spin up legacy archival node and split storage node.
+    # Pause legacy archival node, but continue running split storage node.
+    # After split storage hot tail is bigger than legacy archival head, restart legacy archival node.
+    # Make sure that legacy archival node is able to sync after that.
+    def test_archival_node_sync(self):
+        print()
+        logger.info(f"Starting the archival <- split storage sync test")
+        logger.info("")
+
+        # Decrease the epoch length and gc epoch num in order to speed up this test.
+        epoch_length = 5
+        gc_epoch_num = 3
+
+        genesis_config_changes = [
+            ("epoch_length", epoch_length),
+        ]
+        client_config_changes = {
+            0: {
+                'archive': False,
+                'tracked_shards': [0],
+            },
+            1: {
+                'archive': True,
+                'tracked_shards': [0],
+                'save_trie_changes': True,
+                'split_storage': {
+                    'enable_split_storage_view_client': True
+                },
+            },
+            2: {
+                'archive': True,
+                'tracked_shards': [0],
+            },
+            3: {
+                'archive': False,
+                'tracked_shards': [0],
+                'gc_num_epochs_to_keep': gc_epoch_num,
+            },
+        }
+        config = load_config()
+        near_root, [validator_dir, split_dir, archival_dir,
+                    rpc_dir] = init_cluster(
+                        num_nodes=1,
+                        num_observers=3,
+                        num_shards=1,
+                        config=config,
+                        genesis_config_changes=genesis_config_changes,
+                        client_config_changes=client_config_changes,
+                        prefix="test_archival_node_sync_",
+                    )
+
+        validator = spin_up_node(
+            config,
+            near_root,
+            validator_dir,
+            0,
+        )
+        split = spin_up_node(
+            config,
+            near_root,
+            split_dir,
+            1,
+            boot_node=validator,
+        )
+        archival = spin_up_node(
+            config,
+            near_root,
+            archival_dir,
+            2,
+            boot_node=split,
+        )
+        rpc = spin_up_node(
+            config,
+            near_root,
+            rpc_dir,
+            3,
+            boot_node=validator,
         )
 
+        # First, migrate split node to split storage
+        self._migrate_to_split_storage(rpc, split, split_dir,
+                                       gc_epoch_num * epoch_length)
+
+        # Remember ~where archival node stopped
+        n = archival.get_latest_block().height
+
         logger.info("")
-        logger.info("Phase 2 - Setting the cold storage and restarting neard.")
+        logger.info("Kill legacy archival node.")
         logger.info("")
+        # Now, kill legacy archival node, so it will be behind after restart and will be forced to sync from split node.
+        archival.kill()
 
-        self._configure_cold_storage(archival_dir)
-        archival.kill(gentle=True)
-        archival.start()
-
-        # Wait for a few seconds to:
-        # - Give the node enough time to get started.
-        # - Give the cold store loop enough time to run - it runs every 1s.
-        # TODO(wacban) this is a quick stop-gap solution to fix nayduck, this
-        # should be solved by waiting in a loop until cold store head is at
-        # expected proximity to final head.
-        time.sleep(4)
-
-        # Wait until enough blocks so that we produce enough blocks to fill 5
-        # epochs to trigger GC - otherwise the tail won't be set.
-        n = max(n, gc_epoch_num * epoch_length) + 5
-        logger.info(f"Wait until RPC reaches #{n}")
-        wait_for_blocks(rpc, target=n)
-        logger.info(f"Wait until archival reaches #{n}")
-        wait_for_blocks(archival, target=n)
-
-        self._check_split_storage_info(
-            "migration_phase_2",
-            node=archival,
-            expected_head_height=n,
-            # The hot db kind should remain archive until fully migrated.
-            expected_hot_db_kind="Archive",
-            # The cold storage head should be fully caught up by now.
-            check_cold_head=True,
+        logger.info("")
+        logger.info(
+            "Wait for split storage to have legacy archival head only in cold db."
         )
+        logger.info("")
+        # Wait for split storage to relly on cold db to sync archival node
+        wait_for_blocks(split, target=n + epoch_length * gc_epoch_num * 2 + 1)
+        # Kill validator and rpc so legacy archival doesn't have any peers that may accidentally have some useful data.
+        validator.kill()
+        rpc.kill()
 
         logger.info("")
-        logger.info("Phase 3 - Preparing hot storage from rpc backup.")
+        logger.info("Restart legacy archival node.")
         logger.info("")
-
-        # TODO Ideally we won't need to stop the node while running prepare-hot.
-        archival.kill(gentle=True)
-        # Stop the RPC node in order to dump the db to disk.
-        rpc.kill(gentle=True)
-
-        rpc_src = path.join(rpc.node_dir, "data")
-        rpc_dst = path.join(archival.node_dir, "hot_data")
-        logger.info(f"Copying rpc backup from {rpc_src} to {rpc_dst}")
-        shutil.copytree(rpc_src, rpc_dst)
-
-        archival_dir = pathlib.Path(archival.node_dir)
-        with open(archival_dir / 'prepare-hot-stdout', 'w') as stdout, \
-             open(archival_dir / 'prepare-hot-stderr', 'w') as stderr:
-            cmd = [
-                str(pathlib.Path(archival.near_root) / archival.binary_name),
-                f'--home={archival_dir}',
-                f'cold-store',
-                f'prepare-hot',
-                f'--store-relative-path',
-                f'hot_data',
-            ]
-            logger.info(f"Calling '{' '.join(cmd)}'")
-            subprocess.check_call(
-                cmd,
-                stdin=subprocess.DEVNULL,
-                stdout=stdout,
-                stderr=stderr,
-                env=dict(
-                    os.environ,
-                    RUST_LOG='debug',
-                ),
-            )
-
-        self._configure_hot_storage(archival_dir, rpc_dst)
+        # Restart archival node. This should trigger sync.
+        archival.start(boot_node=split)
+        time.sleep(10)
 
         logger.info("")
-        logger.info("Phase 4 - After migration.")
+        logger.info("Wait for legacy archival node to start syncing.")
         logger.info("")
-
-        archival.start()
-        rpc.start()
-
-        # Wait for a few seconds to:
-        # - Give the node enough time to get started.
-        # - Give the cold store loop enough time to run - it runs every 1s.
-        # TODO(wacban) this is a quick stop-gap solution to fix nayduck, this
-        # should be solved by waiting in a loop until cold store head is at
-        # expected proximity to final head.
-        time.sleep(4)
-
-        # Wait for just a few blocks to make sure neard correctly restarted.
-        n += 5
-        wait_for_blocks(archival, target=n)
-
-        self._check_split_storage_info(
-            "migration_phase_4",
-            node=archival,
-            expected_head_height=n,
-            # The migration is over, the hot db kind should be set to hot.
-            expected_hot_db_kind="Hot",
-            # The cold storage head should be fully caught up.
-            check_cold_head=True,
-        )
+        # Archival node should be able to sync to split storage without problems.
+        wait_for_blocks(archival, target=n + epoch_length, timeout=120)
 
 
 if __name__ == "__main__":

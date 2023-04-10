@@ -1,21 +1,31 @@
+use crate::db::{StatsValue, StoreStatistics};
+use crate::Temperature;
 use near_o11y::metrics::{
     try_create_gauge_vec, try_create_int_gauge, try_create_int_gauge_vec, GaugeVec, IntGauge,
     IntGaugeVec,
 };
-use near_store::db::{StatsValue, StoreStatistics};
 use once_cell::sync::Lazy;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use tracing::warn;
 
-pub(crate) fn export_stats_as_metrics(stats: StoreStatistics) {
-    match ROCKSDB_METRICS.lock().unwrap().export_stats_as_metrics(stats) {
+pub fn export_stats_as_metrics(stats: StoreStatistics, temperature: Temperature) {
+    match ROCKSDB_METRICS.lock().unwrap().export_stats_as_metrics(stats, temperature) {
         Ok(_) => {}
         Err(err) => {
-            warn!(target:"stats", "Failed to export store statistics: {:?}",err);
+            warn!(target:"stats", "Failed to export {:?} store statistics: {:?}", temperature, err);
         }
     }
+}
+
+/// Returns a copy of the int gauges. This method is needed because the gauges
+/// are created on demand and owned by the RockDBMetrics.
+///
+/// Only for unit test usage.
+#[cfg(test)]
+pub fn get_int_gauges() -> HashMap<String, IntGauge> {
+    ROCKSDB_METRICS.lock().unwrap().int_gauges.clone()
 }
 
 /// Wrapper for re-exporting RocksDB stats into Prometheus metrics.
@@ -37,8 +47,10 @@ impl RocksDBMetrics {
     pub fn export_stats_as_metrics(
         &mut self,
         stats: StoreStatistics,
+        temperature: Temperature,
     ) -> Result<(), Box<dyn std::error::Error>> {
         for (stat_name, values) in stats.data {
+            let stat_name = stat_name + get_temperature_str(&temperature);
             if values.is_empty() {
                 continue;
             }
@@ -132,6 +144,13 @@ impl RocksDBMetrics {
         };
         gauge.set(value);
         Ok(())
+    }
+}
+
+fn get_temperature_str(temperature: &Temperature) -> &'static str {
+    match temperature {
+        Temperature::Hot => "",
+        Temperature::Cold => "_cold",
     }
 }
 
