@@ -806,7 +806,7 @@ fn attach_unspent_gas_but_burn_all_gas() {
             gas_weight,
         );
         loop {
-            gas(1_000_000_000);
+            gas(10_000);
         }
     }
 }
