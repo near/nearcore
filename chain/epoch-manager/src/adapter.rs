@@ -88,6 +88,9 @@ pub trait EpochManagerAdapter: Send + Sync {
         parent_hash: &CryptoHash,
     ) -> Result<EpochHeight, EpochError>;
 
+    /// Get next epoch id given hash of the current block.
+    fn get_next_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError>;
+
     /// Get next epoch id given hash of previous block.
     fn get_next_epoch_id_from_prev_block(
         &self,
@@ -496,6 +499,11 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
             .get_epoch_info(&epoch_id)
             .map(|info| info.epoch_height())
             .map_err(EpochError::from)
+    }
+
+    fn get_next_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
+        let epoch_manager = self.read();
+        epoch_manager.get_next_epoch_id(block_hash).map_err(EpochError::from)
     }
 
     fn get_next_epoch_id_from_prev_block(

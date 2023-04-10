@@ -1199,7 +1199,8 @@ pub fn setup_synchronous_shards_manager(
     let shards_manager = ShardsManager::new(
         time::Clock::real(),
         account_id,
-        runtime_adapter,
+        runtime_adapter.epoch_manager_adapter_arc(),
+        runtime_adapter.shard_tracker(),
         network_adapter.request_sender,
         client_adapter,
         chain.store().new_read_only_chunks_store(),
