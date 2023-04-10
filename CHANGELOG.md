@@ -17,6 +17,17 @@
 * State sync is disabled by default [#8730](https://github.com/near/nearcore/pull/8730)
 * Node can restart if State Sync gets interrupted. [#8732](https://github.com/near/nearcore/pull/8732)
 * Merged two `neard view-state` commands: `apply-state-parts` and `dump-state-parts` into a single `state-parts` command. [#8739](https://github.com/near/nearcore/pull/8739)
+* Add config.network.experimental.network_config_overrides to the JSON config. [#8871](https://github.com/near/nearcore/pull/8871)
+
+## 1.32.2
+
+### Fixes
+* Fix: rosetta zero balance accounts [#8833](https://github.com/near/nearcore/pull/8833)
+
+## 1.32.1
+
+### Fixes
+* Fix vulnerabilities in block outcome root validation and total supply validation [#8790](https://github.com/near/nearcore/pull/8790)
 
 ## 1.32.0
 

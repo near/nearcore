@@ -1,10 +1,15 @@
+//! Legacy validation for very old protocol versions.
+
 use near_vm_errors::PrepareError;
 use near_vm_logic::VMConfig;
 use parity_wasm_41::builder;
 use parity_wasm_41::elements::{self, External, MemorySection, Type};
 use pwasm_utils_12 as pwasm_utils;
 
-pub fn prepare_contract(original_code: &[u8], config: &VMConfig) -> Result<Vec<u8>, PrepareError> {
+pub(crate) fn prepare_contract(
+    original_code: &[u8],
+    config: &VMConfig,
+) -> Result<Vec<u8>, PrepareError> {
     ContractModule::init(original_code, config)?
         .standardize_mem()
         .ensure_no_internal_memory()?

@@ -95,6 +95,7 @@ async fn state_parts_from_node(
         chain_id,
         genesis_hash,
         head_height,
+        vec![0],
         time::Duration::seconds(recv_timeout_seconds.into())).await {
         Ok(p) => p,
         Err(ConnectError::HandshakeFailure(reason)) => {

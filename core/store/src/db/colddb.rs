@@ -110,6 +110,10 @@ impl Database for ColdDB {
     fn get_store_statistics(&self) -> Option<crate::StoreStatistics> {
         self.cold.get_store_statistics()
     }
+
+    fn create_checkpoint(&self, path: &std::path::Path) -> anyhow::Result<()> {
+        self.cold.create_checkpoint(path)
+    }
 }
 
 /// Adjust database operation to be performed on cold storage.

@@ -40,6 +40,7 @@ def __get_latest_deploy(chain_id: str) -> typing.Tuple[str, str]:
     """
 
     def download(url: str) -> str:
+        logger.info(f"download {url}")
         res = requests.get(url)
         res.raise_for_status()
         return res.text

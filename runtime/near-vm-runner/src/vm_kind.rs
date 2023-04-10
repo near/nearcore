@@ -14,8 +14,10 @@ pub enum VMKind {
     Wasmer0,
     /// Wasmtime VM.
     Wasmtime,
-    //  Wasmer 2.x VM,
+    /// Wasmer 2.x VM.
     Wasmer2,
+    /// NearVM.
+    NearVm,
 }
 
 impl VMKind {

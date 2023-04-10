@@ -159,11 +159,11 @@ Prefer calling `to_string` method on an object rather than passing it through
 
 ```rust
 // GOOD
-lat hash = block_hash.to_string();
+let hash = block_hash.to_string();
 let msg = format!("{}: failed to open", path.display());
 
 // BAD
-lat hash = format!("{block_hash}");
+let hash = format!("{block_hash}");
 let msg = path.display() + ": failed to open";
 ```
 

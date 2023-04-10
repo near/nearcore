@@ -25,7 +25,7 @@ use wasmer_engine::Executable;
 fn test_caches_compilation_error() {
     with_vm_variants(|vm_kind: VMKind| {
         match vm_kind {
-            VMKind::Wasmer0 | VMKind::Wasmer2 => {}
+            VMKind::Wasmer0 | VMKind::Wasmer2 | VMKind::NearVm => {}
             VMKind::Wasmtime => return,
         }
         let cache = MockCompiledContractCache::default();
@@ -48,7 +48,7 @@ fn test_caches_compilation_error() {
 fn test_does_not_cache_io_error() {
     with_vm_variants(|vm_kind: VMKind| {
         match vm_kind {
-            VMKind::Wasmer0 | VMKind::Wasmer2 => {}
+            VMKind::Wasmer0 | VMKind::Wasmer2 | VMKind::NearVm => {}
             VMKind::Wasmtime => return,
         }
 
@@ -131,7 +131,8 @@ fn test_wasmer2_artifact_output_stability() {
         let contract = ContractCode::new(near_test_contracts::arbitrary_contract(seed), None);
 
         let config = VMConfig::test();
-        let prepared_code = prepare::prepare_contract(contract.code(), &config).unwrap();
+        let prepared_code =
+            prepare::prepare_contract(contract.code(), &config, VMKind::Wasmer2).unwrap();
         let mut hasher = StableHasher::new();
         (&contract.code(), &prepared_code).hash(&mut hasher);
         got_prepared_hashes.push(hasher.finish());

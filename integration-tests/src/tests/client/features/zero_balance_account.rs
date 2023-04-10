@@ -250,6 +250,10 @@ fn test_zero_balance_account_add_key() {
 /// the protocol upgrade
 #[test]
 fn test_zero_balance_account_upgrade() {
+    // The immediate protocol upgrade needs to be set for this test to pass in
+    // the release branch where the protocol upgrade date is set.
+    std::env::set_var("NEAR_TESTS_IMMEDIATE_PROTOCOL_UPGRADE", "1");
+
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;

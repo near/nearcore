@@ -7,8 +7,9 @@ use crate::serialize::{base64_format, dec_format};
 use crate::types::{AccountId, Balance, Gas, Nonce};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature};
-use near_o11y::pretty;
+use near_fmt::{AbbrBytes, Slice};
 use near_primitives_core::profile::{ProfileDataV2, ProfileDataV3};
+use near_primitives_core::types::Compute;
 use std::borrow::Borrow;
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -131,7 +132,7 @@ impl From<DeployContractAction> for Action {
 impl fmt::Debug for DeployContractAction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DeployContractAction")
-            .field("code", &format_args!("{}", pretty::AbbrBytes(&self.code)))
+            .field("code", &format_args!("{}", AbbrBytes(&self.code)))
             .finish()
     }
 }
@@ -158,7 +159,7 @@ impl fmt::Debug for FunctionCallAction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("FunctionCallAction")
             .field("method_name", &format_args!("{}", &self.method_name))
-            .field("args", &format_args!("{}", pretty::AbbrBytes(&self.args)))
+            .field("args", &format_args!("{}", AbbrBytes(&self.args)))
             .field("gas", &format_args!("{}", &self.gas))
             .field("deposit", &format_args!("{}", &self.deposit))
             .finish()
@@ -349,7 +350,7 @@ impl fmt::Debug for ExecutionStatus {
             ExecutionStatus::Unknown => f.write_str("Unknown"),
             ExecutionStatus::Failure(e) => f.write_fmt(format_args!("Failure({})", e)),
             ExecutionStatus::SuccessValue(v) => {
-                f.write_fmt(format_args!("SuccessValue({})", pretty::AbbrBytes(v)))
+                f.write_fmt(format_args!("SuccessValue({})", AbbrBytes(v)))
             }
             ExecutionStatus::SuccessReceiptId(receipt_id) => {
                 f.write_fmt(format_args!("SuccessReceiptId({})", receipt_id))
@@ -415,6 +416,13 @@ pub struct ExecutionOutcome {
     pub receipt_ids: Vec<CryptoHash>,
     /// The amount of the gas burnt by the given transaction or receipt.
     pub gas_burnt: Gas,
+    /// The amount of compute time spent by the given transaction or receipt.
+    // TODO(#8859): Treat this field in the same way as `gas_burnt`.
+    // At the moment this field is only set at runtime and is not persisted in the database.
+    // This means that when execution outcomes are read from the database, this value will not be
+    // set and any code that attempts to use it will crash.
+    #[borsh_skip]
+    pub compute_usage: Option<Compute>,
     /// The amount of tokens burnt corresponding to the burnt gas amount.
     /// This value doesn't always equal to the `gas_burnt` multiplied by the gas price, because
     /// the prepaid gas price might be lower than the actual gas price and it creates a deficit.
@@ -437,7 +445,7 @@ pub enum ExecutionMetadata {
     V1,
     /// V2: With ProfileData by legacy `Cost` enum
     V2(ProfileDataV2),
-    // V3: With ProfileData by gas parameters
+    /// V3: With ProfileData by gas parameters
     V3(ProfileDataV3),
 }
 
@@ -450,9 +458,10 @@ impl Default for ExecutionMetadata {
 impl fmt::Debug for ExecutionOutcome {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ExecutionOutcome")
-            .field("logs", &pretty::Slice(&self.logs))
-            .field("receipt_ids", &pretty::Slice(&self.receipt_ids))
+            .field("logs", &Slice(&self.logs))
+            .field("receipt_ids", &Slice(&self.receipt_ids))
             .field("burnt_gas", &self.gas_burnt)
+            .field("compute_usage", &self.compute_usage.unwrap_or_default())
             .field("tokens_burnt", &self.tokens_burnt)
             .field("status", &self.status)
             .field("metadata", &self.metadata)
@@ -598,6 +607,7 @@ mod tests {
             logs: vec!["123".to_string(), "321".to_string()],
             receipt_ids: vec![],
             gas_burnt: 123,
+            compute_usage: Some(456),
             tokens_burnt: 1234000,
             executor_id: "alice".parse().unwrap(),
             metadata: ExecutionMetadata::V1,

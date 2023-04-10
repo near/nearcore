@@ -1,11 +1,25 @@
+//! Less legacy validation for old protocol versions.
+
 use near_vm_errors::PrepareError;
 use near_vm_logic::VMConfig;
 use parity_wasm::builder;
 use parity_wasm::elements::{self, External, MemorySection};
 
-use super::WASM_FEATURES;
-
-pub fn prepare_contract(original_code: &[u8], config: &VMConfig) -> Result<Vec<u8>, PrepareError> {
+/// Loads the given module given in `original_code`, performs some checks on it and
+/// does some preprocessing.
+///
+/// The checks are:
+///
+/// - module doesn't define an internal memory instance,
+/// - imported memory (if any) doesn't reserve more memory than permitted by the `config`,
+/// - all imported functions from the external environment matches defined by `env` module,
+/// - functions number does not exceed limit specified in VMConfig,
+///
+/// The preprocessing includes injecting code for gas metering and metering the height of stack.
+pub(crate) fn prepare_contract(
+    original_code: &[u8],
+    config: &VMConfig,
+) -> Result<Vec<u8>, PrepareError> {
     ContractModule::init(original_code, config)?
         .scan_imports()?
         .standardize_mem()
@@ -15,13 +29,13 @@ pub fn prepare_contract(original_code: &[u8], config: &VMConfig) -> Result<Vec<u
         .into_wasm_code()
 }
 
-struct ContractModule<'a> {
+pub(crate) struct ContractModule<'a> {
     module: elements::Module,
     config: &'a VMConfig,
 }
 
 impl<'a> ContractModule<'a> {
-    fn init(original_code: &[u8], config: &'a VMConfig) -> Result<Self, PrepareError> {
+    pub(crate) fn init(original_code: &[u8], config: &'a VMConfig) -> Result<Self, PrepareError> {
         let module = parity_wasm::deserialize_buffer(original_code).map_err(|e| {
             tracing::debug!(err=?e, "parity_wasm failed decoding a contract");
             PrepareError::Deserialization
@@ -29,7 +43,7 @@ impl<'a> ContractModule<'a> {
         Ok(ContractModule { module, config })
     }
 
-    fn standardize_mem(self) -> Self {
+    pub(crate) fn standardize_mem(self) -> Self {
         let Self { mut module, config } = self;
 
         let mut tmp = MemorySection::default();
@@ -56,7 +70,7 @@ impl<'a> ContractModule<'a> {
     /// In this runtime we only allow wasm module to import memory from the environment.
     /// Memory section contains declarations of internal linear memories, so if we find one
     /// we reject such a module.
-    fn ensure_no_internal_memory(self) -> Result<Self, PrepareError> {
+    pub(crate) fn ensure_no_internal_memory(self) -> Result<Self, PrepareError> {
         if self.module.memory_section().map_or(false, |ms| !ms.entries().is_empty()) {
             Err(PrepareError::InternalMemoryDeclared)
         } else {
@@ -94,7 +108,7 @@ impl<'a> ContractModule<'a> {
     /// - checks any imported function against defined host functions set, incl.
     ///   their signatures.
     /// - if there is a memory import, returns it's descriptor
-    fn scan_imports(self) -> Result<Self, PrepareError> {
+    pub(crate) fn scan_imports(self) -> Result<Self, PrepareError> {
         let Self { module, config } = self;
 
         let types = module.type_section().map(elements::TypeSection::types).unwrap_or(&[]);
@@ -132,7 +146,7 @@ impl<'a> ContractModule<'a> {
         Ok(Self { module, config })
     }
 
-    fn into_wasm_code(self) -> Result<Vec<u8>, PrepareError> {
+    pub(crate) fn into_wasm_code(self) -> Result<Vec<u8>, PrepareError> {
         elements::serialize(self.module).map_err(|_| PrepareError::Serialization)
     }
 }
@@ -147,7 +161,7 @@ fn wasmparser_decode(
 ) -> Result<(Option<u64>, Option<u64>), wasmparser::BinaryReaderError> {
     use wasmparser::{ImportSectionEntryType, ValidPayload};
     let mut validator = wasmparser::Validator::new();
-    validator.wasm_features(WASM_FEATURES);
+    validator.wasm_features(crate::prepare::WASM_FEATURES);
     let mut function_count = Some(0u64);
     let mut local_count = Some(0u64);
     for payload in wasmparser::Parser::new(0).parse_all(code) {
@@ -189,7 +203,7 @@ fn wasmparser_decode(
     Ok((function_count, local_count))
 }
 
-pub fn validate_contract(code: &[u8], config: &VMConfig) -> Result<(), PrepareError> {
+pub(crate) fn validate_contract(code: &[u8], config: &VMConfig) -> Result<(), PrepareError> {
     let (function_count, local_count) = wasmparser_decode(code).map_err(|e| {
         tracing::debug!(err=?e, "wasmparser failed decoding a contract");
         PrepareError::Deserialization
@@ -211,4 +225,34 @@ pub fn validate_contract(code: &[u8], config: &VMConfig) -> Result<(), PrepareEr
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    use near_vm_logic::{ContractPrepareVersion, VMConfig};
+
+    #[test]
+    fn v1_preparation_generates_valid_contract() {
+        let mut config = VMConfig::test();
+        config.limit_config.contract_prepare_version = ContractPrepareVersion::V1;
+        bolero::check!().for_each(|input: &[u8]| {
+            // DO NOT use ArbitraryModule. We do want modules that may be invalid here, if they pass our validation step!
+            if let Ok(_) = super::validate_contract(input, &config) {
+                match super::prepare_contract(input, &config) {
+                    Err(_e) => (), // TODO: this should be a panic, but for now it’d actually trigger
+                    Ok(code) => {
+                        let mut validator = wasmparser::Validator::new();
+                        validator.wasm_features(crate::prepare::WASM_FEATURES);
+                        match validator.validate_all(&code) {
+                            Ok(_) => (),
+                            Err(e) => panic!(
+                                "prepared code failed validation: {e:?}\ncontract: {}",
+                                hex::encode(input),
+                            ),
+                        }
+                    }
+                }
+            }
+        });
+    }
 }
