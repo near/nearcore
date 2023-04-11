@@ -8,12 +8,10 @@ details) doesn't allow the nodes to reliably perform state sync for testnet or
 mainnet.
 
 That's why a new solution for state sync is being designed.
-The experimental code is likely going to be a part of solution to greatly
-improve both reliability and speed of state sync.
-
-The new solution will probably involve making the state available on external
-storage, making downloading the state both low latency and reliable process,
-thanks to the robust infrastructure of external storage such as S3.
+This is a short-term solution that is needed to let nodes sync and let chunk
+only producers to switch tracked shards.
+The experimental code is will not be kept for long and will be replaced with a
+decentralized solution.
 
 ## How-to
 
@@ -40,8 +38,6 @@ AWS_ACCESS_KEY_ID="MY_ACCESS_KEY" AWS_SECRET_ACCESS_KEY="MY_AWS_SECRET_ACCESS_KE
 
 ## Implementation Details
 
-The experimental option replaces how a node fetches state parts.
-The legacy implementation asks peer nodes to create and share a state part over network.
 The new implementation expects to find state parts as files on an S3 storage.
 
 The sync mechanism proceeds to download state parts mostly-sequentially from S3.
