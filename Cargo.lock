@@ -4093,6 +4093,7 @@ dependencies = [
  "memoffset",
  "near-cache",
  "near-primitives",
+ "near-primitives-core",
  "near-stable-hasher",
  "near-test-contracts",
  "near-vm-compiler",
