@@ -677,7 +677,6 @@ mod tests {
                 logs: vec![],
                 receipt_ids,
                 gas_burnt: 100,
-                compute_usage: Some(200),
                 tokens_burnt: 2000,
                 executor_id: "someone.near".parse().unwrap(),
                 status: ExecutionStatus::SuccessValue(vec![]),
