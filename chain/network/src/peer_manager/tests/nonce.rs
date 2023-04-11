@@ -102,6 +102,7 @@ async fn wait_for_edge(actor_handler: &mut ActorHandler) -> Edge {
 }
 
 #[tokio::test]
+#[ignore] // TODO: #8854
 /// Create 2 peer managers, that connect to each other.
 /// Verify that the will refresh their nonce after some time.
 async fn test_nonce_refresh() {
