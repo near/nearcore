@@ -10,12 +10,12 @@ use chrono::DateTime;
 use futures::{future, FutureExt};
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::messaging::{CanSend, IntoSender, LateBoundSender, Sender};
+use near_async::time;
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_chunks::ShardsManager;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::time;
 use num_rational::Ratio;
 use once_cell::sync::OnceCell;
 use rand::{thread_rng, Rng};
@@ -707,9 +707,9 @@ pub fn setup_mock_all_validators(
                                 },
                                 received_bytes_per_sec: 0,
                                 sent_bytes_per_sec: 0,
-                                last_time_peer_requested: near_primitives::time::Instant::now(),
-                                last_time_received_message: near_primitives::time::Instant::now(),
-                                connection_established_time: near_primitives::time::Instant::now(),
+                                last_time_peer_requested: near_async::time::Instant::now(),
+                                last_time_received_message: near_async::time::Instant::now(),
+                                connection_established_time: near_async::time::Instant::now(),
                                 peer_type: PeerType::Outbound,
                                 nonce: 3,
                             })

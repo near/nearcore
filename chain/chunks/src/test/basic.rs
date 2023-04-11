@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use derive_enum_from_into::{EnumFrom, EnumTryInto};
+use near_async::time;
 use near_async::{
     messaging::{CanSend, IntoSender, Sender},
     test_loop::{
@@ -14,10 +15,7 @@ use near_network::{
     shards_manager::ShardsManagerRequestFromNetwork,
     types::{NetworkRequests, PeerManagerMessageRequest},
 };
-use near_primitives::{
-    time,
-    types::{AccountId, BlockHeight},
-};
+use near_primitives::types::{AccountId, BlockHeight};
 use near_store::test_utils::create_test_store;
 use tracing::log::info;
 

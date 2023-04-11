@@ -15,6 +15,7 @@ prometheus.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
+near-async.workspace = true
 near-jsonrpc.workspace = true
 near-network.workspace = true
 near-o11y.workspace = true

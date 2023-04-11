@@ -5,6 +5,7 @@ use near_async::{
         adhoc::{handle_adhoc_events, AdhocEvent, AdhocEventSender},
         event_handler::capture_events,
     },
+    time,
 };
 use near_chain::chunks_store::ReadOnlyChunksStore;
 use near_epoch_manager::EpochManagerAdapter;
@@ -12,8 +13,7 @@ use near_network::{
     shards_manager::ShardsManagerRequestFromNetwork, test_loop::SupportsRoutingLookup,
     types::PeerManagerMessageRequest,
 };
-use near_primitives::types::AccountId;
-use near_primitives::{time, types::NumShards};
+use near_primitives::types::{AccountId, NumShards};
 use near_store::test_utils::create_test_store;
 
 use crate::{

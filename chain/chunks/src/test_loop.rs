@@ -10,6 +10,7 @@ use near_epoch_manager::{
     test_utils::{record_block, setup_epoch_manager_with_block_and_chunk_producers},
     EpochManagerAdapter, EpochManagerHandle,
 };
+use near_async::time;
 use near_network::{
     shards_manager::ShardsManagerRequestFromNetwork,
     test_loop::SupportsRoutingLookup,
@@ -23,10 +24,9 @@ use near_primitives::{
         ReedSolomonWrapper, ShardChunkHeader,
     },
     test_utils::create_test_signer,
-    types::{BlockHeight, BlockHeightDelta, MerkleHash, NumShards, ShardId},
+    types::{AccountId, BlockHeight, BlockHeightDelta, MerkleHash, NumShards, ShardId},
     version::PROTOCOL_VERSION,
 };
-use near_primitives::{time, types::AccountId};
 use near_store::Store;
 
 use crate::{
