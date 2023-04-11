@@ -2084,7 +2084,7 @@ impl Client {
             assert_eq!(sync_hash, state_sync_info.epoch_tail_hash);
             let network_adapter1 = self.network_adapter.clone();
 
-            let  = {
+            let new_shard_sync = {
                 let prev_hash = *self.chain.get_block(&sync_hash)?.header().prev_hash();
                 let need_to_split_states =
                     self.runtime_adapter.will_shard_layout_change_next_epoch(&prev_hash)?;
