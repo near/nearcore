@@ -14,7 +14,7 @@ use near_primitives::runtime::fees::{transfer_exec_fee, transfer_send_fee, Runti
 use near_primitives::transaction::{
     Action, AddKeyAction, DeployContractAction, FunctionCallAction, Transaction,
 };
-use near_primitives::types::{AccountId, Balance, Compute, Gas};
+use near_primitives::types::{AccountId, Balance, Gas};
 use near_primitives::version::{is_implicit_account_creation_enabled, ProtocolVersion};
 
 /// Describes the cost of converting this transaction into a receipt.
@@ -56,10 +56,6 @@ pub fn safe_add_gas(a: Gas, b: Gas) -> Result<Gas, IntegerOverflowError> {
 }
 
 pub fn safe_add_balance(a: Balance, b: Balance) -> Result<Balance, IntegerOverflowError> {
-    a.checked_add(b).ok_or_else(|| IntegerOverflowError {})
-}
-
-pub fn safe_add_compute(a: Compute, b: Compute) -> Result<Compute, IntegerOverflowError> {
     a.checked_add(b).ok_or_else(|| IntegerOverflowError {})
 }
 
