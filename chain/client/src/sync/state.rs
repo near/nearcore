@@ -151,21 +151,13 @@ impl StateSync {
         num_s3_requests_per_shard: u64,
     ) -> Self {
         let inner = if state_sync_from_s3_enabled {
-            // `unwrap()` here is fine, because the config validation has already
-            // ensured those fields are present.
-            let mut bucket = s3::Bucket::new(
-                s3_bucket,
-                s3_region.parse::<s3::Region>().unwrap(),
-                s3::creds::Credentials::anonymous().unwrap(),
-            )
-            .unwrap();
-            // Ensure requests finish in finite amount of time.
-            bucket.set_request_timeout(Some(timeout));
-            let bucket = Arc::new(bucket);
-
+            let bucket = create_bucket(s3_bucket, s3_region, timeout);
+            if let Err(err) = bucket {
+                panic!("Failed to create an S3 bucket: {}", err);
+            }
             StateSyncInner::PartsFromExternal {
                 chain_id: chain_id.to_string(),
-                bucket,
+                bucket: Arc::new(bucket.unwrap()),
                 requests_remaining: Arc::new(AtomicI64::new(num_s3_requests_per_shard as i64)),
             }
         } else {
@@ -1073,6 +1065,23 @@ impl StateSync {
         }
         Ok(shard_sync_done)
     }
+}
+
+fn create_bucket(
+    bucket: &str,
+    region: &str,
+    timeout: TimeDuration,
+) -> Result<s3::Bucket, near_chain::Error> {
+    let mut bucket = s3::Bucket::new(
+        bucket,
+        region.parse::<s3::Region>().map_err(|err| near_chain::Error::Other(err.to_string()))?,
+        s3::creds::Credentials::anonymous()
+            .map_err(|err| near_chain::Error::Other(err.to_string()))?,
+    )
+    .map_err(|err| near_chain::Error::Other(err.to_string()))?;
+    // Ensure requests finish in finite amount of time.
+    bucket.set_request_timeout(Some(timeout));
+    Ok(bucket)
 }
 
 /// Returns parts that still need to be fetched.
