@@ -1,5 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
+use near_async::time;
 use near_async::{
     messaging::Sender,
     test_loop::event_handler::{interval, LoopEventHandler, LoopHandlerContext, TryIntoOrSelf},
@@ -10,7 +11,6 @@ use near_epoch_manager::{
     test_utils::{record_block, setup_epoch_manager_with_block_and_chunk_producers},
     EpochManagerAdapter, EpochManagerHandle,
 };
-use near_async::time;
 use near_network::{
     shards_manager::ShardsManagerRequestFromNetwork,
     test_loop::SupportsRoutingLookup,
