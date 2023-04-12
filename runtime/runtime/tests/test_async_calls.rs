@@ -3,7 +3,9 @@ use borsh::ser::BorshSerialize;
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
 use near_primitives::hash::CryptoHash;
+use near_primitives::namespace::Namespace;
 use near_primitives::receipt::{ActionReceipt, ReceiptEnum};
+use near_primitives::routing_table::RoutingTable;
 use near_primitives::serialize::to_base64;
 use near_primitives::types::AccountId;
 
@@ -782,7 +784,7 @@ fn test_account_factory() {
                             method_names: vec!["call_promise".to_string(), "hello".to_string()],
                         }));
                      },
-                     a3, Action::DeployContract(DeployContractAction{code}), {
+                     a3, Action::DeployContract(DeployContractAction{code,namespace,routing_table}), {
                         assert_eq!(code, near_test_contracts::rs_contract());
                      },
                      a4, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
@@ -918,7 +920,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
                         assert_eq!(access_key.nonce, 1);
                         assert_eq!(access_key.permission, AccessKeyPermission::FullAccess);
                      },
-                     a3, Action::DeployContract(DeployContractAction{code}), {
+                     a3, Action::DeployContract(DeployContractAction{code, namespace, routing_table}), {
                         assert_eq!(code, near_test_contracts::rs_contract());
                      },
                      a4, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {

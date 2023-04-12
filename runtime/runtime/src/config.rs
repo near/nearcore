@@ -87,7 +87,8 @@ pub fn total_send_fees(
             CreateAccount(_) => {
                 config.fee(ActionCosts::create_account).send_fee(sender_is_receiver)
             }
-            DeployContract(DeployContractAction { code }) => {
+            DeployContract(DeployContractAction { code, .. }) => {
+                // TODO: Accounting
                 let num_bytes = code.len() as u64;
                 config.fee(ActionCosts::deploy_contract_base).send_fee(sender_is_receiver)
                     + config.fee(ActionCosts::deploy_contract_byte).send_fee(sender_is_receiver)
@@ -192,7 +193,8 @@ pub fn exec_fee(
 
     match action {
         CreateAccount(_) => config.fee(ActionCosts::create_account).exec_fee(),
-        DeployContract(DeployContractAction { code }) => {
+        DeployContract(DeployContractAction { code, .. }) => {
+            // TODO: Accounting
             let num_bytes = code.len() as u64;
             config.fee(ActionCosts::deploy_contract_base).exec_fee()
                 + config.fee(ActionCosts::deploy_contract_byte).exec_fee() * num_bytes

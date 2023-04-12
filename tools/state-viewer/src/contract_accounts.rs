@@ -193,7 +193,9 @@ impl ContractAccountIterator {
         let mut trie_iter = trie.iter()?;
         // TODO(#8376): Consider changing the interface to TrieKey to make this easier.
         // `TrieKey::ContractCode` requires a valid `AccountId`, we use "xx"
-        let key = TrieKey::ContractCode { account_id: "xx".parse()?, namespace: Default::default() }.to_vec();
+        let key =
+            TrieKey::ContractCode { account_id: "xx".parse()?, namespace: Default::default() }
+                .to_vec();
         let (prefix, suffix) = key.split_at(key.len() - 2);
         assert_eq!(suffix, "xx".as_bytes());
 
@@ -485,7 +487,9 @@ mod tests {
     use borsh::BorshSerialize;
     use near_crypto::{InMemorySigner, Signer};
     use near_primitives::hash::CryptoHash;
+    use near_primitives::namespace::Namespace;
     use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
+    use near_primitives::routing_table::RoutingTable;
     use near_primitives::transaction::{
         Action, CreateAccountAction, DeployContractAction, ExecutionMetadata, ExecutionOutcome,
         ExecutionOutcomeWithProof, ExecutionStatus, FunctionCallAction, TransferAction,
@@ -582,7 +586,11 @@ mod tests {
             vec![
                 Action::Transfer(TransferAction { deposit: 20 }),
                 Action::CreateAccount(CreateAccountAction {}),
-                Action::DeployContract(DeployContractAction { code: vec![] }),
+                Action::DeployContract(DeployContractAction {
+                    code: vec![],
+                    namespace: Namespace::default(),
+                    routing_table: RoutingTable::default(),
+                }),
             ],
         );
 
@@ -645,7 +653,11 @@ mod tests {
     /// Create a test contract key-value pair to insert in the test trie, with specified amount of bytes.
     fn contract_tuple(account: &str, num_bytes: u8) -> (Vec<u8>, Option<Vec<u8>>) {
         (
-            TrieKey::ContractCode { account_id: account.parse().unwrap(), namespace: Default::default() }.to_vec(),
+            TrieKey::ContractCode {
+                account_id: account.parse().unwrap(),
+                namespace: Default::default(),
+            }
+            .to_vec(),
             Some(vec![num_bytes; num_bytes as usize]),
         )
     }

@@ -12,6 +12,7 @@ use near_chain::test_utils::ValidatorSchedule;
 use near_chunks::test_utils::MockClientAdapterForShardsManager;
 
 use near_primitives::config::{ActionCosts, ExtCosts};
+use near_primitives::namespace::Namespace;
 use near_primitives::num_rational::{Ratio, Rational32};
 
 use near_actix_test_utils::run_actix;
@@ -50,6 +51,7 @@ use near_primitives::errors::TxExecutionError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{verify_hash, PartialMerkleTree};
 use near_primitives::receipt::DelayedReceiptIndices;
+use near_primitives::routing_table::RoutingTable;
 use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
@@ -156,7 +158,11 @@ pub(crate) fn deploy_test_contract_with_protocol_version(
         account_id.clone(),
         account_id,
         &signer,
-        vec![Action::DeployContract(DeployContractAction { code: wasm_code.to_vec() })],
+        vec![Action::DeployContract(DeployContractAction {
+            code: wasm_code.to_vec(),
+            namespace: Namespace::default(),
+            routing_table: RoutingTable::default(),
+        })],
         *block.hash(),
     );
     env.clients[0].process_tx(tx, false, false);
@@ -210,6 +216,8 @@ pub(crate) fn prepare_env_with_congestion(
         &signer,
         vec![Action::DeployContract(DeployContractAction {
             code: near_test_contracts::base_rs_contract().to_vec(),
+            namespace: Namespace::default(),
+            routing_table: RoutingTable::default(),
         })],
         *genesis_block.hash(),
     );
@@ -2363,6 +2371,8 @@ fn test_validate_chunk_extra() {
         &signer,
         vec![Action::DeployContract(DeployContractAction {
             code: near_test_contracts::rs_contract().to_vec(),
+            namespace: Namespace::default(),
+            routing_table: RoutingTable::default(),
         })],
         *genesis_block.hash(),
     );

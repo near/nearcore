@@ -41,7 +41,7 @@ pub(crate) mod col {
     pub const CONTRACT_DATA: u8 = 9;
     pub const ROUTING_TABLE: u8 = 10;
     /// All columns
-    pub const NON_DELAYED_RECEIPT_COLUMNS: [(u8, &str); 9] = [
+    pub const NON_DELAYED_RECEIPT_COLUMNS: [(u8, &str); 8] = [
         (ACCOUNT, "Account"),
         (CONTRACT_CODE, "ContractCode"),
         (ACCESS_KEY, "AccessKey"),
@@ -50,7 +50,6 @@ pub(crate) mod col {
         (PENDING_DATA_COUNT, "PendingDataCount"),
         (POSTPONED_RECEIPT, "PostponedReceipt"),
         (CONTRACT_DATA, "ContractData"),
-        (ROUTING_TABLE, "RoutingTable"),
     ];
 }
 
@@ -58,66 +57,37 @@ pub(crate) mod col {
 #[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub enum TrieKey {
     /// Used to store `primitives::account::Account` struct for a given `AccountId`.
-    Account {
-        account_id: AccountId,
-    },
+    Account { account_id: AccountId },
     /// Used to store `Vec<u8>` contract code for a given `AccountId`.
-    ContractCode {
-        account_id: AccountId,
-        namespace: Namespace,
-    },
+    ContractCode { account_id: AccountId, namespace: Namespace },
     /// Used to store `primitives::account::AccessKey` struct for a given `AccountId` and
     /// a given `public_key` of the `AccessKey`.
-    AccessKey {
-        account_id: AccountId,
-        public_key: PublicKey,
-    },
+    AccessKey { account_id: AccountId, public_key: PublicKey },
     /// Used to store `primitives::receipt::ReceivedData` struct for a given receiver's `AccountId`
     /// of `DataReceipt` and a given `data_id` (the unique identifier for the data).
     /// NOTE: This is one of the input data for some action receipt.
     /// The action receipt might be still not be received or requires more pending input data.
-    ReceivedData {
-        receiver_id: AccountId,
-        data_id: CryptoHash,
-    },
+    ReceivedData { receiver_id: AccountId, data_id: CryptoHash },
     /// Used to store receipt ID `primitives::hash::CryptoHash` for a given receiver's `AccountId`
     /// of the receipt and a given `data_id` (the unique identifier for the required input data).
     /// NOTE: This receipt ID indicates the postponed receipt. We store `receipt_id` for performance
     /// purposes to avoid deserializing the entire receipt.
-    PostponedReceiptId {
-        receiver_id: AccountId,
-        data_id: CryptoHash,
-    },
+    PostponedReceiptId { receiver_id: AccountId, data_id: CryptoHash },
     /// Used to store the number of still missing input data `u32` for a given receiver's
     /// `AccountId` and a given `receipt_id` of the receipt.
-    PendingDataCount {
-        receiver_id: AccountId,
-        receipt_id: CryptoHash,
-    },
+    PendingDataCount { receiver_id: AccountId, receipt_id: CryptoHash },
     /// Used to store the postponed receipt `primitives::receipt::Receipt` for a given receiver's
     /// `AccountId` and a given `receipt_id` of the receipt.
-    PostponedReceipt {
-        receiver_id: AccountId,
-        receipt_id: CryptoHash,
-    },
+    PostponedReceipt { receiver_id: AccountId, receipt_id: CryptoHash },
     /// Used to store indices of the delayed receipts queue (`node-runtime::DelayedReceiptIndices`).
     /// NOTE: It is a singleton per shard.
     DelayedReceiptIndices,
     /// Used to store a delayed receipt `primitives::receipt::Receipt` for a given index `u64`
     /// in a delayed receipt queue. The queue is unique per shard.
-    DelayedReceipt {
-        index: u64,
-    },
+    DelayedReceipt { index: u64 },
     /// Used to store a key-value record `Vec<u8>` within a contract deployed on a given `AccountId`
     /// and a given key.
-    ContractData {
-        account_id: AccountId,
-        namespace: Namespace,
-        key: Vec<u8>,
-    },
-    RoutingTable {
-        account_id: AccountId,
-    },
+    ContractData { account_id: AccountId, namespace: Namespace, key: Vec<u8> },
 }
 
 /// Provides `len` function.
@@ -182,7 +152,6 @@ impl TrieKey {
                     + ACCOUNT_DATA_SEPARATOR.len()
                     + key.len()
             }
-            TrieKey::RoutingTable { account_id } => col::ROUTING_TABLE.len() + account_id.len(),
         }
     }
 
@@ -246,10 +215,6 @@ impl TrieKey {
                 buf.push(ACCOUNT_DATA_SEPARATOR);
                 buf.extend(key);
             }
-            TrieKey::RoutingTable { account_id } => {
-                buf.push(col::ROUTING_TABLE);
-                buf.extend(account_id.as_ref().as_bytes());
-            }
         };
         debug_assert_eq!(expected_len, buf.len() - start_len);
     }
@@ -273,7 +238,6 @@ impl TrieKey {
             TrieKey::DelayedReceiptIndices => None,
             TrieKey::DelayedReceipt { .. } => None,
             TrieKey::ContractData { account_id, .. } => Some(account_id.clone()),
-            TrieKey::RoutingTable { account_id } => Some(account_id.clone()),
         }
     }
 }
@@ -323,14 +287,7 @@ pub mod trie_key_parsers {
         raw_key: &'a [u8],
         account_id: &AccountId,
     ) -> Result<&'a [u8], std::io::Error> {
-        let prefix_len = col::CONTRACT_DATA.len() + account_id.len() + ACCOUNT_DATA_SEPARATOR.len();
-        if raw_key.len() < prefix_len {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "raw key is too short for TrieKey::ContractData",
-            ));
-        }
-        Ok(&raw_key[prefix_len..])
+        parse_parts_from_contract_data_key(raw_key, account_id).map(|o| o.1)
     }
 
     pub fn parse_parts_from_contract_data_key<'a>(
@@ -344,21 +301,22 @@ pub mod trie_key_parsers {
                 "raw key is too short for TrieKey::ContractData",
             ));
         }
-        let (namespace, namespace_slice_len) = next_token(&raw_key[prefix_len..], ACCOUNT_DATA_SEPARATOR)
-            .ok_or_else(|| {
-                std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "namespace part of contract data trie key unparsable",
-                )
-            })
-            .and_then(|s| {
-                Namespace::try_from(s).map(|n| (n, s.len())).map_err(|e| {
+        let (namespace, namespace_slice_len) =
+            next_token(&raw_key[prefix_len..], ACCOUNT_DATA_SEPARATOR)
+                .ok_or_else(|| {
                     std::io::Error::new(
                         std::io::ErrorKind::InvalidData,
-                        "could not decode namespace part of contract data trie key as utf-8",
+                        "namespace part of contract data trie key unparsable",
                     )
                 })
-            })?;
+                .and_then(|s| {
+                    Namespace::try_from(s).map(|n| (n, s.len())).map_err(|e| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "could not decode namespace part of contract data trie key as utf-8",
+                        )
+                    })
+                })?;
 
         let data_key = &raw_key[prefix_len + namespace_slice_len + ACCOUNT_DATA_SEPARATOR.len()..];
 
@@ -535,19 +493,15 @@ pub mod trie_key_parsers {
         res
     }
 
-    pub fn get_raw_prefix_for_contract_data(account_id: &AccountId, namespace: &Namespace, prefix: &[u8]) -> Vec<u8> {
+    pub fn get_raw_prefix_for_contract_data(account_id: &AccountId, prefix: &[u8]) -> Vec<u8> {
         let mut res = Vec::with_capacity(
             col::CONTRACT_DATA.len()
                 + account_id.len()
-                + ACCOUNT_DATA_SEPARATOR.len()
-                + namespace.len()
                 + ACCOUNT_DATA_SEPARATOR.len()
                 + prefix.len(),
         );
         res.push(col::CONTRACT_DATA);
         res.extend(account_id.as_bytes());
-        res.push(ACCOUNT_DATA_SEPARATOR);
-        res.extend(namespace.as_bytes());
         res.push(ACCOUNT_DATA_SEPARATOR);
         res.extend(prefix);
         res

@@ -29,6 +29,7 @@ fn create_runtime_with_expensive_storage() -> RuntimeNode {
     }
     records.push(StateRecord::Data {
         account_id: bob_account(),
+        namespace: Namespace::default(),
         data_key: b"test".to_vec(),
         value: b"123".to_vec(),
     });

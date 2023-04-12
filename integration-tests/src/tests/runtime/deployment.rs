@@ -1,5 +1,7 @@
 use crate::node::{Node, RuntimeNode};
 use near_chain_configs::Genesis;
+use near_primitives::namespace::Namespace;
+use near_primitives::routing_table::RoutingTable;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
 use near_primitives::types::AccountId;
@@ -30,7 +32,11 @@ fn test_deploy_max_size_contract() {
         test_contract_id.clone(),
         test_contract_id.clone(),
         &*node_user.signer(),
-        vec![Action::DeployContract(DeployContractAction { code: vec![0u8] })],
+        vec![Action::DeployContract(DeployContractAction {
+            code: vec![0u8],
+            namespace: Namespace::default(),
+            routing_table: RoutingTable::default(),
+        })],
         block_hash,
     );
     let tx_overhead = signed_transaction.get_size();

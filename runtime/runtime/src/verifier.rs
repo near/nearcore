@@ -550,6 +550,8 @@ mod tests {
     use near_primitives::account::{AccessKey, FunctionCallPermission};
     use near_primitives::delegate_action::{DelegateAction, NonDelegateAction};
     use near_primitives::hash::{hash, CryptoHash};
+    use near_primitives::namespace::Namespace;
+    use near_primitives::routing_table::RoutingTable;
     use near_primitives::test_utils::account_new;
     use near_primitives::transaction::{
         CreateAccountAction, DeleteAccountAction, DeleteKeyAction, StakeAction, TransferAction,
@@ -640,6 +642,7 @@ mod tests {
                 set_code(
                     &mut initial_state,
                     account_id.clone(),
+                    Namespace::default(),
                     &ContractCode::new(code.clone(), Some(code_hash)),
                 );
                 initial_account.set_code_hash(code_hash);
@@ -652,7 +655,11 @@ mod tests {
                 let value = vec![0u8; 100];
                 set(
                     &mut initial_state,
-                    TrieKey::ContractData { account_id: account_id.clone(), key: key.clone() },
+                    TrieKey::ContractData {
+                        account_id: account_id.clone(),
+                        namespace: Namespace::default(),
+                        key: key.clone(),
+                    },
                     &value,
                 );
                 initial_account.set_storage_usage(
@@ -1435,7 +1442,11 @@ mod tests {
             alice_account(),
             bob_account(),
             &*signer,
-            vec![Action::DeployContract(DeployContractAction { code: vec![1; 5] })],
+            vec![Action::DeployContract(DeployContractAction {
+                code: vec![1; 5],
+                namespace: Namespace::default(),
+                routing_table: RoutingTable::default(),
+            })],
             CryptoHash::default(),
         );
         let transaction_size = transaction.get_size();

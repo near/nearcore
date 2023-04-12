@@ -41,6 +41,8 @@ use chrono::DateTime;
 use near_crypto::{PublicKey, Signature};
 use near_o11y::pretty;
 use near_primitives_core::config::{ActionCosts, ExtCosts, ParameterCost, VMConfig};
+use near_primitives_core::namespace::Namespace;
+use near_primitives_core::routing_table::RoutingTable;
 use near_primitives_core::runtime::fees::Fee;
 use num_rational::Rational32;
 use std::collections::HashMap;
@@ -1108,6 +1110,10 @@ pub enum ActionView {
     DeployContract {
         #[serde(with = "base64_format")]
         code: Vec<u8>,
+        #[serde(default)]
+        namespace: Namespace,
+        #[serde(default)]
+        routing_table: RoutingTable,
     },
     FunctionCall {
         method_name: String,
@@ -1148,7 +1154,11 @@ impl From<Action> for ActionView {
             Action::CreateAccount(_) => ActionView::CreateAccount,
             Action::DeployContract(action) => {
                 let code = hash(&action.code).as_ref().to_vec();
-                ActionView::DeployContract { code }
+                ActionView::DeployContract {
+                    code,
+                    namespace: action.namespace,
+                    routing_table: action.routing_table,
+                }
             }
             Action::FunctionCall(action) => ActionView::FunctionCall {
                 method_name: action.method_name,
@@ -1182,8 +1192,8 @@ impl TryFrom<ActionView> for Action {
     fn try_from(action_view: ActionView) -> Result<Self, Self::Error> {
         Ok(match action_view {
             ActionView::CreateAccount => Action::CreateAccount(CreateAccountAction {}),
-            ActionView::DeployContract { code } => {
-                Action::DeployContract(DeployContractAction { code })
+            ActionView::DeployContract { code, namespace, routing_table } => {
+                Action::DeployContract(DeployContractAction { code, namespace, routing_table })
             }
             ActionView::FunctionCall { method_name, args, gas, deposit } => {
                 Action::FunctionCall(FunctionCallAction { method_name, args, gas, deposit })

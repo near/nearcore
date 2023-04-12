@@ -73,8 +73,7 @@ impl ShardTries {
                 | TrieKey::PostponedReceiptId { receiver_id: account_id, .. }
                 | TrieKey::PendingDataCount { receiver_id: account_id, .. }
                 | TrieKey::PostponedReceipt { receiver_id: account_id, .. }
-                | TrieKey::ContractData { account_id, .. }
-                | TrieKey::RoutingTable { account_id } => {
+                | TrieKey::ContractData { account_id, .. } => {
                     let new_shard_uid = account_id_to_shard_id(account_id);
                     // we can safely unwrap here because the caller of this function guarantees trie_updates contains all shard_uids for the new shards
                     let trie_update = trie_updates.get_mut(&new_shard_uid).unwrap();

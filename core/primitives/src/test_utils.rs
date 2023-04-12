@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use near_crypto::{EmptySigner, InMemorySigner, KeyType, PublicKey, SecretKey, Signature, Signer};
+use near_primitives_core::namespace::Namespace;
+use near_primitives_core::routing_table::RoutingTable;
 use near_primitives_core::types::ProtocolVersion;
 
 use crate::account::{AccessKey, AccessKeyPermission, Account};
@@ -48,7 +50,11 @@ impl Transaction {
     }
 
     pub fn deploy_contract(mut self, code: Vec<u8>) -> Self {
-        self.actions.push(Action::DeployContract(DeployContractAction { code }));
+        self.actions.push(Action::DeployContract(DeployContractAction {
+            code,
+            namespace: Namespace::default(),
+            routing_table: RoutingTable::default(),
+        }));
         self
     }
 
@@ -197,7 +203,11 @@ impl SignedTransaction {
                     access_key: AccessKey { nonce: 0, permission: AccessKeyPermission::FullAccess },
                 }),
                 Action::Transfer(TransferAction { deposit: amount }),
-                Action::DeployContract(DeployContractAction { code }),
+                Action::DeployContract(DeployContractAction {
+                    code,
+                    namespace: Namespace::default(),
+                    routing_table: RoutingTable::default(),
+                }),
             ],
             block_hash,
         )

@@ -7,7 +7,9 @@ use near_jsonrpc_primitives::errors::ServerError;
 use near_primitives::account::AccessKey;
 use near_primitives::delegate_action::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::hash::CryptoHash;
+use near_primitives::namespace::Namespace;
 use near_primitives::receipt::Receipt;
+use near_primitives::routing_table::RoutingTable;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
@@ -128,7 +130,11 @@ pub trait User {
         self.sign_and_commit_actions(
             signer_id.clone(),
             signer_id,
-            vec![Action::DeployContract(DeployContractAction { code })],
+            vec![Action::DeployContract(DeployContractAction {
+                code,
+                namespace: Namespace::default(),
+                routing_table: RoutingTable::default(),
+            })],
         )
     }
 

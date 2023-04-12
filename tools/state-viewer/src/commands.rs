@@ -217,6 +217,7 @@ pub(crate) fn apply_tx(
 
 pub(crate) fn dump_account_storage(
     account_id: String,
+    namespace: String,
     storage_key: String,
     output: &Path,
     block_height: String,
@@ -239,6 +240,7 @@ pub(crate) fn dump_account_storage(
             .unwrap();
         let key = TrieKey::ContractData {
             account_id: account_id.parse().unwrap(),
+            namespace: namespace.clone().into(),
             key: storage_key.as_bytes().to_vec(),
         };
         let item = trie.get(&key.to_vec());
@@ -246,10 +248,10 @@ pub(crate) fn dump_account_storage(
         if let Some(value) = value {
             let record = StateRecord::from_raw_key_value(key.to_vec(), value).unwrap();
             match record {
-                StateRecord::Data { account_id: _, data_key: _, value } => {
+                StateRecord::Data { account_id: _, namespace: _, data_key: _, value } => {
                     fs::write(output, &value).unwrap();
                     println!(
-                        "Dump contract storage under key {} of account {} into file {}",
+                        "Dump contract storage under key {} of account {} namespace {namespace} into file {}",
                         storage_key,
                         account_id,
                         output.display()

@@ -12,6 +12,8 @@ use near_primitives::errors::{
     ActionError, ActionErrorKind, InvalidAccessKeyError, InvalidTxError, TxExecutionError,
 };
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::namespace::Namespace;
+use near_primitives::routing_table::RoutingTable;
 use near_primitives::types::{AccountId, Balance, TrieNodesCount};
 use near_primitives::views::{
     AccessKeyView, AccountView, ExecutionMetadataView, FinalExecutionOutcomeView,
@@ -1523,7 +1525,12 @@ pub fn test_chunk_nodes_cache_mode(node: impl Node, runtime_config: RuntimeConfi
         make_receipt(&node, vec![make_write_key_value_action(vec![1], vec![1])], bob_account()),
         make_receipt(
             &node,
-            vec![DeployContractAction { code: test_utils::encode(&[2]) }.into()],
+            vec![DeployContractAction {
+                code: test_utils::encode(&[2]),
+                namespace: Namespace::default(),
+                routing_table: RoutingTable::default(),
+            }
+            .into()],
             alice_account(),
         ),
         make_receipt(&node, vec![make_write_key_value_action(vec![2], vec![2])], bob_account()),

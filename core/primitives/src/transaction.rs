@@ -8,7 +8,9 @@ use crate::types::{AccountId, Balance, Gas, Nonce};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature};
 use near_o11y::pretty;
+use near_primitives_core::namespace::Namespace;
 use near_primitives_core::profile::{ProfileDataV2, ProfileDataV3};
+use near_primitives_core::routing_table::RoutingTable;
 use near_primitives_core::types::Compute;
 use std::borrow::Borrow;
 use std::fmt;
@@ -121,6 +123,10 @@ pub struct DeployContractAction {
     /// WebAssembly binary
     #[serde(with = "base64_format")]
     pub code: Vec<u8>,
+    #[serde(default)]
+    pub namespace: Namespace,
+    #[serde(default)]
+    pub routing_table: RoutingTable,
 }
 
 impl From<DeployContractAction> for Action {
@@ -133,6 +139,7 @@ impl fmt::Debug for DeployContractAction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DeployContractAction")
             .field("code", &format_args!("{}", pretty::AbbrBytes(&self.code)))
+            .field("namespace", &format_args!("{}", &self.namespace))
             .finish()
     }
 }
@@ -564,7 +571,11 @@ mod tests {
             block_hash: Default::default(),
             actions: vec![
                 Action::CreateAccount(CreateAccountAction {}),
-                Action::DeployContract(DeployContractAction { code: vec![1, 2, 3] }),
+                Action::DeployContract(DeployContractAction {
+                    code: vec![1, 2, 3],
+                    namespace: Namespace::default(),
+                    routing_table: RoutingTable::default(),
+                }),
                 Action::FunctionCall(FunctionCallAction {
                     method_name: "qqq".to_string(),
                     args: vec![1, 2, 3],

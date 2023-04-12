@@ -2,12 +2,21 @@ use std::collections::HashMap;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use crate::{hash::CryptoHash, namespace::Namespace};
+use crate::namespace::Namespace;
 
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Default)]
-pub struct RoutingTable {
-    method_resolution_table: HashMap<String, (Namespace, String)>,
-}
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[serde(transparent)]
+pub struct RoutingTable(HashMap<String, (Namespace, String)>);
 
 impl RoutingTable {
     pub fn new() -> Self {
@@ -20,16 +29,15 @@ impl RoutingTable {
         target_namespace: Namespace,
         target_method_name: String,
     ) {
-        self.method_resolution_table
-            .insert(incoming_method_name, (target_namespace, target_method_name));
+        self.0.insert(incoming_method_name, (target_namespace, target_method_name));
     }
 
     pub fn merge(&mut self, other: RoutingTable) {
-        self.method_resolution_table.extend(other.method_resolution_table);
+        self.0.extend(other.0);
     }
 
     pub fn resolve_method(&self, incoming_method_name: &str) -> Option<&(Namespace, String)> {
-        self.method_resolution_table.get(incoming_method_name)
+        self.0.get(incoming_method_name)
     }
 
     pub fn inverse_resolve_method(
@@ -37,7 +45,7 @@ impl RoutingTable {
         target_namespace: &Namespace,
         target_method_name: &str,
     ) -> Option<&String> {
-        self.method_resolution_table
+        self.0
             .iter()
             .find(|(_, (namespace, method_name))| {
                 namespace == target_namespace && method_name == target_method_name

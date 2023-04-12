@@ -7,7 +7,7 @@ use std::{fmt, io};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use metadata::{DbKind, DbVersion, KIND_KEY, VERSION_KEY};
-use near_primitives::routing_table::RoutingTable;
+use near_primitives::namespace::Namespace;
 use once_cell::sync::Lazy;
 use strum;
 
@@ -842,28 +842,23 @@ pub fn get_access_key_raw(
     )
 }
 
-pub fn set_code(state_update: &mut TrieUpdate, account_id: AccountId, code: &ContractCode) {
-    state_update.set(
-        TrieKey::ContractCode { account_id, namespace: Default::default() },
-        code.code().to_vec(),
-    );
+pub fn set_code(
+    state_update: &mut TrieUpdate,
+    account_id: AccountId,
+    namespace: Namespace,
+    code: &ContractCode,
+) {
+    state_update.set(TrieKey::ContractCode { account_id, namespace }, code.code().to_vec());
 }
 
 pub fn get_code(
     trie: &dyn TrieAccess,
     account_id: &AccountId,
+    namespace: Namespace,
     code_hash: Option<CryptoHash>,
 ) -> Result<Option<ContractCode>, StorageError> {
-    let key =
-        TrieKey::ContractCode { account_id: account_id.clone(), namespace: Default::default() };
+    let key = TrieKey::ContractCode { account_id: account_id.clone(), namespace };
     trie.get(&key).map(|opt| opt.map(|code| ContractCode::new(code, code_hash)))
-}
-
-pub fn get_routing_table(
-    trie: &dyn TrieAccess,
-    account_id: &AccountId,
-) -> Result<Option<RoutingTable>, StorageError> {
-    get(trie, &TrieKey::RoutingTable { account_id: account_id.clone() })
 }
 
 /// Removes account, code and all access keys associated to it.
@@ -872,7 +867,6 @@ pub fn remove_account(
     account_id: &AccountId,
 ) -> Result<(), StorageError> {
     state_update.remove(TrieKey::Account { account_id: account_id.clone() });
-    state_update.remove(TrieKey::RoutingTable { account_id: account_id.clone() });
 
     // Remove all deployed (namespaced) contract codes
     let namespaces = state_update

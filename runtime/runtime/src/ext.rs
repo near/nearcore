@@ -1,6 +1,7 @@
 use near_primitives::contract::ContractCode;
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
+use near_primitives::namespace::Namespace;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{
     AccountId, Balance, EpochId, EpochInfoProvider, TrieCacheMode, TrieNodesCount,
@@ -80,8 +81,8 @@ impl<'a> RuntimeExt<'a> {
         self.account_id
     }
 
-    pub fn get_code(&self, code_hash: CryptoHash) -> Result<Option<ContractCode>, StorageError> {
-        get_code(self.trie_update, self.account_id, Some(code_hash))
+    pub fn get_code(&self, namespace: Namespace, code_hash: CryptoHash) -> Result<Option<ContractCode>, StorageError> {
+        get_code(self.trie_update, self.account_id, namespace, Some(code_hash))
     }
 
     pub fn create_storage_key(&self, key: &[u8]) -> TrieKey {
@@ -146,24 +147,24 @@ impl<'a> External for RuntimeExt<'a> {
     }
 
     fn storage_remove_subtree(&mut self, prefix: &[u8]) -> ExtResult<()> {
-        let data_keys = self
+        let namespace_data_keys = self
             .trie_update
             .iter(&trie_key_parsers::get_raw_prefix_for_contract_data(self.account_id, prefix))
             .map_err(wrap_storage_error)?
             .map(|raw_key| {
-                trie_key_parsers::parse_data_key_from_contract_data_key(&raw_key?, self.account_id)
+                trie_key_parsers::parse_parts_from_contract_data_key(&raw_key?, self.account_id)
                     .map_err(|_e| {
                         StorageError::StorageInconsistentState(
                             "Can't parse data key from raw key for ContractData".to_string(),
                         )
                     })
-                    .map(Vec::from)
+                    .map(|(namespace, key)| (namespace, key.to_vec()))
             })
             .collect::<Result<Vec<_>, _>>()
             .map_err(wrap_storage_error)?;
-        for key in data_keys {
+        for (namespace, key) in namespace_data_keys {
             self.trie_update
-                .remove(TrieKey::ContractData { account_id: self.account_id.clone(), key });
+                .remove(TrieKey::ContractData { account_id: self.account_id.clone(), namespace, key });
         }
         Ok(())
     }

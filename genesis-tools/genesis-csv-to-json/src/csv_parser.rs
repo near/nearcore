@@ -6,6 +6,7 @@ use near_crypto::{KeyType, PublicKey};
 use near_network::types::PeerInfo;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::namespace::Namespace;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{Action, FunctionCallAction};
@@ -223,7 +224,7 @@ fn account_records(row: &Row, gas_price: Balance) -> Vec<StateRecord> {
 
     // Add smart contract code if was specified.
     if let Some(code) = smart_contract_code {
-        res.push(StateRecord::Contract { account_id: row.account_id.clone(), code });
+        res.push(StateRecord::Contract { account_id: row.account_id.clone(), code, namespace: Namespace::default() });
     }
 
     // Add init function call if smart contract was provided.

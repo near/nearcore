@@ -2,6 +2,7 @@ use near_chain_configs::{get_initial_supply, Genesis, GenesisConfig, GenesisReco
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::namespace::Namespace;
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::shard_layout::ShardUId;
@@ -225,8 +226,12 @@ impl RuntimeGroup {
                     public_key: signer.public_key.clone(),
                     access_key: AccessKey::full_access(),
                 });
-                state_records
-                    .push(StateRecord::Contract { account_id, code: contract_code.to_vec() });
+                // TODO: I don't know what this is doing, and therefore, I don't know how to correctly implement it
+                state_records.push(StateRecord::Contract {
+                    account_id,
+                    code: contract_code.to_vec(),
+                    namespace: Namespace::default(),
+                });
                 validators.push(AccountInfo {
                     account_id: signer.account_id.clone(),
                     public_key: signer.public_key.clone(),

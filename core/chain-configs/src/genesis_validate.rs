@@ -193,6 +193,7 @@ mod test {
     use crate::GenesisRecords;
     use near_crypto::{KeyType, PublicKey};
     use near_primitives::account::{AccessKey, Account};
+    use near_primitives::namespace::Namespace;
     use near_primitives::types::AccountInfo;
 
     const VALID_ED25519_RISTRETTO_KEY: &str = "ed25519:KuTCtARNzxZQ3YvXDeLjx83FDqxv2SdQTSbiq876zR7";
@@ -299,10 +300,15 @@ mod test {
         config.total_supply = 110;
         let records = GenesisRecords(vec![
             StateRecord::Account { account_id: "test".parse().unwrap(), account: create_account() },
-            StateRecord::Contract { account_id: "test".parse().unwrap(), code: [1, 2, 3].to_vec() },
+            StateRecord::Contract {
+                account_id: "test".parse().unwrap(),
+                code: [1, 2, 3].to_vec(),
+                namespace: Namespace::default(),
+            },
             StateRecord::Contract {
                 account_id: "test".parse().unwrap(),
                 code: [1, 2, 3, 4].to_vec(),
+                namespace: Namespace::default(),
             },
         ]);
         let genesis = &Genesis::new(config, records).unwrap();

@@ -7,11 +7,13 @@ use crate::trie_key::trie_key_parsers::{
     parse_account_id_from_access_key_key, parse_account_id_from_account_key,
     parse_account_id_from_contract_code_key, parse_account_id_from_contract_data_key,
     parse_account_id_from_received_data_key, parse_data_id_from_received_data_key,
-    parse_data_key_from_contract_data_key, parse_public_key_from_access_key_key,
+    parse_data_key_from_contract_data_key, parse_namespace_from_contract_code_key,
+    parse_parts_from_contract_data_key, parse_public_key_from_access_key_key,
 };
 use crate::types::AccountId;
 use borsh::BorshDeserialize;
 use near_crypto::PublicKey;
+use near_primitives_core::namespace::Namespace;
 use std::fmt::{Display, Formatter};
 
 /// Record in the state storage.
@@ -22,6 +24,7 @@ pub enum StateRecord {
     /// Data records inside the contract, encoded in base64.
     Data {
         account_id: AccountId,
+        namespace: Namespace,
         #[serde(with = "base64_format")]
         data_key: Vec<u8>,
         #[serde(with = "base64_format")]
@@ -30,6 +33,7 @@ pub enum StateRecord {
     /// Contract code encoded in base64.
     Contract {
         account_id: AccountId,
+        namespace: Namespace,
         #[serde(with = "base64_format")]
         code: Vec<u8>,
     },
@@ -62,13 +66,20 @@ impl StateRecord {
             }),
             col::CONTRACT_DATA => {
                 let account_id = parse_account_id_from_contract_data_key(&key).unwrap();
-                let data_key = parse_data_key_from_contract_data_key(&key, &account_id).unwrap();
-                Some(StateRecord::Data { account_id, data_key: data_key.to_vec(), value })
+                let (namespace, data_key) =
+                    parse_parts_from_contract_data_key(&key, &account_id).unwrap();
+                Some(StateRecord::Data {
+                    account_id,
+                    namespace,
+                    data_key: data_key.to_vec(),
+                    value,
+                })
             }
-            col::CONTRACT_CODE => Some(StateRecord::Contract {
-                account_id: parse_account_id_from_contract_code_key(&key).unwrap(),
-                code: value,
-            }),
+            col::CONTRACT_CODE => {
+                let account_id = parse_account_id_from_contract_code_key(&key).unwrap();
+                let namespace = parse_namespace_from_contract_code_key(&key, &account_id).unwrap();
+                Some(StateRecord::Contract { account_id, namespace, code: value })
+            }
             col::ACCESS_KEY => {
                 let access_key = AccessKey::try_from_slice(&value).unwrap();
                 let account_id = parse_account_id_from_access_key_key(&key).unwrap();
@@ -103,15 +114,16 @@ impl Display for StateRecord {
             StateRecord::Account { account_id, account } => {
                 write!(f, "Account {:?}: {:?}", account_id, account)
             }
-            StateRecord::Data { account_id, data_key, value } => write!(
+            StateRecord::Data { account_id, namespace, data_key, value } => write!(
                 f,
-                "Storage {:?},{:?}: {:?}",
+                "Storage {:?}:{:?},{:?}: {:?}",
                 account_id,
+                namespace,
                 to_printable(data_key),
                 to_printable(value)
             ),
-            StateRecord::Contract { account_id, code: _ } => {
-                write!(f, "Code for {:?}: ...", account_id)
+            StateRecord::Contract { account_id, namespace, code: _ } => {
+                write!(f, "Code for {:?}:{namespace}: ...", account_id)
             }
             StateRecord::AccessKey { account_id, public_key, access_key } => {
                 write!(f, "Access key {:?},{:?}: {:?}", account_id, public_key, access_key)

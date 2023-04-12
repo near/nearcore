@@ -42,12 +42,14 @@ impl<'a> StorageComputer<'a> {
             StateRecord::Account { account_id, .. } => {
                 Some((account_id.clone(), self.config.num_bytes_account))
             }
-            StateRecord::Data { account_id, data_key, value } => {
+            StateRecord::Data { account_id, namespace, data_key, value } => {
+                // TODO: Accounting
                 let storage_usage =
                     self.config.num_extra_bytes_record + data_key.len() as u64 + value.len() as u64;
                 Some((account_id.clone(), storage_usage))
             }
-            StateRecord::Contract { account_id, code } => {
+            StateRecord::Contract { account_id, namespace, code } => {
+                // TODO: Accounting
                 Some((account_id.clone(), code.len() as u64))
             }
             StateRecord::AccessKey { account_id, public_key, access_key } => {
@@ -189,26 +191,27 @@ impl GenesisStateApplier {
                 StateRecord::Account { account_id, account } => storage.modify(|state_update| {
                     set_account(state_update, account_id.clone(), account);
                 }),
-                StateRecord::Data { account_id, data_key, value } => {
+                StateRecord::Data { account_id, namespace, data_key, value } => {
                     storage.modify(|state_update| {
                         state_update.set(
                             TrieKey::ContractData {
                                 key: data_key.clone(),
                                 account_id: account_id.clone(),
+                                namespace: namespace.clone(),
                             },
                             value.clone(),
                         );
                     })
                 }
-                StateRecord::Contract { account_id, code } => {
+                StateRecord::Contract { account_id, namespace, code } => {
                     storage.modify(|state_update| {
                         // Recompute contract code hash.
                         let code = ContractCode::new(code.clone(), None);
                         if let Some(acc) =
                             get_account(state_update, account_id).expect("Failed to read state")
                         {
-                            set_code(state_update, account_id.clone(), &code);
-                            assert_eq!(*code.hash(), acc.code_hash());
+                            set_code(state_update, account_id.clone(), namespace.clone(), &code);
+                            assert_eq!(Some(code.hash()), acc.code_hashes().get(namespace));
                         } else {
                             tracing::error!(
                                 target: "runtime",

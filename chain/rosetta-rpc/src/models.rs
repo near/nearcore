@@ -1,8 +1,11 @@
+use near_primitives::namespace::Namespace;
+use near_primitives::routing_table::RoutingTable;
 use paperclip::actix::{api_v2_errors, Apiv2Schema};
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockHeight, Nonce};
 
+use crate::types::{TypedNamespace, TypedRoutingTable};
 use crate::utils::{BlobInHexString, BorshInHexString};
 
 /// An AccountBalanceRequest is utilized to make a balance request on the
@@ -778,6 +781,10 @@ pub(crate) struct OperationMetadata {
     /// Has to be specified for DEPLOY_CONTRACT operation
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<BlobInHexString<Vec<u8>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<TypedNamespace>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub routing_table: Option<TypedRoutingTable>,
     /// Has to be specified for FUNCTION_CALL operation
     #[serde(skip_serializing_if = "Option::is_none")]
     pub method_name: Option<String>,

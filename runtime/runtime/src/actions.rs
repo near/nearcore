@@ -13,6 +13,7 @@ use near_primitives::contract::ContractCode;
 use near_primitives::delegate_action::{DelegateAction, SignedDelegateAction};
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
 use near_primitives::hash::CryptoHash;
+use near_primitives::namespace::Namespace;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::runtime::config::AccountCreationConfig;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
@@ -55,7 +56,21 @@ pub(crate) fn execute_function_call(
 ) -> Result<VMOutcome, RuntimeError> {
     let account_id = runtime_ext.account_id();
     tracing::debug!(target: "runtime", %account_id, "Calling the contract");
-    let code = match runtime_ext.get_code(account.code_hashes()) {
+    let (resolved_namespace, resolved_method_name) = account
+        .routing_table()
+        .resolve_method(&function_call.method_name)
+        .map(|(namespace, method_name)| (namespace.clone(), method_name.as_str()))
+        .unwrap_or((Namespace::default(), &function_call.method_name)); // fallback: default namespace, same method name
+    let code_hash = match account.code_hashes().get(&resolved_namespace) {
+        Some(code_hash) => *code_hash,
+        None => {
+            return Ok(VMOutcome::nop_outcome(FunctionCallError::CompilationError(
+                CompilationError::CodeDoesNotExist { account_id: account_id.clone() },
+            )));
+        }
+    };
+
+    let code = match runtime_ext.get_code(resolved_namespace.clone(), code_hash) {
         Ok(Some(code)) => code,
         Ok(None) => {
             let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
@@ -110,7 +125,8 @@ pub(crate) fn execute_function_call(
     }
     let result = near_vm_runner::run(
         &code,
-        &function_call.method_name,
+        // &function_call.method_name,
+        resolved_method_name,
         runtime_ext,
         context,
         &config.wasm_config,
@@ -470,7 +486,12 @@ pub(crate) fn action_deploy_contract(
 ) -> Result<(), StorageError> {
     let _span = tracing::debug_span!(target: "runtime", "action_deploy_contract").entered();
     let code = ContractCode::new(deploy_contract.code.clone(), None);
-    let prev_code = get_code(state_update, account_id, Some(account.code_hash()))?;
+    let prev_code = get_code(
+        state_update,
+        account_id,
+        deploy_contract.namespace.clone(),
+        Some(account.code_hash()),
+    )?;
     let prev_code_length = prev_code.map(|code| code.code().len() as u64).unwrap_or_default();
     account.set_storage_usage(account.storage_usage().saturating_sub(prev_code_length));
     account.set_storage_usage(
@@ -481,8 +502,10 @@ pub(crate) fn action_deploy_contract(
             ))
         })?,
     );
-    account.set_code_hash(*code.hash());
-    set_code(state_update, account_id.clone(), &code);
+    account.set_code_hash_for(deploy_contract.namespace.clone(), *code.hash());
+    set_code(state_update, account_id.clone(), deploy_contract.namespace.clone(), &code);
+    // TODO: Accounting for routing table storage costs
+    account.routing_table_mut().merge(deploy_contract.routing_table.clone());
     // Precompile the contract and store result (compiled code or error) in the database.
     // Note, that contract compilation costs are already accounted in deploy cost using
     // special logic in estimator (see get_runtime_config() function).
@@ -509,13 +532,19 @@ pub(crate) fn action_delete_account(
     if current_protocol_version >= ProtocolFeature::DeleteActionRestriction.protocol_version() {
         let account = account.as_ref().unwrap();
         let mut account_storage_usage = account.storage_usage();
-        let contract_code = get_code(state_update, account_id, Some(account.code_hash()))?;
-        if let Some(code) = contract_code {
-            // account storage usage should be larger than code size
-            let code_len = code.code().len() as u64;
-            debug_assert!(account_storage_usage > code_len);
-            account_storage_usage = account_storage_usage.saturating_sub(code_len);
+
+        // delete code from all namespaces
+        for (namespace, code_hash) in account.code_hashes().iter() {
+            let contract_code =
+                get_code(state_update, account_id, namespace.clone(), Some(*code_hash))?;
+            if let Some(code) = contract_code {
+                // account storage usage should be larger than code size
+                let code_len = code.code().len() as u64;
+                debug_assert!(account_storage_usage > code_len);
+                account_storage_usage = account_storage_usage.saturating_sub(code_len);
+            }
         }
+
         if account_storage_usage > Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE {
             result.result = Err(ActionErrorKind::DeleteAccountWithLargeState {
                 account_id: account_id.clone(),
@@ -1120,7 +1149,8 @@ mod tests {
         let mut state_update =
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
         let account_id = "alice".parse::<AccountId>().unwrap();
-        let trie_key = TrieKey::ContractCode { account_id: account_id.clone(), namespace: Default::default() };
+        let trie_key =
+            TrieKey::ContractCode { account_id: account_id.clone(), namespace: Default::default() };
         let empty_contract = [0; 10_000].to_vec();
         let contract_hash = hash(&empty_contract);
         state_update.set(trie_key, empty_contract);

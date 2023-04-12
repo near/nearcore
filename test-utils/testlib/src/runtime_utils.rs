@@ -2,6 +2,7 @@ use near_chain_configs::Genesis;
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::hash;
+use near_primitives::namespace::Namespace;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{AccountId, Balance};
 
@@ -49,7 +50,11 @@ pub fn add_contract(genesis: &mut Genesis, account_id: &AccountId, code: Vec<u8>
             account: Account::new(0, 0, hash, 0),
         });
     }
-    records.push(StateRecord::Contract { account_id: account_id.clone(), code });
+    records.push(StateRecord::Contract {
+        account_id: account_id.clone(),
+        namespace: Namespace::default(), // TODO: predeploy to namespaces?
+        code,
+    });
 }
 
 /// Add an account with a specified access key & balance to the genesis state records.

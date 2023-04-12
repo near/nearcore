@@ -16,6 +16,8 @@ use near_primitives::errors::{
     ActionError, ActionErrorKind, ActionsValidationError, InvalidAccessKeyError, InvalidTxError,
     TxExecutionError,
 };
+use near_primitives::namespace::Namespace;
+use near_primitives::routing_table::RoutingTable;
 use near_primitives::test_utils::{create_user_test_signer, implicit_test_account};
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
@@ -433,7 +435,11 @@ fn meta_tx_deploy() {
 
     let code = smallest_rs_contract().to_vec();
     let tx_cost = fee_helper.deploy_contract_cost(code.len() as u64);
-    let actions = vec![Action::DeployContract(DeployContractAction { code })];
+    let actions = vec![Action::DeployContract(DeployContractAction {
+        code,
+        namespace: Namespace::default(),
+        routing_table: RoutingTable::default(),
+    })];
     check_meta_tx_no_fn_call(&node, actions, tx_cost, 0, sender, relayer, receiver);
 }
 
@@ -826,7 +832,7 @@ fn meta_tx_create_and_use_implicit_account() {
     let initial_amount = nearcore::NEAR_BASE;
     let actions = vec![
         Action::Transfer(TransferAction { deposit: initial_amount }),
-        Action::DeployContract(DeployContractAction { code: ft_contract().to_vec() }),
+        Action::DeployContract(DeployContractAction { code: ft_contract().to_vec(), namespace: Namespace::default(), routing_table: RoutingTable::default() }),
     ];
 
     // Execute and expect `AccountDoesNotExist`, as we try to call a meta

@@ -43,6 +43,7 @@
 
 use near_o11y::metrics::prometheus;
 use near_o11y::metrics::prometheus::core::GenericCounter;
+use near_primitives::namespace::Namespace;
 use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::transaction::{Action, SignedTransaction};
 use near_primitives::trie_key::TrieKey;
@@ -201,6 +202,7 @@ impl TriePrefetcher {
                                     key.extend(hashed_account);
                                     let trie_key = TrieKey::ContractData {
                                         account_id: account_id.clone(),
+                                        namespace: Namespace::default(), // TODO: necessary?
                                         key: key.to_vec(),
                                     };
                                     near_o11y::io_trace!(count: "prefetch");

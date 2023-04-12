@@ -21,6 +21,12 @@ use serde::{Deserialize, Serialize};
 )]
 pub struct Namespace(String);
 
+impl std::fmt::Display for Namespace {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 impl TryFrom<&'_ [u8]> for Namespace {
     type Error = FromUtf8Error;
 

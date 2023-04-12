@@ -164,8 +164,9 @@ pub fn state_dump_redis(
                     println!("Account written: {}", account_id);
                 }
 
-                if let StateRecord::Data { account_id, data_key, value } = &sr {
-                    println!("Data: {}", account_id);
+                if let StateRecord::Data { account_id, namespace, data_key, value } = &sr {
+                    // TODO: namespace dump
+                    println!("Data: {}:{namespace}", account_id);
                     let redis_key =
                         [account_id.as_ref().as_bytes(), b":", data_key.as_ref()].concat();
                     redis_connection.zadd(
@@ -181,7 +182,8 @@ pub fn state_dump_redis(
                     println!("Data written: {}", account_id);
                 }
 
-                if let StateRecord::Contract { account_id, code } = &sr {
+                if let StateRecord::Contract { account_id, namespace, code } = &sr {
+                    // TODO: dump namespace
                     println!("Contract: {}", account_id);
                     let redis_key = [b"code:", account_id.as_ref().as_bytes()].concat();
                     redis_connection.zadd(redis_key.clone(), block_hash.as_ref(), block_height)?;
@@ -300,6 +302,8 @@ mod test {
     use near_client::test_utils::TestEnv;
     use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, SecretKey};
     use near_primitives::account::id::AccountId;
+    use near_primitives::namespace::Namespace;
+    use near_primitives::routing_table::RoutingTable;
     use near_primitives::state_record::StateRecord;
     use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
     use near_primitives::types::{
@@ -442,6 +446,8 @@ mod test {
             &signer0,
             vec![Action::DeployContract(DeployContractAction {
                 code: near_test_contracts::base_rs_contract().to_vec(),
+                namespace: Namespace::default(),
+                routing_table: RoutingTable::default(),
             })],
             genesis_hash,
         );

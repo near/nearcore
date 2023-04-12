@@ -9,6 +9,7 @@ use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, Signer};
 use near_jsonrpc_primitives::errors::ServerError;
 use near_primitives::contract::ContractCode;
+use near_primitives::namespace::Namespace;
 use near_primitives::num_rational::Ratio;
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::SignedTransaction;
@@ -168,7 +169,7 @@ pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
         }
         assert!(is_account_record_found);
         records
-            .push(StateRecord::Contract { account_id: seed.parse().unwrap(), code: code.to_vec() });
+            .push(StateRecord::Contract { account_id: seed.parse().unwrap(), code: code.to_vec(), namespace: Namespace::default() });
     }
     near_configs_to_node_configs(configs, validator_signers, network_signers, genesis)
 }

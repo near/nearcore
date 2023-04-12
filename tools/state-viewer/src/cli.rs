@@ -294,6 +294,7 @@ impl DumpAccountStorageCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         dump_account_storage(
             self.account_id,
+            Default::default(), // TODO: correct for CLI
             self.storage_key,
             &self.output,
             self.block_height,

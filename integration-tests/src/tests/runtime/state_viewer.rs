@@ -5,6 +5,7 @@ use near_primitives::{
     account::Account,
     hash::hash as sha256,
     hash::CryptoHash,
+    namespace::Namespace,
     serialize::to_base64,
     trie_key::trie_key_parsers,
     types::{AccountId, StateRoot},
@@ -257,19 +258,35 @@ fn test_view_state() {
     let shard_uid = TEST_SHARD_UID;
     let mut state_update = tries.new_trie_update(shard_uid, root);
     state_update.set(
-        TrieKey::ContractData { account_id: alice_account(), key: b"test123".to_vec() },
+        TrieKey::ContractData {
+            account_id: alice_account(),
+            key: b"test123".to_vec(),
+            namespace: Namespace::default(),
+        },
         b"123".to_vec(),
     );
     state_update.set(
-        TrieKey::ContractData { account_id: alice_account(), key: b"test321".to_vec() },
+        TrieKey::ContractData {
+            account_id: alice_account(),
+            key: b"test321".to_vec(),
+            namespace: Namespace::default(),
+        },
         b"321".to_vec(),
     );
     state_update.set(
-        TrieKey::ContractData { account_id: "alina".parse().unwrap(), key: b"qqq".to_vec() },
+        TrieKey::ContractData {
+            account_id: "alina".parse().unwrap(),
+            key: b"qqq".to_vec(),
+            namespace: Namespace::default(),
+        },
         b"321".to_vec(),
     );
     state_update.set(
-        TrieKey::ContractData { account_id: "alex".parse().unwrap(), key: b"qqq".to_vec() },
+        TrieKey::ContractData {
+            account_id: "alex".parse().unwrap(),
+            key: b"qqq".to_vec(),
+            namespace: Namespace::default(),
+        },
         b"321".to_vec(),
     );
     state_update.commit(StateChangeCause::InitialState);
@@ -368,7 +385,10 @@ fn test_view_state_with_large_contract() {
         alice_account(),
         &Account::new(0, 0, sha256(&contract_code), 50_001),
     );
-    state_update.set(TrieKey::ContractCode { account_id: alice_account(), namespace: Default::default() }, contract_code);
+    state_update.set(
+        TrieKey::ContractCode { account_id: alice_account(), namespace: Default::default() },
+        contract_code,
+    );
     let trie_viewer = TrieViewer::new(Some(50_000), None);
     let result = trie_viewer.view_state(&state_update, &alice_account(), b"", false);
     assert!(result.is_ok());

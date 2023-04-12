@@ -1526,15 +1526,15 @@ impl Runtime {
                 StateRecord::Account { account_id, account } => {
                     set_account(state_update, account_id, &account);
                 }
-                StateRecord::Data { account_id, data_key, value } => {
-                    state_update.set(TrieKey::ContractData { key: data_key, account_id }, value);
+                StateRecord::Data { account_id, namespace, data_key, value } => {
+                    state_update.set(TrieKey::ContractData { key: data_key, account_id, namespace }, value);
                 }
-                StateRecord::Contract { account_id, code } => {
+                StateRecord::Contract { account_id, namespace, code } => {
                     let acc = get_account(state_update, &account_id).expect("Failed to read state").expect("Code state record should be preceded by the corresponding account record");
                     // Recompute contract code hash.
                     let code = ContractCode::new(code, None);
-                    set_code(state_update, account_id, &code);
-                    assert_eq!(*code.hash(), acc.code_hash());
+                    set_code(state_update, account_id, namespace.clone(), &code);
+                    assert_eq!(Some(code.hash()), acc.code_hashes().get(&namespace));
                 }
                 StateRecord::AccessKey { account_id, public_key, access_key } => {
                     set_access_key(state_update, account_id, public_key, &access_key);
@@ -1600,6 +1600,8 @@ mod tests {
     use near_primitives::account::AccessKey;
     use near_primitives::contract::ContractCode;
     use near_primitives::hash::hash;
+    use near_primitives::namespace::Namespace;
+    use near_primitives::routing_table::RoutingTable;
     use near_primitives::shard_layout::ShardUId;
     use near_primitives::test_utils::{account_new, MockEpochInfoProvider};
     use near_primitives::transaction::DeployContractAction;
@@ -2522,8 +2524,11 @@ mod tests {
             setup_runtime(initial_balance, initial_locked, gas_limit);
 
         let wasm_code = near_test_contracts::rs_contract().to_vec();
-        let actions =
-            vec![Action::DeployContract(DeployContractAction { code: wasm_code.clone() })];
+        let actions = vec![Action::DeployContract(DeployContractAction {
+            code: wasm_code.clone(),
+            namespace: Namespace::default(),
+            routing_table: RoutingTable::default(),
+        })];
 
         let receipts = vec![create_receipt_with_actions(alice_account(), signer, actions)];
 

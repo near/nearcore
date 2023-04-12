@@ -385,6 +385,7 @@ mod test {
     use anyhow::Context;
     use near_chain_configs::{get_initial_supply, Genesis, GenesisConfig};
     use near_primitives::hash::CryptoHash;
+    use near_primitives::namespace::Namespace;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::state_record::StateRecord;
     use near_primitives::static_clock::StaticClock;
@@ -449,6 +450,7 @@ mod test {
                 Self::Contract { account_id } => StateRecord::Contract {
                     account_id: account_id.parse().unwrap(),
                     code: vec![123],
+                    namespace: Namespace::default(),
                 },
             }
         }

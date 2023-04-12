@@ -12,6 +12,7 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::{genesis_chunks, Tip};
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::namespace::Namespace;
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardUId};
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -288,8 +289,9 @@ impl GenesisBuilder {
         records.push(access_key_record);
         if let Some(wasm_binary) = self.additional_accounts_code.as_ref() {
             let code = ContractCode::new(wasm_binary.clone(), None);
-            set_code(&mut state_update, account_id.clone(), &code);
-            let contract_record = StateRecord::Contract { account_id, code: wasm_binary.clone() };
+            let namespace = Namespace::default();
+            set_code(&mut state_update, account_id.clone(), namespace.clone(), &code);
+            let contract_record = StateRecord::Contract { account_id, code: wasm_binary.clone(), namespace };
             records.push(contract_record);
         }
 

@@ -1,8 +1,12 @@
+use near_primitives::{namespace::Namespace, routing_table::RoutingTable};
+
 use super::ValidatedOperation;
 
 pub(crate) struct DeployContractOperation {
     pub(crate) account: crate::models::AccountIdentifier,
     pub(crate) code: Vec<u8>,
+    pub(crate) namespace: Namespace,
+    pub(crate) routing_table: RoutingTable,
 }
 
 impl ValidatedOperation for DeployContractOperation {
@@ -43,7 +47,9 @@ impl TryFrom<crate::models::Operation> for DeployContractOperation {
         Self::validate_operation_type(operation.type_)?;
         let metadata = operation.metadata.ok_or_else(required_fields_error)?;
         let code = metadata.code.ok_or_else(required_fields_error)?.into_inner();
+        let namespace = metadata.namespace.ok_or_else(required_fields_error)?.into();
+        let routing_table = metadata.routing_table.ok_or_else(required_fields_error)?.into();
 
-        Ok(Self { account: operation.account, code })
+        Ok(Self { account: operation.account, code, namespace, routing_table })
     }
 }

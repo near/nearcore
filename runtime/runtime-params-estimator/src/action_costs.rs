@@ -13,7 +13,9 @@ use crate::utils::average_cost;
 use near_crypto::{KeyType, PublicKey};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::hash::CryptoHash;
+use near_primitives::namespace::Namespace;
 use near_primitives::receipt::{ActionReceipt, Receipt};
+use near_primitives::routing_table::RoutingTable;
 use near_primitives::transaction::Action;
 use near_primitives::types::{AccountId, Gas};
 use std::iter;
@@ -615,6 +617,8 @@ fn delete_account_action() -> Action {
 fn deploy_action(size: ActionSize) -> Action {
     Action::DeployContract(near_primitives::transaction::DeployContractAction {
         code: near_test_contracts::sized_contract(size.deploy_contract() as usize),
+        namespace: Namespace::default(),
+        routing_table: RoutingTable::default(),
     })
 }
 

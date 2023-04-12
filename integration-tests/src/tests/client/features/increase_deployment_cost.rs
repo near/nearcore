@@ -5,6 +5,8 @@ use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType};
 use near_epoch_manager::shard_tracker::TrackedConfig;
 use near_primitives::config::VMConfig;
+use near_primitives::namespace::Namespace;
+use near_primitives::routing_table::RoutingTable;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::transaction::{Action, DeployContractAction};
 use near_primitives::version::ProtocolFeature;
@@ -50,7 +52,11 @@ fn test_deploy_cost_increased() {
     };
 
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-    let actions = vec![Action::DeployContract(DeployContractAction { code: test_contract })];
+    let actions = vec![Action::DeployContract(DeployContractAction {
+        code: test_contract,
+        namespace: Namespace::default(),
+        routing_table: RoutingTable::default(),
+    })];
 
     let tx = env.tx_from_actions(actions.clone(), &signer, signer.account_id.clone());
     let old_outcome = env.execute_tx(tx).unwrap();
