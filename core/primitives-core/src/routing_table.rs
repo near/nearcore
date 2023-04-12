@@ -6,21 +6,7 @@ use crate::{hash::CryptoHash, namespace::Namespace};
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Default)]
 pub struct RoutingTable {
-    namespace_table: HashMap<Namespace, CryptoHash>,
     method_resolution_table: HashMap<String, (Namespace, String)>,
-}
-
-pub struct RegisteredNamespace<'a> {
-    registered_to: &'a mut RoutingTable,
-    namespace: Namespace,
-}
-
-impl<'a> RegisteredNamespace<'a> {
-    pub fn add(&mut self, incoming_method_name: String, target_method_name: String) {
-        self.registered_to
-            .method_resolution_table
-            .insert(incoming_method_name, (self.namespace.clone(), target_method_name));
-    }
 }
 
 impl RoutingTable {
@@ -28,29 +14,17 @@ impl RoutingTable {
         Default::default()
     }
 
-    pub fn namespace<'s>(&'s mut self, namespace: Namespace) -> Option<RegisteredNamespace<'s>> {
-        if self.namespace_table.contains_key(&namespace) {
-            Some(RegisteredNamespace { registered_to: self, namespace })
-        } else {
-            None
-        }
-    }
-
-    pub fn register_namespace(
+    pub fn add(
         &mut self,
-        namespace: Namespace,
-        code_hash: CryptoHash,
-    ) -> RegisteredNamespace {
-        self.namespace_table.insert(namespace.clone(), code_hash);
-        RegisteredNamespace { registered_to: self, namespace }
-    }
-
-    pub fn unregister_namespace(&mut self, namespace: &Namespace) {
-        self.namespace_table.remove(namespace);
+        incoming_method_name: String,
+        target_namespace: Namespace,
+        target_method_name: String,
+    ) {
+        self.method_resolution_table
+            .insert(incoming_method_name, (target_namespace, target_method_name));
     }
 
     pub fn merge(&mut self, other: RoutingTable) {
-        self.namespace_table.extend(other.namespace_table);
         self.method_resolution_table.extend(other.method_resolution_table);
     }
 
@@ -90,14 +64,11 @@ mod tests {
         let method_b = "method_b".to_string();
         let method_c = "method_c".to_string();
 
-        let mut ta_a = table_a.register_namespace(namespace_a.clone(), Default::default());
-        let mut tb_b = table_b.register_namespace(namespace_b.clone(), Default::default());
+        table_a.add(method_a.clone(), namespace_a.clone(), method_a.clone());
+        table_a.add(method_b.clone(), namespace_a.clone(), method_b.clone());
 
-        ta_a.add(method_a.clone(), method_a.clone());
-        ta_a.add(method_b.clone(), method_b.clone());
-
-        tb_b.add(method_b.clone(), method_b.clone());
-        tb_b.add(method_c.clone(), method_c.clone());
+        table_b.add(method_b.clone(), namespace_b.clone(), method_b.clone());
+        table_b.add(method_c.clone(), namespace_b.clone(), method_c.clone());
 
         table_a.merge(table_b);
 

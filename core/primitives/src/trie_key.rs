@@ -112,6 +112,7 @@ pub enum TrieKey {
     /// and a given key.
     ContractData {
         account_id: AccountId,
+        namespace: Namespace,
         key: Vec<u8>,
     },
     RoutingTable {
@@ -173,9 +174,11 @@ impl TrieKey {
             }
             TrieKey::DelayedReceiptIndices => col::DELAYED_RECEIPT_INDICES.len(),
             TrieKey::DelayedReceipt { .. } => col::DELAYED_RECEIPT.len() + size_of::<u64>(),
-            TrieKey::ContractData { account_id, key } => {
+            TrieKey::ContractData { account_id, namespace, key } => {
                 col::CONTRACT_DATA.len()
                     + account_id.len()
+                    + ACCOUNT_DATA_SEPARATOR.len()
+                    + namespace.len()
                     + ACCOUNT_DATA_SEPARATOR.len()
                     + key.len()
             }
@@ -196,7 +199,7 @@ impl TrieKey {
                 buf.push(col::CONTRACT_CODE);
                 buf.extend(account_id.as_ref().as_bytes());
                 buf.push(ACCOUNT_DATA_SEPARATOR);
-                buf.extend(namespace.as_ref().as_bytes());
+                buf.extend(namespace.as_bytes());
             }
             TrieKey::AccessKey { account_id, public_key } => {
                 buf.push(col::ACCESS_KEY);
@@ -235,9 +238,11 @@ impl TrieKey {
                 buf.push(col::DELAYED_RECEIPT_INDICES);
                 buf.extend(&index.to_le_bytes());
             }
-            TrieKey::ContractData { account_id, key } => {
+            TrieKey::ContractData { account_id, namespace, key } => {
                 buf.push(col::CONTRACT_DATA);
                 buf.extend(account_id.as_ref().as_bytes());
+                buf.push(ACCOUNT_DATA_SEPARATOR);
+                buf.extend(namespace.as_bytes());
                 buf.push(ACCOUNT_DATA_SEPARATOR);
                 buf.extend(key);
             }
@@ -326,6 +331,38 @@ pub mod trie_key_parsers {
             ));
         }
         Ok(&raw_key[prefix_len..])
+    }
+
+    pub fn parse_parts_from_contract_data_key<'a>(
+        raw_key: &'a [u8],
+        account_id: &AccountId,
+    ) -> Result<(Namespace, &'a [u8]), std::io::Error> {
+        let prefix_len = col::CONTRACT_DATA.len() + account_id.len() + ACCOUNT_DATA_SEPARATOR.len();
+        if raw_key.len() < prefix_len {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "raw key is too short for TrieKey::ContractData",
+            ));
+        }
+        let (namespace, namespace_slice_len) = next_token(&raw_key[prefix_len..], ACCOUNT_DATA_SEPARATOR)
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "namespace part of contract data trie key unparsable",
+                )
+            })
+            .and_then(|s| {
+                Namespace::try_from(s).map(|n| (n, s.len())).map_err(|e| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "could not decode namespace part of contract data trie key as utf-8",
+                    )
+                })
+            })?;
+
+        let data_key = &raw_key[prefix_len + namespace_slice_len + ACCOUNT_DATA_SEPARATOR.len()..];
+
+        Ok((namespace, data_key))
     }
 
     pub fn parse_account_id_prefix<'a>(
@@ -498,15 +535,19 @@ pub mod trie_key_parsers {
         res
     }
 
-    pub fn get_raw_prefix_for_contract_data(account_id: &AccountId, prefix: &[u8]) -> Vec<u8> {
+    pub fn get_raw_prefix_for_contract_data(account_id: &AccountId, namespace: &Namespace, prefix: &[u8]) -> Vec<u8> {
         let mut res = Vec::with_capacity(
             col::CONTRACT_DATA.len()
                 + account_id.len()
+                + ACCOUNT_DATA_SEPARATOR.len()
+                + namespace.len()
                 + ACCOUNT_DATA_SEPARATOR.len()
                 + prefix.len(),
         );
         res.push(col::CONTRACT_DATA);
         res.extend(account_id.as_bytes());
+        res.push(ACCOUNT_DATA_SEPARATOR);
+        res.extend(namespace.as_bytes());
         res.push(ACCOUNT_DATA_SEPARATOR);
         res.extend(prefix);
         res
@@ -612,8 +653,11 @@ mod tests {
     fn test_key_for_data_consistency() {
         let data_key = b"0123456789" as &[u8];
         for account_id in OK_ACCOUNT_IDS.iter().map(|x| x.parse::<AccountId>().unwrap()) {
-            let key =
-                TrieKey::ContractData { account_id: account_id.clone(), key: data_key.to_vec() };
+            let key = TrieKey::ContractData {
+                account_id: account_id.clone(),
+                namespace: Default::default(),
+                key: data_key.to_vec(),
+            };
             let raw_key = key.to_vec();
             assert_eq!(raw_key.len(), key.len());
             assert_eq!(
@@ -791,8 +835,12 @@ mod tests {
         assert_eq!(TrieKey::DelayedReceipt { index: Default::default() }.get_account_id(), None);
         assert_eq!(TrieKey::DelayedReceiptIndices.get_account_id(), None);
         assert_eq!(
-            TrieKey::ContractData { account_id: account_id.clone(), key: Default::default() }
-                .get_account_id(),
+            TrieKey::ContractData {
+                account_id: account_id.clone(),
+                namespace: Default::default(),
+                key: Default::default()
+            }
+            .get_account_id(),
             Some(account_id.clone())
         );
     }

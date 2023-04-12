@@ -85,7 +85,11 @@ impl<'a> RuntimeExt<'a> {
     }
 
     pub fn create_storage_key(&self, key: &[u8]) -> TrieKey {
-        TrieKey::ContractData { account_id: self.account_id.clone(), key: key.to_vec() }
+        TrieKey::ContractData {
+            account_id: self.account_id.clone(),
+            namespace: Default::default(),
+            key: key.to_vec(),
+        }
     }
 
     pub fn set_trie_cache_mode(&mut self, state: TrieCacheMode) {

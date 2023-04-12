@@ -1,4 +1,4 @@
-use std::ops::Deref;
+use std::{ops::Deref, string::FromUtf8Error};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
@@ -21,6 +21,14 @@ use serde::{Deserialize, Serialize};
 )]
 pub struct Namespace(String);
 
+impl TryFrom<&'_ [u8]> for Namespace {
+    type Error = FromUtf8Error;
+
+    fn try_from(value: &'_ [u8]) -> Result<Self, Self::Error> {
+        Ok(Self(String::from_utf8(value.to_vec())?))
+    }
+}
+
 impl From<String> for Namespace {
     fn from(value: String) -> Self {
         Self(value)
@@ -42,6 +50,12 @@ impl From<Namespace> for String {
 impl AsRef<str> for Namespace {
     fn as_ref(&self) -> &str {
         &self.0
+    }
+}
+
+impl AsRef<[u8]> for Namespace {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_bytes()
     }
 }
 

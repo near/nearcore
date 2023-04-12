@@ -315,7 +315,7 @@ impl StateChanges {
                         },
                     ));
                 }
-                TrieKey::ContractData { account_id, key } => {
+                TrieKey::ContractData { account_id, namespace, key } => { // TODO: Namespace here?
                     state_changes.extend(changes.into_iter().map(
                         |RawStateChange { cause, data }| StateChangeWithCause {
                             cause,

@@ -909,20 +909,24 @@ pub fn remove_account(
     }
 
     // Removing contract data
-    let data_keys = state_update
+    let data_paths = state_update
         .iter(&trie_key_parsers::get_raw_prefix_for_contract_data(account_id, &[]))?
         .map(|raw_key| {
-            trie_key_parsers::parse_data_key_from_contract_data_key(&raw_key?, account_id)
+            trie_key_parsers::parse_parts_from_contract_data_key(&raw_key?, account_id)
                 .map_err(|_e| {
                     StorageError::StorageInconsistentState(
                         "Can't parse data key from raw key for ContractData".to_string(),
                     )
                 })
-                .map(Vec::from)
+                .map(|(namespace, key)| (namespace, key.to_vec()))
         })
         .collect::<Result<Vec<_>, _>>()?;
-    for key in data_keys {
-        state_update.remove(TrieKey::ContractData { account_id: account_id.clone(), key });
+    for (namespace, key) in data_paths {
+        state_update.remove(TrieKey::ContractData {
+            account_id: account_id.clone(),
+            namespace,
+            key,
+        });
     }
     Ok(())
 }
