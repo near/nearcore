@@ -289,6 +289,7 @@ fn run_estimation(cli_args: CliArgs) -> anyhow::Result<Option<CostTable>> {
         Some("wasmer") => VMKind::Wasmer0,
         Some("wasmer2") => VMKind::Wasmer2,
         Some("wasmtime") => VMKind::Wasmtime,
+        Some("near-vm") => VMKind::NearVm,
         None => VMKind::for_protocol_version(PROTOCOL_VERSION),
         Some(other) => unreachable!("Unknown vm_kind {}", other),
     };
