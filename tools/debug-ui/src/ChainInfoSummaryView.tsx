@@ -72,24 +72,19 @@ export const ChainInfoSummaryView = ({ addr }: ChainInfoSummaryViewProps) => {
     return (
         <div className="chain-info-summary-view">
             <p>
-                {' '}
-                <b>Current head: </b> {chainInfoHead}{' '}
+                <b>Current head: </b> {`${chainInfoHead}`}
             </p>
             <p>
-                {' '}
-                <b>Current header head: </b> {chainInfoHeaderHead}{' '}
+                <b>Current header head: </b> {`${chainInfoHeaderHead}`}
             </p>
             <p>
-                {' '}
-                <b>Number of blocks in orphan pool: </b> {numBlocksOrphanPool}{' '}
+                <b>Number of blocks in orphan pool: </b> {`${numBlocksOrphanPool}`}
             </p>
             <p>
-                {' '}
-                <b>Number of blocks in missing chunks pool: </b> {numBlocksMissingChunksPool}{' '}
+                <b>Number of blocks in missing chunks pool: </b> {`${numBlocksMissingChunksPool}`}
             </p>
             <p>
-                {' '}
-                <b>Number of blocks in processing: </b> {numBlocksProcessing}{' '}
+                <b>Number of blocks in processing: </b> {`${numBlocksProcessing}`}
             </p>
         </div>
     );

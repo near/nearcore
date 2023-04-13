@@ -293,15 +293,15 @@ export interface RecentOutboundConnectionsResponse {
     };
 }
 
-export type Dropped = 'HeightProcessed' | 'TooManyProcessingBlocks';
+export type DroppedReason = 'HeightProcessed' | 'TooManyProcessingBlocks';
 
 export type BlockProcessingStatus =
     | 'Orphan'
     | 'WaitingForChunks'
     | 'InProcessing'
     | 'Accepted'
-    | 'Error'
-    | Dropped
+    | { Error: string }
+    | { Dropped: DroppedReason }
     | 'Unknown';
 
 export interface BlockProcessingInfo {

@@ -6,20 +6,19 @@ type BlocksViewProps = {
     addr: string;
 };
 
-function prettyTime(datetime: string) {
+function prettyTime(datetime: string): string {
     const time = new Date(Date.parse(datetime));
-    return (
-        time.getUTCHours() +
-        ':' +
-        String(time.getUTCMinutes()).padStart(2, '0') +
-        ':' +
-        String(time.getUTCSeconds()).padStart(2, '0') +
-        '.' +
+    return String(time.getUTCHours()).concat(
+        ':',
+        String(time.getUTCMinutes()).padStart(2, '0'),
+        ':',
+        String(time.getUTCSeconds()).padStart(2, '0'),
+        '.',
         String(time.getUTCMilliseconds()).padStart(3, '0')
     );
 }
 
-function printTimeInMs(time: number | null) {
+function printTimeInMs(time: number | null): string {
     if (time == null) {
         return 'N/A';
     } else {
@@ -30,9 +29,9 @@ function printTimeInMs(time: number | null) {
 function printDuration(start: string, end: string): string {
     const duration = Date.parse(end) - Date.parse(start);
     if (duration > 0) {
-        return '+' + duration + 'ms';
+        return `+${duration}ms`;
     } else {
-        return duration + 'ms';
+        return `${duration}ms`;
     }
 }
 
@@ -50,26 +49,13 @@ function getChunkStatusSymbol(chunkStatus: ChunkProcessingStatus): string {
 }
 
 function printBlockStatus(blockStatus: BlockProcessingStatus): string {
-    switch (blockStatus) {
-        case 'Orphan':
-            return 'Orphan';
-        case 'WaitingForChunks':
-            return 'WaitingForChunks';
-        case 'InProcessing':
-            return 'InProcessing';
-        case 'Accepted':
-            return 'Accepted';
-        case 'Unknown':
-            return 'Unknown';
-        case 'HeightProcessed':
-            return 'HeightProcessed';
-        case 'TooManyProcessingBlocks':
-            return 'TooManyProcessingBlocks';
-        case 'Error':
-            return 'Error';
-        default:
-            return '';
+    if ('Error' in blockStatus.valueOf) {
+        return `Error: ${blockStatus.valueOf.Error}`;
     }
+    if ('DroppedReason' in blockStatus.valueOf) {
+        return `Dropped: ${blockStatus.valueOf.DroppedReason}`;
+    }
+    return blockStatus.toString();
 }
 
 export const BlocksView = ({ addr }: BlocksViewProps) => {
@@ -93,8 +79,7 @@ export const BlocksView = ({ addr }: BlocksViewProps) => {
             </div>
         );
     }
-    let numShards = 0;
-    numShards +=
+    const numShards =
         chainProcessingInfo!.status_response.ChainProcessingStatus.blocks_info[0].chunks_info!
             .length;
     const shardIndices = [...Array(numShards).keys()];
@@ -124,52 +109,43 @@ export const BlocksView = ({ addr }: BlocksViewProps) => {
                                     <td>{block.hash}</td>
                                     <td>{prettyTime(block.received_timestamp)}</td>
                                     <td>{printBlockStatus(block.block_status)}</td>
-                                    <td>{block.in_progress_ms} ms</td>
+                                    <td>{printTimeInMs(block.in_progress_ms)}</td>
                                     <td>{printTimeInMs(block.orphaned_ms)}</td>
                                     <td>{printTimeInMs(block.missing_chunks_ms)}</td>
                                     {block.chunks_info!.map((chunk) => {
                                         if (chunk) {
                                             return (
                                                 <td key={chunk.shard_id}>
-                                                    <strong>
-                                                        {' '}
-                                                        {chunk.status}{' '}
-                                                        {getChunkStatusSymbol(chunk.status)}{' '}
-                                                    </strong>
-                                                    {chunk.completed_timestamp ? (
+                                                    <strong>{`${
+                                                        chunk.status
+                                                    } ${getChunkStatusSymbol(
+                                                        chunk.status
+                                                    )}`}</strong>
+                                                    {chunk.completed_timestamp && (
                                                         <>
-                                                            {' '}
                                                             <br /> Completed @ BR
-                                                            {printDuration(
+                                                            {`${printDuration(
                                                                 block.received_timestamp,
                                                                 chunk.completed_timestamp
-                                                            )}{' '}
+                                                            )}`}
                                                         </>
-                                                    ) : (
-                                                        <></>
                                                     )}
-                                                    {chunk.requested_timestamp ? (
+                                                    {chunk.requested_timestamp && (
                                                         <>
-                                                            {' '}
                                                             <br /> Requested @ BR
-                                                            {printDuration(
+                                                            {`${printDuration(
                                                                 block.received_timestamp,
                                                                 chunk.requested_timestamp
-                                                            )}{' '}
+                                                            )}`}
                                                         </>
-                                                    ) : (
-                                                        <></>
                                                     )}
-                                                    {chunk.request_duration ? (
+                                                    {chunk.request_duration && (
                                                         <>
-                                                            {' '}
-                                                            <br /> Duration {
+                                                            <br /> Duration
+                                                            {`${printTimeInMs(
                                                                 chunk.request_duration
-                                                            }{' '}
-                                                            ms{' '}
+                                                            )}`}
                                                         </>
-                                                    ) : (
-                                                        <></>
                                                     )}
                                                 </td>
                                             );
