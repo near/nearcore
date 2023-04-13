@@ -14,8 +14,6 @@ const queryClient = new QueryClient();
 
 const router = createBrowserRouter([
     {
-        // Root path redirects to the current host - this is useful if we serve the app from the node
-        // itself.
         path: '/',
         element: <LandingPage />,
     },
