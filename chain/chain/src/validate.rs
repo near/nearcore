@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use borsh::BorshDeserialize;
 
 use near_crypto::PublicKey;
+use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, ChunkState, MaybeEncodedShardChunk,
@@ -25,7 +26,7 @@ const GAS_LIMIT_ADJUSTMENT_FACTOR: u64 = 1000;
 /// Verifies that chunk's proofs in the header match the body.
 pub fn validate_chunk_proofs(
     chunk: &ShardChunk,
-    runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
 ) -> Result<bool, Error> {
     let correct_chunk_hash = match chunk {
         ShardChunk::V1(chunk) => ShardChunkHeaderV1::compute_hash(&chunk.header.inner),
@@ -72,7 +73,7 @@ pub fn validate_chunk_proofs(
                 ShardChunk::V1(chunk) => &chunk.header.inner.prev_block_hash,
                 ShardChunk::V2(chunk) => chunk.header.prev_block_hash(),
             };
-            runtime_adapter.get_shard_layout_from_prev_block(prev_block_hash)?
+            epoch_manager.get_shard_layout_from_prev_block(prev_block_hash)?
         };
         let outgoing_receipts_hashes = Chain::build_receipts_hashes(receipts, &shard_layout);
         let (receipts_root, _) = merklize(&outgoing_receipts_hashes);
@@ -288,7 +289,7 @@ fn validate_chunk_proofs_challenge(
         MaybeEncodedShardChunk::Decoded(chunk) => chunk,
     };
 
-    if !validate_chunk_proofs(chunk_ref, &*runtime_adapter)? {
+    if !validate_chunk_proofs(chunk_ref, runtime_adapter.epoch_manager_adapter())? {
         // Chunk proofs are invalid. Good challenge.
         return account_to_slash_for_valid_challenge;
     }

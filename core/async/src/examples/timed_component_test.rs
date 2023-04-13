@@ -55,7 +55,7 @@ fn test_timed_component() {
     // The timer fires again at 200ms here and flushes "!"".
     // Further timer events do not send messages.
 
-    test.run(time::Duration::seconds(1));
+    test.run_for(time::Duration::seconds(1));
     assert_eq!(
         test.data.messages_sent,
         vec![vec!["Hello".to_string(), "World".to_string()], vec!["!".to_string()]]

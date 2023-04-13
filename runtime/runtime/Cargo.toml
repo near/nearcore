@@ -34,7 +34,6 @@ near-vm-runner.workspace = true
 default = []
 dump_errors_schema = ["near-vm-errors/dump_errors_schema"]
 protocol_feature_flat_state = ["near-store/protocol_feature_flat_state", "near-vm-logic/protocol_feature_flat_state"]
-protocol_feature_compute_costs = ["near-primitives/protocol_feature_compute_costs"]
 nightly_protocol = ["near-primitives/nightly_protocol"]
 no_cpu_compatibility_checks = ["near-vm-runner/no_cpu_compatibility_checks"]
 

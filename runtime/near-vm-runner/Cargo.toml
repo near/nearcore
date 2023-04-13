@@ -59,12 +59,12 @@ assert_matches.workspace = true
 bolero.workspace = true
 expect-test.workspace = true
 hex.workspace = true
+near-primitives-core.workspace = true
+near-test-contracts.workspace = true
 rand.workspace = true
 wasm-smith.workspace = true
 wasmprinter.workspace = true
 wat.workspace = true
-
-near-test-contracts.workspace = true
 
 [features]
 # all vms enabled for now
