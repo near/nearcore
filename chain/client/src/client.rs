@@ -103,6 +103,7 @@ pub struct Client {
     pub chain: Chain,
     pub doomslug: Doomslug,
     pub runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
+    pub shard_tracker: ShardTracker,
     pub shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
     pub sharded_tx_pool: ShardedTransactionPool,
     prev_block_to_chunk_headers_ready_for_inclusion: LruCache<
@@ -284,6 +285,7 @@ impl Client {
             sync_status,
             chain,
             doomslug,
+            shard_tracker: runtime_adapter.shard_tracker(),
             runtime_adapter,
             shards_manager_adapter,
             sharded_tx_pool,
@@ -336,7 +338,7 @@ impl Client {
                     block.header().prev_hash(),
                     shard_id,
                     true,
-                    self.runtime_adapter.as_ref(),
+                    &self.shard_tracker,
                 ) {
                     self.sharded_tx_pool.remove_transactions(
                         shard_id,
