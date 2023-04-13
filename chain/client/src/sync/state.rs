@@ -99,7 +99,7 @@ fn make_account_or_peer_id_or_hash(
 enum StateSyncInner {
     /// Request both the state header and state parts from the peers.
     Peers {
-        /// Information about which parts were requested from which peer and when.
+        /// Which parts were requested from which peer and when.
         last_part_id_requested: HashMap<(AccountOrPeerIdOrHash, ShardId), PendingRequestStatus>,
         /// Map from which part we requested to whom.
         requested_target: lru::LruCache<(u64, CryptoHash), AccountOrPeerIdOrHash>,
