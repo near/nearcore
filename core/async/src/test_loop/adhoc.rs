@@ -23,10 +23,10 @@ impl<Data> Debug for AdhocEvent<Data> {
     }
 }
 
-/// Allows DelaySender to be used to run adhoc events.
-pub trait AdhocRunner<Data: 'static> {
-    fn run(&self, description: &str, f: impl FnOnce(&mut Data) + Send + 'static);
-    fn run_with_delay(
+/// Allows DelaySender to be used to send or schedule adhoc events.
+pub trait AdhocEventSender<Data: 'static> {
+    fn send_adhoc_event(&self, description: &str, f: impl FnOnce(&mut Data) + Send + 'static);
+    fn schedule_adhoc_event(
         &self,
         description: &str,
         f: impl FnOnce(&mut Data) + Send + 'static,
@@ -34,13 +34,13 @@ pub trait AdhocRunner<Data: 'static> {
     );
 }
 
-impl<Data: 'static, Event: From<AdhocEvent<Data>> + 'static> AdhocRunner<Data>
+impl<Data: 'static, Event: From<AdhocEvent<Data>> + 'static> AdhocEventSender<Data>
     for DelaySender<Event>
 {
-    fn run(&self, description: &str, f: impl FnOnce(&mut Data) + Send + 'static) {
+    fn send_adhoc_event(&self, description: &str, f: impl FnOnce(&mut Data) + Send + 'static) {
         self.send(AdhocEvent { description: description.to_string(), handler: Box::new(f) })
     }
-    fn run_with_delay(
+    fn schedule_adhoc_event(
         &self,
         description: &str,
         f: impl FnOnce(&mut Data) + Send + 'static,

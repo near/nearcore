@@ -1,5 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 
+use near_primitives::types::EpochId;
+use near_store::Store;
 use num_rational::Ratio;
 
 use crate::proposals::find_threshold;
@@ -253,6 +255,58 @@ pub fn setup_default_epoch_manager(
         1,
         default_reward_calculator(),
     )
+}
+
+/// Makes an EpochManager with the given block and chunk producers,
+/// automatically coming up with stakes for them to ensure the desired
+/// election outcome.
+pub fn setup_epoch_manager_with_block_and_chunk_producers(
+    store: Store,
+    block_producers: Vec<AccountId>,
+    chunk_only_producers: Vec<AccountId>,
+    num_shards: NumShards,
+    epoch_length: BlockHeightDelta,
+) -> EpochManager {
+    let num_block_producers = block_producers.len() as u64;
+    let block_producer_stake = 1_000_000 as u128;
+    let mut total_stake = 0;
+    let mut validators = vec![];
+    for block_producer in &block_producers {
+        validators.push((block_producer.clone(), block_producer_stake));
+        total_stake += block_producer_stake;
+    }
+    for chunk_only_producer in &chunk_only_producers {
+        let minimum_stake_to_ensure_election =
+            total_stake * 160 / 1_000_000 / num_shards as u128 + 1;
+        let stake = block_producer_stake - 1;
+        assert!(
+            stake >= minimum_stake_to_ensure_election,
+            "Could not honor the specified list of producers"
+        );
+        validators.push((chunk_only_producer.clone(), stake));
+        total_stake += stake;
+    }
+    let config = epoch_config(epoch_length, num_shards, num_block_producers, 0, 0, 0, 0);
+    let epoch_manager = EpochManager::new(
+        store,
+        config,
+        PROTOCOL_VERSION,
+        default_reward_calculator(),
+        validators
+            .iter()
+            .map(|(account_id, balance)| stake(account_id.clone(), *balance))
+            .collect(),
+    )
+    .unwrap();
+    // Sanity check that the election results are indeed as expected.
+    let actual_block_producers = epoch_manager
+        .get_all_block_producers_ordered(&EpochId::default(), &CryptoHash::default())
+        .unwrap();
+    assert_eq!(actual_block_producers.len(), block_producers.len());
+    let actual_chunk_producers =
+        epoch_manager.get_all_chunk_producers(&EpochId::default()).unwrap();
+    assert_eq!(actual_chunk_producers.len(), block_producers.len() + chunk_only_producers.len());
+    epoch_manager
 }
 
 pub fn record_block_with_final_block_hash(

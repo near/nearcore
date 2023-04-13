@@ -2976,7 +2976,7 @@ impl Chain {
         let prev_chunk_header = shard_state_header.cloned_prev_chunk_header();
 
         // 1-2. Checking chunk validity
-        if !validate_chunk_proofs(&chunk, &*self.runtime_adapter)? {
+        if !validate_chunk_proofs(&chunk, self.runtime_adapter.epoch_manager_adapter())? {
             byzantine_assert!(false);
             return Err(Error::Other(
                 "set_shard_state failed: chunk header proofs are invalid".into(),

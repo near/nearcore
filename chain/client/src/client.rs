@@ -32,6 +32,7 @@ use near_chunks::logic::{
 use near_chunks::ShardsManager;
 use near_client_primitives::debug::ChunkProduction;
 use near_client_primitives::types::{Error, ShardSyncDownload, ShardSyncStatus};
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::types::{AccountKeys, ChainInfo, PeerManagerMessageRequest, SetChainInfo};
 use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter, ReasonForBan,
@@ -102,6 +103,7 @@ pub struct Client {
     pub chain: Chain,
     pub doomslug: Doomslug,
     pub runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
+    pub shard_tracker: ShardTracker,
     pub shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
     pub sharded_tx_pool: ShardedTransactionPool,
     prev_block_to_chunk_headers_ready_for_inclusion: LruCache<
@@ -275,6 +277,7 @@ impl Client {
             sync_status,
             chain,
             doomslug,
+            shard_tracker: runtime_adapter.shard_tracker(),
             runtime_adapter,
             shards_manager_adapter,
             sharded_tx_pool,
@@ -327,7 +330,7 @@ impl Client {
                     block.header().prev_hash(),
                     shard_id,
                     true,
-                    self.runtime_adapter.as_ref(),
+                    &self.shard_tracker,
                 ) {
                     self.sharded_tx_pool.remove_transactions(
                         shard_id,
@@ -351,7 +354,7 @@ impl Client {
                     block.header().prev_hash(),
                     shard_id,
                     false,
-                    self.runtime_adapter.as_ref(),
+                    &self.shard_tracker,
                 ) {
                     self.sharded_tx_pool.reintroduce_transactions(
                         shard_id,
@@ -1588,7 +1591,8 @@ impl Client {
             &encoded_chunk,
             merkle_paths.clone(),
             Some(&validator_id),
-            self.runtime_adapter.as_ref(),
+            self.runtime_adapter.epoch_manager_adapter(),
+            &self.shard_tracker,
         )?;
         persist_chunk(partial_chunk.clone(), Some(shard_chunk), self.chain.mut_store())?;
         self.on_chunk_header_ready_for_inclusion(encoded_chunk.cloned_header(), validator_id);

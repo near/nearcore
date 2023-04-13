@@ -567,12 +567,6 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: &StateRoot,
     ) -> bool;
 
-    fn chunk_needs_to_be_fetched_from_archival(
-        &self,
-        chunk_prev_block_hash: &CryptoHash,
-        header_head: &CryptoHash,
-    ) -> Result<bool, Error>;
-
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error>;
 }
 
@@ -637,7 +631,6 @@ mod tests {
                 logs: vec!["outcome1".to_string()],
                 receipt_ids: vec![hash(&[1])],
                 gas_burnt: 100,
-                compute_usage: Some(200),
                 tokens_burnt: 10000,
                 executor_id: "alice".parse().unwrap(),
                 metadata: ExecutionMetadata::V1,
@@ -650,7 +643,6 @@ mod tests {
                 logs: vec!["outcome2".to_string()],
                 receipt_ids: vec![],
                 gas_burnt: 0,
-                compute_usage: Some(0),
                 tokens_burnt: 0,
                 executor_id: "bob".parse().unwrap(),
                 metadata: ExecutionMetadata::V1,
