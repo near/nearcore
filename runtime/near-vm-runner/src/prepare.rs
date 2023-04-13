@@ -62,55 +62,77 @@ mod tests {
     use crate::tests::with_vm_variants;
     use assert_matches::assert_matches;
 
-    fn parse_and_prepare_wat(vm_kind: VMKind, wat: &str) -> Result<Vec<u8>, PrepareError> {
+    fn parse_and_prepare_wat(
+        config: &VMConfig,
+        vm_kind: VMKind,
+        wat: &str,
+    ) -> Result<Vec<u8>, PrepareError> {
         let wasm = wat::parse_str(wat).unwrap();
-        let config = VMConfig::test();
         prepare_contract(wasm.as_ref(), &config, vm_kind)
     }
 
     #[test]
     fn internal_memory_declaration() {
-        with_vm_variants(|kind| {
-            let r = parse_and_prepare_wat(kind, r#"(module (memory 1 1))"#);
+        let config = VMConfig::test();
+        with_vm_variants(&config, |kind| {
+            let r = parse_and_prepare_wat(&config, kind, r#"(module (memory 1 1))"#);
             assert_matches!(r, Ok(_));
         })
     }
 
     #[test]
     fn memory_imports() {
-        // This test assumes that maximum page number is configured to a certain number.
-        assert_eq!(VMConfig::test().limit_config.max_memory_pages, 2048);
+        let config = VMConfig::test();
 
-        with_vm_variants(|kind| {
-            let r = parse_and_prepare_wat(kind, r#"(module (import "env" "memory" (memory 1 1)))"#);
+        // This test assumes that maximum page number is configured to a certain number.
+        assert_eq!(config.limit_config.max_memory_pages, 2048);
+
+        with_vm_variants(&config, |kind| {
+            let r = parse_and_prepare_wat(
+                &config,
+                kind,
+                r#"(module (import "env" "memory" (memory 1 1)))"#,
+            );
             assert_matches!(r, Err(PrepareError::Memory));
 
             // No memory import
-            let r = parse_and_prepare_wat(kind, r#"(module)"#);
+            let r = parse_and_prepare_wat(&config, kind, r#"(module)"#);
             assert_matches!(r, Ok(_));
 
             // initial exceed maximum
-            let r =
-                parse_and_prepare_wat(kind, r#"(module (import "env" "memory" (memory 17 1)))"#);
+            let r = parse_and_prepare_wat(
+                &config,
+                kind,
+                r#"(module (import "env" "memory" (memory 17 1)))"#,
+            );
             assert_matches!(r, Err(PrepareError::Deserialization));
 
             // no maximum
-            let r = parse_and_prepare_wat(kind, r#"(module (import "env" "memory" (memory 1)))"#);
+            let r = parse_and_prepare_wat(
+                &config,
+                kind,
+                r#"(module (import "env" "memory" (memory 1)))"#,
+            );
             assert_matches!(r, Err(PrepareError::Memory));
 
             // requested maximum exceed configured maximum
-            let r =
-                parse_and_prepare_wat(kind, r#"(module (import "env" "memory" (memory 1 33)))"#);
+            let r = parse_and_prepare_wat(
+                &config,
+                kind,
+                r#"(module (import "env" "memory" (memory 1 33)))"#,
+            );
             assert_matches!(r, Err(PrepareError::Memory));
         })
     }
 
     #[test]
     fn multiple_valid_memory_are_disabled() {
-        with_vm_variants(|kind| {
+        let config = VMConfig::test();
+        with_vm_variants(&config, |kind| {
             // Our preparation and sanitization pass assumes a single memory, so we should fail when
             // there are multiple specified.
             let r = parse_and_prepare_wat(
+                &config,
                 kind,
                 r#"(module
                     (import "env" "memory" (memory 1 2048))
@@ -119,6 +141,7 @@ mod tests {
             );
             assert_matches!(r, Err(_));
             let r = parse_and_prepare_wat(
+                &config,
                 kind,
                 r#"(module
                     (import "env" "memory" (memory 1 2048))
@@ -131,16 +154,21 @@ mod tests {
 
     #[test]
     fn imports() {
-        with_vm_variants(|kind| {
+        let config = VMConfig::test();
+        with_vm_variants(&config, |kind| {
             // nothing can be imported from non-"env" module for now.
             let r = parse_and_prepare_wat(
+                &config,
                 kind,
                 r#"(module (import "another_module" "memory" (memory 1 1)))"#,
             );
             assert_matches!(r, Err(PrepareError::Instantiate));
 
-            let r =
-                parse_and_prepare_wat(kind, r#"(module (import "env" "gas" (func (param i32))))"#);
+            let r = parse_and_prepare_wat(
+                &config,
+                kind,
+                r#"(module (import "env" "gas" (func (param i32))))"#,
+            );
             assert_matches!(r, Ok(_));
 
             // TODO: Address tests once we check proper function signatures.

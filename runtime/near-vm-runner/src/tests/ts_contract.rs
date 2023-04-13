@@ -10,17 +10,17 @@ use crate::vm_kind::VMKind;
 
 #[test]
 pub fn test_ts_contract() {
-    with_vm_variants(|vm_kind: VMKind| {
+    let config = VMConfig::test();
+    with_vm_variants(&config, |vm_kind: VMKind| {
         let code = ContractCode::new(near_test_contracts::ts_contract().to_vec(), None);
         let mut fake_external = MockedExternal::new();
 
         let context = create_context(Vec::new());
-        let config = VMConfig::test();
         let fees = RuntimeFeesConfig::test();
 
         // Call method that panics.
         let promise_results = vec![];
-        let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
+        let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
         let result = runtime.run(
             &code,
             "try_panic",
