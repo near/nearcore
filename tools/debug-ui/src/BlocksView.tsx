@@ -49,13 +49,13 @@ function getChunkStatusSymbol(chunkStatus: ChunkProcessingStatus): string {
 }
 
 function printBlockStatus(blockStatus: BlockProcessingStatus): string {
-    if ('Error' in blockStatus.valueOf) {
-        return `Error: ${blockStatus.valueOf.Error}`;
+    if (typeof blockStatus === 'string') {
+        return blockStatus;
     }
-    if ('DroppedReason' in blockStatus.valueOf) {
-        return `Dropped: ${blockStatus.valueOf.DroppedReason}`;
+    if ('Error' in blockStatus) {
+        return `Error: ${blockStatus.Error}`;
     }
-    return blockStatus.toString();
+    return `Dropped: ${blockStatus.Dropped}`;
 }
 
 export const BlocksView = ({ addr }: BlocksViewProps) => {
