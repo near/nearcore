@@ -451,8 +451,9 @@ impl StateSync {
         let prev_block_hash = *chain.get_block_header(&sync_hash)?.prev_hash();
         let epoch_hash = runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash)?;
 
-        let peers = runtime_adapter
-            .get_epoch_block_producers_ordered(&epoch_hash, &sync_hash)?
+        let block_producers =
+            runtime_adapter.get_epoch_block_producers_ordered(&epoch_hash, &sync_hash)?;
+        let peers = block_producers
             .iter()
             .filter_map(|(validator_stake, _slashed)| {
                 let account_id = validator_stake.account_id();
