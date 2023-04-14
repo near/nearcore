@@ -274,12 +274,7 @@ pub fn start_with_config_and_synchronization(
     );
     shards_manager_adapter.bind(shards_manager_actor);
 
-    let state_sync_dump_handle = spawn_state_sync_dump(
-        &config,
-        chain_genesis,
-        runtime,
-        config.network_config.node_id().public_key(),
-    )?;
+    let state_sync_dump_handle = spawn_state_sync_dump(&config, chain_genesis, runtime)?;
 
     #[allow(unused_mut)]
     let mut rpc_servers = Vec::new();
