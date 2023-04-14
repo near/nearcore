@@ -1537,11 +1537,9 @@ pub fn part_filename(part_id: u64, num_parts: u64) -> String {
 
 #[cfg(test)]
 mod test {
-
     use actix::System;
     use near_actix_test_utils::run_actix;
     use near_chain::{test_utils::process_block_sync, BlockProcessingArtifact, Provenance};
-
     use near_epoch_manager::EpochManagerAdapter;
     use near_network::test_utils::MockPeerManagerAdapter;
     use near_primitives::{
@@ -1549,9 +1547,7 @@ mod test {
         test_utils::TestBlockBuilder,
         types::EpochId,
     };
-
     use near_chain::test_utils;
-
     use super::*;
 
     #[test]
@@ -1562,10 +1558,7 @@ mod test {
             mock_peer_manager.clone().into(),
             TimeDuration::from_secs(1),
             "chain_id",
-            false,
-            "",
-            "",
-            100,
+            &SyncConfig::Peers,
         );
         let mut new_shard_sync = HashMap::new();
 
