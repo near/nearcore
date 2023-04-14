@@ -218,16 +218,20 @@ impl GasCounter {
             num.checked_mul(cost.gas(&self.ext_costs_config)).ok_or(HostError::IntegerOverflow)?;
 
         self.inc_ext_costs_counter(cost, num);
-        self.update_profile_host(cost, use_gas);
-        self.burn_gas(use_gas)
+        let old_burnt_gas = self.fast_counter.burnt_gas;
+        let burn_gas_result = self.burn_gas(use_gas);
+        self.update_profile_host(cost, self.fast_counter.burnt_gas.saturating_sub(old_burnt_gas));
+        burn_gas_result
     }
 
     /// A helper function to pay base cost gas.
     pub fn pay_base(&mut self, cost: ExtCosts) -> Result<()> {
         let base_fee = cost.gas(&self.ext_costs_config);
         self.inc_ext_costs_counter(cost, 1);
-        self.update_profile_host(cost, base_fee);
-        self.burn_gas(base_fee)
+        let old_burnt_gas = self.fast_counter.burnt_gas;
+        let burn_gas_result = self.burn_gas(base_fee);
+        self.update_profile_host(cost, self.fast_counter.burnt_gas.saturating_sub(old_burnt_gas));
+        burn_gas_result
     }
 
     /// A helper function to pay base cost gas fee for batching an action.
@@ -276,7 +280,7 @@ impl GasCounter {
 
 #[cfg(test)]
 mod tests {
-    use crate::{ExtCostsConfig, HostError};
+    use crate::{ExtCostsConfig, HostError, VMLogicError};
     use near_primitives_core::types::Gas;
 
     /// Max prepaid amount of gas.
@@ -355,6 +359,20 @@ mod tests {
                 near_primitives::config::ActionCosts::new_data_receipt_byte,
             )
             .unwrap();
+
+        let mut profile = counter.profile_data().clone();
+        profile.compute_wasm_instruction_cost(counter.burnt_gas());
+
+        assert_eq!(profile.total_compute_usage(&ExtCostsConfig::test()), counter.burnt_gas());
+    }
+
+    #[test]
+    fn test_profile_compute_cost_over_limit() {
+        let mut counter = make_test_counter(MAX_GAS, 1_000_000_000, false);
+        assert_eq!(
+            counter.pay_per(near_primitives::config::ExtCosts::storage_write_value_byte, 100),
+            Err(VMLogicError::HostError(HostError::GasExceeded))
+        );
 
         let mut profile = counter.profile_data().clone();
         profile.compute_wasm_instruction_cost(counter.burnt_gas());
