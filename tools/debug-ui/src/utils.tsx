@@ -51,11 +51,11 @@ export function addDebugPortLink(peer_network_addr: string): ReactElement {
     // https://github.com/near/nearcore/blob/700ec29270f72f2e78a17029b4799a8228926c07/chain/network/src/network_protocol/peer.rs#L13-L19
     const DEFAULT_RPC_PORT = 3030;
     const DEFAULT_NETWORK_PORT = 24567;
-    const peer_network_addr_array = peer_network_addr.split(":");
+    const peer_network_addr_array = peer_network_addr.split(':');
     const peer_network_port = parseInt(peer_network_addr_array.pop() || '24567');
     const peer_network_ip = peer_network_addr_array.pop() || peer_network_addr;
     let peer_num = 0;
-    if (peer_network_ip.includes("127.0.0.1")) {
+    if (peer_network_ip.includes('127.0.0.1')) {
         peer_num = peer_network_port - DEFAULT_NETWORK_PORT;
     }
     const peer_rpc_port = DEFAULT_RPC_PORT + peer_num;
