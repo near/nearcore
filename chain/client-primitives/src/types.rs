@@ -22,7 +22,7 @@ pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 /// Combines errors coming from chain, tx pool and block producer.
 #[derive(Debug, thiserror::Error)]
@@ -50,6 +50,7 @@ pub enum AccountOrPeerIdOrHash {
     AccountId(AccountId),
     PeerId(PeerId),
     Hash(CryptoHash),
+    ExternalStorage,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -61,18 +62,39 @@ pub struct DownloadStatus {
     pub done: bool,
     pub state_requests_count: u64,
     pub last_target: Option<AccountOrPeerIdOrHash>,
+    #[serde(skip_serializing, skip_deserializing)]
+    pub response: Arc<Mutex<Option<Result<(u16, Vec<u8>), String>>>>,
+}
+
+impl DownloadStatus {
+    pub fn new(now: DateTime<Utc>) -> Self {
+        Self {
+            start_time: now,
+            prev_update_time: now,
+            run_me: Arc::new(AtomicBool::new(true)),
+            error: false,
+            done: false,
+            state_requests_count: 0,
+            last_target: None,
+            response: Arc::new(Mutex::new(None)),
+        }
+    }
 }
 
 impl Clone for DownloadStatus {
+    /// Clones an object, but it clones the value of `run_me` instead of the
+    /// `Arc` that wraps that value.
     fn clone(&self) -> Self {
         DownloadStatus {
             start_time: self.start_time,
             prev_update_time: self.prev_update_time,
+            // Creates a new `Arc` holding the same value.
             run_me: Arc::new(AtomicBool::new(self.run_me.load(Ordering::SeqCst))),
             error: self.error,
             done: self.done,
             state_requests_count: self.state_requests_count,
             last_target: self.last_target.clone(),
+            response: self.response.clone(),
         }
     }
 }
@@ -88,6 +110,21 @@ pub enum ShardSyncStatus {
     StateSplitScheduling,
     StateSplitApplying(Arc<StateSplitApplyingStatus>),
     StateSyncDone,
+}
+
+impl ShardSyncStatus {
+    pub fn repr(&self) -> u8 {
+        match self {
+            ShardSyncStatus::StateDownloadHeader => 0,
+            ShardSyncStatus::StateDownloadParts => 1,
+            ShardSyncStatus::StateDownloadScheduling => 2,
+            ShardSyncStatus::StateDownloadApplying => 3,
+            ShardSyncStatus::StateDownloadComplete => 4,
+            ShardSyncStatus::StateSplitScheduling => 5,
+            ShardSyncStatus::StateSplitApplying(_) => 6,
+            ShardSyncStatus::StateSyncDone => 7,
+        }
+    }
 }
 
 /// Manually implement compare for ShardSyncStatus to compare only based on variant name
@@ -164,25 +201,26 @@ pub struct ShardSyncDownload {
 }
 
 impl ShardSyncDownload {
-    /// Creates a instance of self which includes initial statuses for shard sync and download at the given time.
-    pub fn new(now: DateTime<Utc>) -> Self {
+    /// Creates a instance of self which includes initial statuses for shard state header download at the given time.
+    pub fn new_download_state_header(now: DateTime<Utc>) -> Self {
         Self {
-            downloads: vec![
-                DownloadStatus {
-                    start_time: now,
-                    prev_update_time: now,
-                    run_me: Arc::new(AtomicBool::new(true)),
-                    error: false,
-                    done: false,
-                    state_requests_count: 0,
-                    last_target: None,
-                };
-                1
-            ],
+            downloads: vec![DownloadStatus::new(now)],
             status: ShardSyncStatus::StateDownloadHeader,
         }
     }
+
+    /// Creates a instance of self which includes initial statuses for shard state parts download at the given time.
+    pub fn new_download_state_parts(now: DateTime<Utc>, num_parts: u64) -> Self {
+        // Avoid using `vec![x; num_parts]`, because each element needs to have
+        // its own independent value of `response`.
+        let mut downloads = Vec::with_capacity(num_parts as usize);
+        for _ in 0..num_parts {
+            downloads.push(DownloadStatus::new(now));
+        }
+        Self { downloads, status: ShardSyncStatus::StateDownloadParts }
+    }
 }
+
 /// Various status sync can be in, whether it's fast sync or archival.
 #[derive(Clone, Debug, strum::AsRefStr)]
 pub enum SyncStatus {

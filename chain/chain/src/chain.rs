@@ -3139,7 +3139,10 @@ impl Chain {
         let state_root = *chunk.take_header().take_inner().prev_state_root();
         if !self.runtime_adapter.validate_state_part(&state_root, part_id, data) {
             byzantine_assert!(false);
-            return Err(Error::Other("set_state_part failed: validate_state_part failed".into()));
+            return Err(Error::Other(format!(
+                "set_state_part failed: validate_state_part failed. state_root={:?}",
+                state_root
+            )));
         }
 
         // Saving the part data.
