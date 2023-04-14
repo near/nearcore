@@ -91,6 +91,7 @@ use metrics::{
     PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_PREV_BLOCK, PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY,
 };
 use near_async::messaging::Sender;
+use near_async::time;
 use near_chain::byzantine_assert;
 use near_chain::chunks_store::ReadOnlyChunksStore;
 use near_chain::near_chain_primitives::error::Error::DBNotFoundErr;
@@ -113,7 +114,6 @@ use near_primitives::sharding::{
     PartialEncodedChunkPart, PartialEncodedChunkV2, ReceiptList, ReceiptProof, ReedSolomonWrapper,
     ShardChunk, ShardChunkHeader, ShardProof,
 };
-use near_primitives::time;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
@@ -2011,13 +2011,13 @@ mod test {
 
     use assert_matches::assert_matches;
     use near_async::messaging::IntoSender;
+    use near_async::time::FakeClock;
     use near_epoch_manager::shard_tracker::TrackedConfig;
     use near_epoch_manager::test_utils::setup_epoch_manager_with_block_and_chunk_producers;
     use near_network::test_utils::MockPeerManagerAdapter;
     use near_network::types::NetworkRequests;
     use near_primitives::block::Tip;
     use near_primitives::hash::{hash, CryptoHash};
-    use near_primitives::time::FakeClock;
     use near_primitives::types::EpochId;
     use near_store::test_utils::create_test_store;
     use std::sync::Arc;
