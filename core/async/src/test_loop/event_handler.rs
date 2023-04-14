@@ -1,6 +1,5 @@
-use near_primitives::time;
-
 use super::{delay_sender::DelaySender, multi_instance::IndexedLoopEventHandler};
+use crate::time;
 
 /// Context given to the loop handler on each call.
 pub struct LoopHandlerContext<Event> {

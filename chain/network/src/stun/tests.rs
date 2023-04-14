@@ -1,6 +1,6 @@
 use crate::stun;
+use near_async::time;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::time;
 
 #[tokio::test]
 async fn test_query() {

@@ -2,11 +2,11 @@ use std::{sync::Arc, time::Duration};
 
 use actix::{Actor, Addr, Arbiter, ArbiterHandle, Context, Handler};
 use near_async::messaging::Sender;
+use near_async::time;
 use near_chain::{chunks_store::ReadOnlyChunksStore, types::Tip, RuntimeWithEpochManagerAdapter};
 use near_network::{
     shards_manager::ShardsManagerRequestFromNetwork, types::PeerManagerMessageRequest,
 };
-use near_primitives::time;
 use near_primitives::types::AccountId;
 use near_store::{DBCol, Store, HEADER_HEAD_KEY, HEAD_KEY};
 

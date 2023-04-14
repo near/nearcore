@@ -3099,6 +3099,7 @@ dependencies = [
  "once_cell",
  "serde",
  "serde_json",
+ "time 0.3.9",
  "tokio",
 ]
 
@@ -3691,6 +3692,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "clap 3.1.18",
+ "near-async",
  "near-jsonrpc",
  "near-network",
  "near-o11y",
@@ -3747,7 +3749,6 @@ dependencies = [
  "strum",
  "thiserror",
  "time 0.3.9",
- "tokio",
  "tracing",
 ]
 
@@ -3836,6 +3837,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "clap 3.1.18",
+ "near-async",
  "near-jsonrpc",
  "near-network",
  "near-o11y",
