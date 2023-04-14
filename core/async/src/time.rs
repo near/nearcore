@@ -70,10 +70,7 @@ enum ClockInner {
 /// it has to be replaced with a fake double, if we want our
 /// tests to be deterministic.
 ///
-/// This is a reimplementation of primitives/src/time.rs
-/// with a more systematic approach.
-/// TODO: add tests, put it is some reusable package and use
-/// throughout the nearcore codebase.
+/// TODO: add tests.
 #[derive(Clone)]
 pub struct Clock(ClockInner);
 

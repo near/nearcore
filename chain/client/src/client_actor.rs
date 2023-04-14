@@ -1657,7 +1657,7 @@ impl ClientActor {
                                     &prev_hash,
                                     *x,
                                     true,
-                                    self.client.runtime_adapter.as_ref(),
+                                    &self.client.shard_tracker,
                                 )
                             })
                             .collect();
