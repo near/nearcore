@@ -13,7 +13,15 @@ Go to `http://localhost:3000/<RPC address>` to look at the debug UI of a near no
 The RPC address can be either IP:port, or just IP (which will default to port 3030).
 
 ## How to deploy in production
-TBD.
+Use the included Dockerfile, which will serve the UI on port 80 inside the container.
+
+For example:
+
+```
+cd tools/debug-ui
+docker build -t nearcore-debug-ui .
+docker run -p 8080:80 nearcore-debug-ui
+```
 
 ## Development
 
