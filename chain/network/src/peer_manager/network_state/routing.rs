@@ -3,8 +3,8 @@ use crate::network_protocol::{Edge, EdgeState, PartialEdgeInfo, PeerMessage, Rou
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::stats::metrics;
 use crate::types::ReasonForBan;
+use near_async::time;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::time;
 use std::sync::Arc;
 
 impl NetworkState {

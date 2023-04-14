@@ -65,22 +65,19 @@ pub mod event_handler;
 pub mod futures;
 pub mod multi_instance;
 
-use std::{
-    collections::BinaryHeap,
-    fmt::Debug,
-    sync::{self, Arc},
-};
-
-use near_o11y::{testonly::init_test_logger, tracing::log::info};
-use near_primitives::time;
-use serde::Serialize;
-
-use crate::test_loop::event_handler::LoopHandlerContext;
-
 use self::{
     delay_sender::DelaySender,
     event_handler::LoopEventHandler,
     futures::{TestLoopFutureSpawner, TestLoopTask},
+};
+use crate::test_loop::event_handler::LoopHandlerContext;
+use crate::time;
+use near_o11y::{testonly::init_test_logger, tracing::log::info};
+use serde::Serialize;
+use std::{
+    collections::BinaryHeap,
+    fmt::Debug,
+    sync::{self, Arc},
 };
 
 /// Main struct for the Test Loop framework.

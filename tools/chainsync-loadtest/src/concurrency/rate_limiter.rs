@@ -1,5 +1,5 @@
+use near_async::time;
 use near_network::concurrency::ctx;
-use near_primitives::time;
 use std::sync::Arc;
 
 struct Inner {

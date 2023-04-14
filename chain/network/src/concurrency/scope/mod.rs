@@ -55,7 +55,7 @@
 use crate::concurrency::ctx;
 use crate::concurrency::signal;
 use futures::future::{BoxFuture, Future, FutureExt};
-use near_primitives::time;
+use near_async::time;
 use std::borrow::Borrow;
 use std::sync::{Arc, Weak};
 

@@ -8,9 +8,9 @@ use crate::network_protocol::{
 };
 use crate::network_protocol::{RoutedMessage, RoutedMessageV2};
 use borsh::{BorshDeserialize as _, BorshSerialize as _};
+use near_async::time::error::ComponentRange;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::challenge::Challenge;
-use near_primitives::time::error::ComponentRange;
 use near_primitives::transaction::SignedTransaction;
 use protobuf::MessageField as MF;
 use std::sync::Arc;

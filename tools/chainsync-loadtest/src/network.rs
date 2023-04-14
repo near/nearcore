@@ -1,6 +1,7 @@
 use crate::concurrency::{Once, RateLimiter, WeakMap};
 use log::info;
 use near_async::messaging::CanSend;
+use near_async::time;
 use near_network::concurrency::ctx;
 use near_network::concurrency::scope;
 use near_network::types::{
@@ -16,7 +17,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::ChunkHash;
 use near_primitives::sharding::ShardChunkHeader;
-use near_primitives::time;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::views::FinalExecutionOutcomeView;
