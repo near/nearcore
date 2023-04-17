@@ -245,8 +245,13 @@ impl GasCounter {
         use_gas: Gas,
         action: ActionCosts,
     ) -> Result<()> {
-        self.update_profile_action(action, burn_gas);
-        self.deduct_gas(burn_gas, use_gas)
+        let old_burnt_gas = self.fast_counter.burnt_gas;
+        let deduct_gas_result = self.deduct_gas(burn_gas, use_gas);
+        self.update_profile_action(
+            action,
+            self.fast_counter.burnt_gas.saturating_sub(old_burnt_gas),
+        );
+        deduct_gas_result
     }
 
     pub fn add_trie_fees(&mut self, count: &TrieNodesCount) -> Result<()> {
@@ -280,7 +285,7 @@ impl GasCounter {
 
 #[cfg(test)]
 mod tests {
-    use crate::{ExtCostsConfig, HostError, VMLogicError};
+    use crate::{ExtCostsConfig, HostError};
     use near_primitives_core::types::Gas;
 
     /// Max prepaid amount of gas.
@@ -367,16 +372,44 @@ mod tests {
     }
 
     #[test]
-    fn test_profile_compute_cost_over_limit() {
-        let mut counter = make_test_counter(MAX_GAS, 1_000_000_000, false);
-        assert_eq!(
-            counter.pay_per(near_primitives::config::ExtCosts::storage_write_value_byte, 100),
-            Err(VMLogicError::HostError(HostError::GasExceeded))
-        );
+    fn test_profile_compute_cost_ext_over_limit() {
+        fn test(burn: Gas, prepaid: Gas, want: Result<(), HostError>) {
+            let mut counter = make_test_counter(burn, prepaid, false);
+            assert_eq!(
+                counter.pay_per(near_primitives::config::ExtCosts::storage_write_value_byte, 100),
+                want.map_err(Into::into)
+            );
+            let mut profile = counter.profile_data().clone();
+            profile.compute_wasm_instruction_cost(counter.burnt_gas());
 
-        let mut profile = counter.profile_data().clone();
-        profile.compute_wasm_instruction_cost(counter.burnt_gas());
+            assert_eq!(profile.total_compute_usage(&ExtCostsConfig::test()), counter.burnt_gas());
+        }
 
-        assert_eq!(profile.total_compute_usage(&ExtCostsConfig::test()), counter.burnt_gas());
+        test(MAX_GAS, 1_000_000_000, Err(HostError::GasExceeded));
+        test(1_000_000_000, MAX_GAS, Err(HostError::GasLimitExceeded));
+        test(1_000_000_000, 1_000_000_000, Err(HostError::GasLimitExceeded));
+    }
+
+    #[test]
+    fn test_profile_compute_cost_action_over_limit() {
+        fn test(burn: Gas, prepaid: Gas, want: Result<(), HostError>) {
+            let mut counter = make_test_counter(burn, prepaid, false);
+            assert_eq!(
+                counter.pay_action_accumulated(
+                    10_000_000_000,
+                    10_000_000_000,
+                    near_primitives::config::ActionCosts::new_data_receipt_byte
+                ),
+                want.map_err(Into::into)
+            );
+            let mut profile = counter.profile_data().clone();
+            profile.compute_wasm_instruction_cost(counter.burnt_gas());
+
+            assert_eq!(profile.total_compute_usage(&ExtCostsConfig::test()), counter.burnt_gas());
+        }
+
+        test(MAX_GAS, 1_000_000_000, Err(HostError::GasExceeded));
+        test(1_000_000_000, MAX_GAS, Err(HostError::GasLimitExceeded));
+        test(1_000_000_000, 1_000_000_000, Err(HostError::GasLimitExceeded));
     }
 }
