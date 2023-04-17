@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use borsh::BorshDeserialize;
+
 use near_primitives::challenge::{PartialState, StateItem};
 use near_primitives::state_part::PartId;
 use near_primitives::types::StateRoot;
@@ -245,9 +247,9 @@ impl Trie {
     }
 
     pub fn get_memory_usage_from_serialized(bytes: &[u8]) -> Result<u64, StorageError> {
-        RawTrieNodeWithSize::decode(bytes).map(|raw_node| raw_node.memory_usage).map_err(|err| {
-            StorageError::StorageInconsistentState(format!("Failed to decode node: {err}"))
-        })
+        RawTrieNodeWithSize::try_from_slice(bytes).map(|raw_node| raw_node.memory_usage).map_err(
+            |err| StorageError::StorageInconsistentState(format!("Failed to decode node: {err}")),
+        )
     }
 }
 
