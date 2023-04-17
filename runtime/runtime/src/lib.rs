@@ -2450,7 +2450,9 @@ mod tests {
         assert_eq!(final_account_state.storage_usage(), 0);
     }
 
+    // This test fails on aarch because compilation results are not cached.
     #[test]
+    #[cfg_attr(all(target_arch = "aarch64", target_vendor = "apple"), ignore)]
     fn test_contract_precompilation() {
         let initial_balance = to_yocto(1_000_000);
         let initial_locked = to_yocto(500_000);
