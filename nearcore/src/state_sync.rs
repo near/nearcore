@@ -3,8 +3,7 @@ use borsh::BorshSerialize;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error};
 use near_chain_configs::ClientConfig;
-use near_client::sync::state::StateSync;
-use near_crypto::PublicKey;
+use near_client::sync::state::{s3_location, StateSync};
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::PartId;
@@ -19,7 +18,6 @@ pub fn spawn_state_sync_dump(
     config: &NearConfig,
     chain_genesis: ChainGenesis,
     runtime: Arc<NightshadeRuntime>,
-    node_key: &PublicKey,
 ) -> anyhow::Result<Option<StateSyncDumpHandle>> {
     if !config.client_config.state_sync_dump_enabled {
         return Ok(None);
@@ -81,7 +79,6 @@ pub fn spawn_state_sync_dump(
                 runtime,
                 client_config,
                 bucket.clone(),
-                node_key.clone(),
             )));
             arbiter_handle
         })
@@ -116,10 +113,8 @@ async fn state_sync_dump(
     runtime: Arc<NightshadeRuntime>,
     config: ClientConfig,
     bucket: s3::Bucket,
-    _node_key: PublicKey,
 ) {
     tracing::info!(target: "state_sync_dump", shard_id, "Running StateSyncDump loop");
-    let mut interval = actix_rt::time::interval(std::time::Duration::from_secs(10));
 
     if config.state_sync_restart_dump_for_shards.contains(&shard_id) {
         tracing::debug!(target: "state_sync_dump", shard_id, "Dropped existing progress");
@@ -128,7 +123,7 @@ async fn state_sync_dump(
 
     loop {
         // Avoid a busy-loop when there is nothing to do.
-        interval.tick().await;
+        std::thread::sleep(std::time::Duration::from_secs(10));
 
         let progress = chain.store().get_state_sync_dump_progress(shard_id);
         tracing::debug!(target: "state_sync_dump", shard_id, ?progress, "Running StateSyncDump loop iteration");
@@ -161,63 +156,75 @@ async fn state_sync_dump(
                 epoch_id,
                 epoch_height,
                 sync_hash,
-                state_root,
                 parts_dumped,
-                num_parts,
             })) => {
-                // The actual dumping of state to S3.
-                tracing::info!(target: "state_sync_dump", shard_id, ?epoch_id, epoch_height, %sync_hash, %state_root, parts_dumped, num_parts, "Creating parts and dumping them");
-                let mut res = None;
-                for part_id in parts_dumped..num_parts {
-                    // Dump parts sequentially synchronously.
-                    // TODO: How to make it possible to dump state more effectively using multiple nodes?
-                    let _timer = metrics::STATE_SYNC_DUMP_ITERATION_ELAPSED
-                        .with_label_values(&[&shard_id.to_string()])
-                        .start_timer();
+                let state_header = chain.get_state_response_header(shard_id, sync_hash);
+                match state_header {
+                    Ok(state_header) => {
+                        let state_root = state_header.chunk_prev_state_root();
+                        let num_parts =
+                            get_num_state_parts(state_header.state_root_node().memory_usage);
 
-                    let state_part = match get_state_part(
-                        &runtime,
-                        &shard_id,
-                        &sync_hash,
-                        &state_root,
-                        part_id,
-                        num_parts,
-                        &chain,
-                    ) {
-                        Ok(state_part) => state_part,
-                        Err(err) => {
-                            res = Some(err);
-                            break;
+                        let mut res = None;
+                        // The actual dumping of state to S3.
+                        tracing::info!(target: "state_sync_dump", shard_id, ?epoch_id, epoch_height, %sync_hash, parts_dumped, "Creating parts and dumping them");
+                        for part_id in parts_dumped..num_parts {
+                            // Dump parts sequentially synchronously.
+                            // TODO: How to make it possible to dump state more effectively using multiple nodes?
+                            let _timer = metrics::STATE_SYNC_DUMP_ITERATION_ELAPSED
+                                .with_label_values(&[&shard_id.to_string()])
+                                .start_timer();
+
+                            let state_part = match obtain_and_store_state_part(
+                                &runtime,
+                                &shard_id,
+                                &sync_hash,
+                                &state_root,
+                                part_id,
+                                num_parts,
+                                &chain,
+                            ) {
+                                Ok(state_part) => state_part,
+                                Err(err) => {
+                                    res = Some(err);
+                                    break;
+                                }
+                            };
+                            let location = s3_location(
+                                &config.chain_id,
+                                epoch_height,
+                                shard_id,
+                                part_id,
+                                num_parts,
+                            );
+                            if let Err(err) =
+                                put_state_part(&location, &state_part, &shard_id, &bucket).await
+                            {
+                                res = Some(err);
+                                break;
+                            }
+                            update_progress(
+                                &shard_id,
+                                &epoch_id,
+                                epoch_height,
+                                &sync_hash,
+                                part_id,
+                                num_parts,
+                                state_part.len(),
+                                &chain,
+                            );
                         }
-                    };
-                    let location =
-                        s3_location(&config.chain_id, epoch_height, shard_id, part_id, num_parts);
-                    if let Err(err) =
-                        put_state_part(&location, &state_part, &shard_id, &bucket).await
-                    {
-                        res = Some(err);
-                        break;
+                        if let Some(err) = res {
+                            Err(err)
+                        } else {
+                            Ok(Some(StateSyncDumpProgress::AllDumped {
+                                epoch_id,
+                                epoch_height,
+                                num_parts: Some(num_parts),
+                            }))
+                        }
                     }
-                    update_progress(
-                        &shard_id,
-                        &epoch_id,
-                        epoch_height,
-                        &sync_hash,
-                        &state_root,
-                        part_id,
-                        num_parts,
-                        state_part.len(),
-                        &chain,
-                    );
-                }
-                if let Some(err) = res {
-                    Err(err)
-                } else {
-                    Ok(Some(StateSyncDumpProgress::AllDumped {
-                        epoch_id,
-                        epoch_height,
-                        num_parts: Some(num_parts),
-                    }))
+                    Err(err) => Err(err),
                 }
             }
         };
@@ -268,7 +275,6 @@ fn update_progress(
     epoch_id: &EpochId,
     epoch_height: EpochHeight,
     sync_hash: &CryptoHash,
-    state_root: &StateRoot,
     part_id: u64,
     num_parts: u64,
     part_len: usize,
@@ -276,15 +282,13 @@ fn update_progress(
 ) {
     // Record that a part was obtained and dumped.
     metrics::STATE_SYNC_DUMP_SIZE_TOTAL
-        .with_label_values(&[&shard_id.to_string()])
+        .with_label_values(&[&epoch_height.to_string(), &shard_id.to_string()])
         .inc_by(part_len as u64);
     let next_progress = StateSyncDumpProgress::InProgress {
         epoch_id: epoch_id.clone(),
         epoch_height,
         sync_hash: *sync_hash,
-        state_root: *state_root,
         parts_dumped: part_id + 1,
-        num_parts,
     };
     match chain.store().set_state_sync_dump_progress(*shard_id, Some(next_progress.clone())) {
         Ok(_) => {
@@ -328,7 +332,8 @@ fn set_metrics(
     }
 }
 
-fn get_state_part(
+/// Obtains and then saves the part data.
+fn obtain_and_store_state_part(
     runtime: &Arc<NightshadeRuntime>,
     shard_id: &ShardId,
     sync_hash: &CryptoHash,
@@ -337,19 +342,13 @@ fn get_state_part(
     num_parts: u64,
     chain: &Chain,
 ) -> Result<Vec<u8>, Error> {
-    let state_part = {
-        let _timer = metrics::STATE_SYNC_DUMP_OBTAIN_PART_ELAPSED
-            .with_label_values(&[&shard_id.to_string()])
-            .start_timer();
-        runtime.obtain_state_part(
-            *shard_id,
-            &sync_hash,
-            &state_root,
-            PartId::new(part_id, num_parts),
-        )?
-    };
+    let state_part = runtime.obtain_state_part(
+        *shard_id,
+        &sync_hash,
+        &state_root,
+        PartId::new(part_id, num_parts),
+    )?;
 
-    // Save the part data.
     let key = StatePartKey(*sync_hash, *shard_id, part_id).try_to_vec()?;
     let mut store_update = chain.store().store().store_update();
     store_update.set(DBCol::StateParts, &key, &state_part);
@@ -367,14 +366,13 @@ fn start_dumping(
 ) -> Result<Option<StateSyncDumpProgress>, Error> {
     let epoch_info = runtime.get_epoch_info(&epoch_id)?;
     let epoch_height = epoch_info.epoch_height();
-    let num_shards = runtime.num_shards(&epoch_id)?;
-    let sync_hash_block = chain.get_block(&sync_hash)?;
-    if runtime.cares_about_shard(None, sync_hash_block.header().prev_hash(), shard_id, false) {
-        assert_eq!(num_shards, sync_hash_block.chunks().len() as u64);
-        let state_root = sync_hash_block.chunks()[shard_id as usize].prev_state_root();
-        let state_root_node = runtime.get_state_root_node(shard_id, &sync_hash, &state_root)?;
-        let num_parts = get_num_state_parts(state_root_node.memory_usage);
-        tracing::debug!(target: "state_sync_dump", shard_id, ?epoch_id, %sync_hash, %state_root, num_parts, "Initialize dumping state of Epoch");
+    let sync_prev_header = chain.get_block_header(&sync_hash)?;
+    let sync_prev_hash = sync_prev_header.hash();
+
+    let state_header = chain.get_state_response_header(shard_id, sync_hash)?;
+    let num_parts = get_num_state_parts(state_header.state_root_node().memory_usage);
+    if runtime.cares_about_shard(None, sync_prev_hash, shard_id, false) {
+        tracing::debug!(target: "state_sync_dump", shard_id, ?epoch_id, %sync_prev_hash, %sync_hash, "Initialize dumping state of Epoch");
         // Note that first the state of the state machines gets changes to
         // `InProgress` and it starts dumping state after a short interval.
         set_metrics(&shard_id, Some(0), Some(num_parts), Some(epoch_height));
@@ -382,12 +380,10 @@ fn start_dumping(
             epoch_id,
             epoch_height,
             sync_hash,
-            state_root,
             parts_dumped: 0,
-            num_parts,
         }))
     } else {
-        tracing::debug!(target: "state_sync_dump", shard_id, ?epoch_id, %sync_hash, "Shard is not tracked, skip the epoch");
+        tracing::debug!(target: "state_sync_dump", shard_id, ?epoch_id, %sync_prev_hash, %sync_hash, "Shard is not tracked, skip the epoch");
         Ok(Some(StateSyncDumpProgress::AllDumped { epoch_id, epoch_height, num_parts: Some(0) }))
     }
 }
@@ -421,17 +417,4 @@ fn check_new_epoch(
             start_dumping(head.epoch_id, sync_hash, shard_id, &chain, runtime)
         }
     }
-}
-
-fn s3_location(
-    chain_id: &str,
-    epoch_height: u64,
-    shard_id: u64,
-    part_id: u64,
-    num_parts: u64,
-) -> String {
-    format!(
-        "chain_id={}/epoch_height={}/shard_id={}/state_part_{:06}_of_{:06}",
-        chain_id, epoch_height, shard_id, part_id, num_parts
-    )
 }

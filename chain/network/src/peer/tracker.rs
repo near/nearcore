@@ -1,6 +1,6 @@
 use crate::peer::transfer_stats::TransferStats;
+use near_async::time;
 use near_primitives::hash::CryptoHash;
-use near_primitives::time;
 
 /// Maximum number of requests and responses to track.
 const MAX_TRACK_SIZE: usize = 30;

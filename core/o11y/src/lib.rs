@@ -28,7 +28,6 @@ mod io_tracer;
 pub mod log_config;
 pub mod macros;
 pub mod metrics;
-pub mod pretty;
 pub mod testonly;
 
 /// Produce a tracing-event for target "io_tracer" that will be consumed by the
@@ -456,8 +455,8 @@ pub enum ReloadError {
     Parse(#[source] BuildEnvFilterError),
 }
 
-pub fn reload_log_config(config: Option<&log_config::LogConfig>) -> Result<(), Vec<ReloadError>> {
-    if let Some(config) = config {
+pub fn reload_log_config(config: Option<&log_config::LogConfig>) {
+    let result = if let Some(config) = config {
         reload(
             config.rust_log.as_ref().map(|s| s.as_str()),
             config.verbose_module.as_ref().map(|s| s.as_str()),
@@ -467,6 +466,14 @@ pub fn reload_log_config(config: Option<&log_config::LogConfig>) -> Result<(), V
         // When the LOG_CONFIG_FILENAME is not available, reset to the tracing and logging config
         // when the node was started.
         reload(None, None, None)
+    };
+    match result {
+        Ok(_) => {
+            println!("Updated the logging layer according to `log_config.json`");
+        }
+        Err(err) => {
+            println!("Failed to update the logging layer according to the changed `log_config.json`. Errors: {:?}", err);
+        }
     }
 }
 

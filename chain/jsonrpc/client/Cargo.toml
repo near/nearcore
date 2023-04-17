@@ -12,5 +12,5 @@ futures.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
-near-jsonrpc-primitives = { path = "../../jsonrpc-primitives" }
-near-primitives = { path = "../../../core/primitives" }
+near-jsonrpc-primitives.workspace = true
+near-primitives.workspace = true

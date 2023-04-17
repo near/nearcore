@@ -25,7 +25,8 @@ pub fn with_ext_cost_counter(f: impl FnOnce(&mut HashMap<ExtCosts, u64>)) {
 
 type Result<T> = ::std::result::Result<T, VMLogicError>;
 
-/// Fast gas counter with very simple structure, could be exposed to compiled code in the VM.
+/// Fast gas counter with very simple structure, could be exposed to compiled code in the VM. For
+/// instance by intrinsifying host functions responsible for gas metering.
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FastGasCounter {
@@ -39,7 +40,7 @@ pub struct FastGasCounter {
     pub burnt_gas: u64,
     /// Hard gas limit for execution
     pub gas_limit: u64,
-    /// Single WASM opcode cost
+    /// Cost for one opcode. Used only by VMs preceding near_vm.
     pub opcode_cost: u64,
 }
 
@@ -79,7 +80,7 @@ impl GasCounter {
                 gas_limit: min(max_gas_burnt, prepaid_gas),
                 opcode_cost: Gas::from(opcode_cost),
             },
-            max_gas_burnt: max_gas_burnt,
+            max_gas_burnt,
             promises_gas: 0,
             prepaid_gas,
             is_view,
@@ -179,11 +180,6 @@ impl GasCounter {
         }
     }
 
-    pub fn pay_wasm_gas(&mut self, opcodes: u32) -> Result<()> {
-        let value = Gas::from(opcodes) * self.fast_counter.opcode_cost;
-        self.burn_gas(value)
-    }
-
     /// Very special function to get the gas counter pointer for generated machine code.
     /// Please do not use, unless fully understand Rust aliasing and other consequences.
     /// Can be used to emit inlined code like `pay_wasm_gas()`, i.e.
@@ -218,21 +214,24 @@ impl GasCounter {
 
     /// A helper function to pay a multiple of a cost.
     pub fn pay_per(&mut self, cost: ExtCosts, num: u64) -> Result<()> {
-        let use_gas = num
-            .checked_mul(cost.value(&self.ext_costs_config))
-            .ok_or(HostError::IntegerOverflow)?;
+        let use_gas =
+            num.checked_mul(cost.gas(&self.ext_costs_config)).ok_or(HostError::IntegerOverflow)?;
 
         self.inc_ext_costs_counter(cost, num);
-        self.update_profile_host(cost, use_gas);
-        self.burn_gas(use_gas)
+        let old_burnt_gas = self.fast_counter.burnt_gas;
+        let burn_gas_result = self.burn_gas(use_gas);
+        self.update_profile_host(cost, self.fast_counter.burnt_gas.saturating_sub(old_burnt_gas));
+        burn_gas_result
     }
 
     /// A helper function to pay base cost gas.
     pub fn pay_base(&mut self, cost: ExtCosts) -> Result<()> {
-        let base_fee = cost.value(&self.ext_costs_config);
+        let base_fee = cost.gas(&self.ext_costs_config);
         self.inc_ext_costs_counter(cost, 1);
-        self.update_profile_host(cost, base_fee);
-        self.burn_gas(base_fee)
+        let old_burnt_gas = self.fast_counter.burnt_gas;
+        let burn_gas_result = self.burn_gas(base_fee);
+        self.update_profile_host(cost, self.fast_counter.burnt_gas.saturating_sub(old_burnt_gas));
+        burn_gas_result
     }
 
     /// A helper function to pay base cost gas fee for batching an action.
@@ -246,8 +245,13 @@ impl GasCounter {
         use_gas: Gas,
         action: ActionCosts,
     ) -> Result<()> {
-        self.update_profile_action(action, burn_gas);
-        self.deduct_gas(burn_gas, use_gas)
+        let old_burnt_gas = self.fast_counter.burnt_gas;
+        let deduct_gas_result = self.deduct_gas(burn_gas, use_gas);
+        self.update_profile_action(
+            action,
+            self.fast_counter.burnt_gas.saturating_sub(old_burnt_gas),
+        );
+        deduct_gas_result
     }
 
     pub fn add_trie_fees(&mut self, count: &TrieNodesCount) -> Result<()> {
@@ -283,6 +287,9 @@ impl GasCounter {
 mod tests {
     use crate::{ExtCostsConfig, HostError};
     use near_primitives_core::types::Gas;
+
+    /// Max prepaid amount of gas.
+    const MAX_GAS: u64 = 300_000_000_000_000;
 
     fn make_test_counter(max_burnt: Gas, prepaid: Gas, is_view: bool) -> super::GasCounter {
         super::GasCounter::new(ExtCostsConfig::test(), max_burnt, 1, prepaid, is_view)
@@ -343,5 +350,66 @@ mod tests {
         test(5, 8, true, Err(HostError::GasLimitExceeded));
         test(8, 5, false, Err(HostError::GasExceeded));
         test(8, 5, true, Ok(()));
+    }
+
+    #[test]
+    fn test_profile_compute_cost_is_accurate() {
+        let mut counter = make_test_counter(MAX_GAS, MAX_GAS, false);
+        counter.pay_base(near_primitives::config::ExtCosts::storage_write_base).unwrap();
+        counter.pay_per(near_primitives::config::ExtCosts::storage_write_value_byte, 10).unwrap();
+        counter
+            .pay_action_accumulated(
+                100,
+                100,
+                near_primitives::config::ActionCosts::new_data_receipt_byte,
+            )
+            .unwrap();
+
+        let mut profile = counter.profile_data().clone();
+        profile.compute_wasm_instruction_cost(counter.burnt_gas());
+
+        assert_eq!(profile.total_compute_usage(&ExtCostsConfig::test()), counter.burnt_gas());
+    }
+
+    #[test]
+    fn test_profile_compute_cost_ext_over_limit() {
+        fn test(burn: Gas, prepaid: Gas, want: Result<(), HostError>) {
+            let mut counter = make_test_counter(burn, prepaid, false);
+            assert_eq!(
+                counter.pay_per(near_primitives::config::ExtCosts::storage_write_value_byte, 100),
+                want.map_err(Into::into)
+            );
+            let mut profile = counter.profile_data().clone();
+            profile.compute_wasm_instruction_cost(counter.burnt_gas());
+
+            assert_eq!(profile.total_compute_usage(&ExtCostsConfig::test()), counter.burnt_gas());
+        }
+
+        test(MAX_GAS, 1_000_000_000, Err(HostError::GasExceeded));
+        test(1_000_000_000, MAX_GAS, Err(HostError::GasLimitExceeded));
+        test(1_000_000_000, 1_000_000_000, Err(HostError::GasLimitExceeded));
+    }
+
+    #[test]
+    fn test_profile_compute_cost_action_over_limit() {
+        fn test(burn: Gas, prepaid: Gas, want: Result<(), HostError>) {
+            let mut counter = make_test_counter(burn, prepaid, false);
+            assert_eq!(
+                counter.pay_action_accumulated(
+                    10_000_000_000,
+                    10_000_000_000,
+                    near_primitives::config::ActionCosts::new_data_receipt_byte
+                ),
+                want.map_err(Into::into)
+            );
+            let mut profile = counter.profile_data().clone();
+            profile.compute_wasm_instruction_cost(counter.burnt_gas());
+
+            assert_eq!(profile.total_compute_usage(&ExtCostsConfig::test()), counter.burnt_gas());
+        }
+
+        test(MAX_GAS, 1_000_000_000, Err(HostError::GasExceeded));
+        test(1_000_000_000, MAX_GAS, Err(HostError::GasLimitExceeded));
+        test(1_000_000_000, 1_000_000_000, Err(HostError::GasLimitExceeded));
     }
 }

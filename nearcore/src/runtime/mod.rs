@@ -1246,6 +1246,10 @@ impl RuntimeAdapter for NightshadeRuntime {
             %block_hash,
             num_parts = part_id.total)
         .entered();
+        let _timer = metrics::STATE_SYNC_OBTAIN_PART_DELAY
+            .with_label_values(&[&shard_id.to_string()])
+            .start_timer();
+
         let epoch_id = self.get_epoch_id(block_hash)?;
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
         let trie = self.tries.get_view_trie_for_shard(shard_uid, *state_root);
@@ -1270,11 +1274,17 @@ impl RuntimeAdapter for NightshadeRuntime {
                 match Trie::validate_trie_nodes_for_part(state_root, part_id, trie_nodes) {
                     Ok(_) => true,
                     // Storage error should not happen
-                    Err(_) => false,
+                    Err(err) => {
+                        tracing::error!(target: "state-parts", ?err, "State part storage error");
+                        false
+                    }
                 }
             }
             // Deserialization error means we've got the data from malicious peer
-            Err(_) => false,
+            Err(err) => {
+                tracing::error!(target: "state-parts", ?err, "State part deserialization error");
+                false
+            }
         }
     }
 
@@ -1371,6 +1381,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         data: &[u8],
         epoch_id: &EpochId,
     ) -> Result<(), Error> {
+        let _timer = metrics::STATE_SYNC_APPLY_PART_DELAY
+            .with_label_values(&[&shard_id.to_string()])
+            .start_timer();
+
         let part = BorshDeserialize::try_from_slice(data)
             .expect("Part was already validated earlier, so could never fail here");
         let ApplyStatePartResult { trie_changes, flat_state_delta, contract_codes } =
@@ -1417,29 +1431,6 @@ impl RuntimeAdapter for NightshadeRuntime {
             Ok(memory_usage) => memory_usage == state_root_node.memory_usage,
             Err(_) => false, // Invalid state_root_node
         }
-    }
-
-    fn chunk_needs_to_be_fetched_from_archival(
-        &self,
-        chunk_prev_block_hash: &CryptoHash,
-        header_head: &CryptoHash,
-    ) -> Result<bool, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        let head_epoch_id = epoch_manager.get_epoch_id(header_head)?;
-        let head_next_epoch_id = epoch_manager.get_next_epoch_id(header_head)?;
-        let chunk_epoch_id = epoch_manager.get_epoch_id_from_prev_block(chunk_prev_block_hash)?;
-        let chunk_next_epoch_id =
-            epoch_manager.get_next_epoch_id_from_prev_block(chunk_prev_block_hash)?;
-
-        // `chunk_epoch_id != head_epoch_id && chunk_next_epoch_id != head_epoch_id` covers the
-        // common case: the chunk is in the current epoch, or in the previous epoch, relative to the
-        // header head. The third condition (`chunk_epoch_id != head_next_epoch_id`) covers a
-        // corner case, in which the `header_head` is the last block of an epoch, and the chunk is
-        // for the next block. In this case the `chunk_epoch_id` will be one epoch ahead of the
-        // `header_head`.
-        Ok(chunk_epoch_id != head_epoch_id
-            && chunk_next_epoch_id != head_epoch_id
-            && chunk_epoch_id != head_next_epoch_id)
     }
 
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error> {

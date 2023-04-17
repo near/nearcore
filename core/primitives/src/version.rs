@@ -152,6 +152,8 @@ pub enum ProtocolFeature {
     RejectBlocksWithOutdatedProtocolVersions,
     #[cfg(feature = "protocol_feature_flat_state")]
     FlatStorageReads,
+    #[cfg(feature = "protocol_feature_compute_costs")]
+    ComputeCosts,
 }
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
@@ -161,12 +163,12 @@ pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_V
 /// Current protocol version used on the mainnet.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 59;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 60;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {
     // On nightly, pick big enough version to support all features.
-    135
+    136
 } else {
     // Enable all stable features.
     STABLE_PROTOCOL_VERSION
@@ -181,6 +183,10 @@ pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protoco
 /// candidates usually have separate schedule to final releases.
 pub const PROTOCOL_UPGRADE_SCHEDULE: Lazy<ProtocolUpgradeVotingSchedule> = Lazy::new(|| {
     // Update to according to schedule when making a release.
+    // Keep in mind that the protocol upgrade will happen 1-2 epochs (15h-30h)
+    // after the set date. Ideally that should be during working hours.
+    // e.g. ProtocolUpgradeVotingSchedule::from_env_or_str("2000-01-01 15:00:00").unwrap());
+
     ProtocolUpgradeVotingSchedule::default()
 });
 
@@ -242,6 +248,8 @@ impl ProtocolFeature {
             ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 132,
             #[cfg(feature = "protocol_feature_flat_state")]
             ProtocolFeature::FlatStorageReads => 135,
+            #[cfg(feature = "protocol_feature_compute_costs")]
+            ProtocolFeature::ComputeCosts => 136,
         }
     }
 }

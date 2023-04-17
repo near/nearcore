@@ -114,7 +114,7 @@ trait Visitor {
                         if key_str.starts_with('"') {
                             key_str = &key_str[1..key_str.len() - 1];
                         }
-                        let key = near_o11y::pretty::Bytes::from_str(key_str).map_err(|e| {
+                        let key = near_fmt::Bytes::from_str(key_str).map_err(|e| {
                             anyhow::anyhow!("failed to decode key {key_str} because {e}")
                         })?;
                         let dict = extract_key_values(tokens)?;

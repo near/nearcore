@@ -1,26 +1,10 @@
-use anyhow::{anyhow, bail, Context};
-use near_primitives::static_clock::StaticClock;
-use near_primitives::test_utils::create_test_signer;
-use num_rational::Rational32;
-use std::fs;
-use std::fs::File;
-use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
-use std::str::FromStr;
-use std::sync::Arc;
-use std::time::Duration;
-
-use near_config_utils::{ValidationError, ValidationErrors};
-
-#[cfg(test)]
-use tempfile::tempdir;
-use tracing::{info, warn};
-
 use crate::download_file::{run_download_file, FileDownloadError};
+use anyhow::{anyhow, bail, Context};
 use near_chain_configs::{
     get_initial_supply, ClientConfig, GCConfig, Genesis, GenesisConfig, GenesisValidationMode,
     LogSummaryStyle, MutableConfigValue,
 };
+use near_config_utils::{ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 #[cfg(feature = "json_rpc")]
 use near_jsonrpc::RpcConfig;
@@ -32,9 +16,11 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::account_id_to_shard_id;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
+use near_primitives::static_clock::StaticClock;
+use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, EpochHeight, Gas, NumBlocks,
-    NumSeats, NumShards, ShardId,
+    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats,
+    NumShards, ShardId,
 };
 use near_primitives::utils::{generate_random_string, get_num_seats_per_shard};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
@@ -42,6 +28,17 @@ use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
 use near_telemetry::TelemetryConfig;
+use num_rational::Rational32;
+use std::fs;
+use std::fs::File;
+use std::io::{Read, Write};
+use std::path::Path;
+use std::str::FromStr;
+use std::sync::Arc;
+use std::time::Duration;
+#[cfg(test)]
+use tempfile::tempdir;
+use tracing::{info, warn};
 
 /// Initial balance used in tests.
 pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
@@ -66,9 +63,6 @@ pub const MAX_BLOCK_PRODUCTION_DELAY: u64 = 2_000;
 
 /// Maximum time until skipping the previous block is ms.
 pub const MAX_BLOCK_WAIT_DELAY: u64 = 6_000;
-
-/// Reduce wait time for every missing block in ms.
-const REDUCE_DELAY_FOR_MISSING_BLOCKS: u64 = 100;
 
 /// Horizon at which instead of fetching block, fetch full state.
 const BLOCK_FETCH_HORIZON: BlockHeightDelta = 50;
@@ -123,9 +117,6 @@ pub const NUM_BLOCK_PRODUCER_SEATS: NumSeats = 50;
 /// The minimum stake required for staking is last seat price divided by this number.
 pub const MINIMUM_STAKE_DIVISOR: u64 = 10;
 
-/// Number of epochs before protocol upgrade.
-pub const PROTOCOL_UPGRADE_NUM_EPOCHS: EpochHeight = 2;
-
 pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
 pub const NODE_KEY_FILE: &str = "node_key.json";
@@ -151,11 +142,6 @@ pub const MAX_INFLATION_RATE: Rational32 = Rational32::new_raw(1, 20);
 
 /// Protocol upgrade stake threshold.
 pub const PROTOCOL_UPGRADE_STAKE_THRESHOLD: Rational32 = Rational32::new_raw(4, 5);
-
-/// Serde default only supports functions without parameters.
-fn default_reduce_wait_for_missing_block() -> Duration {
-    Duration::from_millis(REDUCE_DELAY_FOR_MISSING_BLOCKS)
-}
 
 fn default_header_sync_initial_timeout() -> Duration {
     Duration::from_secs(10)
@@ -217,9 +203,6 @@ pub struct Consensus {
     pub max_block_production_delay: Duration,
     /// Maximum duration before skipping given height.
     pub max_block_wait_delay: Duration,
-    /// Duration to reduce the wait for each missed block by validator.
-    #[serde(default = "default_reduce_wait_for_missing_block")]
-    pub reduce_wait_for_missing_block: Duration,
     /// Produce empty blocks, use `false` for testing.
     pub produce_empty_blocks: bool,
     /// Horizon at which instead of fetching block, fetch full state.
@@ -268,7 +251,6 @@ impl Default for Consensus {
             min_block_production_delay: Duration::from_millis(MIN_BLOCK_PRODUCTION_DELAY),
             max_block_production_delay: Duration::from_millis(MAX_BLOCK_PRODUCTION_DELAY),
             max_block_wait_delay: Duration::from_millis(MAX_BLOCK_WAIT_DELAY),
-            reduce_wait_for_missing_block: default_reduce_wait_for_missing_block(),
             produce_empty_blocks: true,
             block_fetch_horizon: BLOCK_FETCH_HORIZON,
             state_fetch_horizon: STATE_FETCH_HORIZON,
@@ -307,6 +289,8 @@ pub struct Config {
     pub consensus: Consensus,
     pub tracked_accounts: Vec<AccountId>,
     pub tracked_shards: Vec<ShardId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tracked_shard_schedule: Option<Vec<Vec<ShardId>>>,
     #[serde(skip_serializing_if = "is_false")]
     pub archive: bool,
     /// If save_trie_changes is not set it will get inferred from the `archive` field as follows:
@@ -340,25 +324,16 @@ pub struct Config {
     /// Configuration for the
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub split_storage: Option<SplitStorageConfig>,
-    // TODO(mina86): Remove those two altogether at some point.  We need to be
-    // somewhat careful though and make sure that we don’t start silently
-    // ignoring this option without users setting corresponding store option.
-    // For the time being, we’re failing inside of create_db_checkpoint if this
-    // option is set.
-    /// Deprecated; use `store.migration_snapshot` instead.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub use_db_migration_snapshot: Option<bool>,
-    /// Deprecated; use `store.migration_snapshot` instead.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub db_migration_snapshot_path: Option<PathBuf>,
+    /// The node will stop after the head exceeds this height.
+    /// The node usually stops within several seconds after reaching the target height.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expected_shutdown: Option<BlockHeight>,
     /// Options for dumping state of every epoch to S3.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state_sync: Option<StateSyncConfig>,
     /// Whether to use state sync (unreliable and corrupts the DB if fails) or do a block sync instead.
-    #[serde(skip_serializing_if = "is_false")]
-    pub state_sync_enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state_sync_enabled: Option<bool>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -380,6 +355,7 @@ impl Default for Config {
             consensus: Consensus::default(),
             tracked_accounts: vec![],
             tracked_shards: vec![],
+            tracked_shard_schedule: None,
             archive: false,
             save_trie_changes: None,
             log_summary_style: LogSummaryStyle::Colored,
@@ -389,14 +365,12 @@ impl Default for Config {
             view_client_throttle_period: default_view_client_throttle_period(),
             trie_viewer_state_size_limit: default_trie_viewer_state_size_limit(),
             max_gas_burnt_view: None,
-            db_migration_snapshot_path: None,
-            use_db_migration_snapshot: None,
             store: near_store::StoreConfig::default(),
             cold_store: None,
             split_storage: None,
             expected_shutdown: None,
             state_sync: None,
-            state_sync_enabled: false,
+            state_sync_enabled: None,
         }
     }
 }
@@ -571,7 +545,6 @@ impl Genesis {
             avg_hidden_validator_seats_per_shard: vec![0; num_validator_seats_per_shard.len()],
             dynamic_resharding: false,
             protocol_upgrade_stake_threshold: PROTOCOL_UPGRADE_STAKE_THRESHOLD,
-            protocol_upgrade_num_epochs: PROTOCOL_UPGRADE_NUM_EPOCHS,
             epoch_length: FAST_EPOCH_LENGTH,
             gas_limit: INITIAL_GAS_LIMIT,
             gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
@@ -665,7 +638,6 @@ impl NearConfig {
                 min_block_production_delay: config.consensus.min_block_production_delay,
                 max_block_production_delay: config.consensus.max_block_production_delay,
                 max_block_wait_delay: config.consensus.max_block_wait_delay,
-                reduce_wait_for_missing_block: config.consensus.reduce_wait_for_missing_block,
                 skip_sync_wait: config.network.skip_sync_wait,
                 sync_check_period: config.consensus.sync_check_period,
                 sync_step_period: config.consensus.sync_step_period,
@@ -682,7 +654,6 @@ impl NearConfig {
                 produce_empty_blocks: config.consensus.produce_empty_blocks,
                 epoch_length: genesis.config.epoch_length,
                 num_block_producer_seats: genesis.config.num_block_producer_seats,
-                announce_account_horizon: genesis.config.epoch_length / 2,
                 ttl_account_id_router: config.network.ttl_account_id_router,
                 // TODO(1047): this should be adjusted depending on the speed of sync of state.
                 block_fetch_horizon: config.consensus.block_fetch_horizon,
@@ -693,6 +664,7 @@ impl NearConfig {
                 doosmslug_step_period: config.consensus.doomslug_step_period,
                 tracked_accounts: config.tracked_accounts,
                 tracked_shards: config.tracked_shards,
+                tracked_shard_schedule: config.tracked_shard_schedule.unwrap_or(vec![]),
                 archive: config.archive,
                 save_trie_changes: config.save_trie_changes.unwrap_or(!config.archive),
                 log_summary_style: config.log_summary_style,
@@ -708,20 +680,38 @@ impl NearConfig {
                 state_sync_dump_enabled: config
                     .state_sync
                     .as_ref()
-                    .map_or(false, |x| x.dump_enabled.unwrap_or(false)),
+                    .map(|x| x.dump_enabled)
+                    .flatten()
+                    .unwrap_or(false),
                 state_sync_s3_bucket: config
                     .state_sync
                     .as_ref()
-                    .map_or(String::new(), |x| x.s3_bucket.clone()),
+                    .map(|x| x.s3_bucket.clone())
+                    .unwrap_or(String::new()),
                 state_sync_s3_region: config
                     .state_sync
                     .as_ref()
-                    .map_or(String::new(), |x| x.s3_region.clone()),
+                    .map(|x| x.s3_region.clone())
+                    .unwrap_or(String::new()),
                 state_sync_restart_dump_for_shards: config
                     .state_sync
                     .as_ref()
-                    .map_or(vec![], |x| x.drop_state_of_dump.clone().unwrap_or(vec![])),
-                state_sync_enabled: config.state_sync_enabled,
+                    .map(|x| x.restart_dump_for_shards.clone())
+                    .flatten()
+                    .unwrap_or(vec![]),
+                state_sync_from_s3_enabled: config
+                    .state_sync
+                    .as_ref()
+                    .map(|x| x.sync_from_s3_enabled)
+                    .flatten()
+                    .unwrap_or(false),
+                state_sync_num_concurrent_s3_requests: config
+                    .state_sync
+                    .as_ref()
+                    .map(|x| x.num_concurrent_s3_requests)
+                    .flatten()
+                    .unwrap_or(100),
+                state_sync_enabled: config.state_sync_enabled.unwrap_or(false),
             },
             network_config: NetworkConfig::new(
                 config.network,
@@ -1160,7 +1150,6 @@ pub fn init_configs(
                 avg_hidden_validator_seats_per_shard: (0..num_shards).map(|_| 0).collect(),
                 dynamic_resharding: false,
                 protocol_upgrade_stake_threshold: PROTOCOL_UPGRADE_STAKE_THRESHOLD,
-                protocol_upgrade_num_epochs: PROTOCOL_UPGRADE_NUM_EPOCHS,
                 epoch_length: if fast { FAST_EPOCH_LENGTH } else { EXPECTED_EPOCH_LENGTH },
                 gas_limit: INITIAL_GAS_LIMIT,
                 gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
@@ -1548,12 +1537,25 @@ pub fn load_test_config(seed: &str, addr: tcp::ListenerAddr, genesis: Genesis) -
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 /// Options for dumping state to S3.
 pub struct StateSyncConfig {
+    /// Location of state dumps on S3.
     pub s3_bucket: String,
+    /// Region is very important on S3.
     pub s3_region: String,
+    /// Whether a node should dump state of each epoch to the external storage.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dump_enabled: Option<bool>,
+    /// Use carefully in case a node that dumps state to the external storage
+    /// gets in trouble.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub drop_state_of_dump: Option<Vec<ShardId>>,
+    pub restart_dump_for_shards: Option<Vec<ShardId>>,
+    /// If enabled, will download state parts from external storage and not from
+    /// the peers.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sync_from_s3_enabled: Option<bool>,
+    /// When syncing state from S3, throttle requests to this many concurrent
+    /// requests per shard.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub num_concurrent_s3_requests: Option<u64>,
 }
 
 #[test]
