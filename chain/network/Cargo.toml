@@ -47,6 +47,7 @@ time.workspace = true
 
 delay-detector.workspace = true
 near-async.workspace = true
+near-fmt.workspace = true
 near-o11y.workspace = true
 near-crypto.workspace = true
 near-performance-metrics.workspace = true

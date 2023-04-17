@@ -123,9 +123,8 @@ impl ProfileDataV3 {
                 }
                 // If the `value` is non-zero, the gas cost also must be non-zero.
                 debug_assert!(key.gas(ext_costs_config) != 0);
-                debug_assert!(*value % key.gas(ext_costs_config) == 0);
-                // TODO(#8795): Consider storing the count of calls and avoid division here.
-                (*value / key.gas(ext_costs_config)).saturating_mul(key.compute(ext_costs_config))
+                ((*value as u128).saturating_mul(key.compute(ext_costs_config) as u128)
+                    / (key.gas(ext_costs_config) as u128)) as u64
             })
             .fold(0, Compute::saturating_add);
 

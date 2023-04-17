@@ -1,5 +1,5 @@
 use crate::config_updater::ConfigUpdater;
-use crate::{metrics, rocksdb_metrics, SyncStatus};
+use crate::{metrics, SyncStatus};
 use actix::Addr;
 use itertools::Itertools;
 use near_chain_configs::{ClientConfig, LogSummaryStyle};
@@ -21,7 +21,6 @@ use near_primitives::views::{
     CatchupStatusView, ChunkProcessingStatus, CurrentEpochValidatorInfo, EpochValidatorInfo,
     ValidatorKickoutView,
 };
-use near_store::db::StoreStatistics;
 use near_telemetry::{telemetry, TelemetryActor};
 use std::cmp::min;
 use std::fmt::Write;
@@ -235,11 +234,6 @@ impl InfoHelper {
                 .map(get_validator_epoch_stats)
                 .unwrap_or_default()
         };
-        let statistics = if client.config.enable_statistics_export {
-            client.chain.store().get_store_statistics()
-        } else {
-            None
-        };
 
         InfoHelper::record_tracked_shards(&head, &client);
         InfoHelper::record_block_producers(&head, &client);
@@ -258,7 +252,6 @@ impl InfoHelper {
                 .get_estimated_protocol_upgrade_block_height(head.last_block_hash)
                 .unwrap_or(None)
                 .unwrap_or(0),
-            statistics,
             &client.config,
             config_updater,
         );
@@ -275,7 +268,6 @@ impl InfoHelper {
         validator_info: Option<ValidatorInfoHelper>,
         validator_epoch_stats: Vec<ValidatorProductionStats>,
         protocol_upgrade_block_height: BlockHeight,
-        statistics: Option<StoreStatistics>,
         client_config: &ClientConfig,
         config_updater: &Option<ConfigUpdater>,
     ) {
@@ -336,9 +328,6 @@ impl InfoHelper {
         );
         if catchup_status_log != "" {
             info!(target: "stats", "Catchups\n{}", catchup_status_log);
-        }
-        if let Some(statistics) = statistics {
-            rocksdb_metrics::export_stats_as_metrics(statistics);
         }
         if let Some(config_updater) = &config_updater {
             config_updater.report_status();

@@ -29,7 +29,6 @@ pub mod static_clock;
 pub mod syncing;
 pub mod telemetry;
 pub mod test_utils;
-pub mod time;
 pub mod transaction;
 pub mod trie_key;
 pub mod types;

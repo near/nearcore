@@ -1275,24 +1275,14 @@ impl RuntimeAdapter for NightshadeRuntime {
                     Ok(_) => true,
                     // Storage error should not happen
                     Err(err) => {
-                        tracing::error!(
-                            target: "state-parts",
-                            ?state_root,
-                            ?part_id,
-                            ?err,
-                            "State part storage error");
+                        tracing::error!(target: "state-parts", ?err, "State part storage error");
                         false
                     }
                 }
             }
             // Deserialization error means we've got the data from malicious peer
             Err(err) => {
-                tracing::error!(
-                    target: "state-parts",
-                    ?state_root,
-                    ?part_id,
-                    ?err,
-                    "State part deserialization error");
+                tracing::error!(target: "state-parts", ?err, "State part deserialization error");
                 false
             }
         }
@@ -1441,29 +1431,6 @@ impl RuntimeAdapter for NightshadeRuntime {
             Ok(memory_usage) => memory_usage == state_root_node.memory_usage,
             Err(_) => false, // Invalid state_root_node
         }
-    }
-
-    fn chunk_needs_to_be_fetched_from_archival(
-        &self,
-        chunk_prev_block_hash: &CryptoHash,
-        header_head: &CryptoHash,
-    ) -> Result<bool, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        let head_epoch_id = epoch_manager.get_epoch_id(header_head)?;
-        let head_next_epoch_id = epoch_manager.get_next_epoch_id(header_head)?;
-        let chunk_epoch_id = epoch_manager.get_epoch_id_from_prev_block(chunk_prev_block_hash)?;
-        let chunk_next_epoch_id =
-            epoch_manager.get_next_epoch_id_from_prev_block(chunk_prev_block_hash)?;
-
-        // `chunk_epoch_id != head_epoch_id && chunk_next_epoch_id != head_epoch_id` covers the
-        // common case: the chunk is in the current epoch, or in the previous epoch, relative to the
-        // header head. The third condition (`chunk_epoch_id != head_next_epoch_id`) covers a
-        // corner case, in which the `header_head` is the last block of an epoch, and the chunk is
-        // for the next block. In this case the `chunk_epoch_id` will be one epoch ahead of the
-        // `header_head`.
-        Ok(chunk_epoch_id != head_epoch_id
-            && chunk_next_epoch_id != head_epoch_id
-            && chunk_epoch_id != head_next_epoch_id)
     }
 
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error> {

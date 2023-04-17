@@ -1,9 +1,9 @@
 use anyhow::Context;
+use near_async::time;
 use near_network::raw::{ConnectError, Connection, Message, RoutedMessage};
 use near_network::types::HandshakeFailureReason;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::time;
 use near_primitives::types::{AccountId, BlockHeight, ShardId};
 use near_primitives::version::ProtocolVersion;
 use std::collections::HashMap;
@@ -95,6 +95,7 @@ async fn state_parts_from_node(
         chain_id,
         genesis_hash,
         head_height,
+        vec![0],
         time::Duration::seconds(recv_timeout_seconds.into())).await {
         Ok(p) => p,
         Err(ConnectError::HandshakeFailure(reason)) => {

@@ -13,7 +13,15 @@ Go to `http://localhost:3000/<RPC address>` to look at the debug UI of a near no
 The RPC address can be either IP:port, or just IP (which will default to port 3030).
 
 ## How to deploy in production
-TBD.
+Use the included Dockerfile, which will serve the UI on port 80 inside the container.
+
+For example:
+
+```
+cd tools/debug-ui
+docker build -t nearcore-debug-ui .
+docker run -p 8080:80 nearcore-debug-ui
+```
 
 ## Development
 
@@ -54,7 +62,7 @@ more precisely, using TestLoop from core/async/src/test_loop.rs), the test can b
    ```
    cargo test -p near-chunks test_multi -- --show-output > ~/log.txt
    ```
-2. Go to the UI at `/logviz`, such as http://localhost:3030/logviz
+2. Go to the UI at `/logviz`, such as http://localhost:3000/logviz
 3. Drag the log.txt file into the UI.
 
 Screenshots:
