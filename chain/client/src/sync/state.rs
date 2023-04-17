@@ -1537,8 +1537,10 @@ pub fn part_filename(part_id: u64, num_parts: u64) -> String {
 
 #[cfg(test)]
 mod test {
+    use super::*;
     use actix::System;
     use near_actix_test_utils::run_actix;
+    use near_chain::test_utils;
     use near_chain::{test_utils::process_block_sync, BlockProcessingArtifact, Provenance};
     use near_epoch_manager::EpochManagerAdapter;
     use near_network::test_utils::MockPeerManagerAdapter;
@@ -1547,8 +1549,6 @@ mod test {
         test_utils::TestBlockBuilder,
         types::EpochId,
     };
-    use near_chain::test_utils;
-    use super::*;
 
     #[test]
     // Start a new state sync - and check that it asks for a header.

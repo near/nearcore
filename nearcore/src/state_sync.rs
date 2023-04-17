@@ -227,6 +227,12 @@ async fn state_sync_dump(
                                 state_part.len(),
                                 &chain,
                             );
+
+                            // Stop if the node is stopped.
+                            if !keep_running.load(std::sync::atomic::Ordering::Relaxed) {
+                                res = Some(Error::Other("Stopped".to_owned()));
+                                break;
+                            }
                         }
                         if let Some(err) = res {
                             Err(err)
