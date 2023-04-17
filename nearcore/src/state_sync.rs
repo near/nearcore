@@ -27,6 +27,7 @@ pub fn spawn_state_sync_dump(
         dump_config
     } else {
         // Dump is not configured, and therefore not enabled.
+        tracing::debug!(target: "state_sync_dump", "Not spawning the state sync dump loop");
         return Ok(None);
     };
     tracing::info!(target: "state_sync_dump", "Spawning the state sync dump loop");
@@ -89,7 +90,7 @@ pub fn spawn_state_sync_dump(
                 chain_id.clone(),
                 dump_config.restart_dump_for_shards.clone().unwrap_or_default(),
                 external.clone(),
-                dump_config.iteration_delay.unwrap_or(Duration::from_secs(10)).clone(),
+                dump_config.iteration_delay.unwrap_or(Duration::from_secs(10)),
                 account_id.clone(),
                 keep_running.clone(),
             )));

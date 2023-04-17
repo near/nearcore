@@ -148,7 +148,7 @@ impl ExternalConnection {
         let result = match self {
             ExternalConnection::S3 { bucket } => {
                 tracing::info!(target: "sync", %shard_id, location, "Getting an object from the external storage");
-                let result = bucket.get_object(location.clone()).await;
+                let result = bucket.get_object(location).await;
                 match result {
                     Ok(response) => {
                         tracing::info!(target: "sync", %shard_id, location, response_code = response.status_code(), num_bytes = response.bytes().len(), "S3 request finished");
@@ -162,7 +162,7 @@ impl ExternalConnection {
                 }
             }
             ExternalConnection::Filesystem { root_dir } => {
-                let path = root_dir.join(location.clone());
+                let path = root_dir.join(location);
                 tracing::info!(target: "sync", %shard_id, ?path, "Reading a file");
                 let result = std::fs::read(&path);
                 result.map_err(ExternalStorageError::FilesystemError)
