@@ -1114,6 +1114,7 @@ name = "cold-store-tool"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "borsh 0.10.2",
  "clap 3.1.18",
  "near-chain-configs",
  "near-epoch-manager",
@@ -3869,7 +3870,6 @@ dependencies = [
  "assert_matches",
  "bencher",
  "borsh 0.10.2",
- "byteorder",
  "bytesize",
  "crossbeam",
  "derive_more",
@@ -3974,7 +3974,6 @@ dependencies = [
 name = "near-vm-compiler-singlepass"
 version = "0.0.0"
 dependencies = [
- "byteorder",
  "dynasm",
  "dynasmrt",
  "enumset",
@@ -4199,7 +4198,6 @@ dependencies = [
  "awc",
  "bencher",
  "borsh 0.10.2",
- "byteorder",
  "chrono",
  "delay-detector",
  "dirs",
