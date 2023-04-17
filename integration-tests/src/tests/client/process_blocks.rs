@@ -2460,7 +2460,7 @@ fn test_validate_chunk_extra() {
         env.clients[0].chain.get_chunk_extra(block1.hash(), &ShardUId::single_shard()).unwrap();
     assert!(validate_chunk_with_chunk_extra(
         &mut chain_store,
-        &*env.clients[0].runtime_adapter,
+        env.clients[0].runtime_adapter.epoch_manager_adapter(),
         block1.hash(),
         &chunk_extra,
         block1.chunks()[0].height_included(),

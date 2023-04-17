@@ -371,6 +371,8 @@ pub trait EpochManagerAdapter: Send + Sync {
         account_id: &AccountId,
         shard_id: ShardId,
     ) -> Result<bool, EpochError>;
+
+    fn will_shard_layout_change(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError>;
 }
 
 /// A technical plumbing trait to conveniently implement [`EpochManagerAdapter`]
@@ -941,5 +943,10 @@ impl<T: HasEpochMangerHandle + Send + Sync> EpochManagerAdapter for T {
             account_id,
             shard_id,
         )
+    }
+
+    fn will_shard_layout_change(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError> {
+        let epoch_manager = self.read();
+        epoch_manager.will_shard_layout_change(parent_hash)
     }
 }

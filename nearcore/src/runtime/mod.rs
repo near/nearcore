@@ -1462,6 +1462,14 @@ impl RuntimeWithEpochManagerAdapter for NightshadeRuntime {
         self.myself.upgrade().unwrap()
     }
 
+    fn runtime_adapter(&self) -> &dyn RuntimeAdapter {
+        self
+    }
+
+    fn runtime_adapter_arc(&self) -> Arc<dyn RuntimeAdapter> {
+        self.myself.upgrade().unwrap()
+    }
+
     fn shard_tracker(&self) -> ShardTracker {
         self.shard_tracker.clone()
     }
@@ -3142,7 +3150,12 @@ mod test {
             RuntimeConfigStore::new(None),
         );
 
-        let block = Chain::make_genesis_block(runtime.as_ref(), &chain_genesis).unwrap();
+        let block = Chain::make_genesis_block(
+            runtime.epoch_manager_adapter(),
+            runtime.runtime_adapter(),
+            &chain_genesis,
+        )
+        .unwrap();
         assert_eq!(
             block.header().hash().to_string(),
             "EPnLgE7iEq9s7yTkos96M3cWymH5avBAPm3qx3NXqR8H"

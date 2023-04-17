@@ -884,6 +884,15 @@ impl EpochManagerAdapter for KeyValueRuntime {
         }
         Ok(false)
     }
+
+    fn will_shard_layout_change(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError> {
+        // Copied from EpochManager (KeyValueRuntime is deprecated anyway).
+        let epoch_id = self.get_epoch_id_from_prev_block(parent_hash)?;
+        let next_epoch_id = self.get_next_epoch_id_from_prev_block(parent_hash)?;
+        let shard_layout = self.get_shard_layout(&epoch_id)?;
+        let next_shard_layout = self.get_shard_layout(&next_epoch_id)?;
+        Ok(shard_layout != next_shard_layout)
+    }
 }
 
 impl RuntimeAdapter for KeyValueRuntime {
@@ -1435,6 +1444,12 @@ impl RuntimeWithEpochManagerAdapter for KeyValueRuntime {
         self
     }
     fn epoch_manager_adapter_arc(&self) -> Arc<dyn EpochManagerAdapter> {
+        self.myself.upgrade().unwrap()
+    }
+    fn runtime_adapter(&self) -> &dyn RuntimeAdapter {
+        self
+    }
+    fn runtime_adapter_arc(&self) -> Arc<dyn RuntimeAdapter> {
         self.myself.upgrade().unwrap()
     }
     fn shard_tracker(&self) -> ShardTracker {

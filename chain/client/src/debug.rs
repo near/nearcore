@@ -5,7 +5,7 @@ use actix::{Context, Handler};
 use borsh::BorshSerialize;
 use itertools::Itertools;
 use near_chain::crypto_hash_timer::CryptoHashTimer;
-use near_chain::{near_chain_primitives, Chain, ChainStoreAccess, RuntimeWithEpochManagerAdapter};
+use near_chain::{near_chain_primitives, Chain, ChainStoreAccess};
 use near_client_primitives::debug::{
     ApprovalAtHeightStatus, BlockProduction, ChunkCollection, DebugBlockStatusData, DebugStatus,
     DebugStatusResponse, MissedHeightInfo, ProductionAtHeight, ValidatorStatus,
@@ -15,6 +15,7 @@ use near_client_primitives::{
     debug::{EpochInfoView, TrackedShardsView},
     types::StatusError,
 };
+use near_epoch_manager::EpochManagerAdapter;
 use near_o11y::{handler_debug_span, log_assert, OpenTelemetrySpanExt, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::syncing::get_num_state_parts;
@@ -119,7 +120,7 @@ impl BlockProductionTracker {
         epoch_id: &EpochId,
         num_shards: ShardId,
         new_chunks: &HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>, AccountId)>,
-        runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
+        epoch_manager: &dyn EpochManagerAdapter,
     ) -> Result<Vec<ChunkCollection>, Error> {
         let mut chunk_collection_info = vec![];
         for shard_id in 0..num_shards {
@@ -131,7 +132,7 @@ impl BlockProductionTracker {
                 });
             } else {
                 let chunk_producer =
-                    runtime_adapter.get_chunk_producer(epoch_id, block_height, shard_id)?;
+                    epoch_manager.get_chunk_producer(epoch_id, block_height, shard_id)?;
                 chunk_collection_info.push(ChunkCollection {
                     chunk_producer,
                     received_time: None,

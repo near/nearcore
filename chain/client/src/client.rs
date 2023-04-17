@@ -33,6 +33,7 @@ use near_chunks::ShardsManager;
 use near_client_primitives::debug::ChunkProduction;
 use near_client_primitives::types::{Error, ShardSyncDownload, ShardSyncStatus};
 use near_epoch_manager::shard_tracker::ShardTracker;
+use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::{AccountKeys, ChainInfo, PeerManagerMessageRequest, SetChainInfo};
 use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter, ReasonForBan,
@@ -610,7 +611,7 @@ impl Client {
 
         let next_bp_hash = if prev_epoch_id != epoch_id {
             Chain::compute_bp_hash(
-                &*self.runtime_adapter,
+                self.runtime_adapter.epoch_manager_adapter(),
                 next_epoch_id,
                 epoch_id.clone(),
                 &prev_hash,
@@ -634,7 +635,10 @@ impl Client {
         let block_ordinal: NumBlocks = block_merkle_tree.size() + 1;
         let prev_block_extra = self.chain.get_block_extra(&prev_hash)?;
         let prev_block = self.chain.get_block(&prev_hash)?;
-        let mut chunks = Chain::get_prev_chunk_headers(&*self.runtime_adapter, &prev_block)?;
+        let mut chunks = Chain::get_prev_chunk_headers(
+            self.runtime_adapter.epoch_manager_adapter(),
+            &prev_block,
+        )?;
 
         // Add debug information about the block production (and info on when did the chunks arrive).
         self.block_production_info.record_block_production(
@@ -644,7 +648,7 @@ impl Client {
                 &epoch_id,
                 chunks.len() as ShardId,
                 &new_chunks,
-                &*self.runtime_adapter,
+                self.runtime_adapter.epoch_manager_adapter(),
             )?,
         );
 
@@ -1558,8 +1562,12 @@ impl Client {
                         match self.produce_chunk(
                             *block.hash(),
                             &epoch_id,
-                            Chain::get_prev_chunk_header(&*self.runtime_adapter, &block, shard_id)
-                                .unwrap(),
+                            Chain::get_prev_chunk_header(
+                                self.runtime_adapter.epoch_manager_adapter(),
+                                &block,
+                                shard_id,
+                            )
+                            .unwrap(),
                             block.header().height() + 1,
                             shard_id,
                         ) {
@@ -1684,12 +1692,8 @@ impl Client {
         error: near_chain::Error,
     ) {
         let is_validator =
-            |epoch_id,
-             block_hash,
-             account_id,
-             runtime_adapter: &Arc<dyn RuntimeWithEpochManagerAdapter>| {
-                match runtime_adapter.get_validator_by_account_id(epoch_id, block_hash, account_id)
-                {
+            |epoch_id, block_hash, account_id, epoch_manager: &dyn EpochManagerAdapter| {
+                match epoch_manager.get_validator_by_account_id(epoch_id, block_hash, account_id) {
                     Ok((_, is_slashed)) => !is_slashed,
                     Err(_) => false,
                 }
@@ -1701,12 +1705,12 @@ impl Client {
                     &head.epoch_id,
                     &head.last_block_hash,
                     &approval.account_id,
-                    &self.runtime_adapter,
+                    self.runtime_adapter.epoch_manager_adapter(),
                 ) && !is_validator(
                     &head.next_epoch_id,
                     &head.last_block_hash,
                     &approval.account_id,
-                    &self.runtime_adapter,
+                    self.runtime_adapter.epoch_manager_adapter(),
                 ) {
                     return;
                 }
@@ -2318,7 +2322,7 @@ impl Client {
             // are cheaper than block processing (and that they will work with both this and
             // the next epoch). The caching on top of that (in tier1_accounts_cache field) is just
             // a defence in depth, based on the previous experience with expensive
-            // RuntimeWithEpochManagerAdapter::get_validators_info call.
+            // EpochManagerAdapter::get_validators_info call.
             for cp in self.runtime_adapter.get_epoch_chunk_producers(epoch_id)? {
                 account_keys
                     .entry(cp.account_id().clone())

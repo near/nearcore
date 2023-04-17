@@ -3,8 +3,8 @@
 use crate::{MockNetworkConfig, MockPeer};
 use anyhow::Context;
 use near_chain::types::RuntimeAdapter;
-use near_chain::ChainStoreUpdate;
 use near_chain::{Chain, ChainGenesis, ChainStore, ChainStoreAccess, DoomslugThresholdMode};
+use near_chain::{ChainStoreUpdate, RuntimeWithEpochManagerAdapter};
 use near_crypto::{KeyType, SecretKey};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_jsonrpc_client::JsonRpcClient;
@@ -160,7 +160,7 @@ pub fn setup_mock_node(
         let chain_store_update = ChainStoreUpdate::copy_chain_state_as_of_block(
             &mut chain_store,
             &hash,
-            mock_network_runtime.clone(),
+            mock_network_runtime.epoch_manager_adapter(),
             &mut network_chain_store,
         )
         .unwrap();

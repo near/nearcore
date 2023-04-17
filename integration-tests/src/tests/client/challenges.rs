@@ -137,9 +137,15 @@ fn test_verify_block_double_sign_challenge() {
     );
     let runtime_adapter = env.clients[1].chain.runtime_adapter.clone();
     assert_eq!(
-        &validate_challenge(&*runtime_adapter, &epoch_id, genesis.hash(), &valid_challenge)
-            .unwrap()
-            .0,
+        &validate_challenge(
+            runtime_adapter.epoch_manager_adapter(),
+            runtime_adapter.runtime_adapter(),
+            &epoch_id,
+            genesis.hash(),
+            &valid_challenge
+        )
+        .unwrap()
+        .0,
         if b1.hash() > b2.hash() { b1.hash() } else { b2.hash() }
     );
     let invalid_challenge = Challenge::produce(
@@ -150,8 +156,14 @@ fn test_verify_block_double_sign_challenge() {
         &signer,
     );
     let runtime_adapter = env.clients[1].chain.runtime_adapter.clone();
-    assert!(validate_challenge(&*runtime_adapter, &epoch_id, genesis.hash(), &invalid_challenge,)
-        .is_err());
+    assert!(validate_challenge(
+        runtime_adapter.epoch_manager_adapter(),
+        runtime_adapter.runtime_adapter(),
+        &epoch_id,
+        genesis.hash(),
+        &invalid_challenge,
+    )
+    .is_err());
     let b3 = env.clients[0].produce_block(3).unwrap().unwrap();
     let invalid_challenge = Challenge::produce(
         ChallengeBody::BlockDoubleSign(BlockDoubleSign {
@@ -161,8 +173,14 @@ fn test_verify_block_double_sign_challenge() {
         &signer,
     );
     let runtime_adapter = env.clients[1].chain.runtime_adapter.clone();
-    assert!(validate_challenge(&*runtime_adapter, &epoch_id, genesis.hash(), &invalid_challenge,)
-        .is_err());
+    assert!(validate_challenge(
+        runtime_adapter.epoch_manager_adapter(),
+        runtime_adapter.runtime_adapter(),
+        &epoch_id,
+        genesis.hash(),
+        &invalid_challenge,
+    )
+    .is_err());
 
     let result = env.clients[0].process_block_test(b2.into(), Provenance::SYNC);
     assert!(result.is_ok());
@@ -316,7 +334,8 @@ fn challenge(
     );
     let runtime_adapter = env.clients[0].chain.runtime_adapter.clone();
     validate_challenge(
-        &*runtime_adapter,
+        runtime_adapter.epoch_manager_adapter(),
+        runtime_adapter.runtime_adapter(),
         block.header().epoch_id(),
         block.header().prev_hash(),
         &valid_challenge,
@@ -460,7 +479,8 @@ fn test_verify_chunk_invalid_state_challenge() {
     // TODO (#2445): Enable challenges when they are working correctly.
     assert_matches!(
         validate_challenge(
-            &*runtime_adapter,
+            runtime_adapter.epoch_manager_adapter(),
+            runtime_adapter.runtime_adapter(),
             block.header().epoch_id(),
             block.header().prev_hash(),
             &challenge,

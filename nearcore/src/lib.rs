@@ -10,7 +10,7 @@ use cold_storage::ColdStoreLoopHandle;
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::messaging::{IntoSender, LateBoundSender};
 use near_async::time;
-use near_chain::{Chain, ChainGenesis};
+use near_chain::{Chain, ChainGenesis, RuntimeWithEpochManagerAdapter};
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::{start_client, start_view_client, ClientActor, ConfigUpdater, ViewClientActor};
 use near_network::PeerManagerActor;
@@ -229,7 +229,11 @@ pub fn start_with_config_and_synchronization(
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
     let chain_genesis = ChainGenesis::new(&config.genesis);
-    let genesis_block = Chain::make_genesis_block(&*runtime, &chain_genesis)?;
+    let genesis_block = Chain::make_genesis_block(
+        runtime.epoch_manager_adapter(),
+        runtime.runtime_adapter(),
+        &chain_genesis,
+    )?;
     let genesis_id = GenesisId {
         chain_id: config.client_config.chain_id.clone(),
         hash: *genesis_block.header().hash(),

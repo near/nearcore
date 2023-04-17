@@ -1929,7 +1929,12 @@ pub fn create_chunk_on_height_for_shard(
         .produce_chunk(
             last_block_hash,
             &client.runtime_adapter.get_epoch_id_from_prev_block(&last_block_hash).unwrap(),
-            Chain::get_prev_chunk_header(&*client.runtime_adapter, &last_block, shard_id).unwrap(),
+            Chain::get_prev_chunk_header(
+                client.runtime_adapter.epoch_manager_adapter(),
+                &last_block,
+                shard_id,
+            )
+            .unwrap(),
             next_height,
             shard_id,
         )

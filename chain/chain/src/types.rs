@@ -574,6 +574,8 @@ pub trait RuntimeAdapter: Send + Sync {
 pub trait RuntimeWithEpochManagerAdapter: RuntimeAdapter + EpochManagerAdapter {
     fn epoch_manager_adapter(&self) -> &dyn EpochManagerAdapter;
     fn epoch_manager_adapter_arc(&self) -> Arc<dyn EpochManagerAdapter>;
+    fn runtime_adapter(&self) -> &dyn RuntimeAdapter;
+    fn runtime_adapter_arc(&self) -> Arc<dyn RuntimeAdapter>;
     fn shard_tracker(&self) -> ShardTracker;
 }
 

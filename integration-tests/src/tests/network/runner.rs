@@ -5,7 +5,7 @@ use near_async::messaging::{IntoSender, LateBoundSender};
 use near_async::time;
 use near_chain::test_utils::{KeyValueRuntime, ValidatorSchedule};
 use near_chain::types::RuntimeAdapter;
-use near_chain::{Chain, ChainGenesis};
+use near_chain::{Chain, ChainGenesis, RuntimeWithEpochManagerAdapter};
 use near_chain_configs::ClientConfig;
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::{start_client, start_view_client};
@@ -59,7 +59,12 @@ fn setup_network_node(
     let mut client_config = ClientConfig::test(false, 100, 200, num_validators, false, true, true);
     client_config.archive = config.archive;
     client_config.ttl_account_id_router = config.ttl_account_id_router.try_into().unwrap();
-    let genesis_block = Chain::make_genesis_block(&*runtime, &chain_genesis).unwrap();
+    let genesis_block = Chain::make_genesis_block(
+        runtime.epoch_manager_adapter(),
+        runtime.runtime_adapter(),
+        &chain_genesis,
+    )
+    .unwrap();
     let genesis_id = GenesisId {
         chain_id: client_config.chain_id.clone(),
         hash: *genesis_block.header().hash(),

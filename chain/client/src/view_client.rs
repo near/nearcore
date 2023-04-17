@@ -716,7 +716,7 @@ impl Handler<WithSpanContext<GetValidatorOrdered>> for ViewClientActor {
             get_epoch_block_producers_view(
                 header.epoch_id(),
                 header.prev_hash(),
-                &*self.runtime_adapter,
+                self.runtime_adapter.epoch_manager_adapter(),
             )
         })?)
     }
@@ -864,7 +864,7 @@ impl Handler<WithSpanContext<GetNextLightClientBlock>> for ViewClientActor {
             let head_header = self.chain.get_block_header(&head.last_block_hash)?;
             let ret = Chain::create_light_client_block(
                 &head_header,
-                &*self.runtime_adapter,
+                self.runtime_adapter.epoch_manager_adapter(),
                 self.chain.store(),
             )?;
 

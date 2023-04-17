@@ -79,7 +79,7 @@ fn do_fork(
                 );
             }
             let next_bp_hash = Chain::compute_bp_hash(
-                &*runtime_adapter,
+                runtime_adapter.epoch_manager_adapter(),
                 next_epoch_id.clone(),
                 epoch_id.clone(),
                 &prev_hash,
