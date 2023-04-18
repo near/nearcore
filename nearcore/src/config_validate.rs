@@ -28,8 +28,8 @@ impl<'a> ConfigValidator<'a> {
 
     /// this function would check all conditions, and add all error messages to ConfigValidator.errors
     fn validate_all_conditions(&mut self) {
-        if self.config.archive == false && self.config.save_trie_changes == Some(false) {
-            let error_message = format!("Configuration with archive = false and save_trie_changes = false is not supported because non-archival nodes must save trie changes in order to do do garbage collection.");
+        if !self.config.archive && self.config.save_trie_changes == Some(false) {
+            let error_message = "Configuration with archive = false and save_trie_changes = false is not supported because non-archival nodes must save trie changes in order to do do garbage collection.".to_string();
             self.validation_errors.push_config_semantics_error(error_message);
         }
 
@@ -64,7 +64,7 @@ impl<'a> ConfigValidator<'a> {
 
         if self.config.consensus.header_sync_expected_height_per_second == 0 {
             let error_message =
-                format!("consensus.header_sync_expected_height_per_second should not be 0");
+                "consensus.header_sync_expected_height_per_second should not be 0".to_string();
             self.validation_errors.push_config_semantics_error(error_message);
         }
 
@@ -97,7 +97,7 @@ impl<'a> ConfigValidator<'a> {
             Ok(())
         } else {
             let full_err_msg = self.validation_errors.generate_error_message_per_type().unwrap();
-            Err(ValidationError::ConfigSemanticsError { error_message: full_err_msg }.into())
+            Err(ValidationError::ConfigSemanticsError { error_message: full_err_msg })
         }
     }
 }

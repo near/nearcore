@@ -193,7 +193,7 @@ impl ClientActor {
         let block_producers: Vec<ValidatorInfo> = self
             .client
             .runtime_adapter
-            .get_epoch_block_producers_ordered(&epoch_id, &last_known_block_hash)?
+            .get_epoch_block_producers_ordered(epoch_id, last_known_block_hash)?
             .into_iter()
             .map(|(validator_stake, is_slashed)| {
                 block_producers_set.insert(validator_stake.account_id().as_str().to_owned());
@@ -257,17 +257,14 @@ impl ClientActor {
                 let key = StateHeaderKey(shard_id as u64, *block.hash()).try_to_vec();
                 match key {
                     Ok(key) => {
-                        if let Ok(Some(_)) =
+                        matches!(
                             self.client
                                 .chain
                                 .store()
                                 .store()
-                                .get_ser::<ShardStateSyncResponseHeader>(DBCol::StateHeaders, &key)
-                        {
-                            true
-                        } else {
-                            false
-                        }
+                                .get_ser::<ShardStateSyncResponseHeader>(DBCol::StateHeaders, &key),
+                            Ok(Some(_))
+                        )
                     }
                     Err(_) => false,
                 }
@@ -314,7 +311,7 @@ impl ClientActor {
         let epoch_start_height =
             self.client.runtime_adapter.get_epoch_start_height(&head.last_block_hash)?;
         let (validators, chunk_only_producers) =
-            self.get_producers_for_epoch(&&head.next_epoch_id, &head.last_block_hash)?;
+            self.get_producers_for_epoch(&head.next_epoch_id, &head.last_block_hash)?;
 
         Ok(EpochInfoView {
             epoch_id: head.next_epoch_id.0,

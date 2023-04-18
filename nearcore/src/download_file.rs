@@ -136,7 +136,7 @@ static XZ_HEADER_MAGIC: [u8; 6] = [0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00];
 
 impl<'a> AutoXzDecoder<'a> {
     fn new(path: &'a std::path::Path, file: tokio::fs::File) -> Self {
-        Self { path, file: file, state: AutoXzState::Probing(0) }
+        Self { path, file, state: AutoXzState::Probing(0) }
     }
 
     /// Writes data from the chunk to the output file automatically
@@ -148,7 +148,7 @@ impl<'a> AutoXzDecoder<'a> {
             if len != 0 {
                 self.write_all_impl(&XZ_HEADER_MAGIC[..len]).await?;
             }
-            self.write_all_impl(&chunk).await?;
+            self.write_all_impl(chunk).await?;
         }
         Ok(())
     }

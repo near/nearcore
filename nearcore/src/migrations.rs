@@ -11,7 +11,7 @@ use near_store::{DBCol, Store};
 // This migration takes at least 3 hours to complete on mainnet
 pub fn migrate_30_to_31(store: &Store, near_config: &crate::NearConfig) -> anyhow::Result<()> {
     if near_config.client_config.archive && &near_config.genesis.config.chain_id == "mainnet" {
-        do_migrate_30_to_31(&store, &near_config.genesis.config)?;
+        do_migrate_30_to_31(store, &near_config.genesis.config)?;
     }
     Ok(())
 }
@@ -26,7 +26,7 @@ pub fn do_migrate_30_to_31(
     let genesis_height = genesis_config.genesis_height;
     let chain_store = ChainStore::new(store.clone(), genesis_height, false);
     let head = chain_store.head()?;
-    let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
+    let mut store_update = BatchedStoreUpdate::new(store, 10_000_000);
     let mut count = 0;
     // we manually checked mainnet archival data and the first block where the discrepancy happened is `47443088`.
     for height in 47443088..=head.height {
@@ -113,7 +113,7 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
             }
             28 => near_store::migrations::migrate_28_to_29(store),
             29 => near_store::migrations::migrate_29_to_30(store),
-            30 => migrate_30_to_31(store, &self.config),
+            30 => migrate_30_to_31(store, self.config),
             31 => near_store::migrations::migrate_31_to_32(store),
             32 => near_store::migrations::migrate_32_to_33(store),
             33 => {

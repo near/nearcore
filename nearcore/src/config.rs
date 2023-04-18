@@ -629,7 +629,7 @@ impl NearConfig {
             client_config: ClientConfig {
                 version: Default::default(),
                 chain_id: genesis.config.chain_id.clone(),
-                rpc_addr: config.rpc_addr().map(|addr| addr),
+                rpc_addr: config.rpc_addr(),
                 expected_shutdown: MutableConfigValue::new(
                     config.expected_shutdown,
                     "expected_shutdown",
@@ -761,7 +761,7 @@ impl NearConfig {
             .write_to_file(&dir.join(&self.config.node_key_file))
             .expect("Error writing key file");
 
-        self.genesis.to_file(&dir.join(&self.config.genesis_file));
+        self.genesis.to_file(dir.join(&self.config.genesis_file));
     }
 }
 
@@ -972,7 +972,7 @@ pub fn init_configs(
         // Check that Genesis exists and can be read.
         // If `config.json` exists, but `genesis.json` doesn't exist,
         // that isn't supported by the `init` command.
-        let _genesis = GenesisConfig::from_file(&file_path).with_context(move || {
+        let _genesis = GenesisConfig::from_file(file_path).with_context(move || {
             anyhow!("Failed to read genesis config {}/{}", dir.display(), genesis_file)
         })?;
         // Check that `node_key.json` and `validator_key.json` exist.
@@ -984,7 +984,7 @@ pub fn init_configs(
     let mut config = Config::default();
 
     if let Some(url) = download_config_url {
-        download_config(&url.to_string(), &dir.join(CONFIG_FILENAME))
+        download_config(url, &dir.join(CONFIG_FILENAME))
             .context(format!("Failed to download the config file from {}", url))?;
         config = Config::from_file(&dir.join(CONFIG_FILENAME))?;
     } else if should_download_config {
@@ -1021,7 +1021,7 @@ pub fn init_configs(
 
             let genesis = near_mainnet_res::mainnet_genesis();
 
-            genesis.to_file(&dir.join(config.genesis_file));
+            genesis.to_file(dir.join(config.genesis_file));
             info!(target: "near", "Generated mainnet genesis file in {}", dir.display());
         }
         TESTNET | BETANET => {
@@ -1042,7 +1042,7 @@ pub fn init_configs(
                 let records_path = dir.join(filename);
 
                 if let Some(url) = download_records_url {
-                    download_records(&url.to_string(), &records_path)
+                    download_records(url, &records_path)
                         .context(format!("Failed to download the records file from {}", url))?;
                 } else if should_download_genesis {
                     let url = get_records_url(&chain_id);
@@ -1057,7 +1057,7 @@ pub fn init_configs(
                 genesis_path.to_str().with_context(|| "Genesis path must be initialized")?;
 
             if let Some(url) = download_genesis_url {
-                download_genesis(&url.to_string(), &genesis_path)
+                download_genesis(url, &genesis_path)
                     .context(format!("Failed to download the genesis file from {}", url))?;
             } else if should_download_genesis {
                 let url = get_genesis_url(&chain_id);
@@ -1083,17 +1083,17 @@ pub fn init_configs(
                         .to_str()
                         .with_context(|| "Records path must be initialized")?;
                     Genesis::from_files(
-                        &genesis_path_str,
-                        &records_path_str,
+                        genesis_path_str,
+                        records_path_str,
                         GenesisValidationMode::Full,
                     )
                 }
-                None => Genesis::from_file(&genesis_path_str, GenesisValidationMode::Full),
+                None => Genesis::from_file(genesis_path_str, GenesisValidationMode::Full),
             }?;
 
             genesis.config.chain_id = chain_id.clone();
 
-            genesis.to_file(&dir.join(config.genesis_file));
+            genesis.to_file(dir.join(config.genesis_file));
             info!(target: "near", "Generated for {} network node key and genesis file in {}", chain_id, dir.display());
         }
         _ => {
@@ -1175,7 +1175,7 @@ pub fn init_configs(
                 ..Default::default()
             };
             let genesis = Genesis::new(genesis_config, records.into())?;
-            genesis.to_file(&dir.join(config.genesis_file));
+            genesis.to_file(dir.join(config.genesis_file));
             info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.display());
         }
     }
@@ -1472,7 +1472,7 @@ pub fn load_config(
         // this allows us to know the chain_id in order to check tracked_shards even if semantics checks fail.
         Some(records_file) => Genesis::from_files(
             &genesis_file,
-            &dir.join(records_file),
+            dir.join(records_file),
             GenesisValidationMode::UnsafeFast,
         ),
         None => Genesis::from_file(&genesis_file, GenesisValidationMode::UnsafeFast),
@@ -1489,8 +1489,8 @@ pub fn load_config(
             {
                 // Make sure validators tracks all shards, see
                 // https://github.com/near/nearcore/issues/7388
-                let error_message = format!("The `chain_id` field specified in genesis is among mainnet/betanet/testnet, so validator must track all shards. Please change `tracked_shards` field in config.json to be any non-empty vector");
-                validation_errors.push_cross_file_semantics_error(error_message);
+                let error_message = "The `chain_id` field specified in genesis is among mainnet/betanet/testnet, so validator must track all shards. Please change `tracked_shards` field in config.json to be any non-empty vector";
+                validation_errors.push_cross_file_semantics_error(error_message.to_string());
             }
             Some(genesis)
         }

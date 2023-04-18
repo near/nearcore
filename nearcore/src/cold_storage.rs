@@ -186,10 +186,10 @@ fn cold_store_initial_migration(
     let hot_final_head_height = hot_final_head.height;
 
     let batch_size = split_storage_config.cold_store_initial_migration_batch_size;
-    match copy_all_data_to_cold(cold_db.clone(), &hot_store, batch_size, keep_going)? {
+    match copy_all_data_to_cold(cold_db.clone(), hot_store, batch_size, keep_going)? {
         CopyAllDataToColdStatus::EverythingCopied => {
             tracing::info!(target: "cold_store", "Initial population was successful, writing cold head of height {}", hot_final_head_height);
-            update_cold_head(&cold_db, &hot_store, &hot_final_head_height)?;
+            update_cold_head(cold_db, hot_store, &hot_final_head_height)?;
             Ok(ColdStoreInitialMigrationResult::SuccessfulMigration)
         }
         CopyAllDataToColdStatus::Interrupted => {
@@ -217,7 +217,7 @@ fn cold_store_initial_migration_loop(
         }
         match cold_store_initial_migration(
             split_storage_config,
-            &keep_going,
+            keep_going,
             hot_store,
             cold_store,
             &cold_db,
