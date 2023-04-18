@@ -790,25 +790,39 @@ impl Trie {
         }
 
         match self.retrieve_raw_node(hash) {
-            Ok(Some((_, raw_node))) => {
+            Ok(Some((bytes, raw_node))) => {
                 match raw_node.node {
                     RawTrieNode::Leaf(key, value) => {
                         let (slice, _) = NibbleSlice::from_encoded(key.as_slice());
                         prefix.extend(slice.iter());
+
+                        let (chunks, remainder) = stdx::as_chunks::<2, _>(prefix);
+                        assert!(remainder.is_empty());
+                        let leaf_key = chunks
+                            .into_iter()
+                            .map(|chunk| (chunk[0] * 16) + chunk[1])
+                            .collect::<Vec<u8>>();
+                        let state_record =
+                            StateRecord::from_raw_key_value(leaf_key, bytes.to_vec());
                         writeln!(
                             f,
-                            "{spaces}Leaf {slice:?} {value:?} prefix:{}",
-                            self.nibbles_to_string(prefix)
+                            "{spaces}Leaf {slice:?} {value:?} prefix:{} hash:{} mem_usage:{} state_record:{:?}",
+                            self.nibbles_to_string(prefix),
+                            hash,
+                            raw_node.memory_usage,
+                            state_record.map(|sr| format!("{}", sr)),
                         )?;
                         prefix.truncate(prefix.len() - slice.len());
                     }
                     RawTrieNode::Branch(children, optional_value) => {
                         writeln!(
                             f,
-                            "{}Branch Value:{:?} prefix:{}",
+                            "{}Branch Value:{:?} prefix:{} hash:{} mem_usage:{}",
                             spaces,
                             optional_value,
-                            self.nibbles_to_string(prefix)
+                            self.nibbles_to_string(prefix),
+                            hash,
+                            raw_node.memory_usage,
                         )?;
                         for (idx, child) in children.iter() {
                             writeln!(f, "{spaces} {idx:01x}->")?;
@@ -823,11 +837,13 @@ impl Trie {
                         let (slice, _) = NibbleSlice::from_encoded(key.as_slice());
                         writeln!(
                             f,
-                            "{}Extension {:?} child_hash:{} prefix:{}",
+                            "{}Extension {:?} child_hash:{} prefix:{} hash:{} mem_usage:{}",
                             spaces,
                             slice,
                             child,
-                            self.nibbles_to_string(prefix)
+                            self.nibbles_to_string(prefix),
+                            hash,
+                            raw_node.memory_usage,
                         )?;
                         spaces.push_str("  ");
                         prefix.extend(slice.iter());
@@ -838,10 +854,10 @@ impl Trie {
                 };
             }
             Ok(None) => {
-                writeln!(f, "{spaces}EmptyNode")?;
+                writeln!(f, "{spaces}EmptyNode hash:{}", hash)?;
             }
             Err(err) => {
-                writeln!(f, "error {}", err)?;
+                writeln!(f, "{spaces}error {} hash:{}", err, hash)?;
             }
         };
 

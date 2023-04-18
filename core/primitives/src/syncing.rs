@@ -218,7 +218,7 @@ pub enum EpochSyncResponse {
     Advance { light_client_block_view: LightClientBlockView },
 }
 
-pub const STATE_PART_MEMORY_LIMIT: bytesize::ByteSize = bytesize::ByteSize(bytesize::MIB * 100);
+pub const STATE_PART_MEMORY_LIMIT: bytesize::ByteSize = bytesize::ByteSize(bytesize::MIB);
 
 pub fn get_num_state_parts(memory_usage: u64) -> u64 {
     // We assume that 1 Mb is a good limit for state part size.

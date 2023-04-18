@@ -122,7 +122,6 @@ async fn state_sync_dump(
     }
 
     loop {
-        let mut interval = actix_rt::time::interval(std::time::Duration::from_secs(10));
         // Avoid a busy-loop when there is nothing to do.
         std::thread::sleep(std::time::Duration::from_secs(10));
 
