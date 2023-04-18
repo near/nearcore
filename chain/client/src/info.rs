@@ -163,8 +163,7 @@ impl InfoHelper {
             client.validator_signer.as_ref().map(|x| x.validator_id().clone()),
             client.runtime_adapter.get_epoch_info(&head.epoch_id),
         ) {
-            for (shard_id, validators) in
-                epoch_info.chunk_producers_settlement().into_iter().enumerate()
+            for (shard_id, validators) in epoch_info.chunk_producers_settlement().iter().enumerate()
             {
                 let is_chunk_producer_for_shard = validators.iter().any(|&validator_id| {
                     *epoch_info.validator_account_id(validator_id) == account_id
@@ -235,9 +234,9 @@ impl InfoHelper {
                 .unwrap_or_default()
         };
 
-        InfoHelper::record_tracked_shards(&head, &client);
-        InfoHelper::record_block_producers(&head, &client);
-        InfoHelper::record_chunk_producers(&head, &client);
+        InfoHelper::record_tracked_shards(&head, client);
+        InfoHelper::record_block_producers(&head, client);
+        InfoHelper::record_chunk_producers(&head, client);
 
         self.info(
             &head,
@@ -326,7 +325,7 @@ impl InfoHelper {
             paint(ansi_term::Colour::Green, blocks_info_log),
             paint(ansi_term::Colour::Blue, machine_info_log),
         );
-        if catchup_status_log != "" {
+        if !catchup_status_log.is_empty() {
             info!(target: "stats", "Catchups\n{}", catchup_status_log);
         }
         if let Some(config_updater) = &config_updater {
@@ -468,7 +467,7 @@ pub fn display_catchup_status(catchup_status: Vec<CatchupStatusView>) -> String 
                 .sorted_by_key(|x| x.0)
                 .map(|(shard_id, status_string)| format!("Shard {} {}", shard_id, status_string))
                 .join(", ");
-            let block_catchup_string = if catchup_status.blocks_to_catchup.len() == 0 {
+            let block_catchup_string = if !catchup_status.blocks_to_catchup.is_empty() {
                 "done".to_string()
             } else {
                 catchup_status

@@ -38,12 +38,12 @@ pub fn spawn_state_sync_dump(
         &s3_bucket,
         s3_region
             .parse::<s3::Region>()
-            .map_err(|err| <std::str::Utf8Error as Into<anyhow::Error>>::into(err))?,
+            .map_err(<std::str::Utf8Error as Into<anyhow::Error>>::into)?,
         s3::creds::Credentials::default().map_err(|err| {
             tracing::error!(target: "state_sync_dump", "Failed to create a connection to S3. Did you provide environment variables AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY?");
             <s3::creds::error::CredentialsError as Into<anyhow::Error>>::into(err)
         })?,
-    ).map_err(|err| <s3::error::S3Error as Into<anyhow::Error>>::into(err))?;
+    ).map_err(<s3::error::S3Error as Into<anyhow::Error>>::into)?;
 
     // Determine how many threads to start.
     // TODO: Handle the case of changing the shard layout.
@@ -262,10 +262,8 @@ async fn put_state_part(
     let _timer = metrics::STATE_SYNC_DUMP_PUT_OBJECT_ELAPSED
         .with_label_values(&[&shard_id.to_string()])
         .start_timer();
-    let put = bucket
-        .put_object(&location, &state_part)
-        .await
-        .map_err(|err| Error::Other(err.to_string()));
+    let put =
+        bucket.put_object(&location, state_part).await.map_err(|err| Error::Other(err.to_string()));
     tracing::debug!(target: "state_sync_dump", shard_id, part_length = state_part.len(), ?location, "Wrote a state part to S3");
     put
 }
@@ -344,8 +342,8 @@ fn obtain_and_store_state_part(
 ) -> Result<Vec<u8>, Error> {
     let state_part = runtime.obtain_state_part(
         *shard_id,
-        &sync_hash,
-        &state_root,
+        sync_hash,
+        state_root,
         PartId::new(part_id, num_parts),
     )?;
 
@@ -408,13 +406,13 @@ fn check_new_epoch(
         let hash = head.last_block_hash;
         let header = chain.get_block_header(&hash)?;
         let final_hash = header.last_final_block();
-        let sync_hash = StateSync::get_epoch_start_sync_hash(&chain, &final_hash)?;
+        let sync_hash = StateSync::get_epoch_start_sync_hash(chain, final_hash)?;
         let header = chain.get_block_header(&sync_hash)?;
         if Some(header.epoch_id()) == epoch_id.as_ref() {
             // Still in the latest dumped epoch. Do nothing.
             Ok(None)
         } else {
-            start_dumping(head.epoch_id, sync_hash, shard_id, &chain, runtime)
+            start_dumping(head.epoch_id, sync_hash, shard_id, chain, runtime)
         }
     }
 }
