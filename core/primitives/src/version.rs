@@ -139,6 +139,12 @@ pub enum ProtocolFeature {
     /// Meta Transaction NEP-366: https://github.com/near/NEPs/blob/master/neps/nep-0366.md
     DelegateAction,
 
+    /// Decouple compute and gas costs of operations to safely limit the compute time it takes to
+    /// process the chunk.
+    ///
+    /// Compute Costs NEP-455: https://github.com/near/NEPs/blob/master/neps/nep-0455.md
+    ComputeCosts,
+
     /// In case not all validator seats are occupied our algorithm provide incorrect minimal seat
     /// price - it reports as alpha * sum_stake instead of alpha * sum_stake / (1 - alpha), where
     /// alpha is min stake ratio
@@ -152,8 +158,6 @@ pub enum ProtocolFeature {
     RejectBlocksWithOutdatedProtocolVersions,
     #[cfg(feature = "protocol_feature_flat_state")]
     FlatStorageReads,
-    #[cfg(feature = "protocol_feature_compute_costs")]
-    ComputeCosts,
 }
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
@@ -163,7 +167,7 @@ pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_V
 /// Current protocol version used on the mainnet.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 60;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 61;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {
@@ -238,6 +242,7 @@ impl ProtocolFeature {
             ProtocolFeature::Ed25519Verify
             | ProtocolFeature::ZeroBalanceAccount
             | ProtocolFeature::DelegateAction => 59,
+            ProtocolFeature::ComputeCosts => 61,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
@@ -248,8 +253,6 @@ impl ProtocolFeature {
             ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 132,
             #[cfg(feature = "protocol_feature_flat_state")]
             ProtocolFeature::FlatStorageReads => 135,
-            #[cfg(feature = "protocol_feature_compute_costs")]
-            ProtocolFeature::ComputeCosts => 136,
         }
     }
 }
