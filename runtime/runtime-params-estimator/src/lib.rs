@@ -833,9 +833,7 @@ fn action_delegate_base(ctx: &mut EstimatorContext) -> GasCost {
             let action =
                 action_costs::empty_delegate_action(nonce, sender.clone(), receiver.clone());
             nonce += 1;
-
-            let actions = vec![action];
-            tb.transaction_from_actions(sender, receiver, actions)
+            tb.transaction_from_actions(sender, receiver, vec![action])
         };
         // meta tx is delayed by 2 block compared to local receipt
         let block_latency = 2;

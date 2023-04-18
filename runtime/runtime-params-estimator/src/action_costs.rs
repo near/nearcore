@@ -60,9 +60,10 @@ struct ActionEstimation {
     outer_iters: usize,
     /// how many iterations to ignore for measurements
     warmup: usize,
-    /// By default, the average cost is reported. Set this to true to report the
-    /// 75th percentile instead. This only affects outer iterations.
-    report_percentile: bool,
+    /// What statistic to report when combining outer iterations.
+    ///
+    /// By default, the average is reported.
+    reported_statistic: Statistic,
     /// the gas metric to measure
     metric: crate::config::GasMetric,
     /// subtract the cost of an empty receipt from the measured cost
@@ -82,6 +83,19 @@ struct ActionEstimation {
     /// the range [-min_gas,+min_gas] are set to min_gas and marked as good
     /// results. Anything below -min_gas is set to zero and marked as underflow.
     min_gas: Gas,
+}
+
+enum Statistic {
+    /// Arithmetic mean, high variance is marked as uncertain.
+    Average,
+    /// Use a specific value from the distribution.
+    ///
+    /// The (potential) uncertainty of this measurement is inherited. High
+    /// variance is ignored, this is usually the reason why this statistic is
+    /// used over the mean in the first place.
+    ///
+    /// Usage: `Percentile(0.99)` gives the 99th percentile.
+    Percentile(f32),
 }
 
 impl ActionEstimation {
@@ -105,7 +119,7 @@ impl ActionEstimation {
             inner_iters: 100,
             outer_iters: ctx.config.iter_per_block,
             warmup: ctx.config.warmup_iters_per_block,
-            report_percentile: false,
+            reported_statistic: Statistic::Average,
             metric: ctx.config.metric,
             subtract_base: true,
             // This is a reasonable limit because even the cheapest action
@@ -156,9 +170,19 @@ impl ActionEstimation {
         self
     }
 
-    /// Set how many times thes actions are duplicated per receipt or transaction.
+    /// Set how many times the actions are duplicated per receipt or transaction.
     fn inner_iters(mut self, inner_iters: usize) -> Self {
         self.inner_iters = inner_iters;
+        self
+    }
+
+    /// Set how many receipts or transactions are measured at least.
+    ///
+    /// This overrides the CLI argument that is usually used for number of
+    /// iterations. Use this when a certain estimation requires a minimum amount
+    /// of iterations.
+    fn min_outer_iters(mut self, outer_iters: usize) -> Self {
+        self.outer_iters = self.outer_iters.max(outer_iters);
         self
     }
 
@@ -176,15 +200,15 @@ impl ActionEstimation {
         self
     }
 
-    /// If enabled, the outer iterations are aggregated to the 75th percentile
+    /// If enabled, the outer iterations are aggregated to a percentile value
     /// instead of to the average for the reported cost.
     ///
     /// Ideally, an estimation produces a stable output. In that case the
     /// average is a good statistic. But some estimations keep having outliers.
-    /// If we cannot get rid of those, we can fall back to using the 75th
-    /// percentile of the sample distribution as a more meaningful statistic.
-    fn report_percentile(mut self, yes: bool) -> Self {
-        self.report_percentile = yes;
+    /// If we cannot get rid of those, we can fall back to using a percentile of
+    /// the sample distribution as a more meaningful statistic.
+    fn report_percentile(mut self, rank: f32) -> Self {
+        self.reported_statistic = Statistic::Percentile(rank);
         self
     }
 
@@ -265,17 +289,9 @@ impl ActionEstimation {
         let actions: Vec<Action> =
             self.actions.iter().cloned().cycle().take(num_total_actions).collect();
 
-        let outer_iters = if self.report_percentile {
-            // If the percentile of a distribution is reported, the typical
-            // number of outer iterations (3-5) is just too small. Let's do at
-            // least 12 iterations, this way the 3rd largest ~ 75th percentile.
-            self.outer_iters.max(12)
-        } else {
-            self.outer_iters
-        };
         let gas_results = iter::repeat_with(|| estimated_fn(self, testbed, actions.clone()))
             .skip(self.warmup)
-            .take(outer_iters)
+            .take(self.outer_iters)
             .collect();
 
         // This could be cached for efficiency. But experience so far shows that
@@ -287,10 +303,9 @@ impl ActionEstimation {
         let base =
             if self.subtract_base { estimated_fn(self, testbed, vec![]) } else { GasCost::zero() };
 
-        let cost_per_tx = if self.report_percentile {
-            percentiles(gas_results, &[0.75]).next().unwrap()
-        } else {
-            average_cost(gas_results)
+        let cost_per_tx = match self.reported_statistic {
+            Statistic::Average => average_cost(gas_results),
+            Statistic::Percentile(rank) => percentiles(gas_results, &[rank]).next().unwrap(),
         };
         let gas_tolerance = self.inner_iters as u64 * self.min_gas;
         let gas_per_action = cost_per_tx
@@ -618,7 +633,12 @@ pub(crate) fn delegate_send_sir(ctx: &mut EstimatorContext) -> GasCost {
         // only single delegate action is allowed
         .inner_iters(1)
         // but then the variance is too high to report the average
-        .report_percentile(true)
+        .report_percentile(0.75)
+        // If the percentile of a distribution is reported, the typical
+        // number of outer iterations (3-5) is just too small. Let's do at
+        // least 60 iterations, this way the 15th largest ~ 75th percentile.
+        // (This estimations is super fast, 60 iterations are quick)
+        .min_outer_iters(60)
         .verify_cost(&mut ctx.testbed())
 }
 
@@ -630,7 +650,12 @@ pub(crate) fn delegate_send_not_sir(ctx: &mut EstimatorContext) -> GasCost {
         // only single delegate action is allowed
         .inner_iters(1)
         // but then the variance is too high to report the average
-        .report_percentile(true)
+        .report_percentile(0.75)
+        // If the percentile of a distribution is reported, the typical
+        // number of outer iterations (3-5) is just too small. Let's do at
+        // least 60 iterations, this way the 15th largest ~ 75th percentile.
+        // (This estimations is super fast, 60 iterations are quick)
+        .min_outer_iters(60)
         .verify_cost(&mut ctx.testbed())
 }
 
