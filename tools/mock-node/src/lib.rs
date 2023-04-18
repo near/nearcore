@@ -4,6 +4,7 @@
 use actix::{Actor, Context, Handler};
 use anyhow::{anyhow, Context as AnyhowContext};
 use near_async::messaging::Sender;
+use near_async::time;
 use near_chain::{Block, BlockHeader, Chain, ChainStoreAccess, Error};
 use near_chain_configs::GenesisConfig;
 use near_client::sync::header::MAX_BLOCK_HEADERS;
@@ -21,7 +22,6 @@ use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::static_clock::StaticClock;
-use near_primitives::time;
 use near_primitives::types::{BlockHeight, ShardId};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;

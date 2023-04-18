@@ -1,5 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
+use near_async::time;
 use near_async::{
     messaging::Sender,
     test_loop::event_handler::{interval, LoopEventHandler, LoopHandlerContext, TryIntoOrSelf},
@@ -23,10 +24,9 @@ use near_primitives::{
         ReedSolomonWrapper, ShardChunkHeader,
     },
     test_utils::create_test_signer,
-    types::{BlockHeight, BlockHeightDelta, MerkleHash, NumShards, ShardId},
+    types::{AccountId, BlockHeight, BlockHeightDelta, MerkleHash, NumShards, ShardId},
     version::PROTOCOL_VERSION,
 };
-use near_primitives::{time, types::AccountId};
 use near_store::Store;
 
 use crate::{

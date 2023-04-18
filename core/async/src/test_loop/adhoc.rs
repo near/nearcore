@@ -3,7 +3,7 @@ use super::{
     event_handler::{LoopEventHandler, TryIntoOrSelf},
 };
 use crate::messaging::CanSend;
-use near_primitives::time;
+use crate::time;
 use std::fmt::Debug;
 
 /// Any arbitrary logic that runs as part of the test loop.

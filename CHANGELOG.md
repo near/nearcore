@@ -8,6 +8,7 @@
 
 ### Non-protocol Changes
 
+* Node can sync State from S3. [#8789](https://github.com/near/nearcore/pull/8789)
 * The contract runtime switched to using our fork of wasmer, with various improvements.
 
 ## 1.33.0
