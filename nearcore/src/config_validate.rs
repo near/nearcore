@@ -63,8 +63,7 @@ impl<'a> ConfigValidator<'a> {
         }
 
         if self.config.consensus.header_sync_expected_height_per_second == 0 {
-            let error_message =
-                "consensus.header_sync_expected_height_per_second should not be 0".to_string();
+            let error_message = "consensus.header_sync_expected_height_per_second should not be 0".to_string();
             self.validation_errors.push_config_semantics_error(error_message);
         }
 
@@ -164,3 +163,4 @@ mod test {
         validate_config(&config).unwrap();
     }
 }
+
