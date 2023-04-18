@@ -6,6 +6,7 @@ use crate::internal::VMKind;
 use crate::near_vm_runner::NearVM;
 use crate::runner::VMResult;
 use crate::{prepare, MockCompiledContractCache};
+use crate::wasmer2_runner::Wasmer2VM;
 use assert_matches::assert_matches;
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
@@ -105,6 +106,7 @@ fn make_cached_contract_call_vm(
 
 #[test]
 fn test_wasmer2_artifact_output_stability() {
+    use wasmer_engine::Executable;
     // If this test has failed, you want to adjust the necessary constants so that `cache::vm_hash`
     // changes (and only then the hashes here).
     //
@@ -141,10 +143,10 @@ fn test_wasmer2_artifact_output_stability() {
         (&contract.code(), &prepared_code).hash(&mut hasher);
         got_prepared_hashes.push(hasher.finish());
 
-        let mut features = CpuFeature::set();
-        features.insert(CpuFeature::AVX);
+        let mut features = wasmer_compiler::CpuFeature::set();
+        features.insert(wasmer_compiler::CpuFeature::AVX);
         let triple = "x86_64-unknown-linux-gnu".parse().unwrap();
-        let target = Target::new(triple, features);
+        let target = wasmer_compiler::Target::new(triple, features);
         let vm = Wasmer2VM::new_for_target(config, target);
         let artifact = vm.compile_uncached(&contract).unwrap();
         let serialized = artifact.serialize().unwrap();
