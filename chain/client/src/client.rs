@@ -15,7 +15,6 @@ use near_chain::chain::{
     ApplyStatePartsRequest, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
     OrphanMissingChunks, StateSplitRequest, TX_ROUTING_HEIGHT_HORIZON,
 };
-use near_chain::flat_storage_creator::FlatStorageCreator;
 use near_chain::test_utils::format_hash;
 use near_chain::types::{ChainConfig, LatestKnown};
 use near_chain::{
@@ -147,8 +146,6 @@ pub struct Client {
     /// Cached precomputed set of TIER1 accounts.
     /// See send_network_chain_info().
     tier1_accounts_cache: Option<(EpochId, Arc<AccountKeys>)>,
-    /// Used when it is needed to create flat storage in background for some shards.
-    flat_storage_creator: Option<FlatStorageCreator>,
 }
 
 impl Client {
@@ -208,13 +205,6 @@ impl Client {
             chain_config.clone(),
         )?;
         let me = validator_signer.as_ref().map(|x| x.validator_id().clone());
-        // Create flat storage or initiate migration to flat storage.
-        let flat_storage_creator = FlatStorageCreator::new(
-            me.as_ref(),
-            runtime_adapter.clone(),
-            chain.store(),
-            chain_config.background_migration_threads,
-        )?;
         let sharded_tx_pool = ShardedTransactionPool::new(rng_seed);
         let sync_status = SyncStatus::AwaitingPeers;
         let genesis_block = chain.genesis_block();
@@ -299,7 +289,6 @@ impl Client {
             block_production_info: BlockProductionTracker::new(),
             chunk_production_info: lru::LruCache::new(PRODUCTION_TIMES_CACHE_SIZE),
             tier1_accounts_cache: None,
-            flat_storage_creator,
         })
     }
 
@@ -2206,11 +2195,13 @@ impl Client {
     /// creation statuses. Returns boolean indicating if all flat storages are created or
     /// creation is not needed.
     pub fn run_flat_storage_creation_step(&mut self) -> Result<bool, Error> {
-        let result = match &mut self.flat_storage_creator {
-            Some(flat_storage_creator) => flat_storage_creator.update_status(self.chain.store())?,
-            None => true,
+        let flat_head = self.chain.final_head()?;
+        let block = near_store::flat::BlockInfo{
+            hash: flat_head.last_block_hash,
+            prev_hash: flat_head.prev_block_hash,
+            height: flat_head.height,
         };
-        Ok(result)
+        Ok(self.runtime_adapter.get_flat_storage_manager().run_creation_step(block))
     }
 
     fn clear_data(&mut self) -> Result<(), near_chain::Error> {

@@ -14,7 +14,7 @@ use crate::flat::{
     FlatStorageCreationStatus, FlatStorageReadyStatus, FlatStorageStatus, NUM_PARTS_IN_ONE_STEP,
     STATE_PART_MEMORY_LIMIT,
 };
-use crate::{Store, Trie, TrieDBStorage, TrieTraversalItem};
+use crate::{Store, Trie, TrieDBStorage, TrieTraversalItem, WrappedTrieChanges, StoreUpdate};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use itertools::Itertools;
 use near_o11y::metrics::IntGauge;
@@ -29,6 +29,7 @@ use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use tracing::{debug, info};
 
+use super::FlatStateDelta;
 use super::types::{CatchingUpStatus, SavingDeltasStatus};
 
 /// If we launched a node with enabled flat storage but it doesn't have flat storage data on disk, we have to create it.
@@ -44,7 +45,9 @@ struct CreatorContext {
 }
 
 /// See doc comment on [`FlatStorageCreationStatus`] for the details of the process.
+#[derive(Clone)]
 enum CreatorState {
+    Empty,
     SavingDeltas(SavingDeltasStatus),
     FetchingState(FetchingStateState),
     CatchingUp(CatchingUpStatus),
@@ -52,6 +55,24 @@ enum CreatorState {
 }
 
 impl CreatorState {
+    fn handle_empty_state(
+        context: &CreatorContext,
+        store: &Store,
+        block: BlockInfo,
+    ) -> io::Result<CreatorState> {
+        let next_status = SavingDeltasStatus {
+            start_height: block.height,
+        };
+        let mut store_update = store.store_update();
+        store_helper::set_flat_storage_status(
+            &mut store_update,
+            context.shard_uid,
+            FlatStorageCreationStatus::SavingDeltas(next_status.clone()).into(),
+        );
+        store_update.commit()?;
+        Ok(CreatorState::SavingDeltas(next_status))
+    }
+
     fn handle_saving_deltas(
         status: &SavingDeltasStatus,
         context: &CreatorContext,
@@ -302,7 +323,7 @@ impl FetchingStateState {
 }
 
 impl FlatStorageShardCreator {
-    pub fn start_new(shard_uid: ShardUId, start_height: BlockHeight) -> Self {
+    pub fn empty(shard_uid: ShardUId) -> Self {
         todo!()
     }
 
@@ -320,21 +341,43 @@ impl FlatStorageShardCreator {
         }
     }
 
-    pub fn update(
+    pub fn process_final_block(
         &mut self,
         store: &Store,
         final_head: BlockInfo,
         final_head_state_root: StateRoot,
-        thread_pool: &rayon::ThreadPool,
-    ) -> io::Result<bool> {
-        self.state = match &self.state {
-            CreatorState::SavingDeltas(status) => CreatorState::handle_saving_deltas(
+    ) -> io::Result<()> {
+        if let CreatorState::SavingDeltas(status) = &self.state {
+            self.state = CreatorState::handle_saving_deltas(
                 status,
                 &self.context,
                 store,
                 final_head,
                 final_head_state_root,
-            )?,
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn add_delta(
+        &mut self,
+        store: &Store,
+        detla: FlatStateDelta,
+    ) -> io::Result<StoreUpdate> {
+        if matches!(self.state, CreatorState::Empty) {
+            self.state = CreatorState::handle_empty_state(&self.context, store, detla.metadata.block)?;
+        }
+        todo!("save deltas");
+    }
+
+    pub fn update(
+        &mut self,
+        store: &Store,
+        final_head: BlockInfo,
+        thread_pool: &rayon::ThreadPool,
+    ) -> io::Result<bool> {
+        self.state = match &self.state {
+            CreatorState::Empty | CreatorState::SavingDeltas(_) => { todo!("nothing") },
             CreatorState::FetchingState(state) => {
                 CreatorState::handle_fetching_state(state, &self.context, store, thread_pool)?
             }

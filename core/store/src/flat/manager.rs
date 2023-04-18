@@ -4,15 +4,16 @@ use crate::flat::{
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
-use near_primitives::types::BlockHeight;
+use near_primitives::types::{BlockHeight, StateRoot};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tracing::debug;
 
-use crate::{Store, StoreUpdate};
+use crate::{Store, StoreUpdate, WrappedTrieChanges};
 
 use super::chunk_view::FlatStorageChunkView;
-use super::FlatStorage;
+use super::creator::{FlatStorageShardCreator, self};
+use super::{FlatStorage, FlatStorageError, FlatStateDelta, FlatStateChanges, FlatStateDeltaMetadata};
 
 /// `FlatStorageManager` provides a way to construct new flat state to pass to new tries.
 /// It is owned by NightshadeRuntime, and thus can be owned by multiple threads, so the implementation
@@ -30,7 +31,12 @@ pub struct FlatStorageManagerInner {
     /// This may cause some overhead because the data like shards that the node is processing for
     /// this epoch can share the same `head` and `tail`, similar for shards for the next epoch,
     /// but such overhead is negligible comparing the delta sizes, so we think it's ok.
-    flat_storages: Mutex<HashMap<ShardUId, FlatStorage>>,
+    flat_storages: Mutex<HashMap<ShardUId, FlatStorageSlot>>,
+}
+
+enum FlatStorageSlot {
+    Creation(FlatStorageShardCreator),
+    Ready(FlatStorage),
 }
 
 impl FlatStorageManager {
@@ -54,9 +60,99 @@ impl FlatStorageManager {
                 }),
             );
             store_update.commit().expect("failed to set flat storage status");
-            flat_storages.insert(*shard_uid, FlatStorage::new(store.clone(), *shard_uid));
+            flat_storages.insert(
+                *shard_uid,
+                FlatStorageSlot::Ready(FlatStorage::new(store.clone(), *shard_uid)),
+            );
         }
         Self(Arc::new(FlatStorageManagerInner { store, flat_storages: Mutex::new(flat_storages) }))
+    }
+
+    pub fn from_db(store: Store, shard_uids: &[ShardUId]) -> Self {
+        let mut flat_storages = HashMap::default();
+        for &shard_uid in shard_uids {
+            let status = store_helper::get_flat_storage_status(&store, shard_uid);
+            let slot = match status {
+                FlatStorageStatus::Disabled => {
+                    continue;
+                }
+                FlatStorageStatus::Empty => {
+                    FlatStorageSlot::Creation(FlatStorageShardCreator::empty(shard_uid))
+                }
+                FlatStorageStatus::Creation(status) => {
+                    FlatStorageSlot::Creation(FlatStorageShardCreator::from_status(status))
+                }
+                FlatStorageStatus::Ready(_) => {
+                    FlatStorageSlot::Ready(FlatStorage::new(store.clone(), shard_uid))
+                }
+            };
+            flat_storages.insert(shard_uid, slot);
+        }
+        Self(Arc::new(FlatStorageManagerInner { store, flat_storages: Mutex::new(flat_storages) }))
+    }
+
+    pub fn run_creation_step(&self, final_head: BlockInfo) -> bool {
+        let store = self.0.store.clone();
+        let mut flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
+        for slot in flat_storages.values_mut() {
+            if let FlatStorageSlot::Creation(creator) = slot {
+                if creator.update(&store, final_head, todo!()).unwrap() {
+                    *slot = FlatStorageSlot::Ready(FlatStorage::new(store.clone(), todo!()));
+                }
+            }
+        }
+        todo!()
+    }
+
+    pub fn process_final_block(
+        &self,
+        shard_uid: ShardUId,
+        block: BlockInfo,
+        state_root: StateRoot,
+    ) -> Result<(), FlatStorageError> {
+        let store = self.0.store.clone();
+        let flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
+        if let Some(slot) = flat_storages.get(&shard_uid) {
+            match slot {
+                FlatStorageSlot::Creation(creator) => {
+                    creator.process_final_block(&store, block, state_root);
+                    todo!("map error");
+                }
+                FlatStorageSlot::Ready(storage) => {
+                    return storage.update_flat_head(&block.hash);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn process_new_block(
+        &self,
+        shard_uid: ShardUId,
+        block: BlockInfo,
+        trie_changes: &WrappedTrieChanges,
+    ) -> Result<StoreUpdate, FlatStorageError> {
+        let store = self.0.store.clone();
+        let flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
+        if let Some(slot) = flat_storages.get(&shard_uid) {
+            let delta = FlatStateDelta {
+                changes: FlatStateChanges::from_state_changes(&trie_changes.state_changes()),
+                metadata: FlatStateDeltaMetadata {
+                    block,
+                },
+            };
+
+            match slot {
+                FlatStorageSlot::Creation(creator) => {
+                    creator.add_delta(&store, delta);
+                    todo!("map error");
+                }
+                FlatStorageSlot::Ready(storage) => {
+                    return storage.add_delta(delta);
+                }
+            };
+        }
+        todo!()
     }
 
     /// When a node starts from an empty database, this function must be called to ensure
