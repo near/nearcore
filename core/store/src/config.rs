@@ -85,6 +85,9 @@ pub struct StoreConfig {
     /// with block processing.
     pub background_migration_threads: usize,
 
+    /// Enables background flat storage creation.
+    pub flat_storage_creation_enabled: bool,
+
     /// Duration to perform background flat storage creation step. Defines how
     /// frequently we check creation status and execute work related to it in
     /// main thread (scheduling and collecting state parts, catching up blocks, etc.).
@@ -219,6 +222,8 @@ impl Default for StoreConfig {
             // We checked that this number of threads doesn't impact
             // regular block processing significantly.
             background_migration_threads: 8,
+
+            flat_storage_creation_enabled: true,
 
             // It shouldn't be very low, because on single flat storage creation step
             // we do several disk reads from `FlatStateMisc` and `FlatStateDeltas`.
