@@ -85,7 +85,6 @@ pub struct StoreConfig {
     /// with block processing.
     pub background_migration_threads: usize,
 
-
     /// Enables background flat storage creation.
     pub flat_storage_creation_enabled: bool,
 
