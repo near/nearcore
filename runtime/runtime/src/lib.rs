@@ -1537,21 +1537,16 @@ impl Runtime {
 mod tests {
     use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_primitives::account::AccessKey;
-    use near_primitives::contract::ContractCode;
     use near_primitives::hash::hash;
     use near_primitives::shard_layout::ShardUId;
     use near_primitives::test_utils::{account_new, MockEpochInfoProvider};
-    use near_primitives::transaction::DeployContractAction;
     use near_primitives::transaction::{
         AddKeyAction, DeleteKeyAction, FunctionCallAction, TransferAction,
     };
     use near_primitives::types::MerkleHash;
     use near_primitives::version::PROTOCOL_VERSION;
-    use near_store::set_access_key;
     use near_store::test_utils::create_tries;
-    use near_store::StoreCompiledContractCache;
-    use near_vm_runner::get_contract_cache_key;
-    use near_vm_runner::internal::VMKind;
+    use near_store::{set_access_key, StoreCompiledContractCache};
     use testlib::runtime_utils::{alice_account, bob_account};
 
     use super::*;
@@ -2450,7 +2445,9 @@ mod tests {
         assert_eq!(final_account_state.storage_usage(), 0);
     }
 
+    // This test only works on platforms that support wasmer2.
     #[test]
+    #[cfg(target_arch = "x86_64")]
     fn test_contract_precompilation() {
         let initial_balance = to_yocto(1_000_000);
         let initial_locked = to_yocto(500_000);
@@ -2460,7 +2457,9 @@ mod tests {
 
         let wasm_code = near_test_contracts::rs_contract().to_vec();
         let actions =
-            vec![Action::DeployContract(DeployContractAction { code: wasm_code.clone() })];
+            vec![Action::DeployContract(near_primitives::transaction::DeployContractAction {
+                code: wasm_code.clone(),
+            })];
 
         let receipts = create_receipts_with_actions(alice_account(), signer, actions);
 
@@ -2479,9 +2478,15 @@ mod tests {
         tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
         store_update.commit().unwrap();
 
-        let contract_code = ContractCode::new(wasm_code, None);
-        let vm_kind = VMKind::for_protocol_version(apply_state.current_protocol_version);
-        let key = get_contract_cache_key(&contract_code, vm_kind, &apply_state.config.wasm_config);
+        let contract_code = near_primitives::contract::ContractCode::new(wasm_code, None);
+        let vm_kind = near_vm_runner::internal::VMKind::for_protocol_version(
+            apply_state.current_protocol_version,
+        );
+        let key = near_vm_runner::get_contract_cache_key(
+            &contract_code,
+            vm_kind,
+            &apply_state.config.wasm_config,
+        );
         apply_state
             .cache
             .unwrap()
