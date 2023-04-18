@@ -1,6 +1,6 @@
 use crate::config::{
-    safe_add_gas, total_prepaid_exec_fees, total_prepaid_gas, total_prepaid_send_fees,
-    RuntimeConfig,
+    safe_add_compute, safe_add_gas, total_prepaid_exec_fees, total_prepaid_gas,
+    total_prepaid_send_fees, RuntimeConfig,
 };
 use crate::ext::{ExternalError, RuntimeExt};
 use crate::{metrics, ActionResult, ApplyState};
@@ -254,6 +254,7 @@ pub(crate) fn action_function_call(
     // return a real `gas_used` instead of the `gas_burnt` into `ActionResult` even for
     // `FunctionCall`s error.
     result.gas_used = safe_add_gas(result.gas_used, outcome.used_gas)?;
+    result.compute_usage = safe_add_compute(result.compute_usage, outcome.compute_usage)?;
     result.logs.extend(outcome.logs);
     result.profile.merge(&outcome.profile);
     if execution_succeeded {
@@ -687,6 +688,8 @@ pub(crate) fn apply_delegate_action(
     // gas_used is incremented because otherwise the gas will be refunded. Refund function checks only gas_used.
     result.gas_used = safe_add_gas(result.gas_used, prepaid_send_fees)?;
     result.gas_burnt = safe_add_gas(result.gas_burnt, prepaid_send_fees)?;
+    // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
+    result.compute_usage = safe_add_compute(result.compute_usage, prepaid_send_fees)?;
     result.new_receipts.push(new_receipt);
 
     Ok(())
