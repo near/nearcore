@@ -19,12 +19,17 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Instant;
 
-#[derive(clap::ArgEnum, Default, Debug, Clone)]
+#[derive(clap::ArgEnum, Debug, Clone)]
 pub(crate) enum ApplyAction {
-    #[default]
     Apply,
     Validate,
     Print,
+}
+
+impl Default for ApplyAction {
+    fn default() -> Self {
+        ApplyAction::Apply
+    }
 }
 
 #[derive(clap::Subcommand, Debug, Clone)]
