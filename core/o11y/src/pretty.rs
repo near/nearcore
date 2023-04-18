@@ -53,11 +53,11 @@ impl<'a> Bytes<'a> {
     /// Error: Returns an error when the input does not look like an output from
     /// `bytes_format`.
     pub fn from_str(s: &str) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
-        if s.len() >= 2 && s.starts_with("`") && s.ends_with("`") {
+        if s.len() >= 2 && s.starts_with('`') && s.ends_with('`') {
             // hash encoded as base58
             let hash = CryptoHash::from_str(&s[1..s.len().checked_sub(1).expect("s.len() >= 2 ")])?;
             Ok(hash.as_bytes().to_vec())
-        } else if s.len() >= 2 && s.starts_with("'") && s.ends_with("'") {
+        } else if s.len() >= 2 && s.starts_with('\'') && s.ends_with('\'') {
             // plain string
             Ok(s[1..s.len().checked_sub(1).expect("s.len() >= 2 ")].as_bytes().to_vec())
         } else {

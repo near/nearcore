@@ -5,7 +5,6 @@ use crate::cold_storage::spawn_cold_store_loop;
 use crate::state_sync::{spawn_state_sync_dump, StateSyncDumpHandle};
 use actix::{Actor, Addr};
 use actix_rt::ArbiterHandle;
-use actix_web;
 use anyhow::Context;
 use cold_storage::ColdStoreLoopHandle;
 use near_async::actix::AddrWithAutoSpanContextExt;

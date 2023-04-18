@@ -522,7 +522,7 @@ impl std::str::FromStr for ViewTrieFormat {
         match s.as_str() {
             "full" => Ok(ViewTrieFormat::Full),
             "pretty" => Ok(ViewTrieFormat::Pretty),
-            _ => Err(String::from(format!("invalid view trie format string {s}"))),
+            _ => Err(format!("invalid view trie format string {s}")),
         }
     }
 }

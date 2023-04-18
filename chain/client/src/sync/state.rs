@@ -283,7 +283,7 @@ impl StateSync {
                     %shard_id,
                     %sync_hash,
                     ?me,
-                    phase = format_shard_sync_phase(&shard_sync_download, use_colour),
+                    phase = format_shard_sync_phase(shard_sync_download, use_colour),
                     "State sync status");
             }
 

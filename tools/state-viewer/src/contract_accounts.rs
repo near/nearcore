@@ -268,6 +268,8 @@ impl<T: Iterator<Item = Result<ContractAccount>>> Summary for T {
     }
 }
 
+type KeyValue = (Box<[u8]>, Box<[u8]>);
+
 /// Given a receipt, search for all actions in its outgoing receipts.
 ///
 /// Technically, this involves looking up the execution outcome(s) of the
@@ -279,7 +281,7 @@ impl<T: Iterator<Item = Result<ContractAccount>>> Summary for T {
 /// processing receipts that would come later. Changes made to the action set by
 /// already processed receipts will not be reverted.
 fn try_find_actions_spawned_by_receipt(
-    raw_kv_pair: std::io::Result<(Box<[u8]>, Box<[u8]>)>,
+    raw_kv_pair: std::io::Result<KeyValue>,
     accounts: &mut BTreeMap<AccountId, ContractInfo>,
     store: &Store,
     filter: &ContractAccountFilter,
@@ -409,7 +411,7 @@ impl std::fmt::Display for ContractAccountSummary {
                 writeln!(f, "{err}")?;
             }
         } else {
-            writeln!(f, "")?;
+            writeln!(f)?;
             writeln!(f, "Finished without errors!")?;
         }
 
@@ -457,9 +459,9 @@ impl ContractAccountFilter {
             write!(out, " {:>10}", "RCPTS_OUT",)?;
         }
         if self.actions {
-            write!(out, " {}", "ACTIONS")?;
+            write!(out, " ACTIONS")?;
         }
-        writeln!(out,)
+        writeln!(out)
     }
 
     fn include_account(&self, account: &AccountId) -> bool {
