@@ -676,6 +676,7 @@ impl NearConfig {
                 max_gas_burnt_view: config.max_gas_burnt_view,
                 enable_statistics_export: config.store.enable_statistics_export,
                 client_background_migration_threads: config.store.background_migration_threads,
+                flat_storage_creation_enabled: config.store.flat_storage_creation_enabled,
                 flat_storage_creation_period: config.store.flat_storage_creation_period,
                 state_sync_dump_enabled: config
                     .state_sync
