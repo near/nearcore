@@ -29,8 +29,8 @@ impl<'a> ConfigValidator<'a> {
     /// this function would check all conditions, and add all error messages to ConfigValidator.errors
     fn validate_all_conditions(&mut self) {
         if !self.config.archive && self.config.save_trie_changes == Some(false) {
-            let error_message = format!("Configuration with archive = false and save_trie_changes = false is not supported because non-archival nodes must save trie changes in order to do do garbage collection.");
-            self.validation_errors.push_config_semantics_error(error_message);
+            let error_message = "Configuration with archive = false and save_trie_changes = false is not supported because non-archival nodes must save trie changes in order to do do garbage collection.".to_string();
+            self.validation_errors.push_config_semantics_error(error_message)
         }
 
         // Checking that if cold storage is configured, trie changes are definitely saved.
@@ -63,8 +63,9 @@ impl<'a> ConfigValidator<'a> {
         }
 
         if self.config.consensus.header_sync_expected_height_per_second == 0 {
-            let error_message = "consensus.header_sync_expected_height_per_second should not be 0".to_string();
-            self.validation_errors.push_config_semantics_error(error_message);
+            let error_message =
+                "consensus.header_sync_expected_height_per_second should not be 0".to_string();
+            self.validation_errors.push_config_semantics_error(error_message)
         }
 
         if self.config.gc.gc_blocks_limit == 0
@@ -163,4 +164,3 @@ mod test {
         validate_config(&config).unwrap();
     }
 }
-
