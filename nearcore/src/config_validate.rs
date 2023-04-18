@@ -30,7 +30,7 @@ impl<'a> ConfigValidator<'a> {
     fn validate_all_conditions(&mut self) {
         if !self.config.archive && self.config.save_trie_changes == Some(false) {
             let error_message = "Configuration with archive = false and save_trie_changes = false is not supported because non-archival nodes must save trie changes in order to do do garbage collection.".to_string();
-            self.validation_errors.push_config_semantics_error(error_message)
+            self.validation_errors.push_config_semantics_error(error_message);
         }
 
         // Checking that if cold storage is configured, trie changes are definitely saved.

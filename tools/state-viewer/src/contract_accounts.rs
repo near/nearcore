@@ -268,8 +268,6 @@ impl<T: Iterator<Item = Result<ContractAccount>>> Summary for T {
     }
 }
 
-type KeyValue = (Box<[u8]>, Box<[u8]>);
-
 /// Given a receipt, search for all actions in its outgoing receipts.
 ///
 /// Technically, this involves looking up the execution outcome(s) of the
@@ -281,7 +279,7 @@ type KeyValue = (Box<[u8]>, Box<[u8]>);
 /// processing receipts that would come later. Changes made to the action set by
 /// already processed receipts will not be reverted.
 fn try_find_actions_spawned_by_receipt(
-    raw_kv_pair: std::io::Result<KeyValue>,
+    raw_kv_pair: std::io::Result<(Box<[u8]>, Box<[u8]>)>,
     accounts: &mut BTreeMap<AccountId, ContractInfo>,
     store: &Store,
     filter: &ContractAccountFilter,
