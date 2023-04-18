@@ -4,7 +4,11 @@
 
 ### Protocol Changes
 
+* Contract preparation and gas charging for wasm execution also switched to using our own code, as per the finite-wasm specification. Contract execution gas costs will change slightly for expected use cases. This opens up opportunities for further changing the execution gas costs (eg. with different costs per opcode) to lower contract execution cost long-term.
+
 ### Non-protocol Changes
+
+* The contract runtime switched to using our fork of wasmer, with various improvements.
 
 ## 1.33.0
 
