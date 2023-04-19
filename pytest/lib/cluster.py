@@ -813,6 +813,7 @@ def apply_config_changes(node_dir, client_config_change):
         'rosetta_rpc',
         'save_trie_changes',
         'state_sync_enabled',
+        'split_storage',
     )
 
     for k, v in client_config_change.items():

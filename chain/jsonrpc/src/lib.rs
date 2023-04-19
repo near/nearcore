@@ -178,40 +178,34 @@ fn process_query_response(
                 block_height,
                 block_hash,
             } => Ok(json!({
-                "error": format!(
-                    "access key {} does not exist while viewing",
-                    public_key.to_string()
-                ),
+                "error": format!("access key {} does not exist while viewing", public_key),
                 "logs": json!([]),
                 "block_height": block_height,
                 "block_hash": block_hash,
             })),
             near_jsonrpc_primitives::types::query::RpcQueryError::UnknownBlock {
-                ref block_reference,
-            } => match block_reference {
-                near_primitives::types::BlockReference::BlockId(block_id) => {
-                    let error_data = Some(match block_id {
-                        near_primitives::types::BlockId::Height(height) => json!(format!(
-                            "DB Not Found Error: BLOCK HEIGHT: {} \n Cause: Unknown",
-                            height
-                        )),
-                        near_primitives::types::BlockId::Hash(block_hash) => {
-                            json!(format!("DB Not Found Error: BLOCK HEADER: {}", block_hash))
-                        }
-                    });
-                    let error_data_value = match serde_json::to_value(err) {
-                        Ok(value) => value,
-                        Err(err) => {
-                            return Err(RpcError::new_internal_error(
-                                None,
-                                format!("Failed to serialize RpcQueryError: {:?}", err),
-                            ))
-                        }
-                    };
-                    Err(RpcError::new_internal_or_handler_error(error_data, error_data_value))
-                }
-                _ => Err(err.into()),
-            },
+                block_reference: near_primitives::types::BlockReference::BlockId(ref block_id),
+            } => {
+                let error_data = Some(match block_id {
+                    near_primitives::types::BlockId::Height(height) => json!(format!(
+                        "DB Not Found Error: BLOCK HEIGHT: {} \n Cause: Unknown",
+                        height
+                    )),
+                    near_primitives::types::BlockId::Hash(block_hash) => {
+                        json!(format!("DB Not Found Error: BLOCK HEADER: {}", block_hash))
+                    }
+                });
+                let error_data_value = match serde_json::to_value(err) {
+                    Ok(value) => value,
+                    Err(err) => {
+                        return Err(RpcError::new_internal_error(
+                            None,
+                            format!("Failed to serialize RpcQueryError: {:?}", err),
+                        ))
+                    }
+                };
+                Err(RpcError::new_internal_or_handler_error(error_data, error_data_value))
+            }
             _ => Err(err.into()),
         },
     }
@@ -549,7 +543,7 @@ impl JsonRpcHandler {
                     }
                     Err(err) => break Err(err),
                 }
-                let _ = sleep(self.polling_config.polling_interval).await;
+                sleep(self.polling_config.polling_interval).await;
             }
         })
         .await
@@ -590,7 +584,7 @@ impl JsonRpcHandler {
                         break Err(err.rpc_into());
                     }
                 }
-                let _ = sleep(self.polling_config.polling_interval).await;
+                sleep(self.polling_config.polling_interval).await;
             }
         })
         .await
@@ -765,7 +759,7 @@ impl JsonRpcHandler {
                 self.client_send(Status { is_health_check: false, detailed: true }).await?;
             Ok(Some(status.rpc_into()))
         } else {
-            return Ok(None);
+            Ok(None)
         }
     }
 
@@ -819,11 +813,11 @@ impl JsonRpcHandler {
                         .rpc_into(),
                     _ => return Ok(None),
                 };
-            return Ok(Some(near_jsonrpc_primitives::types::status::RpcDebugStatusResponse {
+            Ok(Some(near_jsonrpc_primitives::types::status::RpcDebugStatusResponse {
                 status_response: debug_status,
-            }));
+            }))
         } else {
-            return Ok(None);
+            Ok(None)
         }
     }
 
@@ -837,11 +831,11 @@ impl JsonRpcHandler {
         if self.enable_debug_rpc {
             let debug_status =
                 self.client_send(DebugStatus::BlockStatus(starting_height)).await?.rpc_into();
-            return Ok(Some(near_jsonrpc_primitives::types::status::RpcDebugStatusResponse {
+            Ok(Some(near_jsonrpc_primitives::types::status::RpcDebugStatusResponse {
                 status_response: debug_status,
-            }));
+            }))
         } else {
-            return Ok(None);
+            Ok(None)
         }
     }
 

@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use borsh::BorshSerialize;
+
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::state::ValueRef;
 
@@ -575,7 +577,7 @@ impl Trie {
                         }
                         let new_value =
                             value.clone().map(|value| Trie::flatten_value(&mut memory, value));
-                        RawTrieNode::Branch(*new_children, new_value)
+                        RawTrieNode::branch(*new_children, new_value)
                     }
                     FlattenNodesCrumb::Exiting => unreachable!(),
                 },
@@ -599,7 +601,7 @@ impl Trie {
                 }
             };
             let raw_node_with_size = RawTrieNodeWithSize { node: raw_node, memory_usage };
-            raw_node_with_size.encode_into(&mut buffer);
+            raw_node_with_size.serialize(&mut buffer).unwrap();
             let key = hash(&buffer);
 
             let (_value, rc) =

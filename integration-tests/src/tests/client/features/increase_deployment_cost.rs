@@ -10,6 +10,7 @@ use near_primitives::transaction::{Action, DeployContractAction};
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::FinalExecutionStatus;
 use near_store::test_utils::create_test_store;
+use near_vm_runner::internal::VMKind;
 use nearcore::config::GenesisExt;
 use std::path::Path;
 use std::sync::Arc;
@@ -27,7 +28,8 @@ fn test_deploy_cost_increased() {
     let contract_size = 1024 * 1024;
     let test_contract = near_test_contracts::sized_contract(contract_size);
     // Run code through preparation for validation. (Deploying will succeed either way).
-    near_vm_runner::prepare::prepare_contract(&test_contract, &VMConfig::test()).unwrap();
+    near_vm_runner::prepare::prepare_contract(&test_contract, &VMConfig::test(), VMKind::Wasmer2)
+        .unwrap();
 
     // Prepare TestEnv with a contract at the old protocol version.
     let epoch_length = 5;

@@ -12,7 +12,6 @@ actix.workspace = true
 anyhow.workspace = true
 awc.workspace = true
 borsh.workspace = true
-byteorder.workspace = true
 chrono.workspace = true
 dirs.workspace = true
 easy-ext.workspace = true

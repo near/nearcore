@@ -1,5 +1,4 @@
 use derive_enum_from_into::{EnumFrom, EnumTryInto};
-use near_primitives::time;
 use std::sync::Arc;
 
 use crate::{
@@ -71,6 +70,6 @@ fn test_async_component() {
     test.register_handler(inner_request_handler().widen());
 
     sender.send(OuterRequest("hello".to_string()));
-    test.run(time::Duration::seconds(1));
+    test.run_instant();
     assert_eq!(test.data.output, vec![OuterResponse("hello!hello!".to_string())]);
 }

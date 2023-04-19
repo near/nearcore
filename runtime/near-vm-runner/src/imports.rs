@@ -481,22 +481,19 @@ pub(crate) mod wasmer2 {
     }
 }
 
-// TODO: this is currently just a copy-paste of the wasmer2_vm block
-// This will have to actually become near_vm bindings
-#[allow(dead_code)]
-#[cfg(all(feature = "wasmer2_vm", target_arch = "x86_64"))]
+#[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
 pub(crate) mod near_vm {
     use std::sync::Arc;
 
     use super::str_eq;
+    use near_vm_engine::Engine;
+    use near_vm_engine_universal::UniversalEngine;
     use near_vm_logic::{ProtocolVersion, VMLogic};
-    use wasmer_engine::Engine;
-    use wasmer_engine_universal::UniversalEngine;
-    use wasmer_vm::{
+    use near_vm_vm::{
         ExportFunction, ExportFunctionMetadata, Resolver, VMFunction, VMFunctionKind, VMMemory,
     };
 
-    pub(crate) struct Wasmer2Imports<'engine, 'vmlogic, 'vmlogic_refs> {
+    pub(crate) struct NearVmImports<'engine, 'vmlogic, 'vmlogic_refs> {
         pub(crate) memory: VMMemory,
         // Note: this same object is also referenced by the `metadata` field!
         pub(crate) vmlogic: &'vmlogic mut VMLogic<'vmlogic_refs>,
@@ -505,27 +502,27 @@ pub(crate) mod near_vm {
         pub(crate) engine: &'engine UniversalEngine,
     }
 
-    trait Wasmer2Type {
-        type Wasmer;
-        fn to_wasmer(self) -> Self::Wasmer;
-        fn ty() -> wasmer_types::Type;
+    trait NearVmType {
+        type NearVm;
+        fn to_near_vm(self) -> Self::NearVm;
+        fn ty() -> near_vm_types::Type;
     }
-    macro_rules! wasmer_types {
-        ($($native:ty as $wasmer:ty => $type_expr:expr;)*) => {
-            $(impl Wasmer2Type for $native {
-                type Wasmer = $wasmer;
-                fn to_wasmer(self) -> $wasmer {
+    macro_rules! near_vm_types {
+        ($($native:ty as $near_vm:ty => $type_expr:expr;)*) => {
+            $(impl NearVmType for $native {
+                type NearVm = $near_vm;
+                fn to_near_vm(self) -> $near_vm {
                     self as _
                 }
-                fn ty() -> wasmer_types::Type {
+                fn ty() -> near_vm_types::Type {
                     $type_expr
                 }
             })*
         }
     }
-    wasmer_types! {
-        u32 as i32 => wasmer_types::Type::I32;
-        u64 as i64 => wasmer_types::Type::I64;
+    near_vm_types! {
+        u32 as i32 => near_vm_types::Type::I32;
+        u64 as i64 => near_vm_types::Type::I64;
     }
 
     macro_rules! return_ty {
@@ -535,15 +532,15 @@ pub(crate) mod near_vm {
         };
         ($return_type: ident = [ $($returns: ident),* ]) => {
             #[repr(C)]
-            struct $return_type($(<$returns as Wasmer2Type>::Wasmer),*);
-            fn make_ret($($returns: $returns),*) -> Ret { Ret($($returns.to_wasmer()),*) }
+            struct $return_type($(<$returns as NearVmType>::NearVm),*);
+            fn make_ret($($returns: $returns),*) -> Ret { Ret($($returns.to_near_vm()),*) }
         }
     }
 
-    impl<'e, 'l, 'lr> Resolver for Wasmer2Imports<'e, 'l, 'lr> {
-        fn resolve(&self, _index: u32, module: &str, field: &str) -> Option<wasmer_vm::Export> {
+    impl<'e, 'l, 'lr> Resolver for NearVmImports<'e, 'l, 'lr> {
+        fn resolve(&self, _index: u32, module: &str, field: &str) -> Option<near_vm_vm::Export> {
             if module == "env" && field == "memory" {
-                return Some(wasmer_vm::Export::Memory(self.memory.clone()));
+                return Some(near_vm_vm::Export::Memory(self.memory.clone()));
             }
 
             macro_rules! add_import {
@@ -584,29 +581,29 @@ pub(crate) mod near_vm {
                             Ok(Err(trap)) => unsafe {
                                 // SAFETY: this can only be called by a WASM contract, so all the
                                 // necessary hooks are known to be in place.
-                                wasmer_vm::raise_user_trap(Box::new(trap))
+                                near_vm_vm::raise_user_trap(Box::new(trap))
                             },
                             Err(e) => unsafe {
                                 // SAFETY: this can only be called by a WASM contract, so all the
                                 // necessary hooks are known to be in place.
-                                wasmer_vm::resume_panic(e)
+                                near_vm_vm::resume_panic(e)
                             },
                         }
                     }
                     // TODO: a phf hashmap would probably work better here.
                     if module == stringify!($mod) && field == stringify!($name) {
-                        let args = [$(<$arg_type as Wasmer2Type>::ty()),*];
-                        let rets = [$(<$returns as Wasmer2Type>::ty()),*];
-                        let signature = wasmer_types::FunctionTypeRef::new(&args[..], &rets[..]);
+                        let args = [$(<$arg_type as NearVmType>::ty()),*];
+                        let rets = [$(<$returns as NearVmType>::ty()),*];
+                        let signature = near_vm_types::FunctionType::new(&args[..], &rets[..]);
                         let signature = self.engine.register_signature(signature);
-                        return Some(wasmer_vm::Export::Function(ExportFunction {
+                        return Some(near_vm_vm::Export::Function(ExportFunction {
                             vm_function: VMFunction {
                                 address: $name as *const _,
                                 // SAFETY: here we erase the lifetime of the `vmlogic` reference,
-                                // but we believe that the lifetimes on `Wasmer2Imports` enforce
+                                // but we believe that the lifetimes on `NearVmImports` enforce
                                 // sufficiently that it isn't possible to call this exported
                                 // function when vmlogic is no loger live.
-                                vmctx: wasmer_vm::VMFunctionEnvironment {
+                                vmctx: near_vm_vm::VMFunctionEnvironment {
                                     host_env: self.vmlogic as *const _ as *mut _
                                 },
                                 signature,
@@ -629,14 +626,14 @@ pub(crate) mod near_vm {
         logic: &'a mut VMLogic<'b>,
         protocol_version: ProtocolVersion,
         engine: &'e UniversalEngine,
-    ) -> Wasmer2Imports<'e, 'a, 'b> {
+    ) -> NearVmImports<'e, 'a, 'b> {
         let metadata = unsafe {
             // SAFETY: the functions here are thread-safe. We ensure that the lifetime of `VMLogic`
             // is sufficiently long by tying the lifetime of VMLogic to the return type which
             // contains this metadata.
             ExportFunctionMetadata::new(logic as *mut _ as *mut _, None, |ptr| ptr, |_| {})
         };
-        Wasmer2Imports {
+        NearVmImports {
             memory,
             vmlogic: logic,
             metadata: Arc::new(metadata),
