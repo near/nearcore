@@ -374,7 +374,7 @@ mod tests {
                 .iter()
                 .cloned()
                 .map(|height| {
-                    let hash = height_to_hashes.get(&height).unwrap().clone();
+                    let hash = *height_to_hashes.get(&height).unwrap();
                     let prev_hash = match get_parent(height) {
                         None => CryptoHash::default(),
                         Some(parent_height) => *height_to_hashes.get(&parent_height).unwrap(),
@@ -382,7 +382,7 @@ mod tests {
                     (hash, BlockInfo { hash, height, prev_hash })
                 })
                 .collect();
-            MockChain { height_to_hashes, blocks, head_height: heights.last().unwrap().clone() }
+            MockChain { height_to_hashes, blocks, head_height: *heights.last().unwrap() }
         }
 
         // Create a chain with no forks with length n.
@@ -526,7 +526,7 @@ mod tests {
 
         // Check that flat storage state is created correctly for chain which has skipped heights.
         let flat_storage = FlatStorage::new(store.clone(), shard_uid);
-        let flat_storage_manager = FlatStorageManager::new(store.clone());
+        let flat_storage_manager = FlatStorageManager::new(store);
         flat_storage_manager.add_flat_storage_for_shard(shard_uid, flat_storage);
         let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
 

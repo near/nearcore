@@ -138,10 +138,9 @@ impl<S: Subscriber + for<'span> LookupSpan<'span>> Layer<S> for IoTraceLayer {
             let mut ext = parent.extensions_mut();
             let OutputBuffer(parent_buffer) = ext.get_mut().unwrap();
             parent_buffer.push(BufferedLine { indent: 2, output_line: span_line });
-            parent_buffer.extend(exiting_buffer.drain(..).map(|mut line| {
-                line.indent += 2;
-                line
-            }));
+            parent_buffer.extend(
+                exiting_buffer.drain(..).map(|mut line| line.indent.checked_add(2).unwrap()),
+            );
         } else {
             let mut out = self.make_writer.make_writer();
             writeln!(out, "{span_line}").unwrap();
@@ -304,7 +303,11 @@ impl tracing::field::Visit for SpanInfo {
     fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
         // "count" is a special field, everything else are key values pairs.
         if field.name() == "counter" {
-            *self.counts.entry(value.to_string()).or_default() += 1;
+            if let Some(count) = self.counts.get_mut(&value.to_string()) {
+                *count = count.checked_add(1).unwwrap();
+            } else {
+                self.counts.insert(value.to_string(), 1);
+            }
         } else {
             self.record_debug(field, &value);
         }

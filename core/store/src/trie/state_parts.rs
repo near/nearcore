@@ -355,7 +355,7 @@ mod tests {
                                 break;
                             }
                             if let Some(NodeHandle::Hash(ref h)) = children[i] {
-                                let h = h.clone();
+                                let h = *h;
                                 let child = self.retrieve_node(&h)?.1;
                                 stack.push((hash, node, CrumbStatus::AtChild(i + 1)));
                                 stack.push((h, child, CrumbStatus::Entering));
