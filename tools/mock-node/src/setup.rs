@@ -350,7 +350,7 @@ mod tests {
         near_config.client_config.min_num_peers = 0;
 
         let dir = tempfile::Builder::new().prefix("test0").tempdir().unwrap();
-        let path1 = dir.path().clone();
+        let path1 = dir.path();
         let last_block = Arc::new(RwLock::new(CryptoHash::default()));
         let last_block1 = last_block.clone();
         run_actix(async move {
@@ -433,8 +433,8 @@ mod tests {
         let network_config = MockNetworkConfig::with_delay(Duration::from_millis(10));
         run_actix(async move {
             let MockNode { view_client, .. } = setup_mock_node(
-                dir1.path().clone(),
-                dir.path().clone(),
+                dir1.path(),
+                dir.path(),
                 near_config1,
                 &network_config,
                 10,
