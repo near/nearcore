@@ -35,14 +35,13 @@ stdx.workspace = true
 strum.workspace = true
 thiserror.workspace = true
 time.workspace = true
-tokio.workspace = true
 tracing.workspace = true
 
-near-crypto = { path = "../crypto" }
-near-o11y = { path = "../o11y" }
-near-primitives-core = { path = "../primitives-core"}
-near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
-near-vm-errors = { path = "../../runtime/near-vm-errors" }
+near-crypto.workspace = true
+near-fmt.workspace = true
+near-primitives-core.workspace = true
+near-rpc-error-macro.workspace = true
+near-vm-errors.workspace = true
 
 [features]
 sandbox = []
@@ -50,11 +49,13 @@ dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
 protocol_feature_fix_staking_threshold = []
 protocol_feature_fix_contract_loading_cost = []
 protocol_feature_reject_blocks_with_outdated_protocol_version = []
+protocol_feature_flat_state = []
 nightly = [
   "nightly_protocol",
   "protocol_feature_fix_staking_threshold",
   "protocol_feature_fix_contract_loading_cost",
   "protocol_feature_reject_blocks_with_outdated_protocol_version",
+  "protocol_feature_flat_state",
 ]
 
 nightly_protocol = []

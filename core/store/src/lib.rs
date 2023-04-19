@@ -15,7 +15,7 @@ pub use db::{
     LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, TAIL_KEY,
 };
 use near_crypto::PublicKey;
-use near_o11y::pretty;
+use near_fmt::{AbbrBytes, StorageKey};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::contract::ContractCode;
 pub use near_primitives::errors::StorageError;
@@ -44,16 +44,18 @@ pub mod config;
 pub mod db;
 pub mod flat;
 pub mod metadata;
-mod metrics;
+pub mod metrics;
 pub mod migrations;
 mod opener;
+mod rocksdb_metrics;
 mod sync_utils;
 pub mod test_utils;
 mod trie;
 
 pub use crate::config::{Mode, StoreConfig};
-pub use crate::metrics::{flat_state_metrics, FLAT_STORAGE_HEAD_HEIGHT};
-pub use crate::opener::{StoreMigrator, StoreOpener, StoreOpenerError};
+pub use crate::opener::{
+    checkpoint_hot_storage_and_cleanup_columns, StoreMigrator, StoreOpener, StoreOpenerError,
+};
 
 /// Specifies temperature of a storage.
 ///
@@ -280,7 +282,7 @@ impl Store {
             target: "store",
             db_op = "get",
             col = %column,
-            key = %pretty::StorageKey(key),
+            key = %StorageKey(key),
             size = value.as_deref().map(<[u8]>::len)
         );
         Ok(value)
@@ -638,22 +640,22 @@ impl StoreUpdate {
         for op in &self.transaction.ops {
             match op {
                 DBOp::Insert { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "insert", col = %col, key = %pretty::StorageKey(key), size = value.len())
+                    tracing::trace!(target: "store", db_op = "insert", col = %col, key = %StorageKey(key), size = value.len(), value = %AbbrBytes(value),)
                 }
                 DBOp::Set { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "set", col = %col, key = %pretty::StorageKey(key), size = value.len())
+                    tracing::trace!(target: "store", db_op = "set", col = %col, key = %StorageKey(key), size = value.len(), value = %AbbrBytes(value))
                 }
                 DBOp::UpdateRefcount { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "update_rc", col = %col, key = %pretty::StorageKey(key), size = value.len())
+                    tracing::trace!(target: "store", db_op = "update_rc", col = %col, key = %StorageKey(key), size = value.len(), value = %AbbrBytes(value))
                 }
                 DBOp::Delete { col, key } => {
-                    tracing::trace!(target: "store", db_op = "delete", col = %col, key = %pretty::StorageKey(key))
+                    tracing::trace!(target: "store", db_op = "delete", col = %col, key = %StorageKey(key))
                 }
                 DBOp::DeleteAll { col } => {
                     tracing::trace!(target: "store", db_op = "delete_all", col = %col)
                 }
                 DBOp::DeleteRange { col, from, to } => {
-                    tracing::trace!(target: "store", db_op = "delete_range", col = %col, from = %pretty::StorageKey(from), to = %pretty::StorageKey(to))
+                    tracing::trace!(target: "store", db_op = "delete_range", col = %col, from = %StorageKey(from), to = %StorageKey(to))
                 }
             }
         }
@@ -680,21 +682,16 @@ impl fmt::Debug for StoreUpdate {
         writeln!(f, "Store Update {{")?;
         for op in self.transaction.ops.iter() {
             match op {
-                DBOp::Insert { col, key, .. } => {
-                    writeln!(f, "  + {col} {}", pretty::StorageKey(key))?
-                }
-                DBOp::Set { col, key, .. } => writeln!(f, "  = {col} {}", pretty::StorageKey(key))?,
+                DBOp::Insert { col, key, .. } => writeln!(f, "  + {col} {}", StorageKey(key))?,
+                DBOp::Set { col, key, .. } => writeln!(f, "  = {col} {}", StorageKey(key))?,
                 DBOp::UpdateRefcount { col, key, .. } => {
-                    writeln!(f, "  ± {col} {}", pretty::StorageKey(key))?
+                    writeln!(f, "  ± {col} {}", StorageKey(key))?
                 }
-                DBOp::Delete { col, key } => writeln!(f, "  - {col} {}", pretty::StorageKey(key))?,
+                DBOp::Delete { col, key } => writeln!(f, "  - {col} {}", StorageKey(key))?,
                 DBOp::DeleteAll { col } => writeln!(f, "  - {col} (all)")?,
-                DBOp::DeleteRange { col, from, to } => writeln!(
-                    f,
-                    "  - {col} [{}, {})",
-                    pretty::StorageKey(from),
-                    pretty::StorageKey(to)
-                )?,
+                DBOp::DeleteRange { col, from, to } => {
+                    writeln!(f, "  - {col} [{}, {})", StorageKey(from), StorageKey(to))?
+                }
             }
         }
         writeln!(f, "}}")

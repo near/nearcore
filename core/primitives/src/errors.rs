@@ -90,8 +90,10 @@ pub enum StorageError {
     /// panic in every place that produces this error.
     /// We can check if db is corrupted by verifying everything in the state trie.
     StorageInconsistentState(String),
-    /// Error from flat storage
-    FlatStorageError(String),
+    /// Flat storage error, meaning that it doesn't support some block anymore.
+    /// We guarantee that such block cannot become final, thus block processing
+    /// must resume normally.
+    FlatStorageBlockNotSupported(String),
 }
 
 impl std::fmt::Display for StorageError {

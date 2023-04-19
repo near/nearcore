@@ -54,7 +54,7 @@ epoch - that has to contain additional information about validators.
 This way it would drastically reduce both the time needed for the sync and the
 db resources.
 
-We plan to enable it in Q4 2022.
+Implementation target date is TBD.
 
 ![image](https://user-images.githubusercontent.com/1711539/195892336-cc117c08-d3ad-43f7-9304-3233b25e8bb1.png)
 

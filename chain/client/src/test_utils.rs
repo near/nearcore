@@ -10,12 +10,12 @@ use chrono::DateTime;
 use futures::{future, FutureExt};
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::messaging::{CanSend, IntoSender, LateBoundSender, Sender};
+use near_async::time;
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_chunks::ShardsManager;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::time;
 use num_rational::Ratio;
 use once_cell::sync::OnceCell;
 use rand::{thread_rng, Rng};
@@ -205,12 +205,8 @@ pub fn setup(
 ) -> (Block, ClientActor, Addr<ViewClientActor>, ShardsManagerAdapterForTest) {
     let store = create_test_store();
     let num_validator_seats = vs.all_block_producers().count() as NumSeats;
-    let runtime = Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(
-        store.clone(),
-        vs,
-        epoch_length,
-        archive,
-    ));
+    let runtime =
+        KeyValueRuntime::new_with_validators_and_no_gc(store.clone(), vs, epoch_length, archive);
     let chain_genesis = ChainGenesis {
         time: genesis_time,
         height: 0,
@@ -314,8 +310,7 @@ pub fn setup_only_view(
 ) -> Addr<ViewClientActor> {
     let store = create_test_store();
     let num_validator_seats = vs.all_block_producers().count() as NumSeats;
-    let runtime =
-        Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(store, vs, epoch_length, archive));
+    let runtime = KeyValueRuntime::new_with_validators_and_no_gc(store, vs, epoch_length, archive);
     let chain_genesis = ChainGenesis {
         time: genesis_time,
         height: 0,
@@ -712,9 +707,9 @@ pub fn setup_mock_all_validators(
                                 },
                                 received_bytes_per_sec: 0,
                                 sent_bytes_per_sec: 0,
-                                last_time_peer_requested: near_primitives::time::Instant::now(),
-                                last_time_received_message: near_primitives::time::Instant::now(),
-                                connection_established_time: near_primitives::time::Instant::now(),
+                                last_time_peer_requested: near_async::time::Instant::now(),
+                                last_time_received_message: near_async::time::Instant::now(),
+                                connection_established_time: near_async::time::Instant::now(),
                                 peer_type: PeerType::Outbound,
                                 nonce: 3,
                             })
@@ -1165,7 +1160,7 @@ pub fn setup_client(
 ) -> Client {
     let num_validator_seats = vs.all_block_producers().count() as NumSeats;
     let runtime_adapter =
-        Arc::new(KeyValueRuntime::new_with_validators(store, vs, chain_genesis.epoch_length));
+        KeyValueRuntime::new_with_validators(store, vs, chain_genesis.epoch_length);
     setup_client_with_runtime(
         num_validator_seats,
         account_id,
@@ -1204,7 +1199,8 @@ pub fn setup_synchronous_shards_manager(
     let shards_manager = ShardsManager::new(
         time::Clock::real(),
         account_id,
-        runtime_adapter,
+        runtime_adapter.epoch_manager_adapter_arc(),
+        runtime_adapter.shard_tracker(),
         network_adapter.request_sender,
         client_adapter,
         chain.store().new_read_only_chunks_store(),
@@ -1228,7 +1224,7 @@ pub fn setup_client_with_synchronous_shards_manager(
 ) -> Client {
     let num_validator_seats = vs.all_block_producers().count() as NumSeats;
     let runtime_adapter =
-        Arc::new(KeyValueRuntime::new_with_validators(store, vs, chain_genesis.epoch_length));
+        KeyValueRuntime::new_with_validators(store, vs, chain_genesis.epoch_length);
     let shards_manager_adapter = setup_synchronous_shards_manager(
         account_id.clone(),
         client_adapter,
@@ -1413,11 +1409,11 @@ impl TestEnvBuilder {
                 .map(|_| {
                     let vs = ValidatorSchedule::new()
                         .block_producers_per_epoch(vec![validators.clone()]);
-                    Arc::new(KeyValueRuntime::new_with_validators(
+                    KeyValueRuntime::new_with_validators(
                         create_test_store(),
                         vs,
                         chain_genesis.epoch_length,
-                    )) as Arc<dyn RuntimeWithEpochManagerAdapter>
+                    ) as Arc<dyn RuntimeWithEpochManagerAdapter>
                 })
                 .collect(),
         };
@@ -1691,6 +1687,8 @@ impl TestEnv {
         self.clients[id].process_tx(tx, false, false)
     }
 
+    /// This function will actually bump to the latest protocol version instead of the provided one.
+    /// See https://github.com/near/nearcore/issues/8590 for details.
     pub fn upgrade_protocol(&mut self, protocol_version: ProtocolVersion) {
         assert_eq!(self.clients.len(), 1, "at the moment, this support only a single client");
 
@@ -1703,6 +1701,7 @@ impl TestEnv {
             self.clients[0].runtime_adapter.get_block_producer(&epoch_id, tip.height).unwrap();
 
         let mut block = self.clients[0].produce_block(tip.height + 1).unwrap().unwrap();
+        eprintln!("Producing block with version {protocol_version}");
         block.mut_header().set_latest_protocol_version(protocol_version);
         block.mut_header().resign(&create_test_signer(block_producer.as_str()));
 

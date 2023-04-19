@@ -24,6 +24,8 @@ pub type ShardId = u64;
 pub type Balance = u128;
 /// Gas is a type for storing amount of gas.
 pub type Gas = u64;
+/// Compute is a type for storing compute time. Measured in femtoseconds (10^-15 seconds).
+pub type Compute = u64;
 
 /// Weight of unused gas to distribute to scheduled function call actions.
 /// Used in `promise_batch_action_function_call_weight` host function.

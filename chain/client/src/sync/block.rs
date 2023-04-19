@@ -32,6 +32,8 @@ pub struct BlockSync {
     block_fetch_horizon: BlockHeightDelta,
     /// Whether to enforce block sync
     archive: bool,
+    /// Whether State Sync should be enabled when a node falls far enough behind.
+    state_sync_enabled: bool,
 }
 
 impl BlockSync {
@@ -39,8 +41,15 @@ impl BlockSync {
         network_adapter: PeerManagerAdapter,
         block_fetch_horizon: BlockHeightDelta,
         archive: bool,
+        state_sync_enabled: bool,
     ) -> Self {
-        BlockSync { network_adapter, last_request: None, block_fetch_horizon, archive }
+        BlockSync {
+            network_adapter,
+            last_request: None,
+            block_fetch_horizon,
+            archive,
+            state_sync_enabled,
+        }
     }
 
     /// Runs check if block sync is needed, if it's needed and it's too far - sync state is started instead (returning true).
@@ -85,6 +94,7 @@ impl BlockSync {
         if head.epoch_id != header_head.epoch_id && head.next_epoch_id != header_head.epoch_id {
             if head.height < header_head.height.saturating_sub(self.block_fetch_horizon)
                 && !self.archive
+                && self.state_sync_enabled
             {
                 // Epochs are different and we are too far from horizon, State Sync is needed
                 return Ok(true);
@@ -281,7 +291,7 @@ mod test {
         let network_adapter = Arc::new(MockPeerManagerAdapter::default());
         let block_fetch_horizon = 10;
         let mut block_sync =
-            BlockSync::new(network_adapter.clone().into(), block_fetch_horizon, false);
+            BlockSync::new(network_adapter.clone().into(), block_fetch_horizon, false, true);
         let mut chain_genesis = ChainGenesis::test();
         chain_genesis.epoch_length = 100;
         let mut env = TestEnv::builder(chain_genesis).clients_count(2).build();
@@ -361,7 +371,7 @@ mod test {
         let network_adapter = Arc::new(MockPeerManagerAdapter::default());
         let block_fetch_horizon = 10;
         let mut block_sync =
-            BlockSync::new(network_adapter.clone().into(), block_fetch_horizon, true);
+            BlockSync::new(network_adapter.clone().into(), block_fetch_horizon, true, true);
         let mut chain_genesis = ChainGenesis::test();
         chain_genesis.epoch_length = 5;
         let mut env = TestEnv::builder(chain_genesis).clients_count(2).build();

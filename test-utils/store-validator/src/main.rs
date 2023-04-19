@@ -40,7 +40,7 @@ fn main() {
     .unwrap()
     .get_hot_store();
     let runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter> =
-        Arc::new(nearcore::NightshadeRuntime::from_config(home_dir, store.clone(), &near_config));
+        nearcore::NightshadeRuntime::from_config(home_dir, store.clone(), &near_config);
 
     let mut store_validator = StoreValidator::new(
         near_config.validator_signer.as_ref().map(|x| x.validator_id().clone()),

@@ -59,27 +59,25 @@
 //! timestamp are executed in FIFO order. For example, if the events are emitted in the
 //! following order: (A due 100ms), (B due 0ms), (C due 200ms), (D due 0ms), (E due 100ms)
 //! then the actual order of execution is B, D, A, E, C.
+pub mod adhoc;
 pub mod delay_sender;
 pub mod event_handler;
 pub mod futures;
 pub mod multi_instance;
 
-use std::{
-    collections::BinaryHeap,
-    fmt::Debug,
-    sync::{self, Arc},
-};
-
-use near_o11y::{testonly::init_test_logger, tracing::log::info};
-use near_primitives::time;
-use serde::Serialize;
-
-use crate::test_loop::event_handler::LoopHandlerContext;
-
 use self::{
     delay_sender::DelaySender,
     event_handler::LoopEventHandler,
     futures::{TestLoopFutureSpawner, TestLoopTask},
+};
+use crate::test_loop::event_handler::LoopHandlerContext;
+use crate::time;
+use near_o11y::{testonly::init_test_logger, tracing::log::info};
+use serde::Serialize;
+use std::{
+    collections::BinaryHeap,
+    fmt::Debug,
+    sync::{self, Arc},
 };
 
 /// Main struct for the Test Loop framework.
@@ -243,6 +241,10 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
         }
     }
 
+    pub fn sender(&self) -> DelaySender<Event> {
+        self.sender.clone()
+    }
+
     /// Registers a new event handler to the test loop.
     pub fn register_handler(&mut self, handler: LoopEventHandler<Data, Event>) {
         assert!(!self.handlers_initialized, "Cannot register more handlers after run() is called");
@@ -261,26 +263,31 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
         }
     }
 
+    /// Helper to push events we have just received into the heap.
+    fn queue_received_events(&mut self) {
+        while let Ok(event) = self.pending_events.try_recv() {
+            self.events.push(EventInHeap {
+                due: self.current_time + event.delay,
+                event: event.event,
+                id: self.next_event_index,
+            });
+            self.next_event_index += 1;
+        }
+    }
+
     /// Runs the test loop for the given duration. This function may be called
     /// multiple times, but further test handlers may not be registered after
     /// the first call.
-    pub fn run(&mut self, duration: time::Duration) {
+    pub fn run_for(&mut self, duration: time::Duration) {
         self.maybe_initialize_handlers();
         let deadline = self.current_time + duration;
         'outer: loop {
             // Push events we have just received into the heap.
-            while let Ok(event) = self.pending_events.try_recv() {
-                self.events.push(EventInHeap {
-                    due: self.current_time + event.delay,
-                    event: event.event,
-                    id: self.next_event_index,
-                });
-                self.next_event_index += 1;
-            }
-            // Don't execute any more events if we have reached the deadline.
+            self.queue_received_events();
+            // Don't execute any more events after the deadline.
             match self.events.peek() {
                 Some(event) => {
-                    if event.due >= deadline {
+                    if event.due > deadline {
                         break;
                     }
                 }
@@ -308,6 +315,32 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
                 }
             }
             panic!("Unhandled event: {:?}", current_event);
+        }
+        self.current_time = deadline;
+    }
+
+    pub fn run_instant(&mut self) {
+        self.run_for(time::Duration::ZERO);
+    }
+}
+
+impl<Data: 'static, Event: Debug + Send + 'static> Drop for TestLoop<Data, Event> {
+    fn drop(&mut self) {
+        self.queue_received_events();
+        'outer: for event in self.events.drain() {
+            let mut current_event = event.event;
+            for handler in &mut self.handlers {
+                if let Err(event) = handler.try_drop(current_event) {
+                    current_event = event;
+                } else {
+                    continue 'outer;
+                }
+            }
+            panic!(
+                "Important event scheduled at {} is not handled at the end of the test: {:?}.
+                 Consider calling `test.run()` again, or with a longer duration.",
+                event.due, current_event
+            );
         }
     }
 }

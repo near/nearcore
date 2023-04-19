@@ -47,7 +47,10 @@ fn default_peer_stats_period() -> Duration {
 fn default_monitor_peers_max_period() -> Duration {
     Duration::from_secs(60)
 }
-
+/// Maximum number of peer states to keep in memory.
+fn default_peer_states_cache_size() -> u32 {
+    1000
+}
 /// Remove peers that we didn't hear about for this amount of time.
 fn default_peer_expiration_duration() -> Duration {
     Duration::from_secs(7 * 24 * 60 * 60)
@@ -133,6 +136,9 @@ pub struct Config {
     #[serde(default = "default_monitor_peers_max_period")]
     pub monitor_peers_max_period: Duration,
 
+    /// Maximum number of peer states to keep in memory.
+    #[serde(default = "default_peer_states_cache_size")]
+    pub peer_states_cache_size: u32,
     // Remove peers that were not active for this amount of time.
     #[serde(default = "default_peer_expiration_duration")]
     pub peer_expiration_duration: Duration,
@@ -237,6 +243,28 @@ pub struct ExperimentalConfig {
     /// See `near_network::config::Tier1::new_connections_per_attempt`.
     #[serde(default = "default_tier1_new_connections_per_attempt")]
     pub tier1_new_connections_per_attempt: u64,
+
+    /// See `NetworkConfig`.
+    /// Fields set here will override the NetworkConfig fields.
+    #[serde(default)]
+    pub network_config_overrides: NetworkConfigOverrides,
+}
+
+/// Overrides values from NetworkConfig.
+/// This enables the user to override the hardcoded values.
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
+pub struct NetworkConfigOverrides {
+    pub connect_to_reliable_peers_on_startup: Option<bool>,
+    pub max_send_peers: Option<u32>,
+    pub routed_message_ttl: Option<u8>,
+    pub max_routes_to_store: Option<usize>,
+    pub highest_peer_horizon: Option<u64>,
+    pub push_info_period_millis: Option<i64>,
+    pub outbound_disabled: Option<bool>,
+    pub accounts_data_broadcast_rate_limit_burst: Option<u64>,
+    pub accounts_data_broadcast_rate_limit_qps: Option<f64>,
+    pub routing_table_update_rate_limit_burst: Option<u64>,
+    pub routing_table_update_rate_limit_qps: Option<f64>,
 }
 
 impl Default for ExperimentalConfig {
@@ -249,6 +277,7 @@ impl Default for ExperimentalConfig {
             tier1_enable_outbound: default_tier1_enable_outbound(),
             tier1_connect_interval: default_tier1_connect_interval(),
             tier1_new_connections_per_attempt: default_tier1_new_connections_per_attempt(),
+            network_config_overrides: Default::default(),
         }
     }
 }
@@ -268,6 +297,7 @@ impl Default for Config {
             archival_peer_connections_lower_bound: default_archival_peer_connections_lower_bound(),
             handshake_timeout: Duration::from_secs(20),
             skip_sync_wait: false,
+            peer_states_cache_size: default_peer_states_cache_size(),
             ban_window: Duration::from_secs(3 * 60 * 60),
             blacklist: vec![],
             ttl_account_id_router: default_ttl_account_id_router(),

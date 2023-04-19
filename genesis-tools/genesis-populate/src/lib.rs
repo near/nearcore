@@ -57,7 +57,7 @@ pub struct GenesisBuilder {
     tmpdir: tempfile::TempDir,
     genesis: Arc<Genesis>,
     store: Store,
-    runtime: NightshadeRuntime,
+    runtime: Arc<NightshadeRuntime>,
     unflushed_records: BTreeMap<ShardId, Vec<StateRecord>>,
     roots: BTreeMap<ShardId, StateRoot>,
     state_updates: BTreeMap<ShardId, TrieUpdate>,
@@ -176,16 +176,15 @@ impl GenesisBuilder {
         }
         let tries = self.runtime.get_tries();
         state_update.commit(StateChangeCause::InitialState);
-        let (trie_changes, state_changes) = state_update.finalize()?;
+        let (_, trie_changes, state_changes) = state_update.finalize()?;
         let genesis_shard_version = self.genesis.config.shard_layout.version();
         let shard_uid = ShardUId { version: genesis_shard_version, shard_id: shard_idx as u32 };
         let mut store_update = tries.store_update();
         let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-        #[cfg(feature = "protocol_feature_flat_state")]
-        near_store::flat::FlatStateDelta::from_state_changes(&state_changes)
-            .apply_to_flat_state(&mut store_update);
-        // silence unused variable warning when protocol_feature_flat_state feature is disabled
-        drop(state_changes);
+        if cfg!(feature = "protocol_feature_flat_state") {
+            near_store::flat::FlatStateChanges::from_state_changes(&state_changes)
+                .apply_to_flat_state(&mut store_update, shard_uid);
+        }
         store_update.commit()?;
 
         self.roots.insert(shard_idx, root);
@@ -209,7 +208,7 @@ impl GenesisBuilder {
             self.genesis.config.min_gas_price,
             self.genesis.config.total_supply,
             Chain::compute_bp_hash(
-                &self.runtime,
+                &*self.runtime,
                 EpochId::default(),
                 EpochId::default(),
                 &CryptoHash::default(),

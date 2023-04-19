@@ -21,12 +21,12 @@ serde_json.workspace = true
 strum.workspace = true
 thiserror.workspace = true
 
-near-chain-primitives = { path = "../chain-primitives" }
-near-chain-configs = { path = "../../core/chain-configs" }
+near-chain-primitives.workspace = true
+near-chain-configs.workspace = true
 
-near-chunks-primitives = { path = "../chunks-primitives" }
-near-crypto = { path = "../../core/crypto" }
-near-primitives = { path = "../../core/primitives" }
+near-chunks-primitives.workspace = true
+near-crypto.workspace = true
+near-primitives.workspace = true
 
 [features]
 sandbox = []

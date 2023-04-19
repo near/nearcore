@@ -19,12 +19,13 @@ use std::env;
 use std::fs;
 use std::fs::File;
 use std::path::Path;
+use std::sync::Arc;
 
 /// Returns a `NearConfig` with genesis records taken from the current state.
 /// If `records_path` argument is provided, then records will be streamed into a separate file,
 /// otherwise the returned `NearConfig` will contain all the records within itself.
 pub fn state_dump(
-    runtime: NightshadeRuntime,
+    runtime: Arc<NightshadeRuntime>,
     state_roots: &[StateRoot],
     last_block_header: BlockHeader,
     near_config: &NearConfig,
@@ -85,7 +86,7 @@ pub fn state_dump(
             fs::create_dir_all(&records_path_dir).unwrap_or_else(|_| {
                 panic!("Failed to create directory {}", records_path_dir.display())
             });
-            let records_file = File::create(&records_path).unwrap();
+            let records_file = File::create(records_path).unwrap();
             let mut ser = serde_json::Serializer::new(records_file);
             let mut seq = ser.serialize_seq(None).unwrap();
             let total_supply = iterate_over_records(
@@ -102,8 +103,7 @@ pub fn state_dump(
             // minting tokens every epoch.
             genesis_config.total_supply = total_supply;
             change_genesis_config(&mut genesis_config, change_config);
-            near_config.genesis =
-                Genesis::new_with_path(genesis_config, records_path.to_path_buf()).unwrap();
+            near_config.genesis = Genesis::new_with_path(genesis_config, records_path).unwrap();
             near_config.config.genesis_records_file =
                 Some(records_path.file_name().unwrap().to_str().unwrap().to_string());
         }
@@ -129,7 +129,7 @@ pub fn state_dump(
 }
 
 pub fn state_dump_redis(
-    runtime: NightshadeRuntime,
+    runtime: Arc<NightshadeRuntime>,
     state_roots: &[StateRoot],
     last_block_header: BlockHeader,
 ) -> redis::RedisResult<()> {
@@ -213,7 +213,7 @@ fn should_include_record(
 
 /// Iterates over the state, calling `callback` for every record that genesis needs to contain.
 fn iterate_over_records(
-    runtime: NightshadeRuntime,
+    runtime: Arc<NightshadeRuntime>,
     state_roots: &[StateRoot],
     last_block_header: BlockHeader,
     validators: &HashMap<AccountId, (PublicKey, Balance)>,
@@ -260,17 +260,15 @@ fn iterate_over_records(
 /// Change record according to genesis_change_config.
 /// 1. Remove stake from non-whitelisted validators;
 pub fn change_state_record(record: &mut StateRecord, genesis_change_config: &GenesisChangeConfig) {
-    {
-        // Kick validators outside of whitelist
-        if let Some(whitelist) = &genesis_change_config.whitelist_validators {
-            if let StateRecord::Account { account_id, account } = record {
-                if !whitelist.contains(account_id) {
-                    account.set_amount(account.amount() + account.locked());
-                    account.set_locked(0);
-                }
+    // Kick validators outside of whitelist
+    if let Some(whitelist) = &genesis_change_config.whitelist_validators {
+        if let StateRecord::Account { account_id, account } = record {
+            if !whitelist.contains(account_id) {
+                account.set_amount(account.amount() + account.locked());
+                account.set_locked(0);
             }
         }
-    };
+    }
 }
 
 /// Change genesis_config according to genesis_change_config.
@@ -296,20 +294,14 @@ mod test {
     use near_chain::{ChainGenesis, Provenance};
     use near_chain_configs::genesis_validate::validate_genesis;
     use near_chain_configs::{Genesis, GenesisChangeConfig};
-    #[cfg(not(feature = "protocol_feature_flat_state"))]
-    use near_client::test_utils::run_catchup;
     use near_client::test_utils::TestEnv;
     use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, SecretKey};
     use near_primitives::account::id::AccountId;
-    #[cfg(not(feature = "protocol_feature_flat_state"))]
-    use near_primitives::shard_layout::ShardLayout;
     use near_primitives::state_record::StateRecord;
     use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
     use near_primitives::types::{
         Balance, BlockHeight, BlockHeightDelta, NumBlocks, ProtocolVersion,
     };
-    #[cfg(not(feature = "protocol_feature_flat_state"))]
-    use near_primitives::version::ProtocolFeature::SimpleNightshade;
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_test_store;
     use near_store::Store;
@@ -341,7 +333,7 @@ mod test {
         chain_genesis.gas_limit = genesis.config.gas_limit;
         let env = TestEnv::builder(chain_genesis)
             .validator_seats(2)
-            .runtime_adapters(vec![Arc::new(nightshade_runtime)])
+            .runtime_adapters(vec![nightshade_runtime])
             .build();
 
         let near_config = NearConfig::new(
@@ -615,6 +607,10 @@ mod test {
     #[cfg(not(feature = "protocol_feature_flat_state"))]
     #[test]
     fn test_dump_state_shard_upgrade() {
+        use near_client::test_utils::run_catchup;
+        use near_primitives::shard_layout::ShardLayout;
+        use near_primitives::version::ProtocolFeature::SimpleNightshade;
+
         let epoch_length = 4;
         let (store, genesis, mut env, near_config) =
             setup(epoch_length, SimpleNightshade.protocol_version() - 1, true);
@@ -662,7 +658,7 @@ mod test {
         genesis.config.epoch_length = epoch_length;
         let store1 = create_test_store();
         let store2 = create_test_store();
-        let create_runtime = |store| -> NightshadeRuntime {
+        let create_runtime = |store| -> Arc<NightshadeRuntime> {
             NightshadeRuntime::test(Path::new("."), store, &genesis)
         };
         let mut chain_genesis = ChainGenesis::test();
@@ -670,10 +666,7 @@ mod test {
         chain_genesis.gas_limit = genesis.config.gas_limit;
         let mut env = TestEnv::builder(chain_genesis)
             .clients_count(2)
-            .runtime_adapters(vec![
-                Arc::new(create_runtime(store1)),
-                Arc::new(create_runtime(store2.clone())),
-            ])
+            .runtime_adapters(vec![create_runtime(store1), create_runtime(store2.clone())])
             .build();
         let genesis_hash = *env.clients[0].chain.genesis().hash();
         let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
@@ -742,7 +735,7 @@ mod test {
         chain_genesis.epoch_length = epoch_length;
         let mut env = TestEnv::builder(chain_genesis)
             .validator_seats(2)
-            .runtime_adapters(vec![Arc::new(nightshade_runtime)])
+            .runtime_adapters(vec![nightshade_runtime])
             .build();
         let genesis_hash = *env.clients[0].chain.genesis().hash();
         let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");

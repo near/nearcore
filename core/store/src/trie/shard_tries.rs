@@ -1,7 +1,10 @@
-use std::io;
-use std::rc::Rc;
-use std::sync::{Arc, RwLock};
-
+use crate::flat::FlatStorageManager;
+use crate::trie::config::TrieConfig;
+use crate::trie::prefetching_trie_storage::PrefetchingThreadsHandle;
+use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
+use crate::trie::{TrieRefcountChange, POISONED_LOCK_ERR};
+use crate::{metrics, DBCol, DBOp, DBTransaction, PrefetchApi};
+use crate::{Store, StoreUpdate, Trie, TrieChanges, TrieUpdate};
 use borsh::BorshSerialize;
 use near_primitives::borsh::maybestd::collections::HashMap;
 use near_primitives::hash::CryptoHash;
@@ -10,14 +13,7 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     NumShards, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
 };
-
-use crate::flat::FlatStorageManager;
-use crate::trie::config::TrieConfig;
-use crate::trie::prefetching_trie_storage::PrefetchingThreadsHandle;
-use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
-use crate::trie::{TrieRefcountChange, POISONED_LOCK_ERR};
-use crate::{metrics, DBCol, DBOp, DBTransaction, PrefetchApi};
-use crate::{Store, StoreUpdate, Trie, TrieChanges, TrieUpdate};
+use std::sync::{Arc, RwLock};
 
 struct ShardTriesInner {
     store: Store,
@@ -66,7 +62,13 @@ impl ShardTries {
         let shard_uids: Vec<ShardUId> =
             (0..num_shards as u32).map(|shard_id| ShardUId { shard_id, version }).collect();
         let trie_config = TrieConfig::default();
-        ShardTries::new(store.clone(), trie_config, &shard_uids, FlatStorageManager::new(store))
+
+        ShardTries::new(
+            store.clone(),
+            trie_config,
+            &shard_uids,
+            FlatStorageManager::test(store, &shard_uids, CryptoHash::default()),
+        )
     }
 
     /// Create caches for all shards according to the trie config.
@@ -86,11 +88,11 @@ impl ShardTries {
     }
 
     pub fn new_trie_update(&self, shard_uid: ShardUId, state_root: StateRoot) -> TrieUpdate {
-        TrieUpdate::new(Rc::new(self.get_trie_for_shard(shard_uid, state_root)))
+        TrieUpdate::new(self.get_trie_for_shard(shard_uid, state_root))
     }
 
     pub fn new_trie_update_view(&self, shard_uid: ShardUId, state_root: StateRoot) -> TrieUpdate {
-        TrieUpdate::new(Rc::new(self.get_view_trie_for_shard(shard_uid, state_root)))
+        TrieUpdate::new(self.get_view_trie_for_shard(shard_uid, state_root))
     }
 
     #[allow(unused_variables)]
@@ -144,7 +146,7 @@ impl ShardTries {
             prefetch_api,
         ));
         let flat_storage_chunk_view =
-            self.0.flat_storage_manager.chunk_view(shard_uid.shard_id(), block_hash, is_view);
+            self.0.flat_storage_manager.chunk_view(shard_uid, block_hash, is_view);
 
         Trie::new(storage, state_root, flat_storage_chunk_view)
     }
@@ -323,10 +325,6 @@ impl ShardTries {
     ) -> StateRoot {
         self.apply_all_inner(trie_changes, shard_uid, true, store_update)
     }
-
-    pub fn flat_state_cache_capacity(&self) -> u64 {
-        self.0.trie_config.flat_state_cache_capacity
-    }
 }
 
 pub struct WrappedTrieChanges {
@@ -383,18 +381,42 @@ impl WrappedTrieChanges {
                 "Resharding changes must never be finalized."
             );
 
-            // Filtering trie keys for user facing RPC reporting.
-            // NOTE: If the trie key is not one of the account specific, it may cause key conflict
-            // when the node tracks multiple shards. See #2563.
-            match &change_with_trie_key.trie_key {
-                TrieKey::Account { .. }
-                | TrieKey::ContractCode { .. }
-                | TrieKey::AccessKey { .. }
-                | TrieKey::ContractData { .. } => {}
-                _ => continue,
+            let storage_key = if cfg!(feature = "serialize_all_state_changes") {
+                // Serialize all kinds of state changes without any filtering.
+                // Without this it's not possible to replay state changes to get an identical state root.
+
+                // This branch will become the default in the near future.
+
+                match change_with_trie_key.trie_key.get_account_id() {
+                    // If a TrieKey itself doesn't identify the Shard, then we need to add shard id to the row key.
+                    None => KeyForStateChanges::delayed_receipt_key_from_trie_key(
+                        &self.block_hash,
+                        &change_with_trie_key.trie_key,
+                        &self.shard_uid,
+                    ),
+                    // TrieKey has enough information to identify the shard it comes from.
+                    _ => KeyForStateChanges::from_trie_key(
+                        &self.block_hash,
+                        &change_with_trie_key.trie_key,
+                    ),
+                }
+            } else {
+                // This branch is the current neard behavior.
+                // Only a subset of state changes get serialized.
+
+                // Filtering trie keys for user facing RPC reporting.
+                // NOTE: If the trie key is not one of the account specific, it may cause key conflict
+                // when the node tracks multiple shards. See #2563.
+                match &change_with_trie_key.trie_key {
+                    TrieKey::Account { .. }
+                    | TrieKey::ContractCode { .. }
+                    | TrieKey::AccessKey { .. }
+                    | TrieKey::ContractData { .. } => {}
+                    _ => continue,
+                };
+                KeyForStateChanges::from_trie_key(&self.block_hash, &change_with_trie_key.trie_key)
             };
-            let storage_key =
-                KeyForStateChanges::from_trie_key(&self.block_hash, &change_with_trie_key.trie_key);
+
             store_update.set(
                 DBCol::StateChanges,
                 storage_key.as_ref(),
@@ -403,13 +425,19 @@ impl WrappedTrieChanges {
         }
     }
 
-    pub fn trie_changes_into(&mut self, store_update: &mut StoreUpdate) -> io::Result<()> {
+    pub fn trie_changes_into(&mut self, store_update: &mut StoreUpdate) -> std::io::Result<()> {
         store_update.set_ser(
             DBCol::TrieChanges,
             &shard_layout::get_block_shard_uid(&self.block_hash, &self.shard_uid),
             &self.trie_changes,
         )
     }
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum KeyForStateChangesError {
+    #[error("Row key of StateChange of kind DelayedReceipt or DelayedReceiptIndices doesn't contain ShardUId: row_key: {0:?} ; trie_key: {1:?}")]
+    DelayedReceiptRowKeyError(Vec<u8>, TrieKey),
 }
 
 #[derive(derive_more::AsRef, derive_more::Into)]
@@ -443,22 +471,46 @@ impl KeyForStateChanges {
         key
     }
 
+    /// Without changing the existing TrieKey format, encodes ShardUId into the row key.
+    /// See `delayed_receipt_key_from_trie_key` for decoding this row key.
+    pub fn delayed_receipt_key_from_trie_key(
+        block_hash: &CryptoHash,
+        trie_key: &TrieKey,
+        shard_uid: &ShardUId,
+    ) -> Self {
+        let mut key = Self::new(block_hash, trie_key.len() + std::mem::size_of::<ShardUId>());
+        trie_key.append_into(&mut key.0);
+        key.0.extend(shard_uid.to_bytes());
+        key
+    }
+
+    /// Extracts ShardUId from row key which contains ShardUId encoded.
+    /// See `delayed_receipt_key_from_trie_key` for encoding ShardUId into the row key.
+    pub fn delayed_receipt_key_decode_shard_uid(
+        row_key: &[u8],
+        block_hash: &CryptoHash,
+        trie_key: &TrieKey,
+    ) -> Result<ShardUId, KeyForStateChangesError> {
+        let prefix = KeyForStateChanges::from_trie_key(block_hash, trie_key);
+        let prefix = prefix.as_ref();
+
+        let suffix = &row_key[prefix.len()..];
+        let shard_uid = ShardUId::try_from(suffix).map_err(|_err| {
+            KeyForStateChangesError::DelayedReceiptRowKeyError(row_key.to_vec(), trie_key.clone())
+        })?;
+        Ok(shard_uid)
+    }
+
+    /// Iterates over deserialized row values where row key matches `self`.
     pub fn find_iter<'a>(
         &'a self,
         store: &'a Store,
     ) -> impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>> + 'a {
-        let prefix_len = Self::estimate_prefix_len();
-        debug_assert!(self.0.len() >= prefix_len);
-        store.iter_prefix_ser::<RawStateChangesWithTrieKey>(DBCol::StateChanges, &self.0).map(
-            move |change| {
-                // Split off the irrelevant part of the key, so only the original trie_key is left.
-                let (key, state_changes) = change?;
-                debug_assert!(key.starts_with(&self.0));
-                Ok(state_changes)
-            },
-        )
+        // Split off the irrelevant part of the key, so only the original trie_key is left.
+        self.find_rows_iter(store).map(|row| row.map(|kv| kv.1))
     }
 
+    /// Iterates over deserialized row values where the row key matches `self` exactly.
     pub fn find_exact_iter<'a>(
         &'a self,
         store: &'a Store,
@@ -479,5 +531,99 @@ impl KeyForStateChanges {
                 Some(Ok(state_changes))
             }
         })
+    }
+
+    /// Iterates over pairs of `(row key, deserialized row value)` where row key matches `self`.
+    pub fn find_rows_iter<'a>(
+        &'a self,
+        store: &'a Store,
+    ) -> impl Iterator<Item = Result<(Box<[u8]>, RawStateChangesWithTrieKey), std::io::Error>> + 'a
+    {
+        let prefix_len = Self::estimate_prefix_len();
+        debug_assert!(
+            self.0.len() >= prefix_len,
+            "Key length: {}, prefix length: {}, key: {:?}",
+            self.0.len(),
+            prefix_len,
+            self.0
+        );
+        store.iter_prefix_ser::<RawStateChangesWithTrieKey>(DBCol::StateChanges, &self.0).map(
+            move |change| {
+                // Split off the irrelevant part of the key, so only the original trie_key is left.
+                let (key, state_changes) = change?;
+                debug_assert!(key.starts_with(&self.0), "Key: {:?}, row key: {:?}", self.0, key);
+                Ok((key, state_changes))
+            },
+        )
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use std::str::FromStr;
+
+    #[test]
+    fn test_delayed_receipt_row_key() {
+        let trie_key1 = TrieKey::DelayedReceipt { index: 1 };
+        let trie_key2 = TrieKey::DelayedReceiptIndices {};
+        let shard_uid = ShardUId { version: 10, shard_id: 5 };
+
+        // Random value.
+        let block_hash =
+            CryptoHash::from_str("32222222222233333333334444444444445555555777").unwrap();
+
+        for trie_key in [trie_key1.clone(), trie_key2.clone()] {
+            let row_key = KeyForStateChanges::delayed_receipt_key_from_trie_key(
+                &block_hash,
+                &trie_key,
+                &shard_uid,
+            );
+
+            let got_shard_uid = KeyForStateChanges::delayed_receipt_key_decode_shard_uid(
+                row_key.as_ref(),
+                &block_hash,
+                &trie_key,
+            )
+            .unwrap();
+            assert_eq!(shard_uid, got_shard_uid);
+        }
+
+        // Forget to add a ShardUId to the key, fail to extra a ShardUId from the key.
+        let row_key_without_shard_uid = KeyForStateChanges::from_trie_key(&block_hash, &trie_key1);
+        assert!(KeyForStateChanges::delayed_receipt_key_decode_shard_uid(
+            row_key_without_shard_uid.as_ref(),
+            &block_hash,
+            &trie_key1
+        )
+        .is_err());
+
+        // Add an extra byte to the key, fail to extra a ShardUId from the key.
+        let mut row_key_extra_bytes = KeyForStateChanges::delayed_receipt_key_from_trie_key(
+            &block_hash,
+            &trie_key1,
+            &shard_uid,
+        );
+        row_key_extra_bytes.0.extend([8u8]);
+        assert!(KeyForStateChanges::delayed_receipt_key_decode_shard_uid(
+            row_key_extra_bytes.as_ref(),
+            &block_hash,
+            &trie_key1
+        )
+        .is_err());
+
+        // This is the internal detail of how delayed_receipt_key_from_trie_key() works.
+        let mut row_key_with_single_shard_uid =
+            KeyForStateChanges::from_trie_key(&block_hash, &trie_key1);
+        row_key_with_single_shard_uid.0.extend(shard_uid.to_bytes());
+        assert_eq!(
+            KeyForStateChanges::delayed_receipt_key_decode_shard_uid(
+                row_key_with_single_shard_uid.as_ref(),
+                &block_hash,
+                &trie_key1
+            )
+            .unwrap(),
+            shard_uid
+        );
     }
 }

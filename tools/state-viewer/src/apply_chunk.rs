@@ -17,7 +17,6 @@ use near_store::DBCol;
 use near_store::Store;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
-use std::cmp::Ord;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::warn;
@@ -45,7 +44,7 @@ fn get_incoming_receipts(
 
     let mut chunks =
         chunk_hashes.iter().map(|h| chain_store.get_chunk(h).unwrap()).collect::<Vec<_>>();
-    chunks.sort_by(|left, right| left.shard_id().cmp(&right.shard_id()));
+    chunks.sort_by_key(|chunk| chunk.shard_id());
 
     for chunk in chunks {
         let partial_encoded_chunk = chain_store.get_partial_chunk(&chunk.chunk_hash()).unwrap();
@@ -87,7 +86,7 @@ pub(crate) fn apply_chunk(
 
     let transactions = chunk.transactions();
     let prev_block =
-        chain_store.get_block(&prev_block_hash).context("Failed getting chunk's prev block")?;
+        chain_store.get_block(prev_block_hash).context("Failed getting chunk's prev block")?;
     let prev_height_included = prev_block.chunks()[shard_id as usize].height_included();
     let prev_height = prev_block.header().height();
     let target_height = match target_height {
@@ -101,7 +100,7 @@ pub(crate) fn apply_chunk(
         &chunk_hash,
         shard_id,
         target_height,
-        &prev_block_hash,
+        prev_block_hash,
         prev_height_included,
         rng,
     )
@@ -110,7 +109,7 @@ pub(crate) fn apply_chunk(
     let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
         chain_store,
         runtime,
-        &prev_block_hash,
+        prev_block_hash,
         shard_id,
     )?;
 
@@ -120,9 +119,9 @@ pub(crate) fn apply_chunk(
             &prev_state_root,
             target_height,
             prev_timestamp + 1_000_000_000,
-            &prev_block_hash,
+            prev_block_hash,
             &combine_hash(
-                &prev_block_hash,
+                prev_block_hash,
                 &hash("nonsense block hash for testing purposes".as_ref()),
             ),
             &receipts,
@@ -152,7 +151,7 @@ fn find_tx_or_receipt(
     runtime: &dyn RuntimeWithEpochManagerAdapter,
     chain_store: &mut ChainStore,
 ) -> anyhow::Result<Option<(HashType, ShardId)>> {
-    let block = chain_store.get_block(&block_hash)?;
+    let block = chain_store.get_block(block_hash)?;
     let chunk_hashes = block.chunks().iter().map(|c| c.chunk_hash()).collect::<Vec<_>>();
 
     for (shard_id, chunk_hash) in chunk_hashes.iter().enumerate() {
@@ -240,7 +239,7 @@ fn apply_tx_in_chunk(
         }
     }
 
-    if chunk_hashes.len() == 0 {
+    if chunk_hashes.is_empty() {
         return Err(anyhow!(
             "Could not find tx with hash {} in any chunk that hasn't been applied yet",
             tx_hash
@@ -358,7 +357,7 @@ fn apply_receipt_in_chunk(
         }
     }
 
-    if to_apply.len() == 0 {
+    if to_apply.is_empty() {
         return Err(anyhow!(
             "Could not find receipt with hash {} in any chunk that hasn't been applied yet",
             id
@@ -410,6 +409,7 @@ mod test {
     use near_client::test_utils::TestEnv;
     use near_client::ProcessTxResponse;
     use near_crypto::{InMemorySigner, KeyType};
+    use near_epoch_manager::shard_tracker::TrackedConfig;
     use near_epoch_manager::EpochManagerAdapter;
     use near_primitives::hash::CryptoHash;
     use near_primitives::runtime::config_store::RuntimeConfigStore;
@@ -419,11 +419,9 @@ mod test {
     use near_store::test_utils::create_test_store;
     use nearcore::config::GenesisExt;
     use nearcore::NightshadeRuntime;
-    use nearcore::TrackedConfig;
     use rand::rngs::StdRng;
     use rand::SeedableRng;
     use std::path::Path;
-    use std::sync::Arc;
 
     fn send_txs(env: &mut TestEnv, signers: &[InMemorySigner], height: u64, hash: CryptoHash) {
         for (i, signer) in signers.iter().enumerate() {
@@ -457,13 +455,13 @@ mod test {
 
         let store = create_test_store();
         let mut chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height, false);
-        let runtime = Arc::new(NightshadeRuntime::test_with_runtime_config_store(
+        let runtime = NightshadeRuntime::test_with_runtime_config_store(
             Path::new("."),
             store,
             &genesis,
             TrackedConfig::AllShards,
             RuntimeConfigStore::test(),
-        ));
+        );
         let chain_genesis = ChainGenesis::test();
 
         let signers = (0..4)
@@ -534,13 +532,13 @@ mod test {
 
         let store = create_test_store();
         let chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height, false);
-        let runtime = Arc::new(NightshadeRuntime::test_with_runtime_config_store(
+        let runtime = NightshadeRuntime::test_with_runtime_config_store(
             Path::new("."),
             store.clone(),
             &genesis,
             TrackedConfig::AllShards,
             RuntimeConfigStore::test(),
-        ));
+        );
         let mut chain_genesis = ChainGenesis::test();
         // receipts get delayed with the small ChainGenesis::test() limit
         chain_genesis.gas_limit = genesis.config.gas_limit;

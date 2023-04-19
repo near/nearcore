@@ -3,6 +3,7 @@ use near_chain::{ChainGenesis, Provenance, RuntimeWithEpochManagerAdapter};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_epoch_manager::shard_tracker::TrackedConfig;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::errors::TxExecutionError;
 use near_primitives::hash::CryptoHash;
@@ -12,7 +13,6 @@ use near_primitives::types::BlockHeight;
 use near_primitives::views::FinalExecutionStatus;
 use near_store::test_utils::create_test_store;
 use nearcore::config::GenesisExt;
-use nearcore::TrackedConfig;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -35,6 +35,10 @@ fn protocol_upgrade() {
         .collect();
     let epoch_length: BlockHeight = 5;
 
+    // The immediate protocol upgrade needs to be set for this test to pass in
+    // the release branch where the protocol upgrade date is set.
+    std::env::set_var("NEAR_TESTS_IMMEDIATE_PROTOCOL_UPGRADE", "1");
+
     // Prepare TestEnv with a contract at the old protocol version.
     let mut env = {
         let mut genesis =
@@ -43,13 +47,13 @@ fn protocol_upgrade() {
         genesis.config.protocol_version = old_protocol_version;
         let chain_genesis = ChainGenesis::new(&genesis);
         let runtimes: Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> =
-            vec![Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(
+            vec![nearcore::NightshadeRuntime::test_with_runtime_config_store(
                 Path::new("."),
                 create_test_store(),
                 &genesis,
                 TrackedConfig::AllShards,
                 RuntimeConfigStore::new(None),
-            )) as Arc<dyn RuntimeWithEpochManagerAdapter>];
+            ) as Arc<dyn RuntimeWithEpochManagerAdapter>];
         let mut env = TestEnv::builder(chain_genesis).runtime_adapters(runtimes).build();
 
         deploy_test_contract_with_protocol_version(

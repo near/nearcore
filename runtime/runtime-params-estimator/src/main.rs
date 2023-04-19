@@ -40,6 +40,14 @@ struct CliArgs {
     /// Number of additional accounts to add to the state, among which active accounts are selected.
     #[clap(long, default_value = "200000")]
     additional_accounts_num: u64,
+    /// How many blocks behind the final head is assumed to be compared to the tip.
+    ///
+    /// This is used to simulate flat state deltas, which depend on finality.
+    #[clap(long, default_value = "50")]
+    pub finality_lag: usize,
+    /// How many key-value pairs change per flat state delta.
+    #[clap(long, default_value = "100")]
+    pub fs_keys_per_delta: usize,
     /// Skip building test contract which is used in metrics computation.
     #[clap(long)]
     skip_build_test_contract: bool,
@@ -53,7 +61,7 @@ struct CliArgs {
     #[clap(long, default_value = "time", possible_values = &["icount", "time"])]
     metric: String,
     /// Which VM to test.
-    #[clap(long, possible_values = &["wasmer", "wasmer2", "wasmtime"])]
+    #[clap(long, possible_values = &["wasmer", "wasmer2", "wasmtime", "near-vm"])]
     vm_kind: Option<String>,
     /// Render existing `costs.txt` as `RuntimeConfig`.
     #[clap(long)]
@@ -281,6 +289,7 @@ fn run_estimation(cli_args: CliArgs) -> anyhow::Result<Option<CostTable>> {
         Some("wasmer") => VMKind::Wasmer0,
         Some("wasmer2") => VMKind::Wasmer2,
         Some("wasmtime") => VMKind::Wasmtime,
+        Some("near-vm") => VMKind::NearVm,
         None => VMKind::for_protocol_version(PROTOCOL_VERSION),
         Some(other) => unreachable!("Unknown vm_kind {}", other),
     };
@@ -289,6 +298,8 @@ fn run_estimation(cli_args: CliArgs) -> anyhow::Result<Option<CostTable>> {
         iter_per_block,
         active_accounts,
         block_sizes: vec![],
+        finality_lag: cli_args.finality_lag,
+        fs_keys_per_delta: cli_args.fs_keys_per_delta,
         state_dump_path: state_dump_path,
         metric,
         vm_kind,
@@ -505,6 +516,8 @@ mod tests {
             iters: 1,
             accounts_num: 100,
             additional_accounts_num: 100,
+            finality_lag: 3,
+            fs_keys_per_delta: 1,
             skip_build_test_contract: false,
             metric: "time".to_owned(),
             vm_kind: None,

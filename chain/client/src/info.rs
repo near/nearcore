@@ -1,5 +1,5 @@
 use crate::config_updater::ConfigUpdater;
-use crate::{metrics, rocksdb_metrics, SyncStatus};
+use crate::{metrics, SyncStatus};
 use actix::Addr;
 use itertools::Itertools;
 use near_chain_configs::{ClientConfig, LogSummaryStyle};
@@ -21,7 +21,6 @@ use near_primitives::views::{
     CatchupStatusView, ChunkProcessingStatus, CurrentEpochValidatorInfo, EpochValidatorInfo,
     ValidatorKickoutView,
 };
-use near_store::db::StoreStatistics;
 use near_telemetry::{telemetry, TelemetryActor};
 use std::cmp::min;
 use std::fmt::Write;
@@ -107,6 +106,7 @@ impl InfoHelper {
         last_final_block_height: BlockHeight,
         last_final_ds_block_height: BlockHeight,
         epoch_height: EpochHeight,
+        last_final_block_height_in_epoch: Option<BlockHeight>,
     ) {
         self.num_blocks_processed += 1;
         self.num_chunks_in_blocks_processed += num_chunks;
@@ -119,6 +119,66 @@ impl InfoHelper {
         metrics::FINAL_BLOCK_HEIGHT.set(last_final_block_height as i64);
         metrics::FINAL_DOOMSLUG_BLOCK_HEIGHT.set(last_final_ds_block_height as i64);
         metrics::EPOCH_HEIGHT.set(epoch_height as i64);
+        if let Some(last_final_block_height_in_epoch) = last_final_block_height_in_epoch {
+            // In rare cases cases the final height isn't updated, for example right after a state sync.
+            // Don't update the metric in such cases.
+            metrics::FINAL_BLOCK_HEIGHT_IN_EPOCH.set(last_final_block_height_in_epoch as i64);
+        }
+    }
+
+    /// Count which shards are tracked by the node in the epoch indicated by head parameter.
+    fn record_tracked_shards(head: &Tip, client: &crate::client::Client) {
+        let me = client.validator_signer.as_ref().map(|x| x.validator_id());
+        if let Ok(num_shards) = client.runtime_adapter.num_shards(&head.epoch_id) {
+            for shard_id in 0..num_shards {
+                let tracked = client.runtime_adapter.cares_about_shard(
+                    me,
+                    &head.last_block_hash,
+                    shard_id,
+                    false,
+                );
+                metrics::TRACKED_SHARDS
+                    .with_label_values(&[&shard_id.to_string()])
+                    .set(if tracked { 1 } else { 0 });
+            }
+        }
+    }
+
+    fn record_block_producers(head: &Tip, client: &crate::client::Client) {
+        let me = client.validator_signer.as_ref().map(|x| x.validator_id().clone());
+        if let Some(is_bp) = me.map_or(Some(false), |account_id| {
+            // In rare cases block producer information isn't available.
+            // Don't set the metric in this case.
+            client
+                .runtime_adapter
+                .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash)
+                .map_or(None, |bp| Some(bp.iter().any(|bp| bp.0.account_id() == &account_id)))
+        }) {
+            metrics::IS_BLOCK_PRODUCER.set(if is_bp { 1 } else { 0 });
+        }
+    }
+
+    fn record_chunk_producers(head: &Tip, client: &crate::client::Client) {
+        if let (Some(account_id), Ok(epoch_info)) = (
+            client.validator_signer.as_ref().map(|x| x.validator_id().clone()),
+            client.runtime_adapter.get_epoch_info(&head.epoch_id),
+        ) {
+            for (shard_id, validators) in epoch_info.chunk_producers_settlement().iter().enumerate()
+            {
+                let is_chunk_producer_for_shard = validators.iter().any(|&validator_id| {
+                    *epoch_info.validator_account_id(validator_id) == account_id
+                });
+                metrics::IS_CHUNK_PRODUCER_FOR_SHARD
+                    .with_label_values(&[&shard_id.to_string()])
+                    .set(if is_chunk_producer_for_shard { 1 } else { 0 });
+            }
+        } else if let Ok(num_shards) = client.runtime_adapter.num_shards(&head.epoch_id) {
+            for shard_id in 0..num_shards {
+                metrics::IS_CHUNK_PRODUCER_FOR_SHARD
+                    .with_label_values(&[&shard_id.to_string()])
+                    .set(0);
+            }
+        }
     }
 
     /// Print current summary.
@@ -173,11 +233,11 @@ impl InfoHelper {
                 .map(get_validator_epoch_stats)
                 .unwrap_or_default()
         };
-        let statistics = if client.config.enable_statistics_export {
-            client.chain.store().get_store_statistics()
-        } else {
-            None
-        };
+
+        InfoHelper::record_tracked_shards(&head, client);
+        InfoHelper::record_block_producers(&head, client);
+        InfoHelper::record_chunk_producers(&head, client);
+
         self.info(
             &head,
             &client.sync_status,
@@ -191,7 +251,6 @@ impl InfoHelper {
                 .get_estimated_protocol_upgrade_block_height(head.last_block_hash)
                 .unwrap_or(None)
                 .unwrap_or(0),
-            statistics,
             &client.config,
             config_updater,
         );
@@ -208,7 +267,6 @@ impl InfoHelper {
         validator_info: Option<ValidatorInfoHelper>,
         validator_epoch_stats: Vec<ValidatorProductionStats>,
         protocol_upgrade_block_height: BlockHeight,
-        statistics: Option<StoreStatistics>,
         client_config: &ClientConfig,
         config_updater: &Option<ConfigUpdater>,
     ) {
@@ -245,11 +303,6 @@ impl InfoHelper {
         let avg_bls = (self.num_blocks_processed as f64)
             / (self.started.elapsed().as_millis() as f64)
             * 1000.0;
-        let chunks_per_block = if self.num_blocks_processed > 0 {
-            (self.num_chunks_in_blocks_processed as f64) / (self.num_blocks_processed as f64)
-        } else {
-            0.
-        };
         let avg_gas_used =
             ((self.gas_used as f64) / (self.started.elapsed().as_millis() as f64) * 1000.0) as u64;
         let blocks_info_log =
@@ -272,11 +325,8 @@ impl InfoHelper {
             paint(ansi_term::Colour::Green, blocks_info_log),
             paint(ansi_term::Colour::Blue, machine_info_log),
         );
-        if catchup_status_log != "" {
+        if !catchup_status_log.is_empty() {
             info!(target: "stats", "Catchups\n{}", catchup_status_log);
-        }
-        if let Some(statistics) = statistics {
-            rocksdb_metrics::export_stats_as_metrics(statistics);
         }
         if let Some(config_updater) = &config_updater {
             config_updater.report_status();
@@ -289,13 +339,6 @@ impl InfoHelper {
         (metrics::CPU_USAGE.set(cpu_usage as i64));
         (metrics::MEMORY_USAGE.set((memory_usage * 1024) as i64));
         (metrics::PROTOCOL_UPGRADE_BLOCK_HEIGHT.set(protocol_upgrade_block_height as i64));
-
-        // TODO: Deprecated.
-        (metrics::BLOCKS_PER_MINUTE.set((avg_bls * (60 as f64)) as i64));
-        // TODO: Deprecated.
-        (metrics::CHUNKS_PER_BLOCK_MILLIS.set((1000. * chunks_per_block) as i64));
-        // TODO: Deprecated.
-        (metrics::AVG_TGAS_USAGE.set((avg_gas_used as f64 / TERAGAS).round() as i64));
 
         // In case we can't get the list of validators for the current and the previous epoch,
         // skip updating the per-validator metrics.
@@ -424,7 +467,7 @@ pub fn display_catchup_status(catchup_status: Vec<CatchupStatusView>) -> String 
                 .sorted_by_key(|x| x.0)
                 .map(|(shard_id, status_string)| format!("Shard {} {}", shard_id, status_string))
                 .join(", ");
-            let block_catchup_string = if catchup_status.blocks_to_catchup.len() == 0 {
+            let block_catchup_string = if !catchup_status.blocks_to_catchup.is_empty() {
                 "done".to_string()
             } else {
                 catchup_status
@@ -489,6 +532,14 @@ pub fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
             for (shard_id, shard_status) in shard_statuses {
                 write!(res, "[{}: {}]", shard_id, shard_status.status.to_string(),).unwrap();
             }
+            // TODO #8719
+            tracing::warn!(target: "stats",
+                "The node is syncing its State. The current implementation of this mechanism is known to be unreliable. It may never complete, or fail randomly and corrupt the DB.\n\
+                 Suggestions:\n\
+                 * Download a recent data snapshot and restart the node.\n\
+                 * Disable state sync in the config. Add `\"state_sync_enabled\": false` to `config.json`.\n\
+                 \n\
+                 A better implementation of State Sync is work in progress.");
             res
         }
         SyncStatus::StateSyncDone => "State sync done".to_string(),
@@ -695,8 +746,7 @@ mod tests {
         let store = near_store::test_utils::create_test_store();
         let vs =
             ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test".parse().unwrap()]]);
-        let runtime =
-            Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(store, vs, 123, false));
+        let runtime = KeyValueRuntime::new_with_validators_and_no_gc(store, vs, 123, false);
         let chain_genesis = ChainGenesis {
             time: StaticClock::utc(),
             height: 0,

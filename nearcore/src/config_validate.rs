@@ -28,9 +28,16 @@ impl<'a> ConfigValidator<'a> {
 
     /// this function would check all conditions, and add all error messages to ConfigValidator.errors
     fn validate_all_conditions(&mut self) {
-        if self.config.archive == false && self.config.save_trie_changes == Some(false) {
-            let error_message = format!("Configuration with archive = false and save_trie_changes = false is not supported because non-archival nodes must save trie changes in order to do do garbage collection.");
-            self.validation_errors.push_config_semantics_error(error_message)
+        if !self.config.archive && self.config.save_trie_changes == Some(false) {
+            let error_message = "Configuration with archive = false and save_trie_changes = false is not supported because non-archival nodes must save trie changes in order to do do garbage collection.".to_string();
+            self.validation_errors.push_config_semantics_error(error_message);
+        }
+
+        // Checking that if cold storage is configured, trie changes are definitely saved.
+        // Unlike in the previous case, None is not a valid option here.
+        if self.config.cold_store.is_some() && self.config.save_trie_changes != Some(true) {
+            let error_message = format!("cold_store is configured, but save_trie_changes is {:?}. Trie changes should be saved to support cold storage.", self.config.save_trie_changes);
+            self.validation_errors.push_config_semantics_error(error_message);
         }
 
         if self.config.consensus.min_block_production_delay
@@ -41,7 +48,7 @@ impl<'a> ConfigValidator<'a> {
                 self.config.consensus.min_block_production_delay,
                 self.config.consensus.max_block_production_delay
             );
-            self.validation_errors.push_config_semantics_error(error_message)
+            self.validation_errors.push_config_semantics_error(error_message);
         }
 
         if self.config.consensus.min_block_production_delay
@@ -52,13 +59,13 @@ impl<'a> ConfigValidator<'a> {
                 self.config.consensus.min_block_production_delay,
                 self.config.consensus.max_block_wait_delay
             );
-            self.validation_errors.push_config_semantics_error(error_message)
+            self.validation_errors.push_config_semantics_error(error_message);
         }
 
         if self.config.consensus.header_sync_expected_height_per_second == 0 {
             let error_message =
-                format!("consensus.header_sync_expected_height_per_second should not be 0");
-            self.validation_errors.push_config_semantics_error(error_message)
+                "consensus.header_sync_expected_height_per_second should not be 0".to_string();
+            self.validation_errors.push_config_semantics_error(error_message);
         }
 
         if self.config.gc.gc_blocks_limit == 0
@@ -66,7 +73,22 @@ impl<'a> ConfigValidator<'a> {
             || self.config.gc.gc_num_epochs_to_keep == 0
         {
             let error_message = format!("gc config values should all be greater than 0, but gc_blocks_limit is {:?}, gc_fork_clean_step is {}, gc_num_epochs_to_keep is {}.", self.config.gc.gc_blocks_limit, self.config.gc.gc_fork_clean_step, self.config.gc.gc_num_epochs_to_keep);
-            self.validation_errors.push_config_semantics_error(error_message)
+            self.validation_errors.push_config_semantics_error(error_message);
+        }
+
+        if let Some(state_sync) = &self.config.state_sync {
+            if state_sync.dump_enabled.unwrap_or(false) {
+                if state_sync.s3_bucket.is_empty() || state_sync.s3_region.is_empty() {
+                    let error_message = format!("'config.state_sync.s3_bucket' and 'config.state_sync.s3_region' need to be specified when 'config.state_sync.dump_enabled' is enabled.");
+                    self.validation_errors.push_config_semantics_error(error_message);
+                }
+            }
+            if state_sync.sync_from_s3_enabled.unwrap_or(false) {
+                if state_sync.s3_bucket.is_empty() || state_sync.s3_region.is_empty() {
+                    let error_message = format!("'config.state_sync.s3_bucket' and 'config.state_sync.s3_region' need to be specified when 'config.state_sync.sync_from_s3_enabled' is enabled.");
+                    self.validation_errors.push_config_semantics_error(error_message);
+                }
+            }
         }
     }
 
@@ -75,7 +97,7 @@ impl<'a> ConfigValidator<'a> {
             Ok(())
         } else {
             let full_err_msg = self.validation_errors.generate_error_message_per_type().unwrap();
-            Err(ValidationError::ConfigSemanticsError { error_message: full_err_msg }.into())
+            Err(ValidationError::ConfigSemanticsError { error_message: full_err_msg })
         }
     }
 }
@@ -118,6 +140,27 @@ mod test {
         config.gc.gc_blocks_limit = 0;
         // set tracked_shards to be non-empty
         config.tracked_shards.push(20);
+        validate_config(&config).unwrap();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "\\nconfig.json semantic issue: cold_store is configured, but save_trie_changes is None. Trie changes should be saved to support cold storage."
+    )]
+    fn test_cold_store_without_save_trie_changes() {
+        let mut config = Config::default();
+        config.cold_store = Some(config.store.clone());
+        validate_config(&config).unwrap();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "\\nconfig.json semantic issue: cold_store is configured, but save_trie_changes is Some(false). Trie changes should be saved to support cold storage."
+    )]
+    fn test_cold_store_with_save_trie_changes_false() {
+        let mut config = Config::default();
+        config.cold_store = Some(config.store.clone());
+        config.save_trie_changes = Some(false);
         validate_config(&config).unwrap();
     }
 }

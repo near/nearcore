@@ -2,6 +2,7 @@ use super::types::{ComplianceError, Expected, Outlier, Workspace};
 use super::{style, utils};
 use crate::utils::read_toml;
 use anyhow::bail;
+use cargo_metadata::DependencyKind;
 use std::collections::{BTreeMap, HashMap};
 
 /// Ensure all crates have the `publish = <true/false>` specification
@@ -57,7 +58,10 @@ pub fn rust_version_matches_toolchain(workspace: &Workspace) -> anyhow::Result<(
         Ok(val)
     }
 
-    let toolchain_file = read_toml(&workspace.root.join("rust-toolchain.toml"))?;
+    let toolchain_file = match read_toml(&workspace.root.join("rust-toolchain.toml"))? {
+        Some(toolchain_file) => toolchain_file,
+        None => return Ok(()),
+    };
     let toolchain_version = get(&toolchain_file, &["toolchain", "channel"])?;
     let workspace_version = get(&workspace.raw, &["workspace", "package", "rust-version"])?;
 
@@ -228,6 +232,8 @@ pub fn publishable_has_unified_license(workspace: &Workspace) -> anyhow::Result<
         .filter(|pkg| {
             utils::is_publishable(pkg)
                 && matches!(pkg.parsed.license, Some(ref l) if l != EXPECTED_LICENSE)
+                // near-vm is a wasmer fork, so we don’t control the license
+                && !pkg.parsed.name.starts_with("near-vm")
         })
         .map(|pkg| Outlier {
             path: pkg.parsed.manifest_path.clone(),
@@ -330,12 +336,14 @@ pub fn recursively_publishable(workspace: &Workspace) -> anyhow::Result<()> {
     let mut outliers = BTreeMap::new();
     for pkg in workspace.members.iter().filter(|pkg| utils::is_publishable(pkg)) {
         for dep in &pkg.parsed.dependencies {
-            if let Some(dep) = workspace.members.iter().find(|p| p.parsed.name == dep.name) {
-                if !utils::is_publishable(dep) {
-                    outliers
-                        .entry(dep.parsed.manifest_path.clone())
-                        .or_insert_with(Vec::new)
-                        .push(pkg.parsed.name.clone())
+            if matches!(dep.kind, DependencyKind::Normal | DependencyKind::Build) {
+                if let Some(dep) = workspace.members.iter().find(|p| p.parsed.name == dep.name) {
+                    if !utils::is_publishable(dep) {
+                        outliers
+                            .entry(dep.parsed.manifest_path.clone())
+                            .or_insert_with(Vec::new)
+                            .push(pkg.parsed.name.clone())
+                    }
                 }
             }
         }

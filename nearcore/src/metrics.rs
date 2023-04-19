@@ -1,6 +1,7 @@
 use near_o11y::metrics::{
-    linear_buckets, try_create_histogram_vec, try_create_int_counter_vec, try_create_int_gauge,
-    HistogramVec, IntCounterVec, IntGauge,
+    exponential_buckets, linear_buckets, try_create_histogram_vec, try_create_int_counter_vec,
+    try_create_int_gauge, try_create_int_gauge_vec, HistogramVec, IntCounterVec, IntGauge,
+    IntGaugeVec,
 };
 use once_cell::sync::Lazy;
 
@@ -12,20 +13,6 @@ pub static APPLY_CHUNK_DELAY: Lazy<HistogramVec> = Lazy::new(|| {
         Some(linear_buckets(0.0, 0.05, 50).unwrap()),
     )
         .unwrap()
-});
-
-pub static SECONDS_PER_PETAGAS: Lazy<HistogramVec> = Lazy::new(|| {
-    try_create_histogram_vec(
-        "near_execution_seconds_per_petagas_ratio",
-        "Execution time per unit of gas, measured in seconds per petagas. Ignore label 'label'.",
-        &["shard_id"],
-        // Non-linear buckets with higher resolution around 1.0.
-        Some(vec![
-            0.0, 0.1, 0.2, 0.5, 0.7, 0.8, 0.9, 0.95, 0.97, 0.99, 1.0, 1.01, 1.03, 1.05, 1.1, 1.2,
-            1.3, 1.5, 2.0, 5.0, 10.0,
-        ]),
-    )
-    .unwrap()
 });
 
 pub(crate) static CONFIG_CORRECT: Lazy<IntGauge> = Lazy::new(|| {
@@ -41,6 +28,75 @@ pub(crate) static COLD_STORE_COPY_RESULT: Lazy<IntCounterVec> = Lazy::new(|| {
         "near_cold_store_copy_result",
         "The result of a cold store copy iteration in the cold store loop.",
         &["copy_result"],
+    )
+    .unwrap()
+});
+
+pub(crate) static STATE_SYNC_DUMP_ITERATION_ELAPSED: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_state_sync_dump_iteration_elapsed_sec",
+        "Time needed to obtain and write a part",
+        &["shard_id"],
+        Some(exponential_buckets(0.001, 1.6, 25).unwrap()),
+    )
+    .unwrap()
+});
+pub(crate) static STATE_SYNC_DUMP_PUT_OBJECT_ELAPSED: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_state_sync_dump_put_object_elapsed_sec",
+        "Time needed to write a part",
+        &["shard_id"],
+        Some(exponential_buckets(0.001, 1.6, 25).unwrap()),
+    )
+    .unwrap()
+});
+pub(crate) static STATE_SYNC_DUMP_NUM_PARTS_TOTAL: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_state_sync_dump_num_parts_total",
+        "Total number of parts in the epoch that being dumped",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+pub(crate) static STATE_SYNC_DUMP_NUM_PARTS_DUMPED: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_state_sync_dump_num_parts_dumped",
+        "Number of parts dumped in the epoch that is being dumped",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+pub(crate) static STATE_SYNC_DUMP_SIZE_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_state_sync_dump_size_total",
+        "Total size of parts written to S3",
+        &["epoch_height", "shard_id"],
+    )
+    .unwrap()
+});
+pub(crate) static STATE_SYNC_DUMP_EPOCH_HEIGHT: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_state_sync_dump_epoch_height",
+        "Epoch Height of an epoch being dumped",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+pub static STATE_SYNC_APPLY_PART_DELAY: Lazy<near_o11y::metrics::HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_state_sync_apply_part_delay_sec",
+        "Latency of applying a state part",
+        &["shard_id"],
+        Some(exponential_buckets(0.001, 2.0, 20).unwrap()),
+    )
+    .unwrap()
+});
+pub static STATE_SYNC_OBTAIN_PART_DELAY: Lazy<near_o11y::metrics::HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_state_sync_obtain_part_delay_sec",
+        "Latency of applying a state part",
+        &["shard_id"],
+        Some(exponential_buckets(0.001, 2.0, 20).unwrap()),
     )
     .unwrap()
 });

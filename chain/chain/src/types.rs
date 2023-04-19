@@ -4,6 +4,7 @@ use std::sync::Arc;
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
 use chrono::Utc;
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use num_rational::Rational32;
 
@@ -31,7 +32,7 @@ use near_primitives::version::{
     MIN_PROTOCOL_VERSION_NEP_92_FIX,
 };
 use near_primitives::views::{QueryRequest, QueryResponse};
-use near_store::flat::{ChainAccessForFlatStorage, FlatStorage, FlatStorageCreationStatus};
+use near_store::flat::{FlatStorage, FlatStorageStatus};
 use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTrieChanges};
 
 pub use near_epoch_manager::EpochManagerAdapter;
@@ -297,32 +298,27 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: StateRoot,
     ) -> Result<Trie, Error>;
 
-    fn get_flat_storage_for_shard(&self, shard_id: ShardId) -> Option<FlatStorage>;
+    fn get_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Option<FlatStorage>;
 
-    /// Gets status of flat storage state background creation.
-    fn get_flat_storage_creation_status(&self, shard_id: ShardId) -> FlatStorageCreationStatus;
+    fn get_flat_storage_status(&self, shard_uid: ShardUId) -> FlatStorageStatus;
 
     /// Creates flat storage state for given shard, assuming that all flat storage data
     /// is already stored in DB.
     /// TODO (#7327): consider returning flat storage creation errors here
-    fn create_flat_storage_for_shard(
-        &self,
-        shard_id: ShardId,
-        latest_block_height: BlockHeight,
-        chain_access: &dyn ChainAccessForFlatStorage,
-    );
+    fn create_flat_storage_for_shard(&self, shard_uid: ShardUId);
 
     /// Removes flat storage state for shard, if it exists.
     /// Used to clear old flat storage data from disk and memory before syncing to newer state.
     fn remove_flat_storage_for_shard(
         &self,
-        shard_id: ShardId,
+        shard_uid: ShardUId,
         epoch_id: &EpochId,
     ) -> Result<(), Error>;
 
     fn set_flat_storage_for_genesis(
         &self,
         genesis_block: &CryptoHash,
+        genesis_block_height: BlockHeight,
         genesis_epoch_id: &EpochId,
     ) -> Result<StoreUpdate, Error>;
 
@@ -571,16 +567,15 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: &StateRoot,
     ) -> bool;
 
-    fn chunk_needs_to_be_fetched_from_archival(
-        &self,
-        chunk_prev_block_hash: &CryptoHash,
-        header_head: &CryptoHash,
-    ) -> Result<bool, Error>;
-
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error>;
 }
 
-pub trait RuntimeWithEpochManagerAdapter: RuntimeAdapter + EpochManagerAdapter {}
+/// LEGACY trait. Will be removed. Use RuntimeAdapter or EpochManagerHandler instead.
+pub trait RuntimeWithEpochManagerAdapter: RuntimeAdapter + EpochManagerAdapter {
+    fn epoch_manager_adapter(&self) -> &dyn EpochManagerAdapter;
+    fn epoch_manager_adapter_arc(&self) -> Arc<dyn EpochManagerAdapter>;
+    fn shard_tracker(&self) -> ShardTracker;
+}
 
 /// The last known / checked height and time when we have processed it.
 /// Required to keep track of skipped blocks and not fallback to produce blocks at lower height.
@@ -636,6 +631,7 @@ mod tests {
                 logs: vec!["outcome1".to_string()],
                 receipt_ids: vec![hash(&[1])],
                 gas_burnt: 100,
+                compute_usage: Some(200),
                 tokens_burnt: 10000,
                 executor_id: "alice".parse().unwrap(),
                 metadata: ExecutionMetadata::V1,
@@ -648,6 +644,7 @@ mod tests {
                 logs: vec!["outcome2".to_string()],
                 receipt_ids: vec![],
                 gas_burnt: 0,
+                compute_usage: Some(0),
                 tokens_burnt: 0,
                 executor_id: "bob".parse().unwrap(),
                 metadata: ExecutionMetadata::V1,

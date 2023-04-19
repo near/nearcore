@@ -2,11 +2,11 @@ use std::{sync::Arc, time::Duration};
 
 use actix::{Actor, Addr, Arbiter, ArbiterHandle, Context, Handler};
 use near_async::messaging::Sender;
+use near_async::time;
 use near_chain::{chunks_store::ReadOnlyChunksStore, types::Tip, RuntimeWithEpochManagerAdapter};
 use near_network::{
     shards_manager::ShardsManagerRequestFromNetwork, types::PeerManagerMessageRequest,
 };
-use near_primitives::time;
 use near_primitives::types::AccountId;
 use near_store::{DBCol, Store, HEADER_HEAD_KEY, HEAD_KEY};
 
@@ -84,7 +84,8 @@ pub fn start_shards_manager(
     let shards_manager = ShardsManager::new(
         time::Clock::real(),
         me,
-        runtime_adapter,
+        runtime_adapter.epoch_manager_adapter_arc(),
+        runtime_adapter.shard_tracker(),
         network_adapter,
         client_adapter_for_shards_manager,
         chunks_store,

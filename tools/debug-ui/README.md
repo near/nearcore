@@ -13,7 +13,15 @@ Go to `http://localhost:3000/<RPC address>` to look at the debug UI of a near no
 The RPC address can be either IP:port, or just IP (which will default to port 3030).
 
 ## How to deploy in production
-TBD.
+Use the included Dockerfile, which will serve the UI on port 80 inside the container.
+
+For example:
+
+```
+cd tools/debug-ui
+docker build -t nearcore-debug-ui .
+docker run -p 8080:80 nearcore-debug-ui
+```
 
 ## Development
 
@@ -45,3 +53,18 @@ The project is configured to use ESLint (error-checking) and Prettier (consisten
 
 Run `npm run lint` to check for linting & formatting errors, and `npm run fix` to fix those that
 can be automatically fixed.
+
+## How to Use the TestLoop Log Visualizer
+For nearcore tests written in the TestLoop framework (any tests that mention "TestLoop", or
+more precisely, using TestLoop from core/async/src/test_loop.rs), the test can be visualized:
+
+1. First run the test from the Rust side and save the output, e.g.
+   ```
+   cargo test -p near-chunks test_multi -- --show-output > ~/log.txt
+   ```
+2. Go to the UI at `/logviz`, such as http://localhost:3000/logviz
+3. Drag the log.txt file into the UI.
+
+Screenshots:
+<img width="1728" alt="image" src="https://user-images.githubusercontent.com/111538878/222594411-8fa6f8d7-1eaf-42b4-972d-67384e8f2a3f.png">
+<img width="1728" alt="image" src="https://user-images.githubusercontent.com/111538878/222594625-76441066-a664-42ff-a7b5-3b3f3c26d1b4.png">

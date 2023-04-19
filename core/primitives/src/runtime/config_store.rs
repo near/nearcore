@@ -30,6 +30,7 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (57, include_config!("57.yaml")),
     // Introduce Zero Balance Account and increase account creation cost to 7.7Tgas
     (59, include_config!("59.yaml")),
+    (61, include_config!("61.yaml")),
 ];
 
 /// Testnet parameters for versions <= 29, which (incorrectly) differed from mainnet parameters
@@ -235,8 +236,8 @@ mod tests {
         let base_cfg = store.get_config(LowerStorageCost.protocol_version());
         let new_cfg = store.get_config(LowerDataReceiptAndEcrecoverBaseCost.protocol_version());
         assert!(
-            base_cfg.wasm_config.ext_costs.cost(ExtCosts::ecrecover_base)
-                > new_cfg.wasm_config.ext_costs.cost(ExtCosts::ecrecover_base)
+            base_cfg.wasm_config.ext_costs.gas_cost(ExtCosts::ecrecover_base)
+                > new_cfg.wasm_config.ext_costs.gas_cost(ExtCosts::ecrecover_base)
         );
     }
 

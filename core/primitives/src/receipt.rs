@@ -5,7 +5,7 @@ use crate::transaction::{Action, TransferAction};
 use crate::types::{AccountId, Balance, ShardId};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{KeyType, PublicKey};
-use near_o11y::pretty;
+use near_fmt::AbbrBytes;
 use std::borrow::Borrow;
 use std::fmt;
 
@@ -162,7 +162,7 @@ impl fmt::Debug for DataReceipt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DataReceipt")
             .field("data_id", &self.data_id)
-            .field("data", &format_args!("{}", pretty::AbbrBytes(self.data.as_deref())))
+            .field("data", &format_args!("{}", AbbrBytes(self.data.as_deref())))
             .finish()
     }
 }
@@ -197,7 +197,7 @@ pub struct ReceivedData {
 impl fmt::Debug for ReceivedData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ReceivedData")
-            .field("data", &format_args!("{}", pretty::AbbrBytes(self.data.as_deref())))
+            .field("data", &format_args!("{}", AbbrBytes(self.data.as_deref())))
             .finish()
     }
 }
