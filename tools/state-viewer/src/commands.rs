@@ -11,10 +11,9 @@ use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::RuntimeAdapter;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
-use near_chain::{
-    ChainStore, ChainStoreAccess, ChainStoreUpdate, Error, RuntimeWithEpochManagerAdapter,
-};
+use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, Error};
 use near_chain_configs::GenesisChangeConfig;
+use near_epoch_manager::EpochManagerHandle;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::account::id::AccountId;
 use near_primitives::block::{Block, BlockHeader};
@@ -41,12 +40,13 @@ use std::sync::Arc;
 pub(crate) fn apply_block(
     block_hash: CryptoHash,
     shard_id: ShardId,
-    runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
+    runtime: &dyn RuntimeAdapter,
     chain_store: &mut ChainStore,
 ) -> (Block, ApplyTransactionResult) {
     let block = chain_store.get_block(&block_hash).unwrap();
     let height = block.header().height();
-    let shard_uid = runtime_adapter.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
+    let shard_uid = epoch_manager.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
     let apply_result = if block.chunks()[shard_id as usize].height_included() == height {
         let chunk = chain_store.get_chunk(&block.chunks()[shard_id as usize].chunk_hash()).unwrap();
         let prev_block = chain_store.get_block(block.header().prev_hash()).unwrap();
@@ -63,13 +63,13 @@ pub(crate) fn apply_block(
         let chunk_inner = chunk.cloned_header().take_inner();
         let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
             chain_store,
-            runtime_adapter,
+            epoch_manager,
             block.header().prev_hash(),
             shard_id,
         )
         .unwrap();
 
-        runtime_adapter
+        runtime
             .apply_transactions(
                 shard_id,
                 chunk_inner.prev_state_root(),
@@ -94,7 +94,7 @@ pub(crate) fn apply_block(
         let chunk_extra =
             chain_store.get_chunk_extra(block.header().prev_hash(), &shard_uid).unwrap();
 
-        runtime_adapter
+        runtime
             .apply_transactions(
                 shard_id,
                 chunk_extra.state_root(),
@@ -131,18 +131,13 @@ pub(crate) fn apply_block_at_height(
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
     );
-    let runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter> =
-        NightshadeRuntime::from_config(home_dir, store, &near_config);
+    let runtime = NightshadeRuntime::from_config(home_dir, store.clone(), &near_config);
+    let epoch_manager =
+        EpochManager::new_from_genesis_config(store, &near_config.genesis.config)?.into_handle();
     let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
     let (block, apply_result) =
-        apply_block(block_hash, shard_id, runtime_adapter.as_ref(), &mut chain_store);
-    check_apply_block_result(
-        &block,
-        &apply_result,
-        runtime_adapter.as_ref(),
-        &mut chain_store,
-        shard_id,
-    )
+        apply_block(block_hash, shard_id, &epoch_manager, runtime.as_ref(), &mut chain_store);
+    check_apply_block_result(&block, &apply_result, &epoch_manager, &mut chain_store, shard_id)
 }
 
 pub(crate) fn apply_chunk(
@@ -152,14 +147,23 @@ pub(crate) fn apply_chunk(
     chunk_hash: ChunkHash,
     target_height: Option<u64>,
 ) -> anyhow::Result<()> {
+    let epoch_manager =
+        EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)?
+            .into_handle();
     let runtime = NightshadeRuntime::from_config(home_dir, store.clone(), &near_config);
     let mut chain_store = ChainStore::new(
         store,
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
     );
-    let (apply_result, gas_limit) =
-        apply_chunk::apply_chunk(&*runtime, &mut chain_store, chunk_hash, target_height, None)?;
+    let (apply_result, gas_limit) = apply_chunk::apply_chunk(
+        &epoch_manager,
+        &*runtime,
+        &mut chain_store,
+        chunk_hash,
+        target_height,
+        None,
+    )?;
     println!("resulting chunk extra:\n{:?}", resulting_chunk_extra(&apply_result, gas_limit));
     Ok(())
 }
@@ -178,6 +182,10 @@ pub(crate) fn apply_range(
 ) {
     let mut csv_file = csv_file.map(|filename| std::fs::File::create(filename).unwrap());
 
+    let epoch_manager =
+        EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)
+            .unwrap()
+            .into_handle();
     let runtime = NightshadeRuntime::from_config(home_dir, store.clone(), &near_config);
     apply_chain_range(
         store,
@@ -185,6 +193,7 @@ pub(crate) fn apply_range(
         start_index,
         end_index,
         shard_id,
+        &epoch_manager,
         runtime,
         verbose_output,
         csv_file.as_mut(),
@@ -199,9 +208,18 @@ pub(crate) fn apply_receipt(
     store: Store,
     hash: CryptoHash,
 ) -> anyhow::Result<()> {
+    let epoch_manager =
+        EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)?
+            .into_handle();
     let runtime = NightshadeRuntime::from_config(home_dir, store.clone(), &near_config);
-    apply_chunk::apply_receipt(near_config.genesis.config.genesis_height, &*runtime, store, hash)
-        .map(|_| ())
+    apply_chunk::apply_receipt(
+        near_config.genesis.config.genesis_height,
+        &epoch_manager,
+        &*runtime,
+        store,
+        hash,
+    )
+    .map(|_| ())
 }
 
 pub(crate) fn apply_tx(
@@ -210,9 +228,18 @@ pub(crate) fn apply_tx(
     store: Store,
     hash: CryptoHash,
 ) -> anyhow::Result<()> {
+    let epoch_manager =
+        EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)?
+            .into_handle();
     let runtime = NightshadeRuntime::from_config(home_dir, store.clone(), &near_config);
-    apply_chunk::apply_tx(near_config.genesis.config.genesis_height, &*runtime, store, hash)
-        .map(|_| ())
+    apply_chunk::apply_tx(
+        near_config.genesis.config.genesis_height,
+        &epoch_manager,
+        &*runtime,
+        store,
+        hash,
+    )
+    .map(|_| ())
 }
 
 pub(crate) fn dump_account_storage(
@@ -444,7 +471,7 @@ fn chunk_extras_equal(l: &ChunkExtra, r: &ChunkExtra) -> bool {
 pub(crate) fn check_apply_block_result(
     block: &Block,
     apply_result: &ApplyTransactionResult,
-    runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
+    epoch_manager: &EpochManagerHandle,
     chain_store: &mut ChainStore,
     shard_id: ShardId,
 ) -> anyhow::Result<()> {
@@ -456,7 +483,7 @@ pub(crate) fn check_apply_block_result(
         "apply chunk for shard {} at height {}, resulting chunk extra {:?}",
         shard_id, height, &new_chunk_extra,
     );
-    let shard_uid = runtime_adapter.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
+    let shard_uid = epoch_manager.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
     if block.chunks()[shard_id as usize].height_included() == height {
         if let Ok(old_chunk_extra) = chain_store.get_chunk_extra(block_hash, &shard_uid) {
             if chunk_extras_equal(&new_chunk_extra, old_chunk_extra.as_ref()) {
@@ -736,26 +763,23 @@ pub(crate) fn check_block_chunk_existence(near_config: NearConfig, store: Store)
 pub(crate) fn print_epoch_info(
     epoch_selection: epoch_info::EpochSelection,
     validator_account_id: Option<AccountId>,
-    home_dir: &Path,
     near_config: NearConfig,
     store: Store,
 ) {
     let genesis_height = near_config.genesis.config.genesis_height;
     let mut chain_store =
         ChainStore::new(store.clone(), genesis_height, near_config.client_config.save_trie_changes);
-    let mut epoch_manager =
+    let epoch_manager =
         EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)
-            .expect("Failed to start Epoch Manager");
-    let runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter> =
-        NightshadeRuntime::from_config(home_dir, store.clone(), &near_config);
+            .expect("Failed to start Epoch Manager")
+            .into_handle();
 
     epoch_info::print_epoch_info(
         epoch_selection,
         validator_account_id,
         store,
         &mut chain_store,
-        &mut epoch_manager,
-        runtime_adapter,
+        &epoch_manager,
     );
 }
 
