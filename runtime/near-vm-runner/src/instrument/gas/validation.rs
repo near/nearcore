@@ -19,7 +19,7 @@ type NodeId = usize;
 
 /// A node in a control flow graph is commonly known as a basic block. This is a sequence of
 /// operations that are always executed sequentially.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct ControlFlowNode {
     /// The index of the first instruction in the basic block. This is only used for debugging.
     first_instr_pos: Option<usize>,
@@ -40,19 +40,6 @@ struct ControlFlowNode {
 
     /// Edges in the "backwards" direction. These edges form cycles in the graph.
     loopback_edges: Vec<NodeId>,
-}
-
-impl Default for ControlFlowNode {
-    fn default() -> Self {
-        ControlFlowNode {
-            first_instr_pos: None,
-            actual_cost: 0,
-            charged_cost: 0,
-            is_loop_target: false,
-            forward_edges: Vec::new(),
-            loopback_edges: Vec::new(),
-        }
-    }
 }
 
 /// A control flow graph where nodes are basic blocks and edges represent possible transitions
