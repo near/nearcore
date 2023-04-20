@@ -1,31 +1,26 @@
 //! Provides functions for setting up a mock network from configs and home dirs.
 
-use crate::{MockNetworkConfig, MockPeerManagerActor};
-use actix::{Actor, Addr, Arbiter};
+use crate::{MockNetworkConfig, MockPeer};
 use anyhow::Context;
-use near_async::actix::AddrWithAutoSpanContextExt;
-use near_async::messaging::{IntoSender, LateBoundSender, Sender};
 use near_chain::types::RuntimeAdapter;
 use near_chain::ChainStoreUpdate;
 use near_chain::{Chain, ChainGenesis, ChainStore, ChainStoreAccess, DoomslugThresholdMode};
-use near_chain_configs::GenesisConfig;
-use near_chunks::shards_manager_actor::start_shards_manager;
-use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
+use near_crypto::{KeyType, SecretKey};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
-use near_network::shards_manager::ShardsManagerRequestFromNetwork;
-
+use near_jsonrpc_client::JsonRpcClient;
+use near_network::tcp;
+use near_network::types::PeerInfo;
+use near_primitives::network::PeerId;
 use near_primitives::state_part::PartId;
 use near_primitives::syncing::get_num_state_parts;
-use near_primitives::types::BlockHeight;
+use near_primitives::types::{BlockHeight, ShardId};
 use near_store::test_utils::create_test_store;
-use near_telemetry::TelemetryActor;
 use nearcore::{NearConfig, NightshadeRuntime};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::cmp::min;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
 
 fn setup_runtime(
     home_dir: &Path,
@@ -44,42 +39,52 @@ fn setup_runtime(
     NightshadeRuntime::from_config(home_dir, store, config)
 }
 
-fn setup_mock_peer_manager_actor(
+fn setup_mock_peer(
     chain: Chain,
-    client: Arc<dyn near_network::client::Client>,
-    shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
-    genesis_config: &GenesisConfig,
-    block_production_delay: Duration,
-    client_start_height: BlockHeight,
+    config: &mut NearConfig,
     network_start_height: Option<BlockHeight>,
-    network_config: &MockNetworkConfig,
+    network_config: MockNetworkConfig,
     target_height: BlockHeight,
-) -> MockPeerManagerActor {
+    num_shards: ShardId,
+    mock_listen_addr: tcp::ListenerAddr,
+) -> tokio::task::JoinHandle<anyhow::Result<()>> {
     let network_start_height = match network_start_height {
         None => target_height,
         Some(0) => chain.genesis_block().header().height(),
         Some(it) => it,
     };
-    MockPeerManagerActor::new(
-        client,
-        shards_manager_adapter,
-        genesis_config,
-        chain,
-        client_start_height,
-        network_start_height,
-        target_height,
-        block_production_delay,
-        network_config,
-    )
+    let secret_key = SecretKey::from_random(KeyType::ED25519);
+    config
+        .network_config
+        .peer_store
+        .boot_nodes
+        .push(PeerInfo::new(PeerId::new(secret_key.public_key()), *mock_listen_addr));
+    let chain_id = config.genesis.config.chain_id.clone();
+    let block_production_delay = config.client_config.min_block_production_delay;
+    let archival = config.client_config.archive;
+    actix::spawn(async move {
+        let mock = MockPeer::new(
+            chain,
+            secret_key,
+            mock_listen_addr,
+            chain_id,
+            archival,
+            block_production_delay,
+            num_shards,
+            network_start_height,
+            network_config,
+        )
+        .await?;
+        mock.run(target_height).await
+    })
 }
 
 pub struct MockNode {
-    // client under test
-    pub client: Addr<ClientActor>,
-    // view client under test
-    pub view_client: Addr<ViewClientActor>,
     // target height actually available to sync to in the chain history database
     pub target_height: BlockHeight,
+    pub mock_peer: tokio::task::JoinHandle<anyhow::Result<()>>,
+    // client that allows making RPC requests to the node under test
+    pub rpc_client: JsonRpcClient,
 }
 
 /// Setup up a mock node, including setting up
@@ -99,28 +104,23 @@ pub struct MockNode {
 pub fn setup_mock_node(
     client_home_dir: &Path,
     network_home_dir: &Path,
-    config: NearConfig,
+    mut config: NearConfig,
     network_config: &MockNetworkConfig,
     client_start_height: BlockHeight,
     network_start_height: Option<BlockHeight>,
     target_height: Option<BlockHeight>,
     in_memory_storage: bool,
+    mock_listen_addr: tcp::ListenerAddr,
 ) -> MockNode {
     let parent_span = tracing::debug_span!(target: "mock_node", "setup_mock_node").entered();
-    let client_runtime = setup_runtime(client_home_dir, &config, in_memory_storage);
     let mock_network_runtime = setup_runtime(network_home_dir, &config, false);
 
-    let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
     let chain_genesis = ChainGenesis::new(&config.genesis);
-
-    let node_id = config.network_config.node_id();
-    let network_adapter = Arc::new(LateBoundSender::default());
-    let shards_manager_adapter = Arc::new(LateBoundSender::default());
-    let adv = near_client::adversarial::Controls::default();
 
     // set up client dir to be ready to process blocks from client_start_height
     if client_start_height > 0 {
         tracing::info!(target: "mock_node", "Preparing client data dir to be able to start at the specified start height {}", client_start_height);
+        let client_runtime = setup_runtime(client_home_dir, &config, in_memory_storage);
         let mut chain_store = ChainStore::new(
             client_runtime.store().clone(),
             config.genesis.config.genesis_height,
@@ -239,73 +239,35 @@ pub fn setup_mock_node(
         }
     }
 
-    let block_production_delay = config.client_config.min_block_production_delay;
-    let (client, _) = start_client(
-        config.client_config.clone(),
-        chain_genesis.clone(),
-        client_runtime.clone(),
-        node_id,
-        network_adapter.clone().into(),
-        shards_manager_adapter.as_sender(),
-        config.validator_signer.clone(),
-        telemetry,
-        None,
-        adv.clone(),
-        None,
-    );
-
-    let view_client = start_view_client(
-        None,
-        chain_genesis.clone(),
-        client_runtime.clone(),
-        network_adapter.clone().into(),
-        config.client_config.clone(),
-        adv,
-    );
-
-    let (shards_manager_actor, _) = start_shards_manager(
-        client_runtime.clone(),
-        network_adapter.as_sender(),
-        client.clone().with_auto_span_context().into_sender(),
-        config.validator_signer.map(|signer| signer.validator_id().clone()),
-        client_runtime.store().clone(),
-        config.client_config.chunk_request_retry_period,
-    );
-    shards_manager_adapter.bind(shards_manager_actor);
-
-    let arbiter = Arbiter::new();
-    let client1 = client.clone();
-    let view_client1 = view_client.clone();
-    let genesis_config = config.genesis.config.clone();
-    let network_config = network_config.clone();
-
     let chain = Chain::new_for_view_client(
-        mock_network_runtime,
+        mock_network_runtime.clone(),
         &chain_genesis,
         DoomslugThresholdMode::NoApprovals,
         config.client_config.save_trie_changes,
     )
     .unwrap();
-    let chain_height = chain.head().unwrap().height;
-    let target_height = min(target_height.unwrap_or(chain_height), chain_height);
+    let head = chain.head().unwrap();
+    let target_height = min(target_height.unwrap_or(head.height), head.height);
+    let num_shards = mock_network_runtime.num_shards(&head.epoch_id).unwrap();
 
-    let mock_network_actor =
-        MockPeerManagerActor::start_in_arbiter(&arbiter.handle(), move |_ctx| {
-            setup_mock_peer_manager_actor(
-                chain,
-                Arc::new(near_client::adapter::Adapter::new(client1, view_client1)),
-                shards_manager_adapter.as_sender(),
-                &genesis_config,
-                block_production_delay,
-                client_start_height,
-                network_start_height,
-                &network_config,
-                target_height,
-            )
-        });
-    network_adapter.bind(mock_network_actor.with_auto_span_context());
+    config.network_config.peer_store.boot_nodes.clear();
+    let mock_peer = setup_mock_peer(
+        chain,
+        &mut config,
+        network_start_height,
+        network_config.clone(),
+        target_height,
+        num_shards,
+        mock_listen_addr,
+    );
 
-    MockNode { client, view_client, target_height }
+    let rpc_client = near_jsonrpc_client::new_client(&format!(
+        "http://{}",
+        &config.rpc_config.as_ref().expect("the JSON RPC config must be set").addr
+    ));
+    let _node = nearcore::start_with_config(client_home_dir, config).unwrap();
+
+    MockNode { target_height, mock_peer, rpc_client }
 }
 
 #[cfg(test)]
@@ -319,15 +281,15 @@ mod tests {
     use near_client::{GetBlock, ProcessTxRequest};
     use near_crypto::{InMemorySigner, KeyType};
     use near_network::tcp;
-    use near_network::test_utils::WaitOrTimeoutActor;
+    use near_network::test_utils::{wait_or_timeout, WaitOrTimeoutActor};
     use near_o11y::testonly::init_integration_logger;
     use near_o11y::WithSpanContextExt;
-    use near_primitives::hash::CryptoHash;
     use near_primitives::transaction::SignedTransaction;
     use near_store::test_utils::gen_account;
     use nearcore::config::GenesisExt;
     use nearcore::{load_test_config, start_with_config, NEAR_BASE};
     use rand::thread_rng;
+    use std::ops::ControlFlow;
     use std::sync::{Arc, RwLock};
     use std::time::Duration;
 
@@ -351,8 +313,6 @@ mod tests {
 
         let dir = tempfile::Builder::new().prefix("test0").tempdir().unwrap();
         let path1 = dir.path().clone();
-        let last_block = Arc::new(RwLock::new(CryptoHash::default()));
-        let last_block1 = last_block.clone();
         run_actix(async move {
             let nearcore::NearNode { view_client, client, .. } =
                 start_with_config(path1, near_config).expect("start_with_config");
@@ -361,7 +321,6 @@ mod tests {
             let nonce = Arc::new(RwLock::new(10));
             WaitOrTimeoutActor::new(
                 Box::new(move |_ctx| {
-                    let last_block2 = last_block1.clone();
                     let nonce = nonce.clone();
                     let client1 = client.clone();
                     let actor = view_client1.send(GetBlock::latest().with_span_context());
@@ -409,7 +368,6 @@ mod tests {
                             }
 
                             if block.header.height >= 20 {
-                                *last_block2.write().unwrap() = block.header.hash;
                                 System::current().stop()
                             }
                         }
@@ -432,7 +390,7 @@ mod tests {
             (0..near_config1.genesis.config.shard_layout.num_shards()).collect();
         let network_config = MockNetworkConfig::with_delay(Duration::from_millis(10));
         run_actix(async move {
-            let MockNode { view_client, .. } = setup_mock_node(
+            let MockNode { rpc_client, .. } = setup_mock_node(
                 dir1.path().clone(),
                 dir.path().clone(),
                 near_config1,
@@ -441,26 +399,19 @@ mod tests {
                 None,
                 None,
                 false,
+                tcp::ListenerAddr::reserve_for_test(),
             );
-            WaitOrTimeoutActor::new(
-                Box::new(move |_ctx| {
-                    let last_block1 = last_block.clone();
-                    let actor = view_client.send(GetBlock::latest().with_span_context());
-                    let actor = actor.then(move |res| {
-                        if let Ok(Ok(block)) = res {
-                            if block.header.height >= 20 {
-                                assert_eq!(*last_block1.read().unwrap(), block.header.hash);
-                                System::current().stop()
-                            }
-                        }
-                        future::ready(())
-                    });
-                    actix::spawn(actor);
-                }),
-                100,
-                60000,
-            )
-            .start();
+            wait_or_timeout(100, 60000, || async {
+                if let Ok(status) = rpc_client.status().await {
+                    if status.sync_info.latest_block_height >= 20 {
+                        System::current().stop();
+                        return ControlFlow::Break(());
+                    }
+                }
+                ControlFlow::Continue(())
+            })
+            .await
+            .unwrap();
         })
     }
 }
