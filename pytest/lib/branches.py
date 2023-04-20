@@ -67,14 +67,20 @@ class Executables(typing.NamedTuple):
             'binary_name': self.neard.name
         }
 
+
 def _remote_name_for_original_repo() -> typing.Tuple[str, bool]:
     """If there's already a remote set up for original repo, use that;
 
     If not, add a remote tracking original repo and return its name.
     """
-    git_remotes = subprocess.check_output(['git','remote','-v']).decode("utf-8").split('\n')
+    git_remotes = subprocess.check_output(['git', 'remote',
+                                           '-v']).decode("utf-8").split('\n')
     original_repo_url = 'https://github.com/near/nearcore.git'
-    original_repo_names = [remote.split('\t')[0] for remote in git_remotes if original_repo_url in remote]
+    original_repo_names = [
+        remote.split('\t')[0]
+        for remote in git_remotes
+        if original_repo_url in remote
+    ]
     original_repo_already_exists = False
 
     if original_repo_names:
@@ -82,9 +88,12 @@ def _remote_name_for_original_repo() -> typing.Tuple[str, bool]:
         original_repo_already_exists = True
     else:
         original_repo_remote_name = 'tmp_original_repo'
-        subprocess.check_output(['git', 'remote', 'add', original_repo_remote_name, original_repo_url])
-    
+        subprocess.check_output([
+            'git', 'remote', 'add', original_repo_remote_name, original_repo_url
+        ])
+
     return (original_repo_remote_name, original_repo_already_exists)
+
 
 def _compile_binary(branch: str, from_original_repo: bool) -> Executables:
     """For given branch, compile binary.
@@ -96,10 +105,11 @@ def _compile_binary(branch: str, from_original_repo: bool) -> Executables:
     stash_output = subprocess.check_output(['git', 'stash'])
 
     if from_original_repo:
-        remote_name, original_repo_already_exists = _remote_name_for_original_repo()
+        remote_name, original_repo_already_exists = _remote_name_for_original_repo(
+        )
     else:
         remote_name = 'origin'
-    
+
     try:
         subprocess.check_output(['git', 'fetch', remote_name, '--tags'])
         subprocess.check_output([
@@ -119,10 +129,10 @@ def _compile_binary(branch: str, from_original_repo: bool) -> Executables:
     finally:
         if stash_output != b"No local changes to save\n":
             subprocess.check_output(['git', 'stash', 'pop'])
-    
+
     if from_original_repo and original_repo_already_exists == False:
         subprocess.check_output(['git', 'remote', 'remove', remote_name])
-    
+
     return result
 
 
