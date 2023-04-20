@@ -390,3 +390,46 @@ fn test_sandbox_only_function() {
         Err: ...
     "#]]);
 }
+
+#[test]
+fn extension_saturating_float_to_int() {
+    let tb = test_builder().wat(
+        r#"
+            (module
+                (func $test_trunc (param $x f64) (result i32) (i32.trunc_sat_f64_s (local.get $x)))
+            )
+            "#,
+    );
+
+    #[cfg(feature = "nightly")]
+    tb.expect(expect![[r#"
+        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 48450963 used gas 48450963
+        Err: PrepareError: Error happened while deserializing the module.
+    "#]]);
+    #[cfg(not(feature = "nightly"))]
+    tb.expect(expect![[r#"
+        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
+        Err: PrepareError: Error happened while deserializing the module.
+    "#]]);
+}
+
+#[test]
+fn extension_signext() {
+    let tb = test_builder().wat(
+        r#"
+            (module
+                (func $extend8_s (param $x i32) (result i32) (i32.extend8_s (local.get $x)))
+            )
+            "#,
+    );
+    #[cfg(feature = "nightly")]
+    tb.expect(expect![[r#"
+        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 48017463 used gas 48017463
+        Err: PrepareError: Error happened while deserializing the module.
+    "#]]);
+    #[cfg(not(feature = "nightly"))]
+    tb.expect(expect![[r#"
+        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
+        Err: PrepareError: Error happened while deserializing the module.
+    "#]]);
+}
