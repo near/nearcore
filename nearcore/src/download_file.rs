@@ -136,7 +136,7 @@ static XZ_HEADER_MAGIC: [u8; 6] = [0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00];
 
 impl<'a> AutoXzDecoder<'a> {
     fn new(path: &'a std::path::Path, file: tokio::fs::File) -> Self {
-        Self { path, file: file, state: AutoXzState::Probing(0) }
+        Self { path, file, state: AutoXzState::Probing(0) }
     }
 
     /// Writes data from the chunk to the output file automatically
@@ -148,7 +148,7 @@ impl<'a> AutoXzDecoder<'a> {
             if len != 0 {
                 self.write_all_impl(&XZ_HEADER_MAGIC[..len]).await?;
             }
-            self.write_all_impl(&chunk).await?;
+            self.write_all_impl(chunk).await?;
         }
         Ok(())
     }
@@ -266,7 +266,6 @@ mod tests {
     use std::convert::Infallible;
     use std::sync::Arc;
 
-    #[track_caller]
     async fn check_file_download(payload: &[u8], expected: Result<&[u8], &str>) {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();

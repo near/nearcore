@@ -1,21 +1,21 @@
 use std::fs::File;
-use std::io::{BufReader, BufWriter, Read, Write};
-use std::marker::PhantomData;
 use std::path::Path;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::{fmt, io};
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use metadata::{DbKind, DbVersion, KIND_KEY, VERSION_KEY};
 use once_cell::sync::Lazy;
+use strum;
 
 pub use columns::DBCol;
 pub use db::{
-    CHUNK_TAIL_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
+    CHUNK_TAIL_KEY, COLD_HEAD_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
     LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, TAIL_KEY,
 };
 use near_crypto::PublicKey;
-use near_o11y::pretty;
+use near_fmt::{AbbrBytes, StorageKey};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::contract::ContractCode;
 pub use near_primitives::errors::StorageError;
@@ -33,27 +33,29 @@ pub use crate::trie::iterator::{TrieIterator, TrieTraversalItem};
 pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
 pub use crate::trie::{
     estimator, split_state, ApplyStatePartResult, KeyForStateChanges, KeyLookupMode, NibbleSlice,
-    PartialStorage, PrefetchApi, RawTrieNode, RawTrieNodeWithSize, ShardTries, Trie, TrieAccess,
-    TrieCache, TrieCachingStorage, TrieChanges, TrieConfig, TrieDBStorage, TrieStorage,
+    PartialStorage, PrefetchApi, PrefetchError, RawTrieNode, RawTrieNodeWithSize, ShardTries, Trie,
+    TrieAccess, TrieCache, TrieCachingStorage, TrieChanges, TrieConfig, TrieDBStorage, TrieStorage,
     WrappedTrieChanges,
 };
-pub use flat_state::FlatStateDelta;
 
-#[cfg(feature = "cold_store")]
 pub mod cold_storage;
 mod columns;
 pub mod config;
 pub mod db;
-pub mod flat_state;
+pub mod flat;
 pub mod metadata;
-mod metrics;
+pub mod metrics;
 pub mod migrations;
 mod opener;
+mod rocksdb_metrics;
+mod sync_utils;
 pub mod test_utils;
 mod trie;
 
 pub use crate::config::{Mode, StoreConfig};
-pub use crate::opener::{StoreMigrator, StoreOpener, StoreOpenerError};
+pub use crate::opener::{
+    checkpoint_hot_storage_and_cleanup_columns, StoreMigrator, StoreOpener, StoreOpenerError,
+};
 
 /// Specifies temperature of a storage.
 ///
@@ -61,77 +63,78 @@ pub use crate::opener::{StoreMigrator, StoreOpener, StoreOpenerError};
 /// In the future, certain parts of the code may need to access hot or cold
 /// storage.  Specifically, querying an old block will require reading it from
 /// the cold storage.
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, strum::IntoStaticStr)]
 pub enum Temperature {
     Hot,
-    #[cfg(feature = "cold_store")]
     Cold,
 }
 
+impl FromStr for Temperature {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, String> {
+        let s = s.to_lowercase();
+        match s.as_str() {
+            "hot" => Ok(Temperature::Hot),
+            "cold" => Ok(Temperature::Cold),
+            _ => Err(String::from(format!("invalid temperature string {s}"))),
+        }
+    }
+}
+
+#[cfg(feature = "protocol_feature_flat_state")]
+const STATE_COLUMNS: [DBCol; 2] = [DBCol::State, DBCol::FlatState];
+#[cfg(not(feature = "protocol_feature_flat_state"))]
+const STATE_COLUMNS: [DBCol; 1] = [DBCol::State];
+const STATE_FILE_END_MARK: u8 = 255;
+
 /// Node’s storage holding chain and all other necessary data.
 ///
-/// The eventual goal is to implement cold storage at which point this structure
-/// will provide interface to access hot and cold storage.  This is in contrast
-/// to [`Store`] which will abstract access to only one of the temperatures of
-/// the storage.
-pub struct NodeStorage<D = crate::db::RocksDB> {
+/// Provides access to hot storage, cold storage and split storage. Typically
+/// users will want to use one of the above via the Store abstraction.
+pub struct NodeStorage {
     hot_storage: Arc<dyn Database>,
-    #[cfg(feature = "cold_store")]
-    cold_storage: Option<Arc<crate::db::ColdDB<D>>>,
-    #[cfg(not(feature = "cold_store"))]
-    cold_storage: Option<std::convert::Infallible>,
-    _phantom: PhantomData<D>,
+    cold_storage: Option<Arc<crate::db::ColdDB>>,
 }
 
 /// Node’s single storage source.
 ///
-/// Currently, this is somewhat equivalent to [`NodeStorage`] in that for given
-/// note storage you can get only a single [`Store`] object.  This will change
-/// as we implement cold storage in which case this structure will provide an
-/// interface to access either hot or cold data.  At that point, [`NodeStorage`]
-/// will map to one of two [`Store`] objects depending on the temperature of the
-/// data.
+/// The Store holds one of the possible databases:
+/// - The hot database - access to the hot database only
+/// - The cold database - access to the cold database only
+/// - The split database - access to both hot and cold databases
 #[derive(Clone)]
 pub struct Store {
     storage: Arc<dyn Database>,
 }
-
-// Those are temporary.  While cold_store feature is stabilised, remove those
-// type aliases and just use the type directly.
-#[cfg(feature = "cold_store")]
-pub type ColdConfig<'a> = Option<&'a StoreConfig>;
-#[cfg(not(feature = "cold_store"))]
-pub type ColdConfig<'a> = Option<std::convert::Infallible>;
 
 impl NodeStorage {
     /// Initialises a new opener with given home directory and hot and cold
     /// store config.
     pub fn opener<'a>(
         home_dir: &std::path::Path,
+        archive: bool,
         config: &'a StoreConfig,
-        #[allow(unused_variables)] cold_config: ColdConfig<'a>,
+        cold_config: Option<&'a StoreConfig>,
     ) -> StoreOpener<'a> {
-        StoreOpener::new(
-            home_dir,
-            config,
-            #[cfg(feature = "cold_store")]
-            cold_config,
-        )
+        StoreOpener::new(home_dir, archive, config, cold_config)
     }
 
     /// Constructs new object backed by given database.
     fn from_rocksdb(
         hot_storage: crate::db::RocksDB,
-        #[cfg(feature = "cold_store")] cold_storage: Option<crate::db::RocksDB>,
-        #[cfg(not(feature = "cold_store"))] cold_storage: Option<std::convert::Infallible>,
+        cold_storage: Option<crate::db::RocksDB>,
     ) -> Self {
         let hot_storage = Arc::new(hot_storage);
-        #[cfg(feature = "cold_store")]
-        let cold_storage = cold_storage
-            .map(|cold_db| Arc::new(crate::db::ColdDB::new(hot_storage.clone(), cold_db)));
-        #[cfg(not(feature = "cold_store"))]
-        let cold_storage = cold_storage.map(|_| unreachable!());
-        Self { hot_storage, cold_storage, _phantom: PhantomData {} }
+        let cold_storage = cold_storage.map(|storage| Arc::new(storage));
+
+        let cold_db = if let Some(cold_storage) = cold_storage {
+            Some(Arc::new(crate::db::ColdDB::new(cold_storage)))
+        } else {
+            None
+        };
+
+        Self { hot_storage: hot_storage, cold_storage: cold_db }
     }
 
     /// Initialises an opener for a new temporary test store.
@@ -145,12 +148,7 @@ impl NodeStorage {
     pub fn test_opener() -> (tempfile::TempDir, StoreOpener<'static>) {
         static CONFIG: Lazy<StoreConfig> = Lazy::new(StoreConfig::test_config);
         let dir = tempfile::tempdir().unwrap();
-        let opener = StoreOpener::new(
-            dir.path(),
-            &CONFIG,
-            #[cfg(feature = "cold_store")]
-            None,
-        );
+        let opener = StoreOpener::new(dir.path(), false, &CONFIG, None);
         (dir, opener)
     }
 
@@ -164,36 +162,62 @@ impl NodeStorage {
     /// possibly [`crate::test_utils::create_test_store`] (depending whether you
     /// need [`NodeStorage`] or [`Store`] object.
     pub fn new(storage: Arc<dyn Database>) -> Self {
-        Self { hot_storage: storage, cold_storage: None, _phantom: PhantomData {} }
+        Self { hot_storage: storage, cold_storage: None }
     }
 }
 
-impl<D: Database + 'static> NodeStorage<D> {
-    /// Returns storage for given temperature.
+impl NodeStorage {
+    /// Returns the hot store. The hot store is always available and it provides
+    /// direct access to the hot database.
     ///
-    /// Some data live only in hot and some only in cold storage (which is at
-    /// the moment not implemented but is planned soon).  Hot data is anything
-    /// at the head of the chain.  Cold data, if node is configured with split
-    /// storage, is anything archival.
+    /// For RPC nodes this is the only store available and it should be used for
+    /// all the use cases.
     ///
-    /// Based on block in whose context database access are going to be made,
-    /// you will either need to access hot or cold storage.  Temperature of the
-    /// data is, simplifying slightly, determined based on height of the block.
-    /// Anything above the tail of hot storage is hot and everything else is
-    /// cold.
-    pub fn get_store(&self, temp: Temperature) -> Store {
-        match temp {
-            Temperature::Hot => Store { storage: self.hot_storage.clone() },
-            #[cfg(feature = "cold_store")]
-            Temperature::Cold => Store { storage: self.cold_storage.as_ref().unwrap().clone() },
+    /// For archival nodes that do not have split storage configured this is the
+    /// only store available and it should be used for all the use cases.
+    ///
+    /// For archival nodes that do have split storage configured there are three
+    /// stores available: hot, cold and split. The client should use the hot
+    /// store, the view client should use the split store and the cold store
+    /// loop should use cold store.
+    pub fn get_hot_store(&self) -> Store {
+        Store { storage: self.hot_storage.clone() }
+    }
+
+    /// Returns the cold store. The cold store is only available in archival
+    /// nodes with split storage configured.
+    ///
+    /// For archival nodes that do have split storage configured there are three
+    /// stores available: hot, cold and split. The client should use the hot
+    /// store, the view client should use the split store and the cold store
+    /// loop should use cold store.
+    pub fn get_cold_store(&self) -> Option<Store> {
+        match &self.cold_storage {
+            Some(cold_storage) => Some(Store { storage: cold_storage.clone() }),
+            None => None,
+        }
+    }
+
+    /// Returns the split store. The split store is only available in archival
+    /// nodes with split storage configured.
+    ///
+    /// For archival nodes that do have split storage configured there are three
+    /// stores available: hot, cold and split. The client should use the hot
+    /// store, the view client should use the split store and the cold store
+    /// loop should use cold store.
+    pub fn get_split_store(&self) -> Option<Store> {
+        match &self.cold_storage {
+            Some(cold_storage) => Some(Store {
+                storage: crate::db::SplitDB::new(self.hot_storage.clone(), cold_storage.clone()),
+            }),
+            None => None,
         }
     }
 
     /// Returns underlying database for given temperature.
     ///
-    /// With (currently unimplemented) cold storage, this allows accessing
-    /// underlying hot and cold databases directly bypassing any abstractions
-    /// offered by [`NodeStorage`] or [`Store`] interfaces.
+    /// This allows accessing underlying hot and cold databases directly
+    /// bypassing any abstractions offered by [`NodeStorage`] or [`Store`] interfaces.
     ///
     /// This is useful for certain data which only lives in hot storage and
     /// interfaces which deal with it.  For example, peer store uses hot
@@ -204,28 +228,17 @@ impl<D: Database + 'static> NodeStorage<D> {
     /// well.  For example, garbage collection only ever touches hot storage but
     /// it should go through [`Store`] interface since data it manipulates
     /// (e.g. blocks) are live in both databases.
-    pub fn _get_inner(&self, temp: Temperature) -> &Arc<dyn Database> {
-        match temp {
-            Temperature::Hot => &self.hot_storage,
-            #[cfg(feature = "cold_store")]
-            Temperature::Cold => todo!(),
-        }
-    }
-
-    /// Returns underlying database for given temperature.
     ///
-    /// This is like [`Self::get_inner`] but consumes `self` thus avoiding
-    /// `Arc::clone`.
+    /// This method panics if trying to access cold store but it wasn't configured.
     pub fn into_inner(self, temp: Temperature) -> Arc<dyn Database> {
         match temp {
             Temperature::Hot => self.hot_storage,
-            #[cfg(feature = "cold_store")]
             Temperature::Cold => self.cold_storage.unwrap(),
         }
     }
 }
 
-impl<D> NodeStorage<D> {
+impl NodeStorage {
     /// Returns whether the storage has a cold database.
     pub fn has_cold(&self) -> bool {
         self.cold_storage.is_some()
@@ -239,25 +252,16 @@ impl<D> NodeStorage<D> {
         Ok(match metadata::DbMetadata::read(self.hot_storage.as_ref())?.kind.unwrap() {
             metadata::DbKind::RPC => false,
             metadata::DbKind::Archive => true,
-            #[cfg(feature = "cold_store")]
-            metadata::DbKind::Hot | metadata::DbKind::Cold => unreachable!(),
+            metadata::DbKind::Hot | metadata::DbKind::Cold => todo!(),
         })
     }
 
-    #[cfg(feature = "cold_store")]
-    pub fn new_with_cold(hot: Arc<dyn Database>, cold: D) -> Self {
-        Self {
-            hot_storage: hot.clone(),
-            cold_storage: Some(Arc::new(crate::db::ColdDB::<D>::new(hot, cold))),
-            _phantom: PhantomData::<D> {},
-        }
+    pub fn new_with_cold(hot: Arc<dyn Database>, cold: Arc<dyn Database>) -> Self {
+        Self { hot_storage: hot, cold_storage: Some(Arc::new(crate::db::ColdDB::new(cold))) }
     }
 
-    #[cfg(feature = "cold_store")]
-    pub fn cold_db(&self) -> io::Result<&Arc<crate::db::ColdDB<D>>> {
-        self.cold_storage
-            .as_ref()
-            .map_or(Err(io::Error::new(io::ErrorKind::NotFound, "ColdDB Not Found")), |c| Ok(c))
+    pub fn cold_db(&self) -> Option<&Arc<crate::db::ColdDB>> {
+        self.cold_storage.as_ref()
     }
 }
 
@@ -278,7 +282,7 @@ impl Store {
             target: "store",
             db_op = "get",
             col = %column,
-            key = %pretty::StorageKey(key),
+            key = %StorageKey(key),
             size = value.as_deref().map(<[u8]>::len)
         );
         Ok(value)
@@ -296,8 +300,8 @@ impl Store {
         StoreUpdate::new(Arc::clone(&self.storage))
     }
 
-    pub fn iter<'a>(&'a self, column: DBCol) -> DBIterator<'a> {
-        self.storage.iter(column)
+    pub fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
+        self.storage.iter(col)
     }
 
     /// Fetches raw key/value pairs from the database.
@@ -306,55 +310,68 @@ impl Store {
     /// This method is a deliberate escape hatch, and shouldn't be used outside
     /// of auxilary code like migrations which wants to hack on the database
     /// directly.
-    pub fn iter_raw_bytes<'a>(&'a self, column: DBCol) -> DBIterator<'a> {
-        self.storage.iter_raw_bytes(column)
+    pub fn iter_raw_bytes<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
+        self.storage.iter_raw_bytes(col)
     }
 
-    pub fn iter_prefix<'a>(&'a self, column: DBCol, key_prefix: &'a [u8]) -> DBIterator<'a> {
-        self.storage.iter_prefix(column, key_prefix)
+    pub fn iter_prefix<'a>(&'a self, col: DBCol, key_prefix: &'a [u8]) -> DBIterator<'a> {
+        self.storage.iter_prefix(col, key_prefix)
+    }
+
+    /// Iterates over a range of keys. Upper bound key is not included.
+    pub fn iter_range<'a>(
+        &'a self,
+        col: DBCol,
+        lower_bound: Option<&'a [u8]>,
+        upper_bound: Option<&'a [u8]>,
+    ) -> DBIterator<'a> {
+        self.storage.iter_range(col, lower_bound, upper_bound)
     }
 
     pub fn iter_prefix_ser<'a, T: BorshDeserialize>(
         &'a self,
-        column: DBCol,
+        col: DBCol,
         key_prefix: &'a [u8],
     ) -> impl Iterator<Item = io::Result<(Box<[u8]>, T)>> + 'a {
         self.storage
-            .iter_prefix(column, key_prefix)
+            .iter_prefix(col, key_prefix)
             .map(|item| item.and_then(|(key, value)| Ok((key, T::try_from_slice(value.as_ref())?))))
     }
 
-    pub fn save_to_file(&self, column: DBCol, filename: &Path) -> io::Result<()> {
+    /// Saves state (`State` and `FlatState` columns) to given file.
+    ///
+    /// The format of the file is a list of `(column_index as u8, key_length as
+    /// u32, key, value_length as u32, value)` records terminated by a single
+    /// 255 byte.  `column_index` refers to state columns listed in
+    /// `STATE_COLUMNS` array.
+    pub fn save_state_to_file(&self, filename: &Path) -> io::Result<()> {
         let file = File::create(filename)?;
-        let mut file = BufWriter::new(file);
-        for item in self.storage.iter_raw_bytes(column) {
-            let (key, value) = item?;
-            file.write_u32::<LittleEndian>(key.len() as u32)?;
-            file.write_all(&key)?;
-            file.write_u32::<LittleEndian>(value.len() as u32)?;
-            file.write_all(&value)?;
+        let mut file = std::io::BufWriter::new(file);
+        for (column_index, &column) in STATE_COLUMNS.iter().enumerate() {
+            assert!(column_index < STATE_FILE_END_MARK.into());
+            let column_index: u8 = column_index.try_into().unwrap();
+            for item in self.storage.iter_raw_bytes(column) {
+                let (key, value) = item?;
+                (column_index, key, value).serialize(&mut file)?;
+            }
         }
-        Ok(())
+        STATE_FILE_END_MARK.serialize(&mut file)
     }
 
-    pub fn load_from_file(&self, column: DBCol, filename: &Path) -> io::Result<()> {
+    /// Loads state (`State` and `FlatState` columns) from given file.
+    ///
+    /// See [`Self::save_state_to_file`] for description of the file format.
+    pub fn load_state_from_file(&self, filename: &Path) -> io::Result<()> {
         let file = File::open(filename)?;
-        let mut file = BufReader::new(file);
+        let mut file = std::io::BufReader::new(file);
         let mut transaction = DBTransaction::new();
         loop {
-            let key_len = match file.read_u32::<LittleEndian>() {
-                Ok(key_len) => key_len as usize,
-                Err(err) if err.kind() == io::ErrorKind::UnexpectedEof => break,
-                Err(err) => return Err(err),
-            };
-            let mut key = vec![0; key_len];
-            file.read_exact(&mut key)?;
-
-            let value_len = file.read_u32::<LittleEndian>()? as usize;
-            let mut value = vec![0; value_len];
-            file.read_exact(&mut value)?;
-
-            transaction.set(column, key, value);
+            let column = u8::deserialize_reader(&mut file)?;
+            if column == STATE_FILE_END_MARK {
+                break;
+            }
+            let (key, value) = BorshDeserialize::deserialize_reader(&mut file)?;
+            transaction.set(STATE_COLUMNS[usize::from(column)], key, value);
         }
         self.storage.write(transaction)
     }
@@ -371,6 +388,28 @@ impl Store {
 
     pub fn get_store_statistics(&self) -> Option<StoreStatistics> {
         self.storage.get_store_statistics()
+    }
+}
+
+impl Store {
+    pub fn get_db_version(&self) -> io::Result<Option<DbVersion>> {
+        metadata::DbMetadata::maybe_read_version(self.storage.as_ref())
+    }
+
+    pub fn set_db_version(&self, version: DbVersion) -> io::Result<()> {
+        let mut store_update = self.store_update();
+        store_update.set(DBCol::DbVersion, VERSION_KEY, version.to_string().as_bytes());
+        store_update.commit()
+    }
+
+    pub fn get_db_kind(&self) -> io::Result<Option<DbKind>> {
+        metadata::DbMetadata::maybe_read_kind(self.storage.as_ref())
+    }
+
+    pub fn set_db_kind(&self, kind: DbKind) -> io::Result<()> {
+        let mut store_update = self.store_update();
+        store_update.set(DBCol::DbVersion, KIND_KEY, <&str>::from(kind).as_bytes());
+        store_update.commit()
     }
 }
 
@@ -521,6 +560,12 @@ impl StoreUpdate {
         self.transaction.delete_all(column);
     }
 
+    /// Deletes the given key range from the database including `from`
+    /// and excluding `to` keys.
+    pub fn delete_range(&mut self, column: DBCol, from: &[u8], to: &[u8]) {
+        self.transaction.delete_range(column, from.to_vec(), to.to_vec());
+    }
+
     /// Sets reference to the trie to clear cache on the commit.
     ///
     /// Panics if shard_tries are already set to a different object.
@@ -580,7 +625,9 @@ impl StoreUpdate {
                         DBOp::Set { col, key, .. }
                         | DBOp::Insert { col, key, .. }
                         | DBOp::Delete { col, key } => Some((*col as u8, key)),
-                        DBOp::UpdateRefcount { .. } | DBOp::DeleteAll { .. } => None,
+                        DBOp::UpdateRefcount { .. }
+                        | DBOp::DeleteAll { .. }
+                        | DBOp::DeleteRange { .. } => None,
                     })
                     .collect::<Vec<_>>();
                 non_refcount_keys.len()
@@ -593,19 +640,22 @@ impl StoreUpdate {
         for op in &self.transaction.ops {
             match op {
                 DBOp::Insert { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "insert", col = %col, key = %pretty::StorageKey(key), size = value.len())
+                    tracing::trace!(target: "store", db_op = "insert", col = %col, key = %StorageKey(key), size = value.len(), value = %AbbrBytes(value),)
                 }
                 DBOp::Set { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "set", col = %col, key = %pretty::StorageKey(key), size = value.len())
+                    tracing::trace!(target: "store", db_op = "set", col = %col, key = %StorageKey(key), size = value.len(), value = %AbbrBytes(value))
                 }
                 DBOp::UpdateRefcount { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "update_rc", col = %col, key = %pretty::StorageKey(key), size = value.len())
+                    tracing::trace!(target: "store", db_op = "update_rc", col = %col, key = %StorageKey(key), size = value.len(), value = %AbbrBytes(value))
                 }
                 DBOp::Delete { col, key } => {
-                    tracing::trace!(target: "store", db_op = "delete", col = %col, key = %pretty::StorageKey(key))
+                    tracing::trace!(target: "store", db_op = "delete", col = %col, key = %StorageKey(key))
                 }
                 DBOp::DeleteAll { col } => {
                     tracing::trace!(target: "store", db_op = "delete_all", col = %col)
+                }
+                DBOp::DeleteRange { col, from, to } => {
+                    tracing::trace!(target: "store", db_op = "delete_range", col = %col, from = %StorageKey(from), to = %StorageKey(to))
                 }
             }
         }
@@ -632,15 +682,16 @@ impl fmt::Debug for StoreUpdate {
         writeln!(f, "Store Update {{")?;
         for op in self.transaction.ops.iter() {
             match op {
-                DBOp::Insert { col, key, .. } => {
-                    writeln!(f, "  + {col} {}", pretty::StorageKey(key))?
-                }
-                DBOp::Set { col, key, .. } => writeln!(f, "  = {col} {}", pretty::StorageKey(key))?,
+                DBOp::Insert { col, key, .. } => writeln!(f, "  + {col} {}", StorageKey(key))?,
+                DBOp::Set { col, key, .. } => writeln!(f, "  = {col} {}", StorageKey(key))?,
                 DBOp::UpdateRefcount { col, key, .. } => {
-                    writeln!(f, "  ± {col} {}", pretty::StorageKey(key))?
+                    writeln!(f, "  ± {col} {}", StorageKey(key))?
                 }
-                DBOp::Delete { col, key } => writeln!(f, "  - {col} {}", pretty::StorageKey(key))?,
+                DBOp::Delete { col, key } => writeln!(f, "  - {col} {}", StorageKey(key))?,
                 DBOp::DeleteAll { col } => writeln!(f, "  - {col} (all)")?,
+                DBOp::DeleteRange { col, from, to } => {
+                    writeln!(f, "  - {col} [{}, {})", StorageKey(from), StorageKey(to))?
+                }
             }
         }
         writeln!(f, "}}")
@@ -887,7 +938,7 @@ impl CompiledContractCache for StoreCompiledContractCache {
 mod tests {
     use near_primitives::hash::CryptoHash;
 
-    use super::{DBCol, NodeStorage, Store, Temperature};
+    use super::{DBCol, NodeStorage, Store};
 
     #[test]
     fn test_no_cache_disabled() {
@@ -916,7 +967,7 @@ mod tests {
     #[test]
     fn clear_column_rocksdb() {
         let (_tmp_dir, opener) = NodeStorage::test_opener();
-        test_clear_column(opener.open().unwrap().get_store(Temperature::Hot));
+        test_clear_column(opener.open().unwrap().get_hot_store());
     }
 
     #[test]
@@ -939,7 +990,7 @@ mod tests {
         use rand::Rng;
 
         // An arbitrary non-rc non-insert-only column we can write data into.
-        const COLUMN: DBCol = DBCol::Peers;
+        const COLUMN: DBCol = DBCol::RecentOutboundConnections;
         assert!(!COLUMN.is_rc());
         assert!(!COLUMN.is_insert_only());
 
@@ -988,7 +1039,7 @@ mod tests {
     #[test]
     fn rocksdb_iter_order() {
         let (_tempdir, opener) = NodeStorage::test_opener();
-        test_iter_order_impl(opener.open().unwrap().get_store(Temperature::Hot));
+        test_iter_order_impl(opener.open().unwrap().get_hot_store());
     }
 
     #[test]
@@ -1013,5 +1064,67 @@ mod tests {
         assert_eq!((), cache.put(&key, record.clone()).unwrap());
         assert_eq!(Some(record), cache.get(&key).unwrap());
         assert_eq!(true, cache.has(&key).unwrap());
+    }
+
+    /// Check saving and reading columns to/from a file.
+    #[test]
+    fn test_save_to_file() {
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+
+        {
+            let store = crate::test_utils::create_test_store();
+            let mut store_update = store.store_update();
+            store_update.increment_refcount(DBCol::State, &[1], &[1]);
+            store_update.increment_refcount(DBCol::State, &[2], &[2]);
+            store_update.increment_refcount(DBCol::State, &[2], &[2]);
+            store_update.commit().unwrap();
+            store.save_state_to_file(tmp.path()).unwrap();
+        }
+
+        // Verify expected encoding.
+        {
+            let mut buffer = Vec::new();
+            std::io::Read::read_to_end(tmp.as_file_mut(), &mut buffer).unwrap();
+            #[rustfmt::skip]
+            assert_eq!(&[
+                /* column: */ 0, /* key len: */ 1, 0, 0, 0, /* key: */ 1,
+                                 /* val len: */ 9, 0, 0, 0, /* val: */ 1, 1, 0, 0, 0, 0, 0, 0, 0,
+                /* column: */ 0, /* key len: */ 1, 0, 0, 0, /* key: */ 2,
+                                 /* val len: */ 9, 0, 0, 0, /* val: */ 2, 2, 0, 0, 0, 0, 0, 0, 0,
+                /* end mark: */ 255,
+            ][..], buffer.as_slice());
+        }
+
+        {
+            // Fresh storage, should have no data.
+            let store = crate::test_utils::create_test_store();
+            assert_eq!(None, store.get(DBCol::State, &[1]).unwrap());
+            assert_eq!(None, store.get(DBCol::State, &[2]).unwrap());
+
+            // Read data from file.
+            store.load_state_from_file(tmp.path()).unwrap();
+            assert_eq!(Some(&[1u8][..]), store.get(DBCol::State, &[1]).unwrap().as_deref());
+            assert_eq!(Some(&[2u8][..]), store.get(DBCol::State, &[2]).unwrap().as_deref());
+
+            // Key &[2] should have refcount of two so once decreased it should
+            // still exist.
+            let mut store_update = store.store_update();
+            store_update.decrement_refcount(DBCol::State, &[1]);
+            store_update.decrement_refcount(DBCol::State, &[2]);
+            store_update.commit().unwrap();
+            assert_eq!(None, store.get(DBCol::State, &[1]).unwrap());
+            assert_eq!(Some(&[2u8][..]), store.get(DBCol::State, &[2]).unwrap().as_deref());
+        }
+
+        // Verify detection of corrupt file.
+        let file = std::fs::File::options().write(true).open(tmp.path()).unwrap();
+        let len = file.metadata().unwrap().len();
+        file.set_len(len.saturating_sub(1)).unwrap();
+        core::mem::drop(file);
+        let store = crate::test_utils::create_test_store();
+        assert_eq!(
+            std::io::ErrorKind::InvalidInput,
+            store.load_state_from_file(tmp.path()).unwrap_err().kind()
+        );
     }
 }

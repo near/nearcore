@@ -2,7 +2,7 @@
 /// All transactions should be implemented within this module,
 /// in particular schema::StoreUpdate is not exported.
 use crate::network_protocol::Edge;
-use crate::types::KnownPeerState;
+use crate::types::ConnectionInfo;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
 use std::collections::HashSet;
@@ -118,44 +118,35 @@ impl Store {
     }
 }
 
-// PeerStore storage.
+// ConnectionStore storage.
 impl Store {
-    /// Inserts (peer_id,peer_state) to Peers column.
-    pub fn set_peer_state(
+    pub fn set_recent_outbound_connections(
         &mut self,
-        peer_id: &PeerId,
-        peer_state: &KnownPeerState,
+        recent_outbound_connections: &Vec<ConnectionInfo>,
     ) -> Result<(), Error> {
         let mut update = self.0.new_update();
-        update.set::<schema::Peers>(peer_id, peer_state);
+        update.set::<schema::RecentOutboundConnections>(&(), &recent_outbound_connections);
         self.0.commit(update).map_err(Error)
     }
 
-    /// Deletes rows with keys in <peers> from Peers column.
-    pub fn delete_peer_states(&mut self, peers: &[PeerId]) -> Result<(), Error> {
-        let mut update = self.0.new_update();
-        for p in peers {
-            update.delete::<schema::Peers>(p);
-        }
-        self.0.commit(update).map_err(Error)
-    }
-
-    /// Reads the whole Peers column.
-    pub fn list_peer_states(&self) -> Result<Vec<(PeerId, KnownPeerState)>, Error> {
-        self.0.iter::<schema::Peers>().collect::<Result<_, _>>().map_err(Error)
-    }
-}
-
-// TODO(mina86): Get rid of it.
-#[cfg(test)]
-impl From<near_store::NodeStorage> for Store {
-    fn from(store: near_store::NodeStorage) -> Self {
-        Self::from(store.into_inner(near_store::Temperature::Hot))
+    pub fn get_recent_outbound_connections(&self) -> Vec<ConnectionInfo> {
+        self.0
+            .get::<schema::RecentOutboundConnections>(&())
+            .unwrap_or(Some(vec![]))
+            .unwrap_or(vec![])
     }
 }
 
 impl From<Arc<dyn near_store::db::Database>> for Store {
     fn from(store: Arc<dyn near_store::db::Database>) -> Self {
         Self(schema::Store::from(store))
+    }
+}
+
+#[cfg(test)]
+impl From<Arc<near_store::db::TestDB>> for Store {
+    fn from(store: Arc<near_store::db::TestDB>) -> Self {
+        let database: Arc<dyn near_store::db::Database> = store;
+        Self(schema::Store::from(database))
     }
 }

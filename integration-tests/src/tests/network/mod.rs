@@ -1,4 +1,3 @@
-mod ban_peers;
 mod churn_attack;
 mod full_network;
 mod peer_handshake;

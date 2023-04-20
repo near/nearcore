@@ -1,29 +1,32 @@
 use crate::accounts_data;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
+use crate::config::PEERS_RESPONSE_MAX_PEERS;
 use crate::network_protocol::{
     Edge, EdgeState, Encoding, OwnedAccount, ParsePeerMessageError, PartialEdgeInfo,
-    PeerChainInfoV2, PeerIdOrHash, PeerInfo, RawRoutedMessage, RoutedMessageBody, RoutedMessageV2,
-    RoutingTableUpdate, SyncAccountsData,
+    PeerChainInfoV2, PeerIdOrHash, PeerInfo, PeersRequest, PeersResponse, RawRoutedMessage,
+    RoutedMessageBody, RoutedMessageV2, RoutingTableUpdate, StateResponseInfo, SyncAccountsData,
 };
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::{NetworkState, PRUNE_EDGES_AFTER};
 use crate::peer_manager::peer_manager_actor::Event;
+use crate::peer_manager::peer_manager_actor::MAX_TIER2_PEERS;
 use crate::private_actix::{RegisterPeerError, SendMessage};
 use crate::routing::edge::verify_nonce;
+use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::stats::metrics;
 use crate::tcp;
-use crate::time;
 use crate::types::{
-    BlockInfo, Handshake, HandshakeFailureReason, PeerMessage, PeerType, ReasonForBan,
+    BlockInfo, Disconnect, Handshake, HandshakeFailureReason, PeerMessage, PeerType, ReasonForBan,
 };
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, ActorContext as _, ActorFutureExt as _, AsyncContext as _};
 use lru::LruCache;
+use near_async::time;
 use near_crypto::Signature;
-use near_o11y::{handler_debug_span, log_assert, pretty, OpenTelemetrySpanExt, WithSpanContext};
+use near_o11y::{handler_debug_span, log_assert, OpenTelemetrySpanExt, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -33,6 +36,9 @@ use near_primitives::version::{
     ProtocolVersion, PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION,
 };
 use parking_lot::Mutex;
+use rand::seq::IteratorRandom;
+use rand::thread_rng;
+use std::cmp::min;
 use std::fmt::Debug;
 use std::io;
 use std::net::SocketAddr;
@@ -40,9 +46,6 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tracing::Instrument as _;
 
-/// Maximum number of messages per minute from single peer.
-// TODO(#5453): current limit is way to high due to us sending lots of messages during sync.
-const MAX_PEER_MSG_PER_MIN: usize = usize::MAX;
 /// How often to request peers from active peers.
 const REQUEST_PEERS_INTERVAL: time::Duration = time::Duration::seconds(60);
 
@@ -56,7 +59,7 @@ const MAX_TRANSACTIONS_PER_BLOCK_MESSAGE: usize = 1000;
 /// Limit cache size of 1000 messages
 const ROUTED_MESSAGE_CACHE_SIZE: usize = 1000;
 /// Duplicated messages will be dropped if routed through the same peer multiple times.
-const DROP_DUPLICATED_MESSAGES_PERIOD: time::Duration = time::Duration::milliseconds(50);
+pub(crate) const DROP_DUPLICATED_MESSAGES_PERIOD: time::Duration = time::Duration::milliseconds(50);
 /// How often to send the latest block to peers.
 const SYNC_LATEST_BLOCK_INTERVAL: time::Duration = time::Duration::seconds(60);
 /// How often to perform a full sync of AccountsData with the peer.
@@ -100,7 +103,7 @@ pub(crate) enum ClosingReason {
     #[error("Received a message of type not allowed on this connection.")]
     DisallowedMessage,
     #[error("PeerManager requested to close the connection")]
-    PeerManager,
+    PeerManagerRequest,
     #[error("Received DisconnectMessage from peer")]
     DisconnectMessage,
     #[error("Peer clock skew exceeded {MAX_CLOCK_SKEW}")]
@@ -109,6 +112,28 @@ pub(crate) enum ClosingReason {
     OwnedAccountMismatch,
     #[error("PeerActor stopped NOT via PeerActor::stop()")]
     Unknown,
+}
+
+impl ClosingReason {
+    /// Used upon closing an outbound connection to decide whether to remove it from the ConnectionStore.
+    /// If the inbound side is the one closing the connection, it evaluates this function on the closing
+    /// reason and includes the result in the Disconnect message.
+    pub(crate) fn remove_from_connection_store(&self) -> bool {
+        match self {
+            ClosingReason::TooManyInbound => false, // outbound may be still be OK
+            ClosingReason::OutboundNotAllowed(_) => true, // outbound not allowed
+            ClosingReason::Ban(_) => true,          // banned
+            ClosingReason::HandshakeFailed => false, // handshake may simply time out
+            ClosingReason::RejectedByPeerManager(_) => true, // rejected by peer manager
+            ClosingReason::StreamError => false,    // connection issue
+            ClosingReason::DisallowedMessage => true, // misbehaving peer
+            ClosingReason::PeerManagerRequest => true, // closed intentionally
+            ClosingReason::DisconnectMessage => false, // graceful disconnect
+            ClosingReason::TooLargeClockSkew => true, // reconnect will fail for the same reason
+            ClosingReason::OwnedAccountMismatch => true, // misbehaving peer
+            ClosingReason::Unknown => false,        // only happens in tests
+        }
+    }
 }
 
 pub(crate) struct PeerActor {
@@ -261,7 +286,7 @@ impl PeerActor {
         };
         let my_node_info = PeerInfo {
             id: network_state.config.node_id(),
-            addr: network_state.config.node_addr.clone(),
+            addr: network_state.config.node_addr.as_ref().map(|a| **a),
             account_id: network_state.config.validator.as_ref().map(|v| v.account_id()),
         };
         // recv is the HandshakeSignal returned by this spawn_inner() call.
@@ -341,7 +366,7 @@ impl PeerActor {
     }
 
     fn send_message(&self, msg: &PeerMessage) {
-        if let (PeerStatus::Ready(conn), PeerMessage::PeersRequest) = (&self.peer_status, msg) {
+        if let (PeerStatus::Ready(conn), PeerMessage::PeersRequest(_)) = (&self.peer_status, msg) {
             conn.last_time_peer_requested.store(Some(self.clock.now()));
         }
         if let Some(enc) = self.encoding() {
@@ -366,6 +391,13 @@ impl PeerActor {
             // peer message type for that and then we can enable this check again.
             //PeerMessage::Block(b) if self.tracker.lock().has_received(b.hash()) => return,
             PeerMessage::BlockRequest(h) => self.tracker.lock().push_request(*h),
+            PeerMessage::SyncAccountsData(d) => metrics::SYNC_ACCOUNTS_DATA
+                .with_label_values(&[
+                    "sent",
+                    metrics::bool_to_str(d.incremental),
+                    metrics::bool_to_str(d.requesting_full_sync),
+                ])
+                .inc(),
             _ => (),
         };
 
@@ -393,7 +425,7 @@ impl PeerActor {
             oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION,
             sender_peer_id: self.network_state.config.node_id(),
             target_peer_id: spec.peer_id,
-            sender_listen_port: self.network_state.config.node_addr.map(|a| a.port()),
+            sender_listen_port: self.network_state.config.node_addr.as_ref().map(|a| a.port()),
             sender_chain_info: PeerChainInfoV2 {
                 genesis_id: self.network_state.genesis_id.clone(),
                 // TODO: remove `height` from PeerChainInfo
@@ -404,7 +436,7 @@ impl PeerActor {
             partial_edge_info: spec.partial_edge_info,
             owned_account: self.network_state.config.validator.as_ref().map(|vc| {
                 OwnedAccount {
-                    account_key: vc.signer.public_key().clone(),
+                    account_key: vc.signer.public_key(),
                     peer_id: self.network_state.config.node_id(),
                     timestamp: self.clock.now_utc(),
                 }
@@ -620,25 +652,6 @@ impl PeerActor {
                         .received_bytes_per_sec
                         .store(received.bytes_per_min / 60, Ordering::Relaxed);
                     conn.stats.sent_bytes_per_sec.store(sent.bytes_per_min / 60, Ordering::Relaxed);
-                    // Whether the peer is considered abusive due to sending too many messages.
-                    // I am allowing this for now because I assume `MAX_PEER_MSG_PER_MIN` will
-                    // some day be less than `u64::MAX`.
-                    let is_abusive = received.count_per_min > MAX_PEER_MSG_PER_MIN
-                        || sent.count_per_min > MAX_PEER_MSG_PER_MIN;
-                    if is_abusive {
-                        tracing::trace!(
-                        target: "network",
-                        peer_id = ?conn.peer_info.id,
-                        sent = sent.count_per_min,
-                        recv = received.count_per_min,
-                        "Banning peer for abuse");
-                        // TODO(MarX, #1586): Ban peer if we found them abusive. Fix issue with heavy
-                        //  network traffic that flags honest peers.
-                        // Send ban signal to peer instance. It should send ban signal back and stop the instance.
-                        // if let Some(connected_peer) = act.connected_peers.get(&peer_id1) {
-                        //     connected_peer.addr.do_send(PeerManagerRequest::BanPeer(ReasonForBan::Abusive));
-                        // }
-                    }
                 }
             })
         });
@@ -711,7 +724,10 @@ impl PeerActor {
                                 async move {
                                     loop {
                                         interval.tick(&clock).await;
-                                        conn.send_message(Arc::new(PeerMessage::PeersRequest));
+                                        conn.send_message(Arc::new(PeerMessage::PeersRequest( PeersRequest{
+                                            max_peers: Some(PEERS_RESPONSE_MAX_PEERS as u32),
+                                            max_direct_peers: Some(MAX_TIER2_PEERS as u32),
+                                        })));
                                     }
                                 }
                             }));
@@ -826,11 +842,7 @@ impl PeerActor {
                     }
                     HandshakeFailureReason::InvalidTarget => {
                         tracing::debug!(target: "network", "Peer found was not what expected. Updating peer info with {:?}", peer_info);
-                        if let Err(err) =
-                            self.network_state.peer_store.add_direct_peer(&self.clock, peer_info)
-                        {
-                            tracing::error!(target: "network", ?err, "Fail to update peer store");
-                        }
+                        self.network_state.peer_store.add_direct_peer(&self.clock, peer_info);
                         self.stop(ctx, ClosingReason::HandshakeFailed);
                     }
                 }
@@ -918,6 +930,10 @@ impl PeerActor {
                 network_state.client.state_response(info).await;
                 None
             }
+            RoutedMessageBody::StateResponse(info) => {
+                network_state.client.state_response(StateResponseInfo::V1(info)).await;
+                None
+            }
             RoutedMessageBody::BlockApproval(approval) => {
                 network_state.client.block_approval(approval, peer_id).await;
                 None
@@ -927,19 +943,33 @@ impl PeerActor {
                 None
             }
             RoutedMessageBody::PartialEncodedChunkRequest(request) => {
-                network_state.client.partial_encoded_chunk_request(request, msg_hash).await;
+                network_state.shards_manager_adapter.send(
+                    ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
+                        partial_encoded_chunk_request: request,
+                        route_back: msg_hash,
+                    },
+                );
                 None
             }
             RoutedMessageBody::PartialEncodedChunkResponse(response) => {
-                network_state.client.partial_encoded_chunk_response(response, clock.now()).await;
+                network_state.shards_manager_adapter.send(
+                    ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
+                        partial_encoded_chunk_response: response,
+                        received_time: clock.now().into(),
+                    },
+                );
                 None
             }
             RoutedMessageBody::VersionedPartialEncodedChunk(chunk) => {
-                network_state.client.partial_encoded_chunk(chunk).await;
+                network_state
+                    .shards_manager_adapter
+                    .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(chunk));
                 None
             }
             RoutedMessageBody::PartialEncodedChunkForward(msg) => {
-                network_state.client.partial_encoded_chunk_forward(msg).await;
+                network_state
+                    .shards_manager_adapter
+                    .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(msg));
                 None
             }
             RoutedMessageBody::ReceiptOutcomeRequest(_) => {
@@ -1075,37 +1105,74 @@ impl PeerActor {
         .entered();
 
         match peer_msg.clone() {
-            PeerMessage::Disconnect => {
+            PeerMessage::Disconnect(d) => {
                 tracing::debug!(target: "network", "Disconnect signal. Me: {:?} Peer: {:?}", self.my_node_info.id, self.other_peer_id());
+
+                if d.remove_from_connection_store {
+                    self.network_state
+                        .connection_store
+                        .remove_from_connection_store(self.other_peer_id().unwrap())
+                }
+
                 self.stop(ctx, ClosingReason::DisconnectMessage);
             }
             PeerMessage::Tier1Handshake(_) | PeerMessage::Tier2Handshake(_) => {
                 // Received handshake after already have seen handshake from this peer.
                 tracing::debug!(target: "network", "Duplicate handshake from {}", self.peer_info);
             }
-            PeerMessage::PeersRequest => {
-                let peers = self
-                    .network_state
-                    .peer_store
-                    .healthy_peers(self.network_state.config.max_send_peers as usize);
-                if !peers.is_empty() {
-                    tracing::debug!(target: "network", "Peers request from {}: sending {} peers.", self.peer_info, peers.len());
-                    self.send_message_or_log(&PeerMessage::PeersResponse(peers));
+            PeerMessage::PeersRequest(PeersRequest { max_peers, max_direct_peers }) => {
+                let mut num_peers = self.network_state.config.max_send_peers;
+                if let Some(max_peers) = max_peers {
+                    num_peers = min(num_peers, max_peers);
+                }
+                let peers = self.network_state.peer_store.healthy_peers(num_peers as usize);
+
+                let mut direct_peers = self.network_state.get_direct_peers();
+                if let Some(max_direct_peers) = max_direct_peers {
+                    if direct_peers.len() > max_direct_peers as usize {
+                        direct_peers = direct_peers
+                            .into_iter()
+                            .choose_multiple(&mut thread_rng(), max_direct_peers as usize);
+                    }
+                }
+
+                if !peers.is_empty() || !direct_peers.is_empty() {
+                    tracing::debug!(target: "network", "Peers request from {}: sending {} peers and {} direct peers.", self.peer_info, peers.len(), direct_peers.len());
+                    self.send_message_or_log(&PeerMessage::PeersResponse(PeersResponse {
+                        peers,
+                        direct_peers,
+                    }));
                 }
                 self.network_state
                     .config
                     .event_sink
                     .push(Event::MessageProcessed(conn.tier, peer_msg));
             }
-            PeerMessage::PeersResponse(peers) => {
-                tracing::debug!(target: "network", "Received peers from {}: {} peers.", self.peer_info, peers.len());
+            PeerMessage::PeersResponse(PeersResponse { peers, direct_peers }) => {
+                tracing::debug!(target: "network", "Received peers from {}: {} peers and {} direct peers.", self.peer_info, peers.len(), direct_peers.len());
+
+                // Check for abusive behavior (sending too many peers)
+                if peers.len() > PEERS_RESPONSE_MAX_PEERS.try_into().unwrap() {
+                    self.stop(ctx, ClosingReason::Ban(ReasonForBan::Abusive));
+                }
+                // Check for abusive behavior (sending too many direct peers)
+                if direct_peers.len() > MAX_TIER2_PEERS {
+                    self.stop(ctx, ClosingReason::Ban(ReasonForBan::Abusive));
+                }
+
+                // Add received peers to the peer store
                 let node_id = self.network_state.config.node_id();
-                if let Err(err) = self.network_state.peer_store.add_indirect_peers(
+                self.network_state.peer_store.add_indirect_peers(
                     &self.clock,
                     peers.into_iter().filter(|peer_info| peer_info.id != node_id),
-                ) {
-                    tracing::error!(target: "network", ?err, "Fail to update peer store");
-                };
+                );
+                // Direct peers of the responding peer are still indirect peers for this node.
+                // However, we may treat them with more trust in the future.
+                self.network_state.peer_store.add_indirect_peers(
+                    &self.clock,
+                    direct_peers.into_iter().filter(|peer_info| peer_info.id != node_id),
+                );
+
                 self.network_state
                     .config
                     .event_sink
@@ -1156,6 +1223,13 @@ impl PeerActor {
                 }));
             }
             PeerMessage::SyncAccountsData(msg) => {
+                metrics::SYNC_ACCOUNTS_DATA
+                    .with_label_values(&[
+                        "received",
+                        metrics::bool_to_str(msg.incremental),
+                        metrics::bool_to_str(msg.requesting_full_sync),
+                    ])
+                    .inc();
                 let network_state = self.network_state.clone();
                 // In case a full sync is requested, immediately send what we got.
                 // It is a microoptimization: we do not send back the data we just received.
@@ -1181,8 +1255,11 @@ impl PeerActor {
                     return;
                 }
                 let network_state = self.network_state.clone();
+                let clock = self.clock.clone();
                 ctx.spawn(wrap_future(async move {
-                    if let Some(err) = network_state.add_accounts_data(msg.accounts_data).await {
+                    if let Some(err) =
+                        network_state.add_accounts_data(&clock, msg.accounts_data).await
+                    {
                         conn.stop(Some(match err {
                             accounts_data::Error::InvalidSignature => {
                                 ReasonForBan::InvalidSignature
@@ -1277,7 +1354,7 @@ impl PeerActor {
                                 .event_sink
                                 .push(Event::MessageProcessed(conn.tier, PeerMessage::Routed(msg)));
                         }
-                        _ => self.receive_message(ctx, &conn, PeerMessage::Routed(msg.clone())),
+                        _ => self.receive_message(ctx, &conn, PeerMessage::Routed(msg)),
                     }
                 } else {
                     if msg.decrease_ttl() {
@@ -1376,11 +1453,21 @@ impl actix::Actor for PeerActor {
             }
             Some(reason) => {
                 tracing::info!(target: "network", "{:?}: Peer {} disconnected, reason: {reason}", self.my_node_info.id, self.peer_info);
+
+                // If we are on the inbound side of the connection, set a flag in the disconnect
+                // message advising the outbound side whether to attempt to re-establish the connection.
+                let remove_from_connection_store =
+                    self.peer_type == PeerType::Inbound && reason.remove_from_connection_store();
+
+                self.send_message_or_log(&PeerMessage::Disconnect(Disconnect {
+                    remove_from_connection_store,
+                }));
             }
         }
+
         match &self.peer_status {
             // If PeerActor is in Connecting state, then
-            // it was not registered in the NewtorkState,
+            // it was not registered in the NetworkState,
             // so there is nothing to be done.
             PeerStatus::Connecting(..) => {
                 // TODO(gprusak): reporting ConnectionClosed event is quite scattered right now and
@@ -1425,7 +1512,9 @@ impl actix::Handler<stream::Error> for PeerActor {
                 // Connection has been closed.
                 io::ErrorKind::UnexpectedEof
                 | io::ErrorKind::ConnectionReset
-                | io::ErrorKind::BrokenPipe => true,
+                | io::ErrorKind::BrokenPipe
+                // libc::ETIIMEDOUT = 110, translates to io::ErrorKind::TimedOut.
+                | io::ErrorKind::TimedOut => true,
                 // When stopping tokio runtime, an "IO driver has terminated" is sometimes
                 // returned.
                 io::ErrorKind::Other => true,
@@ -1470,7 +1559,7 @@ impl actix::Handler<stream::Frame> for PeerActor {
         let mut peer_msg = match self.parse_message(&msg) {
             Ok(msg) => msg,
             Err(err) => {
-                tracing::debug!(target: "network", "Received invalid data {} from {}: {}", pretty::AbbrBytes(&msg), self.peer_info, err);
+                tracing::debug!(target: "network", "Received invalid data {} from {}: {}", near_fmt::AbbrBytes(&msg), self.peer_info, err);
                 return;
             }
         };
@@ -1551,7 +1640,7 @@ impl actix::Handler<WithSpanContext<Stop>> for PeerActor {
             ctx,
             match msg.ban_reason {
                 Some(reason) => ClosingReason::Ban(reason),
-                None => ClosingReason::PeerManager,
+                None => ClosingReason::PeerManagerRequest,
             },
         );
     }

@@ -4,63 +4,112 @@
 
 ### Protocol Changes
 
-* Stabilize `account_id_in_function_call_permission` feature: enforcing validity
-  of account ids in function call permission.
-* Enable TIER1 peer discovery. Validator nodes are now exchanging the [public addresses
-  set in config](https://github.com/near/nearcore/blob/301fb493ea4f6d9b75d7dac7f2b52d00a1b2b709/chain/network/src/config_json.rs#L162).
-  The TIER1 connections support (direct connections between validators) based on
-  this discovery mechanism will be added soon.
+* Contract preparation and gas charging for wasm execution also switched to using our own code, as per the finite-wasm specification. Contract execution gas costs will change slightly for expected use cases. This opens up opportunities for further changing the execution gas costs (eg. with different costs per opcode) to lower contract execution cost long-term.
+* Compute Costs are implemented and stabilized. Compute usage of the chunk is now limited according to the compute costs. [#8915](https://github.com/near/nearcore/pull/8915), [NEP-455](https://github.com/near/NEPs/blob/master/neps/nep-0455.md).
 
 ### Non-protocol Changes
 
-* `use_db_migration_snapshot` and `db_migration_snapshot_path` options are now
-  deprecated.  If they are set in `config.json` the node will fail if migration
-  needs to be performed.  Use `store.migration_snapshot` instead to configure
-  the behaviour [#7486](https://github.com/near/nearcore/pull/7486)
+* Node can sync State from S3. [#8789](https://github.com/near/nearcore/pull/8789)
+* The contract runtime switched to using our fork of wasmer, with various improvements.
+* undo-block tool to reset the chain head from current head to its prev block. Use the tool by running: `./target/release/neard --home {path_to_config_directory} undo-block`. [#8681](https://github.com/near/nearcore/pull/8681)
+
+## 1.33.0
+
+### Protocol Changes
+
+### Non-protocol Changes
+* State-viewer tool to dump and apply state changes from/to a range of blocks. [#8628](https://github.com/near/nearcore/pull/8628)
+* Experimental option to dump state of every epoch to external storage. [#8661](https://github.com/near/nearcore/pull/8661)
+* Add prometheus metrics for tracked shards, block height within epoch, if is block/chunk producer. [#8728](https://github.com/near/nearcore/pull/8728)
+* State sync is disabled by default [#8730](https://github.com/near/nearcore/pull/8730)
+* Node can restart if State Sync gets interrupted. [#8732](https://github.com/near/nearcore/pull/8732)
+* Merged two `neard view-state` commands: `apply-state-parts` and `dump-state-parts` into a single `state-parts` command. [#8739](https://github.com/near/nearcore/pull/8739)
+* Add config.network.experimental.network_config_overrides to the JSON config. [#8871](https://github.com/near/nearcore/pull/8871)
+
+## 1.32.2
+
+### Fixes
+* Fix: rosetta zero balance accounts [#8833](https://github.com/near/nearcore/pull/8833)
+
+## 1.32.1
+
+### Fixes
+* Fix vulnerabilities in block outcome root validation and total supply validation [#8790](https://github.com/near/nearcore/pull/8790)
+
+## 1.32.0
+
+### Protocol Changes
+* Stabilize `ed25519_verify` feature: introducing a host function to verify
+ed25519 signatures efficiently.
+[#8098](https://github.com/near/nearcore/pull/8098)
+[NEP-364](https://github.com/near/NEPs/pull/364)
+* Added STUN-based self-discovery to make configuration of TIER1 network easier in the simplest validator setups.
+  [#8472](https://github.com/near/nearcore/pull/8472)
+* Stabilize zero balance account feature: allows account to not hold balance under certain conditions
+and enables a more smooth onboarding experience where users don't have to first acquire NEAR tokens
+to pay for the storage of their accounts.
+[#8378](https://github.com/near/nearcore/pull/8378)
+[NEP-448](https://github.com/near/NEPs/pull/448)
+* Stabilize meta transactions on the protocol level.
+[NEP-366](https://github.com/near/NEPs/blob/master/neps/nep-0366.md),
+[Tracking issue #8075](https://github.com/near/nearcore/issues/8075),
+[Stabilization #8601](https://github.com/near/nearcore/pull/8601)
+
+### Non-protocol Changes
+* Config validation can be done by following command: 
+  `./target/debug/neard --home {path_to_config_files} validate-config`. 
+  This will show error if there are file issues or semantic issues in `config.json`, `genesis.json`, `records.json`, `node_key.json` and `validator_key.json`. 
+  [#8485](https://github.com/near/nearcore/pull/8485)
+* Comments are allowed in configs. This includes
+  `config.json`, `genesis.json`, `node_key.json` and `validator_key.json`. You can use `//`, `#` and `/*...*/` for comments.
+  [#8423](https://github.com/near/nearcore/pull/8423)
+* `/debug` page now has client_config linked. 
+  You can also check your client_config directly at /debug/client_config
+  [#8400](https://github.com/near/nearcore/pull/8400)
+* Added cold store loop - a background thread that copies data from hot to cold storage and a new json rpc endpoing - split_storage_info - that
+  exposes debug info about the split storage.
+  [#8432](https://github.com/near/nearcore/pull/8432)
+* `ClientConfig` can be updated while the node is running.
+  `dyn_config.json` is no longer needed as its contents were merged into `config.json`.
+  [#8240](https://github.com/near/nearcore/pull/8240)
+* TIER2 network stabilization. Long-lasting active connections are persisted to DB and are re-established automatically if either node restarts. A new neard flag `--connect-to-reliable-peers-on-startup` is provided to toggle this behavior; it defaults to true. The PeerStore is no longer persisted to DB and is now kept in-memory. [#8579](https://github.com/near/nearcore/issues/8579), [#8580](https://github.com/near/nearcore/issues/8580).
+
+## 1.31.0
+
+### Non-protocol Changes
+
+* Enable TIER1 network. Participants of the BFT consensus (block & chunk producers) now can establish direct TIER1 connections
+  between each other, which will optimize the communication latency and minimize the number of dropped chunks.
+  To configure this feature, see [advanced\_configuration/networking](./docs/advanced_configuration/networking.md).
+  [#8141](https://github.com/near/nearcore/pull/8141)
+  [#8085](https://github.com/near/nearcore/pull/8085)
+  [#7759](https://github.com/near/nearcore/pull/7759)
+* [Network] Started creating connections with larger nonces, that are periodically
+  refreshed Start creating connections (edges) with large nonces
+  [#7966](https://github.com/near/nearcore/pull/7966)
 * `/status` response has now two more fields: `node_public_key` and
   `validator_public_key`.  The `node_key` field is now deprecated and should not
   be used since it confusingly holds validator key.
-* Added `near_peer_message_sent_by_type_bytes` and
-  `near_peer_message_sent_by_type_total` Prometheus metrics measuring
-  size and number of messages sent to peers.
-* `near_peer_message_received_total` Prometheus metric is now deprecated.
-  Instead of it aggregate `near_peer_message_received_by_type_total` metric.
-  For example, to get total rate of received messages use
-  `sum(rate(near_peer_message_received_by_type_total{...}[5m]))`.
+  [#7828](https://github.com/near/nearcore/pull/7828)
 * Added `near_node_protocol_upgrade_voting_start` Prometheus metric whose value
   is timestamp when voting for the next protocol version starts.
-* Few changes to `view_state` JSON RPC query:
-  - The requset has now an optional `include_proof` argument.  When set to
-    `true`, response’s `proof` will be populated.
-  - The `proof` within each value in `values` list of a `view_state` response is
-    now deprecated and will be removed in the future.  Client code should ignore
-    the field.
-  - The `proof` field directly within `view_state` response is currently always
-    sent even if proof has not been requested.  In the future the field will be
-    skipped in those cases.  Clients should accept responses with this field
-    missing (unless they set `include_proof`).
-* Backtraces on panics are enabled by default, so you no longer need to set
-  `RUST_BACKTRACE=1` environmental variable. To disable backtraces, set
-  `RUST_BACKTRACE=0`.
-* Enable receipt prefetching by default. This feature makes receipt processing
-  faster by parallelizing IO requests, which has been introduced in
-  [#7590](https://github.com/near/nearcore/pull/7590) and enabled by default
-  with [#7661](https://github.com/near/nearcore/pull/7661).
-  Configurable in `config.json` using `store.enable_receipt_prefetching`.
+  [#7877](https://github.com/near/nearcore/pull/7877)
 * neard cmd can now verify proofs from JSON files.
+  [#7840](https://github.com/near/nearcore/pull/7840)
 * In storage configuration, the value `trie_cache_capacities` now is no longer
   a hard limit but instead sets a memory consumption limit. For large trie nodes,
   the limits are close to equivalent. For small values, there can now fit more
   in the cache than previously.
   [#7749](https://github.com/near/nearcore/pull/7749)
 * New options `store.trie_cache` and `store.view_trie_cache` in `config.json`
-  to set limits on the trie cache. Deprecates the never announced 
+  to set limits on the trie cache. Deprecates the never announced
   `store.trie_cache_capacities` option which was mentioned in previous change.
   [#7578](https://github.com/near/nearcore/pull/7578)
-* New option `store.background_migration_threads` in `config.json`. Defines 
+* New option `store.background_migration_threads` in `config.json`. Defines
   number of threads to execute background migrations of storage. Currently used
   for flat storage migration. Set to 8 by default, can be reduced if it slows down
   block processing too much or increased if you want to speed up migration.
+  [#8088](https://github.com/near/nearcore/pull/8088),
 * Tracing of work across actix workers within a process:
   [#7866](https://github.com/near/nearcore/pull/7866),
   [#7819](https://github.com/near/nearcore/pull/7819),
@@ -73,6 +122,51 @@
   `opentelemetry-otlp`: [#7563](https://github.com/near/nearcore/pull/7563).
 * Tracing of requests across processes:
   [#8004](https://github.com/near/nearcore/pull/8004).
+* Gas profiles as displayed in the `EXPERIMENTAL_tx_status` are now more
+  detailed and give the gas cost per parameter.
+
+## 1.30.0
+
+### Protocol Changes
+
+* Stabilize `account_id_in_function_call_permission` feature: enforcing validity
+  of account ids in function call permission.
+  [#7569](https://github.com/near/nearcore/pull/7569)
+
+### Non-protocol Changes
+
+* `use_db_migration_snapshot` and `db_migration_snapshot_path` options are now
+  deprecated.  If they are set in `config.json` the node will fail if migration
+  needs to be performed.  Use `store.migration_snapshot` instead to configure
+  the behaviour [#7486](https://github.com/near/nearcore/pull/7486)
+* Added `near_peer_message_sent_by_type_bytes` and
+  `near_peer_message_sent_by_type_total` Prometheus metrics measuring
+  size and number of messages sent to peers.
+  [#7523](https://github.com/near/nearcore/pull/7523)
+* `near_peer_message_received_total` Prometheus metric is now deprecated.
+  Instead of it aggregate `near_peer_message_received_by_type_total` metric.
+  For example, to get total rate of received messages use
+  `sum(rate(near_peer_message_received_by_type_total{...}[5m]))`.
+  [#7548](https://github.com/near/nearcore/pull/7548)
+* Few changes to `view_state` JSON RPC query:
+  - The requset has now an optional `include_proof` argument.  When set to
+    `true`, response’s `proof` will be populated.
+  - The `proof` within each value in `values` list of a `view_state` response is
+    now deprecated and will be removed in the future.  Client code should ignore
+    the field.
+  - The `proof` field directly within `view_state` response is currently always
+    sent even if proof has not been requested.  In the future the field will be
+    skipped in those cases.  Clients should accept responses with this field
+    missing (unless they set `include_proof`).
+    [#7603](https://github.com/near/nearcore/pull/7603)
+* Backtraces on panics are enabled by default, so you no longer need to set
+  `RUST_BACKTRACE=1` environmental variable. To disable backtraces, set
+  `RUST_BACKTRACE=0`. [#7562](https://github.com/near/nearcore/pull/7562)
+* Enable receipt prefetching by default. This feature makes receipt processing
+  faster by parallelizing IO requests, which has been introduced in
+  [#7590](https://github.com/near/nearcore/pull/7590) and enabled by default
+  with [#7661](https://github.com/near/nearcore/pull/7661).
+  Configurable in `config.json` using `store.enable_receipt_prefetching`.
 
 ## 1.29.0 [2022-08-15]
 

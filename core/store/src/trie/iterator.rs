@@ -4,6 +4,7 @@ use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::{TrieNode, TrieNodeWithSize, ValueHandle};
 use crate::{StorageError, Trie};
 
+/// Crumb is a piece of trie iteration state. It describes a node on the trail and processing status of that node.
 #[derive(Debug)]
 struct Crumb {
     node: TrieNodeWithSize,
@@ -11,11 +12,14 @@ struct Crumb {
     prefix_boundary: bool,
 }
 
+/// The status of processing of a node during trie iteration.
+/// Each node is processed in the following order:
+/// Entering -> At -> AtChild(0) -> ... -> AtChild(15) -> Exiting
 #[derive(Clone, Copy, Eq, PartialEq, Debug)]
 pub(crate) enum CrumbStatus {
     Entering,
     At,
-    AtChild(usize),
+    AtChild(u8),
     Exiting,
 }
 
@@ -37,6 +41,14 @@ impl Crumb {
     }
 }
 
+/// Trie iteration is done using a stack based approach.
+/// There are two stacks that we track while iterating: the trail and the key_nibbles.
+/// The trail is a vector of trie nodes on the path from root node to the node that is
+/// currently being processed together with processing status - the Crumb.
+/// The key_nibbles is a vector of nibbles from the state root not to the node that is
+/// currently being processed.
+/// The trail and the key_nibbles may have different lengths e.g. an extension trie node
+/// will add only a single item to the trail but may add multiple nibbles to the key_nibbles.
 pub struct TrieIterator<'a> {
     trie: &'a Trie,
     trail: Vec<Crumb>,
@@ -44,8 +56,12 @@ pub struct TrieIterator<'a> {
 
     /// If not `None`, a list of all nodes that the iterator has visited.
     visited_nodes: Option<Vec<std::sync::Arc<[u8]>>>,
+
+    /// Max depth of iteration.
+    max_depth: Option<usize>,
 }
 
+/// The TrieTiem is a tuple of (key, value) of the node.
 pub type TrieItem = (Vec<u8>, Vec<u8>);
 
 /// Item extracted from Trie during depth first traversal, corresponding to some Trie node.
@@ -59,12 +75,13 @@ pub struct TrieTraversalItem {
 impl<'a> TrieIterator<'a> {
     #![allow(clippy::new_ret_no_self)]
     /// Create a new iterator.
-    pub(super) fn new(trie: &'a Trie) -> Result<Self, StorageError> {
+    pub(super) fn new(trie: &'a Trie, max_depth: Option<usize>) -> Result<Self, StorageError> {
         let mut r = TrieIterator {
             trie,
             trail: Vec::with_capacity(8),
             key_nibbles: Vec::with_capacity(64),
             visited_nodes: None,
+            max_depth,
         };
         r.descend_into_node(&trie.root)?;
         Ok(r)
@@ -135,17 +152,16 @@ impl<'a> TrieIterator<'a> {
                 TrieNode::Branch(children, _) => {
                     if key.is_empty() {
                         break;
+                    }
+                    let idx = key.at(0);
+                    self.key_nibbles.push(idx);
+                    *status = CrumbStatus::AtChild(idx);
+                    if let Some(ref child) = children[idx] {
+                        hash = *child.unwrap_hash();
+                        key = key.mid(1);
                     } else {
-                        let idx = key.at(0) as usize;
-                        self.key_nibbles.push(key.at(0));
-                        *status = CrumbStatus::AtChild(idx as usize);
-                        if let Some(child) = &children[idx] {
-                            hash = *child.unwrap_hash();
-                            key = key.mid(1);
-                        } else {
-                            *prefix_boundary = is_prefix_seek;
-                            break;
-                        }
+                        *prefix_boundary = is_prefix_seek;
+                        break;
                     }
                 }
                 TrieNode::Extension(ext_key, child) => {
@@ -205,7 +221,7 @@ impl<'a> TrieIterator<'a> {
     fn iter_step(&mut self) -> Option<IterStep> {
         let last = self.trail.last_mut()?;
         last.increment();
-        match (last.status, &last.node.node) {
+        Some(match (last.status, &last.node.node) {
             (CrumbStatus::Exiting, n) => {
                 match n {
                     TrieNode::Leaf(ref key, _) | TrieNode::Extension(ref key, _) => {
@@ -218,47 +234,46 @@ impl<'a> TrieIterator<'a> {
                     }
                     _ => {}
                 }
-                Some(IterStep::PopTrail)
+                IterStep::PopTrail
             }
             (CrumbStatus::At, TrieNode::Branch(_, Some(value))) => {
                 let hash = match value {
-                    ValueHandle::HashAndSize(_, hash) => *hash,
+                    ValueHandle::HashAndSize(value) => value.hash,
                     ValueHandle::InMemory(_node) => unreachable!(),
                 };
-                Some(IterStep::Value(hash))
+                IterStep::Value(hash)
             }
-            (CrumbStatus::At, TrieNode::Branch(_, None)) => Some(IterStep::Continue),
+            (CrumbStatus::At, TrieNode::Branch(_, None)) => IterStep::Continue,
             (CrumbStatus::At, TrieNode::Leaf(key, value)) => {
                 let hash = match value {
-                    ValueHandle::HashAndSize(_, hash) => *hash,
+                    ValueHandle::HashAndSize(value) => value.hash,
                     ValueHandle::InMemory(_node) => unreachable!(),
                 };
                 let key = NibbleSlice::from_encoded(key).0;
                 self.key_nibbles.extend(key.iter());
-                Some(IterStep::Value(hash))
+                IterStep::Value(hash)
             }
             (CrumbStatus::At, TrieNode::Extension(key, child)) => {
                 let hash = *child.unwrap_hash();
                 let key = NibbleSlice::from_encoded(key).0;
                 self.key_nibbles.extend(key.iter());
-                Some(IterStep::Descend(hash))
+                IterStep::Descend(hash)
             }
-            (CrumbStatus::AtChild(i), TrieNode::Branch(children, _)) if children[i].is_some() => {
-                match i {
-                    0 => self.key_nibbles.push(0),
-                    i => *self.key_nibbles.last_mut().expect("Pushed child value before") = i as u8,
-                }
-                let hash = *children[i].as_ref().unwrap().unwrap_hash();
-                Some(IterStep::Descend(hash))
-            }
-            (CrumbStatus::AtChild(i), TrieNode::Branch(_, _)) => {
+            (CrumbStatus::AtChild(i), TrieNode::Branch(children, _)) => {
                 if i == 0 {
                     self.key_nibbles.push(0);
                 }
-                Some(IterStep::Continue)
+                if let Some(ref child) = children[i] {
+                    if i != 0 {
+                        *self.key_nibbles.last_mut().expect("Pushed child value before") = i;
+                    }
+                    IterStep::Descend(*child.unwrap_hash())
+                } else {
+                    IterStep::Continue
+                }
             }
             _ => panic!("Should never see Entering or AtChild without a Branch here."),
-        }
+        })
     }
 
     fn common_prefix(str1: &[u8], str2: &[u8]) -> usize {
@@ -367,16 +382,24 @@ impl<'a> Iterator for TrieIterator<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             let iter_step = self.iter_step()?;
-            match iter_step {
-                IterStep::PopTrail => {
+
+            let can_process = match self.max_depth {
+                Some(max_depth) => self.key_nibbles.len() <= max_depth,
+                None => true,
+            };
+
+            match (iter_step, can_process) {
+                (IterStep::Continue, _) => {}
+                (IterStep::PopTrail, _) => {
                     self.trail.pop();
                 }
-                IterStep::Descend(hash) => match self.descend_into_node(&hash) {
+                // Skip processing the node if can process is false.
+                (_, false) => {}
+                (IterStep::Descend(hash), true) => match self.descend_into_node(&hash) {
                     Ok(_) => (),
                     Err(err) => return Some(Err(err)),
                 },
-                IterStep::Continue => {}
-                IterStep::Value(hash) => {
+                (IterStep::Value(hash), true) => {
                     return Some(
                         self.trie
                             .storage

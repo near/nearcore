@@ -1,10 +1,5 @@
-use std::time::Duration;
-
 use awc::{Client, Connector};
 use futures::{future, future::LocalBoxFuture, FutureExt, TryFutureExt};
-use serde::Deserialize;
-use serde::Serialize;
-
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::{from_slice, Message};
 use near_jsonrpc_primitives::types::changes::{
@@ -18,8 +13,9 @@ use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,
     StatusResponse,
 };
+use std::time::Duration;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(untagged)]
 pub enum ChunkId {
     BlockShardId(BlockId, ShardId),
@@ -39,11 +35,10 @@ type RpcRequest<T> = LocalBoxFuture<'static, Result<T, RpcError>>;
 /// Prepare a `RPCRequest` with a given client, server address, method and parameters.
 fn call_method<P, R>(client: &Client, server_addr: &str, method: &str, params: P) -> RpcRequest<R>
 where
-    P: Serialize,
+    P: serde::Serialize,
     R: serde::de::DeserializeOwned + 'static,
 {
-    let request =
-        Message::request(method.to_string(), Some(serde_json::to_value(&params).unwrap()));
+    let request = Message::request(method.to_string(), serde_json::to_value(&params).unwrap());
     // TODO: simplify this.
     client
         .post(server_addr)
@@ -66,7 +61,7 @@ where
                     serde_json::from_value(x)
                         .map_err(|err| RpcError::parse_error(format!("Failed to parse: {:?}", err)))
                 }),
-                _ => Err(RpcError::parse_error(format!("Failed to parse JSON RPC response"))),
+                _ => Err(RpcError::parse_error("Failed to parse JSON RPC response".to_string())),
             })
         })
         .boxed_local()
@@ -80,7 +75,7 @@ fn call_http_get<R, P>(
     _params: P,
 ) -> HttpRequest<R>
 where
-    P: Serialize,
+    P: serde::Serialize,
     R: serde::de::DeserializeOwned + 'static,
 {
     // TODO: url encode params.
@@ -257,6 +252,15 @@ impl JsonRpcClient {
         request: near_jsonrpc_primitives::types::config::RpcProtocolConfigRequest,
     ) -> RpcRequest<near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse> {
         call_method(&self.client, &self.server_addr, "EXPERIMENTAL_protocol_config", request)
+    }
+
+    #[allow(non_snake_case)]
+    pub fn EXPERIMENTAL_split_storage_info(
+        &self,
+        request: near_jsonrpc_primitives::types::split_storage::RpcSplitStorageInfoRequest,
+    ) -> RpcRequest<near_jsonrpc_primitives::types::split_storage::RpcSplitStorageInfoResponse>
+    {
+        call_method(&self.client, &self.server_addr, "EXPERIMENTAL_split_storage_info", request)
     }
 }
 

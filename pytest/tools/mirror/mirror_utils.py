@@ -19,6 +19,10 @@ import key
 
 MIRROR_DIR = 'test-mirror'
 TIMEOUT = 240
+TARGET_VALIDATORS = ['foo0', 'foo1', 'foo2']
+
+CONTRACT_PATH = pathlib.Path(__file__).resolve().parents[
+    0] / 'contract/target/wasm32-unknown-unknown/release/addkey_contract.wasm'
 
 
 def mkdir_clean(dirname):
@@ -272,6 +276,18 @@ class MirrorProcess:
         return True
 
 
+def check_target_validators(target_node):
+    try:
+        validators = target_node.get_validators()['result']
+    except KeyError:
+        return
+
+    for v in validators['current_validators']:
+        assert v['account_id'] in TARGET_VALIDATORS, v['account_id']
+    for v in validators['next_validators']:
+        assert v['account_id'] in TARGET_VALIDATORS, v['account_id']
+
+
 # we'll test out adding an access key and then sending txs signed with it
 # since that hits some codepaths we want to test
 def send_add_access_key(node, key, target_key, nonce, block_hash):
@@ -305,7 +321,7 @@ def create_subaccount(node, signer_key, nonce, block_hash):
     actions = []
     actions.append(transaction.create_create_account_action())
     actions.append(transaction.create_full_access_key_action(k.decoded_pk()))
-    actions.append(transaction.create_payment_action(10**24))
+    actions.append(transaction.create_payment_action(10**29))
     # add an extra one just to exercise some more corner cases
     actions.append(
         transaction.create_full_access_key_action(
@@ -325,7 +341,8 @@ def deploy_addkey_contract(node, signer_key, contract_path, nonce, block_hash):
     code = utils.load_binary_file(contract_path)
     tx = transaction.sign_deploy_contract_tx(signer_key, code, nonce,
                                              block_hash)
-    node.send_tx(tx)
+    res = node.send_tx(tx)
+    logger.info(f'sent deploy contract tx for {signer_key.account_id}: {res}')
 
 
 def call_addkey(node, signer_key, new_key, nonce, block_hash, extra_actions=[]):
@@ -365,6 +382,32 @@ def call_create_account(node, signer_key, account_id, nonce, block_hash):
     logger.info(
         f'called create account contract for {account_id} {k.pk}: {res}')
     return k
+
+
+def call_stake(node, signer_key, amount, public_key, nonce, block_hash):
+    args = json.dumps({'amount': amount, 'public_key': public_key})
+    args = bytearray(args, encoding='utf-8')
+
+    actions = [
+        transaction.create_function_call_action('stake', args, 10**13, 0),
+    ]
+    tx = transaction.sign_and_serialize_transaction(signer_key.account_id,
+                                                    nonce, actions, block_hash,
+                                                    signer_key.account_id,
+                                                    signer_key.decoded_pk(),
+                                                    signer_key.decoded_sk())
+    res = node.send_tx(tx)
+    logger.info(
+        f'called stake contract for {signer_key.account_id} {amount} {public_key}: {res}'
+    )
+
+
+def contract_deployed(node, account_id):
+    return 'error' not in node.json_rpc('query', {
+        "request_type": "view_code",
+        "account_id": account_id,
+        "finality": "final"
+    })
 
 
 # a key that we added with an AddKey tx or implicit account transfer.
@@ -501,16 +544,12 @@ def added_keys_send_transfers(nodes, added_keys, receivers, amount, block_hash):
         node_idx %= len(nodes)
 
 
-def start_source_chain(config,
-                       num_source_validators=3,
-                       target_validators=['foo0', 'foo1', 'foo2']):
+def start_source_chain(config, num_source_validators=3):
     # for now we need at least 2 because we're sending traffic for source_nodes[1].signer_key
     # Could fix that but for now this assert is fine
     assert num_source_validators >= 2
 
-    contract_path = pathlib.Path(__file__).resolve().parents[
-        0] / 'contract/target/wasm32-unknown-unknown/release/addkey_contract.wasm'
-    if not os.path.exists(contract_path):
+    if not os.path.exists(CONTRACT_PATH):
         sys.exit(
             'please build the addkey contract by running cargo build --target wasm32-unknown-unknown --release from the ./contract/ dir'
         )
@@ -555,11 +594,11 @@ def start_source_chain(config,
         traffic_data.nonces[0] += 1
 
         deploy_addkey_contract(source_nodes[0], source_nodes[0].signer_key,
-                               contract_path, traffic_data.nonces[0],
+                               CONTRACT_PATH, traffic_data.nonces[0],
                                block_hash_bytes)
         traffic_data.nonces[0] += 1
         deploy_addkey_contract(source_nodes[0], source_nodes[1].signer_key,
-                               contract_path, traffic_data.nonces[1],
+                               CONTRACT_PATH, traffic_data.nonces[1],
                                block_hash_bytes)
         traffic_data.nonces[1] += 1
         break
@@ -579,7 +618,7 @@ def start_source_chain(config,
 
     source_nodes[0].kill()
     target_node_dirs = create_forked_chain(config, near_root, source_node_dirs,
-                                           target_validators)
+                                           TARGET_VALIDATORS)
     source_nodes[0].start(boot_node=source_nodes[1])
     return near_root, source_nodes, target_node_dirs, traffic_data
 
@@ -644,6 +683,8 @@ def send_traffic(near_root, source_nodes, traffic_data, callback):
     implicit_added = None
     implicit_deleted = None
     implicit_account2 = ImplicitAccount()
+    subaccount_contract_deployed = False
+    subaccount_staked = False
 
     # here we are gonna send a tiny amount (1 yoctoNEAR) to the implicit account and
     # then wait a bit before properly initializing it. This hits a corner case where the
@@ -738,6 +779,22 @@ def send_traffic(near_root, source_nodes, traffic_data, callback):
                 source_nodes[1], [('test3', height),
                                   (implicit_account2.account_id(), height)],
                 block_hash_bytes)
+
+        if subaccount_key.inited():
+            if not subaccount_contract_deployed:
+                subaccount_key.nonce += 1
+                deploy_addkey_contract(source_nodes[0], subaccount_key.key,
+                                       CONTRACT_PATH, subaccount_key.nonce,
+                                       block_hash_bytes)
+                subaccount_contract_deployed = True
+            elif not subaccount_staked:
+                if contract_deployed(source_nodes[0],
+                                     subaccount_key.account_id()):
+                    subaccount_key.nonce += 1
+                    call_stake(source_nodes[0], subaccount_key.key, 10**28,
+                               subaccount_key.key.pk, subaccount_key.nonce,
+                               block_hash_bytes)
+                    subaccount_staked = True
 
         if height - start_source_height >= 100:
             break

@@ -1,13 +1,7 @@
-use once_cell::sync::OnceCell;
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
-
 use actix::Message;
 use chrono::DateTime;
-use near_primitives::time::Utc;
-
-use near_chain_configs::ProtocolConfigView;
+use chrono::Utc;
+use near_chain_configs::{ClientConfig, ProtocolConfigView};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::network::PeerId;
@@ -21,10 +15,14 @@ use near_primitives::views::{
     BlockView, ChunkView, DownloadStatusView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
     FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockLiteView, LightClientBlockView,
     MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView, ShardSyncDownloadView,
-    StateChangesKindsView, StateChangesRequestView, StateChangesView, SyncStatusView,
+    SplitStorageInfoView, StateChangesKindsView, StateChangesRequestView, StateChangesView,
+    SyncStatusView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
-use serde::Serialize;
+use once_cell::sync::OnceCell;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
 /// Combines errors coming from chain, tx pool and block producer.
 #[derive(Debug, thiserror::Error)]
@@ -41,14 +39,21 @@ pub enum Error {
     Other(String),
 }
 
+impl From<near_primitives::errors::EpochError> for Error {
+    fn from(err: near_primitives::errors::EpochError) -> Self {
+        Error::Chain(err.into())
+    }
+}
+
 #[derive(Clone, Debug, serde::Serialize, PartialEq)]
 pub enum AccountOrPeerIdOrHash {
     AccountId(AccountId),
     PeerId(PeerId),
     Hash(CryptoHash),
+    ExternalStorage,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, serde::Serialize)]
 pub struct DownloadStatus {
     pub start_time: DateTime<Utc>,
     pub prev_update_time: DateTime<Utc>,
@@ -57,18 +62,39 @@ pub struct DownloadStatus {
     pub done: bool,
     pub state_requests_count: u64,
     pub last_target: Option<AccountOrPeerIdOrHash>,
+    #[serde(skip_serializing, skip_deserializing)]
+    pub response: Arc<Mutex<Option<Result<(u16, Vec<u8>), String>>>>,
+}
+
+impl DownloadStatus {
+    pub fn new(now: DateTime<Utc>) -> Self {
+        Self {
+            start_time: now,
+            prev_update_time: now,
+            run_me: Arc::new(AtomicBool::new(true)),
+            error: false,
+            done: false,
+            state_requests_count: 0,
+            last_target: None,
+            response: Arc::new(Mutex::new(None)),
+        }
+    }
 }
 
 impl Clone for DownloadStatus {
+    /// Clones an object, but it clones the value of `run_me` instead of the
+    /// `Arc` that wraps that value.
     fn clone(&self) -> Self {
         DownloadStatus {
             start_time: self.start_time,
             prev_update_time: self.prev_update_time,
+            // Creates a new `Arc` holding the same value.
             run_me: Arc::new(AtomicBool::new(self.run_me.load(Ordering::SeqCst))),
             error: self.error,
             done: self.done,
             state_requests_count: self.state_requests_count,
             last_target: self.last_target.clone(),
+            response: self.response.clone(),
         }
     }
 }
@@ -84,6 +110,21 @@ pub enum ShardSyncStatus {
     StateSplitScheduling,
     StateSplitApplying(Arc<StateSplitApplyingStatus>),
     StateSyncDone,
+}
+
+impl ShardSyncStatus {
+    pub fn repr(&self) -> u8 {
+        match self {
+            ShardSyncStatus::StateDownloadHeader => 0,
+            ShardSyncStatus::StateDownloadParts => 1,
+            ShardSyncStatus::StateDownloadScheduling => 2,
+            ShardSyncStatus::StateDownloadApplying => 3,
+            ShardSyncStatus::StateDownloadComplete => 4,
+            ShardSyncStatus::StateSplitScheduling => 5,
+            ShardSyncStatus::StateSplitApplying(_) => 6,
+            ShardSyncStatus::StateSyncDone => 7,
+        }
+    }
 }
 
 /// Manually implement compare for ShardSyncStatus to compare only based on variant name
@@ -150,10 +191,34 @@ impl StateSplitApplyingStatus {
     }
 }
 
+/// Stores status of shard sync and statuses of downloading shards.
 #[derive(Clone, Debug)]
 pub struct ShardSyncDownload {
+    /// Stores all download statuses. If we are downloading state parts, its length equals the number of state parts.
+    /// Otherwise it is 1, since we have only one piece of data to download, like shard state header.
     pub downloads: Vec<DownloadStatus>,
     pub status: ShardSyncStatus,
+}
+
+impl ShardSyncDownload {
+    /// Creates a instance of self which includes initial statuses for shard state header download at the given time.
+    pub fn new_download_state_header(now: DateTime<Utc>) -> Self {
+        Self {
+            downloads: vec![DownloadStatus::new(now)],
+            status: ShardSyncStatus::StateDownloadHeader,
+        }
+    }
+
+    /// Creates a instance of self which includes initial statuses for shard state parts download at the given time.
+    pub fn new_download_state_parts(now: DateTime<Utc>, num_parts: u64) -> Self {
+        // Avoid using `vec![x; num_parts]`, because each element needs to have
+        // its own independent value of `response`.
+        let mut downloads = Vec::with_capacity(num_parts as usize);
+        for _ in 0..num_parts {
+            downloads.push(DownloadStatus::new(now));
+        }
+        Self { downloads, status: ShardSyncStatus::StateDownloadParts }
+    }
 }
 
 /// Various status sync can be in, whether it's fast sync or archival.
@@ -584,6 +649,7 @@ pub struct NetworkInfoResponse {
 }
 
 /// Status of given transaction including all the subsequent receipts.
+#[derive(Debug)]
 pub struct TxStatus {
     pub tx_hash: CryptoHash,
     pub signer_account_id: AccountId,
@@ -914,6 +980,66 @@ impl From<near_chain_primitives::Error> for GetMaintenanceWindowsError {
             near_chain_primitives::Error::IOErr(error) => Self::IOError(error.to_string()),
             _ => Self::Unreachable(error.to_string()),
         }
+    }
+}
+
+pub struct GetClientConfig {}
+
+impl Message for GetClientConfig {
+    type Result = Result<ClientConfig, GetClientConfigError>;
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum GetClientConfigError {
+    #[error("IO Error: {0}")]
+    IOError(String),
+    // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
+    // expected cases, we cannot statically guarantee that no other errors will be returned
+    // in the future.
+    // TODO #3851: Remove this variant once we can exhaustively match all the underlying errors
+    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {0}")]
+    Unreachable(String),
+}
+
+impl From<near_chain_primitives::Error> for GetClientConfigError {
+    fn from(error: near_chain_primitives::Error) -> Self {
+        match error {
+            near_chain_primitives::Error::IOErr(error) => Self::IOError(error.to_string()),
+            _ => Self::Unreachable(error.to_string()),
+        }
+    }
+}
+
+pub struct GetSplitStorageInfo {}
+
+impl Message for GetSplitStorageInfo {
+    type Result = Result<SplitStorageInfoView, GetSplitStorageInfoError>;
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum GetSplitStorageInfoError {
+    #[error("IO Error: {0}")]
+    IOError(String),
+    // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
+    // expected cases, we cannot statically guarantee that no other errors will be returned
+    // in the future.
+    // TODO #3851: Remove this variant once we can exhaustively match all the underlying errors
+    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {0}")]
+    Unreachable(String),
+}
+
+impl From<near_chain_primitives::Error> for GetSplitStorageInfoError {
+    fn from(error: near_chain_primitives::Error) -> Self {
+        match error {
+            near_chain_primitives::Error::IOErr(error) => Self::IOError(error.to_string()),
+            _ => Self::Unreachable(error.to_string()),
+        }
+    }
+}
+
+impl From<std::io::Error> for GetSplitStorageInfoError {
+    fn from(error: std::io::Error) -> Self {
+        Self::IOError(error.to_string())
     }
 }
 

@@ -1,11 +1,15 @@
-use std::fs;
+use std::{fs, io};
 
 use cargo_metadata::{camino::Utf8PathBuf, CargoOpt, MetadataCommand};
 
 use super::types::{Package, Workspace};
 
-pub fn read_toml(path: &Utf8PathBuf) -> anyhow::Result<toml::Value> {
-    Ok(toml::from_slice(&fs::read(path)?)?)
+pub fn read_toml(path: &Utf8PathBuf) -> anyhow::Result<Option<toml::Value>> {
+    match fs::read(path) {
+        Ok(p) => Ok(Some(toml::from_slice(&p)?)),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e.into()),
+    }
 }
 
 pub fn parse_workspace() -> anyhow::Result<Workspace> {
@@ -22,12 +26,17 @@ pub fn parse_workspace() -> anyhow::Result<Workspace> {
         .cloned()
         .filter(|package| metadata.workspace_members.contains(&package.id))
         .map(|package| {
-            let raw = read_toml(&package.manifest_path)?;
+            let raw = match read_toml(&package.manifest_path)? {
+                Some(raw) => raw,
+                None => anyhow::bail!("package manifest `{}` not found", package.name),
+            };
             Ok(Package { parsed: package, raw })
         })
         .collect::<anyhow::Result<_>>()?;
-    let raw = read_toml(&metadata.workspace_root.join("Cargo.toml"))?;
-
+    let raw = match read_toml(&metadata.workspace_root.join("Cargo.toml"))? {
+        Some(raw) => raw,
+        None => anyhow::bail!("workspace manifest not found"),
+    };
     Ok(Workspace { root: metadata.workspace_root, members, raw })
 }
 

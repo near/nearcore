@@ -16,6 +16,9 @@ import utils
 MAX_SYNC_WAIT = 30
 EPOCH_LENGTH = 20
 
+node0_config = {
+    "state_sync_enabled": True,
+}
 node1_config = {
     "consensus": {
         "sync_step_period": {
@@ -23,12 +26,16 @@ node1_config = {
             "nanos": 200000000
         }
     },
-    "tracked_shards": [0]
+    "tracked_shards": [0],
+    "state_sync_enabled": True,
 }
 nodes = start_cluster(
     1, 1, 1, None,
     [["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 10],
-     ["chunk_producer_kickout_threshold", 10]], {1: node1_config})
+     ["chunk_producer_kickout_threshold", 10]], {
+         0: node0_config,
+         1: node1_config,
+     })
 time.sleep(2)
 nodes[1].kill()
 logger.info('node1 is killed')

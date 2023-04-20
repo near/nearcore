@@ -1,5 +1,5 @@
-use crate::time;
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_async::time;
 use near_crypto::{KeyType, SecretKey, Signature};
 use near_primitives::borsh::maybestd::sync::Arc;
 use near_primitives::hash::CryptoHash;

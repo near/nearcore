@@ -23,8 +23,28 @@ pub(crate) static CHUNK_PRODUCED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
 });
 
 pub(crate) static IS_VALIDATOR: Lazy<IntGauge> = Lazy::new(|| {
-    try_create_int_gauge("near_is_validator", "Bool to denote if it is currently validating")
-        .unwrap()
+    try_create_int_gauge(
+        "near_is_validator",
+        "Bool to denote if it is validating in the current epoch",
+    )
+    .unwrap()
+});
+
+pub(crate) static IS_BLOCK_PRODUCER: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge(
+        "near_is_block_producer",
+        "Bool to denote if the node is a block producer in the current epoch",
+    )
+    .unwrap()
+});
+
+pub(crate) static IS_CHUNK_PRODUCER_FOR_SHARD: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_is_chunk_producer_for_shard",
+        "Bool to denote if the node is a chunk producer for a shard in the current epoch",
+        &["shard_id"],
+    )
+    .unwrap()
 });
 
 pub(crate) static RECEIVED_BYTES_PER_SECOND: Lazy<IntGauge> = Lazy::new(|| {
@@ -43,20 +63,6 @@ pub(crate) static SENT_BYTES_PER_SECOND: Lazy<IntGauge> = Lazy::new(|| {
     .unwrap()
 });
 
-// Deprecated.
-pub(crate) static BLOCKS_PER_MINUTE: Lazy<IntGauge> = Lazy::new(|| {
-    try_create_int_gauge("near_blocks_per_minute", "Blocks produced per minute").unwrap()
-});
-
-// Deprecated.
-pub(crate) static CHUNKS_PER_BLOCK_MILLIS: Lazy<IntGauge> = Lazy::new(|| {
-    try_create_int_gauge(
-        "near_chunks_per_block_millis",
-        "Average number of chunks included in blocks",
-    )
-    .unwrap()
-});
-
 pub(crate) static CPU_USAGE: Lazy<IntGauge> =
     Lazy::new(|| try_create_int_gauge("near_cpu_usage_ratio", "Percent of CPU usage").unwrap());
 
@@ -66,15 +72,6 @@ pub(crate) static MEMORY_USAGE: Lazy<IntGauge> = Lazy::new(|| {
 
 pub(crate) static GC_TIME: Lazy<Histogram> = Lazy::new(|| {
     try_create_histogram("near_gc_time", "Time taken to do garbage collection").unwrap()
-});
-
-// Deprecated.
-pub(crate) static AVG_TGAS_USAGE: Lazy<IntGauge> = Lazy::new(|| {
-    try_create_int_gauge(
-        "near_chunk_tgas_used",
-        "Number of Tgas (10^12 of gas) used by the last processed chunks",
-    )
-    .unwrap()
 });
 
 pub(crate) static TGAS_USAGE_HIST: Lazy<HistogramVec> = Lazy::new(|| {
@@ -126,12 +123,24 @@ pub(crate) static VALIDATORS_BLOCKS_EXPECTED: Lazy<IntGaugeVec> = Lazy::new(|| {
     .unwrap()
 });
 
+pub(crate) static TRACKED_SHARDS: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec("near_client_tracked_shards", "Tracked shards", &["shard_id"]).unwrap()
+});
+
 pub(crate) static SYNC_STATUS: Lazy<IntGauge> =
     Lazy::new(|| try_create_int_gauge("near_sync_status", "Node sync status").unwrap());
 
 pub(crate) static EPOCH_HEIGHT: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge("near_epoch_height", "Height of the epoch at the head of the blockchain")
         .unwrap()
+});
+
+pub(crate) static FINAL_BLOCK_HEIGHT_IN_EPOCH: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge(
+        "near_final_block_height_in_epoch",
+        "Height of the last block within the epoch.",
+    )
+    .unwrap()
 });
 
 pub(crate) static PROTOCOL_UPGRADE_BLOCK_HEIGHT: Lazy<IntGauge> = Lazy::new(|| {
@@ -173,14 +182,6 @@ pub(crate) static CHUNK_DROPPED_BECAUSE_OF_BANNED_CHUNK_PRODUCER: Lazy<IntCounte
         )
         .unwrap()
     });
-
-pub(crate) static PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY: Lazy<Histogram> = Lazy::new(|| {
-    try_create_histogram(
-        "near_partial_encoded_chunk_response_delay",
-        "Delay between when a partial encoded chunk response is sent from PeerActor and when it is received by ClientActor",
-    )
-        .unwrap()
-});
 
 pub(crate) static CLIENT_MESSAGES_COUNT: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
@@ -353,3 +354,100 @@ pub(crate) fn export_version(neard_version: &near_primitives::version::Version) 
         ])
         .inc();
 }
+
+pub static STATE_SYNC_STAGE: Lazy<near_o11y::metrics::IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_state_sync_stage",
+        "Stage of state sync per shard",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
+pub static STATE_SYNC_RETRY_PART: Lazy<near_o11y::metrics::IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_state_sync_retry_part_total",
+        "Number of part requests retried",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
+pub static STATE_SYNC_PARTS_DONE: Lazy<near_o11y::metrics::IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_state_sync_parts_done",
+        "Number of parts downloaded",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
+pub static STATE_SYNC_PARTS_TOTAL: Lazy<near_o11y::metrics::IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_state_sync_parts_per_shard",
+        "Number of parts that need to be downloaded for the shard",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
+pub static STATE_SYNC_DISCARD_PARTS: Lazy<near_o11y::metrics::IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_state_sync_discard_parts_total",
+        "Number of times all downloaded parts were discarded to try again",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
+pub static STATE_SYNC_EXTERNAL_PARTS_DONE: Lazy<near_o11y::metrics::IntCounterVec> =
+    Lazy::new(|| {
+        try_create_int_counter_vec(
+            "near_state_sync_external_parts_done_total",
+            "Number of parts successfully retrieved from an external storage",
+            &["shard_id"],
+        )
+        .unwrap()
+    });
+
+pub static STATE_SYNC_EXTERNAL_PARTS_FAILED: Lazy<near_o11y::metrics::IntCounterVec> =
+    Lazy::new(|| {
+        try_create_int_counter_vec(
+            "near_state_sync_external_parts_failed_total",
+            "Number of parts failed attempts to retrieve parts from an external storage",
+            &["shard_id"],
+        )
+        .unwrap()
+    });
+
+pub static STATE_SYNC_EXTERNAL_PARTS_SCHEDULING_DELAY: Lazy<near_o11y::metrics::HistogramVec> =
+    Lazy::new(|| {
+        try_create_histogram_vec(
+            "near_state_sync_external_parts_scheduling_delay_sec",
+            "Delay for a request for parts from an external storage",
+            &["shard_id"],
+            Some(exponential_buckets(0.001, 2.0, 20).unwrap()),
+        )
+        .unwrap()
+    });
+
+pub static STATE_SYNC_EXTERNAL_PARTS_REQUEST_DELAY: Lazy<near_o11y::metrics::HistogramVec> =
+    Lazy::new(|| {
+        try_create_histogram_vec(
+            "near_state_sync_external_parts_request_delay_sec",
+            "Latency of state part requests to external storage",
+            &["shard_id"],
+            Some(exponential_buckets(0.001, 2.0, 20).unwrap()),
+        )
+        .unwrap()
+    });
+
+pub static STATE_SYNC_EXTERNAL_PARTS_SIZE_DOWNLOADED: Lazy<near_o11y::metrics::IntCounterVec> =
+    Lazy::new(|| {
+        try_create_int_counter_vec(
+            "near_state_sync_external_parts_size_downloaded_bytes_total",
+            "Amount of bytes downloaded from an external storage when requesting state parts for a shard",
+            &["shard_id"],
+        )
+            .unwrap()
+    });

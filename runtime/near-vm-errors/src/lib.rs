@@ -1,9 +1,7 @@
 #![doc = include_str!("../README.md")]
-
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_account_id::AccountId;
 use near_rpc_error_macro::RpcError;
-use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::fmt::{self, Error, Formatter};
 use std::io;
@@ -61,7 +59,16 @@ pub enum FunctionCallError {
 /// Serializable version of `FunctionCallError`. Must never reorder/remove elements, can only
 /// add new variants at the end (but do that very carefully).
 /// It describes stable serialization format, and only used by serialization logic.
-#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Serialize, Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    BorshDeserialize,
+    BorshSerialize,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub enum FunctionCallErrorSer {
     /// Wasm compilation error
     CompilationError(CompilationError),
@@ -105,9 +112,9 @@ pub enum CacheError {
     Eq,
     BorshDeserialize,
     BorshSerialize,
-    Deserialize,
-    Serialize,
     RpcError,
+    serde::Deserialize,
+    serde::Serialize,
     strum::IntoStaticStr,
 )]
 pub enum WasmTrap {
@@ -138,9 +145,9 @@ pub enum WasmTrap {
     Eq,
     BorshDeserialize,
     BorshSerialize,
-    Deserialize,
-    Serialize,
     RpcError,
+    serde::Deserialize,
+    serde::Serialize,
     strum::IntoStaticStr,
 )]
 pub enum MethodResolveError {
@@ -156,9 +163,9 @@ pub enum MethodResolveError {
     Eq,
     BorshDeserialize,
     BorshSerialize,
-    Deserialize,
-    Serialize,
     RpcError,
+    serde::Deserialize,
+    serde::Serialize,
     strum::IntoStaticStr,
 )]
 pub enum CompilationError {
@@ -175,7 +182,15 @@ pub enum CompilationError {
 }
 
 #[derive(
-    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    BorshDeserialize,
+    BorshSerialize,
+    RpcError,
+    serde::Deserialize,
+    serde::Serialize,
 )]
 /// Error that can occur while preparing or executing Wasm smart-contract.
 pub enum PrepareError {
@@ -213,9 +228,9 @@ pub enum PrepareError {
     Eq,
     BorshDeserialize,
     BorshSerialize,
-    Deserialize,
-    Serialize,
     RpcError,
+    serde::Deserialize,
+    serde::Serialize,
     strum::IntoStaticStr,
 )]
 pub enum HostError {
@@ -289,7 +304,7 @@ pub enum HostError {
     Ed25519VerifyInvalidInput { msg: String },
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum VMLogicError {
     /// Errors coming from native Wasm VM.
     HostError(HostError),
@@ -505,14 +520,18 @@ pub struct AnyError {
     any: Box<dyn AnyEq>,
 }
 
+#[derive(Debug, thiserror::Error)]
+#[error("failed to downcast")]
+pub struct DowncastFailedError;
+
 impl AnyError {
     pub fn new<E: Any + Eq + Send + Sync + 'static>(err: E) -> AnyError {
         AnyError { any: Box::new(err) }
     }
-    pub fn downcast<E: Any + Eq + Send + Sync + 'static>(self) -> Result<E, ()> {
+    pub fn downcast<E: Any + Eq + Send + Sync + 'static>(self) -> Result<E, DowncastFailedError> {
         match self.any.into_any().downcast::<E>() {
             Ok(it) => Ok(*it),
-            Err(_) => Err(()),
+            Err(_) => Err(DowncastFailedError),
         }
     }
 }
@@ -545,7 +564,7 @@ impl<T: Any + Eq + Sized + Send + Sync> AnyEq for T {
         }
     }
     fn as_any(&self) -> &dyn Any {
-        &*self
+        self
     }
     fn into_any(self: Box<Self>) -> Box<dyn Any> {
         self

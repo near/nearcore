@@ -1,5 +1,4 @@
 use rand_core::{OsRng, RngCore};
-use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
@@ -8,7 +7,7 @@ use std::str::FromStr;
 pub const SECRET_LEN: usize = 64;
 struct KeyMapSecret([u8; SECRET_LEN]);
 
-#[derive(Serialize, Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize)]
 struct MirrorSecretConfig {
     pub key_map_secret: Option<KeyMapSecret>,
 }

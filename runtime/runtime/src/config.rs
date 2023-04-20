@@ -8,13 +8,13 @@ use num_traits::pow::Pow;
 use near_primitives::account::AccessKeyPermission;
 use near_primitives::errors::IntegerOverflowError;
 // Just re-exporting RuntimeConfig for backwards compatibility.
-pub use near_primitives::num_rational::Rational;
+pub use near_primitives::num_rational::Rational32;
 pub use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::runtime::fees::{transfer_exec_fee, transfer_send_fee, RuntimeFeesConfig};
 use near_primitives::transaction::{
     Action, AddKeyAction, DeployContractAction, FunctionCallAction, Transaction,
 };
-use near_primitives::types::{AccountId, Balance, Gas};
+use near_primitives::types::{AccountId, Balance, Compute, Gas};
 use near_primitives::version::{is_implicit_account_creation_enabled, ProtocolVersion};
 
 /// Describes the cost of converting this transaction into a receipt.
@@ -37,7 +37,7 @@ pub struct TransactionCost {
 /// Multiplies `gas_price` by the power of `inflation_base` with exponent `inflation_exponent`.
 pub fn safe_gas_price_inflated(
     gas_price: Balance,
-    inflation_base: Rational,
+    inflation_base: Rational32,
     inflation_exponent: u8,
 ) -> Result<Balance, IntegerOverflowError> {
     let numer = BigUint::from(*inflation_base.numer() as usize).pow(inflation_exponent as u32);
@@ -56,6 +56,10 @@ pub fn safe_add_gas(a: Gas, b: Gas) -> Result<Gas, IntegerOverflowError> {
 }
 
 pub fn safe_add_balance(a: Balance, b: Balance) -> Result<Balance, IntegerOverflowError> {
+    a.checked_add(b).ok_or_else(|| IntegerOverflowError {})
+}
+
+pub fn safe_add_compute(a: Compute, b: Compute) -> Result<Compute, IntegerOverflowError> {
     a.checked_add(b).ok_or_else(|| IntegerOverflowError {})
 }
 
@@ -125,6 +129,53 @@ pub fn total_send_fees(
             DeleteAccount(_) => {
                 config.fee(ActionCosts::delete_account).send_fee(sender_is_receiver)
             }
+            Delegate(signed_delegate_action) => {
+                let delegate_cost = config.fee(ActionCosts::delegate).send_fee(sender_is_receiver);
+                let delegate_action = &signed_delegate_action.delegate_action;
+
+                delegate_cost
+                    + total_send_fees(
+                        config,
+                        sender_is_receiver,
+                        &delegate_action.get_actions(),
+                        &delegate_action.receiver_id,
+                        current_protocol_version,
+                    )?
+            }
+        };
+        result = safe_add_gas(result, delta)?;
+    }
+    Ok(result)
+}
+
+/// Total sum of gas that needs to be burnt to send the inner actions of DelegateAction
+///
+/// This is only relevant for DelegateAction, where the send fees of the inner actions
+/// need to be prepaid. All other actions burn send fees directly, so calling this function
+/// with other actions will return 0.
+pub fn total_prepaid_send_fees(
+    config: &RuntimeFeesConfig,
+    actions: &[Action],
+    current_protocol_version: ProtocolVersion,
+) -> Result<Gas, IntegerOverflowError> {
+    let mut result = 0;
+
+    for action in actions {
+        use Action::*;
+        let delta = match action {
+            Delegate(signed_delegate_action) => {
+                let delegate_action = &signed_delegate_action.delegate_action;
+                let sender_is_receiver = delegate_action.sender_id == delegate_action.receiver_id;
+
+                total_send_fees(
+                    config,
+                    sender_is_receiver,
+                    &delegate_action.get_actions(),
+                    &delegate_action.receiver_id,
+                    current_protocol_version,
+                )?
+            }
+            _ => 0,
         };
         result = safe_add_gas(result, delta)?;
     }
@@ -176,6 +227,7 @@ pub fn exec_fee(
         },
         DeleteKey(_) => config.fee(ActionCosts::delete_key).exec_fee(),
         DeleteAccount(_) => config.fee(ActionCosts::delete_account).exec_fee(),
+        Delegate(_) => config.fee(ActionCosts::delegate).exec_fee(),
     }
 }
 
@@ -199,7 +251,10 @@ pub fn tx_cost(
             current_protocol_version,
         )?,
     )?;
-    let prepaid_gas = total_prepaid_gas(&transaction.actions)?;
+    let prepaid_gas = safe_add_gas(
+        total_prepaid_gas(&transaction.actions)?,
+        total_prepaid_send_fees(config, &transaction.actions, current_protocol_version)?,
+    )?;
     // If signer is equals to receiver the receipt will be processed at the same block as this
     // transaction. Otherwise it will processed in the next block and the gas might be inflated.
     let initial_receipt_hop = if transaction.signer_id == transaction.receiver_id { 0 } else { 1 };
@@ -246,7 +301,30 @@ pub fn total_prepaid_exec_fees(
 ) -> Result<Gas, IntegerOverflowError> {
     let mut result = 0;
     for action in actions {
-        let delta = exec_fee(config, action, receiver_id, current_protocol_version);
+        let mut delta;
+        // In case of Action::Delegate it's needed to add Gas which is required for the inner actions.
+        if let Action::Delegate(signed_delegate_action) = action {
+            let actions = signed_delegate_action.delegate_action.get_actions();
+            delta = total_prepaid_exec_fees(
+                config,
+                &actions,
+                &signed_delegate_action.delegate_action.receiver_id,
+                current_protocol_version,
+            )?;
+            delta = safe_add_gas(
+                delta,
+                exec_fee(
+                    config,
+                    action,
+                    &signed_delegate_action.delegate_action.receiver_id,
+                    current_protocol_version,
+                ),
+            )?;
+            delta = safe_add_gas(delta, config.fee(ActionCosts::new_action_receipt).exec_fee())?;
+        } else {
+            delta = exec_fee(config, action, receiver_id, current_protocol_version);
+        }
+
         result = safe_add_gas(result, delta)?;
     }
     Ok(result)
@@ -255,14 +333,36 @@ pub fn total_prepaid_exec_fees(
 pub fn total_deposit(actions: &[Action]) -> Result<Balance, IntegerOverflowError> {
     let mut total_balance: Balance = 0;
     for action in actions {
-        total_balance = safe_add_balance(total_balance, action.get_deposit_balance())?;
+        let action_balance;
+        if let Action::Delegate(signed_delegate_action) = action {
+            // Note, here Relayer pays the deposit but if actions fail, the deposit is
+            // refunded to Sender of DelegateAction
+            let actions = signed_delegate_action.delegate_action.get_actions();
+            action_balance = total_deposit(&actions)?;
+        } else {
+            action_balance = action.get_deposit_balance();
+        }
+
+        total_balance = safe_add_balance(total_balance, action_balance)?;
     }
     Ok(total_balance)
 }
 
 /// Get the total sum of prepaid gas for given actions.
 pub fn total_prepaid_gas(actions: &[Action]) -> Result<Gas, IntegerOverflowError> {
-    actions.iter().try_fold(0, |acc, action| safe_add_gas(acc, action.get_prepaid_gas()))
+    let mut total_gas: Gas = 0;
+    for action in actions {
+        let action_gas;
+        if let Action::Delegate(signed_delegate_action) = action {
+            let actions = signed_delegate_action.delegate_action.get_actions();
+            action_gas = total_prepaid_gas(&actions)?;
+        } else {
+            action_gas = action.get_prepaid_gas();
+        }
+
+        total_gas = safe_add_gas(total_gas, action_gas)?;
+    }
+    Ok(total_gas)
 }
 
 #[cfg(test)]
@@ -271,10 +371,10 @@ mod tests {
 
     #[test]
     fn test_safe_gas_price_inflated() {
-        assert_eq!(safe_gas_price_inflated(10000, Rational::new(101, 100), 1).unwrap(), 10100);
-        assert_eq!(safe_gas_price_inflated(10000, Rational::new(101, 100), 2).unwrap(), 10201);
+        assert_eq!(safe_gas_price_inflated(10000, Rational32::new(101, 100), 1).unwrap(), 10100);
+        assert_eq!(safe_gas_price_inflated(10000, Rational32::new(101, 100), 2).unwrap(), 10201);
         // Rounded up
-        assert_eq!(safe_gas_price_inflated(10000, Rational::new(101, 100), 3).unwrap(), 10304);
-        assert_eq!(safe_gas_price_inflated(10000, Rational::new(101, 100), 32).unwrap(), 13750);
+        assert_eq!(safe_gas_price_inflated(10000, Rational32::new(101, 100), 3).unwrap(), 10304);
+        assert_eq!(safe_gas_price_inflated(10000, Rational32::new(101, 100), 32).unwrap(), 13750);
     }
 }

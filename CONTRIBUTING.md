@@ -117,6 +117,10 @@ who belongs either to the super owners or the normal owners group.
 well.  They will review your tests, and make sure that they can convince
 themselves the test coverage is adequate before they even look into the
 change, so make sure you tested all the corner cases.
+- it is normal to sometimes require multiple rounds of reviews to get a PR
+  merged.  If your PR received some feedback from a reviewer, use the [github
+  UI](https://stackoverflow.com/questions/40893008/how-to-resume-review-process-after-updating-pull-request-at-github)
+  to re-request a review.
 
 The author is also free to directly request reviews from specific persons
 [through the github
@@ -124,8 +128,11 @@ ui](https://docs.github.com/en/github/collaborating-with-pull-requests/proposing
 In this case, the automatically selected super owner will ensure that the
 selected reviewer is sufficient or additional reviewers are needed.
 
-If you are interested in becoming a code reviewer, please get in touch with us
-on zulip.
+The process for becoming a code reviewer is relatively straightforward.
+The candidate should have a good understanding of the codebase and then
+the existing super owners will discuss and approve the addition.  These
+discussions take place on zulip so if you are interested in becoming a
+code reviewer, please reach out to us there.
 
 ## Release Schedule
 

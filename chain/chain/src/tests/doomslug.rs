@@ -1,5 +1,5 @@
+use near_primitives::static_clock::StaticClock;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::time::Clock;
 use rand::{thread_rng, Rng};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -65,7 +65,7 @@ fn one_iter(
         })
         .collect::<Vec<_>>();
 
-    let mut now = Clock::instant();
+    let mut now = StaticClock::instant();
     let started = now;
 
     let gst = now + time_to_gst;
@@ -222,7 +222,7 @@ fn one_iter(
 
                         if is_final && target_height != 2 {
                             blocks_with_finality.push((
-                                hash_to_prev_hash.get(&parent_hash).unwrap().clone(),
+                                *hash_to_prev_hash.get(&parent_hash).unwrap(),
                                 target_height - 2,
                             ));
                         }
@@ -274,7 +274,7 @@ fn one_iter(
     // doomslug final blocks
     for (block_hash, (block_height, _, _)) in hash_to_block_info.iter() {
         let mut seen_hashes = HashSet::new();
-        let mut block_hash = block_hash.clone();
+        let mut block_hash = *block_hash;
         seen_hashes.insert(block_hash);
 
         loop {

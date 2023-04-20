@@ -1,8 +1,6 @@
 import atexit
 import base64
-import collections
 import json
-import multiprocessing
 import os
 import pathlib
 import rc
@@ -435,7 +433,11 @@ class LocalNode(BaseNode):
             logger.info(f'=== stdout: available at {stdout}')
             logger.info(f'=== stderr: available at {stderr}')
 
-    def start(self, *, boot_node: BootNode = None, skip_starting_proxy=False):
+    def start(self,
+              *,
+              boot_node: BootNode = None,
+              skip_starting_proxy=False,
+              extra_env: typing.Dict[str, str] = dict()):
         if self._proxy_local_stopped is not None:
             while self._proxy_local_stopped.value != 2:
                 logger.info(f'Waiting for previous proxy instance to close')
@@ -445,9 +447,14 @@ class LocalNode(BaseNode):
         env["RUST_BACKTRACE"] = "1"
         env["RUST_LOG"] = "actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn," + env.get(
             "RUST_LOG", "debug")
+        env.update(extra_env)
 
-        cmd = self._get_command_line(self.near_root, self.node_dir, boot_node,
-                                     self.binary_name)
+        cmd = self._get_command_line(
+            self.near_root,
+            self.node_dir,
+            boot_node,
+            self.binary_name,
+        )
         node_dir = pathlib.Path(self.node_dir)
         self.stdout_name = node_dir / 'stdout'
         self.stderr_name = node_dir / 'stderr'
@@ -595,9 +602,16 @@ chmod +x neard
     def rpc_addr(self):
         return (self.ip, self.rpc_port)
 
-    def start(self, *, boot_node: BootNode = None):
+    def start(self,
+              *,
+              boot_node: BootNode = None,
+              extra_env: typing.Dict[str, str] = dict()):
+        if "RUST_BACKTRACE" not in extra_env:
+            extra_env["RUST_BACKTRACE"] = "1"
+        extra_env = [f"{k}={v}" for (k, v) in extra_env]
+        extra_env = " ".join(extra_env)
         self.machine.run_detach_tmux(
-            "RUST_BACKTRACE=1 " +
+            extra_env +
             " ".join(self._get_command_line('.', '.near', boot_node)))
         self.wait_for_rpc(timeout=30)
 
@@ -700,14 +714,23 @@ def spin_up_node(config,
     return node
 
 
-def init_cluster(num_nodes, num_observers, num_shards, config,
-                 genesis_config_changes, client_config_changes):
+def init_cluster(num_nodes,
+                 num_observers,
+                 num_shards,
+                 config,
+                 genesis_config_changes,
+                 client_config_changes,
+                 prefix="test"):
     """
     Create cluster configuration
     """
     if 'local' not in config and 'nodes' in config:
         logger.critical(
             "Attempt to launch a regular test with a mocknet config")
+        sys.exit(1)
+
+    if not prefix.startswith("test"):
+        logger.critical(f"The prefix must begin with 'test'. prefix = {prefix}")
         sys.exit(1)
 
     is_local = config['local']
@@ -717,14 +740,25 @@ def init_cluster(num_nodes, num_observers, num_shards, config,
     logger.info("Creating %s cluster configuration with %s nodes" %
                 ("LOCAL" if is_local else "REMOTE", num_nodes + num_observers))
 
-    process = subprocess.Popen([
-        os.path.join(near_root, binary_name), "localnet", "--v",
-        str(num_nodes), "--shards",
-        str(num_shards), "--n",
-        str(num_observers), "--prefix", "test"
-    ],
-                               stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE)
+    binary_path = os.path.join(near_root, binary_name)
+    process = subprocess.Popen(
+        [
+            binary_path,
+            "localnet",
+            "--validators",
+            str(num_nodes),
+            "--non-validators",
+            str(num_observers),
+            "--shards",
+            str(num_shards),
+            "--tracked-shards",
+            "none",
+            "--prefix",
+            prefix,
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
     out, err = process.communicate()
     assert 0 == process.returncode, err
 
@@ -773,7 +807,14 @@ def apply_config_changes(node_dir, client_config_change):
     # ClientConfig keys which are valid but may be missing from the config.json
     # file.  Those are often Option<T> types which are not stored in JSON file
     # when None.
-    allowed_missing_configs = ('archive', 'max_gas_burnt_view', 'rosetta_rpc')
+    allowed_missing_configs = (
+        'archive',
+        'max_gas_burnt_view',
+        'rosetta_rpc',
+        'save_trie_changes',
+        'state_sync_enabled',
+        'split_storage',
+    )
 
     for k, v in client_config_change.items():
         if not (k in allowed_missing_configs or k in config_json):
@@ -783,6 +824,18 @@ def apply_config_changes(node_dir, client_config_change):
         else:
             config_json[k] = v
 
+    with open(fname, 'w') as fd:
+        json.dump(config_json, fd, indent=2)
+
+
+def get_config_json(node_dir):
+    fname = os.path.join(node_dir, 'config.json')
+    with open(fname) as fd:
+        return json.load(fd)
+
+
+def set_config_json(node_dir, config_json):
+    fname = os.path.join(node_dir, 'config.json')
     with open(fname, 'w') as fd:
         json.dump(config_json, fd, indent=2)
 
@@ -847,9 +900,17 @@ def start_cluster(num_nodes,
 
 
 ROOT_DIR = pathlib.Path(__file__).resolve().parents[2]
+
+
+def get_near_root():
+    cargo_target_dir = os.environ.get('CARGO_TARGET_DIR', 'target')
+    default_root = (ROOT_DIR / cargo_target_dir / 'debug').resolve()
+    return os.environ.get('NEAR_ROOT', str(default_root))
+
+
 DEFAULT_CONFIG = {
     'local': True,
-    'near_root': os.environ.get('NEAR_ROOT', str(ROOT_DIR / 'target/debug')),
+    'near_root': get_near_root(),
     'binary_name': 'neard',
     'release': False,
 }

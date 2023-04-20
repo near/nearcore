@@ -11,7 +11,7 @@ use crate::private_actix::RegisterPeerError;
 use crate::tcp;
 use crate::testonly::make_rng;
 use crate::testonly::stream::Stream;
-use crate::time;
+use near_async::time;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::version::PROTOCOL_VERSION;
 use std::sync::Arc;

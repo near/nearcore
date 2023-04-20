@@ -1,6 +1,10 @@
+use crate::rocksdb_metrics::export_stats_as_metrics;
+use crate::{NodeStorage, Store, Temperature};
+use actix_rt::ArbiterHandle;
 use near_o11y::metrics::{
-    try_create_histogram_vec, try_create_int_counter_vec, try_create_int_gauge_vec, HistogramVec,
-    IntCounterVec, IntGaugeVec,
+    try_create_histogram, try_create_histogram_vec, try_create_int_counter_vec,
+    try_create_int_gauge, try_create_int_gauge_vec, Histogram, HistogramVec, IntCounterVec,
+    IntGauge, IntGaugeVec,
 };
 use once_cell::sync::Lazy;
 
@@ -181,6 +185,14 @@ pub static PREFETCH_MEMORY_LIMIT_REACHED: Lazy<IntCounterVec> = Lazy::new(|| {
     )
     .unwrap()
 });
+pub static PREFETCH_CONFLICT: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_prefetch_conflict",
+        "Main thread retrieved value from shard_cache after a conflict with another main thread from a fork.",
+        &["shard_id"],
+    )
+    .unwrap()
+});
 pub static PREFETCH_RETRY: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_prefetch_retries",
@@ -205,7 +217,6 @@ pub static PREFETCH_STAGED_SLOTS: Lazy<IntGaugeVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-#[cfg(feature = "cold_store")]
 pub static COLD_MIGRATION_READS: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_cold_migration_reads",
@@ -214,3 +225,232 @@ pub static COLD_MIGRATION_READS: Lazy<IntCounterVec> = Lazy::new(|| {
     )
     .unwrap()
 });
+pub static COLD_HEAD_HEIGHT: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge("near_cold_head_height", "Height of the head of cold storage").unwrap()
+});
+pub static COLD_COPY_DURATION: Lazy<Histogram> = Lazy::new(|| {
+    try_create_histogram(
+        "near_cold_copy_duration",
+        "Time it takes to copy one height to cold storage",
+    )
+    .unwrap()
+});
+
+pub mod flat_state_metrics {
+    use super::*;
+
+    pub static FLAT_STORAGE_CREATION_STATUS: Lazy<IntGaugeVec> = Lazy::new(|| {
+        try_create_int_gauge_vec(
+            "flat_storage_creation_status",
+            "Integer representing status of flat storage creation",
+            &["shard_id"],
+        )
+        .unwrap()
+    });
+    pub static FLAT_STORAGE_CREATION_REMAINING_STATE_PARTS: Lazy<IntGaugeVec> = Lazy::new(|| {
+        try_create_int_gauge_vec(
+            "flat_storage_creation_remaining_state_parts",
+            "Number of remaining state parts to fetch to fill flat storage in bytes",
+            &["shard_id"],
+        )
+        .unwrap()
+    });
+    pub static FLAT_STORAGE_CREATION_FETCHED_STATE_PARTS: Lazy<IntCounterVec> = Lazy::new(|| {
+        try_create_int_counter_vec(
+            "flat_storage_creation_fetched_state_parts",
+            "Number of fetched state parts to fill flat storage in bytes",
+            &["shard_id"],
+        )
+        .unwrap()
+    });
+    pub static FLAT_STORAGE_CREATION_FETCHED_STATE_ITEMS: Lazy<IntCounterVec> = Lazy::new(|| {
+        try_create_int_counter_vec(
+            "flat_storage_creation_fetched_state_items",
+            "Number of fetched items to fill flat storage",
+            &["shard_id"],
+        )
+        .unwrap()
+    });
+    pub static FLAT_STORAGE_CREATION_THREADS_USED: Lazy<IntGaugeVec> = Lazy::new(|| {
+        try_create_int_gauge_vec(
+            "flat_storage_creation_threads_used",
+            "Number of currently used threads to fetch state",
+            &["shard_id"],
+        )
+        .unwrap()
+    });
+    pub static FLAT_STORAGE_HEAD_HEIGHT: Lazy<IntGaugeVec> = Lazy::new(|| {
+        try_create_int_gauge_vec(
+            "flat_storage_head_height",
+            "Height of flat storage head",
+            &["shard_id"],
+        )
+        .unwrap()
+    });
+    pub static FLAT_STORAGE_CACHED_DELTAS: Lazy<IntGaugeVec> = Lazy::new(|| {
+        try_create_int_gauge_vec(
+            "flat_storage_cached_deltas",
+            "Number of cached deltas in flat storage",
+            &["shard_id"],
+        )
+        .unwrap()
+    });
+    pub static FLAT_STORAGE_CACHED_CHANGES_NUM_ITEMS: Lazy<IntGaugeVec> = Lazy::new(|| {
+        try_create_int_gauge_vec(
+            "flat_storage_cached_changes_num_items",
+            "Number of items in all cached changes in flat storage",
+            &["shard_id"],
+        )
+        .unwrap()
+    });
+    pub static FLAT_STORAGE_CACHED_CHANGES_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
+        try_create_int_gauge_vec(
+            "flat_storage_cached_changes_size",
+            "Total size of cached changes in flat storage",
+            &["shard_id"],
+        )
+        .unwrap()
+    });
+    pub static FLAT_STORAGE_DISTANCE_TO_HEAD: Lazy<IntGaugeVec> = Lazy::new(|| {
+        try_create_int_gauge_vec(
+            "flat_storage_distance_to_head",
+            "Distance between processed block and flat storage head",
+            &["shard_id"],
+        )
+        .unwrap()
+    });
+}
+pub static COLD_STORE_MIGRATION_BATCH_WRITE_COUNT: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_cold_migration_initial_writes",
+        "Number of write calls to cold store made for every column during initial population of cold storage.",
+        &["col"],
+    )
+    .unwrap()
+});
+pub static COLD_STORE_MIGRATION_BATCH_WRITE_TIME: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_cold_migration_initial_writes_time",
+        "Time spent on writing initial migration batches by column.",
+        &["column"],
+        None,
+    )
+    .unwrap()
+});
+
+fn export_store_stats(store: &Store, temperature: Temperature) {
+    if let Some(stats) = store.get_store_statistics() {
+        tracing::debug!(target:"metrics", "Exporting the db metrics for {temperature:?} store.");
+        export_stats_as_metrics(stats, temperature);
+    } else {
+        // TODO Does that happen under normal circumstances?
+        // Should this log be a warning or error instead?
+        tracing::debug!(target:"metrics", "Exporting the db metrics for {temperature:?} store failed. The statistics are missing.");
+    }
+}
+
+pub fn spawn_db_metrics_loop(
+    storage: &NodeStorage,
+    period: std::time::Duration,
+) -> anyhow::Result<ArbiterHandle> {
+    tracing::debug!(target:"metrics", "Spawning the db metrics loop.");
+    let db_metrics_arbiter = actix_rt::Arbiter::new();
+
+    let start = tokio::time::Instant::now();
+    let mut interval = actix_rt::time::interval_at(start, period);
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+    let hot_store = storage.get_hot_store();
+    let cold_store = storage.get_cold_store();
+
+    db_metrics_arbiter.spawn(async move {
+        tracing::debug!(target:"metrics", "Starting the db metrics loop.");
+        loop {
+            interval.tick().await;
+
+            export_store_stats(&hot_store, Temperature::Hot);
+            if let Some(cold_store) = &cold_store {
+                export_store_stats(cold_store, Temperature::Cold);
+            }
+        }
+    });
+
+    Ok(db_metrics_arbiter.handle())
+}
+
+#[cfg(test)]
+mod test {
+    use std::time::Duration;
+
+    use actix;
+
+    use crate::db::{StatsValue, StoreStatistics};
+    use crate::metadata::{DbKind, DB_VERSION};
+    use crate::test_utils::create_test_node_storage_with_cold;
+
+    use near_o11y::testonly::init_test_logger;
+
+    use super::spawn_db_metrics_loop;
+
+    fn stat(name: &str, count: i64) -> (String, Vec<StatsValue>) {
+        (name.into(), vec![StatsValue::Count(count)])
+    }
+
+    async fn test_db_metrics_loop_impl() -> anyhow::Result<()> {
+        let (storage, hot, cold) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Cold);
+        let period = Duration::from_millis(100);
+
+        let handle = spawn_db_metrics_loop(&storage, period)?;
+
+        let hot_column_name = "hot.colum".to_string();
+        let cold_column_name = "cold.colum".to_string();
+
+        let hot_gauge_name = hot_column_name.clone() + "";
+        let cold_gauge_name = cold_column_name.clone() + "_cold";
+
+        let hot_stats = StoreStatistics { data: vec![stat(&hot_column_name, 42)] };
+        let cold_stats = StoreStatistics { data: vec![stat(&cold_column_name, 52)] };
+
+        hot.set_store_statistics(hot_stats);
+        cold.set_store_statistics(cold_stats);
+
+        actix::clock::sleep(period).await;
+        for _ in 0..10 {
+            let int_gauges = crate::rocksdb_metrics::get_int_gauges();
+
+            let has_hot_gauge = int_gauges.contains_key(&hot_gauge_name);
+            let has_cold_gauge = int_gauges.contains_key(&cold_gauge_name);
+            if has_hot_gauge && has_cold_gauge {
+                break;
+            }
+            actix::clock::sleep(period / 10).await;
+        }
+
+        let int_gauges = crate::rocksdb_metrics::get_int_gauges();
+        tracing::debug!("int_gauges {int_gauges:#?}");
+
+        let hot_gauge = int_gauges.get(&hot_gauge_name);
+        let hot_gauge = hot_gauge.ok_or(anyhow::anyhow!("hot gauge is missing"))?;
+
+        let cold_gauge = int_gauges.get(&cold_gauge_name);
+        let cold_gauge = cold_gauge.ok_or(anyhow::anyhow!("cold gauge is missing"))?;
+
+        assert_eq!(hot_gauge.get(), 42);
+        assert_eq!(cold_gauge.get(), 52);
+
+        handle.stop();
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_db_metrics_loop() {
+        init_test_logger();
+
+        let sys = actix::System::new();
+        sys.block_on(test_db_metrics_loop_impl()).expect("test impl failed");
+
+        actix::System::current().stop();
+        sys.run().unwrap();
+    }
+}

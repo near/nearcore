@@ -1,0 +1,78 @@
+---
+source: core/primitives-core/src/profile/profile_v2.rs
+expression: pretty_debug_str
+---
+------------------------------
+Action gas: 10045
+------ Host functions --------
+contract_loading_base -> 1 [0% host]
+contract_loading_bytes -> 2 [0% host]
+read_memory_base -> 3 [0% host]
+read_memory_byte -> 4 [0% host]
+write_memory_base -> 5 [0% host]
+write_memory_byte -> 6 [0% host]
+read_register_base -> 7 [0% host]
+read_register_byte -> 8 [0% host]
+write_register_base -> 9 [0% host]
+write_register_byte -> 10 [0% host]
+utf8_decoding_base -> 11 [0% host]
+utf8_decoding_byte -> 12 [0% host]
+utf16_decoding_base -> 13 [0% host]
+utf16_decoding_byte -> 14 [0% host]
+sha256_base -> 15 [0% host]
+sha256_byte -> 16 [0% host]
+keccak256_base -> 17 [0% host]
+keccak256_byte -> 18 [1% host]
+keccak512_base -> 19 [1% host]
+keccak512_byte -> 20 [1% host]
+ripemd160_base -> 21 [1% host]
+ripemd160_block -> 22 [1% host]
+ecrecover_base -> 23 [1% host]
+log_base -> 24 [1% host]
+log_byte -> 25 [1% host]
+storage_write_base -> 26 [1% host]
+storage_write_key_byte -> 27 [1% host]
+storage_write_value_byte -> 28 [1% host]
+storage_write_evicted_byte -> 29 [1% host]
+storage_read_base -> 30 [1% host]
+storage_read_key_byte -> 31 [1% host]
+storage_read_value_byte -> 32 [1% host]
+storage_remove_base -> 33 [1% host]
+storage_remove_key_byte -> 34 [1% host]
+storage_remove_ret_value_byte -> 35 [2% host]
+storage_has_key_base -> 36 [2% host]
+storage_has_key_byte -> 37 [2% host]
+storage_iter_create_prefix_base -> 38 [2% host]
+storage_iter_create_prefix_byte -> 39 [2% host]
+storage_iter_create_range_base -> 40 [2% host]
+storage_iter_create_from_byte -> 41 [2% host]
+storage_iter_create_to_byte -> 42 [2% host]
+storage_iter_next_base -> 43 [2% host]
+storage_iter_next_key_byte -> 44 [2% host]
+storage_iter_next_value_byte -> 45 [2% host]
+touching_trie_node -> 46 [2% host]
+read_cached_trie_node -> 53 [3% host]
+promise_and_base -> 47 [2% host]
+promise_and_per_promise -> 48 [2% host]
+promise_return -> 49 [2% host]
+validator_stake_base -> 50 [2% host]
+validator_total_stake_base -> 51 [2% host]
+alt_bn128_g1_multiexp_base -> 54 [3% host]
+alt_bn128_g1_multiexp_element -> 55 [3% host]
+alt_bn128_pairing_check_base -> 56 [3% host]
+alt_bn128_pairing_check_element -> 57 [3% host]
+alt_bn128_g1_sum_base -> 58 [3% host]
+alt_bn128_g1_sum_element -> 59 [3% host]
+------ Actions --------
+create_account -> 1000
+delete_account -> 1001
+deploy_contract -> 1002
+function_call -> 1003
+transfer -> 1004
+stake -> 1005
+add_key -> 1006
+delete_key -> 1007
+new_data_receipt_byte -> 1008
+new_receipt -> 1009
+------------------------------
+

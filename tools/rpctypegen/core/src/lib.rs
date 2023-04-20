@@ -1,9 +1,7 @@
 use std::collections::BTreeMap;
 use syn::{Data, DataEnum, DataStruct, DeriveInput, Fields, FieldsNamed, FieldsUnnamed};
 
-use serde::{Deserialize, Serialize};
-
-#[derive(Default, Debug, Deserialize, Serialize)]
+#[derive(Default, Debug, serde::Deserialize, serde::Serialize)]
 pub struct ErrorType {
     /// A type name of the error
     pub name: String,

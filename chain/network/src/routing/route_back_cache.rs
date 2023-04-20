@@ -1,4 +1,4 @@
-use crate::time;
+use near_async::time;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use std::collections::{btree_map, BTreeMap, BTreeSet, HashMap};

@@ -130,6 +130,7 @@ impl Indexer {
             self.client.clone(),
             self.indexer_config.clone(),
             self.near_config.config.store.clone(),
+            self.near_config.config.archive,
             sender,
         ));
         receiver
@@ -156,7 +157,7 @@ pub fn indexer_init_configs(
 ) -> Result<(), anyhow::Error> {
     init_configs(
         dir,
-        params.chain_id.as_deref(),
+        params.chain_id,
         params.account_id.and_then(|account_id| account_id.parse().ok()),
         params.test_seed.as_deref(),
         params.num_shards,

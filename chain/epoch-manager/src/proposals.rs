@@ -300,7 +300,7 @@ mod old_validator_selection {
                 let mut dup_proposals = (0..i).collect::<Vec<_>>();
                 shuffle_duplicate_proposals(
                     &mut dup_proposals,
-                    CryptoHash::hash_bytes(&[1, 2, 3, 4, 5]).as_bytes().clone(),
+                    *CryptoHash::hash_bytes(&[1, 2, 3, 4, 5]).as_bytes(),
                 );
                 assert_eq!(dup_proposals.len(), i as usize);
                 dup_proposals.sort();
@@ -314,7 +314,7 @@ mod old_validator_selection {
             let mut dup_proposals = (0..100).collect::<Vec<u64>>();
             shuffle_duplicate_proposals(
                 &mut dup_proposals,
-                CryptoHash::hash_bytes(&[1, 2, 3, 4, 5]).as_bytes().clone(),
+                *CryptoHash::hash_bytes(&[1, 2, 3, 4, 5]).as_bytes(),
             );
             assert_eq!(
                 dup_proposals,

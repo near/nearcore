@@ -1,21 +1,19 @@
-use std::convert::AsRef;
-use std::fmt::{Debug, Display, Formatter};
-use std::hash::{Hash, Hasher};
-use std::io::{Error, ErrorKind, Write};
-use std::str::FromStr;
-
 use borsh::{BorshDeserialize, BorshSerialize};
 use ed25519_dalek::ed25519::signature::{Signer, Verifier};
 use once_cell::sync::Lazy;
 use primitive_types::U256;
 use rand::rngs::OsRng;
 use secp256k1::Message;
-use serde::{Deserialize, Serialize};
+use std::convert::AsRef;
+use std::fmt::{Debug, Display, Formatter};
+use std::hash::{Hash, Hasher};
+use std::io::{Error, ErrorKind, Read, Write};
+use std::str::FromStr;
 
 pub static SECP256K1: Lazy<secp256k1::Secp256k1<secp256k1::All>> =
     Lazy::new(secp256k1::Secp256k1::new);
 
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, serde::Serialize, serde::Deserialize)]
 pub enum KeyType {
     ED25519 = 0,
     SECP256K1 = 1,
@@ -119,9 +117,12 @@ pub enum PublicKey {
 }
 
 impl PublicKey {
+    // `is_empty` always returns false, so there is no point in adding it
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
+        const ED25519_LEN: usize = ed25519_dalek::PUBLIC_KEY_LENGTH + 1;
         match self {
-            Self::ED25519(_) => ed25519_dalek::PUBLIC_KEY_LENGTH + 1,
+            Self::ED25519(_) => ED25519_LEN,
             Self::SECP256K1(_) => 65,
         }
     }
@@ -159,7 +160,6 @@ impl PublicKey {
 
 // This `Hash` implementation is safe since it retains the property
 // `k1 == k2 ⇒ hash(k1) == hash(k2)`.
-#[allow(clippy::derive_hash_xor_eq)]
 impl Hash for PublicKey {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self {
@@ -208,16 +208,16 @@ impl BorshSerialize for PublicKey {
 }
 
 impl BorshDeserialize for PublicKey {
-    fn deserialize(buf: &mut &[u8]) -> Result<Self, Error> {
-        let key_type = KeyType::try_from(<u8 as BorshDeserialize>::deserialize(buf)?)
+    fn deserialize_reader<R: Read>(rd: &mut R) -> std::io::Result<Self> {
+        let key_type = KeyType::try_from(u8::deserialize_reader(rd)?)
             .map_err(|err| Error::new(ErrorKind::InvalidData, err.to_string()))?;
         match key_type {
             KeyType::ED25519 => {
-                Ok(PublicKey::ED25519(ED25519PublicKey(BorshDeserialize::deserialize(buf)?)))
+                Ok(PublicKey::ED25519(ED25519PublicKey(BorshDeserialize::deserialize_reader(rd)?)))
             }
-            KeyType::SECP256K1 => {
-                Ok(PublicKey::SECP256K1(Secp256K1PublicKey(BorshDeserialize::deserialize(buf)?)))
-            }
+            KeyType::SECP256K1 => Ok(PublicKey::SECP256K1(Secp256K1PublicKey(
+                BorshDeserialize::deserialize_reader(rd)?,
+            ))),
         }
     }
 }
@@ -490,6 +490,8 @@ pub enum Signature {
     SECP256K1(Secp256K1Signature),
 }
 
+// This `Hash` implementation is safe since it retains the property
+// `k1 == k2 ⇒ hash(k1) == hash(k2)`.
 impl Hash for Signature {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self {
@@ -589,20 +591,20 @@ impl BorshSerialize for Signature {
 }
 
 impl BorshDeserialize for Signature {
-    fn deserialize(buf: &mut &[u8]) -> Result<Self, Error> {
-        let key_type = KeyType::try_from(<u8 as BorshDeserialize>::deserialize(buf)?)
+    fn deserialize_reader<R: Read>(rd: &mut R) -> std::io::Result<Self> {
+        let key_type = KeyType::try_from(u8::deserialize_reader(rd)?)
             .map_err(|err| Error::new(ErrorKind::InvalidData, err.to_string()))?;
         match key_type {
             KeyType::ED25519 => {
                 let array: [u8; ed25519_dalek::SIGNATURE_LENGTH] =
-                    BorshDeserialize::deserialize(buf)?;
+                    BorshDeserialize::deserialize_reader(rd)?;
                 Ok(Signature::ED25519(
                     ed25519_dalek::Signature::from_bytes(&array)
                         .map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))?,
                 ))
             }
             KeyType::SECP256K1 => {
-                let array: [u8; 65] = BorshDeserialize::deserialize(buf)?;
+                let array: [u8; 65] = BorshDeserialize::deserialize_reader(rd)?;
                 Ok(Signature::SECP256K1(Secp256K1Signature(array)))
             }
         }
@@ -703,7 +705,7 @@ fn decode_bs58_impl(dst: &mut [u8], encoded: &str) -> Result<(), DecodeBs58Error
         Ok(received) if received == expected => Ok(()),
         Ok(received) => Err(DecodeBs58Error::BadLength { expected, received }),
         Err(bs58::decode::Error::BufferTooSmall) => {
-            Err(DecodeBs58Error::BadLength { expected, received: expected + 1 })
+            Err(DecodeBs58Error::BadLength { expected, received: expected.saturating_add(1) })
         }
         Err(err) => Err(DecodeBs58Error::BadData(err.to_string())),
     }
@@ -745,7 +747,7 @@ mod tests {
 
     #[test]
     fn test_sign_verify() {
-        for key_type in vec![KeyType::ED25519, KeyType::SECP256K1] {
+        for key_type in [KeyType::ED25519, KeyType::SECP256K1] {
             let secret_key = SecretKey::from_random(key_type);
             let public_key = secret_key.public_key();
             use sha2::Digest;
@@ -812,7 +814,7 @@ mod tests {
     fn test_borsh_serialization() {
         use sha2::Digest;
         let data = sha2::Sha256::digest(b"123").to_vec();
-        for key_type in vec![KeyType::ED25519, KeyType::SECP256K1] {
+        for key_type in [KeyType::ED25519, KeyType::SECP256K1] {
             let sk = SecretKey::from_seed(key_type, "test");
             let pk = sk.public_key();
             let bytes = pk.try_to_vec().unwrap();

@@ -1,11 +1,10 @@
-use clap::Parser;
 use near_network::types::PeerInfo;
 use near_ping::cli::CHAIN_INFO;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::ShardId;
 use std::str::FromStr;
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct StatePartsCommand {
     /// The hash of the first block of an epoch of which we are requesting state.
     #[clap(long)]
@@ -21,12 +20,12 @@ pub struct StatePartsCommand {
 
     #[clap(long)]
     /// genesis hash to use in the Handshake we send. This must be provided if --chain-id
-    /// is not one of "mainnet", "testnet" or "shardnet"
+    /// is not "mainnet" or "testnet"
     genesis_hash: Option<String>,
 
     #[clap(long)]
     /// head height to use in the Handshake we send. This must be provided if --chain-id
-    /// is not one of "mainnet", "testnet" or "shardnet"
+    /// is not "mainnet" or "testnet"
     head_height: Option<u64>,
 
     /// Protocol version to advertise in our handshake
@@ -107,7 +106,7 @@ impl StatePartsCommand {
                 self.head_height.unwrap_or(0),
                 self.protocol_version,
                 peer.id.clone(),
-                peer.addr.clone().unwrap(),
+                peer.addr.unwrap(),
                 self.ttl,
                 self.request_frequency_millis,
                 self.recv_timeout_seconds.unwrap_or(5),

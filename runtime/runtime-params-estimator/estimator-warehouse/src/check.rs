@@ -1,10 +1,9 @@
 use crate::db::{Db, EstimationRow};
 use crate::zulip::{ZulipEndpoint, ZulipReport};
 use crate::Metric;
-use clap::Parser;
 use std::collections::BTreeSet;
 
-#[derive(Parser, Debug)]
+#[derive(clap::Parser, Debug)]
 pub(crate) struct CheckConfig {
     /// Send notifications from checks to specified stream.
     /// Notifications are sent iff stream or user is set.

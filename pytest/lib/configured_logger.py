@@ -12,6 +12,7 @@ def new_logger(
     name: Optional[str] = None,
     level: LogLevel = logging.DEBUG,
     outfile: Optional[str] = None,
+    stderr: Optional[bool] = None,
 ) -> logging.Logger:
     """
     Create a new configured logger. Used mainly by pytests.
@@ -19,6 +20,7 @@ def new_logger(
     :param name: The name of the logger. Defaults to "test".
     :param level: The logging level. Defaults to DEBUG to log everything.
     :param outfile: Optional to set. When set, will log to a file instead of stdout.
+    :param stderr: Optional to set. If outfile is not set, and stderr is set to True, then will log to stderr instead of stdout.
     :return: The configured logger.
     """
     # If name is not specified, create one so that this can be a separate logger.
@@ -32,6 +34,8 @@ def new_logger(
 
     if outfile is not None:
         handler = logging.FileHandler(outfile)
+    elif stderr:
+        handler = logging.StreamHandler(sys.stderr)
     else:
         handler = logging.StreamHandler(sys.stdout)
     handler.setLevel(level)

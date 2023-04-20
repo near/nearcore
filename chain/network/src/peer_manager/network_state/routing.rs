@@ -2,8 +2,8 @@ use super::NetworkState;
 use crate::network_protocol::{Edge, EdgeState, PartialEdgeInfo, PeerMessage, RoutingTableUpdate};
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::stats::metrics;
-use crate::time;
 use crate::types::ReasonForBan;
+use near_async::time;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use std::sync::Arc;
 
@@ -86,27 +86,14 @@ impl NetworkState {
         clock: &time::Clock,
         edges: Vec<Edge>,
     ) -> Result<(), ReasonForBan> {
-        // TODO(gprusak): sending duplicate edges should be considered a malicious behavior
-        // instead, however that would be backward incompatible, so it can be introduced in
-        // PROTOCOL_VERSION 60 earliest.
-        let (edges, ok) = self.graph.verify(edges).await;
-        let result = match ok {
-            true => Ok(()),
-            false => Err(ReasonForBan::InvalidEdge),
-        };
-        // Skip recomputation if no new edges have been verified.
-        if edges.len() == 0 {
-            return result;
+        if edges.is_empty() {
+            return Ok(());
         }
-
         let this = self.clone();
         let clock = clock.clone();
-        let _ = self
-            .add_edges_demux
+        self.add_edges_demux
             .call(edges, |edges: Vec<Vec<Edge>>| async move {
-                let results: Vec<_> = edges.iter().map(|_| ()).collect();
-                let edges: Vec<_> = edges.into_iter().flatten().collect();
-                let mut edges = this.graph.update(&clock, edges).await;
+                let (mut edges, oks) = this.graph.update(&clock, edges).await;
                 // Don't send tombstones during the initial time.
                 // Most of the network is created during this time, which results
                 // in us sending a lot of tombstones to peers.
@@ -120,16 +107,15 @@ impl NetworkState {
                 // Broadcast new edges to all other peers.
                 this.config.event_sink.push(Event::EdgesAdded(edges.clone()));
                 this.broadcast_routing_table_update(RoutingTableUpdate::from_edges(edges));
-                results
+                // Retu
+                oks.iter()
+                    .map(|ok| match ok {
+                        true => Ok(()),
+                        false => Err(ReasonForBan::InvalidEdge),
+                    })
+                    .collect()
             })
-            .await;
-        // self.graph.verify() returns a partial result if it encountered an invalid edge:
-        // Edge verification is expensive, and it would be an attack vector if we dropped on the
-        // floor valid edges verified so far: an attacker could prepare a SyncRoutingTable
-        // containing a lot of valid edges, except for the last one, and send it repeatedly to a
-        // node. The node would then validate all the edges every time, then reject the whole set
-        // because just the last edge was invalid. Instead, we accept all the edges verified so
-        // far and return an error only afterwards.
-        result
+            .await
+            .unwrap_or(Ok(()))
     }
 }

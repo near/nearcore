@@ -17,5 +17,5 @@ chrono.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 
-near-primitives = { path = "../../core/primitives" }
-near-crypto = { path = "../../core/crypto" }
+near-primitives.workspace = true
+near-crypto.workspace = true

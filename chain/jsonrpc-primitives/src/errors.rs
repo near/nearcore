@@ -1,17 +1,14 @@
+use near_primitives::errors::TxExecutionError;
+use serde_json::{to_value, Value};
 use std::fmt;
 
-use serde::{Deserialize, Serialize};
-use serde_json::{to_value, Value};
-
-use near_primitives::errors::TxExecutionError;
-
-#[derive(Serialize)]
+#[derive(serde::Serialize)]
 pub struct RpcParseError(pub String);
 
 /// This struct may be returned from JSON RPC server in case of error
 /// It is expected that that this struct has impls From<_> all other RPC errors
 /// like [RpcBlockError](crate::types::blocks::RpcBlockError)
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct RpcError {
     #[serde(flatten)]
@@ -25,7 +22,7 @@ pub struct RpcError {
     pub data: Option<Value>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
 #[serde(tag = "name", content = "cause", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcErrorKind {
     RequestValidationError(RpcRequestValidationErrorKind),
@@ -33,7 +30,7 @@ pub enum RpcErrorKind {
     InternalError(Value),
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcRequestValidationErrorKind {
     MethodNotFound { method_name: String },
@@ -41,7 +38,15 @@ pub enum RpcRequestValidationErrorKind {
 }
 
 /// A general Server Error
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, near_rpc_error_macro::RpcError)]
+#[derive(
+    serde::Serialize,
+    serde::Deserialize,
+    Debug,
+    PartialEq,
+    Eq,
+    Clone,
+    near_rpc_error_macro::RpcError,
+)]
 pub enum ServerError {
     TxExecutionError(TxExecutionError),
     Timeout,
@@ -58,7 +63,7 @@ impl RpcError {
 
     /// Create an Invalid Param error.
     #[cfg(feature = "test_features")]
-    pub fn invalid_params(data: impl Serialize) -> Self {
+    pub fn invalid_params(data: impl serde::Serialize) -> Self {
         let value = match to_value(data) {
             Ok(value) => value,
             Err(err) => {
@@ -73,7 +78,7 @@ impl RpcError {
 
     /// Create a server error.
     #[cfg(feature = "test_features")]
-    pub fn server_error<E: Serialize>(e: Option<E>) -> Self {
+    pub fn server_error<E: serde::Serialize>(e: Option<E>) -> Self {
         RpcError::new(
             -32_000,
             "Server error".to_owned(),

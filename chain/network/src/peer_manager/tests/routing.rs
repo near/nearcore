@@ -4,7 +4,9 @@ use crate::config::NetworkConfig;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{Edge, Encoding, Ping, Pong, RoutedMessageBody, RoutingTableUpdate};
 use crate::peer;
-use crate::peer::peer_actor::{ClosingReason, ConnectionClosedEvent};
+use crate::peer::peer_actor::{
+    ClosingReason, ConnectionClosedEvent, DROP_DUPLICATED_MESSAGES_PERIOD,
+};
 use crate::peer_manager;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::peer_manager::testonly::start as start_pm;
@@ -12,24 +14,23 @@ use crate::peer_manager::testonly::Event;
 use crate::private_actix::RegisterPeerError;
 use crate::store;
 use crate::tcp;
-use crate::testonly::{make_rng, Rng};
-use crate::time;
-use crate::types::PeerInfo;
+use crate::testonly::{abort_on_panic, make_rng, Rng};
 use crate::types::PeerMessage;
-use near_o11y::testonly::init_test_logger;
+use crate::types::{PeerInfo, ReasonForBan};
+use near_async::time;
 use near_primitives::network::PeerId;
 use near_store::db::TestDB;
 use pretty_assertions::assert_eq;
 use rand::seq::IteratorRandom;
 use rand::Rng as _;
 use std::collections::HashSet;
-use std::net::Ipv4Addr;
+use std::net::Ipv6Addr;
 use std::sync::Arc;
 
 // test routing in a two-node network before and after connecting the nodes
 #[tokio::test]
 async fn simple() {
-    init_test_logger();
+    abort_on_panic();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -59,7 +60,7 @@ async fn simple() {
 // test routing for three nodes in a line
 #[tokio::test]
 async fn three_nodes_path() {
-    init_test_logger();
+    abort_on_panic();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -100,7 +101,7 @@ async fn three_nodes_path() {
 // test routing for three nodes in a line, then test routing after completing the triangle
 #[tokio::test]
 async fn three_nodes_star() {
-    init_test_logger();
+    abort_on_panic();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -164,7 +165,7 @@ async fn three_nodes_star() {
 // then test routing after joining them into a square
 #[tokio::test]
 async fn join_components() {
-    init_test_logger();
+    abort_on_panic();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -235,7 +236,7 @@ async fn join_components() {
 // test routing for three nodes in a line, then test dropping the middle node
 #[tokio::test]
 async fn simple_remove() {
-    init_test_logger();
+    abort_on_panic();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -326,7 +327,7 @@ pub async fn wait_for_message_dropped(events: &mut broadcast::Receiver<Event>) {
 // test ping in a two-node network
 #[tokio::test]
 async fn ping_simple() {
-    init_test_logger();
+    abort_on_panic();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -349,19 +350,22 @@ async fn ping_simple() {
     let mut pm1_ev = pm1.events.from_now();
 
     tracing::info!(target:"test", "send ping from {id0} to {id1}");
-    pm0.send_ping(0, id1.clone()).await;
+    pm0.send_ping(&clock.clock(), 0, id1.clone()).await;
 
     tracing::info!(target:"test", "await ping at {id1}");
     wait_for_ping(&mut pm1_ev, Ping { nonce: 0, source: id0.clone() }).await;
 
     tracing::info!(target:"test", "await pong at {id0}");
     wait_for_pong(&mut pm0_ev, Pong { nonce: 0, source: id1.clone() }).await;
+
+    drop(pm0);
+    drop(pm1);
 }
 
 // test ping without a direct connection
 #[tokio::test]
 async fn ping_jump() {
-    init_test_logger();
+    abort_on_panic();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -404,7 +408,7 @@ async fn ping_jump() {
     let mut pm2_ev = pm2.events.from_now();
 
     tracing::info!(target:"test", "send ping from {id0} to {id2}");
-    pm0.send_ping(0, id2.clone()).await;
+    pm0.send_ping(&clock.clock(), 0, id2.clone()).await;
 
     tracing::info!(target:"test", "await ping at {id2}");
     wait_for_ping(&mut pm2_ev, Ping { nonce: 0, source: id0.clone() }).await;
@@ -416,7 +420,7 @@ async fn ping_jump() {
 // test that ping over an indirect connection with ttl=2 is delivered
 #[tokio::test]
 async fn test_dont_drop_after_ttl() {
-    init_test_logger();
+    abort_on_panic();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -461,7 +465,7 @@ async fn test_dont_drop_after_ttl() {
     let mut pm2_ev = pm2.events.from_now();
 
     tracing::info!(target:"test", "send ping from {id0} to {id2}");
-    pm0.send_ping(0, id2.clone()).await;
+    pm0.send_ping(&clock.clock(), 0, id2.clone()).await;
 
     tracing::info!(target:"test", "await ping at {id2}");
     wait_for_ping(&mut pm2_ev, Ping { nonce: 0, source: id0.clone() }).await;
@@ -473,7 +477,7 @@ async fn test_dont_drop_after_ttl() {
 // test that ping over an indirect connection with ttl=1 is dropped
 #[tokio::test]
 async fn test_drop_after_ttl() {
-    init_test_logger();
+    abort_on_panic();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -517,7 +521,7 @@ async fn test_drop_after_ttl() {
     let mut pm1_ev = pm1.events.from_now();
 
     tracing::info!(target:"test", "send ping from {id0} to {id2}");
-    pm0.send_ping(0, id2.clone()).await;
+    pm0.send_ping(&clock.clock(), 0, id2.clone()).await;
 
     tracing::info!(target:"test", "await message dropped at {id1}");
     wait_for_message_dropped(&mut pm1_ev).await;
@@ -526,7 +530,7 @@ async fn test_drop_after_ttl() {
 // test dropping behavior for duplicate messages
 #[tokio::test]
 async fn test_dropping_duplicate_messages() {
-    init_test_logger();
+    abort_on_panic();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -571,36 +575,39 @@ async fn test_dropping_duplicate_messages() {
 
     // Send two identical messages. One will be dropped, because the delay between them was less than 50ms.
     tracing::info!(target:"test", "send ping from {id0} to {id2}");
-    pm0.send_ping(0, id2.clone()).await;
+    pm0.send_ping(&clock.clock(), 0, id2.clone()).await;
     tracing::info!(target:"test", "await ping at {id2}");
     wait_for_ping(&mut pm2_ev, Ping { nonce: 0, source: id0.clone() }).await;
     tracing::info!(target:"test", "await pong at {id0}");
     wait_for_pong(&mut pm0_ev, Pong { nonce: 0, source: id2.clone() }).await;
 
     tracing::info!(target:"test", "send ping from {id0} to {id2}");
-    pm0.send_ping(0, id2.clone()).await;
+    pm0.send_ping(&clock.clock(), 0, id2.clone()).await;
     tracing::info!(target:"test", "await message dropped at {id1}");
     wait_for_message_dropped(&mut pm1_ev).await;
 
     // Send two identical messages but with 300ms delay so they don't get dropped.
     tracing::info!(target:"test", "send ping from {id0} to {id2}");
-    pm0.send_ping(1, id2.clone()).await;
+    pm0.send_ping(&clock.clock(), 1, id2.clone()).await;
     tracing::info!(target:"test", "await ping at {id2}");
     wait_for_ping(&mut pm2_ev, Ping { nonce: 1, source: id0.clone() }).await;
     tracing::info!(target:"test", "await pong at {id0}");
     wait_for_pong(&mut pm0_ev, Pong { nonce: 1, source: id2.clone() }).await;
 
-    clock.advance(time::Duration::milliseconds(300));
+    clock.advance(DROP_DUPLICATED_MESSAGES_PERIOD + time::Duration::milliseconds(1));
 
     tracing::info!(target:"test", "send ping from {id0} to {id2}");
-    pm0.send_ping(1, id2.clone()).await;
+    pm0.send_ping(&clock.clock(), 1, id2.clone()).await;
     tracing::info!(target:"test", "await ping at {id2}");
     wait_for_ping(&mut pm2_ev, Ping { nonce: 1, source: id0.clone() }).await;
     tracing::info!(target:"test", "await pong at {id0}");
     wait_for_pong(&mut pm0_ev, Pong { nonce: 1, source: id2.clone() }).await;
 }
 
-// Awaits until a ConnectionClosed event with the expected reason is seen in the event stream.
+/// Awaits until a ConnectionClosed event with the expected reason is seen in the event stream.
+/// This helper function should be used in tests with peer manager instances with
+/// `config.outbound_enabled = true`, because it makes the order of spawning connections
+/// non-deterministic, so we cannot just wait for the first ConnectionClosed event.
 pub(crate) async fn wait_for_connection_closed(
     events: &mut broadcast::Receiver<Event>,
     want_reason: ClosingReason,
@@ -634,7 +641,11 @@ fn make_configs(
     let mut cfgs: Vec<_> = (0..num_nodes).map(|_i| chain.make_config(rng)).collect();
     let boot_nodes: Vec<_> = cfgs[0..num_boot_nodes]
         .iter()
-        .map(|c| PeerInfo { id: c.node_id(), addr: c.node_addr, account_id: None })
+        .map(|c| PeerInfo {
+            id: c.node_id(),
+            addr: c.node_addr.as_ref().map(|a| **a),
+            account_id: None,
+        })
         .collect();
     for config in cfgs.iter_mut() {
         config.outbound_disabled = !enable_outbound;
@@ -646,7 +657,7 @@ fn make_configs(
 // test bootstrapping a two-node network with one boot node
 #[tokio::test]
 async fn from_boot_nodes() {
-    init_test_logger();
+    abort_on_panic();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -669,7 +680,7 @@ async fn from_boot_nodes() {
 // test node 0 blacklisting node 1
 #[tokio::test]
 async fn blacklist_01() {
-    init_test_logger();
+    abort_on_panic();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -678,7 +689,7 @@ async fn blacklist_01() {
     tracing::info!(target:"test", "start two nodes with 0 blacklisting 1");
     let mut cfgs = make_configs(&chain, rng, 2, 2, true);
     cfgs[0].peer_store.blacklist =
-        [blacklist::Entry::from_addr(cfgs[1].node_addr.unwrap())].into_iter().collect();
+        [blacklist::Entry::from_addr(**cfgs[1].node_addr.as_ref().unwrap())].into_iter().collect();
 
     let pm0 = start_pm(clock.clock(), TestDB::new(), cfgs[0].clone(), chain.clone()).await;
     let pm1 = start_pm(clock.clock(), TestDB::new(), cfgs[1].clone(), chain.clone()).await;
@@ -702,7 +713,7 @@ async fn blacklist_01() {
 // test node 1 blacklisting node 0
 #[tokio::test]
 async fn blacklist_10() {
-    init_test_logger();
+    abort_on_panic();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -711,7 +722,7 @@ async fn blacklist_10() {
     tracing::info!(target:"test", "start two nodes with 1 blacklisting 0");
     let mut cfgs = make_configs(&chain, rng, 2, 2, true);
     cfgs[1].peer_store.blacklist =
-        [blacklist::Entry::from_addr(cfgs[0].node_addr.unwrap())].into_iter().collect();
+        [blacklist::Entry::from_addr(**cfgs[0].node_addr.as_ref().unwrap())].into_iter().collect();
 
     let pm0 = start_pm(clock.clock(), TestDB::new(), cfgs[0].clone(), chain.clone()).await;
     let pm1 = start_pm(clock.clock(), TestDB::new(), cfgs[1].clone(), chain.clone()).await;
@@ -735,7 +746,7 @@ async fn blacklist_10() {
 // test node 0 blacklisting all nodes
 #[tokio::test]
 async fn blacklist_all() {
-    init_test_logger();
+    abort_on_panic();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -744,7 +755,7 @@ async fn blacklist_all() {
     tracing::info!(target:"test", "start two nodes with 0 blacklisting everything");
     let mut cfgs = make_configs(&chain, rng, 2, 2, true);
     cfgs[0].peer_store.blacklist =
-        [blacklist::Entry::from_ip(Ipv4Addr::LOCALHOST.into())].into_iter().collect();
+        [blacklist::Entry::from_ip(Ipv6Addr::LOCALHOST.into())].into_iter().collect();
 
     let pm0 = start_pm(clock.clock(), TestDB::new(), cfgs[0].clone(), chain.clone()).await;
     let pm1 = start_pm(clock.clock(), TestDB::new(), cfgs[1].clone(), chain.clone()).await;
@@ -769,7 +780,7 @@ async fn blacklist_all() {
 // Spawn a fourth node and see it fail to connect since the first three are at max capacity.
 #[tokio::test]
 async fn max_num_peers_limit() {
-    init_test_logger();
+    abort_on_panic();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -862,10 +873,10 @@ async fn max_num_peers_limit() {
     drop(pm3);
 }
 
-// test that TTL is handled property.
+/// Test that TTL is handled properly.
 #[tokio::test]
 async fn ttl() {
-    init_test_logger();
+    abort_on_panic();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -916,11 +927,11 @@ async fn ttl() {
     }
 }
 
-// After the initial exchange, all subsequent SyncRoutingTable messages are
-// expected to contain only the diff of the known data.
+/// After the initial exchange, all subsequent SyncRoutingTable messages are
+/// expected to contain only the diff of the known data.
 #[tokio::test]
 async fn repeated_data_in_sync_routing_table() {
-    init_test_logger();
+    abort_on_panic();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -1024,7 +1035,7 @@ async fn wait_for_edges(
 // edges which it learned about before the restart.
 #[tokio::test]
 async fn no_edge_broadcast_after_restart() {
-    init_test_logger();
+    abort_on_panic();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -1087,7 +1098,7 @@ async fn no_edge_broadcast_after_restart() {
 
 #[tokio::test]
 async fn square() {
-    init_test_logger();
+    abort_on_panic();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -1140,7 +1151,7 @@ async fn square() {
 
 #[tokio::test]
 async fn fix_local_edges() {
-    init_test_logger();
+    abort_on_panic();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -1194,7 +1205,7 @@ async fn fix_local_edges() {
 
 #[tokio::test]
 async fn do_not_block_announce_account_broadcast() {
-    init_test_logger();
+    abort_on_panic();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -1232,7 +1243,7 @@ async fn do_not_block_announce_account_broadcast() {
 /// Do four rounds where 2, 3, 4 tries to connect to 0 and check that connection between 0 and 1 was never dropped.
 #[tokio::test]
 async fn archival_node() {
-    init_test_logger();
+    abort_on_panic();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
     let mut clock = time::FakeClock::default();
@@ -1268,11 +1279,11 @@ async fn archival_node() {
 
     tracing::info!(target:"test", "connect node 4 to node 0 and wait for pm0 to close a connection");
     pm4.send_outbound_connect(&pm0.peer_info(), tcp::Tier::T2).await;
-    wait_for_connection_closed(&mut pm0_ev, ClosingReason::PeerManager).await;
+    wait_for_connection_closed(&mut pm0_ev, ClosingReason::PeerManagerRequest).await;
 
     tracing::info!(target:"test", "connect node 1 to node 0 and wait for pm0 to close a connection");
     pm1.send_outbound_connect(&pm0.peer_info(), tcp::Tier::T2).await;
-    wait_for_connection_closed(&mut pm0_ev, ClosingReason::PeerManager).await;
+    wait_for_connection_closed(&mut pm0_ev, ClosingReason::PeerManagerRequest).await;
 
     tracing::info!(target:"test", "check that node 0 and node 1 are still connected");
     pm0.wait_for_direct_connection(id1.clone()).await;
@@ -1294,9 +1305,75 @@ async fn archival_node() {
 
         tracing::info!(target:"test", "[{_step}] connect the chosen node to node 0 and wait for pm0 to close a connection");
         chosen.send_outbound_connect(&pm0.peer_info(), tcp::Tier::T2).await;
-        wait_for_connection_closed(&mut pm0_ev, ClosingReason::PeerManager).await;
+        wait_for_connection_closed(&mut pm0_ev, ClosingReason::PeerManagerRequest).await;
 
         tracing::info!(target:"test", "[{_step}] check that node 0 and node 1 are still connected");
         pm0.wait_for_direct_connection(id1.clone()).await;
     }
+
+    drop(pm0);
+    drop(pm1);
+    drop(pm2);
+    drop(pm3);
+    drop(pm4);
+}
+
+/// Awaits for ConnectionClosed event for a given `stream_id`.
+async fn wait_for_stream_closed(
+    events: &mut broadcast::Receiver<Event>,
+    stream_id: tcp::StreamId,
+) -> ClosingReason {
+    events
+        .recv_until(|ev| match ev {
+            Event::PeerManager(PME::ConnectionClosed(ev)) if ev.stream_id == stream_id => {
+                Some(ev.reason)
+            }
+            _ => None,
+        })
+        .await
+}
+
+/// Check two peers are able to connect again after one peers is banned and unbanned.
+#[tokio::test]
+async fn connect_to_unbanned_peer() {
+    abort_on_panic();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    let mut pm0 =
+        start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+    let mut pm1 =
+        start_pm(clock.clock(), TestDB::new(), chain.make_config(rng), chain.clone()).await;
+
+    tracing::info!(target:"test", "pm0 connects to pm1");
+    let stream_id = pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
+
+    tracing::info!(target:"test", "pm1 bans pm0");
+    let ban_reason = ReasonForBan::BadBlock;
+    pm1.disconnect_and_ban(&clock.clock(), &pm0.cfg.node_id(), ban_reason).await;
+    wait_for_stream_closed(&mut pm0.events, stream_id).await;
+    assert_eq!(
+        ClosingReason::Ban(ban_reason),
+        wait_for_stream_closed(&mut pm1.events, stream_id).await
+    );
+
+    tracing::info!(target:"test", "pm0 fails to reconnect to pm1");
+    let got_reason = pm1
+        .start_inbound(chain.clone(), pm0.cfg.clone())
+        .await
+        .manager_fail_handshake(&clock.clock())
+        .await;
+    assert_eq!(ClosingReason::RejectedByPeerManager(RegisterPeerError::Banned), got_reason);
+
+    tracing::info!(target:"test", "pm1 unbans pm0");
+    clock.advance(pm1.cfg.peer_store.ban_window);
+    pm1.peer_store_update(&clock.clock()).await;
+
+    tracing::info!(target:"test", "pm0 reconnects to pm1");
+    pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
+
+    drop(pm0);
+    drop(pm1);
 }

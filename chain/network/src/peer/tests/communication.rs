@@ -1,16 +1,17 @@
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
-    Encoding, Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerMessage, RoutedMessageBody,
+    Encoding, Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerMessage, PeersRequest,
+    PeersResponse, RoutedMessageBody,
 };
 use crate::peer::testonly::{Event, PeerConfig, PeerHandle};
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::tcp;
 use crate::testonly::make_rng;
 use crate::testonly::stream::Stream;
-use crate::time;
 use crate::types::{PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
 use anyhow::Context as _;
 use assert_matches::assert_matches;
+use near_async::time;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::version::{PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION};
 use std::sync::Arc;
@@ -64,19 +65,22 @@ async fn test_peer_communication(
 
     tracing::info!(target:"test","PeersRequest");
     let mut events = inbound.events.from_now();
-    let want = PeerMessage::PeersRequest;
+    let want = PeerMessage::PeersRequest(PeersRequest { max_peers: None, max_direct_peers: None });
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
     tracing::info!(target:"test","PeersResponse");
     let mut events = inbound.events.from_now();
-    let want = PeerMessage::PeersResponse((0..5).map(|_| data::make_peer_info(&mut rng)).collect());
+    let want = PeerMessage::PeersResponse(PeersResponse {
+        peers: (0..5).map(|_| data::make_peer_info(&mut rng)).collect(),
+        direct_peers: vec![],
+    });
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
     tracing::info!(target:"test","BlockRequest");
     let mut events = inbound.events.from_now();
-    let want = PeerMessage::BlockRequest(chain.blocks[5].hash().clone());
+    let want = PeerMessage::BlockRequest(*chain.blocks[5].hash());
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
@@ -88,8 +92,7 @@ async fn test_peer_communication(
 
     tracing::info!(target:"test","BlockHeadersRequest");
     let mut events = inbound.events.from_now();
-    let want =
-        PeerMessage::BlockHeadersRequest(chain.blocks.iter().map(|b| b.hash().clone()).collect());
+    let want = PeerMessage::BlockHeadersRequest(chain.blocks.iter().map(|b| *b.hash()).collect());
     outbound.send(want.clone()).await;
     events.recv_until(message_processed(want)).await;
 
@@ -168,7 +171,7 @@ async fn peer_communication() -> anyhow::Result<()> {
                     continue;
                 }
             }
-            test_peer_communication(outbound.clone(), inbound.clone())
+            test_peer_communication(*outbound, *inbound)
                 .await
                 .with_context(|| format!("(outbound={outbound:?},inbound={inbound:?})"))?;
         }
@@ -258,7 +261,7 @@ async fn handshake() -> anyhow::Result<()> {
                     continue;
                 }
             }
-            test_handshake(outbound.clone(), inbound.clone()).await;
+            test_handshake(*outbound, *inbound).await;
         }
     }
     Ok(())

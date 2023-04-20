@@ -1,0 +1,27 @@
+.recent-epochs-table {
+    th:first-child {
+        border: none;
+        background-color: transparent;
+    }
+
+    td:first-child {
+        border: none;
+        background-color: none;
+        text-align: right;
+        white-space: nowrap;
+    }
+
+    tr.current-epoch {
+        td:not(:first-child) {
+            background-color: #c6f8bf;
+        }
+
+        td:first-child {
+            color: #3bda26;
+        }
+    }
+
+    tr.next-epoch {
+        color: gray;
+    }
+}

@@ -1,8 +1,6 @@
 use crate::parameter::Parameter;
-use crate::types::Gas;
-
+use crate::types::{Compute, Gas};
 use enum_map::{enum_map, EnumMap};
-use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use strum::Display;
@@ -30,26 +28,25 @@ pub struct VMConfig {
 
 /// Describes limits for VM and Runtime.
 /// TODO #4139: consider switching to strongly-typed wrappers instead of raw quantities
-#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Hash, PartialEq, Eq)]
 pub struct VMLimitConfig {
     /// Max amount of gas that can be used, excluding gas attached to promises.
     pub max_gas_burnt: Gas,
 
     /// How tall the stack is allowed to grow?
     ///
-    /// See <https://wiki.parity.io/WebAssembly-StackHeight> to find out
-    /// how the stack frame cost is calculated.
+    /// See <https://wiki.parity.io/WebAssembly-StackHeight> to find out how the stack frame cost
+    /// is calculated.
     pub max_stack_height: u32,
     /// Whether a legacy version of stack limiting should be used, see
-    /// [`StackLimiterVersion`].
-    #[serde(default = "StackLimiterVersion::v0")]
-    pub stack_limiter_version: StackLimiterVersion,
+    /// [`ContractPrepareVersion`].
+    #[serde(default = "ContractPrepareVersion::v0")]
+    pub contract_prepare_version: ContractPrepareVersion,
 
     /// The initial number of memory pages.
     /// NOTE: It's not a limiter itself, but it's a value we use for initial_memory_pages.
     pub initial_memory_pages: u32,
-    /// What is the maximal memory pages amount is allowed to have for
-    /// a contract.
+    /// What is the maximal memory pages amount is allowed to have for a contract.
     pub max_memory_pages: u32,
 
     /// Limit of memory used by registers.
@@ -57,6 +54,10 @@ pub struct VMLimitConfig {
     /// Maximum number of bytes that can be stored in a single register.
     pub max_register_size: u64,
     /// Maximum number of registers that can be used simultaneously.
+    ///
+    /// Note that due to an implementation quirk [read: a bug] in VMLogic, if we
+    /// have this number of registers, no subsequent writes to the registers
+    /// will succeed even if they replace an existing register.
     pub max_number_registers: u64,
 
     /// Maximum number of log entries.
@@ -129,16 +130,22 @@ fn wasmer2_stack_limit_default() -> i32 {
     serde_repr::Deserialize_repr,
 )]
 #[repr(u8)]
-pub enum StackLimiterVersion {
-    /// Old, buggy version, don't use it unless specifically to support old protocol version.
+pub enum ContractPrepareVersion {
+    /// Oldest, buggiest version.
+    ///
+    /// Don't use it unless specifically to support old protocol version.
     V0,
-    /// What we use in today's protocol.
+    /// Old, slow and buggy version.
+    ///
+    /// Better than V0, but don’t use this nevertheless.
     V1,
+    /// finite-wasm 0.3.0 based contract preparation code.
+    V2,
 }
 
-impl StackLimiterVersion {
-    pub fn v0() -> StackLimiterVersion {
-        StackLimiterVersion::V0
+impl ContractPrepareVersion {
+    pub fn v0() -> ContractPrepareVersion {
+        ContractPrepareVersion::V0
     }
 }
 
@@ -203,8 +210,8 @@ impl VMLimitConfig {
 
             // NOTE: Stack height has to be 16K, otherwise Wasmer produces non-deterministic results.
             // For experimentation try `test_stack_overflow`.
-            max_stack_height: 16 * 1024, // 16Kib of stack.
-            stack_limiter_version: StackLimiterVersion::V1,
+            max_stack_height: 256 * 1024, // 256kiB of stack.
+            contract_prepare_version: ContractPrepareVersion::V2,
             initial_memory_pages: 2u32.pow(10), // 64Mib of memory.
             max_memory_pages: 2u32.pow(11),     // 128Mib of memory.
 
@@ -252,15 +259,21 @@ impl VMLimitConfig {
 }
 
 /// Configuration of view methods execution, during which no costs should be charged.
-#[derive(Default, Clone, Serialize, Deserialize, Debug, Hash, PartialEq, Eq)]
+#[derive(Default, Clone, serde::Serialize, serde::Deserialize, Debug, Hash, PartialEq, Eq)]
 pub struct ViewConfig {
     /// If specified, defines max burnt gas per view method.
     pub max_gas_burnt: Gas,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct ParameterCost {
+    pub gas: Gas,
+    pub compute: Compute,
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct ExtCostsConfig {
-    pub costs: EnumMap<ExtCosts, Gas>,
+    pub costs: EnumMap<ExtCosts, ParameterCost>,
 }
 
 // We multiply the actual computed costs by the fixed factor to ensure we
@@ -268,13 +281,17 @@ pub struct ExtCostsConfig {
 const SAFETY_MULTIPLIER: u64 = 3;
 
 impl ExtCostsConfig {
-    pub fn cost(&self, param: ExtCosts) -> Gas {
-        self.costs[param]
+    pub fn gas_cost(&self, param: ExtCosts) -> Gas {
+        self.costs[param].gas
+    }
+
+    pub fn compute_cost(&self, param: ExtCosts) -> Compute {
+        self.costs[param].compute
     }
 
     /// Convenience constructor to use in tests where the exact gas cost does
     /// not need to correspond to a specific protocol version.
-    pub fn test() -> ExtCostsConfig {
+    pub fn test_with_undercharging_factor(factor: u64) -> ExtCostsConfig {
         let costs = enum_map! {
             ExtCosts::base => SAFETY_MULTIPLIER * 88256037,
             ExtCosts::contract_loading_base => SAFETY_MULTIPLIER * 11815321,
@@ -298,9 +315,7 @@ impl ExtCostsConfig {
             ExtCosts::keccak512_base => SAFETY_MULTIPLIER * 1937129412,
             ExtCosts::keccak512_byte => SAFETY_MULTIPLIER * 12216567,
             ExtCosts::ripemd160_base => SAFETY_MULTIPLIER * 284558362,
-            #[cfg(feature = "protocol_feature_ed25519_verify")]
             ExtCosts::ed25519_verify_base => SAFETY_MULTIPLIER * 1513656750,
-            #[cfg(feature = "protocol_feature_ed25519_verify")]
             ExtCosts::ed25519_verify_byte => SAFETY_MULTIPLIER * 7157035,
             ExtCosts::ripemd160_block => SAFETY_MULTIPLIER * 226702528,
             ExtCosts::ecrecover_base => SAFETY_MULTIPLIER * 1121789875000,
@@ -318,14 +333,16 @@ impl ExtCostsConfig {
             ExtCosts::storage_remove_ret_value_byte => SAFETY_MULTIPLIER * 3843852,
             ExtCosts::storage_has_key_base => SAFETY_MULTIPLIER * 18013298875,
             ExtCosts::storage_has_key_byte => SAFETY_MULTIPLIER * 10263615,
-            ExtCosts::storage_iter_create_prefix_base => SAFETY_MULTIPLIER * 0,
-            ExtCosts::storage_iter_create_prefix_byte => SAFETY_MULTIPLIER * 0,
-            ExtCosts::storage_iter_create_range_base => SAFETY_MULTIPLIER * 0,
-            ExtCosts::storage_iter_create_from_byte => SAFETY_MULTIPLIER * 0,
-            ExtCosts::storage_iter_create_to_byte => SAFETY_MULTIPLIER * 0,
-            ExtCosts::storage_iter_next_base => SAFETY_MULTIPLIER * 0,
-            ExtCosts::storage_iter_next_key_byte => SAFETY_MULTIPLIER * 0,
-            ExtCosts::storage_iter_next_value_byte => SAFETY_MULTIPLIER * 0,
+            // Here it should be `SAFETY_MULTIPLIER * 0` for consistency, but then
+            // clippy complains with "this operation will always return zero" warning
+            ExtCosts::storage_iter_create_prefix_base => 0,
+            ExtCosts::storage_iter_create_prefix_byte => 0,
+            ExtCosts::storage_iter_create_range_base => 0,
+            ExtCosts::storage_iter_create_from_byte => 0,
+            ExtCosts::storage_iter_create_to_byte => 0,
+            ExtCosts::storage_iter_next_base => 0,
+            ExtCosts::storage_iter_next_key_byte => 0,
+            ExtCosts::storage_iter_next_value_byte => 0,
             ExtCosts::touching_trie_node => SAFETY_MULTIPLIER * 5367318642,
             ExtCosts::read_cached_trie_node => SAFETY_MULTIPLIER * 760_000_000,
             ExtCosts::promise_and_base => SAFETY_MULTIPLIER * 488337800,
@@ -339,20 +356,29 @@ impl ExtCostsConfig {
             ExtCosts::alt_bn128_pairing_check_element => 5_102_000_000_000,
             ExtCosts::alt_bn128_g1_sum_base => 3_000_000_000,
             ExtCosts::alt_bn128_g1_sum_element => 5_000_000_000,
-        };
+        }
+        .map(|_, value| ParameterCost { gas: value, compute: value * factor });
         ExtCostsConfig { costs }
+    }
+
+    /// `test_with_undercharging_factor` with a factor of 1.
+    pub fn test() -> ExtCostsConfig {
+        Self::test_with_undercharging_factor(1)
     }
 
     fn free() -> ExtCostsConfig {
         ExtCostsConfig {
             costs: enum_map! {
-                _ => 0
+                _ => ParameterCost { gas: 0, compute: 0 }
             },
         }
     }
 }
 
 /// Strongly-typed representation of the fees for counting.
+///
+/// Do not change the enum discriminants here, they are used for borsh
+/// (de-)serialization.
 #[derive(
     Copy,
     Clone,
@@ -368,69 +394,67 @@ impl ExtCostsConfig {
 )]
 #[allow(non_camel_case_types)]
 pub enum ExtCosts {
-    base,
-    contract_loading_base,
-    contract_loading_bytes,
-    read_memory_base,
-    read_memory_byte,
-    write_memory_base,
-    write_memory_byte,
-    read_register_base,
-    read_register_byte,
-    write_register_base,
-    write_register_byte,
-    utf8_decoding_base,
-    utf8_decoding_byte,
-    utf16_decoding_base,
-    utf16_decoding_byte,
-    sha256_base,
-    sha256_byte,
-    keccak256_base,
-    keccak256_byte,
-    keccak512_base,
-    keccak512_byte,
-    ripemd160_base,
-    ripemd160_block,
-    #[cfg(feature = "protocol_feature_ed25519_verify")]
-    ed25519_verify_base,
-    #[cfg(feature = "protocol_feature_ed25519_verify")]
-    ed25519_verify_byte,
-    ecrecover_base,
-    log_base,
-    log_byte,
-    storage_write_base,
-    storage_write_key_byte,
-    storage_write_value_byte,
-    storage_write_evicted_byte,
-    storage_read_base,
-    storage_read_key_byte,
-    storage_read_value_byte,
-    storage_remove_base,
-    storage_remove_key_byte,
-    storage_remove_ret_value_byte,
-    storage_has_key_base,
-    storage_has_key_byte,
-    storage_iter_create_prefix_base,
-    storage_iter_create_prefix_byte,
-    storage_iter_create_range_base,
-    storage_iter_create_from_byte,
-    storage_iter_create_to_byte,
-    storage_iter_next_base,
-    storage_iter_next_key_byte,
-    storage_iter_next_value_byte,
-    touching_trie_node,
-    read_cached_trie_node,
-    promise_and_base,
-    promise_and_per_promise,
-    promise_return,
-    validator_stake_base,
-    validator_total_stake_base,
-    alt_bn128_g1_multiexp_base,
-    alt_bn128_g1_multiexp_element,
-    alt_bn128_pairing_check_base,
-    alt_bn128_pairing_check_element,
-    alt_bn128_g1_sum_base,
-    alt_bn128_g1_sum_element,
+    base = 0,
+    contract_loading_base = 1,
+    contract_loading_bytes = 2,
+    read_memory_base = 3,
+    read_memory_byte = 4,
+    write_memory_base = 5,
+    write_memory_byte = 6,
+    read_register_base = 7,
+    read_register_byte = 8,
+    write_register_base = 9,
+    write_register_byte = 10,
+    utf8_decoding_base = 11,
+    utf8_decoding_byte = 12,
+    utf16_decoding_base = 13,
+    utf16_decoding_byte = 14,
+    sha256_base = 15,
+    sha256_byte = 16,
+    keccak256_base = 17,
+    keccak256_byte = 18,
+    keccak512_base = 19,
+    keccak512_byte = 20,
+    ripemd160_base = 21,
+    ripemd160_block = 22,
+    ecrecover_base = 23,
+    log_base = 24,
+    log_byte = 25,
+    storage_write_base = 26,
+    storage_write_key_byte = 27,
+    storage_write_value_byte = 28,
+    storage_write_evicted_byte = 29,
+    storage_read_base = 30,
+    storage_read_key_byte = 31,
+    storage_read_value_byte = 32,
+    storage_remove_base = 33,
+    storage_remove_key_byte = 34,
+    storage_remove_ret_value_byte = 35,
+    storage_has_key_base = 36,
+    storage_has_key_byte = 37,
+    storage_iter_create_prefix_base = 38,
+    storage_iter_create_prefix_byte = 39,
+    storage_iter_create_range_base = 40,
+    storage_iter_create_from_byte = 41,
+    storage_iter_create_to_byte = 42,
+    storage_iter_next_base = 43,
+    storage_iter_next_key_byte = 44,
+    storage_iter_next_value_byte = 45,
+    touching_trie_node = 46,
+    read_cached_trie_node = 47,
+    promise_and_base = 48,
+    promise_and_per_promise = 49,
+    promise_return = 50,
+    validator_stake_base = 51,
+    validator_total_stake_base = 52,
+    alt_bn128_g1_multiexp_base = 53,
+    alt_bn128_g1_multiexp_element = 54,
+    alt_bn128_pairing_check_base = 55,
+    alt_bn128_pairing_check_element = 56,
+    alt_bn128_g1_sum_base = 57,
+    alt_bn128_g1_sum_element = 58,
+    ed25519_verify_base = 59,
+    ed25519_verify_byte = 60,
 }
 
 // Type of an action, used in fees logic.
@@ -449,26 +473,31 @@ pub enum ExtCosts {
 )]
 #[allow(non_camel_case_types)]
 pub enum ActionCosts {
-    create_account,
-    delete_account,
-    deploy_contract_base,
-    deploy_contract_byte,
-    function_call_base,
-    function_call_byte,
-    transfer,
-    stake,
-    add_full_access_key,
-    add_function_call_key_base,
-    add_function_call_key_byte,
-    delete_key,
-    new_action_receipt,
-    new_data_receipt_base,
-    new_data_receipt_byte,
+    create_account = 0,
+    delete_account = 1,
+    deploy_contract_base = 2,
+    deploy_contract_byte = 3,
+    function_call_base = 4,
+    function_call_byte = 5,
+    transfer = 6,
+    stake = 7,
+    add_full_access_key = 8,
+    add_function_call_key_base = 9,
+    add_function_call_key_byte = 10,
+    delete_key = 11,
+    new_action_receipt = 12,
+    new_data_receipt_base = 13,
+    new_data_receipt_byte = 14,
+    delegate = 15,
 }
 
 impl ExtCosts {
-    pub fn value(self, config: &ExtCostsConfig) -> Gas {
-        config.cost(self)
+    pub fn gas(self, config: &ExtCostsConfig) -> Gas {
+        config.gas_cost(self)
+    }
+
+    pub fn compute(self, config: &ExtCostsConfig) -> Compute {
+        config.compute_cost(self)
     }
 
     pub fn param(&self) -> Parameter {
@@ -497,9 +526,7 @@ impl ExtCosts {
             ExtCosts::ripemd160_base => Parameter::WasmRipemd160Base,
             ExtCosts::ripemd160_block => Parameter::WasmRipemd160Block,
             ExtCosts::ecrecover_base => Parameter::WasmEcrecoverBase,
-            #[cfg(feature = "protocol_feature_ed25519_verify")]
             ExtCosts::ed25519_verify_base => Parameter::WasmEd25519VerifyBase,
-            #[cfg(feature = "protocol_feature_ed25519_verify")]
             ExtCosts::ed25519_verify_byte => Parameter::WasmEd25519VerifyByte,
             ExtCosts::log_base => Parameter::WasmLogBase,
             ExtCosts::log_byte => Parameter::WasmLogByte,

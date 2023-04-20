@@ -1,12 +1,10 @@
-use std::collections::{HashMap, HashSet};
-
+use crate::StoreValidator;
 use borsh::BorshSerialize;
-use thiserror::Error;
-
 use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
+use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
 use near_primitives::sharding::{ChunkHash, ShardChunk, StateSyncInfo};
 use near_primitives::syncing::{
     get_num_state_parts, ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey,
@@ -18,11 +16,9 @@ use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, inde
 use near_store::{
     DBCol, TrieChanges, CHUNK_TAIL_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, TAIL_KEY,
 };
+use std::collections::{HashMap, HashSet};
 
-use crate::StoreValidator;
-use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
-
-#[derive(Error, Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum StoreValidatorError {
     #[error(transparent)]
     IOError(#[from] std::io::Error),
@@ -561,7 +557,7 @@ pub(crate) fn trie_changes_chunk_extra_exists(
         );
     }
     // 4) Trie should exist for `shard_uid` and the root
-    let trie = sv.runtime_adapter.get_tries().get_trie_for_shard(*shard_uid, new_root.clone());
+    let trie = sv.runtime_adapter.get_tries().get_trie_for_shard(*shard_uid, new_root);
     let trie_iterator = unwrap_or_err!(
         trie.iter(),
         "Trie Node Missing for shard {:?} root {:?}",
@@ -692,7 +688,6 @@ pub(crate) fn outcome_indexed_by_block_hash(
         "Can't get Block {} from DB",
         block_hash
     );
-    let mut outcome_ids = vec![];
     for chunk_header in block.chunks().iter() {
         if chunk_header.height_included() == block.header().height() {
             let shard_uid = sv
@@ -706,21 +701,20 @@ pub(crate) fn outcome_indexed_by_block_hash(
                 DBCol::ChunkExtra,
                 &get_block_shard_uid(block.hash(), &shard_uid),
             ) {
-                outcome_ids.extend(unwrap_or_err_db!(
+                let outcome_ids = unwrap_or_err_db!(
                     sv.store.get_ser::<Vec<CryptoHash>>(
                         DBCol::OutcomeIds,
                         &get_block_shard_id(block.hash(), chunk_header.shard_id())
                     ),
                     "Can't get Outcome ids by Block Hash"
-                ));
+                );
+                if outcome_ids.contains(outcome_id) {
+                    return Ok(());
+                }
             }
         }
-        if !outcome_ids.contains(outcome_id) {
-            println!("outcome ids: {:?}, block: {:?}", outcome_ids, block);
-            err!("Outcome id {:?} is not found in DBCol::OutcomeIds", outcome_id);
-        }
     }
-    Ok(())
+    err!("Outcome id {:?} is not found in DBCol::OutcomeIds", outcome_id)
 }
 
 pub(crate) fn state_sync_info_valid(
@@ -879,8 +873,8 @@ pub(crate) fn state_part_header_exists(
 pub(crate) fn block_height_cmp_tail_final(
     sv: &mut StoreValidator,
 ) -> Result<(), StoreValidatorError> {
-    if sv.inner.block_heights_less_tail.len() >= 2 {
-        let len = sv.inner.block_heights_less_tail.len();
+    let len = sv.inner.block_heights_less_tail.len();
+    if len >= 2 {
         let blocks = &sv.inner.block_heights_less_tail;
         err!("Found {:?} Blocks with height lower than Tail, {:?}", len, blocks)
     }
@@ -888,37 +882,43 @@ pub(crate) fn block_height_cmp_tail_final(
 }
 
 pub(crate) fn tx_refcount_final(sv: &mut StoreValidator) -> Result<(), StoreValidatorError> {
-    let len = sv.inner.tx_refcount.len();
-    if len > 0 {
-        for tx_refcount in sv.inner.tx_refcount.iter() {
-            err!("Found {:?} Txs that are not counted, i.e. {:?}", len, tx_refcount);
-        }
+    if let Some(tx_refcount) = sv.inner.tx_refcount.iter().next() {
+        err!(
+            "Found {:?} Txs that are not counted, e.g. {:?}",
+            sv.inner.tx_refcount.len(),
+            tx_refcount
+        );
     }
     Ok(())
 }
 
 pub(crate) fn receipt_refcount_final(sv: &mut StoreValidator) -> Result<(), StoreValidatorError> {
-    let len = sv.inner.receipt_refcount.len();
-    if len > 0 {
-        for receipt_refcount in sv.inner.receipt_refcount.iter() {
-            err!("Found {:?} receipts that are not counted, i.e. {:?}", len, receipt_refcount);
-        }
+    if let Some(receipt_refcount) = sv.inner.receipt_refcount.iter().next() {
+        err!(
+            "Found {:?} receipts that are not counted, e.g. {:?}",
+            sv.inner.receipt_refcount.len(),
+            receipt_refcount
+        );
     }
     Ok(())
 }
 
 pub(crate) fn block_refcount_final(sv: &mut StoreValidator) -> Result<(), StoreValidatorError> {
-    if sv.inner.block_refcount.len() > 1 {
-        let len = sv.inner.block_refcount.len();
-        for block_refcount in sv.inner.block_refcount.iter() {
-            err!("Found {:?} Blocks that are not counted, i.e. {:?}", len, block_refcount);
-        }
+    let block_refcount_len = sv.inner.block_refcount.len();
+    if block_refcount_len >= 2 {
+        err!(
+            "Found {:?} Blocks that are not counted, e.g. {:?}",
+            block_refcount_len,
+            sv.inner.block_refcount.iter().next()
+        );
     }
-    if sv.inner.genesis_blocks.len() > 1 {
-        let len = sv.inner.genesis_blocks.len();
-        for tail_block in sv.inner.genesis_blocks.iter() {
-            err!("Found {:?} Genesis Blocks, i.e. {:?}", len, tail_block);
-        }
+    let genesis_blocks_len = sv.inner.genesis_blocks.len();
+    if genesis_blocks_len >= 2 {
+        err!(
+            "Found {:?} Genesis Blocks, e.g. {:?}",
+            genesis_blocks_len,
+            sv.inner.genesis_blocks.first()
+        );
     }
     Ok(())
 }

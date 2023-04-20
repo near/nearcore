@@ -1,10 +1,17 @@
-use borsh::{BorshDeserialize, BorshSerialize};
-use serde::{Deserialize, Serialize};
-
 use crate::hash::CryptoHash;
 use crate::types::MerkleHash;
+use borsh::{BorshDeserialize, BorshSerialize};
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub struct MerklePathItem {
     pub hash: MerkleHash,
     pub direction: Direction,
@@ -12,7 +19,16 @@ pub struct MerklePathItem {
 
 pub type MerklePath = Vec<MerklePathItem>;
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub enum Direction {
     Left,
     Right,
@@ -124,7 +140,9 @@ pub fn compute_root_from_path_and_item<T: BorshSerialize>(
 /// The root can be computed by folding `path` from right but is not explicitly
 /// maintained to save space.
 /// The size of the object is O(log(n)) where n is the number of leaves in the tree, i.e, `size`.
-#[derive(Default, Clone, BorshSerialize, BorshDeserialize, Eq, PartialEq, Debug, Serialize)]
+#[derive(
+    Default, Clone, BorshSerialize, BorshDeserialize, Eq, PartialEq, Debug, serde::Serialize,
+)]
 pub struct PartialMerkleTree {
     /// Path for the next leaf.
     path: Vec<MerkleHash>,

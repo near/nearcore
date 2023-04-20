@@ -1,0 +1,2 @@
+max_stack_height: { old: 16384, new: 262144 }
+contract_prepare_version: { old: 1, new: 2 }
