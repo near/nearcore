@@ -116,6 +116,7 @@ impl<S: Subscriber + for<'span> LookupSpan<'span>> Layer<S> for IoTraceLayer {
         }
     }
 
+    #[allow(clippy::integer_arithmetic)]
     fn on_exit(&self, id: &span::Id, ctx: tracing_subscriber::layer::Context<'_, S>) {
         // When the span exits, produce one line for the span itself that
         // includes key=value pairs from `SpanInfo`. Then also add indentation
@@ -139,7 +140,6 @@ impl<S: Subscriber + for<'span> LookupSpan<'span>> Layer<S> for IoTraceLayer {
             let OutputBuffer(parent_buffer) = ext.get_mut().unwrap();
             parent_buffer.push(BufferedLine { indent: 2, output_line: span_line });
             parent_buffer.extend(exiting_buffer.drain(..).map(|mut line| {
-                #[allow(clippy::integer_arithmetic)]
                 line.indent += 2;
                 line
             }));
@@ -302,10 +302,10 @@ impl tracing::field::Visit for IoEventVisitor {
 }
 
 impl tracing::field::Visit for SpanInfo {
+    #[allow(clippy::integer_arithmetic)]
     fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
         // "count" is a special field, everything else are key values pairs.
         if field.name() == "counter" {
-            #[allow(clippy::integer_arithmetic)]
             *self.counts.entry(value.to_string()).or_default() += 1;
         } else {
             self.record_debug(field, &value);
