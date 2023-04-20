@@ -22,6 +22,20 @@ pub(crate) const WASM_FEATURES: wasmparser::WasmFeatures = wasmparser::WasmFeatu
     multi_memory: false,
     exceptions: false,
     memory64: false,
+    //
+    // /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\
+    //
+    // FIXME: there are features that this version of wasmparser enables by default, but pwasm
+    // currently does not and the compilers' support for these features is therefore largely
+    // untested if it exists at all. Non exhaustive list of examples:
+    //
+    // * saturating_float_to_int
+    // * sign_extension
+    //
+    // This should be accounted for when pwasm code is removed!
+    //
+    // /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\
+    //
 };
 
 /// Loads the given module given in `original_code`, performs some checks on it and

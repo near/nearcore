@@ -40,8 +40,10 @@ const VM_FEATURES: Features = Features {
     memory64: WASM_FEATURES.memory64,
     exceptions: WASM_FEATURES.exceptions,
     mutable_global: true,
-    saturating_float_to_int: true,
-    sign_extension: true,
+    // These are blocked at prepare by pwasm parser, but once that is gone these are going to be
+    // the only check we have.
+    saturating_float_to_int: false,
+    sign_extension: false,
 };
 
 #[derive(Clone)]
