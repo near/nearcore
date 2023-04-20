@@ -16,11 +16,11 @@ ansi_term.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 futures.workspace = true
-near-rust-allocator-proxy = { workspace = true, optional = true }
 once_cell.workspace = true
 openssl-probe.workspace = true
 opentelemetry.workspace = true
 rayon.workspace = true
+rlimit.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 shell-escape.workspace = true
@@ -29,18 +29,26 @@ tikv-jemallocator.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
-nearcore = { path = "../nearcore" }
-near-amend-genesis = { path = "../tools/amend-genesis" }
-near-chain-configs = { path = "../core/chain-configs" }
-near-dyn-configs = { path = "../core/dyn-configs" }
-near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }
-near-mirror = { path = "../tools/mirror" }
-near-primitives = { path = "../core/primitives" }
-near-performance-metrics = { path = "../utils/near-performance-metrics" }
-near-ping = { path = "../tools/ping" }
-near-state-viewer = { path = "../tools/state-viewer", package = "state-viewer" }
-near-store = { path = "../core/store" }
-near-o11y = { path = "../core/o11y" }
+nearcore.workspace = true
+near-amend-genesis.workspace = true
+near-chain-configs.workspace = true
+near-client.workspace = true
+near-cold-store-tool.workspace = true
+near-config-utils.workspace = true
+near-crypto.workspace = true
+near-dyn-configs.workspace = true
+near-flat-storage.workspace = true
+near-jsonrpc-primitives.workspace = true
+near-mirror.workspace = true
+near-network.workspace = true
+near-o11y.workspace = true
+near-performance-metrics.workspace = true
+near-ping.workspace = true
+near-primitives.workspace = true
+near-state-parts.workspace = true
+near-state-viewer.workspace = true
+near-store.workspace = true
+near-undo-block.workspace = true
 
 [build-dependencies]
 anyhow.workspace = true
@@ -50,7 +58,6 @@ rustc_version = "0.4"
 default = ["json_rpc", "rosetta_rpc"]
 
 performance_stats = ["nearcore/performance_stats"]
-memory_stats = ["nearcore/memory_stats", "near-rust-allocator-proxy"]
 c_memory_stats = ["nearcore/c_memory_stats"]
 test_features = ["nearcore/test_features"]
 expensive_tests = ["nearcore/expensive_tests"]
@@ -59,19 +66,19 @@ delay_detector = ["nearcore/delay_detector"]
 rosetta_rpc = ["nearcore/rosetta_rpc"]
 json_rpc = ["nearcore/json_rpc"]
 protocol_feature_fix_staking_threshold = ["nearcore/protocol_feature_fix_staking_threshold"]
-protocol_feature_flat_state = ["nearcore/protocol_feature_flat_state"]
-cold_store = ["nearcore/cold_store", "near-store/cold_store"]
+serialize_all_state_changes = ["nearcore/serialize_all_state_changes"]
+protocol_feature_flat_state = ["nearcore/protocol_feature_flat_state", "near-flat-storage/protocol_feature_flat_state"]
 
 nightly = [
   "nightly_protocol",
-  "nearcore/nightly"
+  "nearcore/nightly",
+  "near-state-viewer/nightly",
+  "protocol_feature_flat_state",
 ]
 nightly_protocol = ["nearcore/nightly_protocol"]
 
-# Shardnet is the experimental network that we deploy for chunk-only producer testing.
-shardnet = [
-  "near-primitives/shardnet",
-  "nearcore/shardnet",
+calimero_zero_storage = [
+  "near-primitives/calimero_zero_storage",
 ]
 
 # Compile with option to emit a detailed trace of IO operations and their

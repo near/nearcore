@@ -1,10 +1,9 @@
+use super::{RpcFrom, RpcInto};
 use near_client_primitives::types::NetworkInfoResponse;
 use near_client_primitives::types::{KnownProducer, PeerInfo};
 use near_jsonrpc_primitives::types::network_info::{
     RpcKnownProducer, RpcNetworkInfoError, RpcNetworkInfoResponse, RpcPeerInfo,
 };
-
-use super::{RpcFrom, RpcInto};
 
 impl RpcFrom<actix::MailboxError> for RpcNetworkInfoError {
     fn rpc_from(error: actix::MailboxError) -> Self {

@@ -1,0 +1,40 @@
+[package]
+name = "near-vm-compiler-singlepass"
+version = "0.0.0"
+description = "Singlepass compiler for Wasmer WebAssembly runtime"
+categories = ["wasm"]
+keywords = ["wasm", "webassembly", "compiler", "singlepass"]
+authors = ["Wasmer Engineering Team <engineering@wasmer.io>", "Near Inc <hello@nearprotocol.com>"]
+repository = "https://github.com/near/nearcore"
+license = "MIT"
+readme = "README.md"
+edition = "2021"
+publish = true
+rust-version.workspace = true
+
+[dependencies]
+finite-wasm.workspace = true
+wasmer-compiler = { path = "../compiler", package = "near-vm-compiler", features = ["translator"], default-features = false }
+wasmer-vm = { path = "../vm", package = "near-vm-vm" }
+wasmer-types = { path = "../types", package = "near-vm-types", default-features = false, features = ["std"] }
+dynasm.workspace = true
+dynasmrt.workspace = true
+enumset.workspace = true
+hashbrown = { workspace = true, optional = true }
+lazy_static.workspace = true
+memoffset.workspace = true
+more-asserts.workspace = true
+rayon = { workspace = true, optional = true }
+smallvec.workspace = true
+strum.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+target-lexicon.workspace = true
+
+[badges]
+maintenance = { status = "actively-developed" }
+
+[features]
+default = ["std", "rayon"]
+std = ["wasmer-compiler/std", "wasmer-types/std"]

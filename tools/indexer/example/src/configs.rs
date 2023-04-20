@@ -1,10 +1,8 @@
-use clap::Parser;
-
 use near_indexer::near_primitives::types::Gas;
 
 /// NEAR Indexer Example
 /// Watches for stream of blocks from the chain
-#[derive(Parser, Debug)]
+#[derive(clap::Parser, Debug)]
 #[clap(version = "0.1", author = "Near Inc. <hello@nearprotocol.com>")]
 #[clap(subcommand_required = true, arg_required_else_help = true)]
 pub(crate) struct Opts {
@@ -15,7 +13,7 @@ pub(crate) struct Opts {
     pub subcmd: SubCommand,
 }
 
-#[derive(Parser, Debug)]
+#[derive(clap::Parser, Debug)]
 pub(crate) enum SubCommand {
     /// Run NEAR Indexer Example. Start observe the network
     Run,
@@ -23,7 +21,7 @@ pub(crate) enum SubCommand {
     Init(InitConfigArgs),
 }
 
-#[derive(Parser, Debug)]
+#[derive(clap::Parser, Debug)]
 pub(crate) struct InitConfigArgs {
     /// chain/network id (localnet, testnet, devnet, betanet)
     #[clap(short, long)]

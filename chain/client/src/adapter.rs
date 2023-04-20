@@ -1,6 +1,5 @@
 use crate::client_actor::ClientActor;
 use crate::view_client::ViewClientActor;
-use near_network::time;
 use near_network::types::{
     NetworkInfo, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
     PartialEncodedChunkResponseMsg, ReasonForBan, StateResponseInfo,
@@ -263,50 +262,6 @@ impl near_network::client::Client for Adapter {
             Err(err) => {
                 tracing::error!("mailbox error: {err}");
             }
-        }
-    }
-
-    async fn partial_encoded_chunk_request(
-        &self,
-        req: PartialEncodedChunkRequestMsg,
-        msg_hash: CryptoHash,
-    ) {
-        match self
-            .client_addr
-            .send(RecvPartialEncodedChunkRequest(req, msg_hash).with_span_context())
-            .await
-        {
-            Ok(()) => {}
-            Err(err) => tracing::error!("mailbox error: {err}"),
-        }
-    }
-
-    async fn partial_encoded_chunk_response(
-        &self,
-        resp: PartialEncodedChunkResponseMsg,
-        timestamp: time::Instant,
-    ) {
-        match self
-            .client_addr
-            .send(RecvPartialEncodedChunkResponse(resp, timestamp.into()).with_span_context())
-            .await
-        {
-            Ok(()) => {}
-            Err(err) => tracing::error!("mailbox error: {err}"),
-        }
-    }
-
-    async fn partial_encoded_chunk(&self, chunk: PartialEncodedChunk) {
-        match self.client_addr.send(RecvPartialEncodedChunk(chunk).with_span_context()).await {
-            Ok(()) => {}
-            Err(err) => tracing::error!("mailbox error: {err}"),
-        }
-    }
-
-    async fn partial_encoded_chunk_forward(&self, msg: PartialEncodedChunkForwardMsg) {
-        match self.client_addr.send(RecvPartialEncodedChunkForward(msg).with_span_context()).await {
-            Ok(()) => {}
-            Err(err) => tracing::error!("mailbox error: {err}"),
         }
     }
 

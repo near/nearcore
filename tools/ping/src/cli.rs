@@ -1,5 +1,4 @@
 use anyhow::Context;
-use clap::Parser;
 use near_network::types::PeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
@@ -11,17 +10,17 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct PingCommand {
     #[clap(long)]
     chain_id: String,
     #[clap(long)]
     /// genesis hash to use in the Handshake we send. This must be provided if --chain-id
-    /// is not one of "mainnet", "testnet" or "shardnet"
+    /// is not "mainnet" or "testnet"
     genesis_hash: Option<String>,
     #[clap(long)]
     /// head height to use in the Handshake we send. This must be provided if --chain-id
-    /// is not one of "mainnet", "testnet" or "shardnet"
+    /// is not "mainnet" or "testnet"
     head_height: Option<u64>,
     /// Protocol version to advertise in our handshake
     #[clap(long)]
@@ -90,12 +89,13 @@ fn display_stats(stats: &mut [(crate::PeerIdentifier, crate::PingStats)], peer_i
     }
 }
 
-struct ChainInfo {
-    chain_id: &'static str,
-    genesis_hash: CryptoHash,
+// TODO: Refactor this struct into a separate crate.
+pub struct ChainInfo {
+    pub chain_id: &'static str,
+    pub genesis_hash: CryptoHash,
 }
 
-static CHAIN_INFO: &[ChainInfo] = &[
+pub static CHAIN_INFO: &[ChainInfo] = &[
     ChainInfo {
         chain_id: "mainnet",
         genesis_hash: CryptoHash([
@@ -108,13 +108,6 @@ static CHAIN_INFO: &[ChainInfo] = &[
         genesis_hash: CryptoHash([
             215, 132, 218, 90, 158, 94, 102, 102, 133, 22, 193, 154, 128, 149, 68, 143, 197, 74,
             34, 162, 137, 113, 220, 51, 15, 0, 153, 223, 148, 55, 148, 16,
-        ]),
-    },
-    ChainInfo {
-        chain_id: "shardnet",
-        genesis_hash: CryptoHash([
-            23, 22, 21, 53, 29, 32, 253, 218, 219, 182, 221, 220, 200, 18, 11, 102, 161, 16, 96,
-            127, 219, 141, 160, 109, 150, 121, 215, 174, 108, 67, 47, 110,
         ]),
     },
 ];
@@ -208,7 +201,7 @@ impl PingCommand {
                 self.head_height.unwrap_or(0),
                 self.protocol_version,
                 peer.id.clone(),
-                peer.addr.clone().unwrap(),
+                peer.addr.unwrap(),
                 self.ttl,
                 self.ping_frequency_millis,
                 self.recv_timeout_seconds.unwrap_or(5),

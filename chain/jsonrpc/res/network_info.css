@@ -1,0 +1,51 @@
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+table,
+th,
+td {
+    border: 1px solid black;
+}
+
+td {
+    text-align: left;
+    vertical-align: top;
+    padding: 8px;
+}
+
+th {
+    text-align: center;
+    vertical-align: center;
+    padding: 8px;
+    background-color: lightgrey;
+}
+
+tr.active {
+    background-color: #eff8bf;
+}
+
+.peer_in_sync {
+    background-color: green;
+}
+
+.peer_ahead {
+    background-color: lightblue;
+}
+
+.peer_ahead_alot {
+    background-color: blueviolet;
+}
+
+.peer_behind_a_little {
+    background-color: yellowgreen;
+}
+
+.peer_behind {
+    background-color: yellow;
+}
+
+.peer_far_behind {
+    background-color: red;
+}

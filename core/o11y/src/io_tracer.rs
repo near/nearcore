@@ -187,18 +187,24 @@ impl IoTraceLayer {
         event: &tracing::Event,
         ctx: tracing_subscriber::layer::Context<S>,
     ) {
+        /// `Display`s ` size=<value>` if wrapped value is Some; nothing
+        /// otherwise.
+        struct FormattedSize(Option<u64>);
+
+        impl std::fmt::Display for FormattedSize {
+            fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                self.0.map_or(Ok(()), |size| write!(fmt, " size={size}"))
+            }
+        }
+
         let mut visitor = IoEventVisitor::default();
         event.record(&mut visitor);
         match visitor.t {
             Some(IoEventType::DbOp(db_op)) => {
                 let col = visitor.col.as_deref().unwrap_or("?");
                 let key = visitor.key.as_deref().unwrap_or("?");
-                let formatted_size = if let Some(size) = visitor.size {
-                    format!(" size={size}")
-                } else {
-                    String::new()
-                };
-                let output_line = format!("{db_op} {col} {key:?}{formatted_size}");
+                let size = FormattedSize(visitor.size);
+                let output_line = format!("{db_op} {col} {key:?}{size}");
                 if let Some(span) = ctx.event_span(event) {
                     span.extensions_mut()
                         .get_mut::<OutputBuffer>()
@@ -212,16 +218,12 @@ impl IoTraceLayer {
             }
             Some(IoEventType::StorageOp(storage_op)) => {
                 let key = visitor.key.as_deref().unwrap_or("?");
-                let formatted_size = if let Some(size) = visitor.size {
-                    format!(" size={size}")
-                } else {
-                    String::new()
-                };
+                let size = FormattedSize(visitor.size);
                 let tn_db_reads = visitor.tn_db_reads.unwrap();
                 let tn_mem_reads = visitor.tn_mem_reads.unwrap();
 
                 let span_info =
-                    format!("{storage_op} key={key}{formatted_size} tn_db_reads={tn_db_reads} tn_mem_reads={tn_mem_reads}");
+                    format!("{storage_op} key={key}{size} tn_db_reads={tn_db_reads} tn_mem_reads={tn_mem_reads}");
 
                 let span =
                     ctx.event_span(event).expect("storage operations must happen inside span");

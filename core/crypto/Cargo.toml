@@ -18,17 +18,20 @@ c2-chacha.workspace = true
 curve25519-dalek.workspace = true
 derive_more.workspace = true
 ed25519-dalek.workspace = true
-near-account-id = { path = "../account-id" }
+hex.workspace = true
+near-account-id.workspace = true
 once_cell.workspace = true
 primitive-types.workspace = true
-rand = "0.7"
+rand = "0.7" # TODO: this is probably wrong?
 secp256k1.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+stdx.workspace = true
 subtle.workspace = true
 thiserror.workspace = true
+near-config-utils.workspace = true
 
 [dev-dependencies]
-hex-literal = "0.2"
+hex-literal.workspace = true
 sha2.workspace = true
 tempfile.workspace = true

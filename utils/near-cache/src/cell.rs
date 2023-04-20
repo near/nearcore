@@ -24,6 +24,11 @@ where
         self.inner.borrow().len()
     }
 
+    /// Returns true if the cache is empty and false otherwise
+    pub fn is_empty(&self) -> bool {
+        self.inner.borrow().is_empty()
+    }
+
     /// Return the value of they key in the cache otherwise computes the value and inserts it into
     /// the cache. If the key is already in the cache, they gets gets moved to the head of
     /// the LRU list.

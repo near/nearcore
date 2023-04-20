@@ -1,8 +1,6 @@
 #![doc = include_str!("../README.md")]
+#![deny(clippy::integer_arithmetic)]
 
-pub use {tracing, tracing_appender, tracing_subscriber};
-
-use clap::Parser;
 pub use context::*;
 use near_crypto::PublicKey;
 use near_primitives_core::types::AccountId;
@@ -11,7 +9,6 @@ use opentelemetry::sdk::trace::{self, IdGenerator, Sampler, Tracer};
 use opentelemetry::sdk::Resource;
 use opentelemetry::KeyValue;
 use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
-use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::path::PathBuf;
 use tracing::level_filters::LevelFilter;
@@ -23,13 +20,14 @@ use tracing_subscriber::filter::{Filtered, ParseError};
 use tracing_subscriber::layer::{Layered, SubscriberExt};
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::{fmt, reload, EnvFilter, Layer, Registry};
+pub use {tracing, tracing_appender, tracing_subscriber};
 
 /// Custom tracing subscriber implementation that produces IO traces.
 pub mod context;
 mod io_tracer;
+pub mod log_config;
 pub mod macros;
 pub mod metrics;
-pub mod pretty;
 pub mod testonly;
 
 /// Produce a tracing-event for target "io_tracer" that will be consumed by the
@@ -79,7 +77,8 @@ type TracingLayer<Inner> = Layered<
 static DEFAULT_OTLP_LEVEL: OnceCell<OpenTelemetryLevel> = OnceCell::new();
 
 /// The default value for the `RUST_LOG` environment variable if one isn't specified otherwise.
-pub const DEFAULT_RUST_LOG: &'static str = "tokio_reactor=info,\
+pub const DEFAULT_RUST_LOG: &str = "tokio_reactor=info,\
+     config=info,\
      near=info,\
      recompress=info,\
      stats=info,\
@@ -87,7 +86,6 @@ pub const DEFAULT_RUST_LOG: &'static str = "tokio_reactor=info,\
      db=info,\
      delay_detector=info,\
      near-performance-metrics=info,\
-     near-rust-allocator-proxy=info,\
      warn";
 
 /// The resource representing a registered subscriber.
@@ -112,23 +110,18 @@ pub struct DefaultSubscriberGuard<S> {
 }
 
 // Doesn't define WARN and ERROR, because the highest verbosity of spans is INFO.
-#[derive(Copy, Clone, Debug, clap::ArgEnum, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Default, clap::ArgEnum, serde::Serialize, serde::Deserialize)]
 pub enum OpenTelemetryLevel {
+    #[default]
     OFF,
     INFO,
     DEBUG,
     TRACE,
 }
 
-impl Default for OpenTelemetryLevel {
-    fn default() -> Self {
-        OpenTelemetryLevel::OFF
-    }
-}
-
 /// Configures exporter of span and trace data.
 // Currently empty, but more fields will be added in the future.
-#[derive(Debug, Default, Parser)]
+#[derive(Debug, Default, clap::Parser)]
 pub struct Options {
     /// Enables export of span data using opentelemetry exporters.
     #[clap(long, arg_enum, default_value = "off")]
@@ -178,17 +171,12 @@ impl<S: tracing::Subscriber + Send + Sync> DefaultSubscriberGuard<S> {
 /// Whether to use colored log format.
 /// Option `Auto` enables color output only if the logging is done to a terminal and
 /// `NO_COLOR` environment variable is not set.
-#[derive(clap::ArgEnum, Debug, Clone)]
+#[derive(clap::ArgEnum, Debug, Clone, Default)]
 pub enum ColorOutput {
+    #[default]
     Always,
     Never,
     Auto,
-}
-
-impl Default for ColorOutput {
-    fn default() -> Self {
-        ColorOutput::Auto
-    }
 }
 
 fn is_terminal() -> bool {
@@ -319,8 +307,12 @@ fn use_color_output(options: &Options) -> bool {
     match options.color {
         ColorOutput::Always => true,
         ColorOutput::Never => false,
-        ColorOutput::Auto => std::env::var_os("NO_COLOR").is_none() && is_terminal(),
+        ColorOutput::Auto => use_color_auto(),
     }
+}
+
+fn use_color_auto() -> bool {
+    std::env::var_os("NO_COLOR").is_none() && is_terminal()
 }
 
 /// Constructs a subscriber set to the option appropriate for the NEAR code.
@@ -347,12 +339,30 @@ pub fn default_subscriber(
     let subscriber = tracing_subscriber::registry();
     let subscriber = add_simple_log_layer(env_filter, make_writer, color_output, subscriber);
 
+    #[allow(unused_mut)]
+    let mut io_trace_guard = None;
+    #[cfg(feature = "io_trace")]
+    let subscriber = subscriber.with(options.record_io_trace.as_ref().map(|output_path| {
+        let (sub, guard) = make_io_tracing_layer(
+            std::fs::File::create(output_path)
+                .expect("unable to create or truncate IO trace output file"),
+        );
+        io_trace_guard = Some(guard);
+        sub
+    }));
+
     DefaultSubscriberGuard {
         subscriber: Some(subscriber),
         local_subscriber_guard: None,
         writer_guard: None,
-        io_trace_guard: None,
+        io_trace_guard,
     }
+}
+
+pub fn set_default_otlp_level(options: &Options) {
+    // Record the initial tracing level specified as a command-line flag. Use this recorded value to
+    // reset opentelemetry filter when the LogConfig file gets deleted.
+    DEFAULT_OTLP_LEVEL.set(options.opentelemetry).unwrap();
 }
 
 /// Constructs a subscriber set to the option appropriate for the NEAR code.
@@ -375,9 +385,7 @@ pub async fn default_subscriber_with_opentelemetry(
 
     let subscriber = tracing_subscriber::registry();
 
-    // Record the initial tracing level specified as a command-line flag. Use this recorded value to
-    // reset opentelemetry filter when the LogConfig file gets deleted.
-    DEFAULT_OTLP_LEVEL.set(options.opentelemetry).unwrap();
+    set_default_otlp_level(options);
 
     let (subscriber, handle) = add_non_blocking_log_layer(
         env_filter,
@@ -437,6 +445,28 @@ pub enum ReloadError {
     Parse(#[source] BuildEnvFilterError),
 }
 
+pub fn reload_log_config(config: Option<&log_config::LogConfig>) {
+    let result = if let Some(config) = config {
+        reload(
+            config.rust_log.as_deref(),
+            config.verbose_module.as_deref(),
+            config.opentelemetry_level,
+        )
+    } else {
+        // When the LOG_CONFIG_FILENAME is not available, reset to the tracing and logging config
+        // when the node was started.
+        reload(None, None, None)
+    };
+    match result {
+        Ok(_) => {
+            println!("Updated the logging layer according to `log_config.json`");
+        }
+        Err(err) => {
+            println!("Failed to update the logging layer according to the changed `log_config.json`. Errors: {:?}", err);
+        }
+    }
+}
+
 /// Constructs new filters for the logging and opentelemetry layers.
 ///
 /// Attempts to reload all available errors. Returns errors for each layer that failed to reload.
@@ -454,10 +484,8 @@ pub fn reload(
     let log_reload_result = LOG_LAYER_RELOAD_HANDLE.get().map_or(
         Err(ReloadError::NoLogReloadHandle),
         |reload_handle| {
-            let mut builder = rust_log.map_or_else(
-                || EnvFilterBuilder::from_env(),
-                |rust_log| EnvFilterBuilder::new(rust_log),
-            );
+            let mut builder =
+                rust_log.map_or_else(EnvFilterBuilder::from_env, EnvFilterBuilder::new);
             if let Some(module) = verbose_module {
                 builder = builder.verbose(Some(module));
             }
@@ -619,5 +647,18 @@ macro_rules! log_assert {
                 $crate::tracing::error!($fmt $($arg)*);
             }
         }
+    };
+}
+
+/// The same as 'log_assert' but always fails.
+///
+/// `log_assert_fail!` panics in debug mode, while in release mode it emits
+/// a `tracing::error!` log line. Use it for sanity-checking non-essential
+/// invariants, whose violation signals a bug in the code, where we'd rather
+/// avoid shutting the whole node down.
+#[macro_export]
+macro_rules! log_assert_fail {
+    ($fmt:literal $($arg:tt)*) => {
+        $crate::log_assert!(false, $fmt $($arg)*);
     };
 }

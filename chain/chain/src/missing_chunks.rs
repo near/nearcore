@@ -149,7 +149,7 @@ impl<Block: BlockLike> MissingChunksPool<Block> {
     }
 
     fn mark_block_as_ready(&mut self, block_hash: &BlockHash) {
-        for block in self.blocks_waiting_for_chunks.remove(block_hash) {
+        if let Some(block) = self.blocks_waiting_for_chunks.remove(block_hash) {
             let height = block.height();
             if let btree_map::Entry::Occupied(mut entry) = self.height_idx.entry(height) {
                 let blocks_at_height = entry.get_mut();

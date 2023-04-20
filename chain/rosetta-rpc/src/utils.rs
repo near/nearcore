@@ -53,7 +53,7 @@ where
     where
         D: serde::Deserializer<'de>,
     {
-        let blob = hex::decode(&<String as serde::Deserialize>::deserialize(deserializer)?)
+        let blob = hex::decode(<String as serde::Deserialize>::deserialize(deserializer)?)
             .map_err(|err| {
                 serde::de::Error::invalid_value(
                     serde::de::Unexpected::Other(&format!(
@@ -118,7 +118,7 @@ where
         D: serde::Deserializer<'de>,
     {
         Ok(Self(T::from(
-            hex::decode(&<String as serde::Deserialize>::deserialize(deserializer)?).map_err(
+            hex::decode(<String as serde::Deserialize>::deserialize(deserializer)?).map_err(
                 |err| {
                     serde::de::Error::invalid_value(
                         serde::de::Unexpected::Other(&format!(
@@ -203,7 +203,7 @@ where
     T: Copy + PartialEq + std::string::ToString,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "SignedDiff({})", self.to_string())
+        write!(f, "SignedDiff({})", self)
     }
 }
 
@@ -269,14 +269,23 @@ where
     }
 }
 
+/// Zero-balance account (NEP-448)
+fn is_zero_balance_account(account: &near_primitives::account::Account) -> bool {
+    account.storage_usage() <= node_runtime::ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT
+}
+
+/// Tokens not locked due to staking (=liquid) but reserved for state.
 fn get_liquid_balance_for_storage(
-    mut account: near_primitives::account::Account,
-    runtime_config: &near_primitives::runtime::config::RuntimeConfig,
+    account: &near_primitives::account::Account,
+    storage_amount_per_byte: near_primitives::types::Balance,
 ) -> near_primitives::types::Balance {
-    account.set_amount(0);
-    near_primitives::runtime::get_insufficient_storage_stake(&account, runtime_config)
-        .expect("get_insufficient_storage_stake never fails when state is consistent")
-        .unwrap_or(0)
+    let staked_for_storage = if is_zero_balance_account(account) {
+        0
+    } else {
+        near_primitives::types::Balance::from(account.storage_usage()) * storage_amount_per_byte
+    };
+
+    staked_for_storage.saturating_sub(account.locked())
 }
 
 pub(crate) struct RosettaAccountBalances {
@@ -292,12 +301,13 @@ impl RosettaAccountBalances {
 
     pub fn from_account<T: Into<near_primitives::account::Account>>(
         account: T,
-        runtime_config: &near_primitives::runtime::config::RuntimeConfig,
+        runtime_config: &near_primitives::views::RuntimeConfigView,
     ) -> Self {
         let account = account.into();
         let amount = account.amount();
         let locked = account.locked();
-        let liquid_for_storage = get_liquid_balance_for_storage(account, runtime_config);
+        let liquid_for_storage =
+            get_liquid_balance_for_storage(&account, runtime_config.storage_amount_per_byte);
 
         Self { liquid_for_storage, liquid: amount.saturating_sub(liquid_for_storage), locked }
     }
@@ -468,6 +478,15 @@ where
     }
 }
 
+impl<'a, T> AsRef<Option<T>> for InitializeOnce<'a, T>
+where
+    T: std::fmt::Debug + std::clone::Clone + std::cmp::Eq,
+{
+    fn as_ref(&self) -> &Option<T> {
+        &self.known_value
+    }
+}
+
 /// Get a block with `block_id`.
 /// Returns `Ok(Some(_))` if the block exists and is final.
 /// Returns `Ok(None)` if the block does not exist or is not final.
@@ -556,7 +575,7 @@ pub(crate) async fn get_nonces(
                     err
                 ))
             })?,
-            &view_client_addr,
+            view_client_addr,
         )
         .await?;
         nonces.push(access_key.nonce);

@@ -567,8 +567,7 @@ async fn construction_payloads(
     check_network_identifier(&client_addr, network_identifier).await?;
 
     let signer_public_access_key: near_crypto::PublicKey = public_keys
-        .iter()
-        .next()
+        .first()
         .ok_or_else(|| {
             errors::ErrorKind::InvalidInput("exactly one public key is expected".to_string())
         })?
@@ -601,7 +600,7 @@ async fn construction_payloads(
         actions,
     };
 
-    let (transaction_hash, _) = unsigned_transaction.get_hash_and_size().clone();
+    let (transaction_hash, _) = unsigned_transaction.get_hash_and_size();
 
     Ok(Json(models::ConstructionPayloadsResponse {
         unsigned_transaction: unsigned_transaction.into(),
@@ -632,8 +631,7 @@ async fn construction_combine(
     check_network_identifier(&client_addr, network_identifier).await?;
 
     let signature = signatures
-        .iter()
-        .next()
+        .first()
         .ok_or_else(|| {
             errors::ErrorKind::InvalidInput("exactly one signature is expected".to_string())
         })?

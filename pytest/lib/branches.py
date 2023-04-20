@@ -40,6 +40,7 @@ def __get_latest_deploy(chain_id: str) -> typing.Tuple[str, str]:
     """
 
     def download(url: str) -> str:
+        logger.info(f"download {url}")
         res = requests.get(url)
         res.raise_for_status()
         return res.text
@@ -76,7 +77,15 @@ def _compile_binary(branch: str) -> Executables:
     prev_branch = current_branch()
     stash_output = subprocess.check_output(['git', 'stash'])
     try:
-        subprocess.check_output(['git', 'checkout', str(branch)])
+        subprocess.check_output([
+            'git',
+            # When checking out old releases we end up in a detached head state
+            # and git prints a scary warning about that. This config silences it.
+            '-c',
+            'advice.detachedHead=false',
+            'checkout',
+            str(branch),
+        ])
         try:
             subprocess.check_output(['git', 'pull', 'origin', str(branch)])
             result = _compile_current(branch)

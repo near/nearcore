@@ -34,14 +34,10 @@ impl<K: Hash + Eq + Clone, V> Drop for Ref<K, V> {
         // because that might trigger this function
         // recursively and cause a deadlock.
         let mut m = self.map.inner.lock().unwrap();
-        let e = match m.entry(self.key.clone()) {
-            Entry::Occupied(e) => e,
-            Entry::Vacant(_) => {
-                return;
+        if let Entry::Occupied(e) = m.entry(self.key.clone()) {
+            if e.get().strong_count() == 0 {
+                e.remove_entry();
             }
-        };
-        if e.get().strong_count() == 0 {
-            e.remove_entry();
         }
     }
 }

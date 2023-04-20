@@ -2,8 +2,8 @@ use crate::test_utils::TestEnv;
 use near_chain::{test_utils, ChainGenesis, Provenance};
 use near_crypto::{KeyType, PublicKey};
 use near_primitives::network::PeerId;
+use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::validator_signer::InMemoryValidatorSigner;
 use std::sync::Arc;
 
 /// Only process one block per height
@@ -16,8 +16,8 @@ fn test_not_process_height_twice() {
     // modify the block and resign it
     let mut duplicate_block = block.clone();
     env.process_block(0, block, Provenance::PRODUCED);
-    let validator_signer =
-        InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let validator_signer = create_test_signer("test0");
+
     let proposals =
         vec![ValidatorStake::new("test1".parse().unwrap(), PublicKey::empty(KeyType::ED25519), 0)];
     duplicate_block.mut_header().get_mut().inner_rest.validator_proposals = proposals;

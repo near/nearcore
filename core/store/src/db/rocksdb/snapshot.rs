@@ -18,11 +18,11 @@ use crate::Temperature;
 /// informational messages pointing where the snapshot resides and how to
 /// recover data from it.
 #[derive(Debug)]
-pub(crate) struct Snapshot(Option<std::path::PathBuf>);
+pub struct Snapshot(pub Option<std::path::PathBuf>);
 
 /// Possible errors when creating a checkpoint.
 #[derive(Debug)]
-pub(crate) enum SnapshotError {
+pub enum SnapshotError {
     /// Snapshot at requested location already exists.
     ///
     /// More specifically, the specified path exists (since the code does only
@@ -173,7 +173,7 @@ fn test_snapshot_recovery() {
 
     // Populate some data
     {
-        let store = opener.open().unwrap().get_store(crate::Temperature::Hot);
+        let store = opener.open().unwrap().get_hot_store();
         let mut update = store.store_update();
         update.set_raw_bytes(COL, KEY, b"value");
         update.commit().unwrap();
@@ -185,7 +185,7 @@ fn test_snapshot_recovery() {
 
     // Delete the data from the database.
     {
-        let store = opener.open().unwrap().get_store(crate::Temperature::Hot);
+        let store = opener.open().unwrap().get_hot_store();
         let mut update = store.store_update();
         update.delete(COL, KEY);
         update.commit().unwrap();
@@ -197,8 +197,8 @@ fn test_snapshot_recovery() {
     {
         let mut config = opener.config().clone();
         config.path = Some(path);
-        let opener = crate::NodeStorage::opener(tmpdir.path(), &config, None);
-        let store = opener.open().unwrap().get_store(crate::Temperature::Hot);
+        let opener = crate::NodeStorage::opener(tmpdir.path(), false, &config, None);
+        let store = opener.open().unwrap().get_hot_store();
         assert_eq!(Some(&b"value"[..]), store.get(COL, KEY).unwrap().as_deref());
     }
 

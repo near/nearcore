@@ -1,10 +1,13 @@
 use std::collections::HashMap;
 
+use borsh::BorshDeserialize;
+
 use near_primitives::challenge::{PartialState, StateItem};
 use near_primitives::state_part::PartId;
 use near_primitives::types::StateRoot;
 use tracing::error;
 
+use crate::flat::FlatStateChanges;
 use crate::trie::iterator::TrieTraversalItem;
 use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::{
@@ -12,6 +15,7 @@ use crate::trie::{
 };
 use crate::{PartialStorage, StorageError, Trie, TrieChanges};
 use near_primitives::contract::ContractCode;
+use near_primitives::state::ValueRef;
 use near_primitives::state_record::is_contract_code_key;
 
 impl Trie {
@@ -44,8 +48,12 @@ impl Trie {
     fn visit_nodes_for_state_part(&self, part_id: PartId) -> Result<(), StorageError> {
         let path_begin = self.find_path_for_part_boundary(part_id.idx, part_id.total)?;
         let path_end = self.find_path_for_part_boundary(part_id.idx + 1, part_id.total)?;
+
         let mut iterator = self.iter()?;
-        iterator.visit_nodes_interval(&path_begin, &path_end)?;
+        let nodes_list = iterator.visit_nodes_interval(&path_begin, &path_end)?;
+        tracing::debug!(
+            target: "state_parts",
+            num_nodes = nodes_list.len());
 
         // Extra nodes for compatibility with the previous version of computing state parts
         if part_id.idx + 1 != part_id.total {
@@ -64,7 +72,7 @@ impl Trie {
     /// Part part_id has nodes with paths `[path(part_id), path(part_id + 1))`
     /// path is returned as nibbles, last path is `vec![16]`, previous paths end
     /// in nodes
-    pub(crate) fn find_path_for_part_boundary(
+    pub fn find_path_for_part_boundary(
         &self,
         part_id: u64,
         num_parts: u64,
@@ -100,24 +108,20 @@ impl Trie {
                 Ok(false)
             }
             TrieNode::Branch(children, _) => {
-                for child_index in 0..children.len() {
-                    let child = match &children[child_index] {
-                        None => {
-                            continue;
-                        }
-                        Some(NodeHandle::InMemory(_)) => {
-                            unreachable!("only possible while mutating")
-                        }
-                        Some(NodeHandle::Hash(h)) => self.retrieve_node(h)?.1,
-                    };
-                    if *size_skipped + child.memory_usage <= size_start {
-                        *size_skipped += child.memory_usage;
-                        continue;
+                let mut iter = children.iter();
+                while let Some((index, child)) = iter.next() {
+                    let child = if let NodeHandle::Hash(h) = child {
+                        self.retrieve_node(h)?.1
                     } else {
-                        key_nibbles.push(child_index as u8);
+                        unreachable!("only possible while mutating")
+                    };
+                    if *size_skipped + child.memory_usage > size_start {
+                        core::mem::drop(iter);
+                        key_nibbles.push(index);
                         *node = child;
                         return Ok(true);
                     }
+                    *size_skipped += child.memory_usage;
                 }
                 // This line should not be reached if node.memory_usage > size_start
                 // To avoid changing production behavior, I'm just adding a debug_assert here
@@ -173,8 +177,7 @@ impl Trie {
         trie_nodes: PartialState,
     ) -> Result<(), StorageError> {
         let num_nodes = trie_nodes.0.len();
-        let trie =
-            Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes }, state_root.clone());
+        let trie = Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes }, *state_root);
 
         trie.visit_nodes_for_state_part(part_id)?;
         let storage = trie.storage.as_partial_storage().unwrap();
@@ -195,23 +198,25 @@ impl Trie {
         if state_root == &Trie::EMPTY_ROOT {
             return Ok(ApplyStatePartResult {
                 trie_changes: TrieChanges::empty(Trie::EMPTY_ROOT),
+                flat_state_delta: Default::default(),
                 contract_codes: vec![],
             });
         }
-        let trie = Trie::from_recorded_storage(
-            PartialStorage { nodes: PartialState(part) },
-            state_root.clone(),
-        );
+        let trie =
+            Trie::from_recorded_storage(PartialStorage { nodes: PartialState(part) }, *state_root);
         let path_begin = trie.find_path_for_part_boundary(part_id.idx, part_id.total)?;
         let path_end = trie.find_path_for_part_boundary(part_id.idx + 1, part_id.total)?;
         let mut iterator = trie.iter()?;
         let trie_traversal_items = iterator.visit_nodes_interval(&path_begin, &path_end)?;
         let mut map = HashMap::new();
+        let mut flat_state_delta = FlatStateChanges::default();
         let mut contract_codes = Vec::new();
         for TrieTraversalItem { hash, key } in trie_traversal_items {
             let value = trie.storage.retrieve_raw_bytes(&hash)?;
             map.entry(hash).or_insert_with(|| (value.to_vec(), 0)).1 += 1;
             if let Some(trie_key) = key {
+                let value_ref = ValueRef::new(&value);
+                flat_state_delta.insert(trie_key.clone(), Some(value_ref));
                 if is_contract_code_key(&trie_key) {
                     contract_codes.push(ContractCode::new(value.to_vec(), None));
                 }
@@ -225,6 +230,7 @@ impl Trie {
                 insertions,
                 deletions,
             },
+            flat_state_delta,
             contract_codes,
         })
     }
@@ -241,9 +247,9 @@ impl Trie {
     }
 
     pub fn get_memory_usage_from_serialized(bytes: &[u8]) -> Result<u64, StorageError> {
-        RawTrieNodeWithSize::decode(bytes).map(|raw_node| raw_node.memory_usage).map_err(|err| {
-            StorageError::StorageInconsistentState(format!("Failed to decode node: {err}"))
-        })
+        RawTrieNodeWithSize::try_from_slice(bytes).map(|raw_node| raw_node.memory_usage).map_err(
+            |err| StorageError::StorageInconsistentState(format!("Failed to decode node: {err}")),
+        )
     }
 }
 
@@ -277,7 +283,7 @@ mod tests {
             parts: &[Vec<StateItem>],
         ) -> Result<TrieChanges, StorageError> {
             let nodes = PartialState(parts.iter().flat_map(|part| part.iter()).cloned().collect());
-            let trie = Trie::from_recorded_storage(PartialStorage { nodes }, state_root.clone());
+            let trie = Trie::from_recorded_storage(PartialStorage { nodes }, *state_root);
             let mut insertions = <HashMap<CryptoHash, (Vec<u8>, u32)>>::new();
             trie.traverse_all_nodes(|hash| {
                 if let Some((_bytes, rc)) = insertions.get_mut(hash) {
@@ -315,56 +321,48 @@ mod tests {
             }
             let mut stack: Vec<(CryptoHash, TrieNodeWithSize, CrumbStatus)> = Vec::new();
             let root_node = self.retrieve_node(&self.root)?.1;
-            stack.push((self.root.clone(), root_node, CrumbStatus::Entering));
+            stack.push((self.root, root_node, CrumbStatus::Entering));
             while let Some((hash, node, position)) = stack.pop() {
                 if let CrumbStatus::Entering = position {
                     on_enter(&hash)?;
                 }
+                let mut on_enter_value = |value: &ValueHandle| {
+                    if let ValueHandle::HashAndSize(value) = value {
+                        on_enter(&value.hash)
+                    } else {
+                        unreachable!("only possible while mutating")
+                    }
+                };
                 match &node.node {
                     TrieNode::Empty => {
                         continue;
                     }
                     TrieNode::Leaf(_, value) => {
-                        match value {
-                            ValueHandle::HashAndSize(_, hash) => {
-                                on_enter(hash)?;
-                            }
-                            ValueHandle::InMemory(_) => {
-                                unreachable!("only possible while mutating")
-                            }
-                        }
+                        on_enter_value(value)?;
                         continue;
                     }
                     TrieNode::Branch(children, value) => match position {
                         CrumbStatus::Entering => {
-                            match value {
-                                Some(ValueHandle::HashAndSize(_, hash)) => {
-                                    on_enter(hash)?;
-                                }
-                                _ => {}
+                            if let Some(ref value) = value {
+                                on_enter_value(value)?;
                             }
                             stack.push((hash, node, CrumbStatus::AtChild(0)));
                             continue;
                         }
-                        CrumbStatus::AtChild(mut i) => {
-                            while i < 16 {
-                                if let Some(NodeHandle::Hash(_h)) = children[i].as_ref() {
-                                    break;
-                                }
-                                i += 1;
-                            }
-                            if i < 16 {
-                                if let Some(NodeHandle::Hash(h)) = children[i].clone() {
-                                    let child = self.retrieve_node(&h)?.1;
-                                    stack.push((hash, node, CrumbStatus::AtChild(i + 1)));
-                                    stack.push((h, child, CrumbStatus::Entering));
-                                } else {
-                                    stack.push((hash, node, CrumbStatus::Exiting));
-                                }
-                            } else {
+                        CrumbStatus::AtChild(mut i) => loop {
+                            if i >= 16 {
                                 stack.push((hash, node, CrumbStatus::Exiting));
+                                break;
                             }
-                        }
+                            if let Some(NodeHandle::Hash(ref h)) = children[i] {
+                                let h = h.clone();
+                                let child = self.retrieve_node(&h)?.1;
+                                stack.push((hash, node, CrumbStatus::AtChild(i + 1)));
+                                stack.push((h, child, CrumbStatus::Entering));
+                                break;
+                            }
+                            i += 1;
+                        },
                         CrumbStatus::Exiting => {
                             continue;
                         }
@@ -374,15 +372,12 @@ mod tests {
                     },
                     TrieNode::Extension(_key, child) => {
                         if let CrumbStatus::Entering = position {
-                            match child.clone() {
-                                NodeHandle::InMemory(_) => {
-                                    unreachable!("only possible while mutating")
-                                }
-                                NodeHandle::Hash(h) => {
-                                    let child = self.retrieve_node(&h)?.1;
-                                    stack.push((hash, node, CrumbStatus::Exiting));
-                                    stack.push((h, child, CrumbStatus::Entering));
-                                }
+                            if let NodeHandle::Hash(h) = child.clone() {
+                                let child = self.retrieve_node(&h)?.1;
+                                stack.push((h, node, CrumbStatus::Exiting));
+                                stack.push((h, child, CrumbStatus::Entering));
+                            } else {
+                                unreachable!("only possible while mutating")
                             }
                         }
                     }

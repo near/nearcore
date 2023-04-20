@@ -8,8 +8,8 @@ edition.workspace = true
 [dependencies]
 serde.workspace = true
 
-near-primitives = { path = "../../core/primitives" }
-near-network = { path = "../network" }
+near-primitives.workspace = true
+near-network.workspace = true
 
 [features]
 test_features = ["near-network/test_features"]

@@ -39,11 +39,8 @@ pub fn decode_value_with_rc(bytes: &[u8]) -> (Option<&[u8]>, i64) {
         debug_assert!(bytes.is_empty());
         return (None, 0);
     }
-    // TODO(mina86): Use rsplit_array_ref once split_array feature is stabilised
-    //    let (head, tail) = bytes.rsplit_array_ref<8>();
-    //    let rc = i64::from_le_bytes(tail);
-    let (head, tail) = bytes.split_at(bytes.len() - 8);
-    let rc = i64::from_le_bytes(tail.try_into().unwrap());
+    let (head, tail) = stdx::rsplit_slice::<8>(bytes);
+    let rc = i64::from_le_bytes(*tail);
     if rc <= 0 {
         (None, rc)
     } else {
@@ -66,6 +63,27 @@ pub(crate) fn strip_refcount(mut bytes: Vec<u8>) -> Option<Vec<u8>> {
         debug_assert!(bytes.is_empty());
     }
     None
+}
+
+/// Sets the refcount to the given value.
+///
+/// This method assumes that the data already contains a reference count stored
+/// in the last 8 bytes. It overwrites this value with the new value.
+///
+/// Returns None if the input bytes are too short to contain a refcount.
+pub(crate) fn set_refcount(data: &mut Vec<u8>, refcount: i64) -> io::Result<()> {
+    const BYTE_COUNT: usize = std::mem::size_of::<i64>();
+
+    if let Some(len) = data.len().checked_sub(BYTE_COUNT) {
+        let refcount: [u8; BYTE_COUNT] = refcount.to_le_bytes();
+        data[len..].copy_from_slice(&refcount);
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "The data is too short to set refcount",
+        ))
+    }
 }
 
 /// Encode a positive reference count into the value.
@@ -114,10 +132,10 @@ pub(crate) fn refcount_merge<'a>(
 
 /// Iterator treats empty value as no value and strips refcount
 pub(crate) fn iter_with_rc_logic<'a>(
-    column: DBCol,
+    col: DBCol,
     iterator: impl Iterator<Item = io::Result<(Box<[u8]>, Box<[u8]>)>> + 'a,
 ) -> crate::db::DBIterator<'a> {
-    if column.is_rc() {
+    if col.is_rc() {
         Box::new(iterator.filter_map(|item| match item {
             Err(err) => Some(Err(err)),
             Ok((key, value)) => {
@@ -214,6 +232,19 @@ mod test {
 
         let rc = std::num::NonZeroU32::new(2).unwrap();
         assert_eq!(MINUS_TWO, &super::encode_negative_refcount(rc));
+    }
+
+    #[test]
+    fn set_refcount() {
+        fn test(want: Vec<u8>, data: &[u8], refcount: i64) {
+            let mut data = data.to_vec();
+            let result = super::set_refcount(&mut data, refcount);
+            assert!(result.is_ok());
+            assert_eq!(want, data);
+        }
+
+        test(PLUS_TWO.to_vec(), b"\0\0\0\0\0\0\0\0", 2);
+        test(MINUS_TWO.to_vec(), b"\0\0\0\0\0\0\0\0", -2);
     }
 
     #[test]

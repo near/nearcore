@@ -10,7 +10,7 @@ pub fn wat_contract(wat: &str) -> Vec<u8> {
     wat::parse_str(wat).unwrap_or_else(|err| panic!("invalid wat: {err}\n{wat}"))
 }
 
-/// Trivial contact with a do-nothing main function.
+/// Trivial contract with a do-nothing main function.
 pub fn trivial_contract() -> &'static [u8] {
     static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
     CONTRACT.get_or_init(|| wat_contract(r#"(module (func (export "main")))"#)).as_slice()
@@ -30,7 +30,7 @@ pub fn sized_contract(size: usize) -> Vec<u8> {
     let adjusted_size = size as i64 - (base_size as i64 - size as i64);
     let payload = "x".repeat(adjusted_size as usize);
     let code = format!(
-        r#"(module 
+        r#"(module
             (memory 1)
             (func (export "main"))
             (data (i32.const 0) "{payload}")
@@ -47,8 +47,7 @@ pub fn sized_contract(size: usize) -> Vec<u8> {
 /// not work for tests using an older version. In particular, if a test depends
 /// on a specific protocol version, it should use [`base_rs_contract`].
 pub fn rs_contract() -> &'static [u8] {
-    static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
-    CONTRACT.get_or_init(|| read_contract("test_contract_rs.wasm")).as_slice()
+    include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/res/", "test_contract_rs.wasm"))
 }
 
 /// Standard test contract which is compatible any protocol version, including
@@ -77,6 +76,20 @@ pub fn ts_contract() -> &'static [u8] {
 pub fn fuzzing_contract() -> &'static [u8] {
     static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
     CONTRACT.get_or_init(|| read_contract("contract_for_fuzzing_rs.wasm")).as_slice()
+}
+
+/// NEP-141 implementation (fungible token contract).
+///
+/// The code is available here:
+/// https://github.com/near/near-sdk-rs/tree/master/examples/fungible-token
+///
+/// We keep a static WASM of this for our integration tests. We don't have to
+/// update it with every SDK release, any contract implementing the interface
+/// defined by NEP-141 is sufficient. But for future reference, the WASM was
+/// compiled with SDK version 4.1.1.
+pub fn ft_contract() -> &'static [u8] {
+    static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
+    CONTRACT.get_or_init(|| read_contract("fungible_token.wasm")).as_slice()
 }
 
 /// Smallest (reasonable) contract possible to build.
@@ -133,6 +146,7 @@ fn smoke_test() {
     assert!(!trivial_contract().is_empty());
     assert!(!fuzzing_contract().is_empty());
     assert!(!base_rs_contract().is_empty());
+    assert!(!ft_contract().is_empty());
 }
 
 pub struct LargeContract {

@@ -9,26 +9,22 @@
 //!
 //! The main entrypoint here is the [Message](enum.Message.html). The others are just building
 //! blocks and you should generally work with `Message` instead.
-
-use std::fmt::{Formatter, Result as FmtResult};
-
+use crate::errors::RpcError;
 use serde::de::{Deserializer, Error, Unexpected, Visitor};
 use serde::ser::{SerializeStruct, Serializer};
-use serde::{Deserialize, Serialize};
 use serde_json::{Result as JsonResult, Value};
-
-use crate::errors::RpcError;
+use std::fmt::{Formatter, Result as FmtResult};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct Version;
 
-impl Serialize for Version {
+impl serde::Serialize for Version {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_str("2.0")
     }
 }
 
-impl<'de> Deserialize<'de> for Version {
+impl<'de> serde::Deserialize<'de> for Version {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         struct VersionVisitor;
         impl<'de> Visitor<'de> for VersionVisitor {
@@ -50,13 +46,13 @@ impl<'de> Deserialize<'de> for Version {
 }
 
 /// An RPC request.
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Request {
     jsonrpc: Version,
     pub method: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub params: Option<Value>,
+    #[serde(default, skip_serializing_if = "Value::is_null")]
+    pub params: Value,
     pub id: Value,
 }
 
@@ -83,7 +79,7 @@ pub struct Response {
     pub id: Value,
 }
 
-impl Serialize for Response {
+impl serde::Serialize for Response {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut sub = serializer.serialize_struct("Response", 3)?;
         sub.serialize_field("jsonrpc", &self.jsonrpc)?;
@@ -101,11 +97,11 @@ impl Serialize for Response {
 /// The usual one produces None in that case. But we need to know the difference between
 /// `{x: null}` and `{}`.
 fn some_value<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Value>, D::Error> {
-    Deserialize::deserialize(deserializer).map(Some)
+    serde::Deserialize::deserialize(deserializer).map(Some)
 }
 
 /// A helper trick for deserialization.
-#[derive(Deserialize)]
+#[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WireResponse {
     // It is actually used to eat and sanity check the deserialized text
@@ -121,9 +117,9 @@ struct WireResponse {
 // Implementing deserialize is hard. We sidestep the difficulty by deserializing a similar
 // structure that directly corresponds to whatever is on the wire and then convert it to our more
 // convenient representation.
-impl<'de> Deserialize<'de> for Response {
+impl<'de> serde::Deserialize<'de> for Response {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let wr: WireResponse = Deserialize::deserialize(deserializer)?;
+        let wr: WireResponse = serde::Deserialize::deserialize(deserializer)?;
         let result = match (wr.result, wr.error) {
             (Some(res), None) => Ok(res),
             (None, Some(err)) => Err(err),
@@ -137,13 +133,13 @@ impl<'de> Deserialize<'de> for Response {
 }
 
 /// A notification (doesn't expect an answer).
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Notification {
     jsonrpc: Version,
     pub method: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub params: Option<Value>,
+    #[serde(default, skip_serializing_if = "Value::is_null")]
+    pub params: Value,
 }
 
 /// One message of the JSON RPC protocol.
@@ -159,7 +155,7 @@ pub struct Notification {
 /// The `UnmatchedSub` variant is used when a request is an array and some of the subrequests
 /// aren't recognized as valid json rpc 2.0 messages. This is never returned as a top-level
 /// element, it is returned as `Err(Broken::Unmatched)`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(untagged)]
 pub enum Message {
     /// An RPC request.
@@ -188,7 +184,7 @@ impl Message {
     /// A constructor for a request.
     ///
     /// The ID is auto-generated.
-    pub fn request(method: String, params: Option<Value>) -> Self {
+    pub fn request(method: String, params: Value) -> Self {
         let id = Value::from(near_primitives::utils::generate_random_string(9));
         Message::Request(Request { jsonrpc: Version, method, params, id })
     }
@@ -197,7 +193,7 @@ impl Message {
         Message::Response(Response { jsonrpc: Version, result: Err(error), id: Value::Null })
     }
     /// A constructor for a notification.
-    pub fn notification(method: String, params: Option<Value>) -> Self {
+    pub fn notification(method: String, params: Value) -> Self {
         Message::Notification(Notification { jsonrpc: Version, method, params })
     }
     /// A constructor for a response.
@@ -216,7 +212,7 @@ impl Message {
 /// A broken message.
 ///
 /// Protocol-level errors.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
 #[serde(untagged)]
 pub enum Broken {
     /// It was valid JSON, but doesn't match the form of a JSONRPC 2.0 message.
@@ -242,7 +238,7 @@ impl Broken {
 }
 
 /// A trick to easily deserialize and detect valid JSON, but invalid Message.
-#[derive(Deserialize)]
+#[derive(serde::Deserialize)]
 #[serde(untagged)]
 pub enum WireMessage {
     Message(Message),
@@ -317,7 +313,7 @@ mod tests {
             &Message::Request(Request {
                 jsonrpc: Version,
                 method: "call".to_owned(),
-                params: None,
+                params: Value::Null,
                 id: json!(1),
             }),
         );
@@ -327,7 +323,7 @@ mod tests {
             &Message::Request(Request {
                 jsonrpc: Version,
                 method: "call".to_owned(),
-                params: Some(json!([1, 2, 3])),
+                params: json!([1, 2, 3]),
                 id: json!(2),
             }),
         );
@@ -337,7 +333,7 @@ mod tests {
             &Message::Notification(Notification {
                 jsonrpc: Version,
                 method: "notif".to_owned(),
-                params: Some(json!({"x": "y"})),
+                params: json!({"x": "y"}),
             }),
         );
         // A successful response
@@ -373,12 +369,12 @@ mod tests {
                 Message::Notification(Notification {
                     jsonrpc: Version,
                     method: "notif".to_owned(),
-                    params: None,
+                    params: Value::Null,
                 }),
                 Message::Request(Request {
                     jsonrpc: Version,
                     method: "call".to_owned(),
-                    params: None,
+                    params: Value::Null,
                     id: json!(42),
                 }),
             ]),
@@ -397,12 +393,12 @@ mod tests {
                 Message::Notification(Notification {
                     jsonrpc: Version,
                     method: "notif".to_owned(),
-                    params: None,
+                    params: Value::Null,
                 }),
                 Message::Request(Request {
                     jsonrpc: Version,
                     method: "call".to_owned(),
-                    params: None,
+                    params: Value::Null,
                     id: json!(42),
                 }),
                 Message::UnmatchedSub(Value::Bool(true)),
@@ -455,8 +451,8 @@ mod tests {
     /// Most of it is related to the ids.
     #[test]
     fn constructors() {
-        let msg1 = Message::request("call".to_owned(), Some(json!([1, 2, 3])));
-        let msg2 = Message::request("call".to_owned(), Some(json!([1, 2, 3])));
+        let msg1 = Message::request("call".to_owned(), json!([1, 2, 3]));
+        let msg2 = Message::request("call".to_owned(), json!([1, 2, 3]));
         // They differ, even when created with the same parameters
         assert_ne!(msg1, msg2);
         // And, specifically, they differ in the ID's

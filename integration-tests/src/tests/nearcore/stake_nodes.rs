@@ -13,7 +13,8 @@ use near_actix_test_utils::run_actix;
 use near_chain_configs::Genesis;
 use near_client::{ClientActor, GetBlock, ProcessTxRequest, Query, Status, ViewClientActor};
 use near_crypto::{InMemorySigner, KeyType};
-use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeoutActor};
+use near_network::tcp;
+use near_network::test_utils::{convert_boot_nodes, WaitOrTimeoutActor};
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
@@ -57,17 +58,17 @@ fn init_test_staking(
         genesis.config.max_inflation_rate = Ratio::from_integer(0);
         genesis.config.min_gas_price = 0;
     }
-    let first_node = open_port();
+    let first_node = tcp::ListenerAddr::reserve_for_test();
 
     let configs = (0..num_node_seats).map(|i| {
         let mut config = load_test_config(
             &format!("near.{}", i),
-            if i == 0 { first_node } else { open_port() },
+            if i == 0 { first_node } else { tcp::ListenerAddr::reserve_for_test() },
             genesis.clone(),
         );
         if i != 0 {
             config.network_config.peer_store.boot_nodes =
-                convert_boot_nodes(vec![("near.0", first_node)]);
+                convert_boot_nodes(vec![("near.0", *first_node)]);
         }
         config.client_config.min_num_peers = num_node_seats as usize - 1;
         config.client_config.epoch_sync_enabled = false;

@@ -6,7 +6,7 @@ use near_client_primitives::debug::{ApprovalAtHeightStatus, ApprovalHistoryEntry
 use near_crypto::Signature;
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::hash::CryptoHash;
-use near_primitives::time::Clock;
+use near_primitives::static_clock::StaticClock;
 use near_primitives::types::{AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta};
 use near_primitives::validator_signer::ValidatorSigner;
 use tracing::info;
@@ -229,7 +229,7 @@ impl DoomslugApprovalsTracker {
     fn get_witnesses(&self) -> Vec<(AccountId, chrono::DateTime<chrono::Utc>)> {
         self.witness
             .iter()
-            .map(|(key, (_, arrival_time))| (key.clone(), arrival_time.clone()))
+            .map(|(key, (_, arrival_time))| (key.clone(), *arrival_time))
             .collect::<Vec<_>>()
     }
 }
@@ -346,8 +346,8 @@ impl Doomslug {
             tip: DoomslugTip { block_hash: CryptoHash::default(), height: 0 },
             endorsement_pending: false,
             timer: DoomslugTimer {
-                started: Clock::instant(),
-                last_endorsement_sent: Clock::instant(),
+                started: StaticClock::instant(),
+                last_endorsement_sent: StaticClock::instant(),
                 height: 0,
                 endorsement_delay,
                 min_delay,
@@ -713,9 +713,9 @@ mod tests {
     use near_crypto::{KeyType, SecretKey};
     use near_primitives::block::{Approval, ApprovalInner};
     use near_primitives::hash::hash;
-    use near_primitives::time::Clock;
+    use near_primitives::static_clock::StaticClock;
+    use near_primitives::test_utils::create_test_signer;
     use near_primitives::types::ApprovalStake;
-    use near_primitives::validator_signer::InMemoryValidatorSigner;
 
     use crate::doomslug::{
         DoomslugApprovalsTrackersAtHeight, DoomslugBlockProductionReadiness, DoomslugThresholdMode,
@@ -730,15 +730,11 @@ mod tests {
             Duration::from_millis(1000),
             Duration::from_millis(100),
             Duration::from_millis(3000),
-            Some(Arc::new(InMemoryValidatorSigner::from_seed(
-                "test".parse().unwrap(),
-                KeyType::ED25519,
-                "test",
-            ))),
+            Some(Arc::new(create_test_signer("test"))),
             DoomslugThresholdMode::TwoThirds,
         );
 
-        let mut now = Clock::instant(); // For the test purposes the absolute value of the initial instant doesn't matter
+        let mut now = StaticClock::instant(); // For the test purposes the absolute value of the initial instant doesn't matter
 
         // Set a new tip, must produce an endorsement
         ds.set_tip(now, hash(&[1]), 1, 1);
@@ -870,20 +866,10 @@ mod tests {
             .collect::<Vec<_>>();
         let signers = accounts
             .iter()
-            .map(|(account_id, _, _)| {
-                InMemoryValidatorSigner::from_seed(
-                    account_id.parse().unwrap(),
-                    KeyType::ED25519,
-                    account_id,
-                )
-            })
+            .map(|(account_id, _, _)| create_test_signer(account_id))
             .collect::<Vec<_>>();
 
-        let signer = Arc::new(InMemoryValidatorSigner::from_seed(
-            "test".parse().unwrap(),
-            KeyType::ED25519,
-            "test",
-        ));
+        let signer = Arc::new(create_test_signer("test"));
         let mut ds = Doomslug::new(
             0,
             Duration::from_millis(400),
@@ -894,7 +880,7 @@ mod tests {
             DoomslugThresholdMode::TwoThirds,
         );
 
-        let mut now = Clock::instant();
+        let mut now = StaticClock::instant();
 
         // In the comments below the format is
         // account, height -> approved stake
@@ -998,13 +984,7 @@ mod tests {
         let accounts = vec![("test1", 2, 0), ("test2", 1, 2), ("test3", 3, 3), ("test4", 2, 2)];
         let signers = accounts
             .iter()
-            .map(|(account_id, _, _)| {
-                InMemoryValidatorSigner::from_seed(
-                    account_id.parse().unwrap(),
-                    KeyType::ED25519,
-                    account_id,
-                )
-            })
+            .map(|(account_id, _, _)| create_test_signer(account_id))
             .collect::<Vec<_>>();
         let stakes = accounts
             .into_iter()
@@ -1028,7 +1008,7 @@ mod tests {
 
         // Process first approval, and then process it again and make sure it works
         tracker.process_approval(
-            Clock::instant(),
+            StaticClock::instant(),
             &a1_1,
             &stakes,
             DoomslugThresholdMode::TwoThirds,
@@ -1053,7 +1033,7 @@ mod tests {
         );
 
         tracker.process_approval(
-            Clock::instant(),
+            StaticClock::instant(),
             &a1_1,
             &stakes,
             DoomslugThresholdMode::TwoThirds,
@@ -1079,13 +1059,13 @@ mod tests {
 
         // Process the remaining two approvals on the first block
         tracker.process_approval(
-            Clock::instant(),
+            StaticClock::instant(),
             &a1_2,
             &stakes,
             DoomslugThresholdMode::TwoThirds,
         );
         tracker.process_approval(
-            Clock::instant(),
+            StaticClock::instant(),
             &a1_3,
             &stakes,
             DoomslugThresholdMode::TwoThirds,
@@ -1111,7 +1091,7 @@ mod tests {
 
         // Process new approvals one by one, expect the approved and endorsed stake to slowly decrease
         tracker.process_approval(
-            Clock::instant(),
+            StaticClock::instant(),
             &a2_1,
             &stakes,
             DoomslugThresholdMode::TwoThirds,
@@ -1136,7 +1116,7 @@ mod tests {
         );
 
         tracker.process_approval(
-            Clock::instant(),
+            StaticClock::instant(),
             &a2_2,
             &stakes,
             DoomslugThresholdMode::TwoThirds,
@@ -1162,7 +1142,7 @@ mod tests {
 
         // As we update the last of the three approvals, the tracker for the first block should be completely removed
         tracker.process_approval(
-            Clock::instant(),
+            StaticClock::instant(),
             &a2_3,
             &stakes,
             DoomslugThresholdMode::TwoThirds,
@@ -1192,7 +1172,7 @@ mod tests {
         );
 
         tracker.process_approval(
-            Clock::instant(),
+            StaticClock::instant(),
             &a2_3,
             &stakes,
             DoomslugThresholdMode::TwoThirds,

@@ -1,21 +1,19 @@
-use std::convert::AsRef;
-use std::fmt::{Debug, Display, Formatter};
-use std::hash::{Hash, Hasher};
-use std::io::{Error, ErrorKind, Write};
-use std::str::FromStr;
-
 use borsh::{BorshDeserialize, BorshSerialize};
 use ed25519_dalek::ed25519::signature::{Signer, Verifier};
 use once_cell::sync::Lazy;
 use primitive_types::U256;
 use rand::rngs::OsRng;
 use secp256k1::Message;
-use serde::{Deserialize, Serialize};
+use std::convert::AsRef;
+use std::fmt::{Debug, Display, Formatter};
+use std::hash::{Hash, Hasher};
+use std::io::{Error, ErrorKind, Read, Write};
+use std::str::FromStr;
 
 pub static SECP256K1: Lazy<secp256k1::Secp256k1<secp256k1::All>> =
     Lazy::new(secp256k1::Secp256k1::new);
 
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, serde::Serialize, serde::Deserialize)]
 pub enum KeyType {
     ED25519 = 0,
     SECP256K1 = 1,
@@ -119,9 +117,12 @@ pub enum PublicKey {
 }
 
 impl PublicKey {
+    // `is_empty` always returns false, so there is no point in adding it
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
+        const ED25519_LEN: usize = ed25519_dalek::PUBLIC_KEY_LENGTH + 1;
         match self {
-            Self::ED25519(_) => ed25519_dalek::PUBLIC_KEY_LENGTH + 1,
+            Self::ED25519(_) => ED25519_LEN,
             Self::SECP256K1(_) => 65,
         }
     }
@@ -159,7 +160,6 @@ impl PublicKey {
 
 // This `Hash` implementation is safe since it retains the property
 // `k1 == k2 ⇒ hash(k1) == hash(k2)`.
-#[allow(clippy::derive_hash_xor_eq)]
 impl Hash for PublicKey {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self {
@@ -208,16 +208,16 @@ impl BorshSerialize for PublicKey {
 }
 
 impl BorshDeserialize for PublicKey {
-    fn deserialize(buf: &mut &[u8]) -> Result<Self, Error> {
-        let key_type = KeyType::try_from(<u8 as BorshDeserialize>::deserialize(buf)?)
+    fn deserialize_reader<R: Read>(rd: &mut R) -> std::io::Result<Self> {
+        let key_type = KeyType::try_from(u8::deserialize_reader(rd)?)
             .map_err(|err| Error::new(ErrorKind::InvalidData, err.to_string()))?;
         match key_type {
             KeyType::ED25519 => {
-                Ok(PublicKey::ED25519(ED25519PublicKey(BorshDeserialize::deserialize(buf)?)))
+                Ok(PublicKey::ED25519(ED25519PublicKey(BorshDeserialize::deserialize_reader(rd)?)))
             }
-            KeyType::SECP256K1 => {
-                Ok(PublicKey::SECP256K1(Secp256K1PublicKey(BorshDeserialize::deserialize(buf)?)))
-            }
+            KeyType::SECP256K1 => Ok(PublicKey::SECP256K1(Secp256K1PublicKey(
+                BorshDeserialize::deserialize_reader(rd)?,
+            ))),
         }
     }
 }
@@ -250,34 +250,10 @@ impl FromStr for PublicKey {
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         let (key_type, key_data) = split_key_type_data(value)?;
-        match key_type {
-            KeyType::ED25519 => {
-                let mut array = [0; ed25519_dalek::PUBLIC_KEY_LENGTH];
-                let length = bs58::decode(key_data)
-                    .into(&mut array)
-                    .map_err(|err| Self::Err::InvalidData { error_message: err.to_string() })?;
-                if length != ed25519_dalek::PUBLIC_KEY_LENGTH {
-                    return Err(Self::Err::InvalidLength {
-                        expected_length: ed25519_dalek::PUBLIC_KEY_LENGTH,
-                        received_length: length,
-                    });
-                }
-                Ok(PublicKey::ED25519(ED25519PublicKey(array)))
-            }
-            KeyType::SECP256K1 => {
-                let mut array = [0; 64];
-                let length = bs58::decode(key_data)
-                    .into(&mut array[..])
-                    .map_err(|err| Self::Err::InvalidData { error_message: err.to_string() })?;
-                if length != 64 {
-                    return Err(Self::Err::InvalidLength {
-                        expected_length: 64,
-                        received_length: length,
-                    });
-                }
-                Ok(PublicKey::SECP256K1(Secp256K1PublicKey(array)))
-            }
-        }
+        Ok(match key_type {
+            KeyType::ED25519 => Self::ED25519(ED25519PublicKey(decode_bs58(key_data)?)),
+            KeyType::SECP256K1 => Self::SECP256K1(Secp256K1PublicKey(decode_bs58(key_data)?)),
+        })
     }
 }
 
@@ -397,37 +373,15 @@ impl FromStr for SecretKey {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let (key_type, key_data) = split_key_type_data(s)?;
-        match key_type {
-            KeyType::ED25519 => {
-                let mut array = [0; ed25519_dalek::KEYPAIR_LENGTH];
-                let length = bs58::decode(key_data)
-                    .into(&mut array[..])
-                    .map_err(|err| Self::Err::InvalidData { error_message: err.to_string() })?;
-                if length != ed25519_dalek::KEYPAIR_LENGTH {
-                    return Err(Self::Err::InvalidLength {
-                        expected_length: ed25519_dalek::KEYPAIR_LENGTH,
-                        received_length: length,
-                    });
-                }
-                Ok(Self::ED25519(ED25519SecretKey(array)))
-            }
+        Ok(match key_type {
+            KeyType::ED25519 => Self::ED25519(ED25519SecretKey(decode_bs58(key_data)?)),
             KeyType::SECP256K1 => {
-                let mut array = [0; secp256k1::constants::SECRET_KEY_SIZE];
-                let length = bs58::decode(key_data)
-                    .into(&mut array[..])
+                let data = decode_bs58::<{ secp256k1::constants::SECRET_KEY_SIZE }>(key_data)?;
+                let sk = secp256k1::SecretKey::from_slice(&data)
                     .map_err(|err| Self::Err::InvalidData { error_message: err.to_string() })?;
-                if length != secp256k1::constants::SECRET_KEY_SIZE {
-                    return Err(Self::Err::InvalidLength {
-                        expected_length: secp256k1::constants::SECRET_KEY_SIZE,
-                        received_length: length,
-                    });
-                }
-                Ok(Self::SECP256K1(
-                    secp256k1::SecretKey::from_slice(&array)
-                        .map_err(|err| Self::Err::InvalidData { error_message: err.to_string() })?,
-                ))
+                Self::SECP256K1(sk)
             }
-        }
+        })
     }
 }
 
@@ -536,6 +490,8 @@ pub enum Signature {
     SECP256K1(Secp256K1Signature),
 }
 
+// This `Hash` implementation is safe since it retains the property
+// `k1 == k2 ⇒ hash(k1) == hash(k2)`.
 impl Hash for Signature {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self {
@@ -635,20 +591,20 @@ impl BorshSerialize for Signature {
 }
 
 impl BorshDeserialize for Signature {
-    fn deserialize(buf: &mut &[u8]) -> Result<Self, Error> {
-        let key_type = KeyType::try_from(<u8 as BorshDeserialize>::deserialize(buf)?)
+    fn deserialize_reader<R: Read>(rd: &mut R) -> std::io::Result<Self> {
+        let key_type = KeyType::try_from(u8::deserialize_reader(rd)?)
             .map_err(|err| Error::new(ErrorKind::InvalidData, err.to_string()))?;
         match key_type {
             KeyType::ED25519 => {
                 let array: [u8; ed25519_dalek::SIGNATURE_LENGTH] =
-                    BorshDeserialize::deserialize(buf)?;
+                    BorshDeserialize::deserialize_reader(rd)?;
                 Ok(Signature::ED25519(
                     ed25519_dalek::Signature::from_bytes(&array)
                         .map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))?,
                 ))
             }
             KeyType::SECP256K1 => {
-                let array: [u8; 65] = BorshDeserialize::deserialize(buf)?;
+                let array: [u8; 65] = BorshDeserialize::deserialize_reader(rd)?;
                 Ok(Signature::SECP256K1(Secp256K1Signature(array)))
             }
         }
@@ -688,37 +644,15 @@ impl FromStr for Signature {
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         let (sig_type, sig_data) = split_key_type_data(value)?;
-        match sig_type {
+        Ok(match sig_type {
             KeyType::ED25519 => {
-                let mut array = [0; ed25519_dalek::SIGNATURE_LENGTH];
-                let length = bs58::decode(sig_data)
-                    .into(&mut array[..])
+                let data = decode_bs58::<{ ed25519_dalek::SIGNATURE_LENGTH }>(sig_data)?;
+                let sig = ed25519_dalek::Signature::from_bytes(&data)
                     .map_err(|err| Self::Err::InvalidData { error_message: err.to_string() })?;
-                if length != ed25519_dalek::SIGNATURE_LENGTH {
-                    return Err(Self::Err::InvalidLength {
-                        expected_length: ed25519_dalek::SIGNATURE_LENGTH,
-                        received_length: length,
-                    });
-                }
-                Ok(Signature::ED25519(
-                    ed25519_dalek::Signature::from_bytes(&array)
-                        .map_err(|err| Self::Err::InvalidData { error_message: err.to_string() })?,
-                ))
+                Signature::ED25519(sig)
             }
-            KeyType::SECP256K1 => {
-                let mut array = [0; 65];
-                let length = bs58::decode(sig_data)
-                    .into(&mut array[..])
-                    .map_err(|err| Self::Err::InvalidData { error_message: err.to_string() })?;
-                if length != 65 {
-                    return Err(Self::Err::InvalidLength {
-                        expected_length: 65,
-                        received_length: length,
-                    });
-                }
-                Ok(Signature::SECP256K1(Secp256K1Signature(array)))
-            }
-        }
+            KeyType::SECP256K1 => Signature::SECP256K1(Secp256K1Signature(decode_bs58(sig_data)?)),
+        })
     }
 }
 
@@ -737,7 +671,7 @@ impl<'de> serde::Deserialize<'de> for Signature {
 /// Helper struct which provides Display implementation for bytes slice
 /// encoding them using base58.
 // TODO(mina86): Get rid of it once bs58 has this feature.  There’s currently PR
-// for that.
+// for that: https://github.com/Nullus157/bs58-rs/pull/97
 struct Bs58<'a>(&'a [u8]);
 
 impl<'a> core::fmt::Display for Bs58<'a> {
@@ -755,13 +689,65 @@ impl<'a> core::fmt::Display for Bs58<'a> {
     }
 }
 
+/// Helper which decodes fixed-length base58-encoded data.
+///
+/// If the encoded string decodes into a buffer of different length than `N`,
+/// returns error.  Similarly returns error if decoding fails.
+fn decode_bs58<const N: usize>(encoded: &str) -> Result<[u8; N], DecodeBs58Error> {
+    let mut buffer = [0u8; N];
+    decode_bs58_impl(&mut buffer[..], encoded)?;
+    Ok(buffer)
+}
+
+fn decode_bs58_impl(dst: &mut [u8], encoded: &str) -> Result<(), DecodeBs58Error> {
+    let expected = dst.len();
+    match bs58::decode(encoded).into(dst) {
+        Ok(received) if received == expected => Ok(()),
+        Ok(received) => Err(DecodeBs58Error::BadLength { expected, received }),
+        Err(bs58::decode::Error::BufferTooSmall) => {
+            Err(DecodeBs58Error::BadLength { expected, received: expected.saturating_add(1) })
+        }
+        Err(err) => Err(DecodeBs58Error::BadData(err.to_string())),
+    }
+}
+
+enum DecodeBs58Error {
+    BadLength { expected: usize, received: usize },
+    BadData(String),
+}
+
+impl std::convert::From<DecodeBs58Error> for crate::errors::ParseKeyError {
+    fn from(err: DecodeBs58Error) -> Self {
+        match err {
+            DecodeBs58Error::BadLength { expected, received } => {
+                crate::errors::ParseKeyError::InvalidLength {
+                    expected_length: expected,
+                    received_length: received,
+                }
+            }
+            DecodeBs58Error::BadData(error_message) => Self::InvalidData { error_message },
+        }
+    }
+}
+
+impl std::convert::From<DecodeBs58Error> for crate::errors::ParseSignatureError {
+    fn from(err: DecodeBs58Error) -> Self {
+        match err {
+            DecodeBs58Error::BadLength { expected, received } => {
+                Self::InvalidLength { expected_length: expected, received_length: received }
+            }
+            DecodeBs58Error::BadData(error_message) => Self::InvalidData { error_message },
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_sign_verify() {
-        for key_type in vec![KeyType::ED25519, KeyType::SECP256K1] {
+        for key_type in [KeyType::ED25519, KeyType::SECP256K1] {
             let secret_key = SecretKey::from_random(key_type);
             let public_key = secret_key.public_key();
             use sha2::Digest;
@@ -828,7 +814,7 @@ mod tests {
     fn test_borsh_serialization() {
         use sha2::Digest;
         let data = sha2::Sha256::digest(b"123").to_vec();
-        for key_type in vec![KeyType::ED25519, KeyType::SECP256K1] {
+        for key_type in [KeyType::ED25519, KeyType::SECP256K1] {
             let sk = SecretKey::from_seed(key_type, "test");
             let pk = sk.public_key();
             let bytes = pk.try_to_vec().unwrap();

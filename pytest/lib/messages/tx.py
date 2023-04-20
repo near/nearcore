@@ -45,6 +45,14 @@ class DeleteAccount:
     pass
 
 
+class SignedDelegate:
+    pass
+
+
+class DelegateAction:
+    pass
+
+
 class Receipt:
     pass
 
@@ -96,6 +104,7 @@ tx_schema = [
                 ['addKey', AddKey],
                 ['deleteKey', DeleteKey],
                 ['deleteAccount', DeleteAccount],
+                ['delegate', SignedDelegate],
             ]
         }
     ],
@@ -113,6 +122,23 @@ tx_schema = [
                 'struct',
             'fields': [['methodName', 'string'], ['args', ['u8']],
                        ['gas', 'u64'], ['deposit', 'u128']]
+        }
+    ],
+    [
+        SignedDelegate, {
+            'kind':
+                'struct',
+            'fields': [['delegateAction', DelegateAction],
+                       ['signature', Signature]]
+        }
+    ],
+    [
+        DelegateAction, {
+            'kind':
+                'struct',
+            'fields': [['senderId', 'string'], ['receiverId', 'string'],
+                       ['actions', [Action]], ['nonce', 'u64'],
+                       ['maxBlockHeight', 'u64'], ['publicKey', PublicKey]]
         }
     ],
     [Transfer, {

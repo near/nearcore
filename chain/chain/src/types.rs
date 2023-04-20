@@ -3,8 +3,9 @@ use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
+use chrono::Utc;
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
-use near_primitives::time::Utc;
 use num_rational::Rational32;
 
 use crate::metrics;
@@ -31,8 +32,7 @@ use near_primitives::version::{
     MIN_PROTOCOL_VERSION_NEP_92_FIX,
 };
 use near_primitives::views::{QueryRequest, QueryResponse};
-use near_store::flat_state::ChainAccessForFlatStorage;
-use near_store::flat_state::{FlatStorageState, FlatStorageStateStatus};
+use near_store::flat::{FlatStorage, FlatStorageStatus};
 use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTrieChanges};
 
 pub use near_epoch_manager::EpochManagerAdapter;
@@ -236,6 +236,21 @@ pub struct ChainGenesis {
     pub protocol_version: ProtocolVersion,
 }
 
+#[derive(Clone)]
+pub struct ChainConfig {
+    /// Whether to save `TrieChanges` on disk or not.
+    pub save_trie_changes: bool,
+    /// Number of threads to execute background migration work.
+    /// Currently used for flat storage background creation.
+    pub background_migration_threads: usize,
+}
+
+impl ChainConfig {
+    pub fn test() -> Self {
+        Self { save_trie_changes: true, background_migration_threads: 1 }
+    }
+}
+
 impl ChainGenesis {
     pub fn new(genesis: &Genesis) -> Self {
         Self {
@@ -256,7 +271,7 @@ impl ChainGenesis {
 /// Bridge between the chain and the runtime.
 /// Main function is to update state given transactions.
 /// Additionally handles validators.
-pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
+pub trait RuntimeAdapter: Send + Sync {
     /// Get store and genesis state roots
     fn genesis_state(&self) -> (Store, Vec<StateRoot>);
 
@@ -283,19 +298,27 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
         state_root: StateRoot,
     ) -> Result<Trie, Error>;
 
-    fn get_flat_storage_state_for_shard(&self, shard_id: ShardId) -> Option<FlatStorageState>;
+    fn get_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Option<FlatStorage>;
 
-    /// Tries to create flat storage state for given shard, returns the status of creation.
-    fn try_create_flat_storage_state_for_shard(
+    fn get_flat_storage_status(&self, shard_uid: ShardUId) -> FlatStorageStatus;
+
+    /// Creates flat storage state for given shard, assuming that all flat storage data
+    /// is already stored in DB.
+    /// TODO (#7327): consider returning flat storage creation errors here
+    fn create_flat_storage_for_shard(&self, shard_uid: ShardUId);
+
+    /// Removes flat storage state for shard, if it exists.
+    /// Used to clear old flat storage data from disk and memory before syncing to newer state.
+    fn remove_flat_storage_for_shard(
         &self,
-        shard_id: ShardId,
-        latest_block_height: BlockHeight,
-        chain_access: &dyn ChainAccessForFlatStorage,
-    ) -> FlatStorageStateStatus;
+        shard_uid: ShardUId,
+        epoch_id: &EpochId,
+    ) -> Result<(), Error>;
 
-    fn set_flat_storage_state_for_genesis(
+    fn set_flat_storage_for_genesis(
         &self,
         genesis_block: &CryptoHash,
+        genesis_block_height: BlockHeight,
         genesis_epoch_id: &EpochId,
     ) -> Result<StoreUpdate, Error>;
 
@@ -544,13 +567,14 @@ pub trait RuntimeAdapter: EpochManagerAdapter + Send + Sync {
         state_root: &StateRoot,
     ) -> bool;
 
-    fn chunk_needs_to_be_fetched_from_archival(
-        &self,
-        chunk_prev_block_hash: &CryptoHash,
-        header_head: &CryptoHash,
-    ) -> Result<bool, Error>;
-
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error>;
+}
+
+/// LEGACY trait. Will be removed. Use RuntimeAdapter or EpochManagerHandler instead.
+pub trait RuntimeWithEpochManagerAdapter: RuntimeAdapter + EpochManagerAdapter {
+    fn epoch_manager_adapter(&self) -> &dyn EpochManagerAdapter;
+    fn epoch_manager_adapter_arc(&self) -> Arc<dyn EpochManagerAdapter>;
+    fn shard_tracker(&self) -> ShardTracker;
 }
 
 /// The last known / checked height and time when we have processed it.
@@ -563,14 +587,13 @@ pub struct LatestKnown {
 
 #[cfg(test)]
 mod tests {
-    use near_primitives::time::Utc;
+    use chrono::Utc;
+    use near_primitives::test_utils::{create_test_signer, TestBlockBuilder};
 
-    use near_crypto::KeyType;
     use near_primitives::block::{genesis_chunks, Approval};
     use near_primitives::hash::hash;
     use near_primitives::merkle::verify_path;
     use near_primitives::transaction::{ExecutionMetadata, ExecutionOutcome, ExecutionStatus};
-    use near_primitives::validator_signer::InMemoryValidatorSigner;
     use near_primitives::version::PROTOCOL_VERSION;
 
     use super::*;
@@ -590,26 +613,12 @@ mod tests {
             1_000_000_000,
             CryptoHash::hash_borsh(genesis_bps),
         );
-        let signer =
-            InMemoryValidatorSigner::from_seed("other".parse().unwrap(), KeyType::ED25519, "other");
-        let b1 = Block::empty(&genesis, &signer);
+        let signer = Arc::new(create_test_signer("other"));
+        let b1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
         assert!(b1.header().verify_block_producer(&signer.public_key()));
-        let other_signer = InMemoryValidatorSigner::from_seed(
-            "other2".parse().unwrap(),
-            KeyType::ED25519,
-            "other2",
-        );
+        let other_signer = create_test_signer("other2");
         let approvals = vec![Some(Approval::new(*b1.hash(), 1, 2, &other_signer).signature)];
-        let b2 = Block::empty_with_approvals(
-            &b1,
-            2,
-            b1.header().epoch_id().clone(),
-            EpochId(*genesis.hash()),
-            approvals,
-            &signer,
-            *genesis.header().next_bp_hash(),
-            CryptoHash::default(),
-        );
+        let b2 = TestBlockBuilder::new(&b1, signer.clone()).approvals(approvals).build();
         b2.header().verify_block_producer(&signer.public_key());
     }
 
@@ -622,6 +631,7 @@ mod tests {
                 logs: vec!["outcome1".to_string()],
                 receipt_ids: vec![hash(&[1])],
                 gas_burnt: 100,
+                compute_usage: Some(200),
                 tokens_burnt: 10000,
                 executor_id: "alice".parse().unwrap(),
                 metadata: ExecutionMetadata::V1,
@@ -634,6 +644,7 @@ mod tests {
                 logs: vec!["outcome2".to_string()],
                 receipt_ids: vec![],
                 gas_burnt: 0,
+                compute_usage: Some(0),
                 tokens_burnt: 0,
                 executor_id: "bob".parse().unwrap(),
                 metadata: ExecutionMetadata::V1,

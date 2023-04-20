@@ -10,11 +10,9 @@ use near_primitives::{
 };
 use nearcore::config::{NEAR_BASE, TESTING_INIT_BALANCE};
 
-use byteorder::{ByteOrder, LittleEndian};
 use libfuzzer_sys::arbitrary::{Arbitrary, Result, Unstructured};
 
 use std::collections::{HashMap, HashSet};
-use std::mem::size_of;
 use std::str::FromStr;
 
 pub type ContractId = usize;
@@ -674,88 +672,83 @@ impl Account {
 
 impl Function {
     pub fn arbitrary(&self, u: &mut Unstructured) -> Result<FunctionCallAction> {
-        let mut res =
-            FunctionCallAction { method_name: String::new(), args: vec![], gas: GAS_1, deposit: 0 };
+        let method_name;
+        let mut args = Vec::new();
         match self {
             // #################
             // # Test contract #
             // #################
             Function::StorageUsage => {
-                res.method_name = "ext_storage_usage".to_string();
+                method_name = "ext_storage_usage";
             }
             Function::BlockIndex => {
-                res.method_name = "ext_block_index".to_string();
+                method_name = "ext_block_index";
             }
             Function::BlockTimestamp => {
-                res.method_name = "ext_block_timestamp".to_string();
+                method_name = "ext_block_timestamp";
             }
             Function::PrepaidGas => {
-                res.method_name = "ext_prepaid_gas".to_string();
+                method_name = "ext_prepaid_gas";
             }
             Function::RandomSeed => {
-                res.method_name = "ext_random_seed".to_string();
+                method_name = "ext_random_seed";
             }
             Function::PredecessorAccountId => {
-                res.method_name = "ext_predecessor_account_id".to_string();
+                method_name = "ext_predecessor_account_id";
             }
             Function::SignerAccountPk => {
-                res.method_name = "ext_signer_account_pk".to_string();
+                method_name = "ext_signer_account_pk";
             }
             Function::SignerAccountId => {
-                res.method_name = "ext_signer_account_id".to_string();
+                method_name = "ext_signer_account_id";
             }
             Function::CurrentAccountId => {
-                res.method_name = "ext_current_account_id".to_string();
+                method_name = "ext_current_account_id";
             }
             Function::AccountBalance => {
-                res.method_name = "ext_account_balance".to_string();
+                method_name = "ext_account_balance";
             }
             Function::AttachedDeposit => {
-                res.method_name = "ext_attached_deposit".to_string();
+                method_name = "ext_attached_deposit";
             }
             Function::ValidatorTotalStake => {
-                res.method_name = "ext_validators_total_stake".to_string();
+                method_name = "ext_validators_total_stake";
             }
             Function::ExtSha256 => {
-                const VALUES_LEN: usize = 20;
-                let mut args = [0u8; VALUES_LEN * size_of::<u64>()];
-                let mut values = vec![];
-                for _ in 0..VALUES_LEN {
-                    values.push(u.arbitrary::<u64>()?);
-                }
-                LittleEndian::write_u64_into(&values, &mut args);
-                res.method_name = "ext_sha256".to_string();
-                res.args = args.to_vec();
+                let len = u.int_in_range(0..=100)?;
+                method_name = "ext_sha256";
+                args = u.bytes(len)?.to_vec();
             }
             Function::UsedGas => {
-                res.method_name = "ext_used_gas".to_string();
+                method_name = "ext_used_gas";
             }
             Function::WriteKeyValue => {
-                let key = u.int_in_range::<u64>(0..=1_000)?;
-                let value = u.int_in_range::<u64>(0..=1_000)?;
-                let mut args = [0u8; 2 * size_of::<u64>()];
-                LittleEndian::write_u64_into(&[key, value], &mut args);
-                res.method_name = "write_key_value".to_string();
-                res.args = args.to_vec();
+                let key = u.int_in_range::<u64>(0..=1_000)?.to_le_bytes();
+                let value = u.int_in_range::<u64>(0..=1_000)?.to_le_bytes();
+                method_name = "write_key_value";
+                args = [&key[..], &value[..]].concat();
             }
             Function::WriteBlockHeight => {
-                res.method_name = "write_block_height".to_string();
+                method_name = "write_block_height";
             }
             // ########################
             // # Contract for fuzzing #
             // ########################
             Function::SumOfNumbers => {
-                let args = u.int_in_range::<u64>(1..=10)?.to_le_bytes();
-                res.method_name = "sum_of_numbers".to_string();
-                res.args = args.to_vec();
+                method_name = "sum_of_numbers";
+                args = u.int_in_range::<u64>(1..=10)?.to_le_bytes().to_vec();
             }
             Function::DataReceipt => {
-                let args = (*u.choose(&[10, 100, 1000, 10000, 100000])? as u64).to_le_bytes();
-                res.method_name = "data_receipt_with_size".to_string();
-                res.args = args.to_vec();
+                method_name = "data_receipt_with_size";
+                args = u.choose(&[10u64, 100, 1000, 10000, 100000])?.to_le_bytes().to_vec();
             }
         };
-        Ok(res)
+        Ok(FunctionCallAction {
+            method_name: method_name.to_string(),
+            args: args,
+            gas: GAS_1,
+            deposit: 0,
+        })
     }
 
     fn size_hint(_depth: usize) -> (usize, Option<usize>) {

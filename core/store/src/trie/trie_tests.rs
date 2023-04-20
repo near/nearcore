@@ -57,31 +57,34 @@ impl TrieStorage for IncompletePartialStorage {
     }
 }
 
-fn setup_storage<F, Out>(trie: Rc<Trie>, test: &mut F) -> (PartialStorage, Out)
+fn setup_storage<F, Out>(trie: Trie, test: &mut F) -> (PartialStorage, Trie, Out)
 where
-    F: FnMut(Rc<Trie>) -> Result<Out, StorageError>,
+    F: FnMut(Trie) -> Result<(Trie, Out), StorageError>,
     Out: PartialEq + Debug,
 {
-    let recording_trie = Rc::new(trie.recording_reads());
-    let output = test(Rc::clone(&recording_trie)).expect("should not fail");
-    (recording_trie.recorded_storage().unwrap(), output)
+    let recording_trie = trie.recording_reads();
+    let (recording_trie, output) = test(recording_trie).expect("should not fail");
+    (recording_trie.recorded_storage().unwrap(), recording_trie, output)
 }
 
-fn test_incomplete_storage<F, Out>(trie: Rc<Trie>, mut test: F)
+fn test_incomplete_storage<F, Out>(trie: Trie, mut test: F)
 where
-    F: FnMut(Rc<Trie>) -> Result<Out, StorageError>,
+    F: FnMut(Trie) -> Result<(Trie, Out), StorageError>,
     Out: PartialEq + Debug,
 {
-    let (storage, expected) = setup_storage(Rc::clone(&trie), &mut test);
+    let (storage, trie, expected) = setup_storage(trie, &mut test);
     let size = storage.nodes.0.len();
     print!("Test touches {} nodes, expected result {:?}...", size, expected);
     for i in 0..(size + 1) {
         let storage = IncompletePartialStorage::new(storage.clone(), i);
-        let new_trie =
-            Trie { storage: Box::new(storage), root: trie.get_root().clone(), flat_state: None };
+        let new_trie = Trie {
+            storage: Box::new(storage),
+            root: *trie.get_root(),
+            flat_storage_chunk_view: None,
+        };
         let expected_result =
             if i < size { Err(&StorageError::TrieNodeMissing) } else { Ok(&expected) };
-        assert_eq!(test(Rc::new(new_trie)).as_ref(), expected_result);
+        assert_eq!(test(new_trie).map(|v| v.1).as_ref(), expected_result);
     }
     println!("Success");
 }
@@ -99,32 +102,33 @@ fn test_reads_with_incomplete_storage() {
         }
         let state_root =
             test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, trie_changes.clone());
-        let trie = Rc::new(tries.get_trie_for_shard(shard_uid, state_root));
+        let get_trie = || tries.get_trie_for_shard(shard_uid, state_root);
 
         {
             let (key, _) = trie_changes.choose(&mut rng).unwrap();
             println!("Testing lookup {:?}", key);
-            let lookup_test = |trie: Rc<Trie>| -> Result<_, StorageError> { trie.get(key) };
-            test_incomplete_storage(Rc::clone(&trie), lookup_test);
+            let lookup_test =
+                |trie: Trie| -> Result<_, StorageError> { trie.get(key).map(move |v| (trie, v)) };
+            test_incomplete_storage(get_trie(), lookup_test);
         }
         {
             println!("Testing TrieIterator over whole trie");
-            let trie_records = |trie: Rc<Trie>| -> Result<_, StorageError> {
+            let trie_records = |trie: Trie| -> Result<_, StorageError> {
                 let iterator = trie.iter()?;
-                iterator.collect::<Result<Vec<_>, _>>()
+                iterator.collect::<Result<Vec<_>, _>>().map(move |v| (trie, v))
             };
-            test_incomplete_storage(Rc::clone(&trie), trie_records);
+            test_incomplete_storage(get_trie(), trie_records);
         }
         {
             let (key, _) = trie_changes.choose(&mut rng).unwrap();
             let key_prefix = &key[0..rng.gen_range(0..key.len() + 1)];
             println!("Testing TrieUpdateIterator over prefix {:?}", key_prefix);
-            let trie_update_keys = |trie: Rc<Trie>| -> Result<_, StorageError> {
+            let trie_update_keys = |trie: Trie| -> Result<_, StorageError> {
                 let trie_update = TrieUpdate::new(trie);
                 let keys = trie_update.iter(key_prefix)?.collect::<Result<Vec<_>, _>>()?;
-                Ok(keys)
+                Ok((trie_update.trie, keys))
             };
-            test_incomplete_storage(Rc::clone(&trie), trie_update_keys);
+            test_incomplete_storage(get_trie(), trie_update_keys);
         }
     }
 }
@@ -255,7 +259,8 @@ mod trie_storage_tests {
         for _ in 0..2 {
             let count_before = trie_caching_storage.get_trie_nodes_count();
             let result = trie_caching_storage.retrieve_raw_bytes(&key);
-            let count_delta = trie_caching_storage.get_trie_nodes_count() - count_before;
+            let count_delta =
+                trie_caching_storage.get_trie_nodes_count().checked_sub(&count_before).unwrap();
             assert_eq!(result.unwrap().as_ref(), value);
             assert_eq!(count_delta.db_reads, 1);
             assert_eq!(count_delta.mem_reads, 0);
@@ -299,7 +304,8 @@ mod trie_storage_tests {
 
         let count_before = trie_caching_storage.get_trie_nodes_count();
         let result = trie_caching_storage.retrieve_raw_bytes(&key);
-        let count_delta = trie_caching_storage.get_trie_nodes_count() - count_before;
+        let count_delta =
+            trie_caching_storage.get_trie_nodes_count().checked_sub(&count_before).unwrap();
         assert_eq!(trie_cache.get(&key), None);
         assert_eq!(result.unwrap().as_ref(), value);
         assert_eq!(count_delta.db_reads, 0);
@@ -330,7 +336,8 @@ mod trie_storage_tests {
         trie_caching_storage.set_mode(TrieCacheMode::CachingChunk);
         let count_before = trie_caching_storage.get_trie_nodes_count();
         let result = trie_caching_storage.retrieve_raw_bytes(&key);
-        let count_delta = trie_caching_storage.get_trie_nodes_count() - count_before;
+        let count_delta =
+            trie_caching_storage.get_trie_nodes_count().checked_sub(&count_before).unwrap();
         assert_eq!(result.unwrap().as_ref(), value);
         assert_eq!(count_delta.db_reads, 1);
         assert_eq!(count_delta.mem_reads, 0);
@@ -338,7 +345,8 @@ mod trie_storage_tests {
         // After previous retrieval, item must be copied to chunk cache. Retrieval shouldn't increment the counter.
         let count_before = trie_caching_storage.get_trie_nodes_count();
         let result = trie_caching_storage.retrieve_raw_bytes(&key);
-        let count_delta = trie_caching_storage.get_trie_nodes_count() - count_before;
+        let count_delta =
+            trie_caching_storage.get_trie_nodes_count().checked_sub(&count_before).unwrap();
         assert_eq!(result.unwrap().as_ref(), value);
         assert_eq!(count_delta.db_reads, 0);
         assert_eq!(count_delta.mem_reads, 1);
@@ -348,7 +356,8 @@ mod trie_storage_tests {
         trie_caching_storage.set_mode(TrieCacheMode::CachingShard);
         let count_before = trie_caching_storage.get_trie_nodes_count();
         let result = trie_caching_storage.retrieve_raw_bytes(&key);
-        let count_delta = trie_caching_storage.get_trie_nodes_count() - count_before;
+        let count_delta =
+            trie_caching_storage.get_trie_nodes_count().checked_sub(&count_before).unwrap();
         assert_eq!(result.unwrap().as_ref(), value);
         assert_eq!(count_delta.db_reads, 0);
         assert_eq!(count_delta.mem_reads, 1);
@@ -384,7 +393,8 @@ mod trie_storage_tests {
         assert_eq!(trie_cache.get(&key), None);
         let count_before = trie_caching_storage.get_trie_nodes_count();
         let result = trie_caching_storage.retrieve_raw_bytes(&key);
-        let count_delta = trie_caching_storage.get_trie_nodes_count() - count_before;
+        let count_delta =
+            trie_caching_storage.get_trie_nodes_count().checked_sub(&count_before).unwrap();
         assert_eq!(result.unwrap().as_ref(), value);
         assert_eq!(count_delta.db_reads, 0);
         assert_eq!(count_delta.mem_reads, 1);

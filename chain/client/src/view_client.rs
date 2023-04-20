@@ -2,8 +2,12 @@
 //! Useful for querying from RPC.
 
 use actix::{Actor, Addr, Handler, SyncArbiter, SyncContext};
+use near_async::messaging::CanSend;
+use near_chain::types::Tip;
+use near_chain_primitives::error::EpochErrorResultToChainError;
 use near_primitives::receipt::Receipt;
-use near_primitives::time::Clock;
+use near_primitives::static_clock::StaticClock;
+use near_store::{DBCol, COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY};
 use std::cmp::Ordering;
 use std::collections::{HashMap, VecDeque};
 use std::hash::Hash;
@@ -14,7 +18,7 @@ use tracing::{debug, error, info, trace, warn};
 
 use near_chain::{
     get_epoch_block_producers_view, Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode,
-    RuntimeAdapter,
+    RuntimeWithEpochManagerAdapter,
 };
 use near_chain_configs::{ClientConfig, ProtocolConfigView};
 use near_client_primitives::types::{
@@ -22,12 +26,11 @@ use near_client_primitives::types::{
     GetBlockWithMerkleTree, GetChunkError, GetExecutionOutcome, GetExecutionOutcomeError,
     GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError, GetMaintenanceWindows,
     GetMaintenanceWindowsError, GetNextLightClientBlockError, GetProtocolConfig,
-    GetProtocolConfigError, GetReceipt, GetReceiptError, GetStateChangesError,
-    GetStateChangesWithCauseInBlock, GetStateChangesWithCauseInBlockForTrackedShards,
-    GetValidatorInfoError, Query, QueryError, TxStatus, TxStatusError,
+    GetProtocolConfigError, GetReceipt, GetReceiptError, GetSplitStorageInfo,
+    GetSplitStorageInfoError, GetStateChangesError, GetStateChangesWithCauseInBlock,
+    GetStateChangesWithCauseInBlockForTrackedShards, GetValidatorInfoError, Query, QueryError,
+    TxStatus, TxStatusError,
 };
-#[cfg(feature = "test_features")]
-use near_network::types::NetworkAdversarialMessage;
 use near_network::types::{
     NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest, ReasonForBan,
     StateResponseInfo, StateResponseInfoV1, StateResponseInfoV2,
@@ -52,8 +55,8 @@ use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
     FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockView,
-    MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView, StateChangesKindsView,
-    StateChangesView,
+    MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView, SplitStorageInfoView,
+    StateChangesKindsView, StateChangesView,
 };
 
 use crate::adapter::{
@@ -93,8 +96,8 @@ pub struct ViewClientActor {
     /// Validator account (if present).
     validator_account_id: Option<AccountId>,
     chain: Chain,
-    runtime_adapter: Arc<dyn RuntimeAdapter>,
-    network_adapter: Arc<dyn PeerManagerAdapter>,
+    runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
+    network_adapter: PeerManagerAdapter,
     pub config: ClientConfig,
     request_manager: Arc<RwLock<ViewClientRequestManager>>,
     state_request_cache: Arc<Mutex<VecDeque<Instant>>>,
@@ -119,8 +122,8 @@ impl ViewClientActor {
     pub fn new(
         validator_account_id: Option<AccountId>,
         chain_genesis: &ChainGenesis,
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
-        network_adapter: Arc<dyn PeerManagerAdapter>,
+        runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
+        network_adapter: PeerManagerAdapter,
         config: ClientConfig,
         request_manager: Arc<RwLock<ViewClientRequestManager>>,
         adv: crate::adversarial::Controls,
@@ -130,7 +133,7 @@ impl ViewClientActor {
             runtime_adapter.clone(),
             chain_genesis,
             DoomslugThresholdMode::TwoThirds,
-            !config.archive,
+            config.save_trie_changes,
         )?;
         Ok(ViewClientActor {
             adv,
@@ -159,7 +162,7 @@ impl ViewClientActor {
     }
 
     fn need_request<K: Hash + Eq + Clone>(key: K, cache: &mut lru::LruCache<K, Instant>) -> bool {
-        let now = Clock::instant();
+        let now = StaticClock::instant();
         let need_request = match cache.get(&key) {
             Some(time) => now - *time > Duration::from_millis(REQUEST_WAIT_TIME),
             None => true,
@@ -205,10 +208,9 @@ impl ViewClientActor {
                 Ok(Some(self.chain.genesis().clone()))
             }
             BlockReference::SyncCheckpoint(SyncCheckpoint::EarliestAvailable) => {
-                let block_hash = match self.chain.get_earliest_block_hash() {
-                    Ok(Some(block_hash)) => block_hash,
-                    Ok(None) => return Ok(None),
-                    Err(err) => return Err(err),
+                let block_hash = match self.chain.get_earliest_block_hash()? {
+                    Some(block_hash) => block_hash,
+                    None => return Ok(None),
                 };
                 self.chain.get_block_header(&block_hash).map(Some)
             }
@@ -239,10 +241,9 @@ impl ViewClientActor {
                 Ok(Some(self.chain.genesis_block().clone()))
             }
             BlockReference::SyncCheckpoint(SyncCheckpoint::EarliestAvailable) => {
-                let block_hash = match self.chain.get_earliest_block_hash() {
-                    Ok(Some(block_hash)) => block_hash,
-                    Ok(None) => return Ok(None),
-                    Err(err) => return Err(err),
+                let block_hash = match self.chain.get_earliest_block_hash()? {
+                    Some(block_hash) => block_hash,
+                    None => return Ok(None),
                 };
                 self.chain.get_block(&block_hash).map(Some)
             }
@@ -271,7 +272,6 @@ impl ViewClientActor {
             let bp = epoch_info.sample_block_producer(block_height);
             let bp = epoch_info.get_validator(bp).account_id().clone();
             let cps: Vec<AccountId> = (0..num_shards)
-                .into_iter()
                 .map(|shard_id| {
                     let cp = epoch_info.sample_chunk_producer(block_height, shard_id);
                     let cp = epoch_info.get_validator(cp).account_id().clone();
@@ -339,7 +339,7 @@ impl ViewClientActor {
                         if !self.config.archive && header.height() < gc_stop_height {
                             QueryError::GarbageCollectedBlock {
                                 block_height: header.height(),
-                                block_hash: header.hash().clone(),
+                                block_hash: *header.hash(),
                             }
                         } else {
                             QueryError::UnavailableShard { requested_shard_id: shard_id }
@@ -472,14 +472,9 @@ impl ViewClientActor {
                     .map_err(|err| TxStatusError::InternalError(err.to_string()))?;
                 let validator = self.chain.find_validator_for_forwarding(target_shard_id)?;
 
-                self.network_adapter.do_send(
-                    PeerManagerMessageRequest::NetworkRequests(NetworkRequests::TxStatus(
-                        validator,
-                        signer_account_id,
-                        tx_hash,
-                    ))
-                    .with_span_context(),
-                );
+                self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                    NetworkRequests::TxStatus(validator, signer_account_id, tx_hash),
+                ));
             }
             Ok(None)
         }
@@ -489,7 +484,7 @@ impl ViewClientActor {
         &mut self,
         hashes: Vec<CryptoHash>,
     ) -> Result<Vec<BlockHeader>, near_chain::Error> {
-        self.chain.retrieve_headers(hashes, sync::MAX_BLOCK_HEADERS, None)
+        self.chain.retrieve_headers(hashes, sync::header::MAX_BLOCK_HEADERS, None)
     }
 
     fn check_signature_account_announce(
@@ -512,12 +507,15 @@ impl ViewClientActor {
 
     fn check_state_sync_request(&self) -> bool {
         let mut cache = self.state_request_cache.lock().expect(POISONED_LOCK_ERR);
-        let now = Clock::instant();
-        let cutoff = now - self.config.view_client_throttle_period;
-        // Assume that time is linear. While in different threads there might be some small differences,
-        // it should not matter in practice.
-        while !cache.is_empty() && *cache.front().unwrap() < cutoff {
-            cache.pop_front();
+        let now = StaticClock::instant();
+        while let Some(&instant) = cache.front() {
+            if now.saturating_duration_since(instant) > self.config.view_client_throttle_period {
+                cache.pop_front();
+            } else {
+                // Assume that time is linear. While in different threads there might be some small differences,
+                // it should not matter in practice.
+                break;
+            }
         }
         if cache.len() >= Self::MAX_NUM_STATE_REQUESTS {
             return false;
@@ -551,13 +549,11 @@ impl Handler<WithSpanContext<GetBlock>> for ViewClientActor {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetBlock"]).start_timer();
-        let block = match self.get_block_by_reference(&msg.0)? {
-            None => return Err(GetBlockError::NotSyncedYet),
-            Some(block) => block,
-        };
+        let block = self.get_block_by_reference(&msg.0)?.ok_or(GetBlockError::NotSyncedYet)?;
         let block_author = self
             .runtime_adapter
-            .get_block_producer(block.header().epoch_id(), block.header().height())?;
+            .get_block_producer(block.header().epoch_id(), block.header().height())
+            .into_chain_error()?;
         Ok(BlockView::from_author_block(block_author, block))
     }
 }
@@ -628,13 +624,14 @@ impl Handler<WithSpanContext<GetChunk>> for ViewClientActor {
         };
 
         let chunk_inner = chunk.cloned_header().take_inner();
-        let epoch_id =
-            self.runtime_adapter.get_epoch_id_from_prev_block(chunk_inner.prev_block_hash())?;
-        let author = self.runtime_adapter.get_chunk_producer(
-            &epoch_id,
-            chunk_inner.height_created(),
-            chunk_inner.shard_id(),
-        )?;
+        let epoch_id = self
+            .runtime_adapter
+            .get_epoch_id_from_prev_block(chunk_inner.prev_block_hash())
+            .into_chain_error()?;
+        let author = self
+            .runtime_adapter
+            .get_chunk_producer(&epoch_id, chunk_inner.height_created(), chunk_inner.shard_id())
+            .into_chain_error()?;
 
         Ok(ChunkView::from_author_chunk(author, chunk))
     }
@@ -698,9 +695,7 @@ impl Handler<WithSpanContext<GetValidatorInfo>> for ViewClientActor {
                 ValidatorInfoIdentifier::BlockHash(self.chain.header_head()?.last_block_hash)
             }
         };
-        self.runtime_adapter
-            .get_validator_info(epoch_identifier)
-            .map_err(GetValidatorInfoError::from)
+        Ok(self.runtime_adapter.get_validator_info(epoch_identifier).into_chain_error()?)
     }
 }
 
@@ -919,8 +914,10 @@ impl Handler<WithSpanContext<GetExecutionOutcome>> for ViewClientActor {
                 let mut outcome_proof = outcome;
                 let epoch_id =
                     self.chain.get_block(&outcome_proof.block_hash)?.header().epoch_id().clone();
-                let target_shard_id =
-                    self.runtime_adapter.account_id_to_shard_id(&account_id, &epoch_id)?;
+                let target_shard_id = self
+                    .runtime_adapter
+                    .account_id_to_shard_id(&account_id, &epoch_id)
+                    .into_chain_error()?;
                 let res = self.chain.get_next_block_hash_with_new_chunk(
                     &outcome_proof.block_hash,
                     target_shard_id,
@@ -953,8 +950,10 @@ impl Handler<WithSpanContext<GetExecutionOutcome>> for ViewClientActor {
             }
             Err(near_chain::Error::DBNotFoundErr(_)) => {
                 let head = self.chain.head()?;
-                let target_shard_id =
-                    self.runtime_adapter.account_id_to_shard_id(&account_id, &head.epoch_id)?;
+                let target_shard_id = self
+                    .runtime_adapter
+                    .account_id_to_shard_id(&account_id, &head.epoch_id)
+                    .into_chain_error()?;
                 if self.runtime_adapter.cares_about_shard(
                     self.validator_account_id.as_ref(),
                     &head.last_block_hash,
@@ -1061,6 +1060,9 @@ impl Handler<WithSpanContext<GetProtocolConfig>> for ViewClientActor {
         Ok(config.into())
     }
 }
+
+#[cfg(feature = "test_features")]
+use crate::NetworkAdversarialMessage;
 
 #[cfg(feature = "test_features")]
 impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ViewClientActor {
@@ -1422,12 +1424,39 @@ impl Handler<WithSpanContext<GetMaintenanceWindows>> for ViewClientActor {
     }
 }
 
+impl Handler<WithSpanContext<GetSplitStorageInfo>> for ViewClientActor {
+    type Result = Result<SplitStorageInfoView, GetSplitStorageInfoError>;
+
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<GetSplitStorageInfo>,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, _msg) = handler_debug_span!(target: "client", msg);
+        let _d = delay_detector::DelayDetector::new(|| "client get split storage info".into());
+
+        let store = self.chain.store().store();
+        let head = store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)?;
+        let final_head = store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?;
+        let cold_head = store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY)?;
+
+        let hot_db_kind = store.get_db_kind()?.map(|kind| kind.to_string());
+
+        Ok(SplitStorageInfoView {
+            head_height: head.map(|tip| tip.height),
+            final_head_height: final_head.map(|tip| tip.height),
+            cold_head_height: cold_head.map(|tip| tip.height),
+            hot_db_kind,
+        })
+    }
+}
+
 /// Starts the View Client in a new arbiter (thread).
 pub fn start_view_client(
     validator_account_id: Option<AccountId>,
     chain_genesis: ChainGenesis,
-    runtime_adapter: Arc<dyn RuntimeAdapter>,
-    network_adapter: Arc<dyn PeerManagerAdapter>,
+    runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
+    network_adapter: PeerManagerAdapter,
     config: ClientConfig,
     adv: crate::adversarial::Controls,
 ) -> Addr<ViewClientActor> {

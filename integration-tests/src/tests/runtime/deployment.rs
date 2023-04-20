@@ -5,6 +5,7 @@ use near_primitives::transaction::{Action, DeployContractAction, SignedTransacti
 use near_primitives::types::AccountId;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::FinalExecutionStatus;
+use near_vm_runner::internal::VMKind;
 use nearcore::config::GenesisExt;
 
 const ONE_NEAR: u128 = 10u128.pow(24);
@@ -39,7 +40,7 @@ fn test_deploy_max_size_contract() {
     let max_transaction_size = config.wasm_config.limit_config.max_transaction_size;
     let contract_size = max_contract_size.min(max_transaction_size - tx_overhead);
     // Enough token to store contract + 1 NEAR for account
-    let token_balance = config.storage_amount_per_byte * contract_size as u128 + ONE_NEAR;
+    let token_balance = config.storage_amount_per_byte() * contract_size as u128 + ONE_NEAR;
 
     // Create test account
     let transaction_result = node_user
@@ -56,7 +57,8 @@ fn test_deploy_max_size_contract() {
     // Deploy contract
     let wasm_binary = near_test_contracts::sized_contract(contract_size as usize);
     // Rune code through preparation for validation. (Deploying will succeed either way).
-    near_vm_runner::prepare::prepare_contract(&wasm_binary, &config.wasm_config).unwrap();
+    near_vm_runner::prepare::prepare_contract(&wasm_binary, &config.wasm_config, VMKind::NearVm)
+        .unwrap();
     let transaction_result =
         node_user.deploy_contract(test_contract_id, wasm_binary.to_vec()).unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));

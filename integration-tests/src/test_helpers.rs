@@ -21,9 +21,9 @@ pub fn check_result(output: Output) -> Result<String, String> {
         if result.is_empty() {
             result = String::from_utf8_lossy(output.stderr.as_slice());
         }
-        return Err(result.to_owned().to_string());
+        return Err(result.into_owned());
     }
-    Ok(result.to_owned().to_string())
+    Ok(result.into_owned())
 }
 
 pub fn wait<F>(mut f: F, check_interval_ms: u64, max_wait_ms: u64)

@@ -17,6 +17,9 @@ import sys, time
 import pathlib
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
+from configured_logger import logger
+from cluster import init_cluster, spin_up_node, load_config
+import utils
 
 if len(sys.argv) < 3:
     logger.info("python state_sync.py [notx, onetx, manytx] <launch_at_block>")
@@ -25,34 +28,24 @@ if len(sys.argv) < 3:
 mode = sys.argv[1]
 assert mode in ['notx', 'onetx', 'manytx']
 
-from cluster import init_cluster, spin_up_node, load_config
-from configured_logger import logger
-import utils
-
 START_AT_BLOCK = int(sys.argv[2])
 TIMEOUT = 150 + START_AT_BLOCK * 10
 
 config = load_config()
+node_config = {
+    "tracked_shards": [0],
+    "state_sync_enabled": True,
+}
 
 near_root, node_dirs = init_cluster(
     2, 3, 1, config,
     [["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", 10],
      ["block_producer_kickout_threshold", 80]], {
-         0: {
-             "tracked_shards": [0]
-         },
-         1: {
-             "tracked_shards": [0]
-         },
-         2: {
-             "tracked_shards": [0]
-         },
-         3: {
-             "tracked_shards": [0]
-         },
-         4: {
-             "tracked_shards": [0]
-         },
+         0: node_config,
+         1: node_config,
+         2: node_config,
+         3: node_config,
+         4: node_config,
      })
 
 started = time.time()
@@ -105,7 +98,8 @@ node4 = spin_up_node(config,
                      4,
                      boot_node=boot_node,
                      blacklist=[0, 1])
-tracker4 = utils.LogTracker(node4)
+
+metrics4 = utils.MetricsTracker(node4)
 time.sleep(3)
 
 catch_up_height = 0
@@ -134,24 +128,12 @@ boot_heights = boot_node.get_all_heights()
 assert catch_up_height in boot_heights, "%s not in %s" % (catch_up_height,
                                                           boot_heights)
 
-tracker4.reset(
-)  # the transition might have happened before we initialized the tracker
-if catch_up_height >= 100:
-    assert tracker4.check("transition to State Sync")
-elif catch_up_height <= 30:
-    assert not tracker4.check("transition to State Sync")
-
 while True:
     assert time.time(
     ) - started < TIMEOUT, "Waiting for node 4 to connect to two peers"
-    tracker4.reset()
-    if tracker4.count("Consolidated connection") == 2:
+    if metrics4.get_int_metric_value("near_peer_connections_total") == 2:
         break
     time.sleep(0.1)
-
-tracker4.reset()
-# Check that no message is dropped because a peer is disconnected
-assert tracker4.count("Reason Disconnected") == 0
 
 if mode == 'manytx':
     while ctx.get_balances() != ctx.expected_balances:

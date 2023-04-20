@@ -19,7 +19,7 @@ fn create_runtime_with_expensive_storage() -> RuntimeNode {
     add_test_contract(&mut genesis, &bob_account());
     // Set expensive state requirements and add alice more money.
     let mut runtime_config = RuntimeConfig::test();
-    runtime_config.storage_amount_per_byte = TESTING_INIT_BALANCE / 1000;
+    runtime_config.fees.storage_usage_config.storage_amount_per_byte = TESTING_INIT_BALANCE / 1000;
     let records = genesis.force_read_records().as_mut();
     match &mut records[0] {
         StateRecord::Account { account, .. } => account.set_amount(TESTING_INIT_BALANCE * 10000),
@@ -336,4 +336,11 @@ fn test_chunk_nodes_cache_mode_runtime() {
     let node = create_runtime_node();
     let runtime_config = node.client.as_ref().read().unwrap().runtime_config.clone();
     test_chunk_nodes_cache_mode(node, runtime_config);
+}
+
+#[test]
+fn test_storage_read_write_costs_runtime() {
+    let node = create_runtime_node();
+    let runtime_config = node.client.as_ref().read().unwrap().runtime_config.clone();
+    test_storage_read_write_costs(node, runtime_config);
 }

@@ -1,7 +1,6 @@
 use crate::logic;
 use crate::types::ReceiptIndex;
 use crate::External;
-use borsh::BorshDeserialize;
 use near_crypto::PublicKey;
 use near_primitives::receipt::DataReceiver;
 use near_primitives::transaction::{
@@ -243,17 +242,9 @@ impl ReceiptManager {
         &mut self,
         receipt_index: ReceiptIndex,
         stake: Balance,
-        public_key: Vec<u8>,
-    ) -> logic::Result<()> {
-        self.append_action(
-            receipt_index,
-            Action::Stake(StakeAction {
-                stake,
-                public_key: PublicKey::try_from_slice(&public_key)
-                    .map_err(|_| HostError::InvalidPublicKey)?,
-            }),
-        );
-        Ok(())
+        public_key: PublicKey,
+    ) {
+        self.append_action(receipt_index, Action::Stake(StakeAction { stake, public_key }));
     }
 
     /// Attach the [`AddKeyAction`] action to an existing receipt.
@@ -270,18 +261,16 @@ impl ReceiptManager {
     pub(crate) fn append_action_add_key_with_full_access(
         &mut self,
         receipt_index: ReceiptIndex,
-        public_key: Vec<u8>,
+        public_key: PublicKey,
         nonce: Nonce,
-    ) -> logic::Result<()> {
+    ) {
         self.append_action(
             receipt_index,
             Action::AddKey(AddKeyAction {
-                public_key: PublicKey::try_from_slice(&public_key)
-                    .map_err(|_| HostError::InvalidPublicKey)?,
+                public_key,
                 access_key: AccessKey { nonce, permission: AccessKeyPermission::FullAccess },
             }),
         );
-        Ok(())
     }
 
     /// Attach the [`AddKeyAction`] action an existing receipt.
@@ -304,7 +293,7 @@ impl ReceiptManager {
     pub(crate) fn append_action_add_key_with_function_call(
         &mut self,
         receipt_index: ReceiptIndex,
-        public_key: Vec<u8>,
+        public_key: PublicKey,
         nonce: Nonce,
         allowance: Option<Balance>,
         receiver_id: AccountId,
@@ -313,8 +302,7 @@ impl ReceiptManager {
         self.append_action(
             receipt_index,
             Action::AddKey(AddKeyAction {
-                public_key: PublicKey::try_from_slice(&public_key)
-                    .map_err(|_| HostError::InvalidPublicKey)?,
+                public_key,
                 access_key: AccessKey {
                     nonce,
                     permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
@@ -347,16 +335,9 @@ impl ReceiptManager {
     pub(crate) fn append_action_delete_key(
         &mut self,
         receipt_index: ReceiptIndex,
-        public_key: Vec<u8>,
-    ) -> logic::Result<()> {
-        self.append_action(
-            receipt_index,
-            Action::DeleteKey(DeleteKeyAction {
-                public_key: PublicKey::try_from_slice(&public_key)
-                    .map_err(|_| HostError::InvalidPublicKey)?,
-            }),
-        );
-        Ok(())
+        public_key: PublicKey,
+    ) {
+        self.append_action(receipt_index, Action::DeleteKey(DeleteKeyAction { public_key }));
     }
 
     /// Attach the [`DeleteAccountAction`] action to an existing receipt

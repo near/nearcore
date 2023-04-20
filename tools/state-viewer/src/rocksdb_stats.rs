@@ -1,9 +1,8 @@
-use serde::Serialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-#[derive(Serialize, Debug)]
+#[derive(serde::Serialize, Debug)]
 struct SSTFileData {
     col: String,
     entries: u64,

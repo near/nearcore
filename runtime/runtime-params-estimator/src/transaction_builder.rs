@@ -18,6 +18,23 @@ pub(crate) struct TransactionBuilder {
     unused_index: usize,
 }
 
+/// Define how accounts should be generated.
+#[derive(Clone, Copy)]
+pub(crate) enum AccountRequirement {
+    /// Use a different random account on every iteration, account exists and
+    /// has estimator contract deployed.
+    RandomUnused,
+    /// Use the same account as the signer. Must not be used for signer id.
+    SameAsSigner,
+    /// Use sub account of the signer. Useful for `CreateAction` estimations.
+    SubOfSigner,
+    /// Account must be `generated_account_id(seed = 0)`.
+    ///
+    /// Usage: Delegate actions are signed by the sender, so it can't be
+    /// replaced with a random account.
+    ConstantAccount0,
+}
+
 impl TransactionBuilder {
     pub(crate) fn new(accounts: Vec<AccountId>) -> TransactionBuilder {
         let n = accounts.len();
@@ -120,8 +137,19 @@ impl TransactionBuilder {
         }
     }
 
-    pub(crate) fn random_vec(&mut self, len: usize) -> Vec<u8> {
-        (0..len).map(|_| self.rng().gen()).collect()
+    pub(crate) fn account_by_requirement(
+        &mut self,
+        src: AccountRequirement,
+        signer_id: Option<&AccountId>,
+    ) -> AccountId {
+        match src {
+            AccountRequirement::RandomUnused => self.random_unused_account(),
+            AccountRequirement::SameAsSigner => signer_id.expect("no signer_id provided").clone(),
+            AccountRequirement::SubOfSigner => {
+                format!("sub.{}", signer_id.expect("no signer_id")).parse().unwrap()
+            }
+            AccountRequirement::ConstantAccount0 => self.account(0),
+        }
     }
 
     fn nonce(&mut self, account_id: &AccountId) -> u64 {

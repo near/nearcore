@@ -4,8 +4,9 @@ use crate::config;
 use crate::network_protocol::{
     Edge, PartialEdgeInfo, PeerInfo, RawRoutedMessage, RoutedMessageBody,
 };
-use crate::time;
+use crate::tcp;
 use crate::types::{AccountKeys, ChainInfo, Handshake, RoutingTableUpdate};
+use near_async::time;
 use near_crypto::{InMemorySigner, KeyType, SecretKey};
 use near_primitives::block::{genesis_chunks, Block, BlockHeader, GenesisId};
 use near_primitives::challenge::{BlockDoubleSign, Challenge, ChallengeBody};
@@ -229,15 +230,23 @@ impl ChunkSet {
     }
 }
 
-pub fn make_epoch_id<R: Rng>(rng: &mut R) -> EpochId {
-    EpochId(CryptoHash::hash_bytes(&rng.gen::<[u8; 19]>()))
+pub fn make_hash<R: Rng>(rng: &mut R) -> CryptoHash {
+    CryptoHash::hash_bytes(&rng.gen::<[u8; 19]>())
+}
+
+pub fn make_account_keys(signers: &[InMemoryValidatorSigner]) -> AccountKeys {
+    let mut account_keys = AccountKeys::new();
+    for s in signers {
+        account_keys.entry(s.validator_id().clone()).or_default().insert(s.public_key());
+    }
+    account_keys
 }
 
 pub struct Chain {
     pub genesis_id: GenesisId,
     pub blocks: Vec<Block>,
     pub chunks: HashMap<ChunkHash, ShardChunk>,
-    pub tier1_accounts: Vec<(EpochId, InMemoryValidatorSigner)>,
+    pub tier1_accounts: Vec<InMemoryValidatorSigner>,
 }
 
 impl Chain {
@@ -256,9 +265,7 @@ impl Chain {
                 hash: Default::default(),
             },
             blocks,
-            tier1_accounts: (0..10)
-                .map(|_| (make_epoch_id(rng), make_validator_signer(rng)))
-                .collect(),
+            tier1_accounts: (0..10).map(|_| make_validator_signer(rng)).collect(),
             chunks: chunks.chunks,
         }
     }
@@ -272,18 +279,13 @@ impl Chain {
     }
 
     pub fn get_tier1_accounts(&self) -> AccountKeys {
-        self.tier1_accounts
-            .iter()
-            .map(|(epoch_id, v)| {
-                ((epoch_id.clone(), v.validator_id().clone()), v.public_key().clone())
-            })
-            .collect()
+        make_account_keys(&self.tier1_accounts)
     }
 
     pub fn get_chain_info(&self) -> ChainInfo {
         ChainInfo {
             tracked_shards: Default::default(),
-            height: self.height(),
+            block: self.blocks.last().unwrap().clone(),
             tier1_accounts: Arc::new(self.get_tier1_accounts()),
         }
     }
@@ -302,9 +304,9 @@ impl Chain {
     }
 
     pub fn make_config<R: Rng>(&self, rng: &mut R) -> config::NetworkConfig {
-        let port = crate::test_utils::open_port();
         let seed = &rng.gen::<u64>().to_string();
-        let mut cfg = config::NetworkConfig::from_seed(&seed, port);
+        let mut cfg =
+            config::NetworkConfig::from_seed(&seed, tcp::ListenerAddr::reserve_for_test());
         // Currently, in unit tests PeerManagerActor is not allowed to try to establish
         // connections on its own.
         cfg.outbound_disabled = true;
@@ -318,16 +320,12 @@ impl Chain {
     ) -> Vec<Arc<SignedAccountData>> {
         self.tier1_accounts
             .iter()
-            .map(|(epoch_id, v)| {
+            .map(|v| {
+                let peer_id = make_peer_id(rng);
                 Arc::new(
-                    make_account_data(
-                        rng,
-                        clock.now_utc(),
-                        epoch_id.clone(),
-                        v.validator_id().clone(),
-                    )
-                    .sign(v)
-                    .unwrap(),
+                    make_account_data(rng, 1, clock.now_utc(), v.public_key(), peer_id)
+                        .sign(v)
+                        .unwrap(),
                 )
             })
             .collect()
@@ -347,13 +345,14 @@ pub fn make_handshake<R: Rng>(rng: &mut R, chain: &Chain) -> Handshake {
         sender_listen_port: Some(rng.gen()),
         sender_chain_info: chain.get_peer_chain_info(),
         partial_edge_info: make_partial_edge(rng),
+        owned_account: None,
     }
 }
 
 pub fn make_routed_message<R: Rng>(rng: &mut R, body: RoutedMessageBody) -> RoutedMessageV2 {
     let signer = make_signer(rng);
     let peer_id = PeerId::new(signer.public_key);
-    RawRoutedMessage { target: PeerIdOrHash::PeerId(peer_id.clone()), body }.sign(
+    RawRoutedMessage { target: PeerIdOrHash::PeerId(peer_id), body }.sign(
         &signer.secret_key,
         /*ttl=*/ 1,
         None,
@@ -377,39 +376,41 @@ pub fn make_peer_addr(rng: &mut impl Rng, ip: net::IpAddr) -> PeerAddr {
 
 pub fn make_account_data(
     rng: &mut impl Rng,
+    version: u64,
     timestamp: time::Utc,
-    epoch_id: EpochId,
-    account_id: AccountId,
-) -> AccountData {
-    AccountData {
-        peers: vec![
-            // Can't inline make_ipv4/ipv6 calls, because 2-phase borrow
-            // doesn't work.
-            {
-                let ip = make_ipv4(rng);
-                make_peer_addr(rng, ip)
-            },
-            {
-                let ip = make_ipv4(rng);
-                make_peer_addr(rng, ip)
-            },
-            {
-                let ip = make_ipv6(rng);
-                make_peer_addr(rng, ip)
-            },
-        ],
-        account_id,
-        epoch_id,
+    account_key: PublicKey,
+    peer_id: PeerId,
+) -> VersionedAccountData {
+    VersionedAccountData {
+        data: AccountData {
+            proxies: vec![
+                // Can't inline make_ipv4/ipv6 calls, because 2-phase borrow
+                // doesn't work.
+                {
+                    let ip = make_ipv4(rng);
+                    make_peer_addr(rng, ip)
+                },
+                {
+                    let ip = make_ipv4(rng);
+                    make_peer_addr(rng, ip)
+                },
+                {
+                    let ip = make_ipv6(rng);
+                    make_peer_addr(rng, ip)
+                },
+            ],
+            peer_id,
+        },
+        account_key,
+        version,
         timestamp,
     }
 }
 
 pub fn make_signed_account_data(rng: &mut impl Rng, clock: &time::Clock) -> SignedAccountData {
     let signer = make_validator_signer(rng);
-    let epoch_id = make_epoch_id(rng);
-    make_account_data(rng, clock.now_utc(), epoch_id, signer.validator_id().clone())
-        .sign(&signer)
-        .unwrap()
+    let peer_id = make_peer_id(rng);
+    make_account_data(rng, 1, clock.now_utc(), signer.public_key(), peer_id).sign(&signer).unwrap()
 }
 
 // Accessors for creating malformed SignedAccountData

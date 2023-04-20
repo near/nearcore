@@ -20,7 +20,8 @@ consensus_config0 = {
             "secs": 0,
             "nanos": 100000000
         }
-    }
+    },
+    "state_sync_enabled": True,
 }
 consensus_config1 = {
     "consensus": {
@@ -29,7 +30,8 @@ consensus_config1 = {
             "nanos": 1000
         }
     },
-    "tracked_shards": [0]
+    "tracked_shards": [0],
+    "state_sync_enabled": True,
 }
 nodes = start_cluster(
     1, 1, 1, None,

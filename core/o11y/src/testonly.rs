@@ -1,8 +1,9 @@
 mod tracing_capture;
 
-pub use tracing_capture::TracingCapture;
-
+use crate::use_color_auto;
 use tracing_subscriber::{fmt as subscriber_fmt, EnvFilter};
+
+pub use tracing_capture::TracingCapture;
 
 fn setup_subscriber_from_filter(mut env_filter: EnvFilter) {
     if let Ok(rust_log) = std::env::var("RUST_LOG") {
@@ -18,6 +19,7 @@ fn setup_subscriber_from_filter(mut env_filter: EnvFilter) {
     }
 
     let _ = subscriber_fmt::Subscriber::builder()
+        .with_ansi(use_color_auto())
         .with_span_events(subscriber_fmt::format::FmtSpan::CLOSE)
         .with_env_filter(env_filter)
         .with_writer(subscriber_fmt::TestWriter::new())

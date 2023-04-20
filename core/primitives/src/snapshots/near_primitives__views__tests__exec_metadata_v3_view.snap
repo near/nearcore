@@ -1,0 +1,389 @@
+---
+source: core/primitives/src/views.rs
+expression: view
+---
+{
+  "version": 3,
+  "gas_profile": [
+    {
+      "cost_category": "ACTION_COST",
+      "cost": "ADD_FULL_ACCESS_KEY",
+      "gas_used": "1008"
+    },
+    {
+      "cost_category": "ACTION_COST",
+      "cost": "ADD_FUNCTION_CALL_KEY_BASE",
+      "gas_used": "1009"
+    },
+    {
+      "cost_category": "ACTION_COST",
+      "cost": "ADD_FUNCTION_CALL_KEY_BYTE",
+      "gas_used": "1010"
+    },
+    {
+      "cost_category": "ACTION_COST",
+      "cost": "CREATE_ACCOUNT",
+      "gas_used": "1000"
+    },
+    {
+      "cost_category": "ACTION_COST",
+      "cost": "DELEGATE",
+      "gas_used": "1015"
+    },
+    {
+      "cost_category": "ACTION_COST",
+      "cost": "DELETE_ACCOUNT",
+      "gas_used": "1001"
+    },
+    {
+      "cost_category": "ACTION_COST",
+      "cost": "DELETE_KEY",
+      "gas_used": "1011"
+    },
+    {
+      "cost_category": "ACTION_COST",
+      "cost": "DEPLOY_CONTRACT_BASE",
+      "gas_used": "1002"
+    },
+    {
+      "cost_category": "ACTION_COST",
+      "cost": "DEPLOY_CONTRACT_BYTE",
+      "gas_used": "1003"
+    },
+    {
+      "cost_category": "ACTION_COST",
+      "cost": "FUNCTION_CALL_BASE",
+      "gas_used": "1004"
+    },
+    {
+      "cost_category": "ACTION_COST",
+      "cost": "FUNCTION_CALL_BYTE",
+      "gas_used": "1005"
+    },
+    {
+      "cost_category": "ACTION_COST",
+      "cost": "NEW_ACTION_RECEIPT",
+      "gas_used": "1012"
+    },
+    {
+      "cost_category": "ACTION_COST",
+      "cost": "NEW_DATA_RECEIPT_BASE",
+      "gas_used": "1013"
+    },
+    {
+      "cost_category": "ACTION_COST",
+      "cost": "NEW_DATA_RECEIPT_BYTE",
+      "gas_used": "1014"
+    },
+    {
+      "cost_category": "ACTION_COST",
+      "cost": "STAKE",
+      "gas_used": "1007"
+    },
+    {
+      "cost_category": "ACTION_COST",
+      "cost": "TRANSFER",
+      "gas_used": "1006"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "ALT_BN128_G1_MULTIEXP_BASE",
+      "gas_used": "53"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "ALT_BN128_G1_MULTIEXP_ELEMENT",
+      "gas_used": "54"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "ALT_BN128_G1_SUM_BASE",
+      "gas_used": "57"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "ALT_BN128_G1_SUM_ELEMENT",
+      "gas_used": "58"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "ALT_BN128_PAIRING_CHECK_BASE",
+      "gas_used": "55"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "ALT_BN128_PAIRING_CHECK_ELEMENT",
+      "gas_used": "56"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "CONTRACT_LOADING_BASE",
+      "gas_used": "1"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "CONTRACT_LOADING_BYTES",
+      "gas_used": "2"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "ECRECOVER_BASE",
+      "gas_used": "23"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "ED25519_VERIFY_BASE",
+      "gas_used": "59"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "ED25519_VERIFY_BYTE",
+      "gas_used": "60"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "KECCAK256_BASE",
+      "gas_used": "17"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "KECCAK256_BYTE",
+      "gas_used": "18"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "KECCAK512_BASE",
+      "gas_used": "19"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "KECCAK512_BYTE",
+      "gas_used": "20"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "LOG_BASE",
+      "gas_used": "24"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "LOG_BYTE",
+      "gas_used": "25"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "PROMISE_AND_BASE",
+      "gas_used": "48"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "PROMISE_AND_PER_PROMISE",
+      "gas_used": "49"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "PROMISE_RETURN",
+      "gas_used": "50"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "READ_CACHED_TRIE_NODE",
+      "gas_used": "47"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "READ_MEMORY_BASE",
+      "gas_used": "3"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "READ_MEMORY_BYTE",
+      "gas_used": "4"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "READ_REGISTER_BASE",
+      "gas_used": "7"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "READ_REGISTER_BYTE",
+      "gas_used": "8"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "RIPEMD160_BASE",
+      "gas_used": "21"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "RIPEMD160_BLOCK",
+      "gas_used": "22"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "SHA256_BASE",
+      "gas_used": "15"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "SHA256_BYTE",
+      "gas_used": "16"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "STORAGE_HAS_KEY_BASE",
+      "gas_used": "36"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "STORAGE_HAS_KEY_BYTE",
+      "gas_used": "37"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "STORAGE_ITER_CREATE_FROM_BYTE",
+      "gas_used": "41"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "STORAGE_ITER_CREATE_PREFIX_BASE",
+      "gas_used": "38"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "STORAGE_ITER_CREATE_PREFIX_BYTE",
+      "gas_used": "39"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "STORAGE_ITER_CREATE_RANGE_BASE",
+      "gas_used": "40"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "STORAGE_ITER_CREATE_TO_BYTE",
+      "gas_used": "42"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "STORAGE_ITER_NEXT_BASE",
+      "gas_used": "43"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "STORAGE_ITER_NEXT_KEY_BYTE",
+      "gas_used": "44"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "STORAGE_ITER_NEXT_VALUE_BYTE",
+      "gas_used": "45"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "STORAGE_READ_BASE",
+      "gas_used": "30"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "STORAGE_READ_KEY_BYTE",
+      "gas_used": "31"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "STORAGE_READ_VALUE_BYTE",
+      "gas_used": "32"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "STORAGE_REMOVE_BASE",
+      "gas_used": "33"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "STORAGE_REMOVE_KEY_BYTE",
+      "gas_used": "34"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "STORAGE_REMOVE_RET_VALUE_BYTE",
+      "gas_used": "35"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "STORAGE_WRITE_BASE",
+      "gas_used": "26"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "STORAGE_WRITE_EVICTED_BYTE",
+      "gas_used": "29"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "STORAGE_WRITE_KEY_BYTE",
+      "gas_used": "27"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "STORAGE_WRITE_VALUE_BYTE",
+      "gas_used": "28"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "TOUCHING_TRIE_NODE",
+      "gas_used": "46"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "UTF16_DECODING_BASE",
+      "gas_used": "13"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "UTF16_DECODING_BYTE",
+      "gas_used": "14"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "UTF8_DECODING_BASE",
+      "gas_used": "11"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "UTF8_DECODING_BYTE",
+      "gas_used": "12"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "VALIDATOR_STAKE_BASE",
+      "gas_used": "51"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "VALIDATOR_TOTAL_STAKE_BASE",
+      "gas_used": "52"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "WRITE_MEMORY_BASE",
+      "gas_used": "5"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "WRITE_MEMORY_BYTE",
+      "gas_used": "6"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "WRITE_REGISTER_BASE",
+      "gas_used": "9"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "WRITE_REGISTER_BYTE",
+      "gas_used": "10"
+    }
+  ]
+}

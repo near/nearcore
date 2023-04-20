@@ -20,15 +20,16 @@ bytes.workspace = true
 bytesize.workspace = true
 chrono.workspace = true
 crossbeam-channel.workspace = true
+derive_more.workspace = true
 futures-util.workspace = true
 futures.workspace = true
 im.workspace = true
 itertools.workspace = true
 lru.workspace = true
-near-rust-allocator-proxy = { workspace = true, optional = true }
 once_cell.workspace = true
 opentelemetry.workspace = true
 parking_lot.workspace = true
+pin-project.workspace = true
 protobuf.workspace = true
 rand.workspace = true
 rand_xorshift.workspace = true
@@ -36,6 +37,7 @@ rayon.workspace = true
 serde.workspace = true
 smart-default.workspace = true
 strum.workspace = true
+stun.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
@@ -43,35 +45,28 @@ tokio-util.workspace = true
 tracing.workspace = true
 time.workspace = true
 
-delay-detector = { path = "../../tools/delay-detector" }
-near-o11y = { path = "../../core/o11y" }
-near-crypto = { path = "../../core/crypto" }
-near-performance-metrics = { path = "../../utils/near-performance-metrics" }
-near-performance-metrics-macros = { path = "../../utils/near-performance-metrics-macros" }
-near-primitives = { path = "../../core/primitives" }
-near-stable-hasher = { path = "../../utils/near-stable-hasher"}
-near-store = { path = "../../core/store" }
+delay-detector.workspace = true
+near-async.workspace = true
+near-fmt.workspace = true
+near-o11y.workspace = true
+near-crypto.workspace = true
+near-performance-metrics.workspace = true
+near-performance-metrics-macros.workspace = true
+near-primitives.workspace = true
+near-stable-hasher.workspace = true
+near-store.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true
 pretty_assertions.workspace = true
 tempfile.workspace = true
 rlimit.workspace = true
+turn.workspace = true
+webrtc-util.workspace = true
 
 [features]
 delay_detector = ["delay-detector/delay_detector"]
 performance_stats = [
     "near-performance-metrics/performance_stats",
-    "near-rust-allocator-proxy",
 ]
 test_features = []
-
-shardnet = []
-
-[[bench]]
-name = "graph"
-harness = false
-
-[[bench]]
-name = "routing_table_actor"
-harness = false

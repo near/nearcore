@@ -1,18 +1,18 @@
 use super::AccountId;
 
-use std::io::{Error, Write};
+use std::io::{Read, Write};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
 impl BorshSerialize for AccountId {
-    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
+    fn serialize<W: Write>(&self, writer: &mut W) -> std::io::Result<()> {
         self.0.serialize(writer)
     }
 }
 
 impl BorshDeserialize for AccountId {
-    fn deserialize(buf: &mut &[u8]) -> Result<Self, std::io::Error> {
-        let account_id = Box::<str>::deserialize(buf)?;
+    fn deserialize_reader<R: Read>(rd: &mut R) -> std::io::Result<Self> {
+        let account_id = Box::<str>::deserialize_reader(rd)?;
         Self::validate(&account_id).map_err(|err| {
             std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -32,7 +32,7 @@ mod tests {
 
     #[test]
     fn test_is_valid_account_id() {
-        for account_id in OK_ACCOUNT_IDS.iter().cloned() {
+        for account_id in OK_ACCOUNT_IDS.iter() {
             let parsed_account_id = account_id.parse::<AccountId>().unwrap_or_else(|err| {
                 panic!("Valid account id {:?} marked invalid: {}", account_id, err)
             });
@@ -52,7 +52,7 @@ mod tests {
             assert_eq!(serialized_account_id, str_serialized_account_id);
         }
 
-        for account_id in BAD_ACCOUNT_IDS.iter().cloned() {
+        for account_id in BAD_ACCOUNT_IDS.iter() {
             let str_serialized_account_id = account_id.try_to_vec().unwrap();
 
             assert!(

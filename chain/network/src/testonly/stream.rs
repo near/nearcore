@@ -27,12 +27,12 @@ impl Stream {
         return None;
     }
 
-    pub async fn read(&mut self) -> PeerMessage {
+    pub async fn read(&mut self) -> Result<PeerMessage, std::io::Error> {
         'read: loop {
-            let n = self.stream.stream.read_u32_le().await.unwrap() as usize;
+            let n = self.stream.stream.read_u32_le().await? as usize;
             let mut buf = BytesMut::new();
             buf.resize(n, 0);
-            self.stream.stream.read_exact(&mut buf[..]).await.unwrap();
+            self.stream.stream.read_exact(&mut buf[..]).await?;
             for enc in [Encoding::Proto, Encoding::Borsh] {
                 if let Ok(msg) = PeerMessage::deserialize(enc, &buf[..]) {
                     // If deserialize() succeeded but we expected different encoding, ignore the
@@ -44,7 +44,7 @@ impl Stream {
                     if enc == Encoding::Proto {
                         self.protocol_buffers_supported = true;
                     }
-                    return msg;
+                    return Ok(msg);
                 }
             }
             panic!("unknown encoding");

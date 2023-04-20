@@ -1,23 +1,23 @@
 use anyhow::Context;
-use clap::Parser;
+use near_primitives::types::BlockHeight;
 use std::cell::Cell;
 use std::path::PathBuf;
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct MirrorCommand {
     #[clap(subcommand)]
     subcmd: SubCommand,
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 enum SubCommand {
     Prepare(PrepareCmd),
     Run(RunCmd),
 }
 
-/// Start two NEAR nodes, one for each chain, and try to mirror
-/// transactions from the source chain to the target chain.
-#[derive(Parser)]
+/// initialize a target chain with genesis records from the source chain, and
+/// then try to mirror transactions from the source chain to the target chain.
+#[derive(clap::Parser)]
 struct RunCmd {
     /// source chain home dir
     #[clap(long)]
@@ -35,6 +35,14 @@ struct RunCmd {
     /// that does contain a secret, the mirror will refuse to start
     #[clap(long)]
     no_secret: bool,
+    /// Start a NEAR node for the source chain, instead of only using
+    /// whatever's currently stored in --source-home
+    #[clap(long)]
+    online_source: bool,
+    /// If provided, we will stop after sending transactions coming from
+    /// this height in the source chain
+    #[clap(long)]
+    stop_height: Option<BlockHeight>,
 }
 
 impl RunCmd {
@@ -61,7 +69,19 @@ impl RunCmd {
         let system = new_actix_system(runtime);
         system
             .block_on(async move {
-                actix::spawn(crate::run(self.source_home, self.target_home, secret)).await
+                let _subscriber_guard = near_o11y::default_subscriber(
+                    near_o11y::EnvFilterBuilder::from_env().finish().unwrap(),
+                    &near_o11y::Options::default(),
+                )
+                .global();
+                actix::spawn(crate::run(
+                    self.source_home,
+                    self.target_home,
+                    secret,
+                    self.stop_height,
+                    self.online_source,
+                ))
+                .await
             })
             .unwrap()
     }
@@ -70,7 +90,7 @@ impl RunCmd {
 /// Write a new genesis records file where the public keys have been
 /// altered so that this binary can sign transactions when mirroring
 /// them from the source chain to the target chain
-#[derive(Parser)]
+#[derive(clap::Parser)]
 struct PrepareCmd {
     /// A genesis records file as output by `neard view-state
     /// dump-state --stream`

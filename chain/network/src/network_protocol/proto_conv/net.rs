@@ -50,7 +50,7 @@ pub enum ParsePeerAddrError {
     #[error("addr: {0}")]
     Addr(ParseRequiredError<ParseSocketAddrError>),
     #[error("peer_id: {0}")]
-    PeerId(ParseRequiredError<ParsePeerIdError>),
+    PeerId(ParseRequiredError<ParsePublicKeyError>),
 }
 
 impl From<&PeerAddr> for proto::PeerAddr {

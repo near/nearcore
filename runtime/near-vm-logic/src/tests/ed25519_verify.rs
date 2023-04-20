@@ -1,4 +1,3 @@
-use crate::tests::fixtures::get_context;
 use crate::tests::helpers::*;
 use crate::tests::vm_logic_builder::VMLogicBuilder;
 use crate::{map, ExtCosts};
@@ -54,27 +53,27 @@ fn check_ed25519_verify(
     want_costs: HashMap<ExtCosts, u64>,
 ) {
     let mut logic_builder = VMLogicBuilder::default();
-    let mut logic = logic_builder.build(get_context(vec![], false));
+    let mut logic = logic_builder.build();
 
     let signature_ptr = if signature_len == u64::MAX {
         logic.wrapped_internal_write_register(1, &signature).unwrap();
         1
     } else {
-        signature.as_ptr() as u64
+        logic.internal_mem_write(signature).ptr
     };
 
     let message_ptr = if message_len == u64::MAX {
         logic.wrapped_internal_write_register(2, &message).unwrap();
         2
     } else {
-        message.as_ptr() as u64
+        logic.internal_mem_write(message).ptr
     };
 
     let public_key_ptr = if public_key_len == u64::MAX {
         logic.wrapped_internal_write_register(3, &public_key).unwrap();
         3
     } else {
-        public_key.as_ptr() as u64
+        logic.internal_mem_write(public_key).ptr
     };
 
     let result = logic.ed25519_verify(

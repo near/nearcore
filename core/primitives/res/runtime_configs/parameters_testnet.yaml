@@ -1,0 +1,194 @@
+# Gas economics config
+burnt_gas_reward: {
+  numerator: 3,
+  denominator: 10,
+}
+pessimistic_gas_price_inflation: {
+  numerator: 103,
+  denominator: 100,
+}
+
+# Account creation config
+min_allowed_top_level_account_length: 0
+registrar_account_id: "registrar"
+
+# Storage usage config
+storage_amount_per_byte: 100_000_000_000_000_000_000
+storage_num_bytes_account: 100
+storage_num_extra_bytes_record: 40
+
+# Static action costs:
+# send_sir / send_not_sir is burned when creating a receipt on the signer shard
+# (SIR = signer is receiver, which guarantees the receipt is local)
+# execution is burned when applying receipt on receiver shard
+action_receipt_creation: {
+  send_sir: 108_059_500_000,
+  send_not_sir: 108_059_500_000,
+  execution: 108_059_500_000,
+}
+data_receipt_creation_base: {
+  send_sir: 4_697_339_419_375,
+  send_not_sir: 4_697_339_419_375,
+  execution: 4_697_339_419_375,
+}
+data_receipt_creation_per_byte: {
+  send_sir: 59_357_464,
+  send_not_sir: 59_357_464,
+  execution: 59_357_464,
+}
+action_create_account: {
+  send_sir: 99_607_375_000,
+  send_not_sir: 99_607_375_000,
+  execution: 99_607_375_000,
+}
+action_delete_account: {
+  send_sir: 147_489_000_000,
+  send_not_sir: 147_489_000_000,
+  execution: 147_489_000_000,
+}
+action_deploy_contract: {
+  send_sir: 184_765_750_000,
+  send_not_sir: 184_765_750_000,
+  execution: 184_765_750_000,
+}
+action_deploy_contract_per_byte: {
+  send_sir: 6_812_999,
+  send_not_sir: 6_812_999,
+  execution: 6_812_999,
+}
+action_function_call: {
+  send_sir: 2_319_861_500_000,
+  send_not_sir: 2_319_861_500_000,
+  execution: 2_319_861_500_000,
+}
+action_function_call_per_byte: {
+  send_sir: 2_235_934,
+  send_not_sir: 2_235_934,
+  execution: 2_235_934,
+}
+action_transfer: {
+  send_sir: 115_123_062_500,
+  send_not_sir: 115_123_062_500,
+  execution: 115_123_062_500,
+}
+action_stake: {
+  send_sir: 141_715_687_500,
+  send_not_sir: 141_715_687_500,
+  execution: 102_217_625_000,
+}
+action_add_full_access_key: {
+  send_sir: 101_765_125_000,
+  send_not_sir: 101_765_125_000,
+  execution: 101_765_125_000,
+}
+action_add_function_call_key: {
+  send_sir: 102_217_625_000,
+  send_not_sir: 102_217_625_000,
+  execution: 102_217_625_000,
+}
+action_add_function_call_key_per_byte: {
+  send_sir: 1_925_331,
+  send_not_sir: 1_925_331,
+  execution: 1_925_331,
+}
+action_delete_key: {
+  send_sir: 94_946_625_000,
+  send_not_sir: 94_946_625_000,
+  execution: 94_946_625_000,
+}
+# TODO: place-holder values, needs estimation, tracked in #8114
+action_delegate: {
+  send_sir: 2_319_861_500_000,
+  send_not_sir: 2_319_861_500_000,
+  execution: 2_319_861_500_000,
+}
+
+# Smart contract dynamic gas costs
+wasm_regular_op_cost: 3_856_371
+wasm_grow_mem_cost: 1
+wasm_base: 264_768_111
+wasm_contract_loading_base: 35_445_963
+wasm_contract_loading_bytes: 216_750
+wasm_read_memory_base: 2_609_863_200
+wasm_read_memory_byte: 3_801_333
+wasm_write_memory_base: 2_803_794_861
+wasm_write_memory_byte: 2_723_772
+wasm_read_register_base: 2_517_165_186
+wasm_read_register_byte: 98_562
+wasm_write_register_base: 2_865_522_486
+wasm_write_register_byte: 3_801_564
+wasm_utf8_decoding_base: 3_111_779_061
+wasm_utf8_decoding_byte: 291_580_479
+wasm_utf16_decoding_base: 3_543_313_050
+wasm_utf16_decoding_byte: 163_577_493
+wasm_sha256_base: 4_540_970_250
+wasm_sha256_byte: 24_117_351
+wasm_keccak256_base: 5_879_491_275
+wasm_keccak256_byte: 21_471_105
+wasm_keccak512_base: 5_811_388_236
+wasm_keccak512_byte: 36_649_701
+wasm_ripemd160_base: 853_675_086
+wasm_ripemd160_block: 680_107_584
+wasm_ecrecover_base: 3_365_369_625_000
+wasm_ed25519_verify_base: 210_000_000_000
+wasm_ed25519_verify_byte: 9_000_000
+wasm_log_base: 3_543_313_050
+wasm_log_byte: 13_198_791
+wasm_storage_write_base: 64_196_736_000
+wasm_storage_write_key_byte: 70_482_867
+wasm_storage_write_value_byte: 31_018_539
+wasm_storage_write_evicted_byte: 32_117_307
+wasm_storage_read_base: 56_356_845_750
+wasm_storage_read_key_byte: 30_952_533
+wasm_storage_read_value_byte: 5_611_005
+wasm_storage_remove_base: 53_473_030_500
+wasm_storage_remove_key_byte: 38_220_384
+wasm_storage_remove_ret_value_byte: 11_531_556
+wasm_storage_has_key_base: 54_039_896_625
+wasm_storage_has_key_byte: 30_790_845
+wasm_storage_iter_create_prefix_base: 0
+wasm_storage_iter_create_prefix_byte: 0
+wasm_storage_iter_create_range_base: 0
+wasm_storage_iter_create_from_byte: 0
+wasm_storage_iter_create_to_byte: 0
+wasm_storage_iter_next_base: 0
+wasm_storage_iter_next_key_byte: 0
+wasm_storage_iter_next_value_byte: 0
+wasm_touching_trie_node: 16_101_955_926
+wasm_read_cached_trie_node: 2_280_000_000
+wasm_promise_and_base: 1_465_013_400
+wasm_promise_and_per_promise: 5_452_176
+wasm_promise_return: 560_152_386
+wasm_validator_stake_base: 911_834_726_400
+wasm_validator_total_stake_base: 911_834_726_400
+wasm_alt_bn128_g1_multiexp_base: 713_006_929_500
+wasm_alt_bn128_g1_multiexp_element: 3_335_092_461
+wasm_alt_bn128_pairing_check_base: 9_685_508_901_000
+wasm_alt_bn128_pairing_check_element: 26_575_188_546
+wasm_alt_bn128_g1_sum_base: 3_175_314_375
+wasm_alt_bn128_g1_sum_element: 76_218_543
+
+# Smart contract limits
+max_gas_burnt: 200_000_000_000_000
+max_gas_burnt_view: 200_000_000_000_000
+max_stack_height: 16_384
+contract_prepare_version: 0
+initial_memory_pages: 1_024
+max_memory_pages: 2_048
+registers_memory_limit: 1_073_741_824
+max_register_size: 104_857_600
+max_number_registers: 100
+max_number_logs: 100
+max_total_log_length: 16_384
+max_total_prepaid_gas: 300_000_000_000_000
+max_actions_per_receipt: 100
+max_number_bytes_method_names: 2_000
+max_length_method_name: 256
+max_arguments_length: 4_194_304
+max_length_returned_data: 4_194_304
+max_contract_size: 4_194_304
+max_transaction_size: 4_194_304
+max_length_storage_key: 4_194_304
+max_length_storage_value: 4_194_304
+max_promises_per_function_call_action: 1_024
+max_number_input_data_dependencies: 128

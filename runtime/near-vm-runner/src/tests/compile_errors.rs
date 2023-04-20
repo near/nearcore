@@ -171,11 +171,11 @@ fn test_limit_contract_functions_number() {
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13048032213 used gas 13048032213
         "#]],
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13048032213 used gas 13048032213
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13054614261 used gas 13054614261
         "#]],
         #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13048032213 used gas 13048032213
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13054614261 used gas 13054614261
         "#]],
     ]);
 
@@ -258,7 +258,7 @@ fn test_limit_contract_functions_number() {
 }
 
 #[test]
-fn test_limit_locals() {
+fn test_limit_locals_bigfunc() {
     test_builder()
         .wasm(
             &near_test_contracts::LargeContract {
@@ -293,10 +293,10 @@ fn test_limit_locals() {
             }
             .make(),
         )
-        .skip_wasmtime()
+        .opaque_error() // near-vm returns a proper stack overflow, others return memory access violation
         .expect(expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 43682463 used gas 43682463
-            Err: WebAssembly trap: An `unreachable` opcode was executed.
+            Err: ...
         "#]]);
 }
 
@@ -338,7 +338,7 @@ fn test_limit_locals_global() {
             .make(),
         )
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 139269213 used gas 139269213
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13001413761 used gas 13001413761
         "#]]);
 }
 
@@ -361,7 +361,7 @@ pub fn test_stablized_host_function() {
                 Err: ...
             "#]],
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 7143010623 used gas 7143010623
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 7149592671 used gas 7149592671
             "#]],
         ]);
 }

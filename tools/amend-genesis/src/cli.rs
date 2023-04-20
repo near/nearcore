@@ -1,4 +1,3 @@
-use clap::Parser;
 use near_primitives::types::NumBlocks;
 use near_primitives::types::{BlockHeightDelta, NumSeats};
 use near_primitives::version::ProtocolVersion;
@@ -6,7 +5,7 @@ use num_rational::Rational32;
 use std::path::PathBuf;
 
 /// Amend a genesis/records file created by `dump-state`.
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct AmendGenesisCommand {
     /// path to the input genesis file
     #[clap(long)]

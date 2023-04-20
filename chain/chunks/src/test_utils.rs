@@ -1,145 +1,36 @@
-use std::collections::VecDeque;
-use std::sync::{Arc, RwLock};
-
-use actix::MailboxError;
-use futures::future::BoxFuture;
-use futures::FutureExt;
-use near_network::types::MsgRecipient;
-use near_primitives::receipt::Receipt;
-use near_primitives::time::Clock;
-
-use near_chain::test_utils::{KeyValueRuntime, ValidatorSchedule};
-use near_chain::types::{EpochManagerAdapter, RuntimeAdapter, Tip};
+use near_async::messaging::CanSend;
+use near_chain::types::{EpochManagerAdapter, Tip};
 use near_chain::{Chain, ChainStore};
-use near_crypto::KeyType;
+use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
+use near_epoch_manager::test_utils::setup_epoch_manager_with_block_and_chunk_producers;
+use near_epoch_manager::EpochManagerHandle;
+use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::test_utils::MockPeerManagerAdapter;
-use near_o11y::WithSpanContext;
-use near_primitives::block::BlockHeader;
-use near_primitives::hash::{self, CryptoHash};
+use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{self, MerklePath};
+use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
-    ChunkHash, EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkPart,
-    PartialEncodedChunkV2, ReedSolomonWrapper, ShardChunkHeader,
+    EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkV2,
+    ReedSolomonWrapper, ShardChunkHeader,
 };
-use near_primitives::types::NumShards;
+use near_primitives::test_utils::create_test_signer;
+use near_primitives::types::MerkleHash;
 use near_primitives::types::{AccountId, EpochId, ShardId};
-use near_primitives::types::{BlockHeight, MerkleHash};
-use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
+use near_store::test_utils::create_test_store;
 use near_store::Store;
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex, RwLock};
 
+use crate::adapter::ShardsManagerRequestFromClient;
 use crate::client::ShardsManagerResponse;
-use crate::{
-    Seal, SealsManager, ShardsManager, ACCEPTING_SEAL_PERIOD_MS, PAST_SEAL_HEIGHT_HORIZON,
-};
+use crate::ShardsManager;
 
-pub struct SealsManagerTestFixture {
-    pub mock_chunk_producer: AccountId,
-    mock_me: Option<AccountId>,
-    pub mock_shard_id: ShardId,
-    pub mock_chunk_hash: ChunkHash,
-    pub mock_parent_hash: CryptoHash,
-    pub mock_height: BlockHeight,
-    pub mock_distant_block_hash: CryptoHash,
-    pub mock_distant_chunk_hash: ChunkHash,
-    mock_runtime: Arc<KeyValueRuntime>,
-}
-
-impl Default for SealsManagerTestFixture {
-    fn default() -> Self {
-        let store = near_store::test_utils::create_test_store();
-        let mock_runtime = default_runtime();
-
-        let mock_parent_hash = CryptoHash::default();
-        let mock_height: BlockHeight = 1;
-        let mock_shard_id: ShardId = 0;
-        let mock_epoch_id = mock_runtime.get_epoch_id_from_prev_block(&mock_parent_hash).unwrap();
-        let mock_chunk_producer =
-            mock_runtime.get_chunk_producer(&mock_epoch_id, mock_height, mock_shard_id).unwrap();
-
-        let mock_me: Option<AccountId> = Some("me".parse().unwrap());
-        let mock_chunk_hash = ChunkHash(CryptoHash::default());
-        let mock_distant_chunk_hash = ChunkHash(hash::hash(b"some_chunk"));
-
-        // Header for some distant block (with a very large height). The only field that
-        // is important is the height because this influences the GC cut-off. The hash
-        // in the header is used to check that the `SealsManager` seals cache is properly
-        // cleared.
-        let mock_distant_block_header = BlockHeader::genesis(
-            PROTOCOL_VERSION,
-            mock_height + PAST_SEAL_HEIGHT_HORIZON + 1,
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Clock::utc(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-        );
-        let mock_distant_block_hash = *mock_distant_block_header.hash();
-        Self::store_block_header(store, mock_distant_block_header);
-
-        Self {
-            mock_chunk_producer,
-            mock_me,
-            mock_shard_id,
-            mock_chunk_hash,
-            mock_parent_hash,
-            mock_height,
-            mock_distant_block_hash,
-            mock_distant_chunk_hash,
-            mock_runtime: Arc::new(mock_runtime),
-        }
-    }
-}
-
-impl SealsManagerTestFixture {
-    fn store_block_header(store: Store, header: BlockHeader) {
-        let mut chain_store = ChainStore::new(store, header.height(), true);
-        let mut update = chain_store.store_update();
-        update.save_block_header(header).unwrap();
-        update.commit().unwrap();
-    }
-
-    pub fn create_seals_manager(&self) -> SealsManager {
-        SealsManager::new(self.mock_me.clone(), self.mock_runtime.clone())
-    }
-
-    pub fn create_seal(&self, seals_manager: &mut SealsManager) {
-        seals_manager
-            .get_seal(
-                &self.mock_chunk_hash,
-                &self.mock_parent_hash,
-                self.mock_height,
-                self.mock_shard_id,
-            )
-            .unwrap();
-    }
-
-    pub fn create_expired_seal(
-        &self,
-        seals_manager: &mut SealsManager,
-        chunk_hash: &ChunkHash,
-        parent_hash: &CryptoHash,
-        height: BlockHeight,
-    ) {
-        let seal =
-            seals_manager.get_seal(chunk_hash, parent_hash, height, self.mock_shard_id).unwrap();
-        let demur = match seal {
-            Seal::Active(demur) => demur,
-            Seal::Past => panic!("Active demur expected"),
-        };
-
-        let d = chrono::Duration::milliseconds(2 * ACCEPTING_SEAL_PERIOD_MS);
-        demur.sent = demur.sent - d;
-    }
-}
-
+/// Deprecated. Use `MockChainForShardsManager`.
 pub struct ChunkTestFixture {
-    pub mock_runtime: Arc<KeyValueRuntime>,
+    pub store: Store,
+    pub epoch_manager: EpochManagerHandle,
+    pub shard_tracker: ShardTracker,
     pub mock_network: Arc<MockPeerManagerAdapter>,
     pub mock_client_adapter: Arc<MockClientAdapterForShardsManager>,
     pub chain_store: ChainStore,
@@ -158,39 +49,41 @@ pub struct ChunkTestFixture {
 
 impl Default for ChunkTestFixture {
     fn default() -> Self {
-        Self::new(false)
+        Self::new(false, 3, 6, 6, true)
     }
 }
 
 impl ChunkTestFixture {
-    pub fn new(orphan_chunk: bool) -> Self {
-        // 12 validators, 3 shards, 4 validators per shard
-        Self::new_with_runtime(orphan_chunk, Arc::new(default_runtime()))
-    }
-
-    pub fn new_with_all_shards_tracking() -> Self {
-        let mut runtime = default_runtime();
-        runtime.set_tracks_all_shards(true);
-        Self::new_with_runtime(false, Arc::new(runtime))
-    }
-
-    // Create a ChunkTestFixture to test chunk only producers
-    pub fn new_with_chunk_only_producers() -> Self {
-        let store = near_store::test_utils::create_test_store();
-        // 3 block producer. 1 block producer + 2 chunk only producer per shard
-        // This setup ensures that the chunk producer
-        let vs = make_validators(6, 2, 3);
-        let mock_runtime =
-            Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(store.clone(), vs, 5, false));
-        Self::new_with_runtime(false, mock_runtime)
-    }
-
-    pub fn new_with_runtime(orphan_chunk: bool, mock_runtime: Arc<KeyValueRuntime>) -> Self {
+    pub fn new(
+        orphan_chunk: bool,
+        num_shards: u64,
+        num_block_producers: usize,
+        num_chunk_only_producers: usize,
+        track_all_shards: bool,
+    ) -> Self {
+        if num_shards > num_block_producers as u64 {
+            panic!("Invalid setup: there must be at least as many block producers as shards");
+        }
+        let store = create_test_store();
+        let epoch_manager = setup_epoch_manager_with_block_and_chunk_producers(
+            store.clone(),
+            (0..num_block_producers).map(|i| format!("test_bp_{}", i).parse().unwrap()).collect(),
+            (0..num_chunk_only_producers)
+                .map(|i| format!("test_cp_{}", i).parse().unwrap())
+                .collect(),
+            num_shards,
+            2,
+        );
+        let epoch_manager = epoch_manager.into_handle();
+        let shard_tracker = ShardTracker::new(
+            if track_all_shards { TrackedConfig::AllShards } else { TrackedConfig::new_empty() },
+            Arc::new(epoch_manager.clone()),
+        );
         let mock_network = Arc::new(MockPeerManagerAdapter::default());
         let mock_client_adapter = Arc::new(MockClientAdapterForShardsManager::default());
 
-        let data_parts = mock_runtime.num_data_parts();
-        let parity_parts = mock_runtime.num_total_parts() - data_parts;
+        let data_parts = epoch_manager.num_data_parts();
+        let parity_parts = epoch_manager.num_total_parts() - data_parts;
         let mut rs = ReedSolomonWrapper::new(data_parts, parity_parts);
         let mock_ancestor_hash = CryptoHash::default();
         // generate a random block hash for the block at height 1
@@ -198,15 +91,12 @@ impl ChunkTestFixture {
             if orphan_chunk { (CryptoHash::hash_bytes(&[]), 2) } else { (mock_ancestor_hash, 1) };
         // setting this to 2 instead of 0 so that when chunk producers
         let mock_shard_id: ShardId = 0;
-        let mock_epoch_id = mock_runtime.get_epoch_id_from_prev_block(&mock_ancestor_hash).unwrap();
+        let mock_epoch_id =
+            epoch_manager.get_epoch_id_from_prev_block(&mock_ancestor_hash).unwrap();
         let mock_chunk_producer =
-            mock_runtime.get_chunk_producer(&mock_epoch_id, mock_height, mock_shard_id).unwrap();
-        let signer = InMemoryValidatorSigner::from_seed(
-            mock_chunk_producer.clone(),
-            KeyType::ED25519,
-            mock_chunk_producer.as_ref(),
-        );
-        let validators: Vec<_> = mock_runtime
+            epoch_manager.get_chunk_producer(&mock_epoch_id, mock_height, mock_shard_id).unwrap();
+        let signer = create_test_signer(mock_chunk_producer.as_str());
+        let validators: Vec<_> = epoch_manager
             .get_epoch_block_producers_ordered(&EpochId::default(), &CryptoHash::default())
             .unwrap()
             .into_iter()
@@ -218,12 +108,12 @@ impl ChunkTestFixture {
                 if v == &&mock_chunk_producer {
                     false
                 } else {
-                    let tracks_shard = mock_runtime.cares_about_shard(
+                    let tracks_shard = shard_tracker.care_about_shard(
                         Some(*v),
                         &mock_ancestor_hash,
                         mock_shard_id,
                         false,
-                    ) || mock_runtime.will_care_about_shard(
+                    ) || shard_tracker.will_care_about_shard(
                         Some(*v),
                         &mock_ancestor_hash,
                         mock_shard_id,
@@ -233,15 +123,14 @@ impl ChunkTestFixture {
                 }
             })
             .cloned()
-            .unwrap()
-            .clone();
+            .unwrap();
         let mock_chunk_part_owner = validators
             .into_iter()
             .find(|v| v != &mock_chunk_producer && v != &mock_shard_tracker)
             .unwrap();
 
         let receipts = Vec::new();
-        let shard_layout = mock_runtime.get_shard_layout(&EpochId::default()).unwrap();
+        let shard_layout = epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
         let receipts_hashes = Chain::build_receipts_hashes(&receipts, &shard_layout);
         let (receipts_root, _) = merkle::merklize(&receipts_hashes);
         let (mock_chunk, mock_merkle_paths) = ShardsManager::create_encoded_shard_chunk(
@@ -270,7 +159,7 @@ impl ChunkTestFixture {
             .iter()
             .copied()
             .filter(|p| {
-                mock_runtime.get_part_owner(&mock_epoch_id, *p).unwrap() == mock_chunk_part_owner
+                epoch_manager.get_part_owner(&mock_epoch_id, *p).unwrap() == mock_chunk_part_owner
             })
             .collect();
         let encoded_chunk = mock_chunk.create_partial_encoded_chunk(
@@ -278,10 +167,12 @@ impl ChunkTestFixture {
             Vec::new(),
             &mock_merkle_paths,
         );
-        let chain_store = ChainStore::new(mock_runtime.store().clone(), 0, true);
+        let chain_store = ChainStore::new(store.clone(), 0, true);
 
         ChunkTestFixture {
-            mock_runtime,
+            store,
+            epoch_manager,
+            shard_tracker,
             mock_network,
             mock_client_adapter,
             chain_store,
@@ -332,7 +223,7 @@ impl ChunkTestFixture {
     pub fn count_chunk_ready_for_inclusion_messages(&self) -> usize {
         let mut chunks_ready = 0;
         while let Some(message) = self.mock_client_adapter.pop() {
-            if let ShardsManagerResponse::ChunkHeaderReadyForInclusion(_) = message {
+            if let ShardsManagerResponse::ChunkHeaderReadyForInclusion { .. } = message {
                 chunks_ready += 1;
             }
         }
@@ -340,54 +231,40 @@ impl ChunkTestFixture {
     }
 }
 
-/// `num_bp` is number of block producers
-/// `num_cp` is number of chunk producers per shard
-fn make_validators(
-    num_bp: usize,
-    num_cp_per_shard: usize,
-    num_shards: NumShards,
-) -> ValidatorSchedule {
-    let n = num_bp + num_cp_per_shard * num_shards as usize;
-    if n > 26 {
-        panic!("I can't make that many validators!");
+/// Gets the Tip from the block hash and the EpochManager.
+pub fn tip(epoch_manager: &dyn EpochManagerAdapter, last_block_hash: CryptoHash) -> Tip {
+    let block_info = epoch_manager.get_block_info(&last_block_hash).unwrap();
+    let epoch_id = epoch_manager.get_epoch_id(&last_block_hash).unwrap();
+    let next_epoch_id = epoch_manager.get_next_epoch_id(&last_block_hash).unwrap();
+    Tip {
+        height: block_info.height(),
+        last_block_hash,
+        prev_block_hash: *block_info.prev_hash(),
+        epoch_id,
+        next_epoch_id,
     }
-
-    let mut accounts: Vec<_> =
-        ('a'..='z').take(n).map(|c| AccountId::try_from(format!("test_{}", c)).unwrap()).collect();
-
-    let bp = vec![accounts.drain(..num_bp).collect()];
-    let cp = vec![(0..num_shards).map(|_| accounts.drain(..num_cp_per_shard).collect()).collect()];
-    ValidatorSchedule::new()
-        .num_shards(3)
-        .block_producers_per_epoch(bp)
-        .validator_groups(3)
-        .chunk_only_producers_per_epoch_per_shard(cp)
 }
 
-// 12 validators, 3 shards, 4 validators per shard
-fn default_runtime() -> KeyValueRuntime {
-    let store = near_store::test_utils::create_test_store();
-    // 12 validators, 3 shards, 4 validators per shard
-    let vs = make_validators(12, 0, 3);
-    KeyValueRuntime::new_with_validators(store.clone(), vs, 5)
+/// Returns the tip representing the genesis block for testing.
+pub fn default_tip() -> Tip {
+    Tip {
+        height: 0,
+        last_block_hash: CryptoHash::default(),
+        prev_block_hash: CryptoHash::default(),
+        epoch_id: EpochId::default(),
+        next_epoch_id: EpochId::default(),
+    }
 }
+
 // Mocked `PeerManager` adapter, has a queue of `PeerManagerMessageRequest` messages.
 #[derive(Default)]
 pub struct MockClientAdapterForShardsManager {
     pub requests: Arc<RwLock<VecDeque<ShardsManagerResponse>>>,
 }
 
-impl MsgRecipient<WithSpanContext<ShardsManagerResponse>> for MockClientAdapterForShardsManager {
-    fn send(
-        &self,
-        msg: WithSpanContext<ShardsManagerResponse>,
-    ) -> BoxFuture<'static, Result<(), MailboxError>> {
-        self.do_send(msg);
-        futures::future::ok(()).boxed()
-    }
-
-    fn do_send(&self, msg: WithSpanContext<ShardsManagerResponse>) {
-        self.requests.write().unwrap().push_back(msg.msg);
+impl CanSend<ShardsManagerResponse> for MockClientAdapterForShardsManager {
+    fn send(&self, msg: ShardsManagerResponse) {
+        self.requests.write().unwrap().push_back(msg);
     }
 }
 
@@ -397,5 +274,36 @@ impl MockClientAdapterForShardsManager {
     }
     pub fn pop_most_recent(&self) -> Option<ShardsManagerResponse> {
         self.requests.write().unwrap().pop_back()
+    }
+}
+
+// Allows ShardsManagerActor-like behavior, except without having to spawn an actor,
+// and without having to manually route ShardsManagerRequest messages. This only works
+// for single-threaded (synchronous) tests. The ShardsManager is immediately called
+// upon receiving a ShardsManagerRequest message.
+#[derive(Clone)]
+pub struct SynchronousShardsManagerAdapter {
+    // Need a mutex here even though we only support single-threaded tests, because
+    // MsgRecipient requires Sync.
+    pub shards_manager: Arc<Mutex<ShardsManager>>,
+}
+
+impl CanSend<ShardsManagerRequestFromClient> for SynchronousShardsManagerAdapter {
+    fn send(&self, msg: ShardsManagerRequestFromClient) {
+        let mut shards_manager = self.shards_manager.lock().unwrap();
+        shards_manager.handle_client_request(msg);
+    }
+}
+
+impl CanSend<ShardsManagerRequestFromNetwork> for SynchronousShardsManagerAdapter {
+    fn send(&self, msg: ShardsManagerRequestFromNetwork) {
+        let mut shards_manager = self.shards_manager.lock().unwrap();
+        shards_manager.handle_network_request(msg);
+    }
+}
+
+impl SynchronousShardsManagerAdapter {
+    pub fn new(shards_manager: ShardsManager) -> Self {
+        Self { shards_manager: Arc::new(Mutex::new(shards_manager)) }
     }
 }

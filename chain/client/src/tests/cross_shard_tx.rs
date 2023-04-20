@@ -23,7 +23,7 @@ use near_primitives::views::QueryResponseKind::ViewAccount;
 use near_primitives::views::{QueryRequest, QueryResponse};
 
 use crate::adapter::{ProcessTxRequest, ProcessTxResponse};
-use crate::test_utils::{setup_mock_all_validators, BlockStats};
+use crate::test_utils::{setup_mock_all_validators, ActorHandlesForTesting, BlockStats};
 use crate::{ClientActor, Query, ViewClientActor};
 
 /// Tests that the KeyValueRuntime properly sets balances in genesis and makes them queriable
@@ -32,8 +32,7 @@ fn test_keyvalue_runtime_balances() {
     let successful_queries = Arc::new(AtomicUsize::new(0));
     init_integration_logger();
     run_actix(async move {
-        let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
-            Arc::new(RwLock::new(vec![]));
+        let connectors: Arc<RwLock<Vec<ActorHandlesForTesting>>> = Arc::new(RwLock::new(vec![]));
 
         let vs = ValidatorSchedule::new()
             .num_shards(4)
@@ -70,7 +69,7 @@ fn test_keyvalue_runtime_balances() {
             let expected = (1000 + i * 100) as u128;
 
             let successful_queries2 = successful_queries.clone();
-            let actor = connectors_[i].1.send(
+            let actor = connectors_[i].view_client_actor.send(
                 Query::new(
                     BlockReference::latest(),
                     QueryRequest::ViewAccount { account_id: validators[i].clone() },
@@ -97,7 +96,7 @@ fn test_keyvalue_runtime_balances() {
 
 fn send_tx(
     num_validators: usize,
-    connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>>,
+    connectors: Arc<RwLock<Vec<ActorHandlesForTesting>>>,
     connector_ordinal: usize,
     from: AccountId,
     to: AccountId,
@@ -109,7 +108,7 @@ fn send_tx(
     let signer = InMemorySigner::from_seed(from.clone(), KeyType::ED25519, from.as_ref());
     actix::spawn(
         connectors.write().unwrap()[connector_ordinal]
-            .0
+            .client_actor
             .send(
                 ProcessTxRequest {
                     transaction: SignedTransaction::send_money(
@@ -159,7 +158,7 @@ fn send_tx(
 fn test_cross_shard_tx_callback(
     res: Result<Result<QueryResponse, crate::QueryError>, MailboxError>,
     account_id: AccountId,
-    connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>>,
+    connectors: Arc<RwLock<Vec<ActorHandlesForTesting>>>,
     iteration: Arc<AtomicUsize>,
     nonce: Arc<AtomicUsize>,
     validators: Vec<AccountId>,
@@ -193,7 +192,7 @@ fn test_cross_shard_tx_callback(
             let presumable_epoch1 = presumable_epoch.clone();
             let actor = &connectors_[account_id_to_shard_id(&account_id, 8) as usize
                 + (*presumable_epoch.read().unwrap() * 8) % 24]
-                .1;
+                .view_client_actor;
             let actor = actor.send(
                 Query::new(
                     BlockReference::latest(),
@@ -291,7 +290,7 @@ fn test_cross_shard_tx_callback(
                     let block_stats1 = block_stats.clone();
                     let actor = &connectors_[account_id_to_shard_id(&validators[i], 8) as usize
                         + (*presumable_epoch.read().unwrap() * 8) % 24]
-                        .1;
+                        .view_client_actor;
                     let actor = actor.send(
                         Query::new(
                             BlockReference::latest(),
@@ -345,7 +344,7 @@ fn test_cross_shard_tx_callback(
             let presumable_epoch1 = presumable_epoch.clone();
             let actor = &connectors_[account_id_to_shard_id(&account_id, 8) as usize
                 + (*presumable_epoch.read().unwrap() * 8) % 24]
-                .1;
+                .view_client_actor;
             let actor = actor.send(
                 Query::new(
                     BlockReference::latest(),
@@ -403,8 +402,7 @@ fn test_cross_shard_tx_common(
 ) {
     init_integration_logger();
     run_actix(async move {
-        let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
-            Arc::new(RwLock::new(vec![]));
+        let connectors: Arc<RwLock<Vec<ActorHandlesForTesting>>> = Arc::new(RwLock::new(vec![]));
 
         let vs = ValidatorSchedule::new()
             .num_shards(8)
@@ -489,7 +487,7 @@ fn test_cross_shard_tx_common(
             let block_stats1 = block_stats.clone();
             let actor = &connectors_[account_id_to_shard_id(&validators[i], 8) as usize
                 + *presumable_epoch.read().unwrap() * 8]
-                .1;
+                .view_client_actor;
             let actor = actor.send(
                 Query::new(
                     BlockReference::latest(),

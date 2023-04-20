@@ -79,6 +79,8 @@ pub struct IndexerConfig {
     pub sync_mode: SyncModeEnum,
     /// Whether await for node to be synced or not
     pub await_for_node_synced: AwaitForNodeSyncedEnum,
+    /// Tells whether to validate the genesis file before starting
+    pub validate_genesis: bool,
 }
 
 /// This is the core component, which handles `nearcore` and internal `streamer`.
@@ -98,8 +100,13 @@ impl Indexer {
             indexer_config.home_dir.display()
         );
 
+        let genesis_validation_mode = if indexer_config.validate_genesis {
+            GenesisValidationMode::Full
+        } else {
+            GenesisValidationMode::UnsafeFast
+        };
         let near_config =
-            nearcore::config::load_config(&indexer_config.home_dir, GenesisValidationMode::Full)
+            nearcore::config::load_config(&indexer_config.home_dir, genesis_validation_mode)
                 .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
         assert!(
@@ -123,6 +130,7 @@ impl Indexer {
             self.client.clone(),
             self.indexer_config.clone(),
             self.near_config.config.store.clone(),
+            self.near_config.config.archive,
             sender,
         ));
         receiver
@@ -149,7 +157,7 @@ pub fn indexer_init_configs(
 ) -> Result<(), anyhow::Error> {
     init_configs(
         dir,
-        params.chain_id.as_deref(),
+        params.chain_id,
         params.account_id.and_then(|account_id| account_id.parse().ok()),
         params.test_seed.as_deref(),
         params.num_shards,

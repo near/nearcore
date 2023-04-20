@@ -6,6 +6,8 @@ mod imports;
 mod instrument;
 #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
 mod memory;
+#[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
+mod near_vm_runner;
 pub mod prepare;
 mod runner;
 #[cfg(test)]
