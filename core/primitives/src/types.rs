@@ -18,7 +18,7 @@ pub type StateRoot = CryptoHash;
 
 /// Different types of finality.
 #[derive(
-    serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq, arbitrary::Arbitrary,
+    serde::Serialize, serde::Deserialize, Default, Clone, Debug, PartialEq, Eq, arbitrary::Arbitrary,
 )]
 pub enum Finality {
     #[serde(rename = "optimistic")]
@@ -26,13 +26,8 @@ pub enum Finality {
     #[serde(rename = "near-final")]
     DoomSlug,
     #[serde(rename = "final")]
+    #[default]
     Final,
-}
-
-impl Default for Finality {
-    fn default() -> Self {
-        Finality::Final
-    }
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
