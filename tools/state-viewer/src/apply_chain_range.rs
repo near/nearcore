@@ -1,8 +1,9 @@
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
-use near_chain::types::ApplyTransactionResult;
-use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeWithEpochManagerAdapter};
+use near_chain::types::{ApplyTransactionResult, RuntimeAdapter};
+use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use near_chain_configs::Genesis;
+use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::borsh::maybestd::sync::Arc;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::DelayedReceiptIndices;
@@ -113,7 +114,8 @@ fn apply_block_from_range(
     shard_id: ShardId,
     store: Store,
     genesis: &Genesis,
-    runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
+    epoch_manager: &EpochManagerHandle,
+    runtime_adapter: Arc<dyn RuntimeAdapter>,
     progress_reporter: &ProgressReporter,
     verbose_output: bool,
     csv_file_mutex: &Mutex<Option<&mut File>>,
@@ -132,7 +134,7 @@ fn apply_block_from_range(
         }
     };
     let block = chain_store.get_block(&block_hash).unwrap();
-    let shard_uid = runtime_adapter.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
+    let shard_uid = epoch_manager.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
     assert!(block.chunks().len() > 0);
     let mut existing_chunk_extra = None;
     let mut prev_chunk_extra = None;
@@ -140,7 +142,7 @@ fn apply_block_from_range(
     let mut num_receipt = 0;
     let chunk_present: bool;
 
-    let block_author = runtime_adapter
+    let block_author = epoch_manager
         .get_block_producer(block.header().epoch_id(), block.header().height())
         .unwrap();
 
@@ -202,7 +204,7 @@ fn apply_block_from_range(
         let chunk_inner = chunk.cloned_header().take_inner();
         let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
             &chain_store,
-            runtime_adapter.as_ref(),
+            epoch_manager,
             block.header().prev_hash(),
             shard_id,
         )
@@ -331,6 +333,7 @@ pub fn apply_chain_range(
     start_height: Option<BlockHeight>,
     end_height: Option<BlockHeight>,
     shard_id: ShardId,
+    epoch_manager: &EpochManagerHandle,
     runtime_adapter: Arc<NightshadeRuntime>,
     verbose_output: bool,
     csv_file: Option<&mut File>,
@@ -375,6 +378,7 @@ pub fn apply_chain_range(
             shard_id,
             store.clone(),
             genesis,
+            epoch_manager,
             runtime_adapter.clone(),
             &progress_reporter,
             verbose_output,
@@ -450,6 +454,7 @@ mod test {
     use near_chain_configs::Genesis;
     use near_client::test_utils::TestEnv;
     use near_crypto::{InMemorySigner, KeyType};
+    use near_epoch_manager::EpochManager;
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::types::{BlockHeight, BlockHeightDelta, NumBlocks};
     use near_store::test_utils::create_test_store;
@@ -530,8 +535,23 @@ mod test {
 
         safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1, None);
 
+        let epoch_manager = EpochManager::new_from_genesis_config(store.clone(), &genesis.config)
+            .unwrap()
+            .into_handle();
         let runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
-        apply_chain_range(store, &genesis, None, None, 0, runtime, true, None, false, false);
+        apply_chain_range(
+            store,
+            &genesis,
+            None,
+            None,
+            0,
+            &epoch_manager,
+            runtime,
+            true,
+            None,
+            false,
+            false,
+        );
     }
 
     #[test]
@@ -552,6 +572,9 @@ mod test {
 
         safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1, Some(5));
 
+        let epoch_manager = EpochManager::new_from_genesis_config(store.clone(), &genesis.config)
+            .unwrap()
+            .into_handle();
         let runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
         let mut file = tempfile::NamedTempFile::new().unwrap();
         apply_chain_range(
@@ -560,6 +583,7 @@ mod test {
             None,
             None,
             0,
+            &epoch_manager,
             runtime,
             true,
             Some(file.as_file_mut()),

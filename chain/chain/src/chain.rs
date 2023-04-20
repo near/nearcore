@@ -3886,7 +3886,7 @@ impl Chain {
                     let is_first_block_with_chunk_of_version =
                         check_if_block_is_first_with_chunk_of_version(
                             self.store(),
-                            self.runtime_adapter.as_ref(),
+                            self.runtime_adapter.epoch_manager_adapter(),
                             prev_block.hash(),
                             shard_id,
                         )?;
@@ -5380,7 +5380,7 @@ impl<'a> ChainUpdate<'a> {
         let gas_limit = chunk_header.gas_limit();
         let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
             &mut self.chain_store_update,
-            self.runtime_adapter.as_ref(),
+            self.runtime_adapter.epoch_manager_adapter(),
             &chunk_header.prev_block_hash(),
             shard_id,
         )?;

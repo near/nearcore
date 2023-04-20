@@ -7,6 +7,7 @@ use chrono::Utc;
 use near_cache::CellLruCache;
 
 use near_chain_primitives::error::Error;
+use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Tip;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
@@ -293,7 +294,7 @@ pub trait ChainStoreAccess {
     /// Get epoch id of the last block with existing chunk for the given shard id.
     fn get_epoch_id_of_last_block_with_chunk(
         &self,
-        runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
+        epoch_manager: &dyn EpochManagerAdapter,
         hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<EpochId, Error> {
@@ -305,7 +306,7 @@ pub trait ChainStoreAccess {
                 break Ok(block_header.epoch_id().clone());
             }
             candidate_hash = *block_header.prev_hash();
-            shard_id = runtime_adapter.get_prev_shard_ids(&candidate_hash, vec![shard_id])?[0];
+            shard_id = epoch_manager.get_prev_shard_ids(&candidate_hash, vec![shard_id])?[0];
         }
     }
 }

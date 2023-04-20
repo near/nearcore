@@ -124,7 +124,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::DumpState(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::DumpStateRedis(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::DumpTx(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::EpochInfo(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::EpochInfo(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::PartialChunks(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::Receipts(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::Replay(cmd) => cmd.run(home_dir, near_config, store),
@@ -417,11 +417,10 @@ pub struct EpochInfoCmd {
 }
 
 impl EpochInfoCmd {
-    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+    pub fn run(self, near_config: NearConfig, store: Store) {
         print_epoch_info(
             self.epoch_selection,
             self.validator_account_id.map(|s| AccountId::from_str(&s).unwrap()),
-            home_dir,
             near_config,
             store,
         );
