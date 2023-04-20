@@ -2,8 +2,9 @@ use anyhow::{anyhow, Context};
 use borsh::BorshDeserialize;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
-use near_chain::types::ApplyTransactionResult;
-use near_chain::{ChainStore, ChainStoreAccess, RuntimeWithEpochManagerAdapter};
+use near_chain::types::{ApplyTransactionResult, RuntimeAdapter};
+use near_chain::{ChainStore, ChainStoreAccess};
+use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::combine_hash;
 use near_primitives::receipt::Receipt;
@@ -71,7 +72,8 @@ fn get_incoming_receipts(
 
 // returns (apply_result, gas limit)
 pub(crate) fn apply_chunk(
-    runtime: &dyn RuntimeWithEpochManagerAdapter,
+    epoch_manager: &EpochManagerHandle,
+    runtime: &dyn RuntimeAdapter,
     chain_store: &mut ChainStore,
     chunk_hash: ChunkHash,
     target_height: Option<u64>,
@@ -108,7 +110,7 @@ pub(crate) fn apply_chunk(
 
     let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
         chain_store,
-        runtime,
+        epoch_manager,
         prev_block_hash,
         shard_id,
     )?;
@@ -148,7 +150,7 @@ enum HashType {
 fn find_tx_or_receipt(
     hash: &CryptoHash,
     block_hash: &CryptoHash,
-    runtime: &dyn RuntimeWithEpochManagerAdapter,
+    epoch_manager: &EpochManagerHandle,
     chain_store: &mut ChainStore,
 ) -> anyhow::Result<Option<(HashType, ShardId)>> {
     let block = chain_store.get_block(block_hash)?;
@@ -164,7 +166,8 @@ fn find_tx_or_receipt(
         }
         for receipt in chunk.receipts() {
             if &receipt.get_hash() == hash {
-                let shard_layout = runtime.get_shard_layout_from_prev_block(chunk.prev_block())?;
+                let shard_layout =
+                    epoch_manager.get_shard_layout_from_prev_block(chunk.prev_block())?;
                 let to_shard =
                     shard_layout::account_id_to_shard_id(&receipt.receiver_id, &shard_layout);
                 return Ok(Some((HashType::Receipt, to_shard)));
@@ -175,19 +178,20 @@ fn find_tx_or_receipt(
 }
 
 fn apply_tx_in_block(
-    runtime: &dyn RuntimeWithEpochManagerAdapter,
+    epoch_manager: &EpochManagerHandle,
+    runtime: &dyn RuntimeAdapter,
     chain_store: &mut ChainStore,
     tx_hash: &CryptoHash,
     block_hash: CryptoHash,
 ) -> anyhow::Result<ApplyTransactionResult> {
-    match find_tx_or_receipt(tx_hash, &block_hash, runtime, chain_store)? {
+    match find_tx_or_receipt(tx_hash, &block_hash, epoch_manager, chain_store)? {
         Some((hash_type, shard_id)) => {
             match hash_type {
                 HashType::Tx => {
                     println!("Found tx in block {} shard {}. equivalent command:\nview_state apply --height {} --shard-id {}\n",
                              &block_hash, shard_id, chain_store.get_block_header(&block_hash)?.height(), shard_id);
-                    let (block, apply_result) = crate::commands::apply_block(block_hash, shard_id, runtime, chain_store);
-                    crate::commands::check_apply_block_result(&block, &apply_result, runtime, chain_store, shard_id)?;
+                    let (block, apply_result) = crate::commands::apply_block(block_hash, shard_id, epoch_manager, runtime, chain_store);
+                    crate::commands::check_apply_block_result(&block, &apply_result, epoch_manager, chain_store, shard_id)?;
                     Ok(apply_result)
                 },
                 HashType::Receipt => {
@@ -202,7 +206,8 @@ fn apply_tx_in_block(
 }
 
 fn apply_tx_in_chunk(
-    runtime: &dyn RuntimeWithEpochManagerAdapter,
+    epoch_manager: &EpochManagerHandle,
+    runtime: &dyn RuntimeAdapter,
     store: Store,
     chain_store: &mut ChainStore,
     tx_hash: &CryptoHash,
@@ -249,7 +254,8 @@ fn apply_tx_in_chunk(
     let mut results = Vec::new();
     for chunk_hash in chunk_hashes {
         println!("found tx in chunk {}. Equivalent command (which will run faster than apply_tx):\nview_state apply_chunk --chunk_hash {}\n", &chunk_hash.0, &chunk_hash.0);
-        let (apply_result, gas_limit) = apply_chunk(runtime, chain_store, chunk_hash, None, None)?;
+        let (apply_result, gas_limit) =
+            apply_chunk(epoch_manager, runtime, chain_store, chunk_hash, None, None)?;
         println!(
             "resulting chunk extra:\n{:?}",
             crate::commands::resulting_chunk_extra(&apply_result, gas_limit)
@@ -261,7 +267,8 @@ fn apply_tx_in_chunk(
 
 pub(crate) fn apply_tx(
     genesis_height: BlockHeight,
-    runtime: &dyn RuntimeWithEpochManagerAdapter,
+    epoch_manager: &EpochManagerHandle,
+    runtime: &dyn RuntimeAdapter,
     store: Store,
     tx_hash: CryptoHash,
 ) -> anyhow::Result<Vec<ApplyTransactionResult>> {
@@ -269,19 +276,26 @@ pub(crate) fn apply_tx(
     let outcomes = chain_store.get_outcomes_by_id(&tx_hash)?;
 
     if let Some(outcome) = outcomes.first() {
-        Ok(vec![apply_tx_in_block(runtime, &mut chain_store, &tx_hash, outcome.block_hash)?])
+        Ok(vec![apply_tx_in_block(
+            epoch_manager,
+            runtime,
+            &mut chain_store,
+            &tx_hash,
+            outcome.block_hash,
+        )?])
     } else {
-        apply_tx_in_chunk(runtime, store, &mut chain_store, &tx_hash)
+        apply_tx_in_chunk(epoch_manager, runtime, store, &mut chain_store, &tx_hash)
     }
 }
 
 fn apply_receipt_in_block(
-    runtime: &dyn RuntimeWithEpochManagerAdapter,
+    epoch_manager: &EpochManagerHandle,
+    runtime: &dyn RuntimeAdapter,
     chain_store: &mut ChainStore,
     id: &CryptoHash,
     block_hash: CryptoHash,
 ) -> anyhow::Result<ApplyTransactionResult> {
-    match find_tx_or_receipt(id, &block_hash, runtime, chain_store)? {
+    match find_tx_or_receipt(id, &block_hash, epoch_manager, chain_store)? {
         Some((hash_type, shard_id)) => {
             match hash_type {
                 HashType::Tx => {
@@ -290,8 +304,8 @@ fn apply_receipt_in_block(
                 HashType::Receipt => {
                     println!("Found receipt in block {}. Receiver is in shard {}. equivalent command:\nview_state apply --height {} --shard-id {}\n",
                              &block_hash, shard_id, chain_store.get_block_header(&block_hash)?.height(), shard_id);
-                    let (block, apply_result) = crate::commands::apply_block(block_hash, shard_id, runtime, chain_store);
-                    crate::commands::check_apply_block_result(&block, &apply_result, runtime, chain_store, shard_id)?;
+                    let (block, apply_result) = crate::commands::apply_block(block_hash, shard_id, epoch_manager, runtime, chain_store);
+                    crate::commands::check_apply_block_result(&block, &apply_result, epoch_manager, chain_store, shard_id)?;
                     Ok(apply_result)
                 },
             }
@@ -304,7 +318,8 @@ fn apply_receipt_in_block(
 }
 
 fn apply_receipt_in_chunk(
-    runtime: &dyn RuntimeWithEpochManagerAdapter,
+    epoch_manager: &EpochManagerHandle,
+    runtime: &dyn RuntimeAdapter,
     store: Store,
     chain_store: &mut ChainStore,
     id: &CryptoHash,
@@ -340,7 +355,7 @@ fn apply_receipt_in_chunk(
                 for receipt in chunk.receipts().iter() {
                     if receipt.get_hash() == *id {
                         let shard_layout =
-                            runtime.get_shard_layout_from_prev_block(chunk.prev_block())?;
+                            epoch_manager.get_shard_layout_from_prev_block(chunk.prev_block())?;
                         let to_shard = shard_layout::account_id_to_shard_id(
                             &receipt.receiver_id,
                             &shard_layout,
@@ -379,7 +394,7 @@ fn apply_receipt_in_chunk(
         println!("Applying chunk at height {} in shard {}. Equivalent command (which will run faster than apply_receipt):\nview_state apply_chunk --chunk_hash {}\n",
                  height, shard_id, chunk_hash.0);
         let (apply_result, gas_limit) =
-            apply_chunk(runtime, chain_store, chunk_hash.clone(), None, None)?;
+            apply_chunk(epoch_manager, runtime, chain_store, chunk_hash.clone(), None, None)?;
         let chunk_extra = crate::commands::resulting_chunk_extra(&apply_result, gas_limit);
         println!("resulting chunk extra:\n{:?}", chunk_extra);
         results.push(apply_result);
@@ -389,16 +404,23 @@ fn apply_receipt_in_chunk(
 
 pub(crate) fn apply_receipt(
     genesis_height: BlockHeight,
-    runtime: &dyn RuntimeWithEpochManagerAdapter,
+    epoch_manager: &EpochManagerHandle,
+    runtime: &dyn RuntimeAdapter,
     store: Store,
     id: CryptoHash,
 ) -> anyhow::Result<Vec<ApplyTransactionResult>> {
     let mut chain_store = ChainStore::new(store.clone(), genesis_height, false);
     let outcomes = chain_store.get_outcomes_by_id(&id)?;
     if let Some(outcome) = outcomes.first() {
-        Ok(vec![apply_receipt_in_block(runtime, &mut chain_store, &id, outcome.block_hash)?])
+        Ok(vec![apply_receipt_in_block(
+            epoch_manager,
+            runtime,
+            &mut chain_store,
+            &id,
+            outcome.block_hash,
+        )?])
     } else {
-        apply_receipt_in_chunk(runtime, store, &mut chain_store, &id)
+        apply_receipt_in_chunk(epoch_manager, runtime, store, &mut chain_store, &id)
     }
 }
 
@@ -410,7 +432,7 @@ mod test {
     use near_client::ProcessTxResponse;
     use near_crypto::{InMemorySigner, KeyType};
     use near_epoch_manager::shard_tracker::TrackedConfig;
-    use near_epoch_manager::EpochManagerAdapter;
+    use near_epoch_manager::{EpochManager, EpochManagerAdapter};
     use near_primitives::hash::CryptoHash;
     use near_primitives::runtime::config_store::RuntimeConfigStore;
     use near_primitives::shard_layout;
@@ -455,6 +477,9 @@ mod test {
 
         let store = create_test_store();
         let mut chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height, false);
+        let epoch_manager = EpochManager::new_from_genesis_config(store.clone(), &genesis.config)
+            .unwrap()
+            .into_handle();
         let runtime = NightshadeRuntime::test_with_runtime_config_store(
             Path::new("."),
             store,
@@ -504,6 +529,7 @@ mod test {
                     let new_root = new_roots[shard];
 
                     let (apply_result, _) = crate::apply_chunk::apply_chunk(
+                        &epoch_manager,
                         runtime.as_ref(),
                         &mut chain_store,
                         chunk_hash.clone(),
@@ -532,6 +558,9 @@ mod test {
 
         let store = create_test_store();
         let chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height, false);
+        let epoch_manager = EpochManager::new_from_genesis_config(store.clone(), &genesis.config)
+            .unwrap()
+            .into_handle();
         let runtime = NightshadeRuntime::test_with_runtime_config_store(
             Path::new("."),
             store.clone(),
@@ -583,6 +612,7 @@ mod test {
                     for tx in chunk.transactions() {
                         let results = crate::apply_chunk::apply_tx(
                             genesis.config.genesis_height,
+                            &epoch_manager,
                             runtime.as_ref(),
                             store.clone(),
                             tx.get_hash(),
@@ -600,6 +630,7 @@ mod test {
 
                         let results = crate::apply_chunk::apply_receipt(
                             genesis.config.genesis_height,
+                            &epoch_manager,
                             runtime.as_ref(),
                             store.clone(),
                             receipt.get_hash(),
@@ -628,6 +659,7 @@ mod test {
             for tx in chunk.transactions() {
                 let results = crate::apply_chunk::apply_tx(
                     genesis.config.genesis_height,
+                    &epoch_manager,
                     runtime.as_ref(),
                     store.clone(),
                     tx.get_hash(),
@@ -647,6 +679,7 @@ mod test {
             for receipt in chunk.receipts() {
                 let results = crate::apply_chunk::apply_receipt(
                     genesis.config.genesis_height,
+                    &epoch_manager,
                     runtime.as_ref(),
                     store.clone(),
                     receipt.get_hash(),
