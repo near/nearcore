@@ -10,20 +10,16 @@ use std::io;
     BorshDeserialize,
     PartialEq,
     Eq,
-    Debug,
     Clone,
     Copy,
+    Debug,
+    Default,
     serde::Serialize,
     serde::Deserialize,
 )]
 pub enum AccountVersion {
+    #[default]
     V1,
-}
-
-impl Default for AccountVersion {
-    fn default() -> Self {
-        AccountVersion::V1
-    }
 }
 
 /// Per account information stored in the state.
