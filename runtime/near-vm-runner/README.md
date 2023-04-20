@@ -1,6 +1,6 @@
 # near-vm-runner
 
-An engine that run smart contracts compiled to Wasm.
+An engine that runs smart contracts compiled to Wasm.
 This is the main crate of the "contract runtime" part of nearcore.
 
 "Running smart contracts" is:
@@ -8,17 +8,17 @@ This is the main crate of the "contract runtime" part of nearcore.
 - Wasm instrumentation for gas metering and various safety checks (`prepare.rs`).
 - Compiling Wasm to a particular VM representation (`cache.rs`).
 - Exposing blockchain-specific functionality to Wasm code. That is, defining a corresponding host
-  function for each funcition in `near-vm-logic` (`imports.rs`).
+  function for each function in `near-vm-logic` (`imports.rs`).
 - Actual code execution (`wasmer_runner.rs`).
 
-A particular runtime used for Wasm execution is an implementation detail.  At the moment we support
+The particular runtime used for Wasm execution is an implementation detail.  At the moment we support
 Wasmer 0.x, Wasmer 2.0 and Wasmtime, with Wasmer 2.0 being default.
 
 The primary client of Wasm execution services is the blockchain proper. The second client is the
 contract sdk tooling. vm-runner provides additional API for contract developers to, for example,
 get a gas costs breakdown.
 
-See the [FAQ][./faq.md] document for high-leven design constraints discussion.
+See the [FAQ][./faq.md] document for high-level design constraints discussion.
 
 ## Entry Point
 
@@ -26,16 +26,16 @@ The entry point is the `runner::run` function.
 
 ## Testing
 
-There's a bunch of unit-tests in this crate. You can run them with
+There are a bunch of unit-tests in this crate. You can run them with
 
 ```console
 $ cargo t -p near-vm-runner --features wasmer0_vm,wasmer2_vm,wasmtime_vm,near_vm
 ```
 
-The tests use either a short wasm snippets specified inline, or a couple of
+The tests use either a short wasm snippet specified inline, or a couple of
 larger test contracts from the `near-test-contracts` crate.
 
-We also have fuzzing setup:
+We also have a fuzzing setup:
 
 ```console
 $ cd runtime/near-vm-runner && RUSTC_BOOTSTRAP=1 cargo fuzz run runner
@@ -58,7 +58,7 @@ fn compute_thing() {
 This will record when the `_span` object is created and dropped, including the time diff between
 the two events.
 
-To get a human readable output out of these events, you can use the built-in tracing subscriber:
+To get human-readable output out of these events, you can use the built-in tracing subscriber:
 
 ```ignore
 tracing_subscriber::fmt::Subscriber::builder()
