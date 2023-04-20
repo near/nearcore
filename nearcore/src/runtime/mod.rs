@@ -2414,6 +2414,8 @@ mod test {
                 num_expected_blocks: expected_blocks[0],
                 num_produced_chunks: expected_chunks[0],
                 num_expected_chunks: expected_chunks[0],
+                num_produced_chunks_per_shard: vec![expected_chunks[0]],
+                num_expected_chunks_per_shard: vec![expected_chunks[0]],
             },
             CurrentEpochValidatorInfo {
                 account_id: "test2".parse().unwrap(),
@@ -2425,6 +2427,8 @@ mod test {
                 num_expected_blocks: expected_blocks[1],
                 num_produced_chunks: expected_chunks[1],
                 num_expected_chunks: expected_chunks[1],
+                num_produced_chunks_per_shard: vec![expected_chunks[1]],
+                num_expected_chunks_per_shard: vec![expected_chunks[1]],
             },
         ];
         let next_epoch_validator_info = vec![
@@ -2476,10 +2480,14 @@ mod test {
         current_epoch_validator_info[0].num_expected_blocks = expected_blocks[0];
         current_epoch_validator_info[0].num_produced_chunks = expected_chunks[0];
         current_epoch_validator_info[0].num_expected_chunks = expected_chunks[0];
+        current_epoch_validator_info[0].num_produced_chunks_per_shard = vec![expected_chunks[0]];
+        current_epoch_validator_info[0].num_expected_chunks_per_shard = vec![expected_chunks[0]];
         current_epoch_validator_info[1].num_produced_blocks = expected_blocks[1];
         current_epoch_validator_info[1].num_expected_blocks = expected_blocks[1];
         current_epoch_validator_info[1].num_produced_chunks = expected_chunks[1];
         current_epoch_validator_info[1].num_expected_chunks = expected_chunks[1];
+        current_epoch_validator_info[1].num_produced_chunks_per_shard = vec![expected_chunks[1]];
+        current_epoch_validator_info[1].num_expected_chunks_per_shard = vec![expected_chunks[1]];
         assert_eq!(response.current_validators, current_epoch_validator_info);
         assert_eq!(
             response.next_validators,
