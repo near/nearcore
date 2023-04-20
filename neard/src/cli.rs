@@ -22,6 +22,7 @@ use near_state_parts::cli::StatePartsCommand;
 use near_state_viewer::StateViewerSubCommand;
 use near_store::db::RocksDB;
 use near_store::Mode;
+use near_undo_block::cli::UndoBlockCommand;
 use serde_json::Value;
 use std::fs::File;
 use std::io::BufReader;
@@ -122,6 +123,9 @@ impl NeardCmd {
             }
             NeardSubCommand::ValidateConfig(cmd) => {
                 cmd.run(&home_dir)?;
+            }
+            NeardSubCommand::UndoBlock(cmd) => {
+                cmd.run(&home_dir, genesis_validation)?;
             }
         };
         Ok(())
@@ -239,6 +243,9 @@ pub(super) enum NeardSubCommand {
 
     /// validate config files including genesis.json and config.json
     ValidateConfig(ValidateConfigCommand),
+
+    // reset the head of the chain locally to the prev block of current head
+    UndoBlock(UndoBlockCommand),
 }
 
 #[derive(clap::Parser)]
