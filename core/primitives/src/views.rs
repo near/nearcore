@@ -1936,6 +1936,11 @@ pub struct CurrentEpochValidatorInfo {
     pub num_produced_chunks: NumBlocks,
     #[serde(default)]
     pub num_expected_chunks: NumBlocks,
+    // The following two fields correspond to the shards in the shard array.
+    #[serde(default)]
+    pub num_produced_chunks_per_shard: Vec<NumBlocks>,
+    #[serde(default)]
+    pub num_expected_chunks_per_shard: Vec<NumBlocks>,
 }
 
 #[derive(
