@@ -389,10 +389,16 @@ impl DBCol {
     /// Whether this column should be copied to the cold storage.
     ///
     /// This doesn’t include DbVersion and BlockMisc columns which are present
-    /// int cold database but rather than being copied from hot database are
+    /// in the cold database but rather than being copied from hot database are
     /// maintained separately.
     pub const fn is_cold(&self) -> bool {
+        // Explicitly list all columns so that if new one is added it'll need to
+        // be added here as well.
         match self {
+            // DBVersion and BlockMisc are maintained separately in the cold
+            // storage, they should not be copied from hot.
+            DBCol::DbVersion | DBCol::BlockMisc => false,
+            // Most of the GC-ed columns should be copied to the cold storage.
             DBCol::Block
             | DBCol::BlockExtra
             | DBCol::BlockInfo
@@ -406,11 +412,74 @@ impl DBCol {
             | DBCol::Receipts
             | DBCol::State
             | DBCol::StateChanges
+            // TODO StateChangesForSplitStates is not GC-ed, why is it here?
             | DBCol::StateChangesForSplitStates
             | DBCol::StateHeaders
             | DBCol::TransactionResultForBlock
             | DBCol::Transactions => true,
-            _ => false,
+
+            // TODO
+            DBCol::ChallengedBlocks => false,
+            // BlockToCatchup is only needed while syncing and it is not immutable.
+            DBCol::BlocksToCatchup => false,
+            // BlockRefCount is only needed when handling forks and it is not immutable.
+            DBCol::BlockRefCount => false,
+            // PartialChunks can be recomputed and take a lot of space.
+            // TODO - but could it be used by the view client? If so then this
+            // column needs to be added to cold or the relevant code needs to be
+            // able to recompute it on demand.
+            DBCol::PartialChunks => false,
+            // InvalidChunks is only needed at head when accepting new chunks.
+            DBCol::InvalidChunks => false,
+            // TODO go/cold-store says: "this can be handled by reading Block
+            // and iterating over hashes there". Needs to be implemented or
+            // confirmed that view client doesn't use that column.
+            DBCol::ChunkHashesByHeight => false,
+            // StateParts is only needed while syncing.
+            DBCol::StateParts => false,
+            // TrieChanges is only needed for GC.
+            DBCol::TrieChanges => false,
+            // BlockPerHeight becomes equivalent to BlockHeight since in cold
+            // storage there are only final blocks.
+            // TODO but could it be used by the view client? If so then this
+            // column needs to be added to cold or the relevant code needs to be
+            // able to recompute it on demand.
+            DBCol::BlockPerHeight => false,
+            // StateDlInfos is only needed when syncing and it is not immutable.
+            DBCol::StateDlInfos => false,
+            // TODO
+            DBCol::ProcessedBlockHeights => false,
+            // HeaderHashesByHeight is only needed for GC.
+            DBCol::HeaderHashesByHeight => false,
+
+            // Columns that are not GC-ed need not be copied to the cold storage.
+            DBCol::BlockHeader
+            | DBCol::_GCCount
+            | DBCol::BlockHeight
+            | DBCol::_Peers
+            | DBCol::RecentOutboundConnections
+            | DBCol::BlockMerkleTree
+            | DBCol::AccountAnnouncements
+            | DBCol::EpochLightClientBlocks
+            | DBCol::PeerComponent
+            | DBCol::LastComponentNonce
+            | DBCol::ComponentEdges
+            | DBCol::EpochInfo
+            | DBCol::EpochStart
+            | DBCol::EpochValidatorInfo
+            | DBCol::BlockOrdinal
+            | DBCol::_ChunkPerHeightShard
+            | DBCol::_NextBlockWithNewChunk
+            | DBCol::_LastBlockWithNewChunk
+            | DBCol::_TransactionRefCount
+            | DBCol::_TransactionResult
+            // | DBCol::StateChangesForSplitStates
+            | DBCol::CachedContractCode => false,
+            #[cfg(feature = "protocol_feature_flat_state")]
+            DBCol::FlatState
+            | DBCol::FlatStateChanges
+            | DBCol::FlatStateDeltaMetadata
+            | DBCol::FlatStorageStatus => false,
         }
     }
 

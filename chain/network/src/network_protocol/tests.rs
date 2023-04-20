@@ -6,7 +6,7 @@ use crate::types::{Disconnect, HandshakeFailureReason, PeerMessage};
 use crate::types::{PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
 use anyhow::{bail, Context as _};
 use itertools::Itertools as _;
-use near_primitives::time;
+use near_async::time;
 use rand::Rng as _;
 
 #[test]

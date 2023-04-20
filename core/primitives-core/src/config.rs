@@ -131,10 +131,16 @@ fn wasmer2_stack_limit_default() -> i32 {
 )]
 #[repr(u8)]
 pub enum ContractPrepareVersion {
-    /// Old, buggy version, don't use it unless specifically to support old protocol version.
+    /// Oldest, buggiest version.
+    ///
+    /// Don't use it unless specifically to support old protocol version.
     V0,
-    /// What we use in today's protocol.
+    /// Old, slow and buggy version.
+    ///
+    /// Better than V0, but don’t use this nevertheless.
     V1,
+    /// finite-wasm 0.3.0 based contract preparation code.
+    V2,
 }
 
 impl ContractPrepareVersion {
@@ -204,8 +210,8 @@ impl VMLimitConfig {
 
             // NOTE: Stack height has to be 16K, otherwise Wasmer produces non-deterministic results.
             // For experimentation try `test_stack_overflow`.
-            max_stack_height: 16 * 1024, // 16Kib of stack.
-            contract_prepare_version: ContractPrepareVersion::V1,
+            max_stack_height: 256 * 1024, // 256kiB of stack.
+            contract_prepare_version: ContractPrepareVersion::V2,
             initial_memory_pages: 2u32.pow(10), // 64Mib of memory.
             max_memory_pages: 2u32.pow(11),     // 128Mib of memory.
 

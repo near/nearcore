@@ -138,6 +138,9 @@ pub struct ClientConfig {
     pub tracked_accounts: Vec<AccountId>,
     /// Shards that this client tracks
     pub tracked_shards: Vec<ShardId>,
+    /// Rotate between these sets of tracked shards.
+    /// Used to simulate the behavior of chunk only producers without staking tokens.
+    pub tracked_shard_schedule: Vec<Vec<ShardId>>,
     /// Not clear old data, set `true` for archive nodes.
     pub archive: bool,
     /// save_trie_changes should be set to true iff
@@ -161,6 +164,8 @@ pub struct ClientConfig {
     pub enable_statistics_export: bool,
     /// Number of threads to execute background migration work in client.
     pub client_background_migration_threads: usize,
+    /// Enables background flat storage creation.
+    pub flat_storage_creation_enabled: bool,
     /// Duration to perform background flat storage creation step.
     pub flat_storage_creation_period: Duration,
     /// If enabled, will dump state of every epoch to external storage.
@@ -172,6 +177,11 @@ pub struct ClientConfig {
     /// Restart dumping state of selected shards.
     /// Use for troubleshooting of the state dumping process.
     pub state_sync_restart_dump_for_shards: Vec<ShardId>,
+    /// Whether to enable state sync from S3.
+    /// If disabled will perform state sync from the peers.
+    pub state_sync_from_s3_enabled: bool,
+    /// Number of parallel in-flight requests allowed per shard.
+    pub state_sync_num_concurrent_s3_requests: u64,
     /// Whether to use the State Sync mechanism.
     /// If disabled, the node will do Block Sync instead of State Sync.
     pub state_sync_enabled: bool,
@@ -232,6 +242,7 @@ impl ClientConfig {
             gc: GCConfig { gc_blocks_limit: 100, ..GCConfig::default() },
             tracked_accounts: vec![],
             tracked_shards: vec![],
+            tracked_shard_schedule: vec![],
             archive,
             save_trie_changes,
             log_summary_style: LogSummaryStyle::Colored,
@@ -242,12 +253,15 @@ impl ClientConfig {
             max_gas_burnt_view: None,
             enable_statistics_export: true,
             client_background_migration_threads: 1,
+            flat_storage_creation_enabled: true,
             flat_storage_creation_period: Duration::from_secs(1),
             state_sync_dump_enabled: false,
             state_sync_s3_bucket: String::new(),
             state_sync_s3_region: String::new(),
             state_sync_restart_dump_for_shards: vec![],
-            state_sync_enabled: true,
+            state_sync_from_s3_enabled: false,
+            state_sync_num_concurrent_s3_requests: 10,
+            state_sync_enabled: false,
         }
     }
 }

@@ -1040,9 +1040,9 @@ fn client_sync_headers() {
                     },
                     received_bytes_per_sec: 0,
                     sent_bytes_per_sec: 0,
-                    last_time_peer_requested: near_primitives::time::Instant::now(),
-                    last_time_received_message: near_primitives::time::Instant::now(),
-                    connection_established_time: near_primitives::time::Instant::now(),
+                    last_time_peer_requested: near_async::time::Instant::now(),
+                    last_time_received_message: near_async::time::Instant::now(),
+                    connection_established_time: near_async::time::Instant::now(),
                     peer_type: PeerType::Outbound,
                     nonce: 1,
                 }],
@@ -2858,11 +2858,11 @@ fn test_execution_metadata() {
         "cost": "CONTRACT_LOADING_BYTES",
         "gas_used": "18423750"
       },
-      // We spend two wasm instructions (call & drop).
+      // We spend two wasm instructions (call & drop), plus 8 ops for initializing the stack.
       {
         "cost_category": "WASM_HOST_COST",
         "cost": "WASM_INSTRUCTION",
-        "gas_used": (config.wasm_config.regular_op_cost as u64 * 2).to_string()
+        "gas_used": (config.wasm_config.regular_op_cost as u64 * 10).to_string()
       }
     ]);
     let outcome = &execution_outcome.receipts_outcome[0].outcome;

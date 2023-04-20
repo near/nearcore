@@ -53,7 +53,7 @@ impl ProgressReporter {
         if (prev + 1) % PRINT_PER == 0 {
             let prev_ts = ts.load(Ordering::Relaxed);
             let new_ts = timestamp_ms();
-            let per_second = (PRINT_PER as f64 / (new_ts - prev_ts) as f64) as f64 * 1000.0;
+            let per_second = (PRINT_PER as f64 / (new_ts - prev_ts) as f64) * 1000.0;
             ts.store(new_ts, Ordering::Relaxed);
             let secs_remaining = (all - prev) as f64 / per_second;
             let avg_gas = if non_empty_blocks.load(Ordering::Relaxed) == 0 {
@@ -104,7 +104,7 @@ fn old_outcomes(
 fn maybe_add_to_csv(csv_file_mutex: &Mutex<Option<&mut File>>, s: &str) {
     let mut csv_file = csv_file_mutex.lock().unwrap();
     if let Some(csv_file) = csv_file.as_mut() {
-        write!(csv_file, "{}\n", s).unwrap();
+        writeln!(csv_file, "{}", s).unwrap();
     }
 }
 
@@ -201,7 +201,7 @@ fn apply_block_from_range(
 
         let chunk_inner = chunk.cloned_header().take_inner();
         let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
-            &mut chain_store,
+            &chain_store,
             runtime_adapter.as_ref(),
             block.header().prev_hash(),
             shard_id,
@@ -215,10 +215,7 @@ fn apply_block_from_range(
             for tx in chunk.transactions() {
                 for action in &tx.transaction.actions {
                     has_contracts = has_contracts
-                        || match action {
-                            Action::FunctionCall(_) | Action::DeployContract(_) => true,
-                            _ => false,
-                        }
+                        || matches!(action, Action::FunctionCall(_) | Action::DeployContract(_));
                 }
             }
             if !has_contracts {
@@ -297,7 +294,7 @@ fn apply_block_from_range(
                 println!("block_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\noutcomes: {:#?}", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes);
             }
             if !smart_equals(&existing_chunk_extra, &chunk_extra) {
-                assert!(false, "Got a different ChunkExtra:\nblock_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\nnew outcomes: {:#?}\n\nold outcomes: {:#?}\n", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes, old_outcomes(store, &apply_result.outcomes));
+                panic!("Got a different ChunkExtra:\nblock_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\nnew outcomes: {:#?}\n\nold outcomes: {:#?}\n", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes, old_outcomes(store, &apply_result.outcomes));
             }
         }
         None => {
@@ -441,7 +438,7 @@ fn smart_equals(extra1: &ChunkExtra, extra2: &ChunkExtra) -> bool {
             return false;
         }
     }
-    return true;
+    true
 }
 
 #[cfg(test)]

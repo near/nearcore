@@ -1,5 +1,5 @@
+use crate::time;
 use derive_enum_from_into::{EnumFrom, EnumTryInto};
-use near_primitives::time;
 
 use crate::{
     examples::sum_numbers_test::forward_sum_request,
@@ -82,7 +82,7 @@ fn test_multi_instance() {
             time::Duration::milliseconds(1),
         );
     }
-    test.run(time::Duration::milliseconds(2));
+    test.run_for(time::Duration::milliseconds(2));
     assert_eq!(test.data[0].sums, vec![ReportSumMsg(14)]);
     assert_eq!(test.data[1].sums, vec![ReportSumMsg(13)]);
     assert_eq!(test.data[2].sums, vec![ReportSumMsg(12)]);

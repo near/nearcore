@@ -4,7 +4,12 @@
 
 ### Protocol Changes
 
+* Contract preparation and gas charging for wasm execution also switched to using our own code, as per the finite-wasm specification. Contract execution gas costs will change slightly for expected use cases. This opens up opportunities for further changing the execution gas costs (eg. with different costs per opcode) to lower contract execution cost long-term.
+
 ### Non-protocol Changes
+
+* Node can sync State from S3. [#8789](https://github.com/near/nearcore/pull/8789)
+* The contract runtime switched to using our fork of wasmer, with various improvements.
 
 ## 1.33.0
 
@@ -17,6 +22,7 @@
 * State sync is disabled by default [#8730](https://github.com/near/nearcore/pull/8730)
 * Node can restart if State Sync gets interrupted. [#8732](https://github.com/near/nearcore/pull/8732)
 * Merged two `neard view-state` commands: `apply-state-parts` and `dump-state-parts` into a single `state-parts` command. [#8739](https://github.com/near/nearcore/pull/8739)
+* Add config.network.experimental.network_config_overrides to the JSON config. [#8871](https://github.com/near/nearcore/pull/8871)
 
 ## 1.32.2
 

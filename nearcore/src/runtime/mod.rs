@@ -149,10 +149,9 @@ impl NightshadeRuntime {
             &genesis_config.shard_layout.get_shard_uids(),
             flat_storage_manager.clone(),
         );
-        let epoch_manager =
-            EpochManager::new_from_genesis_config(store.clone().into(), &genesis_config)
-                .expect("Failed to start Epoch Manager")
-                .into_handle();
+        let epoch_manager = EpochManager::new_from_genesis_config(store.clone(), &genesis_config)
+            .expect("Failed to start Epoch Manager")
+            .into_handle();
         let shard_tracker = ShardTracker::new(tracked_config, Arc::new(epoch_manager.clone()));
         Arc::new_cyclic(|myself| NightshadeRuntime {
             genesis_config,
@@ -348,8 +347,7 @@ impl NightshadeRuntime {
             if genesis.records_len().is_ok() {
                 warn!(target: "runtime", "Found both records in genesis config and the state dump file. Will ignore the records.");
             }
-            let state_roots = Self::genesis_state_from_dump(store, home_dir);
-            state_roots
+            Self::genesis_state_from_dump(store, home_dir)
         } else {
             Self::genesis_state_from_records(store, genesis)
         }
@@ -768,7 +766,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let shard_layout = self.get_shard_layout(epoch_id)?;
         self.flat_storage_manager
             .remove_flat_storage_for_shard(shard_uid, shard_layout)
-            .map_err(|e| Error::StorageError(e))?;
+            .map_err(Error::StorageError)?;
         Ok(())
     }
 
@@ -1431,29 +1429,6 @@ impl RuntimeAdapter for NightshadeRuntime {
             Ok(memory_usage) => memory_usage == state_root_node.memory_usage,
             Err(_) => false, // Invalid state_root_node
         }
-    }
-
-    fn chunk_needs_to_be_fetched_from_archival(
-        &self,
-        chunk_prev_block_hash: &CryptoHash,
-        header_head: &CryptoHash,
-    ) -> Result<bool, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        let head_epoch_id = epoch_manager.get_epoch_id(header_head)?;
-        let head_next_epoch_id = epoch_manager.get_next_epoch_id(header_head)?;
-        let chunk_epoch_id = epoch_manager.get_epoch_id_from_prev_block(chunk_prev_block_hash)?;
-        let chunk_next_epoch_id =
-            epoch_manager.get_next_epoch_id_from_prev_block(chunk_prev_block_hash)?;
-
-        // `chunk_epoch_id != head_epoch_id && chunk_next_epoch_id != head_epoch_id` covers the
-        // common case: the chunk is in the current epoch, or in the previous epoch, relative to the
-        // header head. The third condition (`chunk_epoch_id != head_next_epoch_id`) covers a
-        // corner case, in which the `header_head` is the last block of an epoch, and the chunk is
-        // for the next block. In this case the `chunk_epoch_id` will be one epoch ahead of the
-        // `header_head`.
-        Ok(chunk_epoch_id != head_epoch_id
-            && chunk_next_epoch_id != head_epoch_id
-            && chunk_epoch_id != head_next_epoch_id)
     }
 
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error> {

@@ -17,7 +17,6 @@ finite-wasm.workspace = true
 wasmer-compiler = { path = "../compiler", package = "near-vm-compiler", features = ["translator"], default-features = false }
 wasmer-vm = { path = "../vm", package = "near-vm-vm" }
 wasmer-types = { path = "../types", package = "near-vm-types", default-features = false, features = ["std"] }
-byteorder.workspace = true
 dynasm.workspace = true
 dynasmrt.workspace = true
 enumset.workspace = true

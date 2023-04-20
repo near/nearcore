@@ -45,7 +45,7 @@ pub(crate) fn print_epoch_info(
         epoch_manager.get_epoch_info(head_block_info.epoch_id()).unwrap().epoch_height();
     let mut epoch_infos: Vec<(EpochId, Arc<EpochInfo>)> = epoch_ids
         .iter()
-        .map(|epoch_id| (epoch_id.clone(), epoch_manager.get_epoch_info(&epoch_id).unwrap()))
+        .map(|epoch_id| (epoch_id.clone(), epoch_manager.get_epoch_info(epoch_id).unwrap()))
         .collect();
     // Sorted output is much easier to follow.
     epoch_infos.sort_by_key(|(_, epoch_info)| epoch_info.epoch_height());
@@ -84,13 +84,12 @@ fn display_block_and_chunk_producers(
     runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
 ) {
     let block_height_range: Range<BlockHeight> =
-        get_block_height_range(&epoch_info, &chain_store, epoch_manager);
+        get_block_height_range(epoch_info, chain_store, epoch_manager);
     let num_shards = runtime_adapter.num_shards(epoch_id).unwrap();
     for block_height in block_height_range {
         let bp = epoch_info.sample_block_producer(block_height);
         let bp = epoch_info.get_validator(bp).account_id().clone();
         let cps: Vec<AccountId> = (0..num_shards)
-            .into_iter()
             .map(|shard_id| {
                 let cp = epoch_info.sample_chunk_producer(block_height, shard_id);
                 let cp = epoch_info.get_validator(cp).account_id().clone();
@@ -243,18 +242,16 @@ fn display_validator_info(
     }
     if let Some(validator_id) = epoch_info.get_validator_id(&account_id) {
         let block_height_range: Range<BlockHeight> =
-            get_block_height_range(&epoch_info, &chain_store, epoch_manager);
+            get_block_height_range(epoch_info, chain_store, epoch_manager);
         let bp_for_blocks: Vec<BlockHeight> = block_height_range
             .clone()
-            .into_iter()
             .filter(|&block_height| epoch_info.sample_block_producer(block_height) == *validator_id)
             .collect();
         println!("Block producer for {} blocks: {:?}", bp_for_blocks.len(), bp_for_blocks);
 
         let shard_ids = 0..runtime_adapter.num_shards(epoch_id).unwrap();
         let cp_for_chunks: Vec<(BlockHeight, ShardId)> = block_height_range
-            .into_iter()
-            .map(|block_height| {
+            .flat_map(|block_height| {
                 shard_ids
                     .clone()
                     .map(|shard_id| (block_height, shard_id))
@@ -263,7 +260,6 @@ fn display_validator_info(
                     })
                     .collect::<Vec<(BlockHeight, ShardId)>>()
             })
-            .flatten()
             .collect();
         println!("Chunk producer for {} chunks: {:?}", cp_for_chunks.len(), cp_for_chunks);
         let mut missing_chunks = vec![];

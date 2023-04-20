@@ -65,22 +65,19 @@ pub mod event_handler;
 pub mod futures;
 pub mod multi_instance;
 
-use std::{
-    collections::BinaryHeap,
-    fmt::Debug,
-    sync::{self, Arc},
-};
-
-use near_o11y::{testonly::init_test_logger, tracing::log::info};
-use near_primitives::time;
-use serde::Serialize;
-
-use crate::test_loop::event_handler::LoopHandlerContext;
-
 use self::{
     delay_sender::DelaySender,
     event_handler::LoopEventHandler,
     futures::{TestLoopFutureSpawner, TestLoopTask},
+};
+use crate::test_loop::event_handler::LoopHandlerContext;
+use crate::time;
+use near_o11y::{testonly::init_test_logger, tracing::log::info};
+use serde::Serialize;
+use std::{
+    collections::BinaryHeap,
+    fmt::Debug,
+    sync::{self, Arc},
 };
 
 /// Main struct for the Test Loop framework.
@@ -281,16 +278,16 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
     /// Runs the test loop for the given duration. This function may be called
     /// multiple times, but further test handlers may not be registered after
     /// the first call.
-    pub fn run(&mut self, duration: time::Duration) {
+    pub fn run_for(&mut self, duration: time::Duration) {
         self.maybe_initialize_handlers();
         let deadline = self.current_time + duration;
         'outer: loop {
             // Push events we have just received into the heap.
             self.queue_received_events();
-            // Don't execute any more events if we have reached the deadline.
+            // Don't execute any more events after the deadline.
             match self.events.peek() {
                 Some(event) => {
-                    if event.due >= deadline {
+                    if event.due > deadline {
                         break;
                     }
                 }
@@ -320,6 +317,10 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
             panic!("Unhandled event: {:?}", current_event);
         }
         self.current_time = deadline;
+    }
+
+    pub fn run_instant(&mut self) {
+        self.run_for(time::Duration::ZERO);
     }
 }
 

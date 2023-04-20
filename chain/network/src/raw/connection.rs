@@ -8,11 +8,11 @@ use crate::types::{
 };
 use bytes::buf::{Buf, BufMut};
 use bytes::BytesMut;
+use near_async::time::{Duration, Instant, Utc};
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::block::{Block, BlockHeader, GenesisId};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::time::{Duration, Instant, Utc};
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use std::fmt;
