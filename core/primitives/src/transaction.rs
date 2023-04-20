@@ -331,9 +331,10 @@ impl Borrow<CryptoHash> for SignedTransaction {
 }
 
 /// The status of execution for a transaction or a receipt.
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Default)]
 pub enum ExecutionStatus {
     /// The execution is pending or unknown.
+    #[default]
     Unknown,
     /// The execution has failed with the given execution error.
     Failure(TxExecutionError),
@@ -356,12 +357,6 @@ impl fmt::Debug for ExecutionStatus {
                 f.write_fmt(format_args!("SuccessReceiptId({})", receipt_id))
             }
         }
-    }
-}
-
-impl Default for ExecutionStatus {
-    fn default() -> Self {
-        ExecutionStatus::Unknown
     }
 }
 
@@ -439,20 +434,15 @@ pub struct ExecutionOutcome {
     pub metadata: ExecutionMetadata,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone, Eq, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone, Eq, Debug, Default)]
 pub enum ExecutionMetadata {
     /// V1: Empty Metadata
+    #[default]
     V1,
     /// V2: With ProfileData by legacy `Cost` enum
     V2(ProfileDataV2),
     /// V3: With ProfileData by gas parameters
     V3(ProfileDataV3),
-}
-
-impl Default for ExecutionMetadata {
-    fn default() -> Self {
-        ExecutionMetadata::V1
-    }
 }
 
 impl fmt::Debug for ExecutionOutcome {
