@@ -2542,6 +2542,7 @@ dependencies = [
  "near-store",
  "near-telemetry",
  "near-test-contracts",
+ "near-undo-block",
  "near-vm-errors",
  "near-vm-runner",
  "nearcore",
@@ -3930,6 +3931,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-undo-block"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap 3.1.18",
+ "near-chain",
+ "near-chain-configs",
+ "near-primitives",
+ "near-store",
+ "nearcore",
+ "tracing",
+]
+
+[[package]]
 name = "near-vm"
 version = "0.0.0"
 dependencies = [
@@ -4276,6 +4292,7 @@ dependencies = [
  "near-primitives",
  "near-state-parts",
  "near-store",
+ "near-undo-block",
  "nearcore",
  "once_cell",
  "openssl-probe",
