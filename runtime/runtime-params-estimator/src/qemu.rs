@@ -48,6 +48,7 @@ fn hypercall(index: u32) -> u64 {
 }
 
 /// Create a command to be executed inside QEMU with the custom counter plugin.
+#[derive(Default)]
 pub struct QemuCommandBuilder {
     started: bool,
     on_every_close: bool,
@@ -107,12 +108,6 @@ impl QemuCommandBuilder {
         cmd.arg(inner_cmd);
 
         Ok(cmd)
-    }
-}
-
-impl Default for QemuCommandBuilder {
-    fn default() -> Self {
-        Self { started: false, on_every_close: false, count_per_thread: false, plugin_log: false }
     }
 }
 

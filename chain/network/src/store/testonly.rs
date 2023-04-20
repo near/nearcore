@@ -1,16 +1,10 @@
 use super::*;
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Component {
     pub peers: Vec<PeerId>,
     pub edges: Vec<Edge>,
-}
-
-impl Default for Component {
-    fn default() -> Self {
-        Self { peers: vec![], edges: vec![] }
-    }
 }
 
 impl Component {

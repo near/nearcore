@@ -1252,10 +1252,18 @@ impl From<SignedTransaction> for SignedTransactionView {
 }
 
 #[derive(
-    BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone,
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    Default,
 )]
 pub enum FinalExecutionStatus {
     /// The execution has not yet started.
+    #[default]
     NotStarted,
     /// The execution has started and still going.
     Started,
@@ -1275,12 +1283,6 @@ impl fmt::Debug for FinalExecutionStatus {
                 f.write_fmt(format_args!("SuccessValue({})", AbbrBytes(v)))
             }
         }
-    }
-}
-
-impl Default for FinalExecutionStatus {
-    fn default() -> Self {
-        FinalExecutionStatus::NotStarted
     }
 }
 
