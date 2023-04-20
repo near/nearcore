@@ -67,8 +67,26 @@ class Executables(typing.NamedTuple):
             'binary_name': self.neard.name
         }
 
+def _remote_name_for_original_repo() -> typing.Tuple[str, bool]:
+    """If there's already a remote set up for original repo, use that;
 
-def _compile_binary(branch: str) -> Executables:
+    If not, add a remote tracking original repo and return its name.
+    """
+    git_remotes = subprocess.check_output(['git','remote','-v']).decode("utf-8").split('\n')
+    original_repo_url = 'https://github.com/near/nearcore.git'
+    original_repo_names = [remote.split('\t')[0] for remote in git_remotes if original_repo_url in remote]
+    original_repo_already_exists = False
+
+    if original_repo_names:
+        original_repo_remote_name = original_repo_names[0]
+        original_repo_already_exists = True
+    else:
+        original_repo_remote_name = 'tmp_original_repo'
+        subprocess.check_output(['git', 'remote', 'add', original_repo_remote_name, original_repo_url])
+    
+    return (original_repo_remote_name, original_repo_already_exists)
+
+def _compile_binary(branch: str, from_original_repo: bool) -> Executables:
     """For given branch, compile binary.
 
     Stashes current changes, switches branch and then returns everything back.
@@ -76,7 +94,14 @@ def _compile_binary(branch: str) -> Executables:
     # TODO: download pre-compiled binary from github for beta/stable?
     prev_branch = current_branch()
     stash_output = subprocess.check_output(['git', 'stash'])
+
+    if from_original_repo:
+        remote_name, original_repo_already_exists = _remote_name_for_original_repo()
+    else:
+        remote_name = 'origin'
+    
     try:
+        subprocess.check_output(['git', 'fetch', remote_name, '--tags'])
         subprocess.check_output([
             'git',
             # When checking out old releases we end up in a detached head state
@@ -84,16 +109,20 @@ def _compile_binary(branch: str) -> Executables:
             '-c',
             'advice.detachedHead=false',
             'checkout',
-            str(branch),
+            str(branch)
         ])
         try:
-            subprocess.check_output(['git', 'pull', 'origin', str(branch)])
+            subprocess.check_output(['git', 'pull', remote_name, str(branch)])
             result = _compile_current(branch)
         finally:
             subprocess.check_output(['git', 'checkout', prev_branch])
     finally:
         if stash_output != b"No local changes to save\n":
             subprocess.check_output(['git', 'stash', 'pop'])
+    
+    if from_original_repo and original_repo_already_exists == False:
+        subprocess.check_output(['git', 'remote', 'remove', remote_name])
+    
     return result
 
 
@@ -247,7 +276,7 @@ def __get_executables_for(chain_id: str) -> typing.Tuple[str, str, Executables]:
             logger.exception('RC binary should be downloaded for NayDuck.', e)
         else:
             logger.exception(e)
-        executable = _compile_binary(release)
+        executable = _compile_binary(branch=release, from_original_repo=True)
     return release, deploy, executable
 
 
