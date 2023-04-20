@@ -357,6 +357,19 @@ impl InfoHelper {
             (metrics::VALIDATORS_CHUNKS_EXPECTED
                 .with_label_values(&[stats.account_id.as_str()])
                 .set(stats.num_expected_chunks as i64));
+            for ((shard, expected), produced) in stats
+                .shards
+                .iter()
+                .zip(stats.num_expected_chunks_per_shard.iter())
+                .zip(stats.num_produced_chunks_per_shard.iter())
+            {
+                (metrics::VALIDATORS_CHUNKS_EXPECTED_BY_SHARD
+                    .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
+                    .set(*expected as i64));
+                (metrics::VALIDATORS_CHUNKS_PRODUCED_BY_SHARD
+                    .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
+                    .set(*produced as i64));
+            }
         }
 
         self.started = StaticClock::instant();
@@ -669,6 +682,9 @@ pub struct ValidatorProductionStats {
     pub num_expected_blocks: NumBlocks,
     pub num_produced_chunks: NumBlocks,
     pub num_expected_chunks: NumBlocks,
+    pub shards: Vec<ShardId>,
+    pub num_produced_chunks_per_shard: Vec<NumBlocks>,
+    pub num_expected_chunks_per_shard: Vec<NumBlocks>,
 }
 
 impl ValidatorProductionStats {
@@ -679,6 +695,9 @@ impl ValidatorProductionStats {
             num_expected_blocks: 0,
             num_produced_chunks: 0,
             num_expected_chunks: 0,
+            shards: vec![],
+            num_produced_chunks_per_shard: vec![],
+            num_expected_chunks_per_shard: vec![],
         }
     }
     pub fn validator(info: CurrentEpochValidatorInfo) -> Self {
@@ -688,6 +707,9 @@ impl ValidatorProductionStats {
             num_expected_blocks: info.num_expected_blocks,
             num_produced_chunks: info.num_produced_chunks,
             num_expected_chunks: info.num_expected_chunks,
+            shards: info.shards,
+            num_produced_chunks_per_shard: info.num_produced_chunks_per_shard,
+            num_expected_chunks_per_shard: info.num_expected_chunks_per_shard,
         }
     }
 }
