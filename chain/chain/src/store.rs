@@ -47,6 +47,7 @@ use crate::chunks_store::ReadOnlyChunksStore;
 use crate::types::{Block, BlockHeader, LatestKnown};
 use crate::{byzantine_assert, RuntimeWithEpochManagerAdapter};
 use near_store::db::StoreStatistics;
+use near_store::flat::store_helper;
 use std::sync::Arc;
 
 /// lru cache size
@@ -1956,6 +1957,27 @@ impl<'a> ChainStoreUpdate<'a> {
         self.chunk_tail = Some(height);
     }
 
+    fn clear_header_data_for_heights(
+        &mut self,
+        start: BlockHeight,
+        end: BlockHeight,
+    ) -> Result<(), Error> {
+        for height in start..=end {
+            let header_hashes = self.chain_store.get_all_header_hashes_by_height(height)?;
+            for header_hash in header_hashes {
+                // Delete header_hash-indexed data: block header
+                let mut store_update = self.store().store_update();
+                let key: &[u8] = header_hash.as_bytes();
+                store_update.delete(DBCol::BlockHeader, key);
+                self.chain_store.headers.pop(key);
+                self.merge(store_update);
+            }
+            let key = index_to_bytes(height);
+            self.gc_col(DBCol::HeaderHashesByHeight, &key);
+        }
+        Ok(())
+    }
+
     pub fn clear_chunk_data_and_headers(
         &mut self,
         min_chunk_height: BlockHeight,
@@ -2202,6 +2224,118 @@ impl<'a> ChainStoreUpdate<'a> {
             }
         };
         self.merge(store_update);
+        Ok(())
+    }
+
+    // Delete all data in rocksdb that are partially or wholly indexed and can be looked up by hash of the current head of the chain
+    // and that indicates a link between current head and its prev block
+    pub fn clear_head_block_data(
+        &mut self,
+        runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
+    ) -> Result<(), Error> {
+        let header_head = self.header_head().unwrap();
+        let header_head_height = header_head.height;
+        let block_hash = self.head().unwrap().last_block_hash;
+
+        let block =
+            self.get_block(&block_hash).expect("block data is not expected to be already cleaned");
+
+        let epoch_id = block.header().epoch_id();
+
+        let head_height = block.header().height();
+
+        // 1. Delete shard_id-indexed data (TrieChanges, Receipts, ChunkExtra, State Headers and Parts, FlatStorage data)
+        for shard_id in 0..block.header().chunk_mask().len() as ShardId {
+            let shard_uid = runtime_adapter.shard_id_to_uid(shard_id, epoch_id).unwrap();
+            let block_shard_id = get_block_shard_uid(&block_hash, &shard_uid);
+
+            // delete TrieChanges
+            self.gc_col(DBCol::TrieChanges, &block_shard_id);
+
+            // delete Receipts
+            self.gc_outgoing_receipts(&block_hash, shard_id);
+            self.gc_col(DBCol::IncomingReceipts, &block_shard_id);
+
+            // delete DBCol::ChunkExtra based on shard_uid since it's indexed by shard_uid in the storage
+            self.gc_col(DBCol::ChunkExtra, &block_shard_id);
+
+            // delete state parts and state headers
+            if let Ok(shard_state_header) = self.chain_store.get_state_header(shard_id, block_hash)
+            {
+                let state_num_parts =
+                    get_num_state_parts(shard_state_header.state_root_node().memory_usage);
+                self.gc_col_state_parts(block_hash, shard_id, state_num_parts)?;
+                let state_header_key = StateHeaderKey(shard_id, block_hash).try_to_vec()?;
+                self.gc_col(DBCol::StateHeaders, &state_header_key);
+            }
+
+            // delete flat storage columns: FlatStateChanges and FlatStateDeltaMetadata
+            if cfg!(feature = "protocol_feature_flat_state") {
+                let mut store_update = self.store().store_update();
+                store_helper::remove_delta(&mut store_update, shard_uid, block_hash);
+                self.merge(store_update);
+            }
+        }
+
+        // 2. Delete block_hash-indexed data
+        self.gc_col(DBCol::Block, block_hash.as_bytes());
+        self.gc_col(DBCol::BlockExtra, block_hash.as_bytes());
+        self.gc_col(DBCol::NextBlockHashes, block_hash.as_bytes());
+        self.gc_col(DBCol::ChallengedBlocks, block_hash.as_bytes());
+        self.gc_col(DBCol::BlocksToCatchup, block_hash.as_bytes());
+        let storage_key = KeyForStateChanges::for_block(&block_hash);
+        let stored_state_changes: Vec<Box<[u8]>> = self
+            .chain_store
+            .store()
+            .iter_prefix(DBCol::StateChanges, storage_key.as_ref())
+            .map(|item| item.map(|(key, _)| key))
+            .collect::<io::Result<Vec<_>>>()?;
+        for key in stored_state_changes {
+            self.gc_col(DBCol::StateChanges, &key);
+        }
+        self.gc_col(DBCol::BlockRefCount, block_hash.as_bytes());
+        self.gc_outcomes(&block)?;
+        self.gc_col(DBCol::BlockInfo, block_hash.as_bytes());
+        self.gc_col(DBCol::StateDlInfos, block_hash.as_bytes());
+
+        // 3. update columns related to prev block (block refcount and NextBlockHashes)
+        self.dec_block_refcount(block.header().prev_hash())?;
+        self.gc_col(DBCol::NextBlockHashes, block.header().prev_hash().as_bytes());
+
+        // 4. Update or delete block_hash_per_height
+        self.gc_col_block_per_height(&block_hash, head_height, block.header().epoch_id())?;
+
+        self.clear_chunk_data_at_height(head_height)?;
+
+        self.clear_header_data_for_heights(head_height, header_head_height)?;
+
+        Ok(())
+    }
+
+    fn clear_chunk_data_at_height(&mut self, height: BlockHeight) -> Result<(), Error> {
+        let chunk_hashes = self.chain_store.get_all_chunk_hashes_by_height(height)?;
+        for chunk_hash in chunk_hashes {
+            // 1. Delete chunk-related data
+            let chunk = self.get_chunk(&chunk_hash)?.clone();
+            debug_assert_eq!(chunk.cloned_header().height_created(), height);
+            for transaction in chunk.transactions() {
+                self.gc_col(DBCol::Transactions, transaction.get_hash().as_bytes());
+            }
+            for receipt in chunk.receipts() {
+                self.gc_col(DBCol::Receipts, receipt.get_hash().as_bytes());
+            }
+
+            // 2. Delete chunk_hash-indexed data
+            let chunk_hash = chunk_hash.as_bytes();
+            self.gc_col(DBCol::Chunks, chunk_hash);
+            self.gc_col(DBCol::PartialChunks, chunk_hash);
+            self.gc_col(DBCol::InvalidChunks, chunk_hash);
+        }
+
+        // 4. Delete chunk hashes per height
+        let key = index_to_bytes(height);
+        self.gc_col(DBCol::ChunkHashesByHeight, &key);
+
         Ok(())
     }
 
