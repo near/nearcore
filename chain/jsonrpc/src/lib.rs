@@ -1,46 +1,46 @@
 #![doc = include_str!("../README.md")]
 
-use std::path::PathBuf;
-use std::time::{Duration, Instant};
-
 use actix::{Addr, MailboxError};
 use actix_cors::Cors;
 use actix_web::http::header;
 use actix_web::HttpRequest;
 use actix_web::{get, http, middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
+use api::RpcRequest;
+pub use api::{RpcFrom, RpcInto};
 use futures::Future;
 use futures::FutureExt;
-use near_network::PeerManagerActor;
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
-use tokio::time::{sleep, timeout};
-use tracing::info;
-
 use near_chain_configs::GenesisConfig;
 use near_client::{
-    ClientActor, DebugStatus, GetBlock, GetBlockProof, GetChunk, GetExecutionOutcome, GetGasPrice,
-    GetMaintenanceWindows, GetNetworkInfo, GetNextLightClientBlock, GetProtocolConfig, GetReceipt,
-    GetStateChanges, GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
-    ProcessTxRequest, ProcessTxResponse, Query, Status, TxStatus, ViewClientActor,
+    ClientActor, DebugStatus, GetBlock, GetBlockProof, GetChunk, GetClientConfig,
+    GetExecutionOutcome, GetGasPrice, GetMaintenanceWindows, GetNetworkInfo,
+    GetNextLightClientBlock, GetProtocolConfig, GetReceipt, GetStateChanges,
+    GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered, ProcessTxRequest,
+    ProcessTxResponse, Query, Status, TxStatus, ViewClientActor,
 };
+use near_client_primitives::types::GetSplitStorageInfo;
 pub use near_jsonrpc_client as client;
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::{Message, Request};
 use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
+use near_jsonrpc_primitives::types::split_storage::RpcSplitStorageInfoResponse;
+use near_network::tcp;
+use near_network::PeerManagerActor;
 use near_o11y::metrics::{prometheus, Encoder, TextEncoder};
+use near_o11y::{WithSpanContext, WithSpanContextExt};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::views::FinalExecutionOutcomeViewEnum;
+use serde_json::{json, Value};
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
+use tokio::time::{sleep, timeout};
+use tracing::info;
 
 mod api;
 mod metrics;
 
-use api::RpcRequest;
-pub use api::{RpcFrom, RpcInto};
-use near_o11y::{WithSpanContext, WithSpanContextExt};
-
-#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug)]
 pub struct RpcPollingConfig {
     pub polling_interval: Duration,
     pub polling_timeout: Duration,
@@ -55,7 +55,7 @@ impl Default for RpcPollingConfig {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct RpcLimitsConfig {
     /// Maximum byte size of the json payload.
     pub json_payload_max_size: usize,
@@ -71,9 +71,9 @@ fn default_enable_debug_rpc() -> bool {
     false
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct RpcConfig {
-    pub addr: String,
+    pub addr: tcp::ListenerAddr,
     // If provided, will start an http server exporting only Prometheus metrics on that address.
     pub prometheus_addr: Option<String>,
     pub cors_allowed_origins: Vec<String>,
@@ -93,7 +93,7 @@ pub struct RpcConfig {
 impl Default for RpcConfig {
     fn default() -> Self {
         RpcConfig {
-            addr: "0.0.0.0:3030".to_owned(),
+            addr: tcp::ListenerAddr::new("0.0.0.0:3030".parse().unwrap()),
             prometheus_addr: None,
             cors_allowed_origins: vec!["*".to_owned()],
             polling_config: Default::default(),
@@ -105,8 +105,8 @@ impl Default for RpcConfig {
 }
 
 impl RpcConfig {
-    pub fn new(addr: &str) -> Self {
-        RpcConfig { addr: addr.to_owned(), ..Default::default() }
+    pub fn new(addr: tcp::ListenerAddr) -> Self {
+        RpcConfig { addr, ..Default::default() }
     }
 }
 
@@ -178,40 +178,34 @@ fn process_query_response(
                 block_height,
                 block_hash,
             } => Ok(json!({
-                "error": format!(
-                    "access key {} does not exist while viewing",
-                    public_key.to_string()
-                ),
+                "error": format!("access key {} does not exist while viewing", public_key),
                 "logs": json!([]),
                 "block_height": block_height,
                 "block_hash": block_hash,
             })),
             near_jsonrpc_primitives::types::query::RpcQueryError::UnknownBlock {
-                ref block_reference,
-            } => match block_reference {
-                near_primitives::types::BlockReference::BlockId(block_id) => {
-                    let error_data = Some(match block_id {
-                        near_primitives::types::BlockId::Height(height) => json!(format!(
-                            "DB Not Found Error: BLOCK HEIGHT: {} \n Cause: Unknown",
-                            height
-                        )),
-                        near_primitives::types::BlockId::Hash(block_hash) => {
-                            json!(format!("DB Not Found Error: BLOCK HEADER: {}", block_hash))
-                        }
-                    });
-                    let error_data_value = match serde_json::to_value(err) {
-                        Ok(value) => value,
-                        Err(err) => {
-                            return Err(RpcError::new_internal_error(
-                                None,
-                                format!("Failed to serialize RpcQueryError: {:?}", err),
-                            ))
-                        }
-                    };
-                    Err(RpcError::new_internal_or_handler_error(error_data, error_data_value))
-                }
-                _ => Err(err.into()),
-            },
+                block_reference: near_primitives::types::BlockReference::BlockId(ref block_id),
+            } => {
+                let error_data = Some(match block_id {
+                    near_primitives::types::BlockId::Height(height) => json!(format!(
+                        "DB Not Found Error: BLOCK HEIGHT: {} \n Cause: Unknown",
+                        height
+                    )),
+                    near_primitives::types::BlockId::Hash(block_hash) => {
+                        json!(format!("DB Not Found Error: BLOCK HEADER: {}", block_hash))
+                    }
+                });
+                let error_data_value = match serde_json::to_value(err) {
+                    Ok(value) => value,
+                    Err(err) => {
+                        return Err(RpcError::new_internal_error(
+                            None,
+                            format!("Failed to serialize RpcQueryError: {:?}", err),
+                        ))
+                    }
+                };
+                Err(RpcError::new_internal_or_handler_error(error_data, error_data_value))
+            }
             _ => Err(err.into()),
         },
     }
@@ -313,6 +307,9 @@ impl JsonRpcHandler {
                 process_method_call(request, |params| self.tx_status_common(params, false)).await
             }
             "validators" => process_method_call(request, |params| self.validators(params)).await,
+            "client_config" => {
+                process_method_call(request, |_params: ()| self.client_config()).await
+            }
             "EXPERIMENTAL_broadcast_tx_sync" => {
                 process_method_call(request, |params| self.send_tx_sync(params)).await
             }
@@ -351,6 +348,9 @@ impl JsonRpcHandler {
             }
             "EXPERIMENTAL_maintenance_windows" => {
                 process_method_call(request, |params| self.maintenance_windows(params)).await
+            }
+            "EXPERIMENTAL_split_storage_info" => {
+                process_method_call(request, |params| self.split_storage_info(params)).await
             }
             #[cfg(feature = "sandbox")]
             "sandbox_patch_state" => {
@@ -443,7 +443,7 @@ impl JsonRpcHandler {
         request_data: near_jsonrpc_primitives::types::transactions::RpcBroadcastTransactionRequest,
     ) -> CryptoHash {
         let tx = request_data.signed_transaction;
-        let hash = tx.get_hash().clone();
+        let hash = tx.get_hash();
         self.client_addr.do_send(
             ProcessTxRequest {
                 transaction: tx,
@@ -543,7 +543,7 @@ impl JsonRpcHandler {
                     }
                     Err(err) => break Err(err),
                 }
-                let _ = sleep(self.polling_config.polling_interval).await;
+                sleep(self.polling_config.polling_interval).await;
             }
         })
         .await
@@ -584,7 +584,7 @@ impl JsonRpcHandler {
                         break Err(err.rpc_into());
                     }
                 }
-                let _ = sleep(self.polling_config.polling_interval).await;
+                sleep(self.polling_config.polling_interval).await;
             }
         })
         .await
@@ -759,7 +759,7 @@ impl JsonRpcHandler {
                 self.client_send(Status { is_health_check: false, detailed: true }).await?;
             Ok(Some(status.rpc_into()))
         } else {
-            return Ok(None);
+            Ok(None)
         }
     }
 
@@ -805,13 +805,19 @@ impl JsonRpcHandler {
                         .peer_manager_send(near_network::debug::GetDebugStatus::Graph)
                         .await?
                         .rpc_into(),
+                    "/debug/api/recent_outbound_connections" => self
+                        .peer_manager_send(
+                            near_network::debug::GetDebugStatus::RecentOutboundConnections,
+                        )
+                        .await?
+                        .rpc_into(),
                     _ => return Ok(None),
                 };
-            return Ok(Some(near_jsonrpc_primitives::types::status::RpcDebugStatusResponse {
+            Ok(Some(near_jsonrpc_primitives::types::status::RpcDebugStatusResponse {
                 status_response: debug_status,
-            }));
+            }))
         } else {
-            return Ok(None);
+            Ok(None)
         }
     }
 
@@ -825,11 +831,11 @@ impl JsonRpcHandler {
         if self.enable_debug_rpc {
             let debug_status =
                 self.client_send(DebugStatus::BlockStatus(starting_height)).await?.rpc_into();
-            return Ok(Some(near_jsonrpc_primitives::types::status::RpcDebugStatusResponse {
+            Ok(Some(near_jsonrpc_primitives::types::status::RpcDebugStatusResponse {
                 status_response: debug_status,
-            }));
+            }))
         } else {
-            return Ok(None);
+            Ok(None)
         }
     }
 
@@ -925,7 +931,7 @@ impl JsonRpcHandler {
         let block: near_primitives::views::BlockView =
             self.view_client_send(GetBlock(request.block_reference)).await?;
 
-        let block_hash = block.header.hash.clone();
+        let block_hash = block.header.hash;
         let changes = self.view_client_send(GetStateChangesInBlock { block_hash }).await?;
 
         Ok(near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockByTypeResponse {
@@ -944,7 +950,7 @@ impl JsonRpcHandler {
         let block: near_primitives::views::BlockView =
             self.view_client_send(GetBlock(request.block_reference)).await?;
 
-        let block_hash = block.header.hash.clone();
+        let block_hash = block.header.hash;
         let changes = self
             .view_client_send(GetStateChanges {
                 block_hash,
@@ -1089,6 +1095,27 @@ impl JsonRpcHandler {
         let windows = self.view_client_send(GetMaintenanceWindows { account_id }).await?;
         Ok(windows.iter().map(|r| (r.start, r.end)).collect())
     }
+
+    async fn client_config(
+        &self,
+    ) -> Result<
+        near_jsonrpc_primitives::types::client_config::RpcClientConfigResponse,
+        near_jsonrpc_primitives::types::client_config::RpcClientConfigError,
+    > {
+        let client_config = self.client_send(GetClientConfig {}).await?;
+        Ok(near_jsonrpc_primitives::types::client_config::RpcClientConfigResponse { client_config })
+    }
+
+    pub async fn split_storage_info(
+        &self,
+        _request_data: near_jsonrpc_primitives::types::split_storage::RpcSplitStorageInfoRequest,
+    ) -> Result<
+        near_jsonrpc_primitives::types::split_storage::RpcSplitStorageInfoResponse,
+        near_jsonrpc_primitives::types::split_storage::RpcSplitStorageInfoError,
+    > {
+        let split_storage = self.view_client_send(GetSplitStorageInfo {}).await?;
+        Ok(RpcSplitStorageInfoResponse { result: split_storage })
+    }
 }
 
 #[cfg(feature = "sandbox")]
@@ -1194,11 +1221,11 @@ impl JsonRpcHandler {
 
 #[cfg(feature = "test_features")]
 impl JsonRpcHandler {
-    async fn adv_disable_header_sync(&self, _params: Option<Value>) -> Result<Value, RpcError> {
+    async fn adv_disable_header_sync(&self, _params: Value) -> Result<Value, RpcError> {
         actix::spawn(
             self.client_addr
                 .send(
-                    near_network::types::NetworkAdversarialMessage::AdvDisableHeaderSync
+                    near_client::NetworkAdversarialMessage::AdvDisableHeaderSync
                         .with_span_context(),
                 )
                 .map(|_| ()),
@@ -1206,55 +1233,53 @@ impl JsonRpcHandler {
         actix::spawn(
             self.view_client_addr
                 .send(
-                    near_network::types::NetworkAdversarialMessage::AdvDisableHeaderSync
+                    near_client::NetworkAdversarialMessage::AdvDisableHeaderSync
                         .with_span_context(),
                 )
                 .map(|_| ()),
         );
-        Ok(Value::String("".to_string()))
+        Ok(Value::String(String::new()))
     }
 
-    async fn adv_disable_doomslug(&self, _params: Option<Value>) -> Result<Value, RpcError> {
+    async fn adv_disable_doomslug(&self, _params: Value) -> Result<Value, RpcError> {
         actix::spawn(
             self.client_addr
                 .send(
-                    near_network::types::NetworkAdversarialMessage::AdvDisableDoomslug
-                        .with_span_context(),
+                    near_client::NetworkAdversarialMessage::AdvDisableDoomslug.with_span_context(),
                 )
                 .map(|_| ()),
         );
         actix::spawn(
             self.view_client_addr
                 .send(
-                    near_network::types::NetworkAdversarialMessage::AdvDisableDoomslug
-                        .with_span_context(),
+                    near_client::NetworkAdversarialMessage::AdvDisableDoomslug.with_span_context(),
                 )
                 .map(|_| ()),
         );
-        Ok(Value::String("".to_string()))
+        Ok(Value::String(String::new()))
     }
 
-    async fn adv_produce_blocks(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let (num_blocks, only_valid) = crate::api::parse_params::<(u64, bool)>(params)?;
+    async fn adv_produce_blocks(&self, params: Value) -> Result<Value, RpcError> {
+        let (num_blocks, only_valid) = crate::api::Params::parse(params)?;
         actix::spawn(
             self.client_addr
                 .send(
-                    near_network::types::NetworkAdversarialMessage::AdvProduceBlocks(
+                    near_client::NetworkAdversarialMessage::AdvProduceBlocks(
                         num_blocks, only_valid,
                     )
                     .with_span_context(),
                 )
                 .map(|_| ()),
         );
-        Ok(Value::String("".to_string()))
+        Ok(Value::String(String::new()))
     }
 
-    async fn adv_switch_to_height(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let (height,) = crate::api::parse_params::<(u64,)>(params)?;
+    async fn adv_switch_to_height(&self, params: Value) -> Result<Value, RpcError> {
+        let (height,) = crate::api::Params::parse(params)?;
         actix::spawn(
             self.client_addr
                 .send(
-                    near_network::types::NetworkAdversarialMessage::AdvSwitchToHeight(height)
+                    near_client::NetworkAdversarialMessage::AdvSwitchToHeight(height)
                         .with_span_context(),
                 )
                 .map(|_| ()),
@@ -1262,21 +1287,18 @@ impl JsonRpcHandler {
         actix::spawn(
             self.view_client_addr
                 .send(
-                    near_network::types::NetworkAdversarialMessage::AdvSwitchToHeight(height)
+                    near_client::NetworkAdversarialMessage::AdvSwitchToHeight(height)
                         .with_span_context(),
                 )
                 .map(|_| ()),
         );
-        Ok(Value::String("".to_string()))
+        Ok(Value::String(String::new()))
     }
 
-    async fn adv_get_saved_blocks(&self, _params: Option<Value>) -> Result<Value, RpcError> {
+    async fn adv_get_saved_blocks(&self, _params: Value) -> Result<Value, RpcError> {
         match self
             .client_addr
-            .send(
-                near_network::types::NetworkAdversarialMessage::AdvGetSavedBlocks
-                    .with_span_context(),
-            )
+            .send(near_client::NetworkAdversarialMessage::AdvGetSavedBlocks.with_span_context())
             .await
         {
             Ok(result) => match result {
@@ -1287,11 +1309,11 @@ impl JsonRpcHandler {
         }
     }
 
-    async fn adv_check_store(&self, _params: Option<Value>) -> Result<Value, RpcError> {
+    async fn adv_check_store(&self, _params: Value) -> Result<Value, RpcError> {
         match self
             .client_addr
             .send(
-                near_network::types::NetworkAdversarialMessage::AdvCheckStorageConsistency
+                near_client::NetworkAdversarialMessage::AdvCheckStorageConsistency
                     .with_span_context(),
             )
             .await
@@ -1409,6 +1431,18 @@ pub async fn prometheus_handler() -> Result<HttpResponse, HttpError> {
     }
 }
 
+fn client_config_handler(
+    handler: web::Data<JsonRpcHandler>,
+) -> impl Future<Output = Result<HttpResponse, HttpError>> {
+    let response = async move {
+        match handler.client_config().await {
+            Ok(value) => Ok(HttpResponse::Ok().json(&value)),
+            Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
+        }
+    };
+    response.boxed()
+}
+
 fn get_cors(cors_allowed_origins: &[String]) -> Cors {
     let mut cors = Cors::permissive();
     if cors_allowed_origins != ["*".to_string()] {
@@ -1493,7 +1527,7 @@ pub fn start_http(
         enable_debug_rpc,
         experimental_debug_pages_src_path: debug_pages_src_path,
     } = config;
-    let prometheus_addr = prometheus_addr.filter(|it| it != &addr);
+    let prometheus_addr = prometheus_addr.filter(|it| it != &addr.to_string());
     let cors_allowed_origins_clone = cors_allowed_origins.clone();
     info!(target:"network", "Starting http server at {}", addr);
     let mut servers = Vec::new();
@@ -1533,10 +1567,13 @@ pub fn start_http(
                 web::resource("/debug/api/block_status/{starting_height}")
                     .route(web::get().to(debug_block_status_handler)),
             )
+            .service(
+                web::resource("/debug/client_config").route(web::get().to(client_config_handler)),
+            )
             .service(debug_html)
             .service(display_debug_html)
     })
-    .bind(addr)
+    .listen(addr.std_listener().unwrap())
     .unwrap()
     .workers(4)
     .shutdown_timeout(5)

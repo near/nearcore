@@ -1,7 +1,7 @@
 //! Contract that adds keys and creates accounts
 
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
-use near_sdk::{env, near_bindgen, AccountId, Promise, PublicKey};
+use near_sdk::{env, near_bindgen, AccountId, Balance, Promise, PublicKey};
 use std::str::FromStr;
 
 #[near_bindgen]
@@ -32,5 +32,9 @@ impl KeyAdder {
             .create_account()
             .add_full_access_key(public_key)
             .transfer(env::attached_deposit())
+    }
+
+    pub fn stake(&mut self, amount: Balance, public_key: PublicKey) -> Promise {
+        Promise::new(env::current_account_id()).stake(amount, public_key)
     }
 }

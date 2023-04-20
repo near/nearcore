@@ -1,5 +1,7 @@
 use crate::apply_chain_range::apply_chain_range;
 use crate::contract_accounts::ContractAccount;
+use crate::contract_accounts::ContractAccountFilter;
+use crate::contract_accounts::Summary;
 use crate::state_dump::state_dump;
 use crate::state_dump::state_dump_redis;
 use crate::tx_dump::dump_tx_from_block;
@@ -7,11 +9,12 @@ use crate::{apply_chunk, epoch_info};
 use ansi_term::Color::Red;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
+use near_chain::types::RuntimeAdapter;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
-use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, Error, RuntimeAdapter};
+use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, Error};
 use near_chain_configs::GenesisChangeConfig;
+use near_epoch_manager::EpochManagerHandle;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
-use near_network::iter_peers_from_store;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
@@ -22,7 +25,6 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{chunk_extra::ChunkExtra, BlockHeight, ShardId, StateRoot};
 use near_primitives_core::types::Gas;
-use near_store::db::Database;
 use near_store::test_utils::create_test_store;
 use near_store::TrieDBStorage;
 use near_store::{Store, Trie, TrieCache, TrieCachingStorage, TrieConfig};
@@ -38,12 +40,13 @@ use std::sync::Arc;
 pub(crate) fn apply_block(
     block_hash: CryptoHash,
     shard_id: ShardId,
-    runtime_adapter: &dyn RuntimeAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
+    runtime: &dyn RuntimeAdapter,
     chain_store: &mut ChainStore,
 ) -> (Block, ApplyTransactionResult) {
     let block = chain_store.get_block(&block_hash).unwrap();
     let height = block.header().height();
-    let shard_uid = runtime_adapter.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
+    let shard_uid = epoch_manager.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
     let apply_result = if block.chunks()[shard_id as usize].height_included() == height {
         let chunk = chain_store.get_chunk(&block.chunks()[shard_id as usize].chunk_hash()).unwrap();
         let prev_block = chain_store.get_block(block.header().prev_hash()).unwrap();
@@ -60,13 +63,13 @@ pub(crate) fn apply_block(
         let chunk_inner = chunk.cloned_header().take_inner();
         let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
             chain_store,
-            runtime_adapter,
+            epoch_manager,
             block.header().prev_hash(),
             shard_id,
         )
         .unwrap();
 
-        runtime_adapter
+        runtime
             .apply_transactions(
                 shard_id,
                 chunk_inner.prev_state_root(),
@@ -91,7 +94,7 @@ pub(crate) fn apply_block(
         let chunk_extra =
             chain_store.get_chunk_extra(block.header().prev_hash(), &shard_uid).unwrap();
 
-        runtime_adapter
+        runtime
             .apply_transactions(
                 shard_id,
                 chunk_extra.state_root(),
@@ -122,24 +125,19 @@ pub(crate) fn apply_block_at_height(
     home_dir: &Path,
     near_config: NearConfig,
     store: Store,
-) {
+) -> anyhow::Result<()> {
     let mut chain_store = ChainStore::new(
         store.clone(),
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
     );
-    let runtime_adapter: Arc<dyn RuntimeAdapter> =
-        Arc::new(NightshadeRuntime::from_config(home_dir, store, &near_config));
+    let runtime = NightshadeRuntime::from_config(home_dir, store.clone(), &near_config);
+    let epoch_manager =
+        EpochManager::new_from_genesis_config(store, &near_config.genesis.config)?.into_handle();
     let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
     let (block, apply_result) =
-        apply_block(block_hash, shard_id, runtime_adapter.as_ref(), &mut chain_store);
-    print_apply_block_result(
-        &block,
-        &apply_result,
-        runtime_adapter.as_ref(),
-        &mut chain_store,
-        shard_id,
-    );
+        apply_block(block_hash, shard_id, &epoch_manager, runtime.as_ref(), &mut chain_store);
+    check_apply_block_result(&block, &apply_result, &epoch_manager, &mut chain_store, shard_id)
 }
 
 pub(crate) fn apply_chunk(
@@ -149,14 +147,23 @@ pub(crate) fn apply_chunk(
     chunk_hash: ChunkHash,
     target_height: Option<u64>,
 ) -> anyhow::Result<()> {
+    let epoch_manager =
+        EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)?
+            .into_handle();
     let runtime = NightshadeRuntime::from_config(home_dir, store.clone(), &near_config);
     let mut chain_store = ChainStore::new(
         store,
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
     );
-    let (apply_result, gas_limit) =
-        apply_chunk::apply_chunk(&runtime, &mut chain_store, chunk_hash, target_height, None)?;
+    let (apply_result, gas_limit) = apply_chunk::apply_chunk(
+        &epoch_manager,
+        &*runtime,
+        &mut chain_store,
+        chunk_hash,
+        target_height,
+        None,
+    )?;
     println!("resulting chunk extra:\n{:?}", resulting_chunk_extra(&apply_result, gas_limit));
     Ok(())
 }
@@ -175,6 +182,10 @@ pub(crate) fn apply_range(
 ) {
     let mut csv_file = csv_file.map(|filename| std::fs::File::create(filename).unwrap());
 
+    let epoch_manager =
+        EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)
+            .unwrap()
+            .into_handle();
     let runtime = NightshadeRuntime::from_config(home_dir, store.clone(), &near_config);
     apply_chain_range(
         store,
@@ -182,6 +193,7 @@ pub(crate) fn apply_range(
         start_index,
         end_index,
         shard_id,
+        &epoch_manager,
         runtime,
         verbose_output,
         csv_file.as_mut(),
@@ -196,9 +208,18 @@ pub(crate) fn apply_receipt(
     store: Store,
     hash: CryptoHash,
 ) -> anyhow::Result<()> {
+    let epoch_manager =
+        EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)?
+            .into_handle();
     let runtime = NightshadeRuntime::from_config(home_dir, store.clone(), &near_config);
-    apply_chunk::apply_receipt(near_config.genesis.config.genesis_height, &runtime, store, hash)
-        .map(|_| ())
+    apply_chunk::apply_receipt(
+        near_config.genesis.config.genesis_height,
+        &epoch_manager,
+        &*runtime,
+        store,
+        hash,
+    )
+    .map(|_| ())
 }
 
 pub(crate) fn apply_tx(
@@ -207,9 +228,18 @@ pub(crate) fn apply_tx(
     store: Store,
     hash: CryptoHash,
 ) -> anyhow::Result<()> {
+    let epoch_manager =
+        EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)?
+            .into_handle();
     let runtime = NightshadeRuntime::from_config(home_dir, store.clone(), &near_config);
-    apply_chunk::apply_tx(near_config.genesis.config.genesis_height, &runtime, store, hash)
-        .map(|_| ())
+    apply_chunk::apply_tx(
+        near_config.genesis.config.genesis_height,
+        &epoch_manager,
+        &*runtime,
+        store,
+        hash,
+    )
+    .map(|_| ())
 }
 
 pub(crate) fn dump_account_storage(
@@ -232,7 +262,7 @@ pub(crate) fn dump_account_storage(
         load_trie_stop_at_height(store, home_dir, &near_config, block_height);
     for (shard_id, state_root) in state_roots.iter().enumerate() {
         let trie = runtime
-            .get_trie_for_shard(shard_id as u64, header.prev_hash(), state_root.clone(), false)
+            .get_trie_for_shard(shard_id as u64, header.prev_hash(), *state_root, false)
             .unwrap();
         let key = TrieKey::ContractData {
             account_id: account_id.parse().unwrap(),
@@ -244,7 +274,7 @@ pub(crate) fn dump_account_storage(
             let record = StateRecord::from_raw_key_value(key.to_vec(), value).unwrap();
             match record {
                 StateRecord::Data { account_id: _, data_key: _, value } => {
-                    fs::write(output, &value).unwrap();
+                    fs::write(output, value).unwrap();
                     println!(
                         "Dump contract storage under key {} of account {} into file {}",
                         storage_key,
@@ -356,7 +386,7 @@ pub(crate) fn dump_tx(
     output_path: Option<String>,
 ) -> Result<(), Error> {
     let chain_store = ChainStore::new(
-        store.clone(),
+        store,
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
     );
@@ -375,7 +405,7 @@ pub(crate) fn dump_tx(
     println!("Saving tx (height {} to {}) into {}", start_height, end_height, json_path.display(),);
     fs::write(json_path, json!(txs).to_string())
         .expect("Error writing the results to a json file.");
-    return Ok(());
+    Ok(())
 }
 
 pub(crate) fn get_chunk(chunk_hash: ChunkHash, near_config: NearConfig, store: Store) {
@@ -412,36 +442,66 @@ pub(crate) fn get_receipt(receipt_id: CryptoHash, near_config: NearConfig, store
     println!("Receipt: {:#?}", receipt);
 }
 
-pub(crate) fn peers(db: Arc<dyn Database>) {
-    iter_peers_from_store(db, |(peer_id, peer_info)| {
-        println!("{} {:?}", peer_id, peer_info);
-    })
+fn chunk_extras_equal(l: &ChunkExtra, r: &ChunkExtra) -> bool {
+    // explicitly enumerate the versions in a match here first so that if a new version is
+    // added, we'll get a compile error here and be reminded to update it correctly.
+    match (l, r) {
+        (ChunkExtra::V1(l), ChunkExtra::V1(r)) => return l == r,
+        (ChunkExtra::V2(l), ChunkExtra::V2(r)) => return l == r,
+        (ChunkExtra::V1(_), ChunkExtra::V2(_)) | (ChunkExtra::V2(_), ChunkExtra::V1(_)) => {}
+    };
+    if l.state_root() != r.state_root() {
+        return false;
+    }
+    if l.outcome_root() != r.outcome_root() {
+        return false;
+    }
+    if l.gas_used() != r.gas_used() {
+        return false;
+    }
+    if l.gas_limit() != r.gas_limit() {
+        return false;
+    }
+    if l.balance_burnt() != r.balance_burnt() {
+        return false;
+    }
+    l.validator_proposals().collect::<Vec<_>>() == r.validator_proposals().collect::<Vec<_>>()
 }
 
-pub(crate) fn print_apply_block_result(
+pub(crate) fn check_apply_block_result(
     block: &Block,
     apply_result: &ApplyTransactionResult,
-    runtime_adapter: &dyn RuntimeAdapter,
+    epoch_manager: &EpochManagerHandle,
     chain_store: &mut ChainStore,
     shard_id: ShardId,
-) {
+) -> anyhow::Result<()> {
     let height = block.header().height();
     let block_hash = block.header().hash();
+    let new_chunk_extra =
+        resulting_chunk_extra(apply_result, block.chunks()[shard_id as usize].gas_limit());
     println!(
         "apply chunk for shard {} at height {}, resulting chunk extra {:?}",
-        shard_id,
-        height,
-        resulting_chunk_extra(apply_result, block.chunks()[shard_id as usize].gas_limit())
+        shard_id, height, &new_chunk_extra,
     );
-    let shard_uid = runtime_adapter.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
+    let shard_uid = epoch_manager.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
     if block.chunks()[shard_id as usize].height_included() == height {
-        if let Ok(chunk_extra) = chain_store.get_chunk_extra(&block_hash, &shard_uid) {
-            println!("Existing chunk extra: {:?}", chunk_extra);
+        if let Ok(old_chunk_extra) = chain_store.get_chunk_extra(block_hash, &shard_uid) {
+            if chunk_extras_equal(&new_chunk_extra, old_chunk_extra.as_ref()) {
+                println!("new chunk extra matches old chunk extra");
+                Ok(())
+            } else {
+                Err(anyhow::anyhow!(
+                    "mismatch in resulting chunk extra.\nold: {:?}\nnew: {:?}",
+                    &old_chunk_extra,
+                    &new_chunk_extra
+                ))
+            }
         } else {
-            println!("No existing chunk extra available");
+            Err(anyhow::anyhow!("No existing chunk extra available"))
         }
     } else {
         println!("No existing chunk extra available");
+        Ok(())
     }
 }
 
@@ -503,7 +563,7 @@ pub(crate) fn print_chain(
                         .unwrap();
                     if header.chunk_mask()[shard_id] {
                         let chunk = chain_store
-                            .get_chunk(&block.chunks()[shard_id as usize].chunk_hash())
+                            .get_chunk(&block.chunks()[shard_id].chunk_hash())
                             .unwrap()
                             .clone();
                         chunk_debug_str.push(format!(
@@ -531,18 +591,11 @@ pub(crate) fn print_chain(
                     chunk_debug_str.join("|")
                 );
             }
+        } else if let Some(epoch_id) = &cur_epoch_id {
+            let block_producer = runtime.get_block_producer(epoch_id, height).unwrap();
+            println!("{: >3} {} | {: >10}", height, Red.bold().paint("MISSING"), block_producer);
         } else {
-            if let Some(epoch_id) = &cur_epoch_id {
-                let block_producer = runtime.get_block_producer(epoch_id, height).unwrap();
-                println!(
-                    "{: >3} {} | {: >10}",
-                    height,
-                    Red.bold().paint("MISSING"),
-                    block_producer
-                );
-            } else {
-                println!("{: >3} {}", height, Red.bold().paint("MISSING"));
-            }
+            println!("{: >3} {}", height, Red.bold().paint("MISSING"));
         }
     }
 }
@@ -594,7 +647,7 @@ pub(crate) fn state(home_dir: &Path, near_config: NearConfig, store: Store) {
     println!("Storage roots are {:?}, block height is {}", state_roots, header.height());
     for (shard_id, state_root) in state_roots.iter().enumerate() {
         let trie = runtime
-            .get_trie_for_shard(shard_id as u64, header.prev_hash(), state_root.clone(), false)
+            .get_trie_for_shard(shard_id as u64, header.prev_hash(), *state_root, false)
             .unwrap();
         for item in trie.iter().unwrap() {
             let (key, value) = item.unwrap();
@@ -688,13 +741,13 @@ pub(crate) fn check_block_chunk_existence(near_config: NearConfig, store: Store)
     let mut cur_block = chain_store.get_block(&head.last_block_hash).unwrap();
     while cur_block.header().height() > genesis_height {
         for chunk_header in cur_block.chunks().iter() {
-            if chunk_header.height_included() == cur_block.header().height() {
-                if let Err(_) = chain_store.get_chunk(&chunk_header.chunk_hash()) {
-                    panic!(
-                        "chunk {:?} cannot be found in storage, last block {:?}",
-                        chunk_header, cur_block
-                    );
-                }
+            if chunk_header.height_included() == cur_block.header().height()
+                && chain_store.get_chunk(&chunk_header.chunk_hash()).is_err()
+            {
+                panic!(
+                    "chunk {:?} cannot be found in storage, last block {:?}",
+                    chunk_header, cur_block
+                );
             }
         }
         cur_block = match chain_store.get_block(cur_block.header().prev_hash()) {
@@ -710,26 +763,23 @@ pub(crate) fn check_block_chunk_existence(near_config: NearConfig, store: Store)
 pub(crate) fn print_epoch_info(
     epoch_selection: epoch_info::EpochSelection,
     validator_account_id: Option<AccountId>,
-    home_dir: &Path,
     near_config: NearConfig,
     store: Store,
 ) {
     let genesis_height = near_config.genesis.config.genesis_height;
     let mut chain_store =
         ChainStore::new(store.clone(), genesis_height, near_config.client_config.save_trie_changes);
-    let mut epoch_manager =
+    let epoch_manager =
         EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)
-            .expect("Failed to start Epoch Manager");
-    let runtime_adapter: Arc<dyn RuntimeAdapter> =
-        Arc::new(NightshadeRuntime::from_config(&home_dir, store.clone(), &near_config));
+            .expect("Failed to start Epoch Manager")
+            .into_handle();
 
     epoch_info::print_epoch_info(
         epoch_selection,
         validator_account_id,
         store,
         &mut chain_store,
-        &mut epoch_manager,
-        runtime_adapter,
+        &epoch_manager,
     );
 }
 
@@ -779,7 +829,7 @@ fn load_trie(
     store: Store,
     home_dir: &Path,
     near_config: &NearConfig,
-) -> (NightshadeRuntime, Vec<StateRoot>, BlockHeader) {
+) -> (Arc<NightshadeRuntime>, Vec<StateRoot>, BlockHeader) {
     load_trie_stop_at_height(store, home_dir, near_config, LoadTrieMode::Latest)
 }
 
@@ -788,7 +838,7 @@ fn load_trie_stop_at_height(
     home_dir: &Path,
     near_config: &NearConfig,
     mode: LoadTrieMode,
-) -> (NightshadeRuntime, Vec<StateRoot>, BlockHeader) {
+) -> (Arc<NightshadeRuntime>, Vec<StateRoot>, BlockHeader) {
     let chain_store = ChainStore::new(
         store.clone(),
         near_config.genesis.config.genesis_height,
@@ -849,11 +899,11 @@ pub(crate) fn contract_accounts(
     home_dir: &Path,
     store: Store,
     near_config: NearConfig,
+    filter: ContractAccountFilter,
 ) -> anyhow::Result<()> {
     let (_runtime, state_roots, _header) = load_trie(store.clone(), home_dir, &near_config);
 
-    for (shard_id, &state_root) in state_roots.iter().enumerate() {
-        eprintln!("Starting shard {shard_id}");
+    let tries = state_roots.iter().enumerate().map(|(shard_id, &state_root)| {
         // TODO: This assumes simple nightshade layout, it will need an update when we reshard.
         let shard_uid = ShardUId::from_shard_id_and_layout(
             shard_id as u64,
@@ -862,15 +912,33 @@ pub(crate) fn contract_accounts(
         // Use simple non-caching storage, we don't expect many duplicate lookups while iterating.
         let storage = TrieDBStorage::new(store.clone(), shard_uid);
         // We don't need flat state to traverse all accounts.
-        let flat_state = None;
-        let trie = Trie::new(Box::new(storage), state_root, flat_state);
+        let flat_storage_chunk_view = None;
+        Trie::new(Box::new(storage), state_root, flat_storage_chunk_view)
+    });
 
-        for contract in ContractAccount::in_trie(&trie)? {
-            match contract {
-                Ok(contract) => println!("{contract}"),
-                Err(err) => eprintln!("{err}"),
+    filter.write_header(&mut std::io::stdout().lock())?;
+    // Prefer streaming the results, to use less memory and provide
+    // a feedback more quickly.
+    if filter.can_stream() {
+        // Process account after account and display results immediately.
+        for (i, trie) in tries.enumerate() {
+            eprintln!("Starting shard {i}");
+            let trie_iter = ContractAccount::in_trie(trie, filter.clone())?;
+            for contract in trie_iter {
+                match contract {
+                    Ok(contract) => println!("{contract}"),
+                    Err(err) => eprintln!("{err}"),
+                }
             }
         }
+    } else {
+        // Load all results into memory, which allows advanced lookups but also
+        // means we have to wait for everything to complete before output can be
+        // shown.
+        let tries_iterator = ContractAccount::in_tries(tries.collect(), &filter)?;
+        let result = tries_iterator.summary(&store, &filter);
+        println!("{result}");
     }
+
     Ok(())
 }

@@ -20,8 +20,8 @@ fn check_method(module: &Module, method_name: &str) -> Result<(), FunctionCallEr
     let info = module.info();
     use wasmer_runtime_core::module::ExportIndex::Func;
     if let Some(Func(index)) = info.exports.map.get(method_name) {
-        let func = info.func_assoc.get(index.clone()).unwrap();
-        let sig = info.signatures.get(func.clone()).unwrap();
+        let func = info.func_assoc.get(*index).unwrap();
+        let sig = info.signatures.get(*func).unwrap();
         if sig.params().is_empty() && sig.returns().is_empty() {
             Ok(())
         } else {
@@ -246,7 +246,7 @@ impl Wasmer0VM {
         code: &ContractCode,
     ) -> Result<wasmer_runtime::Module, CompilationError> {
         let _span = tracing::debug_span!(target: "vm", "Wasmer0VM::compile_uncached").entered();
-        let prepared_code = prepare::prepare_contract(code.code(), &self.config)
+        let prepared_code = prepare::prepare_contract(code.code(), &self.config, VMKind::Wasmer0)
             .map_err(CompilationError::PrepareError)?;
         wasmer_runtime::compile(&prepared_code).map_err(|err| match err {
             wasmer_runtime::error::CompileError::ValidationError { .. } => {

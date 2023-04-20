@@ -1,14 +1,14 @@
 /// Type that belong to the network protocol.
 pub use crate::network_protocol::{
-    AccountOrPeerIdOrHash, Encoding, Handshake, HandshakeFailureReason, PeerMessage,
+    AccountOrPeerIdOrHash, Disconnect, Encoding, Handshake, HandshakeFailureReason, PeerMessage,
     RoutingTableUpdate, SignedAccountData,
 };
 use crate::routing::routing_table_view::RoutingTableInfo;
-use crate::time;
-use futures::future::BoxFuture;
-use futures::FutureExt;
+use near_async::messaging::{
+    AsyncSender, CanSend, CanSendAsync, IntoAsyncSender, IntoSender, Sender,
+};
+use near_async::time;
 use near_crypto::PublicKey;
-use near_o11y::WithSpanContext;
 use near_primitives::block::{ApprovalMessage, Block, GenesisId};
 use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
@@ -17,7 +17,6 @@ use near_primitives::sharding::PartialEncodedChunkWithArcReceipts;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockHeight;
 use near_primitives::types::{AccountId, ShardId};
-use once_cell::sync::OnceCell;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::net::SocketAddr;
@@ -26,7 +25,7 @@ use std::sync::Arc;
 /// Exported types, which are part of network protocol.
 pub use crate::network_protocol::{
     Edge, PartialEdgeInfo, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
-    PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo, Ping, Pong, StateResponseInfo,
+    PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo, StateResponseInfo,
     StateResponseInfoV1, StateResponseInfoV2,
 };
 
@@ -117,6 +116,13 @@ impl KnownPeerState {
     }
 }
 
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub struct ConnectionInfo {
+    pub peer_info: PeerInfo,
+    pub time_established: time::Utc,
+    pub time_connected_until: time::Utc,
+}
+
 impl KnownPeerStatus {
     pub fn is_banned(&self) -> bool {
         matches!(self, KnownPeerStatus::Banned(_, _))
@@ -136,8 +142,6 @@ pub struct ChainInfo {
     // The lastest block on chain.
     pub block: Block,
     // Public keys of accounts participating in the BFT consensus
-    // (both accounts from current and next epoch are important, that's why
-    // the map is indexed by (EpochId,AccountId) pair).
     // It currently includes "block producers", "chunk producers" and "approvers".
     // They are collectively known as "validators".
     // Peers acting on behalf of these accounts have a higher
@@ -149,10 +153,6 @@ pub struct ChainInfo {
 #[rtype(result = "()")]
 pub struct SetChainInfo(pub ChainInfo);
 
-#[derive(Debug, actix::Message)]
-#[rtype(result = "NetworkInfo")]
-pub struct GetNetworkInfo;
-
 /// Public actix interface of `PeerManagerActor`.
 #[derive(actix::Message, Debug, strum::IntoStaticStr)]
 #[rtype(result = "PeerManagerMessageResponse")]
@@ -162,16 +162,9 @@ pub enum PeerManagerMessageRequest {
     /// Used in tests and internally by PeerManager.
     /// TODO: replace it with AsyncContext::spawn/run_later for internal use.
     OutboundTcpConnect(crate::tcp::Stream),
-    /// TEST-ONLY
-    SetAdvOptions(crate::test_utils::SetAdvOptions),
     /// The following types of requests are used to trigger actions in the Peer Manager for testing.
     /// TEST-ONLY: Fetch current routing table.
     FetchRoutingTable,
-    /// TEST-ONLY Start ping to `PeerId` with `nonce`.
-    PingTo {
-        nonce: u64,
-        target: PeerId,
-    },
 }
 
 impl PeerManagerMessageRequest {
@@ -198,9 +191,7 @@ pub enum PeerManagerMessageResponse {
     NetworkResponses(NetworkResponses),
     /// TEST-ONLY
     OutboundTcpConnect,
-    SetAdvOptions,
     FetchRoutingTable(RoutingTableInfo),
-    PingTo,
 }
 
 impl PeerManagerMessageResponse {
@@ -208,7 +199,7 @@ impl PeerManagerMessageResponse {
         if let PeerManagerMessageResponse::NetworkResponses(item) = self {
             item
         } else {
-            panic!("expected PeerMessageRequest::NetworkResponses(");
+            panic!("expected PeerMessageRequest::NetworkResponses");
         }
     }
 }
@@ -374,75 +365,29 @@ pub struct NetworkInfo {
 #[derive(Debug, actix::MessageResponse, PartialEq, Eq)]
 pub enum NetworkResponses {
     NoResponse,
-    PingPongInfo { pings: Vec<Ping>, pongs: Vec<Pong> },
     RouteNotFound,
 }
 
-#[cfg(feature = "test_features")]
-#[derive(actix::Message, Debug)]
-#[rtype(result = "Option<u64>")]
-pub enum NetworkAdversarialMessage {
-    AdvProduceBlocks(u64, bool),
-    AdvSwitchToHeight(u64),
-    AdvDisableHeaderSync,
-    AdvDisableDoomslug,
-    AdvGetSavedBlocks,
-    AdvCheckStorageConsistency,
+#[derive(Clone, derive_more::AsRef)]
+pub struct PeerManagerAdapter {
+    pub async_request_sender:
+        AsyncSender<PeerManagerMessageRequest, Result<PeerManagerMessageResponse, ()>>,
+    pub request_sender: Sender<PeerManagerMessageRequest>,
+    pub set_chain_info_sender: Sender<SetChainInfo>,
 }
 
-pub trait MsgRecipient<M: actix::Message>: Send + Sync + 'static {
-    fn send(&self, msg: M) -> BoxFuture<'static, Result<M::Result, actix::MailboxError>>;
-    fn do_send(&self, msg: M);
-}
-
-impl<A, M> MsgRecipient<M> for actix::Addr<A>
-where
-    M: actix::Message + Send + 'static,
-    M::Result: Send,
-    A: actix::Actor + actix::Handler<M>,
-    A::Context: actix::dev::ToEnvelope<A, M>,
-{
-    fn send(&self, msg: M) -> BoxFuture<'static, Result<M::Result, actix::MailboxError>> {
-        actix::Addr::send(self, msg).boxed()
-    }
-    fn do_send(&self, msg: M) {
-        actix::Addr::do_send(self, msg)
-    }
-}
-pub trait PeerManagerAdapter:
-    MsgRecipient<WithSpanContext<PeerManagerMessageRequest>>
-    + MsgRecipient<WithSpanContext<SetChainInfo>>
-{
-}
 impl<
-        A: MsgRecipient<WithSpanContext<PeerManagerMessageRequest>>
-            + MsgRecipient<WithSpanContext<SetChainInfo>>,
-    > PeerManagerAdapter for A
+        A: CanSendAsync<PeerManagerMessageRequest, Result<PeerManagerMessageResponse, ()>>
+            + CanSend<PeerManagerMessageRequest>
+            + CanSend<SetChainInfo>,
+    > From<Arc<A>> for PeerManagerAdapter
 {
-}
-
-pub struct NetworkRecipient<T> {
-    recipient: OnceCell<Arc<T>>,
-}
-
-impl<T> Default for NetworkRecipient<T> {
-    fn default() -> Self {
-        Self { recipient: OnceCell::default() }
-    }
-}
-
-impl<T> NetworkRecipient<T> {
-    pub fn set_recipient(&self, t: T) {
-        self.recipient.set(Arc::new(t)).ok().expect("cannot set recipient twice");
-    }
-}
-
-impl<M: actix::Message, T: MsgRecipient<M>> MsgRecipient<M> for NetworkRecipient<T> {
-    fn send(&self, msg: M) -> BoxFuture<'static, Result<M::Result, actix::MailboxError>> {
-        self.recipient.wait().send(msg)
-    }
-    fn do_send(&self, msg: M) {
-        self.recipient.wait().do_send(msg);
+    fn from(arc: Arc<A>) -> Self {
+        Self {
+            async_request_sender: arc.as_async_sender(),
+            request_sender: arc.as_sender(),
+            set_chain_info_sender: arc.as_sender(),
+        }
     }
 }
 
@@ -472,8 +417,6 @@ mod tests {
         assert_size!(NetworkRequests);
         assert_size!(NetworkResponses);
         assert_size!(Handshake);
-        assert_size!(Ping);
-        assert_size!(Pong);
         assert_size!(RoutingTableUpdate);
         assert_size!(FullPeerInfo);
         assert_size!(NetworkInfo);
@@ -501,8 +444,6 @@ mod tests {
     fn test_struct_size() {
         assert_size!(PeerInfo);
         assert_size!(AnnounceAccount);
-        assert_size!(Ping);
-        assert_size!(Pong);
         assert_size!(RawRoutedMessage);
         assert_size!(RoutedMessage);
         assert_size!(KnownPeerState);
@@ -542,8 +483,7 @@ mod tests {
     }
 }
 
-// Don't need Borsh ?
-#[derive(Debug, Clone, PartialEq, Eq, borsh::BorshSerialize, borsh::BorshDeserialize, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 /// Defines the destination for a network request.
 /// The request should be sent either to the `account_id` as a routed message, or directly to
 /// any peer that tracks the shard.

@@ -73,10 +73,10 @@ class TestMetaTransactions(unittest.TestCase):
 
         # Now let's prepare the meta transaction.
         new_key = key.Key.from_random("new_key")
-        add_new_key_tx = transaction.create_full_access_key_action(
+        add_new_key_action = transaction.create_full_access_key_action(
             new_key.decoded_pk())
         signed_meta_tx = transaction.create_signed_delegated_action(
-            CANDIDATE_ACCOUNT, CANDIDATE_ACCOUNT, [add_new_key_tx],
+            CANDIDATE_ACCOUNT, CANDIDATE_ACCOUNT, [add_new_key_action],
             candidate_nonce.use_nonce(), 1000, candidate_key.decoded_pk(),
             candidate_key.decoded_sk())
 

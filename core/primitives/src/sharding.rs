@@ -1,9 +1,3 @@
-use borsh::{BorshDeserialize, BorshSerialize};
-use reed_solomon_erasure::galois_8::{Field, ReedSolomon};
-use serde::{Deserialize, Serialize};
-
-use near_crypto::Signature;
-
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{combine_hash, merklize, MerklePath};
 use crate::receipt::Receipt;
@@ -12,14 +6,15 @@ use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, Validato
 use crate::types::{Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot};
 use crate::validator_signer::ValidatorSigner;
 use crate::version::{ProtocolFeature, ProtocolVersion, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
+use borsh::{BorshDeserialize, BorshSerialize};
+use near_crypto::Signature;
+use reed_solomon_erasure::galois_8::{Field, ReedSolomon};
 use reed_solomon_erasure::ReconstructShard;
 use std::sync::Arc;
 
 #[derive(
     BorshSerialize,
     BorshDeserialize,
-    Serialize,
-    Deserialize,
     Hash,
     Eq,
     PartialEq,
@@ -28,6 +23,8 @@ use std::sync::Arc;
     Clone,
     Debug,
     Default,
+    serde::Serialize,
+    serde::Deserialize,
 )]
 pub struct ChunkHash(pub CryptoHash);
 
@@ -593,14 +590,14 @@ impl From<PartialEncodedChunkWithArcReceipts> for PartialEncodedChunk {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, Deserialize)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, serde::Deserialize)]
 pub struct ShardProof {
     pub from_shard_id: ShardId,
     pub to_shard_id: ShardId,
     pub proof: MerklePath,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, Deserialize)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq, serde::Deserialize)]
 /// For each Merkle proof there is a subset of receipts which may be proven.
 pub struct ReceiptProof(pub Vec<Receipt>, pub ShardProof);
 

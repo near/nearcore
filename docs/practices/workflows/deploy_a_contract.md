@@ -1,13 +1,13 @@
 # Deploy a Contract
 
-In this chapter, we'll learn how to build, deploy, and call a minimal
-smart-contract on our local node.
+In this chapter, we'll learn how to build, deploy, and call a minimal smart
+contract on our local node.
 
 ## Preparing Ground
 
-Let's start with creating a fresh local network with an account we'll deploy a
-contract to. You might want to re-read [how to run a node](./run_a_node.md) to
-understand what's going one here:
+Let's start with creating a fresh local network with an account to which we'll
+deploy a contract. You might want to re-read [how to run a node](./run_a_node.md)
+to understand what's going one here:
 
 ```console
 $ cargo run --profile quick-release -p neard -- init
@@ -36,36 +36,33 @@ Account alice.test.near
 ## Minimal Contract
 
 NEAR contracts are [WebAssembly](https://webassembly.org) blobs of bytes. To
-create a contract, contract developer typically uses an SDK for some high-level
-programming language, such as JavaScript, which takes care of producing the
-right `.wasm`.
+create a contract, a contract developer typically uses an SDK for some
+high-level programming language, such as JavaScript, which takes care of
+producing the right `.wasm`.
 
 In this guide, we are interested in how things work under the hood, so we'll
 do everything manually, and implement a contract in Rust without any help from
 SDKs.
 
 As we are looking for something simple, let's create a contract with a single
-"method", `hello`, which returns `"hello world"` string. To "define a method", a
-wasm module should export a function. To "return a value", the contract needs to
-interact with the environment to say "hey, this is the value I am returning".
-Such "interractions" are carried through host-functions, which are quite a bit
-like syscalls in traditional operating system.
+"method", `hello`, which returns a `"hello world"` string. To "define a method",
+a wasm module should export a function. To "return a value", the contract needs
+to interact with the environment to say "hey, this is the value I am returning".
+Such "interactions" are carried through host functions, which are quite a bit
+like syscalls in traditional operating systems.
 
-The set of host functions which the contract can import is defined in
-[`imports.rs`].
+The set of host functions that the contract can import is defined in
+[`imports.rs`](https://github.com/near/nearcore/blob/aeccaaab334275f6d0a62deabd184675bc3c6a23/runtime/near-vm-runner/src/imports.rs#L71-L242).
 
-[`imports.rs`]: https://github.com/near/nearcore/blob/aeccaaab334275f6d0a62deabd184675bc3c6a23/runtime/near-vm-runner/src/imports.rs#L71-L242
-
-
-In this particular case, we need `value_return` function:
+In this particular case, we need the `value_return` function:
 
 ```
 value_return<[value_len: u64, value_ptr: u64] -> []>
 ```
 
-That is, `value_return` function takes a pointer to slice of bytes, a length of
-the slice, and returns nothing. If the contract calls this function, the slice
-would be considered a result of the function.
+This means that the `value_return` function takes a pointer to a slice of bytes,
+the length of the slice, and returns nothing. If the contract calls this function,
+the slice would be considered a result of the function.
 
 To recap, we want to produce a `.wasm` file with roughly the following content:
 
@@ -78,7 +75,7 @@ To recap, we want to produce a `.wasm` file with roughly the following content:
 ## Cargo Boilerplate
 
 Armed with this knowledge, we can write Rust code to produce the required WASM.
-Before we actually start doing that, some amount of setup code is required.
+Before we start doing that, some amount of setup code is required.
 
 Let's start with creating a new crate:
 
@@ -105,11 +102,12 @@ crate-type = ["cdylib"]
 ```
 
 Here, we ask Cargo to build a "C dynamic library". When compiling for wasm,
-this'll give us a `.wasm` module. This is just confusing, sorry about that
-:(
+that'll give us a `.wasm` module. This part is a bit confusing, sorry about
+that :(
 
 Next, as we are aiming for minimalism here, we need to disable optional bits
-of Rust runtime. Namely, we want to make our crate `no_std`, set `panic=abort`
+of the Rust runtime. Namely, we want to make our crate `no_std` (this means
+that we are not going to use the Rust standard library), set `panic=abort`
 as our panic strategy and define a panic handler to abort execution.
 
 ```toml
@@ -150,7 +148,7 @@ $ ls target/wasm32-unknown-unknown/release/hello_near.wasm
 ```
 
 106 bytes is pretty small! Let's see what's inside. For that, we'll use
-`wasm-tools` suite of cli utilities.
+the `wasm-tools` suite of CLI utilities.
 
 ```console
 $ cargo install wasm-tools
@@ -168,8 +166,9 @@ $ cargo install wasm-tools
 
 ## Rust Contract
 
-Finally, let's implement an actual contract. We'll need `extern "C"` block to
-declare `value_return` import, and a `#[no_mangle] extern "C"` function to declare `hello` export:
+Finally, let's implement an actual contract. We'll need an `extern "C"` block to
+declare the `value_return` import, and a `#[no_mangle] extern "C"` function to
+declare the `hello` export:
 
 ```rust
 // hello-near/src/lib.rs
@@ -192,7 +191,8 @@ fn panic_handler(_info: &core::panic::PanicInfo) -> ! {
 }
 ```
 
-Building and inspecting output shows that it's roughly what we want:
+After building the contract, the output wasm shows us that it's roughly what we
+want:
 
 ```console
 $ cargo b -r --target wasm32-unknown-unknown
@@ -224,7 +224,7 @@ $ wasm-tools print target/wasm32-unknown-unknown/release/hello_near.wasm
 
 ## Deploying the Contract
 
-Now that we have WASM, let's deploy it!
+Now that we have the WASM, let's deploy it!
 
 ```console
 $ NEAR_ENV=local near deploy alice.test.near \
@@ -251,10 +251,10 @@ http://localhost:9001/transactions/9WMwmTf6pnFMtj1KBqjJtkKvdFXS4kt3DHnYRnbFpJ9e
 'hello world'
 ```
 
-Note that we pass `alice.test.near` twice: first time to specify which contract
+Note that we pass `alice.test.near` twice: the first time to specify which contract
 we are calling, the second time to determine who calls the contract. That is,
-the second account actually spends tokens. In the following example `bob` spends
-NEAR to call contact deployed to alice account:
+the second account is the one that spends tokens. In the following example `bob`
+spends NEAR to call the contact deployed to the `alice` account:
 
 
 ```console

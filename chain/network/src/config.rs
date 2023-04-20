@@ -5,16 +5,17 @@ use crate::network_protocol::PeerInfo;
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_store;
 use crate::sink::Sink;
-use crate::time;
+use crate::stun;
+use crate::tcp;
 use crate::types::ROUTED_MESSAGE_TTL;
 use anyhow::Context;
+use near_async::time;
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::AccountId;
 use near_primitives::validator_signer::ValidatorSigner;
 use std::collections::HashSet;
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 
 /// How much height horizon to give to consider peer up to date.
@@ -23,12 +24,11 @@ pub const HIGHEST_PEER_HORIZON: u64 = 5;
 /// Maximum amount of routes to store for each account id.
 pub const MAX_ROUTES_TO_STORE: usize = 5;
 
-/// Maximum number of PeerAddts in the ValidatorConfig::endpoints field.
+/// Maximum number of PeerAddrs in the ValidatorConfig::endpoints field.
 pub const MAX_PEER_ADDRS: usize = 10;
 
-/// Address of the format "<domain/ip>:<port>" of STUN servers.
-// TODO(gprusak): turn into a proper struct implementing Display and FromStr.
-pub type StunServerAddr = String;
+/// Maximum number of peers to include in a PeersResponse message.
+pub const PEERS_RESPONSE_MAX_PEERS: u32 = 512;
 
 /// ValidatorProxies are nodes with public IP (aka proxies) that this validator trusts to be honest
 /// and willing to forward traffic to this validator. Whenever this node is a TIER1 validator
@@ -52,7 +52,7 @@ pub type StunServerAddr = String;
 #[derive(Clone)]
 pub enum ValidatorProxies {
     Static(Vec<PeerAddr>),
-    Dynamic(Vec<StunServerAddr>),
+    Dynamic(Vec<stun::ServerAddr>),
 }
 
 #[derive(Clone)]
@@ -91,7 +91,7 @@ pub struct Tier1 {
 /// Validated configuration for the peer-to-peer manager.
 #[derive(Clone)]
 pub struct NetworkConfig {
-    pub node_addr: Option<SocketAddr>,
+    pub node_addr: Option<tcp::ListenerAddr>,
     pub node_key: SecretKey,
     pub validator: Option<ValidatorConfig>,
 
@@ -99,6 +99,9 @@ pub struct NetworkConfig {
     pub whitelist_nodes: Vec<PeerInfo>,
     pub handshake_timeout: time::Duration,
 
+    /// Whether to re-establish connection to known reliable peers from previous neard run(s).
+    /// See near_network::peer_manager::connection_store for details.
+    pub connect_to_reliable_peers_on_startup: bool,
     /// Maximum time between refreshing the peer list.
     pub monitor_peers_max_period: time::Duration,
     /// Maximum number of active peers. Hard limit.
@@ -165,6 +168,47 @@ pub struct NetworkConfig {
 }
 
 impl NetworkConfig {
+    /// Overrides values of NetworkConfig with values for the JSON config.
+    /// We need all the values from NetworkConfig to be configurable.
+    /// We need this in case of emergency. It is faster to change the config than to recompile.
+    fn override_config(&mut self, overrides: crate::config_json::NetworkConfigOverrides) {
+        if let Some(connect_to_reliable_peers_on_startup) =
+            overrides.connect_to_reliable_peers_on_startup
+        {
+            self.connect_to_reliable_peers_on_startup = connect_to_reliable_peers_on_startup
+        }
+        if let Some(max_send_peers) = overrides.max_send_peers {
+            self.max_send_peers = max_send_peers
+        }
+        if let Some(routed_message_ttl) = overrides.routed_message_ttl {
+            self.routed_message_ttl = routed_message_ttl
+        }
+        if let Some(max_routes_to_store) = overrides.max_routes_to_store {
+            self.max_routes_to_store = max_routes_to_store
+        }
+        if let Some(highest_peer_horizon) = overrides.highest_peer_horizon {
+            self.highest_peer_horizon = highest_peer_horizon
+        }
+        if let Some(millis) = overrides.push_info_period_millis {
+            self.push_info_period = time::Duration::milliseconds(millis)
+        }
+        if let Some(outbound_disabled) = overrides.outbound_disabled {
+            self.outbound_disabled = outbound_disabled
+        }
+        if let (Some(qps), Some(burst)) = (
+            overrides.accounts_data_broadcast_rate_limit_qps,
+            overrides.accounts_data_broadcast_rate_limit_burst,
+        ) {
+            self.accounts_data_broadcast_rate_limit = rate::Limit { qps, burst }
+        }
+        if let (Some(qps), Some(burst)) = (
+            overrides.routing_table_update_rate_limit_qps,
+            overrides.routing_table_update_rate_limit_burst,
+        ) {
+            self.routing_table_update_rate_limit = rate::Limit { qps, burst }
+        }
+    }
+
     pub fn new(
         cfg: crate::config_json::Config,
         node_key: SecretKey,
@@ -176,9 +220,6 @@ impl NetworkConfig {
                 "public_addrs has {} entries, limit is {MAX_PEER_ADDRS}",
                 cfg.public_addrs.len()
             );
-        }
-        if cfg.public_addrs.len() > 0 && cfg.trusted_stun_servers.len() > 0 {
-            anyhow::bail!("you cannot specify both public_addrs and trusted_stun_servers");
         }
         let mut proxies = HashSet::new();
         for proxy in &cfg.public_addrs {
@@ -205,7 +246,7 @@ impl NetworkConfig {
                 }
             }
         }
-        let this = Self {
+        let mut this = Self {
             node_key,
             validator: validator_signer.map(|signer| ValidatorConfig {
                 signer,
@@ -217,7 +258,9 @@ impl NetworkConfig {
             }),
             node_addr: match cfg.addr.as_str() {
                 "" => None,
-                addr => Some(addr.parse().context("Failed to parse SocketAddr")?),
+                addr => Some(tcp::ListenerAddr::new(
+                    addr.parse().context("Failed to parse SocketAddr")?,
+                )),
             },
             peer_store: peer_store::Config {
                 boot_nodes: if cfg.boot_nodes.is_empty() {
@@ -235,6 +278,7 @@ impl NetworkConfig {
                     .map(|e| e.parse())
                     .collect::<Result<_, _>>()
                     .context("failed to parse blacklist")?,
+                peer_states_cache_size: cfg.peer_states_cache_size,
                 connect_only_to_boot_nodes: cfg.experimental.connect_only_to_boot_nodes,
                 ban_window: cfg.ban_window.try_into()?,
                 peer_expiration_duration: cfg.peer_expiration_duration.try_into()?,
@@ -254,6 +298,7 @@ impl NetworkConfig {
                     .collect::<anyhow::Result<_>>()
                     .context("whitelist_nodes")?
             },
+            connect_to_reliable_peers_on_startup: true,
             handshake_timeout: cfg.handshake_timeout.try_into()?,
             monitor_peers_max_period: cfg.monitor_peers_max_period.try_into()?,
             max_num_peers: cfg.max_num_peers,
@@ -263,7 +308,7 @@ impl NetworkConfig {
             peer_recent_time_window: cfg.peer_recent_time_window.try_into()?,
             safe_set_size: cfg.safe_set_size,
             archival_peer_connections_lower_bound: cfg.archival_peer_connections_lower_bound,
-            max_send_peers: 512,
+            max_send_peers: PEERS_RESPONSE_MAX_PEERS,
             peer_stats_period: cfg.peer_stats_period.try_into()?,
             ttl_account_id_router: cfg.ttl_account_id_router.try_into()?,
             routed_message_ttl: ROUTED_MESSAGE_TTL,
@@ -289,6 +334,7 @@ impl NetworkConfig {
             },
             event_sink: Sink::null(),
         };
+        this.override_config(cfg.experimental.network_config_overrides);
         Ok(this)
     }
 
@@ -297,13 +343,12 @@ impl NetworkConfig {
     }
 
     /// TEST-ONLY: Returns network config with given seed used for peer id.
-    pub fn from_seed(seed: &str, port: u16) -> Self {
+    pub fn from_seed(seed: &str, node_addr: tcp::ListenerAddr) -> Self {
         let node_key = SecretKey::from_seed(KeyType::ED25519, seed);
-        let node_addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port));
         let validator = ValidatorConfig {
             signer: Arc::new(create_test_signer(seed)),
             proxies: ValidatorProxies::Static(vec![PeerAddr {
-                addr: node_addr,
+                addr: *node_addr,
                 peer_id: PeerId::new(node_key.public_key()),
             }]),
         };
@@ -314,12 +359,14 @@ impl NetworkConfig {
             peer_store: peer_store::Config {
                 boot_nodes: vec![],
                 blacklist: blacklist::Blacklist::default(),
+                peer_states_cache_size: 1000,
                 ban_window: time::Duration::seconds(1),
                 peer_expiration_duration: time::Duration::seconds(60 * 60),
                 connect_only_to_boot_nodes: false,
             },
             whitelist_nodes: vec![],
             handshake_timeout: time::Duration::seconds(5),
+            connect_to_reliable_peers_on_startup: true,
             monitor_peers_max_period: time::Duration::seconds(100),
             max_num_peers: 40,
             minimum_outbound_peers: 5,
@@ -328,7 +375,7 @@ impl NetworkConfig {
             peer_recent_time_window: time::Duration::seconds(600),
             safe_set_size: 20,
             archival_peer_connections_lower_bound: 10,
-            max_send_peers: 512,
+            max_send_peers: PEERS_RESPONSE_MAX_PEERS,
             peer_stats_period: time::Duration::seconds(5),
             ttl_account_id_router: time::Duration::seconds(60 * 60),
             routed_message_ttl: ROUTED_MESSAGE_TTL,
@@ -384,6 +431,15 @@ impl NetworkConfig {
                 self.peer_recent_time_window, UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE
             );
         }
+
+        if !(self.max_send_peers <= PEERS_RESPONSE_MAX_PEERS) {
+            anyhow::bail!(
+                "max_send_peers({}) can be at most {}",
+                self.max_send_peers,
+                PEERS_RESPONSE_MAX_PEERS
+            );
+        }
+
         self.accounts_data_broadcast_rate_limit
             .validate()
             .context("accounts_Data_broadcast_rate_limit")?;
@@ -424,32 +480,120 @@ impl std::ops::Deref for VerifiedConfig {
 mod test {
     use super::UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE;
     use crate::config;
+    use crate::config_json::NetworkConfigOverrides;
     use crate::network_protocol;
     use crate::network_protocol::testonly as data;
-    use crate::network_protocol::AccountData;
+    use crate::network_protocol::{AccountData, VersionedAccountData};
+    use crate::tcp;
     use crate::testonly::make_rng;
-    use crate::time;
+    use near_async::time;
 
     #[test]
     fn test_network_config() {
-        let nc = config::NetworkConfig::from_seed("123", 213);
+        let nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
         assert!(nc.verify().is_ok());
 
-        let mut nc = config::NetworkConfig::from_seed("123", 213);
+        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
         nc.ideal_connections_lo = nc.ideal_connections_hi + 1;
         assert!(nc.verify().is_err());
 
-        let mut nc = config::NetworkConfig::from_seed("123", 213);
+        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
         nc.ideal_connections_hi = nc.max_num_peers + 1;
         assert!(nc.verify().is_err());
 
-        let mut nc = config::NetworkConfig::from_seed("123", 213);
+        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
         nc.safe_set_size = nc.minimum_outbound_peers;
         assert!(nc.verify().is_err());
 
-        let mut nc = config::NetworkConfig::from_seed("123", 213);
+        let mut nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
         nc.peer_recent_time_window = UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE;
         assert!(nc.verify().is_err());
+    }
+
+    #[test]
+    fn test_network_config_override() {
+        fn check_override_field<T: std::cmp::PartialEq>(
+            before: &T,
+            after: &T,
+            override_val: &Option<T>,
+        ) -> bool {
+            if let Some(val) = override_val {
+                return after == val;
+            } else {
+                return after == before;
+            }
+        }
+        let check_fields = |before: &config::NetworkConfig,
+                            after: &config::NetworkConfig,
+                            overrides: &NetworkConfigOverrides| {
+            assert!(check_override_field(
+                &before.connect_to_reliable_peers_on_startup,
+                &after.connect_to_reliable_peers_on_startup,
+                &overrides.connect_to_reliable_peers_on_startup
+            ));
+            assert!(check_override_field(
+                &before.max_send_peers,
+                &after.max_send_peers,
+                &overrides.max_send_peers
+            ));
+            assert!(check_override_field(
+                &before.routed_message_ttl,
+                &after.routed_message_ttl,
+                &overrides.routed_message_ttl
+            ));
+            assert!(check_override_field(
+                &before.max_routes_to_store,
+                &after.max_routes_to_store,
+                &overrides.max_routes_to_store
+            ));
+            assert!(check_override_field(
+                &before.highest_peer_horizon,
+                &after.highest_peer_horizon,
+                &overrides.highest_peer_horizon
+            ));
+            assert!(check_override_field(
+                &before.push_info_period,
+                &after.push_info_period,
+                &overrides
+                    .push_info_period_millis
+                    .map(|millis| time::Duration::milliseconds(millis))
+            ));
+            assert!(check_override_field(
+                &before.outbound_disabled,
+                &after.outbound_disabled,
+                &overrides.outbound_disabled
+            ));
+            assert!(check_override_field(
+                &before.accounts_data_broadcast_rate_limit.burst,
+                &after.accounts_data_broadcast_rate_limit.burst,
+                &overrides.accounts_data_broadcast_rate_limit_burst
+            ));
+            assert!(check_override_field(
+                &before.accounts_data_broadcast_rate_limit.qps,
+                &after.accounts_data_broadcast_rate_limit.qps,
+                &overrides.accounts_data_broadcast_rate_limit_qps
+            ));
+        };
+        let no_overrides = NetworkConfigOverrides::default();
+        let mut overrides = NetworkConfigOverrides::default();
+        overrides.connect_to_reliable_peers_on_startup = Some(false);
+        overrides.max_send_peers = Some(42);
+        overrides.routed_message_ttl = Some(43);
+        overrides.accounts_data_broadcast_rate_limit_burst = Some(44);
+        overrides.accounts_data_broadcast_rate_limit_qps = Some(45.0);
+
+        let nc_before =
+            config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
+
+        let mut nc_after = nc_before.clone();
+        nc_after.override_config(no_overrides.clone());
+        check_fields(&nc_before, &nc_after, &no_overrides);
+        assert!(nc_after.verify().is_ok());
+
+        nc_after = nc_before.clone();
+        nc_after.override_config(overrides.clone());
+        check_fields(&nc_before, &nc_after, &overrides);
+        assert!(nc_after.verify().is_ok());
     }
 
     // Check that MAX_PEER_ADDRS limit is consistent with the
@@ -460,16 +604,18 @@ mod test {
         let clock = time::FakeClock::default();
         let signer = data::make_validator_signer(&mut rng);
 
-        let ad = AccountData {
-            proxies: (0..config::MAX_PEER_ADDRS)
-                .map(|_| {
-                    // Using IPv6 gives maximal size of the resulting config.
-                    let ip = data::make_ipv6(&mut rng);
-                    data::make_peer_addr(&mut rng, ip)
-                })
-                .collect(),
+        let ad = VersionedAccountData {
+            data: AccountData {
+                proxies: (0..config::MAX_PEER_ADDRS)
+                    .map(|_| {
+                        // Using IPv6 gives maximal size of the resulting config.
+                        let ip = data::make_ipv6(&mut rng);
+                        data::make_peer_addr(&mut rng, ip)
+                    })
+                    .collect(),
+                peer_id: data::make_peer_id(&mut rng),
+            },
             account_key: signer.public_key(),
-            peer_id: data::make_peer_id(&mut rng),
             version: 0,
             timestamp: clock.now_utc(),
         };

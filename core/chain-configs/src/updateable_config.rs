@@ -1,8 +1,8 @@
 use crate::metrics;
 use chrono::{DateTime, Utc};
-use near_primitives::time::Clock;
+use near_primitives::static_clock::StaticClock;
 use near_primitives::types::BlockHeight;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer};
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 
@@ -21,6 +21,19 @@ pub struct MutableConfigValue<T> {
     last_update: DateTime<Utc>,
 }
 
+impl<T: Serialize> Serialize for MutableConfigValue<T> {
+    /// Only include the value field of MutableConfigValue in serialized result
+    /// since field_name and last_update are only relevant for internal monitoring
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let to_string_result = serde_json::to_string(&self.value);
+        let value_str = to_string_result.unwrap_or("unable to serialize the value".to_string());
+        serializer.serialize_str(&value_str)
+    }
+}
+
 impl<T: Copy + PartialEq + Debug> MutableConfigValue<T> {
     /// Initializes a value.
     /// `field_name` is needed to export the config value as a prometheus metric.
@@ -28,7 +41,7 @@ impl<T: Copy + PartialEq + Debug> MutableConfigValue<T> {
         let res = Self {
             value: Arc::new(Mutex::new(val)),
             field_name: field_name.to_string(),
-            last_update: Clock::utc(),
+            last_update: StaticClock::utc(),
         };
         res.set_metric_value(val, 1);
         res

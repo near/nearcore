@@ -9,8 +9,8 @@ use nearcore::config::{
     Config, BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD, CONFIG_FILENAME,
     EXPECTED_EPOCH_LENGTH, FISHERMEN_THRESHOLD, GAS_PRICE_ADJUSTMENT_RATE, GENESIS_CONFIG_FILENAME,
     INITIAL_GAS_LIMIT, MAX_INFLATION_RATE, MIN_GAS_PRICE, NODE_KEY_FILE, NUM_BLOCKS_PER_YEAR,
-    NUM_BLOCK_PRODUCER_SEATS, PROTOCOL_REWARD_RATE, PROTOCOL_UPGRADE_NUM_EPOCHS,
-    PROTOCOL_UPGRADE_STAKE_THRESHOLD, TRANSACTION_VALIDITY_PERIOD,
+    NUM_BLOCK_PRODUCER_SEATS, PROTOCOL_REWARD_RATE, PROTOCOL_UPGRADE_STAKE_THRESHOLD,
+    TRANSACTION_VALIDITY_PERIOD,
 };
 use nearcore::NEAR_BASE;
 
@@ -66,7 +66,6 @@ pub fn csv_to_json_configs(home: &Path, chain_id: String, tracked_shards: Vec<Sh
         avg_hidden_validator_seats_per_shard: vec![0; NUM_SHARDS as usize],
         dynamic_resharding: false,
         protocol_upgrade_stake_threshold: PROTOCOL_UPGRADE_STAKE_THRESHOLD,
-        protocol_upgrade_num_epochs: PROTOCOL_UPGRADE_NUM_EPOCHS,
         epoch_length: EXPECTED_EPOCH_LENGTH,
         gas_limit: INITIAL_GAS_LIMIT,
         gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
@@ -82,7 +81,7 @@ pub fn csv_to_json_configs(home: &Path, chain_id: String, tracked_shards: Vec<Sh
         fishermen_threshold: FISHERMEN_THRESHOLD,
         ..Default::default()
     };
-    let genesis = Genesis::new(genesis_config, records.into());
+    let genesis = Genesis::new(genesis_config, records.into()).unwrap();
     verify_total_supply(genesis.config.total_supply, &chain_id);
 
     // Write all configs to files.

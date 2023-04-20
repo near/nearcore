@@ -1,17 +1,24 @@
+use crate::hash::CryptoHash;
 use crate::serialize::dec_format;
 use crate::types::{AccountId, Balance, EpochId, Gas, Nonce};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
-use serde::{Deserialize, Serialize};
-use std::fmt::{Debug, Display};
-
-use crate::hash::CryptoHash;
+use near_primitives_core::types::ProtocolVersion;
 use near_rpc_error_macro::RpcError;
 use near_vm_errors::FunctionCallErrorSer;
+use std::fmt::{Debug, Display};
 
 /// Error returned in the ExecutionOutcome in case of failure
 #[derive(
-    BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    RpcError,
+    serde::Deserialize,
+    serde::Serialize,
 )]
 pub enum TxExecutionError {
     /// An error happened during Action execution
@@ -83,8 +90,10 @@ pub enum StorageError {
     /// panic in every place that produces this error.
     /// We can check if db is corrupted by verifying everything in the state trie.
     StorageInconsistentState(String),
-    /// Error from flat storage
-    FlatStorageError(String),
+    /// Flat storage error, meaning that it doesn't support some block anymore.
+    /// We guarantee that such block cannot become final, thus block processing
+    /// must resume normally.
+    FlatStorageBlockNotSupported(String),
 }
 
 impl std::fmt::Display for StorageError {
@@ -97,7 +106,15 @@ impl std::error::Error for StorageError {}
 
 /// An error happened during TX execution
 #[derive(
-    BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    RpcError,
+    serde::Deserialize,
+    serde::Serialize,
 )]
 pub enum InvalidTxError {
     /// Happens if a wrong AccessKey used or AccessKey has not enough permissions
@@ -145,7 +162,15 @@ pub enum InvalidTxError {
 impl std::error::Error for InvalidTxError {}
 
 #[derive(
-    BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    RpcError,
+    serde::Deserialize,
+    serde::Serialize,
 )]
 pub enum InvalidAccessKeyError {
     /// The access key identified by the `public_key` doesn't exist for the account
@@ -171,7 +196,15 @@ pub enum InvalidAccessKeyError {
 
 /// Describes the error for validating a list of actions.
 #[derive(
-    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, RpcError,
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    RpcError,
+    serde::Serialize,
+    serde::Deserialize,
 )]
 pub enum ActionsValidationError {
     /// The delete action must be a final aciton in transaction
@@ -198,15 +231,28 @@ pub enum ActionsValidationError {
     UnsuitableStakingKey { public_key: PublicKey },
     /// The attached amount of gas in a FunctionCall action has to be a positive number.
     FunctionCallZeroAttachedGas,
-    /// DelegateAction actions contain another DelegateAction. This is not allowed.
-    DelegateActionCantContainNestedOne,
     /// There should be the only one DelegateAction
     DelegateActionMustBeOnlyOne,
+    /// The transaction includes a feature that the current protocol version
+    /// does not support.
+    ///
+    /// Note: we stringify the protocol feature name instead of using
+    /// `ProtocolFeature` here because we don't want to leak the internals of
+    /// that type into observable borsh serialization.
+    UnsupportedProtocolFeature { protocol_feature: String, version: ProtocolVersion },
 }
 
 /// Describes the error for validating a receipt.
 #[derive(
-    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, RpcError,
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    RpcError,
+    serde::Serialize,
+    serde::Deserialize,
 )]
 pub enum ReceiptValidationError {
     /// The `predecessor_id` of a Receipt is not valid.
@@ -318,14 +364,16 @@ impl Display for ActionsValidationError {
                 f,
                 "The attached amount of gas in a FunctionCall action has to be a positive number",
             ),
-            ActionsValidationError::DelegateActionCantContainNestedOne => write!(
-                f,
-                "DelegateAction must not contain another DelegateAction"
-            ),
             ActionsValidationError::DelegateActionMustBeOnlyOne => write!(
                 f,
                 "The actions can contain the ony one DelegateAction"
-            )
+            ),
+            ActionsValidationError::UnsupportedProtocolFeature { protocol_feature, version } => write!(
+                    f,
+                    "Transaction requires protocol feature {} / version {} which is not supported by the current protocol version",
+                    protocol_feature,
+                    version,
+            ),
         }
     }
 }
@@ -334,7 +382,15 @@ impl std::error::Error for ActionsValidationError {}
 
 /// An error happened during Action execution
 #[derive(
-    BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    RpcError,
+    serde::Deserialize,
+    serde::Serialize,
 )]
 pub struct ActionError {
     /// Index of the failed action in the transaction.
@@ -347,7 +403,15 @@ pub struct ActionError {
 impl std::error::Error for ActionError {}
 
 #[derive(
-    BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    RpcError,
+    serde::Deserialize,
+    serde::Serialize,
 )]
 pub enum ActionErrorKind {
     /// Happens when CreateAccount action tries to create an account with account_id which is already exists in the storage
@@ -406,6 +470,9 @@ pub enum ActionErrorKind {
     /// Error occurs when a `CreateAccount` action is called on hex-characters
     /// account of length 64.  See implicit account creation NEP:
     /// <https://github.com/nearprotocol/NEPs/pull/71>.
+    ///
+    /// TODO(#8598): This error is named very poorly. A better name would be
+    /// `OnlyNamedAccountCreationAllowed`.
     OnlyImplicitAccountCreationAllowed { account_id: AccountId },
     /// Delete account whose state is large is temporarily banned.
     DeleteAccountWithLargeState { account_id: AccountId },
@@ -534,7 +601,15 @@ impl std::error::Error for InvalidAccessKeyError {}
 
 /// Happens when the input balance doesn't match the output balance in Runtime apply.
 #[derive(
-    BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    RpcError,
+    serde::Deserialize,
+    serde::Serialize,
 )]
 pub struct BalanceMismatchError {
     // Input balances

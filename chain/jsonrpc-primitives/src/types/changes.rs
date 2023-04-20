@@ -1,18 +1,16 @@
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct RpcStateChangesInBlockRequest {
     #[serde(flatten)]
     pub block_reference: near_primitives::types::BlockReference,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct RpcStateChangesInBlockResponse {
     pub block_hash: near_primitives::hash::CryptoHash,
     pub changes: near_primitives::views::StateChangesView,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct RpcStateChangesInBlockByTypeRequest {
     #[serde(flatten)]
     pub block_reference: near_primitives::types::BlockReference,
@@ -20,13 +18,13 @@ pub struct RpcStateChangesInBlockByTypeRequest {
     pub state_changes_request: near_primitives::views::StateChangesRequestView,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct RpcStateChangesInBlockByTypeResponse {
     pub block_hash: near_primitives::hash::CryptoHash,
     pub changes: near_primitives::views::StateChangesKindsView,
 }
 
-#[derive(thiserror::Error, Debug, Serialize, Deserialize)]
+#[derive(thiserror::Error, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcStateChangesError {
     #[error("Block not found: {error_message}")]

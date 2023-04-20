@@ -28,7 +28,7 @@ fn get_chain_with_epoch_length_and_num_shards(
     let vs = ValidatorSchedule::new()
         .block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]])
         .num_shards(num_shards);
-    let runtime_adapter = Arc::new(KeyValueRuntime::new_with_validators(store, vs, epoch_length));
+    let runtime_adapter = KeyValueRuntime::new_with_validators(store, vs, epoch_length);
     Chain::new(
         runtime_adapter,
         &chain_genesis,
@@ -120,7 +120,7 @@ fn do_fork(
             let shard_uid = ShardUId { version: 0, shard_id: shard_id as u32 };
             let trie_changes_data = gen_changes(&mut rng, max_changes);
             let state_root = prev_state_roots[shard_id as usize];
-            let trie = tries.get_trie_for_shard(shard_uid, state_root.clone());
+            let trie = tries.get_trie_for_shard(shard_uid, state_root);
             let trie_changes = trie.update(trie_changes_data.iter().cloned()).unwrap();
             if verbose {
                 println!("state new {:?} {:?}", block.header().height(), trie_changes_data);
@@ -223,14 +223,14 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
 
         let mut state_root2 = state_roots2[simple_chain.from as usize];
         let state_root1 = states1[simple_chain.from as usize].1[shard_to_check_trie as usize];
-        tries1.get_trie_for_shard(shard_uid, state_root1.clone()).iter().unwrap();
+        tries1.get_trie_for_shard(shard_uid, state_root1).iter().unwrap();
         assert_eq!(state_root1, state_root2);
 
         for i in start_index..start_index + simple_chain.length {
             let (block1, state_root1, changes1) = states1[i as usize].clone();
             // Apply to Trie 2 the same changes (changes1) as applied to Trie 1
             let trie_changes2 = tries2
-                .get_trie_for_shard(shard_uid, state_root2.clone())
+                .get_trie_for_shard(shard_uid, state_root2)
                 .update(changes1[shard_to_check_trie as usize].iter().cloned())
                 .unwrap();
             // i == gc_height is the only height should be processed here
@@ -278,13 +278,13 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
                     block1.header().height()
                 );
                 let a = tries1
-                    .get_trie_for_shard(shard_uid, state_root1.clone())
+                    .get_trie_for_shard(shard_uid, state_root1)
                     .iter()
                     .unwrap()
                     .map(|item| item.unwrap().0)
                     .collect::<Vec<_>>();
                 let b = tries2
-                    .get_trie_for_shard(shard_uid, state_root1.clone())
+                    .get_trie_for_shard(shard_uid, state_root1)
                     .iter()
                     .unwrap()
                     .map(|item| item.unwrap().0)

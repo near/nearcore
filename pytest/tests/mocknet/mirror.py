@@ -213,24 +213,20 @@ def amend_genesis_file(node, validators, epoch_length, num_seats, log_filename):
 
     if not node.instance_name.endswith('traffic'):
         neard = '/home/ubuntu/neard-setup'
-        genesis_file_in = '/home/ubuntu/.near/setup/genesis.json'
-        records_file_in = '/home/ubuntu/.near/setup/records.json'
         genesis_file_out = '/home/ubuntu/.near/genesis.json'
         records_file_out = '/home/ubuntu/.near/records.json'
         config_file_path = '/home/ubuntu/.near/config.json'
     else:
         neard = '/home/ubuntu/neard'
-        genesis_file_in = '/home/ubuntu/.near/output/genesis.json'
-        records_file_in = '/home/ubuntu/.near/output/mirror-records.json'
         genesis_file_out = '/home/ubuntu/.near/target/genesis.json'
         records_file_out = '/home/ubuntu/.near/target/records.json'
     amend_genesis_cmd = [
         neard,
         'amend-genesis',
         '--genesis-file-in',
-        genesis_file_in,
+        '/home/ubuntu/.near/setup/genesis.json',
         '--records-file-in',
-        records_file_in,
+        '/home/ubuntu/.near/setup/records.json',
         '--genesis-file-out',
         genesis_file_out,
         '--records-file-out',

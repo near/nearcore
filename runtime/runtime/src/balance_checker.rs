@@ -107,7 +107,7 @@ fn total_postponed_receipts_cost(
 ) -> Result<Balance, RuntimeError> {
     receipt_ids.iter().try_fold(0, |total, item| {
         let (account_id, receipt_id) = item;
-        let cost = match get_postponed_receipt(state, account_id, receipt_id.clone())? {
+        let cost = match get_postponed_receipt(state, account_id, *receipt_id)? {
             None => return Ok(total),
             Some(receipt) => receipt_cost(transaction_costs, current_protocol_version, &receipt)?,
         };
@@ -125,7 +125,7 @@ pub(crate) fn check_balance(
     stats: &ApplyStats,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), RuntimeError> {
-    let initial_state = final_state.trie().as_ref();
+    let initial_state = final_state.trie();
 
     // Delayed receipts
     let initial_delayed_receipt_indices: DelayedReceiptIndices =
@@ -337,7 +337,7 @@ mod tests {
             let mut trie_update = tries.new_trie_update(shard_uid, Trie::EMPTY_ROOT);
             set_initial_state(&mut trie_update);
             trie_update.commit(StateChangeCause::NotWritableToDisk);
-            let trie_changes = trie_update.finalize().unwrap().0;
+            let trie_changes = trie_update.finalize().unwrap().1;
             let mut store_update = tries.store_update();
             let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
             store_update.commit().unwrap();

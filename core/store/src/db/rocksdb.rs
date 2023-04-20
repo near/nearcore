@@ -1,15 +1,13 @@
-use std::io;
-use std::path::Path;
-
-use ::rocksdb::{
-    BlockBasedOptions, Cache, ColumnFamily, Env, IteratorMode, Options, ReadOptions, WriteBatch, DB,
-};
-use strum::IntoEnumIterator;
-use tracing::warn;
-
 use crate::config::Mode;
 use crate::db::{refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StatsValue};
 use crate::{metadata, metrics, DBCol, StoreConfig, StoreStatistics, Temperature};
+use ::rocksdb::{
+    BlockBasedOptions, Cache, ColumnFamily, Env, IteratorMode, Options, ReadOptions, WriteBatch, DB,
+};
+use std::io;
+use std::path::Path;
+use strum::IntoEnumIterator;
+use tracing::warn;
 
 mod instance_tracker;
 pub(crate) mod snapshot;
@@ -206,16 +204,36 @@ impl RocksDB {
         })
     }
 
-    fn iter_raw_bytes_prefix<'a>(&'a self, col: DBCol, prefix: &'a [u8]) -> RocksDBIterator<'a> {
+    /// Iterates over rocksDB storage.
+    /// You can optionally specify the bounds to limit the range over which it will iterate.
+    /// You can specify EITHER the prefix, OR lower/upper bounds.
+    /// Upper bound value is not included in the iteration.
+    /// Specifying both prefix and lower & upper bounds will result in undetermined behavior.
+    fn iter_raw_bytes_internal<'a>(
+        &'a self,
+        col: DBCol,
+        prefix: Option<&'a [u8]>,
+        lower_bound: Option<&'a [u8]>,
+        upper_bound: Option<&'a [u8]>,
+    ) -> RocksDBIterator<'a> {
         let cf_handle = self.cf_handle(col).unwrap();
         let mut read_options = rocksdb_read_options();
-        if !prefix.is_empty() {
+        if prefix.is_some() && (lower_bound.is_some() || upper_bound.is_some()) {
+            panic!("Cannot iterate both with prefix and lower/upper bounds at the same time.");
+        }
+        if let Some(prefix) = prefix {
             read_options.set_iterate_range(::rocksdb::PrefixRange(prefix));
             // Note: prefix_same_as_start doesn’t do anything for us.  It takes
             // effect only if prefix extractor is configured for the column
             // family which is something we’re not doing.  Setting this option
             // is therefore pointless.
             //     read_options.set_prefix_same_as_start(true);
+        }
+        if let Some(lower_bound) = lower_bound {
+            read_options.set_iterate_lower_bound(lower_bound);
+        }
+        if let Some(upper_bound) = upper_bound {
+            read_options.set_iterate_upper_bound(upper_bound);
         }
         let iter = self.db.iterator_cf_opt(cf_handle, read_options, IteratorMode::Start);
         RocksDBIterator(iter)
@@ -273,15 +291,25 @@ impl Database for RocksDB {
     }
 
     fn iter_raw_bytes<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
-        Box::new(self.iter_raw_bytes_prefix(col, &[]))
+        Box::new(self.iter_raw_bytes_internal(col, None, None, None))
     }
 
     fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
-        refcount::iter_with_rc_logic(col, self.iter_raw_bytes_prefix(col, &[]))
+        refcount::iter_with_rc_logic(col, self.iter_raw_bytes_internal(col, None, None, None))
     }
 
     fn iter_prefix<'a>(&'a self, col: DBCol, key_prefix: &'a [u8]) -> DBIterator<'a> {
-        let iter = self.iter_raw_bytes_prefix(col, key_prefix);
+        let iter = self.iter_raw_bytes_internal(col, Some(key_prefix), None, None);
+        refcount::iter_with_rc_logic(col, iter)
+    }
+
+    fn iter_range<'a>(
+        &'a self,
+        col: DBCol,
+        lower_bound: Option<&'a [u8]>,
+        upper_bound: Option<&'a [u8]>,
+    ) -> DBIterator<'a> {
+        let iter = self.iter_raw_bytes_internal(col, None, lower_bound, upper_bound);
         refcount::iter_with_rc_logic(col, iter)
     }
 
@@ -356,6 +384,12 @@ impl Database for RocksDB {
         } else {
             Some(result)
         }
+    }
+
+    fn create_checkpoint(&self, path: &std::path::Path) -> anyhow::Result<()> {
+        let cp = ::rocksdb::checkpoint::Checkpoint::new(&self.db)?;
+        cp.create_checkpoint(path)?;
+        Ok(())
     }
 }
 
@@ -479,7 +513,7 @@ fn set_compression_options(opts: &mut Options) {
 impl RocksDB {
     /// Blocks until all RocksDB instances (usually 0 or 1) gracefully shutdown.
     pub fn block_until_all_instances_are_dropped() {
-        instance_tracker::block_until_all_instances_are_dropped();
+        instance_tracker::block_until_all_instances_are_closed();
     }
 
     /// Returns metadata of the database or `None` if the db doesn’t exist.
@@ -592,7 +626,7 @@ fn col_name(col: DBCol) -> &'static str {
         DBCol::_TransactionResult => "col7",
         DBCol::OutgoingReceipts => "col8",
         DBCol::IncomingReceipts => "col9",
-        DBCol::Peers => "col10",
+        DBCol::_Peers => "col10",
         DBCol::EpochInfo => "col11",
         DBCol::BlockInfo => "col12",
         DBCol::Chunks => "col13",
@@ -650,7 +684,7 @@ mod tests {
     #[test]
     fn rocksdb_merge_sanity() {
         let (_tmp_dir, opener) = NodeStorage::test_opener();
-        let store = opener.open().unwrap().get_store(crate::Temperature::Hot);
+        let store = opener.open().unwrap().get_hot_store();
         let ptr = (&*store.storage) as *const (dyn Database + 'static);
         let rocksdb = unsafe { &*(ptr as *const RocksDB) };
         assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
@@ -742,7 +776,7 @@ mod tests {
 
     #[test]
     fn test_delete_range() {
-        let store = NodeStorage::test_opener().1.open().unwrap().get_store(crate::Temperature::Hot);
+        let store = NodeStorage::test_opener().1.open().unwrap().get_hot_store();
         let keys = [vec![0], vec![1], vec![2], vec![3]];
         let column = DBCol::Block;
 

@@ -1,0 +1,25 @@
+[package]
+name = "near-async"
+version = "0.0.0"
+authors.workspace = true
+publish = false
+rust-version.workspace = true
+edition.workspace = true
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/near/nearcore"
+description = "This crate contains the async helpers specific for nearcore"
+
+[dependencies]
+actix.workspace = true
+derive-enum-from-into.workspace = true
+derive_more.workspace = true
+futures.workspace = true
+once_cell.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+time.workspace = true
+tokio.workspace = true
+
+near-primitives.workspace = true
+near-o11y.workspace = true
+near-performance-metrics.workspace = true

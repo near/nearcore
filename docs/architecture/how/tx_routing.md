@@ -28,7 +28,7 @@ node in the system (they can choose between using ‘sync’ or ‘async’ opti
 From now on, they’ll also be able to query the status of the transaction - by
 using the hash of this object.
 
-**Fun fact**: the `Transaction` object also contains some fields to prevent
+**Fun fact:** the `Transaction` object also contains some fields to prevent
 attacks: like `nonce` to prevent replay attack, and `block_hash` to limit the
 validity of the transaction (it must be added within
 `transaction_validity_period` (defined in genesis) blocks of `block_hash`).

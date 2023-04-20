@@ -149,3 +149,58 @@ gcloud beta compute ssh --zone "europe-west4-a" "<machine>"  --project "rpc-prod
 
 Check running instances at <https://console.cloud.google.com/compute/instances?project=rpc-prod> to see the machine
 name and datacenter.
+
+### contract-accounts
+
+List account names with contracts deployed and additional information about the
+contracts.
+
+By default, the command only displays the names of all accounts that have a
+contract deployed right now. This should be fairly quick. Using flags, you can
+display more information but it will also slow down the process.
+
+To see a list of flags, run 
+```ignore
+cargo run -p neard -- view-state contract-accounts --help
+```
+
+#### Example
+
+The following command lists all (but the skipped) accounts with contracts
+deployed with the additional information of how many times the account has been
+the receiver of a receipt and how many times a receipt was sent by the contract.
+(Note: outgoing counts only sent by the contract, not anything where the signed
+was the same account id.)
+
+Additionally, the output contains a list of actions that were in the outgoing
+receipts. This is particularly useful to find contracts that call certain
+actions on-chain.
+
+```ignore
+cargo run -p neard -- view-state contract-accounts \
+  --skip-accounts "aurora,relay.aurora,token.sweat,oracle.sweat,tge-lockup.near,sweat_welcome.near" \
+  --receipts-in \
+  --receipts-out \
+  --actions \
+  > output.log
+```
+
+And the output may look something like thi:
+```ignore
+ACCOUNT_ID                                                         RCPTS_IN  RCPTS_OUT ACTIONS
+0-0.near                                                                 37         14 Transfer
+0-1.near                                                                797        117 Transfer
+0.app.hipodev.near                                                        8          9 Transfer
+0.app2.hipodev.near                                                       4          5 Transfer
+0.near                                                                   56          9 Transfer
+00.near                                                                  29          5 Transfer
+000.near                                                                190         17 Transfer
+0000.mintbase1.near                                                      49         68 FunctionCall,Transfer
+...
+And 18858 errors:
+failed loading outgoing receipt DpoPSrAHECYrpntTdYXrp2W2Ad3yEPyMyCav4mXi8kyh
+failed loading outgoing receipt BoSv67f3CYsWu9LfLxPNkKGSEnwiH7jwPzEmYwL5c7rm
+...
+failed loading outgoing receipt D4AEcD6umuJKGjSNA2JEZ4EMxn3GK4Z8Ew1iAQpWYtPS
+failed loading outgoing receipt AAht3HUDJeGRJ1N776ZKJ2vRiRBAD9GtsLabgbrdioAC
+```

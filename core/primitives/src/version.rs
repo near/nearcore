@@ -1,10 +1,8 @@
-use once_cell::sync::Lazy;
-use serde::{Deserialize, Serialize};
-
 use crate::types::Balance;
+use once_cell::sync::Lazy;
 
 /// Data structure for semver version and github tag or commit.
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 pub struct Version {
     pub version: String,
     pub build: String,
@@ -91,6 +89,12 @@ pub enum ProtocolFeature {
     /// Although wasmer2 is faster, we don't change fees with this protocol
     /// version -- we can safely do that in a separate step.
     Wasmer2,
+    /// This feature switch our WASM engine implementation from wasmer 2.* to
+    /// near-vm, bringing better performance and reliability.
+    ///
+    /// Although near-vm is faster, we don't change fees with this protocol
+    /// version -- we can safely do that in a separate step.
+    NearVm,
     SimpleNightshade,
     LowerDataReceiptAndEcrecoverBaseCost,
     /// Lowers the cost of wasm instruction due to switch to wasmer2.
@@ -134,6 +138,18 @@ pub enum ProtocolFeature {
     MaxKickoutStake,
     /// Validate account id for function call access keys.
     AccountIdInFunctionCallPermission,
+    /// Zero Balance Account NEP 448: https://github.com/near/NEPs/pull/448
+    ZeroBalanceAccount,
+    /// Execute a set of actions on behalf of another account.
+    ///
+    /// Meta Transaction NEP-366: https://github.com/near/NEPs/blob/master/neps/nep-0366.md
+    DelegateAction,
+
+    /// Decouple compute and gas costs of operations to safely limit the compute time it takes to
+    /// process the chunk.
+    ///
+    /// Compute Costs NEP-455: https://github.com/near/NEPs/blob/master/neps/nep-0455.md
+    ComputeCosts,
 
     /// In case not all validator seats are occupied our algorithm provide incorrect minimal seat
     /// price - it reports as alpha * sum_stake instead of alpha * sum_stake / (1 - alpha), where
@@ -143,12 +159,11 @@ pub enum ProtocolFeature {
     /// Charge for contract loading before it happens.
     #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
     FixContractLoadingCost,
-    #[cfg(feature = "protocol_feature_ed25519_verify")]
     Ed25519Verify,
     #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
     RejectBlocksWithOutdatedProtocolVersions,
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
-    DelegateAction,
+    #[cfg(feature = "protocol_feature_flat_state")]
+    FlatStorageReads,
 }
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
@@ -158,12 +173,12 @@ pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_V
 /// Current protocol version used on the mainnet.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 58;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 61;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {
     // On nightly, pick big enough version to support all features.
-    133
+    136
 } else {
     // Enable all stable features.
     STABLE_PROTOCOL_VERSION
@@ -178,6 +193,10 @@ pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protoco
 /// candidates usually have separate schedule to final releases.
 pub const PROTOCOL_UPGRADE_SCHEDULE: Lazy<ProtocolUpgradeVotingSchedule> = Lazy::new(|| {
     // Update to according to schedule when making a release.
+    // Keep in mind that the protocol upgrade will happen 1-2 epochs (15h-30h)
+    // after the set date. Ideally that should be during working hours.
+    // e.g. ProtocolUpgradeVotingSchedule::from_env_or_str("2000-01-01 15:00:00").unwrap());
+
     ProtocolUpgradeVotingSchedule::default()
 });
 
@@ -226,18 +245,21 @@ impl ProtocolFeature {
             ProtocolFeature::AltBn128 => 55,
             ProtocolFeature::ChunkOnlyProducers | ProtocolFeature::MaxKickoutStake => 56,
             ProtocolFeature::AccountIdInFunctionCallPermission => 57,
+            ProtocolFeature::Ed25519Verify
+            | ProtocolFeature::ZeroBalanceAccount
+            | ProtocolFeature::DelegateAction => 59,
+            ProtocolFeature::ComputeCosts => 61,
+            ProtocolFeature::NearVm => 61,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
             ProtocolFeature::FixStakingThreshold => 126,
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             ProtocolFeature::FixContractLoadingCost => 129,
-            #[cfg(feature = "protocol_feature_ed25519_verify")]
-            ProtocolFeature::Ed25519Verify => 131,
             #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
             ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 132,
-            #[cfg(feature = "protocol_feature_nep366_delegate_action")]
-            ProtocolFeature::DelegateAction => 133,
+            #[cfg(feature = "protocol_feature_flat_state")]
+            ProtocolFeature::FlatStorageReads => 135,
         }
     }
 }

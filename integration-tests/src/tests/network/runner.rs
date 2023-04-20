@@ -1,16 +1,19 @@
 use actix::{Actor, Addr};
 use anyhow::{anyhow, bail, Context};
+use near_async::actix::AddrWithAutoSpanContextExt;
+use near_async::messaging::{IntoSender, LateBoundSender};
+use near_async::time;
 use near_chain::test_utils::{KeyValueRuntime, ValidatorSchedule};
+use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis};
 use near_chain_configs::ClientConfig;
+use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::{start_client, start_view_client};
 use near_network::actix::ActixSystem;
 use near_network::blacklist;
 use near_network::config;
 use near_network::tcp;
-use near_network::test_utils::{expected_routing_tables, open_port, peer_id_from_seed, GetInfo};
-use near_network::time;
-use near_network::types::NetworkRecipient;
+use near_network::test_utils::{expected_routing_tables, peer_id_from_seed, GetInfo};
 use near_network::types::{
     PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, ROUTED_MESSAGE_TTL,
 };
@@ -21,11 +24,12 @@ use near_primitives::block::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, ValidatorId};
+use near_primitives::validator_signer::ValidatorSigner;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
 use std::collections::HashSet;
 use std::future::Future;
 use std::iter::Iterator;
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::net::{Ipv6Addr, SocketAddr};
 use std::pin::Pin;
 use std::sync::Arc;
 use tracing::debug;
@@ -47,11 +51,7 @@ fn setup_network_node(
     let num_validators = validators.len() as ValidatorId;
 
     let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![validators]);
-    let runtime = Arc::new(KeyValueRuntime::new_with_validators(
-        store.get_store(near_store::Temperature::Hot),
-        vs,
-        5,
-    ));
+    let runtime = KeyValueRuntime::new_with_validators(store.get_hot_store(), vs, 5);
     let signer = Arc::new(create_test_signer(account_id.as_str()));
     let telemetry_actor = TelemetryActor::new(TelemetryConfig::default()).start();
 
@@ -62,17 +62,19 @@ fn setup_network_node(
     let genesis_block = Chain::make_genesis_block(&*runtime, &chain_genesis).unwrap();
     let genesis_id = GenesisId {
         chain_id: client_config.chain_id.clone(),
-        hash: genesis_block.header().hash().clone(),
+        hash: *genesis_block.header().hash(),
     };
-    let network_adapter = Arc::new(NetworkRecipient::default());
+    let network_adapter = Arc::new(LateBoundSender::default());
+    let shards_manager_adapter = Arc::new(LateBoundSender::default());
     let adv = near_client::adversarial::Controls::default();
     let client_actor = start_client(
         client_config.clone(),
         chain_genesis.clone(),
         runtime.clone(),
         config.node_id(),
-        network_adapter.clone(),
-        Some(signer),
+        network_adapter.clone().into(),
+        shards_manager_adapter.as_sender(),
+        Some(signer.clone()),
         telemetry_actor,
         None,
         adv.clone(),
@@ -81,42 +83,43 @@ fn setup_network_node(
     .0;
     let view_client_actor = start_view_client(
         config.validator.as_ref().map(|v| v.account_id()),
-        chain_genesis.clone(),
+        chain_genesis,
         runtime.clone(),
-        network_adapter.clone(),
-        client_config,
+        network_adapter.clone().into(),
+        client_config.clone(),
         adv,
     );
+    let (shards_manager_actor, _) = start_shards_manager(
+        runtime.clone(),
+        network_adapter.as_sender(),
+        client_actor.clone().with_auto_span_context().into_sender(),
+        Some(signer.validator_id().clone()),
+        runtime.store().clone(),
+        client_config.chunk_request_retry_period,
+    );
+    shards_manager_adapter.bind(shards_manager_actor);
     let peer_manager = PeerManagerActor::spawn(
         time::Clock::real(),
         db.clone(),
         config,
         Arc::new(near_client::adapter::Adapter::new(client_actor, view_client_actor)),
+        shards_manager_adapter.as_sender(),
         genesis_id,
     )
     .unwrap();
-    network_adapter.set_recipient(peer_manager.clone());
+    network_adapter.bind(peer_manager.clone().with_auto_span_context());
     peer_manager
 }
 
 // TODO: Deprecate this in favor of separate functions.
 #[derive(Debug, Clone)]
 pub(crate) enum Action {
-    AddEdge {
-        from: usize,
-        to: usize,
-        force: bool,
-    },
+    AddEdge { from: usize, to: usize, force: bool },
     CheckRoutingTable(usize, Vec<(usize, Vec<usize>)>),
     // Send stop signal to some node.
     Stop(usize),
     // Wait time in milliseconds
     Wait(time::Duration),
-    #[allow(dead_code)]
-    SetOptions {
-        target: usize,
-        max_num_peers: Option<u64>,
-    },
 }
 
 pub(crate) struct RunningInfo {
@@ -166,16 +169,6 @@ impl StateMachine {
         let num_prev_actions = self.actions.len();
         let action_clone = 0; // action.clone();
         match action {
-            #[allow(unused_variables)]
-            Action::SetOptions { target, max_num_peers } => {
-                self.actions.push(Box::new(move |info:&mut RunningInfo| Box::pin(async move {
-                    debug!(target: "test", num_prev_actions, action = ?action_clone, "runner.rs: Action");
-                    info.get_node(target)?.actix.addr.send(PeerManagerMessageRequest::SetAdvOptions(near_network::test_utils::SetAdvOptions {
-                        set_max_peers: max_num_peers,
-                    }).with_span_context()).await?;
-                    Ok(ControlFlow::Break(()))
-                })));
-            }
             Action::AddEdge { from, to, force } => {
                 self.actions.push(Box::new(move |info: &mut RunningInfo| Box::pin(async move {
                     debug!(target: "test", num_prev_actions, action = ?action_clone, "runner.rs: Action");
@@ -235,7 +228,7 @@ struct TestConfig {
     archive: bool,
 
     account_id: AccountId,
-    port: u16,
+    node_addr: tcp::ListenerAddr,
 }
 
 impl TestConfig {
@@ -254,13 +247,12 @@ impl TestConfig {
             archive: false,
 
             account_id: format!("test{}", id).parse().unwrap(),
-            port: open_port(),
+            node_addr: tcp::ListenerAddr::reserve_for_test(),
         }
     }
 
     fn addr(&self) -> SocketAddr {
-        let ip = Ipv4Addr::LOCALHOST;
-        SocketAddr::V4(SocketAddrV4::new(ip, self.port))
+        *self.node_addr
     }
 
     fn peer_id(&self) -> PeerId {
@@ -298,7 +290,7 @@ impl Runner {
 
     /// Add node `v` to the whitelist of node `u`.
     /// If passed `v` an entry of the following form is added to the whitelist:
-    ///     PEER_ID_OF_NODE_V@127.0.0.1:PORT_OF_NODE_V
+    ///     PEER_ID_OF_NODE_V@localhost:PORT_OF_NODE_V
     pub fn add_to_whitelist(mut self, u: usize, v: usize) -> Self {
         self.test_config[u].whitelist.insert(v);
         self
@@ -384,13 +376,14 @@ impl Runner {
             .iter()
             .map(|x| match x {
                 Some(x) => blacklist::Entry::from_addr(self.test_config[*x].addr()),
-                None => blacklist::Entry::from_ip(Ipv4Addr::LOCALHOST.into()),
+                None => blacklist::Entry::from_ip(Ipv6Addr::LOCALHOST.into()),
             })
             .collect();
         let whitelist =
             config.whitelist.iter().map(|ix| self.test_config[*ix].peer_info()).collect();
 
-        let mut network_config = config::NetworkConfig::from_seed(&config.account_id, config.port);
+        let mut network_config =
+            config::NetworkConfig::from_seed(&config.account_id, config.node_addr);
         network_config.peer_store.ban_window = config.ban_window;
         network_config.max_num_peers = config.max_num_peers;
         network_config.ttl_account_id_router = time::Duration::seconds(5);

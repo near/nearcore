@@ -5,12 +5,12 @@ use near_primitives::types::EpochId;
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{BlockHeaderInnerLiteView, LightClientBlockView};
 
-use crate::{ChainStoreAccess, RuntimeAdapter};
+use crate::{ChainStoreAccess, RuntimeWithEpochManagerAdapter};
 
 pub fn get_epoch_block_producers_view(
     epoch_id: &EpochId,
     prev_hash: &CryptoHash,
-    runtime_adapter: &dyn RuntimeAdapter,
+    runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
 ) -> Result<Vec<ValidatorStakeView>, Error> {
     Ok(runtime_adapter
         .get_epoch_block_producers_ordered(epoch_id, prev_hash)?

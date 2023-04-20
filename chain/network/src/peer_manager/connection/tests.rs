@@ -5,7 +5,7 @@ use crate::peer_manager::connection;
 use crate::private_actix::RegisterPeerError;
 use crate::tcp;
 use crate::testonly::make_rng;
-use crate::time;
+use near_async::time;
 use near_o11y::testonly::init_test_logger;
 use std::sync::Arc;
 

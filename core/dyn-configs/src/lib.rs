@@ -2,7 +2,7 @@
 
 use near_chain_configs::UpdateableClientConfig;
 use near_o11y::log_config::LogConfig;
-use near_primitives::time::Clock;
+use near_primitives::static_clock::StaticClock;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -46,6 +46,7 @@ impl UpdateableConfigLoader {
         updateable_configs: UpdateableConfigs,
         tx: Sender<Result<UpdateableConfigs, Arc<UpdateableConfigLoaderError>>>,
     ) -> Self {
+        near_o11y::reload_log_config(updateable_configs.log_config.as_ref());
         let mut result = Self { tx: Some(tx) };
         result.reload(Ok(updateable_configs));
         result
@@ -57,6 +58,7 @@ impl UpdateableConfigLoader {
     ) {
         match updateable_configs {
             Ok(updateable_configs) => {
+                near_o11y::reload_log_config(updateable_configs.log_config.as_ref());
                 self.tx.as_ref().map(|tx| tx.send(Ok(updateable_configs.clone())));
                 Self::update_metrics();
             }
@@ -67,7 +69,7 @@ impl UpdateableConfigLoader {
     }
 
     fn update_metrics() {
-        metrics::CONFIG_RELOAD_TIMESTAMP.set(Clock::utc().timestamp());
+        metrics::CONFIG_RELOAD_TIMESTAMP.set(StaticClock::utc().timestamp());
         metrics::CONFIG_RELOADS.inc();
     }
 }

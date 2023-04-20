@@ -1,19 +1,15 @@
 //! Chain Client Configuration
-use std::cmp::max;
-use std::cmp::min;
-use std::time::Duration;
-
-use serde::{Deserialize, Serialize};
-
 use crate::MutableConfigValue;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats, ShardId,
 };
 use near_primitives::version::Version;
+use std::cmp::{max, min};
+use std::time::Duration;
 
 pub const TEST_STATE_SYNC_TIMEOUT: u64 = 5;
 
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, serde::Serialize, serde::Deserialize)]
 pub enum LogSummaryStyle {
     #[serde(rename = "plain")]
     Plain,
@@ -28,7 +24,7 @@ pub const MIN_GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
 pub const DEFAULT_GC_NUM_EPOCHS_TO_KEEP: u64 = 5;
 
 /// Configuration for garbage collection.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct GCConfig {
     /// Maximum number of blocks to garbage collect at every garbage collection
     /// call.
@@ -74,7 +70,7 @@ impl GCConfig {
 }
 
 /// ClientConfig where some fields can be updated at runtime.
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize)]
 pub struct ClientConfig {
     /// Version of the binary.
     pub version: Version,
@@ -92,8 +88,6 @@ pub struct ClientConfig {
     pub max_block_production_delay: Duration,
     /// Maximum duration before skipping given height.
     pub max_block_wait_delay: Duration,
-    /// Duration to reduce the wait for each missed block by validator.
-    pub reduce_wait_for_missing_block: Duration,
     /// Skip waiting for sync (for testing or single node testnet).
     pub skip_sync_wait: bool,
     /// How often to check that we are not out of sync.
@@ -124,8 +118,6 @@ pub struct ClientConfig {
     pub epoch_length: BlockHeightDelta,
     /// Number of block producer seats
     pub num_block_producer_seats: NumSeats,
-    /// Maximum blocks ahead of us before becoming validators to announce account.
-    pub announce_account_horizon: BlockHeightDelta,
     /// Time to persist Accounts Id in the router without removing them.
     pub ttl_account_id_router: Duration,
     /// Horizon at which instead of fetching block, fetch full state.
@@ -146,11 +138,15 @@ pub struct ClientConfig {
     pub tracked_accounts: Vec<AccountId>,
     /// Shards that this client tracks
     pub tracked_shards: Vec<ShardId>,
+    /// Rotate between these sets of tracked shards.
+    /// Used to simulate the behavior of chunk only producers without staking tokens.
+    pub tracked_shard_schedule: Vec<Vec<ShardId>>,
     /// Not clear old data, set `true` for archive nodes.
     pub archive: bool,
-    /// Save trie changes. Must be set to true if either of the following is true
-    /// - archive is false - non archival nodes need trie changes for garbage collection
-    /// - the node will be migrated to split storage in the near future - split storage nodes need trie changes for hot storage garbage collection
+    /// save_trie_changes should be set to true iff
+    /// - archive if false - non-archivale nodes need trie changes to perform garbage collection
+    /// - archive is true, cold_store is configured and migration to split_storage is finished - node
+    /// working in split storage mode needs trie changes in order to do garbage collection on hot.
     pub save_trie_changes: bool,
     /// Number of threads for ViewClientActor pool.
     pub view_client_threads: usize,
@@ -168,8 +164,27 @@ pub struct ClientConfig {
     pub enable_statistics_export: bool,
     /// Number of threads to execute background migration work in client.
     pub client_background_migration_threads: usize,
+    /// Enables background flat storage creation.
+    pub flat_storage_creation_enabled: bool,
     /// Duration to perform background flat storage creation step.
     pub flat_storage_creation_period: Duration,
+    /// If enabled, will dump state of every epoch to external storage.
+    pub state_sync_dump_enabled: bool,
+    /// S3 bucket for storing state dumps.
+    pub state_sync_s3_bucket: String,
+    /// S3 region for storing state dumps.
+    pub state_sync_s3_region: String,
+    /// Restart dumping state of selected shards.
+    /// Use for troubleshooting of the state dumping process.
+    pub state_sync_restart_dump_for_shards: Vec<ShardId>,
+    /// Whether to enable state sync from S3.
+    /// If disabled will perform state sync from the peers.
+    pub state_sync_from_s3_enabled: bool,
+    /// Number of parallel in-flight requests allowed per shard.
+    pub state_sync_num_concurrent_s3_requests: u64,
+    /// Whether to use the State Sync mechanism.
+    /// If disabled, the node will do Block Sync instead of State Sync.
+    pub state_sync_enabled: bool,
 }
 
 impl ClientConfig {
@@ -200,7 +215,6 @@ impl ClientConfig {
             min_block_production_delay: Duration::from_millis(min_block_prod_time),
             max_block_production_delay: Duration::from_millis(max_block_prod_time),
             max_block_wait_delay: Duration::from_millis(3 * min_block_prod_time),
-            reduce_wait_for_missing_block: Duration::from_millis(0),
             skip_sync_wait,
             sync_check_period: Duration::from_millis(100),
             sync_step_period: Duration::from_millis(10),
@@ -215,7 +229,6 @@ impl ClientConfig {
             produce_empty_blocks: true,
             epoch_length: 10,
             num_block_producer_seats,
-            announce_account_horizon: 5,
             ttl_account_id_router: Duration::from_secs(60 * 60),
             block_fetch_horizon: 50,
             state_fetch_horizon: 5,
@@ -229,6 +242,7 @@ impl ClientConfig {
             gc: GCConfig { gc_blocks_limit: 100, ..GCConfig::default() },
             tracked_accounts: vec![],
             tracked_shards: vec![],
+            tracked_shard_schedule: vec![],
             archive,
             save_trie_changes,
             log_summary_style: LogSummaryStyle::Colored,
@@ -239,7 +253,15 @@ impl ClientConfig {
             max_gas_burnt_view: None,
             enable_statistics_export: true,
             client_background_migration_threads: 1,
+            flat_storage_creation_enabled: true,
             flat_storage_creation_period: Duration::from_secs(1),
+            state_sync_dump_enabled: false,
+            state_sync_s3_bucket: String::new(),
+            state_sync_s3_region: String::new(),
+            state_sync_restart_dump_for_shards: vec![],
+            state_sync_from_s3_enabled: false,
+            state_sync_num_concurrent_s3_requests: 10,
+            state_sync_enabled: false,
         }
     }
 }

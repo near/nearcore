@@ -1,5 +1,4 @@
 use anyhow::Context;
-use clap::Parser;
 use near_network::types::PeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
@@ -11,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 pub struct PingCommand {
     #[clap(long)]
     chain_id: String,
@@ -202,7 +201,7 @@ impl PingCommand {
                 self.head_height.unwrap_or(0),
                 self.protocol_version,
                 peer.id.clone(),
-                peer.addr.clone().unwrap(),
+                peer.addr.unwrap(),
                 self.ttl,
                 self.ping_frequency_millis,
                 self.recv_timeout_seconds.unwrap_or(5),

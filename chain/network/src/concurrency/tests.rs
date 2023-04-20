@@ -1,20 +1,6 @@
 use crate::concurrency::arc_mutex::ArcMutex;
 use crate::concurrency::demux;
 use crate::concurrency::rate;
-use crate::concurrency::rayon;
-
-// drop a trivial future without completion => panic (in debug mode at least).
-#[tokio::test]
-#[should_panic]
-async fn must_complete_should_panic() {
-    let _ = rayon::must_complete(async move { 6 });
-}
-
-// run a trivial future until completion => OK
-#[tokio::test]
-async fn must_complete_ok() {
-    assert_eq!(5, rayon::must_complete(async move { 5 }).await);
-}
 
 #[tokio::test]
 async fn test_demux() {

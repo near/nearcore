@@ -182,7 +182,7 @@ impl TrieCacheInner {
         // Do nothing if key was removed before.
         if self.cache.contains(key) {
             // Put key to the queue of deletions and possibly remove another key we have to delete.
-            match self.deletions.put(key.clone()) {
+            match self.deletions.put(*key) {
                 Some(key_to_delete) => match self.cache.pop(&key_to_delete) {
                     Some(evicted_value) => {
                         self.metrics.shard_cache_pop_hits.inc();
@@ -288,9 +288,11 @@ impl TrieCache {
 }
 
 pub trait TrieStorage {
-    /// Get bytes of a serialized TrieNode.
+    /// Get bytes of a serialized `TrieNode`.
+    ///
     /// # Errors
-    /// StorageError if the storage fails internally or the hash is not present.
+    ///
+    /// [`StorageError`] if the storage fails internally or the hash is not present.
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError>;
 
     fn as_caching_storage(&self) -> Option<&TrieCachingStorage> {
@@ -518,14 +520,14 @@ impl TrieStorage for TrieCachingStorage {
             Some(val) => {
                 self.metrics.shard_cache_hits.inc();
                 near_o11y::io_trace!(count: "shard_cache_hit");
-                val.clone()
+                val
             }
             None => {
                 self.metrics.shard_cache_misses.inc();
                 near_o11y::io_trace!(count: "shard_cache_miss");
                 let val;
                 if let Some(prefetcher) = &self.prefetch_api {
-                    let prefetch_state = prefetcher.prefetching.get_or_set_fetching(hash.clone());
+                    let prefetch_state = prefetcher.prefetching.get_or_set_fetching(*hash);
                     // Keep lock until here to avoid race condition between shard cache lookup and reserving prefetch slot.
                     std::mem::drop(guard);
 
@@ -556,7 +558,7 @@ impl TrieStorage for TrieCachingStorage {
                             self.metrics.prefetch_pending.inc();
                             std::thread::yield_now();
                             // If data is already being prefetched, wait for that instead of sending a new request.
-                            match prefetcher.prefetching.blocking_get(hash.clone()) {
+                            match prefetcher.prefetching.blocking_get(*hash) {
                                 Some(value) => value,
                                 // Only main thread (this one) removes values from staging area,
                                 // therefore blocking read will usually not return empty unless there

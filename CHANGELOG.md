@@ -4,7 +4,75 @@
 
 ### Protocol Changes
 
+* Contract preparation and gas charging for wasm execution also switched to using our own code, as per the finite-wasm specification. Contract execution gas costs will change slightly for expected use cases. This opens up opportunities for further changing the execution gas costs (eg. with different costs per opcode) to lower contract execution cost long-term.
+* Compute Costs are implemented and stabilized. Compute usage of the chunk is now limited according to the compute costs. [#8915](https://github.com/near/nearcore/pull/8915), [NEP-455](https://github.com/near/NEPs/blob/master/neps/nep-0455.md).
+
 ### Non-protocol Changes
+
+* Node can sync State from S3. [#8789](https://github.com/near/nearcore/pull/8789)
+* The contract runtime switched to using our fork of wasmer, with various improvements.
+* undo-block tool to reset the chain head from current head to its prev block. Use the tool by running: `./target/release/neard --home {path_to_config_directory} undo-block`. [#8681](https://github.com/near/nearcore/pull/8681)
+
+## 1.33.0
+
+### Protocol Changes
+
+### Non-protocol Changes
+* State-viewer tool to dump and apply state changes from/to a range of blocks. [#8628](https://github.com/near/nearcore/pull/8628)
+* Experimental option to dump state of every epoch to external storage. [#8661](https://github.com/near/nearcore/pull/8661)
+* Add prometheus metrics for tracked shards, block height within epoch, if is block/chunk producer. [#8728](https://github.com/near/nearcore/pull/8728)
+* State sync is disabled by default [#8730](https://github.com/near/nearcore/pull/8730)
+* Node can restart if State Sync gets interrupted. [#8732](https://github.com/near/nearcore/pull/8732)
+* Merged two `neard view-state` commands: `apply-state-parts` and `dump-state-parts` into a single `state-parts` command. [#8739](https://github.com/near/nearcore/pull/8739)
+* Add config.network.experimental.network_config_overrides to the JSON config. [#8871](https://github.com/near/nearcore/pull/8871)
+
+## 1.32.2
+
+### Fixes
+* Fix: rosetta zero balance accounts [#8833](https://github.com/near/nearcore/pull/8833)
+
+## 1.32.1
+
+### Fixes
+* Fix vulnerabilities in block outcome root validation and total supply validation [#8790](https://github.com/near/nearcore/pull/8790)
+
+## 1.32.0
+
+### Protocol Changes
+* Stabilize `ed25519_verify` feature: introducing a host function to verify
+ed25519 signatures efficiently.
+[#8098](https://github.com/near/nearcore/pull/8098)
+[NEP-364](https://github.com/near/NEPs/pull/364)
+* Added STUN-based self-discovery to make configuration of TIER1 network easier in the simplest validator setups.
+  [#8472](https://github.com/near/nearcore/pull/8472)
+* Stabilize zero balance account feature: allows account to not hold balance under certain conditions
+and enables a more smooth onboarding experience where users don't have to first acquire NEAR tokens
+to pay for the storage of their accounts.
+[#8378](https://github.com/near/nearcore/pull/8378)
+[NEP-448](https://github.com/near/NEPs/pull/448)
+* Stabilize meta transactions on the protocol level.
+[NEP-366](https://github.com/near/NEPs/blob/master/neps/nep-0366.md),
+[Tracking issue #8075](https://github.com/near/nearcore/issues/8075),
+[Stabilization #8601](https://github.com/near/nearcore/pull/8601)
+
+### Non-protocol Changes
+* Config validation can be done by following command: 
+  `./target/debug/neard --home {path_to_config_files} validate-config`. 
+  This will show error if there are file issues or semantic issues in `config.json`, `genesis.json`, `records.json`, `node_key.json` and `validator_key.json`. 
+  [#8485](https://github.com/near/nearcore/pull/8485)
+* Comments are allowed in configs. This includes
+  `config.json`, `genesis.json`, `node_key.json` and `validator_key.json`. You can use `//`, `#` and `/*...*/` for comments.
+  [#8423](https://github.com/near/nearcore/pull/8423)
+* `/debug` page now has client_config linked. 
+  You can also check your client_config directly at /debug/client_config
+  [#8400](https://github.com/near/nearcore/pull/8400)
+* Added cold store loop - a background thread that copies data from hot to cold storage and a new json rpc endpoing - split_storage_info - that
+  exposes debug info about the split storage.
+  [#8432](https://github.com/near/nearcore/pull/8432)
+* `ClientConfig` can be updated while the node is running.
+  `dyn_config.json` is no longer needed as its contents were merged into `config.json`.
+  [#8240](https://github.com/near/nearcore/pull/8240)
+* TIER2 network stabilization. Long-lasting active connections are persisted to DB and are re-established automatically if either node restarts. A new neard flag `--connect-to-reliable-peers-on-startup` is provided to toggle this behavior; it defaults to true. The PeerStore is no longer persisted to DB and is now kept in-memory. [#8579](https://github.com/near/nearcore/issues/8579), [#8580](https://github.com/near/nearcore/issues/8580).
 
 ## 1.31.0
 

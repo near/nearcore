@@ -14,7 +14,7 @@ tracking) additional shards in the future epochs. Currently it should be a no-op
 for 99% of nodes (see below).
 
 
-**Tracking shards**: as you know our system has multiple shards (currently 4).
+**Tracking shards:** as you know our system has multiple shards (currently 4).
 Currently 99% of nodes are tracking all the shards: validators have to - as they
 have to validate the chunks from all the shards, and normal nodes mostly also
 track all the shards as this is default.
@@ -54,7 +54,7 @@ epoch - that has to contain additional information about validators.
 This way it would drastically reduce both the time needed for the sync and the
 db resources.
 
-We plan to enable it in Q4 2022.
+Implementation target date is TBD.
 
 ![image](https://user-images.githubusercontent.com/1711539/195892336-cc117c08-d3ad-43f7-9304-3233b25e8bb1.png)
 
@@ -122,7 +122,7 @@ Before adding the block, we want to download the chunks for the shards that we
 are tracking - so in many cases, we’ll call `missing_chunks` functions that will
 try to go ahead and request those chunks.
 
-**Note**: as an optimization, we’re also sometimes trying to fetch chunks for
+**Note:** as an optimization, we’re also sometimes trying to fetch chunks for
 the blocks that are in the orphan pool – but only if they are not more than 3
 (`NUM_ORPHAN_ANCESTORS_CHECK`) blocks away from our head.
 

@@ -171,11 +171,11 @@ fn test_limit_contract_functions_number() {
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13048032213 used gas 13048032213
         "#]],
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13048032213 used gas 13048032213
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13054614261 used gas 13054614261
         "#]],
         #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13048032213 used gas 13048032213
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13054614261 used gas 13054614261
         "#]],
     ]);
 
@@ -258,7 +258,7 @@ fn test_limit_contract_functions_number() {
 }
 
 #[test]
-fn test_limit_locals() {
+fn test_limit_locals_bigfunc() {
     test_builder()
         .wasm(
             &near_test_contracts::LargeContract {
@@ -293,10 +293,10 @@ fn test_limit_locals() {
             }
             .make(),
         )
-        .skip_wasmtime()
+        .opaque_error() // near-vm returns a proper stack overflow, others return memory access violation
         .expect(expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 43682463 used gas 43682463
-            Err: WebAssembly trap: An `unreachable` opcode was executed.
+            Err: ...
         "#]]);
 }
 
@@ -338,7 +338,7 @@ fn test_limit_locals_global() {
             .make(),
         )
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 139269213 used gas 139269213
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13001413761 used gas 13001413761
         "#]]);
 }
 
@@ -361,7 +361,7 @@ pub fn test_stablized_host_function() {
                 Err: ...
             "#]],
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 7143010623 used gas 7143010623
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 7149592671 used gas 7149592671
             "#]],
         ]);
 }
@@ -388,5 +388,48 @@ fn test_sandbox_only_function() {
     tb.expect(expect![[r#"
         VMOutcome: balance 4 storage_usage 12 return data None burnt gas 57337713 used gas 57337713
         Err: ...
+    "#]]);
+}
+
+#[test]
+fn extension_saturating_float_to_int() {
+    let tb = test_builder().wat(
+        r#"
+            (module
+                (func $test_trunc (param $x f64) (result i32) (i32.trunc_sat_f64_s (local.get $x)))
+            )
+            "#,
+    );
+
+    #[cfg(feature = "nightly")]
+    tb.expect(expect![[r#"
+        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 48450963 used gas 48450963
+        Err: PrepareError: Error happened while deserializing the module.
+    "#]]);
+    #[cfg(not(feature = "nightly"))]
+    tb.expect(expect![[r#"
+        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
+        Err: PrepareError: Error happened while deserializing the module.
+    "#]]);
+}
+
+#[test]
+fn extension_signext() {
+    let tb = test_builder().wat(
+        r#"
+            (module
+                (func $extend8_s (param $x i32) (result i32) (i32.extend8_s (local.get $x)))
+            )
+            "#,
+    );
+    #[cfg(feature = "nightly")]
+    tb.expect(expect![[r#"
+        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 48017463 used gas 48017463
+        Err: PrepareError: Error happened while deserializing the module.
+    "#]]);
+    #[cfg(not(feature = "nightly"))]
+    tb.expect(expect![[r#"
+        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
+        Err: PrepareError: Error happened while deserializing the module.
     "#]]);
 }

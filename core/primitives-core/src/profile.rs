@@ -1,7 +1,7 @@
 pub use profile_v2::ProfileDataV2;
 
-use crate::config::{ActionCosts, ExtCosts};
-use crate::types::Gas;
+use crate::config::{ActionCosts, ExtCosts, ExtCostsConfig};
+use crate::types::{Compute, Gas};
 use borsh::{BorshDeserialize, BorshSerialize};
 use enum_map::{enum_map, Enum, EnumMap};
 use std::fmt;
@@ -64,12 +64,12 @@ impl ProfileDataV3 {
     }
 
     #[inline]
-    pub fn add_action_cost(&mut self, action: ActionCosts, value: u64) {
+    pub fn add_action_cost(&mut self, action: ActionCosts, value: Gas) {
         self.actions_profile[action] = self.actions_profile[action].saturating_add(value);
     }
 
     #[inline]
-    pub fn add_ext_cost(&mut self, ext: ExtCosts, value: u64) {
+    pub fn add_ext_cost(&mut self, ext: ExtCosts, value: Gas) {
         self.wasm_ext_profile[ext] = self.wasm_ext_profile[ext].saturating_add(value);
     }
 
@@ -81,37 +81,64 @@ impl ProfileDataV3 {
     /// This is because WasmInstruction is the hottest cost and is implemented
     /// with the help on the VM side, so we don't want to have profiling logic
     /// there both for simplicity and efficiency reasons.
-    pub fn compute_wasm_instruction_cost(&mut self, total_gas_burnt: u64) {
+    pub fn compute_wasm_instruction_cost(&mut self, total_gas_burnt: Gas) {
         self.wasm_gas =
             total_gas_burnt.saturating_sub(self.action_gas()).saturating_sub(self.host_gas());
     }
 
-    pub fn get_action_cost(&self, action: ActionCosts) -> u64 {
+    pub fn get_action_cost(&self, action: ActionCosts) -> Gas {
         self.actions_profile[action]
     }
 
-    pub fn get_ext_cost(&self, ext: ExtCosts) -> u64 {
+    pub fn get_ext_cost(&self, ext: ExtCosts) -> Gas {
         self.wasm_ext_profile[ext]
     }
 
-    pub fn get_wasm_cost(&self) -> u64 {
+    pub fn get_wasm_cost(&self) -> Gas {
         self.wasm_gas
     }
 
-    fn host_gas(&self) -> u64 {
-        self.wasm_ext_profile.as_slice().iter().copied().fold(0, u64::saturating_add)
+    fn host_gas(&self) -> Gas {
+        self.wasm_ext_profile.as_slice().iter().copied().fold(0, Gas::saturating_add)
     }
 
-    pub fn action_gas(&self) -> u64 {
-        self.actions_profile.as_slice().iter().copied().fold(0, u64::saturating_add)
+    pub fn action_gas(&self) -> Gas {
+        self.actions_profile.as_slice().iter().copied().fold(0, Gas::saturating_add)
+    }
+
+    /// Returns total compute usage of host calls.
+    pub fn total_compute_usage(&self, ext_costs_config: &ExtCostsConfig) -> Compute {
+        let ext_compute_cost = self
+            .wasm_ext_profile
+            .iter()
+            .map(|(key, value)| {
+                // Technically, gas cost might be zero while the compute cost is non-zero. To
+                // handle this case, we would need to explicitly count number of calls, not just
+                // the total gas usage.
+                // We don't have such costs at the moment, so this case is not implemented.
+                debug_assert!(key.gas(ext_costs_config) > 0 || key.compute(ext_costs_config) == 0);
+
+                if *value == 0 {
+                    return *value;
+                }
+                // If the `value` is non-zero, the gas cost also must be non-zero.
+                debug_assert!(key.gas(ext_costs_config) != 0);
+                ((*value as u128).saturating_mul(key.compute(ext_costs_config) as u128)
+                    / (key.gas(ext_costs_config) as u128)) as u64
+            })
+            .fold(0, Compute::saturating_add);
+
+        // We currently only support compute costs for host calls. In the future we might add
+        // them for actions as well.
+        ext_compute_cost.saturating_add(self.action_gas()).saturating_add(self.get_wasm_cost())
     }
 }
 
 impl BorshDeserialize for ProfileDataV3 {
-    fn deserialize(buf: &mut &[u8]) -> Result<Self, std::io::Error> {
-        let actions_array: Vec<u64> = BorshDeserialize::deserialize(buf)?;
-        let ext_array: Vec<u64> = BorshDeserialize::deserialize(buf)?;
-        let wasm_gas: u64 = BorshDeserialize::deserialize(buf)?;
+    fn deserialize_reader<R: std::io::Read>(rd: &mut R) -> std::io::Result<Self> {
+        let actions_array: Vec<u64> = BorshDeserialize::deserialize_reader(rd)?;
+        let ext_array: Vec<u64> = BorshDeserialize::deserialize_reader(rd)?;
+        let wasm_gas: u64 = BorshDeserialize::deserialize_reader(rd)?;
 
         // Mapping raw arrays to enum maps.
         // The enum map could be smaller or larger than the raw array.
@@ -252,6 +279,26 @@ mod test {
         profile_data.merge(&profile_data2);
         assert_eq!(profile_data.get_action_cost(ActionCosts::add_full_access_key), 333);
         assert_eq!(profile_data.get_ext_cost(ExtCosts::storage_read_base), 33);
+    }
+
+    #[test]
+    fn test_total_compute_usage() {
+        let ext_costs_config = ExtCostsConfig::test_with_undercharging_factor(3);
+        let mut profile_data = ProfileDataV3::default();
+        profile_data.add_ext_cost(
+            ExtCosts::storage_read_base,
+            2 * ExtCosts::storage_read_base.gas(&ext_costs_config),
+        );
+        profile_data.add_ext_cost(
+            ExtCosts::storage_write_base,
+            5 * ExtCosts::storage_write_base.gas(&ext_costs_config),
+        );
+        profile_data.add_action_cost(ActionCosts::function_call_base, 100);
+
+        assert_eq!(
+            profile_data.total_compute_usage(&ext_costs_config),
+            3 * profile_data.host_gas() + profile_data.action_gas()
+        );
     }
 
     #[test]

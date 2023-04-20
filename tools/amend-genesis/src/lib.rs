@@ -32,6 +32,10 @@ struct AccountRecords {
     // given there
     amount_needed: bool,
     keys: HashMap<PublicKey, AccessKey>,
+    // code state records must appear after the account state record. So for accounts we're
+    // modifying/adding keys for, we will remember any code records (there really should only be one),
+    // and add them to the output only after we write the account record
+    extra_records: Vec<StateRecord>,
 }
 
 // set the total balance to what's in src, keeping the locked amount the same
@@ -84,6 +88,10 @@ impl AccountRecords {
         self.amount_needed = false;
     }
 
+    fn push_extra_record(&mut self, record: StateRecord) {
+        self.extra_records.push(record);
+    }
+
     fn write_out<S: SerializeSeq>(
         self,
         account_id: AccountId,
@@ -114,6 +122,9 @@ impl AccountRecords {
                 }
                 *total_supply += account.amount() + account.locked();
                 seq.serialize_element(&StateRecord::Account { account_id, account })?;
+                for record in self.extra_records.iter() {
+                    seq.serialize_element(record)?;
+                }
             }
             None => {
                 tracing::warn!("access keys for {} were included in --extra-records, but no Account record was found. Not adding them to the output", &account_id);
@@ -258,7 +269,7 @@ pub fn amend_genesis(
     num_bytes_account: u64,
     num_extra_bytes_record: u64,
 ) -> anyhow::Result<()> {
-    let mut genesis = Genesis::from_file(genesis_file_in, GenesisValidationMode::UnsafeFast);
+    let mut genesis = Genesis::from_file(genesis_file_in, GenesisValidationMode::UnsafeFast)?;
 
     let shard_layout = if let Some(path) = shard_layout_file {
         let s = std::fs::read_to_string(path)
@@ -303,6 +314,13 @@ pub fn amend_genesis(
                         account.set_locked(0);
                     }
                     total_supply += account.amount() + account.locked();
+                    records_seq.serialize_element(&r).unwrap();
+                }
+            }
+            StateRecord::Contract { account_id, .. } => {
+                if let Some(records) = wanted.get_mut(account_id) {
+                    records.push_extra_record(r);
+                } else {
                     records_seq.serialize_element(&r).unwrap();
                 }
             }
@@ -369,14 +387,14 @@ mod test {
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::state_record::StateRecord;
-    use near_primitives::time::Clock;
+    use near_primitives::static_clock::StaticClock;
     use near_primitives::types::{AccountId, AccountInfo};
     use near_primitives::utils;
     use near_primitives::version::PROTOCOL_VERSION;
     use near_primitives_core::account::{AccessKey, Account};
     use near_primitives_core::types::{Balance, StorageUsage};
     use num_rational::Rational32;
-    use std::collections::HashSet;
+    use std::collections::{HashMap, HashSet};
     use std::str::FromStr;
     use tempfile::NamedTempFile;
 
@@ -410,6 +428,9 @@ mod test {
             account_id: &'static str,
             public_key: &'static str,
         },
+        Contract {
+            account_id: &'static str,
+        },
     }
 
     impl TestStateRecord {
@@ -424,6 +445,10 @@ mod test {
                     account_id: account_id.parse().unwrap(),
                     public_key: public_key.parse().unwrap(),
                     access_key: AccessKey::full_access(),
+                },
+                Self::Contract { account_id } => StateRecord::Contract {
+                    account_id: account_id.parse().unwrap(),
+                    code: vec![123],
                 },
             }
         }
@@ -455,21 +480,28 @@ mod test {
         got_records: Vec<StateRecord>,
         wanted_records: Vec<StateRecord>,
     ) -> anyhow::Result<()> {
-        let mut got_accounts = HashSet::new();
+        let mut got_accounts = HashMap::new();
         let mut got_keys = HashSet::new();
-        let mut wanted_accounts = HashSet::new();
+        let mut got_contracts = HashMap::<AccountId, usize>::new();
+        let mut wanted_accounts = HashMap::new();
         let mut wanted_keys = HashSet::new();
+        let mut wanted_contracts = HashMap::<AccountId, usize>::new();
 
         for r in got_records {
             match r {
                 StateRecord::Account { account_id, account } => {
-                    if !got_accounts.insert((
-                        account_id.clone(),
-                        account.amount(),
-                        account.locked(),
-                        account.code_hash(),
-                        account.storage_usage(),
-                    )) {
+                    if got_accounts
+                        .insert(
+                            account_id.clone(),
+                            (
+                                account.amount(),
+                                account.locked(),
+                                account.code_hash(),
+                                account.storage_usage(),
+                            ),
+                        )
+                        .is_some()
+                    {
                         anyhow::bail!("two account records in the output for {}", &account_id);
                     }
                 }
@@ -482,22 +514,36 @@ mod test {
                         );
                     }
                 }
+                StateRecord::Contract { account_id, .. } => {
+                    if !got_accounts.contains_key(&account_id) {
+                        anyhow::bail!(
+                            "account {} has a code state record before the account state record",
+                            &account_id
+                        );
+                    }
+                    *got_contracts.entry(account_id).or_default() += 1;
+                }
                 _ => anyhow::bail!("got an unexpected record in the output: {}", r),
             };
         }
         for r in wanted_records {
             match r {
                 StateRecord::Account { account_id, account } => {
-                    wanted_accounts.insert((
+                    wanted_accounts.insert(
                         account_id,
-                        account.amount(),
-                        account.locked(),
-                        account.code_hash(),
-                        account.storage_usage(),
-                    ));
+                        (
+                            account.amount(),
+                            account.locked(),
+                            account.code_hash(),
+                            account.storage_usage(),
+                        ),
+                    );
                 }
                 StateRecord::AccessKey { account_id, public_key, access_key } => {
                     wanted_keys.insert((account_id, public_key, access_key));
+                }
+                StateRecord::Contract { account_id, .. } => {
+                    *wanted_contracts.entry(account_id).or_default() += 1;
                 }
                 _ => anyhow::bail!("got an unexpected record in the output: {}", r),
             };
@@ -505,6 +551,7 @@ mod test {
 
         assert_eq!(got_accounts, wanted_accounts);
         assert_eq!(got_keys, wanted_keys);
+        assert_eq!(got_contracts, wanted_contracts);
         Ok(())
     }
 
@@ -525,7 +572,7 @@ mod test {
 
             let genesis_config = GenesisConfig {
                 protocol_version: PROTOCOL_VERSION,
-                genesis_time: Clock::utc(),
+                genesis_time: StaticClock::utc(),
                 chain_id: "rusttestnet".to_string(),
                 genesis_height: 0,
                 num_block_producer_seats: nearcore::config::NUM_BLOCK_PRODUCER_SEATS,
@@ -537,7 +584,6 @@ mod test {
                 dynamic_resharding: false,
                 protocol_upgrade_stake_threshold:
                     nearcore::config::PROTOCOL_UPGRADE_STAKE_THRESHOLD,
-                protocol_upgrade_num_epochs: nearcore::config::PROTOCOL_UPGRADE_NUM_EPOCHS,
                 epoch_length: 1000,
                 gas_limit: nearcore::config::INITIAL_GAS_LIMIT,
                 gas_price_adjustment_rate: nearcore::config::GAS_PRICE_ADJUSTMENT_RATE,
@@ -567,7 +613,7 @@ mod test {
                 tempfile::NamedTempFile::new().context("failed creating tmp file")?;
             serde_json::to_writer(&mut records_file_in, &records_in)
                 .context("failed writing to --records-file-in")?;
-            let genesis = Genesis::new_with_path(genesis_config, records_file_in.path());
+            let genesis = Genesis::new_with_path(genesis_config, records_file_in.path())?;
 
             Ok(ParsedTestCase {
                 genesis,
@@ -926,6 +972,51 @@ mod test {
                     account_id: "extra-account.near",
                     public_key: "ed25519:BhnQV3oJa8iSQDKDc8gy36TsenaMFmv7qHvcnutuXj33",
                 },
+            ],
+        },
+        // this one tests that account records appear before code records
+        TestCase {
+            initial_validators: &[TestAccountInfo {
+                account_id: "foo0",
+                public_key: "ed25519:He7QeRuwizNEhBioYG3u4DZ8jWXyETiyNzFD3MkTjDMf",
+                amount: 1_000_000,
+            }],
+            validators_in: &[TestAccountInfo {
+                account_id: "foo0",
+                public_key: "ed25519:He7QeRuwizNEhBioYG3u4DZ8jWXyETiyNzFD3MkTjDMf",
+                amount: 1_000_000,
+            }],
+            records_in: &[
+                TestStateRecord::Account {
+                    account_id: "foo0",
+                    amount: 1_000_000,
+                    locked: 1_000_000,
+                    storage_usage: 183,
+                },
+                TestStateRecord::AccessKey {
+                    account_id: "foo0",
+                    public_key: "ed25519:He7QeRuwizNEhBioYG3u4DZ8jWXyETiyNzFD3MkTjDMf",
+                },
+                TestStateRecord::Contract { account_id: "foo0" },
+            ],
+            extra_records: &[TestStateRecord::Account {
+                account_id: "foo0",
+                amount: 100_000_000,
+                locked: 0,
+                storage_usage: 0,
+            }],
+            wanted_records: &[
+                TestStateRecord::Account {
+                    account_id: "foo0",
+                    amount: 99_000_000,
+                    locked: 1_000_000,
+                    storage_usage: 183,
+                },
+                TestStateRecord::AccessKey {
+                    account_id: "foo0",
+                    public_key: "ed25519:He7QeRuwizNEhBioYG3u4DZ8jWXyETiyNzFD3MkTjDMf",
+                },
+                TestStateRecord::Contract { account_id: "foo0" },
             ],
         },
     ];

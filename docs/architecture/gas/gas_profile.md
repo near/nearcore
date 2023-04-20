@@ -16,8 +16,12 @@ You can query the gas profile of a transaction with
 [NEAR CLI](https://docs.near.org/tools/near-cli).
 
 ```bash
-NEAR_ENV=mainnet near tx-status 8vYxsqYp5Kkfe8j9LsTqZRsEupNkAs1WvgcGcUE4MUUw --accountId app.nearcrowd.near
+NEAR_ENV=mainnet near tx-status 8vYxsqYp5Kkfe8j9LsTqZRsEupNkAs1WvgcGcUE4MUUw  \
+  --accountId app.nearcrowd.near  \
+  --nodeUrl https://archival-rpc.mainnet.near.org  # Allows to retrieve older transactions.
+```
 
+```
 Transaction app.nearcrowd.near:8vYxsqYp5Kkfe8j9LsTqZRsEupNkAs1WvgcGcUE4MUUw
 {
   receipts_outcome: [
@@ -147,11 +151,12 @@ but RPC nodes and archival nodes keep them in their databases. This is mostly a
 debug tool and has no direct impact on the correct functioning of the protocol.
 
 ## Charging Gas
+
 Generally speaking, gas is charged right before the computation that it pays for
 is executed. It has to be before to avoid cheap resource exhaustion attacks.
-Imagine the user has only 1 gas unit left but we start executing an expensive
-step, we would waste a significant duration of compute on all validators without
-anyone paying for it.
+Imagine the user has only 1 gas unit left, but if we start executing an expensive
+step, we would waste a significant duration of computation on all validators
+without anyone paying for it.
 
 When charging gas for an action, the `ActionResult` can be updated directly. But
 when charging WASM costs, it would be too slow to do a context switch each time,

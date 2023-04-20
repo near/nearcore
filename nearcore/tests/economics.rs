@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use num_rational::Ratio;
 
-use near_chain::{ChainGenesis, RuntimeAdapter};
+use near_chain::{ChainGenesis, RuntimeWithEpochManagerAdapter};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType};
@@ -33,11 +33,8 @@ fn setup_env(genesis: &Genesis) -> TestEnv {
     init_integration_logger();
     let store1 = create_test_store();
     TestEnv::builder(ChainGenesis::new(&genesis))
-        .runtime_adapters(vec![Arc::new(nearcore::NightshadeRuntime::test(
-            Path::new("."),
-            store1,
-            genesis,
-        )) as Arc<dyn RuntimeAdapter>])
+        .runtime_adapters(vec![nearcore::NightshadeRuntime::test(Path::new("."), store1, genesis)
+            as Arc<dyn RuntimeWithEpochManagerAdapter>])
         .build()
 }
 

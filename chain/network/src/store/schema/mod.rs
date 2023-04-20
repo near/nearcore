@@ -1,9 +1,9 @@
-use crate::time;
 use crate::types as primitives;
 /// Schema module defines a type-safe access to the DB.
 /// It is a concise definition of key and value types
 /// of the DB columns. For high level access see store.rs.
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_async::time;
 use near_crypto::Signature;
 use near_primitives::account::id::AccountId;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -11,6 +11,8 @@ use near_store::DBCol;
 use std::io;
 use std::sync::Arc;
 
+#[cfg(test)]
+mod testonly;
 #[cfg(test)]
 mod tests;
 
@@ -25,84 +27,40 @@ impl Format for AccountIdFormat {
     }
 }
 
+/// A Borsh representation of the primitives::ConnectionInfo.
 #[derive(BorshSerialize, BorshDeserialize)]
-enum KnownPeerStatus {
-    Unknown,
-    NotConnected,
-    Connected,
-    /// UNIX timestamps in nanos.
-    Banned(primitives::ReasonForBan, u64),
-}
-
-impl From<primitives::KnownPeerStatus> for KnownPeerStatus {
-    fn from(s: primitives::KnownPeerStatus) -> Self {
-        match s {
-            primitives::KnownPeerStatus::Unknown => Self::Unknown,
-            primitives::KnownPeerStatus::NotConnected => Self::NotConnected,
-            primitives::KnownPeerStatus::Connected => Self::Connected,
-            primitives::KnownPeerStatus::Banned(r, t) => {
-                Self::Banned(r, t.unix_timestamp_nanos() as u64)
-            }
-        }
-    }
-}
-
-impl From<KnownPeerStatus> for primitives::KnownPeerStatus {
-    fn from(s: KnownPeerStatus) -> primitives::KnownPeerStatus {
-        match s {
-            KnownPeerStatus::Unknown => primitives::KnownPeerStatus::Unknown,
-            KnownPeerStatus::NotConnected => primitives::KnownPeerStatus::NotConnected,
-            KnownPeerStatus::Connected => primitives::KnownPeerStatus::Connected,
-            KnownPeerStatus::Banned(r, t) => primitives::KnownPeerStatus::Banned(
-                r,
-                time::Utc::from_unix_timestamp_nanos(t as i128).unwrap(),
-            ),
-        }
-    }
-}
-
-/// A Borsh representation of the primitives::KnownPeerState.
-/// TODO: Currently primitives::KnownPeerState implements Borsh serialization
-/// directly, but eventually direct serialization should be removed
-/// so that the storage format doesn't leak to the business logic.
-/// TODO: Currently primitives::KnownPeerState is identical
-/// to the KnownPeerStateRepr, but in the following PR the
-/// timestamp type (currently u64), will be replaced with time::Utc.
-#[derive(BorshSerialize, BorshDeserialize)]
-pub struct KnownPeerStateRepr {
+pub(super) struct ConnectionInfoRepr {
     peer_info: primitives::PeerInfo,
-    status: KnownPeerStatus,
     /// UNIX timestamps in nanos.
-    first_seen: u64,
-    last_seen: u64,
+    time_established: u64,
+    time_connected_until: u64,
 }
 
-impl BorshRepr for KnownPeerStateRepr {
-    type T = primitives::KnownPeerState;
-    fn to_repr(s: &primitives::KnownPeerState) -> Self {
+impl BorshRepr for ConnectionInfoRepr {
+    type T = primitives::ConnectionInfo;
+    fn to_repr(s: &primitives::ConnectionInfo) -> Self {
         Self {
             peer_info: s.peer_info.clone(),
-            status: s.status.clone().into(),
-            first_seen: s.first_seen.unix_timestamp_nanos() as u64,
-            last_seen: s.last_seen.unix_timestamp_nanos() as u64,
+            time_established: s.time_established.unix_timestamp_nanos() as u64,
+            time_connected_until: s.time_connected_until.unix_timestamp_nanos() as u64,
         }
     }
 
-    fn from_repr(s: Self) -> Result<primitives::KnownPeerState, Error> {
-        Ok(primitives::KnownPeerState {
+    fn from_repr(s: Self) -> Result<primitives::ConnectionInfo, Error> {
+        Ok(primitives::ConnectionInfo {
             peer_info: s.peer_info,
-            status: s.status.into(),
-            first_seen: time::Utc::from_unix_timestamp_nanos(s.first_seen as i128)
+            time_established: time::Utc::from_unix_timestamp_nanos(s.time_established as i128)
                 .map_err(invalid_data)?,
-            last_seen: time::Utc::from_unix_timestamp_nanos(s.last_seen as i128)
-                .map_err(invalid_data)?,
-            last_outbound_attempt: None,
+            time_connected_until: time::Utc::from_unix_timestamp_nanos(
+                s.time_connected_until as i128,
+            )
+            .map_err(invalid_data)?,
         })
     }
 }
 
 #[derive(BorshSerialize, BorshDeserialize)]
-pub struct EdgeRepr {
+pub(super) struct EdgeRepr {
     key: (PeerId, PeerId),
     nonce: u64,
     signature0: Signature,
@@ -131,35 +89,35 @@ impl BorshRepr for EdgeRepr {
 /////////////////////////////////////////////
 // Columns
 
-pub struct AccountAnnouncements;
+pub(super) struct AccountAnnouncements;
 impl Column for AccountAnnouncements {
     const COL: DBCol = DBCol::AccountAnnouncements;
     type Key = AccountIdFormat;
     type Value = Borsh<AnnounceAccount>;
 }
 
-pub struct Peers;
-impl Column for Peers {
-    const COL: DBCol = DBCol::Peers;
-    type Key = Borsh<PeerId>;
-    type Value = KnownPeerStateRepr;
+pub(super) struct RecentOutboundConnections;
+impl Column for RecentOutboundConnections {
+    const COL: DBCol = DBCol::RecentOutboundConnections;
+    type Key = Borsh<()>;
+    type Value = Vec<ConnectionInfoRepr>;
 }
 
-pub struct PeerComponent;
+pub(super) struct PeerComponent;
 impl Column for PeerComponent {
     const COL: DBCol = DBCol::PeerComponent;
     type Key = Borsh<PeerId>;
     type Value = Borsh<u64>;
 }
 
-pub struct ComponentEdges;
+pub(super) struct ComponentEdges;
 impl Column for ComponentEdges {
     const COL: DBCol = DBCol::ComponentEdges;
     type Key = U64LE;
     type Value = Vec<EdgeRepr>;
 }
 
-pub struct LastComponentNonce;
+pub(super) struct LastComponentNonce;
 impl Column for LastComponentNonce {
     const COL: DBCol = DBCol::LastComponentNonce;
     type Key = Borsh<()>;
@@ -274,15 +232,6 @@ impl Store {
         self.0.write(update.0)
     }
 
-    pub fn iter<C: Column>(
-        &self,
-    ) -> impl Iterator<Item = Result<(<C::Key as Format>::T, <C::Value as Format>::T), Error>> + '_
-    {
-        debug_assert!(!C::COL.is_rc());
-        self.0
-            .iter_raw_bytes(C::COL)
-            .map(|item| item.and_then(|(k, v)| Ok((C::Key::decode(&k)?, C::Value::decode(&v)?))))
-    }
     pub fn get<C: Column>(
         &self,
         k: &<C::Key as Format>::T,

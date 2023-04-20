@@ -16,7 +16,7 @@ transactions yourself, and then you could be sure - but this can become a quite
 expensive endeavour - especially when many shards are involved.
 
 But there is actually a better solution - that doesn’t require you to trust the
-single (or many) RPC nodes, and to verify yourself that your transaction was
+single (or many) RPC nodes, and to verify, by yourself, that your transaction was
 actually executed.
 
 ## Let’s talk about proofs (merkelization):
@@ -26,15 +26,14 @@ easily prove that a given value is present.
 
 ![image](https://user-images.githubusercontent.com/1711539/198579560-923f1f97-a8df-486d-b68e-8796c6aaa300.png)
 
-
 One way to do it, would be to create a binary tree, where each node would hold a
 hash:
 
 * leaves would hold the hashes that represent the hash of the respective value.
 * internal nodes would hold the hash of “concatenation of hashes of their children”
-* the top node would be called a a root node (in this image it is a node n7)
+* the top node would be called a root node (in this image it is the node n7)
 
-With such setup, you can prove that a given value exists in this tree, by
+With such a setup, you can prove that a given value exists in this tree, by
 providing a “path” from the corresponding leaf to the root, and including all
 the siblings.
 
@@ -44,17 +43,16 @@ are:
 
 ![image](https://user-images.githubusercontent.com/1711539/198579596-488c540b-cd24-4d38-bc07-4dc3378c53d0.png)
 
-
 ```
 # information needed to verify that node v[1] is present in a tree
 # with a given root (n7)
 [(Left, n0), (Right, n6)]
 
 # Verification
-assert_eq(root, hash(hash(n0, hash(v[1])),n6)))
+assert_eq!(root, hash(hash(n0, hash(v[1])), n6))
 ```
 
-We use the technique above (called merkelization) in couple places in our
+We use the technique above (called merkelization) in a couple of places in our
 protocol, but for today’s article, I’d like to focus on receipts & outcome
 roots.
 
@@ -86,6 +84,7 @@ ShardChunkHeaderV3 {
             validator_proposals: [],
         },
     ),
+}
 ```
 
 The field that we care about is called `outcome_root`. This value represents the
@@ -128,7 +127,6 @@ proof: [
 ]
 ```
 
-
 And the values in there are exactly the siblings (plus info on which side of the
 tree the sibling is), on the path to the root.
 
@@ -136,9 +134,9 @@ tree the sibling is), on the path to the root.
 the hash of the receipt.
 
 
-## [Advanced section]: Let’s look at the concrete example
+## [Advanced section]: Let’s look at a concrete example
 
-Imagine that we have a following receipt:
+Imagine that we have the following receipt:
 
 ```
 {
@@ -180,7 +178,7 @@ let’s find the next block hash, and the proper chunk.
 418 J9WQV9iRJHG1shNwGaZYLEGwCEdTtCEEDUTHjboTLLmf |      node0 | parent: 417 7FtuLHR3VSNhVTDJ8HmrzTffFWoWPAxBusipYa2UfrND | .... 0: 7APjALaoxc8ymqwHiozB5BS6mb3LjTgv4ofRkKx2hMZZ   0 Tgas |1: BoVf3mzDLLSvfvsZ2apPSAKjmqNEHz4MtPkmz9ajSUT6   0 Tgas |2: Auz4FzUCVgnM7RsQ2noXsHW8wuPPrFxZToyLaYq6froT   0 Tgas |3: 5ub8CZMQmzmZYQcJU76hDC3BsajJfryjyShxGF9rzpck   1 Tgas
 ```
 
-I know that receipt should belong to Shard 3 (TODO: how? :) )  so let’s fetch
+I know that the receipt should belong to Shard 3 <!-- TODO: how? :) --> so let’s fetch
 the chunk header:
 
 ```console
@@ -211,29 +209,29 @@ ShardChunkHeaderV3 {
   hash: ChunkHash(
       `5ub8CZMQmzmZYQcJU76hDC3BsajJfryjyShxGF9rzpck`,
   ),
-},
+}
 ```
 
-So the outcome_root is `2sZ81kLj2cw5UHTjdTeMxmaWn2zFeyr5pFunxn6aGTNB` - let’s
+So the `outcome_root` is `2sZ81kLj2cw5UHTjdTeMxmaWn2zFeyr5pFunxn6aGTNB` - let’s
 verify it then.
-
 
 Our first step is to compute the hash of the receipt, which is equal to
 `hash([receipt_id, hash(borsh(receipt_payload)])`
 
-```
+```python
 # this is a borsh serialized ExecutionOutcome struct.
 # computing this, we leave as an exercise for the reader :-)
 receipt_payload_hash = "7PeGiDjssz65GMCS2tYPHUm6jYDeBCzpuPRZPmLNKSy7"
 
-receipt_hash = base58.b58encode(hashlib.sha256(struct.pack("<I", 2) + base58.b58decode("6bdKUtGbybhYEQ2hb2BFCTDMrtPBw8YDnFpANZHGt5im")  + base58.b58decode(receipt_payload_hash)).digest())
+receipt_hash = base58.b58encode(hashlib.sha256(struct.pack("<I", 2) + base58.b58decode("6bdKUtGbybhYEQ2hb2BFCTDMrtPBw8YDnFpANZHGt5im") + base58.b58decode(receipt_payload_hash)).digest())
 ```
 
 And then we can start reconstructing the tree:
 
-```
+```python
 def combine(a, b):
-   return hashlib.sha256(a+b).digest()
+   return hashlib.sha256(a + b).digest()
+
 # one node example
 # combine(receipt_hash, "BWwZ4wHuzaUxdDSrhAEPjFQtDgwzb8K4zoNzfX9A3SkK")
 # whole tree

@@ -1,23 +1,21 @@
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ReceiptReference {
     pub receipt_id: near_primitives::hash::CryptoHash,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct RpcReceiptRequest {
     #[serde(flatten)]
     pub receipt_reference: ReceiptReference,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct RpcReceiptResponse {
     #[serde(flatten)]
     pub receipt_view: near_primitives::views::ReceiptView,
 }
 
-#[derive(thiserror::Error, Debug, Serialize, Deserialize)]
+#[derive(thiserror::Error, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcReceiptError {
     #[error("The node reached its limits. Try again later. More details: {error_message}")]

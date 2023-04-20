@@ -29,22 +29,26 @@ tikv-jemallocator.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
-nearcore = { path = "../nearcore" }
-near-amend-genesis = { path = "../tools/amend-genesis" }
-near-chain-configs = { path = "../core/chain-configs" }
-near-client = { path = "../chain/client" }
-near-cold-store-tool = { path = "../tools/cold-store", package = "cold-store-tool" }
-near-dyn-configs = { path = "../core/dyn-configs" }
-near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }
-near-mirror = { path = "../tools/mirror" }
-near-network = { path = "../chain/network" }
-near-o11y = { path = "../core/o11y" }
-near-performance-metrics = { path = "../utils/near-performance-metrics" }
-near-ping = { path = "../tools/ping" }
-near-primitives = { path = "../core/primitives" }
-near-state-parts = { path = "../tools/state-parts" }
-near-state-viewer = { path = "../tools/state-viewer", package = "state-viewer" }
-near-store = { path = "../core/store" }
+nearcore.workspace = true
+near-amend-genesis.workspace = true
+near-chain-configs.workspace = true
+near-client.workspace = true
+near-cold-store-tool.workspace = true
+near-config-utils.workspace = true
+near-crypto.workspace = true
+near-dyn-configs.workspace = true
+near-flat-storage.workspace = true
+near-jsonrpc-primitives.workspace = true
+near-mirror.workspace = true
+near-network.workspace = true
+near-o11y.workspace = true
+near-performance-metrics.workspace = true
+near-ping.workspace = true
+near-primitives.workspace = true
+near-state-parts.workspace = true
+near-state-viewer.workspace = true
+near-store.workspace = true
+near-undo-block.workspace = true
 
 [build-dependencies]
 anyhow.workspace = true
@@ -62,14 +66,20 @@ delay_detector = ["nearcore/delay_detector"]
 rosetta_rpc = ["nearcore/rosetta_rpc"]
 json_rpc = ["nearcore/json_rpc"]
 protocol_feature_fix_staking_threshold = ["nearcore/protocol_feature_fix_staking_threshold"]
-protocol_feature_flat_state = ["nearcore/protocol_feature_flat_state"]
-protocol_feature_nep366_delegate_action = ["nearcore/protocol_feature_nep366_delegate_action"]
+serialize_all_state_changes = ["nearcore/serialize_all_state_changes"]
+protocol_feature_flat_state = ["nearcore/protocol_feature_flat_state", "near-flat-storage/protocol_feature_flat_state"]
 
 nightly = [
   "nightly_protocol",
-  "nearcore/nightly"
+  "nearcore/nightly",
+  "near-state-viewer/nightly",
+  "protocol_feature_flat_state",
 ]
 nightly_protocol = ["nearcore/nightly_protocol"]
+
+calimero_zero_storage = [
+  "near-primitives/calimero_zero_storage",
+]
 
 # Compile with option to emit a detailed trace of IO operations and their
 # results that can be replayed on the estimator. To produce the output, compile

@@ -26,7 +26,7 @@ impl ValidatorSchedule {
             num_shards: 1,
         }
     }
-    /// Specifies, for each epoch, the set of block produces for this epoch.
+    /// Specifies, for each epoch, the set of block producers for this epoch.
     ///
     /// Conceptually, this "loops around" when `epoch_id >= block_producers.len()`
     pub fn block_producers_per_epoch(mut self, block_producers: Vec<Vec<AccountId>>) -> Self {
@@ -35,7 +35,7 @@ impl ValidatorSchedule {
         self
     }
 
-    /// Specifies, for each shard in each epoch, the set of chunk-only produces
+    /// Specifies, for each shard in each epoch, the set of chunk-only producers
     /// for the shard.
     ///
     /// The full set of chunk-producers is composed from chunk_only producers

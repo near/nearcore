@@ -15,9 +15,9 @@ use near_primitives_core::config::ExtCosts::*;
 use near_primitives_core::config::{ActionCosts, ExtCosts, VMConfig};
 use near_primitives_core::runtime::fees::{transfer_exec_fee, transfer_send_fee};
 use near_primitives_core::types::{
-    AccountId, Balance, EpochHeight, Gas, ProtocolVersion, StorageUsage,
+    AccountId, Balance, Compute, EpochHeight, Gas, GasDistribution, GasWeight, ProtocolVersion,
+    StorageUsage,
 };
-use near_primitives_core::types::{GasDistribution, GasWeight};
 use near_vm_errors::{FunctionCallError, InconsistentStateError};
 use near_vm_errors::{HostError, VMLogicError};
 use std::mem::size_of;
@@ -67,6 +67,9 @@ pub struct VMLogic<'a> {
 
     /// Handles the receipts generated through execution.
     receipt_manager: ReceiptManager,
+
+    /// Stores the amount of stack space remaining
+    remaining_stack: u64,
 }
 
 /// Promises API allows to create a DAG-structure that defines dependencies between smart contract
@@ -168,6 +171,7 @@ impl<'a> VMLogic<'a> {
             total_log_length: 0,
             current_protocol_version,
             receipt_manager: ReceiptManager::default(),
+            remaining_stack: u64::from(config.limit_config.max_stack_height),
         }
     }
 
@@ -204,6 +208,31 @@ impl<'a> VMLogic<'a> {
     #[cfg(test)]
     pub(crate) fn registers(&mut self) -> &mut crate::vmstate::Registers {
         &mut self.registers
+    }
+
+    // #########################
+    // # Finite-wasm internals #
+    // #########################
+    pub fn finite_wasm_gas(&mut self, gas: u64) -> Result<()> {
+        self.gas(gas)
+    }
+
+    pub fn finite_wasm_stack(&mut self, operand_size: u64, frame_size: u64) -> Result<()> {
+        self.remaining_stack =
+            match self.remaining_stack.checked_sub(operand_size.saturating_add(frame_size)) {
+                Some(s) => s,
+                None => return Err(VMLogicError::HostError(HostError::MemoryAccessViolation)),
+            };
+        self.gas(((frame_size + 7) / 8) * u64::from(self.config.regular_op_cost))?;
+        Ok(())
+    }
+
+    pub fn finite_wasm_unstack(&mut self, operand_size: u64, frame_size: u64) -> Result<()> {
+        self.remaining_stack = self
+            .remaining_stack
+            .checked_add(operand_size.saturating_add(frame_size))
+            .expect("remaining stack integer overflow");
+        Ok(())
     }
 
     // #################
@@ -701,12 +730,6 @@ impl<'a> VMLogic<'a> {
     pub fn attached_deposit(&mut self, balance_ptr: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
 
-        if self.context.is_view() {
-            return Err(HostError::ProhibitedInView {
-                method_name: "attached_deposit".to_string(),
-            }
-            .into());
-        }
         self.memory.set_u128(&mut self.gas_counter, balance_ptr, self.context.attached_deposit)
     }
 
@@ -1131,7 +1154,6 @@ impl<'a> VMLogic<'a> {
     /// `input_cost(num_bytes_signature) + input_cost(num_bytes_message) +
     ///  input_cost(num_bytes_public_key) + ed25519_verify_base +
     ///  ed25519_verify_byte * num_bytes_message`
-    #[cfg(feature = "protocol_feature_ed25519_verify")]
     pub fn ed25519_verify(
         &mut self,
         signature_len: u64,
@@ -1180,15 +1202,29 @@ impl<'a> VMLogic<'a> {
         }
     }
 
-    /// Called by gas metering injected into Wasm. Counts both towards `burnt_gas` and `used_gas`.
+    /// Consume gas. Counts both towards `burnt_gas` and `used_gas`.
     ///
     /// # Errors
     ///
     /// * If passed gas amount somehow overflows internal gas counters returns `IntegerOverflow`;
     /// * If we exceed usage limit imposed on burnt gas returns `GasLimitExceeded`;
     /// * If we exceed the `prepaid_gas` then returns `GasExceeded`.
-    pub fn gas(&mut self, opcodes: u32) -> Result<()> {
-        self.gas_counter.pay_wasm_gas(opcodes)
+    pub fn gas(&mut self, gas: Gas) -> Result<()> {
+        self.gas_counter.burn_gas(Gas::from(gas))
+    }
+
+    pub fn gas_opcodes(&mut self, opcodes: u32) -> Result<()> {
+        self.gas(opcodes as u64 * self.config.regular_op_cost as u64)
+    }
+
+    /// This is the function that is exposed to WASM contracts under the name `gas`.
+    ///
+    /// For now it is consuming the gas for `gas` opcodes. When we switch to finite-wasm it’ll
+    /// be made to be a no-op.
+    ///
+    /// This function might be intrinsified.
+    pub fn gas_seen_from_wasm(&mut self, gas: u32) -> Result<()> {
+        self.gas_opcodes(gas)
     }
 
     // ################
@@ -2365,11 +2401,15 @@ impl<'a> VMLogic<'a> {
         let evicted_ptr = self.ext.storage_get(&key, StorageGetMode::Trie)?;
         let evicted =
             Self::deref_value(&mut self.gas_counter, storage_write_evicted_byte, evicted_ptr)?;
-        let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
+        let nodes_delta = self
+            .ext
+            .get_trie_nodes_count()
+            .checked_sub(&nodes_before)
+            .ok_or(InconsistentStateError::IntegerOverflow)?;
 
         near_o11y::io_trace!(
             storage_op = "write",
-            key = %near_o11y::pretty::Bytes(&key),
+            key = %near_fmt::Bytes(&key),
             size = value_len,
             evicted_len = evicted.as_ref().map(Vec::len),
             tn_mem_reads = nodes_delta.mem_reads,
@@ -2458,21 +2498,32 @@ impl<'a> VMLogic<'a> {
         }
         self.gas_counter.pay_per(storage_read_key_byte, key.len() as u64)?;
         let nodes_before = self.ext.get_trie_nodes_count();
-        #[cfg(feature = "protocol_feature_flat_state")]
-        let read = self.ext.storage_get(&key, StorageGetMode::FlatStorage);
-        #[cfg(not(feature = "protocol_feature_flat_state"))]
-        let read = self.ext.storage_get(&key, StorageGetMode::Trie);
-        let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
+        let read_mode = if checked_feature!(
+            "protocol_feature_flat_state",
+            FlatStorageReads,
+            self.current_protocol_version
+        ) {
+            StorageGetMode::FlatStorage
+        } else {
+            StorageGetMode::Trie
+        };
+        let read = self.ext.storage_get(&key, read_mode);
+        let nodes_delta = self
+            .ext
+            .get_trie_nodes_count()
+            .checked_sub(&nodes_before)
+            .ok_or(InconsistentStateError::IntegerOverflow)?;
         self.gas_counter.add_trie_fees(&nodes_delta)?;
         let read = Self::deref_value(&mut self.gas_counter, storage_read_value_byte, read?)?;
 
         near_o11y::io_trace!(
             storage_op = "read",
-            key = %near_o11y::pretty::Bytes(&key),
+            key = %near_fmt::Bytes(&key),
             size = read.as_ref().map(Vec::len),
             tn_db_reads = nodes_delta.db_reads,
             tn_mem_reads = nodes_delta.mem_reads,
         );
+
         match read {
             Some(value) => {
                 self.registers.set(
@@ -2531,11 +2582,15 @@ impl<'a> VMLogic<'a> {
             Self::deref_value(&mut self.gas_counter, storage_remove_ret_value_byte, removed_ptr)?;
 
         self.ext.storage_remove(&key)?;
-        let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
+        let nodes_delta = self
+            .ext
+            .get_trie_nodes_count()
+            .checked_sub(&nodes_before)
+            .ok_or(InconsistentStateError::IntegerOverflow)?;
 
         near_o11y::io_trace!(
             storage_op = "remove",
-            key = %near_o11y::pretty::Bytes(&key),
+            key = %near_fmt::Bytes(&key),
             evicted_len = removed.as_ref().map(Vec::len),
             tn_mem_reads = nodes_delta.mem_reads,
             tn_db_reads = nodes_delta.db_reads,
@@ -2592,11 +2647,15 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_per(storage_has_key_byte, key.len() as u64)?;
         let nodes_before = self.ext.get_trie_nodes_count();
         let res = self.ext.storage_has_key(&key);
-        let nodes_delta = self.ext.get_trie_nodes_count() - nodes_before;
+        let nodes_delta = self
+            .ext
+            .get_trie_nodes_count()
+            .checked_sub(&nodes_before)
+            .ok_or(InconsistentStateError::IntegerOverflow)?;
 
         near_o11y::io_trace!(
             storage_op = "exists",
-            key = %near_o11y::pretty::Bytes(&key),
+            key = %near_fmt::Bytes(&key),
             tn_mem_reads = nodes_delta.mem_reads,
             tn_db_reads = nodes_delta.db_reads,
         );
@@ -2735,6 +2794,7 @@ impl<'a> VMLogic<'a> {
 
         let mut profile = self.gas_counter.profile_data();
         profile.compute_wasm_instruction_cost(burnt_gas);
+        let compute_usage = profile.total_compute_usage(&self.config.ext_costs);
 
         VMOutcome {
             balance: self.current_account_balance,
@@ -2742,6 +2802,7 @@ impl<'a> VMLogic<'a> {
             return_data: self.return_data,
             burnt_gas,
             used_gas,
+            compute_usage,
             logs: self.logs,
             profile,
             action_receipts: self.receipt_manager.action_receipts,
@@ -2860,6 +2921,7 @@ pub struct VMOutcome {
     pub return_data: ReturnData,
     pub burnt_gas: Gas,
     pub used_gas: Gas,
+    pub compute_usage: Compute,
     pub logs: Vec<String>,
     /// Data collected from making a contract call
     pub profile: ProfileDataV3,
@@ -2893,6 +2955,7 @@ impl VMOutcome {
             return_data: ReturnData::None,
             burnt_gas: 0,
             used_gas: 0,
+            compute_usage: 0,
             logs: Vec::new(),
             profile: ProfileDataV3::default(),
             action_receipts: Vec::new(),

@@ -1,9 +1,10 @@
 use crate::tests::client::process_blocks::{deploy_test_contract, set_block_protocol_version};
 use assert_matches::assert_matches;
-use near_chain::{ChainGenesis, Provenance, RuntimeAdapter};
+use near_chain::{ChainGenesis, Provenance, RuntimeWithEpochManagerAdapter};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_epoch_manager::shard_tracker::TrackedConfig;
 use near_primitives::config::ExtCosts;
 use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
@@ -16,7 +17,6 @@ use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
 use near_store::test_utils::create_test_store;
 use nearcore::config::GenesisExt;
-use nearcore::TrackedConfig;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -31,8 +31,7 @@ fn process_transaction(
         env.clients[0].runtime_adapter.get_epoch_id_from_prev_block(&tip.last_block_hash).unwrap();
     let block_producer =
         env.clients[0].runtime_adapter.get_block_producer(&epoch_id, tip.height).unwrap();
-    let last_block_hash =
-        env.clients[0].chain.get_block_by_height(tip.height).unwrap().hash().clone();
+    let last_block_hash = *env.clients[0].chain.get_block_by_height(tip.height).unwrap().hash();
     let next_height = tip.height + 1;
     let gas = 20_000_000_000_000;
     let tx = SignedTransaction::from_actions(
@@ -56,7 +55,7 @@ fn process_transaction(
         ],
         last_block_hash,
     );
-    let tx_hash = tx.get_hash().clone();
+    let tx_hash = tx.get_hash();
     env.clients[0].process_tx(tx, false, false);
 
     for i in next_height..next_height + num_blocks {
@@ -93,14 +92,14 @@ fn compare_node_counts() {
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = old_protocol_version;
     let chain_genesis = ChainGenesis::new(&genesis);
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> =
-        vec![Arc::new(nearcore::NightshadeRuntime::test_with_runtime_config_store(
+    let runtimes: Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> =
+        vec![nearcore::NightshadeRuntime::test_with_runtime_config_store(
             Path::new("../../../.."),
             create_test_store(),
             &genesis,
             TrackedConfig::new_empty(),
             RuntimeConfigStore::new(None),
-        ))];
+        )];
     let mut env = TestEnv::builder(chain_genesis).runtime_adapters(runtimes).build();
 
     deploy_test_contract(

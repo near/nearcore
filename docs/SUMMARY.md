@@ -19,7 +19,11 @@
 - [How neard will work](./architecture/next/README.md)
   - [Catchup and state sync improvements](./architecture/next/catchup_and_state_sync.md)
   - [Malicious producers and phase 2](./architecture/next/malicious_chunk_producer_and_phase2.md)
-- [Trie](./architecture/trie.md)
+- [Storage](./architecture/storage.md)
+  - [Storage Request Flow](./architecture/storage/flow.md)
+  - [Trie](./architecture/storage/trie.md)
+  - [Database Format](./architecture/storage/database.md)
+  - [Flat Storage](./architecture/storage/flat_storage.md)
 - [Network](./architecture/network.md)
 - [Gas Cost Parameters](./architecture/gas/README.md)
   - [Parameter Definitions](./architecture/gas/parameter_definition.md)
@@ -49,7 +53,11 @@
 
 - [Networking](./advanced_configuration/networking.md)
 
+# Custom test networks
+
+- [Starting a network from mainnet state](./test_networks/mainnet_spoon.md)
+
 # Misc
 
-- [Misc](./misc/README.md)
-- [Database Format](./misc/database.md)
+- [Overview](./misc/README.md)
+- [State Sync Dump](./misc/state_sync_dump.md)

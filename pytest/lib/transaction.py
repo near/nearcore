@@ -54,7 +54,10 @@ def compute_delegated_action_hash(senderId, receiverId, actions, nonce,
     delegateAction.publicKey = PublicKey()
     delegateAction.publicKey.keyType = 0
     delegateAction.publicKey.data = publicKey
-    msg = BinarySerializer(schema).serialize(delegateAction)
+    signableMessageDiscriminant = 2**30 + 366
+    serializer = BinarySerializer(schema)
+    serializer.serialize_num(signableMessageDiscriminant, 4)
+    msg = serializer.serialize(delegateAction)
     hash_ = hashlib.sha256(msg).digest()
 
     return delegateAction, hash_

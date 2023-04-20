@@ -1,5 +1,5 @@
 use lru::LruCache;
-use near_primitives::{hash::CryptoHash, time::Clock};
+use near_primitives::{hash::CryptoHash, static_clock::StaticClock};
 use std::{
     sync::Mutex,
     time::{Duration, Instant},
@@ -31,7 +31,7 @@ pub struct CryptoHashTimer {
 
 impl CryptoHashTimer {
     pub fn new(key: CryptoHash) -> Self {
-        Self::new_with_start(key, Clock::instant())
+        Self::new_with_start(key, StaticClock::instant())
     }
     pub fn new_with_start(key: CryptoHash, start: Instant) -> Self {
         CryptoHashTimer { key, start }
@@ -43,7 +43,7 @@ impl CryptoHashTimer {
 
 impl Drop for CryptoHashTimer {
     fn drop(&mut self) {
-        let time_passed = Clock::instant() - self.start;
+        let time_passed = StaticClock::instant() - self.start;
         let mut guard_ = CRYPTO_HASH_TIMER_RESULTS.lock().unwrap();
         let previous = guard_.get(&self.key).copied().unwrap_or_default();
         guard_.put(self.key, time_passed + previous);
@@ -55,7 +55,7 @@ fn test_crypto_hash_timer() {
     let crypto_hash: CryptoHash = "s3N6V7CNAN2Eg6vfivMVHR4hbMZeh72fTmYbrC6dXBT".parse().unwrap();
     // Timer should be missing.
     assert_eq!(CryptoHashTimer::get_timer_value(crypto_hash), None);
-    let mock_clock_guard = near_primitives::time::MockClockGuard::default();
+    let mock_clock_guard = near_primitives::static_clock::MockClockGuard::default();
     let start_time = Instant::now();
     mock_clock_guard.add_instant(start_time);
     mock_clock_guard.add_instant(start_time + std::time::Duration::from_secs(1));

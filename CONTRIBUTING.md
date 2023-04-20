@@ -128,8 +128,11 @@ ui](https://docs.github.com/en/github/collaborating-with-pull-requests/proposing
 In this case, the automatically selected super owner will ensure that the
 selected reviewer is sufficient or additional reviewers are needed.
 
-If you are interested in becoming a code reviewer, please get in touch with us
-on zulip.
+The process for becoming a code reviewer is relatively straightforward.
+The candidate should have a good understanding of the codebase and then
+the existing super owners will discuss and approve the addition.  These
+discussions take place on zulip so if you are interested in becoming a
+code reviewer, please reach out to us there.
 
 ## Release Schedule
 

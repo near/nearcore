@@ -5,7 +5,7 @@ use actix::{Context, Handler};
 use borsh::BorshSerialize;
 use itertools::Itertools;
 use near_chain::crypto_hash_timer::CryptoHashTimer;
-use near_chain::{near_chain_primitives, Chain, ChainStoreAccess, RuntimeAdapter};
+use near_chain::{near_chain_primitives, Chain, ChainStoreAccess, RuntimeWithEpochManagerAdapter};
 use near_client_primitives::debug::{
     ApprovalAtHeightStatus, BlockProduction, ChunkCollection, DebugBlockStatusData, DebugStatus,
     DebugStatusResponse, MissedHeightInfo, ProductionAtHeight, ValidatorStatus,
@@ -32,7 +32,7 @@ use std::collections::{HashMap, HashSet};
 use near_client_primitives::debug::{DebugBlockStatus, DebugChunkStatus};
 use near_network::types::{ConnectedPeerInfo, NetworkInfo, PeerType};
 use near_primitives::sharding::ShardChunkHeader;
-use near_primitives::time::Clock;
+use near_primitives::static_clock::StaticClock;
 use near_primitives::views::{
     AccountDataView, KnownProducerView, NetworkInfoView, PeerInfoView, Tier1ProxyView,
 };
@@ -93,7 +93,7 @@ impl BlockProductionTracker {
         chunk_collections: Vec<ChunkCollection>,
     ) {
         if let Some(block_production) = self.0.get_mut(&height) {
-            block_production.block_production_time = Some(Clock::utc());
+            block_production.block_production_time = Some(StaticClock::utc());
             block_production.chunks_collection_time = chunk_collections;
         }
     }
@@ -106,7 +106,7 @@ impl BlockProductionTracker {
             // Check that chunk_collection is set and we haven't received this chunk yet.
             if let Some(chunk_collection) = chunk_collections.get_mut(shard_id as usize) {
                 if chunk_collection.received_time.is_none() {
-                    chunk_collection.received_time = Some(Clock::utc());
+                    chunk_collection.received_time = Some(StaticClock::utc());
                 }
             }
             // Otherwise, it means chunk_collections is not set yet, which means the block wasn't produced.
@@ -119,14 +119,14 @@ impl BlockProductionTracker {
         epoch_id: &EpochId,
         num_shards: ShardId,
         new_chunks: &HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>, AccountId)>,
-        runtime_adapter: &dyn RuntimeAdapter,
+        runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
     ) -> Result<Vec<ChunkCollection>, Error> {
         let mut chunk_collection_info = vec![];
         for shard_id in 0..num_shards {
             if let Some((_, chunk_time, chunk_producer)) = new_chunks.get(&shard_id) {
                 chunk_collection_info.push(ChunkCollection {
                     chunk_producer: chunk_producer.clone(),
-                    received_time: Some(chunk_time.clone()),
+                    received_time: Some(*chunk_time),
                     chunk_included: true,
                 });
             } else {
@@ -193,7 +193,7 @@ impl ClientActor {
         let block_producers: Vec<ValidatorInfo> = self
             .client
             .runtime_adapter
-            .get_epoch_block_producers_ordered(&epoch_id, &last_known_block_hash)?
+            .get_epoch_block_producers_ordered(epoch_id, last_known_block_hash)?
             .into_iter()
             .map(|(validator_stake, is_slashed)| {
                 block_producers_set.insert(validator_stake.account_id().as_str().to_owned());
@@ -226,7 +226,7 @@ impl ClientActor {
         let epoch_start_height =
             self.client.runtime_adapter.get_epoch_start_height(&current_block)?;
 
-        let block = self.client.chain.get_block_by_height(epoch_start_height)?.clone();
+        let block = self.client.chain.get_block_by_height(epoch_start_height)?;
         let epoch_id = block.header().epoch_id();
         let (validators, chunk_only_producers) =
             self.get_producers_for_epoch(&epoch_id, &current_block)?;
@@ -257,17 +257,14 @@ impl ClientActor {
                 let key = StateHeaderKey(shard_id as u64, *block.hash()).try_to_vec();
                 match key {
                     Ok(key) => {
-                        if let Ok(Some(_)) =
+                        matches!(
                             self.client
                                 .chain
                                 .store()
                                 .store()
-                                .get_ser::<ShardStateSyncResponseHeader>(DBCol::StateHeaders, &key)
-                        {
-                            true
-                        } else {
-                            false
-                        }
+                                .get_ser::<ShardStateSyncResponseHeader>(DBCol::StateHeaders, &key),
+                            Ok(Some(_))
+                        )
                     }
                     Err(_) => false,
                 }
@@ -277,7 +274,7 @@ impl ClientActor {
         let shards_size_and_parts = shards_size_and_parts
             .iter()
             .zip(state_header_exists.iter())
-            .map(|((a, b), c)| (a.clone(), b.clone(), c.clone()))
+            .map(|((a, b), c)| (*a, *b, *c))
             .collect();
 
         let validator_info = if is_current_block_head {
@@ -293,7 +290,7 @@ impl ClientActor {
             EpochInfoView {
                 epoch_id: epoch_id.0,
                 height: block.header().height(),
-                first_block: Some((block.header().hash().clone(), block.header().timestamp())),
+                first_block: Some((*block.header().hash(), block.header().timestamp())),
                 block_producers: validators.to_vec(),
                 chunk_only_producers,
                 validator_info: Some(validator_info),
@@ -314,7 +311,7 @@ impl ClientActor {
         let epoch_start_height =
             self.client.runtime_adapter.get_epoch_start_height(&head.last_block_hash)?;
         let (validators, chunk_only_producers) =
-            self.get_producers_for_epoch(&&head.next_epoch_id, &head.last_block_hash)?;
+            self.get_producers_for_epoch(&head.next_epoch_id, &head.last_block_hash)?;
 
         Ok(EpochInfoView {
             epoch_id: head.next_epoch_id.0,

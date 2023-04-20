@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use near_chain::{ChainGenesis, Provenance, RuntimeAdapter};
+use near_chain::{ChainGenesis, Provenance, RuntimeWithEpochManagerAdapter};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType};
@@ -20,11 +20,11 @@ fn test_setup() -> (TestEnv, InMemorySigner) {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     let mut env = TestEnv::builder(ChainGenesis::test())
-        .runtime_adapters(vec![Arc::new(nearcore::NightshadeRuntime::test(
+        .runtime_adapters(vec![nearcore::NightshadeRuntime::test(
             Path::new("../../../.."),
             create_test_store(),
             &genesis,
-        )) as Arc<dyn RuntimeAdapter>])
+        ) as Arc<dyn RuntimeWithEpochManagerAdapter>])
         .build();
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     send_tx(

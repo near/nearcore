@@ -2,7 +2,7 @@ use near_primitives::runtime::config::AccountCreationConfig;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::runtime::fees::{Fee, RuntimeFeesConfig};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_vm_logic::{ActionCosts, ExtCosts, ExtCostsConfig, VMConfig};
+use near_vm_logic::{ActionCosts, ExtCosts, ExtCostsConfig, ParameterCost, VMConfig};
 use node_runtime::config::RuntimeConfig;
 
 use anyhow::Context;
@@ -54,7 +54,6 @@ fn runtime_fees_config(cost_table: &CostTable) -> anyhow::Result<RuntimeFeesConf
     let res = RuntimeFeesConfig {
         action_fees: enum_map::enum_map! {
             ActionCosts::create_account => fee(Cost::ActionCreateAccount)?,
-            #[cfg(feature = "protocol_feature_nep366_delegate_action")]
             ActionCosts::delegate => fee(Cost::ActionDelegate)?,
             ActionCosts::delete_account => fee(Cost::ActionDeleteAccount)?,
             ActionCosts::deploy_contract_base => fee(Cost::ActionDeployContractBase)?,
@@ -96,7 +95,7 @@ fn ext_costs_config(cost_table: &CostTable) -> anyhow::Result<ExtCostsConfig> {
                 let estimation = estimation(cost).with_context(|| format!("external WASM cost has no estimation defined: {}", cost))?;
                 cost_table.get(estimation).with_context(|| format!("undefined external WASM cost: {}", cost))?
             },
-        },
+        }.map(|_, value| ParameterCost { gas: value, compute: value }),
     })
 }
 
@@ -124,9 +123,7 @@ fn estimation(cost: ExtCosts) -> Option<Cost> {
         ExtCosts::ripemd160_base => Cost::Ripemd160Base,
         ExtCosts::ripemd160_block => Cost::Ripemd160Block,
         ExtCosts::ecrecover_base => Cost::EcrecoverBase,
-        #[cfg(feature = "protocol_feature_ed25519_verify")]
         ExtCosts::ed25519_verify_base => Cost::Ed25519VerifyBase,
-        #[cfg(feature = "protocol_feature_ed25519_verify")]
         ExtCosts::ed25519_verify_byte => Cost::Ed25519VerifyByte,
         ExtCosts::log_base => Cost::LogBase,
         ExtCosts::log_byte => Cost::LogByte,

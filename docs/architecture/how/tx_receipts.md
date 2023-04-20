@@ -34,7 +34,7 @@ Once a chunk producer is ready to produce a chunk, it will fetch the
 transactions from its mempool, check that they are valid, and if so, prepare to
 process them into receipts.
 
-**Note**: There are additional restrictions (e.g. making sure that we take them in
+**Note:** There are additional restrictions (e.g. making sure that we take them in
 the right order, that we don’t take too many, etc.) - that you can see in
 nomicon’s [transaction page](https://nomicon.io/ChainSpec/Transactions).
 
@@ -48,13 +48,13 @@ Once we have a receipt, we have to send it to the proper destination - by adding
 it to the `outgoing_receipt` list, which will be forwarded to the chunk
 producers from the next block.
 
-**Note**: There is a special case here - if the sender of the receipt is the
+**Note:** There is a special case here - if the sender of the receipt is the
 same as the receiver, then the receipt will be added to the `local_receipts`
 queue and executed in the same block.
 
 ### Step 3: When an incoming receipt arrives
 
-(**Note**: this happens in the ‘next’ block)
+(**Note:** this happens in the ‘next’ block)
 
 When a chunk producer receives an incoming receipt, it will try to execute its
 actions (creating accounts, executing function calls etc).
@@ -73,7 +73,7 @@ consider the transaction to be successful.
 
 ### [Advanced] But reality is more complex
 
-**Caution**: In the section below, some things are simplified and do not match exactly 
+**Caution:** In the section below, some things are simplified and do not match exactly 
 how the current code works.
 
 Let’s quickly also check what’s inside a Chunk:

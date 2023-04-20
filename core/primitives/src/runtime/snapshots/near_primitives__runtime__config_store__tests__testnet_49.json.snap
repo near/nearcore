@@ -84,6 +84,11 @@ expression: config_view
         "send_sir": 147489000000,
         "send_not_sir": 147489000000,
         "execution": 147489000000
+      },
+      "delegate_cost": {
+        "send_sir": 200000000000,
+        "send_not_sir": 200000000000,
+        "execution": 200000000000
       }
     },
     "storage_usage_config": {
@@ -124,6 +129,8 @@ expression: config_view
       "keccak512_byte": 36649701,
       "ripemd160_base": 853675086,
       "ripemd160_block": 680107584,
+      "ed25519_verify_base": 210000000000,
+      "ed25519_verify_byte": 9000000,
       "ecrecover_base": 278821988457,
       "log_base": 3543313050,
       "log_byte": 13198791,
@@ -168,7 +175,7 @@ expression: config_view
     "limit_config": {
       "max_gas_burnt": 200000000000000,
       "max_stack_height": 16384,
-      "stack_limiter_version": 0,
+      "contract_prepare_version": 0,
       "initial_memory_pages": 1024,
       "max_memory_pages": 2048,
       "registers_memory_limit": 1073741824,

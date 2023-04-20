@@ -1,5 +1,7 @@
 use assert_matches::assert_matches;
 use borsh::BorshSerialize;
+use near_async::messaging::CanSend;
+use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_primitives::test_utils::create_test_signer;
 
 use crate::tests::client::process_blocks::create_nightshade_runtimes;
@@ -326,11 +328,11 @@ fn test_verify_chunk_invalid_state_challenge() {
     let store1 = create_test_store();
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let mut env = TestEnv::builder(ChainGenesis::test())
-        .runtime_adapters(vec![Arc::new(nearcore::NightshadeRuntime::test(
+        .runtime_adapters(vec![nearcore::NightshadeRuntime::test(
             Path::new("../../../.."),
             store1,
             &genesis,
-        ))])
+        )])
         .build();
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let validator_signer = create_test_signer("test0");
@@ -533,10 +535,8 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
         one_part_receipt_proofs,
         &[merkle_paths[0].clone()],
     );
-    assert!(env.clients[1]
-        .shards_mgr
-        .process_partial_encoded_chunk(partial_encoded_chunk.into())
-        .is_ok());
+    env.shards_manager_adapters[1]
+        .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(partial_encoded_chunk));
     env.process_block(1, block, Provenance::NONE);
 
     // At this point we should create a challenge and send it out.
@@ -600,11 +600,11 @@ fn test_fishermen_challenge() {
     );
     genesis.config.epoch_length = 5;
     let create_runtime = || -> Arc<NightshadeRuntime> {
-        Arc::new(nearcore::NightshadeRuntime::test(
+        nearcore::NightshadeRuntime::test(
             Path::new("../../../.."),
             create_test_store(),
             &genesis.clone(),
-        ))
+        )
     };
     let runtime1 = create_runtime();
     let runtime2 = create_runtime();
@@ -665,16 +665,10 @@ fn test_challenge_in_different_epoch() {
     genesis.config.epoch_length = 3;
     //    genesis.config.validator_kickout_threshold = 10;
     let network_adapter = Arc::new(MockPeerManagerAdapter::default());
-    let runtime1 = Arc::new(nearcore::NightshadeRuntime::test(
-        Path::new("../../../.."),
-        create_test_store(),
-        &genesis,
-    ));
-    let runtime2 = Arc::new(nearcore::NightshadeRuntime::test(
-        Path::new("../../../.."),
-        create_test_store(),
-        &genesis,
-    ));
+    let runtime1 =
+        nearcore::NightshadeRuntime::test(Path::new("../../../.."), create_test_store(), &genesis);
+    let runtime2 =
+        nearcore::NightshadeRuntime::test(Path::new("../../../.."), create_test_store(), &genesis);
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = 3;
 

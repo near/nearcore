@@ -3,22 +3,6 @@
 //! These types should only change when we cannot avoid this. Thus, when the counterpart internal
 //! type gets changed, the view should preserve the old shape and only re-map the necessary bits
 //! from the source structure in the relevant `From<SourceStruct>` impl.
-use std::collections::HashMap;
-use std::fmt;
-use std::ops::Range;
-use std::sync::Arc;
-
-use borsh::{BorshDeserialize, BorshSerialize};
-use chrono::DateTime;
-use near_primitives_core::config::{ActionCosts, ExtCosts, VMConfig};
-use near_primitives_core::runtime::fees::Fee;
-use num_rational::Rational32;
-use serde::{Deserialize, Serialize};
-
-use near_crypto::{PublicKey, Signature};
-use near_o11y::pretty;
-use strum::IntoEnumIterator;
-
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::block::{Block, BlockHeader, Tip};
 use crate::block_header::{
@@ -27,6 +11,7 @@ use crate::block_header::{
 };
 use crate::challenge::{Challenge, ChallengesResult};
 use crate::contract::ContractCode;
+use crate::delegate_action::{DelegateAction, SignedDelegateAction};
 use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{combine_hash, MerklePath};
@@ -51,13 +36,22 @@ use crate::types::{
     StoreValue, ValidatorKickoutReason,
 };
 use crate::version::{ProtocolVersion, Version};
+use borsh::{BorshDeserialize, BorshSerialize};
+use chrono::DateTime;
+use near_crypto::{PublicKey, Signature};
+use near_fmt::{AbbrBytes, Slice};
+use near_primitives_core::config::{ActionCosts, ExtCosts, ParameterCost, VMConfig};
+use near_primitives_core::runtime::fees::Fee;
+use num_rational::Rational32;
+use std::collections::HashMap;
+use std::fmt;
+use std::ops::Range;
+use std::sync::Arc;
+use strum::IntoEnumIterator;
 use validator_stake_view::ValidatorStakeView;
 
-#[cfg(feature = "protocol_feature_nep366_delegate_action")]
-use crate::transaction::{DelegateAction, SignedDelegateAction};
-
 /// A view of the account
-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Eq, PartialEq, Clone)]
 pub struct AccountView {
     #[serde(with = "dec_format")]
     pub amount: Balance,
@@ -71,7 +65,7 @@ pub struct AccountView {
 }
 
 /// A view of the contract code.
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct ContractCodeView {
     #[serde(rename = "code_base64", with = "base64_format")]
     pub code: Vec<u8>,
@@ -143,7 +137,16 @@ impl From<ContractCodeView> for ContractCode {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    Eq,
+    PartialEq,
+    Clone,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub enum AccessKeyPermissionView {
     FunctionCall {
         #[serde(with = "dec_format")]
@@ -182,7 +185,16 @@ impl From<AccessKeyPermissionView> for AccessKeyPermission {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    Eq,
+    PartialEq,
+    Clone,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub struct AccessKeyView {
     pub nonce: Nonce,
     pub permission: AccessKeyPermissionView,
@@ -201,7 +213,7 @@ impl From<AccessKeyView> for AccessKey {
 }
 
 /// Item of the state, key and value are serialized in base64 and proof for inclusion of given state item.
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct StateItem {
     #[serde(with = "base64_format")]
     pub key: Vec<u8>,
@@ -214,7 +226,7 @@ pub struct StateItem {
     pub proof: Vec<()>,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ViewStateResult {
     pub values: Vec<StateItem>,
     // TODO(mina86): Empty proof (i.e. sending proof when include_proof is not
@@ -223,25 +235,25 @@ pub struct ViewStateResult {
     pub proof: Vec<Arc<[u8]>>,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Default)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone, Default)]
 pub struct CallResult {
     pub result: Vec<u8>,
     pub logs: Vec<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct QueryError {
     pub error: String,
     pub logs: Vec<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct AccessKeyInfoView {
     pub public_key: PublicKey,
     pub access_key: AccessKeyView,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct AccessKeyList {
     pub keys: Vec<AccessKeyInfoView>,
 }
@@ -253,7 +265,7 @@ impl FromIterator<AccessKeyInfoView> for AccessKeyList {
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct KnownPeerStateView {
     pub peer_id: PeerId,
     pub status: String,
@@ -261,6 +273,15 @@ pub struct KnownPeerStateView {
     pub first_seen: i64,
     pub last_seen: i64,
     pub last_attempt: Option<(i64, String)>,
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct ConnectionInfoView {
+    pub peer_id: PeerId,
+    pub addr: String,
+    pub time_established: i64,
+    pub time_connected_until: i64,
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
@@ -274,7 +295,7 @@ pub enum QueryResponseKind {
     AccessKeyList(AccessKeyList),
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 #[serde(tag = "request_type", rename_all = "snake_case")]
 pub enum QueryRequest {
     ViewAccount {
@@ -316,7 +337,7 @@ pub struct QueryResponse {
     pub block_hash: CryptoHash,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct StatusSyncInfo {
     pub latest_block_hash: CryptoHash,
     pub latest_block_height: BlockHeight,
@@ -331,13 +352,13 @@ pub struct StatusSyncInfo {
 }
 
 // TODO: add more information to ValidatorInfo
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ValidatorInfo {
     pub account_id: AccountId,
     pub is_slashed: bool,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
 pub struct PeerInfoView {
     pub addr: String,
     pub account_id: Option<AccountId>,
@@ -359,20 +380,20 @@ pub struct PeerInfoView {
 
 /// Information about a Producer: its account name, peer_id and a list of connected peers that
 /// the node can use to send message for this producer.
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
 pub struct KnownProducerView {
     pub account_id: AccountId,
     pub peer_id: PublicKey,
     pub next_hops: Option<Vec<PublicKey>>,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
 pub struct Tier1ProxyView {
     pub addr: std::net::SocketAddr,
     pub peer_id: PublicKey,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
 pub struct AccountDataView {
     pub peer_id: PublicKey,
     pub proxies: Vec<Tier1ProxyView>,
@@ -380,7 +401,7 @@ pub struct AccountDataView {
     pub timestamp: DateTime<chrono::Utc>,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
 pub struct NetworkInfoView {
     pub peer_max_count: u32,
     pub num_connected_peers: usize,
@@ -391,7 +412,7 @@ pub struct NetworkInfoView {
     pub tier1_connections: Vec<PeerInfoView>,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
 pub enum SyncStatusView {
     /// Initial state. Not enough peers to do anything yet.
     AwaitingPeers,
@@ -415,36 +436,41 @@ pub enum SyncStatusView {
     BodySync { start_height: BlockHeight, current_height: BlockHeight, highest_height: BlockHeight },
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
 pub struct PeerStoreView {
     pub peer_states: Vec<KnownPeerStateView>,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
+pub struct RecentOutboundConnectionsView {
+    pub recent_outbound_connections: Vec<ConnectionInfoView>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
 pub struct EdgeView {
     pub peer0: PeerId,
     pub peer1: PeerId,
     pub nonce: u64,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
 pub struct NetworkGraphView {
     pub edges: Vec<EdgeView>,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
 pub struct ShardSyncDownloadView {
     pub downloads: Vec<DownloadStatusView>,
     pub status: String,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
 pub struct DownloadStatusView {
     pub error: bool,
     pub done: bool,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
 pub struct CatchupStatusView {
     // This is the first block of the epoch that we are catching up
     pub sync_block_hash: CryptoHash,
@@ -455,7 +481,7 @@ pub struct CatchupStatusView {
     pub blocks_to_catchup: Vec<BlockStatusView>,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
 pub struct RequestedStatePartsView {
     // This is the first block of the epoch that was requested
     pub block_hash: CryptoHash,
@@ -463,7 +489,7 @@ pub struct RequestedStatePartsView {
     pub shard_requested_parts: HashMap<ShardId, Vec<PartElapsedTimeView>>,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
 pub struct BlockStatusView {
     pub height: BlockHeight,
     pub hash: CryptoHash,
@@ -471,7 +497,7 @@ pub struct BlockStatusView {
 
 impl BlockStatusView {
     pub fn new(height: &BlockHeight, hash: &CryptoHash) -> BlockStatusView {
-        Self { height: height.clone(), hash: hash.clone() }
+        Self { height: *height, hash: *hash }
     }
 }
 
@@ -481,7 +507,7 @@ impl From<Tip> for BlockStatusView {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct PartElapsedTimeView {
     pub part_id: u64,
     pub elapsed_ms: u128,
@@ -489,11 +515,11 @@ pub struct PartElapsedTimeView {
 
 impl PartElapsedTimeView {
     pub fn new(part_id: &u64, elapsed_ms: u128) -> PartElapsedTimeView {
-        Self { part_id: part_id.clone(), elapsed_ms }
+        Self { part_id: *part_id, elapsed_ms }
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct BlockByChunksView {
     pub height: BlockHeight,
     pub hash: CryptoHash,
@@ -501,7 +527,7 @@ pub struct BlockByChunksView {
     pub chunk_status: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct ChainProcessingInfo {
     pub num_blocks_in_processing: usize,
     pub num_orphans: usize,
@@ -512,7 +538,7 @@ pub struct ChainProcessingInfo {
     pub floating_chunks_info: Vec<ChunkProcessingInfo>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct BlockProcessingInfo {
     pub height: BlockHeight,
     pub hash: CryptoHash,
@@ -535,7 +561,16 @@ pub struct BlockProcessingInfo {
     pub chunks_info: Vec<Option<ChunkProcessingInfo>>,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub enum BlockProcessingStatus {
     Orphan,
     WaitingForChunks,
@@ -546,7 +581,16 @@ pub enum BlockProcessingStatus {
     Unknown,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub enum DroppedReason {
     // If the node has already processed a block at this height
     HeightProcessed,
@@ -554,7 +598,7 @@ pub enum DroppedReason {
     TooManyProcessingBlocks,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct ChunkProcessingInfo {
     pub height_created: BlockHeight,
     pub shard_id: ShardId,
@@ -573,7 +617,7 @@ pub struct ChunkProcessingInfo {
     pub chunk_parts_collection: Vec<PartCollectionInfo>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct PartCollectionInfo {
     pub part_owner: AccountId,
     // Time when the part is received through any message
@@ -584,14 +628,14 @@ pub struct PartCollectionInfo {
     pub chunk_received_time: Option<DateTime<chrono::Utc>>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub enum ChunkProcessingStatus {
     NeedToRequest,
     Requested,
     Completed,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct DetailedDebugStatus {
     pub network_info: NetworkInfoView,
     pub sync_status: String,
@@ -602,7 +646,7 @@ pub struct DetailedDebugStatus {
 }
 
 // TODO: add more information to status.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct StatusResponse {
     /// Binary version.
     pub version: Version,
@@ -634,7 +678,7 @@ pub struct StatusResponse {
     pub detailed_debug_status: Option<DetailedDebugStatus>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct ChallengeView {
     // TODO: decide how to represent challenges in json.
 }
@@ -645,7 +689,7 @@ impl From<Challenge> for ChallengeView {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct BlockHeaderView {
     pub height: BlockHeight,
     pub prev_height: Option<BlockHeight>,
@@ -744,8 +788,8 @@ impl From<BlockHeaderView> for BlockHeader {
             next_bp_hash: view.next_bp_hash,
             block_merkle_root: view.block_merkle_root,
         };
-        let last_header_v2_version =
-            Some(crate::version::ProtocolFeature::BlockHeaderV3.protocol_version() - 1);
+        const LAST_HEADER_V2_VERSION: ProtocolVersion =
+            crate::version::ProtocolFeature::BlockHeaderV3.protocol_version() - 1;
         if view.latest_protocol_version <= 29 {
             let validator_proposals = view
                 .validator_proposals
@@ -777,9 +821,7 @@ impl From<BlockHeaderView> for BlockHeader {
             };
             header.init();
             BlockHeader::BlockHeaderV1(Arc::new(header))
-        } else if last_header_v2_version.is_none()
-            || view.latest_protocol_version <= last_header_v2_version.unwrap()
-        {
+        } else if view.latest_protocol_version <= LAST_HEADER_V2_VERSION {
             let validator_proposals = view
                 .validator_proposals
                 .into_iter()
@@ -845,7 +887,16 @@ impl From<BlockHeaderView> for BlockHeader {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, BorshDeserialize, BorshSerialize)]
+#[derive(
+    PartialEq,
+    Eq,
+    Debug,
+    Clone,
+    BorshDeserialize,
+    BorshSerialize,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub struct BlockHeaderInnerLiteView {
     pub height: BlockHeight,
     pub epoch_id: CryptoHash,
@@ -915,7 +966,7 @@ impl From<BlockHeaderInnerLiteView> for BlockHeaderInnerLite {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct ChunkHeaderView {
     pub chunk_hash: CryptoHash,
     pub prev_block_hash: CryptoHash,
@@ -998,7 +1049,7 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct BlockView {
     pub author: AccountId,
     pub header: BlockHeaderView,
@@ -1015,7 +1066,7 @@ impl BlockView {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct ChunkView {
     pub author: AccountId,
     pub header: ChunkHeaderView,
@@ -1042,7 +1093,16 @@ impl ChunkView {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub enum ActionView {
     CreateAccount,
     DeployContract {
@@ -1076,7 +1136,6 @@ pub enum ActionView {
     DeleteAccount {
         beneficiary_id: AccountId,
     },
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     Delegate {
         delegate_action: DelegateAction,
         signature: Signature,
@@ -1109,7 +1168,6 @@ impl From<Action> for ActionView {
             Action::DeleteAccount(action) => {
                 ActionView::DeleteAccount { beneficiary_id: action.beneficiary_id }
             }
-            #[cfg(feature = "protocol_feature_nep366_delegate_action")]
             Action::Delegate(action) => ActionView::Delegate {
                 delegate_action: action.delegate_action,
                 signature: action.signature,
@@ -1125,10 +1183,10 @@ impl TryFrom<ActionView> for Action {
         Ok(match action_view {
             ActionView::CreateAccount => Action::CreateAccount(CreateAccountAction {}),
             ActionView::DeployContract { code } => {
-                Action::DeployContract(DeployContractAction { code: code })
+                Action::DeployContract(DeployContractAction { code })
             }
             ActionView::FunctionCall { method_name, args, gas, deposit } => {
-                Action::FunctionCall(FunctionCallAction { method_name, args: args, gas, deposit })
+                Action::FunctionCall(FunctionCallAction { method_name, args, gas, deposit })
             }
             ActionView::Transfer { deposit } => Action::Transfer(TransferAction { deposit }),
             ActionView::Stake { stake, public_key } => {
@@ -1143,7 +1201,6 @@ impl TryFrom<ActionView> for Action {
             ActionView::DeleteAccount { beneficiary_id } => {
                 Action::DeleteAccount(DeleteAccountAction { beneficiary_id })
             }
-            #[cfg(feature = "protocol_feature_nep366_delegate_action")]
             ActionView::Delegate { delegate_action, signature } => {
                 Action::Delegate(SignedDelegateAction {
                     delegate_action: delegate_action,
@@ -1154,7 +1211,16 @@ impl TryFrom<ActionView> for Action {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    PartialEq,
+    Eq,
+    Clone,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub struct SignedTransactionView {
     pub signer_id: AccountId,
     pub public_key: PublicKey,
@@ -1185,9 +1251,19 @@ impl From<SignedTransaction> for SignedTransactionView {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    Default,
+)]
 pub enum FinalExecutionStatus {
     /// The execution has not yet started.
+    #[default]
     NotStarted,
     /// The execution has started and still going.
     Started,
@@ -1204,26 +1280,31 @@ impl fmt::Debug for FinalExecutionStatus {
             FinalExecutionStatus::Started => f.write_str("Started"),
             FinalExecutionStatus::Failure(e) => f.write_fmt(format_args!("Failure({:?})", e)),
             FinalExecutionStatus::SuccessValue(v) => {
-                f.write_fmt(format_args!("SuccessValue({})", pretty::AbbrBytes(v)))
+                f.write_fmt(format_args!("SuccessValue({})", AbbrBytes(v)))
             }
         }
     }
 }
 
-impl Default for FinalExecutionStatus {
-    fn default() -> Self {
-        FinalExecutionStatus::NotStarted
-    }
-}
-
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    PartialEq,
+    Eq,
+    Clone,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub enum ServerError {
     TxExecutionError(TxExecutionError),
     Timeout,
     Closed,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
+#[derive(
+    BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone,
+)]
 pub enum ExecutionStatusView {
     /// The execution is pending or unknown.
     Unknown,
@@ -1242,7 +1323,7 @@ impl fmt::Debug for ExecutionStatusView {
             ExecutionStatusView::Unknown => f.write_str("Unknown"),
             ExecutionStatusView::Failure(e) => f.write_fmt(format_args!("Failure({:?})", e)),
             ExecutionStatusView::SuccessValue(v) => {
-                f.write_fmt(format_args!("SuccessValue({})", pretty::AbbrBytes(v)))
+                f.write_fmt(format_args!("SuccessValue({})", AbbrBytes(v)))
             }
             ExecutionStatusView::SuccessReceiptId(receipt_id) => {
                 f.write_fmt(format_args!("SuccessReceiptId({})", receipt_id))
@@ -1264,7 +1345,16 @@ impl From<ExecutionStatus> for ExecutionStatusView {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Clone, Eq, Debug)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    PartialEq,
+    Clone,
+    Eq,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub struct CostGasUsed {
     pub cost_category: String,
     pub cost: String,
@@ -1272,7 +1362,16 @@ pub struct CostGasUsed {
     pub gas_used: Gas,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Clone, Eq, Debug)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    PartialEq,
+    Clone,
+    Eq,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub struct ExecutionMetadataView {
     pub version: u32,
     pub gas_profile: Option<Vec<CostGasUsed>>,
@@ -1385,7 +1484,16 @@ impl CostGasUsed {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub struct ExecutionOutcomeView {
     /// Logs from this transaction or receipt.
     pub logs: Vec<String>,
@@ -1449,7 +1557,7 @@ impl From<ExecutionStatusView> for PartialExecutionStatus {
 impl ExecutionOutcomeView {
     // Same behavior as ExecutionOutcomeWithId's to_hashes.
     pub fn to_hashes(&self, id: CryptoHash) -> Vec<CryptoHash> {
-        let mut result = Vec::with_capacity(2 + self.logs.len());
+        let mut result = Vec::with_capacity(self.logs.len().saturating_add(2));
         result.push(id);
         result.push(CryptoHash::hash_borsh(&PartialExecutionOutcome::from(self)));
         result.extend(self.logs.iter().map(|log| hash(log.as_bytes())));
@@ -1458,7 +1566,16 @@ impl ExecutionOutcomeView {
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    PartialEq,
+    Eq,
+    Clone,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub struct ExecutionOutcomeWithIdView {
     pub proof: MerklePath,
     pub block_hash: CryptoHash,
@@ -1483,7 +1600,7 @@ impl ExecutionOutcomeWithIdView {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, Debug)]
 #[serde(untagged)]
 pub enum FinalExecutionOutcomeViewEnum {
     FinalExecutionOutcome(FinalExecutionOutcomeView),
@@ -1500,7 +1617,9 @@ impl FinalExecutionOutcomeViewEnum {
 }
 
 /// Final execution outcome of the transaction and all of subsequent the receipts.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
+#[derive(
+    BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone,
+)]
 pub struct FinalExecutionOutcomeView {
     /// Execution status. Contains the result in case of successful execution.
     pub status: FinalExecutionStatus,
@@ -1518,14 +1637,23 @@ impl fmt::Debug for FinalExecutionOutcomeView {
             .field("status", &self.status)
             .field("transaction", &self.transaction)
             .field("transaction_outcome", &self.transaction_outcome)
-            .field("receipts_outcome", &pretty::Slice(&self.receipts_outcome))
+            .field("receipts_outcome", &Slice(&self.receipts_outcome))
             .finish()
     }
 }
 
 /// Final execution outcome of the transaction and all of subsequent the receipts. Also includes
 /// the generated receipt.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub struct FinalExecutionOutcomeWithReceiptView {
     /// Final outcome view without receipts
     #[serde(flatten)]
@@ -1547,7 +1675,7 @@ pub mod validator_stake_view {
     pub use super::ValidatorStakeViewV1;
 
     #[derive(
-        BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Eq, PartialEq,
+        BorshSerialize, BorshDeserialize, serde::Serialize, Deserialize, Debug, Clone, Eq, PartialEq,
     )]
     #[serde(tag = "validator_stake_struct_version")]
     pub enum ValidatorStakeView {
@@ -1606,7 +1734,16 @@ pub mod validator_stake_view {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    Clone,
+    Eq,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub struct ValidatorStakeViewV1 {
     pub account_id: AccountId,
     pub public_key: PublicKey,
@@ -1614,7 +1751,16 @@ pub struct ValidatorStakeViewV1 {
     pub stake: Balance,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub struct ReceiptView {
     pub predecessor_id: AccountId,
     pub receiver_id: AccountId,
@@ -1623,13 +1769,31 @@ pub struct ReceiptView {
     pub receipt: ReceiptEnumView,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub struct DataReceiverView {
     pub data_id: CryptoHash,
     pub receiver_id: AccountId,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub enum ReceiptEnumView {
     Action {
         signer_id: AccountId,
@@ -1723,7 +1887,7 @@ impl TryFrom<ReceiptView> for Receipt {
 }
 
 /// Information about this epoch validators and next epoch validators
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct EpochValidatorInfo {
     /// Validators for the current epoch
     pub current_validators: Vec<CurrentEpochValidatorInfo>,
@@ -1743,13 +1907,22 @@ pub struct EpochValidatorInfo {
     pub epoch_height: EpochHeight,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    PartialEq,
+    Eq,
+    Clone,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub struct ValidatorKickoutView {
     pub account_id: AccountId,
     pub reason: ValidatorKickoutReason,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct CurrentEpochValidatorInfo {
     pub account_id: AccountId,
     pub public_key: PublicKey,
@@ -1765,7 +1938,16 @@ pub struct CurrentEpochValidatorInfo {
     pub num_expected_chunks: NumBlocks,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Debug,
+    PartialEq,
+    Eq,
+    Clone,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub struct NextEpochValidatorInfo {
     pub account_id: AccountId,
     pub public_key: PublicKey,
@@ -1774,7 +1956,16 @@ pub struct NextEpochValidatorInfo {
     pub shards: Vec<ShardId>,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, BorshDeserialize, BorshSerialize)]
+#[derive(
+    PartialEq,
+    Eq,
+    Debug,
+    Clone,
+    BorshDeserialize,
+    BorshSerialize,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub struct LightClientBlockView {
     pub prev_block_hash: CryptoHash,
     pub next_block_inner_hash: CryptoHash,
@@ -1784,7 +1975,7 @@ pub struct LightClientBlockView {
     pub approvals_after_next: Vec<Option<Signature>>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, BorshDeserialize, BorshSerialize)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, BorshDeserialize, BorshSerialize)]
 pub struct LightClientBlockLiteView {
     pub prev_block_hash: CryptoHash,
     pub inner_rest_hash: CryptoHash,
@@ -1813,7 +2004,7 @@ impl LightClientBlockLiteView {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct GasPriceView {
     #[serde(with = "dec_format")]
     pub gas_price: Balance,
@@ -1823,7 +2014,7 @@ pub struct GasPriceView {
 ///
 /// [serializable view]: ./index.html
 /// [`StateChangesRequest`]: ../types/struct.StateChangesRequest.html
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "changes_type", rename_all = "snake_case")]
 pub enum StateChangesRequestView {
     AccountChanges {
@@ -1871,7 +2062,7 @@ impl From<StateChangesRequestView> for StateChangesRequest {
 ///
 /// [serializable view]: ./index.html
 /// [`StateChangeKind`]: ../types/struct.StateChangeKind.html
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case", tag = "type")]
 pub enum StateChangeKindView {
     AccountTouched { account_id: AccountId },
@@ -1898,7 +2089,7 @@ impl From<StateChangeKind> for StateChangeKindView {
 pub type StateChangesKindsView = Vec<StateChangeKindView>;
 
 /// See crate::types::StateChangeCause for details.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case", tag = "type")]
 pub enum StateChangeCauseView {
     NotWritableToDisk,
@@ -1942,7 +2133,7 @@ impl From<StateChangeCause> for StateChangeCauseView {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case", tag = "type", content = "change")]
 pub enum StateChangeValueView {
     AccountUpdate {
@@ -2015,7 +2206,7 @@ impl From<StateChangeValue> for StateChangeValueView {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct StateChangeWithCauseView {
     pub cause: StateChangeCauseView,
     #[serde(flatten)]
@@ -2035,7 +2226,7 @@ pub type StateChangesView = Vec<StateChangeWithCauseView>;
 pub type MaintenanceWindowsView = Vec<Range<BlockHeight>>;
 
 /// View that preserves JSON format of the runtime config.
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
 pub struct RuntimeConfigView {
     /// Amount of yN per byte required to have on the account.  See
     /// <https://nomicon.io/Economics/Economic#state-stake> for details.
@@ -2050,7 +2241,7 @@ pub struct RuntimeConfigView {
     pub account_creation_config: AccountCreationConfigView,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
 pub struct RuntimeFeesConfigView {
     /// Describes the cost of creating an action receipt, `ActionReceipt`, excluding the actual cost
     /// of actions.
@@ -2073,7 +2264,7 @@ pub struct RuntimeFeesConfigView {
 }
 
 /// The structure describes configuration for creation of new accounts.
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
 pub struct AccountCreationConfigView {
     /// The minimum length of the top-level account ID that is allowed to be created by any account.
     pub min_allowed_top_level_account_length: u8,
@@ -2082,7 +2273,7 @@ pub struct AccountCreationConfigView {
     pub registrar_account_id: AccountId,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Hash, PartialEq, Eq)]
 pub struct DataReceiptCreationConfigView {
     /// Base cost of creating a data receipt.
     /// Both `send` and `exec` costs are burned when a new receipt has input dependencies. The gas
@@ -2100,7 +2291,7 @@ pub struct DataReceiptCreationConfigView {
 }
 
 /// Describes the cost of creating a specific action, `Action`. Includes all variants.
-#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Hash, PartialEq, Eq)]
 pub struct ActionCreationConfigView {
     /// Base cost of creating an account.
     pub create_account_cost: Fee,
@@ -2133,12 +2324,11 @@ pub struct ActionCreationConfigView {
     /// Base cost for processing a delegate action.
     ///
     /// This is on top of the costs for the actions inside the delegate action.
-    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
     pub delegate_cost: Fee,
 }
 
 /// Describes the cost of creating an access key.
-#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Hash, PartialEq, Eq)]
 pub struct AccessKeyCreationConfigView {
     /// Base cost of creating a full access access-key.
     pub full_access_cost: Fee,
@@ -2149,12 +2339,22 @@ pub struct AccessKeyCreationConfigView {
 }
 
 /// Describes cost of storage per block
-#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Hash, PartialEq, Eq)]
 pub struct StorageUsageConfigView {
     /// Number of bytes for an account record, including rounding up for account id.
     pub num_bytes_account: u64,
     /// Additional number of bytes for a k/v record
     pub num_extra_bytes_record: u64,
+}
+
+/// Contains the split storage information.
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+pub struct SplitStorageInfoView {
+    pub head_height: Option<BlockHeight>,
+    pub final_head_height: Option<BlockHeight>,
+    pub cold_head_height: Option<BlockHeight>,
+
+    pub hot_db_kind: Option<String>,
 }
 
 impl From<RuntimeConfig> for RuntimeConfigView {
@@ -2200,7 +2400,6 @@ impl From<RuntimeConfig> for RuntimeConfigView {
                     },
                     delete_key_cost: config.fees.fee(ActionCosts::delete_key).clone(),
                     delete_account_cost: config.fees.fee(ActionCosts::delete_account).clone(),
-                    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
                     delegate_cost: config.fees.fee(ActionCosts::delegate).clone(),
                 },
                 storage_usage_config: StorageUsageConfigView {
@@ -2246,7 +2445,6 @@ impl From<RuntimeConfigView> for RuntimeConfig {
                 action_fees: enum_map::enum_map! {
                     ActionCosts::create_account => config.transaction_costs.action_creation_config.create_account_cost.clone(),
                     ActionCosts::delete_account => config.transaction_costs.action_creation_config.delete_account_cost.clone(),
-                    #[cfg(feature = "protocol_feature_nep366_delegate_action")]
                     ActionCosts::delegate => config.transaction_costs.action_creation_config.delegate_cost.clone(),
                     ActionCosts::deploy_contract_base => config.transaction_costs.action_creation_config.deploy_contract_cost.clone(),
                     ActionCosts::deploy_contract_byte => config.transaction_costs.action_creation_config.deploy_contract_cost_per_byte.clone(),
@@ -2275,7 +2473,7 @@ impl From<RuntimeConfigView> for RuntimeConfig {
     }
 }
 
-#[derive(Clone, Debug, Hash, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Hash, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct VMConfigView {
     /// Costs for runtime externals
     pub ext_costs: ExtCostsConfigView,
@@ -2316,7 +2514,7 @@ impl From<VMConfigView> for VMConfig {
 
 /// Typed view of ExtCostsConfig to preserve JSON output field names in protocol
 /// config RPC output.
-#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Hash, PartialEq, Eq)]
 pub struct ExtCostsConfigView {
     /// Base cost for calling a host function.
     pub base: Gas,
@@ -2377,10 +2575,8 @@ pub struct ExtCostsConfigView {
     pub ripemd160_block: Gas,
 
     /// Cost of getting ed25519 base
-    #[cfg(feature = "protocol_feature_ed25519_verify")]
     pub ed25519_verify_base: Gas,
     /// Cost of getting ed25519 per byte
-    #[cfg(feature = "protocol_feature_ed25519_verify")]
     pub ed25519_verify_byte: Gas,
 
     /// Cost of calling ecrecover
@@ -2488,69 +2684,71 @@ pub struct ExtCostsConfigView {
 impl From<near_primitives_core::config::ExtCostsConfig> for ExtCostsConfigView {
     fn from(config: near_primitives_core::config::ExtCostsConfig) -> Self {
         Self {
-            base: config.cost(ExtCosts::base),
-            contract_loading_base: config.cost(ExtCosts::contract_loading_base),
-            contract_loading_bytes: config.cost(ExtCosts::contract_loading_bytes),
-            read_memory_base: config.cost(ExtCosts::read_memory_base),
-            read_memory_byte: config.cost(ExtCosts::read_memory_byte),
-            write_memory_base: config.cost(ExtCosts::write_memory_base),
-            write_memory_byte: config.cost(ExtCosts::write_memory_byte),
-            read_register_base: config.cost(ExtCosts::read_register_base),
-            read_register_byte: config.cost(ExtCosts::read_register_byte),
-            write_register_base: config.cost(ExtCosts::write_register_base),
-            write_register_byte: config.cost(ExtCosts::write_register_byte),
-            utf8_decoding_base: config.cost(ExtCosts::utf8_decoding_base),
-            utf8_decoding_byte: config.cost(ExtCosts::utf8_decoding_byte),
-            utf16_decoding_base: config.cost(ExtCosts::utf16_decoding_base),
-            utf16_decoding_byte: config.cost(ExtCosts::utf16_decoding_byte),
-            sha256_base: config.cost(ExtCosts::sha256_base),
-            sha256_byte: config.cost(ExtCosts::sha256_byte),
-            keccak256_base: config.cost(ExtCosts::keccak256_base),
-            keccak256_byte: config.cost(ExtCosts::keccak256_byte),
-            keccak512_base: config.cost(ExtCosts::keccak512_base),
-            keccak512_byte: config.cost(ExtCosts::keccak512_byte),
-            ripemd160_base: config.cost(ExtCosts::ripemd160_base),
-            ripemd160_block: config.cost(ExtCosts::ripemd160_block),
-            #[cfg(feature = "protocol_feature_ed25519_verify")]
-            ed25519_verify_base: config.cost(ExtCosts::ed25519_verify_base),
-            #[cfg(feature = "protocol_feature_ed25519_verify")]
-            ed25519_verify_byte: config.cost(ExtCosts::ed25519_verify_byte),
-            ecrecover_base: config.cost(ExtCosts::ecrecover_base),
-            log_base: config.cost(ExtCosts::log_base),
-            log_byte: config.cost(ExtCosts::log_byte),
-            storage_write_base: config.cost(ExtCosts::storage_write_base),
-            storage_write_key_byte: config.cost(ExtCosts::storage_write_key_byte),
-            storage_write_value_byte: config.cost(ExtCosts::storage_write_value_byte),
-            storage_write_evicted_byte: config.cost(ExtCosts::storage_write_evicted_byte),
-            storage_read_base: config.cost(ExtCosts::storage_read_base),
-            storage_read_key_byte: config.cost(ExtCosts::storage_read_key_byte),
-            storage_read_value_byte: config.cost(ExtCosts::storage_read_value_byte),
-            storage_remove_base: config.cost(ExtCosts::storage_remove_base),
-            storage_remove_key_byte: config.cost(ExtCosts::storage_remove_key_byte),
-            storage_remove_ret_value_byte: config.cost(ExtCosts::storage_remove_ret_value_byte),
-            storage_has_key_base: config.cost(ExtCosts::storage_has_key_base),
-            storage_has_key_byte: config.cost(ExtCosts::storage_has_key_byte),
-            storage_iter_create_prefix_base: config.cost(ExtCosts::storage_iter_create_prefix_base),
-            storage_iter_create_prefix_byte: config.cost(ExtCosts::storage_iter_create_prefix_byte),
-            storage_iter_create_range_base: config.cost(ExtCosts::storage_iter_create_range_base),
-            storage_iter_create_from_byte: config.cost(ExtCosts::storage_iter_create_from_byte),
-            storage_iter_create_to_byte: config.cost(ExtCosts::storage_iter_create_to_byte),
-            storage_iter_next_base: config.cost(ExtCosts::storage_iter_next_base),
-            storage_iter_next_key_byte: config.cost(ExtCosts::storage_iter_next_key_byte),
-            storage_iter_next_value_byte: config.cost(ExtCosts::storage_iter_next_value_byte),
-            touching_trie_node: config.cost(ExtCosts::touching_trie_node),
-            read_cached_trie_node: config.cost(ExtCosts::read_cached_trie_node),
-            promise_and_base: config.cost(ExtCosts::promise_and_base),
-            promise_and_per_promise: config.cost(ExtCosts::promise_and_per_promise),
-            promise_return: config.cost(ExtCosts::promise_return),
-            validator_stake_base: config.cost(ExtCosts::validator_stake_base),
-            validator_total_stake_base: config.cost(ExtCosts::validator_total_stake_base),
-            alt_bn128_g1_multiexp_base: config.cost(ExtCosts::alt_bn128_g1_multiexp_base),
-            alt_bn128_g1_multiexp_element: config.cost(ExtCosts::alt_bn128_g1_multiexp_element),
-            alt_bn128_g1_sum_base: config.cost(ExtCosts::alt_bn128_g1_sum_base),
-            alt_bn128_g1_sum_element: config.cost(ExtCosts::alt_bn128_g1_sum_element),
-            alt_bn128_pairing_check_base: config.cost(ExtCosts::alt_bn128_pairing_check_base),
-            alt_bn128_pairing_check_element: config.cost(ExtCosts::alt_bn128_pairing_check_element),
+            base: config.gas_cost(ExtCosts::base),
+            contract_loading_base: config.gas_cost(ExtCosts::contract_loading_base),
+            contract_loading_bytes: config.gas_cost(ExtCosts::contract_loading_bytes),
+            read_memory_base: config.gas_cost(ExtCosts::read_memory_base),
+            read_memory_byte: config.gas_cost(ExtCosts::read_memory_byte),
+            write_memory_base: config.gas_cost(ExtCosts::write_memory_base),
+            write_memory_byte: config.gas_cost(ExtCosts::write_memory_byte),
+            read_register_base: config.gas_cost(ExtCosts::read_register_base),
+            read_register_byte: config.gas_cost(ExtCosts::read_register_byte),
+            write_register_base: config.gas_cost(ExtCosts::write_register_base),
+            write_register_byte: config.gas_cost(ExtCosts::write_register_byte),
+            utf8_decoding_base: config.gas_cost(ExtCosts::utf8_decoding_base),
+            utf8_decoding_byte: config.gas_cost(ExtCosts::utf8_decoding_byte),
+            utf16_decoding_base: config.gas_cost(ExtCosts::utf16_decoding_base),
+            utf16_decoding_byte: config.gas_cost(ExtCosts::utf16_decoding_byte),
+            sha256_base: config.gas_cost(ExtCosts::sha256_base),
+            sha256_byte: config.gas_cost(ExtCosts::sha256_byte),
+            keccak256_base: config.gas_cost(ExtCosts::keccak256_base),
+            keccak256_byte: config.gas_cost(ExtCosts::keccak256_byte),
+            keccak512_base: config.gas_cost(ExtCosts::keccak512_base),
+            keccak512_byte: config.gas_cost(ExtCosts::keccak512_byte),
+            ripemd160_base: config.gas_cost(ExtCosts::ripemd160_base),
+            ripemd160_block: config.gas_cost(ExtCosts::ripemd160_block),
+            ed25519_verify_base: config.gas_cost(ExtCosts::ed25519_verify_base),
+            ed25519_verify_byte: config.gas_cost(ExtCosts::ed25519_verify_byte),
+            ecrecover_base: config.gas_cost(ExtCosts::ecrecover_base),
+            log_base: config.gas_cost(ExtCosts::log_base),
+            log_byte: config.gas_cost(ExtCosts::log_byte),
+            storage_write_base: config.gas_cost(ExtCosts::storage_write_base),
+            storage_write_key_byte: config.gas_cost(ExtCosts::storage_write_key_byte),
+            storage_write_value_byte: config.gas_cost(ExtCosts::storage_write_value_byte),
+            storage_write_evicted_byte: config.gas_cost(ExtCosts::storage_write_evicted_byte),
+            storage_read_base: config.gas_cost(ExtCosts::storage_read_base),
+            storage_read_key_byte: config.gas_cost(ExtCosts::storage_read_key_byte),
+            storage_read_value_byte: config.gas_cost(ExtCosts::storage_read_value_byte),
+            storage_remove_base: config.gas_cost(ExtCosts::storage_remove_base),
+            storage_remove_key_byte: config.gas_cost(ExtCosts::storage_remove_key_byte),
+            storage_remove_ret_value_byte: config.gas_cost(ExtCosts::storage_remove_ret_value_byte),
+            storage_has_key_base: config.gas_cost(ExtCosts::storage_has_key_base),
+            storage_has_key_byte: config.gas_cost(ExtCosts::storage_has_key_byte),
+            storage_iter_create_prefix_base: config
+                .gas_cost(ExtCosts::storage_iter_create_prefix_base),
+            storage_iter_create_prefix_byte: config
+                .gas_cost(ExtCosts::storage_iter_create_prefix_byte),
+            storage_iter_create_range_base: config
+                .gas_cost(ExtCosts::storage_iter_create_range_base),
+            storage_iter_create_from_byte: config.gas_cost(ExtCosts::storage_iter_create_from_byte),
+            storage_iter_create_to_byte: config.gas_cost(ExtCosts::storage_iter_create_to_byte),
+            storage_iter_next_base: config.gas_cost(ExtCosts::storage_iter_next_base),
+            storage_iter_next_key_byte: config.gas_cost(ExtCosts::storage_iter_next_key_byte),
+            storage_iter_next_value_byte: config.gas_cost(ExtCosts::storage_iter_next_value_byte),
+            touching_trie_node: config.gas_cost(ExtCosts::touching_trie_node),
+            read_cached_trie_node: config.gas_cost(ExtCosts::read_cached_trie_node),
+            promise_and_base: config.gas_cost(ExtCosts::promise_and_base),
+            promise_and_per_promise: config.gas_cost(ExtCosts::promise_and_per_promise),
+            promise_return: config.gas_cost(ExtCosts::promise_return),
+            validator_stake_base: config.gas_cost(ExtCosts::validator_stake_base),
+            validator_total_stake_base: config.gas_cost(ExtCosts::validator_total_stake_base),
+            alt_bn128_g1_multiexp_base: config.gas_cost(ExtCosts::alt_bn128_g1_multiexp_base),
+            alt_bn128_g1_multiexp_element: config.gas_cost(ExtCosts::alt_bn128_g1_multiexp_element),
+            alt_bn128_g1_sum_base: config.gas_cost(ExtCosts::alt_bn128_g1_sum_base),
+            alt_bn128_g1_sum_element: config.gas_cost(ExtCosts::alt_bn128_g1_sum_element),
+            alt_bn128_pairing_check_base: config.gas_cost(ExtCosts::alt_bn128_pairing_check_base),
+            alt_bn128_pairing_check_element: config
+                .gas_cost(ExtCosts::alt_bn128_pairing_check_element),
             // removed parameters
             contract_compile_base: 0,
             contract_compile_bytes: 0,
@@ -2584,9 +2782,7 @@ impl From<ExtCostsConfigView> for near_primitives_core::config::ExtCostsConfig {
                 ExtCosts::keccak512_byte => view.keccak512_byte,
                 ExtCosts::ripemd160_base => view.ripemd160_base,
                 ExtCosts::ripemd160_block => view.ripemd160_block,
-                #[cfg(feature = "protocol_feature_ed25519_verify")]
                 ExtCosts::ed25519_verify_base => view.ed25519_verify_base,
-                #[cfg(feature = "protocol_feature_ed25519_verify")]
                 ExtCosts::ed25519_verify_byte => view.ed25519_verify_byte,
                 ExtCosts::ecrecover_base => view.ecrecover_base,
                 ExtCosts::log_base => view.log_base,
@@ -2624,7 +2820,8 @@ impl From<ExtCostsConfigView> for near_primitives_core::config::ExtCostsConfig {
                 ExtCosts::alt_bn128_g1_sum_element => view.alt_bn128_g1_sum_element,
                 ExtCosts::alt_bn128_pairing_check_base => view.alt_bn128_pairing_check_base,
                 ExtCosts::alt_bn128_pairing_check_element => view.alt_bn128_pairing_check_element,
-        };
+        }
+        .map(|_, value| ParameterCost { gas: value, compute: value });
         Self { costs }
     }
 }

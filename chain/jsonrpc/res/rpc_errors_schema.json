@@ -487,8 +487,8 @@
         "FunctionCallArgumentsLengthExceeded",
         "UnsuitableStakingKey",
         "FunctionCallZeroAttachedGas",
-        "DelegateActionCantContainNestedOne",
-        "DelegateActionMustBeOnlyOne"
+        "DelegateActionMustBeOnlyOne",
+        "UnsupportedProtocolFeature"
       ],
       "props": {}
     },
@@ -563,11 +563,6 @@
         "predecessor_id": "",
         "registrar_account_id": ""
       }
-    },
-    "DelegateActionCantContainNestedOne": {
-      "name": "DelegateActionCantContainNestedOne",
-      "subtypes": [],
-      "props": {}
     },
     "DelegateActionExpired": {
       "name": "DelegateActionExpired",
@@ -889,6 +884,14 @@
       "subtypes": [],
       "props": {
         "public_key": ""
+      }
+    },
+    "UnsupportedProtocolFeature": {
+      "name": "UnsupportedProtocolFeature",
+      "subtypes": [],
+      "props": {
+        "protocol_feature": "",
+        "version": ""
       }
     },
     "Closed": {

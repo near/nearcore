@@ -27,6 +27,11 @@ expression: view
     },
     {
       "cost_category": "ACTION_COST",
+      "cost": "DELEGATE",
+      "gas_used": "1015"
+    },
+    {
+      "cost_category": "ACTION_COST",
       "cost": "DELETE_ACCOUNT",
       "gas_used": "1001"
     },
@@ -124,6 +129,16 @@ expression: view
       "cost_category": "WASM_HOST_COST",
       "cost": "ECRECOVER_BASE",
       "gas_used": "23"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "ED25519_VERIFY_BASE",
+      "gas_used": "59"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "ED25519_VERIFY_BYTE",
+      "gas_used": "60"
     },
     {
       "cost_category": "WASM_HOST_COST",

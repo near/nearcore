@@ -49,6 +49,9 @@ def main():
                                                        end_source_height)
     while True:
         time.sleep(5)
+
+        mirror_utils.check_target_validators(target_nodes[0])
+
         # this will restart the binary one time during this test, and it will return false
         # when it exits on its own, which should happen once it finishes sending all the
         # transactions in its source chain (~/.near/test1/)

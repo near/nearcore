@@ -1,4 +1,4 @@
-use near_network::time;
+use near_async::time;
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
 use std::fs::{File, OpenOptions};

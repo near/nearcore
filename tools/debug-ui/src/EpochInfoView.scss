@@ -1,0 +1,32 @@
+.epoch-info-view {
+    .error {
+        color: red;
+    }
+
+    table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    th,
+    td {
+        border: 1px solid #444;
+    }
+
+    td {
+        text-align: left;
+        vertical-align: top;
+        padding: 8px;
+    }
+
+    th {
+        text-align: center;
+        vertical-align: center;
+        padding: 8px;
+        background-color: lightgrey;
+    }
+
+    .content {
+        padding: 10px;
+    }
+}

@@ -88,19 +88,48 @@ impl TestBuilder {
 
     // We only test trapping tests on Wasmer, as of version 0.17, when tests executed in parallel,
     // Wasmer signal handlers may catch signals thrown from the Wasmtime, and produce fake failing tests.
+    #[allow(dead_code)]
     pub(crate) fn skip_wasmtime(mut self) -> Self {
         self.skip.insert(VMKind::Wasmtime);
         self
     }
 
+    #[allow(dead_code)]
     pub(crate) fn skip_wasmer0(mut self) -> Self {
         self.skip.insert(VMKind::Wasmer0);
         self
     }
 
+    #[allow(dead_code)]
     pub(crate) fn skip_wasmer2(mut self) -> Self {
         self.skip.insert(VMKind::Wasmer2);
         self
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn skip_near_vm(mut self) -> Self {
+        self.skip.insert(VMKind::NearVm);
+        self
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn only_wasmtime(self) -> Self {
+        self.skip_wasmer0().skip_wasmer2().skip_near_vm()
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn only_wasmer0(self) -> Self {
+        self.skip_wasmer2().skip_near_vm().skip_wasmtime()
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn only_wasmer2(self) -> Self {
+        self.skip_wasmer0().skip_near_vm().skip_wasmtime()
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn only_near_vm(self) -> Self {
+        self.skip_wasmer0().skip_wasmer2().skip_wasmtime()
     }
 
     /// Run  the necessary tests to check protocol upgrades for the given
@@ -147,11 +176,20 @@ impl TestBuilder {
 
         for (want, &protocol_version) in wants.iter().zip(&self.protocol_versions) {
             let mut results = vec![];
-            for vm_kind in [VMKind::Wasmer2, VMKind::Wasmer0, VMKind::Wasmtime] {
+            for vm_kind in [VMKind::NearVm, VMKind::Wasmer2, VMKind::Wasmer0, VMKind::Wasmtime] {
                 if self.skip.contains(&vm_kind) {
                     continue;
                 }
+
                 let runtime_config = runtime_config_store.get_config(protocol_version);
+
+                // NearVM includes a different contract preparation algorithm, that is not supported on old protocol versions
+                if vm_kind == VMKind::NearVm
+                    && runtime_config.wasm_config.limit_config.contract_prepare_version
+                        != near_primitives_core::config::ContractPrepareVersion::V2
+                {
+                    continue;
+                }
 
                 let mut fake_external = MockedExternal::new();
                 let config = runtime_config.wasm_config.clone();

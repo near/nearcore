@@ -1,4 +1,3 @@
-
 # Running the Estimator
 
 This workflow describes how to run the gas estimator byzantine-benchmark suite.
@@ -52,7 +51,6 @@ You might also want to run a hardware-agnostic estimation using the following
 command. It uses `docker` and `qemu` under the hood, so it will be quite a bit
 slower. You will need to install `docker` to run this command.
 
-
 ```bash
 cargo run --release -p runtime-params-estimator --features required -- \
     --accounts-num 20000 --additional-accounts-num 2000000 \
@@ -78,8 +76,8 @@ Finished in 17.92s, output saved to:
 ```
 
 The difference between the metrics is discussed in the [Estimation
-Metrics](../../architecture/gas/estimator.md#estimation-metrics).
+Metrics](../../architecture/gas/estimator.md#estimation-metrics) chapter.
 
-You should now be all setup for running estimations on your local machine. Also
+You should now be all set up for running estimations on your local machine. Also,
 check `cargo run -p runtime-params-estimator --features required -- --help` for
 the list of available options.

@@ -41,10 +41,6 @@ pub struct StoreConfig {
     /// the performance of the storage
     pub block_size: bytesize::ByteSize,
 
-    /// DEPRECATED: use `trie_cache` instead.
-    /// TODO(#7894): Remove in version >1.31
-    pub trie_cache_capacities: Vec<(ShardUId, u64)>,
-
     /// Trie cache configuration per shard for normal (non-view) caches.
     pub trie_cache: TrieCacheConfig,
     /// Trie cache configuration per shard for view caches.
@@ -88,6 +84,9 @@ pub struct StoreConfig {
     /// Needed to create flat storage which need to happen in parallel
     /// with block processing.
     pub background_migration_threads: usize,
+
+    /// Enables background flat storage creation.
+    pub flat_storage_creation_enabled: bool,
 
     /// Duration to perform background flat storage creation step. Defines how
     /// frequently we check creation status and execute work related to it in
@@ -157,10 +156,6 @@ impl StoreConfig {
             crate::DBCol::State => self.col_state_cache_size,
             #[cfg(feature = "protocol_feature_flat_state")]
             crate::DBCol::FlatState => self.col_state_cache_size,
-            #[cfg(feature = "protocol_feature_flat_state")]
-            crate::DBCol::BlockInfo => bytesize::ByteSize::mib(64),
-            #[cfg(feature = "protocol_feature_flat_state")]
-            crate::DBCol::BlockHeight => bytesize::ByteSize::mib(64),
             _ => bytesize::ByteSize::mib(32),
         }
     }
@@ -194,20 +189,22 @@ impl Default for StoreConfig {
             // we use it since then.
             block_size: bytesize::ByteSize::kib(16),
 
-            // deprecated
-            trie_cache_capacities: vec![],
-
             trie_cache: TrieCacheConfig {
                 default_max_bytes: DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
                 // Temporary solution to make contracts with heavy trie access
                 // patterns on shard 3 more stable. It was chosen by the estimation
                 // of the largest contract storage size we are aware as of 23/08/2022.
                 // Consider removing after implementing flat storage. (#7327)
+                // Note: on >= 1.34 nearcore version use 1_000_000_000 if you have
+                // minimal hardware.
                 per_shard_max_bytes: HashMap::from_iter([(
                     ShardUId { version: 1, shard_id: 3 },
                     3_000_000_000,
                 )]),
             },
+
+            // Use default sized caches for view calls, because they don't impact
+            // block processing.
             view_trie_cache: TrieCacheConfig::default(),
 
             enable_receipt_prefetching: true,
@@ -225,6 +222,8 @@ impl Default for StoreConfig {
             // We checked that this number of threads doesn't impact
             // regular block processing significantly.
             background_migration_threads: 8,
+
+            flat_storage_creation_enabled: true,
 
             // It shouldn't be very low, because on single flat storage creation step
             // we do several disk reads from `FlatStateMisc` and `FlatStateDeltas`.

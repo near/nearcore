@@ -1,20 +1,19 @@
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct RpcLightClientExecutionProofRequest {
     #[serde(flatten)]
     pub id: near_primitives::types::TransactionOrReceiptId,
     pub light_client_head: near_primitives::hash::CryptoHash,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct RpcLightClientNextBlockRequest {
     pub last_block_hash: near_primitives::hash::CryptoHash,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct RpcLightClientExecutionProofResponse {
     pub outcome_proof: near_primitives::views::ExecutionOutcomeWithIdView,
     pub outcome_root_proof: near_primitives::merkle::MerklePath,
@@ -22,13 +21,13 @@ pub struct RpcLightClientExecutionProofResponse {
     pub block_proof: near_primitives::merkle::MerklePath,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, serde::Serialize)]
 pub struct RpcLightClientNextBlockResponse {
     #[serde(flatten)]
     pub light_client_block: Option<Arc<near_primitives::views::LightClientBlockView>>,
 }
 
-#[derive(thiserror::Error, Debug, Serialize, Deserialize)]
+#[derive(thiserror::Error, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcLightClientProofError {
     #[error("Block either has never been observed on the node or has been garbage collected: {error_message}")]
@@ -54,7 +53,7 @@ pub enum RpcLightClientProofError {
     InternalError { error_message: String },
 }
 
-#[derive(thiserror::Error, Debug, Serialize, Deserialize)]
+#[derive(thiserror::Error, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcLightClientNextBlockError {
     #[error("Internal error: {error_message}")]
