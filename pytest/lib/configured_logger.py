@@ -10,7 +10,7 @@ LogLevel = int
 
 def new_logger(
     name: Optional[str] = None,
-    level: LogLevel = logging.DEBUG,
+    level: LogLevel = logging.INFO,
     outfile: Optional[str] = None,
     stderr: Optional[bool] = None,
 ) -> logging.Logger:
