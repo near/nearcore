@@ -3,7 +3,7 @@
 """
 This is a benchmark in which a network with a single fungible_token contract is
 deployed, and then a variable number of users (see `N_ACCOUNTS`) send each other
-them fungible tokens.
+those fungible tokens.
 
 At the time this benchmark is written, the intent is to observe the node metrics
 and traces for the block duration, potentially adding any additional
