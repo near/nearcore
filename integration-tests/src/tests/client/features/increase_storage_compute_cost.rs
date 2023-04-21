@@ -24,11 +24,15 @@ use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
 use near_primitives::types::AccountId;
+use near_primitives::version::ProtocolFeature;
 use near_store::test_utils::create_test_store;
 use nearcore::config::GenesisExt;
 use nearcore::NightshadeRuntime;
 use node_runtime::config::RuntimeConfig;
 use std::path::Path;
+
+/// Tracked in https://github.com/near/nearcore/issues/8938
+const INCREASED_STORAGE_COSTS_PROTOCOL_VERSION: u32 = 61;
 
 /// Test that `storage_write` compute limit is respected in new version.
 #[test]
@@ -136,7 +140,11 @@ fn assert_compute_limit_reached(
     std::env::set_var("NEAR_TESTS_IMMEDIATE_PROTOCOL_UPGRADE", "1");
     near_o11y::testonly::init_test_logger();
 
-    let new_protocol_version = 61;
+    let new_protocol_version = INCREASED_STORAGE_COSTS_PROTOCOL_VERSION;
+    assert!(
+        new_protocol_version >= ProtocolFeature::ComputeCosts.protocol_version(),
+        "relies on compute costs feature"
+    );
     let old_protocol_version = new_protocol_version - 1;
 
     // Prepare TestEnv with a contract at the old protocol version.
