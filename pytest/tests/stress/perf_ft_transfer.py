@@ -50,7 +50,6 @@ DEFAULT_TRANSACTION_TTL_SECONDS = 10
 MAX_INFLIGHT_TRANSACTIONS_PER_EXECUTOR = 1000
 SEED = random.uniform(0, 0xFFFFFFFF)
 logger = new_logger(level = logging.INFO)
-ACCOUNTS = []
 
 
 class Transaction:
@@ -291,7 +290,9 @@ class Account:
             return new_nonce
 
 
-def transaction_executor(nodes, tx_queue):
+def transaction_executor(nodes, tx_queue, accounts):
+    global ACCOUNTS
+    ACCOUNTS = accounts
     last_block_hash_update = 0
     my_transactions = queue.SimpleQueue()
     rng = random.Random()
@@ -375,6 +376,7 @@ def main():
         key_path = args.contract_key
         signer_key = key.Key.from_json_file(key_path)
 
+    ACCOUNTS = []
     ACCOUNTS.append(Account(signer_key))
     ACCOUNTS[0].refresh_nonce(nodes[0])
     funding_account = 0
@@ -408,8 +410,9 @@ def main():
         int(args.accounts) * len(contract_accounts)
     )
     tx_queue = TxQueue(queue_size)
+    subargs = (nodes, tx_queue, ACCOUNTS,)
     for executor in range(executors):
-        multiprocessing.Process(target=transaction_executor, args=(nodes, tx_queue,), daemon=True).start()
+        multiprocessing.Process(target=transaction_executor, args=subargs, daemon=True).start()
 
     for contract_account in contract_accounts:
         tx_queue.add(CreateSubAccount(funding_account, contract_account))
