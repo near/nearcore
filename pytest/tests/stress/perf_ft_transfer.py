@@ -47,8 +47,6 @@ import mocknet_helpers
 from configured_logger import new_logger
 
 DEFAULT_TRANSACTION_TTL_SECONDS = 10
-GAS_PER_BLOCK = 10E14
-TRANSACTIONS_PER_BLOCK = 121
 MAX_INFLIGHT_TRANSACTIONS_PER_EXECUTOR = 1000
 SEED = random.uniform(0, 0xFFFFFFFF)
 logger = new_logger(level = logging.INFO)
@@ -139,12 +137,13 @@ class DeployFT(Transaction):
 
 
 class TransferFT(Transaction):
-    def __init__(self, ft, sender, recipient, how_much = 1):
+    def __init__(self, ft, sender, recipient, how_much = 1, tgas = 300):
         super().__init__()
         self.ft = ft
         self.sender = sender
         self.recipient = recipient
         self.how_much = how_much
+        self.tgas = tgas
 
     def send(self, node, block_hash):
         (ft, sender, recipient) = ACCOUNTS[self.ft], ACCOUNTS[self.sender], ACCOUNTS[self.recipient]
@@ -159,7 +158,7 @@ class TransferFT(Transaction):
             "ft_transfer",
             json.dumps(args).encode('utf-8'),
             # About enough gas per call to fit N such transactions into an average block.
-            int(GAS_PER_BLOCK // TRANSACTIONS_PER_BLOCK),
+            self.tgas ** account.TGAS,
             # Gotta deposit some NEAR for storage?
             1,
             sender.use_nonce(),
@@ -344,13 +343,14 @@ def main():
         action='store_true')
     parser.add_argument('--contracts', default='0,2,4,6,8,a,c,e',
         help='Number of contract accounts, or alternatively list of subnames, separated by commas')
-    parser.add_argument('--contract-key', default=None,
-        help='Account to deploy contract to and use as source of NEAR for account creation')
+    parser.add_argument('--contract-key', required='--setup-cluster' not in sys.argv,
+        help='account to deploy contract to and use as source of NEAR for account creation')
     parser.add_argument('--accounts', default=1000, help='Number of accounts to use')
     parser.add_argument('--no-account-topup', default=False,
         action='store_true', help='Fill accounts with additional NEAR prior to testing')
     parser.add_argument('--shards', default=10, help='number of shards')
     parser.add_argument('--executors', default=2, help='number of transaction executors')
+    parser.add_argument('--tx-tgas', default=30, help='amount of Tgas to attach to each transaction')
     args = parser.parse_args()
 
     logger.warning(f"SEED is {SEED}")
@@ -372,10 +372,7 @@ def main():
             cluster.RpcNode("127.0.0.1", 3030),
         ]
         # The `nearup` localnet setup stores the keys in this directory.
-        if args.contract_key is None:
-            key_path = (pathlib.Path.home() / ".near/localnet/node0/shard0_key.json").resolve()
-        else:
-            key_path = args.contract_key
+        key_path = args.contract_key
         signer_key = key.Key.from_json_file(key_path)
 
     ACCOUNTS.append(Account(signer_key))
@@ -450,7 +447,8 @@ def main():
     while True:
         sender_idx, receiver_idx = rng.sample(range(start_of_accounts, len(ACCOUNTS)), k=2)
         ft_contract = rng.choice(contract_accounts)
-        tx_queue.add(TransferFT(ft_contract, sender_idx, receiver_idx, how_much=1))
+        tgas = int(args.tx_tgas)
+        tx_queue.add(TransferFT(ft_contract, sender_idx, receiver_idx, how_much=1, tgas=tgas))
         transfers += 1
         if transfers % 10000 == 0:
             logger.info(f"{transfers} so far ({tx_queue.pending.value} pending)")
