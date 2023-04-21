@@ -142,7 +142,7 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "READ_CACHED_TRIE_NODE",
-            gas_used: 13680000000,
+            gas_used: 4560000000,
         },
         CostGasUsed {
             cost_category: "WASM_HOST_COST",

@@ -326,7 +326,6 @@ impl FlatStorage {
     }
 }
 
-#[cfg(feature = "protocol_feature_flat_state")]
 #[cfg(test)]
 mod tests {
     use crate::flat::delta::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};

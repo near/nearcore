@@ -144,12 +144,17 @@ pub enum ProtocolFeature {
     ///
     /// Meta Transaction NEP-366: https://github.com/near/NEPs/blob/master/neps/nep-0366.md
     DelegateAction,
-
+    Ed25519Verify,
     /// Decouple compute and gas costs of operations to safely limit the compute time it takes to
     /// process the chunk.
     ///
     /// Compute Costs NEP-455: https://github.com/near/NEPs/blob/master/neps/nep-0455.md
     ComputeCosts,
+    /// Enable flat storage for reads, reducing number of DB accesses from `2 * key.len()` in
+    /// the worst case to 2.
+    ///
+    /// Flat Storage NEP-399: https://github.com/near/NEPs/blob/master/neps/nep-0399.md
+    FlatStorageReads,
 
     /// In case not all validator seats are occupied our algorithm provide incorrect minimal seat
     /// price - it reports as alpha * sum_stake instead of alpha * sum_stake / (1 - alpha), where
@@ -159,11 +164,8 @@ pub enum ProtocolFeature {
     /// Charge for contract loading before it happens.
     #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
     FixContractLoadingCost,
-    Ed25519Verify,
     #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
     RejectBlocksWithOutdatedProtocolVersions,
-    #[cfg(feature = "protocol_feature_flat_state")]
-    FlatStorageReads,
 }
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
@@ -248,8 +250,9 @@ impl ProtocolFeature {
             ProtocolFeature::Ed25519Verify
             | ProtocolFeature::ZeroBalanceAccount
             | ProtocolFeature::DelegateAction => 59,
-            ProtocolFeature::ComputeCosts => 61,
-            ProtocolFeature::NearVm => 61,
+            ProtocolFeature::ComputeCosts
+            | ProtocolFeature::NearVm
+            | ProtocolFeature::FlatStorageReads => 61,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
@@ -258,8 +261,6 @@ impl ProtocolFeature {
             ProtocolFeature::FixContractLoadingCost => 129,
             #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
             ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 132,
-            #[cfg(feature = "protocol_feature_flat_state")]
-            ProtocolFeature::FlatStorageReads => 135,
         }
     }
 }

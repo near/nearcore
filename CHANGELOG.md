@@ -7,6 +7,7 @@
 * Contract preparation and gas charging for wasm execution also switched to using our own code, as per the finite-wasm specification. Contract execution gas costs will change slightly for expected use cases. This opens up opportunities for further changing the execution gas costs (eg. with different costs per opcode) to lower contract execution cost long-term.
 * Compute Costs are implemented and stabilized. Compute usage of the chunk is now limited according to the compute costs. [#8915](https://github.com/near/nearcore/pull/8915), [NEP-455](https://github.com/near/NEPs/blob/master/neps/nep-0455.md).
 * Write related storage compute costs are increased which means they fill a chunk sooner but gas costs are unaffected. [#8924](https://github.com/near/nearcore/pull/8924)
+* Flat Storage for reads, reducing number of DB accesses for state read from `2 * key.len()` in the worst case to 2. [#8761](https://github.com/near/nearcore/pull/8761), [NEP-399](https://github.com/near/NEPs/pull/399)
 
 ### Non-protocol Changes
 

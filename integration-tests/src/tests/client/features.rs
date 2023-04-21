@@ -9,7 +9,6 @@ mod delegate_action;
 #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
 mod fix_contract_loading_cost;
 mod fix_storage_usage;
-#[cfg(feature = "protocol_feature_flat_state")]
 mod flat_storage;
 mod increase_deployment_cost;
 mod increase_storage_compute_cost;

@@ -60,11 +60,9 @@ io_trace = []
 no_cache = []
 single_thread_rocksdb = [] # Deactivate RocksDB IO background threads
 test_features = []
-protocol_feature_flat_state = ["near-primitives/protocol_feature_flat_state"]
 serialize_all_state_changes = []
 
 nightly_protocol = []
 nightly = [
   "nightly_protocol",
-  "protocol_feature_flat_state",
 ]
