@@ -1,13 +1,14 @@
 [package]
-name = "test-generator"
-version = "0.1.0"
-edition = "2018"
+name = "near-vm-test-generator"
+version = "0.0.0"
+edition = "2021"
+authors = ["Wasmer Engineering Team <engineering@wasmer.io>", "Near Inc <hello@nearprotocol.com>"]
 publish = false
 license = "Apache-2.0 WITH LLVM-exception"
 
 [dependencies]
-anyhow = "1.0"
-target-lexicon = "0.12"
+anyhow.workspace = true
+target-lexicon.workspace = true
 
 [features]
 test-dylib = []

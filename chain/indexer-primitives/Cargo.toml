@@ -16,4 +16,4 @@ description = "This crate hosts structures for the NEAR Indexer Framework types"
 serde.workspace = true
 serde_json.workspace = true
 
-near-primitives = { path = "../../core/primitives" }
+near-primitives.workspace = true

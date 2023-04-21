@@ -5,7 +5,7 @@ use crate::store;
 use crate::testonly::make_rng;
 use crate::testonly::AsSet;
 use crate::types::ConnectionInfo;
-use near_primitives::time;
+use near_async::time;
 use rand::Rng;
 
 /// Returns a ConnectionInfo with the given value for time_connected_until,

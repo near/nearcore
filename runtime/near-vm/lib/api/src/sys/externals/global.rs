@@ -25,7 +25,7 @@ impl Global {
     /// # Example
     ///
     /// ```
-    /// # use wasmer::{Global, Mutability, Store, Value};
+    /// # use near_vm::{Global, Mutability, Store, Value};
     /// # let store = Store::default();
     /// #
     /// let g = Global::new(&store, Value::I32(1));
@@ -42,7 +42,7 @@ impl Global {
     /// # Example
     ///
     /// ```
-    /// # use wasmer::{Global, Mutability, Store, Value};
+    /// # use near_vm::{Global, Mutability, Store, Value};
     /// # let store = Store::default();
     /// #
     /// let g = Global::new_mut(&store, Value::I32(1));
@@ -59,10 +59,7 @@ impl Global {
         if !val.comes_from_same_store(store) {
             return Err(RuntimeError::new("cross-`Store` globals are not supported"));
         }
-        let global = RuntimeGlobal::new(GlobalType {
-            mutability,
-            ty: val.ty(),
-        });
+        let global = RuntimeGlobal::new(GlobalType { mutability, ty: val.ty() });
         unsafe {
             global
                 .set_unchecked(val.clone())
@@ -71,10 +68,7 @@ impl Global {
 
         Ok(Self {
             store: store.clone(),
-            vm_global: VMGlobal {
-                from: Arc::new(global),
-                instance_ref: None,
-            },
+            vm_global: VMGlobal { from: Arc::new(global), instance_ref: None },
         })
     }
 
@@ -83,7 +77,7 @@ impl Global {
     /// # Example
     ///
     /// ```
-    /// # use wasmer::{Global, Mutability, Store, Type, Value, GlobalType};
+    /// # use near_vm::{Global, Mutability, Store, Type, Value, GlobalType};
     /// # let store = Store::default();
     /// #
     /// let c = Global::new(&store, Value::I32(1));
@@ -101,7 +95,7 @@ impl Global {
     /// # Example
     ///
     /// ```
-    /// # use wasmer::{Global, Store, Value};
+    /// # use near_vm::{Global, Store, Value};
     /// # let store = Store::default();
     /// #
     /// let g = Global::new(&store, Value::I32(1));
@@ -117,7 +111,7 @@ impl Global {
     /// # Example
     ///
     /// ```
-    /// # use wasmer::{Global, Store, Value};
+    /// # use near_vm::{Global, Store, Value};
     /// # let store = Store::default();
     /// #
     /// let g = Global::new(&store, Value::I32(1));
@@ -133,7 +127,7 @@ impl Global {
     /// # Example
     ///
     /// ```
-    /// # use wasmer::{Global, Store, Value};
+    /// # use near_vm::{Global, Store, Value};
     /// # let store = Store::default();
     /// #
     /// let g = Global::new_mut(&store, Value::I32(1));
@@ -150,7 +144,7 @@ impl Global {
     /// Trying to mutate a immutable global will raise an error:
     ///
     /// ```should_panic
-    /// # use wasmer::{Global, Store, Value};
+    /// # use near_vm::{Global, Store, Value};
     /// # let store = Store::default();
     /// #
     /// let g = Global::new(&store, Value::I32(1));
@@ -161,7 +155,7 @@ impl Global {
     /// Trying to set a value of a incompatible type will raise an error:
     ///
     /// ```should_panic
-    /// # use wasmer::{Global, Store, Value};
+    /// # use near_vm::{Global, Store, Value};
     /// # let store = Store::default();
     /// #
     /// let g = Global::new(&store, Value::I32(1));
@@ -174,19 +168,13 @@ impl Global {
             return Err(RuntimeError::new("cross-`Store` values are not supported"));
         }
         unsafe {
-            self.vm_global
-                .from
-                .set(val)
-                .map_err(|e| RuntimeError::new(format!("{}", e)))?;
+            self.vm_global.from.set(val).map_err(|e| RuntimeError::new(format!("{}", e)))?;
         }
         Ok(())
     }
 
     pub(crate) fn from_vm_export(store: &Store, vm_global: VMGlobal) -> Self {
-        Self {
-            store: store.clone(),
-            vm_global,
-        }
+        Self { store: store.clone(), vm_global }
     }
 }
 
@@ -195,10 +183,7 @@ impl Clone for Global {
         let mut vm_global = self.vm_global.clone();
         vm_global.upgrade_instance_ref().unwrap();
 
-        Self {
-            store: self.store.clone(),
-            vm_global,
-        }
+        Self { store: self.store.clone(), vm_global }
     }
 }
 

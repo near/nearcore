@@ -17,8 +17,8 @@ use crate::tcp;
 use crate::testonly::{abort_on_panic, make_rng, Rng};
 use crate::types::PeerMessage;
 use crate::types::{PeerInfo, ReasonForBan};
+use near_async::time;
 use near_primitives::network::PeerId;
-use near_primitives::time;
 use near_store::db::TestDB;
 use pretty_assertions::assert_eq;
 use rand::seq::IteratorRandom;
@@ -1293,12 +1293,12 @@ async fn archival_node() {
         let pm0_connections: HashSet<PeerId> =
             pm0.with_state(|s| async move { s.tier2.load().ready.keys().cloned().collect() }).await;
 
-        let chosen = vec![&pm2, &pm3, &pm4]
+        let pms = vec![&pm2, &pm3, &pm4];
+        let chosen = pms
             .iter()
             .filter(|&pm| !pm0_connections.contains(&pm.cfg.node_id()))
             .choose(rng)
-            .unwrap()
-            .clone();
+            .unwrap();
 
         tracing::info!(target:"test", "[{_step}] wait for the chosen node to finish disconnecting from node 0");
         chosen.wait_for_num_connected_peers(0).await;

@@ -2232,22 +2232,16 @@ impl Chain {
 
         if let Some(tip) = &new_head {
             // TODO: move this logic of tracking validators metrics to EpochManager
-            if let Ok(producers) = self
-                .runtime_adapter
-                .get_epoch_block_producers_ordered(&tip.epoch_id, &tip.last_block_hash)
-            {
-                let mut count = 0;
-                let mut stake = 0;
-                for (info, is_slashed) in producers.iter() {
-                    if !*is_slashed {
-                        stake += info.stake();
-                        count += 1;
-                    }
-                }
-                stake /= NEAR_BASE;
-                metrics::VALIDATOR_AMOUNT_STAKED.set(i64::try_from(stake).unwrap_or(i64::MAX));
-                metrics::VALIDATOR_ACTIVE_TOTAL.set(count);
+            let mut count = 0;
+            let mut stake = 0;
+            if let Ok(producers) = self.runtime_adapter.get_epoch_chunk_producers(&tip.epoch_id) {
+                stake += producers.iter().map(|info| info.stake()).sum::<Balance>();
+                count += producers.len();
             }
+
+            stake /= NEAR_BASE;
+            metrics::VALIDATOR_AMOUNT_STAKED.set(i64::try_from(stake).unwrap_or(i64::MAX));
+            metrics::VALIDATOR_ACTIVE_TOTAL.set(i64::try_from(count).unwrap_or(i64::MAX));
 
             self.last_time_head_updated = StaticClock::instant();
         };
@@ -2697,17 +2691,12 @@ impl Chain {
         )
     }
 
-    pub fn get_state_response_header(
+    /// Computes ShardStateSyncResponseHeader.
+    pub fn compute_state_response_header(
         &self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
     ) -> Result<ShardStateSyncResponseHeader, Error> {
-        // Check cache
-        let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
-        if let Ok(Some(header)) = self.store.store().get_ser(DBCol::StateHeaders, &key) {
-            return Ok(header);
-        }
-
         // Consistency rules:
         // 1. Everything prefixed with `sync_` indicates new epoch, for which we are syncing.
         // 1a. `sync_prev` means the last of the prev epoch.
@@ -2873,6 +2862,24 @@ impl Chain {
                 })
             }
         };
+        Ok(shard_state_header)
+    }
+
+    /// Returns ShardStateSyncResponseHeader for the given epoch and shard.
+    /// If the header is already available in the DB, returns the cached version and doesn't recompute it.
+    /// If the header was computed then it also gets cached in the DB.
+    pub fn get_state_response_header(
+        &self,
+        shard_id: ShardId,
+        sync_hash: CryptoHash,
+    ) -> Result<ShardStateSyncResponseHeader, Error> {
+        // Check cache
+        let key = StateHeaderKey(shard_id, sync_hash).try_to_vec()?;
+        if let Ok(Some(header)) = self.store.store().get_ser(DBCol::StateHeaders, &key) {
+            return Ok(header);
+        }
+
+        let shard_state_header = self.compute_state_response_header(shard_id, sync_hash)?;
 
         // Saving the header data
         let mut store_update = self.store.store().store_update();
@@ -2967,7 +2974,7 @@ impl Chain {
         let prev_chunk_header = shard_state_header.cloned_prev_chunk_header();
 
         // 1-2. Checking chunk validity
-        if !validate_chunk_proofs(&chunk, &*self.runtime_adapter)? {
+        if !validate_chunk_proofs(&chunk, self.runtime_adapter.epoch_manager_adapter())? {
             byzantine_assert!(false);
             return Err(Error::Other(
                 "set_shard_state failed: chunk header proofs are invalid".into(),
@@ -3130,7 +3137,10 @@ impl Chain {
         let state_root = *chunk.take_header().take_inner().prev_state_root();
         if !self.runtime_adapter.validate_state_part(&state_root, part_id, data) {
             byzantine_assert!(false);
-            return Err(Error::Other("set_state_part failed: validate_state_part failed".into()));
+            return Err(Error::Other(format!(
+                "set_state_part failed: validate_state_part failed. state_root={:?}",
+                state_root
+            )));
         }
 
         // Saving the part data.
@@ -3874,7 +3884,7 @@ impl Chain {
                     let is_first_block_with_chunk_of_version =
                         check_if_block_is_first_with_chunk_of_version(
                             self.store(),
-                            self.runtime_adapter.as_ref(),
+                            self.runtime_adapter.epoch_manager_adapter(),
                             prev_block.hash(),
                             shard_id,
                         )?;
@@ -5366,7 +5376,7 @@ impl<'a> ChainUpdate<'a> {
         let gas_limit = chunk_header.gas_limit();
         let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
             &mut self.chain_store_update,
-            self.runtime_adapter.as_ref(),
+            self.runtime_adapter.epoch_manager_adapter(),
             &chunk_header.prev_block_hash(),
             shard_id,
         )?;

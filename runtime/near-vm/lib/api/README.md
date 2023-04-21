@@ -1,4 +1,7 @@
-# `wasmer` [![Build Status](https://github.com/wasmerio/wasmer/workflows/build/badge.svg?style=flat-square)](https://github.com/wasmerio/wasmer/actions?query=workflow%3Abuild) [![Join Wasmer Slack](https://img.shields.io/static/v1?label=Slack&message=join%20chat&color=brighgreen&style=flat-square)](https://slack.wasmer.io) [![MIT License](https://img.shields.io/github/license/wasmerio/wasmer.svg?style=flat-square)](https://github.com/wasmerio/wasmer/blob/master/LICENSE) [![crates.io](https://img.shields.io/crates/v/wasmer.svg)](https://crates.io/crates/wasmer)
+# `near-vm`
+
+This crate is a fork of `wasmer`. A significant number of things
+changed, but the documentation is not up-to-date yet.
 
 [`Wasmer`](https://wasmer.io/) is the most popular
 [WebAssembly](https://webassembly.org/) runtime for Rust. It supports
@@ -13,7 +16,7 @@ Here is a small example of using Wasmer to run a WebAssembly module
 written with its WAT format (textual format):
 
 ```rust
-use wasmer::{Store, Module, Instance, Value, imports};
+use near_vm::{Store, Module, Instance, Value, imports};
 
 fn main() -> anyhow::Result<()> {
     let module_wat = r#"
@@ -29,7 +32,7 @@ fn main() -> anyhow::Result<()> {
     let module = Module::new(&store, &module_wat)?;
     // The module doesn't import anything, so we create an empty import object.
     let import_object = imports! {};
-    let instance = Instance::new(&module, &import_object)?;
+    let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &import_object)?;
 
     let add_one = instance.exports.get_function("add_one")?;
     let result = add_one.call(&[Value::I32(42)])?;

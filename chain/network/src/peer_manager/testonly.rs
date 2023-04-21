@@ -19,9 +19,9 @@ use crate::types::{
 };
 use crate::PeerManagerActor;
 use near_async::messaging::IntoSender;
+use near_async::time;
 use near_o11y::WithSpanContextExt;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::time;
 use near_primitives::types::AccountId;
 use std::collections::HashSet;
 use std::future::Future;

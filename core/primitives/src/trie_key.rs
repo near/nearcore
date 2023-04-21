@@ -698,7 +698,7 @@ mod tests {
         assert_eq!(
             TrieKey::ContractData { account_id: account_id.clone(), key: Default::default() }
                 .get_account_id(),
-            Some(account_id.clone())
+            Some(account_id)
         );
     }
 }

@@ -2,16 +2,11 @@
     html_logo_url = "https://github.com/wasmerio.png?size=200",
     html_favicon_url = "https://wasmer.io/images/icons/favicon-32x32.png"
 )]
-#![deny(
-    missing_docs,
-    trivial_numeric_casts,
-    unused_extern_crates,
-    rustdoc::broken_intra_doc_links
-)]
+#![deny(missing_docs, trivial_numeric_casts, unused_extern_crates, rustdoc::broken_intra_doc_links)]
 #![warn(unused_import_braces)]
 #![cfg_attr(
     feature = "cargo-clippy",
-    allow(clippy::new_without_default, vtable_address_comparisons)
+    allow(clippy::new_without_default, clippy::vtable_address_comparisons)
 )]
 #![cfg_attr(
     feature = "cargo-clippy",
@@ -19,8 +14,7 @@
         clippy::float_arithmetic,
         clippy::mut_mut,
         clippy::nonminimal_bool,
-        clippy::option_map_unwrap_or,
-        clippy::option_map_unwrap_or_else,
+        clippy::map_unwrap_or,
         clippy::print_stdout,
         clippy::unicode_not_nfc,
         clippy::use_self
@@ -39,7 +33,7 @@
 //! written with its WAT format (textual format):
 //!
 //! ```rust
-//! use wasmer::{Store, Module, Instance, Value, Export, imports};
+//! use near_vm::{Store, Module, Instance, InstanceConfig, Value, Export, imports};
 //!
 //! fn main() -> anyhow::Result<()> {
 //!     let module_wat = r#"
@@ -55,7 +49,7 @@
 //!     let module = Module::new(&store, &module_wat)?;
 //!     // The module doesn't import anything, so we create an empty import object.
 //!     let import_object = imports! {};
-//!     let instance = Instance::new(&module, &import_object)?;
+//!     let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &import_object)?;
 //!
 //!     let add_one = instance.lookup_function("add_one").unwrap();
 //!     let result = add_one.call(&[Value::I32(42)])?;
@@ -150,7 +144,7 @@
 //! [`imports`] macro:
 //!
 //! ```
-//! # use wasmer::{imports, Function, Memory, MemoryType, Store, ImportObject};
+//! # use near_vm::{imports, Function, Memory, MemoryType, Store, ImportObject};
 //! # fn imports_example(store: &Store) -> ImportObject {
 //! let memory = Memory::new(&store, MemoryType::new(1, None, false)).unwrap();
 //! imports! {
@@ -166,7 +160,7 @@
 //! from any instance via `instance.exports`:
 //!
 //! ```
-//! # use wasmer::{imports, Instance, Function, Memory, NativeFunc};
+//! # use near_vm::{imports, Instance, Function, Memory, NativeFunc};
 //! # fn exports_example(instance: &Instance) -> anyhow::Result<()> {
 //! let memory = instance.lookup("memory").unwrap();
 //! let memory = instance.lookup("some_other_memory").unwrap();
@@ -271,14 +265,8 @@
 //! 1. `sys`
 //!    where `wasmer` will be compiled to a native executable
 //!    which provides compilers, engines, a full VM etc.
-#![cfg_attr(
-    feature = "sys",
-    doc = "## Features for the `sys` feature group (enabled)"
-)]
-#![cfg_attr(
-    not(feature = "sys"),
-    doc = "## Features for the `sys` feature group (disabled)"
-)]
+#![cfg_attr(feature = "sys", doc = "## Features for the `sys` feature group (enabled)")]
+#![cfg_attr(not(feature = "sys"), doc = "## Features for the `sys` feature group (disabled)")]
 //!
 //! The default features can be enabled with the `sys-default` feature.
 //!

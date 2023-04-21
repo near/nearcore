@@ -39,8 +39,8 @@ macro_rules! mvr_test {
             fn native(config: crate::Config) -> anyhow::Result<()> {
                 let store = config.store();
                 let module = get_module(&store)?;
-                let instance = wasmer::Instance::new(
-                    &module,
+                let instance = wasmer::Instance::new_with_config(
+                    &module, InstanceConfig::with_stack_limit(1000000),
                     &wasmer::imports! {
                         "host" => {
                             "callback_fn" => wasmer::Function::new_native(&store, callback_fn)
@@ -65,8 +65,8 @@ macro_rules! mvr_test {
                 let store = config.store();
                 let module = get_module(&store)?;
                 let callback_fn = wasmer::Function::new(&store, &wasmer::FunctionType::new(vec![wasmer::ValType::I32], vec![ $( <$result_type>::expected_valtype() ),* ]), dynamic_callback_fn);
-                let instance = wasmer::Instance::new(
-                    &module,
+                let instance = wasmer::Instance::new_with_config(
+                    &module, InstanceConfig::with_stack_limit(1000000),
                     &wasmer::imports! {
                         "host" => {
                             "callback_fn" => callback_fn

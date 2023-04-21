@@ -385,6 +385,12 @@ impl Database for RocksDB {
             Some(result)
         }
     }
+
+    fn create_checkpoint(&self, path: &std::path::Path) -> anyhow::Result<()> {
+        let cp = ::rocksdb::checkpoint::Checkpoint::new(&self.db)?;
+        cp.create_checkpoint(path)?;
+        Ok(())
+    }
 }
 
 /// DB level options
@@ -507,7 +513,7 @@ fn set_compression_options(opts: &mut Options) {
 impl RocksDB {
     /// Blocks until all RocksDB instances (usually 0 or 1) gracefully shutdown.
     pub fn block_until_all_instances_are_dropped() {
-        instance_tracker::block_until_all_instances_are_dropped();
+        instance_tracker::block_until_all_instances_are_closed();
     }
 
     /// Returns metadata of the database or `None` if the db doesn’t exist.
@@ -746,7 +752,7 @@ mod tests {
         let mut result = StoreStatistics { data: vec![] };
         let parse_result = parse_statistics(statistics, &mut result);
         // We should be able to parse stats and the result should be Ok(()).
-        assert_eq!(parse_result.unwrap(), ());
+        parse_result.unwrap();
         assert_eq!(
             result,
             StoreStatistics {

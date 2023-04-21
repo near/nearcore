@@ -45,18 +45,12 @@ where
 {
     /// Create a new empty map.
     pub fn new() -> Self {
-        Self {
-            elems: Vec::new(),
-            unused: PhantomData,
-        }
+        Self { elems: Vec::new(), unused: PhantomData }
     }
 
     /// Create a new empty map with the given capacity.
     pub fn with_capacity(capacity: usize) -> Self {
-        Self {
-            elems: Vec::with_capacity(capacity),
-            unused: PhantomData,
-        }
+        Self { elems: Vec::with_capacity(capacity), unused: PhantomData }
     }
 
     /// Check if `k` is a valid key in the map.
@@ -156,8 +150,8 @@ impl<K, V> Default for PrimaryMap<K, V>
 where
     K: EntityRef,
 {
-    fn default() -> PrimaryMap<K, V> {
-        PrimaryMap::new()
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -228,10 +222,7 @@ where
     where
         T: IntoIterator<Item = V>,
     {
-        Self {
-            elems: Vec::from_iter(iter),
-            unused: PhantomData,
-        }
+        Self { elems: Vec::from_iter(iter), unused: PhantomData }
     }
 }
 
@@ -281,7 +272,7 @@ mod tests {
 
     impl EntityRef for E {
         fn new(i: usize) -> Self {
-            E(i as u32)
+            Self(i as u32)
         }
         fn index(self) -> usize {
             self.0 as usize

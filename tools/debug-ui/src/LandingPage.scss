@@ -1,0 +1,33 @@
+.landing-page {
+    padding: 10px;
+
+    input {
+        font-family: 'Courier New', Courier, monospace;
+    }
+
+    button {
+        margin-left: 10px;
+    }
+
+    form {
+        margin-top: 10px;
+        display: flex;
+    }
+
+    h3 {
+        font-size: 1.5em;
+        font-weight: bold;
+    }
+
+    .spacer {
+        height: 100px;
+    }
+
+    ul {
+        list-style-type: initial;
+
+        li {
+            margin-left: 20px;
+        }
+    }
+}

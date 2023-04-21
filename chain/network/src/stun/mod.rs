@@ -1,4 +1,4 @@
-use near_primitives::time;
+use near_async::time;
 use std::sync::Arc;
 use stun::message::Getter as _;
 

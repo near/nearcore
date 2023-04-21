@@ -39,10 +39,7 @@ impl Type {
     /// Returns true if `Type` matches any of the numeric types. (e.g. `I32`,
     /// `I64`, `F32`, `F64`, `V128`).
     pub fn is_num(self) -> bool {
-        matches!(
-            self,
-            Self::I32 | Self::I64 | Self::F32 | Self::F64 | Self::V128
-        )
+        matches!(self, Self::I32 | Self::I64 | Self::F32 | Self::F64 | Self::V128)
     }
 
     /// Returns true if `Type` matches either of the reference types.
@@ -173,10 +170,7 @@ impl FunctionType {
         Params: Into<Arc<[Type]>>,
         Returns: Into<Arc<[Type]>>,
     {
-        Self {
-            params: params.into(),
-            results: returns.into(),
-        }
+        Self { params: params.into(), results: returns.into() }
     }
 
     /// Parameter types.
@@ -192,18 +186,9 @@ impl FunctionType {
 
 impl fmt::Display for FunctionType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let params = self
-            .params
-            .iter()
-            .map(|p| format!("{:?}", p))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let results = self
-            .results
-            .iter()
-            .map(|p| format!("{:?}", p))
-            .collect::<Vec<_>>()
-            .join(", ");
+        let params = self.params.iter().map(|p| format!("{:?}", p)).collect::<Vec<_>>().join(", ");
+        let results =
+            self.results.iter().map(|p| format!("{:?}", p)).collect::<Vec<_>>().join(", ");
         write!(f, "[{}] -> [{}]", params, results)
     }
 }
@@ -235,8 +220,8 @@ implement_from_pair_to_functiontype! {
     9,0 9,1 9,2 9,3 9,4 9,5 9,6 9,7 9,8 9,9
 }
 
-impl From<&FunctionType> for FunctionType {
-    fn from(as_ref: &FunctionType) -> Self {
+impl From<&Self> for FunctionType {
+    fn from(as_ref: &Self) -> Self {
         as_ref.clone()
     }
 }
@@ -274,10 +259,7 @@ impl<'a> From<&'a FunctionType> for FunctionTypeRef<'a> {
 
 impl<'a> From<&'a ArchivedFunctionType> for FunctionTypeRef<'a> {
     fn from(ArchivedFunctionType { params, results }: &'a ArchivedFunctionType) -> Self {
-        Self {
-            params: &**params,
-            results: &**results,
-        }
+        Self { params: &**params, results: &**results }
     }
 }
 
@@ -326,7 +308,7 @@ impl GlobalType {
     /// Create a new Global variable
     /// # Usage:
     /// ```
-    /// use wasmer_types::{GlobalType, Type, Mutability, Value};
+    /// use near_vm_types::{GlobalType, Type, Mutability, Value};
     ///
     /// // An I32 constant global
     /// let global = GlobalType::new(Type::I32, Mutability::Const);
@@ -421,11 +403,7 @@ impl TableType {
     /// Creates a new table descriptor which will contain the specified
     /// `element` and have the `limits` applied to its length.
     pub fn new(ty: Type, minimum: u32, maximum: Option<u32>) -> Self {
-        Self {
-            ty,
-            minimum,
-            maximum,
-        }
+        Self { ty, minimum, maximum }
     }
 }
 
@@ -464,11 +442,7 @@ impl MemoryType {
     where
         IntoPages: Into<Pages>,
     {
-        Self {
-            minimum: minimum.into(),
-            maximum: maximum.map(Into::into),
-            shared,
-        }
+        Self { minimum: minimum.into(), maximum: maximum.map(Into::into), shared }
     }
 }
 
@@ -503,12 +477,7 @@ impl<S: AsRef<str>, T> Import<S, T> {
     /// Creates a new import descriptor which comes from `module` and `name` and
     /// is of type `ty`.
     pub fn new(module: S, name: S, index: u32, ty: T) -> Self {
-        Self {
-            module,
-            name,
-            index,
-            ty,
-        }
+        Self { module, name, index, ty }
     }
 
     /// Returns the module name that this import is expected to come from.
@@ -554,10 +523,7 @@ impl<T> ExportType<T> {
     /// Creates a new export which is exported with the given `name` and has the
     /// given `ty`.
     pub fn new(name: &str, ty: T) -> Self {
-        Self {
-            name: name.to_string(),
-            ty,
-        }
+        Self { name: name.to_string(), ty }
     }
 
     /// Returns the name by which this export is known by.
@@ -571,7 +537,9 @@ impl<T> ExportType<T> {
     }
 }
 
-/// Fast gas counter with very simple structure, could be exposed to compiled code in the VM.
+/// Fast gas counter with very simple structure, could be exposed to compiled code in the VM. For
+/// instance by intrinsifying host functions responsible for gas metering.
+
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FastGasCounter {
@@ -590,10 +558,7 @@ pub struct FastGasCounter {
 impl FastGasCounter {
     /// New fast gas counter.
     pub fn new(limit: u64) -> Self {
-        FastGasCounter {
-            burnt_gas: 0,
-            gas_limit: limit,
-        }
+        Self { burnt_gas: 0, gas_limit: limit }
     }
     /// Amount of gas burnt, maybe load as atomic to avoid aliasing issues.
     pub fn burnt(&self) -> u64 {
@@ -614,24 +579,14 @@ pub struct InstanceConfig {
     pub gas_counter: *mut FastGasCounter,
     default_gas_counter: Option<Rc<UnsafeCell<FastGasCounter>>>,
     /// Stack limit, in 8-byte slots.
-    pub stack_limit: i32,
+    pub stack_limit: u32,
 }
-
-// Default stack limit, in bytes.
-const DEFAULT_STACK_LIMIT: i32 = 1024 * 1024;
 
 impl InstanceConfig {
     /// Create default instance configuration.
-    pub fn default() -> Self {
-        let result = Rc::new(UnsafeCell::new(FastGasCounter {
-            burnt_gas: 0,
-            gas_limit: u64::MAX,
-        }));
-        Self {
-            gas_counter: result.get(),
-            default_gas_counter: Some(result),
-            stack_limit: DEFAULT_STACK_LIMIT,
-        }
+    pub fn with_stack_limit(stack_limit: u32) -> Self {
+        let result = Rc::new(UnsafeCell::new(FastGasCounter { burnt_gas: 0, gas_limit: u64::MAX }));
+        Self { gas_counter: result.get(), default_gas_counter: Some(result), stack_limit }
     }
 
     /// Create instance configuration with an external gas counter, unsafe as it creates
@@ -640,12 +595,6 @@ impl InstanceConfig {
     pub unsafe fn with_counter(mut self, gas_counter: *mut FastGasCounter) -> Self {
         self.gas_counter = gas_counter;
         self.default_gas_counter = None;
-        self
-    }
-
-    /// Create instance configuration with given stack limit.
-    pub unsafe fn with_stack_limit(mut self, stack_limit: i32) -> Self {
-        self.stack_limit = stack_limit;
         self
     }
 }

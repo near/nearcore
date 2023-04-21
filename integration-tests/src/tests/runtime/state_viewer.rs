@@ -1,5 +1,7 @@
 use std::{collections::HashMap, io, sync::Arc};
 
+use borsh::BorshDeserialize;
+
 use crate::runtime_utils::{get_runtime_and_trie, get_test_trie_viewer, TEST_SHARD_UID};
 use near_primitives::{
     account::Account,
@@ -31,7 +33,7 @@ impl ProofVerifier {
             .into_iter()
             .map(|bytes| {
                 let hash = CryptoHash::hash_bytes(&bytes);
-                let node = RawTrieNodeWithSize::decode(&bytes)?;
+                let node = RawTrieNodeWithSize::try_from_slice(&bytes)?;
                 Ok((hash, node))
             })
             .collect::<Result<HashMap<_, _>, io::Error>>()?;
@@ -59,7 +61,6 @@ impl ProofVerifier {
                         expected.map_or(false, |expected| value == expected)
                     };
                 }
-
                 RawTrieNode::Extension(node_key, child_hash) => {
                     expected_hash = child_hash;
 
@@ -70,13 +71,21 @@ impl ProofVerifier {
                     }
                     key = key.mid(nib.len());
                 }
-                RawTrieNode::Branch(children, value) => {
+                RawTrieNode::BranchNoValue(children) => {
                     if key.is_empty() {
-                        return match (value, expected) {
-                            (Some(value), Some(expected)) => value == expected,
-                            (None, None) => true,
-                            _ => false,
-                        };
+                        return expected.is_none();
+                    }
+                    match children[key.at(0)] {
+                        Some(ref child_hash) => {
+                            key = key.mid(1);
+                            expected_hash = child_hash;
+                        }
+                        None => return expected.is_none(),
+                    }
+                }
+                RawTrieNode::BranchWithValue(value, children) => {
+                    if key.is_empty() {
+                        return expected.map_or(false, |exp| value == exp);
                     }
                     match children[key.at(0)] {
                         Some(ref child_hash) => {

@@ -17,6 +17,10 @@ use nearcore::config::GenesisExt;
 /// - touching trie node cost for read decreases to zero.
 #[test]
 fn test_flat_storage_upgrade() {
+    // The immediate protocol upgrade needs to be set for this test to pass in
+    // the release branch where the protocol upgrade date is set.
+    std::env::set_var("NEAR_TESTS_IMMEDIATE_PROTOCOL_UPGRADE", "1");
+
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let epoch_length = 12;
     let new_protocol_version = ProtocolFeature::FlatStorageReads.protocol_version();

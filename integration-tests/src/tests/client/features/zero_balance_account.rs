@@ -96,10 +96,10 @@ fn test_zero_balance_account_creation() {
     let create_account_tx = SignedTransaction::create_contract(
         2,
         signer0.account_id.clone(),
-        new_account_id.clone(),
+        new_account_id,
         contract.to_vec(),
         0,
-        new_signer.public_key.clone(),
+        new_signer.public_key,
         &signer0,
         *genesis_block.hash(),
     );
@@ -218,7 +218,7 @@ fn test_zero_balance_account_add_key() {
     let send_money_tx = SignedTransaction::send_money(
         nonce + 10,
         new_account_id.clone(),
-        signer0.account_id.clone(),
+        signer0.account_id,
         &new_signer,
         amount,
         *genesis_block.hash(),
@@ -250,6 +250,10 @@ fn test_zero_balance_account_add_key() {
 /// the protocol upgrade
 #[test]
 fn test_zero_balance_account_upgrade() {
+    // The immediate protocol upgrade needs to be set for this test to pass in
+    // the release branch where the protocol upgrade date is set.
+    std::env::set_var("NEAR_TESTS_IMMEDIATE_PROTOCOL_UPGRADE", "1");
+
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
@@ -291,9 +295,9 @@ fn test_zero_balance_account_upgrade() {
     let create_account_tx2 = SignedTransaction::create_account(
         2,
         signer0.account_id.clone(),
-        new_account_id.clone(),
+        new_account_id,
         0,
-        new_signer.public_key.clone(),
+        new_signer.public_key,
         &signer0,
         *genesis_block.hash(),
     );

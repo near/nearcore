@@ -8,10 +8,10 @@ use near_async::messaging::Sender;
 use tracing::info;
 
 use near_actix_test_utils::run_actix;
+use near_async::time;
 use near_network::tcp;
 use near_o11y::testonly::init_test_logger_allow_panic;
 use near_primitives::block::GenesisId;
-use near_primitives::time;
 
 use near_network::config;
 use near_network::test_utils::{convert_boot_nodes, GetInfo, StopSignal, WaitOrTimeoutActor};

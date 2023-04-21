@@ -43,10 +43,7 @@ impl UniversalArtifact {
     /// Return the extents of the specified local function.
     pub fn function_extent(&self, index: LocalFunctionIndex) -> Option<FunctionExtent> {
         let func = self.functions.get(index)?;
-        Some(FunctionExtent {
-            address: func.body,
-            length: usize::try_from(func.length).unwrap(),
-        })
+        Some(FunctionExtent { address: func.body, length: usize::try_from(func.length).unwrap() })
     }
 
     /// Return the engine instance this artifact is loaded into.

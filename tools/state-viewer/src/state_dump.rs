@@ -86,7 +86,7 @@ pub fn state_dump(
             fs::create_dir_all(&records_path_dir).unwrap_or_else(|_| {
                 panic!("Failed to create directory {}", records_path_dir.display())
             });
-            let records_file = File::create(&records_path).unwrap();
+            let records_file = File::create(records_path).unwrap();
             let mut ser = serde_json::Serializer::new(records_file);
             let mut seq = ser.serialize_seq(None).unwrap();
             let total_supply = iterate_over_records(
@@ -103,8 +103,7 @@ pub fn state_dump(
             // minting tokens every epoch.
             genesis_config.total_supply = total_supply;
             change_genesis_config(&mut genesis_config, change_config);
-            near_config.genesis =
-                Genesis::new_with_path(genesis_config, records_path.to_path_buf()).unwrap();
+            near_config.genesis = Genesis::new_with_path(genesis_config, records_path).unwrap();
             near_config.config.genesis_records_file =
                 Some(records_path.file_name().unwrap().to_str().unwrap().to_string());
         }
@@ -261,17 +260,15 @@ fn iterate_over_records(
 /// Change record according to genesis_change_config.
 /// 1. Remove stake from non-whitelisted validators;
 pub fn change_state_record(record: &mut StateRecord, genesis_change_config: &GenesisChangeConfig) {
-    {
-        // Kick validators outside of whitelist
-        if let Some(whitelist) = &genesis_change_config.whitelist_validators {
-            if let StateRecord::Account { account_id, account } = record {
-                if !whitelist.contains(account_id) {
-                    account.set_amount(account.amount() + account.locked());
-                    account.set_locked(0);
-                }
+    // Kick validators outside of whitelist
+    if let Some(whitelist) = &genesis_change_config.whitelist_validators {
+        if let StateRecord::Account { account_id, account } = record {
+            if !whitelist.contains(account_id) {
+                account.set_amount(account.amount() + account.locked());
+                account.set_locked(0);
             }
         }
-    };
+    }
 }
 
 /// Change genesis_config according to genesis_change_config.

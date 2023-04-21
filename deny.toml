@@ -4,6 +4,23 @@ targets = [
     { triple = "x86_64-apple-darwin" },
 ]
 
+[licenses]
+unlicensed = "deny"
+allow = ["MIT", "Apache-2.0", "Apache-2.0 WITH LLVM-exception"]
+deny = ["AGPL-1.0", "AGPL-3.0",]
+copyleft = "warn"
+allow-osi-fsf-free = "either"
+default = "deny"
+confidence-threshold = 0.8
+exceptions = []
+private = { ignore = false, registries = [] }
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
+
 [bans]
 multiple-versions = "deny"
 deny = [
@@ -48,8 +65,11 @@ skip = [
     { name = "target-lexicon", version = "=0.10.0" },
     { name = "wasmparser", version = "=0.84.0" },
 
-    # chain and param estimator
-    { name = "num-rational", version = "=0.3.2" },
+    # wasmtime v4
+    { name = "wasmparser", version = "=0.95.0" },
+
+    # finite-wasm
+    { name = "wasmparser", version = "=0.99.0" },
 
     # wasmer 0.17.x
     { name = "parking_lot", version = "=0.10.2" },
@@ -90,9 +110,6 @@ skip = [
     # paperclip-macros, strum_macros, walrus-macro depend on this while clap3.1.6 uses heck=0.4.0
     { name = "heck", version = "=0.3.3" },
 
-    # actix-http depends on an old version
-    { name = "itoa", version = "=0.4.8" },
-
     # Wasmer requires a newer version and the rest of the ecosystem hasn't caught up yet.
     { name = "hashbrown", version = "0.11.0" },
 
@@ -101,9 +118,6 @@ skip = [
 
     # opentelemetry-otlp depends on an old version of tonic which depends on an old version of tokio-util
     { name = "tokio-util", version = "=0.6.10" },
-
-    # redis we’re using uses ancient sha
-    { name = "sha1", version = "=0.6.1" },
 
     # rust-s3 is using an old version of smartstring
     { name = "smartstring", version = "=0.2.10" },
@@ -121,4 +135,7 @@ skip = [
     { name = "borsh-derive", version = "=0.9.3" },
     { name = "borsh-derive-internal", version = "=0.9.3" },
     { name = "borsh-schema-derive-internal", version = "=0.9.3" },
+
+    # near-test-contracts
+    { name = "wasm-encoder", version = "=0.11.0" },
 ]

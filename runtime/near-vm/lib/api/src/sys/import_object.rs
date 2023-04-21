@@ -27,7 +27,7 @@ pub trait LikeNamespace {
 ///
 /// # Usage:
 /// ```ignore
-/// use wasmer::{Exports, ImportObject, Function};
+/// use near_vm::{Exports, ImportObject, Function};
 ///
 /// let mut import_object = ImportObject::new();
 /// let mut env = Exports::new();
@@ -137,9 +137,7 @@ impl IntoIterator for ImportObject {
     type Item = ((String, String), Export);
 
     fn into_iter(self) -> Self::IntoIter {
-        ImportObjectIterator {
-            elements: self.get_objects(),
-        }
+        ImportObjectIterator { elements: self.get_objects() }
     }
 }
 
@@ -170,10 +168,7 @@ impl fmt::Debug for ImportObject {
         }
 
         f.debug_struct("ImportObject")
-            .field(
-                "map",
-                &SecretMap::new(self.map.lock().unwrap().borrow().len()),
-            )
+            .field("map", &SecretMap::new(self.map.lock().unwrap().borrow().len()))
             .finish()
     }
 }
@@ -187,9 +182,9 @@ impl fmt::Debug for ImportObject {
 /// # Usage
 ///
 /// ```
-/// # use wasmer::{Function, Store};
+/// # use near_vm::{Function, Store};
 /// # let store = Store::default();
-/// use wasmer::imports;
+/// use near_vm::imports;
 ///
 /// let import_object = imports! {
 ///     "env" => {
@@ -267,7 +262,7 @@ mod test {
                 "small" => g.clone()
             },
             "cat" => {
-                "small" => g.clone()
+                "small" => g
             }
         };
 

@@ -35,10 +35,7 @@ where
     ///
     /// This relies on `raw` pointing to a valid slice of `V`s.
     pub unsafe fn from_raw(raw: *mut [V]) -> Self {
-        Self {
-            elems: Box::from_raw(raw),
-            unused: PhantomData,
-        }
+        Self { elems: Box::from_raw(raw), unused: PhantomData }
     }
 
     /// Check if `k` is a valid key in the map.
@@ -156,7 +153,7 @@ mod tests {
 
     impl EntityRef for E {
         fn new(i: usize) -> Self {
-            E(i as u32)
+            Self(i as u32)
         }
         fn index(self) -> usize {
             self.0 as usize
