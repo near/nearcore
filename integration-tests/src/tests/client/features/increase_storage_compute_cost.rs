@@ -121,7 +121,7 @@ fn test_non_storage_gas_exceeded() {
 /// both fill a chunk equally.
 ///
 /// Regarding `num_transactions`, this is how many function calls are queued up,
-/// It should not more than can be converted in a single chunk but more than can
+/// it should not be more than can be converted in a single chunk but more than can
 /// be executed in a single chunk. Otherwise, the test doesn't work to check the
 /// limits and consequently some assertions will fail.
 fn assert_compute_limit_reached(
@@ -233,11 +233,11 @@ fn assert_compute_limit_reached(
 /// (This is a helper function called twice by the helper function above, once
 /// before and once after the upgrade.)
 ///
-/// This function creates many function call receipts with the give signer,
+/// This function creates many function call receipts with the given signer,
 /// receiver, method name, and method argument. Then it submits it to a client
-/// and produces a few blocks. Then it returns the `gas_used` value of the first
-/// chunk that executes these receipts. This chunk should be saturated with
-/// receipts, so either the gas limit or the compute limit were reached.
+/// and produces a few blocks. Then it returns the first chunk that executes
+/// these receipts. This chunk should be saturated with receipts, so either the
+/// gas limit or the compute limit were reached.
 /// (depending on protocol version)
 fn produce_saturated_chunk(
     env: &mut TestEnv,
