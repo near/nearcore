@@ -158,12 +158,8 @@ fn test_flat_storage_creation_sanity() {
         }
 
         let block_hash = env.clients[0].chain.get_block_hash_by_height(START_HEIGHT - 1).unwrap();
-        let epoch_id = env.clients[0].chain.runtime_adapter.get_epoch_id(&block_hash).unwrap();
-        env.clients[0]
-            .chain
-            .runtime_adapter
-            .remove_flat_storage_for_shard(shard_uid, &epoch_id)
-            .unwrap();
+        let epoch_id = env.clients[0].chain.epoch_manager.get_epoch_id(&block_hash).unwrap();
+        env.clients[0].chain.runtime.remove_flat_storage_for_shard(shard_uid, &epoch_id).unwrap();
     }
 
     // Create new chain and runtime using the same store. It should produce next blocks normally, but now it should
@@ -246,10 +242,10 @@ fn test_flat_storage_creation_two_shards() {
         }
 
         let block_hash = env.clients[0].chain.get_block_hash_by_height(START_HEIGHT - 1).unwrap();
-        let epoch_id = env.clients[0].chain.runtime_adapter.get_epoch_id(&block_hash).unwrap();
+        let epoch_id = env.clients[0].chain.epoch_manager.get_epoch_id(&block_hash).unwrap();
         env.clients[0]
             .chain
-            .runtime_adapter
+            .runtime
             .remove_flat_storage_for_shard(shard_uids[0], &epoch_id)
             .unwrap();
     }
@@ -301,7 +297,7 @@ fn test_flat_storage_creation_start_from_state_part() {
             *env.clients[0].chain.get_chunk_extra(&block_hash, &shard_uid).unwrap().state_root();
         let trie = env.clients[0]
             .chain
-            .runtime_adapter
+            .runtime
             .get_trie_for_shard(0, &block_hash, state_root, true)
             .unwrap();
         (0..NUM_PARTS)
@@ -362,7 +358,7 @@ fn test_flat_storage_creation_start_from_state_part() {
             *env.clients[0].chain.get_chunk_extra(&block_hash, &shard_uid).unwrap().state_root();
         let trie = env.clients[0]
             .chain
-            .runtime_adapter
+            .runtime
             .get_trie_for_shard(0, &block_hash, state_root, true)
             .unwrap();
         let chunk_view = trie.flat_storage_chunk_view.unwrap();
@@ -391,12 +387,8 @@ fn test_catchup_succeeds_even_if_no_new_blocks() {
         }
         // Remove flat storage.
         let block_hash = env.clients[0].chain.get_block_hash_by_height(START_HEIGHT - 1).unwrap();
-        let epoch_id = env.clients[0].chain.runtime_adapter.get_epoch_id(&block_hash).unwrap();
-        env.clients[0]
-            .chain
-            .runtime_adapter
-            .remove_flat_storage_for_shard(shard_uid, &epoch_id)
-            .unwrap();
+        let epoch_id = env.clients[0].chain.epoch_manager.get_epoch_id(&block_hash).unwrap();
+        env.clients[0].chain.runtime.remove_flat_storage_for_shard(shard_uid, &epoch_id).unwrap();
     }
     let mut env = setup_env(&genesis, store.clone());
     assert!(env.clients[0].runtime_adapter.get_flat_storage_for_shard(shard_uid).is_none());

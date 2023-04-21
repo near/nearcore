@@ -130,7 +130,9 @@ impl ViewClientActor {
     ) -> Result<Self, Error> {
         // TODO: should we create shared ChainStore that is passed to both Client and ViewClient?
         let chain = Chain::new_for_view_client(
-            runtime_adapter.clone(),
+            runtime_adapter.epoch_manager_adapter_arc(),
+            runtime_adapter.shard_tracker(),
+            runtime_adapter.runtime_adapter_arc(),
             chain_genesis,
             DoomslugThresholdMode::TwoThirds,
             config.save_trie_changes,

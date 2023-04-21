@@ -715,7 +715,7 @@ impl StateSync {
             StateSyncInner::PartsFromExternal { chain_id, requests_remaining, external } => {
                 let sync_block_header = chain.get_block_header(&sync_hash).unwrap();
                 let epoch_id = sync_block_header.epoch_id();
-                let epoch_info = chain.runtime_adapter.get_epoch_info(epoch_id).unwrap();
+                let epoch_info = chain.epoch_manager.get_epoch_info(epoch_id).unwrap();
                 let epoch_height = epoch_info.epoch_height();
 
                 let shard_state_header = chain.get_state_header(shard_id, sync_hash).unwrap();

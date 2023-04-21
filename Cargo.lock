@@ -6184,6 +6184,7 @@ dependencies = [
  "near-chain",
  "near-chain-configs",
  "near-client",
+ "near-epoch-manager",
  "near-o11y",
  "near-primitives",
  "near-store",

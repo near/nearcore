@@ -30,7 +30,7 @@ use near_chain::test_utils::format_hash;
 use near_chain::ChainStoreAccess;
 use near_chain::{
     byzantine_assert, near_chain_primitives, Block, BlockHeader, BlockProcessingArtifact,
-    ChainGenesis, DoneApplyChunkCallback, Provenance, RuntimeWithEpochManagerAdapter,
+    Provenance, DoneApplyChunkCallback, RuntimeWithEpochManagerAdapter, ChainGenesis,
 };
 use near_chain_configs::{ClientConfig, LogSummaryStyle};
 use near_chain_primitives::error::EpochErrorResultToChainError;

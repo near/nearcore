@@ -162,6 +162,10 @@ impl EpochManager {
         )
     }
 
+    pub fn new_arc_handle(store: Store, genesis_config: &GenesisConfig) -> Arc<EpochManagerHandle> {
+        Arc::new(Self::new_from_genesis_config(store, genesis_config).unwrap().into_handle())
+    }
+
     pub fn new(
         store: Store,
         config: AllEpochConfig,

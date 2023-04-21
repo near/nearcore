@@ -240,7 +240,9 @@ pub fn setup_mock_node(
     }
 
     let chain = Chain::new_for_view_client(
-        mock_network_runtime.clone(),
+        mock_network_runtime.epoch_manager_adapter_arc(),
+        mock_network_runtime.shard_tracker(),
+        mock_network_runtime.runtime_adapter_arc(),
         &chain_genesis,
         DoomslugThresholdMode::NoApprovals,
         config.client_config.save_trie_changes,

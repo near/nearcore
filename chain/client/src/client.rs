@@ -18,10 +18,10 @@ use near_chain::chain::{
 use near_chain::flat_storage_creator::FlatStorageCreator;
 use near_chain::test_utils::format_hash;
 use near_chain::types::{ChainConfig, LatestKnown};
+use near_chain::RuntimeWithEpochManagerAdapter;
 use near_chain::{
     BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis, ChainStoreAccess,
     DoneApplyChunkCallback, Doomslug, DoomslugThresholdMode, Provenance,
-    RuntimeWithEpochManagerAdapter,
 };
 use near_chain_configs::{ClientConfig, LogSummaryStyle, UpdateableClientConfig};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
@@ -205,7 +205,9 @@ impl Client {
             background_migration_threads: config.client_background_migration_threads,
         };
         let chain = Chain::new(
-            runtime_adapter.clone(),
+            runtime_adapter.epoch_manager_adapter_arc(),
+            runtime_adapter.shard_tracker(),
+            runtime_adapter.runtime_adapter_arc(),
             &chain_genesis,
             doomslug_threshold_mode,
             chain_config.clone(),

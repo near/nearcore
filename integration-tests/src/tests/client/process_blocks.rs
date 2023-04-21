@@ -1789,7 +1789,7 @@ fn test_gc_after_state_sync() {
     // reset cache
     for i in epoch_length * 3 - 1..sync_height - 1 {
         let block_hash = *env.clients[0].chain.get_block_by_height(i).unwrap().hash();
-        assert!(env.clients[1].chain.runtime_adapter.get_epoch_start_height(&block_hash).is_ok());
+        assert!(env.clients[1].chain.epoch_manager.get_epoch_start_height(&block_hash).is_ok());
     }
     env.clients[1].chain.reset_data_pre_state_sync(sync_hash).unwrap();
     assert_eq!(env.clients[1].runtime_adapter.get_gc_stop_height(&sync_hash), 0);
@@ -1832,7 +1832,7 @@ fn test_process_block_after_state_sync() {
     // reset cache
     for i in epoch_length * 3 - 1..sync_height - 1 {
         let block_hash = *env.clients[0].chain.get_block_by_height(i).unwrap().hash();
-        assert!(env.clients[0].chain.runtime_adapter.get_epoch_start_height(&block_hash).is_ok());
+        assert!(env.clients[0].chain.epoch_manager.get_epoch_start_height(&block_hash).is_ok());
     }
     env.clients[0].chain.reset_data_pre_state_sync(sync_hash).unwrap();
     let epoch_id = env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id().clone();

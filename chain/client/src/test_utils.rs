@@ -13,6 +13,8 @@ use near_async::messaging::{CanSend, IntoSender, LateBoundSender, Sender};
 use near_async::time;
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_chunks::ShardsManager;
+use near_epoch_manager::shard_tracker::ShardTracker;
+use near_epoch_manager::EpochManagerAdapter;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::test_utils::create_test_signer;
@@ -28,7 +30,7 @@ use near_chain::test_utils::{
     wait_for_all_blocks_in_processing, wait_for_block_in_processing, KeyValueRuntime,
     ValidatorSchedule,
 };
-use near_chain::types::ChainConfig;
+use near_chain::types::{ChainConfig, RuntimeAdapter};
 use near_chain::{
     Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Provenance,
     RuntimeWithEpochManagerAdapter,
@@ -225,7 +227,9 @@ pub fn setup(
         DoomslugThresholdMode::NoApprovals
     };
     let chain = Chain::new(
-        runtime.clone(),
+        runtime.epoch_manager_adapter_arc(),
+        runtime.shard_tracker(),
+        runtime.runtime_adapter_arc(),
         &chain_genesis,
         doomslug_threshold_mode,
         ChainConfig { save_trie_changes: true, background_migration_threads: 1 },
@@ -330,7 +334,9 @@ pub fn setup_only_view(
         DoomslugThresholdMode::NoApprovals
     };
     Chain::new(
-        runtime.clone(),
+        runtime.epoch_manager_adapter_arc(),
+        runtime.shard_tracker(),
+        runtime.runtime_adapter_arc(),
         &chain_genesis,
         doomslug_threshold_mode,
         ChainConfig { save_trie_changes: true, background_migration_threads: 1 },
@@ -1179,7 +1185,9 @@ pub fn setup_synchronous_shards_manager(
     account_id: Option<AccountId>,
     client_adapter: Sender<ShardsManagerResponse>,
     network_adapter: PeerManagerAdapter,
-    runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
+    epoch_manager: Arc<dyn EpochManagerAdapter>,
+    shard_tracker: ShardTracker,
+    runtime: Arc<dyn RuntimeAdapter>,
     chain_genesis: &ChainGenesis,
 ) -> ShardsManagerAdapterForTest {
     // Initialize the chain, to make sure that if the store is empty, we write the genesis
@@ -1188,7 +1196,9 @@ pub fn setup_synchronous_shards_manager(
     // TODO(#8324): This should just be refactored so that we can construct Chain first
     // before anything else.
     let chain = Chain::new(
-        runtime_adapter.clone(),
+        epoch_manager.clone(),
+        shard_tracker.clone(),
+        runtime,
         chain_genesis,
         DoomslugThresholdMode::TwoThirds, // irrelevant
         ChainConfig { save_trie_changes: true, background_migration_threads: 1 }, // irrelevant
@@ -1199,8 +1209,8 @@ pub fn setup_synchronous_shards_manager(
     let shards_manager = ShardsManager::new(
         time::Clock::real(),
         account_id,
-        runtime_adapter.epoch_manager_adapter_arc(),
-        runtime_adapter.shard_tracker(),
+        epoch_manager,
+        shard_tracker,
         network_adapter.request_sender,
         client_adapter,
         chain.store().new_read_only_chunks_store(),
@@ -1229,7 +1239,9 @@ pub fn setup_client_with_synchronous_shards_manager(
         account_id.clone(),
         client_adapter,
         network_adapter.clone(),
-        runtime_adapter.clone(),
+        runtime_adapter.epoch_manager_adapter_arc(),
+        runtime_adapter.shard_tracker(),
+        runtime_adapter.runtime_adapter_arc(),
         &chain_genesis,
     );
     setup_client_with_runtime(
@@ -1436,7 +1448,9 @@ impl TestEnvBuilder {
                     Some(clients[i].clone()),
                     client_adapter.as_sender(),
                     network_adapter.into(),
-                    runtime_adapter,
+                    runtime_adapter.epoch_manager_adapter_arc(),
+                    runtime_adapter.shard_tracker(),
+                    runtime_adapter.runtime_adapter_arc(),
                     &chain_genesis,
                 )
             })
@@ -1984,8 +1998,8 @@ pub fn create_chunk(
     // reconstruct the chunk with changes (if any)
     if should_replace {
         // The best way it to decode chunk, replace transactions and then recreate encoded chunk.
-        let total_parts = client.chain.runtime_adapter.num_total_parts();
-        let data_parts = client.chain.runtime_adapter.num_data_parts();
+        let total_parts = client.chain.epoch_manager.num_total_parts();
+        let data_parts = client.chain.epoch_manager.num_data_parts();
         let decoded_chunk = chunk.decode_chunk(data_parts).unwrap();
         let parity_parts = total_parts - data_parts;
         let mut rs = ReedSolomonWrapper::new(data_parts, parity_parts);

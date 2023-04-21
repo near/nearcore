@@ -26,8 +26,8 @@ use crate::block_processing_utils::BlockNotInPoolError;
 use crate::chain::Chain;
 use crate::store::ChainStoreAccess;
 use crate::types::{AcceptedBlock, ChainConfig, ChainGenesis};
-use crate::DoomslugThresholdMode;
 use crate::{BlockProcessingArtifact, Provenance};
+use crate::{DoomslugThresholdMode, RuntimeWithEpochManagerAdapter};
 use near_primitives::static_clock::StaticClock;
 use near_primitives::utils::MaybeValidated;
 
@@ -90,7 +90,9 @@ pub fn setup_with_tx_validity_period(
     let epoch_length = 1000;
     let runtime = KeyValueRuntime::new(store, epoch_length);
     let chain = Chain::new(
-        runtime.clone(),
+        runtime.epoch_manager_adapter_arc(),
+        runtime.shard_tracker(),
+        runtime.runtime_adapter_arc(),
         &ChainGenesis {
             time: StaticClock::utc(),
             height: 0,
@@ -122,7 +124,9 @@ pub fn setup_with_validators(
         vs.all_block_producers().map(|x| Arc::new(create_test_signer(x.as_str()))).collect();
     let runtime = KeyValueRuntime::new_with_validators(store, vs, epoch_length);
     let chain = Chain::new(
-        runtime.clone(),
+        runtime.epoch_manager_adapter_arc(),
+        runtime.shard_tracker(),
+        runtime.runtime_adapter_arc(),
         &ChainGenesis {
             time: StaticClock::utc(),
             height: 0,
@@ -153,7 +157,9 @@ pub fn setup_with_validators_and_start_time(
         vs.all_block_producers().map(|x| Arc::new(create_test_signer(x.as_str()))).collect();
     let runtime = KeyValueRuntime::new_with_validators(store, vs, epoch_length);
     let chain = Chain::new(
-        runtime.clone(),
+        runtime.epoch_manager_adapter_arc(),
+        runtime.shard_tracker(),
+        runtime.runtime_adapter_arc(),
         &ChainGenesis {
             time: start_time,
             height: 0,
@@ -181,7 +187,7 @@ pub fn format_hash(hash: CryptoHash) -> String {
 
 /// Displays chain from given store.
 pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
-    let runtime_adapter = chain.runtime_adapter();
+    let epoch_manager = chain.epoch_manager.clone();
     let chain_store = chain.mut_store();
     let head = chain_store.head().unwrap();
     debug!(
@@ -215,10 +221,9 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
         } else {
             let parent_header = chain_store.get_block_header(header.prev_hash()).unwrap().clone();
             let maybe_block = chain_store.get_block(header.hash()).ok();
-            let epoch_id =
-                runtime_adapter.get_epoch_id_from_prev_block(header.prev_hash()).unwrap();
+            let epoch_id = epoch_manager.get_epoch_id_from_prev_block(header.prev_hash()).unwrap();
             let block_producer =
-                runtime_adapter.get_block_producer(&epoch_id, header.height()).unwrap();
+                epoch_manager.get_block_producer(&epoch_id, header.height()).unwrap();
             debug!(
                 "{: >3} {} | {: >10} | parent: {: >3} {} | {}",
                 header.height(),
@@ -234,7 +239,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
             );
             if let Some(block) = maybe_block {
                 for chunk_header in block.chunks().iter() {
-                    let chunk_producer = runtime_adapter
+                    let chunk_producer = epoch_manager
                         .get_chunk_producer(
                             &epoch_id,
                             chunk_header.height_created(),

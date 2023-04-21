@@ -452,7 +452,7 @@ impl Chain {
                             *height,
                             hash,
                             self,
-                            self.runtime_adapter.epoch_manager_adapter(),
+                            self.epoch_manager.as_ref(),
                         )
                     })
                     .collect::<Vec<_>>()
@@ -464,10 +464,8 @@ impl Chain {
             .iter()
             .flat_map(|(chunk_hash, _)| {
                 self.blocks_delay_tracker.chunks.get(chunk_hash).map(|chunk_stats| {
-                    chunk_stats.to_chunk_processing_info(
-                        chunk_hash.clone(),
-                        self.runtime_adapter.epoch_manager_adapter(),
-                    )
+                    chunk_stats
+                        .to_chunk_processing_info(chunk_hash.clone(), self.epoch_manager.as_ref())
                 })
             })
             .collect::<Vec<_>>();

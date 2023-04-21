@@ -135,11 +135,10 @@ fn test_verify_block_double_sign_challenge() {
         }),
         &signer,
     );
-    let runtime_adapter = env.clients[1].chain.runtime_adapter.clone();
     assert_eq!(
         &validate_challenge(
-            runtime_adapter.epoch_manager_adapter(),
-            runtime_adapter.runtime_adapter(),
+            env.clients[1].chain.epoch_manager.as_ref(),
+            env.clients[1].chain.runtime.as_ref(),
             &epoch_id,
             genesis.hash(),
             &valid_challenge
@@ -155,10 +154,9 @@ fn test_verify_block_double_sign_challenge() {
         }),
         &signer,
     );
-    let runtime_adapter = env.clients[1].chain.runtime_adapter.clone();
     assert!(validate_challenge(
-        runtime_adapter.epoch_manager_adapter(),
-        runtime_adapter.runtime_adapter(),
+        env.clients[1].chain.epoch_manager.as_ref(),
+        env.clients[1].chain.runtime.as_ref(),
         &epoch_id,
         genesis.hash(),
         &invalid_challenge,
@@ -172,10 +170,9 @@ fn test_verify_block_double_sign_challenge() {
         }),
         &signer,
     );
-    let runtime_adapter = env.clients[1].chain.runtime_adapter.clone();
     assert!(validate_challenge(
-        runtime_adapter.epoch_manager_adapter(),
-        runtime_adapter.runtime_adapter(),
+        env.clients[1].chain.epoch_manager.as_ref(),
+        env.clients[1].chain.runtime.as_ref(),
         &epoch_id,
         genesis.hash(),
         &invalid_challenge,
@@ -224,7 +221,7 @@ fn test_verify_chunk_invalid_proofs_challenge_decoded_chunk() {
     let (encoded_chunk, _merkle_paths, _receipts, block) =
         create_invalid_proofs_chunk(&mut env.clients[0]);
     let chunk =
-        encoded_chunk.decode_chunk(env.clients[0].chain.runtime_adapter.num_data_parts()).unwrap();
+        encoded_chunk.decode_chunk(env.clients[0].chain.epoch_manager.num_data_parts()).unwrap();
 
     let shard_id = chunk.shard_id();
     let challenge_result =
@@ -332,10 +329,9 @@ fn challenge(
         }),
         &*env.clients[0].validator_signer.as_ref().unwrap().clone(),
     );
-    let runtime_adapter = env.clients[0].chain.runtime_adapter.clone();
     validate_challenge(
-        runtime_adapter.epoch_manager_adapter(),
-        runtime_adapter.runtime_adapter(),
+        env.clients[0].chain.epoch_manager.as_ref(),
+        env.clients[0].chain.runtime.as_ref(),
         block.header().epoch_id(),
         block.header().prev_hash(),
         &valid_challenge,
@@ -474,13 +470,12 @@ fn test_verify_chunk_invalid_state_challenge() {
     }
     let challenge =
         Challenge::produce(ChallengeBody::ChunkState(challenge_body), &validator_signer);
-    let runtime_adapter = client.chain.runtime_adapter.clone();
     // Invalidate chunk state challenges because they are not supported yet.
     // TODO (#2445): Enable challenges when they are working correctly.
     assert_matches!(
         validate_challenge(
-            runtime_adapter.epoch_manager_adapter(),
-            runtime_adapter.runtime_adapter(),
+            client.chain.epoch_manager.as_ref(),
+            client.chain.runtime.as_ref(),
             block.header().epoch_id(),
             block.header().prev_hash(),
             &challenge,
