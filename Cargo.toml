@@ -361,4 +361,4 @@ opt-level = 3
 [workspace.package]
 edition = "2021"
 authors = ["Near Inc <hello@nearprotocol.com>"]
-rust-version = "1.68.2"
+rust-version = "1.69.0"
