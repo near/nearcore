@@ -603,8 +603,6 @@ mod test {
         validate_genesis(&new_genesis).unwrap();
     }
 
-    // TODO (#7327): enable test when flat storage will support resharding.
-    #[cfg(not(feature = "protocol_feature_flat_state"))]
     #[test]
     fn test_dump_state_shard_upgrade() {
         use near_client::test_utils::run_catchup;

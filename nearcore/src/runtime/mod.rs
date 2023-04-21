@@ -1391,10 +1391,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, epoch_id)?;
         let mut store_update = tries.store_update();
         tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-        if cfg!(feature = "protocol_feature_flat_state") {
-            debug!(target: "chain", %shard_id, "Inserting {} values to flat storage", flat_state_delta.len());
-            flat_state_delta.apply_to_flat_state(&mut store_update, shard_uid);
-        }
+        debug!(target: "chain", %shard_id, "Inserting {} values to flat storage", flat_state_delta.len());
+        flat_state_delta.apply_to_flat_state(&mut store_update, shard_uid);
         self.precompile_contracts(epoch_id, contract_codes)?;
         Ok(store_update.commit()?)
     }
@@ -1785,7 +1783,7 @@ mod test {
 
             // Create flat storage. Naturally it happens on Chain creation, but here we test only Runtime behaviour
             // and use a mock chain, so we need to initialize flat storage manually.
-            if cfg!(feature = "protocol_feature_flat_state") {
+            {
                 let store_update = runtime
                     .set_flat_storage_for_genesis(&genesis_hash, 0, &EpochId::default())
                     .unwrap();
@@ -2263,7 +2261,7 @@ mod test {
     }
 
     // TODO (#7327): enable test when flat storage will support state sync.
-    #[cfg(not(feature = "protocol_feature_flat_state"))]
+    #[ignore]
     #[test]
     fn test_state_sync() {
         init_test_logger();
@@ -3072,10 +3070,7 @@ mod test {
             .runtime
             .get_trie_for_shard(0, &env.head.prev_block_hash, Trie::EMPTY_ROOT, true)
             .unwrap();
-        assert_eq!(
-            trie.flat_storage_chunk_view.is_some(),
-            cfg!(feature = "protocol_feature_flat_state")
-        );
+        assert!(trie.flat_storage_chunk_view.is_some());
 
         let trie = env
             .runtime
