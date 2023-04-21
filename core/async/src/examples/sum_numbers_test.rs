@@ -78,7 +78,7 @@ fn test_simple_with_adhoc() {
     // executed in the TestLoop context. This allows the setup logic to show
     // up in the visualizer too, with any of its logging shown under the
     // adhoc event.
-    let sender = test.sender().clone();
+    let sender = test.sender();
     test.sender().send_adhoc_event("initial events", move |_| {
         sender.send(SumRequest::Number(1));
         sender.send(SumRequest::Number(2));

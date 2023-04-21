@@ -1293,12 +1293,12 @@ async fn archival_node() {
         let pm0_connections: HashSet<PeerId> =
             pm0.with_state(|s| async move { s.tier2.load().ready.keys().cloned().collect() }).await;
 
-        let chosen = vec![&pm2, &pm3, &pm4]
+        let pms = vec![&pm2, &pm3, &pm4];
+        let chosen = pms
             .iter()
             .filter(|&pm| !pm0_connections.contains(&pm.cfg.node_id()))
             .choose(rng)
-            .unwrap()
-            .clone();
+            .unwrap();
 
         tracing::info!(target:"test", "[{_step}] wait for the chosen node to finish disconnecting from node 0");
         chosen.wait_for_num_connected_peers(0).await;

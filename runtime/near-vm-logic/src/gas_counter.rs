@@ -365,7 +365,7 @@ mod tests {
             )
             .unwrap();
 
-        let mut profile = counter.profile_data().clone();
+        let mut profile = counter.profile_data();
         profile.compute_wasm_instruction_cost(counter.burnt_gas());
 
         assert_eq!(profile.total_compute_usage(&ExtCostsConfig::test()), counter.burnt_gas());
@@ -379,7 +379,7 @@ mod tests {
                 counter.pay_per(near_primitives::config::ExtCosts::storage_write_value_byte, 100),
                 want.map_err(Into::into)
             );
-            let mut profile = counter.profile_data().clone();
+            let mut profile = counter.profile_data();
             profile.compute_wasm_instruction_cost(counter.burnt_gas());
 
             assert_eq!(profile.total_compute_usage(&ExtCostsConfig::test()), counter.burnt_gas());
@@ -402,7 +402,7 @@ mod tests {
                 ),
                 want.map_err(Into::into)
             );
-            let mut profile = counter.profile_data().clone();
+            let mut profile = counter.profile_data();
             profile.compute_wasm_instruction_cost(counter.burnt_gas());
 
             assert_eq!(profile.total_compute_usage(&ExtCostsConfig::test()), counter.burnt_gas());

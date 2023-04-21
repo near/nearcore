@@ -79,7 +79,7 @@ fn write_to_db(store: &Store, keys: &[Vec<u8>], max_value_size: usize, col: DBCo
         let x: usize = rand::random::<usize>() % max_value_size;
         let val: Vec<u8> = (0..x).map(|_| rand::random::<u8>()).collect();
         // NOTE:  this
-        store_update.set(col, key.as_slice().clone(), &val);
+        store_update.set(col, &key, &val);
     }
     store_update.commit().unwrap();
 }
