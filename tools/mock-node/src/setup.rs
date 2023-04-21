@@ -390,7 +390,7 @@ mod tests {
             (0..near_config1.genesis.config.shard_layout.num_shards()).collect();
         let network_config = MockNetworkConfig::with_delay(Duration::from_millis(10));
         run_actix(async move {
-            let MockNode { view_client, .. } = setup_mock_node(
+            let MockNode { rpc_client, .. } = setup_mock_node(
                 dir1.path(),
                 dir.path(),
                 near_config1,
