@@ -885,7 +885,7 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                                     }
                                 }
 
-                                for (i, actor_handles) in conns.clone().into_iter().enumerate() {
+                                for (i, actor_handles) in conns.into_iter().enumerate() {
                                     if i != block_producer_idx {
                                         actor_handles.client_actor.do_send(
                                             BlockResponse {
