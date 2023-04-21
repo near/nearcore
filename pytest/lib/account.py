@@ -108,11 +108,11 @@ class Account:
         return self.send_tx(tx)
 
     def send_call_contract_raw_tx_sync(self,
-                                  contract_id,
-                                  method_name,
-                                  args,
-                                  deposit,
-                                  base_block_hash=None):
+                                       contract_id,
+                                       method_name,
+                                       args,
+                                       deposit,
+                                       base_block_hash=None):
         self.prep_tx()
         tx = sign_function_call_tx(self.key, contract_id, method_name, args,
                                    300 * TGAS, deposit, self.nonce,

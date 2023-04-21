@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 """
 This is a benchmark in which a network with a single fungible_token contract is
 deployed, and then a variable number of users (see `N_ACCOUNTS`) send each other
@@ -50,7 +49,7 @@ from configured_logger import new_logger
 DEFAULT_TRANSACTION_TTL_SECONDS = 10
 MAX_INFLIGHT_TRANSACTIONS_PER_EXECUTOR = 1000
 SEED = random.uniform(0, 0xFFFFFFFF)
-logger = new_logger(level = logging.INFO)
+logger = new_logger(level=logging.INFO)
 
 
 class Transaction:
@@ -88,14 +87,18 @@ class Transaction:
         # Send the transaction if the previous expired or we didn't send one in the first place.
         if self.transaction_id is None or self.ttl <= 0:
             if self.transaction_id is not None:
-                logger.warning(f"transaction {self.transaction_id} expired, submitting a new one!")
+                logger.warning(
+                    f"transaction {self.transaction_id} expired, submitting a new one!"
+                )
             (self.transaction_id, self.caller) = self.send(node, block_hash)
             self.expiration = time.time() + DEFAULT_TRANSACTION_TTL_SECONDS
             self.ttl = DEFAULT_TRANSACTION_TTL_SECONDS
-            return False # almost guaranteed to not produce any results right now.
+            return False  # almost guaranteed to not produce any results right now.
         caller = ACCOUNTS[self.caller]
-        logger.debug(f"checking {self.transaction_id} from {caller.key.account_id}")
-        tx_result = node.json_rpc('tx', [self.transaction_id, caller.key.account_id])
+        logger.debug(
+            f"checking {self.transaction_id} from {caller.key.account_id}")
+        tx_result = node.json_rpc('tx',
+                                  [self.transaction_id, caller.key.account_id])
         if self.is_success(tx_result):
             self.outcome = tx_result
             return True
@@ -110,13 +113,16 @@ class Transaction:
     def is_success(self, tx_result):
         success = 'error' not in tx_result
         if not success:
-            logger.debug(f"transaction {self.transaction_id} for {self.caller} is not successful: {tx_result}")
+            logger.debug(
+                f"transaction {self.transaction_id} for {self.caller} is not successful: {tx_result}"
+            )
         # only set TTL if we managed to check for success or failure...
         self.ttl = self.expiration - time.time()
         return success
 
 
 class DeployFT(Transaction):
+
     def __init__(self, account, contract):
         super().__init__()
         self.account = account
@@ -126,18 +132,16 @@ class DeployFT(Transaction):
         account = ACCOUNTS[self.account]
         logger.warning(f"deploying FT to {account.key.account_id}")
         wasm_binary = utils.load_binary_file(self.contract)
-        tx = transaction.sign_deploy_contract_tx(
-            account.key,
-            wasm_binary,
-            account.use_nonce(),
-            block_hash
-        )
+        tx = transaction.sign_deploy_contract_tx(account.key, wasm_binary,
+                                                 account.use_nonce(),
+                                                 block_hash)
         result = node.send_tx(tx)
         return (result["result"], self.account)
 
 
 class TransferFT(Transaction):
-    def __init__(self, ft, sender, recipient, how_much = 1, tgas = 300):
+
+    def __init__(self, ft, sender, recipient, how_much=1, tgas=300):
         super().__init__()
         self.ft = ft
         self.sender = sender
@@ -146,8 +150,11 @@ class TransferFT(Transaction):
         self.tgas = tgas
 
     def send(self, node, block_hash):
-        (ft, sender, recipient) = ACCOUNTS[self.ft], ACCOUNTS[self.sender], ACCOUNTS[self.recipient]
-        logger.debug(f"sending {self.how_much} FT from {sender.key.account_id} to {recipient.key.account_id}")
+        (ft, sender, recipient
+        ) = ACCOUNTS[self.ft], ACCOUNTS[self.sender], ACCOUNTS[self.recipient]
+        logger.debug(
+            f"sending {self.how_much} FT from {sender.key.account_id} to {recipient.key.account_id}"
+        )
         args = {
             "receiver_id": recipient.key.account_id,
             "amount": str(int(self.how_much)),
@@ -158,7 +165,7 @@ class TransferFT(Transaction):
             "ft_transfer",
             json.dumps(args).encode('utf-8'),
             # About enough gas per call to fit N such transactions into an average block.
-            self.tgas ** account.TGAS,
+            self.tgas**account.TGAS,
             # Gotta deposit some NEAR for storage?
             1,
             sender.use_nonce(),
@@ -168,7 +175,8 @@ class TransferFT(Transaction):
 
 
 class TransferNear(Transaction):
-    def __init__(self, sender, recipient_id, how_much = 2.0):
+
+    def __init__(self, sender, recipient_id, how_much=2.0):
         super().__init__()
         self.recipient_id = recipient_id
         self.sender = sender
@@ -176,19 +184,19 @@ class TransferNear(Transaction):
 
     def send(self, node, block_hash):
         sender = ACCOUNTS[self.sender]
-        logger.debug(f"sending {self.how_much} NEAR from {sender.key.account_id} to {self.recipient_id}")
-        tx = transaction.sign_payment_tx(
-            sender.key,
-            self.recipient_id,
-            int(self.how_much * 1E24),
-            sender.use_nonce(),
-            block_hash)
+        logger.debug(
+            f"sending {self.how_much} NEAR from {sender.key.account_id} to {self.recipient_id}"
+        )
+        tx = transaction.sign_payment_tx(sender.key, self.recipient_id,
+                                         int(self.how_much * 1E24),
+                                         sender.use_nonce(), block_hash)
         result = node.send_tx(tx)
         return (result["result"], self.sender)
 
 
 class CreateSubAccount(Transaction):
-    def __init__(self, sender, sub, balance = 50.0):
+
+    def __init__(self, sender, sub, balance=50.0):
         super().__init__()
         self.sender = sender
         self.sub = sub
@@ -200,17 +208,14 @@ class CreateSubAccount(Transaction):
         new_account_id = f"{sub.key.account_id}.{sender.key.account_id}"
         logger.debug(f"creating {new_account_id}")
         tx = transaction.sign_create_account_with_full_access_key_and_balance_tx(
-            sender.key,
-            sub.key.account_id,
-            sub.key,
-            int(self.balance * 1E24),
-            sender.use_nonce(),
-            block_hash)
+            sender.key, sub.key.account_id, sub.key, int(self.balance * 1E24),
+            sender.use_nonce(), block_hash)
         result = node.send_tx(tx)
         return (result["result"], self.sender)
 
 
 class InitFT(Transaction):
+
     def __init__(self, contract):
         super().__init__()
         self.contract = contract
@@ -221,20 +226,18 @@ class InitFT(Transaction):
             "owner_id": contract.key.account_id,
             "total_supply": str(10**33)
         })
-        tx = transaction.sign_function_call_tx(
-            contract.key,
-            contract.key.account_id,
-            "new_default_meta",
-            args.encode('utf-8'),
-            int(3E14),
-            0,
-            contract.use_nonce(),
-            block_hash)
+        tx = transaction.sign_function_call_tx(contract.key,
+                                               contract.key.account_id,
+                                               "new_default_meta",
+                                               args.encode('utf-8'), int(3E14),
+                                               0, contract.use_nonce(),
+                                               block_hash)
         result = node.send_tx(tx)
         return (result["result"], self.contract)
 
 
 class InitFTAccount(Transaction):
+
     def __init__(self, contract, account):
         super().__init__()
         self.contract = contract
@@ -243,22 +246,23 @@ class InitFTAccount(Transaction):
     def send(self, node, block_hash):
         contract, account = ACCOUNTS[self.contract], ACCOUNTS[self.account]
         args = json.dumps({"account_id": account.key.account_id})
-        tx = transaction.sign_function_call_tx(
-            contract.key,
-            contract.key.account_id,
-            "storage_deposit",
-            args.encode('utf-8'),
-            int(3E14),
-            int(1E23),
-            contract.use_nonce(),
-            block_hash)
+        tx = transaction.sign_function_call_tx(contract.key,
+                                               contract.key.account_id,
+                                               "storage_deposit",
+                                               args.encode('utf-8'), int(3E14),
+                                               int(1E23), contract.use_nonce(),
+                                               block_hash)
         result = node.send_tx(tx)
         return (result["result"], self.contract)
 
 
 class TxQueue(multiprocessing.queues.Queue):
+
     def __init__(self, size, *args, **kwargs):
-        super().__init__(size, ctx=multiprocessing.get_context(), *args, **kwargs)
+        super().__init__(size,
+                         ctx=multiprocessing.get_context(),
+                         *args,
+                         **kwargs)
         self.pending = multiprocessing.Value(ctypes.c_ulong, 0)
 
     def add(self, tx):
@@ -272,6 +276,7 @@ class TxQueue(multiprocessing.queues.Queue):
 
 
 class Account:
+
     def __init__(self, key):
         self.key = key
         self.nonce = multiprocessing.Value(ctypes.c_ulong, 0)
@@ -304,7 +309,8 @@ def transaction_executor(nodes, tx_queue, accounts):
             if now - last_block_hash_update >= 0.5:
                 block_hash = base58.b58decode(node.get_latest_block().hash)
                 last_block_hash_update = now
-        except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectionError):
+        except (requests.exceptions.ReadTimeout,
+                requests.exceptions.ConnectionError):
             continue
 
         while my_transactions.qsize() < MAX_INFLIGHT_TRANSACTIONS_PER_EXECUTOR:
@@ -315,7 +321,8 @@ def transaction_executor(nodes, tx_queue, accounts):
             # Send out the transaction immediately.
             try:
                 tx.poll(node, block_hash)
-            except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectionError):
+            except (requests.exceptions.ReadTimeout,
+                    requests.exceptions.ConnectionError):
                 pass
             my_transactions.put(tx)
 
@@ -326,33 +333,56 @@ def transaction_executor(nodes, tx_queue, accounts):
             continue
         try:
             poll_result = tx.poll(node, block_hash)
-        except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectionError):
+        except (requests.exceptions.ReadTimeout,
+                requests.exceptions.ConnectionError):
             my_transactions.put(tx)
             continue
         if not poll_result:
             my_transactions.put(tx)
             if tx.ttl != DEFAULT_TRANSACTION_TTL_SECONDS:
-                time.sleep(0.1) # don't spam RPC too hard...
+                time.sleep(0.1)  # don't spam RPC too hard...
         else:
             tx_queue.complete()
 
+
 def main():
     parser = argparse.ArgumentParser(description='FT transfer benchmark.')
-    parser.add_argument('--fungible-token-wasm', required=True,
-        help='Path to the compiled Fungible Token contract')
-    parser.add_argument('--setup-cluster', default=False,
-        help='Whether to start a dedicated cluster instead of connecting to an existing local node',
+    parser.add_argument('--fungible-token-wasm',
+                        required=True,
+                        help='Path to the compiled Fungible Token contract')
+    parser.add_argument(
+        '--setup-cluster',
+        default=False,
+        help=
+        'Whether to start a dedicated cluster instead of connecting to an existing local node',
         action='store_true')
-    parser.add_argument('--contracts', default='0,2,4,6,8,a,c,e',
-        help='Number of contract accounts, or alternatively list of subnames, separated by commas')
-    parser.add_argument('--contract-key', required='--setup-cluster' not in sys.argv,
-        help='account to deploy contract to and use as source of NEAR for account creation')
-    parser.add_argument('--accounts', default=1000, help='Number of accounts to use')
-    parser.add_argument('--no-account-topup', default=False,
-        action='store_true', help='Fill accounts with additional NEAR prior to testing')
+    parser.add_argument(
+        '--contracts',
+        default='0,2,4,6,8,a,c,e',
+        help=
+        'Number of contract accounts, or alternatively list of subnames, separated by commas'
+    )
+    parser.add_argument(
+        '--contract-key',
+        required='--setup-cluster' not in sys.argv,
+        help=
+        'account to deploy contract to and use as source of NEAR for account creation'
+    )
+    parser.add_argument('--accounts',
+                        default=1000,
+                        help='Number of accounts to use')
+    parser.add_argument(
+        '--no-account-topup',
+        default=False,
+        action='store_true',
+        help='Fill accounts with additional NEAR prior to testing')
     parser.add_argument('--shards', default=10, help='number of shards')
-    parser.add_argument('--executors', default=2, help='number of transaction executors')
-    parser.add_argument('--tx-tgas', default=30, help='amount of Tgas to attach to each transaction')
+    parser.add_argument('--executors',
+                        default=2,
+                        help='number of transaction executors')
+    parser.add_argument('--tx-tgas',
+                        default=30,
+                        help='amount of Tgas to attach to each transaction')
     args = parser.parse_args()
 
     logger.warning(f"SEED is {SEED}")
@@ -360,10 +390,12 @@ def main():
 
     if args.setup_cluster:
         config = cluster.load_config()
-        nodes = cluster.start_cluster(2, 0, args.shards, config, [["epoch_length", 100]], {
-            shard: { "tracked_shards": list(range(args.shards)) }
-            for shard in range(args.shards + 1)
-        })
+        nodes = cluster.start_cluster(
+            2, 0, args.shards, config, [["epoch_length", 100]], {
+                shard: {
+                    "tracked_shards": list(range(args.shards))
+                } for shard in range(args.shards + 1)
+            })
         if args.contract_key is None:
             signer_key = nodes[0].signer_key
         else:
@@ -385,18 +417,21 @@ def main():
     contract_accounts = []
 
     try:
-        for sub in sorted(rng.sample(string.ascii_lowercase + string.digits, k=int(args.contracts))):
+        for sub in sorted(
+                rng.sample(string.ascii_lowercase + string.digits,
+                           k=int(args.contracts))):
             funding_key = ACCOUNTS[funding_account].key
-            sub_key = key.Key(f"{sub}.{funding_key.account_id}", funding_key.pk, funding_key.sk)
+            sub_key = key.Key(f"{sub}.{funding_key.account_id}", funding_key.pk,
+                              funding_key.sk)
             contract_accounts.append(len(ACCOUNTS))
             ACCOUNTS.append(Account(sub_key))
     except ValueError:
         for sub in args.contracts.split(","):
             funding_key = ACCOUNTS[funding_account].key
-            sub_key = key.Key(f"{sub}.{funding_key.account_id}", funding_key.pk, funding_key.sk)
+            sub_key = key.Key(f"{sub}.{funding_key.account_id}", funding_key.pk,
+                              funding_key.sk)
             contract_accounts.append(len(ACCOUNTS))
             ACCOUNTS.append(Account(sub_key))
-
 
     for i in range(int(args.accounts)):
         keys = ed25519.create_keypair(entropy=rng.randbytes)
@@ -406,14 +441,18 @@ def main():
         ACCOUNTS.append(Account(key.Key(account_id, pk, sk)))
 
     executors = int(args.executors)
-    queue_size = 16 + max(
-        MAX_INFLIGHT_TRANSACTIONS_PER_EXECUTOR,
-        int(args.accounts) * len(contract_accounts)
-    )
+    queue_size = 16 + max(MAX_INFLIGHT_TRANSACTIONS_PER_EXECUTOR,
+                          int(args.accounts) * len(contract_accounts))
     tx_queue = TxQueue(queue_size)
-    subargs = (nodes, tx_queue, ACCOUNTS,)
+    subargs = (
+        nodes,
+        tx_queue,
+        ACCOUNTS,
+    )
     for executor in range(executors):
-        multiprocessing.Process(target=transaction_executor, args=subargs, daemon=True).start()
+        multiprocessing.Process(target=transaction_executor,
+                                args=subargs,
+                                daemon=True).start()
 
     for contract_account in contract_accounts:
         tx_queue.add(CreateSubAccount(funding_account, contract_account))
@@ -428,7 +467,8 @@ def main():
 
     if not args.no_account_topup:
         for test_account in ACCOUNTS[start_of_accounts:]:
-            tx_queue.add(TransferNear(funding_account, test_account.key.account_id, 2.0))
+            tx_queue.add(
+                TransferNear(funding_account, test_account.key.account_id, 2.0))
         wait_empty(tx_queue, "account creation and top-up")
 
     for contract_account in contract_accounts:
@@ -442,22 +482,33 @@ def main():
 
     for contract_account in contract_accounts:
         for test_account_idx in range(start_of_accounts, len(ACCOUNTS)):
-            tx_queue.add(TransferFT(
-                contract_account, contract_account, test_account_idx, how_much=1E8
-            ))
+            tx_queue.add(
+                TransferFT(contract_account,
+                           contract_account,
+                           test_account_idx,
+                           how_much=1E8))
     wait_empty(tx_queue, "distribution of initial FT")
 
     transfers = 0
     while True:
-        sender_idx, receiver_idx = rng.sample(range(start_of_accounts, len(ACCOUNTS)), k=2)
+        sender_idx, receiver_idx = rng.sample(range(start_of_accounts,
+                                                    len(ACCOUNTS)),
+                                              k=2)
         ft_contract = rng.choice(contract_accounts)
         tgas = int(args.tx_tgas)
-        tx_queue.add(TransferFT(ft_contract, sender_idx, receiver_idx, how_much=1, tgas=tgas))
+        tx_queue.add(
+            TransferFT(ft_contract,
+                       sender_idx,
+                       receiver_idx,
+                       how_much=1,
+                       tgas=tgas))
         transfers += 1
         if transfers % 10000 == 0:
-            logger.info(f"{transfers} so far ({tx_queue.pending.value} pending)")
+            logger.info(
+                f"{transfers} so far ({tx_queue.pending.value} pending)")
         while tx_queue.pending.value >= MAX_INFLIGHT_TRANSACTIONS_PER_EXECUTOR * executors:
             time.sleep(0.25)
+
 
 def wait_empty(queue, why):
     with queue.pending.get_lock():
@@ -468,6 +519,7 @@ def wait_empty(queue, why):
         with queue.pending.get_lock():
             remaining = queue.pending.value
     logger.info(f"wait for {why} completed!")
+
 
 if __name__ == "__main__":
     main()
