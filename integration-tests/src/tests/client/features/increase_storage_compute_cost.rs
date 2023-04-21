@@ -172,7 +172,7 @@ fn assert_compute_limit_reached(
             KeyType::ED25519,
             &contract_account,
         );
-        let tx = env.tx_from_actions(actions.clone(), &signer, signer.account_id.clone());
+        let tx = env.tx_from_actions(actions, &signer, signer.account_id.clone());
         env.execute_tx(tx).unwrap().assert_success();
     }
 
