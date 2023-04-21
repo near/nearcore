@@ -54,16 +54,17 @@ SEED = random.uniform(0, 0xFFFFFFFF)
 logger = new_logger(level = logging.INFO)
 ACCOUNTS = []
 
-ID = 0
 
 class Transaction:
     """
     A transaction future.
     """
+
+    ID = 0
+
     def __init__(self):
-        global ID
-        self.id = ID
-        ID += 1
+        self.id = Transaction.ID
+        Transaction.ID += 1
 
         # Number of times we are going to check this transaction for completion before retrying
         # submission
