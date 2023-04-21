@@ -3,6 +3,7 @@ use near_chain::{
 };
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
+use near_epoch_manager::EpochManagerAdapter;
 use near_o11y::testonly::init_test_logger;
 use near_store::test_utils::create_test_store;
 use near_store::Store;
@@ -12,14 +13,13 @@ use std::path::Path;
 use std::sync::Arc;
 
 /// Setup environment with one Near client for testing.
-fn setup_env(
-    genesis: &Genesis,
-    store: Store,
-) -> (TestEnv, Arc<dyn RuntimeWithEpochManagerAdapter>) {
+fn setup_env(genesis: &Genesis, store: Store) -> (TestEnv, Arc<dyn EpochManagerAdapter>) {
     let chain_genesis = ChainGenesis::new(genesis);
-    let runtime: Arc<dyn RuntimeWithEpochManagerAdapter> =
-        nearcore::NightshadeRuntime::test(Path::new("../../../.."), store, genesis);
-    (TestEnv::builder(chain_genesis).runtime_adapters(vec![runtime.clone()]).build(), runtime)
+    let runtime = nearcore::NightshadeRuntime::test(Path::new("../../../.."), store, genesis);
+    (
+        TestEnv::builder(chain_genesis).runtime_adapters(vec![runtime.clone()]).build(),
+        runtime.epoch_manager_adapter_arc(),
+    )
 }
 
 // Checks that Near client can successfully undo block on given height and then produce and process block normally after restart
@@ -32,7 +32,7 @@ fn test_undo_block(epoch_length: u64, stop_height: u64) {
     genesis.config.epoch_length = epoch_length;
 
     let store = create_test_store();
-    let (mut env, runtime) = setup_env(&genesis, store.clone());
+    let (mut env, epoch_manager) = setup_env(&genesis, store.clone());
 
     for i in 1..=stop_height {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
@@ -45,7 +45,7 @@ fn test_undo_block(epoch_length: u64, stop_height: u64) {
     let current_head = chain_store.head().unwrap();
     let prev_block_hash = current_head.prev_block_hash;
 
-    undo_block(&mut chain_store, &*runtime).unwrap();
+    undo_block(&mut chain_store, &*epoch_manager).unwrap();
 
     // after undo, the current head should be the prev_block_hash
     assert_eq!(chain_store.head().unwrap().last_block_hash.as_bytes(), prev_block_hash.as_bytes());

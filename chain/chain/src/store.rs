@@ -2231,7 +2231,7 @@ impl<'a> ChainStoreUpdate<'a> {
     // and that indicates a link between current head and its prev block
     pub fn clear_head_block_data(
         &mut self,
-        runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
+        epoch_manager: &dyn EpochManagerAdapter,
     ) -> Result<(), Error> {
         let header_head = self.header_head().unwrap();
         let header_head_height = header_head.height;
@@ -2246,7 +2246,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
         // 1. Delete shard_id-indexed data (TrieChanges, Receipts, ChunkExtra, State Headers and Parts, FlatStorage data)
         for shard_id in 0..block.header().chunk_mask().len() as ShardId {
-            let shard_uid = runtime_adapter.shard_id_to_uid(shard_id, epoch_id).unwrap();
+            let shard_uid = epoch_manager.shard_id_to_uid(shard_id, epoch_id).unwrap();
             let block_shard_id = get_block_shard_uid(&block_hash, &shard_uid);
 
             // delete TrieChanges
