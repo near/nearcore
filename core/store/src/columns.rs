@@ -470,9 +470,8 @@ impl DBCol {
             | DBCol::_TransactionRefCount
             | DBCol::_TransactionResult
             // | DBCol::StateChangesForSplitStates
-            | DBCol::CachedContractCode => false,
-            #[cfg(feature = "protocol_feature_flat_state")]
-            DBCol::FlatState
+            | DBCol::CachedContractCode
+            | DBCol::FlatState
             | DBCol::FlatStateChanges
             | DBCol::FlatStateDeltaMetadata
             | DBCol::FlatStorageStatus => false,
