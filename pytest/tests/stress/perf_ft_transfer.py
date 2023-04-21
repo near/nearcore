@@ -24,7 +24,6 @@ import os
 import time
 import pathlib
 import base58
-import itertools
 import requests
 import random
 import logging
