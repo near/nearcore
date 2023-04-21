@@ -5,7 +5,7 @@ use near_chain::{
     RuntimeWithEpochManagerAdapter,
 };
 use near_chain_configs::{ClientConfig, ExternalStorageLocation};
-use near_client::sync::state::{s3_location, ExternalConnection, StateSync};
+use near_client::sync::state::{external_storage_location, ExternalConnection, StateSync};
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::PartId;
 use near_primitives::syncing::{get_num_state_parts, StatePartKey, StateSyncDumpProgress};
@@ -23,7 +23,7 @@ pub fn spawn_state_sync_dump(
     runtime: Arc<dyn RuntimeWithEpochManagerAdapter>,
     account_id: Option<AccountId>,
 ) -> anyhow::Result<Option<StateSyncDumpHandle>> {
-    let dump_config = if let Some(dump_config) = client_config.state_sync_config_dump.clone() {
+    let dump_config = if let Some(dump_config) = client_config.state_sync.dump.clone() {
         dump_config
     } else {
         // Dump is not configured, and therefore not enabled.
@@ -53,7 +53,6 @@ pub fn spawn_state_sync_dump(
             ExternalConnection::Filesystem { root_dir }
         }
     };
-
 
     // Determine how many threads to start.
     // TODO: Handle the case of changing the shard layout.
@@ -211,8 +210,13 @@ async fn state_sync_dump(
                                     break;
                                 }
                             };
-                            let location =
-                                s3_location(&chain_id, epoch_height, shard_id, part_id, num_parts);
+                            let location = external_storage_location(
+                                &chain_id,
+                                epoch_height,
+                                shard_id,
+                                part_id,
+                                num_parts,
+                            );
                             if let Err(err) =
                                 external.put_state_part(&state_part, shard_id, &location).await
                             {
@@ -278,25 +282,10 @@ async fn state_sync_dump(
 
         if !has_progress {
             // Avoid a busy-loop when there is nothing to do.
-            std::thread::sleep(iteration_delay);
+            actix_rt::time::sleep(tokio::time::Duration::from(iteration_delay)).await;
         }
     }
     tracing::debug!(target: "state_sync_dump", shard_id, "Stopped state dump thread");
-}
-
-async fn put_state_part(
-    location: &str,
-    state_part: &[u8],
-    shard_id: &ShardId,
-    bucket: &s3::Bucket,
-) -> Result<s3::request_trait::ResponseData, Error> {
-    let _timer = metrics::STATE_SYNC_DUMP_PUT_OBJECT_ELAPSED
-        .with_label_values(&[&shard_id.to_string()])
-        .start_timer();
-    let put =
-        bucket.put_object(&location, state_part).await.map_err(|err| Error::Other(err.to_string()));
-    tracing::debug!(target: "state_sync_dump", shard_id, part_length = state_part.len(), ?location, "Wrote a state part to S3");
-    put
 }
 
 fn update_progress(
@@ -435,7 +424,7 @@ fn check_new_epoch(
         Ok(None)
     } else {
         // Check if the final block is now in the next epoch.
-        tracing::info!(target: "state_sync_dump", shard_id, ?epoch_id, "Check if a new complete epoch is available");
+        tracing::debug!(target: "state_sync_dump", shard_id, ?epoch_id, "Check if a new complete epoch is available");
         let hash = head.last_block_hash;
         let header = chain.get_block_header(&hash)?;
         let final_hash = header.last_final_block();
@@ -455,14 +444,12 @@ mod tests {
     use crate::state_sync::spawn_state_sync_dump;
     use near_chain::{ChainGenesis, Provenance};
     use near_chain_configs::{DumpConfig, ExternalStorageLocation};
+    use near_client::sync::state::external_storage_location;
     use near_client::test_utils::TestEnv;
     use near_network::test_utils::wait_or_timeout;
     use near_o11y::testonly::init_test_logger;
-    use near_primitives::hash::CryptoHash;
-    use near_primitives::state_part::PartId;
     use near_primitives::types::BlockHeight;
     use std::ops::ControlFlow;
-    use std::str::FromStr;
     use std::time::Duration;
 
     #[test]
@@ -478,7 +465,7 @@ mod tests {
         let runtime = chain.runtime_adapter();
         let mut config = env.clients[0].config.clone();
         let root_dir = tempfile::Builder::new().prefix("state_dump").tempdir().unwrap();
-        config.state_sync_config_dump = Some(DumpConfig {
+        config.state_sync.dump = Some(DumpConfig {
             location: ExternalStorageLocation::Filesystem {
                 root_dir: root_dir.path().to_path_buf(),
             },
@@ -496,52 +483,34 @@ mod tests {
                 Some("test0".parse().unwrap()),
             )
             .unwrap();
-            let mut last_block = None;
+            let mut last_block_hash = None;
             for i in 1..=MAX_HEIGHT {
                 let block = env.clients[0].produce_block(i as u64).unwrap().unwrap();
-                last_block = Some(block.clone());
+                last_block_hash = Some(*block.hash());
                 env.process_block(0, block, Provenance::PRODUCED);
             }
-            let epoch_id = runtime.get_epoch_id(last_block.clone().unwrap().hash()).unwrap();
+            let epoch_id = runtime.get_epoch_id(last_block_hash.as_ref().unwrap()).unwrap();
             let epoch_info = runtime.get_epoch_info(&epoch_id).unwrap();
             let epoch_height = epoch_info.epoch_height();
-
-            let num_shards = runtime.num_shards(&epoch_id).unwrap();
-            assert_eq!(num_shards, 1);
-            assert_eq!(epoch_height, 10);
 
             wait_or_timeout(100, 10000, || async {
                 let mut all_parts_present = true;
 
-                assert_eq!(num_shards, 1);
-                for (part_id, path) in [
-                    root_dir.path().join(
-                        "chain_id=unittest/epoch_height=10/shard_id=0/state_part_000000_of_000003",
-                    ),
-                    root_dir.path().join(
-                        "chain_id=unittest/epoch_height=10/shard_id=0/state_part_000001_of_000003",
-                    ),
-                    root_dir.path().join(
-                        "chain_id=unittest/epoch_height=10/shard_id=0/state_part_000002_of_000003",
-                    ),
-                ]
-                .iter()
-                .enumerate()
-                {
-                    match std::fs::read(&path) {
-                        Ok(part) => {
-                            // KeyValueRuntime::validate_state_part() always returns true.
-                            assert!(runtime.validate_state_part(
-                                &CryptoHash::from_str(
-                                    "GqPgXpMYEGkvmGjdtEWygRUgYkaVQUfvwB7MfUi9jpZ2"
-                                )
-                                .unwrap(),
-                                PartId::new(part_id as u64, 3),
-                                &part
-                            ));
-                        }
-                        Err(err) => {
-                            println!("path: {:?}, err: {:?}", path, err);
+                let num_shards = runtime.num_shards(&epoch_id).unwrap();
+                assert_ne!(num_shards, 0);
+
+                for shard_id in 0..num_shards {
+                    let num_parts = 3;
+                    for part_id in 0..num_parts {
+                        let path = root_dir.path().join(external_storage_location(
+                            "unittest",
+                            epoch_height,
+                            shard_id,
+                            part_id,
+                            num_parts,
+                        ));
+                        if std::fs::read(&path).is_err() {
+                            println!("Missing {:?}", path);
                             all_parts_present = false;
                         }
                     }

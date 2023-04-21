@@ -703,7 +703,7 @@ impl Handler<WithSpanContext<Status>> for ClientActor {
                     display_sync_status(
                         &self.client.sync_status,
                         &self.client.chain.head()?,
-                        &self.client.config.state_sync_config_sync
+                        &self.client.config.state_sync.sync,
                     ),
                 ),
                 catchup_status: self.client.get_catchup_status()?,

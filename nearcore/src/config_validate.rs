@@ -1,7 +1,7 @@
 use near_chain_configs::{ExternalStorageLocation, SyncConfig};
 use near_config_utils::{ValidationError, ValidationErrors};
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::Path;
 
 use crate::config::Config;
 
@@ -97,7 +97,7 @@ impl<'a> ConfigValidator<'a> {
                         }
                     }
                     ExternalStorageLocation::Filesystem { root_dir } => {
-                        if root_dir == &PathBuf::new() {
+                        if root_dir.as_path() == Path::new("") {
                             let error_message = format!("'config.state_sync.dump.location.Filesystem.root_dir' needs to be specified when 'config.state_sync.dump.location.Filesystem' is present.");
                             self.validation_errors.push_config_semantics_error(error_message);
                         }
@@ -115,7 +115,7 @@ impl<'a> ConfigValidator<'a> {
                             }
                         }
                         ExternalStorageLocation::Filesystem { root_dir } => {
-                            if root_dir == &PathBuf::new() {
+                            if root_dir.as_path() == Path::new("") {
                                 let error_message = format!("'config.state_sync.sync.ExternalStorage.location.Filesystem.root_dir' needs to be specified when 'config.state_sync.sync.ExternalStorage.location.Filesystem' is present.");
                                 self.validation_errors.push_config_semantics_error(error_message);
                             }

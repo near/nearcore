@@ -3229,6 +3229,7 @@ dependencies = [
  "actix",
  "actix-rt",
  "ansi_term",
+ "anyhow",
  "assert_matches",
  "async-trait",
  "borsh 0.10.2",

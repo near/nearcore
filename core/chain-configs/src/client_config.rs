@@ -25,7 +25,7 @@ pub const MIN_GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
 pub const DEFAULT_GC_NUM_EPOCHS_TO_KEEP: u64 = 5;
 
 /// Default number of concurrent requests to external storage to fetch state parts.
-pub const DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL: u64 = 25;
+pub const DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL: u32 = 25;
 
 /// Configuration for garbage collection.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize, PartialEq)]
@@ -73,7 +73,7 @@ impl GCConfig {
     }
 }
 
-fn default_num_concurrent_requests() -> u64 {
+fn default_num_concurrent_requests() -> u32 {
     DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL
 }
 
@@ -84,7 +84,7 @@ pub struct ExternalStorageConfig {
     /// When fetching state parts from external storage, throttle fetch requests
     /// to this many concurrent requests per shard.
     #[serde(default = "default_num_concurrent_requests")]
-    pub num_concurrent_requests: u64,
+    pub num_concurrent_requests: u32,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
@@ -130,7 +130,7 @@ impl Default for SyncConfig {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 /// Options for dumping state to S3.
 pub struct StateSyncConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -249,10 +249,8 @@ pub struct ClientConfig {
     /// Whether to use the State Sync mechanism.
     /// If disabled, the node will do Block Sync instead of State Sync.
     pub state_sync_enabled: bool,
-    /// Options for dumping state to S3.
-    pub state_sync_config_dump: Option<DumpConfig>,
-    /// Configures how to fetch state parts during state sync.
-    pub state_sync_config_sync: SyncConfig,
+    /// Options for syncing state.
+    pub state_sync: StateSyncConfig,
 }
 
 impl ClientConfig {
@@ -324,8 +322,7 @@ impl ClientConfig {
             flat_storage_creation_enabled: true,
             flat_storage_creation_period: Duration::from_secs(1),
             state_sync_enabled: false,
-            state_sync_config_dump: None,
-            state_sync_config_sync: SyncConfig::default(),
+            state_sync: StateSyncConfig::default(),
         }
     }
 }

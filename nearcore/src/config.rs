@@ -328,12 +328,12 @@ pub struct Config {
     /// The node usually stops within several seconds after reaching the target height.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expected_shutdown: Option<BlockHeight>,
-    /// Options for syncing state and dumping state.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub state_sync: Option<StateSyncConfig>,
     /// Whether to use state sync (unreliable and corrupts the DB if fails) or do a block sync instead.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state_sync_enabled: Option<bool>,
+    /// Options for syncing state.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state_sync: Option<StateSyncConfig>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -679,16 +679,7 @@ impl NearConfig {
                 flat_storage_creation_enabled: config.store.flat_storage_creation_enabled,
                 flat_storage_creation_period: config.store.flat_storage_creation_period,
                 state_sync_enabled: config.state_sync_enabled.unwrap_or(false),
-                state_sync_config_dump: config
-                    .state_sync
-                    .as_ref()
-                    .map(|x| x.dump.clone())
-                    .flatten(),
-                state_sync_config_sync: config
-                    .state_sync
-                    .as_ref()
-                    .map(|x| x.sync.clone())
-                    .unwrap_or_default(),
+                state_sync: config.state_sync.unwrap_or_default(),
             },
             network_config: NetworkConfig::new(
                 config.network,

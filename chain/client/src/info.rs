@@ -280,10 +280,8 @@ impl InfoHelper {
         let s = |num| if num == 1 { "" } else { "s" };
 
         let sync_status_log =
-            Some(display_sync_status(sync_status, head, &client_config.state_sync_config_sync));
-
+            Some(display_sync_status(sync_status, head, &client_config.state_sync.sync));
         let catchup_status_log = display_catchup_status(catchup_status);
-
         let validator_info_log = validator_info.as_ref().map(|info| {
             format!(
                 " {}{} validator{}",

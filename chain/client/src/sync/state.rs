@@ -50,7 +50,7 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::ops::Add;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Arc;
 use std::time::Duration as TimeDuration;
 
@@ -114,21 +114,10 @@ enum StateSyncInner {
         chain_id: String,
         /// The number of requests for state parts from external storage that are
         /// allowed to be started for this shard.
-        requests_remaining: Arc<AtomicI64>,
+        requests_remaining: Arc<AtomicI32>,
         /// Connection to the external storage.
         external: ExternalConnection,
     },
-}
-
-/// Errors encountered while accessing state parts from external storage.
-#[derive(thiserror::Error, Debug)]
-pub enum ExternalStorageError {
-    #[error("S3 request failed: {0}")]
-    S3Error(#[from] s3::error::S3Error),
-    #[error("Wrong response code: {0}")]
-    S3ResponseCode(u16),
-    #[error("Filesystem error: {0}")]
-    FilesystemError(#[from] std::io::Error),
 }
 
 /// Connection to the external storage.
@@ -139,43 +128,26 @@ pub enum ExternalConnection {
 }
 
 impl ExternalConnection {
-    async fn get_part(
-        self,
-        shard_id: ShardId,
-        location: &str,
-    ) -> Result<Vec<u8>, ExternalStorageError> {
-        let started = StaticClock::utc();
-        let result = match self {
+    async fn get_part(self, shard_id: ShardId, location: &str) -> Result<Vec<u8>, anyhow::Error> {
+        let _timer = metrics::STATE_SYNC_EXTERNAL_PARTS_REQUEST_DELAY
+            .with_label_values(&[&shard_id.to_string()])
+            .start_timer();
+        match self {
             ExternalConnection::S3 { bucket } => {
-                tracing::info!(target: "sync", %shard_id, location, "Getting an object from the external storage");
-                let result = bucket.get_object(location).await;
-                match result {
-                    Ok(response) => {
-                        tracing::info!(target: "sync", %shard_id, location, response_code = response.status_code(), num_bytes = response.bytes().len(), "S3 request finished");
-                        if response.status_code() == 200 {
-                            Ok(response.bytes().to_vec())
-                        } else {
-                            Err(ExternalStorageError::S3ResponseCode(response.status_code()))
-                        }
-                    }
-                    Err(err) => Err(ExternalStorageError::S3Error(err)),
+                let response = bucket.get_object(location).await.map_err(anyhow::Error::from)?;
+                tracing::debug!(target: "sync", %shard_id, location, response_code = response.status_code(), num_bytes = response.bytes().len(), "S3 request finished");
+                if response.status_code() == 200 {
+                    Ok(response.bytes().to_vec())
+                } else {
+                    Err(anyhow::anyhow!("Bad response status code: {}", response.status_code()))
                 }
             }
             ExternalConnection::Filesystem { root_dir } => {
                 let path = root_dir.join(location);
-                tracing::info!(target: "sync", %shard_id, ?path, "Reading a file");
-                let result = std::fs::read(&path);
-                result.map_err(ExternalStorageError::FilesystemError)
+                tracing::debug!(target: "sync", %shard_id, ?path, "Reading a file");
+                std::fs::read(&path).map_err(anyhow::Error::from)
             }
-        };
-        let completed = StaticClock::utc();
-        metrics::STATE_SYNC_EXTERNAL_PARTS_REQUEST_DELAY
-            .with_label_values(&[&shard_id.to_string()])
-            .observe(
-                completed.signed_duration_since(started).num_nanoseconds().unwrap_or(0) as f64
-                    / 1e9,
-            );
-        result
+        }
     }
 
     pub async fn put_state_part(
@@ -183,36 +155,27 @@ impl ExternalConnection {
         state_part: &[u8],
         shard_id: ShardId,
         location: &str,
-    ) -> Result<(), ExternalStorageError> {
+    ) -> Result<(), anyhow::Error> {
         let _timer = metrics::STATE_SYNC_DUMP_PUT_OBJECT_ELAPSED
             .with_label_values(&[&shard_id.to_string()])
             .start_timer();
         match self {
             ExternalConnection::S3 { bucket } => {
-                let put = bucket.put_object(&location, &state_part).await;
-                match put {
-                    Ok(_) => {
-                        tracing::warn!(target: "state_sync_dump", shard_id, part_length = state_part.len(), ?location, "Wrote a state part to S3");
-                        Ok(())
-                    }
-                    Err(err) => {
-                        tracing::warn!(target: "state_sync_dump", shard_id, part_length = state_part.len(), ?location, ?err, "Failed to write a state part to S3");
-                        Err(ExternalStorageError::S3Error(err))
-                    }
-                }
+                bucket.put_object(&location, state_part).await.map_err(anyhow::Error::from)?;
+                tracing::debug!(target: "state_sync_dump", shard_id, part_length = state_part.len(), ?location, "Wrote a state part to S3");
+                Ok(())
             }
             ExternalConnection::Filesystem { root_dir } => {
                 let path = root_dir.join(location);
                 if let Some(parent_dir) = path.parent() {
-                    std::fs::create_dir_all(parent_dir)
-                        .map_err(ExternalStorageError::FilesystemError)?;
+                    std::fs::create_dir_all(parent_dir).map_err(anyhow::Error::from)?;
                 }
                 let mut file = std::fs::OpenOptions::new()
                     .write(true)
                     .create(true)
                     .open(&path)
-                    .map_err(ExternalStorageError::FilesystemError)?;
-                file.write_all(state_part).map_err(ExternalStorageError::FilesystemError)?;
+                    .map_err(anyhow::Error::from)?;
+                file.write_all(state_part).map_err(anyhow::Error::from)?;
                 tracing::debug!(target: "state_sync_dump", shard_id, part_length = state_part.len(), ?location, "Wrote a state part to a file");
                 Ok(())
             }
@@ -273,7 +236,7 @@ impl StateSync {
                 };
                 StateSyncInner::PartsFromExternal {
                     chain_id: chain_id.to_string(),
-                    requests_remaining: Arc::new(AtomicI64::new(*num_concurrent_requests as i64)),
+                    requests_remaining: Arc::new(AtomicI32::new(*num_concurrent_requests as i32)),
                     external,
                 }
             }
@@ -1216,7 +1179,7 @@ fn request_part_from_external_storage(
     epoch_height: EpochHeight,
     num_parts: u64,
     chain_id: &str,
-    requests_remaining: Arc<AtomicI64>,
+    requests_remaining: Arc<AtomicI32>,
     external: ExternalConnection,
 ) {
     if !allow_request(&requests_remaining) {
@@ -1230,7 +1193,7 @@ fn request_part_from_external_storage(
     download.state_requests_count += 1;
     download.last_target = None;
 
-    let location = s3_location(chain_id, epoch_height, shard_id, part_id, num_parts);
+    let location = external_storage_location(chain_id, epoch_height, shard_id, part_id, num_parts);
     let download_response = download.response.clone();
     near_performance_metrics::actix::spawn("StateSync", {
         async move {
@@ -1296,7 +1259,7 @@ fn sent_request_part(
 }
 
 /// Verifies that one more concurrent request can be started.
-fn allow_request(requests_remaining: &AtomicI64) -> bool {
+fn allow_request(requests_remaining: &AtomicI32) -> bool {
     let remaining = requests_remaining.fetch_sub(1, Ordering::SeqCst);
     if remaining <= 0 {
         requests_remaining.fetch_add(1, Ordering::SeqCst);
@@ -1306,7 +1269,7 @@ fn allow_request(requests_remaining: &AtomicI64) -> bool {
     }
 }
 
-fn finished_request(requests_remaining: &AtomicI64) {
+fn finished_request(requests_remaining: &AtomicI32) {
     requests_remaining.fetch_add(1, Ordering::SeqCst);
 }
 
@@ -1379,20 +1342,6 @@ fn check_external_storage_part_response(
         part_download.error = true;
     }
     true
-}
-
-/// Construct a location on the external storage.
-pub fn s3_location(
-    chain_id: &str,
-    epoch_height: u64,
-    shard_id: u64,
-    part_id: u64,
-    num_parts: u64,
-) -> String {
-    format!(
-        "chain_id={}/epoch_height={}/shard_id={}/state_part_{:06}_of_{:06}",
-        chain_id, epoch_height, shard_id, part_id, num_parts
-    )
 }
 
 /// Applies style if `use_colour` is enabled.
@@ -1506,9 +1455,27 @@ impl<T: Clone> Iterator for SamplerLimited<T> {
     }
 }
 
-// Needs to be in sync with `fn s3_location()`.
+/// Construct a location on the external storage.
+pub fn external_storage_location(
+    chain_id: &str,
+    epoch_height: u64,
+    shard_id: u64,
+    part_id: u64,
+    num_parts: u64,
+) -> String {
+    format!(
+        "{}/{}",
+        location_prefix(chain_id, epoch_height, shard_id),
+        part_filename(part_id, num_parts)
+    )
+}
+
 pub fn location_prefix(chain_id: &str, epoch_height: u64, shard_id: u64) -> String {
     format!("chain_id={}/epoch_height={}/shard_id={}", chain_id, epoch_height, shard_id)
+}
+
+pub fn part_filename(part_id: u64, num_parts: u64) -> String {
+    format!("state_part_{:06}_of_{:06}", part_id, num_parts)
 }
 
 pub fn match_filename(s: &str) -> Option<regex::Captures> {
@@ -1529,10 +1496,6 @@ pub fn get_num_parts_from_filename(s: &str) -> Option<u64> {
         }
     }
     None
-}
-
-pub fn part_filename(part_id: u64, num_parts: u64) -> String {
-    format!("state_part_{:06}_of_{:06}", part_id, num_parts)
 }
 
 #[cfg(test)]
@@ -1668,5 +1631,15 @@ mod test {
 
             System::current().stop()
         });
+    }
+
+    #[test]
+    fn test_match_filename() {
+        let filename = part_filename(5, 15);
+        assert!(is_part_filename(&filename));
+        assert!(!is_part_filename("123123"));
+
+        assert_eq!(get_num_parts_from_filename(&filename), Some(15));
+        assert_eq!(get_num_parts_from_filename("123123"), None);
     }
 }

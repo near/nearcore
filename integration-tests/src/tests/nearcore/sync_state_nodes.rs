@@ -426,9 +426,8 @@ fn sync_state_dump() {
             near1.client_config.min_block_production_delay = Duration::from_millis(200);
             near1.client_config.max_block_production_delay = Duration::from_millis(400);
             near1.client_config.epoch_sync_enabled = false;
-            let dump_dir =
-                Arc::new(tempfile::Builder::new().prefix("state_dump_1").tempdir().unwrap());
-            near1.client_config.state_sync_config_dump = Some(DumpConfig {
+            let dump_dir = tempfile::Builder::new().prefix("state_dump_1").tempdir().unwrap();
+            near1.client_config.state_sync.dump = Some(DumpConfig {
                 location: Filesystem { root_dir: dump_dir.path().to_path_buf() },
                 restart_dump_for_shards: None,
                 iteration_delay: Some(Duration::from_millis(50)),
@@ -440,7 +439,7 @@ fn sync_state_dump() {
                 state_sync_dump_handle: _state_sync_dump_handle,
                 ..
             } = start_with_config(dir1.path(), near1).expect("start_with_config");
-            let dir2 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap());
+            let dir2 = tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap();
 
             let view_client2_holder = Arc::new(RwLock::new(None));
             let arbiters_holder = Arc::new(RwLock::new(vec![]));
@@ -451,8 +450,8 @@ fn sync_state_dump() {
                     let view_client2_holder2 = view_client2_holder.clone();
                     let arbiters_holder2 = arbiters_holder2.clone();
                     let genesis2 = genesis.clone();
-                    let dir2 = dir2.clone();
-                    let dump_dir1 = dump_dir.clone();
+                    let dir2 = dir2.path().clone();
+                    let dump_dir1 = dump_dir.path().clone();
 
                     match view_client1.send(GetBlock::latest().with_span_context()).await {
                         Ok(Ok(b)) if b.header.height >= state_sync_horizon + 1 => {
@@ -476,18 +475,15 @@ fn sync_state_dump() {
                                 near2.client_config.epoch_sync_enabled = false;
                                 near2.client_config.state_sync_enabled = true;
                                 near2.client_config.state_sync_timeout = Duration::from_secs(1);
-                                near2.client_config.state_sync_config_sync =
+                                near2.client_config.state_sync.sync =
                                     SyncConfig::ExternalStorage(ExternalStorageConfig {
-                                        location: Filesystem {
-                                            root_dir: dump_dir1.path().to_path_buf(),
-                                        },
+                                        location: Filesystem { root_dir: dump_dir1.to_path_buf() },
                                         num_concurrent_requests: 10,
                                     });
 
                                 let nearcore::NearNode {
                                     view_client: view_client2, arbiters, ..
-                                } = start_with_config(dir2.path(), near2)
-                                    .expect("start_with_config");
+                                } = start_with_config(dir2, near2).expect("start_with_config");
                                 *view_client2_holder2 = Some(view_client2);
                                 *arbiters_holder2 = arbiters;
                             }

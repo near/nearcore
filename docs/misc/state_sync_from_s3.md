@@ -8,12 +8,10 @@ details) doesn't allow the nodes to reliably perform state sync for testnet or
 mainnet.
 
 That's why a new solution for state sync is being designed.
-The experimental code is likely going to be a part of solution to greatly
-improve both reliability and speed of state sync.
-
-The new solution will probably involve making the state available on external
-storage, making downloading the state both low latency and reliable process,
-thanks to the robust infrastructure of external storage such as S3.
+This is a short-term solution that is needed to let nodes sync and let chunk
+only producers to switch tracked shards.
+The experimental code is will not be kept for long and will be replaced with a
+decentralized solution.
 
 ## How-to
 
@@ -39,7 +37,7 @@ To enable, add this to your `config.json` file:
 }
 ```
 
-You don't need any environment variables set, as the access to S3 is anonymous:
+Then run the `neard` binary and it will access S3 anonymously:
 ```shell
 ./neard run
 ```
@@ -63,7 +61,7 @@ To enable, add this to your `config.json` file:
 }
 ```
 
-You don't need any environment variables set, as the access to S3 is anonymous:
+Then run the `neard` binary:
 ```shell
 ./neard run
 ```
