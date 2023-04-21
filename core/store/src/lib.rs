@@ -1061,7 +1061,7 @@ mod tests {
         assert_eq!(false, cache.has(&key).unwrap());
 
         let record = CompiledContract::Code(b"foo".to_vec());
-        assert_eq!((), cache.put(&key, record.clone()).unwrap());
+        cache.put(&key, record.clone()).unwrap();
         assert_eq!(Some(record), cache.get(&key).unwrap());
         assert_eq!(true, cache.has(&key).unwrap());
     }

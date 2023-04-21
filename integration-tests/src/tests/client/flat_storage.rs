@@ -203,9 +203,9 @@ fn test_flat_storage_creation_sanity() {
     );
     // Introduce fork block to check that deltas for it will be GC-d later.
     let fork_block = env.clients[0].produce_block(START_HEIGHT + 2).unwrap().unwrap();
-    let fork_block_hash = fork_block.hash().clone();
+    let fork_block_hash = *fork_block.hash();
     let next_block = env.clients[0].produce_block(START_HEIGHT + 3).unwrap().unwrap();
-    let next_block_hash = next_block.hash().clone();
+    let next_block_hash = *next_block.hash();
     env.process_block(0, fork_block, Provenance::PRODUCED);
     env.process_block(0, next_block, Provenance::PRODUCED);
 
@@ -388,7 +388,7 @@ fn test_flat_storage_creation_start_from_state_part() {
         store_update.commit().unwrap();
 
         // Re-create runtime, check that flat storage is not created yet.
-        let mut env = setup_env(&genesis, store.clone());
+        let mut env = setup_env(&genesis, store);
         assert!(env.clients[0].runtime_adapter.get_flat_storage_for_shard(shard_uid).is_none());
 
         // Run chain for a couple of blocks and check that flat storage for shard 0 is eventually created.
@@ -526,7 +526,7 @@ fn test_not_supported_block() {
     let shard_uid = shard_layout.get_shard_uids()[0];
     let store = create_test_store();
 
-    let mut env = setup_env(&genesis, store.clone());
+    let mut env = setup_env(&genesis, store);
     // Produce blocks up to `START_HEIGHT`.
     for height in 1..START_HEIGHT {
         env.produce_block(0, height);

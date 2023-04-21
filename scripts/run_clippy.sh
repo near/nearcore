@@ -10,4 +10,4 @@ LINTS=(
   -D clippy::suspicious
 )
 
-cargo clippy -- "${LINTS[@]}"
+cargo clippy --all-targets -- "${LINTS[@]}"
