@@ -13,6 +13,7 @@ from configured_logger import logger
 
 # Constant for 1 NEAR
 NEAR_BASE = 10**24
+TGAS = 10**12
 
 
 class Account:
@@ -102,7 +103,7 @@ class Account:
                                   base_block_hash=None):
         self.prep_tx()
         tx = sign_function_call_tx(self.key, contract_id, method_name, args,
-                                   3 * 10**14, deposit, self.nonce,
+                                   300 * TGAS, deposit, self.nonce,
                                    base_block_hash or self.base_block_hash)
         return self.send_tx(tx)
 
@@ -114,7 +115,7 @@ class Account:
                                   base_block_hash=None):
         self.prep_tx()
         tx = sign_function_call_tx(self.key, contract_id, method_name, args,
-                                   3 * 10**14, deposit, self.nonce,
+                                   300 * TGAS, deposit, self.nonce,
                                    base_block_hash or self.base_block_hash)
         return self.send_tx_sync(tx)
 
