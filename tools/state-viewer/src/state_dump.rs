@@ -398,7 +398,7 @@ mod test {
         let last_block_hash = head.last_block_hash;
         let cur_epoch_id = head.epoch_id;
         let block_producers = env.clients[0]
-            .runtime_adapter
+            .epoch_manager
             .get_epoch_block_producers_ordered(&cur_epoch_id, &last_block_hash)
             .unwrap();
         assert_eq!(
@@ -471,7 +471,7 @@ mod test {
         let last_block_hash = head.last_block_hash;
         let cur_epoch_id = head.epoch_id;
         let block_producers = env.clients[0]
-            .runtime_adapter
+            .epoch_manager
             .get_epoch_block_producers_ordered(&cur_epoch_id, &last_block_hash)
             .unwrap();
         assert_eq!(
@@ -530,7 +530,7 @@ mod test {
         let last_block_hash = head.last_block_hash;
         let cur_epoch_id = head.epoch_id;
         let block_producers = env.clients[0]
-            .runtime_adapter
+            .epoch_manager
             .get_epoch_block_producers_ordered(&cur_epoch_id, &last_block_hash)
             .unwrap();
         assert_eq!(
@@ -620,7 +620,7 @@ mod test {
         }
         let head = env.clients[0].chain.head().unwrap();
         assert_eq!(
-            env.clients[0].runtime_adapter.get_shard_layout(&head.epoch_id).unwrap(),
+            env.clients[0].epoch_manager.get_shard_layout(&head.epoch_id).unwrap(),
             ShardLayout::get_simple_nightshade_layout(),
         );
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
@@ -767,7 +767,7 @@ mod test {
         let last_block_hash = head.last_block_hash;
         let cur_epoch_id = head.epoch_id;
         let block_producers = env.clients[0]
-            .runtime_adapter
+            .epoch_manager
             .get_epoch_block_producers_ordered(&cur_epoch_id, &last_block_hash)
             .unwrap();
         assert_eq!(
@@ -816,7 +816,7 @@ mod test {
         let last_block_hash = head.last_block_hash;
         let cur_epoch_id = head.epoch_id;
         let block_producers = env.clients[0]
-            .runtime_adapter
+            .epoch_manager
             .get_epoch_block_producers_ordered(&cur_epoch_id, &last_block_hash)
             .unwrap();
         assert_eq!(

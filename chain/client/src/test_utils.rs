@@ -261,7 +261,8 @@ pub fn setup(
     );
 
     let (shards_manager_addr, _) = start_shards_manager(
-        runtime.clone(),
+        runtime.epoch_manager_adapter_arc(),
+        runtime.shard_tracker(),
         network_adapter.clone().into_sender(),
         ctx.address().with_auto_span_context().into_sender(),
         Some(account_id),
@@ -273,7 +274,9 @@ pub fn setup(
     let client = Client::new(
         config.clone(),
         chain_genesis,
-        runtime,
+        runtime.epoch_manager_adapter_arc(),
+        runtime.shard_tracker(),
+        runtime.runtime_adapter_arc(),
         network_adapter.clone(),
         shards_manager_adapter.as_sender(),
         Some(signer.clone()),
@@ -1127,7 +1130,9 @@ pub fn setup_client_with_runtime(
     network_adapter: PeerManagerAdapter,
     shards_manager_adapter: ShardsManagerAdapterForTest,
     chain_genesis: ChainGenesis,
-    runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
+    epoch_manager: Arc<dyn EpochManagerAdapter>,
+    shard_tracker: ShardTracker,
+    runtime: Arc<dyn RuntimeAdapter>,
     rng_seed: RngSeed,
     archive: bool,
     save_trie_changes: bool,
@@ -1140,7 +1145,9 @@ pub fn setup_client_with_runtime(
     let mut client = Client::new(
         config,
         chain_genesis,
-        runtime_adapter,
+        epoch_manager,
+        shard_tracker,
+        runtime,
         network_adapter,
         shards_manager_adapter.client,
         validator_signer,
@@ -1165,8 +1172,7 @@ pub fn setup_client(
     save_trie_changes: bool,
 ) -> Client {
     let num_validator_seats = vs.all_block_producers().count() as NumSeats;
-    let runtime_adapter =
-        KeyValueRuntime::new_with_validators(store, vs, chain_genesis.epoch_length);
+    let runtime = KeyValueRuntime::new_with_validators(store, vs, chain_genesis.epoch_length);
     setup_client_with_runtime(
         num_validator_seats,
         account_id,
@@ -1174,7 +1180,9 @@ pub fn setup_client(
         network_adapter,
         shards_manager_adapter,
         chain_genesis,
-        runtime_adapter,
+        runtime.epoch_manager_adapter_arc(),
+        runtime.shard_tracker(),
+        runtime.runtime_adapter_arc(),
         rng_seed,
         archive,
         save_trie_changes,
@@ -1233,15 +1241,14 @@ pub fn setup_client_with_synchronous_shards_manager(
     save_trie_changes: bool,
 ) -> Client {
     let num_validator_seats = vs.all_block_producers().count() as NumSeats;
-    let runtime_adapter =
-        KeyValueRuntime::new_with_validators(store, vs, chain_genesis.epoch_length);
+    let runtime = KeyValueRuntime::new_with_validators(store, vs, chain_genesis.epoch_length);
     let shards_manager_adapter = setup_synchronous_shards_manager(
         account_id.clone(),
         client_adapter,
         network_adapter.clone(),
-        runtime_adapter.epoch_manager_adapter_arc(),
-        runtime_adapter.shard_tracker(),
-        runtime_adapter.runtime_adapter_arc(),
+        runtime.epoch_manager_adapter_arc(),
+        runtime.shard_tracker(),
+        runtime.runtime_adapter_arc(),
         &chain_genesis,
     );
     setup_client_with_runtime(
@@ -1251,7 +1258,9 @@ pub fn setup_client_with_synchronous_shards_manager(
         network_adapter,
         shards_manager_adapter,
         chain_genesis,
-        runtime_adapter,
+        runtime.epoch_manager_adapter_arc(),
+        runtime.shard_tracker(),
+        runtime.runtime_adapter_arc(),
         rng_seed,
         archive,
         save_trie_changes,
@@ -1472,7 +1481,9 @@ impl TestEnvBuilder {
                     network_adapter.into(),
                     shards_manager_adapter,
                     chain_genesis.clone(),
-                    runtime_adapter,
+                    runtime_adapter.epoch_manager_adapter_arc(),
+                    runtime_adapter.shard_tracker(),
+                    runtime_adapter.runtime_adapter_arc(),
                     rng_seed,
                     self.archive,
                     self.save_trie_changes,
@@ -1708,11 +1719,11 @@ impl TestEnv {
 
         let tip = self.clients[0].chain.head().unwrap();
         let epoch_id = self.clients[0]
-            .runtime_adapter
+            .epoch_manager
             .get_epoch_id_from_prev_block(&tip.last_block_hash)
             .unwrap();
         let block_producer =
-            self.clients[0].runtime_adapter.get_block_producer(&epoch_id, tip.height).unwrap();
+            self.clients[0].epoch_manager.get_block_producer(&epoch_id, tip.height).unwrap();
 
         let mut block = self.clients[0].produce_block(tip.height + 1).unwrap().unwrap();
         eprintln!("Producing block with version {protocol_version}");
@@ -1733,7 +1744,7 @@ impl TestEnv {
         let last_block = self.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         let last_chunk_header = &last_block.chunks()[0];
         let response = self.clients[0]
-            .runtime_adapter
+            .runtime
             .query(
                 ShardUId::single_shard(),
                 &last_chunk_header.prev_state_root(),
@@ -1756,7 +1767,7 @@ impl TestEnv {
         let last_block = self.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         let last_chunk_header = &last_block.chunks()[0];
         let response = self.clients[0]
-            .runtime_adapter
+            .runtime
             .query(
                 ShardUId::single_shard(),
                 &last_chunk_header.prev_state_root(),
@@ -1796,7 +1807,6 @@ impl TestEnv {
         };
         let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![self.validators.clone()]);
         let num_validator_seats = vs.all_block_producers().count() as NumSeats;
-        let runtime_adapter = self.clients[idx].runtime_adapter.clone();
         self.clients[idx] = setup_client_with_runtime(
             num_validator_seats,
             Some(self.get_client_id(idx).clone()),
@@ -1804,7 +1814,9 @@ impl TestEnv {
             self.network_adapters[idx].clone().into(),
             self.shards_manager_adapters[idx].clone(),
             self.chain_genesis.clone(),
-            runtime_adapter,
+            self.clients[idx].epoch_manager.clone(),
+            self.clients[idx].shard_tracker.clone(),
+            self.clients[idx].runtime.clone(),
             rng_seed,
             self.archive,
             self.save_trie_changes,
@@ -1818,7 +1830,7 @@ impl TestEnv {
     }
 
     pub fn get_runtime_config(&self, idx: usize, epoch_id: EpochId) -> RuntimeConfig {
-        self.clients[idx].runtime_adapter.get_protocol_config(&epoch_id).unwrap().runtime_config
+        self.clients[idx].runtime.get_protocol_config(&epoch_id).unwrap().runtime_config
     }
 
     /// Create and sign transaction ready for execution.
@@ -1942,13 +1954,9 @@ pub fn create_chunk_on_height_for_shard(
     client
         .produce_chunk(
             last_block_hash,
-            &client.runtime_adapter.get_epoch_id_from_prev_block(&last_block_hash).unwrap(),
-            Chain::get_prev_chunk_header(
-                client.runtime_adapter.epoch_manager_adapter(),
-                &last_block,
-                shard_id,
-            )
-            .unwrap(),
+            &client.epoch_manager.get_epoch_id_from_prev_block(&last_block_hash).unwrap(),
+            Chain::get_prev_chunk_header(client.epoch_manager.as_ref(), &last_block, shard_id)
+                .unwrap(),
             next_height,
             shard_id,
         )
@@ -2083,7 +2091,7 @@ pub fn run_catchup(
     let state_split = move |msg: StateSplitRequest| {
         state_split_inside_messages.write().unwrap().push(msg);
     };
-    let rt = client.runtime_adapter.clone();
+    let runtime = client.runtime.clone();
     loop {
         client.run_catchup(
             highest_height_peers,
@@ -2106,7 +2114,7 @@ pub fn run_catchup(
             catchup_done = false;
         }
         for msg in state_split_messages.write().unwrap().drain(..) {
-            let results = rt.build_state_for_split_shards(
+            let results = runtime.build_state_for_split_shards(
                 msg.shard_uid,
                 &msg.state_root,
                 &msg.next_epoch_shard_layout,

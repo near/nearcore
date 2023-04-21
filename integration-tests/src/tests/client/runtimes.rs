@@ -100,7 +100,7 @@ fn test_cap_max_gas_price() {
 
     let last_block = env.clients[0].chain.get_block_by_height(epoch_length - 1).unwrap();
     let protocol_version = env.clients[0]
-        .runtime_adapter
+        .epoch_manager
         .get_epoch_protocol_version(last_block.header().epoch_id())
         .unwrap();
     let min_gas_price = env.clients[0].chain.block_economics_config.min_gas_price(protocol_version);

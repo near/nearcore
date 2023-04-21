@@ -79,7 +79,7 @@ fn run_test(
 
         let last_block = env.clients[0].chain.get_block_by_height(height).unwrap().clone();
         let protocol_version = env.clients[0]
-            .runtime_adapter
+            .epoch_manager
             .get_epoch_protocol_version(last_block.header().epoch_id())
             .unwrap();
 

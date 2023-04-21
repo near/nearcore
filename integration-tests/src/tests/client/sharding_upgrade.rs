@@ -130,10 +130,10 @@ impl TestShardUpgradeEnv {
         // produce block
         let block_producer = {
             let epoch_id = env.clients[0]
-                .runtime_adapter
+                .epoch_manager
                 .get_epoch_id_from_prev_block(&head.last_block_hash)
                 .unwrap();
-            env.clients[0].runtime_adapter.get_block_producer(&epoch_id, height).unwrap()
+            env.clients[0].epoch_manager.get_block_producer(&epoch_id, height).unwrap()
         };
         let block_producer_client = env.client(&block_producer);
         let mut block = block_producer_client.produce_block(height).unwrap().unwrap();
@@ -174,7 +174,7 @@ impl TestShardUpgradeEnv {
         let expected_num_shards = if height < 2 * self.epoch_length { 1 } else { 4 };
         assert_eq!(
             env.clients[0]
-                .runtime_adapter
+                .epoch_manager
                 .get_shard_layout_from_prev_block(block.hash())
                 .unwrap()
                 .num_shards(),
@@ -281,7 +281,7 @@ impl TestShardUpgradeEnv {
         let block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         // check execution outcomes
         let shard_layout = env.clients[0]
-            .runtime_adapter
+            .epoch_manager
             .get_shard_layout_from_prev_block(&head.last_block_hash)
             .unwrap();
         let mut txs_to_check = vec![];
@@ -298,7 +298,7 @@ impl TestShardUpgradeEnv {
             let account_id = &tx.transaction.signer_id;
             let shard_uid = account_id_to_shard_uid(account_id, &shard_layout);
             for (i, account_id) in env.validators.iter().enumerate() {
-                let cares_about_shard = env.clients[i].runtime_adapter.cares_about_shard(
+                let cares_about_shard = env.clients[i].shard_tracker.care_about_shard(
                     Some(account_id),
                     block.header().prev_hash(),
                     shard_uid.shard_id(),
@@ -338,7 +338,7 @@ impl TestShardUpgradeEnv {
         let env = &mut self.env;
         let head = env.clients[0].chain.head().unwrap();
         let shard_layout = env.clients[0]
-            .runtime_adapter
+            .epoch_manager
             .get_shard_layout_from_prev_block(&head.last_block_hash)
             .unwrap();
         let block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
@@ -392,18 +392,18 @@ impl TestShardUpgradeEnv {
 fn check_account(env: &mut TestEnv, account_id: &AccountId, block: &Block) {
     let prev_hash = block.header().prev_hash();
     let shard_layout =
-        env.clients[0].runtime_adapter.get_shard_layout_from_prev_block(prev_hash).unwrap();
+        env.clients[0].epoch_manager.get_shard_layout_from_prev_block(prev_hash).unwrap();
     let shard_uid = account_id_to_shard_uid(account_id, &shard_layout);
     let shard_id = shard_uid.shard_id();
     for (i, me) in env.validators.iter().enumerate() {
-        if env.clients[i].runtime_adapter.cares_about_shard(Some(me), prev_hash, shard_id, true) {
+        if env.clients[i].shard_tracker.care_about_shard(Some(me), prev_hash, shard_id, true) {
             let state_root = *env.clients[i]
                 .chain
                 .get_chunk_extra(block.hash(), &shard_uid)
                 .unwrap()
                 .state_root();
             env.clients[i]
-                .runtime_adapter
+                .runtime
                 .query(
                     shard_uid,
                     &state_root,
@@ -419,7 +419,7 @@ fn check_account(env: &mut TestEnv, account_id: &AccountId, block: &Block) {
             let chunk = &block.chunks()[shard_id as usize];
             if chunk.height_included() == block.header().height() {
                 env.clients[i]
-                    .runtime_adapter
+                    .runtime
                     .query(
                         shard_uid,
                         &chunk.prev_state_root(),

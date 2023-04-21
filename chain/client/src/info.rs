@@ -133,14 +133,15 @@ impl InfoHelper {
     /// Count which shards are tracked by the node in the epoch indicated by head parameter.
     fn record_tracked_shards(head: &Tip, client: &crate::client::Client) {
         let me = client.validator_signer.as_ref().map(|x| x.validator_id());
-        if let Ok(num_shards) = client.runtime_adapter.num_shards(&head.epoch_id) {
+        if let Ok(num_shards) = client.epoch_manager.num_shards(&head.epoch_id) {
             for shard_id in 0..num_shards {
-                let tracked = client.runtime_adapter.cares_about_shard(
-                    me,
-                    &head.last_block_hash,
-                    shard_id,
-                    false,
-                );
+                let tracked = match me {
+                    None => false,
+                    Some(me) => client
+                        .epoch_manager
+                        .cares_about_shard_from_prev_block(&head.last_block_hash, me, shard_id)
+                        .unwrap_or(false),
+                };
                 metrics::TRACKED_SHARDS
                     .with_label_values(&[&shard_id.to_string()])
                     .set(if tracked { 1 } else { 0 });
@@ -154,7 +155,7 @@ impl InfoHelper {
             // In rare cases block producer information isn't available.
             // Don't set the metric in this case.
             client
-                .runtime_adapter
+                .epoch_manager
                 .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash)
                 .map_or(None, |bp| Some(bp.iter().any(|bp| bp.0.account_id() == &account_id)))
         }) {
@@ -165,7 +166,7 @@ impl InfoHelper {
     fn record_chunk_producers(head: &Tip, client: &crate::client::Client) {
         if let (Some(account_id), Ok(epoch_info)) = (
             client.validator_signer.as_ref().map(|x| x.validator_id().clone()),
-            client.runtime_adapter.get_epoch_info(&head.epoch_id),
+            client.epoch_manager.get_epoch_info(&head.epoch_id),
         ) {
             for (shard_id, validators) in epoch_info.chunk_producers_settlement().iter().enumerate()
             {
@@ -176,7 +177,7 @@ impl InfoHelper {
                     .with_label_values(&[&shard_id.to_string()])
                     .set(if is_chunk_producer_for_shard { 1 } else { 0 });
             }
-        } else if let Ok(num_shards) = client.runtime_adapter.num_shards(&head.epoch_id) {
+        } else if let Ok(num_shards) = client.epoch_manager.num_shards(&head.epoch_id) {
             for shard_id in 0..num_shards {
                 metrics::IS_CHUNK_PRODUCER_FOR_SHARD
                     .with_label_values(&[&shard_id.to_string()])
@@ -251,12 +252,12 @@ impl InfoHelper {
         let head = unwrap_or_return!(client.chain.head());
         let validator_info = if !is_syncing {
             let validators = unwrap_or_return!(client
-                .runtime_adapter
+                .epoch_manager
                 .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash));
             let num_validators = validators.len();
             let account_id = client.validator_signer.as_ref().map(|x| x.validator_id());
             let is_validator = if let Some(account_id) = account_id {
-                match client.runtime_adapter.get_validator_by_account_id(
+                match client.epoch_manager.get_validator_by_account_id(
                     &head.epoch_id,
                     &head.last_block_hash,
                     account_id,
@@ -286,7 +287,7 @@ impl InfoHelper {
         } else {
             let epoch_identifier = ValidatorInfoIdentifier::BlockHash(header_head.last_block_hash);
             client
-                .runtime_adapter
+                .epoch_manager
                 .get_validator_info(epoch_identifier)
                 .map(get_validator_epoch_stats)
                 .unwrap_or_default()
@@ -311,7 +312,7 @@ impl InfoHelper {
             validator_info,
             validator_epoch_stats,
             client
-                .runtime_adapter
+                .epoch_manager
                 .get_estimated_protocol_upgrade_block_height(head.last_block_hash)
                 .unwrap_or(None)
                 .unwrap_or(0),

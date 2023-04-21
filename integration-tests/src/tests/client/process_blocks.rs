@@ -11,12 +11,14 @@ use near_async::messaging::{IntoSender, Sender};
 use near_chain::test_utils::ValidatorSchedule;
 use near_chunks::test_utils::MockClientAdapterForShardsManager;
 
+use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
+use near_epoch_manager::EpochManager;
 use near_primitives::config::{ActionCosts, ExtCosts};
 use near_primitives::num_rational::{Ratio, Rational32};
 
 use near_actix_test_utils::run_actix;
 use near_chain::chain::ApplyStatePartsRequest;
-use near_chain::types::LatestKnown;
+use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{
     Block, BlockProcessingArtifact, ChainGenesis, ChainStore, ChainStoreAccess, Error, Provenance,
@@ -1545,8 +1547,7 @@ fn test_archival_save_trie_changes() {
         let block = &blocks[i as usize];
         let header = block.header();
         let epoch_id = header.epoch_id();
-        let runtime_adapter = &client.runtime_adapter;
-        let shard_layout = runtime_adapter.get_shard_layout(epoch_id).unwrap();
+        let shard_layout = client.epoch_manager.get_shard_layout(epoch_id).unwrap();
 
         assert!(chain.get_block(block.hash()).is_ok());
         assert!(chain.get_block_by_height(i).is_ok());
@@ -1607,8 +1608,7 @@ fn test_archival_gc_common(
 
         let header = block.header();
         let epoch_id = header.epoch_id();
-        let runtime_adapter = &env.clients[0].runtime_adapter;
-        let shard_layout = runtime_adapter.get_shard_layout(epoch_id).unwrap();
+        let shard_layout = env.clients[0].epoch_manager.get_shard_layout(epoch_id).unwrap();
 
         blocks.push(block);
 
@@ -1792,10 +1792,10 @@ fn test_gc_after_state_sync() {
         assert!(env.clients[1].chain.epoch_manager.get_epoch_start_height(&block_hash).is_ok());
     }
     env.clients[1].chain.reset_data_pre_state_sync(sync_hash).unwrap();
-    assert_eq!(env.clients[1].runtime_adapter.get_gc_stop_height(&sync_hash), 0);
+    assert_eq!(env.clients[1].runtime.get_gc_stop_height(&sync_hash), 0);
     // mimic what we do in possible_targets
-    assert!(env.clients[1].runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash).is_ok());
-    let tries = env.clients[1].runtime_adapter.get_tries();
+    assert!(env.clients[1].epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash).is_ok());
+    let tries = env.clients[1].runtime.get_tries();
     env.clients[1].chain.clear_data(tries, &Default::default()).unwrap();
 }
 
@@ -1826,7 +1826,7 @@ fn test_process_block_after_state_sync() {
         .get_chunk_extra(&sync_hash, &ShardUId { version: 1, shard_id: 0 })
         .unwrap();
     let state_part = env.clients[0]
-        .runtime_adapter
+        .runtime
         .obtain_state_part(0, &sync_hash, chunk_extra.state_root(), PartId::new(0, 1))
         .unwrap();
     // reset cache
@@ -1837,7 +1837,7 @@ fn test_process_block_after_state_sync() {
     env.clients[0].chain.reset_data_pre_state_sync(sync_hash).unwrap();
     let epoch_id = env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id().clone();
     env.clients[0]
-        .runtime_adapter
+        .runtime
         .apply_state_part(0, chunk_extra.state_root(), PartId::new(0, 1), &state_part, &epoch_id)
         .unwrap();
     let block = env.clients[0].produce_block(sync_height + 1).unwrap().unwrap();
@@ -1876,9 +1876,7 @@ fn test_gc_fork_tail() {
         }
     }
     let head = env.clients[1].chain.head().unwrap();
-    assert!(
-        env.clients[1].runtime_adapter.get_gc_stop_height(&head.last_block_hash) > epoch_length
-    );
+    assert!(env.clients[1].runtime.get_gc_stop_height(&head.last_block_hash) > epoch_length);
     let tail = env.clients[1].chain.store().tail().unwrap();
     let fork_tail = env.clients[1].chain.store().fork_tail().unwrap();
     assert!(tail <= fork_tail && fork_tail < second_epoch_start.unwrap());
@@ -2141,8 +2139,10 @@ fn test_invalid_block_root() {
 fn test_incorrect_validator_key_produce_block() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 2);
     let chain_genesis = ChainGenesis::new(&genesis);
-    let runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter> =
-        nearcore::NightshadeRuntime::test(Path::new("../../../.."), create_test_store(), &genesis);
+    let store = create_test_store();
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+    let shard_tracker = ShardTracker::new(TrackedConfig::new_empty(), epoch_manager.clone());
+    let runtime = nearcore::NightshadeRuntime::test(Path::new("../../../.."), store, &genesis);
     let signer = Arc::new(InMemoryValidatorSigner::from_seed(
         "test0".parse().unwrap(),
         KeyType::ED25519,
@@ -2153,7 +2153,9 @@ fn test_incorrect_validator_key_produce_block() {
     let mut client = Client::new(
         config,
         chain_genesis,
-        runtime_adapter,
+        epoch_manager,
+        shard_tracker,
+        runtime,
         Arc::new(MockPeerManagerAdapter::default()).into(),
         Sender::noop(),
         Some(signer),
@@ -2264,7 +2266,7 @@ fn test_data_reset_before_state_sync() {
     let head = env.clients[0].chain.head().unwrap();
     let head_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
     let response = env.clients[0]
-        .runtime_adapter
+        .runtime
         .query(
             ShardUId::single_shard(),
             &head_block.chunks()[0].prev_state_root(),
@@ -2279,7 +2281,7 @@ fn test_data_reset_before_state_sync() {
     assert_matches!(response.kind, QueryResponseKind::ViewAccount(_));
     env.clients[0].chain.reset_data_pre_state_sync(*head_block.hash()).unwrap();
     // account should not exist after clearing state
-    let response = env.clients[0].runtime_adapter.query(
+    let response = env.clients[0].runtime.query(
         ShardUId::single_shard(),
         &head_block.chunks()[0].prev_state_root(),
         head.height,
@@ -2460,7 +2462,7 @@ fn test_validate_chunk_extra() {
         env.clients[0].chain.get_chunk_extra(block1.hash(), &ShardUId::single_shard()).unwrap();
     assert!(validate_chunk_with_chunk_extra(
         &mut chain_store,
-        env.clients[0].runtime_adapter.epoch_manager_adapter(),
+        env.clients[0].epoch_manager.as_ref(),
         block1.hash(),
         &chunk_extra,
         block1.chunks()[0].height_included(),
@@ -2559,7 +2561,7 @@ fn test_catchup_gas_price_change() {
     };
     //let state_root = state_sync_header.chunk.header.inner.prev_state_root;
     let state_root_node =
-        env.clients[0].runtime_adapter.get_state_root_node(0, &sync_hash, &state_root).unwrap();
+        env.clients[0].runtime.get_state_root_node(0, &sync_hash, &state_root).unwrap();
     let num_parts = get_num_state_parts(state_root_node.memory_usage);
     let state_sync_parts = (0..num_parts)
         .map(|i| env.clients[0].chain.get_state_response_part(0, i, sync_hash).unwrap())
@@ -2572,7 +2574,7 @@ fn test_catchup_gas_price_change() {
             .set_state_part(0, sync_hash, PartId::new(i, num_parts), &state_sync_parts[i as usize])
             .unwrap();
     }
-    let rt = Arc::clone(&env.clients[1].runtime_adapter);
+    let rt = Arc::clone(&env.clients[1].runtime);
     let f = move |msg: ApplyStatePartsRequest| {
         use borsh::BorshSerialize;
         let store = rt.store();
@@ -2735,7 +2737,7 @@ fn test_refund_receipts_processing() {
             .unwrap()
             .clone();
         let state_update = env.clients[0]
-            .runtime_adapter
+            .runtime
             .get_tries()
             .new_trie_update(test_shard_uid, *chunk_extra.state_root());
         let delayed_indices: Option<DelayedReceiptIndices> =
@@ -2899,11 +2901,11 @@ fn test_epoch_protocol_version_change() {
     for i in 1..=16 {
         let head = env.clients[0].chain.head().unwrap();
         let epoch_id = env.clients[0]
-            .runtime_adapter
+            .epoch_manager
             .get_epoch_id_from_prev_block(&head.last_block_hash)
             .unwrap();
         let chunk_producer =
-            env.clients[0].runtime_adapter.get_chunk_producer(&epoch_id, i, 0).unwrap();
+            env.clients[0].epoch_manager.get_chunk_producer(&epoch_id, i, 0).unwrap();
         let index = if chunk_producer.as_ref() == "test0" { 0 } else { 1 };
         let (encoded_chunk, merkle_paths, receipts) =
             create_chunk_on_height(&mut env.clients[index], i);
@@ -2922,11 +2924,10 @@ fn test_epoch_protocol_version_change() {
         }
 
         let epoch_id = env.clients[0]
-            .runtime_adapter
+            .epoch_manager
             .get_epoch_id_from_prev_block(&head.last_block_hash)
             .unwrap();
-        let block_producer =
-            env.clients[0].runtime_adapter.get_block_producer(&epoch_id, i).unwrap();
+        let block_producer = env.clients[0].epoch_manager.get_block_producer(&epoch_id, i).unwrap();
         let index = if block_producer.as_ref() == "test0" { 0 } else { 1 };
         let mut block = env.clients[index].produce_block(i).unwrap().unwrap();
         // upgrade to new protocol version but in the second epoch one node vote for the old version.
@@ -2939,7 +2940,7 @@ fn test_epoch_protocol_version_change() {
     }
     let last_block = env.clients[0].chain.get_block_by_height(16).unwrap();
     let protocol_version = env.clients[0]
-        .runtime_adapter
+        .epoch_manager
         .get_epoch_protocol_version(last_block.header().epoch_id())
         .unwrap();
     assert_eq!(protocol_version, PROTOCOL_VERSION);
@@ -3035,28 +3036,27 @@ fn test_query_final_state() {
         env.process_block(0, block.clone(), Provenance::PRODUCED);
     }
 
-    let query_final_state = |chain: &mut near_chain::Chain,
-                             runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
-                             account_id: AccountId| {
-        let final_head = chain.store().final_head().unwrap();
-        let last_final_block = chain.get_block(&final_head.last_block_hash).unwrap();
-        let response = runtime_adapter
-            .query(
-                ShardUId::single_shard(),
-                &last_final_block.chunks()[0].prev_state_root(),
-                last_final_block.header().height(),
-                last_final_block.header().raw_timestamp(),
-                &final_head.prev_block_hash,
-                last_final_block.hash(),
-                last_final_block.header().epoch_id(),
-                &QueryRequest::ViewAccount { account_id },
-            )
-            .unwrap();
-        match response.kind {
-            QueryResponseKind::ViewAccount(account_view) => account_view,
-            _ => panic!("Wrong return value"),
-        }
-    };
+    let query_final_state =
+        |chain: &mut near_chain::Chain, runtime: Arc<dyn RuntimeAdapter>, account_id: AccountId| {
+            let final_head = chain.store().final_head().unwrap();
+            let last_final_block = chain.get_block(&final_head.last_block_hash).unwrap();
+            let response = runtime
+                .query(
+                    ShardUId::single_shard(),
+                    &last_final_block.chunks()[0].prev_state_root(),
+                    last_final_block.header().height(),
+                    last_final_block.header().raw_timestamp(),
+                    &final_head.prev_block_hash,
+                    last_final_block.hash(),
+                    last_final_block.header().epoch_id(),
+                    &QueryRequest::ViewAccount { account_id },
+                )
+                .unwrap();
+            match response.kind {
+                QueryResponseKind::ViewAccount(account_view) => account_view,
+                _ => panic!("Wrong return value"),
+            }
+        };
 
     let fork1_block = env.clients[0].produce_block(5).unwrap().unwrap();
     env.clients[0]
@@ -3072,22 +3072,16 @@ fn test_query_final_state() {
     env.process_block(0, fork1_block, Provenance::NONE);
     assert_eq!(env.clients[0].chain.head().unwrap().height, 5);
 
-    let runtime_adapter = env.clients[0].runtime_adapter.clone();
-    let account_state1 = query_final_state(
-        &mut env.clients[0].chain,
-        runtime_adapter.clone(),
-        "test0".parse().unwrap(),
-    );
+    let runtime = env.clients[0].runtime.clone();
+    let account_state1 =
+        query_final_state(&mut env.clients[0].chain, runtime.clone(), "test0".parse().unwrap());
 
     env.process_block(0, fork2_block, Provenance::NONE);
     assert_eq!(env.clients[0].chain.head().unwrap().height, 6);
 
-    let runtime_adapter = env.clients[0].runtime_adapter.clone();
-    let account_state2 = query_final_state(
-        &mut env.clients[0].chain,
-        runtime_adapter.clone(),
-        "test0".parse().unwrap(),
-    );
+    let runtime = env.clients[0].runtime.clone();
+    let account_state2 =
+        query_final_state(&mut env.clients[0].chain, runtime.clone(), "test0".parse().unwrap());
 
     assert_eq!(account_state1, account_state2);
     assert!(account_state1.amount < TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
@@ -3383,7 +3377,7 @@ fn test_congestion_receipt_execution() {
         env.clients[0].chain.get_chunk_extra(prev_block.hash(), &ShardUId::single_shard()).unwrap();
     assert!(chunk_extra.gas_used() >= chunk_extra.gas_limit());
     let state_update = env.clients[0]
-        .runtime_adapter
+        .runtime
         .get_tries()
         .new_trie_update(ShardUId::single_shard(), *chunk_extra.state_root());
     let delayed_indices: DelayedReceiptIndices =
@@ -3506,11 +3500,11 @@ mod contract_precompilation_tests {
         let epoch_id =
             env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id().clone();
         let state_part = env.clients[0]
-            .runtime_adapter
+            .runtime
             .obtain_state_part(0, &sync_hash, chunk_extra.state_root(), PartId::new(0, 1))
             .unwrap();
         env.clients[1]
-            .runtime_adapter
+            .runtime
             .apply_state_part(
                 0,
                 chunk_extra.state_root(),
@@ -3590,7 +3584,7 @@ mod contract_precompilation_tests {
         let viewer = TrieViewer::default();
         // TODO (#7327): set use_flat_storage to true when we implement support for state sync for FlatStorage
         let trie = env.clients[1]
-            .runtime_adapter
+            .runtime
             .get_trie_for_shard(0, block.header().prev_hash(), state_root, false)
             .unwrap();
         let state_update = TrieUpdate::new(trie);

@@ -85,8 +85,7 @@ fn test_storage_after_commit_of_cold_update() {
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
 
-    test_cold_genesis_update(&*store.cold_db().unwrap(), &env.clients[0].runtime_adapter.store())
-        .unwrap();
+    test_cold_genesis_update(&*store.cold_db().unwrap(), &env.clients[0].runtime.store()).unwrap();
 
     let state_reads = test_get_store_reads(DBCol::State);
     let state_changes_reads = test_get_store_reads(DBCol::StateChanges);
@@ -144,14 +143,11 @@ fn test_storage_after_commit_of_cold_update() {
 
         update_cold_db(
             &*store.cold_db().unwrap(),
-            &env.clients[0].runtime_adapter.store(),
+            &env.clients[0].runtime.store(),
             &env.clients[0]
-                .runtime_adapter
+                .epoch_manager
                 .get_shard_layout(
-                    &env.clients[0]
-                        .runtime_adapter
-                        .get_epoch_id_from_prev_block(&last_hash)
-                        .unwrap(),
+                    &env.clients[0].epoch_manager.get_epoch_id_from_prev_block(&last_hash).unwrap(),
                 )
                 .unwrap(),
             &h,
@@ -199,7 +195,7 @@ fn test_storage_after_commit_of_cold_update() {
     for col in DBCol::iter() {
         if col.is_cold() {
             let num_checks = check_iter(
-                &env.clients[0].runtime_adapter.store(),
+                &env.clients[0].runtime.store(),
                 &store.get_cold_store().unwrap(),
                 col,
                 &no_check_rules,
@@ -237,14 +233,10 @@ fn test_cold_db_head_update() {
 
     for h in 1..max_height {
         env.produce_block(0, h);
-        update_cold_head(&*store.cold_db().unwrap(), &env.clients[0].runtime_adapter.store(), &h)
-            .unwrap();
+        update_cold_head(&*store.cold_db().unwrap(), &env.clients[0].runtime.store(), &h).unwrap();
 
-        let head = &env.clients[0]
-            .runtime_adapter
-            .store()
-            .get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)
-            .unwrap();
+        let head =
+            &env.clients[0].runtime.store().get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY).unwrap();
         let cold_head_in_hot = hot_store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY).unwrap();
         let cold_head_in_cold = cold_store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY).unwrap();
 
@@ -279,7 +271,7 @@ fn test_cold_db_copy_with_height_skips() {
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
 
-    test_cold_genesis_update(&*storage.cold_db().unwrap(), &env.clients[0].runtime_adapter.store())
+    test_cold_genesis_update(&*storage.cold_db().unwrap(), &env.clients[0].runtime.store())
         .unwrap();
 
     for h in 1..max_height {
@@ -315,14 +307,11 @@ fn test_cold_db_copy_with_height_skips() {
 
         update_cold_db(
             &*storage.cold_db().unwrap(),
-            &env.clients[0].runtime_adapter.store(),
+            &env.clients[0].runtime.store(),
             &env.clients[0]
-                .runtime_adapter
+                .epoch_manager
                 .get_shard_layout(
-                    &env.clients[0]
-                        .runtime_adapter
-                        .get_epoch_id_from_prev_block(&last_hash)
-                        .unwrap(),
+                    &env.clients[0].epoch_manager.get_epoch_id_from_prev_block(&last_hash).unwrap(),
                 )
                 .unwrap(),
             &h,
@@ -358,7 +347,7 @@ fn test_cold_db_copy_with_height_skips() {
     for col in DBCol::iter() {
         if col.is_cold() && col != DBCol::ChunkHashesByHeight {
             let num_checks = check_iter(
-                &env.clients[0].runtime_adapter.store(),
+                &env.clients[0].runtime.store(),
                 &storage.get_cold_store().unwrap(),
                 col,
                 &no_check_rules,
@@ -422,7 +411,7 @@ fn test_initial_copy_to_cold(batch_size: usize) {
 
     copy_all_data_to_cold(
         (*store.cold_db().unwrap()).clone(),
-        &env.clients[0].runtime_adapter.store(),
+        &env.clients[0].runtime.store(),
         batch_size,
         &keep_going,
     )
@@ -433,7 +422,7 @@ fn test_initial_copy_to_cold(batch_size: usize) {
             continue;
         }
         let num_checks = check_iter(
-            &env.clients[0].runtime_adapter.store(),
+            &env.clients[0].runtime.store(),
             &store.get_cold_store().unwrap(),
             col,
             &vec![],

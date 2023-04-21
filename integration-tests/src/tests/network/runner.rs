@@ -75,7 +75,9 @@ fn setup_network_node(
     let client_actor = start_client(
         client_config.clone(),
         chain_genesis.clone(),
-        runtime.clone(),
+        runtime.epoch_manager_adapter_arc(),
+        runtime.shard_tracker(),
+        runtime.runtime_adapter_arc(),
         config.node_id(),
         network_adapter.clone().into(),
         shards_manager_adapter.as_sender(),
@@ -95,7 +97,8 @@ fn setup_network_node(
         adv,
     );
     let (shards_manager_actor, _) = start_shards_manager(
-        runtime.clone(),
+        runtime.epoch_manager_adapter_arc(),
+        runtime.shard_tracker(),
         network_adapter.as_sender(),
         client_actor.clone().with_auto_span_context().into_sender(),
         Some(signer.validator_id().clone()),

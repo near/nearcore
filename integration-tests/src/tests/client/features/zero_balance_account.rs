@@ -33,7 +33,7 @@ fn assert_zero_balance_account(env: &mut TestEnv, account_id: &AccountId) {
     let head = env.clients[0].chain.head().unwrap();
     let head_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
     let response = env.clients[0]
-        .runtime_adapter
+        .runtime
         .query(
             ShardUId::single_shard(),
             &head_block.chunks()[0].prev_state_root(),

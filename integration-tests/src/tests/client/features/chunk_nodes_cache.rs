@@ -28,9 +28,9 @@ fn process_transaction(
 ) -> CryptoHash {
     let tip = env.clients[0].chain.head().unwrap();
     let epoch_id =
-        env.clients[0].runtime_adapter.get_epoch_id_from_prev_block(&tip.last_block_hash).unwrap();
+        env.clients[0].epoch_manager.get_epoch_id_from_prev_block(&tip.last_block_hash).unwrap();
     let block_producer =
-        env.clients[0].runtime_adapter.get_block_producer(&epoch_id, tip.height).unwrap();
+        env.clients[0].epoch_manager.get_block_producer(&epoch_id, tip.height).unwrap();
     let last_block_hash = *env.clients[0].chain.get_block_by_height(tip.height).unwrap().hash();
     let next_height = tip.height + 1;
     let gas = 20_000_000_000_000;

@@ -370,8 +370,8 @@ fn test_verify_chunk_invalid_state_challenge() {
     // Invalid chunk & block.
     let last_block_hash = env.clients[0].chain.head().unwrap().last_block_hash;
     let last_block = env.clients[0].chain.get_block(&last_block_hash).unwrap();
-    let total_parts = env.clients[0].runtime_adapter.num_total_parts();
-    let data_parts = env.clients[0].runtime_adapter.num_data_parts();
+    let total_parts = env.clients[0].epoch_manager.num_total_parts();
+    let data_parts = env.clients[0].epoch_manager.num_data_parts();
     let parity_parts = total_parts - data_parts;
     let mut rs = ReedSolomonWrapper::new(data_parts, parity_parts);
     let (mut invalid_chunk, merkle_paths) = ShardsManager::create_encoded_shard_chunk(
@@ -533,8 +533,7 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
     assert!(result.is_err());
     assert_eq!(client.chain.head().unwrap().height, 1);
     // But everyone who doesn't track this shard have accepted.
-    let shard_layout =
-        env.clients[0].runtime_adapter.get_shard_layout(&EpochId::default()).unwrap();
+    let shard_layout = env.clients[0].epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
     let receipts_hashes = Chain::build_receipts_hashes(&receipts, &shard_layout);
     let (_receipts_root, receipts_proofs) = merklize(&receipts_hashes);
     let receipts_by_shard = Chain::group_receipts_by_shard(receipts, &shard_layout);
