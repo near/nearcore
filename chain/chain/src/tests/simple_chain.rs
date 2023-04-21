@@ -45,7 +45,7 @@ fn build_chain() {
     if cfg!(feature = "nightly") {
         insta::assert_display_snapshot!(hash, @"3Dkg6hjpnYvMuoyEdSLnEXza6Ct2ZV9xoridA37AJzSz");
     } else {
-        insta::assert_display_snapshot!(hash, @"3fK7Uu3HC9y9DPMsDNaAP8sv56UCK2ZV1txRhTriF9qb");
+        insta::assert_display_snapshot!(hash, @"DuT1f8dmu3xYvFfsEFiAycgeLpJWQM74PZ8JtjT7SGyK");
     }
 
     for i in 1..5 {
