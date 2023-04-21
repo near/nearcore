@@ -51,7 +51,7 @@ impl From<RpcChunkError> for crate::errors::RpcError {
             RpcChunkError::InvalidShardId { .. } => Some(Value::String(error.to_string())),
             RpcChunkError::UnknownChunk { chunk_hash } => Some(Value::String(format!(
                 "Chunk Missing (unavailable on the node): ChunkHash(`{}`) \n Cause: Unknown",
-                chunk_hash.0.to_string()
+                chunk_hash.0
             ))),
         };
 

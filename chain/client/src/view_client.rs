@@ -272,7 +272,6 @@ impl ViewClientActor {
             let bp = epoch_info.sample_block_producer(block_height);
             let bp = epoch_info.get_validator(bp).account_id().clone();
             let cps: Vec<AccountId> = (0..num_shards)
-                .into_iter()
                 .map(|shard_id| {
                     let cp = epoch_info.sample_chunk_producer(block_height, shard_id);
                     let cp = epoch_info.get_validator(cp).account_id().clone();
@@ -1447,7 +1446,7 @@ impl Handler<WithSpanContext<GetSplitStorageInfo>> for ViewClientActor {
             head_height: head.map(|tip| tip.height),
             final_head_height: final_head.map(|tip| tip.height),
             cold_head_height: cold_head.map(|tip| tip.height),
-            hot_db_kind: hot_db_kind,
+            hot_db_kind,
         })
     }
 }

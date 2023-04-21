@@ -10,12 +10,13 @@ use nearcore::config::GenesisExt;
 // This test fails on aarch because wasmer0 and wasmer2 are not available.
 #[cfg_attr(all(target_arch = "aarch64", target_vendor = "apple"), ignore)]
 #[test]
-fn test_wasmer2_upgrade() {
+fn test_near_vm_upgrade() {
     let mut capture = near_o11y::testonly::TracingCapture::enable();
 
     let old_protocol_version =
-        near_primitives::version::ProtocolFeature::Wasmer2.protocol_version() - 1;
+        near_primitives::version::ProtocolFeature::NearVm.protocol_version() - 1;
     let new_protocol_version = old_protocol_version + 1;
+    eprintln!("Testing protocol upgrade between {old_protocol_version} and {new_protocol_version}");
 
     // Prepare TestEnv with a contract at the old protocol version.
     let mut env = {
@@ -81,6 +82,10 @@ fn test_wasmer2_upgrade() {
         capture.drain()
     };
 
-    assert!(logs_at_old_version.iter().any(|l| l.contains(&"vm_kind=Wasmer0")));
-    assert!(logs_at_new_version.iter().any(|l| l.contains(&"vm_kind=Wasmer2")));
+    assert!(logs_at_old_version.iter().any(|l| l.contains(&"vm_kind=Wasmer2")));
+    assert!(
+        logs_at_new_version.iter().any(|l| l.contains(&"vm_kind=NearVm")),
+        "Expected to find 'vm_kind=NearVm' in logs, occurences of vm_kind are {:?}",
+        logs_at_new_version.iter().filter(|l| l.contains("vm_kind")).collect::<Vec<_>>(),
+    );
 }

@@ -54,6 +54,7 @@ pub fn spawn_state_sync_dump(
         }
     };
 
+
     // Determine how many threads to start.
     // TODO: Handle the case of changing the shard layout.
     let num_shards = {
@@ -280,7 +281,22 @@ async fn state_sync_dump(
             std::thread::sleep(iteration_delay);
         }
     }
-    tracing::debug!(target: "state_sync_dump", shard_id, "DONE");
+    tracing::debug!(target: "state_sync_dump", shard_id, "Stopped state dump thread");
+}
+
+async fn put_state_part(
+    location: &str,
+    state_part: &[u8],
+    shard_id: &ShardId,
+    bucket: &s3::Bucket,
+) -> Result<s3::request_trait::ResponseData, Error> {
+    let _timer = metrics::STATE_SYNC_DUMP_PUT_OBJECT_ELAPSED
+        .with_label_values(&[&shard_id.to_string()])
+        .start_timer();
+    let put =
+        bucket.put_object(&location, state_part).await.map_err(|err| Error::Other(err.to_string()));
+    tracing::debug!(target: "state_sync_dump", shard_id, part_length = state_part.len(), ?location, "Wrote a state part to S3");
+    put
 }
 
 fn update_progress(
@@ -357,8 +373,8 @@ fn obtain_and_store_state_part(
 ) -> Result<Vec<u8>, Error> {
     let state_part = runtime.obtain_state_part(
         *shard_id,
-        &sync_hash,
-        &state_root,
+        sync_hash,
+        state_root,
         PartId::new(part_id, num_parts),
     )?;
 
@@ -423,7 +439,7 @@ fn check_new_epoch(
         let hash = head.last_block_hash;
         let header = chain.get_block_header(&hash)?;
         let final_hash = header.last_final_block();
-        let sync_hash = StateSync::get_epoch_start_sync_hash(&chain, &final_hash)?;
+        let sync_hash = StateSync::get_epoch_start_sync_hash(chain, final_hash)?;
         let header = chain.get_block_header(&sync_hash)?;
         if Some(header.epoch_id()) == epoch_id.as_ref() {
             // Still in the latest dumped epoch. Do nothing.

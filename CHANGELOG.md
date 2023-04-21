@@ -4,10 +4,16 @@
 
 ### Protocol Changes
 
+* Contract preparation and gas charging for wasm execution also switched to using our own code, as per the finite-wasm specification. Contract execution gas costs will change slightly for expected use cases. This opens up opportunities for further changing the execution gas costs (eg. with different costs per opcode) to lower contract execution cost long-term.
+* Compute Costs are implemented and stabilized. Compute usage of the chunk is now limited according to the compute costs. [#8915](https://github.com/near/nearcore/pull/8915), [NEP-455](https://github.com/near/NEPs/blob/master/neps/nep-0455.md).
+
 ### Non-protocol Changes
 
+* The contract runtime switched to using our fork of wasmer, with various improvements.
+* undo-block tool to reset the chain head from current head to its prev block. Use the tool by running: `./target/release/neard --home {path_to_config_directory} undo-block`. [#8681](https://github.com/near/nearcore/pull/8681)
 * Node can sync State from S3. [#8789](https://github.com/near/nearcore/pull/8789)
 * Node can sync State from local storage. [#8789](https://github.com/near/nearcore/pull/8789)
+* Add per shard granularity for chunks in validator info metric. [#8934](https://github.com/near/nearcore/pull/8934)
 
 ## 1.33.0
 

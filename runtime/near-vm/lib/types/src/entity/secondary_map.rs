@@ -212,7 +212,7 @@ mod tests {
 
     impl EntityRef for E {
         fn new(i: usize) -> Self {
-            E(i as u32)
+            Self(i as u32)
         }
         fn index(self) -> usize {
             self.0 as usize

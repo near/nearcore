@@ -1114,6 +1114,7 @@ name = "cold-store-tool"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "borsh 0.10.2",
  "clap 3.1.18",
  "near-chain-configs",
  "near-epoch-manager",
@@ -2541,6 +2542,7 @@ dependencies = [
  "near-store",
  "near-telemetry",
  "near-test-contracts",
+ "near-undo-block",
  "near-vm-errors",
  "near-vm-runner",
  "nearcore",
@@ -2983,6 +2985,7 @@ dependencies = [
  "near-crypto",
  "near-epoch-manager",
  "near-jsonrpc",
+ "near-jsonrpc-client",
  "near-network",
  "near-o11y",
  "near-performance-metrics",
@@ -2990,6 +2993,7 @@ dependencies = [
  "near-store",
  "near-telemetry",
  "nearcore",
+ "pin-project",
  "rand 0.8.5",
  "rayon",
  "serde",
@@ -3870,7 +3874,6 @@ dependencies = [
  "assert_matches",
  "bencher",
  "borsh 0.10.2",
- "byteorder",
  "bytesize",
  "crossbeam",
  "derive_more",
@@ -3931,6 +3934,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-undo-block"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap 3.1.18",
+ "near-chain",
+ "near-chain-configs",
+ "near-primitives",
+ "near-store",
+ "nearcore",
+ "tracing",
+]
+
+[[package]]
 name = "near-vm"
 version = "0.0.0"
 dependencies = [
@@ -3975,7 +3993,6 @@ dependencies = [
 name = "near-vm-compiler-singlepass"
 version = "0.0.0"
 dependencies = [
- "byteorder",
  "dynasm",
  "dynasmrt",
  "enumset",
@@ -4200,7 +4217,6 @@ dependencies = [
  "awc",
  "bencher",
  "borsh 0.10.2",
- "byteorder",
  "chrono",
  "delay-detector",
  "dirs",
@@ -4279,6 +4295,7 @@ dependencies = [
  "near-primitives",
  "near-state-parts",
  "near-store",
+ "near-undo-block",
  "nearcore",
  "once_cell",
  "openssl-probe",

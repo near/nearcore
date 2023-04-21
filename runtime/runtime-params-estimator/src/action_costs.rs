@@ -9,7 +9,7 @@
 use crate::estimator_context::{EstimatorContext, Testbed};
 use crate::gas_cost::{GasCost, NonNegativeTolerance};
 use crate::transaction_builder::AccountRequirement;
-use crate::utils::average_cost;
+use crate::utils::{average_cost, percentiles};
 use near_crypto::{KeyType, PublicKey};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::hash::CryptoHash;
@@ -60,10 +60,14 @@ struct ActionEstimation {
     outer_iters: usize,
     /// how many iterations to ignore for measurements
     warmup: usize,
+    /// What statistic to report when combining outer iterations.
+    ///
+    /// By default, the average is reported.
+    reported_statistic: Statistic,
     /// the gas metric to measure
     metric: crate::config::GasMetric,
     /// subtract the cost of an empty receipt from the measured cost
-    /// (`fasle` is only really useful for action receipt creation cost)
+    /// (`false` is only really useful for action receipt creation cost)
     subtract_base: bool,
     /// Constant to which the estimation is rounded up in case the estimation
     /// turns out smaller, to avoid unstable estimations.
@@ -79,6 +83,19 @@ struct ActionEstimation {
     /// the range [-min_gas,+min_gas] are set to min_gas and marked as good
     /// results. Anything below -min_gas is set to zero and marked as underflow.
     min_gas: Gas,
+}
+
+enum Statistic {
+    /// Arithmetic mean, high variance is marked as uncertain.
+    Average,
+    /// Use a specific value from the distribution.
+    ///
+    /// The (potential) uncertainty of this measurement is inherited. High
+    /// variance is ignored, this is usually the reason why this statistic is
+    /// used over the mean in the first place.
+    ///
+    /// Usage: `Percentile(0.99)` gives the 99th percentile.
+    Percentile(f32),
 }
 
 impl ActionEstimation {
@@ -102,6 +119,7 @@ impl ActionEstimation {
             inner_iters: 100,
             outer_iters: ctx.config.iter_per_block,
             warmup: ctx.config.warmup_iters_per_block,
+            reported_statistic: Statistic::Average,
             metric: ctx.config.metric,
             subtract_base: true,
             // This is a reasonable limit because even the cheapest action
@@ -124,17 +142,7 @@ impl ActionEstimation {
             signer: AccountRequirement::RandomUnused,
             predecessor: AccountRequirement::SameAsSigner,
             receiver: AccountRequirement::SameAsSigner,
-            actions: vec![],
-            inner_iters: 100,
-            outer_iters: ctx.config.iter_per_block,
-            warmup: ctx.config.warmup_iters_per_block,
-            metric: ctx.config.metric,
-            subtract_base: true,
-            // This is a reasonable limit because even the cheapest action
-            // (transfer) is 115 us per component. Only for the per-byte costs
-            // we need a smaller limit, because these costs can go below 1 ns.
-            // They are changed on a case-by-case basis.
-            min_gas: GAS_1_MICROSECOND,
+            ..Self::new(ctx)
         }
     }
 
@@ -162,9 +170,19 @@ impl ActionEstimation {
         self
     }
 
-    /// Set how many times thes actions are duplicated per receipt or transaction.
+    /// Set how many times the actions are duplicated per receipt or transaction.
     fn inner_iters(mut self, inner_iters: usize) -> Self {
         self.inner_iters = inner_iters;
+        self
+    }
+
+    /// Set how many receipts or transactions are measured at least.
+    ///
+    /// This overrides the CLI argument that is usually used for number of
+    /// iterations. Use this when a certain estimation requires a minimum amount
+    /// of iterations.
+    fn min_outer_iters(mut self, outer_iters: usize) -> Self {
+        self.outer_iters = self.outer_iters.max(outer_iters);
         self
     }
 
@@ -179,6 +197,18 @@ impl ActionEstimation {
     /// values below will be clamped.
     fn min_gas(mut self, gas: Gas) -> Self {
         self.min_gas = gas;
+        self
+    }
+
+    /// If enabled, the outer iterations are aggregated to a percentile value
+    /// instead of to the average for the reported cost.
+    ///
+    /// Ideally, an estimation produces a stable output. In that case the
+    /// average is a good statistic. But some estimations keep having outliers.
+    /// If we cannot get rid of those, we can fall back to using a percentile of
+    /// the sample distribution as a more meaningful statistic.
+    fn report_percentile(mut self, rank: f32) -> Self {
+        self.reported_statistic = Statistic::Percentile(rank);
         self
     }
 
@@ -273,7 +303,10 @@ impl ActionEstimation {
         let base =
             if self.subtract_base { estimated_fn(self, testbed, vec![]) } else { GasCost::zero() };
 
-        let cost_per_tx = average_cost(gas_results);
+        let cost_per_tx = match self.reported_statistic {
+            Statistic::Average => average_cost(gas_results),
+            Statistic::Percentile(rank) => percentiles(gas_results, &[rank]).next().unwrap(),
+        };
         let gas_tolerance = self.inner_iters as u64 * self.min_gas;
         let gas_per_action = cost_per_tx
             .saturating_sub(&base, &NonNegativeTolerance::AbsoluteTolerance(gas_tolerance))
@@ -591,6 +624,59 @@ pub(crate) fn new_action_receipt_exec(ctx: &mut EstimatorContext) -> GasCost {
         .apply_cost(&mut ctx.testbed())
 }
 
+pub(crate) fn delegate_send_sir(ctx: &mut EstimatorContext) -> GasCost {
+    let receiver_id: AccountId = "a".repeat(AccountId::MAX_LEN).parse().unwrap();
+    let sender_id: AccountId = genesis_populate::get_account_id(0);
+
+    ActionEstimation::new_sir(ctx)
+        .add_action(empty_delegate_action(0, receiver_id, sender_id))
+        // only single delegate action is allowed
+        .inner_iters(1)
+        // but then the variance is too high to report the average
+        .report_percentile(0.75)
+        // If the percentile of a distribution is reported, the typical
+        // number of outer iterations (3-5) is just too small. Let's do at
+        // least 60 iterations, this way the 15th largest ~ 75th percentile.
+        // (This estimations is super fast, 60 iterations are quick)
+        .min_outer_iters(60)
+        .verify_cost(&mut ctx.testbed())
+}
+
+pub(crate) fn delegate_send_not_sir(ctx: &mut EstimatorContext) -> GasCost {
+    let receiver_id: AccountId = "a".repeat(AccountId::MAX_LEN).parse().unwrap();
+    let sender_id: AccountId = genesis_populate::get_account_id(0);
+    ActionEstimation::new(ctx)
+        .add_action(empty_delegate_action(0, receiver_id, sender_id))
+        // only single delegate action is allowed
+        .inner_iters(1)
+        // but then the variance is too high to report the average
+        .report_percentile(0.75)
+        // If the percentile of a distribution is reported, the typical
+        // number of outer iterations (3-5) is just too small. Let's do at
+        // least 60 iterations, this way the 15th largest ~ 75th percentile.
+        // (This estimations is super fast, 60 iterations are quick)
+        .min_outer_iters(60)
+        .verify_cost(&mut ctx.testbed())
+}
+
+pub(crate) fn delegate_exec(ctx: &mut EstimatorContext) -> GasCost {
+    let receiver_id: AccountId = "a".repeat(AccountId::MAX_LEN).parse().unwrap();
+    let sender_id: AccountId = genesis_populate::get_account_id(0);
+    let mut builder = ActionEstimation::new_sir(ctx)
+        // nonce check would fail with cloned actions, therefore inner iterations don't work
+        .inner_iters(1)
+        // tx receiver must be the same as the meta tx signer, we can't just
+        // pick one at random or it will fail validation
+        .receiver(AccountRequirement::ConstantAccount0);
+    // manually make inner iterations by creating 100 actions with increasing nonces
+    let manual_inner_iters = 100;
+    for i in 0..manual_inner_iters {
+        builder =
+            builder.add_action(empty_delegate_action(i + 1, receiver_id.clone(), sender_id.clone()))
+    }
+    builder.apply_cost(&mut ctx.testbed()) / manual_inner_iters
+}
+
 fn create_account_action() -> Action {
     Action::CreateAccount(near_primitives::transaction::CreateAccountAction {})
 }
@@ -663,6 +749,32 @@ fn function_call_action(size: ActionSize) -> Action {
         args: vec![1u8; arg_len],
         gas: 3 * 10u64.pow(12), // 3 Tgas, to allow 100 copies in the same receipt
         deposit: 10u128.pow(24),
+    })
+}
+
+pub(crate) fn empty_delegate_action(
+    nonce: u64,
+    receiver_id: AccountId,
+    sender_id: AccountId,
+) -> Action {
+    use near_primitives::delegate_action::DelegateAction;
+    use near_primitives::signable_message::{SignableMessage, SignableMessageType};
+    use near_primitives::test_utils::create_user_test_signer;
+
+    let signer = create_user_test_signer(&sender_id);
+    let delegate_action = DelegateAction {
+        sender_id,
+        receiver_id,
+        actions: vec![],
+        nonce,
+        max_block_height: 1000,
+        public_key: signer.public_key.clone(),
+    };
+    let signature =
+        SignableMessage::new(&delegate_action, SignableMessageType::DelegateAction).sign(&signer);
+    Action::Delegate(near_primitives::delegate_action::SignedDelegateAction {
+        delegate_action,
+        signature,
     })
 }
 

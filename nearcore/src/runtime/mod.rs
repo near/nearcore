@@ -149,10 +149,9 @@ impl NightshadeRuntime {
             &genesis_config.shard_layout.get_shard_uids(),
             flat_storage_manager.clone(),
         );
-        let epoch_manager =
-            EpochManager::new_from_genesis_config(store.clone().into(), &genesis_config)
-                .expect("Failed to start Epoch Manager")
-                .into_handle();
+        let epoch_manager = EpochManager::new_from_genesis_config(store.clone(), &genesis_config)
+            .expect("Failed to start Epoch Manager")
+            .into_handle();
         let shard_tracker = ShardTracker::new(tracked_config, Arc::new(epoch_manager.clone()));
         Arc::new_cyclic(|myself| NightshadeRuntime {
             genesis_config,
@@ -348,8 +347,7 @@ impl NightshadeRuntime {
             if genesis.records_len().is_ok() {
                 warn!(target: "runtime", "Found both records in genesis config and the state dump file. Will ignore the records.");
             }
-            let state_roots = Self::genesis_state_from_dump(store, home_dir);
-            state_roots
+            Self::genesis_state_from_dump(store, home_dir)
         } else {
             Self::genesis_state_from_records(store, genesis)
         }
@@ -768,7 +766,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let shard_layout = self.get_shard_layout(epoch_id)?;
         self.flat_storage_manager
             .remove_flat_storage_for_shard(shard_uid, shard_layout)
-            .map_err(|e| Error::StorageError(e))?;
+            .map_err(Error::StorageError)?;
         Ok(())
     }
 
@@ -2416,6 +2414,8 @@ mod test {
                 num_expected_blocks: expected_blocks[0],
                 num_produced_chunks: expected_chunks[0],
                 num_expected_chunks: expected_chunks[0],
+                num_produced_chunks_per_shard: vec![expected_chunks[0]],
+                num_expected_chunks_per_shard: vec![expected_chunks[0]],
             },
             CurrentEpochValidatorInfo {
                 account_id: "test2".parse().unwrap(),
@@ -2427,6 +2427,8 @@ mod test {
                 num_expected_blocks: expected_blocks[1],
                 num_produced_chunks: expected_chunks[1],
                 num_expected_chunks: expected_chunks[1],
+                num_produced_chunks_per_shard: vec![expected_chunks[1]],
+                num_expected_chunks_per_shard: vec![expected_chunks[1]],
             },
         ];
         let next_epoch_validator_info = vec![
@@ -2478,10 +2480,14 @@ mod test {
         current_epoch_validator_info[0].num_expected_blocks = expected_blocks[0];
         current_epoch_validator_info[0].num_produced_chunks = expected_chunks[0];
         current_epoch_validator_info[0].num_expected_chunks = expected_chunks[0];
+        current_epoch_validator_info[0].num_produced_chunks_per_shard = vec![expected_chunks[0]];
+        current_epoch_validator_info[0].num_expected_chunks_per_shard = vec![expected_chunks[0]];
         current_epoch_validator_info[1].num_produced_blocks = expected_blocks[1];
         current_epoch_validator_info[1].num_expected_blocks = expected_blocks[1];
         current_epoch_validator_info[1].num_produced_chunks = expected_chunks[1];
         current_epoch_validator_info[1].num_expected_chunks = expected_chunks[1];
+        current_epoch_validator_info[1].num_produced_chunks_per_shard = vec![expected_chunks[1]];
+        current_epoch_validator_info[1].num_expected_chunks_per_shard = vec![expected_chunks[1]];
         assert_eq!(response.current_validators, current_epoch_validator_info);
         assert_eq!(
             response.next_validators,

@@ -1446,7 +1446,7 @@ mod inner {
 
         #[test]
         fn test_from_array() {
-            assert_eq!(<()>::from_array([]), ());
+            <()>::from_array([]);
             assert_eq!(<i32>::from_array([1]), (1i32));
             assert_eq!(<(i32, i64)>::from_array([1, 2]), (1i32, 2i64));
             assert_eq!(
@@ -1480,7 +1480,7 @@ mod inner {
 
         #[test]
         fn test_from_c_struct() {
-            assert_eq!(<()>::from_c_struct(S0()), ());
+            <()>::from_c_struct(S0());
             assert_eq!(<i32>::from_c_struct(S1(1)), (1i32));
             assert_eq!(<(i32, i64)>::from_c_struct(S2(1, 2)), (1i32, 2i64));
             assert_eq!(
