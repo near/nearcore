@@ -145,11 +145,10 @@ fn repro_1183() {
                     if thread_rng().gen_bool(0.5) {
                         (NetworkResponses::NoResponse.into(), true)
                     } else {
-                        let msg2 = msg.clone();
                         delayed_one_parts
                             .write()
                             .unwrap()
-                            .push(msg2.as_network_requests_ref().clone());
+                            .push(msg.as_network_requests_ref().clone());
                         (NetworkResponses::NoResponse.into(), false)
                     }
                 } else {
@@ -226,7 +225,7 @@ fn test_sync_from_archival_node() {
                                 (NetworkResponses::NoResponse.into(), false)
                             }
                             NetworkRequests::Approval { approval_message } => {
-                                for (i, actor_handles) in conns.clone().into_iter().enumerate() {
+                                for (i, actor_handles) in conns.into_iter().enumerate() {
                                     if i != 3 {
                                         actor_handles.client_actor.do_send(
                                             BlockApproval(

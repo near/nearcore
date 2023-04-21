@@ -1452,8 +1452,8 @@ mod tests {
             result.result,
             Err(ActionErrorKind::DelegateActionAccessKeyError(
                 InvalidAccessKeyError::AccessKeyNotFound {
-                    account_id: sender_id.clone(),
-                    public_key: sender_pub_key.clone(),
+                    account_id: sender_id,
+                    public_key: sender_pub_key,
                 },
             )
             .into())
@@ -1554,7 +1554,7 @@ mod tests {
             }),
         };
 
-        let mut delegate_action = signed_delegate_action.delegate_action.clone();
+        let mut delegate_action = signed_delegate_action.delegate_action;
         delegate_action.actions =
             vec![non_delegate_action(Action::FunctionCall(FunctionCallAction {
                 args: Vec::new(),
@@ -1578,7 +1578,7 @@ mod tests {
             }),
         };
 
-        let mut delegate_action = signed_delegate_action.delegate_action.clone();
+        let mut delegate_action = signed_delegate_action.delegate_action;
         delegate_action.actions =
             vec![non_delegate_action(Action::CreateAccount(CreateAccountAction {}))];
 
@@ -1605,7 +1605,7 @@ mod tests {
             }),
         };
 
-        let mut delegate_action = signed_delegate_action.delegate_action.clone();
+        let mut delegate_action = signed_delegate_action.delegate_action;
         delegate_action.actions = vec![
             non_delegate_action(Action::FunctionCall(FunctionCallAction {
                 args: Vec::new(),
@@ -1644,7 +1644,7 @@ mod tests {
             }),
         };
 
-        let mut delegate_action = signed_delegate_action.delegate_action.clone();
+        let mut delegate_action = signed_delegate_action.delegate_action;
         delegate_action.actions =
             vec![non_delegate_action(Action::FunctionCall(FunctionCallAction {
                 args: Vec::new(),
@@ -1676,7 +1676,7 @@ mod tests {
             }),
         };
 
-        let mut delegate_action = signed_delegate_action.delegate_action.clone();
+        let mut delegate_action = signed_delegate_action.delegate_action;
         delegate_action.actions =
             vec![non_delegate_action(Action::FunctionCall(FunctionCallAction {
                 args: Vec::new(),
@@ -1691,7 +1691,7 @@ mod tests {
             result.result,
             Err(ActionErrorKind::DelegateActionAccessKeyError(
                 InvalidAccessKeyError::ReceiverMismatch {
-                    tx_receiver: delegate_action.receiver_id.clone(),
+                    tx_receiver: delegate_action.receiver_id,
                     ak_receiver: "another.near".parse().unwrap(),
                 },
             )
@@ -1711,7 +1711,7 @@ mod tests {
             }),
         };
 
-        let mut delegate_action = signed_delegate_action.delegate_action.clone();
+        let mut delegate_action = signed_delegate_action.delegate_action;
         delegate_action.actions =
             vec![non_delegate_action(Action::FunctionCall(FunctionCallAction {
                 args: Vec::new(),

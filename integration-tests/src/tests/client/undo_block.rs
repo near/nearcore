@@ -52,7 +52,7 @@ fn test_undo_block(epoch_length: u64, stop_height: u64) {
     assert_eq!(chain_store.head().unwrap().height, stop_height - 1);
 
     // set up an environment again with the same store
-    let (mut env, _) = setup_env(&genesis, store.clone());
+    let (mut env, _) = setup_env(&genesis, store);
     // the new env should be able to produce block normally
     let block = env.clients[0].produce_block(stop_height).unwrap().unwrap();
     env.process_block(0, block, Provenance::PRODUCED);

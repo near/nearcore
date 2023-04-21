@@ -2589,7 +2589,7 @@ mod tests {
 
         let second_call_receipt = create_receipt_with_actions(
             alice_account(),
-            signer.clone(),
+            signer,
             vec![Action::FunctionCall(FunctionCallAction {
                 method_name: "ext_sha256".to_string(),
                 args: b"second".to_vec(),
@@ -2665,7 +2665,7 @@ mod tests {
 
         let first_call_receipt = create_receipt_with_actions(
             alice_account(),
-            signer.clone(),
+            signer,
             vec![Action::FunctionCall(FunctionCallAction {
                 method_name: "ext_sha256".to_string(),
                 args: b"first".to_vec(),
