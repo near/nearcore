@@ -398,12 +398,18 @@ impl DBCol {
             DBCol::Block
             | DBCol::BlockExtra
             | DBCol::BlockInfo
+            // TODO can be reconstruction from BlockHeight instead of saving to cold storage.
+            | DBCol::BlockPerHeight
             | DBCol::ChunkExtra
+            // TODO can be changed to reconstruction from Block instead of saving to cold storage.
+            | DBCol::ChunkHashesByHeight
             | DBCol::Chunks
             | DBCol::IncomingReceipts
             | DBCol::NextBlockHashes
             | DBCol::OutcomeIds
             | DBCol::OutgoingReceipts
+            // TODO can be changed to reconstruction on request instead of saving in cold storage.
+            | DBCol::PartialChunks
             | DBCol::ReceiptIdToShardId
             | DBCol::Receipts
             | DBCol::State
@@ -420,27 +426,12 @@ impl DBCol {
             DBCol::BlocksToCatchup => false,
             // BlockRefCount is only needed when handling forks and it is not immutable.
             DBCol::BlockRefCount => false,
-            // PartialChunks can be recomputed and take a lot of space.
-            // TODO - but could it be used by the view client? If so then this
-            // column needs to be added to cold or the relevant code needs to be
-            // able to recompute it on demand.
-            DBCol::PartialChunks => false,
             // InvalidChunks is only needed at head when accepting new chunks.
             DBCol::InvalidChunks => false,
-            // TODO go/cold-store says: "this can be handled by reading Block
-            // and iterating over hashes there". Needs to be implemented or
-            // confirmed that view client doesn't use that column.
-            DBCol::ChunkHashesByHeight => false,
             // StateParts is only needed while syncing.
             DBCol::StateParts => false,
             // TrieChanges is only needed for GC.
             DBCol::TrieChanges => false,
-            // BlockPerHeight becomes equivalent to BlockHeight since in cold
-            // storage there are only final blocks.
-            // TODO but could it be used by the view client? If so then this
-            // column needs to be added to cold or the relevant code needs to be
-            // able to recompute it on demand.
-            DBCol::BlockPerHeight => false,
             // StateDlInfos is only needed when syncing and it is not immutable.
             DBCol::StateDlInfos => false,
             // TODO
