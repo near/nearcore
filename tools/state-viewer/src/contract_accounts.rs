@@ -409,7 +409,7 @@ impl std::fmt::Display for ContractAccountSummary {
                 writeln!(f, "{err}")?;
             }
         } else {
-            writeln!(f, "")?;
+            writeln!(f)?;
             writeln!(f, "Finished without errors!")?;
         }
 
@@ -457,9 +457,9 @@ impl ContractAccountFilter {
             write!(out, " {:>10}", "RCPTS_OUT",)?;
         }
         if self.actions {
-            write!(out, " {}", "ACTIONS")?;
+            write!(out, " ACTIONS")?;
         }
-        writeln!(out,)
+        writeln!(out)
     }
 
     fn include_account(&self, account: &AccountId) -> bool {
@@ -677,6 +677,7 @@ mod tests {
                 logs: vec![],
                 receipt_ids,
                 gas_burnt: 100,
+                compute_usage: Some(200),
                 tokens_burnt: 2000,
                 executor_id: "someone.near".parse().unwrap(),
                 status: ExecutionStatus::SuccessValue(vec![]),

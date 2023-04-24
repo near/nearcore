@@ -20,10 +20,6 @@ near-chain.workspace = true
 near-test-contracts.workspace = true
 
 [features]
-protocol_feature_flat_state = [
-  "nearcore/protocol_feature_flat_state",
-]
 nightly = [
-  "protocol_feature_flat_state",
   "nearcore/nightly",
 ]

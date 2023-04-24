@@ -149,10 +149,9 @@ impl NightshadeRuntime {
             &genesis_config.shard_layout.get_shard_uids(),
             flat_storage_manager.clone(),
         );
-        let epoch_manager =
-            EpochManager::new_from_genesis_config(store.clone().into(), &genesis_config)
-                .expect("Failed to start Epoch Manager")
-                .into_handle();
+        let epoch_manager = EpochManager::new_from_genesis_config(store.clone(), &genesis_config)
+            .expect("Failed to start Epoch Manager")
+            .into_handle();
         let shard_tracker = ShardTracker::new(tracked_config, Arc::new(epoch_manager.clone()));
         Arc::new_cyclic(|myself| NightshadeRuntime {
             genesis_config,
@@ -348,8 +347,7 @@ impl NightshadeRuntime {
             if genesis.records_len().is_ok() {
                 warn!(target: "runtime", "Found both records in genesis config and the state dump file. Will ignore the records.");
             }
-            let state_roots = Self::genesis_state_from_dump(store, home_dir);
-            state_roots
+            Self::genesis_state_from_dump(store, home_dir)
         } else {
             Self::genesis_state_from_records(store, genesis)
         }
@@ -768,7 +766,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let shard_layout = self.get_shard_layout(epoch_id)?;
         self.flat_storage_manager
             .remove_flat_storage_for_shard(shard_uid, shard_layout)
-            .map_err(|e| Error::StorageError(e))?;
+            .map_err(Error::StorageError)?;
         Ok(())
     }
 
@@ -1393,10 +1391,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, epoch_id)?;
         let mut store_update = tries.store_update();
         tries.apply_all(&trie_changes, shard_uid, &mut store_update);
-        if cfg!(feature = "protocol_feature_flat_state") {
-            debug!(target: "chain", %shard_id, "Inserting {} values to flat storage", flat_state_delta.len());
-            flat_state_delta.apply_to_flat_state(&mut store_update, shard_uid);
-        }
+        debug!(target: "chain", %shard_id, "Inserting {} values to flat storage", flat_state_delta.len());
+        flat_state_delta.apply_to_flat_state(&mut store_update, shard_uid);
         self.precompile_contracts(epoch_id, contract_codes)?;
         Ok(store_update.commit()?)
     }
@@ -1787,7 +1783,7 @@ mod test {
 
             // Create flat storage. Naturally it happens on Chain creation, but here we test only Runtime behaviour
             // and use a mock chain, so we need to initialize flat storage manually.
-            if cfg!(feature = "protocol_feature_flat_state") {
+            {
                 let store_update = runtime
                     .set_flat_storage_for_genesis(&genesis_hash, 0, &EpochId::default())
                     .unwrap();
@@ -2265,7 +2261,7 @@ mod test {
     }
 
     // TODO (#7327): enable test when flat storage will support state sync.
-    #[cfg(not(feature = "protocol_feature_flat_state"))]
+    #[ignore]
     #[test]
     fn test_state_sync() {
         init_test_logger();
@@ -2416,6 +2412,8 @@ mod test {
                 num_expected_blocks: expected_blocks[0],
                 num_produced_chunks: expected_chunks[0],
                 num_expected_chunks: expected_chunks[0],
+                num_produced_chunks_per_shard: vec![expected_chunks[0]],
+                num_expected_chunks_per_shard: vec![expected_chunks[0]],
             },
             CurrentEpochValidatorInfo {
                 account_id: "test2".parse().unwrap(),
@@ -2427,6 +2425,8 @@ mod test {
                 num_expected_blocks: expected_blocks[1],
                 num_produced_chunks: expected_chunks[1],
                 num_expected_chunks: expected_chunks[1],
+                num_produced_chunks_per_shard: vec![expected_chunks[1]],
+                num_expected_chunks_per_shard: vec![expected_chunks[1]],
             },
         ];
         let next_epoch_validator_info = vec![
@@ -2478,10 +2478,14 @@ mod test {
         current_epoch_validator_info[0].num_expected_blocks = expected_blocks[0];
         current_epoch_validator_info[0].num_produced_chunks = expected_chunks[0];
         current_epoch_validator_info[0].num_expected_chunks = expected_chunks[0];
+        current_epoch_validator_info[0].num_produced_chunks_per_shard = vec![expected_chunks[0]];
+        current_epoch_validator_info[0].num_expected_chunks_per_shard = vec![expected_chunks[0]];
         current_epoch_validator_info[1].num_produced_blocks = expected_blocks[1];
         current_epoch_validator_info[1].num_expected_blocks = expected_blocks[1];
         current_epoch_validator_info[1].num_produced_chunks = expected_chunks[1];
         current_epoch_validator_info[1].num_expected_chunks = expected_chunks[1];
+        current_epoch_validator_info[1].num_produced_chunks_per_shard = vec![expected_chunks[1]];
+        current_epoch_validator_info[1].num_expected_chunks_per_shard = vec![expected_chunks[1]];
         assert_eq!(response.current_validators, current_epoch_validator_info);
         assert_eq!(
             response.next_validators,
@@ -3066,10 +3070,7 @@ mod test {
             .runtime
             .get_trie_for_shard(0, &env.head.prev_block_hash, Trie::EMPTY_ROOT, true)
             .unwrap();
-        assert_eq!(
-            trie.flat_storage_chunk_view.is_some(),
-            cfg!(feature = "protocol_feature_flat_state")
-        );
+        assert!(trie.flat_storage_chunk_view.is_some());
 
         let trie = env
             .runtime

@@ -132,7 +132,7 @@ impl EpochSelection {
                 chain.runtime_adapter.get_epoch_id(&chain.head().unwrap().last_block_hash).unwrap()
             }
             EpochSelection::EpochId { epoch_id } => {
-                EpochId(CryptoHash::from_str(&epoch_id).unwrap())
+                EpochId(CryptoHash::from_str(epoch_id).unwrap())
             }
             EpochSelection::EpochHeight { epoch_height } => {
                 // Fetch epochs at the given height.
@@ -145,7 +145,7 @@ impl EpochSelection {
                 epoch_ids[0].clone()
             }
             EpochSelection::BlockHash { block_hash } => {
-                let block_hash = CryptoHash::from_str(&block_hash).unwrap();
+                let block_hash = CryptoHash::from_str(block_hash).unwrap();
                 chain.runtime_adapter.get_epoch_id(&block_hash).unwrap()
             }
             EpochSelection::BlockHeight { block_height } => {
@@ -235,11 +235,11 @@ fn apply_state_parts(
         {
             (state_root, *epoch_height, None, None)
         } else {
-            let epoch_id = epoch_selection.to_epoch_id(store, &chain);
+            let epoch_id = epoch_selection.to_epoch_id(store, chain);
             let epoch = chain.runtime_adapter.get_epoch_info(&epoch_id).unwrap();
 
-            let sync_hash = get_any_block_hash_of_epoch(&epoch, &chain);
-            let sync_hash = StateSync::get_epoch_start_sync_hash(&chain, &sync_hash).unwrap();
+            let sync_hash = get_any_block_hash_of_epoch(&epoch, chain);
+            let sync_hash = StateSync::get_epoch_start_sync_hash(chain, &sync_hash).unwrap();
 
             let state_header = chain.get_state_response_header(shard_id, sync_hash).unwrap();
             let state_root = state_header.chunk_prev_state_root();
@@ -247,7 +247,7 @@ fn apply_state_parts(
             (state_root, epoch.epoch_height(), Some(epoch_id), Some(sync_hash))
         };
 
-    let part_storage = get_state_part_reader(location, &chain_id, epoch_height, shard_id);
+    let part_storage = get_state_part_reader(location, chain_id, epoch_height, shard_id);
 
     let num_parts = part_storage.num_parts();
     assert_ne!(num_parts, 0, "Too few num_parts: {}", num_parts);
@@ -310,10 +310,10 @@ fn dump_state_parts(
     store: Store,
     location: Location,
 ) {
-    let epoch_id = epoch_selection.to_epoch_id(store, &chain);
+    let epoch_id = epoch_selection.to_epoch_id(store, chain);
     let epoch = chain.runtime_adapter.get_epoch_info(&epoch_id).unwrap();
-    let sync_hash = get_any_block_hash_of_epoch(&epoch, &chain);
-    let sync_hash = StateSync::get_epoch_start_sync_hash(&chain, &sync_hash).unwrap();
+    let sync_hash = get_any_block_hash_of_epoch(&epoch, chain);
+    let sync_hash = StateSync::get_epoch_start_sync_hash(chain, &sync_hash).unwrap();
 
     let state_header = chain.compute_state_response_header(shard_id, sync_hash).unwrap();
     let state_root = state_header.chunk_prev_state_root();
@@ -361,11 +361,9 @@ fn get_first_state_record(state_root: &StateRoot, data: &[u8]) -> Option<StateRe
     let trie_nodes = BorshDeserialize::try_from_slice(data).unwrap();
     let trie = Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes }, *state_root);
 
-    for item in trie.iter().unwrap() {
-        if let Ok((key, value)) = item {
-            if let Some(sr) = StateRecord::from_raw_key_value(key, value) {
-                return Some(sr);
-            }
+    for (key, value) in trie.iter().unwrap().flatten() {
+        if let Some(sr) = StateRecord::from_raw_key_value(key, value) {
+            return Some(sr);
         }
     }
     None
@@ -378,11 +376,11 @@ fn read_state_header(
     chain: &Chain,
     store: Store,
 ) {
-    let epoch_id = epoch_selection.to_epoch_id(store, &chain);
+    let epoch_id = epoch_selection.to_epoch_id(store, chain);
     let epoch = chain.runtime_adapter.get_epoch_info(&epoch_id).unwrap();
 
-    let sync_hash = get_any_block_hash_of_epoch(&epoch, &chain);
-    let sync_hash = StateSync::get_epoch_start_sync_hash(&chain, &sync_hash).unwrap();
+    let sync_hash = get_any_block_hash_of_epoch(&epoch, chain);
+    let sync_hash = StateSync::get_epoch_start_sync_hash(chain, &sync_hash).unwrap();
 
     let state_header = chain.store().get_state_header(shard_id, sync_hash);
     tracing::info!(target: "state-parts", ?epoch_id, ?sync_hash, ?state_header);
@@ -485,7 +483,7 @@ impl FileSystemStorage {
     }
 
     fn get_location(&self, part_id: u64, num_parts: u64) -> PathBuf {
-        (&self.state_parts_dir).join(part_filename(part_id, num_parts))
+        self.state_parts_dir.join(part_filename(part_id, num_parts))
     }
 }
 
@@ -501,8 +499,7 @@ impl StatePartReader for FileSystemStorage {
     fn read(&self, part_id: u64, num_parts: u64) -> Vec<u8> {
         let filename = self.get_location(part_id, num_parts);
         tracing::debug!(target: "state-parts", part_id, num_parts, ?filename, "Reading state part file");
-        let part = std::fs::read(filename).unwrap();
-        part
+        std::fs::read(filename).unwrap()
     }
 
     fn num_parts(&self) -> u64 {
@@ -550,7 +547,7 @@ impl S3Storage {
     ) -> Self {
         let location = location_prefix(chain_id, epoch_height, shard_id);
         let bucket = s3::Bucket::new(
-            &s3_bucket,
+            s3_bucket,
             s3_region.parse::<s3::Region>().unwrap(),
             s3::creds::Credentials::default().unwrap(),
         )
@@ -568,7 +565,7 @@ impl S3Storage {
 impl StatePartWriter for S3Storage {
     fn write(&self, state_part: &[u8], part_id: u64, num_parts: u64) {
         let location = self.get_location(part_id, num_parts);
-        self.bucket.put_object_blocking(&location, &state_part).unwrap();
+        self.bucket.put_object_blocking(&location, state_part).unwrap();
         tracing::info!(target: "state-parts", part_id, part_length = state_part.len(), ?location, "Wrote a state part to S3");
     }
 }

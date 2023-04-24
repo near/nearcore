@@ -1,11 +1,11 @@
 use actix_web::{web, App, HttpServer};
 use anyhow::Context;
 pub use cli::PingCommand;
+use near_async::time;
 use near_network::raw::{ConnectError, Connection, DirectMessage, Message, RoutedMessage};
 use near_network::types::HandshakeFailureReason;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::time;
 use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::version::ProtocolVersion;
 use std::cmp;

@@ -7,13 +7,13 @@ use crate::routing::routing_table_view::RoutingTableInfo;
 use near_async::messaging::{
     AsyncSender, CanSend, CanSendAsync, IntoAsyncSender, IntoSender, Sender,
 };
+use near_async::time;
 use near_crypto::PublicKey;
 use near_primitives::block::{ApprovalMessage, Block, GenesisId};
 use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::PartialEncodedChunkWithArcReceipts;
-use near_primitives::time;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockHeight;
 use near_primitives::types::{AccountId, ShardId};

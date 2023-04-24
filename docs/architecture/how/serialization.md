@@ -135,32 +135,12 @@ could lead to some programmatic bugs.
 
 ## Advanced section - RawTrieNode
 
-But there is one more place in the code, where we use a ‘custom’ encoding (very
-similar to Borsh, but a little different): RawTrieNode.
-
-If you look into store/src/trie/mod.rs, you’ll be able to find a method called `encode_into`:
-
-```rust
-fn encode_into(&self, out: &mut Vec<u8>) {
-    // size in state_parts = size + 8 for RawTrieNodeWithSize + 8 for borsh vector length
-    match &self {
-        // size <= 1 + 4 + 4 + 32 + key_length + value_length
-        RawTrieNode::Leaf(key, value_length, value_hash) => {
-            out.push(LEAF_NODE);
-            out.extend((key.len() as u32).to_le_bytes());
-            out.extend(key);
-            out.extend((*value_length as u32).to_le_bytes());
-            out.extend(value_hash.as_bytes());
-        }
-     //... more code
-```
-
-which is responsible for generating this custom encoding.
-
-If you analyse the code carefully - you’ll notice that this custom encoding
-differs from Borsh in one place - in how it encodes ‘children’
-(`[Option<CryptoHash>; 16]`) with a help of a bitmask, while Borsh would have
-used a different layout.
+There is one more place in the code where we use a ‘custom’ encoding:
+RawTrieNodeWithSize defined in store/src/trie/raw_nodes.rs.  While the format
+uses Borsh derives and API, there is a difference in how branch children
+(`[Option<CryptoHash>; 16]`) are encoded.  Standard Borsh encoding would
+encode `Option<CryptoHash>` sixteen times.  Instead, RawTrieNodeWithSize uses
+a bitmap to indicate which elements are set resulting in a different layout.
 
 Imagine a children vector like this:
 
@@ -184,3 +164,7 @@ Borsh:
 [1][0x11][0][1][0x11][0][0]...
 // Total size: 16 + 32 + 32 = 80 bytes
 ```
+
+Code for encoding children is given in BorshSerialize implementation for
+ChildrenRef type and code for decoding in BorshDeserialize implementation for
+Children.  All of that is in aforementioned store/src/trie/raw_nodes.rs file.

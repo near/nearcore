@@ -260,22 +260,18 @@ pub enum DBCol {
     /// Flat state contents. Used to get `ValueRef` by trie key faster than doing a trie lookup.
     /// - *Rows*: `shard_uid` + trie key (Vec<u8>)
     /// - *Column type*: ValueRef
-    #[cfg(feature = "protocol_feature_flat_state")]
     FlatState,
     /// Changes for flat state delta. Stores how flat state should be updated for the given shard and block.
     /// - *Rows*: `KeyForFlatStateDelta { shard_uid, block_hash }`
     /// - *Column type*: `FlatStateChanges`
-    #[cfg(feature = "protocol_feature_flat_state")]
     FlatStateChanges,
     /// Metadata for flat state delta.
     /// - *Rows*: `KeyForFlatStateDelta { shard_uid, block_hash }`
     /// - *Column type*: `FlatStateDeltaMetadata`
-    #[cfg(feature = "protocol_feature_flat_state")]
     FlatStateDeltaMetadata,
     /// Flat storage status for the corresponding shard.
     /// - *Rows*: `shard_uid`
     /// - *Column type*: `FlatStorageStatus`
-    #[cfg(feature = "protocol_feature_flat_state")]
     FlatStorageStatus,
 }
 
@@ -474,9 +470,8 @@ impl DBCol {
             | DBCol::_TransactionRefCount
             | DBCol::_TransactionResult
             // | DBCol::StateChangesForSplitStates
-            | DBCol::CachedContractCode => false,
-            #[cfg(feature = "protocol_feature_flat_state")]
-            DBCol::FlatState
+            | DBCol::CachedContractCode
+            | DBCol::FlatState
             | DBCol::FlatStateChanges
             | DBCol::FlatStateDeltaMetadata
             | DBCol::FlatStorageStatus => false,
@@ -543,13 +538,9 @@ impl DBCol {
             DBCol::HeaderHashesByHeight => &[DBKeyType::BlockHeight],
             DBCol::StateChangesForSplitStates => &[DBKeyType::BlockHash, DBKeyType::ShardId],
             DBCol::TransactionResultForBlock => &[DBKeyType::OutcomeId, DBKeyType::BlockHash],
-            #[cfg(feature = "protocol_feature_flat_state")]
             DBCol::FlatState => &[DBKeyType::ShardUId, DBKeyType::TrieKey],
-            #[cfg(feature = "protocol_feature_flat_state")]
-            DBCol::FlatStateChanges => &[DBKeyType::ShardId, DBKeyType::BlockHash],
-            #[cfg(feature = "protocol_feature_flat_state")]
-            DBCol::FlatStateDeltaMetadata => &[DBKeyType::ShardId, DBKeyType::BlockHash],
-            #[cfg(feature = "protocol_feature_flat_state")]
+            DBCol::FlatStateChanges => &[DBKeyType::ShardUId, DBKeyType::BlockHash],
+            DBCol::FlatStateDeltaMetadata => &[DBKeyType::ShardUId, DBKeyType::BlockHash],
             DBCol::FlatStorageStatus => &[DBKeyType::ShardUId],
         }
     }

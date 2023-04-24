@@ -101,10 +101,10 @@ static EXPECTED_UNSUPPORTED: &[(&str, &str)] = &[
 
 #[test]
 fn ensure_fails_verification() {
-    with_vm_variants(|kind| {
+    let config = VMConfig::test();
+    with_vm_variants(&config, |kind| {
         for (feature_name, wat) in EXPECTED_UNSUPPORTED {
             let wasm = wat::parse_str(wat).expect("parsing test wat should succeed");
-            let config = VMConfig::test();
             if let Ok(_) = prepare_contract(&wasm, &config, kind) {
                 panic!("wasm containing use of {} feature did not fail to prepare", feature_name);
             }

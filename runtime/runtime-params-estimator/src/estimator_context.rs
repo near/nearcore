@@ -77,11 +77,8 @@ impl<'c> EstimatorContext<'c> {
 
         let flat_head = CryptoHash::hash_borsh(0usize);
         let flat_storage_manager = FlatStorageManager::test(store.clone(), &shard_uids, flat_head);
-        if cfg!(feature = "protocol_feature_flat_state") {
-            let flat_storage =
-                flat_storage_manager.get_flat_storage_for_shard(shard_uids[0]).unwrap();
-            self.generate_deltas(&flat_storage);
-        }
+        let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uids[0]).unwrap();
+        self.generate_deltas(&flat_storage);
 
         let tries = ShardTries::new(store.clone(), trie_config, &shard_uids, flat_storage_manager);
 
@@ -311,10 +308,8 @@ impl Testbed<'_> {
         let mut store_update = self.tries.store_update();
         let shard_uid = ShardUId::single_shard();
         self.root = self.tries.apply_all(&apply_result.trie_changes, shard_uid, &mut store_update);
-        if cfg!(feature = "protocol_feature_flat_state") {
-            near_store::flat::FlatStateChanges::from_state_changes(&apply_result.state_changes)
-                .apply_to_flat_state(&mut store_update, shard_uid);
-        }
+        near_store::flat::FlatStateChanges::from_state_changes(&apply_result.state_changes)
+            .apply_to_flat_state(&mut store_update, shard_uid);
         store_update.commit().unwrap();
         self.apply_state.block_height += 1;
 

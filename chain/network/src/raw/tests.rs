@@ -3,11 +3,11 @@ use crate::raw;
 use crate::tcp;
 use crate::testonly;
 use crate::types::PeerInfo;
+use near_async::time;
 use near_crypto::{KeyType, SecretKey};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::time;
 use std::sync::Arc;
 
 #[tokio::test]

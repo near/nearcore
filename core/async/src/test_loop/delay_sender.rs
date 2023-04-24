@@ -1,7 +1,6 @@
-use near_primitives::time;
-use std::sync::Arc;
-
 use crate::messaging;
+use crate::time;
+use std::sync::Arc;
 
 /// Interface to send an event with a delay (in virtual time). It can be
 /// converted to a Sender for any message type that can be converted into
