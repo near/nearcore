@@ -4511,7 +4511,7 @@ impl Chain {
 
     /// Check if can sync with sync_hash
     pub fn check_sync_hash_validity(&self, sync_hash: &CryptoHash) -> Result<bool, Error> {
-        tracing::warn!(?sync_hash, "check_sync_hash_validity");
+        tracing::warn!(?sync_hash, "check_sync_hash_validity"); // TODO // FIXME
         let head = self.head()?;
         // It's important to check that Block exists because we will sync with it.
         // Do not replace with `get_block_header`.
@@ -4523,7 +4523,7 @@ impl Chain {
             sync_block_next_epoch_id=?sync_block.header().next_epoch_id(),
             sync_block_prev_hash=?sync_block.header().prev_hash(),
             is_next_block_epoch_start=?self.runtime_adapter.is_next_block_epoch_start(&sync_block.header().prev_hash()),
-            "check_sync_hash_validity");
+            "check_sync_hash_validity"); // TODO // FIXME
         // The Epoch of sync_hash may be either the current one or the previous one
         if head.epoch_id == *sync_block.header().epoch_id()
             || head.epoch_id == *sync_block.header().next_epoch_id()
