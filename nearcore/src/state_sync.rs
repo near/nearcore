@@ -383,12 +383,20 @@ fn start_dumping(
 ) -> Result<Option<StateSyncDumpProgress>, Error> {
     let epoch_info = runtime.get_epoch_info(&epoch_id)?;
     let epoch_height = epoch_info.epoch_height();
-    let sync_prev_header = chain.get_block_header(&sync_hash)?;
-    let sync_prev_hash = sync_prev_header.hash();
+
+    let sync_header = chain.get_block_header(&sync_hash)?;
+    let sync_prev_hash = sync_header.prev_hash();
+    let sync_prev_header = chain.get_block_header(&sync_prev_hash)?;
+    // Need to check if the completed epoch had a shard this account cares about.
+    // sync_hash is the first block of the next epoch.
+    // `cares_about_shard()` accepts `parent_hash`, therefore we need prev-prev-hash,
+    // and its next-hash will be prev-hash. That is the last block of the completed epoch,
+    // which is what we wanted.
+    let sync_prev_prev_hash = sync_prev_header.prev_hash();
 
     let state_header = chain.get_state_response_header(shard_id, sync_hash)?;
     let num_parts = get_num_state_parts(state_header.state_root_node().memory_usage);
-    if runtime.cares_about_shard(account_id.as_ref(), sync_prev_hash, shard_id, true) {
+    if runtime.cares_about_shard(account_id.as_ref(), sync_prev_prev_hash, shard_id, true) {
         tracing::info!(target: "state_sync_dump", shard_id, ?epoch_id, %sync_prev_hash, %sync_hash, "Initialize dumping state of Epoch");
         // Note that first the state of the state machines gets changes to
         // `InProgress` and it starts dumping state after a short interval.
