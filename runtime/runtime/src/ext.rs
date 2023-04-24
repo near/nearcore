@@ -1,3 +1,4 @@
+use near_primitives::checked_feature;
 use near_primitives::contract::ContractCode;
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
@@ -135,8 +136,14 @@ impl<'a> External for RuntimeExt<'a> {
 
     fn storage_has_key(&mut self, key: &[u8]) -> ExtResult<bool> {
         let storage_key = self.create_storage_key(key);
+        let read_mode =
+            if checked_feature!("stable", FlatStorageReads, self.current_protocol_version) {
+                KeyLookupMode::FlatStorage
+            } else {
+                KeyLookupMode::Trie
+            };
         self.trie_update
-            .get_ref(&storage_key, KeyLookupMode::FlatStorage)
+            .get_ref(&storage_key, read_mode)
             .map(|x| x.is_some())
             .map_err(wrap_storage_error)
     }
