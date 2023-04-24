@@ -450,8 +450,8 @@ fn sync_state_dump() {
                     let view_client2_holder2 = view_client2_holder.clone();
                     let arbiters_holder2 = arbiters_holder2.clone();
                     let genesis2 = genesis.clone();
-                    let dir2 = dir2.path().clone();
-                    let dump_dir1 = dump_dir.path().clone();
+                    let dir2 = dir2.path();
+                    let dump_dir1 = dump_dir.path();
 
                     match view_client1.send(GetBlock::latest().with_span_context()).await {
                         Ok(Ok(b)) if b.header.height >= state_sync_horizon + 1 => {
