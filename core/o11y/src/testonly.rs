@@ -44,6 +44,6 @@ pub fn init_test_module_logger(module: &str) {
 }
 
 pub fn init_integration_logger() {
-    let env_filter = EnvFilter::new("actix_web=warn,info");
+    let env_filter = EnvFilter::new("actix_web=warn,info,sync=debug,state_sync_dump=debug"); // FIXME // TODO
     setup_subscriber_from_filter(env_filter);
 }
