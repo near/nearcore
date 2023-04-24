@@ -5,6 +5,7 @@ use std::cmp::Ordering;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::test_utils::create_test_signer;
 use num_rational::Ratio;
 use tracing::debug;
@@ -26,12 +27,13 @@ use crate::block_processing_utils::BlockNotInPoolError;
 use crate::chain::Chain;
 use crate::store::ChainStoreAccess;
 use crate::types::{AcceptedBlock, ChainConfig, ChainGenesis};
+use crate::DoomslugThresholdMode;
 use crate::{BlockProcessingArtifact, Provenance};
-use crate::{DoomslugThresholdMode, RuntimeWithEpochManagerAdapter};
 use near_primitives::static_clock::StaticClock;
 use near_primitives::utils::MaybeValidated;
 
 pub use self::kv_runtime::account_id_to_shard_id;
+pub use self::kv_runtime::KeyValueEpochManager;
 pub use self::kv_runtime::KeyValueRuntime;
 
 pub use self::validator_schedule::ValidatorSchedule;
@@ -79,20 +81,23 @@ pub fn process_block_sync(
 }
 
 // TODO(#8190) Improve this testing API.
-pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {
+pub fn setup(
+) -> (Chain, Arc<KeyValueEpochManager>, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {
     setup_with_tx_validity_period(100)
 }
 
 pub fn setup_with_tx_validity_period(
     tx_validity_period: NumBlocks,
-) -> (Chain, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {
+) -> (Chain, Arc<KeyValueEpochManager>, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {
     let store = create_test_store();
     let epoch_length = 1000;
-    let runtime = KeyValueRuntime::new(store, epoch_length);
+    let epoch_manager = KeyValueEpochManager::new(store.clone(), epoch_length);
+    let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
+    let runtime = KeyValueRuntime::new(store, epoch_manager.as_ref());
     let chain = Chain::new(
-        runtime.epoch_manager_adapter_arc(),
-        runtime.shard_tracker(),
-        runtime.runtime_adapter_arc(),
+        epoch_manager.clone(),
+        shard_tracker,
+        runtime.clone(),
         &ChainGenesis {
             time: StaticClock::utc(),
             height: 0,
@@ -111,22 +116,24 @@ pub fn setup_with_tx_validity_period(
     .unwrap();
 
     let signer = Arc::new(create_test_signer("test"));
-    (chain, runtime, signer)
+    (chain, epoch_manager, runtime, signer)
 }
 
 pub fn setup_with_validators(
     vs: ValidatorSchedule,
     epoch_length: u64,
     tx_validity_period: NumBlocks,
-) -> (Chain, Arc<KeyValueRuntime>, Vec<Arc<InMemoryValidatorSigner>>) {
+) -> (Chain, Arc<KeyValueEpochManager>, Arc<KeyValueRuntime>, Vec<Arc<InMemoryValidatorSigner>>) {
     let store = create_test_store();
     let signers =
         vs.all_block_producers().map(|x| Arc::new(create_test_signer(x.as_str()))).collect();
-    let runtime = KeyValueRuntime::new_with_validators(store, vs, epoch_length);
+    let epoch_manager = KeyValueEpochManager::new_with_validators(store.clone(), vs, epoch_length);
+    let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
+    let runtime = KeyValueRuntime::new(store, epoch_manager.as_ref());
     let chain = Chain::new(
-        runtime.epoch_manager_adapter_arc(),
-        runtime.shard_tracker(),
-        runtime.runtime_adapter_arc(),
+        epoch_manager.clone(),
+        shard_tracker,
+        runtime.clone(),
         &ChainGenesis {
             time: StaticClock::utc(),
             height: 0,
@@ -143,7 +150,7 @@ pub fn setup_with_validators(
         ChainConfig::test(),
     )
     .unwrap();
-    (chain, runtime, signers)
+    (chain, epoch_manager, runtime, signers)
 }
 
 pub fn setup_with_validators_and_start_time(
@@ -151,15 +158,17 @@ pub fn setup_with_validators_and_start_time(
     epoch_length: u64,
     tx_validity_period: NumBlocks,
     start_time: DateTime<Utc>,
-) -> (Chain, Arc<KeyValueRuntime>, Vec<Arc<InMemoryValidatorSigner>>) {
+) -> (Chain, Arc<KeyValueEpochManager>, Arc<KeyValueRuntime>, Vec<Arc<InMemoryValidatorSigner>>) {
     let store = create_test_store();
     let signers =
         vs.all_block_producers().map(|x| Arc::new(create_test_signer(x.as_str()))).collect();
-    let runtime = KeyValueRuntime::new_with_validators(store, vs, epoch_length);
+    let epoch_manager = KeyValueEpochManager::new_with_validators(store.clone(), vs, epoch_length);
+    let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
+    let runtime = KeyValueRuntime::new(store, epoch_manager.as_ref());
     let chain = Chain::new(
-        runtime.epoch_manager_adapter_arc(),
-        runtime.shard_tracker(),
-        runtime.runtime_adapter_arc(),
+        epoch_manager.clone(),
+        shard_tracker,
+        runtime.clone(),
         &ChainGenesis {
             time: start_time,
             height: 0,
@@ -176,7 +185,7 @@ pub fn setup_with_validators_and_start_time(
         ChainConfig::test(),
     )
     .unwrap();
-    (chain, runtime, signers)
+    (chain, epoch_manager, runtime, signers)
 }
 
 pub fn format_hash(hash: CryptoHash) -> String {

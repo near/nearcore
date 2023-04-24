@@ -333,7 +333,9 @@ mod test {
         chain_genesis.gas_limit = genesis.config.gas_limit;
         let env = TestEnv::builder(chain_genesis)
             .validator_seats(2)
-            .runtime_adapters(vec![nightshade_runtime])
+            .stores(vec![store.clone()])
+            .real_epoch_managers(&genesis.config)
+            .runtimes(vec![nightshade_runtime])
             .build();
 
         let near_config = NearConfig::new(
@@ -664,7 +666,9 @@ mod test {
         chain_genesis.gas_limit = genesis.config.gas_limit;
         let mut env = TestEnv::builder(chain_genesis)
             .clients_count(2)
-            .runtime_adapters(vec![create_runtime(store1), create_runtime(store2.clone())])
+            .stores(vec![store1.clone(), store2.clone()])
+            .real_epoch_managers(&genesis.config)
+            .runtimes(vec![create_runtime(store1.clone()), create_runtime(store2.clone())])
             .build();
         let genesis_hash = *env.clients[0].chain.genesis().hash();
         let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
@@ -733,7 +737,9 @@ mod test {
         chain_genesis.epoch_length = epoch_length;
         let mut env = TestEnv::builder(chain_genesis)
             .validator_seats(2)
-            .runtime_adapters(vec![nightshade_runtime])
+            .stores(vec![store.clone()])
+            .real_epoch_managers(&genesis.config)
+            .runtimes(vec![nightshade_runtime])
             .build();
         let genesis_hash = *env.clients[0].chain.genesis().hash();
         let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");

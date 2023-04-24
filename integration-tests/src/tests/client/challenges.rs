@@ -4,7 +4,6 @@ use near_async::messaging::CanSend;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_primitives::test_utils::create_test_signer;
 
-use crate::tests::client::process_blocks::create_nightshade_runtimes;
 use near_chain::validate::validate_challenge;
 use near_chain::{Block, Chain, ChainGenesis, ChainStoreAccess, Error, Provenance};
 use near_chain_configs::Genesis;
@@ -29,12 +28,11 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, EpochId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_store::test_utils::create_test_store;
 use near_store::Trie;
 use nearcore::config::{GenesisExt, FISHERMEN_THRESHOLD};
-use nearcore::NightshadeRuntime;
-use std::path::Path;
 use std::sync::Arc;
+
+use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 
 /// Check that block containing a challenge is rejected.
 /// TODO (#2445): Enable challenges when they are working correctly.
@@ -71,7 +69,8 @@ fn test_block_with_challenges() {
 fn test_invalid_chunk_state() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     let mut env = TestEnv::builder(ChainGenesis::test())
-        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+        .real_epoch_managers(&genesis.config)
+        .nightshade_runtimes(&genesis)
         .build();
     env.produce_block(0, 1);
     let block_hash = env.clients[0].chain.get_block_hash_by_height(1).unwrap();
@@ -340,14 +339,10 @@ fn challenge(
 
 #[test]
 fn test_verify_chunk_invalid_state_challenge() {
-    let store1 = create_test_store();
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let mut env = TestEnv::builder(ChainGenesis::test())
-        .runtime_adapters(vec![nearcore::NightshadeRuntime::test(
-            Path::new("../../../.."),
-            store1,
-            &genesis,
-        )])
+        .real_epoch_managers(&genesis.config)
+        .nightshade_runtimes(&genesis)
         .build();
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let validator_signer = create_test_signer("test0");
@@ -613,19 +608,10 @@ fn test_fishermen_challenge() {
         1,
     );
     genesis.config.epoch_length = 5;
-    let create_runtime = || -> Arc<NightshadeRuntime> {
-        nearcore::NightshadeRuntime::test(
-            Path::new("../../../.."),
-            create_test_store(),
-            &genesis.clone(),
-        )
-    };
-    let runtime1 = create_runtime();
-    let runtime2 = create_runtime();
-    let runtime3 = create_runtime();
     let mut env = TestEnv::builder(ChainGenesis::test())
         .clients_count(3)
-        .runtime_adapters(vec![runtime1, runtime2, runtime3])
+        .real_epoch_managers(&genesis.config)
+        .nightshade_runtimes(&genesis)
         .build();
     let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
     let genesis_hash = *env.clients[0].chain.genesis().hash();
@@ -679,17 +665,14 @@ fn test_challenge_in_different_epoch() {
     genesis.config.epoch_length = 3;
     //    genesis.config.validator_kickout_threshold = 10;
     let network_adapter = Arc::new(MockPeerManagerAdapter::default());
-    let runtime1 =
-        nearcore::NightshadeRuntime::test(Path::new("../../../.."), create_test_store(), &genesis);
-    let runtime2 =
-        nearcore::NightshadeRuntime::test(Path::new("../../../.."), create_test_store(), &genesis);
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = 3;
 
     let mut env = TestEnv::builder(chain_genesis)
         .clients_count(2)
         .validator_seats(2)
-        .runtime_adapters(vec![runtime1, runtime2])
+        .real_epoch_managers(&genesis.config)
+        .nightshade_runtimes(&genesis)
         .network_adapters(vec![network_adapter.clone(), network_adapter.clone()])
         .build();
 

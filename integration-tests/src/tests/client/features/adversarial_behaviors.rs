@@ -1,23 +1,22 @@
-use std::{collections::HashSet, path::Path, sync::Arc};
+use std::{collections::HashSet, sync::Arc};
 
 use near_async::messaging::CanSend;
-use near_chain::{ChainGenesis, Provenance, RuntimeWithEpochManagerAdapter};
+use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
-use near_epoch_manager::shard_tracker::TrackedConfig;
 use near_network::{
     shards_manager::ShardsManagerRequestFromNetwork,
     types::{NetworkRequests, PeerManagerMessageRequest},
 };
 use near_o11y::testonly::init_test_logger;
 use near_primitives::{
-    runtime::config_store::RuntimeConfigStore,
     shard_layout::ShardLayout,
     types::{AccountId, EpochId, ShardId},
 };
-use near_store::test_utils::create_test_store;
 use nearcore::config::GenesisExt;
 use tracing::log::debug;
+
+use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 
 struct AdversarialBehaviorTestData {
     num_validators: usize,
@@ -52,21 +51,12 @@ impl AdversarialBehaviorTestData {
             config.chunk_producer_kickout_threshold = 50;
         }
         let chain_genesis = ChainGenesis::new(&genesis);
-        let runtimes: Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> = (0..num_clients)
-            .map(|_| {
-                nearcore::NightshadeRuntime::test_with_runtime_config_store(
-                    Path::new("."),
-                    create_test_store(),
-                    &genesis,
-                    TrackedConfig::AllShards,
-                    RuntimeConfigStore::test(),
-                ) as Arc<dyn RuntimeWithEpochManagerAdapter>
-            })
-            .collect();
         let env = TestEnv::builder(chain_genesis)
             .clients_count(num_clients)
             .validator_seats(num_validators as usize)
-            .runtime_adapters(runtimes)
+            .real_epoch_managers(&genesis.config)
+            .track_all_shards()
+            .nightshade_runtimes(&genesis)
             .build();
 
         AdversarialBehaviorTestData { num_validators, env }

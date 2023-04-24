@@ -921,26 +921,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(transactions)
     }
 
-    fn cares_about_shard(
-        &self,
-        account_id: Option<&AccountId>,
-        parent_hash: &CryptoHash,
-        shard_id: ShardId,
-        is_me: bool,
-    ) -> bool {
-        self.shard_tracker.care_about_shard(account_id, parent_hash, shard_id, is_me)
-    }
-
-    fn will_care_about_shard(
-        &self,
-        account_id: Option<&AccountId>,
-        parent_hash: &CryptoHash,
-        shard_id: ShardId,
-        is_me: bool,
-    ) -> bool {
-        self.shard_tracker.will_care_about_shard(account_id, parent_hash, shard_id, is_me)
-    }
-
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight {
         let result = self.get_gc_stop_height_impl(block_hash);
         match result {
@@ -2513,83 +2493,6 @@ mod test {
             }]
         );
         assert_eq!(response.epoch_start_height, 3);
-    }
-
-    #[test]
-    fn test_care_about_shard() {
-        init_test_logger();
-        let num_nodes = 2;
-        let validators = (0..num_nodes)
-            .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
-            .collect::<Vec<_>>();
-        let mut env = TestEnv::new_with_tracking(
-            vec![validators.clone(), vec![validators[0].clone()]],
-            2,
-            TrackedConfig::Accounts(vec![validators[1].clone()]),
-            true,
-        );
-        let block_producers: Vec<_> =
-            validators.iter().map(|id| create_test_signer(id.as_str())).collect();
-        let signer = InMemorySigner::from_seed(
-            validators[1].clone(),
-            KeyType::ED25519,
-            validators[1].as_ref(),
-        );
-        let staking_transaction = stake(1, &signer, &block_producers[1], 0);
-        env.step(
-            vec![vec![staking_transaction], vec![]],
-            vec![true, true],
-            ChallengesResult::default(),
-        );
-        env.step(vec![vec![], vec![]], vec![true, true], ChallengesResult::default());
-        assert!(env.runtime.cares_about_shard(
-            Some(&validators[0]),
-            &env.head.last_block_hash,
-            0,
-            true
-        ));
-        // which validator is selected to shard 1 sole validator seat depends on which validator
-        // selection algorithm is used
-        assert!(
-            env.runtime.cares_about_shard(Some(&validators[0]), &env.head.last_block_hash, 1, true)
-                ^ env.runtime.cares_about_shard(
-                    Some(&validators[1]),
-                    &env.head.last_block_hash,
-                    1,
-                    true
-                )
-        );
-        assert!(env.runtime.cares_about_shard(
-            Some(&validators[1]),
-            &env.head.last_block_hash,
-            0,
-            true
-        ));
-
-        assert!(env.runtime.will_care_about_shard(
-            Some(&validators[0]),
-            &env.head.last_block_hash,
-            0,
-            true
-        ));
-        assert!(env.runtime.will_care_about_shard(
-            Some(&validators[0]),
-            &env.head.last_block_hash,
-            1,
-            true
-        ));
-        assert!(env.runtime.will_care_about_shard(
-            Some(&validators[1]),
-            &env.head.last_block_hash,
-            0,
-            true
-        ));
-        assert!(!env.runtime.will_care_about_shard(
-            Some(&validators[1]),
-            &env.head.last_block_hash,
-            1,
-            true
-        ));
     }
 
     #[test]

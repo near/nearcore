@@ -4,7 +4,7 @@
 //! This is the module for its integration tests.
 
 use crate::node::{Node, RuntimeNode};
-use crate::tests::client::process_blocks::create_nightshade_runtimes;
+use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 use crate::tests::standard_cases::fee_helper;
 use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
@@ -54,7 +54,8 @@ fn exec_meta_transaction(
     genesis.config.epoch_length = 1000;
     genesis.config.protocol_version = protocol_version;
     let mut env = TestEnv::builder(ChainGenesis::test())
-        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+        .real_epoch_managers(&genesis.config)
+        .nightshade_runtimes(&genesis)
         .build();
 
     let tx = env.meta_tx_from_actions(actions, user, relayer, receiver);

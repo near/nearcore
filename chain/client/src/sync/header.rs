@@ -349,7 +349,7 @@ mod test {
             TimeDuration::from_secs(120),
             1_000_000_000,
         );
-        let (mut chain, _, signer) = setup();
+        let (mut chain, _, _, signer) = setup();
         for _ in 0..3 {
             let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
             // Have gaps in the chain, so we don't have final blocks (i.e. last final block is
@@ -366,7 +366,7 @@ mod test {
             )
             .unwrap();
         }
-        let (mut chain2, _, signer2) = setup();
+        let (mut chain2, _, _, signer2) = setup();
         for _ in 0..5 {
             let prev = chain2.get_block(&chain2.head().unwrap().last_block_hash).unwrap();
             // Have gaps in the chain, so we don't have final blocks (i.e. last final block is
@@ -435,8 +435,8 @@ mod test {
             TimeDuration::from_secs(120),
             1_000_000_000,
         );
-        let (mut chain, _, signer) = setup();
-        let (mut chain2, _, signer2) = setup();
+        let (mut chain, _, _, signer) = setup();
+        let (mut chain2, _, _, signer2) = setup();
         for chain in [&mut chain, &mut chain2] {
             // Both chains share a common final block at height 3.
             for _ in 0..5 {
@@ -563,7 +563,7 @@ mod test {
         };
         set_syncing_peer(&mut header_sync);
 
-        let (chain, _, signer) = setup();
+        let (chain, _, _, signer) = setup();
         let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
 
         let mut last_block = &genesis;
@@ -644,9 +644,9 @@ mod test {
             .block_producers_per_epoch(vec![vec!["test0".parse().unwrap()]]);
         let genesis_time = StaticClock::utc();
         // Don't bother with epoch switches. It's not relevant.
-        let (mut chain, _, _) =
+        let (mut chain, _, _, _) =
             setup_with_validators_and_start_time(vs.clone(), 10000, 100, genesis_time);
-        let (mut chain2, _, signers2) =
+        let (mut chain2, _, _, signers2) =
             setup_with_validators_and_start_time(vs, 10000, 100, genesis_time);
         // Set up the second chain with 2000+ blocks.
         let mut block_merkle_tree = PartialMerkleTree::default();

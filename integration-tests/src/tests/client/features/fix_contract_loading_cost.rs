@@ -18,7 +18,8 @@ fn prepare_env_with_contract(
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = protocol_version;
     let mut env = TestEnv::builder(ChainGenesis::new(&genesis))
-        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+        .real_epoch_managers(&genesis.config)
+        .nightshade_runtimes(&genesis)
         .build();
     deploy_test_contract(&mut env, account, &contract, epoch_length, 1);
     env

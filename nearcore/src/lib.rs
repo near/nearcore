@@ -222,14 +222,22 @@ pub fn start_with_config_and_synchronization(
     let shard_tracker =
         ShardTracker::new(TrackedConfig::from_config(&config.client_config), epoch_manager.clone());
 
-    // Get the split store. If split store is some then create a new runtime for
-    // the view client. Otherwise just re-use the existing runtime.
+    // Get the split store. If split store is some then create a new set of structures for
+    // the view client. Otherwise just re-use the existing ones.
     let split_store = get_split_store(&config, &storage)?;
-    let view_runtime = if let Some(split_store) = &split_store {
-        NightshadeRuntime::from_config(home_dir, split_store.clone(), &config)
-    } else {
-        runtime.clone()
-    };
+    let (view_epoch_manager, view_shard_tracker, view_runtime) =
+        if let Some(split_store) = &split_store {
+            let view_epoch_manager =
+                EpochManager::new_arc_handle(split_store.clone(), &config.genesis.config);
+            let view_shard_tracker = ShardTracker::new(
+                TrackedConfig::from_config(&config.client_config),
+                epoch_manager.clone(),
+            );
+            let view_runtime = NightshadeRuntime::from_config(home_dir, split_store.clone(), &config);
+            (view_epoch_manager, view_shard_tracker, view_runtime)
+        } else {
+            (epoch_manager.clone(), shard_tracker.clone(), runtime.clone())
+        };
 
     let cold_store_loop_handle = spawn_cold_store_loop(&config, &storage, runtime.clone())?;
 
@@ -251,6 +259,8 @@ pub fn start_with_config_and_synchronization(
     let view_client = start_view_client(
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
         chain_genesis.clone(),
+        view_epoch_manager,
+        view_shard_tracker,
         view_runtime,
         network_adapter.clone().into(),
         config.client_config.clone(),
@@ -286,7 +296,9 @@ pub fn start_with_config_and_synchronization(
     let state_sync_dump_handle = spawn_state_sync_dump(
         &config.client_config,
         chain_genesis,
-        runtime,
+        epoch_manager.clone(),
+        shard_tracker.clone(),
+        runtime.clone(),
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
     )?;
 

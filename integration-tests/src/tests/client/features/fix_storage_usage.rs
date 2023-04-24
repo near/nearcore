@@ -8,9 +8,8 @@ use near_primitives::{trie_key::TrieKey, types::AccountId};
 use near_store::{ShardUId, TrieUpdate};
 use nearcore::config::GenesisExt;
 
-use crate::tests::client::process_blocks::{
-    create_nightshade_runtimes, set_block_protocol_version,
-};
+use crate::tests::client::process_blocks::set_block_protocol_version;
+use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 
 fn process_blocks_with_storage_usage_fix(
     chain_id: String,
@@ -23,7 +22,8 @@ fn process_blocks_with_storage_usage_fix(
     genesis.config.protocol_version = ProtocolFeature::FixStorageUsage.protocol_version() - 1;
     let chain_genesis = ChainGenesis::new(&genesis);
     let mut env = TestEnv::builder(chain_genesis)
-        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+        .real_epoch_managers(&genesis.config)
+        .nightshade_runtimes(&genesis)
         .build();
     for i in 1..=16 {
         // We cannot just use TestEnv::produce_block as we are updating protocol version

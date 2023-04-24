@@ -1,8 +1,6 @@
 use borsh::BorshSerialize;
 
-use crate::tests::client::process_blocks::{
-    create_nightshade_runtimes, set_block_protocol_version,
-};
+use crate::tests::client::process_blocks::set_block_protocol_version;
 use near_chain::near_chain_primitives::Error;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::Genesis;
@@ -33,6 +31,8 @@ use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+
+use super::utils::TestEnvNightshadeSetupExt;
 
 const SIMPLE_NIGHTSHADE_PROTOCOL_VERSION: ProtocolVersion =
     ProtocolFeature::SimpleNightshade.protocol_version();
@@ -73,7 +73,8 @@ impl TestShardUpgradeEnv {
         let env = TestEnv::builder(chain_genesis)
             .clients_count(num_clients)
             .validator_seats(num_validators)
-            .runtime_adapters(create_nightshade_runtimes(&genesis, num_clients))
+            .real_epoch_managers(&genesis.config)
+            .nightshade_runtimes(&genesis)
             .build();
         Self {
             env,

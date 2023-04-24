@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
 use crate::chain::Chain;
-use crate::test_utils::{KeyValueRuntime, ValidatorSchedule};
+use crate::test_utils::{KeyValueEpochManager, KeyValueRuntime, ValidatorSchedule};
 use crate::types::{ChainConfig, ChainGenesis, Tip};
-use crate::{DoomslugThresholdMode, RuntimeWithEpochManagerAdapter};
+use crate::DoomslugThresholdMode;
 
 use near_chain_configs::GCConfig;
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block::Block;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::shard_layout::ShardUId;
@@ -28,11 +29,13 @@ fn get_chain_with_epoch_length_and_num_shards(
     let vs = ValidatorSchedule::new()
         .block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]])
         .num_shards(num_shards);
-    let runtime = KeyValueRuntime::new_with_validators(store, vs, epoch_length);
+    let epoch_manager = KeyValueEpochManager::new_with_validators(store.clone(), vs, epoch_length);
+    let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
+    let runtime = KeyValueRuntime::new(store, epoch_manager.as_ref());
     Chain::new(
-        runtime.epoch_manager_adapter_arc(),
-        runtime.shard_tracker(),
-        runtime.runtime_adapter_arc(),
+        epoch_manager,
+        shard_tracker,
+        runtime,
         &chain_genesis,
         DoomslugThresholdMode::NoApprovals,
         ChainConfig::test(),

@@ -1499,10 +1499,7 @@ mod test {
     use super::*;
     use actix::System;
     use near_actix_test_utils::run_actix;
-    use near_chain::test_utils;use near_chain::{
-        test_utils::process_block_sync, BlockProcessingArtifact, Provenance,
-        RuntimeWithEpochManagerAdapter,
-    };
+    use near_chain::test_utils;use near_chain::{test_utils::process_block_sync, BlockProcessingArtifact, Provenance};
     use near_epoch_manager::EpochManagerAdapter;
     use near_network::test_utils::MockPeerManagerAdapter;
     use near_primitives::{
@@ -1523,7 +1520,7 @@ mod test {
         );
         let mut new_shard_sync = HashMap::new();
 
-        let (mut chain, kv, signer) = test_utils::setup();
+        let (mut chain, kv, _, signer) = test_utils::setup();
 
         // TODO: lower the epoch length
         for _ in 0..(chain.epoch_length + 1) {
@@ -1565,7 +1562,7 @@ mod test {
                     *request_hash,
                     &mut new_shard_sync,
                     &mut chain,
-                    kv.epoch_manager_adapter(),
+                    kv.as_ref(),
                     &[],
                     vec![0],
                     &apply_parts_fn,

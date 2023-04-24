@@ -478,7 +478,9 @@ mod test {
         chain_genesis.gas_limit = genesis.config.gas_limit;
         let env = TestEnv::builder(chain_genesis)
             .validator_seats(2)
-            .runtime_adapters(vec![nightshade_runtime])
+            .stores(vec![store.clone()])
+            .real_epoch_managers(&genesis.config)
+            .runtimes(vec![nightshade_runtime])
             .build();
         (store, genesis, env)
     }

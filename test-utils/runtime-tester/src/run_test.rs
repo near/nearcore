@@ -4,6 +4,7 @@ use near_client::test_utils::TestEnv;
 use near_client_primitives::types::Error;
 use near_crypto::InMemorySigner;
 use near_epoch_manager::shard_tracker::TrackedConfig;
+use near_epoch_manager::EpochManager;
 use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::transaction::{Action, SignedTransaction};
@@ -51,7 +52,8 @@ impl Scenario {
         let mut env = TestEnv::builder(ChainGenesis::new(&genesis))
             .clients(clients.clone())
             .validators(clients)
-            .runtime_adapters(vec![NightshadeRuntime::test_with_runtime_config_store(
+            .epoch_managers(vec![EpochManager::new_arc_handle(store.clone(), &genesis.config)])
+            .runtimes(vec![NightshadeRuntime::test_with_runtime_config_store(
                 if let Some(tempdir) = &tempdir { tempdir.path() } else { Path::new(".") },
                 store,
                 &genesis,

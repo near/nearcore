@@ -1,6 +1,4 @@
-use near_chain::{
-    ChainGenesis, ChainStore, ChainStoreAccess, Provenance, RuntimeWithEpochManagerAdapter,
-};
+use near_chain::{ChainGenesis, ChainStore, ChainStoreAccess, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_epoch_manager::EpochManagerAdapter;
@@ -9,17 +7,20 @@ use near_store::test_utils::create_test_store;
 use near_store::Store;
 use near_undo_block::undo_block;
 use nearcore::config::GenesisExt;
-use std::path::Path;
 use std::sync::Arc;
+
+use super::utils::TestEnvNightshadeSetupExt;
 
 /// Setup environment with one Near client for testing.
 fn setup_env(genesis: &Genesis, store: Store) -> (TestEnv, Arc<dyn EpochManagerAdapter>) {
     let chain_genesis = ChainGenesis::new(genesis);
-    let runtime = nearcore::NightshadeRuntime::test(Path::new("../../../.."), store, genesis);
-    (
-        TestEnv::builder(chain_genesis).runtime_adapters(vec![runtime.clone()]).build(),
-        runtime.epoch_manager_adapter_arc(),
-    )
+    let env = TestEnv::builder(chain_genesis)
+        .stores(vec![store.clone()])
+        .real_epoch_managers(&genesis.config)
+        .nightshade_runtimes(genesis)
+        .build();
+    let epoch_manager = env.clients[0].epoch_manager.clone();
+    (env, epoch_manager)
 }
 
 // Checks that Near client can successfully undo block on given height and then produce and process block normally after restart

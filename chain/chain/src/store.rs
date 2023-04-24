@@ -3130,6 +3130,7 @@ mod tests {
     use std::sync::Arc;
 
     use near_chain_configs::{GCConfig, GenesisConfig};
+    use near_epoch_manager::shard_tracker::ShardTracker;
     use near_epoch_manager::EpochManagerAdapter;
     use near_primitives::block::{Block, Tip};
     use near_primitives::epoch_manager::block_info::BlockInfo;
@@ -3145,9 +3146,9 @@ mod tests {
 
     use crate::store::{ChainStoreAccess, GCMode};
     use crate::store_validator::StoreValidator;
-    use crate::test_utils::{KeyValueRuntime, ValidatorSchedule};
+    use crate::test_utils::{KeyValueEpochManager, KeyValueRuntime, ValidatorSchedule};
     use crate::types::ChainConfig;
-    use crate::{Chain, ChainGenesis, DoomslugThresholdMode, RuntimeWithEpochManagerAdapter};
+    use crate::{Chain, ChainGenesis, DoomslugThresholdMode};
 
     fn get_chain() -> Chain {
         get_chain_with_epoch_length(10)
@@ -3158,11 +3159,14 @@ mod tests {
         let chain_genesis = ChainGenesis::test();
         let vs = ValidatorSchedule::new()
             .block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]]);
-        let runtime = KeyValueRuntime::new_with_validators(store, vs, epoch_length);
+        let epoch_manager =
+            KeyValueEpochManager::new_with_validators(store.clone(), vs, epoch_length);
+        let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
+        let runtime = KeyValueRuntime::new(store, epoch_manager.as_ref());
         Chain::new(
-            runtime.epoch_manager_adapter_arc(),
-            runtime.shard_tracker(),
-            runtime.runtime_adapter_arc(),
+            epoch_manager,
+            shard_tracker,
+            runtime,
             &chain_genesis,
             DoomslugThresholdMode::NoApprovals,
             ChainConfig::test(),

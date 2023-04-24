@@ -804,9 +804,10 @@ fn get_validator_epoch_stats(
 mod tests {
     use super::*;
     use assert_matches::assert_matches;
-    use near_chain::test_utils::{KeyValueRuntime, ValidatorSchedule};
+    use near_chain::test_utils::{KeyValueEpochManager, KeyValueRuntime, ValidatorSchedule};
     use near_chain::types::ChainConfig;
-    use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode, RuntimeWithEpochManagerAdapter};
+    use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
+    use near_epoch_manager::shard_tracker::ShardTracker;
     use near_network::test_utils::peer_id_from_seed;
     use near_primitives::version::PROTOCOL_VERSION;
     use num_rational::Ratio;
@@ -839,7 +840,9 @@ mod tests {
         let store = near_store::test_utils::create_test_store();
         let vs =
             ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test".parse().unwrap()]]);
-        let runtime = KeyValueRuntime::new_with_validators_and_no_gc(store, vs, 123, false);
+        let epoch_manager = KeyValueEpochManager::new_with_validators(store.clone(), vs, 123);
+        let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
+        let runtime = KeyValueRuntime::new(store, epoch_manager.as_ref());
         let chain_genesis = ChainGenesis {
             time: StaticClock::utc(),
             height: 0,
@@ -854,9 +857,9 @@ mod tests {
         };
         let doomslug_threshold_mode = DoomslugThresholdMode::TwoThirds;
         let chain = Chain::new(
-            runtime.epoch_manager_adapter_arc(),
-            runtime.shard_tracker(),
-            runtime.runtime_adapter_arc(),
+            epoch_manager,
+            shard_tracker,
+            runtime,
             &chain_genesis,
             doomslug_threshold_mode,
             ChainConfig::test(),
