@@ -411,26 +411,29 @@ fn sync_state_dump() {
             1,
             vec![1, 1, 1, 1],
         );
-        genesis.config.epoch_length = 10;
+        // Needs to be long enough to give enough time to the second node to
+        // start, sync headers and find a dump of state.
+        genesis.config.epoch_length = 30;
 
         run_actix(async move {
             let (port1, port2) =
                 (tcp::ListenerAddr::reserve_for_test(), tcp::ListenerAddr::reserve_for_test());
             // Produce more blocks to make sure that state sync gets triggered when the second node starts.
-            let state_sync_horizon = 20;
+            let state_sync_horizon = 50;
             let block_header_fetch_horizon = 1;
             let block_fetch_horizon = 1;
 
             let mut near1 = load_test_config("test1", port1, genesis.clone());
             near1.client_config.min_num_peers = 0;
-            near1.client_config.min_block_production_delay = Duration::from_millis(200);
+            // An epoch passes in about 9 seconds.
+            near1.client_config.min_block_production_delay = Duration::from_millis(300);
             near1.client_config.max_block_production_delay = Duration::from_millis(400);
             near1.client_config.epoch_sync_enabled = false;
             let dump_dir = tempfile::Builder::new().prefix("state_dump_1").tempdir().unwrap();
             near1.client_config.state_sync.dump = Some(DumpConfig {
                 location: Filesystem { root_dir: dump_dir.path().to_path_buf() },
                 restart_dump_for_shards: None,
-                iteration_delay: Some(Duration::from_millis(50)),
+                iteration_delay: Some(Duration::from_millis(100)),
             });
             tracing::info!("state_sync1: {:?}", &near1.client_config.state_sync);
 
@@ -446,14 +449,14 @@ fn sync_state_dump() {
             let arbiters_holder = Arc::new(RwLock::new(vec![]));
             let arbiters_holder2 = arbiters_holder;
 
-            wait_or_timeout(100, 30000, || async {
+            wait_or_timeout(100, 60000, || async {
                 if view_client2_holder.read().unwrap().is_none() {
                     let view_client2_holder2 = view_client2_holder.clone();
                     let arbiters_holder2 = arbiters_holder2.clone();
                     let genesis2 = genesis.clone();
 
                     match view_client1.send(GetBlock::latest().with_span_context()).await {
-                        Ok(Ok(b)) if b.header.height >= state_sync_horizon + 1 => {
+                        Ok(Ok(b)) if b.header.height >= genesis.config.epoch_length + 2 => {
                             let mut view_client2_holder2 = view_client2_holder2.write().unwrap();
                             let mut arbiters_holder2 = arbiters_holder2.write().unwrap();
 
@@ -463,7 +466,7 @@ fn sync_state_dump() {
                                     convert_boot_nodes(vec![("test1", *port1)]);
                                 near2.client_config.min_num_peers = 1;
                                 near2.client_config.min_block_production_delay =
-                                    Duration::from_millis(200);
+                                    Duration::from_millis(300);
                                 near2.client_config.max_block_production_delay =
                                     Duration::from_millis(400);
                                 near2.client_config.state_fetch_horizon = state_sync_horizon;
