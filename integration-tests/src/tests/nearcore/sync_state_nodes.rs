@@ -77,7 +77,7 @@ fn sync_state_nodes() {
                                     }
                                 }
                                 Ok(Ok(b)) if b.header.height < 101 => {
-                                    tracing::info!("FIRST STAGE {}", b.header.height)
+                                    println!("FIRST STAGE {}", b.header.height)
                                 }
                                 Err(_) => return future::ready(()),
                                 _ => {}
@@ -93,7 +93,7 @@ fn sync_state_nodes() {
                             match &res {
                                 Ok(Ok(b)) if b.header.height >= 101 => System::current().stop(),
                                 Ok(Ok(b)) if b.header.height < 101 => {
-                                    tracing::info!("SECOND STAGE {}", b.header.height)
+                                    println!("SECOND STAGE {}", b.header.height)
                                 }
                                 Err(_) => return future::ready(()),
                                 _ => {}
@@ -228,7 +228,7 @@ fn sync_state_nodes_multishard() {
                                     }
                                 }
                                 Ok(Ok(b)) if b.header.height < 101 => {
-                                    tracing::info!("FIRST STAGE {}", b.header.height)
+                                    println!("FIRST STAGE {}", b.header.height)
                                 }
                                 Err(_) => return future::ready(()),
                                 _ => {}
@@ -244,14 +244,14 @@ fn sync_state_nodes_multishard() {
                             match &res {
                                 Ok(Ok(b)) if b.header.height >= 101 => System::current().stop(),
                                 Ok(Ok(b)) if b.header.height < 101 => {
-                                    tracing::info!("SECOND STAGE {}", b.header.height)
+                                    println!("SECOND STAGE {}", b.header.height)
                                 }
                                 Ok(Err(e)) => {
-                                    tracing::info!("SECOND STAGE ERROR1: {:?}", e);
+                                    println!("SECOND STAGE ERROR1: {:?}", e);
                                     return future::ready(());
                                 }
                                 Err(e) => {
-                                    tracing::info!("SECOND STAGE ERROR2: {:?}", e);
+                                    println!("SECOND STAGE ERROR2: {:?}", e);
                                     return future::ready(());
                                 }
                                 _ => {
@@ -284,14 +284,14 @@ fn sync_empty_state() {
             1,
             vec![1, 1, 1, 1],
         );
-        genesis.config.epoch_length = 10;
+        genesis.config.epoch_length = 20;
 
         run_actix(async move {
             let (port1, port2) =
                 (tcp::ListenerAddr::reserve_for_test(), tcp::ListenerAddr::reserve_for_test());
             // State sync triggers when header head is two epochs in the future.
             // Produce more blocks to make sure that state sync gets triggered when the second node starts.
-            let state_sync_horizon = 20;
+            let state_sync_horizon = 10;
             let block_header_fetch_horizon = 1;
             let block_fetch_horizon = 1;
 
@@ -355,7 +355,7 @@ fn sync_empty_state() {
                                     }
                                 }
                                 Ok(Ok(b)) if b.header.height <= state_sync_horizon => {
-                                    tracing::info!("FIRST STAGE {}", b.header.height)
+                                    println!("FIRST STAGE {}", b.header.height)
                                 }
                                 Err(_) => return future::ready(()),
                                 _ => {}
@@ -371,14 +371,14 @@ fn sync_empty_state() {
                             match &res {
                                 Ok(Ok(b)) if b.header.height >= 40 => System::current().stop(),
                                 Ok(Ok(b)) if b.header.height < 40 => {
-                                    tracing::info!("SECOND STAGE {}", b.header.height)
+                                    println!("SECOND STAGE {}", b.header.height)
                                 }
                                 Ok(Err(e)) => {
-                                    tracing::info!("SECOND STAGE ERROR1: {:?}", e);
+                                    println!("SECOND STAGE ERROR1: {:?}", e);
                                     return future::ready(());
                                 }
                                 Err(e) => {
-                                    tracing::info!("SECOND STAGE ERROR2: {:?}", e);
+                                    println!("SECOND STAGE ERROR2: {:?}", e);
                                     return future::ready(());
                                 }
                                 _ => {

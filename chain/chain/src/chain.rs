@@ -4511,27 +4511,37 @@ impl Chain {
 
     /// Check if can sync with sync_hash
     pub fn check_sync_hash_validity(&self, sync_hash: &CryptoHash) -> Result<bool, Error> {
-        tracing::warn!(?sync_hash, "check_sync_hash_validity"); // TODO // FIXME
         let head = self.head()?;
         // It's important to check that Block exists because we will sync with it.
         // Do not replace with `get_block_header`.
         let sync_block = self.get_block(sync_hash)?;
-        tracing::warn!(
-            ?sync_hash,
-            head_epoch_id=?head.epoch_id,
-            sync_block_epoch_id=?sync_block.header().epoch_id(),
-            sync_block_next_epoch_id=?sync_block.header().next_epoch_id(),
-            sync_block_prev_hash=?sync_block.header().prev_hash(),
-            is_next_block_epoch_start=?self.runtime_adapter.is_next_block_epoch_start(&sync_block.header().prev_hash()),
-            "check_sync_hash_validity"); // TODO // FIXME
         // The Epoch of sync_hash may be either the current one or the previous one
         if head.epoch_id == *sync_block.header().epoch_id()
             || head.epoch_id == *sync_block.header().next_epoch_id()
         {
             let prev_hash = *sync_block.header().prev_hash();
             // If sync_hash is not on the Epoch boundary, it's malicious behavior
-            Ok(self.runtime_adapter.is_next_block_epoch_start(&prev_hash)?)
+            let is_next_block_epoch_start =
+                self.runtime_adapter.is_next_block_epoch_start(&prev_hash)?;
+
+            tracing::info!(
+                target: "chain",
+                ?sync_hash,
+                head_epoch_id = ?head.epoch_id,
+                sync_block_epoch_id = ?sync_block.header().epoch_id(),
+                sync_block_next_epoch_id = ?sync_block.header().next_epoch_id(),
+                ?prev_hash,
+                is_next_block_epoch_start,
+                "Failed check_sync_hash_validity, possible malicious behavior");
+            Ok(is_next_block_epoch_start)
         } else {
+            tracing::info!(
+                target: "chain",
+                ?sync_hash,
+                head_epoch_id = ?head.epoch_id,
+                sync_block_epoch_id = ?sync_block.header().epoch_id(),
+                sync_block_next_epoch_id = ?sync_block.header().next_epoch_id(),
+                "Failed check_sync_hash_validity");
             Ok(false) // invalid Epoch of sync_hash, possible malicious behavior
         }
     }
