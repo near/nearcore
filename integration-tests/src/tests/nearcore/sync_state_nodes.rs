@@ -427,7 +427,7 @@ fn sync_state_dump() {
             near1.client_config.min_num_peers = 0;
             // An epoch passes in about 9 seconds.
             near1.client_config.min_block_production_delay = Duration::from_millis(300);
-            near1.client_config.max_block_production_delay = Duration::from_millis(400);
+            near1.client_config.max_block_production_delay = Duration::from_millis(600);
             near1.client_config.epoch_sync_enabled = false;
             let dump_dir = tempfile::Builder::new().prefix("state_dump_1").tempdir().unwrap();
             near1.client_config.state_sync.dump = Some(DumpConfig {
@@ -468,7 +468,7 @@ fn sync_state_dump() {
                                 near2.client_config.min_block_production_delay =
                                     Duration::from_millis(300);
                                 near2.client_config.max_block_production_delay =
-                                    Duration::from_millis(400);
+                                    Duration::from_millis(600);
                                 near2.client_config.state_fetch_horizon = state_sync_horizon;
                                 near2.client_config.block_header_fetch_horizon =
                                     block_header_fetch_horizon;
