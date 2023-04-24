@@ -274,6 +274,7 @@ fn get_keys_from_store(
         key_type_to_keys.insert(
             key_type,
             match key_type {
+                DBKeyType::BlockHeight => vec![height_key.to_vec()],
                 DBKeyType::BlockHash => vec![block_hash_key.clone()],
                 DBKeyType::PreviousBlockHash => {
                     vec![block.header().prev_hash().as_bytes().to_vec()]
