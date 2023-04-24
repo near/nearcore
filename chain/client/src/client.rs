@@ -2006,20 +2006,18 @@ impl Client {
             } else if check_only {
                 Ok(ProcessTxResponse::ValidTx)
             } else {
-                let active_validator = self.active_validator(shard_id)?;
-
-                // TODO #6713: Transactions don't need to be recorded if the node is not a validator
-                // for the shard.
-                // If I'm not an active validator I should forward tx to next validators.
-                self.sharded_tx_pool.insert_transaction(shard_id, tx.clone());
-                trace!(target: "client", shard_id, "Recorded a transaction.");
+                // Transactions only need to be recorded if the node is a validator.
+                if me.is_some() {
+                    self.sharded_tx_pool.insert_transaction(shard_id, tx.clone());
+                    trace!(target: "client", shard_id, "Recorded a transaction.");
+                }
 
                 // Active validator:
                 //   possibly forward to next epoch validators
                 // Not active validator:
                 //   forward to current epoch validators,
                 //   possibly forward to next epoch validators
-                if active_validator {
+                if self.active_validator(shard_id)? {
                     trace!(target: "client", account = ?me, shard_id, is_forwarded, "Recording a transaction.");
                     metrics::TRANSACTION_RECEIVED_VALIDATOR.inc();
 
