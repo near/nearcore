@@ -37,16 +37,14 @@ pub fn spawn_state_sync_dump(
             // Credentials to establish a connection are taken from environment variables:
             // * `AWS_ACCESS_KEY_ID`
             // * `AWS_SECRET_ACCESS_KEY`
-            let bucket = s3::Bucket::new(
-                &bucket,
-                region
-                    .parse::<s3::Region>()
-                    .map_err(|err| <std::str::Utf8Error as Into<anyhow::Error>>::into(err))?,
-                s3::creds::Credentials::default().map_err(|err| {
+            let creds = match s3::creds::Credentials::default() {
+                Ok(creds) => creds,
+                Err(err) => {
                     tracing::error!(target: "state_sync_dump", "Failed to create a connection to S3. Did you provide environment variables AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY?");
-                    <s3::creds::error::CredentialsError as Into<anyhow::Error>>::into(err)
-                })?,
-            ).map_err(|err| <s3::error::S3Error as Into<anyhow::Error>>::into(err))?;
+                    return Err(err.into());
+                }
+            };
+            let bucket = s3::Bucket::new(&bucket, region.parse::<s3::Region>()?, creds)?;
             ExternalConnection::S3 { bucket: Arc::new(bucket) }
         }
         ExternalStorageLocation::Filesystem { root_dir } => {

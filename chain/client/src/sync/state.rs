@@ -134,7 +134,7 @@ impl ExternalConnection {
             .start_timer();
         match self {
             ExternalConnection::S3 { bucket } => {
-                let response = bucket.get_object(location).await.map_err(anyhow::Error::from)?;
+                let response = bucket.get_object(location).await?;
                 tracing::debug!(target: "sync", %shard_id, location, response_code = response.status_code(), num_bytes = response.bytes().len(), "S3 request finished");
                 if response.status_code() == 200 {
                     Ok(response.bytes().to_vec())
@@ -145,7 +145,8 @@ impl ExternalConnection {
             ExternalConnection::Filesystem { root_dir } => {
                 let path = root_dir.join(location);
                 tracing::debug!(target: "sync", %shard_id, ?path, "Reading a file");
-                std::fs::read(&path).map_err(anyhow::Error::from)
+                let data = std::fs::read(&path)?;
+                Ok(data)
             }
         }
     }
@@ -161,21 +162,17 @@ impl ExternalConnection {
             .start_timer();
         match self {
             ExternalConnection::S3 { bucket } => {
-                bucket.put_object(&location, state_part).await.map_err(anyhow::Error::from)?;
+                bucket.put_object(&location, state_part).await?;
                 tracing::debug!(target: "state_sync_dump", shard_id, part_length = state_part.len(), ?location, "Wrote a state part to S3");
                 Ok(())
             }
             ExternalConnection::Filesystem { root_dir } => {
                 let path = root_dir.join(location);
                 if let Some(parent_dir) = path.parent() {
-                    std::fs::create_dir_all(parent_dir).map_err(anyhow::Error::from)?;
+                    std::fs::create_dir_all(parent_dir)?;
                 }
-                let mut file = std::fs::OpenOptions::new()
-                    .write(true)
-                    .create(true)
-                    .open(&path)
-                    .map_err(anyhow::Error::from)?;
-                file.write_all(state_part).map_err(anyhow::Error::from)?;
+                let mut file = std::fs::OpenOptions::new().write(true).create(true).open(&path)?;
+                file.write_all(state_part)?;
                 tracing::debug!(target: "state_sync_dump", shard_id, part_length = state_part.len(), ?location, "Wrote a state part to a file");
                 Ok(())
             }

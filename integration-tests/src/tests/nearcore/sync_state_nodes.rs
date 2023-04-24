@@ -77,7 +77,7 @@ fn sync_state_nodes() {
                                     }
                                 }
                                 Ok(Ok(b)) if b.header.height < 101 => {
-                                    println!("FIRST STAGE {}", b.header.height)
+                                    tracing::info!("FIRST STAGE {}", b.header.height)
                                 }
                                 Err(_) => return future::ready(()),
                                 _ => {}
@@ -93,7 +93,7 @@ fn sync_state_nodes() {
                             match &res {
                                 Ok(Ok(b)) if b.header.height >= 101 => System::current().stop(),
                                 Ok(Ok(b)) if b.header.height < 101 => {
-                                    println!("SECOND STAGE {}", b.header.height)
+                                    tracing::info!("SECOND STAGE {}", b.header.height)
                                 }
                                 Err(_) => return future::ready(()),
                                 _ => {}
@@ -228,7 +228,7 @@ fn sync_state_nodes_multishard() {
                                     }
                                 }
                                 Ok(Ok(b)) if b.header.height < 101 => {
-                                    println!("FIRST STAGE {}", b.header.height)
+                                    tracing::info!("FIRST STAGE {}", b.header.height)
                                 }
                                 Err(_) => return future::ready(()),
                                 _ => {}
@@ -244,14 +244,14 @@ fn sync_state_nodes_multishard() {
                             match &res {
                                 Ok(Ok(b)) if b.header.height >= 101 => System::current().stop(),
                                 Ok(Ok(b)) if b.header.height < 101 => {
-                                    println!("SECOND STAGE {}", b.header.height)
+                                    tracing::info!("SECOND STAGE {}", b.header.height)
                                 }
                                 Ok(Err(e)) => {
-                                    println!("SECOND STAGE ERROR1: {:?}", e);
+                                    tracing::info!("SECOND STAGE ERROR1: {:?}", e);
                                     return future::ready(());
                                 }
                                 Err(e) => {
-                                    println!("SECOND STAGE ERROR2: {:?}", e);
+                                    tracing::info!("SECOND STAGE ERROR2: {:?}", e);
                                     return future::ready(());
                                 }
                                 _ => {
@@ -355,7 +355,7 @@ fn sync_empty_state() {
                                     }
                                 }
                                 Ok(Ok(b)) if b.header.height <= state_sync_horizon => {
-                                    println!("FIRST STAGE {}", b.header.height)
+                                    tracing::info!("FIRST STAGE {}", b.header.height)
                                 }
                                 Err(_) => return future::ready(()),
                                 _ => {}
@@ -371,14 +371,14 @@ fn sync_empty_state() {
                             match &res {
                                 Ok(Ok(b)) if b.header.height >= 40 => System::current().stop(),
                                 Ok(Ok(b)) if b.header.height < 40 => {
-                                    println!("SECOND STAGE {}", b.header.height)
+                                    tracing::info!("SECOND STAGE {}", b.header.height)
                                 }
                                 Ok(Err(e)) => {
-                                    println!("SECOND STAGE ERROR1: {:?}", e);
+                                    tracing::info!("SECOND STAGE ERROR1: {:?}", e);
                                     return future::ready(());
                                 }
                                 Err(e) => {
-                                    println!("SECOND STAGE ERROR2: {:?}", e);
+                                    tracing::info!("SECOND STAGE ERROR2: {:?}", e);
                                     return future::ready(());
                                 }
                                 _ => {
@@ -432,6 +432,7 @@ fn sync_state_dump() {
                 restart_dump_for_shards: None,
                 iteration_delay: Some(Duration::from_millis(50)),
             });
+            tracing::info!("state_sync1: {:?}", &near1.client_config.state_sync);
 
             let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
             let nearcore::NearNode {
@@ -445,13 +446,11 @@ fn sync_state_dump() {
             let arbiters_holder = Arc::new(RwLock::new(vec![]));
             let arbiters_holder2 = arbiters_holder;
 
-            wait_or_timeout(100, 60000, || async {
+            wait_or_timeout(100, 30000, || async {
                 if view_client2_holder.read().unwrap().is_none() {
                     let view_client2_holder2 = view_client2_holder.clone();
                     let arbiters_holder2 = arbiters_holder2.clone();
                     let genesis2 = genesis.clone();
-                    let dir2 = dir2.path();
-                    let dump_dir1 = dump_dir.path();
 
                     match view_client1.send(GetBlock::latest().with_span_context()).await {
                         Ok(Ok(b)) if b.header.height >= state_sync_horizon + 1 => {
@@ -477,19 +476,26 @@ fn sync_state_dump() {
                                 near2.client_config.state_sync_timeout = Duration::from_secs(1);
                                 near2.client_config.state_sync.sync =
                                     SyncConfig::ExternalStorage(ExternalStorageConfig {
-                                        location: Filesystem { root_dir: dump_dir1.to_path_buf() },
+                                        location: Filesystem {
+                                            root_dir: dump_dir.path().to_path_buf(),
+                                        },
                                         num_concurrent_requests: 10,
                                     });
+                                tracing::info!(
+                                    "state_sync2: {:?}",
+                                    &near2.client_config.state_sync
+                                );
 
                                 let nearcore::NearNode {
                                     view_client: view_client2, arbiters, ..
-                                } = start_with_config(dir2, near2).expect("start_with_config");
+                                } = start_with_config(dir2.path(), near2)
+                                    .expect("start_with_config");
                                 *view_client2_holder2 = Some(view_client2);
                                 *arbiters_holder2 = arbiters;
                             }
                         }
                         Ok(Ok(b)) if b.header.height <= state_sync_horizon => {
-                            println!("FIRST STAGE {}", b.header.height);
+                            tracing::info!("FIRST STAGE {}", b.header.height);
                         }
                         Err(_) => {}
                         _ => {}
@@ -503,13 +509,13 @@ fn sync_state_dump() {
                             return ControlFlow::Break(());
                         }
                         Ok(Ok(b)) if b.header.height < 40 => {
-                            println!("SECOND STAGE {}", b.header.height)
+                            tracing::info!("SECOND STAGE {}", b.header.height)
                         }
                         Ok(Err(e)) => {
-                            println!("SECOND STAGE ERROR1: {:?}", e);
+                            tracing::info!("SECOND STAGE ERROR1: {:?}", e);
                         }
                         Err(e) => {
-                            println!("SECOND STAGE ERROR2: {:?}", e);
+                            tracing::info!("SECOND STAGE ERROR2: {:?}", e);
                         }
                         _ => {
                             assert!(false);
