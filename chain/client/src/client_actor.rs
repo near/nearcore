@@ -26,8 +26,6 @@ use near_chain::chain::{
     BlockCatchUpResponse, StateSplitRequest, StateSplitResponse,
 };
 use near_chain::test_utils::format_hash;
-#[cfg(feature = "test_features")]
-use near_chain::ChainStoreAccess;
 use near_chain::{
     byzantine_assert, near_chain_primitives, Block, BlockHeader, BlockProcessingArtifact,
     ChainGenesis, DoneApplyChunkCallback, Provenance, RuntimeWithEpochManagerAdapter,
