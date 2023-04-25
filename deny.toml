@@ -80,9 +80,20 @@ skip = [
     # wasmer 0.18
     { name = "nix", version = "=0.15.0" },
 
+    # many crates haven't updated to syn 2.0 yet.
+    { name = "syn", version = "=1.0.103" },
+
     # old version of tokio, parking_lot
     { name = "windows-sys", version = "=0.36.1" },
     { name = "windows_x86_64_msvc", version = "=0.36.1" },
+
+    # old version of rustix, wasmtime, is-terminal, etc.
+    { name = "rustix", version = "0.36.6" },
+    { name = "linux-raw-sys", version = "0.1.4" },
+    { name = "windows-sys", version = "=0.42.0" },
+    { name = "windows-sys", version = "=0.45.0" },
+    { name = "windows_x86_64_msvc", version = "=0.42.1" },
+    { name = "windows-targets", version = "=0.42.1" },
 
     # chrono uses old time crate
     { name = "time", version = "=0.1.44" },
