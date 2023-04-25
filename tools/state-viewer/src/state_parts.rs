@@ -32,7 +32,7 @@ pub(crate) enum LoadAction {
 #[derive(clap::Subcommand, Debug, Clone)]
 pub(crate) enum StatePartsSubCommand {
     Validate,
-    /// Load all or a single state part of a shard and perform an actions wth those parts.
+    /// Load all or a single state part of a shard and perform an action over those parts.
     Load {
         /// Apply, validate or print.
         #[clap(arg_enum, long)]
