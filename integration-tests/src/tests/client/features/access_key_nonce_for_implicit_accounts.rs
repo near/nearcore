@@ -326,7 +326,10 @@ fn test_request_chunks_for_orphan() {
         .validator_seats(num_validators as usize)
         .real_epoch_managers(&genesis.config)
         .track_all_shards()
-        .nightshade_runtimes_with_runtime_config_store(&genesis, vec![RuntimeConfigStore::test()])
+        .nightshade_runtimes_with_runtime_config_store(
+            &genesis,
+            vec![RuntimeConfigStore::test(), RuntimeConfigStore::test()],
+        )
         .build();
 
     let mut blocks = vec![];

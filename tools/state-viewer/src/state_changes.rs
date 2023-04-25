@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainStore, ChainStoreAccess};
-use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::hash::CryptoHash;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
@@ -48,7 +48,7 @@ impl StateChangesSubCommand {
                 apply_state_changes(file, shard_id, state_root, home_dir, near_config, store)
             }
             StateChangesSubCommand::Dump { height_from, height_to, file } => {
-                dump_state_changes(height_from, height_to, file, home_dir, near_config, store)
+                dump_state_changes(height_from, height_to, file, near_config, store)
             }
         }
     }
@@ -66,13 +66,12 @@ fn dump_state_changes(
     height_from: BlockHeight,
     height_to: BlockHeight,
     file: PathBuf,
-    home_dir: &Path,
     near_config: NearConfig,
     store: Store,
 ) {
     assert!(height_from <= height_to, "--height-from must be less than or equal to --height-to");
 
-    let runtime = NightshadeRuntime::from_config(home_dir, store.clone(), &near_config);
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
     let chain_store = ChainStore::new(
         store.clone(),
         near_config.genesis.config.genesis_height,
@@ -84,11 +83,11 @@ fn dump_state_changes(
         let block_hash = block_header.hash();
         let epoch_id = block_header.epoch_id();
         let key = KeyForStateChanges::for_block(block_header.hash());
-        let mut state_changes_per_shard = vec![vec![];runtime.num_shards(epoch_id).unwrap() as usize];
+        let mut state_changes_per_shard = vec![vec![];epoch_manager.num_shards(epoch_id).unwrap() as usize];
 
         for row in key.find_rows_iter(&store) {
             let (key, value) = row.unwrap();
-            let shard_id = get_state_change_shard_id(key.as_ref(), &value.trie_key, block_hash, epoch_id, runtime.as_ref()).unwrap();
+            let shard_id = get_state_change_shard_id(key.as_ref(), &value.trie_key, block_hash, epoch_id, epoch_manager.as_ref()).unwrap();
             state_changes_per_shard[shard_id as usize].push(value);
         }
 
@@ -134,7 +133,13 @@ fn apply_state_changes(
     near_config: NearConfig,
     store: Store,
 ) {
-    let runtime = NightshadeRuntime::from_config(home_dir, store.clone(), &near_config);
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+    let runtime = NightshadeRuntime::from_config(
+        home_dir,
+        store.clone(),
+        &near_config,
+        epoch_manager.clone(),
+    );
     let mut chain_store = ChainStore::new(
         store,
         near_config.genesis.config.genesis_height,
@@ -149,7 +154,7 @@ fn apply_state_changes(
         let block_hash = block_header.hash();
         let block_height = block_header.height();
         let epoch_id = block_header.epoch_id();
-        let shard_uid = runtime.shard_id_to_uid(shard_id, epoch_id).unwrap();
+        let shard_uid = epoch_manager.shard_id_to_uid(shard_id, epoch_id).unwrap();
 
         for StateChangesForShard { shard_id: state_change_shard_id, state_changes } in state_changes
         {

@@ -3,7 +3,6 @@ use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client_primitives::types::Error;
 use near_crypto::InMemorySigner;
-use near_epoch_manager::shard_tracker::TrackedConfig;
 use near_epoch_manager::EpochManager;
 use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
@@ -48,18 +47,21 @@ impl Scenario {
             let store = opener.open().unwrap();
             (Some(tempdir), store.get_hot_store())
         };
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let runtime = NightshadeRuntime::test_with_runtime_config_store(
+            if let Some(tempdir) = &tempdir { tempdir.path() } else { Path::new(".") },
+            store.clone(),
+            &genesis,
+            epoch_manager.clone(),
+            runtime_config_store,
+        );
 
         let mut env = TestEnv::builder(ChainGenesis::new(&genesis))
             .clients(clients.clone())
             .validators(clients)
-            .epoch_managers(vec![EpochManager::new_arc_handle(store.clone(), &genesis.config)])
-            .runtimes(vec![NightshadeRuntime::test_with_runtime_config_store(
-                if let Some(tempdir) = &tempdir { tempdir.path() } else { Path::new(".") },
-                store,
-                &genesis,
-                TrackedConfig::new_empty(),
-                runtime_config_store,
-            )])
+            .stores(vec![store])
+            .epoch_managers(vec![epoch_manager.clone()])
+            .runtimes(vec![runtime.clone()])
             .build();
 
         let result = self.process_blocks(&mut env);

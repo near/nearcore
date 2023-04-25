@@ -72,8 +72,12 @@ impl FlatStorageCommand {
         let node_storage = opener.open_in_mode(mode).unwrap();
         let epoch_manager =
             EpochManager::new_arc_handle(node_storage.get_hot_store(), &near_config.genesis.config);
-        let hot_runtime =
-            NightshadeRuntime::from_config(home_dir, node_storage.get_hot_store(), &near_config);
+        let hot_runtime = NightshadeRuntime::from_config(
+            home_dir,
+            node_storage.get_hot_store(),
+            &near_config,
+            epoch_manager.clone(),
+        );
         let chain_store = ChainStore::new(node_storage.get_hot_store(), 0, false);
         let hot_store = node_storage.get_hot_store();
         (node_storage, epoch_manager, hot_runtime, chain_store, hot_store)
@@ -202,7 +206,8 @@ impl FlatStorageCommand {
                 println!("Verifying using the {:?} as state_root", state_root);
                 let tip = chain_store.final_head().unwrap();
 
-                let shard_uid = hot_runtime.shard_id_to_uid(verify_cmd.shard_id, &tip.epoch_id)?;
+                let shard_uid =
+                    epoch_manager.shard_id_to_uid(verify_cmd.shard_id, &tip.epoch_id)?;
                 hot_runtime.create_flat_storage_for_shard(shard_uid);
 
                 let trie = hot_runtime

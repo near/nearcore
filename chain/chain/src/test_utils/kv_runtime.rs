@@ -450,7 +450,7 @@ impl EpochManagerAdapter for KeyValueEpochManager {
 
     fn get_epoch_config(&self, _epoch_id: &EpochId) -> Result<EpochConfig, EpochError> {
         Ok(EpochConfig {
-            epoch_length: 10,
+            epoch_length: self.epoch_length,
             num_block_producer_seats: 2,
             num_block_producer_seats_per_shard: vec![1, 1],
             avg_hidden_validator_seats_per_shard: vec![1, 1],

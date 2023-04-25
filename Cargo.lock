@@ -2143,6 +2143,7 @@ dependencies = [
  "near-chain",
  "near-chain-configs",
  "near-crypto",
+ "near-epoch-manager",
  "near-primitives",
  "near-store",
  "near-test-contracts",

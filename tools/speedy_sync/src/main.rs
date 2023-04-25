@@ -228,10 +228,11 @@ fn load_snapshot(load_cmd: LoadCmd) {
         .unwrap()
         .get_hot_store();
     let chain_genesis = ChainGenesis::new(&config.genesis);
-    let runtime = NightshadeRuntime::from_config(home_dir, store.clone(), &config);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &config.genesis.config);
     let shard_tracker =
         ShardTracker::new(TrackedConfig::from_config(&config.client_config), epoch_manager.clone());
+    let runtime =
+        NightshadeRuntime::from_config(home_dir, store.clone(), &config, epoch_manager.clone());
     // This will initialize the database (add genesis block etc)
     let _chain = Chain::new(
         epoch_manager,

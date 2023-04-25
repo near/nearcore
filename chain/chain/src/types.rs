@@ -4,7 +4,6 @@ use std::sync::Arc;
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
 use chrono::Utc;
-use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use num_rational::Rational32;
 
@@ -537,15 +536,6 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> bool;
 
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error>;
-}
-
-/// LEGACY trait. Will be removed. Use RuntimeAdapter or EpochManagerHandler instead.
-pub trait RuntimeWithEpochManagerAdapter: RuntimeAdapter + EpochManagerAdapter {
-    fn epoch_manager_adapter(&self) -> &dyn EpochManagerAdapter;
-    fn epoch_manager_adapter_arc(&self) -> Arc<dyn EpochManagerAdapter>;
-    fn runtime_adapter(&self) -> &dyn RuntimeAdapter;
-    fn runtime_adapter_arc(&self) -> Arc<dyn RuntimeAdapter>;
-    fn shard_tracker(&self) -> ShardTracker;
 }
 
 /// The last known / checked height and time when we have processed it.

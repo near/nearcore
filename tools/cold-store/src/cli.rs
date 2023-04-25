@@ -3,18 +3,17 @@ use anyhow;
 use anyhow::Context;
 use borsh::BorshDeserialize;
 use clap;
-use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_store::cold_storage::{copy_all_data_to_cold, update_cold_db, update_cold_head};
 use near_store::metadata::DbKind;
 use near_store::{DBCol, NodeStorage, Store, StoreOpener};
 use near_store::{COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY, TAIL_KEY};
-use nearcore::{NearConfig, NightshadeRuntime};
+use nearcore::NearConfig;
 use rand::seq::SliceRandom;
 use std::io::Result;
 use std::path::Path;
-use std::sync::Arc;
 use strum::IntoEnumIterator;
 
 #[derive(clap::Parser)]
@@ -70,14 +69,14 @@ impl ColdStoreCommand {
         let storage =
             opener.open_in_mode(mode).unwrap_or_else(|e| panic!("Error opening storage: {:#}", e));
 
-        let hot_runtime =
-            NightshadeRuntime::from_config(home_dir, storage.get_hot_store(), &near_config);
+        let epoch_manager =
+            EpochManager::new_arc_handle(storage.get_hot_store(), &near_config.genesis.config);
         match self.subcmd {
             SubCommand::Open => check_open(&storage),
             SubCommand::Head => print_heads(&storage),
             SubCommand::CopyNextBlocks(cmd) => {
                 for _ in 0..cmd.number_of_blocks {
-                    copy_next_block(&storage, &near_config, &hot_runtime);
+                    copy_next_block(&storage, &near_config, epoch_manager.as_ref());
                 }
                 Ok(())
             }
@@ -182,7 +181,7 @@ fn print_heads(store: &NodeStorage) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn copy_next_block(store: &NodeStorage, config: &NearConfig, hot_runtime: &Arc<NightshadeRuntime>) {
+fn copy_next_block(store: &NodeStorage, config: &NearConfig, epoch_manager: &EpochManagerHandle) {
     // Cold HEAD can be not set in testing.
     // It should be set before the copying of a block in prod,
     // but we should default it to genesis height here.
@@ -222,8 +221,8 @@ fn copy_next_block(store: &NodeStorage, config: &NearConfig, hot_runtime: &Arc<N
     update_cold_db(
         &*store.cold_db().unwrap(),
         &store.get_hot_store(),
-        &hot_runtime
-            .get_shard_layout(&hot_runtime.get_epoch_id_from_prev_block(&cold_head_hash).unwrap())
+        &epoch_manager
+            .get_shard_layout(&epoch_manager.get_epoch_id_from_prev_block(&cold_head_hash).unwrap())
             .unwrap(),
         &next_height,
     )

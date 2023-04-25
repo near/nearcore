@@ -1,9 +1,10 @@
 /// Test economic edge cases.
 use std::path::Path;
 
+use near_epoch_manager::EpochManager;
 use num_rational::Ratio;
 
-use near_chain::{ChainGenesis};
+use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType};
@@ -31,10 +32,13 @@ fn build_genesis() -> Genesis {
 fn setup_env(genesis: &Genesis) -> TestEnv {
     init_integration_logger();
     let store = create_test_store();
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+    let runtime =
+        NightshadeRuntime::test(Path::new("."), store.clone(), genesis, epoch_manager.clone());
     TestEnv::builder(ChainGenesis::new(&genesis))
         .stores(vec![store.clone()])
-        .real_epoch_managers(&genesis.config)
-        .runtimes(vec![NightshadeRuntime::test(Path::new("."), store, genesis)])
+        .epoch_managers(vec![epoch_manager])
+        .runtimes(vec![runtime])
         .build()
 }
 

@@ -216,11 +216,16 @@ pub fn start_with_config_and_synchronization(
         None
     };
 
-    let runtime = NightshadeRuntime::from_config(home_dir, storage.get_hot_store(), &config);
     let epoch_manager =
         EpochManager::new_arc_handle(storage.get_hot_store(), &config.genesis.config);
     let shard_tracker =
         ShardTracker::new(TrackedConfig::from_config(&config.client_config), epoch_manager.clone());
+    let runtime = NightshadeRuntime::from_config(
+        home_dir,
+        storage.get_hot_store(),
+        &config,
+        epoch_manager.clone(),
+    );
 
     // Get the split store. If split store is some then create a new set of structures for
     // the view client. Otherwise just re-use the existing ones.
@@ -233,13 +238,18 @@ pub fn start_with_config_and_synchronization(
                 TrackedConfig::from_config(&config.client_config),
                 epoch_manager.clone(),
             );
-            let view_runtime = NightshadeRuntime::from_config(home_dir, split_store.clone(), &config);
+            let view_runtime = NightshadeRuntime::from_config(
+                home_dir,
+                split_store.clone(),
+                &config,
+                view_epoch_manager.clone(),
+            );
             (view_epoch_manager, view_shard_tracker, view_runtime)
         } else {
             (epoch_manager.clone(), shard_tracker.clone(), runtime.clone())
         };
 
-    let cold_store_loop_handle = spawn_cold_store_loop(&config, &storage, runtime.clone())?;
+    let cold_store_loop_handle = spawn_cold_store_loop(&config, &storage, epoch_manager.clone())?;
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
     let chain_genesis = ChainGenesis::new(&config.genesis);

@@ -476,7 +476,8 @@ mod test {
         let store = create_test_store();
         let mut chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height, false);
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
-        let runtime = NightshadeRuntime::test(Path::new("."), store, &genesis);
+        let runtime =
+            NightshadeRuntime::test(Path::new("."), store.clone(), &genesis, epoch_manager.clone());
         let chain_genesis = ChainGenesis::test();
 
         let signers = (0..4)
@@ -487,6 +488,7 @@ mod test {
             .collect::<Vec<_>>();
 
         let mut env = TestEnv::builder(chain_genesis)
+            .stores(vec![store])
             .epoch_managers(vec![epoch_manager.clone()])
             .track_all_shards()
             .runtimes(vec![runtime.clone()])
@@ -552,7 +554,8 @@ mod test {
         let store = create_test_store();
         let chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height, false);
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
-        let runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
+        let runtime =
+            NightshadeRuntime::test(Path::new("."), store.clone(), &genesis, epoch_manager.clone());
         let mut chain_genesis = ChainGenesis::test();
         // receipts get delayed with the small ChainGenesis::test() limit
         chain_genesis.gas_limit = genesis.config.gas_limit;
@@ -565,6 +568,7 @@ mod test {
             .collect::<Vec<_>>();
 
         let mut env = TestEnv::builder(chain_genesis)
+            .stores(vec![store.clone()])
             .epoch_managers(vec![epoch_manager.clone()])
             .track_all_shards()
             .runtimes(vec![runtime.clone()])

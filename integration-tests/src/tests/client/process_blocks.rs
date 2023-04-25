@@ -2143,7 +2143,12 @@ fn test_incorrect_validator_key_produce_block() {
     let store = create_test_store();
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
     let shard_tracker = ShardTracker::new(TrackedConfig::new_empty(), epoch_manager.clone());
-    let runtime = nearcore::NightshadeRuntime::test(Path::new("../../../.."), store, &genesis);
+    let runtime = nearcore::NightshadeRuntime::test(
+        Path::new("../../../.."),
+        store,
+        &genesis,
+        epoch_manager.clone(),
+    );
     let signer = Arc::new(InMemoryValidatorSigner::from_seed(
         "test0".parse().unwrap(),
         KeyType::ED25519,

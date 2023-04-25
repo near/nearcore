@@ -472,14 +472,16 @@ mod test {
         genesis.config.num_block_producer_seats_per_shard = vec![2];
         genesis.config.epoch_length = epoch_length;
         let store = create_test_store();
-        let nightshade_runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let nightshade_runtime =
+            NightshadeRuntime::test(Path::new("."), store.clone(), &genesis, epoch_manager.clone());
         let mut chain_genesis = ChainGenesis::test();
         chain_genesis.epoch_length = epoch_length;
         chain_genesis.gas_limit = genesis.config.gas_limit;
         let env = TestEnv::builder(chain_genesis)
             .validator_seats(2)
             .stores(vec![store.clone()])
-            .real_epoch_managers(&genesis.config)
+            .epoch_managers(vec![epoch_manager])
             .runtimes(vec![nightshade_runtime])
             .build();
         (store, genesis, env)
@@ -537,17 +539,16 @@ mod test {
 
         safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1, None);
 
-        let epoch_manager = EpochManager::new_from_genesis_config(store.clone(), &genesis.config)
-            .unwrap()
-            .into_handle();
-        let runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let runtime =
+            NightshadeRuntime::test(Path::new("."), store.clone(), &genesis, epoch_manager.clone());
         apply_chain_range(
             store,
             &genesis,
             None,
             None,
             0,
-            &epoch_manager,
+            epoch_manager.as_ref(),
             runtime,
             true,
             None,
@@ -574,10 +575,9 @@ mod test {
 
         safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1, Some(5));
 
-        let epoch_manager = EpochManager::new_from_genesis_config(store.clone(), &genesis.config)
-            .unwrap()
-            .into_handle();
-        let runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let runtime =
+            NightshadeRuntime::test(Path::new("."), store.clone(), &genesis, epoch_manager.clone());
         let mut file = tempfile::NamedTempFile::new().unwrap();
         apply_chain_range(
             store,
@@ -585,7 +585,7 @@ mod test {
             None,
             None,
             0,
-            &epoch_manager,
+            epoch_manager.as_ref(),
             runtime,
             true,
             Some(file.as_file_mut()),
