@@ -219,8 +219,8 @@ pub fn start_with_config_and_synchronization(
     // Get the split store. If split store is some then create a new runtime for
     // the view client. Otherwise just re-use the existing runtime.
     let split_store = get_split_store(&config, &storage)?;
-    let view_runtime = if let Some(split_store) = split_store {
-        NightshadeRuntime::from_config(home_dir, split_store, &config)
+    let view_runtime = if let Some(split_store) = &split_store {
+        NightshadeRuntime::from_config(home_dir, split_store.clone(), &config)
     } else {
         runtime.clone()
     };
@@ -244,7 +244,7 @@ pub fn start_with_config_and_synchronization(
     let view_client = start_view_client(
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
         chain_genesis.clone(),
-        view_runtime,
+        view_runtime.clone(),
         network_adapter.clone().into(),
         config.client_config.clone(),
         adv.clone(),
@@ -264,11 +264,11 @@ pub fn start_with_config_and_synchronization(
     );
     client_adapter_for_shards_manager.bind(client_actor.clone().with_auto_span_context());
     let (shards_manager_actor, shards_manager_arbiter_handle) = start_shards_manager(
-        runtime.clone(),
+        view_runtime.clone(),
         network_adapter.as_sender(),
         client_adapter_for_shards_manager.as_sender(),
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
-        storage.get_hot_store(),
+        split_store.unwrap_or(storage.get_hot_store()),
         config.client_config.chunk_request_retry_period,
     );
     shards_manager_adapter.bind(shards_manager_actor);
