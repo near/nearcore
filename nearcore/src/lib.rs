@@ -264,7 +264,7 @@ pub fn start_with_config_and_synchronization(
     );
     client_adapter_for_shards_manager.bind(client_actor.clone().with_auto_span_context());
     let (shards_manager_actor, shards_manager_arbiter_handle) = start_shards_manager(
-        view_runtime.clone(),
+        view_runtime,
         network_adapter.as_sender(),
         client_adapter_for_shards_manager.as_sender(),
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
