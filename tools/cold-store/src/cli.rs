@@ -429,7 +429,7 @@ impl PrepareHotCmd {
         // COLD  . . . . . . . . . H
 
         if cold_head.height > rpc_head.height {
-            tracing::error!(target : "prepare-hot",
+            tracing::warn!(target : "prepare-hot",
                 "The cold head is ahead of the rpc head. cold head height: {} rpc head height: {}",
                 cold_head.height,
                 rpc_head.height
