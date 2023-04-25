@@ -114,7 +114,7 @@ fn dump_state_changes(
 
     tracing::info!(target: "state-changes", ?file, "Writing state changes to a file");
     let data: Vec<u8> = state_changes_for_block_range.try_to_vec().unwrap();
-    std::fs::write(&file, &data).unwrap();
+    std::fs::write(&file, data).unwrap();
 }
 
 /// Reads StateChanges from a file. Applies StateChanges in the order of increasing block height.
@@ -164,8 +164,7 @@ fn apply_state_changes(
             }
 
             tracing::info!(target: "state-changes", block_height, ?block_hash, ?shard_uid, ?state_root, num_changes = state_changes.len(), "Applying state changes");
-            let trie =
-                runtime.get_trie_for_shard(shard_id, &block_hash, state_root, false).unwrap();
+            let trie = runtime.get_trie_for_shard(shard_id, block_hash, state_root, false).unwrap();
 
             let trie_update = trie
                 .update(state_changes.iter().map(|raw_state_changes_with_trie_key| {

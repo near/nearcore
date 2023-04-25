@@ -48,6 +48,7 @@ near-primitives.workspace = true
 near-state-parts.workspace = true
 near-state-viewer.workspace = true
 near-store.workspace = true
+near-undo-block.workspace = true
 
 [build-dependencies]
 anyhow.workspace = true
@@ -66,13 +67,11 @@ rosetta_rpc = ["nearcore/rosetta_rpc"]
 json_rpc = ["nearcore/json_rpc"]
 protocol_feature_fix_staking_threshold = ["nearcore/protocol_feature_fix_staking_threshold"]
 serialize_all_state_changes = ["nearcore/serialize_all_state_changes"]
-protocol_feature_flat_state = ["nearcore/protocol_feature_flat_state", "near-flat-storage/protocol_feature_flat_state"]
 
 nightly = [
   "nightly_protocol",
   "nearcore/nightly",
   "near-state-viewer/nightly",
-  "protocol_feature_flat_state",
 ]
 nightly_protocol = ["nearcore/nightly_protocol"]
 

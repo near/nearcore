@@ -1,7 +1,7 @@
+use crate::time;
 use futures::future::BoxFuture;
 use futures::task::{waker_ref, ArcWake};
 use futures::FutureExt;
-use near_primitives::time;
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 use std::task::Context;

@@ -3,10 +3,10 @@ use crate::types as primitives;
 /// It is a concise definition of key and value types
 /// of the DB columns. For high level access see store.rs.
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_async::time;
 use near_crypto::Signature;
 use near_primitives::account::id::AccountId;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::time;
 use near_store::DBCol;
 use std::io;
 use std::sync::Arc;

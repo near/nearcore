@@ -1252,10 +1252,18 @@ impl From<SignedTransaction> for SignedTransactionView {
 }
 
 #[derive(
-    BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone,
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    Default,
 )]
 pub enum FinalExecutionStatus {
     /// The execution has not yet started.
+    #[default]
     NotStarted,
     /// The execution has started and still going.
     Started,
@@ -1275,12 +1283,6 @@ impl fmt::Debug for FinalExecutionStatus {
                 f.write_fmt(format_args!("SuccessValue({})", AbbrBytes(v)))
             }
         }
-    }
-}
-
-impl Default for FinalExecutionStatus {
-    fn default() -> Self {
-        FinalExecutionStatus::NotStarted
     }
 }
 
@@ -1934,6 +1936,11 @@ pub struct CurrentEpochValidatorInfo {
     pub num_produced_chunks: NumBlocks,
     #[serde(default)]
     pub num_expected_chunks: NumBlocks,
+    // The following two fields correspond to the shards in the shard array.
+    #[serde(default)]
+    pub num_produced_chunks_per_shard: Vec<NumBlocks>,
+    #[serde(default)]
+    pub num_expected_chunks_per_shard: Vec<NumBlocks>,
 }
 
 #[derive(

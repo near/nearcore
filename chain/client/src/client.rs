@@ -32,6 +32,7 @@ use near_chunks::logic::{
 use near_chunks::ShardsManager;
 use near_client_primitives::debug::ChunkProduction;
 use near_client_primitives::types::{Error, ShardSyncDownload, ShardSyncStatus};
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::types::{AccountKeys, ChainInfo, PeerManagerMessageRequest, SetChainInfo};
 use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter, ReasonForBan,
@@ -102,6 +103,7 @@ pub struct Client {
     pub chain: Chain,
     pub doomslug: Doomslug,
     pub runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
+    pub shard_tracker: ShardTracker,
     pub shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
     pub sharded_tx_pool: ShardedTransactionPool,
     prev_block_to_chunk_headers_ready_for_inclusion: LruCache<
@@ -249,7 +251,15 @@ impl Client {
             config.archive,
             config.state_sync_enabled,
         );
-        let state_sync = StateSync::new(network_adapter.clone(), config.state_sync_timeout);
+        let state_sync = StateSync::new(
+            network_adapter.clone(),
+            config.state_sync_timeout,
+            &config.chain_id,
+            config.state_sync_from_s3_enabled,
+            &config.state_sync_s3_bucket,
+            &config.state_sync_s3_region,
+            config.state_sync_num_concurrent_s3_requests,
+        );
         let num_block_producer_seats = config.num_block_producer_seats as usize;
         let data_parts = runtime_adapter.num_data_parts();
         let parity_parts = runtime_adapter.num_total_parts() - data_parts;
@@ -278,6 +288,7 @@ impl Client {
             sync_status,
             chain,
             doomslug,
+            shard_tracker: runtime_adapter.shard_tracker(),
             runtime_adapter,
             shards_manager_adapter,
             sharded_tx_pool,
@@ -330,7 +341,7 @@ impl Client {
                     block.header().prev_hash(),
                     shard_id,
                     true,
-                    self.runtime_adapter.as_ref(),
+                    &self.shard_tracker,
                 ) {
                     self.sharded_tx_pool.remove_transactions(
                         shard_id,
@@ -354,7 +365,7 @@ impl Client {
                     block.header().prev_hash(),
                     shard_id,
                     false,
-                    self.runtime_adapter.as_ref(),
+                    &self.shard_tracker,
                 ) {
                     self.sharded_tx_pool.reintroduce_transactions(
                         shard_id,
@@ -1591,7 +1602,8 @@ impl Client {
             &encoded_chunk,
             merkle_paths.clone(),
             Some(&validator_id),
-            self.runtime_adapter.as_ref(),
+            self.runtime_adapter.epoch_manager_adapter(),
+            &self.shard_tracker,
         )?;
         persist_chunk(partial_chunk.clone(), Some(shard_chunk), self.chain.mut_store())?;
         self.on_chunk_header_ready_for_inclusion(encoded_chunk.cloned_header(), validator_id);
@@ -1997,20 +2009,18 @@ impl Client {
             } else if check_only {
                 Ok(ProcessTxResponse::ValidTx)
             } else {
-                let active_validator = self.active_validator(shard_id)?;
-
-                // TODO #6713: Transactions don't need to be recorded if the node is not a validator
-                // for the shard.
-                // If I'm not an active validator I should forward tx to next validators.
-                self.sharded_tx_pool.insert_transaction(shard_id, tx.clone());
-                trace!(target: "client", shard_id, "Recorded a transaction.");
+                // Transactions only need to be recorded if the node is a validator.
+                if me.is_some() {
+                    self.sharded_tx_pool.insert_transaction(shard_id, tx.clone());
+                    trace!(target: "client", shard_id, "Recorded a transaction.");
+                }
 
                 // Active validator:
                 //   possibly forward to next epoch validators
                 // Not active validator:
                 //   forward to current epoch validators,
                 //   possibly forward to next epoch validators
-                if active_validator {
+                if self.active_validator(shard_id)? {
                     trace!(target: "client", account = ?me, shard_id, is_forwarded, "Recording a transaction.");
                     metrics::TRANSACTION_RECEIVED_VALIDATOR.inc();
 
@@ -2120,7 +2130,15 @@ impl Client {
             let (state_sync, new_shard_sync, blocks_catch_up_state) =
                 self.catchup_state_syncs.entry(sync_hash).or_insert_with(|| {
                     (
-                        StateSync::new(network_adapter1, state_sync_timeout),
+                        StateSync::new(
+                            network_adapter1,
+                            state_sync_timeout,
+                            &self.config.chain_id,
+                            self.config.state_sync_from_s3_enabled,
+                            &self.config.state_sync_s3_bucket,
+                            &self.config.state_sync_s3_region,
+                            self.config.state_sync_num_concurrent_s3_requests,
+                        ),
                         new_shard_sync,
                         BlocksCatchUpState::new(sync_hash, epoch_id),
                     )

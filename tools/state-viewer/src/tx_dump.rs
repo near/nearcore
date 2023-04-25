@@ -18,15 +18,15 @@ pub fn dump_tx_from_block(
                 .get_chunk(&chunk_header.chunk_hash())
                 .unwrap()
                 .transactions()
-                .into_iter()
+                .iter()
                 .filter(|signed_transaction| {
                     should_include_signed_transaction(signed_transaction, select_account_ids)
                 })
-                .map(|signed_transaction| signed_transaction.clone())
+                .cloned()
                 .collect::<Vec<_>>(),
         );
     }
-    return res;
+    res
 }
 
 fn should_include_signed_transaction(

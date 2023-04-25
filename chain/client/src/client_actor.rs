@@ -1433,6 +1433,9 @@ impl ClientActor {
     }
 
     fn start_flat_storage_creation(&mut self, ctx: &mut Context<ClientActor>) {
+        if !self.client.config.flat_storage_creation_enabled {
+            return;
+        }
         match self.client.run_flat_storage_creation_step() {
             Ok(false) => {}
             Ok(true) => {
@@ -1660,7 +1663,7 @@ impl ClientActor {
                                     &prev_hash,
                                     *x,
                                     true,
-                                    self.client.runtime_adapter.as_ref(),
+                                    &self.client.shard_tracker,
                                 )
                             })
                             .collect();

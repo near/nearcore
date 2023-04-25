@@ -567,12 +567,6 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: &StateRoot,
     ) -> bool;
 
-    fn chunk_needs_to_be_fetched_from_archival(
-        &self,
-        chunk_prev_block_hash: &CryptoHash,
-        header_head: &CryptoHash,
-    ) -> Result<bool, Error>;
-
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error>;
 }
 

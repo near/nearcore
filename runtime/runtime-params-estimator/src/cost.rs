@@ -202,6 +202,9 @@ pub enum Cost {
     /// Estimates `action_creation_config.delegate_cost` which is charged
     /// for `DelegateAction` actions.
     ActionDelegate,
+    ActionDelegateSendNotSir,
+    ActionDelegateSendSir,
+    ActionDelegateExec,
     /// Estimates `wasm_config.ext_costs.base` which is intended to be charged
     /// once on every host function call. However, this is currently
     /// inconsistent. First, we do not charge on Math API methods (`sha256`,

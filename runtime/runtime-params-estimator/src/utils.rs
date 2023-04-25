@@ -205,21 +205,15 @@ pub(crate) fn fn_cost_with_setup(
         let (gas_cost, ext_costs) =
             aggregate_per_block_measurements(block_size, measurements, Some(overhead));
 
-        // flat storage check: we only expect TTN costs for writes
-        // TODO(#7327): This assertion is ignored, we know flat storage doesn't
-        // work for the estimator. Remove cfg once it once it works.
-        #[cfg(ignore)]
-        if cfg!(feature = "protocol_feature_flat_state") {
-            let is_write = [ExtCosts::storage_write_base, ExtCosts::storage_remove_base]
-                .iter()
-                .any(|cost| *ext_costs.get(cost).unwrap_or(&0) > 0);
-            if !is_write {
-                assert_eq!(
-                    0,
-                    *ext_costs.get(&ExtCosts::touching_trie_node).unwrap_or(&0),
-                    "flat storage not working"
-                );
-            }
+        let is_write = [ExtCosts::storage_write_base, ExtCosts::storage_remove_base]
+            .iter()
+            .any(|cost| *ext_costs.get(cost).unwrap_or(&0) > 0);
+        if !is_write {
+            assert_eq!(
+                0,
+                *ext_costs.get(&ExtCosts::touching_trie_node).unwrap_or(&0),
+                "flat storage not working"
+            );
         }
 
         (gas_cost, ext_costs[&ext_cost])

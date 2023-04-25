@@ -20,7 +20,7 @@ fn prepare_env_with_contract(
     let mut env = TestEnv::builder(ChainGenesis::new(&genesis))
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
-    deploy_test_contract(&mut env, account, &contract, epoch_length.clone(), 1);
+    deploy_test_contract(&mut env, account, &contract, epoch_length, 1);
     env
 }
 

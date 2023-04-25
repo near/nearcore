@@ -1,6 +1,7 @@
 use crate::cli::SubCommand::CheckStateRoot;
 use anyhow;
 use anyhow::Context;
+use borsh::BorshDeserialize;
 use clap;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Tip;
@@ -593,13 +594,14 @@ impl CheckStateRootCmd {
         let bytes = Self::read_state(store, hash.as_ref())
             .with_context(|| format!("Failed to read raw bytes for hash {:?}", hash))?
             .with_context(|| format!("Failed to find raw bytes for hash {:?}", hash))?;
-        let node = near_store::RawTrieNodeWithSize::decode(&bytes)?;
+        let node = near_store::RawTrieNodeWithSize::try_from_slice(&bytes)?;
         match node.node {
             near_store::RawTrieNode::Leaf(..) => {
                 tracing::debug!(target: "check_trie", "Reached leaf node");
                 return Ok(());
             }
-            near_store::RawTrieNode::Branch(mut children, _) => {
+            near_store::RawTrieNode::BranchNoValue(mut children)
+            | near_store::RawTrieNode::BranchWithValue(_, mut children) => {
                 children.0.shuffle(&mut rand::thread_rng());
                 for (_, child) in children.iter() {
                     // Record in prune state that we are visiting a child node

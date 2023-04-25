@@ -73,7 +73,7 @@ where
                 match serde_json::from_str::<T>(&config_str_without_comments) {
                     Ok(config) => {
                         tracing::info!(target: "neard", config=?config, "Changing the config {path:?}.");
-                        return Ok(Some(config));
+                        Ok(Some(config))
                     }
                     Err(err) => {
                         Err(UpdateableConfigLoaderError::Parse { file: path.to_path_buf(), err })
@@ -87,7 +87,7 @@ where
         Err(err) => match err.kind() {
             std::io::ErrorKind::NotFound => {
                 tracing::info!(target: "neard", ?err, "Reset the config {path:?} because the config file doesn't exist.");
-                return Ok(None);
+                Ok(None)
             }
             _ => Err(UpdateableConfigLoaderError::OpenAndRead { file: path.to_path_buf(), err }),
         },

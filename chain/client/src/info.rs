@@ -11,7 +11,7 @@ use near_primitives::telemetry::{
     TelemetryAgentInfo, TelemetryChainInfo, TelemetryInfo, TelemetrySystemInfo,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochHeight, EpochId, Gas, NumBlocks, ShardId,
+    AccountId, Balance, BlockHeight, EpochHeight, EpochId, Gas, NumBlocks, ShardId, ValidatorId,
     ValidatorInfoIdentifier,
 };
 use near_primitives::unwrap_or_return;
@@ -23,6 +23,7 @@ use near_primitives::views::{
 };
 use near_telemetry::{telemetry, TelemetryActor};
 use std::cmp::min;
+use std::collections::HashMap;
 use std::fmt::Write;
 use std::sync::Arc;
 use std::time::Instant;
@@ -59,6 +60,8 @@ pub struct InfoHelper {
     telemetry_actor: Option<Addr<TelemetryActor>>,
     /// Log coloring enabled
     log_summary_style: LogSummaryStyle,
+    /// Epoch height
+    epoch_id: Option<EpochId>,
     /// Timestamp of starting the client.
     pub boot_time_seconds: i64,
 }
@@ -83,6 +86,7 @@ impl InfoHelper {
             validator_signer,
             log_summary_style: client_config.log_summary_style,
             boot_time_seconds: StaticClock::utc().timestamp(),
+            epoch_id: None,
         }
     }
 
@@ -163,8 +167,7 @@ impl InfoHelper {
             client.validator_signer.as_ref().map(|x| x.validator_id().clone()),
             client.runtime_adapter.get_epoch_info(&head.epoch_id),
         ) {
-            for (shard_id, validators) in
-                epoch_info.chunk_producers_settlement().into_iter().enumerate()
+            for (shard_id, validators) in epoch_info.chunk_producers_settlement().iter().enumerate()
             {
                 let is_chunk_producer_for_shard = validators.iter().any(|&validator_id| {
                     *epoch_info.validator_account_id(validator_id) == account_id
@@ -178,6 +181,60 @@ impl InfoHelper {
                 metrics::IS_CHUNK_PRODUCER_FOR_SHARD
                     .with_label_values(&[&shard_id.to_string()])
                     .set(0);
+            }
+        }
+    }
+
+    /// The value obtained by multiplying the stake fraction with the expected number of blocks in an epoch
+    /// is an estimation, and not an exact value. To obtain a more precise result, it is necessary to examine
+    /// all the blocks in the epoch. However, even this method may not be completely accurate because additional
+    /// blocks could potentially be added at the end of the epoch.
+    fn record_epoch_settlement_info(head: &Tip, client: &crate::client::Client) {
+        let epoch_info = client.runtime_adapter.get_epoch_info(&head.epoch_id);
+        let blocks_in_epoch = client.config.epoch_length;
+        let number_of_shards =
+            client.runtime_adapter.num_shards(&head.epoch_id).unwrap_or_default();
+        if let Ok(epoch_info) = epoch_info {
+            let mut stake_per_bp = HashMap::<ValidatorId, Balance>::new();
+
+            let stake_to_blocks = |stake: Balance, stake_sum: Balance| -> i64 {
+                if stake == 0 {
+                    0
+                } else {
+                    (((stake as f64) / (stake_sum as f64)) * (blocks_in_epoch as f64)) as i64
+                }
+            };
+
+            let mut stake_sum = 0;
+            for &id in epoch_info.block_producers_settlement() {
+                let stake = epoch_info.validator_stake(id);
+                stake_per_bp.insert(id, stake);
+                stake_sum += stake;
+            }
+
+            stake_per_bp.iter().for_each(|(&id, &stake)| {
+                metrics::VALIDATORS_BLOCKS_EXPECTED_IN_EPOCH
+                    .with_label_values(&[epoch_info.get_validator(id).account_id().as_str()])
+                    .set(stake_to_blocks(stake, stake_sum))
+            });
+
+            for shard_id in 0..number_of_shards {
+                let mut stake_per_cp = HashMap::<ValidatorId, Balance>::new();
+                stake_sum = 0;
+                for &id in &epoch_info.chunk_producers_settlement()[shard_id as usize] {
+                    let stake = epoch_info.validator_stake(id);
+                    stake_per_cp.insert(id, stake);
+                    stake_sum += stake;
+                }
+
+                stake_per_cp.iter().for_each(|(&id, &stake)| {
+                    metrics::VALIDATORS_CHUNKS_EXPECTED_IN_EPOCH
+                        .with_label_values(&[
+                            epoch_info.get_validator(id).account_id().as_str(),
+                            &shard_id.to_string(),
+                        ])
+                        .set(stake_to_blocks(stake, stake_sum))
+                });
             }
         }
     }
@@ -238,6 +295,12 @@ impl InfoHelper {
         InfoHelper::record_tracked_shards(&head, &client);
         InfoHelper::record_block_producers(&head, &client);
         InfoHelper::record_chunk_producers(&head, &client);
+        let next_epoch_id = Some(head.epoch_id.clone());
+        if self.epoch_id.ne(&next_epoch_id) {
+            // We only want to compute this once per epoch.
+            InfoHelper::record_epoch_settlement_info(&head, &client);
+            self.epoch_id = next_epoch_id;
+        }
 
         self.info(
             &head,
@@ -326,7 +389,7 @@ impl InfoHelper {
             paint(ansi_term::Colour::Green, blocks_info_log),
             paint(ansi_term::Colour::Blue, machine_info_log),
         );
-        if catchup_status_log != "" {
+        if !catchup_status_log.is_empty() {
             info!(target: "stats", "Catchups\n{}", catchup_status_log);
         }
         if let Some(config_updater) = &config_updater {
@@ -358,6 +421,19 @@ impl InfoHelper {
             (metrics::VALIDATORS_CHUNKS_EXPECTED
                 .with_label_values(&[stats.account_id.as_str()])
                 .set(stats.num_expected_chunks as i64));
+            for ((shard, expected), produced) in stats
+                .shards
+                .iter()
+                .zip(stats.num_expected_chunks_per_shard.iter())
+                .zip(stats.num_produced_chunks_per_shard.iter())
+            {
+                (metrics::VALIDATORS_CHUNKS_EXPECTED_BY_SHARD
+                    .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
+                    .set(*expected as i64));
+                (metrics::VALIDATORS_CHUNKS_PRODUCED_BY_SHARD
+                    .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
+                    .set(*produced as i64));
+            }
         }
 
         self.started = StaticClock::instant();
@@ -468,7 +544,7 @@ pub fn display_catchup_status(catchup_status: Vec<CatchupStatusView>) -> String 
                 .sorted_by_key(|x| x.0)
                 .map(|(shard_id, status_string)| format!("Shard {} {}", shard_id, status_string))
                 .join(", ");
-            let block_catchup_string = if catchup_status.blocks_to_catchup.len() == 0 {
+            let block_catchup_string = if !catchup_status.blocks_to_catchup.is_empty() {
                 "done".to_string()
             } else {
                 catchup_status
@@ -670,6 +746,9 @@ pub struct ValidatorProductionStats {
     pub num_expected_blocks: NumBlocks,
     pub num_produced_chunks: NumBlocks,
     pub num_expected_chunks: NumBlocks,
+    pub shards: Vec<ShardId>,
+    pub num_produced_chunks_per_shard: Vec<NumBlocks>,
+    pub num_expected_chunks_per_shard: Vec<NumBlocks>,
 }
 
 impl ValidatorProductionStats {
@@ -680,6 +759,9 @@ impl ValidatorProductionStats {
             num_expected_blocks: 0,
             num_produced_chunks: 0,
             num_expected_chunks: 0,
+            shards: vec![],
+            num_produced_chunks_per_shard: vec![],
+            num_expected_chunks_per_shard: vec![],
         }
     }
     pub fn validator(info: CurrentEpochValidatorInfo) -> Self {
@@ -689,6 +771,9 @@ impl ValidatorProductionStats {
             num_expected_blocks: info.num_expected_blocks,
             num_produced_chunks: info.num_produced_chunks,
             num_expected_chunks: info.num_expected_chunks,
+            shards: info.shards,
+            num_produced_chunks_per_shard: info.num_produced_chunks_per_shard,
+            num_expected_chunks_per_shard: info.num_expected_chunks_per_shard,
         }
     }
 }

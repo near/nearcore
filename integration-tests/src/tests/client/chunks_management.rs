@@ -2,6 +2,7 @@ use crate::test_helpers::heavy_test;
 use actix::System;
 use futures::{future, FutureExt};
 use near_actix_test_utils::run_actix;
+use near_async::time;
 use near_chain::test_utils::ValidatorSchedule;
 use near_chunks::{
     CHUNK_REQUEST_RETRY, CHUNK_REQUEST_SWITCH_TO_FULL_FETCH, CHUNK_REQUEST_SWITCH_TO_OTHERS,
@@ -14,7 +15,6 @@ use near_network::types::{NetworkRequests, NetworkResponses};
 use near_o11y::testonly::init_test_logger;
 use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
-use near_primitives::time;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use std::collections::HashMap;
@@ -281,6 +281,7 @@ impl Test {
 }
 
 #[test]
+#[ignore] // TODO: #8855
 fn chunks_produced_and_distributed_all_in_all_shards() {
     Test {
         validator_groups: 1,
@@ -317,6 +318,7 @@ fn chunks_produced_and_distributed_one_val_per_shard() {
 }
 
 #[test]
+#[ignore] // TODO: #8853
 fn chunks_produced_and_distributed_all_in_all_shards_should_succeed_even_without_forwarding() {
     Test {
         validator_groups: 1,

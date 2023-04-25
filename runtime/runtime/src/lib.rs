@@ -1287,8 +1287,7 @@ impl Runtime {
                     .expect("`process_transaction` must populate compute usage"),
             )?;
 
-            // TODO(#8032): Remove when compute costs are stabilized.
-            if !cfg!(feature = "protocol_feature_compute_costs") {
+            if !checked_feature!("stable", ComputeCosts, apply_state.current_protocol_version) {
                 assert_eq!(
                     total_compute_usage, total_gas_burnt,
                     "Compute usage must match burnt gas"
@@ -1337,8 +1336,8 @@ impl Runtime {
                         .compute_usage
                         .expect("`process_receipt` must populate compute usage"),
                 )?;
-                // TODO(#8032): Remove when compute costs are stabilized.
-                if !cfg!(feature = "protocol_feature_compute_costs") {
+
+                if !checked_feature!("stable", ComputeCosts, apply_state.current_protocol_version) {
                     assert_eq!(
                         total_compute_usage, total_gas_burnt,
                         "Compute usage must match burnt gas"
@@ -1594,27 +1593,20 @@ impl Runtime {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(feature = "protocol_feature_compute_costs")]
     use assert_matches::assert_matches;
     use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_primitives::account::AccessKey;
-    use near_primitives::contract::ContractCode;
     use near_primitives::hash::hash;
     use near_primitives::shard_layout::ShardUId;
     use near_primitives::test_utils::{account_new, MockEpochInfoProvider};
-    use near_primitives::transaction::DeployContractAction;
     use near_primitives::transaction::{
-        AddKeyAction, DeleteKeyAction, FunctionCallAction, TransferAction,
+        AddKeyAction, DeleteKeyAction, DeployContractAction, FunctionCallAction, TransferAction,
     };
     use near_primitives::types::MerkleHash;
     use near_primitives::version::PROTOCOL_VERSION;
-    use near_store::set_access_key;
     use near_store::test_utils::create_tries;
-    use near_store::StoreCompiledContractCache;
-    #[cfg(feature = "protocol_feature_compute_costs")]
+    use near_store::{set_access_key, StoreCompiledContractCache};
     use near_vm_logic::{ExtCosts, ParameterCost};
-    use near_vm_runner::get_contract_cache_key;
-    use near_vm_runner::internal::VMKind;
     use testlib::runtime_utils::{alice_account, bob_account};
 
     use super::*;
@@ -2513,7 +2505,9 @@ mod tests {
         assert_eq!(final_account_state.storage_usage(), 0);
     }
 
+    // This test only works on platforms that support wasmer2.
     #[test]
+    #[cfg(target_arch = "x86_64")]
     fn test_contract_precompilation() {
         let initial_balance = to_yocto(1_000_000);
         let initial_locked = to_yocto(500_000);
@@ -2542,9 +2536,15 @@ mod tests {
         tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
         store_update.commit().unwrap();
 
-        let contract_code = ContractCode::new(wasm_code, None);
-        let vm_kind = VMKind::for_protocol_version(apply_state.current_protocol_version);
-        let key = get_contract_cache_key(&contract_code, vm_kind, &apply_state.config.wasm_config);
+        let contract_code = near_primitives::contract::ContractCode::new(wasm_code, None);
+        let vm_kind = near_vm_runner::internal::VMKind::for_protocol_version(
+            apply_state.current_protocol_version,
+        );
+        let key = near_vm_runner::get_contract_cache_key(
+            &contract_code,
+            vm_kind,
+            &apply_state.config.wasm_config,
+        );
         apply_state
             .cache
             .unwrap()
@@ -2553,17 +2553,16 @@ mod tests {
             .expect("Compilation result should be non-empty");
     }
 
-    #[cfg(feature = "protocol_feature_compute_costs")]
     #[test]
     fn test_compute_usage_limit() {
-        let initial_balance = to_yocto(1_000_000);
-        let initial_locked = to_yocto(500_000);
         let (runtime, tries, root, mut apply_state, signer, epoch_info_provider) =
-            setup_runtime(initial_balance, initial_locked, 1);
+            setup_runtime(to_yocto(1_000_000), to_yocto(500_000), 1);
 
         let mut free_config = RuntimeConfig::free();
-        let sha256_cost =
-            ParameterCost { gas: Gas::from(1u64), compute: Compute::from(10_000_000_000_000u64) };
+        let sha256_cost = ParameterCost {
+            gas: Gas::from(1_000_000u64),
+            compute: Compute::from(10_000_000_000_000u64),
+        };
         free_config.wasm_config.ext_costs.costs[ExtCosts::sha256_base] = sha256_cost.clone();
         apply_state.config = Arc::new(free_config);
         // This allows us to execute 1 receipt with a function call per apply.
@@ -2583,18 +2582,18 @@ mod tests {
             vec![Action::FunctionCall(FunctionCallAction {
                 method_name: "ext_sha256".to_string(),
                 args: b"first".to_vec(),
-                gas: 1,
+                gas: sha256_cost.gas,
                 deposit: 0,
             })],
         );
 
         let second_call_receipt = create_receipt_with_actions(
             alice_account(),
-            signer.clone(),
+            signer,
             vec![Action::FunctionCall(FunctionCallAction {
                 method_name: "ext_sha256".to_string(),
                 args: b"second".to_vec(),
-                gas: 1,
+                gas: sha256_cost.gas,
                 deposit: 0,
             })],
         );
@@ -2648,6 +2647,51 @@ mod tests {
             assert_eq!(*id, second_call_receipt.receipt_id);
             assert_eq!(outcome.compute_usage.unwrap(), sha256_cost.compute);
             assert_matches!(outcome.status, ExecutionStatus::SuccessValue(_));
+        });
+    }
+
+    #[test]
+    fn test_compute_usage_limit_with_failed_receipt() {
+        let (runtime, tries, root, apply_state, signer, epoch_info_provider) =
+            setup_runtime(to_yocto(1_000_000), to_yocto(500_000), 10u64.pow(15));
+
+        let deploy_contract_receipt = create_receipt_with_actions(
+            alice_account(),
+            signer.clone(),
+            vec![Action::DeployContract(DeployContractAction {
+                code: near_test_contracts::rs_contract().to_vec(),
+            })],
+        );
+
+        let first_call_receipt = create_receipt_with_actions(
+            alice_account(),
+            signer,
+            vec![Action::FunctionCall(FunctionCallAction {
+                method_name: "ext_sha256".to_string(),
+                args: b"first".to_vec(),
+                gas: 1,
+                deposit: 0,
+            })],
+        );
+
+        let apply_result = runtime
+            .apply(
+                tries.get_trie_for_shard(ShardUId::single_shard(), root),
+                &None,
+                &apply_state,
+                &vec![deploy_contract_receipt.clone(), first_call_receipt.clone()],
+                &[],
+                &epoch_info_provider,
+                Default::default(),
+            )
+            .unwrap();
+
+        assert_matches!(&apply_result.outcomes[..], [first, second] => {
+            assert_eq!(first.id, deploy_contract_receipt.receipt_id);
+            assert_matches!(first.outcome.status, ExecutionStatus::SuccessValue(_));
+
+            assert_eq!(second.id, first_call_receipt.receipt_id);
+            assert_matches!(second.outcome.status, ExecutionStatus::Failure(_));
         });
     }
 }
