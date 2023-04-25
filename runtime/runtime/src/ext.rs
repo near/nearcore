@@ -133,10 +133,14 @@ impl<'a> External for RuntimeExt<'a> {
         Ok(())
     }
 
-    fn storage_has_key(&mut self, key: &[u8]) -> ExtResult<bool> {
+    fn storage_has_key(&mut self, key: &[u8], mode: StorageGetMode) -> ExtResult<bool> {
         let storage_key = self.create_storage_key(key);
+        let mode = match mode {
+            StorageGetMode::FlatStorage => KeyLookupMode::FlatStorage,
+            StorageGetMode::Trie => KeyLookupMode::Trie,
+        };
         self.trie_update
-            .get_ref(&storage_key, KeyLookupMode::FlatStorage)
+            .get_ref(&storage_key, mode)
             .map(|x| x.is_some())
             .map_err(wrap_storage_error)
     }
