@@ -16,6 +16,7 @@
 * Node can sync State from S3. [#8789](https://github.com/near/nearcore/pull/8789)
 * Node can sync State from local filesystem. [#8789](https://github.com/near/nearcore/pull/8789)
 * Add per shard granularity for chunks in validator info metric. [#8934](https://github.com/near/nearcore/pull/8934)
+* Add prometheus metrics for expected number of blocks/chunks at the end of the epoch. [#8759](https://github.com/near/nearcore/pull/8759)
 
 ## 1.33.0
 

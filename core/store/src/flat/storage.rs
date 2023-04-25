@@ -5,7 +5,7 @@ use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::ValueRef;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::flat::delta::CachedFlatStateChanges;
 use crate::flat::store_helper::FlatStateColumn;
@@ -251,7 +251,7 @@ impl FlatStorage {
             }
 
             store_update.commit().unwrap();
-            info!(target: "chain", %shard_id, %block_hash, %block_height, "Moved flat storage head");
+            debug!(target: "store", %shard_id, %block_hash, %block_height, "Moved flat storage head");
         }
         guard.update_delta_metrics();
 
@@ -270,7 +270,7 @@ impl FlatStorage {
         let block = &delta.metadata.block;
         let block_hash = block.hash;
         let block_height = block.height;
-        info!(target: "chain", %shard_id, %block_hash, %block_height, "Adding block to flat storage");
+        debug!(target: "store", %shard_id, %block_hash, %block_height, "Adding block to flat storage");
         if block.prev_hash != guard.flat_head.hash && !guard.deltas.contains_key(&block.prev_hash) {
             return Err(guard.create_block_not_supported_error(&block_hash));
         }
@@ -311,7 +311,7 @@ impl FlatStorage {
                 store_update.delete(FlatStateColumn::State.to_db_col(), &key);
             }
         }
-        info!(target: "chain", %shard_id, %removed_items, "Removing old items from flat storage");
+        info!(target: "store", %shard_id, %removed_items, "Removing old items from flat storage");
 
         store_helper::remove_all_deltas(&mut store_update, guard.shard_uid);
         store_helper::set_flat_storage_status(
