@@ -1,4 +1,4 @@
-use wasmer::{CompilerConfig, Engine as WasmerEngine, Features, Store};
+use near_vm::{CompilerConfig, Engine as WasmerEngine, Features, Store};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Compiler {
@@ -7,7 +7,6 @@ pub enum Compiler {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Engine {
-    Dylib,
     Universal,
 }
 
@@ -49,52 +48,30 @@ impl Config {
     }
 
     pub fn engine(&self, compiler_config: Box<dyn CompilerConfig>) -> Box<dyn WasmerEngine> {
-        #[cfg(not(feature = "engine"))]
-        compile_error!("Plese enable at least one engine via the features");
         match &self.engine {
-            #[cfg(feature = "universal")]
             Engine::Universal => {
-                let mut engine = wasmer_engine_universal::Universal::new(compiler_config);
+                let mut engine = near_vm_engine_universal::Universal::new(compiler_config);
                 if let Some(ref features) = self.features {
                     engine = engine.features(features.clone())
                 }
                 Box::new(engine.engine())
             }
-            #[allow(unreachable_patterns)]
-            engine => panic!(
-                "The {:?} Engine is not enabled. Please enable it using the features",
-                engine
-            ),
         }
     }
 
     pub fn engine_headless(&self) -> Box<dyn WasmerEngine> {
         match &self.engine {
-            #[cfg(feature = "universal")]
-            Engine::Universal => Box::new(wasmer_engine_universal::Universal::headless().engine()),
-            #[allow(unreachable_patterns)]
-            engine => panic!(
-                "The {:?} Engine is not enabled. Please enable it using the features",
-                engine
-            ),
+            Engine::Universal => Box::new(near_vm_engine_universal::Universal::headless().engine()),
         }
     }
 
     pub fn compiler_config(&self, canonicalize_nans: bool) -> Box<dyn CompilerConfig> {
         match &self.compiler {
-            #[cfg(feature = "singlepass")]
             Compiler::Singlepass => {
-                let mut compiler = wasmer_compiler_singlepass::Singlepass::new();
+                let mut compiler = near_vm_compiler_singlepass::Singlepass::new();
                 compiler.canonicalize_nans(canonicalize_nans);
                 compiler.enable_verifier();
                 Box::new(compiler)
-            }
-            #[allow(unreachable_patterns)]
-            compiler => {
-                panic!(
-                    "The {:?} Compiler is not enabled. Enable it via the features",
-                    compiler
-                )
             }
         }
     }

@@ -1,8 +1,8 @@
-use wasmer::*;
-use wasmer_compiler_singlepass::Singlepass;
-use wasmer_engine_universal::Universal;
-use wasmer_types::InstanceConfig;
-use wasmer_vm::TrapCode;
+use near_vm::*;
+use near_vm_compiler_singlepass::Singlepass;
+use near_vm_engine_universal::Universal;
+use near_vm_types::InstanceConfig;
+use near_vm_vm::TrapCode;
 
 fn get_store() -> Store {
     let compiler = Singlepass::default();

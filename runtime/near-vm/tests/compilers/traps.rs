@@ -1,6 +1,6 @@
 use anyhow::Result;
 use std::panic::{self, AssertUnwindSafe};
-use wasmer::*;
+use near_vm::*;
 
 #[compiler_test(traps)]
 fn test_trap_return(config: crate::Config) -> Result<()> {

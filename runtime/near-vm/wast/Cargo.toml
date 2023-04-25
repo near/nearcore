@@ -13,14 +13,14 @@ publish = false
 
 [dependencies]
 anyhow.workspace = true
-wasmer = { path = "../../../lib/api", package = "near-vm", default-features = false }
+near-vm.workspace = true
 wast.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 
 [features]
 default = ["wat"]
-wat = ["wasmer/wat"]
+wat = ["near-vm/wat"]
 
 [badges]
 maintenance = { status = "actively-developed" }

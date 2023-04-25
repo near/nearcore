@@ -9,7 +9,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering::SeqCst},
     Arc,
 };
-use wasmer::*;
+use near_vm::*;
 
 fn get_module(store: &Store) -> Result<Module> {
     let wat = r#"

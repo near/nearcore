@@ -1,10 +1,10 @@
 use std::ptr;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::SeqCst;
-use wasmer::*;
-use wasmer_compiler_singlepass::Singlepass;
-use wasmer_engine_universal::Universal;
-use wasmer_types::{FastGasCounter, InstanceConfig};
+use near_vm::*;
+use near_vm_compiler_singlepass::Singlepass;
+use near_vm_engine_universal::Universal;
+use near_vm_types::{FastGasCounter, InstanceConfig};
 
 fn get_module_with_start(store: &Store) -> Module {
     let wat = r#"

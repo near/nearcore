@@ -1,7 +1,7 @@
-use wasmer::*;
-use wasmer_engine::{Engine, Executable};
-use wasmer_engine_universal::Universal;
-use wasmer_vm::Artifact;
+use near_vm::*;
+use near_vm_engine::{Engine, Executable};
+use near_vm_engine_universal::Universal;
+use near_vm_vm::Artifact;
 
 fn slow_to_compile_contract(n_fns: usize, n_locals: usize) -> Vec<u8> {
     let fns = format!("(func (local {}))\n", "i32 ".repeat(n_locals)).repeat(n_fns);
@@ -14,7 +14,7 @@ fn compile_uncached<'a>(
     engine: &'a dyn Engine,
     code: &'a [u8],
     time: bool,
-) -> Result<Box<dyn wasmer_engine::Executable>, CompileError> {
+) -> Result<Box<dyn near_vm_engine::Executable>, CompileError> {
     use std::time::Instant;
     let now = Instant::now();
     engine.validate(code)?;
@@ -83,7 +83,7 @@ fn profiling() {
         Ok(art) => unsafe {
             let serialized = art.serialize().unwrap();
             let executable =
-                wasmer_engine_universal::UniversalExecutableRef::deserialize(&serialized).unwrap();
+                near_vm_engine_universal::UniversalExecutableRef::deserialize(&serialized).unwrap();
             let artifact = engine.load_universal_executable_ref(&executable).unwrap();
             let info = artifact
                 .functions()

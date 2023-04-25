@@ -1,4 +1,4 @@
-use wasmer::*;
+use near_vm::*;
 
 /// Return an instance implementing the "spectest" interface used in the
 /// spec testsuite.

@@ -1,6 +1,6 @@
 //! This file is mainly to assure specific issues are working well
 use anyhow::Result;
-use wasmer::*;
+use near_vm::*;
 
 #[derive(Clone)]
 struct Env {

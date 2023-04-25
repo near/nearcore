@@ -39,7 +39,7 @@ pub fn compiler_test(attrs: TokenStream, input: TokenStream) -> TokenStream {
 
     let mut ignores_txt_path = PathBuf::new();
     ignores_txt_path.push(env!("CARGO_MANIFEST_DIR"));
-    ignores_txt_path.push("../../ignores.txt");
+    ignores_txt_path.push("../tests/ignores.txt");
 
     let ignores = crate::ignores::Ignores::build_from_path(ignores_txt_path);
 

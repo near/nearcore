@@ -3,7 +3,7 @@
 This crate set is a fork of Wasmer. A significant number of things
 changed, but the documentation is not up-to-date yet.
 
-The philosophy of Wasmer is to be very modular by design. It's
+The philosophy of Wasmer was to be very modular by design. It's
 composed of a set of crates. We can group them as follows:
 
 * `api` — The public Rust API exposes everything a user needs to use Wasmer programatically through
@@ -22,3 +22,6 @@ composed of a set of crates. We can group them as follows:
 * `types` — The basic structures to use WebAssembly,
 * `vm` — The Wasmer VM runtime library, the low-level base of
   everything.
+
+This is no longer a case for near-vm which is moving away from this to being specialized for
+nearcore needs.

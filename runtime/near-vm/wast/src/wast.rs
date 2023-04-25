@@ -4,7 +4,7 @@ use anyhow::{anyhow, bail, Result};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use std::str;
-use wasmer::*;
+use near_vm::*;
 
 /// The wast test script language allows modules to be defined and actions
 /// to be performed on them.

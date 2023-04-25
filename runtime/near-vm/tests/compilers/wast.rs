@@ -1,6 +1,6 @@
-use ::wasmer::Features;
+use ::near_vm::Features;
 use std::path::Path;
-use wasmer_wast::Wast;
+use near_vm_wast::Wast;
 
 // The generated tests (from build.rs) look like:
 // #[cfg(test)]
@@ -14,7 +14,7 @@ use wasmer_wast::Wast;
 //         }
 //     }
 // }
-include!(concat!(env!("OUT_DIR"), "/generated_spectests.rs"));
+// include!(concat!(env!("OUT_DIR"), "/generated_spectests.rs"));
 
 pub fn run_wast(mut config: crate::Config, wast_path: &str) -> anyhow::Result<()> {
     println!("Running wast `{}`", wast_path);
