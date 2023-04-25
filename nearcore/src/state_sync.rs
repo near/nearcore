@@ -107,13 +107,13 @@ pub struct StateSyncDumpHandle {
 
 impl Drop for StateSyncDumpHandle {
     fn drop(&mut self) {
-        self.keep_running.store(false, std::sync::atomic::Ordering::Relaxed);
         self.stop()
     }
 }
 
 impl StateSyncDumpHandle {
     pub fn stop(&self) {
+        self.keep_running.store(false, std::sync::atomic::Ordering::Relaxed);
         self.handles.iter().for_each(|handle| {
             handle.stop();
         });
@@ -230,6 +230,7 @@ async fn state_sync_dump(
                             );
 
                             // Stop if the node is stopped.
+                            // Note that without this check the state dumping thread is unstoppable, i.e. non-interruptable.
                             if !keep_running.load(std::sync::atomic::Ordering::Relaxed) {
                                 res = Some(Error::Other("Stopped".to_owned()));
                                 break;
