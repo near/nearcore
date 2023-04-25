@@ -316,6 +316,8 @@ fn dump_state_parts(
     let epoch = chain.runtime_adapter.get_epoch_info(&epoch_id).unwrap();
     let sync_hash = get_any_block_hash_of_epoch(&epoch, chain);
     let sync_hash = StateSync::get_epoch_start_sync_hash(chain, &sync_hash).unwrap();
+    let sync_block = chain.get_block_header(&sync_hash).unwrap();
+    let sync_prev_hash = sync_block.prev_hash();
 
     let state_header = chain.compute_state_response_header(shard_id, sync_hash).unwrap();
     let state_root = state_header.chunk_prev_state_root();
@@ -342,7 +344,12 @@ fn dump_state_parts(
         assert!(part_id < num_parts, "part_id: {}, num_parts: {}", part_id, num_parts);
         let state_part = chain
             .runtime_adapter
-            .obtain_state_part(shard_id, &sync_hash, &state_root, PartId::new(part_id, num_parts))
+            .obtain_state_part(
+                shard_id,
+                &sync_prev_hash,
+                &state_root,
+                PartId::new(part_id, num_parts),
+            )
             .unwrap();
         part_storage.write(&state_part, part_id, num_parts);
         let elapsed_sec = timer.elapsed().as_secs_f64();
