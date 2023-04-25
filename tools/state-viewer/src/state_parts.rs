@@ -4,6 +4,7 @@ use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use near_client::sync::state::{
     get_num_parts_from_filename, is_part_filename, location_prefix, part_filename, StateSync,
 };
+use near_primitives::challenge::PartialState;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::state_part::PartId;
 use near_primitives::state_record::StateRecord;
@@ -20,13 +21,21 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Instant;
 
+#[derive(clap::ArgEnum, Clone, Debug, Default)]
+pub(crate) enum LoadAction {
+    #[default]
+    Apply,
+    Print,
+    Validate,
+}
+
 #[derive(clap::Subcommand, Debug, Clone)]
 pub(crate) enum StatePartsSubCommand {
-    /// Apply all or a single state part of a shard.
-    Apply {
-        /// If true, validate the state part but don't write it to the DB.
-        #[clap(long)]
-        dry_run: bool,
+    /// Load all or a single state part of a shard and perform an action over those parts.
+    Load {
+        /// Apply, validate or print.
+        #[clap(arg_enum, long)]
+        action: LoadAction,
         /// If provided, this value will be used instead of looking it up in the headers.
         /// Use if those headers or blocks are not available.
         #[clap(long)]
@@ -81,12 +90,12 @@ impl StatePartsSubCommand {
         .unwrap();
         let chain_id = &near_config.genesis.config.chain_id;
         match self {
-            StatePartsSubCommand::Apply { dry_run, state_root, part_id, epoch_selection } => {
-                apply_state_parts(
+            StatePartsSubCommand::Load { action, state_root, part_id, epoch_selection } => {
+                load_state_parts(
+                    action,
                     epoch_selection,
                     shard_id,
                     part_id,
-                    dry_run,
                     state_root,
                     &mut chain,
                     chain_id,
@@ -220,11 +229,11 @@ fn get_any_block_hash_of_epoch(epoch_info: &EpochInfo, chain: &Chain) -> CryptoH
     }
 }
 
-fn apply_state_parts(
+fn load_state_parts(
+    action: LoadAction,
     epoch_selection: EpochSelection,
     shard_id: ShardId,
     part_id: Option<u64>,
-    dry_run: bool,
     maybe_state_root: Option<StateRoot>,
     chain: &mut Chain,
     chain_id: &str,
@@ -261,7 +270,7 @@ fn apply_state_parts(
         num_parts,
         ?sync_hash,
         ?part_ids,
-        "Applying state as seen at the beginning of the specified epoch.",
+        "Loading state as seen at the beginning of the specified epoch.",
     );
 
     let timer = Instant::now();
@@ -270,36 +279,48 @@ fn apply_state_parts(
         assert!(part_id < num_parts, "part_id: {}, num_parts: {}", part_id, num_parts);
         let part = part_storage.read(part_id, num_parts);
 
-        if dry_run {
-            assert!(chain.runtime_adapter.validate_state_part(
-                &state_root,
-                PartId::new(part_id, num_parts),
-                &part
-            ));
-            tracing::info!(target: "state-parts", part_id, part_length = part.len(), elapsed_sec = timer.elapsed().as_secs_f64(), "Validated a state part");
-        } else {
-            chain
-                .set_state_part(
-                    shard_id,
-                    sync_hash.unwrap(),
-                    PartId::new(part_id, num_parts),
-                    &part,
-                )
-                .unwrap();
-            chain
-                .runtime_adapter
-                .apply_state_part(
-                    shard_id,
+        match action {
+            LoadAction::Apply => {
+                chain
+                    .set_state_part(
+                        shard_id,
+                        sync_hash.unwrap(),
+                        PartId::new(part_id, num_parts),
+                        &part,
+                    )
+                    .unwrap();
+                chain
+                    .runtime_adapter
+                    .apply_state_part(
+                        shard_id,
+                        &state_root,
+                        PartId::new(part_id, num_parts),
+                        &part,
+                        epoch_id.as_ref().unwrap(),
+                    )
+                    .unwrap();
+                tracing::info!(target: "state-parts", part_id, part_length = part.len(), elapsed_sec = timer.elapsed().as_secs_f64(), "Loaded a state part");
+            }
+            LoadAction::Validate => {
+                assert!(chain.runtime_adapter.validate_state_part(
                     &state_root,
                     PartId::new(part_id, num_parts),
-                    &part,
-                    epoch_id.as_ref().unwrap(),
-                )
-                .unwrap();
-            tracing::info!(target: "state-parts", part_id, part_length = part.len(), elapsed_sec = timer.elapsed().as_secs_f64(), "Applied a state part");
+                    &part
+                ));
+                tracing::info!(target: "state-parts", part_id, part_length = part.len(), elapsed_sec = timer.elapsed().as_secs_f64(), "Validated a state part");
+            }
+            LoadAction::Print => {
+                print_state_part(&state_root, PartId::new(part_id, num_parts), &part)
+            }
         }
     }
-    tracing::info!(target: "state-parts", total_elapsed_sec = timer.elapsed().as_secs_f64(), "Applied all requested state parts");
+    tracing::info!(target: "state-parts", total_elapsed_sec = timer.elapsed().as_secs_f64(), "Loaded all requested state parts");
+}
+
+fn print_state_part(state_root: &StateRoot, _part_id: PartId, data: &[u8]) {
+    let trie_nodes: PartialState = BorshDeserialize::try_from_slice(data).unwrap();
+    let trie = Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes }, *state_root);
+    trie.print_recursive(&mut std::io::stdout().lock(), &state_root, u32::MAX);
 }
 
 fn dump_state_parts(
@@ -359,7 +380,7 @@ fn dump_state_parts(
             part_id,
             part_length = state_part.len(),
             elapsed_sec,
-            ?first_state_record,
+            first_state_record = ?first_state_record.map(|sr| format!("{}", sr)),
             "Wrote a state part");
     }
     tracing::info!(target: "state-parts", total_elapsed_sec = timer.elapsed().as_secs_f64(), "Wrote all requested state parts");
