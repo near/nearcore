@@ -5729,14 +5729,34 @@ to dump state of every epoch to external storage. At the moment only S3 is
 supported as external storage.</p>
 <p>To enable, add this to your <code>config.json</code> file:</p>
 <pre><code class="language-json">&quot;state_sync&quot;: {
-  &quot;s3_bucket&quot;: &quot;my-bucket&quot;,
-  &quot;s3_region&quot;: &quot;eu-central-1&quot;,
-  &quot;dump_enabled&quot;: true
+  &quot;dump&quot;: {
+    &quot;location&quot;: {
+      &quot;S3&quot;: {
+        &quot;bucket&quot;: &quot;my-aws-bucket&quot;,
+        &quot;region&quot;: &quot;my-aws-region&quot;
+      }
+    }    
+  }
 }
 </code></pre>
 <p>And run your node with environment variables <code>AWS_ACCESS_KEY_ID</code> and
 <code>AWS_SECRET_ACCESS_KEY</code>:</p>
 <pre><code class="language-shell">AWS_ACCESS_KEY_ID=&quot;MY_ACCESS_KEY&quot; AWS_SECRET_ACCESS_KEY=&quot;MY_AWS_SECRET_ACCESS_KEY&quot; ./neard run
+</code></pre>
+<h2 id="dump-to-a-local-filesystem"><a class="header" href="#dump-to-a-local-filesystem">Dump to a local filesystem</a></h2>
+<p>Add this to your <code>config.json</code> file to dump state of every epoch to local filesystem:</p>
+<pre><code class="language-json">&quot;state_sync&quot;: {
+  &quot;dump&quot;: {
+    &quot;location&quot;: {
+      &quot;Filesystem&quot;: {
+        &quot;root_dir&quot;: &quot;/tmp/state-dump&quot;
+      }
+    }    
+  }
+}
+</code></pre>
+<p>In this case you don't need any extra environment variables. Simply run your node:</p>
+<pre><code class="language-shell">./neard run
 </code></pre>
 <h2 id="implementation-details"><a class="header" href="#implementation-details">Implementation Details</a></h2>
 <p>The experimental option spawns a thread for each of the shards tracked by a node.
