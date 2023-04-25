@@ -1,3 +1,19 @@
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::fmt::Write;
+use std::str;
+
+use borsh::{BorshDeserialize, BorshSerialize};
+
+use near_primitives::challenge::PartialState;
+use near_primitives::contract::ContractCode;
+use near_primitives::hash::{hash, CryptoHash};
+pub use near_primitives::shard_layout::ShardUId;
+use near_primitives::state::ValueRef;
+use near_primitives::state_record::StateRecord;
+use near_primitives::trie_key::TrieKey;
+use near_primitives::types::{StateRoot, StateRootNode};
+
 use crate::flat::{FlatStateChanges, FlatStorageChunkView};
 pub use crate::trie::config::TrieConfig;
 pub(crate) use crate::trie::config::DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT;
@@ -40,6 +56,8 @@ mod trie_storage;
 #[cfg(test)]
 mod trie_tests;
 pub mod update;
+
+pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
