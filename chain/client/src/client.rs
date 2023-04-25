@@ -248,7 +248,15 @@ impl Client {
             config.archive,
             config.state_sync_enabled,
         );
-        let state_sync = StateSync::new(network_adapter.clone(), config.state_sync_timeout);
+        let state_sync = StateSync::new(
+            network_adapter.clone(),
+            config.state_sync_timeout,
+            &config.chain_id,
+            config.state_sync_from_s3_enabled,
+            &config.state_sync_s3_bucket,
+            &config.state_sync_s3_region,
+            config.state_sync_num_concurrent_s3_requests,
+        );
         let num_block_producer_seats = config.num_block_producer_seats as usize;
         let data_parts = runtime_adapter.num_data_parts();
         let parity_parts = runtime_adapter.num_total_parts() - data_parts;
@@ -1998,20 +2006,18 @@ impl Client {
             } else if check_only {
                 Ok(ProcessTxResponse::ValidTx)
             } else {
-                let active_validator = self.active_validator(shard_id)?;
-
-                // TODO #6713: Transactions don't need to be recorded if the node is not a validator
-                // for the shard.
-                // If I'm not an active validator I should forward tx to next validators.
-                self.sharded_tx_pool.insert_transaction(shard_id, tx.clone());
-                trace!(target: "client", shard_id, "Recorded a transaction.");
+                // Transactions only need to be recorded if the node is a validator.
+                if me.is_some() {
+                    self.sharded_tx_pool.insert_transaction(shard_id, tx.clone());
+                    trace!(target: "client", shard_id, "Recorded a transaction.");
+                }
 
                 // Active validator:
                 //   possibly forward to next epoch validators
                 // Not active validator:
                 //   forward to current epoch validators,
                 //   possibly forward to next epoch validators
-                if active_validator {
+                if self.active_validator(shard_id)? {
                     trace!(target: "client", account = ?me, shard_id, is_forwarded, "Recording a transaction.");
                     metrics::TRANSACTION_RECEIVED_VALIDATOR.inc();
 
@@ -2121,7 +2127,15 @@ impl Client {
             let (state_sync, new_shard_sync, blocks_catch_up_state) =
                 self.catchup_state_syncs.entry(sync_hash).or_insert_with(|| {
                     (
-                        StateSync::new(network_adapter1, state_sync_timeout),
+                        StateSync::new(
+                            network_adapter1,
+                            state_sync_timeout,
+                            &self.config.chain_id,
+                            self.config.state_sync_from_s3_enabled,
+                            &self.config.state_sync_s3_bucket,
+                            &self.config.state_sync_s3_region,
+                            self.config.state_sync_num_concurrent_s3_requests,
+                        ),
                         new_shard_sync,
                         BlocksCatchUpState::new(sync_hash, epoch_id),
                     )

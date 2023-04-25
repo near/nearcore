@@ -24,8 +24,8 @@ pub(crate) const WASM_FEATURES: wasmparser::WasmFeatures = wasmparser::WasmFeatu
     extended_const: false,
     mutable_global: true,
     relaxed_simd: false,
-    saturating_float_to_int: true,
-    sign_extension: true,
+    saturating_float_to_int: false,
+    sign_extension: false,
     floats: true,
     memory_control: false,
 };

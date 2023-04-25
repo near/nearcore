@@ -48,7 +48,7 @@ impl TransactionPool {
         hash(&v)
     }
 
-    /// Insert a signed transaction into the pool that passed validation.
+    /// Inserts a signed transaction that passed validation into the pool.
     pub fn insert_transaction(&mut self, signed_transaction: SignedTransaction) -> bool {
         if !self.unique_transactions.insert(signed_transaction.get_hash()) {
             // The hash of this transaction was already seen, skip it.
@@ -65,26 +65,31 @@ impl TransactionPool {
         true
     }
 
-    /// Returns a pool iterator wrapper that implements an iterator like trait to iterate over
+    /// Returns a pool iterator wrapper that implements an iterator-like trait to iterate over
     /// transaction groups in the proper order defined by the protocol.
     /// When the iterator is dropped, all remaining groups are inserted back into the pool.
     pub fn pool_iterator(&mut self) -> PoolIteratorWrapper<'_> {
         PoolIteratorWrapper::new(self)
     }
 
-    /// Quick reconciliation step - evict all transactions that already in the block
-    /// or became invalid after it.
+    /// Removes given transactions from the pool.
+    ///
+    /// In practice, used to evict transactions that have already been included into the block or
+    /// became invalid.
     pub fn remove_transactions(&mut self, transactions: &[SignedTransaction]) {
         let mut grouped_transactions = HashMap::new();
         for tx in transactions {
-            if self.unique_transactions.contains(&tx.get_hash()) {
-                let signer_id = &tx.transaction.signer_id;
-                let signer_public_key = &tx.transaction.public_key;
-                grouped_transactions
-                    .entry(self.key(signer_id, signer_public_key))
-                    .or_insert_with(HashSet::new)
-                    .insert(tx.get_hash());
+            // Transaction is not present in the pool, skip it.
+            if !self.unique_transactions.contains(&tx.get_hash()) {
+                continue;
             }
+
+            let signer_id = &tx.transaction.signer_id;
+            let signer_public_key = &tx.transaction.public_key;
+            grouped_transactions
+                .entry(self.key(signer_id, signer_public_key))
+                .or_insert_with(HashSet::new)
+                .insert(tx.get_hash());
         }
         for (key, hashes) in grouped_transactions {
             let mut remove_entry = false;
@@ -103,13 +108,14 @@ impl TransactionPool {
         }
     }
 
-    /// Reintroduce transactions back during the chain reorg
+    /// Reintroduces transactions back during the chain reorg.
     pub fn reintroduce_transactions(&mut self, transactions: Vec<SignedTransaction>) {
         for tx in transactions {
             self.insert_transaction(tx);
         }
     }
 
+    /// Returns the number of unique transactions in the pool.
     pub fn len(&self) -> usize {
         self.unique_transactions.len()
     }

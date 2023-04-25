@@ -1,6 +1,7 @@
 import './App.scss';
 import { NavLink } from 'react-router-dom';
 import { Navigate, Route, Routes, useParams } from 'react-router';
+import { ChainAndChunkInfoView } from './ChainAndChunkInfoView';
 import { ClusterView } from './ClusterView';
 import { EpochInfoView } from './EpochInfoView';
 import { HeaderBar } from './HeaderBar';
@@ -15,7 +16,6 @@ function useNodeAddr(): string {
 
 export const App = () => {
     const addr = useNodeAddr();
-
     return (
         <div className="App">
             <HeaderBar addr={addr} />
@@ -47,7 +47,10 @@ export const App = () => {
                 <Route path="last_blocks" element={<LatestBlocksView addr={addr} />} />
                 <Route path="network_info/*" element={<NetworkInfoView addr={addr} />} />
                 <Route path="epoch_info/*" element={<EpochInfoView addr={addr} />} />
-                <Route path="chain_and_chunk_info" element={<div>TODO</div>} />
+                <Route
+                    path="chain_and_chunk_info/*"
+                    element={<ChainAndChunkInfoView addr={addr} />}
+                />
                 <Route path="sync_info" element={<div>TODO</div>} />
                 <Route path="validator_info" element={<div>TODO</div>} />
                 <Route path="cluster" element={<ClusterView initialAddr={addr} />} />

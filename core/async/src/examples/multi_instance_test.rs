@@ -1,5 +1,5 @@
+use crate::time;
 use derive_enum_from_into::{EnumFrom, EnumTryInto};
-use near_primitives::time;
 
 use crate::{
     examples::sum_numbers_test::forward_sum_request,

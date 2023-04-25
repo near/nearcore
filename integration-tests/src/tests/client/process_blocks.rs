@@ -885,7 +885,7 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                                     }
                                 }
 
-                                for (i, actor_handles) in conns.clone().into_iter().enumerate() {
+                                for (i, actor_handles) in conns.into_iter().enumerate() {
                                     if i != block_producer_idx {
                                         actor_handles.client_actor.do_send(
                                             BlockResponse {
@@ -1040,9 +1040,9 @@ fn client_sync_headers() {
                     },
                     received_bytes_per_sec: 0,
                     sent_bytes_per_sec: 0,
-                    last_time_peer_requested: near_primitives::time::Instant::now(),
-                    last_time_received_message: near_primitives::time::Instant::now(),
-                    connection_established_time: near_primitives::time::Instant::now(),
+                    last_time_peer_requested: near_async::time::Instant::now(),
+                    last_time_received_message: near_async::time::Instant::now(),
+                    connection_established_time: near_async::time::Instant::now(),
                     peer_type: PeerType::Outbound,
                     nonce: 1,
                 }],

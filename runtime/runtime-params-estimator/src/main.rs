@@ -61,7 +61,7 @@ struct CliArgs {
     #[clap(long, default_value = "time", possible_values = &["icount", "time"])]
     metric: String,
     /// Which VM to test.
-    #[clap(long, possible_values = &["wasmer", "wasmer2", "wasmtime"])]
+    #[clap(long, possible_values = &["wasmer", "wasmer2", "wasmtime", "near-vm"])]
     vm_kind: Option<String>,
     /// Render existing `costs.txt` as `RuntimeConfig`.
     #[clap(long)]

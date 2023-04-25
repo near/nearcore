@@ -384,7 +384,7 @@ fn test_stack_instrumentation_protocol_upgrade() {
         .opaque_error() // near-vm returns stack overflow, others return invalid memory access
         .expects(&[
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 4130838264 used gas 4130838264
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 6789985365 used gas 6789985365
                 Err: ...
             "#]],
             expect![[r#"
