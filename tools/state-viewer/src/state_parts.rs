@@ -25,13 +25,13 @@ use std::time::Instant;
 pub(crate) enum LoadAction {
     #[default]
     Apply,
-    Validate,
     Print,
+    Validate,
 }
 
 #[derive(clap::Subcommand, Debug, Clone)]
 pub(crate) enum StatePartsSubCommand {
-    /// Apply all or a single state part of a shard.
+    /// Load all or a single state part of a shard and perform an actions wth those parts.
     Load {
         /// Apply, validate or print.
         #[clap(arg_enum, long)]
