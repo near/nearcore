@@ -435,7 +435,6 @@ fn sync_state_dump() {
                 restart_dump_for_shards: None,
                 iteration_delay: Some(Duration::from_millis(100)),
             });
-            tracing::info!("state_sync1: {:?}", &near1.client_config.state_sync);
 
             let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
             let nearcore::NearNode {
@@ -484,10 +483,6 @@ fn sync_state_dump() {
                                         },
                                         num_concurrent_requests: 10,
                                     });
-                                tracing::info!(
-                                    "state_sync2: {:?}",
-                                    &near2.client_config.state_sync
-                                );
 
                                 let nearcore::NearNode {
                                     view_client: view_client2, arbiters, ..

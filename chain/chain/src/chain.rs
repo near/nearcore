@@ -4524,24 +4524,8 @@ impl Chain {
             let is_next_block_epoch_start =
                 self.runtime_adapter.is_next_block_epoch_start(&prev_hash)?;
 
-            tracing::info!(
-                target: "chain",
-                ?sync_hash,
-                head_epoch_id = ?head.epoch_id,
-                sync_block_epoch_id = ?sync_block.header().epoch_id(),
-                sync_block_next_epoch_id = ?sync_block.header().next_epoch_id(),
-                ?prev_hash,
-                is_next_block_epoch_start,
-                "Failed check_sync_hash_validity, possible malicious behavior");
             Ok(is_next_block_epoch_start)
         } else {
-            tracing::info!(
-                target: "chain",
-                ?sync_hash,
-                head_epoch_id = ?head.epoch_id,
-                sync_block_epoch_id = ?sync_block.header().epoch_id(),
-                sync_block_next_epoch_id = ?sync_block.header().next_epoch_id(),
-                "Failed check_sync_hash_validity");
             Ok(false) // invalid Epoch of sync_hash, possible malicious behavior
         }
     }

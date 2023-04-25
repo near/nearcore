@@ -176,14 +176,10 @@ async fn state_sync_dump(
                 sync_hash,
                 parts_dumped,
             })) => {
-                let state_header = chain.get_state_response_header(shard_id, sync_hash);
-                match state_header {
-                    Ok(state_header) => {
-                        let state_root = state_header.chunk_prev_state_root();
-                        let num_parts =
-                            get_num_state_parts(state_header.state_root_node().memory_usage);
-
-                        let mut res = None;
+                let in_progress_data = get_in_progress_data(shard_id, sync_hash, &chain);
+                let mut res = None;
+                match in_progress_data {
+                    Ok((state_root, num_parts, sync_prev_hash)) => {
                         // The actual dumping of state to S3.
                         tracing::info!(target: "state_sync_dump", shard_id, ?epoch_id, epoch_height, %sync_hash, ?state_root, parts_dumped, "Creating parts and dumping them");
                         for part_id in parts_dumped..num_parts {
@@ -195,8 +191,9 @@ async fn state_sync_dump(
 
                             let state_part = match obtain_and_store_state_part(
                                 &runtime,
-                                &shard_id,
-                                &sync_hash,
+                                shard_id,
+                                sync_hash,
+                                &sync_prev_hash,
                                 &state_root,
                                 part_id,
                                 num_parts,
@@ -286,6 +283,21 @@ async fn state_sync_dump(
     tracing::debug!(target: "state_sync_dump", shard_id, "Stopped state dump thread");
 }
 
+// Extracts extra data needed for obtaining state parts.
+fn get_in_progress_data(
+    shard_id: ShardId,
+    sync_hash: CryptoHash,
+    chain: &Chain,
+) -> Result<(StateRoot, u64, CryptoHash), Error> {
+    let state_header = chain.get_state_response_header(shard_id, sync_hash)?;
+    let state_root = state_header.chunk_prev_state_root();
+    let num_parts = get_num_state_parts(state_header.state_root_node().memory_usage);
+
+    let sync_block = chain.get_block(&sync_hash)?;
+    let sync_prev_hash = sync_block.header().prev_hash();
+    Ok((state_root, num_parts, *sync_prev_hash))
+}
+
 fn update_progress(
     shard_id: &ShardId,
     epoch_id: &EpochId,
@@ -351,21 +363,22 @@ fn set_metrics(
 /// Obtains and then saves the part data.
 fn obtain_and_store_state_part(
     runtime: &Arc<dyn RuntimeWithEpochManagerAdapter>,
-    shard_id: &ShardId,
-    sync_hash: &CryptoHash,
+    shard_id: ShardId,
+    sync_hash: CryptoHash,
+    sync_prev_hash: &CryptoHash,
     state_root: &StateRoot,
     part_id: u64,
     num_parts: u64,
     chain: &Chain,
 ) -> Result<Vec<u8>, Error> {
     let state_part = runtime.obtain_state_part(
-        *shard_id,
-        sync_hash,
+        shard_id,
+        sync_prev_hash,
         state_root,
         PartId::new(part_id, num_parts),
     )?;
 
-    let key = StatePartKey(*sync_hash, *shard_id, part_id).try_to_vec()?;
+    let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
     let mut store_update = chain.store().store().store_update();
     store_update.set(DBCol::StateParts, &key, &state_part);
     store_update.commit()?;
@@ -440,7 +453,7 @@ fn check_new_epoch(
             // Still in the latest dumped epoch. Do nothing.
             Ok(None)
         } else {
-            start_dumping(head.epoch_id, sync_hash, shard_id, &chain, runtime, account_id)
+            start_dumping(head.epoch_id, sync_hash, shard_id, chain, runtime, account_id)
         }
     }
 }
