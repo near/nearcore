@@ -167,6 +167,8 @@ expensive integration-tests integration_tests tests::nearcore::sync_state_nodes:
 expensive integration-tests integration_tests tests::nearcore::sync_state_nodes::sync_state_nodes --features nightly
 expensive integration-tests integration_tests tests::nearcore::sync_state_nodes::sync_state_nodes_multishard
 expensive integration-tests integration_tests tests::nearcore::sync_state_nodes::sync_state_nodes_multishard --features nightly
+expensive integration-tests integration_tests tests::nearcore::sync_state_nodes::sync_state_dump
+expensive integration-tests integration_tests tests::nearcore::sync_state_nodes::sync_state_dump --features nightly
 
 expensive integration-tests integration_tests tests::nearcore::rpc_error_structs::test_block_unknown_block_error
 expensive integration-tests integration_tests tests::nearcore::rpc_error_structs::test_block_unknown_block_error --features nightly
