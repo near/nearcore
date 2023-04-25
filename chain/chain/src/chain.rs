@@ -4521,10 +4521,7 @@ impl Chain {
         {
             let prev_hash = *sync_block.header().prev_hash();
             // If sync_hash is not on the Epoch boundary, it's malicious behavior
-            let is_next_block_epoch_start =
-                self.runtime_adapter.is_next_block_epoch_start(&prev_hash)?;
-
-            Ok(is_next_block_epoch_start)
+            Ok(self.runtime_adapter.is_next_block_epoch_start(&prev_hash)?)
         } else {
             Ok(false) // invalid Epoch of sync_hash, possible malicious behavior
         }
