@@ -200,14 +200,14 @@ pub trait External {
     /// # Example
     /// ```
     /// # use near_vm_logic::mocks::mock_external::MockedExternal;
-    /// # use near_vm_logic::External;
+    /// # use near_vm_logic::{External, StorageGetMode};
     ///
     /// # let mut external = MockedExternal::new();
     /// external.storage_set(b"key1", b"value1337").unwrap();
     /// external.storage_set(b"key2", b"value1337").unwrap();
     /// assert_eq!(external.storage_remove_subtree(b"key"), Ok(()));
-    /// assert!(!external.storage_has_key(b"key1").unwrap());
-    /// assert!(!external.storage_has_key(b"key2").unwrap());
+    /// assert!(!external.storage_has_key(b"key1", StorageGetMode::Trie).unwrap());
+    /// assert!(!external.storage_has_key(b"key2", StorageGetMode::Trie).unwrap());
     /// ```
     fn storage_remove_subtree(&mut self, prefix: &[u8]) -> Result<()>;
 
@@ -218,6 +218,7 @@ pub trait External {
     /// # Arguments
     ///
     /// * `key` - a key to check
+    /// * `mode`- whether the lookup will be performed through flat storage or trie
     ///
     /// # Errors
     ///
@@ -226,16 +227,16 @@ pub trait External {
     /// # Example
     /// ```
     /// # use near_vm_logic::mocks::mock_external::MockedExternal;
-    /// # use near_vm_logic::External;
+    /// # use near_vm_logic::{External, StorageGetMode};
     ///
     /// # let mut external = MockedExternal::new();
     /// external.storage_set(b"key42", b"value1337").unwrap();
     /// // Returns value if exists
-    /// assert_eq!(external.storage_has_key(b"key42"), Ok(true));
+    /// assert_eq!(external.storage_has_key(b"key42", StorageGetMode::Trie), Ok(true));
     /// // Returns None if there was no value
-    /// assert_eq!(external.storage_has_key(b"no_value_key"), Ok(false));
+    /// assert_eq!(external.storage_has_key(b"no_value_key", StorageGetMode::Trie), Ok(false));
     /// ```
-    fn storage_has_key(&mut self, key: &[u8]) -> Result<bool>;
+    fn storage_has_key(&mut self, key: &[u8], mode: StorageGetMode) -> Result<bool>;
 
     fn generate_data_id(&mut self) -> CryptoHash;
 
