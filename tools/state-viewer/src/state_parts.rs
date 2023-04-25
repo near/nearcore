@@ -31,6 +31,7 @@ pub(crate) enum LoadAction {
 
 #[derive(clap::Subcommand, Debug, Clone)]
 pub(crate) enum StatePartsSubCommand {
+    Validate,
     /// Load all or a single state part of a shard and perform an actions wth those parts.
     Load {
         /// Apply, validate or print.
@@ -270,7 +271,7 @@ fn load_state_parts(
         num_parts,
         ?sync_hash,
         ?part_ids,
-        "Applying state as seen at the beginning of the specified epoch.",
+        "Loading state as seen at the beginning of the specified epoch.",
     );
 
     let timer = Instant::now();
@@ -299,7 +300,7 @@ fn load_state_parts(
                         epoch_id.as_ref().unwrap(),
                     )
                     .unwrap();
-                tracing::info!(target: "state-parts", part_id, part_length = part.len(), elapsed_sec = timer.elapsed().as_secs_f64(), "Applied a state part");
+                tracing::info!(target: "state-parts", part_id, part_length = part.len(), elapsed_sec = timer.elapsed().as_secs_f64(), "Loaded a state part");
             }
             LoadAction::Validate => {
                 assert!(chain.runtime_adapter.validate_state_part(
@@ -314,7 +315,7 @@ fn load_state_parts(
             }
         }
     }
-    tracing::info!(target: "state-parts", total_elapsed_sec = timer.elapsed().as_secs_f64(), "Applied all requested state parts");
+    tracing::info!(target: "state-parts", total_elapsed_sec = timer.elapsed().as_secs_f64(), "Loaded all requested state parts");
 }
 
 fn print_state_part(state_root: &StateRoot, _part_id: PartId, data: &[u8]) {
