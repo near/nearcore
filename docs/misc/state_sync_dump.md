@@ -25,9 +25,14 @@ To enable, add this to your `config.json` file:
 
 ```json
 "state_sync": {
-  "s3_bucket": "my-bucket",
-  "s3_region": "eu-central-1",
-  "dump_enabled": true
+  "dump": {
+    "location": {
+      "S3": {
+        "bucket": "my-aws-bucket",
+        "region": "my-aws-region"
+      }
+    }    
+  }
 }
 ```
 
@@ -35,6 +40,27 @@ And run your node with environment variables `AWS_ACCESS_KEY_ID` and
 `AWS_SECRET_ACCESS_KEY`:
 ```shell
 AWS_ACCESS_KEY_ID="MY_ACCESS_KEY" AWS_SECRET_ACCESS_KEY="MY_AWS_SECRET_ACCESS_KEY" ./neard run
+```
+
+## Dump to a local filesystem
+
+Add this to your `config.json` file to dump state of every epoch to local filesystem:
+
+```json
+"state_sync": {
+  "dump": {
+    "location": {
+      "Filesystem": {
+        "root_dir": "/tmp/state-dump"
+      }
+    }    
+  }
+}
+```
+
+In this case you don't need any extra environment variables. Simply run your node:
+```shell
+./neard run
 ```
 
 ## Implementation Details

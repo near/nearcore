@@ -2,7 +2,7 @@ use crate::download_file::{run_download_file, FileDownloadError};
 use anyhow::{anyhow, bail, Context};
 use near_chain_configs::{
     get_initial_supply, ClientConfig, GCConfig, Genesis, GenesisConfig, GenesisValidationMode,
-    LogSummaryStyle, MutableConfigValue,
+    LogSummaryStyle, MutableConfigValue, StateSyncConfig,
 };
 use near_config_utils::{ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
@@ -321,19 +321,19 @@ pub struct Config {
     /// This feature is under development, do not use in production.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cold_store: Option<near_store::StoreConfig>,
-    /// Configuration for the
+    /// Configuration for the split storage.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub split_storage: Option<SplitStorageConfig>,
     /// The node will stop after the head exceeds this height.
     /// The node usually stops within several seconds after reaching the target height.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expected_shutdown: Option<BlockHeight>,
-    /// Options for dumping state of every epoch to S3.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub state_sync: Option<StateSyncConfig>,
     /// Whether to use state sync (unreliable and corrupts the DB if fails) or do a block sync instead.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state_sync_enabled: Option<bool>,
+    /// Options for syncing state.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state_sync: Option<StateSyncConfig>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -678,41 +678,8 @@ impl NearConfig {
                 client_background_migration_threads: config.store.background_migration_threads,
                 flat_storage_creation_enabled: config.store.flat_storage_creation_enabled,
                 flat_storage_creation_period: config.store.flat_storage_creation_period,
-                state_sync_dump_enabled: config
-                    .state_sync
-                    .as_ref()
-                    .map(|x| x.dump_enabled)
-                    .flatten()
-                    .unwrap_or(false),
-                state_sync_s3_bucket: config
-                    .state_sync
-                    .as_ref()
-                    .map(|x| x.s3_bucket.clone())
-                    .unwrap_or(String::new()),
-                state_sync_s3_region: config
-                    .state_sync
-                    .as_ref()
-                    .map(|x| x.s3_region.clone())
-                    .unwrap_or(String::new()),
-                state_sync_restart_dump_for_shards: config
-                    .state_sync
-                    .as_ref()
-                    .map(|x| x.restart_dump_for_shards.clone())
-                    .flatten()
-                    .unwrap_or(vec![]),
-                state_sync_from_s3_enabled: config
-                    .state_sync
-                    .as_ref()
-                    .map(|x| x.sync_from_s3_enabled)
-                    .flatten()
-                    .unwrap_or(false),
-                state_sync_num_concurrent_s3_requests: config
-                    .state_sync
-                    .as_ref()
-                    .map(|x| x.num_concurrent_s3_requests)
-                    .flatten()
-                    .unwrap_or(100),
                 state_sync_enabled: config.state_sync_enabled.unwrap_or(false),
+                state_sync: config.state_sync.unwrap_or_default(),
             },
             network_config: NetworkConfig::new(
                 config.network,
@@ -1533,30 +1500,6 @@ pub fn load_test_config(seed: &str, addr: tcp::ListenerAddr, genesis: Genesis) -
         (signer, Some(validator_signer))
     };
     NearConfig::new(config, genesis, signer.into(), validator_signer).unwrap()
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
-/// Options for dumping state to S3.
-pub struct StateSyncConfig {
-    /// Location of state dumps on S3.
-    pub s3_bucket: String,
-    /// Region is very important on S3.
-    pub s3_region: String,
-    /// Whether a node should dump state of each epoch to the external storage.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub dump_enabled: Option<bool>,
-    /// Use carefully in case a node that dumps state to the external storage
-    /// gets in trouble.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub restart_dump_for_shards: Option<Vec<ShardId>>,
-    /// If enabled, will download state parts from external storage and not from
-    /// the peers.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sync_from_s3_enabled: Option<bool>,
-    /// When syncing state from S3, throttle requests to this many concurrent
-    /// requests per shard.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub num_concurrent_s3_requests: Option<u64>,
 }
 
 #[test]

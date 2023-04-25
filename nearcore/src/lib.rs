@@ -33,7 +33,7 @@ pub mod dyn_config;
 mod metrics;
 pub mod migrations;
 mod runtime;
-mod state_sync;
+pub mod state_sync;
 
 pub fn get_default_home() -> PathBuf {
     if let Ok(near_home) = std::env::var("NEAR_HOME") {
@@ -273,7 +273,12 @@ pub fn start_with_config_and_synchronization(
     );
     shards_manager_adapter.bind(shards_manager_actor);
 
-    let state_sync_dump_handle = spawn_state_sync_dump(&config, chain_genesis, runtime)?;
+    let state_sync_dump_handle = spawn_state_sync_dump(
+        &config.client_config,
+        chain_genesis,
+        runtime,
+        config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
+    )?;
 
     #[allow(unused_mut)]
     let mut rpc_servers = Vec::new();
