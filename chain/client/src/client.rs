@@ -217,7 +217,8 @@ impl Client {
             chain.store(),
             chain_config.background_migration_threads,
         )?;
-        let sharded_tx_pool = ShardedTransactionPool::new(rng_seed);
+        let sharded_tx_pool =
+            ShardedTransactionPool::new(rng_seed, config.transaction_pool_size_limit);
         let sync_status = SyncStatus::AwaitingPeers;
         let genesis_block = chain.genesis_block();
         let epoch_sync = EpochSync::new(
@@ -2010,8 +2011,19 @@ impl Client {
             } else {
                 // Transactions only need to be recorded if the node is a validator.
                 if me.is_some() {
-                    self.sharded_tx_pool.insert_transaction(shard_id, tx.clone());
-                    trace!(target: "client", shard_id, "Recorded a transaction.");
+                    match self.sharded_tx_pool.insert_transaction(shard_id, tx.clone()) {
+                        near_chunks::client::InsertTransactionResult::Success => {
+                            trace!(target: "client", shard_id, "Recorded a transaction.");
+                        }
+                        near_chunks::client::InsertTransactionResult::Duplicate => {
+                            // TODO(akashin): Decide what to do in this case.
+                            return Err(Error::Other("Duplicate transaction inserted".to_string()));
+                        }
+                        near_chunks::client::InsertTransactionResult::NoSpaceLeft => {
+                            // TODO(akashin): Introduce a dedicated error code.
+                            return Err(Error::Other("No space left".to_string()));
+                        }
+                    }
                 }
 
                 // Active validator:

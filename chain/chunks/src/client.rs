@@ -30,27 +30,55 @@ pub enum ShardsManagerResponse {
     ChunkHeaderReadyForInclusion { chunk_header: ShardChunkHeader, chunk_producer: AccountId },
 }
 
+#[derive(Debug)]
+pub enum InsertTransactionResult {
+    /// Transaction was successfully inserted.
+    Success,
+    /// Transaction is already in the pool.
+    Duplicate,
+    /// Not enough space to fit the transaction.
+    NoSpaceLeft,
+}
+
 pub struct ShardedTransactionPool {
     tx_pools: HashMap<ShardId, TransactionPool>,
 
     /// Useful to make tests deterministic and reproducible,
     /// while keeping the security of randomization of transactions in pool
     rng_seed: RngSeed,
+
+    /// If set, new transactions that bring the size of the pool over this limit will be rejected.
+    /// The size is tracked and enforced separately for each shard.
+    pool_size_limit: Option<u64>,
 }
 
 impl ShardedTransactionPool {
-    pub fn new(rng_seed: RngSeed) -> Self {
+    pub fn new(rng_seed: RngSeed, pool_size_limit: Option<u64>) -> Self {
         TransactionPool::init_metrics();
-        Self { tx_pools: HashMap::new(), rng_seed }
+        Self { tx_pools: HashMap::new(), rng_seed, pool_size_limit }
     }
 
     pub fn get_pool_iterator(&mut self, shard_id: ShardId) -> Option<PoolIteratorWrapper<'_>> {
         self.tx_pools.get_mut(&shard_id).map(|pool| pool.pool_iterator())
     }
 
-    /// Returns true if transaction is not in the pool before call
-    pub fn insert_transaction(&mut self, shard_id: ShardId, tx: SignedTransaction) -> bool {
-        self.pool_for_shard(shard_id).insert_transaction(tx)
+    /// Tries to insert the transaction into the pool for a given shard.
+    pub fn insert_transaction(
+        &mut self,
+        shard_id: ShardId,
+        tx: SignedTransaction,
+    ) -> InsertTransactionResult {
+        if let Some(limit) = self.pool_size_limit {
+            if self.pool_for_shard(shard_id).transaction_size() > limit {
+                return InsertTransactionResult::NoSpaceLeft;
+            }
+        }
+
+        if !self.pool_for_shard(shard_id).insert_transaction(tx) {
+            return InsertTransactionResult::Duplicate;
+        }
+
+        InsertTransactionResult::Success
     }
 
     pub fn remove_transactions(&mut self, shard_id: ShardId, transactions: &[SignedTransaction]) {
@@ -81,6 +109,7 @@ impl ShardedTransactionPool {
         shard_id: ShardId,
         transactions: &[SignedTransaction],
     ) {
+        // TODO(akashin): Enforce size limit here as well.
         self.pool_for_shard(shard_id).reintroduce_transactions(transactions.to_vec());
     }
 }
