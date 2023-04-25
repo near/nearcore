@@ -22,7 +22,7 @@ use std::str::FromStr;
 use std::time::Instant;
 
 #[derive(clap::ArgEnum, Clone, Debug, Default)]
-pub(crate) enum ApplyAction {
+pub(crate) enum LoadAction {
     #[default]
     Apply,
     Validate,
@@ -32,10 +32,10 @@ pub(crate) enum ApplyAction {
 #[derive(clap::Subcommand, Debug, Clone)]
 pub(crate) enum StatePartsSubCommand {
     /// Apply all or a single state part of a shard.
-    Apply {
+    Load {
         /// Apply, validate or print.
         #[clap(arg_enum, long)]
-        action: ApplyAction,
+        action: LoadAction,
         /// If provided, this value will be used instead of looking it up in the headers.
         /// Use if those headers or blocks are not available.
         #[clap(long)]
@@ -90,8 +90,8 @@ impl StatePartsSubCommand {
         .unwrap();
         let chain_id = &near_config.genesis.config.chain_id;
         match self {
-            StatePartsSubCommand::Apply { action, state_root, part_id, epoch_selection } => {
-                apply_state_parts(
+            StatePartsSubCommand::Load { action, state_root, part_id, epoch_selection } => {
+                load_state_parts(
                     action,
                     epoch_selection,
                     shard_id,
@@ -229,8 +229,8 @@ fn get_any_block_hash_of_epoch(epoch_info: &EpochInfo, chain: &Chain) -> CryptoH
     }
 }
 
-fn apply_state_parts(
-    action: ApplyAction,
+fn load_state_parts(
+    action: LoadAction,
     epoch_selection: EpochSelection,
     shard_id: ShardId,
     part_id: Option<u64>,
@@ -280,7 +280,7 @@ fn apply_state_parts(
         let part = part_storage.read(part_id, num_parts);
 
         match action {
-            ApplyAction::Apply => {
+            LoadAction::Apply => {
                 chain
                     .set_state_part(
                         shard_id,
@@ -301,7 +301,7 @@ fn apply_state_parts(
                     .unwrap();
                 tracing::info!(target: "state-parts", part_id, part_length = part.len(), elapsed_sec = timer.elapsed().as_secs_f64(), "Applied a state part");
             }
-            ApplyAction::Validate => {
+            LoadAction::Validate => {
                 assert!(chain.runtime_adapter.validate_state_part(
                     &state_root,
                     PartId::new(part_id, num_parts),
@@ -309,7 +309,7 @@ fn apply_state_parts(
                 ));
                 tracing::info!(target: "state-parts", part_id, part_length = part.len(), elapsed_sec = timer.elapsed().as_secs_f64(), "Validated a state part");
             }
-            ApplyAction::Print => {
+            LoadAction::Print => {
                 print_state_part(&state_root, PartId::new(part_id, num_parts), &part)
             }
         }
