@@ -1186,7 +1186,7 @@ mod tests {
         assert_eq!(
             res,
             RuntimeError::InvalidTxError(InvalidTxError::LackBalanceForState {
-                signer_id: account_id.clone(),
+                signer_id: account_id,
                 amount: Balance::from(account.storage_usage()) * config.storage_amount_per_byte()
                     - (initial_balance - transfer_amount)
             })
@@ -1867,7 +1867,7 @@ mod tests {
                 &VMLimitConfig::test(),
                 &[
                     Action::CreateAccount(CreateAccountAction {}),
-                    Action::Delegate(signed_delegate_action.clone()),
+                    Action::Delegate(signed_delegate_action),
                 ],
                 PROTOCOL_VERSION,
             ),

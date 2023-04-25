@@ -260,22 +260,18 @@ pub enum DBCol {
     /// Flat state contents. Used to get `ValueRef` by trie key faster than doing a trie lookup.
     /// - *Rows*: `shard_uid` + trie key (Vec<u8>)
     /// - *Column type*: ValueRef
-    #[cfg(feature = "protocol_feature_flat_state")]
     FlatState,
     /// Changes for flat state delta. Stores how flat state should be updated for the given shard and block.
     /// - *Rows*: `KeyForFlatStateDelta { shard_uid, block_hash }`
     /// - *Column type*: `FlatStateChanges`
-    #[cfg(feature = "protocol_feature_flat_state")]
     FlatStateChanges,
     /// Metadata for flat state delta.
     /// - *Rows*: `KeyForFlatStateDelta { shard_uid, block_hash }`
     /// - *Column type*: `FlatStateDeltaMetadata`
-    #[cfg(feature = "protocol_feature_flat_state")]
     FlatStateDeltaMetadata,
     /// Flat storage status for the corresponding shard.
     /// - *Rows*: `shard_uid`
     /// - *Column type*: `FlatStorageStatus`
-    #[cfg(feature = "protocol_feature_flat_state")]
     FlatStorageStatus,
 }
 
@@ -402,12 +398,18 @@ impl DBCol {
             DBCol::Block
             | DBCol::BlockExtra
             | DBCol::BlockInfo
+            // TODO can be reconstruction from BlockHeight instead of saving to cold storage.
+            | DBCol::BlockPerHeight
             | DBCol::ChunkExtra
+            // TODO can be changed to reconstruction from Block instead of saving to cold storage.
+            | DBCol::ChunkHashesByHeight
             | DBCol::Chunks
             | DBCol::IncomingReceipts
             | DBCol::NextBlockHashes
             | DBCol::OutcomeIds
             | DBCol::OutgoingReceipts
+            // TODO can be changed to reconstruction on request instead of saving in cold storage.
+            | DBCol::PartialChunks
             | DBCol::ReceiptIdToShardId
             | DBCol::Receipts
             | DBCol::State
@@ -424,27 +426,12 @@ impl DBCol {
             DBCol::BlocksToCatchup => false,
             // BlockRefCount is only needed when handling forks and it is not immutable.
             DBCol::BlockRefCount => false,
-            // PartialChunks can be recomputed and take a lot of space.
-            // TODO - but could it be used by the view client? If so then this
-            // column needs to be added to cold or the relevant code needs to be
-            // able to recompute it on demand.
-            DBCol::PartialChunks => false,
             // InvalidChunks is only needed at head when accepting new chunks.
             DBCol::InvalidChunks => false,
-            // TODO go/cold-store says: "this can be handled by reading Block
-            // and iterating over hashes there". Needs to be implemented or
-            // confirmed that view client doesn't use that column.
-            DBCol::ChunkHashesByHeight => false,
             // StateParts is only needed while syncing.
             DBCol::StateParts => false,
             // TrieChanges is only needed for GC.
             DBCol::TrieChanges => false,
-            // BlockPerHeight becomes equivalent to BlockHeight since in cold
-            // storage there are only final blocks.
-            // TODO but could it be used by the view client? If so then this
-            // column needs to be added to cold or the relevant code needs to be
-            // able to recompute it on demand.
-            DBCol::BlockPerHeight => false,
             // StateDlInfos is only needed when syncing and it is not immutable.
             DBCol::StateDlInfos => false,
             // TODO
@@ -474,9 +461,8 @@ impl DBCol {
             | DBCol::_TransactionRefCount
             | DBCol::_TransactionResult
             // | DBCol::StateChangesForSplitStates
-            | DBCol::CachedContractCode => false,
-            #[cfg(feature = "protocol_feature_flat_state")]
-            DBCol::FlatState
+            | DBCol::CachedContractCode
+            | DBCol::FlatState
             | DBCol::FlatStateChanges
             | DBCol::FlatStateDeltaMetadata
             | DBCol::FlatStorageStatus => false,
@@ -543,13 +529,9 @@ impl DBCol {
             DBCol::HeaderHashesByHeight => &[DBKeyType::BlockHeight],
             DBCol::StateChangesForSplitStates => &[DBKeyType::BlockHash, DBKeyType::ShardId],
             DBCol::TransactionResultForBlock => &[DBKeyType::OutcomeId, DBKeyType::BlockHash],
-            #[cfg(feature = "protocol_feature_flat_state")]
             DBCol::FlatState => &[DBKeyType::ShardUId, DBKeyType::TrieKey],
-            #[cfg(feature = "protocol_feature_flat_state")]
-            DBCol::FlatStateChanges => &[DBKeyType::ShardId, DBKeyType::BlockHash],
-            #[cfg(feature = "protocol_feature_flat_state")]
-            DBCol::FlatStateDeltaMetadata => &[DBKeyType::ShardId, DBKeyType::BlockHash],
-            #[cfg(feature = "protocol_feature_flat_state")]
+            DBCol::FlatStateChanges => &[DBKeyType::ShardUId, DBKeyType::BlockHash],
+            DBCol::FlatStateDeltaMetadata => &[DBKeyType::ShardUId, DBKeyType::BlockHash],
             DBCol::FlatStorageStatus => &[DBKeyType::ShardUId],
         }
     }

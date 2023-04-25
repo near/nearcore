@@ -2271,11 +2271,9 @@ impl<'a> ChainStoreUpdate<'a> {
             }
 
             // delete flat storage columns: FlatStateChanges and FlatStateDeltaMetadata
-            if cfg!(feature = "protocol_feature_flat_state") {
-                let mut store_update = self.store().store_update();
-                store_helper::remove_delta(&mut store_update, shard_uid, block_hash);
-                self.merge(store_update);
-            }
+            let mut store_update = self.store().store_update();
+            store_helper::remove_delta(&mut store_update, shard_uid, block_hash);
+            self.merge(store_update);
         }
 
         // 2. Delete block_hash-indexed data
@@ -2568,11 +2566,8 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::_TransactionRefCount
             | DBCol::_TransactionResult
             | DBCol::StateChangesForSplitStates
-            | DBCol::CachedContractCode => {
-                unreachable!();
-            }
-            #[cfg(feature = "protocol_feature_flat_state")]
-            DBCol::FlatState
+            | DBCol::CachedContractCode
+            | DBCol::FlatState
             | DBCol::FlatStateChanges
             | DBCol::FlatStateDeltaMetadata
             | DBCol::FlatStorageStatus => {

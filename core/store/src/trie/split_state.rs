@@ -198,10 +198,8 @@ impl ShardTries {
         for (shard_uid, update) in updates {
             let (_, trie_changes, state_changes) = update.finalize()?;
             let state_root = self.apply_all(&trie_changes, shard_uid, &mut store_update);
-            if cfg!(feature = "protocol_feature_flat_state") {
-                FlatStateChanges::from_state_changes(&state_changes)
-                    .apply_to_flat_state(&mut store_update, shard_uid);
-            }
+            FlatStateChanges::from_state_changes(&state_changes)
+                .apply_to_flat_state(&mut store_update, shard_uid);
             new_state_roots.insert(shard_uid, state_root);
         }
         Ok((store_update, new_state_roots))

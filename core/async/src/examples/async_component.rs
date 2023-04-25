@@ -43,7 +43,7 @@ impl OuterComponent {
     }
 
     pub fn process_request(&mut self, request: OuterRequest, future_spawner: &dyn FutureSpawner) {
-        let inner_request = InnerRequest(request.0.clone());
+        let inner_request = InnerRequest(request.0);
         let sender = self.inner_sender.clone();
         let response_sender = self.outer_response_sender.clone();
 

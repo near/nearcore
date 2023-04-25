@@ -82,10 +82,7 @@ impl FromStr for Temperature {
     }
 }
 
-#[cfg(feature = "protocol_feature_flat_state")]
 const STATE_COLUMNS: [DBCol; 2] = [DBCol::State, DBCol::FlatState];
-#[cfg(not(feature = "protocol_feature_flat_state"))]
-const STATE_COLUMNS: [DBCol; 1] = [DBCol::State];
 const STATE_FILE_END_MARK: u8 = 255;
 
 /// Node’s storage holding chain and all other necessary data.
@@ -1061,7 +1058,7 @@ mod tests {
         assert_eq!(false, cache.has(&key).unwrap());
 
         let record = CompiledContract::Code(b"foo".to_vec());
-        assert_eq!((), cache.put(&key, record.clone()).unwrap());
+        cache.put(&key, record.clone()).unwrap();
         assert_eq!(Some(record), cache.get(&key).unwrap());
         assert_eq!(true, cache.has(&key).unwrap());
     }
