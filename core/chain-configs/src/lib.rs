@@ -5,7 +5,8 @@ mod metrics;
 mod updateable_config;
 
 pub use client_config::{
-    ClientConfig, GCConfig, LogSummaryStyle, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
+    ClientConfig, DumpConfig, ExternalStorageConfig, ExternalStorageLocation, GCConfig,
+    LogSummaryStyle, StateSyncConfig, SyncConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
     MIN_GC_NUM_EPOCHS_TO_KEEP, TEST_STATE_SYNC_TIMEOUT,
 };
 pub use genesis_config::{
