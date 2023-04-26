@@ -44,7 +44,7 @@ use near_store::{
     LATEST_KNOWN_KEY, TAIL_KEY,
 };
 
-use crate::{byzantine_assert, RuntimeWithEpochManagerAdapter};
+use crate::byzantine_assert;
 use crate::chunks_store::ReadOnlyChunksStore;
 use crate::types::{Block, BlockHeader, LatestKnown};
 use near_store::db::StoreStatistics;

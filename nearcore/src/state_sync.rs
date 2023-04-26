@@ -1,9 +1,9 @@
-use crate::{metrics, NearConfig};
+use crate::metrics;
 use borsh::BorshSerialize;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error};
-use near_chain_configs::ClientConfig;
-use near_client::sync::state::{s3_location, StateSync};
+use near_chain_configs::{ClientConfig, ExternalStorageLocation};
+use near_client::sync::state::{external_storage_location, ExternalConnection, StateSync};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::hash::CryptoHash;
@@ -476,7 +476,15 @@ fn check_new_epoch(
             // Still in the latest dumped epoch. Do nothing.
             Ok(None)
         } else {
-            start_dumping(head.epoch_id, sync_hash, shard_id, chain, epoch_manager, shard_tracker, account_id)
+            start_dumping(
+                head.epoch_id,
+                sync_hash,
+                shard_id,
+                chain,
+                epoch_manager,
+                shard_tracker,
+                account_id,
+            )
         }
     }
 }
@@ -504,7 +512,9 @@ mod tests {
         chain_genesis.epoch_length = 5;
         let mut env = TestEnv::builder(chain_genesis.clone()).build();
         let chain = &env.clients[0].chain;
-        let runtime = chain.runtime_adapter();
+        let epoch_manager = chain.epoch_manager.clone();
+        let shard_tracker = chain.shard_tracker.clone();
+        let runtime = chain.runtime.clone();
         let mut config = env.clients[0].config.clone();
         let root_dir = tempfile::Builder::new().prefix("state_dump").tempdir().unwrap();
         config.state_sync.dump = Some(DumpConfig {
@@ -521,6 +531,8 @@ mod tests {
             let _state_sync_dump_handle = spawn_state_sync_dump(
                 &config,
                 chain_genesis,
+                epoch_manager.clone(),
+                shard_tracker.clone(),
                 runtime.clone(),
                 Some("test0".parse().unwrap()),
             )
@@ -531,14 +543,14 @@ mod tests {
                 last_block_hash = Some(*block.hash());
                 env.process_block(0, block, Provenance::PRODUCED);
             }
-            let epoch_id = runtime.get_epoch_id(last_block_hash.as_ref().unwrap()).unwrap();
-            let epoch_info = runtime.get_epoch_info(&epoch_id).unwrap();
+            let epoch_id = epoch_manager.get_epoch_id(last_block_hash.as_ref().unwrap()).unwrap();
+            let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap();
             let epoch_height = epoch_info.epoch_height();
 
             wait_or_timeout(100, 10000, || async {
                 let mut all_parts_present = true;
 
-                let num_shards = runtime.num_shards(&epoch_id).unwrap();
+                let num_shards = epoch_manager.num_shards(&epoch_id).unwrap();
                 assert_ne!(num_shards, 0);
 
                 for shard_id in 0..num_shards {

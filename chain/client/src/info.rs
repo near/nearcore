@@ -191,10 +191,9 @@ impl InfoHelper {
     /// all the blocks in the epoch. However, even this method may not be completely accurate because additional
     /// blocks could potentially be added at the end of the epoch.
     fn record_epoch_settlement_info(head: &Tip, client: &crate::client::Client) {
-        let epoch_info = client.runtime_adapter.get_epoch_info(&head.epoch_id);
+        let epoch_info = client.epoch_manager.get_epoch_info(&head.epoch_id);
         let blocks_in_epoch = client.config.epoch_length;
-        let number_of_shards =
-            client.runtime_adapter.num_shards(&head.epoch_id).unwrap_or_default();
+        let number_of_shards = client.epoch_manager.num_shards(&head.epoch_id).unwrap_or_default();
         if let Ok(epoch_info) = epoch_info {
             let mut stake_per_bp = HashMap::<ValidatorId, Balance>::new();
 
