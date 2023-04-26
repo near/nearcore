@@ -124,7 +124,7 @@ impl FlatStorageCommand {
                                 "Shard: {shard_uid:?} - flat storage @{:?}",
                                 ready_status.flat_head.height
                             );
-                            print_deltas(&hot_store, shard_uid)?;
+                            print_deltas(&hot_store, shard_uid);
                         }
                         status => {
                             println!("Shard: {shard_uid:?} - no flat storage: {status:?}");
