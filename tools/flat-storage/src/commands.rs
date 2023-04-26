@@ -7,7 +7,6 @@ use near_chain::{
 };
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::{state::ValueRef, trie_key::trie_key_parsers::parse_account_id_from_raw_key};
-use near_stdx;
 use near_store::flat::{store_helper, FlatStateDelta, FlatStateDeltaMetadata, FlatStorageStatus};
 use near_store::{Mode, NodeStorage, ShardUId, Store, StoreOpener};
 use nearcore::{load_config, NearConfig, NightshadeRuntime};
@@ -71,6 +70,7 @@ fn print_delta(store: &Store, shard_uid: ShardUId, metadata: FlatStateDeltaMetad
 }
 
 fn print_deltas(store: &Store, shard_uid: ShardUId) {
+    // stdx::rsplit_slice::<8>(bytes);
     let deltas_metadata = store_helper::get_all_deltas_metadata(store, shard_uid).unwrap();
     println!("Deltas: {}", deltas_metadata.len());
     if deltas_metadata.len() <= 10 {
@@ -78,14 +78,15 @@ fn print_deltas(store: &Store, shard_uid: ShardUId) {
             print_delta(store, shard_uid, delta_metadata).unwrap();
         }
     } else {
-        // let first_deltas =
-        for delta_metadata in deltas_metadata[..5] {
-            print_delta(store, shard_uid, delta_metadata).unwrap();
-        }
-        println!("... skipped {} deltas ...", deltas_metadata.len() - 10);
-        for delta_metadata in deltas_metadata[deltas_metadata.len() - 5..] {
-            print_delta(store, shard_uid, delta_metadata).unwrap();
-        }
+        let (_first_deltas, _last_deltas) = near_stdx::split_slice::<5>(&deltas_metadata);
+
+        // for delta_metadata in deltas_metadata[..5] {
+        //     print_delta(store, shard_uid, delta_metadata).unwrap();
+        // }
+        // println!("... skipped {} deltas ...", deltas_metadata.len() - 10);
+        // for delta_metadata in deltas_metadata[deltas_metadata.len() - 5..] {
+        //     print_delta(store, shard_uid, delta_metadata).unwrap();
+        // }
     }
 }
 
