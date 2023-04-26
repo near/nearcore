@@ -4,7 +4,6 @@ use near_primitives::hash::hash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::ValueRef;
 use near_primitives::types::RawStateChangesWithTrieKey;
-use near_primitives::utils;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -37,7 +36,7 @@ impl KeyForFlatStateDelta {
 }
 /// Delta of the state for some shard and block, stores mapping from keys to value refs or None, if key was removed in
 /// this block.
-#[derive(BorshSerialize, BorshDeserialize, Clone, Default, Debug, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Default, PartialEq, Eq)]
 pub struct FlatStateChanges(pub(crate) HashMap<Vec<u8>, Option<ValueRef>>);
 
 impl<T> From<T> for FlatStateChanges
