@@ -21,4 +21,4 @@ near-epoch-manager.workspace = true
 near-primitives.workspace = true
 near-store.workspace = true
 nearcore.workspace = true
-near-stdx = 0.16
+near-stdx = { version = "0.16.1" }
