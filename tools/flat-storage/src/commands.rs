@@ -1,3 +1,4 @@
+use borsh::BorshDeserialize;
 /// Tools for modifying flat storage - should be used only for experimentation & debugging.
 use clap::Parser;
 use near_chain::{
@@ -6,11 +7,12 @@ use near_chain::{
 };
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::{state::ValueRef, trie_key::trie_key_parsers::parse_account_id_from_raw_key};
-use near_store::flat::{store_helper, FlatStorageStatus, FlatStateChanges, FlatStateDeltaMetadata, FlatStateDelta};
+use near_store::flat::{
+    store_helper, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorageStatus,
+};
 use near_store::{Mode, NodeStorage, ShardUId, Store, StoreOpener};
 use nearcore::{load_config, NearConfig, NightshadeRuntime};
 use std::{path::PathBuf, sync::Arc, time::Duration};
-use borsh::BorshDeserialize;
 use tqdm::tqdm;
 
 #[derive(Parser)]
@@ -63,25 +65,25 @@ pub struct VerifyCmd {
     shard_id: u64,
 }
 
-fn display_delta(store: &Store, shard_uid: ShardUId, metadata: FlatStateDeltaMetadata) {
+fn print_delta(store: &Store, shard_uid: ShardUId, metadata: FlatStateDeltaMetadata) {
     let changes = store_helper::get_delta_changes(store, shard_uid, metadata.block.hash)?.unwrap();
-    println!("{}", FlatStateDelta { metadata, changes });
+    println!("{:?}", FlatStateDelta { metadata, changes });
 }
 
-fn display_deltas(store: &Store, shard_uid: ShardUId) -> anyhow::Result<()> {
+fn print_deltas(store: &Store, shard_uid: ShardUId) -> anyhow::Result<()> {
     let deltas_metadata = store_helper::get_all_deltas_metadata(store, shard_uid)?;
     println!("Deltas: {}", deltas_metadata.len());
     if deltas_metadata.len() <= 10 {
         for delta_metadata in deltas_metadata {
-            display_delta(store, shard_uid, delta_metadata);
+            print_delta(store, shard_uid, delta_metadata);
         }
     } else {
         for delta_metadata in deltas_metadata[..5] {
-            display_delta(store, shard_uid, delta_metadata);
+            print_delta(store, shard_uid, delta_metadata);
         }
         println!("... skipped {} deltas ...", deltas_metadata.len() - 10);
         for delta_metadata in deltas_metadata[deltas_metadata.len() - 5..] {
-            display_delta(store, shard_uid, delta_metadata);
+            print_delta(store, shard_uid, delta_metadata);
         }
     }
     Ok(())
@@ -103,8 +105,7 @@ impl FlatStorageCommand {
     }
 
     pub fn run(&self, home_dir: &PathBuf) -> anyhow::Result<()> {
-        let near_config =
-            load_config(home_dir, near_chain_configs::GenesisValidationMode::Full)?;
+        let near_config = load_config(home_dir, near_chain_configs::GenesisValidationMode::Full)?;
         let opener = NodeStorage::opener(home_dir, false, &near_config.config.store, None);
 
         match &self.subcmd {
@@ -122,7 +123,7 @@ impl FlatStorageCommand {
                                 "Shard: {shard:?} - flat storage @{:?}",
                                 ready_status.flat_head.height
                             );
-                            display_deltas(&hot_store, shard_uid)?;
+                            print_deltas(&hot_store, shard_uid)?;
                         }
                         status => {
                             println!("Shard: {shard:?} - no flat storage: {status:?}");
