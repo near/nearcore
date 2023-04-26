@@ -429,10 +429,10 @@ impl PrepareHotCmd {
         // COLD  . . . . . . . . . H
 
         if cold_head.height > rpc_head.height {
-            tracing::error!(target : "prepare-hot",
-                "The cold head is ahead of the rpc head. cold head height: {} rpc head height: {}",
-                cold_head.height,
-                rpc_head.height
+            tracing::warn!(target: "prepare-hot",
+                cold_head_height = cold_head.height,
+                rpc_head_height = rpc_head.height,
+                "The cold head is ahead of the RPC head. This should fix itself when the node catches up and becomes in sync"
             );
         }
 
