@@ -24,20 +24,52 @@ To enable, add this to your `config.json` file:
 ```json
 "state_sync_enabled": true,
 "state_sync": {
-  "s3_bucket": "my-bucket",
-  "s3_region": "eu-central-1",
-  "sync_from_s3_enabled": true
+  "sync": {
+    "ExternalStorage": {
+      "location": {
+        "S3": {
+          "bucket": "my-aws-bucket",
+          "region": "my-aws-region"
+        }
+      }
+    }
+  }
 }
 ```
 
-And run your node with environment variables `AWS_ACCESS_KEY_ID` and
-`AWS_SECRET_ACCESS_KEY`:
+Then run the `neard` binary and it will access S3 anonymously:
 ```shell
-AWS_ACCESS_KEY_ID="MY_ACCESS_KEY" AWS_SECRET_ACCESS_KEY="MY_AWS_SECRET_ACCESS_KEY" ./neard run
+./neard run
+```
+
+## Sync from a local filesystem
+
+To enable, add this to your `config.json` file:
+
+```json
+"state_sync_enabled": true,
+"state_sync": {
+  "sync": {
+    "ExternalStorage": {
+      "location": {
+        "Filesystem": {
+          "root_dir": "/tmp/state-parts"
+        }
+      }
+    }
+  }
+}
+```
+
+Then run the `neard` binary:
+```shell
+./neard run
 ```
 
 ## Implementation Details
 
+The experimental option replaces how a node fetches state parts.
+The legacy implementation asks peer nodes to create and share a state part over network.
 The new implementation expects to find state parts as files on an S3 storage.
 
 The sync mechanism proceeds to download state parts mostly-sequentially from S3.

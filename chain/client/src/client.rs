@@ -252,10 +252,7 @@ impl Client {
             network_adapter.clone(),
             config.state_sync_timeout,
             &config.chain_id,
-            config.state_sync_from_s3_enabled,
-            &config.state_sync_s3_bucket,
-            &config.state_sync_s3_region,
-            config.state_sync_num_concurrent_s3_requests,
+            &config.state_sync.sync,
         );
         let num_block_producer_seats = config.num_block_producer_seats as usize;
         let data_parts = runtime_adapter.num_data_parts();
@@ -2131,10 +2128,7 @@ impl Client {
                             network_adapter1,
                             state_sync_timeout,
                             &self.config.chain_id,
-                            self.config.state_sync_from_s3_enabled,
-                            &self.config.state_sync_s3_bucket,
-                            &self.config.state_sync_s3_region,
-                            self.config.state_sync_num_concurrent_s3_requests,
+                            &self.config.state_sync.sync,
                         ),
                         new_shard_sync,
                         BlocksCatchUpState::new(sync_hash, epoch_id),
