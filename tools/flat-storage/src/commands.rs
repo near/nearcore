@@ -7,9 +7,8 @@ use near_chain::{
 };
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::{state::ValueRef, trie_key::trie_key_parsers::parse_account_id_from_raw_key};
-use near_store::flat::{
-    store_helper, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorageStatus,
-};
+use near_stdx;
+use near_store::flat::{store_helper, FlatStateDelta, FlatStateDeltaMetadata, FlatStorageStatus};
 use near_store::{Mode, NodeStorage, ShardUId, Store, StoreOpener};
 use nearcore::{load_config, NearConfig, NightshadeRuntime};
 use std::{path::PathBuf, sync::Arc, time::Duration};
@@ -66,27 +65,28 @@ pub struct VerifyCmd {
 }
 
 fn print_delta(store: &Store, shard_uid: ShardUId, metadata: FlatStateDeltaMetadata) {
-    let changes = store_helper::get_delta_changes(store, shard_uid, metadata.block.hash)?.unwrap();
+    let changes =
+        store_helper::get_delta_changes(store, shard_uid, metadata.block.hash).unwrap().unwrap();
     println!("{:?}", FlatStateDelta { metadata, changes });
 }
 
-fn print_deltas(store: &Store, shard_uid: ShardUId) -> anyhow::Result<()> {
-    let deltas_metadata = store_helper::get_all_deltas_metadata(store, shard_uid)?;
+fn print_deltas(store: &Store, shard_uid: ShardUId) {
+    let deltas_metadata = store_helper::get_all_deltas_metadata(store, shard_uid).unwrap();
     println!("Deltas: {}", deltas_metadata.len());
     if deltas_metadata.len() <= 10 {
         for delta_metadata in deltas_metadata {
-            print_delta(store, shard_uid, delta_metadata);
+            print_delta(store, shard_uid, delta_metadata).unwrap();
         }
     } else {
+        // let first_deltas =
         for delta_metadata in deltas_metadata[..5] {
-            print_delta(store, shard_uid, delta_metadata);
+            print_delta(store, shard_uid, delta_metadata).unwrap();
         }
         println!("... skipped {} deltas ...", deltas_metadata.len() - 10);
         for delta_metadata in deltas_metadata[deltas_metadata.len() - 5..] {
-            print_delta(store, shard_uid, delta_metadata);
+            print_delta(store, shard_uid, delta_metadata).unwrap();
         }
     }
-    Ok(())
 }
 
 impl FlatStorageCommand {
@@ -112,7 +112,7 @@ impl FlatStorageCommand {
             SubCommand::View => {
                 let (_, hot_runtime, chain_store, hot_store) =
                     Self::get_db(&opener, home_dir, &near_config, near_store::Mode::ReadOnly);
-                println!("DB version: {:?}", hot_store.get_db_version());
+                println!("DB version: {:?}", hot_store.get_db_version()?);
                 for item in hot_store.iter(store_helper::FlatStateColumn::Status.to_db_col()) {
                     let (bytes_shard_uid, status) = item?;
                     let shard_uid = ShardUId::try_from(&bytes_shard_uid)?;
@@ -120,13 +120,13 @@ impl FlatStorageCommand {
                     match status {
                         FlatStorageStatus::Ready(ready_status) => {
                             println!(
-                                "Shard: {shard:?} - flat storage @{:?}",
+                                "Shard: {shard_uid:?} - flat storage @{:?}",
                                 ready_status.flat_head.height
                             );
                             print_deltas(&hot_store, shard_uid)?;
                         }
                         status => {
-                            println!("Shard: {shard:?} - no flat storage: {status:?}");
+                            println!("Shard: {shard_uid:?} - no flat storage: {status:?}");
                         }
                     }
                 }
