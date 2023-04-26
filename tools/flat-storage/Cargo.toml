@@ -6,6 +6,7 @@ publish = false
 edition.workspace = true
 
 [dependencies]
+stdx.workspace = { package = "near-stdx", path = "../../utils/stdx" }
 
 anyhow.workspace = true
 borsh.workspace = true
@@ -21,4 +22,3 @@ near-epoch-manager.workspace = true
 near-primitives.workspace = true
 near-store.workspace = true
 nearcore.workspace = true
-near-stdx = { version = "0.16.1" }

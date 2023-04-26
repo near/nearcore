@@ -78,7 +78,7 @@ fn print_deltas(store: &Store, shard_uid: ShardUId) {
             print_delta(store, shard_uid, delta_metadata);
         }
     } else {
-        let (_first_deltas, _last_deltas) = near_stdx::split_slice::<5>(&deltas_metadata);
+        let (_first_deltas, _last_deltas) = near_stdx::split_slice::<5>(deltas_metadata.as_slice());
 
         // for delta_metadata in deltas_metadata[..5] {
         //     print_delta(store, shard_uid, delta_metadata);
