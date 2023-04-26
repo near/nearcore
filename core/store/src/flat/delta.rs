@@ -51,7 +51,7 @@ where
 impl std::fmt::Debug for FlatStateChanges {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("FlatStateChanges")
-            .field("changes", &near_fmt::Slice(&Vec::from_iter(self.0.into_iter())))
+            .field("changes", &near_fmt::Slice(&Vec::from_iter(self.0.iter())))
             .finish()
     }
 }
