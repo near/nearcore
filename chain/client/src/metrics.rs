@@ -497,4 +497,3 @@ pub(crate) static STATE_SYNC_DUMP_LIST_OBJECT_ELAPSED: Lazy<HistogramVec> = Lazy
     )
     .unwrap()
 });
-

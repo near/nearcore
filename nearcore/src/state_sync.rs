@@ -89,7 +89,7 @@ pub fn spawn_state_sync_dump(
             )
             .unwrap();
             let arbiter_handle = actix_rt::Arbiter::new().handle();
-            assert!(arbiter_handle.spawn(state_sync_dump(
+            assert!(arbiter_handle.spawn(state_sync_dump_multi_node(
                 shard_id as ShardId,
                 chain,
                 epoch_manager.clone(),
@@ -307,30 +307,26 @@ async fn state_sync_dump(
 }
 
 // return the list of missing state part ids
-fn get_missing_state_parts_for_epoch_from_s3(
-    chain: &Chain,
+async fn get_missing_state_parts_for_epoch_from_s3(
     shard_id: ShardId,
     chain_id: &String,
     epoch_id: &EpochId,
     epoch_height: u64,
+    total_parts: u64,
     external: &ExternalConnection,
 ) -> anyhow::Result<Vec<u64>> {
     let s3_directory = external_storage_location_directory_multi_node(chain_id, epoch_id, epoch_height, shard_id);
     let file_names = external.list_state_parts(shard_id, &s3_directory).await;
-    // file_name: state_part_000100_of_0123456
-    // let chars = file_name.replace("state_part_","").split("_");
-    // let part_id_str = chars.next().unwrap().to_string();
-    // let total_parts_str = chars.next().unwrap().to_string();
     let mut res = vec!();
     match file_names {
         Ok(names) if names.len() > 0 => {
             let mut total_parts: u64 = 0;
             let mut existing_nums = HashSet::new();
             for name in names {
-                let splitted = name.replace("state_part_","").split("_");
-                let part_id = splitted.next().unwrap().to_string().parse::<u64>().unwrap();
+                let splitted:Vec<_> = name.split("_").collect();
+                let part_id = splitted.get(1).unwrap().to_string().parse::<u64>().unwrap();
                 if total_parts == 0 {
-                    total_parts = splitted.next().unwrap().to_string().parse::<u64>().unwrap();
+                    total_parts = splitted.get(2).unwrap().to_string().parse::<u64>().unwrap();
                 }
                 existing_nums.insert(part_id);
             }
@@ -342,19 +338,13 @@ fn get_missing_state_parts_for_epoch_from_s3(
             Ok(res)
         }
         // names.len() == 0, it should be the new epoch
-        OK(_) => {
-            let hash = head.last_block_hash;
-            let header = chain.get_block_header(&hash)?;
-            let final_hash = header.last_final_block();
-            let sync_hash = StateSync::get_epoch_start_sync_hash(chain, final_hash)?;
-            let state_header = chain.get_state_response_header(shard_id, sync_hash)?;
-            let total_parts = get_num_state_parts(state_header.state_root_node().memory_usage);
+        Ok(_) => {
             for i in 1..=total_parts {
                 res.push(i)
             }
             Ok(res)
         }
-        Error(err) => Error(err)
+        Err(err) => Err(err)
     }
 }
 
@@ -363,7 +353,7 @@ fn select_random_parts_to_dump(
     target_size: u64
 ) -> Vec<u64> {
     let mut rng = thread_rng();
-    parts_to_be_dumped.iter().choose_multiple(&mut rng, target_size);
+    parts_to_be_dumped.iter().cloned().choose_multiple(&mut rng, target_size.try_into().unwrap())
 }
 
 async fn state_sync_dump_multi_node(
@@ -419,79 +409,89 @@ async fn state_sync_dump_multi_node(
                 sync_hash,
                 parts_dumped,
             })) => {
-                // let in_progress_data = get_in_progress_data(shard_id, sync_hash, &chain);
-                let missing_parts = get_missing_state_parts_for_epoch_from_s3(&chain, shard_id, &chain_id, &epoch_id, epoch_height, &external);
+                let in_progress_data = get_in_progress_data(shard_id, sync_hash, &chain);
+                match in_progress_data {
+                    Err(error) => Err(error),
+                    Ok((state_root, num_parts, sync_prev_hash)) => {
+                        let missing_parts = get_missing_state_parts_for_epoch_from_s3(shard_id, &chain_id, &epoch_id, epoch_height, num_parts, &external).await;
 
-                match missing_parts {
-                    Err(err) => Err(err),
-                    Ok(parts_not_dumped) if parts_not_dumped.len() == 0 => {
-                        check_new_epoch(None, None, None, shard_id, &chain, &runtime, &account_id)
-                    }
-                        // The actual dumping of state to S3.
-                        // tracing::info!(target: "state_sync_dump", shard_id, ?epoch_id, epoch_height, %sync_hash, ?state_root, parts_dumped, "Creating parts and dumping them");   
-        
-                    Ok(parts_not_dumped) => {
-                        let batch_size: u64 = 100;
-                        let parts_to_dump = select_random_parts_to_dump(parts_not_dumped, batch_size);
-
-                        for part_id in parts_to_dump {
-                            // Dump parts sequentially synchronously.
-                            // TODO: How to make it possible to dump state more effectively using multiple nodes?
-                            let _timer = metrics::STATE_SYNC_DUMP_ITERATION_ELAPSED
-                                .with_label_values(&[&shard_id.to_string()])
-                                .start_timer();
-
-                            let state_part = match obtain_and_store_state_part(
-                                &runtime,
-                                shard_id,
-                                sync_hash,
-                                &sync_prev_hash,
-                                &state_root,
-                                part_id,
-                                num_parts,
-                                &chain,
-                            ) {
-                                Ok(state_part) => state_part,
-                                Err(err) => {
-                                    res = Some(err);
-                                    break;
-                                }
-                            };
-                            let location = external_storage_location(
-                                &chain_id,
-                                epoch_height,
-                                shard_id,
-                                part_id,
-                                num_parts,
-                            );
-                            if let Err(err) =
-                                external.put_state_part(&state_part, shard_id, &location).await
-                            {
-                                // no need to break if there's an error; 
-                                // we should keep dumping other parts. 
-                                // reason is we are dumping random selected parts, so it's fine if we are not able to finish all of them
-                                continue;
-                            }
-                            // Stop if the node is stopped.
-                            // Note that without this check the state dumping thread is unstoppable, i.e. non-interruptable.
-                            if !keep_running.load(std::sync::atomic::Ordering::Relaxed) {
-                                //res = Some(Error::Other("Stopped".to_owned()));
-                                break;
-                            }
-                        }
-                        let new_missing_parts = get_missing_state_parts_for_epoch_from_s3(&chain, shard_id, &chain_id, &epoch_id, epoch_height, &external);
-                        match new_missing_parts {
-                            Err(err) => Err(err),
+                        match missing_parts {
+                            Err(err) => Ok(None),
                             Ok(parts_not_dumped) if parts_not_dumped.len() == 0 => {
-                                Ok(Some(StateSyncDumpProgress::AllDumped {
-                                    epoch_id,
-                                    epoch_height,
-                                    num_parts: Some(num_parts),
-                                }))
+                                check_new_epoch(None, None, None, shard_id, &chain, &runtime, &account_id)
                             }
-                            // still dumping for the same state
-                            OK(_) => {
-                                progress
+                            // The actual dumping of state to S3.
+                            // tracing::info!(target: "state_sync_dump", shard_id, ?epoch_id, epoch_height, %sync_hash, ?state_root, parts_dumped, "Creating parts and dumping them");   
+        
+                            Ok(parts_not_dumped) => {
+                                let batch_size: u64 = 100;
+                                let parts_to_dump = select_random_parts_to_dump(parts_not_dumped, batch_size);
+
+                                for part_id in parts_to_dump {
+                                    // Dump parts sequentially synchronously.
+                                    // TODO: How to make it possible to dump state more effectively using multiple nodes?
+                                    let _timer = metrics::STATE_SYNC_DUMP_ITERATION_ELAPSED
+                                        .with_label_values(&[&shard_id.to_string()])
+                                        .start_timer();
+
+                                    let state_part = match obtain_and_store_state_part(
+                                        &runtime,
+                                        shard_id,
+                                        sync_hash,
+                                        &sync_prev_hash,
+                                        &state_root,
+                                        part_id,
+                                        num_parts,
+                                        &chain,
+                                    ) {
+                                        Ok(state_part) => state_part,
+                                        Err(err) => {
+                                            break;
+                                        }
+                                    };
+                                    let location = external_storage_location_multi_node(
+                                        &chain_id,
+                                        &epoch_id,
+                                        epoch_height,
+                                        shard_id,
+                                        part_id,
+                                        num_parts
+                                    );
+                                    if let Err(err) =
+                                        external.put_state_part(&state_part, shard_id, &location).await
+                                    {
+                                        // no need to break if there's an error; 
+                                        // we should keep dumping other parts. 
+                                        // reason is we are dumping random selected parts, so it's fine if we are not able to finish all of them
+                                        continue;
+                                    }
+                                    // Stop if the node is stopped.
+                                    // Note that without this check the state dumping thread is unstoppable, i.e. non-interruptable.
+                                    if !keep_running.load(std::sync::atomic::Ordering::Relaxed) {
+                                        //res = Some(Error::Other("Stopped".to_owned()));
+                                        break;
+                                    }
+                                }
+                                let new_missing_parts = get_missing_state_parts_for_epoch_from_s3(shard_id, &chain_id, &epoch_id, epoch_height, num_parts, &external).await;
+                                match new_missing_parts {
+                                    Err(err) => Ok(None),
+                                    Ok(parts_not_dumped) if parts_not_dumped.len() == 0 => {
+                                        Ok(Some(StateSyncDumpProgress::AllDumped {
+                                            epoch_id,
+                                            epoch_height,
+                                            num_parts: Some(num_parts),
+                                        }))
+                                    }
+                                    // still dumping for the same state
+                                    Ok(_) => {
+                                        Ok(Some(StateSyncDumpProgress::InProgress {
+                                            epoch_id,
+                                            epoch_height,
+                                            sync_hash,
+                                            parts_dumped,
+                                        })) 
+                                    }
+                                }
                             }
                         }
                     }
