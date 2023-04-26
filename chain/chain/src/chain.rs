@@ -1212,7 +1212,7 @@ impl Chain {
 
         #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
         if let Ok(epoch_protocol_version) =
-            self.runtime_adapter.get_epoch_protocol_version(header.epoch_id())
+            self.epoch_manager.get_epoch_protocol_version(header.epoch_id())
         {
             if checked_feature!(
                 "protocol_feature_reject_blocks_with_outdated_protocol_version",
@@ -4979,20 +4979,19 @@ impl<'a> ChainUpdate<'a> {
             },
         };
 
-            if let Some(chain_flat_storage) = self.runtime.get_flat_storage_for_shard(shard_uid) {
-                // If flat storage exists, we add a block to it.
-                let store_update =
-                    chain_flat_storage.add_delta(delta).map_err(|e| StorageError::from(e))?;
-                self.chain_store_update.merge(store_update);
-            } else {
-                let shard_id = shard_uid.shard_id();
-                // Otherwise, save delta to disk so it will be used for flat storage creation later.
-                info!(target: "chain", %shard_id, "Add delta for flat storage creation");
-                let mut store_update = self.chain_store_update.store().store_update();
-                store_helper::set_delta(&mut store_update, shard_uid, &delta)
-                    .map_err(|e| StorageError::from(e))?;
-                self.chain_store_update.merge(store_update);
-
+        if let Some(chain_flat_storage) = self.runtime.get_flat_storage_for_shard(shard_uid) {
+            // If flat storage exists, we add a block to it.
+            let store_update =
+                chain_flat_storage.add_delta(delta).map_err(|e| StorageError::from(e))?;
+            self.chain_store_update.merge(store_update);
+        } else {
+            let shard_id = shard_uid.shard_id();
+            // Otherwise, save delta to disk so it will be used for flat storage creation later.
+            info!(target: "chain", %shard_id, "Add delta for flat storage creation");
+            let mut store_update = self.chain_store_update.store().store_update();
+            store_helper::set_delta(&mut store_update, shard_uid, &delta)
+                .map_err(|e| StorageError::from(e))?;
+            self.chain_store_update.merge(store_update);
         }
 
         Ok(())
