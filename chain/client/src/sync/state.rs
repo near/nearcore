@@ -43,7 +43,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_part::PartId;
 use near_primitives::static_clock::StaticClock;
 use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponse};
-use near_primitives::types::{AccountId, EpochHeight, ShardId, StateRoot};
+use near_primitives::types::{AccountId, EpochHeight, ShardId, StateRoot, EpochId};
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use std::collections::HashMap;
@@ -182,14 +182,15 @@ impl ExternalConnection {
     pub async fn list_state_parts(
         &self,
         shard_id: ShardId,
-        directory_location: &str
+        directory_location: &str,
     ) -> Result<Vec<String>, anyhow::Error> {
         let _timer = metrics::STATE_SYNC_DUMP_LIST_OBJECT_ELAPSED
             .with_label_values(&[&shard_id.to_string()])
             .start_timer();
         match self {
             ExternalConnection::S3 { bucket } => {
-                let list_results = bucket.list("/".to_string(), Some("/".to_string())).await.unwrap();
+                let list_results =
+                    bucket.list("/".to_string(), Some("/".to_string())).await.unwrap();
                 tracing::debug!(target: "state_sync_dump", shard_id, ?directory_location, "List state parts in s3");
                 let mut file_names = vec![];
                 for res in list_results {
@@ -1516,7 +1517,7 @@ pub fn external_storage_location(
 /// multi node dump: Construct a location on the external storage.
 pub fn external_storage_location_multi_node(
     chain_id: &str,
-    epoch_id: CryptoHash,
+    epoch_id: &EpochId,
     epoch_height: u64,
     shard_id: u64,
     part_id: u64,
@@ -1531,7 +1532,7 @@ pub fn external_storage_location_multi_node(
 
 pub fn external_storage_location_directory_multi_node(
     chain_id: &str,
-    epoch_id: CryptoHash,
+    epoch_id: &EpochId,
     epoch_height: u64,
     shard_id: u64,
 ) -> String {
@@ -1541,8 +1542,16 @@ pub fn external_storage_location_directory_multi_node(
     )
 }
 
-pub fn location_prefix_with_epoch_id(chain_id: &str, epoch_height: u64, epoch_id: CryptoHash, shard_id: u64) -> String {
-    format!("chain_id={}/epoch_height={}/epoch_id={}/shard_id={}", chain_id, epoch_height, epoch_id, shard_id)
+pub fn location_prefix_with_epoch_id(
+    chain_id: &str,
+    epoch_height: u64,
+    epoch_id: &EpochId,
+    shard_id: u64,
+) -> String {
+    format!(
+        "chain_id={}/epoch_height={}/epoch_id={}/shard_id={}",
+        chain_id, epoch_height, epoch_id.0, shard_id
+    )
 }
 
 pub fn location_prefix(chain_id: &str, epoch_height: u64, shard_id: u64) -> String {
