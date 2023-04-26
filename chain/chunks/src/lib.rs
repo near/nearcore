@@ -1237,7 +1237,7 @@ impl ShardsManager {
             }
         };
 
-        if !self.epoch_manager.verify_chunk_header_signature(header, &epoch_id, &ancestor_hash)? {
+        if !self.runtime_adapter.verify_chunk_header_signature(header, &epoch_id, &ancestor_hash)? {
             return if epoch_id_confirmed {
                 byzantine_assert!(false);
                 Err(Error::InvalidChunkSignature)
@@ -1249,7 +1249,7 @@ impl ShardsManager {
             };
         }
 
-        if header.shard_id() >= self.epoch_manager.num_shards(&epoch_id)? {
+        if header.shard_id() >= self.runtime_adapter.num_shards(&epoch_id)? {
             return if epoch_id_confirmed {
                 byzantine_assert!(false);
                 Err(Error::InvalidChunkShardId)
