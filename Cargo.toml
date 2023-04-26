@@ -216,6 +216,7 @@ near-vm-errors = { path = "runtime/near-vm-errors" }
 near-vm-logic = { path = "runtime/near-vm-logic" }
 near-vm = { path = "runtime/near-vm/api" }
 near-vm-runner = { path = "runtime/near-vm-runner"}
+near-vm-test-generator = { path = "runtime/near-vm/test-generator" }
 near-vm-types = { path = "runtime/near-vm/types" }
 near-vm-vm = { path = "runtime/near-vm/vm" }
 near-vm-wast = { path = "runtime/near-vm/wast" }

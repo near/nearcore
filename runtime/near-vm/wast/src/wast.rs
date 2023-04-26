@@ -237,7 +237,9 @@ impl Wast {
             err
         };
 
-        let buf = wast::parser::ParseBuffer::new(wast).map_err(adjust_wast)?;
+        let mut lexer = wast::lexer::Lexer::new(wast);
+        lexer.allow_confusing_unicode(true);
+        let buf = wast::parser::ParseBuffer::new_with_lexer(lexer).map_err(adjust_wast)?;
         let ast = wast::parser::parse::<wast::Wast>(&buf).map_err(adjust_wast)?;
         let mut errors = Vec::with_capacity(ast.directives.len());
         for directive in ast.directives {
@@ -275,7 +277,9 @@ impl Wast {
             }
             ret.push(' ');
         }
-        let buf = wast::parser::ParseBuffer::new(&ret)?;
+        let mut lexer = wast::lexer::Lexer::new(&ret);
+        lexer.allow_confusing_unicode(true);
+        let buf = wast::parser::ParseBuffer::new_with_lexer(lexer)?;
         let mut wat = wast::parser::parse::<wast::Wat>(&buf)?;
 
         // TODO: when memory64 merges into the proper spec then this should be

@@ -53,6 +53,10 @@ test-log.workspace = true
 serial_test.workspace = true
 tracing-subscriber.workspace = true
 
+[build-dependencies]
+near-vm-test-generator.workspace = true
+anyhow.workspace = true
+
 [badges]
 maintenance = { status = "actively-developed" }
 

@@ -4057,6 +4057,7 @@ dependencies = [
  "near-vm-compiler-test-derive",
  "near-vm-engine",
  "near-vm-engine-universal",
+ "near-vm-test-generator",
  "near-vm-types",
  "near-vm-vm",
  "near-vm-wast",
@@ -4261,6 +4262,14 @@ dependencies = [
  "near-vm-runner",
  "wasm-smith",
  "wasmprinter",
+]
+
+[[package]]
+name = "near-vm-test-generator"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "target-lexicon 0.12.3",
 ]
 
 [[package]]

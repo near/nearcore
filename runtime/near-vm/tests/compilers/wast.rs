@@ -14,7 +14,7 @@ use near_vm_wast::Wast;
 //         }
 //     }
 // }
-// include!(concat!(env!("OUT_DIR"), "/generated_spectests.rs"));
+include!(concat!(env!("OUT_DIR"), "/generated_spectests.rs"));
 
 pub fn run_wast(mut config: crate::Config, wast_path: &str) -> anyhow::Result<()> {
     println!("Running wast `{}`", wast_path);
