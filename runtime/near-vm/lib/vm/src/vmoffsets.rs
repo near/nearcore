@@ -168,20 +168,20 @@ impl VMOffsets {
         self.vmctx_imported_functions_begin = offset_by(
             self.vmctx_signature_ids_begin,
             self.num_signature_ids,
-            u32::from(self.size_of_vmshared_signature_index()),
+            u32::from(self.size_of_vmshared_signature_index()), // not a multiple of 8
         );
-        self.vmctx_imported_tables_begin = offset_by(
-            self.vmctx_imported_functions_begin,
-            self.num_imported_functions,
-            u32::from(self.size_of_vmfunction_import()),
-        );
-        self.vmctx_imported_memories_begin = align(
+        self.vmctx_imported_tables_begin = align(
             offset_by(
-                self.vmctx_imported_tables_begin,
-                self.num_imported_tables,
-                u32::from(self.size_of_vmtable_import()),
+                self.vmctx_imported_functions_begin,
+                self.num_imported_functions,
+                u32::from(self.size_of_vmfunction_import()),
             ),
             8,
+        );
+        self.vmctx_imported_memories_begin = offset_by(
+            self.vmctx_imported_tables_begin,
+            self.num_imported_tables,
+            u32::from(self.size_of_vmtable_import()),
         );
         self.vmctx_imported_globals_begin = offset_by(
             self.vmctx_imported_memories_begin,
