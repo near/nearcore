@@ -1107,6 +1107,9 @@ impl Chain {
                     byzantine_assert!(false);
                     return Err(Error::InvalidChunk);
                 }
+                if chunk_header.shard_id() != shard_id as ShardId {
+                    return Err(Error::InvalidShardId(chunk_header.shard_id()));
+                }
             }
         }
         block.check_validity().map_err(|e| e.into())

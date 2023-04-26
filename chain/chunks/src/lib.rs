@@ -1248,22 +1248,28 @@ impl ShardsManager {
             }
         };
 
-        match self.epoch_manager.verify_chunk_header_signature(header, &epoch_id, &ancestor_hash) {
-            Ok(false) => {
-                return if epoch_id_confirmed {
-                    byzantine_assert!(false);
-                    Err(Error::InvalidChunkSignature)
-                } else {
-                    // we are not sure if we are using the correct epoch id for validation, so
-                    // we can't be sure if the chunk header is actually invalid. Let's return
-                    // DbNotFoundError for now, which means we don't have all needed information yet
-                    Err(DBNotFoundErr(format!("block {:?}", header.prev_block_hash())).into())
-                };
-            }
-            Ok(true) => (),
-            Err(chain_error) => {
-                return Err(chain_error.into());
-            }
+        if !self.epoch_manager.verify_chunk_header_signature(header, &epoch_id, &ancestor_hash)? {
+            return if epoch_id_confirmed {
+                byzantine_assert!(false);
+                Err(Error::InvalidChunkSignature)
+            } else {
+                // we are not sure if we are using the correct epoch id for validation, so
+                // we can't be sure if the chunk header is actually invalid. Let's return
+                // DbNotFoundError for now, which means we don't have all needed information yet
+                Err(DBNotFoundErr(format!("block {:?}", header.prev_block_hash())).into())
+            };
+        }
+
+        if header.shard_id() >= self.epoch_manager.num_shards(&epoch_id)? {
+            return if epoch_id_confirmed {
+                byzantine_assert!(false);
+                Err(Error::InvalidChunkShardId)
+            } else {
+                // we are not sure if we are using the correct epoch id for validation, so
+                // we can't be sure if the chunk header is actually invalid. Let's return
+                // DbNotFoundError for now, which means we don't have all needed information yet
+                Err(DBNotFoundErr(format!("block {:?}", header.prev_block_hash())).into())
+            };
         }
 
         // 2. check protocol version
