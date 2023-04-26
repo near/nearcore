@@ -244,7 +244,7 @@ pub(super) enum NeardSubCommand {
     /// validate config files including genesis.json and config.json
     ValidateConfig(ValidateConfigCommand),
 
-    // reset the head of the chain locally to the prev block of current head
+    /// reset the head of the chain locally to the prev block of current head
     UndoBlock(UndoBlockCommand),
 }
 
