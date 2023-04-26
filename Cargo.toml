@@ -137,11 +137,11 @@ futures = "0.3.5"
 futures-util = "0.3"
 genesis-populate = { path = "genesis-tools/genesis-populate"}
 hashbrown = "0.11"
-hex = { version = "0.4.2", features = ["serde"] }
 hex-literal = "0.2"
+hex = { version = "0.4.2", features = ["serde"] }
 hkdf = "0.12.3"
-hyper = { version = "0.14", features = ["full"] }
 hyper-tls = "0.5.0"
+hyper = { version = "0.14", features = ["full"] }
 im = "15"
 indexmap = "1.6"
 indicatif = { version = "0.15.0", features = ["with_rayon"] }
@@ -165,8 +165,8 @@ near-actix-test-utils = { path = "test-utils/actix-test-utils" }
 near-amend-genesis = { path = "tools/amend-genesis" }
 near-async = { path = "core/async" }
 near-cache = { path = "utils/near-cache" }
-near-chain = { path = "chain/chain" }
 near-chain-configs = { path = "core/chain-configs" }
+near-chain = { path = "chain/chain" }
 near-chain-primitives = { path = "chain/chain-primitives" }
 near-chunks = { path = "chain/chunks" }
 near-chunks-primitives = { path = "chain/chunks-primitives" }
@@ -174,6 +174,7 @@ near-client = { path = "chain/client" }
 near-client-primitives = {path = "chain/client-primitives"}
 near-cold-store-tool = { path = "tools/cold-store", package = "cold-store-tool" }
 near-config-utils = { path = "utils/config" }
+nearcore = { path = "nearcore" }
 near-crypto = { path = "core/crypto" }
 near-dyn-configs = { path = "core/dyn-configs" }
 near-epoch-manager = { path = "chain/epoch-manager" }
@@ -181,21 +182,21 @@ near-flat-storage = { path = "tools/flat-storage" }
 near-fmt = { path = "utils/fmt" }
 near-indexer = { path = "chain/indexer" }
 near-indexer-primitives = { path = "chain/indexer-primitives" }
-near-jsonrpc = { path = "chain/jsonrpc" }
 near-jsonrpc-adversarial-primitives = { path = "chain/jsonrpc-adversarial-primitives" }
 near-jsonrpc-client = { path = "chain/jsonrpc/client" }
+near-jsonrpc = { path = "chain/jsonrpc" }
 near-jsonrpc-primitives = { path = "chain/jsonrpc-primitives", features = ["full"] }
 near-jsonrpc-tests = { path = "chain/jsonrpc/jsonrpc-tests" }
 near-mainnet-res = { path = "utils/mainnet-res" }
 near-mirror = { path = "tools/mirror" }
 near-network = { path = "chain/network" }
 near-o11y = { path = "core/o11y" }
-near-performance-metrics = { path = "utils/near-performance-metrics" }
 near-performance-metrics-macros = { path = "utils/near-performance-metrics-macros" }
+near-performance-metrics = { path = "utils/near-performance-metrics" }
 near-ping = { path = "tools/ping" }
 near-pool = { path = "chain/pool" }
-near-primitives = { path = "core/primitives" }
 near-primitives-core = { path = "core/primitives-core" }
+near-primitives = { path = "core/primitives" }
 near-rosetta-rpc = { path = "chain/rosetta-rpc" }
 near-rpc-error-core = { path = "tools/rpctypegen/core" }
 near-rpc-error-macro = { path = "tools/rpctypegen/macro" }
@@ -218,22 +219,21 @@ near-vm-runner = { path = "runtime/near-vm-runner"}
 near-vm-types = { path = "runtime/near-vm/types" }
 near-vm-vm = { path = "runtime/near-vm/vm" }
 near-vm-wast = { path = "runtime/near-vm/wast" }
-nearcore = { path = "nearcore" }
 nix = "0.24"
 node-runtime = { path = "runtime/runtime" }
 num-bigint = "0.3"
+num_cpus = "1.11"
 num-rational = { version = "0.3.1", features = ["serde"] }
 num-traits = "0.2.15"
-num_cpus = "1.11"
 once_cell = "1.13.1"
-openssl = { version = "0.10", features = ["vendored"] }
 openssl-probe = "0.1.4"
-opentelemetry = { version = "0.17.0", features = ["rt-tokio", "trace"] }
+openssl = { version = "0.10", features = ["vendored"] }
 opentelemetry-otlp = "0.10.0"
 opentelemetry-semantic-conventions = "0.9.0"
+opentelemetry = { version = "0.17.0", features = ["rt-tokio", "trace"] }
 paperclip = { version = "0.8.0", features = ["actix4"] }
-parity-wasm = { version = "0.42", default-features = false }
 parity-wasm_41 = { package = "parity-wasm", version = "0.41" }
+parity-wasm = { version = "0.42", default-features = false }
 parking_lot = "0.12.1"
 pin-project = "1.0"
 prefix-sum-vec = "0.1.2"
@@ -261,16 +261,17 @@ rkyv = "0.7.31"
 rlimit = "0.7"
 rocksdb = { version = "0.19.0", default-features = false, features = ["snappy", "lz4", "zstd", "zlib", "jemalloc"] }
 runtime-tester = { path = "test-utils/runtime-tester" }
-rust-s3 = { version = "0.32.3", features = ["blocking"] }
-rustc-demangle = "0.1"
 rusqlite = {version = "0.27.0", features = ["bundled", "chrono", "functions"] }
+rustc-demangle = "0.1"
+rust-s3 = { version = "0.32.3", features = ["blocking"] }
 secp256k1 = { version = "0.27.0", features = ["recovery", "rand-std"] }
 semver = "1.0.4"
-serde = { version = "1.0.136", features = ["alloc", "derive", "rc"] }
 serde_ignored = "0.1"
 serde_json = "1.0.68"
 serde_repr = "0.1.8"
+serde = { version = "1.0.136", features = ["alloc", "derive", "rc"] }
 serde_yaml = "0.9"
+serial_test = "0.5"
 sha2 = "0.10"
 sha3 = "0.10"
 shell-escape = "0.1.5"
@@ -286,34 +287,35 @@ tar = "0.4.38"
 target-lexicon = { version = "0.12.2", default-features = false }
 tempfile = "3.3"
 testlib = { path = "test-utils/testlib" }
+test-log = { version = "0.2", default-features = false, features = ["trace"] }
 thiserror = "1.0.30"
 tikv-jemallocator = "0.5.0"
 time = "0.3.9"
-tokio = { version = "~1.28", features = ["fs", "macros", "net", "rt-multi-thread", "sync", "time"] }
 tokio-stream = { version = "0.1.2", features = ["net"] }
 tokio-util = { version = "0.7.1", features = ["codec", "io"] }
+tokio = { version = "~1.28", features = ["fs", "macros", "net", "rt-multi-thread", "sync", "time"] }
 toml = "0.5.8"
 tqdm = "0.4.4"
-tracing = { version = "0.1.36", features = ["std"] }
 tracing-appender = "0.2.2"
 tracing-opentelemetry = "0.17.0"
 tracing-span-tree = "0.1"
 tracing-subscriber = { version = "0.3.15", features = ["env-filter", "fmt", "registry", "std"] }
+tracing = { version = "0.1.36", features = ["std"] }
 trybuild = "1.0.11"
 turn = "0.6"
 validator = "0.12"
 wasm-encoder = "0.11.0"
-wasm-smith = "0.10"
 wasmer-compiler = { package = "wasmer-compiler-near", version = "=2.4.0" }
 wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", version = "=2.4.0" }
 wasmer-engine = { package = "wasmer-engine-near", version = "=2.4.0" }
 wasmer-engine-universal = { package = "wasmer-engine-universal-near", version = "=2.4.0", features = ["compiler"] }
-wasmer-runtime = { version = "0.18.0", package = "wasmer-runtime-near", features = ["default-backend-singlepass"], default-features = false }
 wasmer-runtime-core = { version = "0.18.2", package = "wasmer-runtime-core-near" }
+wasmer-runtime = { version = "0.18.0", package = "wasmer-runtime-near", features = ["default-backend-singlepass"], default-features = false }
 wasmer-types = { package = "wasmer-types-near", version = "=2.4.0" }
 wasmer-vm = { package = "wasmer-vm-near", version = "=2.4.0" }
 wasmparser = "0.78" # TODO: unify at least the versions of wasmparser we have in our codebase
 wasmprinter = "0.2"
+wasm-smith = "0.10"
 wasmtime = { version = "4.0.0", default-features = false, features = ["cranelift"] }
 wast = "40.0"
 wat = "1.0.40"

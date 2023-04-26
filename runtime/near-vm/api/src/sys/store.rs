@@ -2,9 +2,9 @@ use crate::sys::tunables::BaseTunables;
 use std::fmt;
 use std::sync::Arc;
 #[cfg(all(feature = "compiler", feature = "engine"))]
-use wasmer_compiler::CompilerConfig;
-use wasmer_engine::Engine;
-use wasmer_vm::Tunables;
+use near_vm_compiler::CompilerConfig;
+use near_vm_engine::Engine;
+use near_vm_vm::Tunables;
 
 /// The store represents all global state that can be manipulated by
 /// WebAssembly programs. It consists of the runtime representation
@@ -77,7 +77,7 @@ impl Default for Store {
         fn get_config() -> impl CompilerConfig + 'static {
             cfg_if::cfg_if! {
                 if #[cfg(feature = "default-singlepass")] {
-                    wasmer_compiler_singlepass::Singlepass::default()
+                    near_vm_compiler_singlepass::Singlepass::default()
                 } else {
                     compile_error!("No default compiler chosen")
                 }
@@ -88,10 +88,10 @@ impl Default for Store {
         fn get_engine(mut config: impl CompilerConfig + 'static) -> impl Engine + Send + Sync {
             cfg_if::cfg_if! {
                 if #[cfg(feature = "default-universal")] {
-                    wasmer_engine_universal::Universal::new(config)
+                    near_vm_engine_universal::Universal::new(config)
                         .engine()
                 } else if #[cfg(feature = "default-dylib")] {
-                    wasmer_engine_dylib::Dylib::new(config)
+                    near_vm_engine_dylib::Dylib::new(config)
                         .engine()
                 } else {
                     compile_error!("No default engine chosen")

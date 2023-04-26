@@ -15,7 +15,7 @@ mod types;
 pub mod internals {
     //! We use the internals module for exporting types that are only
     //! intended to use in internal crates such as the compatibility crate
-    //! `wasmer-vm`. Please don't use any of this types directly, as
+    //! `near_vm-vm`. Please don't use any of this types directly, as
     //! they might change frequently or be removed in the future.
 
     pub use crate::sys::externals::{WithEnv, WithoutEnv};
@@ -41,25 +41,25 @@ pub use crate::sys::types::{
 pub use crate::sys::types::{Val as Value, ValType as Type};
 pub use target_lexicon::{Architecture, CallingConvention, OperatingSystem, Triple, HOST};
 #[cfg(feature = "compiler")]
-pub use wasmer_compiler::{wasmparser, CompilerConfig};
-pub use wasmer_compiler::{
+pub use near_vm_compiler::{wasmparser, CompilerConfig};
+pub use near_vm_compiler::{
     CompileError, CpuFeature, Features, ParseCpuFeatureError, Target, WasmError, WasmResult,
 };
-pub use wasmer_engine::{DeserializeError, Engine, FrameInfo, LinkError, RuntimeError};
-pub use wasmer_types::{
+pub use near_vm_engine::{DeserializeError, Engine, FrameInfo, LinkError, RuntimeError};
+pub use near_vm_types::{
     Atomically, Bytes, ExportIndex, ExternRef, GlobalInit, LocalFunctionIndex, MemoryView, Pages,
     ValueType, WASM_MAX_PAGES, WASM_MIN_PAGES, WASM_PAGE_SIZE,
 };
-pub use wasmer_vm::{
+pub use near_vm_vm::{
     ChainableNamedResolver, Export, NamedResolver, NamedResolverChain, Resolver, Tunables,
 };
 
-// TODO: should those be moved into wasmer::vm as well?
-pub use wasmer_vm::{raise_user_trap, MemoryError};
+// TODO: should those be moved into near_vm::vm as well?
+pub use near_vm_vm::{raise_user_trap, MemoryError};
 pub mod vm {
-    //! The `vm` module re-exports wasmer-vm types.
+    //! The `vm` module re-exports near_vm-vm types.
 
-    pub use wasmer_vm::{
+    pub use near_vm_vm::{
         Memory, MemoryError, MemoryStyle, Table, TableStyle, VMExtern, VMMemoryDefinition,
         VMTableDefinition,
     };
@@ -69,13 +69,13 @@ pub mod vm {
 pub use wat::parse_bytes as wat2wasm;
 
 #[cfg(feature = "singlepass")]
-pub use wasmer_compiler_singlepass::Singlepass;
+pub use near_vm_compiler_singlepass::Singlepass;
 
 #[cfg(feature = "universal")]
-pub use wasmer_engine_universal::{Universal, UniversalArtifact, UniversalEngine};
+pub use near_vm_engine_universal::{Universal, UniversalArtifact, UniversalEngine};
 
 #[cfg(feature = "dylib")]
-pub use wasmer_engine_dylib::{Dylib, DylibArtifact, DylibEngine};
+pub use near_vm_engine_dylib::{Dylib, DylibArtifact, DylibEngine};
 
 /// Version number of this crate.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

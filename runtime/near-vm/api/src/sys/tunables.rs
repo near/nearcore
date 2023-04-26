@@ -2,9 +2,9 @@ use crate::sys::{MemoryType, Pages, TableType};
 use std::ptr::NonNull;
 use std::sync::Arc;
 use target_lexicon::PointerWidth;
-use wasmer_compiler::Target;
-use wasmer_vm::MemoryError;
-use wasmer_vm::{
+use near_vm_compiler::Target;
+use near_vm_vm::MemoryError;
+use near_vm_vm::{
     LinearMemory, LinearTable, Memory, MemoryStyle, Table, TableStyle, Tunables,
     VMMemoryDefinition, VMTableDefinition,
 };

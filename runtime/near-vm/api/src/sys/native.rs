@@ -12,8 +12,8 @@ use std::marker::PhantomData;
 use crate::sys::externals::function::{DynamicFunction, VMDynamicFunction};
 use crate::sys::{FromToNativeWasmType, Function, RuntimeError, Store, WasmTypeList};
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use wasmer_types::NativeWasmType;
-use wasmer_vm::{
+use near_vm_types::NativeWasmType;
+use near_vm_vm::{
     ExportFunction, VMDynamicFunctionContext, VMFunctionBody, VMFunctionEnvironment, VMFunctionKind,
 };
 
@@ -132,7 +132,7 @@ macro_rules! impl_native_traits {
                         rets_list.as_mut()
                     };
                     unsafe {
-                        wasmer_vm::wasmer_call_trampoline(
+                        near_vm_vm::wasmer_call_trampoline(
                             self.vmctx(),
                             trampoline,
                             self.address(),
@@ -156,7 +156,7 @@ macro_rules! impl_native_traits {
                     // but we can't currently detect whether that's safe.
                     //
                     // let results = unsafe {
-                    //     wasmer_vm::catch_traps_with_result(self.vmctx, || {
+                    //     near_vm_vm::catch_traps_with_result(self.vmctx, || {
                     //         let f = std::mem::transmute::<_, unsafe extern "C" fn( *mut VMContext, $( $x, )*) -> Rets::CStruct>(self.address());
                     //         // We always pass the vmctx
                     //         f( self.vmctx, $( $x, )* )

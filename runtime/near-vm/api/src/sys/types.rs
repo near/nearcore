@@ -1,12 +1,12 @@
 use crate::sys::externals::Function;
 use crate::sys::store::{Store, StoreObject};
 use crate::sys::RuntimeError;
-use wasmer_types::Value;
-pub use wasmer_types::{
+use near_vm_types::Value;
+pub use near_vm_types::{
     ExportType, ExternType, FunctionType, GlobalType, MemoryType, Mutability, TableType,
     Type as ValType,
 };
-use wasmer_vm::VMFuncRef;
+use near_vm_vm::VMFuncRef;
 
 /// WebAssembly computations manipulate values of basic value types:
 /// * Integers (32 or 64 bit width)
@@ -41,9 +41,9 @@ pub trait ValFuncRef {
 
     unsafe fn from_vm_funcref(item: VMFuncRef, store: &Store) -> Self;
 
-    fn into_table_reference(&self, store: &Store) -> Result<wasmer_vm::TableElement, RuntimeError>;
+    fn into_table_reference(&self, store: &Store) -> Result<near_vm_vm::TableElement, RuntimeError>;
 
-    unsafe fn from_table_reference(item: wasmer_vm::TableElement, store: &Store) -> Self;
+    unsafe fn from_table_reference(item: near_vm_vm::TableElement, store: &Store) -> Self;
 }
 
 impl ValFuncRef for Val {
@@ -65,17 +65,17 @@ impl ValFuncRef for Val {
         Self::FuncRef(Function::from_vm_funcref(store, func_ref))
     }
 
-    fn into_table_reference(&self, store: &Store) -> Result<wasmer_vm::TableElement, RuntimeError> {
+    fn into_table_reference(&self, store: &Store) -> Result<near_vm_vm::TableElement, RuntimeError> {
         if !self.comes_from_same_store(store) {
             return Err(RuntimeError::new("cross-`Store` values are not supported"));
         }
         Ok(match self {
             // TODO(reftypes): review this clone
             Self::ExternRef(extern_ref) => {
-                wasmer_vm::TableElement::ExternRef(extern_ref.clone().into())
+                near_vm_vm::TableElement::ExternRef(extern_ref.clone().into())
             }
-            Self::FuncRef(None) => wasmer_vm::TableElement::FuncRef(VMFuncRef::null()),
-            Self::FuncRef(Some(f)) => wasmer_vm::TableElement::FuncRef(f.vm_funcref()),
+            Self::FuncRef(None) => near_vm_vm::TableElement::FuncRef(VMFuncRef::null()),
+            Self::FuncRef(Some(f)) => near_vm_vm::TableElement::FuncRef(f.vm_funcref()),
             _ => return Err(RuntimeError::new("val is not reference")),
         })
     }
@@ -83,10 +83,10 @@ impl ValFuncRef for Val {
     /// # Safety
     ///
     /// The returned `Val` may not outlive the containing instance.
-    unsafe fn from_table_reference(item: wasmer_vm::TableElement, store: &Store) -> Self {
+    unsafe fn from_table_reference(item: near_vm_vm::TableElement, store: &Store) -> Self {
         match item {
-            wasmer_vm::TableElement::FuncRef(f) => Self::from_vm_funcref(f, store),
-            wasmer_vm::TableElement::ExternRef(extern_ref) => Self::ExternRef(extern_ref.into()),
+            near_vm_vm::TableElement::FuncRef(f) => Self::from_vm_funcref(f, store),
+            near_vm_vm::TableElement::ExternRef(extern_ref) => Self::ExternRef(extern_ref.into()),
         }
     }
 }

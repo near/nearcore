@@ -11,7 +11,7 @@ use std::cmp::max;
 use std::ffi::c_void;
 use std::fmt;
 use std::sync::Arc;
-use wasmer_vm::{
+use near_vm_vm::{
     raise_user_trap, resume_panic, wasmer_call_trampoline, Export, ExportFunction,
     ExportFunctionMetadata, ImportInitializerFuncPtr, TableElement, VMCallerCheckedAnyfunc,
     VMDynamicFunctionContext, VMFuncRef, VMFunction, VMFunctionBody, VMFunctionEnvironment,
@@ -41,7 +41,7 @@ pub struct Function {
     pub(crate) exported: ExportFunction,
 }
 
-impl wasmer_types::WasmValueType for Function {
+impl near_vm_types::WasmValueType for Function {
     /// Write the value.
     unsafe fn write_value_to(&self, p: *mut i128) {
         let func_ref =
@@ -77,19 +77,19 @@ impl Function {
         if func_ref.is_null() {
             return None;
         }
-        let wasmer_vm::VMCallerCheckedAnyfunc { func_ptr: address, type_index: signature, vmctx } =
+        let near_vm_vm::VMCallerCheckedAnyfunc { func_ptr: address, type_index: signature, vmctx } =
             **func_ref;
-        let export = wasmer_vm::ExportFunction {
+        let export = near_vm_vm::ExportFunction {
             // TODO:
             // figure out if we ever need a value here: need testing with complicated import patterns
             metadata: None,
-            vm_function: wasmer_vm::VMFunction {
+            vm_function: near_vm_vm::VMFunction {
                 address,
                 signature,
                 // TODO: review this comment (unclear if it's still correct):
                 // All functions in tables are already Static (as dynamic functions
                 // are converted to use the trampolines with static signatures).
-                kind: wasmer_vm::VMFunctionKind::Static,
+                kind: near_vm_vm::VMFunctionKind::Static,
                 vmctx,
                 call_trampoline: None,
                 instance_ref: None,
@@ -854,8 +854,8 @@ mod inner {
     use std::error::Error;
     use std::marker::PhantomData;
     use std::panic::{self, AssertUnwindSafe};
-    use wasmer_types::{FunctionType, NativeWasmType, Type};
-    use wasmer_vm::{raise_user_trap, resume_panic, VMFunctionBody};
+    use near_vm_types::{FunctionType, NativeWasmType, Type};
+    use near_vm_vm::{raise_user_trap, resume_panic, VMFunctionBody};
 
     /// A trait to convert a Rust value to a `WasmNativeType` value,
     /// or to convert `WasmNativeType` value to a Rust value.
@@ -1442,7 +1442,7 @@ mod inner {
     #[cfg(test)]
     mod test_wasm_type_list {
         use super::*;
-        use wasmer_types::Type;
+        use near_vm_types::Type;
 
         #[test]
         fn test_from_array() {
@@ -1515,7 +1515,7 @@ mod inner {
     #[cfg(test)]
     mod test_function {
         use super::*;
-        use wasmer_types::Type;
+        use near_vm_types::Type;
 
         fn func() {}
         fn func__i32() -> i32 {

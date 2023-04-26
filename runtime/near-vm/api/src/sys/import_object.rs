@@ -6,7 +6,7 @@ use std::collections::VecDeque;
 use std::collections::{hash_map::Entry, HashMap};
 use std::fmt;
 use std::sync::{Arc, Mutex};
-use wasmer_vm::{Export, NamedResolver};
+use near_vm_vm::{Export, NamedResolver};
 
 /// The `LikeNamespace` trait represents objects that act as a namespace for imports.
 /// For example, an `Instance` or `Namespace` could be
@@ -54,7 +54,7 @@ impl ImportObject {
     ///
     /// # Usage
     /// ```ignore
-    /// # use wasmer_vm::{ImportObject, Instance, Namespace};
+    /// # use near_vm_vm::{ImportObject, Instance, Namespace};
     /// let mut import_object = ImportObject::new();
     /// import_object.get_export("module", "name");
     /// ```
@@ -77,7 +77,7 @@ impl ImportObject {
     ///
     /// # Usage:
     /// ```ignore
-    /// # use wasmer_vm::{ImportObject, Instance, Namespace};
+    /// # use near_vm_vm::{ImportObject, Instance, Namespace};
     /// let mut import_object = ImportObject::new();
     ///
     /// import_object.register("namespace0", instance);
@@ -243,8 +243,8 @@ macro_rules! import_namespace {
 mod test {
     use super::*;
     use crate::sys::{Global, Store, Val};
-    use wasmer_types::Type;
-    use wasmer_vm::ChainableNamedResolver;
+    use near_vm_types::Type;
+    use near_vm_vm::ChainableNamedResolver;
 
     #[test]
     fn chaining_works() {

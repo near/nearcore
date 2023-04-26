@@ -3,9 +3,9 @@ use crate::sys::{HostEnvInitError, LinkError, RuntimeError};
 use crate::{ExportError, NativeFunc, WasmTypeList};
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
-use wasmer_vm::{InstanceHandle, Resolver};
+use near_vm_vm::{InstanceHandle, Resolver};
 
-pub use wasmer_types::InstanceConfig;
+pub use near_vm_types::InstanceConfig;
 
 /// A WebAssembly Instance is a stateful, executable
 /// instance of a WebAssembly [`Module`].
@@ -63,12 +63,12 @@ pub enum InstantiationError {
     HostEnvInitialization(HostEnvInitError),
 }
 
-impl From<wasmer_engine::InstantiationError> for InstantiationError {
-    fn from(other: wasmer_engine::InstantiationError) -> Self {
+impl From<near_vm_engine::InstantiationError> for InstantiationError {
+    fn from(other: near_vm_engine::InstantiationError) -> Self {
         match other {
-            wasmer_engine::InstantiationError::Link(e) => Self::Link(e),
-            wasmer_engine::InstantiationError::Start(e) => Self::Start(e),
-            wasmer_engine::InstantiationError::CpuFeature(e) => Self::CpuFeature(e),
+            near_vm_engine::InstantiationError::Link(e) => Self::Link(e),
+            near_vm_engine::InstantiationError::Start(e) => Self::Start(e),
+            near_vm_engine::InstantiationError::CpuFeature(e) => Self::CpuFeature(e),
         }
     }
 }
@@ -131,7 +131,7 @@ impl Instance {
         // correct error type returned by `WasmerEnv::init_with_instance` as a generic
         // parameter.
         unsafe {
-            wasmer_vm::initialize_host_envs::<HostEnvInitError>(
+            near_vm_vm::initialize_host_envs::<HostEnvInitError>(
                 &*instance.handle,
                 &instance as *const _ as *const _,
             )?;

@@ -67,9 +67,6 @@ rand.workspace = true
 wasm-smith.workspace = true
 wasmprinter.workspace = true
 wat.workspace = true
-near-vm.workspace = true
-near-vm-compiler-test-derive.workspace = true
-near-vm-wast.workspace = true
 
 [features]
 # all vms enabled for now
@@ -124,8 +121,3 @@ io_trace = ["near-vm-logic/io_trace"]
 [package.metadata.cargo-udeps.ignore]
 # `no_cache` feature leads to an unused `cached` crate
 normal = ["cached"]
-
-# FIXME: this is quite iffy, it'd be better if we didn't need to resort to this...
-[[test]]
-name = "near-vm-compilers"
-path = "../near-vm/tests/compilers/main.rs"

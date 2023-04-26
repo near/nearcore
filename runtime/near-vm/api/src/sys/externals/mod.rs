@@ -14,7 +14,7 @@ pub use self::table::Table;
 use crate::sys::exports::Exportable;
 use crate::sys::store::{Store, StoreObject};
 use std::fmt;
-use wasmer_vm::Export;
+use near_vm_vm::Export;
 
 /// An `Extern` is the runtime representation of an entity that
 /// can be imported or exported.
@@ -33,7 +33,7 @@ pub enum Extern {
 }
 
 impl Extern {
-    /// Create an `Extern` from an `wasmer_engine::Export`.
+    /// Create an `Extern` from an `near_vm_engine::Export`.
     pub fn from_vm_export(store: &Store, export: Export) -> Self {
         match export {
             Export::Function(f) => Self::Function(Function::from_vm_export(store, f)),

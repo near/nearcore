@@ -4,7 +4,7 @@ use crate::sys::types::{Val, ValFuncRef};
 use crate::sys::RuntimeError;
 use crate::sys::TableType;
 use std::sync::Arc;
-use wasmer_vm::{Export, Table as RuntimeTable, TableElement, VMTable};
+use near_vm_vm::{Export, Table as RuntimeTable, TableElement, VMTable};
 
 /// A WebAssembly `table` instance.
 ///
@@ -77,7 +77,7 @@ impl Table {
     /// tests it should not be called by users of the Wasmer API.
     ///
     /// # Safety
-    /// This function is unsafe to call outside of tests for the wasmer crate
+    /// This function is unsafe to call outside of tests for the masmer crate
     /// because there is no stability guarantee for the returned type and we may
     /// make breaking changes to it at any time or remove this method.
     #[doc(hidden)]

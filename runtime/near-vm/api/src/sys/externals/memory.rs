@@ -3,8 +3,8 @@ use crate::sys::store::Store;
 use crate::sys::{MemoryType, MemoryView};
 use std::convert::TryInto;
 use std::slice;
-use wasmer_types::{Pages, ValueType};
-use wasmer_vm::{Export, MemoryError, VMMemory};
+use near_vm_types::{Pages, ValueType};
+use near_vm_vm::{Export, MemoryError, VMMemory};
 
 /// A WebAssembly `memory` instance.
 ///

@@ -4,13 +4,13 @@ use std::fmt;
 use std::io;
 use std::sync::Arc;
 use thiserror::Error;
-use wasmer_compiler::CompileError;
+use near_vm_compiler::CompileError;
 #[cfg(feature = "wat")]
-use wasmer_compiler::WasmError;
-use wasmer_engine::RuntimeError;
-use wasmer_engine_universal::UniversalArtifact;
-use wasmer_types::InstanceConfig;
-use wasmer_vm::{InstanceHandle, Instantiatable, Resolver};
+use near_vm_compiler::WasmError;
+use near_vm_engine::RuntimeError;
+use near_vm_engine_universal::UniversalArtifact;
+use near_vm_types::InstanceConfig;
+use near_vm_vm::{InstanceHandle, Instantiatable, Resolver};
 
 #[derive(Error, Debug)]
 pub enum IoCompileError {
@@ -33,7 +33,7 @@ pub enum IoCompileError {
 #[derive(Clone)]
 pub struct Module {
     store: Store,
-    artifact: Arc<wasmer_engine_universal::UniversalArtifact>,
+    artifact: Arc<near_vm_engine_universal::UniversalArtifact>,
 }
 
 impl Module {
