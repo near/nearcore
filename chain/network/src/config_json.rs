@@ -243,6 +243,28 @@ pub struct ExperimentalConfig {
     /// See `near_network::config::Tier1::new_connections_per_attempt`.
     #[serde(default = "default_tier1_new_connections_per_attempt")]
     pub tier1_new_connections_per_attempt: u64,
+
+    /// See `NetworkConfig`.
+    /// Fields set here will override the NetworkConfig fields.
+    #[serde(default)]
+    pub network_config_overrides: NetworkConfigOverrides,
+}
+
+/// Overrides values from NetworkConfig.
+/// This enables the user to override the hardcoded values.
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
+pub struct NetworkConfigOverrides {
+    pub connect_to_reliable_peers_on_startup: Option<bool>,
+    pub max_send_peers: Option<u32>,
+    pub routed_message_ttl: Option<u8>,
+    pub max_routes_to_store: Option<usize>,
+    pub highest_peer_horizon: Option<u64>,
+    pub push_info_period_millis: Option<i64>,
+    pub outbound_disabled: Option<bool>,
+    pub accounts_data_broadcast_rate_limit_burst: Option<u64>,
+    pub accounts_data_broadcast_rate_limit_qps: Option<f64>,
+    pub routing_table_update_rate_limit_burst: Option<u64>,
+    pub routing_table_update_rate_limit_qps: Option<f64>,
 }
 
 impl Default for ExperimentalConfig {
@@ -255,6 +277,7 @@ impl Default for ExperimentalConfig {
             tier1_enable_outbound: default_tier1_enable_outbound(),
             tier1_connect_interval: default_tier1_connect_interval(),
             tier1_new_connections_per_attempt: default_tier1_new_connections_per_attempt(),
+            network_config_overrides: Default::default(),
         }
     }
 }

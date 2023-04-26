@@ -630,14 +630,12 @@ impl Chain {
                 // Set the root block of flat state to be the genesis block. Later, when we
                 // init FlatStorages, we will read the from this column in storage, so it
                 // must be set here.
-                if cfg!(feature = "protocol_feature_flat_state") {
-                    let tmp_store_update = runtime_adapter.set_flat_storage_for_genesis(
-                        genesis.hash(),
-                        genesis.header().height(),
-                        genesis.header().epoch_id(),
-                    )?;
-                    store_update.merge(tmp_store_update);
-                }
+                let tmp_store_update = runtime_adapter.set_flat_storage_for_genesis(
+                    genesis.hash(),
+                    genesis.header().height(),
+                    genesis.header().epoch_id(),
+                )?;
+                store_update.merge(tmp_store_update);
 
                 info!(target: "chain", "Init: saved genesis: #{} {} / {:?}", block_head.height, block_head.last_block_hash, state_roots);
 
@@ -1108,6 +1106,9 @@ impl Chain {
                 )? {
                     byzantine_assert!(false);
                     return Err(Error::InvalidChunk);
+                }
+                if chunk_header.shard_id() != shard_id as ShardId {
+                    return Err(Error::InvalidShardId(chunk_header.shard_id()));
                 }
             }
         }
@@ -2234,22 +2235,16 @@ impl Chain {
 
         if let Some(tip) = &new_head {
             // TODO: move this logic of tracking validators metrics to EpochManager
-            if let Ok(producers) = self
-                .runtime_adapter
-                .get_epoch_block_producers_ordered(&tip.epoch_id, &tip.last_block_hash)
-            {
-                let mut count = 0;
-                let mut stake = 0;
-                for (info, is_slashed) in producers.iter() {
-                    if !*is_slashed {
-                        stake += info.stake();
-                        count += 1;
-                    }
-                }
-                stake /= NEAR_BASE;
-                metrics::VALIDATOR_AMOUNT_STAKED.set(i64::try_from(stake).unwrap_or(i64::MAX));
-                metrics::VALIDATOR_ACTIVE_TOTAL.set(count);
+            let mut count = 0;
+            let mut stake = 0;
+            if let Ok(producers) = self.runtime_adapter.get_epoch_chunk_producers(&tip.epoch_id) {
+                stake += producers.iter().map(|info| info.stake()).sum::<Balance>();
+                count += producers.len();
             }
+
+            stake /= NEAR_BASE;
+            metrics::VALIDATOR_AMOUNT_STAKED.set(i64::try_from(stake).unwrap_or(i64::MAX));
+            metrics::VALIDATOR_ACTIVE_TOTAL.set(i64::try_from(count).unwrap_or(i64::MAX));
 
             self.last_time_head_updated = StaticClock::instant();
         };
@@ -2982,7 +2977,7 @@ impl Chain {
         let prev_chunk_header = shard_state_header.cloned_prev_chunk_header();
 
         // 1-2. Checking chunk validity
-        if !validate_chunk_proofs(&chunk, &*self.runtime_adapter)? {
+        if !validate_chunk_proofs(&chunk, self.runtime_adapter.epoch_manager_adapter())? {
             byzantine_assert!(false);
             return Err(Error::Other(
                 "set_shard_state failed: chunk header proofs are invalid".into(),
@@ -3145,7 +3140,10 @@ impl Chain {
         let state_root = *chunk.take_header().take_inner().prev_state_root();
         if !self.runtime_adapter.validate_state_part(&state_root, part_id, data) {
             byzantine_assert!(false);
-            return Err(Error::Other("set_state_part failed: validate_state_part failed".into()));
+            return Err(Error::Other(format!(
+                "set_state_part failed: validate_state_part failed. state_root={:?}",
+                state_root
+            )));
         }
 
         // Saving the part data.
@@ -3200,37 +3198,37 @@ impl Chain {
 
         // We synced shard state on top of _previous_ block for chunk in shard state header and applied state parts to
         // flat storage. Now we can set flat head to hash of this block and create flat storage.
-        // TODO (#7327): ensure that no flat storage work is done for `KeyValueRuntime`.
-        if cfg!(feature = "protocol_feature_flat_state") {
-            // If block_hash is equal to default - this means that we're all the way back at genesis.
-            // So we don't have to add the storage state for shard in such case.
-            // TODO(8438) - add additional test scenarios for this case.
-            if *block_hash != CryptoHash::default() {
-                let block_header = self.get_block_header(block_hash)?;
-                let epoch_id = block_header.epoch_id();
-                let shard_uid = self.runtime_adapter.shard_id_to_uid(shard_id, epoch_id)?;
-                if !matches!(
-                    self.runtime_adapter.get_flat_storage_status(shard_uid),
-                    FlatStorageStatus::Disabled
-                ) {
-                    // Flat storage must not exist at this point because leftover keys corrupt its state.
-                    assert!(self.runtime_adapter.get_flat_storage_for_shard(shard_uid).is_none());
+        // If block_hash is equal to default - this means that we're all the way back at genesis.
+        // So we don't have to add the storage state for shard in such case.
+        // TODO(8438) - add additional test scenarios for this case.
+        if *block_hash != CryptoHash::default() {
+            let block_header = self.get_block_header(block_hash)?;
+            let epoch_id = block_header.epoch_id();
+            let shard_uid = self.runtime_adapter.shard_id_to_uid(shard_id, epoch_id)?;
 
-                    let mut store_update = self.runtime_adapter.store().store_update();
-                    store_helper::set_flat_storage_status(
-                        &mut store_update,
-                        shard_uid,
-                        FlatStorageStatus::Ready(FlatStorageReadyStatus {
-                            flat_head: near_store::flat::BlockInfo {
-                                hash: *block_hash,
-                                prev_hash: *block_header.prev_hash(),
-                                height: block_header.height(),
-                            },
-                        }),
-                    );
-                    store_update.commit()?;
-                    self.runtime_adapter.create_flat_storage_for_shard(shard_uid);
-                }
+            // Check if flat storage is disabled, which may be the case when runtime is implemented with
+            // `KeyValueRuntime`.
+            if !matches!(
+                self.runtime_adapter.get_flat_storage_status(shard_uid),
+                FlatStorageStatus::Disabled
+            ) {
+                // Flat storage must not exist at this point because leftover keys corrupt its state.
+                assert!(self.runtime_adapter.get_flat_storage_for_shard(shard_uid).is_none());
+
+                let mut store_update = self.runtime_adapter.store().store_update();
+                store_helper::set_flat_storage_status(
+                    &mut store_update,
+                    shard_uid,
+                    FlatStorageStatus::Ready(FlatStorageReadyStatus {
+                        flat_head: near_store::flat::BlockInfo {
+                            hash: *block_hash,
+                            prev_hash: *block_header.prev_hash(),
+                            height: block_header.height(),
+                        },
+                    }),
+                );
+                store_update.commit()?;
+                self.runtime_adapter.create_flat_storage_for_shard(shard_uid);
             }
         }
 
@@ -3889,7 +3887,7 @@ impl Chain {
                     let is_first_block_with_chunk_of_version =
                         check_if_block_is_first_with_chunk_of_version(
                             self.store(),
-                            self.runtime_adapter.as_ref(),
+                            self.runtime_adapter.epoch_manager_adapter(),
                             prev_block.hash(),
                             shard_id,
                         )?;
@@ -4945,31 +4943,29 @@ impl<'a> ChainUpdate<'a> {
         shard_uid: ShardUId,
         trie_changes: &WrappedTrieChanges,
     ) -> Result<(), Error> {
-        if cfg!(feature = "protocol_feature_flat_state") {
-            let delta = FlatStateDelta {
-                changes: FlatStateChanges::from_state_changes(&trie_changes.state_changes()),
-                metadata: FlatStateDeltaMetadata {
-                    block: near_store::flat::BlockInfo { hash: block_hash, height, prev_hash },
-                },
-            };
+        let delta = FlatStateDelta {
+            changes: FlatStateChanges::from_state_changes(&trie_changes.state_changes()),
+            metadata: FlatStateDeltaMetadata {
+                block: near_store::flat::BlockInfo { hash: block_hash, height, prev_hash },
+            },
+        };
 
-            if let Some(chain_flat_storage) =
-                self.runtime_adapter.get_flat_storage_for_shard(shard_uid)
-            {
-                // If flat storage exists, we add a block to it.
-                let store_update =
-                    chain_flat_storage.add_delta(delta).map_err(|e| StorageError::from(e))?;
-                self.chain_store_update.merge(store_update);
-            } else {
-                let shard_id = shard_uid.shard_id();
-                // Otherwise, save delta to disk so it will be used for flat storage creation later.
-                info!(target: "chain", %shard_id, "Add delta for flat storage creation");
-                let mut store_update = self.chain_store_update.store().store_update();
-                store_helper::set_delta(&mut store_update, shard_uid, &delta)
-                    .map_err(|e| StorageError::from(e))?;
-                self.chain_store_update.merge(store_update);
-            }
+        if let Some(chain_flat_storage) = self.runtime_adapter.get_flat_storage_for_shard(shard_uid)
+        {
+            // If flat storage exists, we add a block to it.
+            let store_update =
+                chain_flat_storage.add_delta(delta).map_err(|e| StorageError::from(e))?;
+            self.chain_store_update.merge(store_update);
+        } else {
+            let shard_id = shard_uid.shard_id();
+            // Otherwise, save delta to disk so it will be used for flat storage creation later.
+            info!(target: "chain", %shard_id, "Add delta for flat storage creation");
+            let mut store_update = self.chain_store_update.store().store_update();
+            store_helper::set_delta(&mut store_update, shard_uid, &delta)
+                .map_err(|e| StorageError::from(e))?;
+            self.chain_store_update.merge(store_update);
         }
+
         Ok(())
     }
 
@@ -5383,7 +5379,7 @@ impl<'a> ChainUpdate<'a> {
         let gas_limit = chunk_header.gas_limit();
         let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
             &mut self.chain_store_update,
-            self.runtime_adapter.as_ref(),
+            self.runtime_adapter.epoch_manager_adapter(),
             &chunk_header.prev_block_hash(),
             shard_id,
         )?;

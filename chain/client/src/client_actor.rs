@@ -700,7 +700,11 @@ impl Handler<WithSpanContext<Status>> for ClientActor {
                 sync_status: format!(
                     "{} ({})",
                     self.client.sync_status.as_variant_name().to_string(),
-                    display_sync_status(&self.client.sync_status, &self.client.chain.head()?,),
+                    display_sync_status(
+                        &self.client.sync_status,
+                        &self.client.chain.head()?,
+                        &self.client.config.state_sync.sync,
+                    ),
                 ),
                 catchup_status: self.client.get_catchup_status()?,
                 current_head_status: head.clone().into(),
@@ -1430,6 +1434,9 @@ impl ClientActor {
     }
 
     fn start_flat_storage_creation(&mut self, ctx: &mut Context<ClientActor>) {
+        if !self.client.config.flat_storage_creation_enabled {
+            return;
+        }
         match self.client.run_flat_storage_creation_step() {
             Ok(false) => {}
             Ok(true) => {
@@ -1657,7 +1664,7 @@ impl ClientActor {
                                     &prev_hash,
                                     *x,
                                     true,
-                                    self.client.runtime_adapter.as_ref(),
+                                    &self.client.shard_tracker,
                                 )
                             })
                             .collect();

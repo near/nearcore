@@ -30,6 +30,7 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (57, include_config!("57.yaml")),
     // Introduce Zero Balance Account and increase account creation cost to 7.7Tgas
     (59, include_config!("59.yaml")),
+    (61, include_config!("61.yaml")),
 ];
 
 /// Testnet parameters for versions <= 29, which (incorrectly) differed from mainnet parameters

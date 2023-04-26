@@ -9,7 +9,7 @@ mod tests;
 
 thread_local! {
     static CTX: std::cell::UnsafeCell<Ctx> = std::cell::UnsafeCell::new(Ctx::new(
-        near_primitives::time::Clock::real()
+        near_async::time::Clock::real()
     ));
 }
 
@@ -32,8 +32,8 @@ impl<'a> Drop for SetLocalCtx<'a> {
 /// Inner representation of a context.
 struct Inner {
     canceled: signal::Once,
-    deadline: near_primitives::time::Deadline,
-    clock: near_primitives::time::Clock,
+    deadline: near_async::time::Deadline,
+    clock: near_async::time::Clock,
     /// When Inner gets dropped, the context gets cancelled, so that
     /// the tokio task which propagates the cancellation from
     /// parent to child it terminated immediately and therefore doesn't
@@ -85,10 +85,10 @@ impl Ctx {
     /// * with infinite deadline
     ///
     /// It should be called directly from main.rs.
-    pub(crate) fn new(clock: near_primitives::time::Clock) -> Ctx {
+    pub(crate) fn new(clock: near_async::time::Clock) -> Ctx {
         return Ctx(Arc::new(Inner {
             canceled: signal::Once::new(),
-            deadline: near_primitives::time::Deadline::Infinite,
+            deadline: near_async::time::Deadline::Infinite,
             clock,
             _parent: None,
         }));
@@ -98,7 +98,7 @@ impl Ctx {
         self.0.canceled.send();
     }
 
-    pub fn sub(&self, deadline: near_primitives::time::Deadline) -> Ctx {
+    pub fn sub(&self, deadline: near_async::time::Deadline) -> Ctx {
         let child = Ctx(Arc::new(Inner {
             canceled: signal::Once::new(),
             clock: self.0.clock.clone(),
@@ -136,7 +136,7 @@ pub fn is_canceled() -> bool {
 /// The current task should use it to schedule its work accordingly.
 /// Remember that this is just a hint, because the local context
 /// may get canceled earlier.
-pub fn get_deadline() -> near_primitives::time::Deadline {
+pub fn get_deadline() -> near_async::time::Deadline {
     local().0.deadline
 }
 
@@ -165,7 +165,7 @@ pub async fn wait<F: Future>(f: F) -> OrCanceled<F::Output> {
 
 /// Equivalent to `with_deadline(now()+d,f)`.
 pub fn run_with_timeout<F: Future>(
-    d: near_primitives::time::Duration,
+    d: near_async::time::Duration,
     f: F,
 ) -> impl Future<Output = F::Output> {
     let ctx = local();
@@ -178,7 +178,7 @@ pub fn run_with_timeout<F: Future>(
 /// returning an error after `sleep_until(t)`, but that would be more
 /// expensive and other tasks won't see the deadline via `ctx::get_deadline()`.
 pub fn run_with_deadline<F: Future>(
-    t: near_primitives::time::Instant,
+    t: near_async::time::Instant,
     f: F,
 ) -> impl Future<Output = F::Output> {
     let ctx = local().sub(t.into());
@@ -188,7 +188,7 @@ pub fn run_with_deadline<F: Future>(
 /// Executes the future in a context that has been already canceled.
 /// Useful for tests (also outside of this crate).
 pub fn run_canceled<F: Future>(f: F) -> impl Future<Output = F::Output> {
-    let ctx = local().sub(near_primitives::time::Deadline::Infinite);
+    let ctx = local().sub(near_async::time::Deadline::Infinite);
     ctx.cancel();
     CtxFuture { ctx, inner: f }
 }
@@ -196,7 +196,7 @@ pub fn run_canceled<F: Future>(f: F) -> impl Future<Output = F::Output> {
 /// Executes the future with a given clock, which can be set to fake clock.
 /// Useful for tests.
 pub fn run_test<F: Future>(
-    clock: near_primitives::time::Clock,
+    clock: near_async::time::Clock,
     f: F,
 ) -> impl Future<Output = F::Output> {
     CtxFuture { ctx: Ctx::new(clock), inner: f }

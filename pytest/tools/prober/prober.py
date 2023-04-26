@@ -22,6 +22,8 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 
 def main():
+    # log an empty line for cloudprober nice formatting
+    logger.info('')
     logger.info('Running Prober')
     parser = argparse.ArgumentParser(description='Run a prober')
     parser.add_argument('--url', required=True)

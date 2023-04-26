@@ -885,7 +885,7 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                                     }
                                 }
 
-                                for (i, actor_handles) in conns.clone().into_iter().enumerate() {
+                                for (i, actor_handles) in conns.into_iter().enumerate() {
                                     if i != block_producer_idx {
                                         actor_handles.client_actor.do_send(
                                             BlockResponse {
@@ -1040,9 +1040,9 @@ fn client_sync_headers() {
                     },
                     received_bytes_per_sec: 0,
                     sent_bytes_per_sec: 0,
-                    last_time_peer_requested: near_primitives::time::Instant::now(),
-                    last_time_received_message: near_primitives::time::Instant::now(),
-                    connection_established_time: near_primitives::time::Instant::now(),
+                    last_time_peer_requested: near_async::time::Instant::now(),
+                    last_time_received_message: near_async::time::Instant::now(),
+                    connection_established_time: near_async::time::Instant::now(),
                     peer_type: PeerType::Outbound,
                     nonce: 1,
                 }],
@@ -1652,7 +1652,7 @@ fn test_archival_gc_common(
 #[test]
 fn test_archival_gc_migration() {
     // Split storage in the middle of migration has hot store kind set to archive.
-    let storage = create_test_node_storage_with_cold(DB_VERSION, DbKind::Archive);
+    let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Archive);
 
     let epoch_length = 10;
     let max_height = epoch_length * (DEFAULT_GC_NUM_EPOCHS_TO_KEEP + 2);
@@ -1667,7 +1667,7 @@ fn test_archival_gc_migration() {
 #[test]
 fn test_archival_gc_split_storage_current() {
     // Fully migrated split storage has each store configured with kind = temperature.
-    let storage = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
+    let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
 
     let epoch_length = 10;
     let max_height = epoch_length * (DEFAULT_GC_NUM_EPOCHS_TO_KEEP + 2);
@@ -1682,7 +1682,7 @@ fn test_archival_gc_split_storage_current() {
 #[test]
 fn test_archival_gc_split_storage_behind() {
     // Fully migrated split storage has each store configured with kind = temperature.
-    let storage = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
+    let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
 
     let epoch_length = 10;
     let max_height = epoch_length * (DEFAULT_GC_NUM_EPOCHS_TO_KEEP + 2);
@@ -2858,11 +2858,11 @@ fn test_execution_metadata() {
         "cost": "CONTRACT_LOADING_BYTES",
         "gas_used": "18423750"
       },
-      // We spend two wasm instructions (call & drop).
+      // We spend two wasm instructions (call & drop), plus 8 ops for initializing the stack.
       {
         "cost_category": "WASM_HOST_COST",
         "cost": "WASM_INSTRUCTION",
-        "gas_used": (config.wasm_config.regular_op_cost as u64 * 2).to_string()
+        "gas_used": (config.wasm_config.regular_op_cost as u64 * 10).to_string()
       }
     ]);
     let outcome = &execution_outcome.receipts_outcome[0].outcome;

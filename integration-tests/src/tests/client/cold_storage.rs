@@ -5,10 +5,9 @@ use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType};
-use near_o11y::pretty;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
-use near_primitives::sharding::ShardChunk;
+use near_primitives::sharding::{PartialEncodedChunk, ShardChunk};
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
@@ -25,11 +24,15 @@ use std::collections::HashSet;
 use strum::IntoEnumIterator;
 
 fn check_key(first_store: &Store, second_store: &Store, col: DBCol, key: &[u8]) {
-    let pretty_key = pretty::StorageKey(key);
+    let pretty_key = near_fmt::StorageKey(key);
     tracing::debug!("Checking {:?} {:?}", col, pretty_key);
 
     let first_res = first_store.get(col, key);
     let second_res = second_store.get(col, key);
+
+    if col == DBCol::PartialChunks {
+        tracing::debug!("{:?}", first_store.get_ser::<PartialEncodedChunk>(col, key));
+    }
 
     assert_eq!(first_res.unwrap(), second_res.unwrap(), "col: {:?} key: {:?}", col, pretty_key);
 }
@@ -38,13 +41,13 @@ fn check_iter(
     first_store: &Store,
     second_store: &Store,
     col: DBCol,
-    no_check_rules: &Vec<Box<dyn Fn(DBCol, &Box<[u8]>) -> bool>>,
+    no_check_rules: &Vec<Box<dyn Fn(DBCol, &Box<[u8]>, &Box<[u8]>) -> bool>>,
 ) -> u64 {
     let mut num_checks = 0;
     for (key, value) in first_store.iter(col).map(Result::unwrap) {
         let mut check = true;
         for no_check in no_check_rules {
-            if no_check(col, &value) {
+            if no_check(col, &key, &value) {
                 check = false;
             }
         }
@@ -78,7 +81,7 @@ fn test_storage_after_commit_of_cold_update() {
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
 
-    let store = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
+    let (store, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
 
@@ -164,11 +167,29 @@ fn test_storage_after_commit_of_cold_update() {
     assert_eq!(state_changes_reads, test_get_store_reads(DBCol::StateChanges));
 
     // We still need to filter out one chunk
-    let mut no_check_rules: Vec<Box<dyn Fn(DBCol, &Box<[u8]>) -> bool>> = vec![];
-    no_check_rules.push(Box::new(move |col, value| -> bool {
+    let mut no_check_rules: Vec<Box<dyn Fn(DBCol, &Box<[u8]>, &Box<[u8]>) -> bool>> = vec![];
+    no_check_rules.push(Box::new(move |col, _key, value| -> bool {
         if col == DBCol::Chunks {
             let chunk = ShardChunk::try_from_slice(&*value).unwrap();
             if *chunk.prev_block() == last_hash {
+                return true;
+            }
+        }
+        false
+    }));
+    no_check_rules.push(Box::new(move |col, _key, value| -> bool {
+        if col == DBCol::PartialChunks {
+            let chunk = PartialEncodedChunk::try_from_slice(&*value).unwrap();
+            if *chunk.prev_block() == last_hash {
+                return true;
+            }
+        }
+        false
+    }));
+    no_check_rules.push(Box::new(move |col, key, _value| -> bool {
+        if col == DBCol::ChunkHashesByHeight {
+            let height = u64::from_le_bytes(key[0..8].try_into().unwrap());
+            if height == max_height {
                 return true;
             }
         }
@@ -208,7 +229,7 @@ fn test_cold_db_head_update() {
     genesis.config.epoch_length = epoch_length;
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
-    let store = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
+    let (store, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
     let hot_store = &store.get_hot_store();
     let cold_store = &store.get_cold_store().unwrap();
     let runtime_adapter = create_nightshade_runtime_with_store(&genesis, &hot_store);
@@ -254,7 +275,7 @@ fn test_cold_db_copy_with_height_skips() {
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
 
-    let storage = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
+    let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
 
@@ -314,8 +335,8 @@ fn test_cold_db_copy_with_height_skips() {
     }
 
     // We still need to filter out one chunk
-    let mut no_check_rules: Vec<Box<dyn Fn(DBCol, &Box<[u8]>) -> bool>> = vec![];
-    no_check_rules.push(Box::new(move |col, value| -> bool {
+    let mut no_check_rules: Vec<Box<dyn Fn(DBCol, &Box<[u8]>, &Box<[u8]>) -> bool>> = vec![];
+    no_check_rules.push(Box::new(move |col, _key, value| -> bool {
         if col == DBCol::Chunks {
             let chunk = ShardChunk::try_from_slice(&*value).unwrap();
             if *chunk.prev_block() == last_hash {
@@ -324,9 +345,18 @@ fn test_cold_db_copy_with_height_skips() {
         }
         false
     }));
+    no_check_rules.push(Box::new(move |col, _key, value| -> bool {
+        if col == DBCol::PartialChunks {
+            let chunk = PartialEncodedChunk::try_from_slice(&*value).unwrap();
+            if *chunk.prev_block() == last_hash {
+                return true;
+            }
+        }
+        false
+    }));
 
     for col in DBCol::iter() {
-        if col.is_cold() {
+        if col.is_cold() && col != DBCol::ChunkHashesByHeight {
             let num_checks = check_iter(
                 &env.clients[0].runtime_adapter.store(),
                 &storage.get_cold_store().unwrap(),
@@ -365,7 +395,7 @@ fn test_initial_copy_to_cold(batch_size: usize) {
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
 
-    let store = create_test_node_storage_with_cold(DB_VERSION, DbKind::Archive);
+    let (store, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Archive);
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
 

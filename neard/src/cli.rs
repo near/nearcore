@@ -22,6 +22,7 @@ use near_state_parts::cli::StatePartsCommand;
 use near_state_viewer::StateViewerSubCommand;
 use near_store::db::RocksDB;
 use near_store::Mode;
+use near_undo_block::cli::UndoBlockCommand;
 use serde_json::Value;
 use std::fs::File;
 use std::io::BufReader;
@@ -122,6 +123,9 @@ impl NeardCmd {
             }
             NeardSubCommand::ValidateConfig(cmd) => {
                 cmd.run(&home_dir)?;
+            }
+            NeardSubCommand::UndoBlock(cmd) => {
+                cmd.run(&home_dir, genesis_validation)?;
             }
         };
         Ok(())
@@ -239,6 +243,9 @@ pub(super) enum NeardSubCommand {
 
     /// validate config files including genesis.json and config.json
     ValidateConfig(ValidateConfigCommand),
+
+    /// reset the head of the chain locally to the prev block of current head
+    UndoBlock(UndoBlockCommand),
 }
 
 #[derive(clap::Parser)]
@@ -329,7 +336,9 @@ impl InitCmd {
             anyhow::bail!("Please give either --genesis or --download-genesis, not both.");
         }
 
-        self.chain_id.as_ref().map(|chain| check_release_build(chain));
+        if let Some(chain) = self.chain_id.as_ref() {
+            check_release_build(chain)
+        }
 
         nearcore::init_configs(
             home_dir,
@@ -408,7 +417,7 @@ impl RunCmd {
         o11y_opts: &near_o11y::Options,
     ) {
         // Load configs from home.
-        let mut near_config = nearcore::config::load_config(&home_dir, genesis_validation)
+        let mut near_config = nearcore::config::load_config(home_dir, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
         check_release_build(&near_config.client_config.chain_id);
@@ -529,8 +538,12 @@ impl RunCmd {
                 }
             };
             warn!(target: "neard", "{}, stopping... this may take a few minutes.", sig);
-            cold_store_loop_handle.map(|handle| handle.stop());
-            state_sync_dump_handle.map(|handle| handle.stop());
+            if let Some(handle) = cold_store_loop_handle {
+                handle.stop()
+            }
+            if let Some(handle) = state_sync_dump_handle {
+                handle.stop()
+            }
             futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
                 server.stop(true).await;
                 debug!(target: "neard", "{} server stopped", name);
@@ -597,7 +610,7 @@ pub(super) struct LocalnetCmd {
 }
 
 impl LocalnetCmd {
-    fn parse_tracked_shards(tracked_shards: &String, num_shards: NumShards) -> Vec<u64> {
+    fn parse_tracked_shards(tracked_shards: &str, num_shards: NumShards) -> Vec<u64> {
         if tracked_shards.to_lowercase() == "all" {
             return (0..num_shards).collect();
         }
@@ -661,7 +674,7 @@ impl RecompressStorageSubCommand {
             keep_invalid_chunks: self.keep_invalid_chunks,
             keep_trie_changes: self.keep_trie_changes,
         };
-        if let Err(err) = nearcore::recompress_storage(&home_dir, opts) {
+        if let Err(err) = nearcore::recompress_storage(home_dir, opts) {
             error!("{}", err);
             std::process::exit(1);
         }
@@ -716,7 +729,7 @@ impl VerifyProofSubCommand {
         println!("Shard outcome root is: {:?}", outcome_shard_root);
         let block_outcome_root = compute_root_from_path(
             &light_client_proof.outcome_root_proof,
-            CryptoHash::hash_borsh(&outcome_shard_root),
+            CryptoHash::hash_borsh(outcome_shard_root),
         );
         println!("Block outcome root is: {:?}", block_outcome_root);
 
@@ -789,7 +802,7 @@ pub(super) struct ValidateConfigCommand {}
 
 impl ValidateConfigCommand {
     pub(super) fn run(&self, home_dir: &Path) -> anyhow::Result<()> {
-        nearcore::config::load_config(&home_dir, GenesisValidationMode::Full)?;
+        nearcore::config::load_config(home_dir, GenesisValidationMode::Full)?;
         Ok(())
     }
 }

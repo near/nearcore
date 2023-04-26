@@ -5,10 +5,10 @@ use crate::network_protocol::EDGE_MIN_TIMESTAMP_NONCE;
 use crate::store;
 use crate::store::testonly::Component;
 use crate::testonly::make_rng;
+use near_async::time;
 use near_crypto::SecretKey;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::network::PeerId;
-use near_primitives::time;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 

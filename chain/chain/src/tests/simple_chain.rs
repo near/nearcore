@@ -43,9 +43,9 @@ fn build_chain() {
     //     cargo insta test --accept -p near-chain --features nightly -- tests::simple_chain::build_chain
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
-        insta::assert_display_snapshot!(hash, @"6RefKUxXco18otaEoq2X8WZzXvmFpE8bCrScfJxw6TsJ");
+        insta::assert_display_snapshot!(hash, @"3Dkg6hjpnYvMuoyEdSLnEXza6Ct2ZV9xoridA37AJzSz");
     } else {
-        insta::assert_display_snapshot!(hash, @"3fK7Uu3HC9y9DPMsDNaAP8sv56UCK2ZV1txRhTriF9qb");
+        insta::assert_display_snapshot!(hash, @"DuT1f8dmu3xYvFfsEFiAycgeLpJWQM74PZ8JtjT7SGyK");
     }
 
     for i in 1..5 {
@@ -73,9 +73,9 @@ fn build_chain() {
 
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
-        insta::assert_display_snapshot!(hash, @"AV8UPQ2WvJyieSHVf6SDLYmycE4xwWuTvaHiR5hPdoX2");
+        insta::assert_display_snapshot!(hash, @"6uCZwfkpE8qV54n5MvZXqTt8RMHYDduX4eE7quNzgLNk");
     } else {
-        insta::assert_display_snapshot!(hash, @"7hQ4bvvu2TmgFVhELFThZPHFoBPwa74VT6D8uk79xPzB");
+        insta::assert_display_snapshot!(hash, @"Ce8Ehs6S2RmXUdp2WnuyQFBGs4S3Pvs5sBwuSMZW7pqS");
     }
 }
 

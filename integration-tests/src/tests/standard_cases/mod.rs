@@ -1566,11 +1566,9 @@ pub fn test_storage_read_write_costs(node: impl Node, runtime_config: RuntimeCon
     ];
     check_trie_nodes_count(&node, &runtime_config, receipts.clone(), results, false);
 
-    if cfg!(feature = "protocol_feature_flat_state") {
-        let results = vec![
-            TrieNodesCount { db_reads: 0, mem_reads: 0 },
-            TrieNodesCount { db_reads: 3, mem_reads: 1 },
-        ];
-        check_trie_nodes_count(&node, &runtime_config, receipts, results, true);
-    }
+    let results = vec![
+        TrieNodesCount { db_reads: 0, mem_reads: 0 },
+        TrieNodesCount { db_reads: 3, mem_reads: 1 },
+    ];
+    check_trie_nodes_count(&node, &runtime_config, receipts, results, true);
 }

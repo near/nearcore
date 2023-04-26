@@ -124,7 +124,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::DumpState(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::DumpStateRedis(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::DumpTx(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::EpochInfo(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::EpochInfo(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::PartialChunks(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::Receipts(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::Replay(cmd) => cmd.run(home_dir, near_config, store),
@@ -417,11 +417,10 @@ pub struct EpochInfoCmd {
 }
 
 impl EpochInfoCmd {
-    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+    pub fn run(self, near_config: NearConfig, store: Store) {
         print_epoch_info(
             self.epoch_selection,
             self.validator_account_id.map(|s| AccountId::from_str(&s).unwrap()),
-            home_dir,
             near_config,
             store,
         );
@@ -494,6 +493,38 @@ impl StateChangesCmd {
 }
 
 #[derive(clap::Parser)]
+pub struct StatePartsCmd {
+    /// Shard id.
+    #[clap(long)]
+    shard_id: ShardId,
+    /// Location of serialized state parts.
+    #[clap(long)]
+    root_dir: Option<PathBuf>,
+    /// Store state parts in an S3 bucket.
+    #[clap(long)]
+    s3_bucket: Option<String>,
+    /// Store state parts in an S3 bucket.
+    #[clap(long)]
+    s3_region: Option<String>,
+    /// Dump or Apply state parts.
+    #[clap(subcommand)]
+    command: crate::state_parts::StatePartsSubCommand,
+}
+
+impl StatePartsCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        self.command.run(
+            self.shard_id,
+            self.root_dir,
+            self.s3_bucket,
+            self.s3_region,
+            home_dir,
+            near_config,
+            store,
+        );
+    }
+}
+#[derive(clap::Parser)]
 pub struct ViewChainCmd {
     #[clap(long)]
     height: Option<BlockHeight>,
@@ -522,7 +553,7 @@ impl std::str::FromStr for ViewTrieFormat {
         match s.as_str() {
             "full" => Ok(ViewTrieFormat::Full),
             "pretty" => Ok(ViewTrieFormat::Pretty),
-            _ => Err(String::from(format!("invalid view trie format string {s}"))),
+            _ => Err(format!("invalid view trie format string {s}")),
         }
     }
 }
@@ -570,38 +601,5 @@ impl ViewTrieCmd {
                     .unwrap();
             }
         }
-    }
-}
-
-#[derive(clap::Parser)]
-pub struct StatePartsCmd {
-    /// Shard id.
-    #[clap(long)]
-    shard_id: ShardId,
-    /// Location of serialized state parts.
-    #[clap(long)]
-    root_dir: Option<PathBuf>,
-    /// Store state parts in an S3 bucket.
-    #[clap(long)]
-    s3_bucket: Option<String>,
-    /// Store state parts in an S3 bucket.
-    #[clap(long)]
-    s3_region: Option<String>,
-    /// Dump or Apply state parts.
-    #[clap(subcommand)]
-    command: crate::state_parts::StatePartsSubCommand,
-}
-
-impl StatePartsCmd {
-    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
-        self.command.run(
-            self.shard_id,
-            self.root_dir,
-            self.s3_bucket,
-            self.s3_region,
-            home_dir,
-            near_config,
-            store,
-        );
     }
 }

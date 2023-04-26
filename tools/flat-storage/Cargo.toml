@@ -20,10 +20,3 @@ near-epoch-manager.workspace = true
 near-primitives.workspace = true
 near-store.workspace = true
 nearcore.workspace = true
-
-[features]
-protocol_feature_flat_state = [
-  "nearcore/protocol_feature_flat_state",
-  "near-chain/protocol_feature_flat_state",
-  "near-store/protocol_feature_flat_state",
-]

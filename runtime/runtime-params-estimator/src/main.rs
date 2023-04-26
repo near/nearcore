@@ -61,7 +61,7 @@ struct CliArgs {
     #[clap(long, default_value = "time", possible_values = &["icount", "time"])]
     metric: String,
     /// Which VM to test.
-    #[clap(long, possible_values = &["wasmer", "wasmer2", "wasmtime"])]
+    #[clap(long, possible_values = &["wasmer", "wasmer2", "wasmtime", "near-vm"])]
     vm_kind: Option<String>,
     /// Render existing `costs.txt` as `RuntimeConfig`.
     #[clap(long)]
@@ -289,6 +289,7 @@ fn run_estimation(cli_args: CliArgs) -> anyhow::Result<Option<CostTable>> {
         Some("wasmer") => VMKind::Wasmer0,
         Some("wasmer2") => VMKind::Wasmer2,
         Some("wasmtime") => VMKind::Wasmtime,
+        Some("near-vm") => VMKind::NearVm,
         None => VMKind::for_protocol_version(PROTOCOL_VERSION),
         Some(other) => unreachable!("Unknown vm_kind {}", other),
     };

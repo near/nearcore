@@ -573,7 +573,7 @@ mod test {
         let block_hash =
             CryptoHash::from_str("32222222222233333333334444444444445555555777").unwrap();
 
-        for trie_key in [trie_key1.clone(), trie_key2.clone()] {
+        for trie_key in [trie_key1.clone(), trie_key2] {
             let row_key = KeyForStateChanges::delayed_receipt_key_from_trie_key(
                 &block_hash,
                 &trie_key,

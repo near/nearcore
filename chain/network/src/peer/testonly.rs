@@ -15,9 +15,9 @@ use crate::tcp;
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
 use near_async::messaging::IntoSender;
+use near_async::time;
 use near_o11y::WithSpanContextExt;
 use near_primitives::network::PeerId;
-use near_primitives::time;
 use std::sync::Arc;
 
 pub struct PeerConfig {

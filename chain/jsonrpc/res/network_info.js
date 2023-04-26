@@ -38,10 +38,24 @@ function computeTraffic(bytes_received, bytes_sent) {
     return "⬇ " + convertBps(bytes_received) + "<br>⬆ " + convertBps(bytes_sent);
 }
 
-function add_debug_port_link(peer_addr) {
+function add_debug_port_link(peer_network_addr) {
+    // Each node running in a machine is assigned ports 24567 + peer_num and 3030 + peer_num, whereby peer_num is a whole number
+    // peer_rpc_address is not shared between peer nodes. Hence, it cannot be programmatically fetched.
+    // https://github.com/near/nearcore/blob/700ec29270f72f2e78a17029b4799a8228926c07/chain/network/src/network_protocol/peer.rs#L13-L19
+    DEFAULT_RPC_PORT = 3030
+    DEFAULT_NETWORK_PORT = 24567
+    peer_network_addr_array = peer_network_addr.split(":")
+    peer_network_port = peer_network_addr_array.pop()
+    peer_network_ip = peer_network_addr_array.pop()
+    peer_num = 0;
+    if (peer_network_ip.includes("127.0.0.1")) {
+        peer_num = peer_network_port - DEFAULT_NETWORK_PORT;
+    }
+    peer_rpc_port = DEFAULT_RPC_PORT + peer_num;
+    peer_rpc_address = "http://" + peer_network_addr.replace(/:.*/, ":") + peer_rpc_port + "/debug"
     return $('<a>', {
-        href: "http://" + peer_addr.replace(/:.*/, ":3030/debug"),
-        text: peer_addr
+        href: peer_rpc_address,
+        text: peer_network_addr
     });
 }
 

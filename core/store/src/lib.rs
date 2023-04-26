@@ -1,5 +1,4 @@
 use std::fs::File;
-use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -16,7 +15,7 @@ pub use db::{
     LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, TAIL_KEY,
 };
 use near_crypto::PublicKey;
-use near_o11y::pretty;
+use near_fmt::{AbbrBytes, StorageKey};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::contract::ContractCode;
 pub use near_primitives::errors::StorageError;
@@ -45,15 +44,18 @@ pub mod config;
 pub mod db;
 pub mod flat;
 pub mod metadata;
-mod metrics;
+pub mod metrics;
 pub mod migrations;
 mod opener;
+mod rocksdb_metrics;
 mod sync_utils;
 pub mod test_utils;
 mod trie;
 
 pub use crate::config::{Mode, StoreConfig};
-pub use crate::opener::{StoreMigrator, StoreOpener, StoreOpenerError};
+pub use crate::opener::{
+    checkpoint_hot_storage_and_cleanup_columns, StoreMigrator, StoreOpener, StoreOpenerError,
+};
 
 /// Specifies temperature of a storage.
 ///
@@ -80,10 +82,7 @@ impl FromStr for Temperature {
     }
 }
 
-#[cfg(feature = "protocol_feature_flat_state")]
 const STATE_COLUMNS: [DBCol; 2] = [DBCol::State, DBCol::FlatState];
-#[cfg(not(feature = "protocol_feature_flat_state"))]
-const STATE_COLUMNS: [DBCol; 1] = [DBCol::State];
 const STATE_FILE_END_MARK: u8 = 255;
 
 /// Node’s storage holding chain and all other necessary data.
@@ -280,7 +279,7 @@ impl Store {
             target: "store",
             db_op = "get",
             col = %column,
-            key = %pretty::StorageKey(key),
+            key = %StorageKey(key),
             size = value.as_deref().map(<[u8]>::len)
         );
         Ok(value)
@@ -344,20 +343,16 @@ impl Store {
     /// `STATE_COLUMNS` array.
     pub fn save_state_to_file(&self, filename: &Path) -> io::Result<()> {
         let file = File::create(filename)?;
-        let mut file = BufWriter::new(file);
+        let mut file = std::io::BufWriter::new(file);
         for (column_index, &column) in STATE_COLUMNS.iter().enumerate() {
             assert!(column_index < STATE_FILE_END_MARK.into());
-            let column_index = column_index.try_into().unwrap();
+            let column_index: u8 = column_index.try_into().unwrap();
             for item in self.storage.iter_raw_bytes(column) {
                 let (key, value) = item?;
-                file.write_all(&[column_index])?;
-                file.write_all(&u32::try_from(key.len()).unwrap().to_le_bytes())?;
-                file.write_all(&key)?;
-                file.write_all(&u32::try_from(value.len()).unwrap().to_le_bytes())?;
-                file.write_all(&value)?;
+                (column_index, key, value).serialize(&mut file)?;
             }
         }
-        file.write_all(&[STATE_FILE_END_MARK])
+        STATE_FILE_END_MARK.serialize(&mut file)
     }
 
     /// Loads state (`State` and `FlatState` columns) from given file.
@@ -365,29 +360,17 @@ impl Store {
     /// See [`Self::save_state_to_file`] for description of the file format.
     pub fn load_state_from_file(&self, filename: &Path) -> io::Result<()> {
         let file = File::open(filename)?;
-        let mut file = BufReader::new(file);
+        let mut file = std::io::BufReader::new(file);
         let mut transaction = DBTransaction::new();
         loop {
-            let mut column_index = [0u8; 1];
-            file.read_exact(&mut column_index)?;
-            if column_index[0] == STATE_FILE_END_MARK {
+            let column = u8::deserialize_reader(&mut file)?;
+            if column == STATE_FILE_END_MARK {
                 break;
             }
-            let column = STATE_COLUMNS[column_index[0] as usize];
-            let key = Self::read_vec(&mut file)?;
-            let value = Self::read_vec(&mut file)?;
-            transaction.set(column, key, value);
+            let (key, value) = BorshDeserialize::deserialize_reader(&mut file)?;
+            transaction.set(STATE_COLUMNS[usize::from(column)], key, value);
         }
         self.storage.write(transaction)
-    }
-
-    fn read_vec(rd: &mut impl io::BufRead) -> io::Result<Vec<u8>> {
-        let mut bytes = [0; 4];
-        rd.read_exact(&mut bytes)?;
-        // TODO(mina86): Use read_buf_exact once read_buf stabilises.
-        let mut vec = vec![0; u32::from_le_bytes(bytes) as usize];
-        rd.read_exact(&mut vec)?;
-        Ok(vec)
     }
 
     /// If the storage is backed by disk, flushes any in-memory data to disk.
@@ -654,22 +637,22 @@ impl StoreUpdate {
         for op in &self.transaction.ops {
             match op {
                 DBOp::Insert { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "insert", col = %col, key = %pretty::StorageKey(key), size = value.len(), value = %pretty::AbbrBytes(value),)
+                    tracing::trace!(target: "store", db_op = "insert", col = %col, key = %StorageKey(key), size = value.len(), value = %AbbrBytes(value),)
                 }
                 DBOp::Set { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "set", col = %col, key = %pretty::StorageKey(key), size = value.len(), value = %pretty::AbbrBytes(value))
+                    tracing::trace!(target: "store", db_op = "set", col = %col, key = %StorageKey(key), size = value.len(), value = %AbbrBytes(value))
                 }
                 DBOp::UpdateRefcount { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "update_rc", col = %col, key = %pretty::StorageKey(key), size = value.len(), value = %pretty::AbbrBytes(value))
+                    tracing::trace!(target: "store", db_op = "update_rc", col = %col, key = %StorageKey(key), size = value.len(), value = %AbbrBytes(value))
                 }
                 DBOp::Delete { col, key } => {
-                    tracing::trace!(target: "store", db_op = "delete", col = %col, key = %pretty::StorageKey(key))
+                    tracing::trace!(target: "store", db_op = "delete", col = %col, key = %StorageKey(key))
                 }
                 DBOp::DeleteAll { col } => {
                     tracing::trace!(target: "store", db_op = "delete_all", col = %col)
                 }
                 DBOp::DeleteRange { col, from, to } => {
-                    tracing::trace!(target: "store", db_op = "delete_range", col = %col, from = %pretty::StorageKey(from), to = %pretty::StorageKey(to))
+                    tracing::trace!(target: "store", db_op = "delete_range", col = %col, from = %StorageKey(from), to = %StorageKey(to))
                 }
             }
         }
@@ -696,21 +679,16 @@ impl fmt::Debug for StoreUpdate {
         writeln!(f, "Store Update {{")?;
         for op in self.transaction.ops.iter() {
             match op {
-                DBOp::Insert { col, key, .. } => {
-                    writeln!(f, "  + {col} {}", pretty::StorageKey(key))?
-                }
-                DBOp::Set { col, key, .. } => writeln!(f, "  = {col} {}", pretty::StorageKey(key))?,
+                DBOp::Insert { col, key, .. } => writeln!(f, "  + {col} {}", StorageKey(key))?,
+                DBOp::Set { col, key, .. } => writeln!(f, "  = {col} {}", StorageKey(key))?,
                 DBOp::UpdateRefcount { col, key, .. } => {
-                    writeln!(f, "  ± {col} {}", pretty::StorageKey(key))?
+                    writeln!(f, "  ± {col} {}", StorageKey(key))?
                 }
-                DBOp::Delete { col, key } => writeln!(f, "  - {col} {}", pretty::StorageKey(key))?,
+                DBOp::Delete { col, key } => writeln!(f, "  - {col} {}", StorageKey(key))?,
                 DBOp::DeleteAll { col } => writeln!(f, "  - {col} (all)")?,
-                DBOp::DeleteRange { col, from, to } => writeln!(
-                    f,
-                    "  - {col} [{}, {})",
-                    pretty::StorageKey(from),
-                    pretty::StorageKey(to)
-                )?,
+                DBOp::DeleteRange { col, from, to } => {
+                    writeln!(f, "  - {col} [{}, {})", StorageKey(from), StorageKey(to))?
+                }
             }
         }
         writeln!(f, "}}")
@@ -1080,7 +1058,7 @@ mod tests {
         assert_eq!(false, cache.has(&key).unwrap());
 
         let record = CompiledContract::Code(b"foo".to_vec());
-        assert_eq!((), cache.put(&key, record.clone()).unwrap());
+        cache.put(&key, record.clone()).unwrap();
         assert_eq!(Some(record), cache.get(&key).unwrap());
         assert_eq!(true, cache.has(&key).unwrap());
     }
@@ -1142,7 +1120,7 @@ mod tests {
         core::mem::drop(file);
         let store = crate::test_utils::create_test_store();
         assert_eq!(
-            std::io::ErrorKind::UnexpectedEof,
+            std::io::ErrorKind::InvalidInput,
             store.load_state_from_file(tmp.path()).unwrap_err().kind()
         );
     }
