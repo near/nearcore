@@ -6,8 +6,6 @@ publish = false
 edition.workspace = true
 
 [dependencies]
-near-stdx = { package = "near-stdx", path = "../../utils/stdx" }
-
 anyhow.workspace = true
 borsh.workspace = true
 clap.workspace = true

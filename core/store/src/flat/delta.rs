@@ -16,7 +16,7 @@ pub struct FlatStateDelta {
     pub changes: FlatStateChanges,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Copy)]
 pub struct FlatStateDeltaMetadata {
     pub block: BlockInfo,
 }

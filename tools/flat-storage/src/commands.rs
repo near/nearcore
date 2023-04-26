@@ -70,23 +70,25 @@ fn print_delta(store: &Store, shard_uid: ShardUId, metadata: FlatStateDeltaMetad
 }
 
 fn print_deltas(store: &Store, shard_uid: ShardUId) {
-    // stdx::rsplit_slice::<8>(bytes);
     let deltas_metadata = store_helper::get_all_deltas_metadata(store, shard_uid).unwrap();
-    println!("Deltas: {}", deltas_metadata.len());
-    if deltas_metadata.len() <= 10 {
+    let num_deltas = deltas_metadata.len();
+    println!("Deltas: {}", num_deltas);
+
+    if num_deltas <= 10 {
         for delta_metadata in deltas_metadata {
             print_delta(store, shard_uid, delta_metadata);
         }
     } else {
-        let (_first_deltas, _last_deltas) = near_stdx::split_slice::<5>(deltas_metadata.as_slice());
+        let (first_deltas, last_deltas) = deltas_metadata.split_at(5);
 
-        // for delta_metadata in deltas_metadata[..5] {
-        //     print_delta(store, shard_uid, delta_metadata);
-        // }
-        // println!("... skipped {} deltas ...", deltas_metadata.len() - 10);
-        // for delta_metadata in deltas_metadata[deltas_metadata.len() - 5..] {
-        //     print_delta(store, shard_uid, delta_metadata);
-        // }
+        for delta_metadata in first_deltas {
+            print_delta(store, shard_uid, *delta_metadata);
+        }
+        println!("... skipped {} deltas ...", num_deltas - 10);
+        let (_, last_deltas) = last_deltas.split_at(last_deltas.len() - 5);
+        for delta_metadata in last_deltas {
+            print_delta(store, shard_uid, *delta_metadata);
+        }
     }
 }
 
