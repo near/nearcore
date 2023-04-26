@@ -75,17 +75,17 @@ fn print_deltas(store: &Store, shard_uid: ShardUId) {
     println!("Deltas: {}", deltas_metadata.len());
     if deltas_metadata.len() <= 10 {
         for delta_metadata in deltas_metadata {
-            print_delta(store, shard_uid, delta_metadata).unwrap();
+            print_delta(store, shard_uid, delta_metadata);
         }
     } else {
         let (_first_deltas, _last_deltas) = near_stdx::split_slice::<5>(&deltas_metadata);
 
         // for delta_metadata in deltas_metadata[..5] {
-        //     print_delta(store, shard_uid, delta_metadata).unwrap();
+        //     print_delta(store, shard_uid, delta_metadata);
         // }
         // println!("... skipped {} deltas ...", deltas_metadata.len() - 10);
         // for delta_metadata in deltas_metadata[deltas_metadata.len() - 5..] {
-        //     print_delta(store, shard_uid, delta_metadata).unwrap();
+        //     print_delta(store, shard_uid, delta_metadata);
         // }
     }
 }
@@ -116,7 +116,7 @@ impl FlatStorageCommand {
                 println!("DB version: {:?}", hot_store.get_db_version()?);
                 for item in hot_store.iter(store_helper::FlatStateColumn::Status.to_db_col()) {
                     let (bytes_shard_uid, status) = item?;
-                    let shard_uid = ShardUId::try_from(&bytes_shard_uid)?;
+                    let shard_uid = ShardUId::try_from(bytes_shard_uid.as_ref())?;
                     let status = FlatStorageStatus::try_from_slice(&status)?;
                     match status {
                         FlatStorageStatus::Ready(ready_status) => {
