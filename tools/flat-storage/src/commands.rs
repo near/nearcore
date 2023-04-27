@@ -113,14 +113,12 @@ impl FlatStorageCommand {
 
         match &self.subcmd {
             SubCommand::View => {
-                let (_, hot_runtime, chain_store, hot_store) =
+                let (.., hot_store) =
                     Self::get_db(&opener, home_dir, &near_config, near_store::Mode::ReadOnly);
                 println!("DB version: {:?}", hot_store.get_db_version()?);
                 for item in hot_store.iter(store_helper::FlatStateColumn::Status.to_db_col()) {
                     let (bytes_shard_uid, status) = item?;
-                    let vec_shard_uid: Vec<u8> = bytes_shard_uid.to_vec();
-                    let (_chunks, _remainder) = stdx::as_chunks::<2, _>(&vec_shard_uid.clone());
-                    let shard_uid = ShardUId::single_shard(); //ShardUId::try_from(vec_shard_uid.as_slice())?;
+                    let shard_uid = ShardUId::try_from(&*bytes_shard_uid)?;
                     let status = FlatStorageStatus::try_from_slice(&status)?;
 
                     match status {
