@@ -1893,6 +1893,11 @@ impl Client {
         Ok(())
     }
 
+    /// Submits the transaction for future inclusion into the chain.
+    ///
+    /// If accepted, it will be added to the transaction pool and possibly forwarded to another
+    /// validator.
+    #[must_use]
     pub fn process_tx(
         &mut self,
         tx: SignedTransaction,

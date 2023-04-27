@@ -457,8 +457,7 @@ mod test {
                 100,
                 hash,
             );
-            let response = env.clients[0].process_tx(tx, false, false);
-            assert_eq!(response, ProcessTxResponse::ValidTx);
+            assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
         }
     }
 

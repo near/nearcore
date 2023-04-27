@@ -159,7 +159,7 @@ pub(crate) fn deploy_test_contract_with_protocol_version(
         vec![Action::DeployContract(DeployContractAction { code: wasm_code.to_vec() })],
         *block.hash(),
     );
-    env.clients[0].process_tx(tx, false, false);
+    assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     produce_blocks_from_height_with_protocol_version(env, epoch_length, height, protocol_version)
 }
 
@@ -213,7 +213,7 @@ pub(crate) fn prepare_env_with_congestion(
         })],
         *genesis_block.hash(),
     );
-    env.clients[0].process_tx(tx, false, false);
+    assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     for i in 1..3 {
         env.produce_block(0, i);
     }
@@ -248,7 +248,10 @@ pub(crate) fn prepare_env_with_congestion(
             *genesis_block.hash(),
         );
         tx_hashes.push(signed_transaction.get_hash());
-        env.clients[0].process_tx(signed_transaction, false, false);
+        assert_eq!(
+            env.clients[0].process_tx(signed_transaction, false, false),
+            ProcessTxResponse::ValidTx
+        );
     }
 
     (env, tx_hashes)
@@ -1753,7 +1756,7 @@ fn test_gc_execution_outcome() {
     );
     let tx_hash = tx.get_hash();
 
-    env.clients[0].process_tx(tx, false, false);
+    assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     for i in 1..epoch_length {
         env.produce_block(0, i);
     }
@@ -1892,7 +1895,10 @@ fn test_tx_forwarding() {
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let genesis_hash = *genesis_block.hash();
     // forward to 2 chunk producers
-    env.clients[0].process_tx(SignedTransaction::empty(genesis_hash), false, false);
+    assert_eq!(
+        env.clients[0].process_tx(SignedTransaction::empty(genesis_hash), false, false),
+        ProcessTxResponse::RequestRouted
+    );
     assert_eq!(env.network_adapters[0].requests.read().unwrap().len(), 4);
 }
 
@@ -1903,7 +1909,11 @@ fn test_tx_forwarding_no_double_forwarding() {
     let mut env = TestEnv::builder(chain_genesis).clients_count(50).validator_seats(50).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let genesis_hash = *genesis_block.hash();
-    env.clients[0].process_tx(SignedTransaction::empty(genesis_hash), true, false);
+    // The transaction has already been forwarded, so it won't be forwarded again.
+    assert_eq!(
+        env.clients[0].process_tx(SignedTransaction::empty(genesis_hash), true, false),
+        ProcessTxResponse::NoResponse
+    );
     assert!(env.network_adapters[0].requests.read().unwrap().is_empty());
 }
 
@@ -1932,7 +1942,7 @@ fn test_tx_forward_around_epoch_boundary() {
         signer.public_key.clone(),
         genesis_hash,
     );
-    env.clients[0].process_tx(tx, false, false);
+    assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
 
     for i in 1..epoch_length * 2 {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
@@ -1951,7 +1961,7 @@ fn test_tx_forward_around_epoch_boundary() {
         1,
         genesis_hash,
     );
-    env.clients[2].process_tx(tx, false, false);
+    assert_eq!(env.clients[2].process_tx(tx, false, false), ProcessTxResponse::RequestRouted);
     let mut accounts_to_forward = HashSet::new();
     for request in env.network_adapters[2].requests.read().unwrap().iter() {
         if let PeerManagerMessageRequest::NetworkRequests(NetworkRequests::ForwardTx(
@@ -2073,7 +2083,7 @@ fn test_gas_price_change() {
             - send_money_total_gas as u128 * min_gas_price,
         genesis_hash,
     );
-    env.clients[0].process_tx(tx, false, false);
+    assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     env.produce_block(0, 1);
     let tx = SignedTransaction::send_money(
         2,
@@ -2083,7 +2093,7 @@ fn test_gas_price_change() {
         1,
         genesis_hash,
     );
-    env.clients[0].process_tx(tx, false, false);
+    assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     for i in 2..=4 {
         env.produce_block(0, i);
     }
@@ -2119,7 +2129,7 @@ fn test_gas_price_overflow() {
             1,
             genesis_hash,
         );
-        env.clients[0].process_tx(tx, false, false);
+        assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         assert!(block.header().gas_price() <= max_gas_price);
         env.process_block(0, block, Provenance::PRODUCED);
@@ -2256,7 +2266,7 @@ fn test_data_reset_before_state_sync() {
         &signer,
         genesis_hash,
     );
-    env.clients[0].process_tx(tx, false, false);
+    assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     for i in 1..5 {
         env.produce_block(0, i);
     }
@@ -2366,7 +2376,7 @@ fn test_validate_chunk_extra() {
         })],
         *genesis_block.hash(),
     );
-    env.clients[0].process_tx(tx, false, false);
+    assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     let mut last_block = genesis_block;
     for i in 1..3 {
         last_block = env.clients[0].produce_block(i).unwrap().unwrap();
@@ -2388,7 +2398,10 @@ fn test_validate_chunk_extra() {
         })],
         *last_block.hash(),
     );
-    env.clients[0].process_tx(function_call_tx, false, false);
+    assert_eq!(
+        env.clients[0].process_tx(function_call_tx, false, false),
+        ProcessTxResponse::ValidTx
+    );
     for i in 3..5 {
         last_block = env.clients[0].produce_block(i).unwrap().unwrap();
         if i == 3 {
@@ -2532,7 +2545,8 @@ fn test_catchup_gas_price_change() {
             1,
             *genesis_block.hash(),
         );
-        env.clients[0].process_tx(tx, false, false);
+
+        assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     }
     for i in 3..=6 {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
@@ -2629,7 +2643,7 @@ fn test_block_execution_outcomes() {
             *genesis_block.hash(),
         );
         tx_hashes.push(tx.get_hash());
-        env.clients[0].process_tx(tx, false, false);
+        assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     }
     for i in 1..4 {
         env.produce_block(0, i);
@@ -2717,7 +2731,7 @@ fn test_refund_receipts_processing() {
             *genesis_block.hash(),
         );
         tx_hashes.push(tx.get_hash());
-        env.clients[0].process_tx(tx, false, false);
+        assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     }
 
     env.produce_block(0, 3);
@@ -3025,7 +3039,7 @@ fn test_query_final_state() {
         100,
         *genesis_block.hash(),
     );
-    env.clients[0].process_tx(tx, false, false);
+    assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
 
     let mut blocks = vec![];
 
@@ -3214,7 +3228,7 @@ fn prepare_env_with_transaction() -> (TestEnv, CryptoHash) {
         *genesis_block.hash(),
     );
     let tx_hash = tx.get_hash();
-    env.clients[0].process_tx(tx, false, false);
+    assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     (env, tx_hash)
 }
 
@@ -3451,7 +3465,10 @@ fn test_validator_stake_host_function() {
         })],
         *genesis_block.hash(),
     );
-    env.clients[0].process_tx(signed_transaction, false, false);
+    assert_eq!(
+        env.clients[0].process_tx(signed_transaction, false, false),
+        ProcessTxResponse::ValidTx
+    );
     for i in 0..3 {
         env.produce_block(0, block_height + i);
     }
@@ -3743,7 +3760,10 @@ mod contract_precompilation_tests {
             &signer,
             *block.hash(),
         );
-        env.clients[0].process_tx(delete_account_tx, false, false);
+        assert_eq!(
+            env.clients[0].process_tx(delete_account_tx, false, false),
+            ProcessTxResponse::ValidTx
+        );
         height = produce_blocks_from_height(&mut env, EPOCH_LENGTH, height);
 
         // Perform state sync for the second client.

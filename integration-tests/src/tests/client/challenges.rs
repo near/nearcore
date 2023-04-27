@@ -10,7 +10,7 @@ use near_chain::{Block, Chain, ChainGenesis, ChainStoreAccess, Error, Provenance
 use near_chain_configs::Genesis;
 use near_chunks::ShardsManager;
 use near_client::test_utils::{create_chunk, create_chunk_with_transactions, TestEnv};
-use near_client::Client;
+use near_client::{Client, ProcessTxResponse};
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::NetworkRequests;
@@ -338,17 +338,20 @@ fn test_verify_chunk_invalid_state_challenge() {
     let validator_signer = create_test_signer("test0");
     let genesis_hash = *env.clients[0].chain.genesis().hash();
     env.produce_block(0, 1);
-    env.clients[0].process_tx(
-        SignedTransaction::send_money(
-            0,
-            "test0".parse().unwrap(),
-            "test1".parse().unwrap(),
-            &signer,
-            1000,
-            genesis_hash,
+    assert_eq!(
+        env.clients[0].process_tx(
+            SignedTransaction::send_money(
+                1,
+                "test0".parse().unwrap(),
+                "test1".parse().unwrap(),
+                &signer,
+                1000,
+                genesis_hash,
+            ),
+            false,
+            false,
         ),
-        false,
-        false,
+        ProcessTxResponse::ValidTx
     );
     env.produce_block(0, 2);
 
@@ -623,7 +626,10 @@ fn test_fishermen_challenge() {
         signer.public_key(),
         genesis_hash,
     );
-    env.clients[0].process_tx(stake_transaction, false, false);
+    assert_eq!(
+        env.clients[0].process_tx(stake_transaction, false, false),
+        ProcessTxResponse::ValidTx
+    );
     for i in 1..=11 {
         env.produce_block(0, i);
     }

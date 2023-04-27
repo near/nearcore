@@ -3,6 +3,7 @@ use assert_matches::assert_matches;
 use near_chain::{ChainGenesis, Provenance, RuntimeWithEpochManagerAdapter};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
+use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_epoch_manager::shard_tracker::TrackedConfig;
 use near_primitives::config::ExtCosts;
@@ -56,7 +57,7 @@ fn process_transaction(
         last_block_hash,
     );
     let tx_hash = tx.get_hash();
-    env.clients[0].process_tx(tx, false, false);
+    assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
 
     for i in next_height..next_height + num_blocks {
         let mut block = env.clients[0].produce_block(i).unwrap().unwrap();
