@@ -118,8 +118,8 @@ impl FlatStorageCommand {
                 println!("DB version: {:?}", hot_store.get_db_version()?);
                 for item in hot_store.iter(store_helper::FlatStateColumn::Status.to_db_col()) {
                     let (bytes_shard_uid, status) = item?;
-                    let bytes_shard_uid: &[u8; 8] = bytes_shard_uid.as_ref().try_into().unwrap();
-                    let shard_uid = ShardUId::try_from(bytes_shard_uid.as_slice())?;
+                    let vec_shard_uid: Vec<u8> = bytes_shard_uid.to_vec();
+                    let shard_uid = ShardUId::try_from(&vec_shard_uid)?;
                     let status = FlatStorageStatus::try_from_slice(&status)?;
                     match status {
                         FlatStorageStatus::Ready(ready_status) => {
