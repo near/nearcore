@@ -119,8 +119,8 @@ impl FlatStorageCommand {
                 for item in hot_store.iter(store_helper::FlatStateColumn::Status.to_db_col()) {
                     let (bytes_shard_uid, status) = item?;
                     let vec_shard_uid: Vec<u8> = bytes_shard_uid.to_vec();
-                    let (chunks, remainder) = stdx::as_chunks::<2, _>(&vec_shard_uid.clone());
-                    let shard_uid = ShardUId::try_from(vec_shard_uid.as_slice())?;
+                    let (_chunks, _remainder) = stdx::as_chunks::<2, _>(&vec_shard_uid.clone());
+                    let shard_uid = ShardUId::single_shard(); //ShardUId::try_from(vec_shard_uid.as_slice())?;
                     let status = FlatStorageStatus::try_from_slice(&status)?;
 
                     match status {
