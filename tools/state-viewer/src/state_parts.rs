@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Instant;
 
-#[derive(clap::ArgEnum, Clone, Debug, Default)]
+#[derive(clap::ValueEnum, Clone, Debug, Default)]
 pub(crate) enum LoadAction {
     #[default]
     Apply,
@@ -34,7 +34,7 @@ pub(crate) enum StatePartsSubCommand {
     /// Load all or a single state part of a shard and perform an action over those parts.
     Load {
         /// Apply, validate or print.
-        #[clap(arg_enum, long)]
+        #[clap(value_enum, long)]
         action: LoadAction,
         /// If provided, this value will be used instead of looking it up in the headers.
         /// Use if those headers or blocks are not available.
