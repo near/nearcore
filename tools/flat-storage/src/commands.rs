@@ -119,7 +119,7 @@ impl FlatStorageCommand {
                 for item in hot_store.iter(store_helper::FlatStateColumn::Status.to_db_col()) {
                     let (bytes_shard_uid, status) = item?;
                     let vec_shard_uid: Vec<u8> = bytes_shard_uid.to_vec();
-                    let shard_uid = ShardUId::try_from(&vec_shard_uid)?;
+                    let shard_uid = ShardUId::try_from(vec_shard_uid.as_slice())?;
                     let status = FlatStorageStatus::try_from_slice(&status)?;
                     match status {
                         FlatStorageStatus::Ready(ready_status) => {
