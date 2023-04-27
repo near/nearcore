@@ -295,6 +295,7 @@ mod test {
     use near_chain_configs::genesis_validate::validate_genesis;
     use near_chain_configs::{Genesis, GenesisChangeConfig};
     use near_client::test_utils::TestEnv;
+    use near_client::ProcessTxResponse;
     use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, SecretKey};
     use near_primitives::account::id::AccountId;
     use near_primitives::state_record::StateRecord;
@@ -390,7 +391,7 @@ mod test {
             signer.public_key.clone(),
             genesis_hash,
         );
-        env.clients[0].process_tx(tx, false, false);
+        assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
 
         safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1);
 
@@ -450,8 +451,8 @@ mod test {
             signer0.public_key.clone(),
             genesis_hash,
         );
-        env.clients[0].process_tx(tx00, false, false);
-        env.clients[0].process_tx(tx01, false, false);
+        assert_eq!(env.clients[0].process_tx(tx00, false, false), ProcessTxResponse::ValidTx);
+        assert_eq!(env.clients[0].process_tx(tx01, false, false), ProcessTxResponse::ValidTx);
 
         let signer1 =
             InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
@@ -463,7 +464,7 @@ mod test {
             signer1.public_key.clone(),
             genesis_hash,
         );
-        env.clients[0].process_tx(tx1, false, false);
+        assert_eq!(env.clients[0].process_tx(tx1, false, false), ProcessTxResponse::ValidTx);
 
         safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1);
 
@@ -522,7 +523,7 @@ mod test {
             signer.public_key.clone(),
             genesis_hash,
         );
-        env.clients[0].process_tx(tx, false, false);
+        assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
 
         safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1);
 
@@ -569,7 +570,7 @@ mod test {
             signer.public_key.clone(),
             genesis_hash,
         );
-        env.clients[0].process_tx(tx, false, false);
+        assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
         for i in 1..=epoch_length + 1 {
             env.produce_block(0, i);
         }
@@ -676,7 +677,7 @@ mod test {
             1,
             genesis_hash,
         );
-        env.clients[0].process_tx(tx, false, false);
+        assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
 
         let mut blocks = vec![];
         for i in 1..epoch_length {
@@ -745,7 +746,7 @@ mod test {
             signer.public_key.clone(),
             genesis_hash,
         );
-        env.clients[0].process_tx(tx, false, false);
+        assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
 
         safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1);
 
@@ -808,7 +809,7 @@ mod test {
             signer.public_key.clone(),
             genesis_hash,
         );
-        env.clients[0].process_tx(tx, false, false);
+        assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
 
         safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1);
 

@@ -10,7 +10,6 @@
 //! We also test unaffected cases to make sure compute costs only affect
 //! parameters they should.
 
-use assert_matches::assert_matches;
 use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
@@ -294,8 +293,7 @@ fn produce_saturated_chunk(
         tx_ids.push(tx.get_hash());
 
         // add tx to the mempool but don't execute it yet
-        let res = env.clients[0].process_tx(tx, false, false);
-        assert_matches!(res, ProcessTxResponse::ValidTx);
+        assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     }
 
     // process the queued transactions
