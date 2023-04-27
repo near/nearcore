@@ -4,6 +4,7 @@ use borsh::BorshDeserialize;
 use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
+use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
@@ -104,7 +105,7 @@ fn test_storage_after_commit_of_cold_update() {
                 })],
                 last_hash,
             );
-            env.clients[0].process_tx(tx, false, false);
+            assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
         }
         // Don't send transactions in last two blocks. Because on last block production a chunk from
         // the next block will be produced and information about these transactions will be written
@@ -124,7 +125,7 @@ fn test_storage_after_commit_of_cold_update() {
                     })],
                     last_hash,
                 );
-                env.clients[0].process_tx(tx, false, false);
+                assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
             }
             for i in 0..5 {
                 let tx = SignedTransaction::send_money(
@@ -135,7 +136,7 @@ fn test_storage_after_commit_of_cold_update() {
                     1,
                     last_hash,
                 );
-                env.clients[0].process_tx(tx, false, false);
+                assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
             }
         }
 
@@ -299,7 +300,7 @@ fn test_cold_db_copy_with_height_skips() {
                     1,
                     last_hash,
                 );
-                env.clients[0].process_tx(tx, false, false);
+                assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
             }
         }
 
@@ -410,7 +411,7 @@ fn test_initial_copy_to_cold(batch_size: usize) {
                 1,
                 last_hash,
             );
-            env.clients[0].process_tx(tx, false, false);
+            assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
         }
 
         let block = env.clients[0].produce_block(h).unwrap().unwrap();

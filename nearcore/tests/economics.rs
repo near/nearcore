@@ -2,6 +2,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use near_client::ProcessTxResponse;
 use num_rational::Ratio;
 
 use near_chain::{ChainGenesis, RuntimeWithEpochManagerAdapter};
@@ -64,17 +65,20 @@ fn test_burn_mint() {
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let initial_total_supply = env.chain_genesis.total_supply;
     let genesis_hash = *env.clients[0].chain.genesis().hash();
-    env.clients[0].process_tx(
-        SignedTransaction::send_money(
-            1,
-            "test0".parse().unwrap(),
-            "test1".parse().unwrap(),
-            &signer,
-            1000,
-            genesis_hash,
+    assert_eq!(
+        env.clients[0].process_tx(
+            SignedTransaction::send_money(
+                1,
+                "test0".parse().unwrap(),
+                "test1".parse().unwrap(),
+                &signer,
+                1000,
+                genesis_hash,
+            ),
+            false,
+            false,
         ),
-        false,
-        false,
+        ProcessTxResponse::ValidTx
     );
     let near_balance = env.query_balance("near".parse().unwrap());
     assert_eq!(calc_total_supply(&mut env), initial_total_supply);
