@@ -335,12 +335,15 @@ class NeardRunner:
             self.data['neard_process']['create_time'] = 0
             self.save_data()
         elif self.data['neard_process']['pid'] is not None:
-            p = psutil.Process(self.data['neard_process']['pid'])
-            if int(p.create_time()
-                  ) == self.data['neard_process']['create_time']:
-                logging.info('stopping neard')
-                p.send_signal(signal.SIGINT)
-                p.wait()
+            try:
+                p = psutil.Process(self.data['neard_process']['pid'])
+                if int(p.create_time()
+                      ) == self.data['neard_process']['create_time']:
+                    logging.info('stopping neard')
+                    p.send_signal(signal.SIGINT)
+                    p.wait()
+            except psutil.NoSuchProcess:
+                pass
             self.data['neard_process']['pid'] = None
             self.data['neard_process']['create_time'] = 0
             self.save_data()
