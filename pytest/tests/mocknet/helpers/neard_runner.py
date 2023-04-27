@@ -39,7 +39,7 @@ def http_code(jsonrpc_error):
         return http.HTTPStatus.INTERNAL_SERVER_ERROR
 
 
-class Foo(http.server.BaseHTTPRequestHandler):
+class JSONHandler(http.server.BaseHTTPRequestHandler):
 
     def __init__(self, request, client_address, server):
         self.dispatcher = jsonrpc.Dispatcher()
@@ -83,7 +83,7 @@ class RpcServer(http.server.HTTPServer):
 
     def __init__(self, addr, neard_runner):
         self.neard_runner = neard_runner
-        super().__init__(addr, Foo)
+        super().__init__(addr, JSONHandler)
 
 
 class NeardRunner:
