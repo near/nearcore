@@ -124,8 +124,8 @@ impl FlatStorageCommand {
                     match status {
                         FlatStorageStatus::Ready(ready_status) => {
                             println!(
-                                "Shard: {shard_uid:?} - flat storage @{:?}",
-                                ready_status.flat_head.height
+                                "Shard: {shard_uid:?} - flat storage @{:?} ({})",
+                                ready_status.flat_head.height, ready_status.flat_head.hash,
                             );
                             print_deltas(&hot_store, shard_uid);
                         }

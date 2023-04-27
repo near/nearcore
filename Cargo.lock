@@ -3376,7 +3376,6 @@ dependencies = [
  "near-chain-configs",
  "near-epoch-manager",
  "near-primitives",
- "near-stdx 0.16.0",
  "near-store",
  "nearcore",
  "rayon",
