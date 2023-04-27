@@ -10,7 +10,6 @@ anyhow.workspace = true
 borsh.workspace = true
 clap.workspace = true
 rayon.workspace = true
-stdx.workspace = true
 
 tqdm.workspace = true
 
