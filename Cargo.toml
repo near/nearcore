@@ -90,7 +90,7 @@ anyhow = "1.0.62"
 arbitrary = { version = "1.2.3", features = ["derive"] }
 arc-swap = "1.5"
 assert_matches = "1.5.0"
-async-recursion = "0.3.2"
+async-recursion = "1.0.4"
 async-trait = "0.1.58"
 atty = "0.2"
 awc = { version = "3", features = ["openssl"] }
@@ -110,7 +110,7 @@ cargo_metadata = "0.14.1"
 cc = "1.0"
 cfg-if = "1.0"
 chrono = { version = "0.4.19", features = ["serde"] }
-clap = { version = "3.1.6", features = ["derive", "env"] }
+clap = { version = "4.2.0", features = ["derive", "env", "string"] }
 conqueue = "0.4.0"
 cpu-time = "1.0"
 criterion = { version = "0.3.5", default_features = false, features = ["html_reports", "cargo_bench_support"] }
@@ -277,7 +277,7 @@ smartstring = "1.0.1"
 strum = { version = "0.24", features = ["derive"] }
 stun = "0.4"
 subtle = "2.2"
-syn = { version = "1.0.54", features = ["extra-traits", "full"] }
+syn = { version = "2.0.4", features = ["extra-traits", "full"] }
 sysinfo = "0.24.5"
 tar = "0.4.38"
 target-lexicon = { version = "0.12.2", default-features = false }

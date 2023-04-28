@@ -4,6 +4,7 @@ use std::sync::Arc;
 use near_chain::{ChainGenesis, Provenance, RuntimeWithEpochManagerAdapter};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
+use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::Account;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
@@ -27,30 +28,36 @@ fn test_setup() -> (TestEnv, InMemorySigner) {
         ) as Arc<dyn RuntimeWithEpochManagerAdapter>])
         .build();
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-    send_tx(
-        &mut env,
-        1,
-        "test0".parse().unwrap(),
-        "test0".parse().unwrap(),
-        &signer,
-        vec![Action::DeployContract(DeployContractAction {
-            code: near_test_contracts::rs_contract().to_vec(),
-        })],
+    assert_eq!(
+        send_tx(
+            &mut env,
+            1,
+            "test0".parse().unwrap(),
+            "test0".parse().unwrap(),
+            &signer,
+            vec![Action::DeployContract(DeployContractAction {
+                code: near_test_contracts::rs_contract().to_vec(),
+            })],
+        ),
+        ProcessTxResponse::ValidTx
     );
     do_blocks(&mut env, 1, 3);
 
-    send_tx(
-        &mut env,
-        2,
-        "test0".parse().unwrap(),
-        "test0".parse().unwrap(),
-        &signer,
-        vec![Action::FunctionCall(FunctionCallAction {
-            method_name: "write_random_value".to_string(),
-            args: vec![],
-            gas: 100000000000000,
-            deposit: 0,
-        })],
+    assert_eq!(
+        send_tx(
+            &mut env,
+            2,
+            "test0".parse().unwrap(),
+            "test0".parse().unwrap(),
+            &signer,
+            vec![Action::FunctionCall(FunctionCallAction {
+                method_name: "write_random_value".to_string(),
+                args: vec![],
+                gas: 100000000000000,
+                deposit: 0,
+            })],
+        ),
+        ProcessTxResponse::ValidTx
     );
     do_blocks(&mut env, 3, 9);
     (env, signer)
@@ -70,10 +77,10 @@ fn send_tx(
     receiver_id: AccountId,
     signer: &InMemorySigner,
     actions: Vec<Action>,
-) {
+) -> ProcessTxResponse {
     let hash = env.clients[0].chain.head().unwrap().last_block_hash;
     let tx = SignedTransaction::from_actions(nonce, signer_id, receiver_id, signer, actions, hash);
-    env.clients[0].process_tx(tx, false, false);
+    env.clients[0].process_tx(tx, false, false)
 }
 
 #[test]

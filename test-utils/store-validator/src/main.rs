@@ -1,32 +1,30 @@
-use std::path::Path;
-use std::process;
-use std::sync::Arc;
-
 use ansi_term::Color::{Green, Red, White, Yellow};
 use clap::{Arg, Command};
-
 use near_chain::store_validator::StoreValidator;
 use near_chain::RuntimeWithEpochManagerAdapter;
 use near_chain_configs::GenesisValidationMode;
 use near_o11y::testonly::init_integration_logger;
 use nearcore::{get_default_home, load_config};
+use std::path::PathBuf;
+use std::process;
+use std::sync::Arc;
 
 fn main() {
     init_integration_logger();
 
-    let default_home = get_default_home();
     let matches = Command::new("store-validator")
         .arg(
             Arg::new("home")
                 .long("home")
-                .default_value_os(default_home.as_os_str())
+                .default_value(get_default_home().into_os_string())
+                .value_parser(clap::value_parser!(PathBuf))
                 .help("Directory for config and data (default \"~/.near\")")
-                .takes_value(true),
+                .action(clap::ArgAction::Set),
         )
         .subcommand(Command::new("validate"))
         .get_matches();
 
-    let home_dir = matches.value_of("home").map(Path::new).unwrap();
+    let home_dir = matches.get_one::<PathBuf>("home").unwrap();
     let near_config = load_config(home_dir, GenesisValidationMode::Full)
         .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 

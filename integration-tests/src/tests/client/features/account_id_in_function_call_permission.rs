@@ -70,8 +70,10 @@ fn test_account_id_in_function_call_permission_upgrade() {
         let tip = env.clients[0].chain.head().unwrap();
         let signed_transaction =
             Transaction { nonce: 10, block_hash: tip.last_block_hash, ..tx.clone() }.sign(&signer);
-        let res = env.clients[0].process_tx(signed_transaction, false, false);
-        assert_eq!(res, ProcessTxResponse::ValidTx);
+        assert_eq!(
+            env.clients[0].process_tx(signed_transaction, false, false),
+            ProcessTxResponse::ValidTx
+        );
         for i in 0..3 {
             env.produce_block(0, tip.height + i + 1);
         }
@@ -84,9 +86,8 @@ fn test_account_id_in_function_call_permission_upgrade() {
         let tip = env.clients[0].chain.head().unwrap();
         let signed_transaction =
             Transaction { nonce: 11, block_hash: tip.last_block_hash, ..tx }.sign(&signer);
-        let res = env.clients[0].process_tx(signed_transaction, false, false);
         assert_eq!(
-            res,
+            env.clients[0].process_tx(signed_transaction, false, false),
             ProcessTxResponse::InvalidTx(InvalidTxError::ActionsValidation(
                 ActionsValidationError::InvalidAccountId { account_id: "#".to_string() }
             ))
@@ -132,9 +133,8 @@ fn test_very_long_account_id() {
     }
     .sign(&signer);
 
-    let res = env.clients[0].process_tx(tx, false, false);
     assert_eq!(
-        res,
+        env.clients[0].process_tx(tx, false, false),
         ProcessTxResponse::InvalidTx(InvalidTxError::ActionsValidation(
             ActionsValidationError::InvalidAccountId { account_id: "A".repeat(128) }
         ))
