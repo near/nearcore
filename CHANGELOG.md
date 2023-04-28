@@ -4,19 +4,25 @@
 
 ### Protocol Changes
 
-* Contract preparation and gas charging for wasm execution also switched to using our own code, as per the finite-wasm specification. Contract execution gas costs will change slightly for expected use cases. This opens up opportunities for further changing the execution gas costs (eg. with different costs per opcode) to lower contract execution cost long-term.
+### Non-protocol Changes
+
+## 1.34.0
+
+### Protocol Changes
+
+* Flat Storage for reads, reducing number of DB accesses for state read from `2 * key.len()` in the worst case to 2. [#8761](https://github.com/near/nearcore/pull/8761), [NEP-399](https://github.com/near/NEPs/pull/399)
+* Contract preparation and gas charging for wasm execution also switched to using our own code, as per the finite-wasm specification. Contract execution gas costs will change slightly for expected use cases. This opens up opportunities for further changing the execution gas costs (eg. with different costs per opcode) to lower contract execution cost long-term. [#8912](https://github.com/near/nearcore/pull/8912)
 * Compute Costs are implemented and stabilized. Compute usage of the chunk is now limited according to the compute costs. [#8915](https://github.com/near/nearcore/pull/8915), [NEP-455](https://github.com/near/NEPs/blob/master/neps/nep-0455.md).
 * Write related storage compute costs are increased which means they fill a chunk sooner but gas costs are unaffected. [#8924](https://github.com/near/nearcore/pull/8924)
-* Flat Storage for reads, reducing number of DB accesses for state read from `2 * key.len()` in the worst case to 2. [#8761](https://github.com/near/nearcore/pull/8761), [NEP-399](https://github.com/near/NEPs/pull/399)
 
 ### Non-protocol Changes
 
-* The contract runtime switched to using our fork of wasmer, with various improvements.
-* undo-block tool to reset the chain head from current head to its prev block. Use the tool by running: `./target/release/neard --home {path_to_config_directory} undo-block`. [#8681](https://github.com/near/nearcore/pull/8681)
-* Node can sync State from S3. [#8789](https://github.com/near/nearcore/pull/8789)
-* Node can sync State from local filesystem. [#8789](https://github.com/near/nearcore/pull/8789)
-* Add per shard granularity for chunks in validator info metric. [#8934](https://github.com/near/nearcore/pull/8934)
+* undo-block tool to reset the chain head from current head to its prev block. Use the tool by running: `./target/release/neard undo-block`. [#8681](https://github.com/near/nearcore/pull/8681)
 * Add prometheus metrics for expected number of blocks/chunks at the end of the epoch. [#8759](https://github.com/near/nearcore/pull/8759)
+* Node can sync State from S3. [#8789](https://github.com/near/nearcore/pull/8789)
+* The contract runtime switched to using our fork of wasmer, with various improvements. [#8912](https://github.com/near/nearcore/pull/8912)
+* Node can sync State from local filesystem. [#8913](https://github.com/near/nearcore/pull/8913)
+* Add per shard granularity for chunks in validator info metric. [#8934](https://github.com/near/nearcore/pull/8934)
 
 ## 1.33.0
 
