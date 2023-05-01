@@ -486,6 +486,9 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
         opts.set_merge_operator("refcount merge", RocksDB::refcount_merge, RocksDB::refcount_merge);
         opts.set_compaction_filter("empty value filter", RocksDB::empty_value_compaction_filter);
     }
+    if temp == Temperature::Hot && col == DBCol::FlatState {
+        opts.set_merge_operator("flat state merge", RocksDB::flat_state_merge, RocksDB::flat_state_merge);
+    }
     opts
 }
 

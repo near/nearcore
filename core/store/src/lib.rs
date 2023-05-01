@@ -571,6 +571,15 @@ impl StoreUpdate {
         self.storage = StoreUpdateStorage::Tries(tries.clone())
     }
 
+    pub fn merge_value(
+        &mut self,
+        column: DBCol,
+        key: &[u8],
+        value: &[u8],
+    ) {
+        self.transaction.merge_value(column, key.to_vec(), value.to_vec());
+    }
+
     /// Merge another store update into this one.
     ///
     /// Panics if `self`’s and `other`’s storage are incompatible.

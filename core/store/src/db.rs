@@ -8,6 +8,7 @@ mod colddb;
 mod splitdb;
 
 pub mod refcount;
+pub mod flat_state_merge;
 mod slice;
 mod testdb;
 
@@ -132,6 +133,10 @@ impl DBTransaction {
 
     pub fn delete_range(&mut self, col: DBCol, from: Vec<u8>, to: Vec<u8>) {
         self.ops.push(DBOp::DeleteRange { col, from, to });
+    }
+
+    pub fn merge_value(&mut self, col: DBCol, key: Vec<u8>, value: Vec<u8>) {
+        self.ops.push(DBOp::UpdateRefcount { col, key, value });
     }
 
     pub fn merge(&mut self, other: DBTransaction) {

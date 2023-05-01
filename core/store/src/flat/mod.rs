@@ -32,6 +32,7 @@ mod metrics;
 mod storage;
 pub mod store_helper;
 mod types;
+mod inlining_migration;
 
 pub use chunk_view::FlatStorageChunkView;
 pub use delta::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
