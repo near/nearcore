@@ -1,4 +1,5 @@
-use super::super::process_blocks::{create_nightshade_runtimes, deploy_test_contract};
+use super::super::process_blocks::deploy_test_contract;
+use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 use assert_matches::assert_matches;
 use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;

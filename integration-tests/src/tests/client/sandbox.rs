@@ -1,6 +1,3 @@
-use std::path::Path;
-use std::sync::Arc;
-
 use super::utils::TestEnvNightshadeSetupExt;
 use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::Genesis;
@@ -14,7 +11,6 @@ use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
 use near_primitives::types::{AccountId, BlockHeight, Nonce};
-use near_store::test_utils::create_test_store;
 use nearcore::config::GenesisExt;
 
 fn test_setup() -> (TestEnv, InMemorySigner) {
