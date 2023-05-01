@@ -795,7 +795,8 @@ impl Trie {
             matches!(mode, KeyLookupMode::FlatStorage) && self.flat_storage_chunk_view.is_some();
 
         if use_flat_storage {
-            self.flat_storage_chunk_view.as_ref().unwrap().get_ref(&key)
+            let fs_value = self.flat_storage_chunk_view.as_ref().unwrap().get_value(&key)?;
+            Ok(fs_value.map(|fs_value| fs_value.to_value_ref()))
         } else {
             let key_nibbles = NibbleSlice::new(key);
             self.lookup(key_nibbles)
