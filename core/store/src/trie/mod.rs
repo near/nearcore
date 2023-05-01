@@ -1,4 +1,4 @@
-use crate::flat::{FlatStateChanges, FlatStorageChunkView};
+use crate::flat::{FlatStateChanges, FlatStateValue, FlatStorageChunkView};
 pub use crate::trie::config::TrieConfig;
 pub(crate) use crate::trie::config::DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT;
 use crate::trie::insert_delete::NodesStorage;
@@ -401,6 +401,11 @@ enum NodeOrValue {
     Value(std::sync::Arc<[u8]>),
 }
 
+pub enum ValuePtr {
+    Ref(ValueRef),
+    Memory(Vec<u8>),
+}
+
 impl Trie {
     pub const EMPTY_ROOT: StateRoot = StateRoot::new();
 
@@ -791,24 +796,43 @@ impl Trie {
         key: &[u8],
         mode: KeyLookupMode,
     ) -> Result<Option<ValueRef>, StorageError> {
+        let value_ref = self.get_value_ptr(key, mode)?.map(|ptr| match ptr {
+            ValuePtr::Ref(value_ref) => value_ref,
+            ValuePtr::Memory(value) => ValueRef { length: value.len() as u32, hash: hash(&value) },
+        });
+        Ok(value_ref)
+    }
+
+    pub fn get_value_ptr(
+        &self,
+        key: &[u8],
+        mode: KeyLookupMode,
+    ) -> Result<Option<ValuePtr>, StorageError> {
         let use_flat_storage =
             matches!(mode, KeyLookupMode::FlatStorage) && self.flat_storage_chunk_view.is_some();
 
-        if use_flat_storage {
-            self.flat_storage_chunk_view.as_ref().unwrap().get_ref(&key)
+        let ptr = if use_flat_storage {
+            self.flat_storage_chunk_view.as_ref().unwrap().get_value(&key)?.map(|fs_value| {
+                match fs_value {
+                    FlatStateValue::Ref(value_ref) => ValuePtr::Ref(value_ref),
+                    FlatStateValue::Inlined(value) => ValuePtr::Memory(value),
+                }
+            })
         } else {
-            let key_nibbles = NibbleSlice::new(key);
-            self.lookup(key_nibbles)
-        }
+            self.lookup(NibbleSlice::new(key))?.map(|value_ref| ValuePtr::Ref(value_ref))
+        };
+        Ok(ptr)
     }
 
     pub fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
-        match self.get_ref(key, KeyLookupMode::FlatStorage)? {
-            Some(ValueRef { hash, .. }) => {
-                self.storage.retrieve_raw_bytes(&hash).map(|bytes| Some(bytes.to_vec()))
+        let value = match self.get_value_ptr(key, KeyLookupMode::FlatStorage)? {
+            Some(ValuePtr::Ref(ValueRef { hash, .. })) => {
+                self.storage.retrieve_raw_bytes(&hash).map(|bytes| Some(bytes.to_vec()))?
             }
-            None => Ok(None),
-        }
+            Some(ValuePtr::Memory(value)) => Some(value),
+            None => None,
+        };
+        Ok(value)
     }
 
     pub(crate) fn convert_to_insertions_and_deletions(

@@ -1,5 +1,5 @@
 pub use self::iterator::TrieUpdateIterator;
-use super::Trie;
+use super::{Trie, ValuePtr};
 use crate::trie::{KeyLookupMode, TrieChanges};
 use crate::StorageError;
 use near_primitives::hash::CryptoHash;
@@ -32,12 +32,14 @@ pub struct TrieUpdate {
 pub enum TrieUpdateValuePtr<'a> {
     HashAndSize(&'a Trie, u32, CryptoHash),
     MemoryRef(&'a [u8]),
+    Memory(Vec<u8>),
 }
 
 impl<'a> TrieUpdateValuePtr<'a> {
     pub fn len(&self) -> u32 {
         match self {
             TrieUpdateValuePtr::MemoryRef(value) => value.len() as u32,
+            TrieUpdateValuePtr::Memory(value) => value.len() as u32,
             TrieUpdateValuePtr::HashAndSize(_, length, _) => *length,
         }
     }
@@ -45,6 +47,7 @@ impl<'a> TrieUpdateValuePtr<'a> {
     pub fn deref_value(&self) -> Result<Vec<u8>, StorageError> {
         match self {
             TrieUpdateValuePtr::MemoryRef(value) => Ok(value.to_vec()),
+            TrieUpdateValuePtr::Memory(value) => Ok(value.to_vec()),
             TrieUpdateValuePtr::HashAndSize(trie, _, hash) => {
                 trie.storage.retrieve_raw_bytes(hash).map(|bytes| bytes.to_vec())
             }
@@ -75,9 +78,12 @@ impl TrieUpdate {
             }
         }
 
-        self.trie.get_ref(&key, mode).map(|option| {
-            option.map(|ValueRef { length, hash }| {
-                TrieUpdateValuePtr::HashAndSize(&self.trie, length, hash)
+        self.trie.get_value_ptr(&key, mode).map(|option| {
+            option.map(|ptr| match ptr {
+                ValuePtr::Ref(ValueRef { length, hash }) => {
+                    TrieUpdateValuePtr::HashAndSize(&self.trie, length, hash)
+                }
+                ValuePtr::Memory(value) => TrieUpdateValuePtr::Memory(value),
             })
         })
     }
