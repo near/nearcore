@@ -11,7 +11,6 @@ use nearcore::{get_default_home, load_config};
 use std::path::PathBuf;
 use std::process;
 
-
 fn main() {
     init_integration_logger();
 

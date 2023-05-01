@@ -1499,7 +1499,8 @@ mod test {
     use super::*;
     use actix::System;
     use near_actix_test_utils::run_actix;
-    use near_chain::test_utils;use near_chain::{test_utils::process_block_sync, BlockProcessingArtifact, Provenance};
+    use near_chain::test_utils;
+    use near_chain::{test_utils::process_block_sync, BlockProcessingArtifact, Provenance};
     use near_epoch_manager::EpochManagerAdapter;
     use near_network::test_utils::MockPeerManagerAdapter;
     use near_primitives::{
