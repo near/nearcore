@@ -4,6 +4,7 @@ use std::sync::Arc;
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
 use chrono::Utc;
+use near_primitives::runtime::migration_data::MigrationData;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use num_rational::Rational32;
 
@@ -536,6 +537,8 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> bool;
 
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error>;
+
+    fn get_migration_data(&self) -> Arc<MigrationData>;
 }
 
 /// The last known / checked height and time when we have processed it.

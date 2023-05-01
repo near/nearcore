@@ -36,6 +36,7 @@ near-store.workspace = true
 near-cache.workspace = true
 near-client-primitives.workspace = true
 near-epoch-manager.workspace = true
+node-runtime.workspace = true
 
 [dev-dependencies]
 insta.workspace = true

@@ -3356,6 +3356,7 @@ dependencies = [
  "near-pool",
  "near-primitives",
  "near-store",
+ "node-runtime",
  "num-rational",
  "once_cell",
  "rand 0.8.5",

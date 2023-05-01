@@ -1420,6 +1420,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         let epoch_manager = self.epoch_manager.read();
         Ok(epoch_manager.will_shard_layout_change(parent_hash)?)
     }
+
+    fn get_migration_data(&self) -> Arc<MigrationData> {
+        self.migration_data.clone()
+    }
 }
 
 impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
