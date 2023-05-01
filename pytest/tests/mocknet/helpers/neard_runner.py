@@ -67,9 +67,6 @@ class JSONHandler(http.server.BaseHTTPRequestHandler):
 
         body = self.rfile.read(int(l))
         response = jsonrpc.JSONRPCResponseManager.handle(body, self.dispatcher)
-        response_json = response.json
-
-        old_len = len(response_json)
         response_body = response.json.encode('UTF-8')
 
         self.send_response(http_code(response.error))
