@@ -3,6 +3,7 @@ use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
+use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, FunctionCallAction, Transaction};
@@ -63,7 +64,10 @@ fn test_near_vm_upgrade() {
         let tip = env.clients[0].chain.head().unwrap();
         let signed_transaction =
             Transaction { nonce: 10, block_hash: tip.last_block_hash, ..tx.clone() }.sign(&signer);
-        env.clients[0].process_tx(signed_transaction, false, false);
+        assert_eq!(
+            env.clients[0].process_tx(signed_transaction, false, false),
+            ProcessTxResponse::ValidTx
+        );
         for i in 0..3 {
             env.produce_block(0, tip.height + i + 1);
         }
@@ -77,7 +81,10 @@ fn test_near_vm_upgrade() {
         let tip = env.clients[0].chain.head().unwrap();
         let signed_transaction =
             Transaction { nonce: 11, block_hash: tip.last_block_hash, ..tx }.sign(&signer);
-        env.clients[0].process_tx(signed_transaction, false, false);
+        assert_eq!(
+            env.clients[0].process_tx(signed_transaction, false, false),
+            ProcessTxResponse::ValidTx
+        );
         for i in 0..3 {
             env.produce_block(0, tip.height + i + 1);
         }

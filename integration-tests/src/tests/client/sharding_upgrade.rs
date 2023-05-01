@@ -1,4 +1,5 @@
 use borsh::BorshSerialize;
+use near_client::ProcessTxResponse;
 
 use crate::tests::client::process_blocks::set_block_protocol_version;
 use near_chain::near_chain_primitives::Error;
@@ -111,7 +112,10 @@ impl TestShardUpgradeEnv {
         if height == 1 {
             for tx in self.init_txs.iter() {
                 for j in 0..self.num_validators {
-                    env.clients[j].process_tx(tx.clone(), false, false);
+                    assert_eq!(
+                        env.clients[j].process_tx(tx.clone(), false, false),
+                        ProcessTxResponse::ValidTx
+                    );
                 }
             }
         }
@@ -123,7 +127,10 @@ impl TestShardUpgradeEnv {
         if let Some(txs) = self.txs_by_height.get(&(height + 1)) {
             for tx in txs {
                 for j in 0..self.num_validators {
-                    env.clients[j].process_tx(tx.clone(), false, false);
+                    assert_eq!(
+                        env.clients[j].process_tx(tx.clone(), false, false),
+                        ProcessTxResponse::ValidTx
+                    );
                 }
             }
         }

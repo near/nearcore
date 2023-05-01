@@ -177,7 +177,7 @@ pub struct ApplyRangeCmd {
     shard_id: ShardId,
     #[clap(long)]
     verbose_output: bool,
-    #[clap(long, parse(from_os_str))]
+    #[clap(long, value_parser)]
     csv_file: Option<PathBuf>,
     #[clap(long)]
     only_contracts: bool,
@@ -277,7 +277,7 @@ pub struct DumpAccountStorageCmd {
     account_id: String,
     #[clap(long)]
     storage_key: String,
-    #[clap(long, parse(from_os_str))]
+    #[clap(long, value_parser)]
     output: PathBuf,
     #[clap(long)]
     block_height: String,
@@ -301,7 +301,7 @@ impl DumpAccountStorageCmd {
 pub struct DumpCodeCmd {
     #[clap(long)]
     account_id: String,
-    #[clap(long, parse(from_os_str))]
+    #[clap(long, value_parser)]
     output: PathBuf,
 }
 
@@ -325,7 +325,7 @@ pub struct DumpStateCmd {
     stream: bool,
     /// Location of the dumped state.
     /// This is a directory if --stream is set, and a file otherwise.
-    #[clap(long, parse(from_os_str))]
+    #[clap(long, value_parser)]
     file: Option<PathBuf>,
     /// List of account IDs to dump.
     /// Note: validators will always be dumped.
@@ -463,7 +463,7 @@ impl ReplayCmd {
 #[derive(clap::Parser)]
 pub struct RocksDBStatsCmd {
     /// Location of the dumped Rocks DB stats.
-    #[clap(long, parse(from_os_str))]
+    #[clap(long, value_parser)]
     file: Option<PathBuf>,
 }
 
@@ -533,20 +533,21 @@ impl ViewChainCmd {
     }
 }
 
+#[derive(Clone)]
 pub enum ViewTrieFormat {
     Full,
     Pretty,
 }
 
-impl std::str::FromStr for ViewTrieFormat {
-    type Err = String;
+impl clap::ValueEnum for ViewTrieFormat {
+    fn value_variants<'a>() -> &'a [Self] {
+        &[Self::Full, Self::Pretty]
+    }
 
-    fn from_str(s: &str) -> Result<Self, String> {
-        let s = s.to_lowercase();
-        match s.as_str() {
-            "full" => Ok(ViewTrieFormat::Full),
-            "pretty" => Ok(ViewTrieFormat::Pretty),
-            _ => Err(format!("invalid view trie format string {s}")),
+    fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
+        match self {
+            Self::Full => Some(clap::builder::PossibleValue::new("full")),
+            Self::Pretty => Some(clap::builder::PossibleValue::new("pretty")),
         }
     }
 }

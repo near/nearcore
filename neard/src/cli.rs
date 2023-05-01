@@ -155,7 +155,7 @@ struct NeardOpts {
     #[clap(long, name = "target")]
     verbose: Option<Option<String>>,
     /// Directory for config and data.
-    #[clap(long, parse(from_os_str), default_value_os = crate::DEFAULT_HOME.as_os_str())]
+    #[clap(long, value_parser, default_value_os = crate::DEFAULT_HOME.as_os_str())]
     home: PathBuf,
     /// Skips consistency checks of genesis.json (and records.json) upon startup.
     /// Let's you start `neard` slightly faster.
@@ -244,7 +244,7 @@ pub(super) enum NeardSubCommand {
     /// validate config files including genesis.json and config.json
     ValidateConfig(ValidateConfigCommand),
 
-    // reset the head of the chain locally to the prev block of current head
+    /// reset the head of the chain locally to the prev block of current head
     UndoBlock(UndoBlockCommand),
 }
 
@@ -263,7 +263,7 @@ pub(super) struct InitCmd {
     #[clap(long)]
     account_id: Option<String>,
     /// Chain ID, by default creates new random.
-    #[clap(long, forbid_empty_values = true)]
+    #[clap(long, value_parser(clap::builder::NonEmptyStringValueParser::new()))]
     chain_id: Option<String>,
     /// Specify a custom download URL for the genesis file.
     #[clap(long)]

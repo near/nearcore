@@ -2,6 +2,7 @@ use assert_matches::assert_matches;
 use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
+use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::errors::TxExecutionError;
@@ -86,7 +87,7 @@ fn protocol_upgrade() {
             Transaction { nonce: tip.height + 1, block_hash: tip.last_block_hash, ..tx.clone() }
                 .sign(&signer);
         let tx_hash = signed_tx.get_hash();
-        env.clients[0].process_tx(signed_tx, false, false);
+        assert_eq!(env.clients[0].process_tx(signed_tx, false, false), ProcessTxResponse::ValidTx);
         produce_blocks_from_height_with_protocol_version(
             &mut env,
             epoch_length,
@@ -106,7 +107,7 @@ fn protocol_upgrade() {
             Transaction { nonce: tip.height + 1, block_hash: tip.last_block_hash, ..tx }
                 .sign(&signer);
         let tx_hash = signed_tx.get_hash();
-        env.clients[0].process_tx(signed_tx, false, false);
+        assert_eq!(env.clients[0].process_tx(signed_tx, false, false), ProcessTxResponse::ValidTx);
         for i in 0..epoch_length {
             let block = env.clients[0].produce_block(tip.height + i + 1).unwrap().unwrap();
             env.process_block(0, block.clone(), Provenance::PRODUCED);
@@ -143,7 +144,7 @@ fn protocol_upgrade() {
             Transaction { nonce: tip.height + 1, block_hash: tip.last_block_hash, ..tx }
                 .sign(&signer);
         let tx_hash = signed_tx.get_hash();
-        env.clients[0].process_tx(signed_tx, false, false);
+        assert_eq!(env.clients[0].process_tx(signed_tx, false, false), ProcessTxResponse::ValidTx);
         for i in 0..epoch_length {
             let block = env.clients[0].produce_block(tip.height + i + 1).unwrap().unwrap();
             env.process_block(0, block.clone(), Provenance::PRODUCED);
