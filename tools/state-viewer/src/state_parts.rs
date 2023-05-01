@@ -4,9 +4,9 @@ use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use near_client::sync::state::{
     get_num_parts_from_filename, is_part_filename, location_prefix, part_filename, StateSync,
 };
-use near_primitives::challenge::PartialState;
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
+use near_primitives::challenge::PartialState;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::state_part::PartId;
 use near_primitives::state_record::StateRecord;
@@ -304,7 +304,7 @@ fn load_state_parts(
                     )
                     .unwrap();
                 chain
-                    .runtime
+                    .runtime_adapter
                     .apply_state_part(
                         shard_id,
                         &state_root,
@@ -316,7 +316,7 @@ fn load_state_parts(
                 tracing::info!(target: "state-parts", part_id, part_length = part.len(), elapsed_sec = timer.elapsed().as_secs_f64(), "Loaded a state part");
             }
             LoadAction::Validate => {
-                assert!(chain.runtime.validate_state_part(
+                assert!(chain.runtime_adapter.validate_state_part(
                     &state_root,
                     PartId::new(part_id, num_parts),
                     &part
@@ -378,7 +378,7 @@ fn dump_state_parts(
         let timer = Instant::now();
         assert!(part_id < num_parts, "part_id: {}, num_parts: {}", part_id, num_parts);
         let state_part = chain
-            .runtime
+            .runtime_adapter
             .obtain_state_part(
                 shard_id,
                 &sync_prev_hash,

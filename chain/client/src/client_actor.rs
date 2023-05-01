@@ -1771,13 +1771,13 @@ impl SyncJobsActor {
         msg: &ApplyStatePartsRequest,
     ) -> Result<(), near_chain_primitives::error::Error> {
         let _span = tracing::debug_span!(target: "client", "apply_parts").entered();
-        let store = msg.runtime.store();
+        let store = msg.runtime_adapter.store();
 
         for part_id in 0..msg.num_parts {
             let key = StatePartKey(msg.sync_hash, msg.shard_id, part_id).try_to_vec()?;
             let part = store.get(DBCol::StateParts, &key)?.unwrap();
 
-            msg.runtime.apply_state_part(
+            msg.runtime_adapter.apply_state_part(
                 msg.shard_id,
                 &msg.state_root,
                 PartId::new(part_id, msg.num_parts),
@@ -1881,7 +1881,7 @@ impl Handler<WithSpanContext<StateSplitRequest>> for SyncJobsActor {
         _: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
-        let results = msg.runtime.build_state_for_split_shards(
+        let results = msg.runtime_adapter.build_state_for_split_shards(
             msg.shard_uid,
             &msg.state_root,
             &msg.next_epoch_shard_layout,

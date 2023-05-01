@@ -237,7 +237,7 @@ impl ClientActor {
             .iter()
             .enumerate()
             .map(|(shard_id, chunk)| {
-                let state_root_node = self.client.runtime.get_state_root_node(
+                let state_root_node = self.client.runtime_adapter.get_state_root_node(
                     shard_id as u64,
                     block.hash(),
                     &chunk.prev_state_root(),

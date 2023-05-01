@@ -1786,10 +1786,10 @@ fn test_gc_after_state_sync() {
         assert!(env.clients[1].chain.epoch_manager.get_epoch_start_height(&block_hash).is_ok());
     }
     env.clients[1].chain.reset_data_pre_state_sync(sync_hash).unwrap();
-    assert_eq!(env.clients[1].runtime.get_gc_stop_height(&sync_hash), 0);
+    assert_eq!(env.clients[1].runtime_adapter.get_gc_stop_height(&sync_hash), 0);
     // mimic what we do in possible_targets
     assert!(env.clients[1].epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash).is_ok());
-    let tries = env.clients[1].runtime.get_tries();
+    let tries = env.clients[1].runtime_adapter.get_tries();
     env.clients[1].chain.clear_data(tries, &Default::default()).unwrap();
 }
 
@@ -1821,7 +1821,7 @@ fn test_process_block_after_state_sync() {
         .get_chunk_extra(&sync_hash, &ShardUId { version: 1, shard_id: 0 })
         .unwrap();
     let state_part = env.clients[0]
-        .runtime
+        .runtime_adapter
         .obtain_state_part(0, &sync_hash, chunk_extra.state_root(), PartId::new(0, 1))
         .unwrap();
     // reset cache
@@ -1832,7 +1832,7 @@ fn test_process_block_after_state_sync() {
     env.clients[0].chain.reset_data_pre_state_sync(sync_hash).unwrap();
     let epoch_id = env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id().clone();
     env.clients[0]
-        .runtime
+        .runtime_adapter
         .apply_state_part(0, chunk_extra.state_root(), PartId::new(0, 1), &state_part, &epoch_id)
         .unwrap();
     let block = env.clients[0].produce_block(sync_height + 1).unwrap().unwrap();
@@ -1872,7 +1872,9 @@ fn test_gc_fork_tail() {
         }
     }
     let head = env.clients[1].chain.head().unwrap();
-    assert!(env.clients[1].runtime.get_gc_stop_height(&head.last_block_hash) > epoch_length);
+    assert!(
+        env.clients[1].runtime_adapter.get_gc_stop_height(&head.last_block_hash) > epoch_length
+    );
     let tail = env.clients[1].chain.store().tail().unwrap();
     let fork_tail = env.clients[1].chain.store().fork_tail().unwrap();
     assert!(tail <= fork_tail && fork_tail < second_epoch_start.unwrap());
@@ -2273,7 +2275,7 @@ fn test_data_reset_before_state_sync() {
     let head = env.clients[0].chain.head().unwrap();
     let head_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
     let response = env.clients[0]
-        .runtime
+        .runtime_adapter
         .query(
             ShardUId::single_shard(),
             &head_block.chunks()[0].prev_state_root(),
@@ -2288,7 +2290,7 @@ fn test_data_reset_before_state_sync() {
     assert_matches!(response.kind, QueryResponseKind::ViewAccount(_));
     env.clients[0].chain.reset_data_pre_state_sync(*head_block.hash()).unwrap();
     // account should not exist after clearing state
-    let response = env.clients[0].runtime.query(
+    let response = env.clients[0].runtime_adapter.query(
         ShardUId::single_shard(),
         &head_block.chunks()[0].prev_state_root(),
         head.height,
@@ -2572,7 +2574,7 @@ fn test_catchup_gas_price_change() {
     };
     //let state_root = state_sync_header.chunk.header.inner.prev_state_root;
     let state_root_node =
-        env.clients[0].runtime.get_state_root_node(0, &sync_hash, &state_root).unwrap();
+        env.clients[0].runtime_adapter.get_state_root_node(0, &sync_hash, &state_root).unwrap();
     let num_parts = get_num_state_parts(state_root_node.memory_usage);
     let state_sync_parts = (0..num_parts)
         .map(|i| env.clients[0].chain.get_state_response_part(0, i, sync_hash).unwrap())
@@ -2585,7 +2587,7 @@ fn test_catchup_gas_price_change() {
             .set_state_part(0, sync_hash, PartId::new(i, num_parts), &state_sync_parts[i as usize])
             .unwrap();
     }
-    let rt = Arc::clone(&env.clients[1].runtime);
+    let rt = Arc::clone(&env.clients[1].runtime_adapter);
     let f = move |msg: ApplyStatePartsRequest| {
         use borsh::BorshSerialize;
         let store = rt.store();
@@ -2750,7 +2752,7 @@ fn test_refund_receipts_processing() {
             .unwrap()
             .clone();
         let state_update = env.clients[0]
-            .runtime
+            .runtime_adapter
             .get_tries()
             .new_trie_update(test_shard_uid, *chunk_extra.state_root());
         let delayed_indices: Option<DelayedReceiptIndices> =
@@ -3089,14 +3091,14 @@ fn test_query_final_state() {
     env.process_block(0, fork1_block, Provenance::NONE);
     assert_eq!(env.clients[0].chain.head().unwrap().height, 5);
 
-    let runtime = env.clients[0].runtime.clone();
+    let runtime = env.clients[0].runtime_adapter.clone();
     let account_state1 =
         query_final_state(&mut env.clients[0].chain, runtime.clone(), "test0".parse().unwrap());
 
     env.process_block(0, fork2_block, Provenance::NONE);
     assert_eq!(env.clients[0].chain.head().unwrap().height, 6);
 
-    let runtime = env.clients[0].runtime.clone();
+    let runtime = env.clients[0].runtime_adapter.clone();
     let account_state2 =
         query_final_state(&mut env.clients[0].chain, runtime.clone(), "test0".parse().unwrap());
 
@@ -3398,7 +3400,7 @@ fn test_congestion_receipt_execution() {
         env.clients[0].chain.get_chunk_extra(prev_block.hash(), &ShardUId::single_shard()).unwrap();
     assert!(chunk_extra.gas_used() >= chunk_extra.gas_limit());
     let state_update = env.clients[0]
-        .runtime
+        .runtime_adapter
         .get_tries()
         .new_trie_update(ShardUId::single_shard(), *chunk_extra.state_root());
     let delayed_indices: DelayedReceiptIndices =
@@ -3523,11 +3525,11 @@ mod contract_precompilation_tests {
         let epoch_id =
             env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id().clone();
         let state_part = env.clients[0]
-            .runtime
+            .runtime_adapter
             .obtain_state_part(0, &sync_hash, chunk_extra.state_root(), PartId::new(0, 1))
             .unwrap();
         env.clients[1]
-            .runtime
+            .runtime_adapter
             .apply_state_part(
                 0,
                 chunk_extra.state_root(),
@@ -3602,7 +3604,7 @@ mod contract_precompilation_tests {
         let viewer = TrieViewer::default();
         // TODO (#7327): set use_flat_storage to true when we implement support for state sync for FlatStorage
         let trie = env.clients[1]
-            .runtime
+            .runtime_adapter
             .get_trie_for_shard(0, block.header().prev_hash(), state_root, false)
             .unwrap();
         let state_update = TrieUpdate::new(trie);

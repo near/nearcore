@@ -168,7 +168,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
 
     // Init Chain 1
     let mut chain1 = get_chain(num_shards);
-    let tries1 = chain1.runtime.get_tries();
+    let tries1 = chain1.runtime_adapter.get_tries();
     let mut rng = rand::thread_rng();
     let shard_to_check_trie = rng.gen_range(0..num_shards);
     let shard_uid = ShardUId { version: 0, shard_id: shard_to_check_trie as u32 };
@@ -199,7 +199,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
         .clear_data(tries1.clone(), &GCConfig { gc_blocks_limit: 1000, ..GCConfig::default() })
         .unwrap();
 
-    let tries2 = get_chain(num_shards).runtime.get_tries();
+    let tries2 = get_chain(num_shards).runtime_adapter.get_tries();
 
     // Find gc_height
     let mut gc_height = simple_chains[0].length - 51;
@@ -630,7 +630,7 @@ fn test_fork_far_away_from_epoch_end() {
 
     let num_shards = 1;
     let mut chain1 = get_chain_with_epoch_length_and_num_shards(epoch_length, num_shards);
-    let tries1 = chain1.runtime.get_tries();
+    let tries1 = chain1.runtime_adapter.get_tries();
     let genesis1 = chain1.get_block_by_height(0).unwrap();
     let mut states1 = vec![(
         genesis1,

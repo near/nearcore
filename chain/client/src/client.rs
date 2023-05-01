@@ -105,7 +105,7 @@ pub struct Client {
     pub doomslug: Doomslug,
     pub epoch_manager: Arc<dyn EpochManagerAdapter>,
     pub shard_tracker: ShardTracker,
-    pub runtime: Arc<dyn RuntimeAdapter>,
+    pub runtime_adapter: Arc<dyn RuntimeAdapter>,
     pub shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
     pub sharded_tx_pool: ShardedTransactionPool,
     prev_block_to_chunk_headers_ready_for_inclusion: LruCache<
@@ -191,7 +191,7 @@ impl Client {
         chain_genesis: ChainGenesis,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
-        runtime: Arc<dyn RuntimeAdapter>,
+        runtime_adapter: Arc<dyn RuntimeAdapter>,
         network_adapter: PeerManagerAdapter,
         shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
@@ -210,7 +210,7 @@ impl Client {
         let chain = Chain::new(
             epoch_manager.clone(),
             shard_tracker.clone(),
-            runtime.clone(),
+            runtime_adapter.clone(),
             &chain_genesis,
             doomslug_threshold_mode,
             chain_config.clone(),
@@ -221,7 +221,7 @@ impl Client {
             me.as_ref(),
             epoch_manager.clone(),
             shard_tracker.clone(),
-            runtime.clone(),
+            runtime_adapter.clone(),
             chain.store(),
             chain_config.background_migration_threads,
         )?;
@@ -292,7 +292,7 @@ impl Client {
             doomslug,
             epoch_manager,
             shard_tracker,
-            runtime,
+            runtime_adapter,
             shards_manager_adapter,
             sharded_tx_pool,
             prev_block_to_chunk_headers_ready_for_inclusion: LruCache::new(
@@ -886,7 +886,7 @@ impl Client {
         chunk_extra: &ChunkExtra,
         prev_block_header: &BlockHeader,
     ) -> Result<Vec<SignedTransaction>, Error> {
-        let Self { chain, sharded_tx_pool, epoch_manager, runtime, .. } = self;
+        let Self { chain, sharded_tx_pool, epoch_manager, runtime_adapter: runtime, .. } = self;
 
         let next_epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_header.hash())?;
         let protocol_version = epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
@@ -1971,7 +1971,7 @@ impl Client {
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
 
         if let Some(err) = self
-            .runtime
+            .runtime_adapter
             .validate_tx(gas_price, None, tx, true, &epoch_id, protocol_version)
             .expect("no storage errors")
         {
@@ -1999,7 +1999,7 @@ impl Client {
                 }
             };
             if let Some(err) = self
-                .runtime
+                .runtime_adapter
                 .validate_tx(gas_price, Some(state_root), tx, false, &epoch_id, protocol_version)
                 .expect("no storage errors")
             {
@@ -2233,7 +2233,7 @@ impl Client {
     fn clear_data(&mut self) -> Result<(), near_chain::Error> {
         // A RPC node should do regular garbage collection.
         if !self.config.archive {
-            let tries = self.runtime.get_tries();
+            let tries = self.runtime_adapter.get_tries();
             return self.chain.clear_data(tries, &self.config.gc);
         }
 
@@ -2244,7 +2244,7 @@ impl Client {
         let store = self.chain.store().store();
         let kind = store.get_db_kind()?;
         if kind == Some(DbKind::Hot) {
-            let tries = self.runtime.get_tries();
+            let tries = self.runtime_adapter.get_tries();
             return self.chain.clear_data(tries, &self.config.gc);
         }
 

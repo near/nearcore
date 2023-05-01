@@ -1949,7 +1949,7 @@ impl TestEnv {
         let last_block = self.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         let last_chunk_header = &last_block.chunks()[0];
         let response = self.clients[0]
-            .runtime
+            .runtime_adapter
             .query(
                 ShardUId::single_shard(),
                 &last_chunk_header.prev_state_root(),
@@ -1972,7 +1972,7 @@ impl TestEnv {
         let last_block = self.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         let last_chunk_header = &last_block.chunks()[0];
         let response = self.clients[0]
-            .runtime
+            .runtime_adapter
             .query(
                 ShardUId::single_shard(),
                 &last_chunk_header.prev_state_root(),
@@ -2021,7 +2021,7 @@ impl TestEnv {
             self.chain_genesis.clone(),
             self.clients[idx].epoch_manager.clone(),
             self.clients[idx].shard_tracker.clone(),
-            self.clients[idx].runtime.clone(),
+            self.clients[idx].runtime_adapter.clone(),
             rng_seed,
             self.archive,
             self.save_trie_changes,
@@ -2035,7 +2035,7 @@ impl TestEnv {
     }
 
     pub fn get_runtime_config(&self, idx: usize, epoch_id: EpochId) -> RuntimeConfig {
-        self.clients[idx].runtime.get_protocol_config(&epoch_id).unwrap().runtime_config
+        self.clients[idx].runtime_adapter.get_protocol_config(&epoch_id).unwrap().runtime_config
     }
 
     /// Create and sign transaction ready for execution.
@@ -2296,7 +2296,7 @@ pub fn run_catchup(
     let state_split = move |msg: StateSplitRequest| {
         state_split_inside_messages.write().unwrap().push(msg);
     };
-    let runtime = client.runtime.clone();
+    let runtime = client.runtime_adapter.clone();
     loop {
         client.run_catchup(
             highest_height_peers,

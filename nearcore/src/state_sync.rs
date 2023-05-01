@@ -514,7 +514,7 @@ mod tests {
         let chain = &env.clients[0].chain;
         let epoch_manager = chain.epoch_manager.clone();
         let shard_tracker = chain.shard_tracker.clone();
-        let runtime = chain.runtime.clone();
+        let runtime = chain.runtime_adapter.clone();
         let mut config = env.clients[0].config.clone();
         let root_dir = tempfile::Builder::new().prefix("state_dump").tempdir().unwrap();
         config.state_sync.dump = Some(DumpConfig {

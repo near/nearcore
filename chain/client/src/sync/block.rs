@@ -184,7 +184,7 @@ impl BlockSync {
 
         let header_head = chain.header_head()?;
 
-        let gc_stop_height = chain.runtime.get_gc_stop_height(&header_head.last_block_hash);
+        let gc_stop_height = chain.runtime_adapter.get_gc_stop_height(&header_head.last_block_hash);
 
         for request in requests {
             let (height, hash) = request;

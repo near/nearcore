@@ -59,7 +59,7 @@ fn test_burn_mint() {
     let genesis = build_genesis();
     let mut env = setup_env(&genesis);
     let transaction_costs = env.clients[0]
-        .runtime
+        .runtime_adapter
         .get_protocol_config(&EpochId::default())
         .unwrap()
         .runtime_config

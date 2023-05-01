@@ -404,7 +404,7 @@ fn check_account(env: &mut TestEnv, account_id: &AccountId, block: &Block) {
                 .unwrap()
                 .state_root();
             env.clients[i]
-                .runtime
+                .runtime_adapter
                 .query(
                     shard_uid,
                     &state_root,
@@ -420,7 +420,7 @@ fn check_account(env: &mut TestEnv, account_id: &AccountId, block: &Block) {
             let chunk = &block.chunks()[shard_id as usize];
             if chunk.height_included() == block.header().height() {
                 env.clients[i]
-                    .runtime
+                    .runtime_adapter
                     .query(
                         shard_uid,
                         &chunk.prev_state_root(),
