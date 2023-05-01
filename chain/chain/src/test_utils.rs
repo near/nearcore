@@ -33,8 +33,8 @@ use near_primitives::static_clock::StaticClock;
 use near_primitives::utils::MaybeValidated;
 
 pub use self::kv_runtime::account_id_to_shard_id;
-pub use self::kv_runtime::KeyValueEpochManager;
 pub use self::kv_runtime::KeyValueRuntime;
+pub use self::kv_runtime::MockEpochManager;
 
 pub use self::validator_schedule::ValidatorSchedule;
 
@@ -81,17 +81,17 @@ pub fn process_block_sync(
 }
 
 // TODO(#8190) Improve this testing API.
-pub fn setup(
-) -> (Chain, Arc<KeyValueEpochManager>, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {
+pub fn setup() -> (Chain, Arc<MockEpochManager>, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>)
+{
     setup_with_tx_validity_period(100)
 }
 
 pub fn setup_with_tx_validity_period(
     tx_validity_period: NumBlocks,
-) -> (Chain, Arc<KeyValueEpochManager>, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {
+) -> (Chain, Arc<MockEpochManager>, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {
     let store = create_test_store();
     let epoch_length = 1000;
-    let epoch_manager = KeyValueEpochManager::new(store.clone(), epoch_length);
+    let epoch_manager = MockEpochManager::new(store.clone(), epoch_length);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
     let runtime = KeyValueRuntime::new(store, epoch_manager.as_ref());
     let chain = Chain::new(
@@ -123,11 +123,11 @@ pub fn setup_with_validators(
     vs: ValidatorSchedule,
     epoch_length: u64,
     tx_validity_period: NumBlocks,
-) -> (Chain, Arc<KeyValueEpochManager>, Arc<KeyValueRuntime>, Vec<Arc<InMemoryValidatorSigner>>) {
+) -> (Chain, Arc<MockEpochManager>, Arc<KeyValueRuntime>, Vec<Arc<InMemoryValidatorSigner>>) {
     let store = create_test_store();
     let signers =
         vs.all_block_producers().map(|x| Arc::new(create_test_signer(x.as_str()))).collect();
-    let epoch_manager = KeyValueEpochManager::new_with_validators(store.clone(), vs, epoch_length);
+    let epoch_manager = MockEpochManager::new_with_validators(store.clone(), vs, epoch_length);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
     let runtime = KeyValueRuntime::new(store, epoch_manager.as_ref());
     let chain = Chain::new(
@@ -158,11 +158,11 @@ pub fn setup_with_validators_and_start_time(
     epoch_length: u64,
     tx_validity_period: NumBlocks,
     start_time: DateTime<Utc>,
-) -> (Chain, Arc<KeyValueEpochManager>, Arc<KeyValueRuntime>, Vec<Arc<InMemoryValidatorSigner>>) {
+) -> (Chain, Arc<MockEpochManager>, Arc<KeyValueRuntime>, Vec<Arc<InMemoryValidatorSigner>>) {
     let store = create_test_store();
     let signers =
         vs.all_block_producers().map(|x| Arc::new(create_test_signer(x.as_str()))).collect();
-    let epoch_manager = KeyValueEpochManager::new_with_validators(store.clone(), vs, epoch_length);
+    let epoch_manager = MockEpochManager::new_with_validators(store.clone(), vs, epoch_length);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
     let runtime = KeyValueRuntime::new(store, epoch_manager.as_ref());
     let chain = Chain::new(

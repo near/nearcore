@@ -3,7 +3,7 @@ use anyhow::{anyhow, bail, Context};
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::messaging::{IntoSender, LateBoundSender};
 use near_async::time;
-use near_chain::test_utils::{KeyValueEpochManager, KeyValueRuntime, ValidatorSchedule};
+use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis};
 use near_chain_configs::ClientConfig;
@@ -52,7 +52,7 @@ fn setup_network_node(
     let num_validators = validators.len() as ValidatorId;
 
     let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![validators]);
-    let epoch_manager = KeyValueEpochManager::new_with_validators(store.get_hot_store(), vs, 5);
+    let epoch_manager = MockEpochManager::new_with_validators(store.get_hot_store(), vs, 5);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
     let runtime = KeyValueRuntime::new(store.get_hot_store(), epoch_manager.as_ref());
     let signer = Arc::new(create_test_signer(account_id.as_str()));

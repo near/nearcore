@@ -77,7 +77,12 @@ pub struct KeyValueRuntime {
     headers_cache: RwLock<HashMap<CryptoHash, BlockHeader>>,
 }
 
-pub struct KeyValueEpochManager {
+/// DEPRECATED. DO NOT USE for new tests. Use the real EpochManager, familiarize
+/// yourself with how block producers, chunk producers, epoch transitions, etc.
+/// work, and write your test to be compatible with what's in production.
+/// MockEpochManager is simpler, but it deviates considerably from the production
+/// validator selection and epoch management behavior.
+pub struct MockEpochManager {
     store: Store,
     num_shards: NumShards,
     epoch_length: u64,
@@ -119,10 +124,7 @@ struct KVState {
     tx_nonces: HashSet<AccountNonce>,
 }
 
-/// DEPRECATED. DO NOT USE for new tests. Consider the `TestLoop` framework in
-/// core/async. The KeyValueEpochManager is inaccurate, and deviates a lot from
-/// the production validator selection and epoch management behavior.
-impl KeyValueEpochManager {
+impl MockEpochManager {
     pub fn new(store: Store, epoch_length: u64) -> Arc<Self> {
         let vs =
             ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test".parse().unwrap()]]);
@@ -193,7 +195,7 @@ impl KeyValueEpochManager {
             }
         }
 
-        Arc::new(KeyValueEpochManager {
+        Arc::new(MockEpochManager {
             store,
             num_shards: vs.num_shards,
             epoch_length,
@@ -396,7 +398,7 @@ fn create_receipt_nonce(
     CryptoHash::hash_borsh(ReceiptNonce { from, to, amount, nonce })
 }
 
-impl EpochManagerAdapter for KeyValueEpochManager {
+impl EpochManagerAdapter for MockEpochManager {
     fn epoch_exists(&self, epoch_id: &EpochId) -> bool {
         self.hash_to_valset.write().unwrap().contains_key(epoch_id)
     }

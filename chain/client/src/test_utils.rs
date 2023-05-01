@@ -27,8 +27,8 @@ use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor}
 use chrono::Utc;
 use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, StateSplitRequest};
 use near_chain::test_utils::{
-    wait_for_all_blocks_in_processing, wait_for_block_in_processing, KeyValueEpochManager,
-    KeyValueRuntime, ValidatorSchedule,
+    wait_for_all_blocks_in_processing, wait_for_block_in_processing, KeyValueRuntime,
+    MockEpochManager, ValidatorSchedule,
 };
 use near_chain::types::{ChainConfig, RuntimeAdapter};
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Provenance};
@@ -204,7 +204,7 @@ pub fn setup(
 ) -> (Block, ClientActor, Addr<ViewClientActor>, ShardsManagerAdapterForTest) {
     let store = create_test_store();
     let num_validator_seats = vs.all_block_producers().count() as NumSeats;
-    let epoch_manager = KeyValueEpochManager::new_with_validators(store.clone(), vs, epoch_length);
+    let epoch_manager = MockEpochManager::new_with_validators(store.clone(), vs, epoch_length);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
     let runtime = KeyValueRuntime::new_with_no_gc(store.clone(), epoch_manager.as_ref(), archive);
     let chain_genesis = ChainGenesis {
@@ -317,7 +317,7 @@ pub fn setup_only_view(
 ) -> Addr<ViewClientActor> {
     let store = create_test_store();
     let num_validator_seats = vs.all_block_producers().count() as NumSeats;
-    let epoch_manager = KeyValueEpochManager::new_with_validators(store.clone(), vs, epoch_length);
+    let epoch_manager = MockEpochManager::new_with_validators(store.clone(), vs, epoch_length);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
     let runtime = KeyValueRuntime::new_with_no_gc(store, epoch_manager.as_ref(), archive);
     let chain_genesis = ChainGenesis {
@@ -1177,7 +1177,7 @@ pub fn setup_client(
 ) -> Client {
     let num_validator_seats = vs.all_block_producers().count() as NumSeats;
     let epoch_manager =
-        KeyValueEpochManager::new_with_validators(store.clone(), vs, chain_genesis.epoch_length);
+        MockEpochManager::new_with_validators(store.clone(), vs, chain_genesis.epoch_length);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
     let runtime = KeyValueRuntime::new(store, epoch_manager.as_ref());
     setup_client_with_runtime(
@@ -1249,7 +1249,7 @@ pub fn setup_client_with_synchronous_shards_manager(
 ) -> Client {
     let num_validator_seats = vs.all_block_producers().count() as NumSeats;
     let epoch_manager =
-        KeyValueEpochManager::new_with_validators(store.clone(), vs, chain_genesis.epoch_length);
+        MockEpochManager::new_with_validators(store.clone(), vs, chain_genesis.epoch_length);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
     let runtime = KeyValueRuntime::new(store, epoch_manager.as_ref());
     let shards_manager_adapter = setup_synchronous_shards_manager(
@@ -1485,7 +1485,7 @@ impl TestEnvBuilder {
                 .map(|i| {
                     let vs = ValidatorSchedule::new()
                         .block_producers_per_epoch(vec![ret.validators.clone()]);
-                    KeyValueEpochManager::new_with_validators(
+                    MockEpochManager::new_with_validators(
                         ret.stores.as_ref().unwrap()[i].clone(),
                         vs,
                         ret.chain_genesis.epoch_length,

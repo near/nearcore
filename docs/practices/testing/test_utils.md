@@ -50,7 +50,7 @@ let store = create_test_store();
 
 ## EpochManager
 
-See usages of KeyValueEpochManager. Note that this is deprecated. Try to use
+See usages of MockEpochManager. Note that this is deprecated. Try to use
 EpochManager itself wherever possible.
 
 ## Runtime

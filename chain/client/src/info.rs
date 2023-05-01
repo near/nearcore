@@ -803,7 +803,7 @@ fn get_validator_epoch_stats(
 mod tests {
     use super::*;
     use assert_matches::assert_matches;
-    use near_chain::test_utils::{KeyValueEpochManager, KeyValueRuntime, ValidatorSchedule};
+    use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
     use near_chain::types::ChainConfig;
     use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
     use near_epoch_manager::shard_tracker::ShardTracker;
@@ -839,7 +839,7 @@ mod tests {
         let store = near_store::test_utils::create_test_store();
         let vs =
             ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test".parse().unwrap()]]);
-        let epoch_manager = KeyValueEpochManager::new_with_validators(store.clone(), vs, 123);
+        let epoch_manager = MockEpochManager::new_with_validators(store.clone(), vs, 123);
         let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
         let runtime = KeyValueRuntime::new(store, epoch_manager.as_ref());
         let chain_genesis = ChainGenesis {

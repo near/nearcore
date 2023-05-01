@@ -394,6 +394,8 @@ impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ClientActor {
                 let mut store_validator = near_chain::store_validator::StoreValidator::new(
                     this.client.validator_signer.as_ref().map(|x| x.validator_id().clone()),
                     genesis,
+                    this.client.epoch_manager.clone(),
+                    this.client.shard_tracker.clone(),
                     this.client.runtime_adapter.clone(),
                     this.client.chain.store().store().clone(),
                     this.adv.is_archival(),
