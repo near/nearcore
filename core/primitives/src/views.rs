@@ -1665,16 +1665,11 @@ pub struct FinalExecutionOutcomeWithReceiptView {
 }
 
 pub mod validator_stake_view {
+    pub use super::ValidatorStakeViewV1;
     use crate::types::validator_stake::ValidatorStake;
     use borsh::{BorshDeserialize, BorshSerialize};
     use near_primitives_core::types::AccountId;
-    use serde::{Deserialize, Serialize};
-
-    use crate::serialize::dec_format;
-    use near_crypto::PublicKey;
-    use near_primitives_core::types::Balance;
-
-    pub use super::ValidatorStakeViewV1;
+    use serde::Deserialize;
 
     #[derive(
         BorshSerialize, BorshDeserialize, serde::Serialize, Deserialize, Debug, Clone, Eq, PartialEq,
@@ -1702,17 +1697,6 @@ pub mod validator_stake_view {
                 Self::V1(v1) => &v1.account_id,
             }
         }
-    }
-
-    #[derive(
-        BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Eq, PartialEq,
-    )]
-    pub struct ValidatorStakeViewV2 {
-        pub account_id: AccountId,
-        pub public_key: PublicKey,
-        #[serde(with = "dec_format")]
-        pub stake: Balance,
-        pub is_chunk_only: bool,
     }
 
     impl From<ValidatorStake> for ValidatorStakeView {

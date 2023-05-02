@@ -143,8 +143,6 @@ def validate_light_client_block(last_known_block,
             for i in range(16):
                 serialized_next_bp.append(stake & 255)
                 stake >>= 8
-            if version > 0:
-                serialized_next_bp.append(1 if bp['is_chunk_only'] else 0)
 
         serialized_next_bp = bytes(serialized_next_bp)
 
