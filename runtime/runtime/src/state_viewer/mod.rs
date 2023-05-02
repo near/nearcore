@@ -149,8 +149,8 @@ impl TrieViewer {
         for item in &mut iter {
             let (key, value) = item?;
             values.push(StateItem {
-                key: key[acc_sep_len..].to_vec(),
-                value: value,
+                key: key[acc_sep_len..].to_vec().into(),
+                value: value.into(),
                 proof: vec![],
             });
         }

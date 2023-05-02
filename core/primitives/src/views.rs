@@ -215,10 +215,8 @@ impl From<AccessKeyView> for AccessKey {
 /// Item of the state, key and value are serialized in base64 and proof for inclusion of given state item.
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct StateItem {
-    #[serde(with = "base64_format")]
-    pub key: Vec<u8>,
-    #[serde(with = "base64_format")]
-    pub value: Vec<u8>,
+    pub key: StoreKey,
+    pub value: StoreValue,
     /// Deprecated, always empty, eventually will be deleted.
     // TODO(mina86): This was deprecated in 1.30.  Get rid of the field
     // altogether at 1.33 or something.
@@ -306,7 +304,7 @@ pub enum QueryRequest {
     },
     ViewState {
         account_id: AccountId,
-        #[serde(rename = "prefix_base64", with = "base64_format")]
+        #[serde(rename = "prefix_base64")]
         prefix: StoreKey,
         #[serde(default, skip_serializing_if = "is_false")]
         include_proof: bool,
@@ -321,7 +319,7 @@ pub enum QueryRequest {
     CallFunction {
         account_id: AccountId,
         method_name: String,
-        #[serde(rename = "args_base64", with = "base64_format")]
+        #[serde(rename = "args_base64")]
         args: FunctionArgs,
     },
 }
@@ -1111,8 +1109,7 @@ pub enum ActionView {
     },
     FunctionCall {
         method_name: String,
-        #[serde(with = "base64_format")]
-        args: Vec<u8>,
+        args: FunctionArgs,
         gas: Gas,
         #[serde(with = "dec_format")]
         deposit: Balance,
@@ -1152,7 +1149,7 @@ impl From<Action> for ActionView {
             }
             Action::FunctionCall(action) => ActionView::FunctionCall {
                 method_name: action.method_name,
-                args: action.args,
+                args: action.args.into(),
                 gas: action.gas,
                 deposit: action.deposit,
             },
@@ -1186,7 +1183,12 @@ impl TryFrom<ActionView> for Action {
                 Action::DeployContract(DeployContractAction { code })
             }
             ActionView::FunctionCall { method_name, args, gas, deposit } => {
-                Action::FunctionCall(FunctionCallAction { method_name, args, gas, deposit })
+                Action::FunctionCall(FunctionCallAction {
+                    method_name,
+                    args: args.into(),
+                    gas,
+                    deposit,
+                })
             }
             ActionView::Transfer { deposit } => Action::Transfer(TransferAction { deposit }),
             ActionView::Stake { stake, public_key } => {
@@ -2036,7 +2038,7 @@ pub enum StateChangesRequestView {
     },
     DataChanges {
         account_ids: Vec<AccountId>,
-        #[serde(rename = "key_prefix_base64", with = "base64_format")]
+        #[serde(rename = "key_prefix_base64")]
         key_prefix: StoreKey,
     },
 }
@@ -2160,14 +2162,14 @@ pub enum StateChangeValueView {
     },
     DataUpdate {
         account_id: AccountId,
-        #[serde(rename = "key_base64", with = "base64_format")]
+        #[serde(rename = "key_base64")]
         key: StoreKey,
-        #[serde(rename = "value_base64", with = "base64_format")]
+        #[serde(rename = "value_base64")]
         value: StoreValue,
     },
     DataDeletion {
         account_id: AccountId,
-        #[serde(rename = "key_base64", with = "base64_format")]
+        #[serde(rename = "key_base64")]
         key: StoreKey,
     },
     ContractCodeUpdate {
