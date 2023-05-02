@@ -34,20 +34,12 @@ pub(crate) struct ChainAccess {
 
 impl ChainAccess {
     pub(crate) fn new<P: AsRef<Path>>(home: P) -> anyhow::Result<Self> {
-        let config =
+        let mut config =
             nearcore::config::load_config(home.as_ref(), GenesisValidationMode::UnsafeFast)
                 .with_context(|| format!("Error loading config from {:?}", home.as_ref()))?;
-        // leave it ReadWrite since otherwise there are problems with the compiled contract cache
-        let store_opener = near_store::NodeStorage::opener(
-            home.as_ref(),
-            config.config.archive,
-            &config.config.store,
-            None,
-        );
-        let store = store_opener
-            .open()
-            .with_context(|| format!("Error opening store in {:?}", home.as_ref()))?
-            .get_hot_store();
+        let node_storage =
+            nearcore::open_storage(home.as_ref(), &mut config).context("failed opening storage")?;
+        let store = node_storage.get_hot_store();
         let chain = ChainStore::new(
             store.clone(),
             config.genesis.config.genesis_height,
