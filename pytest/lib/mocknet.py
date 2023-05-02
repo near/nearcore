@@ -467,7 +467,7 @@ def get_near_pid(machine):
 
 
 def is_binary_running(binary_name: str, node) -> bool:
-    result = node.machine.run(f'ps aux | grep -v grep | grep {binary_name}')
+    result = node.machine.run(f'ps -A -o comm= | grep {binary_name}')
     return result.returncode == 0
 
 
