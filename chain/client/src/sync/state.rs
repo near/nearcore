@@ -1524,7 +1524,7 @@ pub fn external_storage_location_multi_node(
     num_parts: u64,
 ) -> String {
     format!(
-        "multi_node_tmp/{}/{}",
+        "multi_node_tmp_1/{}/{}",
         location_prefix_with_epoch_id(chain_id, epoch_height, epoch_id, shard_id),
         part_filename(part_id, num_parts)
     )
@@ -1537,7 +1537,7 @@ pub fn external_storage_location_directory_multi_node(
     shard_id: u64,
 ) -> String {
     format!(
-        "multi_node_tmp/{}",
+        "multi_node_tmp_1/{}",
         location_prefix_with_epoch_id(chain_id, epoch_height, epoch_id, shard_id)
     )
 }
