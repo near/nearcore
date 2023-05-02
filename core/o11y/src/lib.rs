@@ -110,7 +110,7 @@ pub struct DefaultSubscriberGuard<S> {
 }
 
 // Doesn't define WARN and ERROR, because the highest verbosity of spans is INFO.
-#[derive(Copy, Clone, Debug, Default, clap::ArgEnum, serde::Serialize, serde::Deserialize)]
+#[derive(Copy, Clone, Debug, Default, clap::ValueEnum, serde::Serialize, serde::Deserialize)]
 pub enum OpenTelemetryLevel {
     #[default]
     OFF,
@@ -124,11 +124,11 @@ pub enum OpenTelemetryLevel {
 #[derive(Debug, Default, clap::Parser)]
 pub struct Options {
     /// Enables export of span data using opentelemetry exporters.
-    #[clap(long, arg_enum, default_value = "off")]
+    #[clap(long, value_enum, default_value = "off")]
     opentelemetry: OpenTelemetryLevel,
 
     /// Whether the log needs to be colored.
-    #[clap(long, arg_enum, default_value = "auto")]
+    #[clap(long, value_enum, default_value = "auto")]
     color: ColorOutput,
 
     /// Enable logging of spans. For instance, this prints timestamps of entering and exiting a span,
@@ -171,7 +171,7 @@ impl<S: tracing::Subscriber + Send + Sync> DefaultSubscriberGuard<S> {
 /// Whether to use colored log format.
 /// Option `Auto` enables color output only if the logging is done to a terminal and
 /// `NO_COLOR` environment variable is not set.
-#[derive(clap::ArgEnum, Debug, Clone, Default)]
+#[derive(clap::ValueEnum, Debug, Clone, Default)]
 pub enum ColorOutput {
     #[default]
     Always,

@@ -1,19 +1,3 @@
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::fmt::Write;
-use std::str;
-
-use borsh::{BorshDeserialize, BorshSerialize};
-
-use near_primitives::challenge::PartialState;
-use near_primitives::contract::ContractCode;
-use near_primitives::hash::{hash, CryptoHash};
-pub use near_primitives::shard_layout::ShardUId;
-use near_primitives::state::ValueRef;
-use near_primitives::state_record::StateRecord;
-use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{StateRoot, StateRootNode};
-
 use crate::flat::{FlatStateChanges, FlatStorageChunkView};
 pub use crate::trie::config::TrieConfig;
 pub(crate) use crate::trie::config::DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT;
@@ -25,7 +9,21 @@ pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieCh
 pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage, TrieStorage};
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieRecordingStorage};
 use crate::StorageError;
+use borsh::{BorshDeserialize, BorshSerialize};
+use near_primitives::challenge::PartialState;
+use near_primitives::contract::ContractCode;
+use near_primitives::hash::{hash, CryptoHash};
+pub use near_primitives::shard_layout::ShardUId;
+use near_primitives::state::ValueRef;
+use near_primitives::state_record::StateRecord;
+use near_primitives::trie_key::TrieKey;
 pub use near_primitives::types::TrieNodesCount;
+use near_primitives::types::{StateRoot, StateRootNode};
+pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::fmt::Write;
+use std::str;
 
 mod config;
 mod insert_delete;
@@ -40,8 +38,6 @@ mod trie_storage;
 #[cfg(test)]
 mod trie_tests;
 pub mod update;
-
-pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
@@ -594,20 +590,28 @@ impl Trie {
             return Ok(());
         }
 
-        let raw_node = match self.retrieve_raw_node(hash) {
-            Ok(Some((_, raw_node))) => raw_node.node,
+        let (bytes, raw_node, mem_usage) = match self.retrieve_raw_node(hash) {
+            Ok(Some((bytes, raw_node))) => (bytes, raw_node.node, raw_node.memory_usage),
             Ok(None) => return writeln!(f, "{spaces}EmptyNode"),
-            Err(err) => return writeln!(f, "error {err}"),
+            Err(err) => return writeln!(f, "{spaces}error {err}"),
         };
 
         let children = match raw_node {
             RawTrieNode::Leaf(key, value) => {
                 let (slice, _) = NibbleSlice::from_encoded(key.as_slice());
                 prefix.extend(slice.iter());
+
+                let (chunks, remainder) = stdx::as_chunks::<2, _>(prefix);
+                assert!(remainder.is_empty());
+                let leaf_key =
+                    chunks.into_iter().map(|chunk| (chunk[0] * 16) + chunk[1]).collect::<Vec<u8>>();
+                let state_record = StateRecord::from_raw_key_value(leaf_key, bytes.to_vec());
+
                 writeln!(
                     f,
-                    "{spaces}Leaf {slice:?} {value:?} prefix:{}",
-                    Self::nibbles_to_string(prefix)
+                    "{spaces}Leaf {slice:?} {value:?} prefix:{} hash:{hash} mem_usage:{mem_usage} state_record:{:?}",
+                    Self::nibbles_to_string(prefix),
+                    state_record.map(|sr|format!("{}", sr)),
                 )?;
                 prefix.truncate(prefix.len() - slice.len());
                 return Ok(());
@@ -615,16 +619,16 @@ impl Trie {
             RawTrieNode::BranchNoValue(children) => {
                 writeln!(
                     f,
-                    "{spaces}Branch value:(none) prefix:{}",
-                    Self::nibbles_to_string(prefix)
+                    "{spaces}Branch value:(none) prefix:{} hash:{hash} mem_usage:{mem_usage}",
+                    Self::nibbles_to_string(prefix),
                 )?;
                 children
             }
             RawTrieNode::BranchWithValue(value, children) => {
                 writeln!(
                     f,
-                    "{spaces}Branch value:{value:?} prefix:{}",
-                    Self::nibbles_to_string(prefix)
+                    "{spaces}Branch value:{value:?} prefix:{} hash:{hash} mem_usage:{mem_usage}",
+                    Self::nibbles_to_string(prefix),
                 )?;
                 children
             }
@@ -632,11 +636,11 @@ impl Trie {
                 let (slice, _) = NibbleSlice::from_encoded(key.as_slice());
                 writeln!(
                     f,
-                    "{}Extension {:?} child_hash:{} prefix:{}",
+                    "{}Extension {:?} child_hash:{} prefix:{} hash:{hash} mem_usage:{mem_usage}",
                     spaces,
                     slice,
                     child,
-                    Self::nibbles_to_string(prefix)
+                    Self::nibbles_to_string(prefix),
                 )?;
                 spaces.push_str("  ");
                 prefix.extend(slice.iter());

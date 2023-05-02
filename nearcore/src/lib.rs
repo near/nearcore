@@ -33,7 +33,7 @@ pub mod dyn_config;
 mod metrics;
 pub mod migrations;
 mod runtime;
-mod state_sync;
+pub mod state_sync;
 
 pub fn get_default_home() -> PathBuf {
     if let Ok(near_home) = std::env::var("NEAR_HOME") {
@@ -59,7 +59,7 @@ pub fn get_default_home() -> PathBuf {
 /// The end goal is to get rid of `archive` option in `config.json` file and
 /// have the type of the node be determined purely based on kind of database
 /// being opened.
-fn open_storage(home_dir: &Path, near_config: &mut NearConfig) -> anyhow::Result<NodeStorage> {
+pub fn open_storage(home_dir: &Path, near_config: &mut NearConfig) -> anyhow::Result<NodeStorage> {
     let migrator = migrations::Migrator::new(near_config);
     let opener = NodeStorage::opener(
         home_dir,
@@ -219,8 +219,8 @@ pub fn start_with_config_and_synchronization(
     // Get the split store. If split store is some then create a new runtime for
     // the view client. Otherwise just re-use the existing runtime.
     let split_store = get_split_store(&config, &storage)?;
-    let view_runtime = if let Some(split_store) = split_store {
-        NightshadeRuntime::from_config(home_dir, split_store, &config)
+    let view_runtime = if let Some(split_store) = &split_store {
+        NightshadeRuntime::from_config(home_dir, split_store.clone(), &config)
     } else {
         runtime.clone()
     };
@@ -268,12 +268,17 @@ pub fn start_with_config_and_synchronization(
         network_adapter.as_sender(),
         client_adapter_for_shards_manager.as_sender(),
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
-        storage.get_hot_store(),
+        split_store.unwrap_or(storage.get_hot_store()),
         config.client_config.chunk_request_retry_period,
     );
     shards_manager_adapter.bind(shards_manager_actor);
 
-    let state_sync_dump_handle = spawn_state_sync_dump(&config, chain_genesis, runtime)?;
+    let state_sync_dump_handle = spawn_state_sync_dump(
+        &config.client_config,
+        chain_genesis,
+        runtime,
+        config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
+    )?;
 
     #[allow(unused_mut)]
     let mut rpc_servers = Vec::new();

@@ -1,6 +1,7 @@
 use near_chain::{Block, ChainGenesis, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
+use near_client::ProcessTxResponse;
 use near_client_primitives::types::Error;
 use near_crypto::InMemorySigner;
 use near_epoch_manager::shard_tracker::TrackedConfig;
@@ -75,7 +76,10 @@ impl Scenario {
             for tx in &block.transactions {
                 let signed_tx = tx.to_signed_transaction(&last_block);
                 block_stats.tx_hashes.push(signed_tx.get_hash());
-                env.clients[0].process_tx(signed_tx, false, false);
+                assert_eq!(
+                    env.clients[0].process_tx(signed_tx, false, false),
+                    ProcessTxResponse::ValidTx
+                );
             }
 
             let start_time = cpu_time::ProcessTime::now();

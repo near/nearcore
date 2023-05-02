@@ -14,7 +14,7 @@ pub(crate) struct CheckConfig {
     #[clap(long)]
     zulip_user: Option<u64>,
     /// Checks have to be done on one specific metric.
-    #[clap(long, arg_enum)]
+    #[clap(long, value_enum)]
     metric: Metric,
     /// First git commit hash used for comparisons, used as base to calculate
     /// the relative changes. If left unspecified, the two commits that were

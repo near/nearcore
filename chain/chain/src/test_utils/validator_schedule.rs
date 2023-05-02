@@ -19,13 +19,18 @@ pub struct ValidatorSchedule {
 
 impl ValidatorSchedule {
     pub fn new() -> Self {
+        Self::new_with_shards(1)
+    }
+
+    pub fn new_with_shards(num_shards: NumShards) -> Self {
         Self {
             block_producers: Vec::new(),
             chunk_only_producers: Vec::new(),
             validator_groups: 1,
-            num_shards: 1,
+            num_shards,
         }
     }
+
     /// Specifies, for each epoch, the set of block producers for this epoch.
     ///
     /// Conceptually, this "loops around" when `epoch_id >= block_producers.len()`

@@ -220,11 +220,11 @@ impl FlatStorage {
             store_helper::set_flat_storage_status(
                 &mut store_update,
                 shard_uid,
-                FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head: block.clone() }),
+                FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head: *block }),
             );
 
             guard.metrics.set_flat_head_height(block.height);
-            guard.flat_head = block.clone();
+            guard.flat_head = *block;
 
             // Remove old deltas from disk and memory.
             // Do it for each head update separately to ensure that old data is removed properly if node was
@@ -352,7 +352,7 @@ mod tests {
 
     impl MockChain {
         fn get_block_info(&self, block_hash: &CryptoHash) -> BlockInfo {
-            self.blocks.get(block_hash).unwrap().clone()
+            *self.blocks.get(block_hash).unwrap()
         }
 
         fn block_hash(height: BlockHeight) -> CryptoHash {
@@ -423,7 +423,7 @@ mod tests {
         }
 
         fn get_block(&self, height: BlockHeight) -> BlockInfo {
-            self.blocks[&self.height_to_hashes[&height]].clone()
+            self.blocks[&self.height_to_hashes[&height]]
         }
 
         /// create a new block on top the current chain head, return the new block hash

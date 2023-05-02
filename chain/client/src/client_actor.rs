@@ -700,7 +700,11 @@ impl Handler<WithSpanContext<Status>> for ClientActor {
                 sync_status: format!(
                     "{} ({})",
                     self.client.sync_status.as_variant_name().to_string(),
-                    display_sync_status(&self.client.sync_status, &self.client.chain.head()?,),
+                    display_sync_status(
+                        &self.client.sync_status,
+                        &self.client.chain.head()?,
+                        &self.client.config.state_sync.sync,
+                    ),
                 ),
                 catchup_status: self.client.get_catchup_status()?,
                 current_head_status: head.clone().into(),

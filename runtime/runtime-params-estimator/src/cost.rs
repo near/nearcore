@@ -4,7 +4,7 @@ use std::str::FromStr;
 /// Kinds of things we measure in parameter estimator and charge for in runtime.
 ///
 /// TODO: Deduplicate this enum with `ExtCosts` and `ActionCosts`.
-#[derive(Copy, Clone, PartialEq, Eq, Debug, PartialOrd, Ord, clap::ArgEnum)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, PartialOrd, Ord, clap::ValueEnum)]
 #[repr(u8)]
 pub enum Cost {
     // Every set of actions in a transaction needs to be transformed into a

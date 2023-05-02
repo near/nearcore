@@ -1,15 +1,7 @@
-#[cfg(not(test))]
-extern crate proc_macro;
-#[cfg(not(test))]
 use proc_macro::TokenStream;
-#[cfg(test)]
-use proc_macro2::TokenStream;
 use quote::quote;
 use std::path::PathBuf;
-#[cfg(not(test))]
 use syn::parse;
-#[cfg(test)]
-use syn::parse2 as parse;
 use syn::*;
 
 mod ignores;
@@ -132,6 +124,3 @@ pub fn compiler_test(attrs: TokenStream, input: TokenStream) -> TokenStream {
     };
     x.into()
 }
-
-#[cfg(test)]
-mod tests;
