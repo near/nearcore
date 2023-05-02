@@ -330,7 +330,7 @@ async fn get_missing_state_parts_for_epoch_from_s3(
                 }
                 existing_nums.insert(part_id);
             }
-            for i in 1..=total_parts {
+            for i in 0..total_parts {
                 if !existing_nums.contains(&i) {
                     res.push(i)
                 }
@@ -341,7 +341,7 @@ async fn get_missing_state_parts_for_epoch_from_s3(
         }
         // names.len() == 0, it should be the new epoch
         Ok(_) => {
-            for i in 1..=total_parts {
+            for i in 0..total_parts {
                 res.push(i)
             }
             let num_missing = res.len();
