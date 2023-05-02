@@ -406,6 +406,8 @@ async fn get_missing_state_parts_for_epoch_from_s3(
                     res.push(i)
                 }
             }
+            let num_missing = res.len();
+            tracing::debug!(target: "state_sync_dump", ?num_missing, ?s3_directory, "number of missing parts: ");
             Ok(res)
         }
         // names.len() == 0, it should be the new epoch
@@ -413,6 +415,8 @@ async fn get_missing_state_parts_for_epoch_from_s3(
             for i in 1..=total_parts {
                 res.push(i)
             }
+            let num_missing = res.len();
+            tracing::debug!(target: "state_sync_dump", ?num_missing, ?s3_directory, "number of missing parts: ");
             Ok(res)
         }
         Err(err) => Err(err)
@@ -424,7 +428,9 @@ fn select_random_parts_to_dump(
     target_size: u64
 ) -> Vec<u64> {
     let mut rng = thread_rng();
-    parts_to_be_dumped.iter().cloned().choose_multiple(&mut rng, target_size.try_into().unwrap())
+    let res = parts_to_be_dumped.iter().cloned().choose_multiple(&mut rng, target_size.try_into().unwrap());
+    tracing::debug!(target: "state_sync_dump", ?res, "selected parts to dump: ");
+    res
 }
 
 async fn state_sync_dump_multi_node(
