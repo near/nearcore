@@ -91,13 +91,13 @@ fn test_patch_state() {
     env.clients[0].chain.patch_state(SandboxStatePatch::new(vec![StateRecord::Data {
         account_id: "test0".parse().unwrap(),
         data_key: state_item.key,
-        value: b"world".to_vec(),
+        value: b"world".to_vec().into(),
     }]));
 
     do_blocks(&mut env, 9, 20);
     let state = env.query_state("test0".parse().unwrap());
     assert_eq!(state.len(), 1);
-    assert_eq!(state[0].value, b"world");
+    assert_eq!(state[0].value.as_slice(), b"world");
 }
 
 #[test]
