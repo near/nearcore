@@ -29,8 +29,8 @@ fn create_runtime_with_expensive_storage() -> RuntimeNode {
     }
     records.push(StateRecord::Data {
         account_id: bob_account(),
-        data_key: b"test".to_vec(),
-        value: b"123".to_vec(),
+        data_key: b"test".to_vec().into(),
+        value: b"123".to_vec().into(),
     });
     RuntimeNode::new_from_genesis_and_config(&alice_account(), genesis, runtime_config)
 }

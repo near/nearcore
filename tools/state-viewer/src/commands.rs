@@ -274,7 +274,7 @@ pub(crate) fn dump_account_storage(
             let record = StateRecord::from_raw_key_value(key.to_vec(), value).unwrap();
             match record {
                 StateRecord::Data { account_id: _, data_key: _, value } => {
-                    fs::write(output, value).unwrap();
+                    fs::write(output, value.as_slice()).unwrap();
                     println!(
                         "Dump contract storage under key {} of account {} into file {}",
                         storage_key,
