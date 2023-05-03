@@ -4,10 +4,35 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::state::ValueRef;
 use near_primitives::types::BlockHeight;
 
+/// Defines value size threshold for flat state inlining.
+/// It means that values having size greater than the threshold will be stored
+/// in FlatState as `FlatStateValue::Ref`, otherwise the whole value will be
+/// stored as `FlatStateValue::Inlined`.
+/// See the following comment for reasoning behind the threshold value:
+/// https://github.com/near/nearcore/issues/8243#issuecomment-1523049994
+pub const INLINE_DISK_VALUE_THRESHOLD: usize = 4000;
+
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
 pub enum FlatStateValue {
     Ref(ValueRef),
-    // TODO(8243): add variant here for the inlined value
+    Inlined(Vec<u8>),
+}
+
+impl FlatStateValue {
+    pub fn value_ref(value: &[u8]) -> Self {
+        Self::Ref(ValueRef::new(value))
+    }
+
+    pub fn inlined(value: &[u8]) -> Self {
+        Self::Inlined(value.to_vec())
+    }
+
+    pub fn to_value_ref(&self) -> ValueRef {
+        match self {
+            Self::Ref(value_ref) => value_ref.clone(),
+            Self::Inlined(value) => ValueRef::new(value),
+        }
+    }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Copy, Clone, PartialEq, Eq)]

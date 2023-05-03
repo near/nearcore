@@ -123,7 +123,7 @@ fn parse_account_filter<P: AsRef<Path>>(filename: P) -> std::io::Result<HashSet<
             break;
         }
         let acc = line.trim().trim_matches('"');
-        if acc.len() == 0 {
+        if acc.is_empty() {
             continue;
         }
         match AccountId::from_str(acc) {

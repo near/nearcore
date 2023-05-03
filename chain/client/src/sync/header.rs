@@ -755,7 +755,7 @@ mod test {
                 NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
                     assert_eq!(peer_id, peer1.peer_info.id);
                     let headers = chain2.retrieve_headers(hashes, MAX_BLOCK_HEADERS, None).unwrap();
-                    assert!(headers.len() > 0, "No headers were returned");
+                    assert!(!headers.is_empty(), "No headers were returned");
                     match chain.sync_block_headers(headers, &mut Vec::new()) {
                         Ok(_) => {}
                         Err(e) => {

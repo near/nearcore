@@ -191,10 +191,10 @@ impl GenesisStateApplier {
                     storage.modify(|state_update| {
                         state_update.set(
                             TrieKey::ContractData {
-                                key: data_key.clone(),
+                                key: data_key.clone().into(),
                                 account_id: account_id.clone(),
                             },
-                            value.clone(),
+                            value.clone().into(),
                         );
                     })
                 }
