@@ -315,12 +315,14 @@ async fn get_missing_state_parts_for_epoch_from_s3(
                     res.push(i)
                 }
             }
+            tracing::debug!(target: "state_sync_dump", "the list returns non-empty");
             let num_missing = res.len();
             tracing::debug!(target: "state_sync_dump", ?num_missing, ?s3_directory, "number of missing parts: ");
             Ok(res)
         }
         // names.len() == 0, it should be the new epoch
         Ok(_) => {
+            tracing::debug!(target: "state_sync_dump", "the list returns nothing");
             for i in 0..total_parts {
                 res.push(i)
             }
