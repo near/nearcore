@@ -234,7 +234,7 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
                                 .map(|x| x.0.clone())
                                 .flatten()
                                 .collect();
-                            if receipts.len() > 0 {
+                            if !receipts.is_empty() {
                                 assert_eq!(
                                     partial_encoded_chunk.header.shard_id(),
                                     source_shard_id

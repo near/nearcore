@@ -1372,7 +1372,7 @@ impl ClientActor {
 
     fn receive_headers(&mut self, headers: Vec<BlockHeader>, peer_id: PeerId) -> bool {
         info!(target: "client", "Received {} block headers from {}", headers.len(), peer_id);
-        if headers.len() == 0 {
+        if headers.is_empty() {
             return true;
         }
         info!(target: "client", "Received block headers from height {} to {}", headers.first().unwrap().height(), headers.last().unwrap().height());

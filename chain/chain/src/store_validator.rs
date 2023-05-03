@@ -105,7 +105,7 @@ impl StoreValidator {
         self.timeout = Some(timeout)
     }
     pub fn is_failed(&self) -> bool {
-        self.tests == 0 || self.errors.len() > 0
+        self.tests == 0 || !self.errors.is_empty()
     }
     pub fn num_failed(&self) -> u64 {
         self.errors.len() as u64
