@@ -1497,11 +1497,11 @@ impl TestEnvBuilder {
 
     /// Internal impl to make sure EpochManagers are initialized.
     fn ensure_epoch_managers(self) -> Self {
-        let ret = self.ensure_stores();
+        let mut ret = self.ensure_stores();
         if ret.epoch_managers.is_some() {
             ret
         } else {
-            let epoch_managers = (0..ret.clients.len())
+            let epoch_managers: Vec<EpochManagerKind> = (0..ret.clients.len())
                 .map(|i| {
                     let vs = ValidatorSchedule::new_with_shards(ret.num_shards.unwrap_or(1))
                         .block_producers_per_epoch(vec![ret.validators.clone()]);
@@ -1510,9 +1510,19 @@ impl TestEnvBuilder {
                         vs,
                         ret.chain_genesis.epoch_length,
                     )
+                    .into()
                 })
                 .collect();
-            ret.mock_epoch_managers(epoch_managers)
+            assert!(
+                ret.shard_trackers.is_none(),
+                "Cannot override shard_trackers without overriding epoch_managers"
+            );
+            assert!(
+                ret.runtimes.is_none(),
+                "Cannot override runtimes without overriding epoch_managers"
+            );
+            ret.epoch_managers = Some(epoch_managers);
+            ret
         }
     }
 
