@@ -410,7 +410,7 @@ async fn state_sync_dump_multi_node(
                             // tracing::info!(target: "state_sync_dump", shard_id, ?epoch_id, epoch_height, %sync_hash, ?state_root, parts_dumped, "Creating parts and dumping them");   
         
                             Ok(parts_not_dumped) => {
-                                let batch_size: u64 = 100;
+                                let batch_size: u64 = 1000;
                                 let parts_to_dump = select_random_parts_to_dump(parts_not_dumped, batch_size);
 
                                 for part_id in parts_to_dump {
