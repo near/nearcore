@@ -306,9 +306,9 @@ pub fn start_with_config_and_synchronization(
     let state_sync_dump_handle = spawn_state_sync_dump(
         &config.client_config,
         chain_genesis,
-        epoch_manager.clone(),
-        shard_tracker.clone(),
-        runtime.clone(),
+        epoch_manager,
+        shard_tracker,
+        runtime,
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
     )?;
 
