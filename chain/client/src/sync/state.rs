@@ -202,8 +202,7 @@ impl ExternalConnection {
                         // let total_parts_str = chars.next().unwrap().to_string();
                         file_names.push(file_name);
                     }
-                }
-                tracing::debug!(target: "state_sync_dump", shard_id, ?directory_location, ?file_names, "List state parts in s3");
+                };
                 Ok(file_names)
             }
             ExternalConnection::Filesystem { root_dir } => {
