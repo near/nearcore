@@ -304,9 +304,9 @@ async fn get_missing_state_parts_for_epoch_from_s3(
             let mut existing_nums = HashSet::new();
             for name in names {
                 let splitted:Vec<_> = name.split("_").collect();
-                let part_id = splitted.get(1).unwrap().to_string().parse::<u64>().unwrap();
+                let part_id = splitted.get(2).unwrap().to_string().parse::<u64>().unwrap();
                 if total_parts == 0 {
-                    total_parts = splitted.get(2).unwrap().to_string().parse::<u64>().unwrap();
+                    total_parts = splitted.get(4).unwrap().to_string().parse::<u64>().unwrap();
                 }
                 existing_nums.insert(part_id);
             }
