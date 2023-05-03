@@ -190,7 +190,7 @@ impl ExternalConnection {
         match self {
             ExternalConnection::S3 { bucket } => {
                 let list_results =
-                    bucket.list(directory_location.to_string(), Some("/".to_string())).await.unwrap();
+                    bucket.list(format!("{}/", directory_location.to_string()), Some("/".to_string())).await.unwrap();
                 tracing::debug!(target: "state_sync_dump", shard_id, ?directory_location, "List state parts in s3");
                 let mut file_names = vec![];
                 for res in list_results {
