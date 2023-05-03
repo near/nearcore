@@ -58,6 +58,13 @@ use super::ValidatorSchedule;
 
 /// Simple key value runtime for tests.
 ///
+/// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+/// WARNING: If you choose to use KeyValueRuntime for your tests, BE PREPARED TO
+/// HAVE A BAD TIME. Use it only if you understand it to its entirety. It has
+/// implicit behavior, very specific partially implemented logic, and is generally
+/// incorrect. USE NightshadeRuntime WHENEVER POSSIBLE. YOU HAVE BEEN WARNED.
+/// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+///
 /// Major differences with production `NightshadeRuntime`:
 ///   * Uses in-memory storage
 ///   * Doesn't have WASM runtime, so can only process simple transfer
@@ -319,23 +326,25 @@ impl MockEpochManager {
 }
 
 impl KeyValueRuntime {
-    pub fn new(store: Store, epoch_manager: &dyn EpochManagerAdapter) -> Arc<Self> {
+    pub fn new(store: Store, epoch_manager: &MockEpochManager) -> Arc<Self> {
         Self::new_with_no_gc(store, epoch_manager, false)
     }
     pub fn new_with_no_gc(
         store: Store,
-        epoch_manager: &dyn EpochManagerAdapter,
+        epoch_manager: &MockEpochManager,
         no_gc: bool,
     ) -> Arc<Self> {
         let num_shards = epoch_manager.num_shards(&EpochId::default()).unwrap();
         let epoch_length =
             epoch_manager.get_epoch_config(&EpochId::default()).unwrap().epoch_length;
         let tries = ShardTries::test(store.clone(), num_shards);
-        let block_producers = epoch_manager
-            .get_epoch_block_producers_ordered(&EpochId::default(), &CryptoHash::default())
-            .unwrap();
         let mut initial_amounts = HashMap::new();
-        for (i, (validator_stake, _)) in block_producers.iter().enumerate() {
+        for (i, validator_stake) in epoch_manager
+            .validators_by_valset
+            .iter()
+            .flat_map(|set| set.block_producers.iter())
+            .enumerate()
+        {
             initial_amounts.insert(validator_stake.account_id().clone(), (1000 + 100 * i) as u128);
         }
 

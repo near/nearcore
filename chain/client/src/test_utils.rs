@@ -1312,21 +1312,15 @@ pub struct TestEnv {
 
 #[derive(derive_more::From, Clone)]
 enum EpochManagerKind {
-    Adapter(Arc<dyn EpochManagerAdapter>),
+    Mock(Arc<MockEpochManager>),
     Handle(Arc<EpochManagerHandle>),
 }
 
 impl EpochManagerKind {
     pub fn into_adapter(self) -> Arc<dyn EpochManagerAdapter> {
         match self {
-            Self::Adapter(adapter) => adapter,
+            Self::Mock(mock) => mock,
             Self::Handle(handle) => handle,
-        }
-    }
-    pub fn as_adapter(&self) -> &dyn EpochManagerAdapter {
-        match self {
-            Self::Adapter(adapter) => adapter.as_ref(),
-            Self::Handle(handle) => handle.as_ref(),
         }
     }
 }
@@ -1434,13 +1428,32 @@ impl TestEnvBuilder {
         }
     }
 
-    /// Specifies custom EpochManagerAdapter for each client.  This allows us to
+    /// Specifies custom MockEpochManager for each client.  This allows us to
     /// construct [`TestEnv`] with a custom implementation.
     ///
     /// The vector must have the same number of elements as they are clients
     /// (one by default).  If that does not hold, [`Self::build`] method will
     /// panic.
-    pub fn epoch_managers(mut self, epoch_managers: Vec<Arc<dyn EpochManagerAdapter>>) -> Self {
+    pub fn mock_epoch_managers(mut self, epoch_managers: Vec<Arc<MockEpochManager>>) -> Self {
+        assert!(epoch_managers.len() == self.clients.len());
+        assert!(self.epoch_managers.is_none(), "Cannot override twice");
+        assert!(
+            self.shard_trackers.is_none(),
+            "Cannot override epoch_managers after shard_trackers"
+        );
+        assert!(self.runtimes.is_none(), "Cannot override epoch_managers after runtimes");
+        self.epoch_managers =
+            Some(epoch_managers.into_iter().map(|epoch_manager| epoch_manager.into()).collect());
+        self
+    }
+
+    /// Specifies custom EpochManagerHandle for each client.  This allows us to
+    /// construct [`TestEnv`] with a custom implementation.
+    ///
+    /// The vector must have the same number of elements as they are clients
+    /// (one by default).  If that does not hold, [`Self::build`] method will
+    /// panic.
+    pub fn epoch_managers(mut self, epoch_managers: Vec<Arc<EpochManagerHandle>>) -> Self {
         assert!(epoch_managers.len() == self.clients.len());
         assert!(self.epoch_managers.is_none(), "Cannot override twice");
         assert!(
@@ -1455,24 +1468,16 @@ impl TestEnvBuilder {
 
     /// Constructs real EpochManager implementations for each instance.
     pub fn real_epoch_managers(self, genesis_config: &GenesisConfig) -> Self {
-        let mut ret = self.ensure_stores();
-        assert!(ret.epoch_managers.is_none(), "Cannot override twice");
-        assert!(
-            ret.shard_trackers.is_none(),
-            "Cannot override epoch_managers after shard_trackers"
-        );
-        assert!(ret.runtimes.is_none(), "Cannot override epoch_managers after runtimes");
-        let epoch_managers: Vec<EpochManagerKind> = (0..ret.clients.len())
+        let ret = self.ensure_stores();
+        let epoch_managers = (0..ret.clients.len())
             .map(|i| {
                 EpochManager::new_arc_handle(
                     ret.stores.as_ref().unwrap()[i].clone(),
                     genesis_config,
                 )
-                .into()
             })
             .collect();
-        ret.epoch_managers = Some(epoch_managers);
-        ret
+        ret.epoch_managers(epoch_managers)
     }
 
     /// Internal impl to make sure EpochManagers are initialized.
@@ -1489,10 +1494,10 @@ impl TestEnvBuilder {
                         ret.stores.as_ref().unwrap()[i].clone(),
                         vs,
                         ret.chain_genesis.epoch_length,
-                    ) as Arc<dyn EpochManagerAdapter>
+                    )
                 })
                 .collect();
-            ret.epoch_managers(epoch_managers)
+            ret.mock_epoch_managers(epoch_managers)
         }
     }
 
@@ -1508,7 +1513,7 @@ impl TestEnvBuilder {
             .unwrap()
             .into_iter()
             .map(|kind| match kind {
-                EpochManagerKind::Adapter(_) => {
+                EpochManagerKind::Mock(_) => {
                     panic!("NightshadeRuntime can only be instantiated with EpochManagerHandle")
                 }
                 EpochManagerKind::Handle(handle) => handle,
@@ -1582,10 +1587,16 @@ impl TestEnvBuilder {
         } else {
             let runtimes = (0..ret.clients.len())
                 .map(|i| {
-                    KeyValueRuntime::new(
-                        ret.stores.as_ref().unwrap()[i].clone(),
-                        ret.epoch_managers.as_ref().unwrap()[i].as_adapter(),
-                    ) as Arc<dyn RuntimeAdapter>
+                    let epoch_manager = match &ret.epoch_managers.as_ref().unwrap()[i] {
+                        EpochManagerKind::Mock(mock) => mock.as_ref(),
+                        EpochManagerKind::Handle(_) => {
+                            panic!(
+                                "Can only default construct KeyValueRuntime with MockEpochManager"
+                            )
+                        }
+                    };
+                    KeyValueRuntime::new(ret.stores.as_ref().unwrap()[i].clone(), epoch_manager)
+                        as Arc<dyn RuntimeAdapter>
                 })
                 .collect();
             ret.runtimes(runtimes)
