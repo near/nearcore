@@ -797,7 +797,8 @@ mod tests {
         assert_eq!(ds.process_timer(now + Duration::from_millis(499)), vec![]);
 
         match ds.process_timer(now + Duration::from_millis(500)) {
-            approvals if approvals.is_empty() => assert!(false), approvals => {
+            approvals if approvals.is_empty() => assert!(false),
+            approvals => {
                 assert_eq!(approvals[0].inner, ApprovalInner::Skip(3));
                 assert_eq!(approvals[0].target_height, 6);
             }
