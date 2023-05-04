@@ -6,6 +6,7 @@ use crate::crypto_hash_timer::CryptoHashTimer;
 use crate::lightclient::get_epoch_block_producers_view;
 use crate::migrations::check_if_block_is_first_with_chunk_of_version;
 use crate::missing_chunks::{BlockLike, MissingChunksPool};
+use crate::simulator::{SimulationRequest, SimulationRunner};
 use crate::state_request_tracker::StateRequestTracker;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode};
 use crate::types::{
@@ -83,7 +84,7 @@ use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{mpsc, Arc};
 use std::time::{Duration as TimeDuration, Instant};
 use tracing::{debug, error, info, warn, Span};
 
@@ -3895,6 +3896,14 @@ impl Chain {
                             chunk: MaybeEncodedShardChunk::Decoded(chunk),
                         };
                         return Err(Error::InvalidChunkProofs(Box::new(chunk_proof)));
+                    }
+
+                    for transaction in transactions {
+                        SimulationRunner::maybe_send(SimulationRequest {
+                            global_state_root: *block.header().prev_state_root(),
+                            prev_block_hash: *prev_block.hash(),
+                            transaction: transaction.clone(),
+                        });
                     }
 
                     // if we are running mock_node, ignore this check because

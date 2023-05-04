@@ -1,13 +1,17 @@
-use std::{collections::VecDeque, sync::Arc};
+use std::{
+    collections::VecDeque,
+    sync::{mpsc, Arc, Mutex, RwLock},
+};
 
+use itertools::Itertools;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::{
     block_header::BlockHeader,
     hash::CryptoHash,
     receipt::{Receipt, ReceiptEnum},
     runtime::migration_data::MigrationFlags,
-    transaction::{ExecutionOutcomeWithId, SignedTransaction},
-    types::EpochInfoProvider,
+    transaction::{ExecutionOutcome, ExecutionOutcomeWithId, SignedTransaction},
+    types::{EpochInfoProvider, ShardId},
 };
 use near_store::{get_received_data, DBCol, StoreCompiledContractCache, TrieUpdate};
 use node_runtime::{ApplyState, ApplyStats, Runtime};
@@ -57,8 +61,11 @@ impl TransactionSimulator {
                 &mut stats,
             )
             .map_err(|err| crate::Error::Other(err.to_string()))?;
-        simulation_state.remaining_receipts.push_back(receipt.clone());
-        simulation_state.outcomes.push(outcome);
+        simulation_state.remaining_receipts.push_back((
+            if receipt.receiver_id == receipt.predecessor_id { 0 } else { 1 },
+            receipt.clone(),
+        ));
+        simulation_state.tx_outcome = Some(outcome.outcome);
         Ok(simulation_state)
     }
 
@@ -68,19 +75,45 @@ impl TransactionSimulator {
         state_root: &CryptoHash,
         transaction: &SignedTransaction,
     ) -> SimulationResult {
+        println!(
+            "[SIM] Simulating transaction {:?} to {:?}",
+            transaction.get_hash(),
+            transaction.transaction.receiver_id
+        );
         let mut state = match self.prepare_simulation(prev_block_hash, state_root, transaction) {
             Ok(state) => state,
-            Err(err) => return SimulationResult { outcomes: Vec::new(), error: Some(err) },
+            Err(err) => {
+                return SimulationResult {
+                    tx_outcome: None,
+                    outcomes: Vec::new(),
+                    error: Some(err),
+                }
+            }
         };
         let error = if let Err(err) = state.simulate_all_receipts() { Some(err) } else { None };
-        SimulationResult { outcomes: state.outcomes, error }
+        let total_gas_by_shard_and_depth = state
+            .outcomes
+            .iter()
+            .map(|outcome| ((outcome.shard_id, outcome.execution_depth), outcome.outcome.gas_burnt))
+            .group_by(|(key, _)| key.clone())
+            .into_iter()
+            .map(|((shard_id, depth), group)| {
+                ((shard_id, depth), group.map(|(_, gas)| gas).reduce(|a, b| a + b).unwrap())
+            })
+            .collect::<Vec<_>>();
+        println!("[SIM] Total gas per shard and depth:");
+        for ((shard_id, depth), gas) in total_gas_by_shard_and_depth {
+            println!("[SIM]   Shard {} depth {}: {}", shard_id, depth, gas);
+        }
+        SimulationResult { tx_outcome: state.tx_outcome, outcomes: state.outcomes, error }
     }
 }
 
 pub struct SimulationState {
     trie_updates: Vec<TrieUpdate>,
-    remaining_receipts: VecDeque<Receipt>,
-    outcomes: Vec<ExecutionOutcomeWithId>,
+    remaining_receipts: VecDeque<(u32, Receipt)>,
+    tx_outcome: Option<ExecutionOutcome>,
+    outcomes: Vec<ReceiptExecutionOutcome>,
     apply_state: ApplyState,
 
     epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -90,8 +123,16 @@ pub struct SimulationState {
 }
 
 pub struct SimulationResult {
-    pub outcomes: Vec<ExecutionOutcomeWithId>,
+    pub tx_outcome: Option<ExecutionOutcome>,
+    pub outcomes: Vec<ReceiptExecutionOutcome>,
     pub error: Option<crate::Error>,
+}
+
+pub struct ReceiptExecutionOutcome {
+    pub receipt: Receipt,
+    pub outcome: ExecutionOutcome,
+    pub shard_id: ShardId,
+    pub execution_depth: u32,
 }
 
 impl SimulationState {
@@ -146,6 +187,7 @@ impl SimulationState {
         Ok(Self {
             trie_updates,
             remaining_receipts: VecDeque::new(),
+            tx_outcome: None,
             outcomes: Vec::new(),
             apply_state,
             epoch_manager,
@@ -155,11 +197,11 @@ impl SimulationState {
         })
     }
 
-    pub fn take_next_runnable_receipt(&mut self) -> Result<Option<Receipt>, crate::Error> {
+    pub fn take_next_runnable_receipt(&mut self) -> Result<Option<(u32, Receipt)>, crate::Error> {
         let mut attempts_remaining = self.remaining_receipts.len();
         'outer: while attempts_remaining > 0 {
             attempts_remaining -= 1;
-            let receipt = self.remaining_receipts.pop_front().unwrap();
+            let (depth, receipt) = self.remaining_receipts.pop_front().unwrap();
             match &receipt.receipt {
                 ReceiptEnum::Action(action) => {
                     let recipient_account_id = receipt.receiver_id.clone();
@@ -175,20 +217,21 @@ impl SimulationState {
                         )?
                         .is_none()
                         {
-                            self.remaining_receipts.push_back(receipt);
+                            // TODO: These depths are incorrect.
+                            self.remaining_receipts.push_back((depth, receipt));
                             continue 'outer;
                         }
                     }
 
-                    return Ok(Some(receipt));
+                    return Ok(Some((depth, receipt)));
                 }
-                ReceiptEnum::Data(_) => return Ok(Some(receipt)),
+                ReceiptEnum::Data(_) => return Ok(Some((depth, receipt))),
             }
         }
         Ok(None)
     }
 
-    pub fn simulate_receipt(&mut self, receipt: Receipt) -> Result<(), crate::Error> {
+    pub fn simulate_receipt(&mut self, receipt: Receipt, depth: u32) -> Result<(), crate::Error> {
         let shard_id = self
             .epoch_manager
             .account_id_to_shard_id(&receipt.receiver_id, &self.apply_state.epoch_id)?;
@@ -208,16 +251,76 @@ impl SimulationState {
             )
             .map_err(|err| crate::Error::Other(err.to_string()))?;
         if let Some(result) = result {
-            self.outcomes.push(result);
+            self.outcomes.push(ReceiptExecutionOutcome {
+                receipt,
+                outcome: result.outcome,
+                shard_id,
+                execution_depth: depth,
+            });
         }
-        self.remaining_receipts.extend(outgoing_receipts.into_iter());
+        self.remaining_receipts
+            .extend(outgoing_receipts.into_iter().map(|receipt| (depth + 1, receipt)));
         Ok(())
     }
 
     pub fn simulate_all_receipts(&mut self) -> Result<(), crate::Error> {
-        while let Some(receipt) = self.take_next_runnable_receipt()? {
-            self.simulate_receipt(receipt)?;
+        while let Some((depth, receipt)) = self.take_next_runnable_receipt()? {
+            self.simulate_receipt(receipt, depth)?;
         }
         Ok(())
     }
 }
+
+pub struct SimulationRunner {
+    thread: std::thread::JoinHandle<()>,
+    sender: mpsc::SyncSender<SimulationRequest>,
+}
+
+impl SimulationRunner {
+    pub fn maybe_send(request: SimulationRequest) -> bool {
+        let runner = SIMULATION_RUNNER.simulator.read().unwrap().as_ref().cloned();
+        if let Some(runner) = runner {
+            runner.sender.send(request).is_ok()
+        } else {
+            false
+        }
+    }
+
+    pub fn init(
+        epoch_manager: Arc<dyn EpochManagerAdapter>,
+        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        epoch_info_provider: Arc<dyn EpochInfoProvider>,
+    ) {
+        let simulator = Arc::new(TransactionSimulator::new(
+            epoch_manager,
+            runtime_adapter,
+            epoch_info_provider,
+        ));
+        let (sender, receiver) = mpsc::sync_channel(1000);
+        let thread = std::thread::spawn(move || {
+            for request in receiver {
+                let SimulationRequest { transaction, global_state_root, prev_block_hash } = request;
+                let result = simulator.simulate(&global_state_root, &prev_block_hash, &transaction);
+                if let Some(err) = result.error {
+                    let hash = transaction.get_hash();
+                    println!("Error simulating transaction {:?}: {:?}", hash, err);
+                }
+            }
+        });
+
+        *SIMULATION_RUNNER.simulator.write().unwrap() = Some(Arc::new(Self { thread, sender }));
+    }
+}
+
+pub struct SimulationRequest {
+    pub transaction: SignedTransaction,
+    pub global_state_root: CryptoHash,
+    pub prev_block_hash: CryptoHash,
+}
+
+pub struct SimulationRunnerStatic {
+    simulator: RwLock<Option<Arc<SimulationRunner>>>,
+}
+
+static SIMULATION_RUNNER: SimulationRunnerStatic =
+    SimulationRunnerStatic { simulator: RwLock::new(None) };
