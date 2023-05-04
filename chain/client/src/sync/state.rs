@@ -1503,6 +1503,7 @@ impl<T: Clone> Iterator for SamplerLimited<T> {
 
 /// Construct a location on the external storage.
 pub fn external_storage_location(
+    prefix: &str,
     chain_id: &str,
     epoch_id: &EpochId,
     epoch_height: u64,

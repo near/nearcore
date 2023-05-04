@@ -113,6 +113,7 @@ pub struct DumpConfig {
     /// Feel free to set to `None`, defaults are sensible.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub iteration_delay: Option<Duration>,
+    pub multi_node: Option<bool>
 }
 
 /// Configures how to fetch state parts during state sync.
