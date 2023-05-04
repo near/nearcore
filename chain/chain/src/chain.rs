@@ -3900,7 +3900,11 @@ impl Chain {
 
                     for transaction in transactions {
                         SimulationRunner::maybe_send(SimulationRequest {
-                            global_state_root: *block.header().prev_state_root(),
+                            state_roots: block
+                                .chunks()
+                                .iter()
+                                .map(|chunk| chunk.prev_state_root())
+                                .collect(),
                             prev_block_hash: *prev_block.hash(),
                             transaction: transaction.clone(),
                         });

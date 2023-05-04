@@ -37,7 +37,7 @@ impl TransactionSimulator {
     pub fn prepare_simulation(
         &self,
         prev_block_hash: &CryptoHash,
-        state_root: &CryptoHash,
+        state_roots: &[CryptoHash],
         transaction: &SignedTransaction,
     ) -> Result<SimulationState, crate::Error> {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
@@ -46,7 +46,7 @@ impl TransactionSimulator {
             self.runtime_adapter.clone(),
             self.epoch_info_provider.clone(),
             prev_block_hash,
-            state_root,
+            state_roots,
         )?;
         let tx_shard_id = self
             .epoch_manager
@@ -72,7 +72,7 @@ impl TransactionSimulator {
     pub fn simulate(
         &self,
         prev_block_hash: &CryptoHash,
-        state_root: &CryptoHash,
+        state_roots: &[CryptoHash],
         transaction: &SignedTransaction,
     ) -> SimulationResult {
         println!(
@@ -80,7 +80,7 @@ impl TransactionSimulator {
             transaction.get_hash(),
             transaction.transaction.receiver_id
         );
-        let mut state = match self.prepare_simulation(prev_block_hash, state_root, transaction) {
+        let mut state = match self.prepare_simulation(prev_block_hash, state_roots, transaction) {
             Ok(state) => state,
             Err(err) => {
                 return SimulationResult {
@@ -141,7 +141,7 @@ impl SimulationState {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         epoch_info_provider: Arc<dyn EpochInfoProvider>,
         prev_block_hash: &CryptoHash,
-        state_root: &CryptoHash,
+        state_roots: &[CryptoHash],
     ) -> Result<Self, crate::Error> {
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
@@ -151,7 +151,7 @@ impl SimulationState {
             let trie = runtime_adapter.get_trie_for_shard(
                 shard_id,
                 prev_block_hash,
-                *state_root,
+                state_roots[shard_id as usize],
                 false,
             )?;
             let trie_update = TrieUpdate::new(trie);
@@ -299,8 +299,8 @@ impl SimulationRunner {
         let (sender, receiver) = mpsc::sync_channel(1000);
         let thread = std::thread::spawn(move || {
             for request in receiver {
-                let SimulationRequest { transaction, global_state_root, prev_block_hash } = request;
-                let result = simulator.simulate(&prev_block_hash, &global_state_root, &transaction);
+                let SimulationRequest { transaction, state_roots, prev_block_hash } = request;
+                let result = simulator.simulate(&prev_block_hash, &state_roots, &transaction);
                 if let Some(err) = result.error {
                     let hash = transaction.get_hash();
                     println!("[SIM]   Error simulating transaction {:?}: {:?}", hash, err);
@@ -314,7 +314,7 @@ impl SimulationRunner {
 
 pub struct SimulationRequest {
     pub transaction: SignedTransaction,
-    pub global_state_root: CryptoHash,
+    pub state_roots: Vec<CryptoHash>,
     pub prev_block_hash: CryptoHash,
 }
 
