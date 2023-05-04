@@ -236,7 +236,7 @@ impl Trie {
     fn apply_state_part_impl(
         state_root: &StateRoot,
         part_id: PartId,
-        part: Vec<StateItem>,
+        part: PartialState,
     ) -> Result<ApplyStatePartResult, StorageError> {
         if state_root == &Trie::EMPTY_ROOT {
             return Ok(ApplyStatePartResult {
@@ -245,10 +245,7 @@ impl Trie {
                 contract_codes: vec![],
             });
         }
-        let trie = Trie::from_recorded_storage(
-            PartialStorage { nodes: PartialState::Full(part) },
-            *state_root,
-        );
+        let trie = Trie::from_recorded_storage(PartialStorage { nodes: part }, *state_root);
         let path_begin = trie.find_state_part_boundary(part_id.idx, part_id.total)?;
         let path_end = trie.find_state_part_boundary(part_id.idx + 1, part_id.total)?;
         let mut iterator = trie.iter()?;
@@ -285,7 +282,7 @@ impl Trie {
     pub fn apply_state_part(
         state_root: &StateRoot,
         part_id: PartId,
-        part: Vec<StateItem>,
+        part: PartialState,
     ) -> ApplyStatePartResult {
         Self::apply_state_part_impl(state_root, part_id, part)
             .expect("apply_state_part is guaranteed to succeed when each part is valid")
@@ -325,10 +322,11 @@ mod tests {
         /// StorageError if data is inconsistent. Should never happen if each part was validated.
         pub fn combine_state_parts_naive(
             state_root: &StateRoot,
-            parts: &[Vec<StateItem>],
+            parts: &[PartialState],
         ) -> Result<TrieChanges, StorageError> {
-            let nodes =
-                PartialState::Full(parts.iter().flat_map(|part| part.iter()).cloned().collect());
+            let nodes = PartialState::Full(
+                parts.iter().flat_map(|PartialState::Full(nodes)| nodes.iter()).cloned().collect(),
+            );
             let trie = Trie::from_recorded_storage(PartialStorage { nodes }, *state_root);
             let mut insertions = <HashMap<CryptoHash, (Vec<u8>, u32)>>::new();
             trie.traverse_all_nodes(|hash| {
@@ -443,7 +441,7 @@ mod tests {
             PartialState::Full(vec![]),
         )
         .unwrap();
-        let _ = Trie::apply_state_part(&state_root, PartId::new(0, 1), vec![]);
+        let _ = Trie::apply_state_part(&state_root, PartId::new(0, 1), PartialState::Full(vec![]));
     }
 
     fn construct_trie_for_big_parts_1(
@@ -531,13 +529,14 @@ mod tests {
             let approximate_size_per_part = memory_size / num_parts;
             let parts = (0..num_parts)
                 .map(|part_id| {
-                    trie.get_trie_nodes_for_part(PartId::new(part_id, num_parts)).unwrap().0
+                    trie.get_trie_nodes_for_part(PartId::new(part_id, num_parts)).unwrap()
                 })
                 .collect::<Vec<_>>();
-            let part_nodecounts_vec = parts.iter().map(|nodes| nodes.len()).collect::<Vec<_>>();
+            let part_nodecounts_vec =
+                parts.iter().map(|PartialState::Full(nodes)| nodes.len()).collect::<Vec<_>>();
             let sizes_vec = parts
                 .iter()
-                .map(|nodes| nodes.iter().map(|node| node.len()).sum::<usize>())
+                .map(|PartialState::Full(nodes)| nodes.iter().map(|node| node.len()).sum::<usize>())
                 .collect::<Vec<_>>();
 
             println!("Node counts of parts: {:?}", part_nodecounts_vec);
@@ -604,7 +603,7 @@ mod tests {
                 let num_parts = rng.gen_range(2..10);
                 let parts = (0..num_parts)
                     .map(|part_id| {
-                        trie.get_trie_nodes_for_part(PartId::new(part_id, num_parts)).unwrap().0
+                        trie.get_trie_nodes_for_part(PartId::new(part_id, num_parts)).unwrap()
                     })
                     .collect::<Vec<_>>();
 
@@ -617,7 +616,8 @@ mod tests {
                     .collect::<Vec<_>>();
 
                 for part in parts {
-                    for node in part {
+                    let PartialState::Full(part_nodes) = part;
+                    for node in part_nodes {
                         nodes.insert(hash(&node), node);
                     }
                 }
@@ -654,7 +654,7 @@ mod tests {
     fn check_combine_state_parts(
         state_root: &CryptoHash,
         num_parts: u64,
-        parts: &[Vec<Arc<[u8]>>],
+        parts: &[PartialState],
     ) -> TrieChanges {
         let trie_changes = Trie::combine_state_parts_naive(state_root, parts).unwrap();
 
