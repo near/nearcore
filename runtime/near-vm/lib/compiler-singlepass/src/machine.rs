@@ -504,7 +504,7 @@ impl Machine {
         }
         // Second: handle the locals that are allocated to the stack.
         let stack_loc_idxs = std::cmp::max(Self::LOCAL_REGISTERS.len() as u32, n_params)..n;
-        if stack_loc_idxs.len() > 0 {
+        if !stack_loc_idxs.is_empty() {
             // Since these assemblies take up to 24 bytes, if more than 2 slots are initialized, then they are smaller.
             a.emit_mov(
                 Size::S64,

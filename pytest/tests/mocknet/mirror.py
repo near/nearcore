@@ -316,6 +316,70 @@ def prompt_setup_flags(args):
         print('number of block producer seats?: ')
         args.num_seats = int(sys.stdin.readline().strip())
 
+    if args.neard_binary_url is None:
+        print('neard binary URL?: ')
+        args.neard_binary_url = sys.stdin.readline().strip()
+        assert len(args.neard_binary_url) > 0
+
+    if args.neard_upgrade_binary_url is None:
+        print(
+            'add a second neard binary URL to upgrade to mid-test? enter nothing here to skip: '
+        )
+        url = sys.stdin.readline().strip()
+        if len(url) > 0:
+            args.neard_upgrade_binary_url = url
+
+
+def upload_neard_runner(node, config):
+    node.machine.run(
+        'rm -rf /home/ubuntu/neard-runner && mkdir /home/ubuntu/neard-runner && mkdir -p /home/ubuntu/neard-logs'
+    )
+    node.machine.upload('tests/mocknet/helpers/neard_runner.py',
+                        '/home/ubuntu/neard-runner',
+                        switch_user='ubuntu')
+    node.machine.upload('tests/mocknet/helpers/requirements.txt',
+                        '/home/ubuntu/neard-runner',
+                        switch_user='ubuntu')
+    mocknet.upload_json(node, '/home/ubuntu/neard-runner/config.json', config)
+    cmd = 'cd /home/ubuntu/neard-runner && python3 -m virtualenv venv -p $(which python3)' \
+    ' && ./venv/bin/pip install -r requirements.txt'
+    run_cmd(node, cmd)
+    run_in_background(node, f'/home/ubuntu/neard-runner/venv/bin/python /home/ubuntu/neard-runner/neard_runner.py ' \
+        '--home /home/ubuntu/neard-runner --neard-home /home/ubuntu/.near ' \
+        '--neard-logs /home/ubuntu/neard-logs --port 3000', 'neard-runner.txt')
+
+
+def stop_neard_runner(node):
+    # it's probably fine for now, but this is very heavy handed/not precise
+    node.machine.run('kill $(ps -C python -o pid=)')
+
+
+def init_neard_runner(nodes, binary_url, upgrade_binary_url):
+    if upgrade_binary_url is None:
+        configs = [{
+            "binaries": [{
+                "url": binary_url,
+                "epoch_height": 0
+            }]
+        }] * len(nodes)
+    else:
+        # for now this test starts all validators with the same stake, so just make the upgrade
+        # epoch random. If we change the stakes, we should change this to choose how much stake
+        # we want to upgrade during each epoch
+        configs = []
+        for i in range(len(nodes)):
+            configs.append({
+                "binaries": [{
+                    "url": binary_url,
+                    "epoch_height": 0
+                }, {
+                    "url": upgrade_binary_url,
+                    "epoch_height": random.randint(1, 4)
+                }]
+            })
+
+    pmap(lambda x: upload_neard_runner(x[0], x[1]), zip(nodes, configs))
+
 
 def setup(args, traffic_generator, nodes):
     prompt_setup_flags(args)
@@ -330,8 +394,11 @@ def setup(args, traffic_generator, nodes):
         )
 
     all_nodes = nodes + [traffic_generator]
+    pmap(stop_neard_runner, nodes)
     mocknet.stop_nodes(all_nodes)
 
+    # TODO: move all the setup logic to neard_runner.py and just call it here, so
+    # that each node does its own setup and we don't rely on the computer running this script
     logger.info(f'resetting/initializing home dirs')
     boot_nodes = pmap(lambda node: init_home_dir(node, args.num_validators),
                       all_nodes)
@@ -341,6 +408,9 @@ def setup(args, traffic_generator, nodes):
 
     random.shuffle(nodes)
     validators = get_validator_list(nodes[:args.num_validators])
+
+    init_neard_runner(nodes, args.neard_binary_url,
+                      args.neard_upgrade_binary_url)
 
     logger.info(
         f'setting validators and running neard amend-genesis on all nodes. validators: {validators}'
@@ -354,7 +424,7 @@ def setup(args, traffic_generator, nodes):
     logger.info(f'finished neard amend-genesis step')
 
     logger.info(
-        f'starting neard nodes then waiting for them to be ready. This may take a very long time (> 12 hours)'
+        f'starting neard nodes then waiting for them to be ready. This may take a long time (a couple hours)'
     )
     logger.info(
         'If your connection is broken in the meantime, run "make-backups" to resume'
@@ -381,7 +451,14 @@ def make_backups(args, traffic_generator, nodes):
 
 def reset_data_dirs(args, traffic_generator, nodes):
     all_nodes = nodes + [traffic_generator]
-    mocknet.stop_nodes(all_nodes)
+    stop_nodes(args, traffic_generator, nodes)
+    # TODO: maybe have the neard runner not return from the JSON rpc until it's stopped?
+    while True:
+        if not any(mocknet.is_binary_running_all_nodes(
+                'neard',
+                all_nodes,
+        )):
+            break
     if not all(pmap(check_backup, all_nodes)):
         logger.warning('Not continuing with backup restoration')
         return
@@ -395,7 +472,26 @@ def reset_data_dirs(args, traffic_generator, nodes):
 
 
 def stop_nodes(args, traffic_generator, nodes):
-    mocknet.stop_nodes(nodes + [traffic_generator])
+    mocknet.stop_nodes([traffic_generator])
+    pmap(neard_runner_stop, nodes)
+
+
+def neard_runner_jsonrpc(node, method):
+    j = {'method': method, 'params': [], 'id': 'dontcare', 'jsonrpc': '2.0'}
+    r = requests.post(f'http://{node.machine.ip}:3000', json=j, timeout=5)
+    if r.status_code != 200:
+        logger.warning(
+            f'bad response {r.status_code} trying to send {method} JSON RPC to neard runner on {node.instance_name}:\n{r.content}'
+        )
+    r.raise_for_status()
+
+
+def neard_runner_start(node):
+    neard_runner_jsonrpc(node, 'start')
+
+
+def neard_runner_stop(node):
+    neard_runner_jsonrpc(node, 'stop')
 
 
 def start_traffic(args, traffic_generator, nodes):
@@ -404,8 +500,8 @@ def start_traffic(args, traffic_generator, nodes):
             f'Not sending traffic, as the backups in {BACKUP_DIR} dont seem to be up to date'
         )
         return
-    # TODO: handle upgrading to a different binary mid-test
-    pmap(lambda node: start_neard(node, 'neard.txt'), nodes)
+
+    pmap(neard_runner_start, nodes)
     logger.info("waiting for validators to be up")
     pmap(lambda node: wait_node_up(node, 'neard.txt'), nodes)
     logger.info(
@@ -426,6 +522,9 @@ if __name__ == '__main__':
     parser.add_argument('--epoch-length', type=int)
     parser.add_argument('--num-validators', type=int)
     parser.add_argument('--num-seats', type=int)
+
+    parser.add_argument('--neard-binary-url', type=str)
+    parser.add_argument('--neard-upgrade-binary-url', type=str)
 
     subparsers = parser.add_subparsers(title='subcommands',
                                        description='valid subcommands',

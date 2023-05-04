@@ -3,10 +3,10 @@ use crate::challenge::ChallengesResult;
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
 use crate::receipt::Receipt;
+use crate::serialize::base64_format;
 use crate::serialize::dec_format;
 use crate::trie_key::TrieKey;
 use borsh::{BorshDeserialize, BorshSerialize};
-use derive_more::{AsRef as DeriveAsRef, From as DeriveFrom};
 use near_crypto::PublicKey;
 /// Reexport primitive types
 pub use near_primitives_core::types::*;
@@ -50,20 +50,40 @@ pub struct AccountInfo {
 /// NOTE: Currently, this type is only used in the view_client and RPC to be able to transparently
 /// pretty-serialize the bytes arrays as base64-encoded strings (see `serialize.rs`).
 #[derive(
-    Debug, Clone, PartialEq, Eq, DeriveAsRef, DeriveFrom, BorshSerialize, BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    derive_more::Deref,
+    derive_more::From,
+    derive_more::Into,
+    BorshSerialize,
+    BorshDeserialize,
 )]
-#[as_ref(forward)]
-pub struct StoreKey(Vec<u8>);
+#[serde(transparent)]
+pub struct StoreKey(#[serde(with = "base64_format")] Vec<u8>);
 
 /// This type is used to mark values returned from store (arrays of bytes).
 ///
 /// NOTE: Currently, this type is only used in the view_client and RPC to be able to transparently
 /// pretty-serialize the bytes arrays as base64-encoded strings (see `serialize.rs`).
 #[derive(
-    Debug, Clone, PartialEq, Eq, DeriveAsRef, DeriveFrom, BorshSerialize, BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    derive_more::Deref,
+    derive_more::From,
+    derive_more::Into,
+    BorshSerialize,
+    BorshDeserialize,
 )]
-#[as_ref(forward)]
-pub struct StoreValue(Vec<u8>);
+#[serde(transparent)]
+pub struct StoreValue(#[serde(with = "base64_format")] Vec<u8>);
 
 /// This type is used to mark function arguments.
 ///
@@ -71,10 +91,20 @@ pub struct StoreValue(Vec<u8>);
 /// transparently serialized and deserialized as a base64-encoded string when serde is used
 /// (serde_json).
 #[derive(
-    Debug, Clone, PartialEq, Eq, DeriveAsRef, DeriveFrom, BorshSerialize, BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    derive_more::Deref,
+    derive_more::From,
+    derive_more::Into,
+    BorshSerialize,
+    BorshDeserialize,
 )]
-#[as_ref(forward)]
-pub struct FunctionArgs(Vec<u8>);
+#[serde(transparent)]
+pub struct FunctionArgs(#[serde(with = "base64_format")] Vec<u8>);
 
 /// A structure used to indicate the kind of state changes due to transaction/receipt processing, etc.
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
@@ -441,7 +471,7 @@ impl StateRootNode {
     PartialEq,
     PartialOrd,
     Ord,
-    DeriveAsRef,
+    derive_more::AsRef,
     BorshSerialize,
     BorshDeserialize,
     serde::Serialize,

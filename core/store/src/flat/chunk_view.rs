@@ -1,9 +1,8 @@
 use near_primitives::hash::CryptoHash;
-use near_primitives::state::ValueRef;
 
 use crate::Store;
 
-use super::FlatStorage;
+use super::{FlatStateValue, FlatStorage};
 
 /// Struct for getting value references from the flat storage, corresponding
 /// to some block defined in `blocks_to_head`.
@@ -39,7 +38,7 @@ impl FlatStorageChunkView {
     /// they are stored in `DBCol::State`. Also the separation is done so we
     /// could charge users for the value length before loading the value.
     // TODO (#7327): consider inlining small values, so we could use only one db access.
-    pub fn get_ref(&self, key: &[u8]) -> Result<Option<ValueRef>, crate::StorageError> {
-        self.flat_storage.get_ref(&self.block_hash, key)
+    pub fn get_value(&self, key: &[u8]) -> Result<Option<FlatStateValue>, crate::StorageError> {
+        self.flat_storage.get_value(&self.block_hash, key)
     }
 }
