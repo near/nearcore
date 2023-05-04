@@ -453,6 +453,7 @@ mod test {
     use near_chain::{ChainGenesis, Provenance};
     use near_chain_configs::Genesis;
     use near_client::test_utils::TestEnv;
+    use near_client::ProcessTxResponse;
     use near_crypto::{InMemorySigner, KeyType};
     use near_epoch_manager::EpochManager;
     use near_primitives::transaction::SignedTransaction;
@@ -531,7 +532,7 @@ mod test {
             signer.public_key.clone(),
             genesis_hash,
         );
-        env.clients[0].process_tx(tx, false, false);
+        assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
 
         safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1, None);
 
@@ -568,7 +569,7 @@ mod test {
             signer.public_key.clone(),
             genesis_hash,
         );
-        env.clients[0].process_tx(tx, false, false);
+        assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
 
         safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1, Some(5));
 

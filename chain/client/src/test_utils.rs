@@ -67,7 +67,8 @@ use near_primitives::static_clock::StaticClock;
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
 
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, NumSeats, ShardId,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, NumSeats, NumShards,
+    ShardId,
 };
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
@@ -1286,6 +1287,7 @@ pub struct TestEnvBuilder {
     validators: Vec<AccountId>,
     runtime_adapters: Option<Vec<Arc<dyn RuntimeWithEpochManagerAdapter>>>,
     network_adapters: Option<Vec<Arc<MockPeerManagerAdapter>>>,
+    num_shards: Option<NumShards>,
     // random seed to be inject in each client according to AccountId
     // if not set, a default constant TEST_SEED will be injected
     seeds: HashMap<AccountId, RngSeed>,
@@ -1306,6 +1308,7 @@ impl TestEnvBuilder {
             validators,
             runtime_adapters: None,
             network_adapters: None,
+            num_shards: None,
             seeds,
             archive: false,
             save_trie_changes: true,
@@ -1360,6 +1363,10 @@ impl TestEnvBuilder {
         mut self,
         adapters: Vec<Arc<dyn RuntimeWithEpochManagerAdapter>>,
     ) -> Self {
+        assert!(
+            self.num_shards.is_none(),
+            "Cannot set both num_shards and runtime_adapters at the same time"
+        );
         self.runtime_adapters = Some(adapters);
         self
     }
@@ -1371,6 +1378,15 @@ impl TestEnvBuilder {
     /// panic.
     pub fn network_adapters(mut self, adapters: Vec<Arc<MockPeerManagerAdapter>>) -> Self {
         self.network_adapters = Some(adapters);
+        self
+    }
+
+    pub fn num_shards(mut self, num_shards: NumShards) -> Self {
+        assert!(
+            self.runtime_adapters.is_none(),
+            "Cannot set both num_shards and runtime_adapters at the same time"
+        );
+        self.num_shards = Some(num_shards);
         self
     }
 
@@ -1407,7 +1423,7 @@ impl TestEnvBuilder {
             }
             None => (0..num_clients)
                 .map(|_| {
-                    let vs = ValidatorSchedule::new()
+                    let vs = ValidatorSchedule::new_with_shards(self.num_shards.unwrap_or(1))
                         .block_producers_per_epoch(vec![validators.clone()]);
                     KeyValueRuntime::new_with_validators(
                         create_test_store(),

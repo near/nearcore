@@ -78,7 +78,7 @@ where
     for i in 0..(size + 1) {
         let storage = IncompletePartialStorage::new(storage.clone(), i);
         let new_trie = Trie {
-            storage: Box::new(storage),
+            storage: Rc::new(storage),
             root: *trie.get_root(),
             flat_storage_chunk_view: None,
         };

@@ -82,8 +82,10 @@ fn test_zero_balance_account_creation() {
         &signer0,
         *genesis_block.hash(),
     );
-    let res = env.clients[0].process_tx(create_account_tx, false, false);
-    assert_matches!(res, ProcessTxResponse::ValidTx);
+    assert_eq!(
+        env.clients[0].process_tx(create_account_tx, false, false),
+        ProcessTxResponse::ValidTx
+    );
     for i in 1..5 {
         env.produce_block(0, i);
     }
@@ -104,8 +106,10 @@ fn test_zero_balance_account_creation() {
         *genesis_block.hash(),
     );
     let tx_hash = create_account_tx.get_hash();
-    let res = env.clients[0].process_tx(create_account_tx, false, false);
-    assert_matches!(res, ProcessTxResponse::ValidTx);
+    assert_eq!(
+        env.clients[0].process_tx(create_account_tx, false, false),
+        ProcessTxResponse::ValidTx
+    );
     for i in 5..10 {
         env.produce_block(0, i);
     }
@@ -164,8 +168,10 @@ fn test_zero_balance_account_add_key() {
         &signer0,
         *genesis_block.hash(),
     );
-    let res = env.clients[0].process_tx(create_account_tx, false, false);
-    assert_matches!(res, ProcessTxResponse::ValidTx);
+    assert_eq!(
+        env.clients[0].process_tx(create_account_tx, false, false),
+        ProcessTxResponse::ValidTx
+    );
     for i in 1..5 {
         env.produce_block(0, i);
     }
@@ -207,8 +213,7 @@ fn test_zero_balance_account_add_key() {
         actions,
         *genesis_block.hash(),
     );
-    let res = env.clients[0].process_tx(add_key_tx, false, false);
-    assert_matches!(res, ProcessTxResponse::ValidTx);
+    assert_eq!(env.clients[0].process_tx(add_key_tx, false, false), ProcessTxResponse::ValidTx);
     for i in 5..10 {
         env.produce_block(0, i);
     }
@@ -223,8 +228,10 @@ fn test_zero_balance_account_add_key() {
         amount,
         *genesis_block.hash(),
     );
-    let res = env.clients[0].process_tx(send_money_tx.clone(), false, false);
-    assert_matches!(res, ProcessTxResponse::InvalidTx(InvalidTxError::LackBalanceForState { .. }));
+    assert_matches!(
+        env.clients[0].process_tx(send_money_tx.clone(), false, false),
+        ProcessTxResponse::InvalidTx(InvalidTxError::LackBalanceForState { .. })
+    );
 
     let delete_key_tx = SignedTransaction::from_actions(
         nonce + 1,
@@ -234,12 +241,11 @@ fn test_zero_balance_account_add_key() {
         vec![Action::DeleteKey(DeleteKeyAction { public_key: keys.last().unwrap().clone() })],
         *genesis_block.hash(),
     );
-    env.clients[0].process_tx(delete_key_tx, false, false);
+    assert_eq!(env.clients[0].process_tx(delete_key_tx, false, false), ProcessTxResponse::ValidTx);
     for i in 10..15 {
         env.produce_block(0, i);
     }
-    let res = env.clients[0].process_tx(send_money_tx, false, false);
-    assert_matches!(res, ProcessTxResponse::ValidTx);
+    assert_eq!(env.clients[0].process_tx(send_money_tx, false, false), ProcessTxResponse::ValidTx);
     for i in 15..20 {
         env.produce_block(0, i);
     }
@@ -269,7 +275,7 @@ fn test_zero_balance_account_upgrade() {
         InMemorySigner::from_seed(new_account_id.clone(), KeyType::ED25519, "hello.test0");
 
     // before protocol upgrade, should not be possible to create a zero balance account
-    let create_account_tx = SignedTransaction::create_account(
+    let first_create_account_tx = SignedTransaction::create_account(
         1,
         signer0.account_id.clone(),
         new_account_id.clone(),
@@ -278,13 +284,15 @@ fn test_zero_balance_account_upgrade() {
         &signer0,
         *genesis_block.hash(),
     );
-    let tx_hash = create_account_tx.get_hash();
-    let res = env.clients[0].process_tx(create_account_tx, false, false);
-    assert_matches!(res, ProcessTxResponse::ValidTx);
+    let first_tx_hash = first_create_account_tx.get_hash();
+    assert_eq!(
+        env.clients[0].process_tx(first_create_account_tx, false, false),
+        ProcessTxResponse::ValidTx
+    );
     for i in 1..12 {
         env.produce_block(0, i);
     }
-    let outcome = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
+    let outcome = env.clients[0].chain.get_final_transaction_result(&first_tx_hash).unwrap();
     assert_matches!(
         outcome.status,
         FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
@@ -292,7 +300,8 @@ fn test_zero_balance_account_upgrade() {
             ..
         }))
     );
-    let create_account_tx2 = SignedTransaction::create_account(
+
+    let second_create_account_tx = SignedTransaction::create_account(
         2,
         signer0.account_id.clone(),
         new_account_id,
@@ -301,13 +310,15 @@ fn test_zero_balance_account_upgrade() {
         &signer0,
         *genesis_block.hash(),
     );
-    let tx_hash2 = create_account_tx2.get_hash();
-    let res = env.clients[0].process_tx(create_account_tx2, false, false);
-    assert_matches!(res, ProcessTxResponse::ValidTx);
+    let second_tx_hash = second_create_account_tx.get_hash();
+    assert_eq!(
+        env.clients[0].process_tx(second_create_account_tx, false, false),
+        ProcessTxResponse::ValidTx
+    );
     for i in 12..20 {
         env.produce_block(0, i);
     }
-    let outcome = env.clients[0].chain.get_final_transaction_result(&tx_hash2).unwrap();
+    let outcome = env.clients[0].chain.get_final_transaction_result(&second_tx_hash).unwrap();
     assert_matches!(outcome.status, FinalExecutionStatus::SuccessValue(_));
 }
 

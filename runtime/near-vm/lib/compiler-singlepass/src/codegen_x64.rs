@@ -1064,7 +1064,7 @@ impl<'a> FuncGen<'a> {
 
         // Save used XMM registers.
         let used_xmms = self.machine.get_used_xmms();
-        if used_xmms.len() > 0 {
+        if !used_xmms.is_empty() {
             self.assembler.emit_sub(
                 Size::S64,
                 Location::Imm32((used_xmms.len() * 8) as u32),

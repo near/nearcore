@@ -10,12 +10,13 @@ use std::sync::Arc;
 use super::{store_helper, BlockInfo};
 use crate::{CryptoHash, StoreUpdate};
 
+#[derive(Debug)]
 pub struct FlatStateDelta {
     pub metadata: FlatStateDeltaMetadata,
     pub changes: FlatStateChanges,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Copy)]
 pub struct FlatStateDeltaMetadata {
     pub block: BlockInfo,
 }
@@ -35,7 +36,7 @@ impl KeyForFlatStateDelta {
 }
 /// Delta of the state for some shard and block, stores mapping from keys to value refs or None, if key was removed in
 /// this block.
-#[derive(BorshSerialize, BorshDeserialize, Clone, Default, Debug, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Default, PartialEq, Eq)]
 pub struct FlatStateChanges(pub(crate) HashMap<Vec<u8>, Option<ValueRef>>);
 
 impl<T> From<T> for FlatStateChanges
@@ -44,6 +45,14 @@ where
 {
     fn from(iter: T) -> Self {
         Self(HashMap::from_iter(iter))
+    }
+}
+
+impl std::fmt::Debug for FlatStateChanges {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FlatStateChanges")
+            .field("changes", &near_fmt::Slice(&Vec::from_iter(self.0.iter())))
+            .finish()
     }
 }
 
