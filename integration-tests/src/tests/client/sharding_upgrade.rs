@@ -30,7 +30,7 @@ use tracing::debug;
 
 use assert_matches::assert_matches;
 use near_chain::test_utils::wait_for_all_blocks_in_processing;
-use rand::seq::SliceRandom;
+use rand::seq::{IteratorRandom, SliceRandom};
 use rand::{thread_rng, Rng};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -613,12 +613,14 @@ fn setup_test_env_with_cross_contract_txs(
     let mut rng = thread_rng();
 
     let genesis_hash = *test_env.env.clients[0].chain.genesis_block().hash();
-    // use test0, test1 and two random accounts to deploy contracts because we want accounts on different shards
+    // Use test0, test1 and two random accounts to deploy contracts because we want accounts on
+    // different shards.
+    let indices = (4..test_env.initial_accounts.len()).choose_multiple(&mut rng, 2);
     let contract_accounts = vec![
         test_env.initial_accounts[0].clone(),
         test_env.initial_accounts[1].clone(),
-        test_env.initial_accounts[rng.gen_range(0..test_env.initial_accounts.len())].clone(),
-        test_env.initial_accounts[rng.gen_range(0..test_env.initial_accounts.len())].clone(),
+        test_env.initial_accounts[indices[0]].clone(),
+        test_env.initial_accounts[indices[1]].clone(),
     ];
     test_env.set_init_tx(
         contract_accounts
