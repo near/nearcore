@@ -99,8 +99,8 @@ fn setup_network_node(
         adv,
     );
     let (shards_manager_actor, _) = start_shards_manager(
-        epoch_manager.clone(),
-        shard_tracker.clone(),
+        epoch_manager,
+        shard_tracker,
         network_adapter.as_sender(),
         client_actor.clone().with_auto_span_context().into_sender(),
         Some(signer.validator_id().clone()),

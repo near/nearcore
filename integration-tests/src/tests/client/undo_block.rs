@@ -15,7 +15,7 @@ use super::utils::TestEnvNightshadeSetupExt;
 fn setup_env(genesis: &Genesis, store: Store) -> (TestEnv, Arc<dyn EpochManagerAdapter>) {
     let chain_genesis = ChainGenesis::new(genesis);
     let env = TestEnv::builder(chain_genesis)
-        .stores(vec![store.clone()])
+        .stores(vec![store])
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(genesis)
         .build();
