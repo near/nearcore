@@ -547,7 +547,7 @@ pub(crate) fn print_chain(
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
     );
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+    let epoch_manager = EpochManager::new_arc_handle(store, &near_config.genesis.config);
     let mut account_id_to_blocks = HashMap::new();
     let mut cur_epoch_id = None;
     for height in start_height..=end_height {
@@ -645,8 +645,7 @@ pub(crate) fn replay_chain(
     let new_store = create_test_store();
     let epoch_manager =
         EpochManager::new_arc_handle(new_store.clone(), &near_config.genesis.config);
-    let runtime =
-        NightshadeRuntime::from_config(home_dir, new_store, &near_config, epoch_manager.clone());
+    let runtime = NightshadeRuntime::from_config(home_dir, new_store, &near_config, epoch_manager);
     for height in start_height..=end_height {
         if let Ok(block_hash) = chain_store.get_block_hash_by_height(height) {
             let header = chain_store.get_block_header(&block_hash).unwrap().clone();

@@ -340,7 +340,7 @@ mod test {
         let env = TestEnv::builder(chain_genesis)
             .validator_seats(2)
             .stores(vec![store.clone()])
-            .epoch_managers(vec![epoch_manager.clone()])
+            .epoch_managers(vec![epoch_manager])
             .runtimes(vec![nightshade_runtime])
             .build();
 
@@ -698,7 +698,7 @@ mod test {
         chain_genesis.gas_limit = genesis.config.gas_limit;
         let mut env = TestEnv::builder(chain_genesis)
             .clients_count(2)
-            .stores(vec![store1.clone(), store2.clone()])
+            .stores(vec![store1, store2])
             .epoch_managers(vec![epoch_manager1, epoch_manager2.clone()])
             .runtimes(vec![runtime1, runtime2.clone()])
             .build();
@@ -726,7 +726,7 @@ mod test {
 
         let near_config = NearConfig::new(
             Config::default(),
-            genesis.clone(),
+            genesis,
             KeyFile {
                 account_id: "test".parse().unwrap(),
                 public_key: PublicKey::empty(KeyType::ED25519),

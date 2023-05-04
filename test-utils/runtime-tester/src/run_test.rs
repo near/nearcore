@@ -61,8 +61,8 @@ impl Scenario {
             .clients(clients.clone())
             .validators(clients)
             .stores(vec![store])
-            .epoch_managers(vec![epoch_manager.clone()])
-            .runtimes(vec![runtime.clone()])
+            .epoch_managers(vec![epoch_manager])
+            .runtimes(vec![runtime])
             .build();
 
         let result = self.process_blocks(&mut env);

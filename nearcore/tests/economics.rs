@@ -37,7 +37,7 @@ fn setup_env(genesis: &Genesis) -> TestEnv {
     let runtime =
         NightshadeRuntime::test(Path::new("."), store.clone(), genesis, epoch_manager.clone());
     TestEnv::builder(ChainGenesis::new(&genesis))
-        .stores(vec![store.clone()])
+        .stores(vec![store])
         .epoch_managers(vec![epoch_manager])
         .runtimes(vec![runtime])
         .build()

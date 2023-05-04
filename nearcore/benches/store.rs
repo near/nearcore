@@ -44,8 +44,7 @@ fn read_trie_items(bench: &mut Bencher, shard_id: usize, mode: Mode) {
 
         let epoch_manager =
             EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
-        let runtime =
-            NightshadeRuntime::from_config(&home_dir, store, &near_config, epoch_manager.clone());
+        let runtime = NightshadeRuntime::from_config(&home_dir, store, &near_config, epoch_manager);
         let head = chain_store.head().unwrap();
         let last_block = chain_store.get_block(&head.last_block_hash).unwrap();
         let state_roots: Vec<StateRoot> =
