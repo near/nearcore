@@ -10,7 +10,10 @@ use near_crypto::Signature;
 pub type StateItem = std::sync::Arc<[u8]>;
 
 #[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq)]
+/// TODO (#8984): consider supporting format containing trie nodes only for
+/// state part boundaries and storing state items for state part range.
 pub enum PartialState {
+    /// State represented by the trie nodes.
     Nodes(Vec<StateItem>),
 }
 
