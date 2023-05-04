@@ -280,12 +280,6 @@ impl TrieCache {
     pub(crate) fn lock(&self) -> std::sync::MutexGuard<TrieCacheInner> {
         self.0.lock().expect(POISONED_LOCK_ERR)
     }
-
-    #[cfg(test)]
-    pub(crate) fn len(&self) -> usize {
-        let guard = self.lock();
-        guard.len()
-    }
 }
 
 pub trait TrieStorage {
