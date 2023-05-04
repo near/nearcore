@@ -18,6 +18,7 @@ echo "Diff time(H:M:S): $diffTime"
 
 */5 * * * * bash ~/nearcore/tmp_dump_state_progress_script/check_progress_1923_ubuntu.sh >> ~/near_debug_logs/dump_state_output.log 2>&1
 */5 * * * * bash ~/nearcore/tmp_dump_state_progress_script/check_progress_1925_ubuntu.sh >> ~/near_debug_logs/dump_state_1925_output.log 2>&1
+*/5 * * * * bash ~/nearcore/tmp_dump_state_progress_script/check_progress_1927_ubuntu.sh >> ~/near_debug_logs/dump_state_1927_output.log 2>&1
 
   "state_sync": {
     "dump": {
