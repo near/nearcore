@@ -29,8 +29,8 @@ impl Trie {
     pub fn get_trie_items_for_part(&self, part_id: PartId) -> Result<Vec<TrieItem>, StorageError> {
         assert!(self.storage.as_caching_storage().is_some());
 
-        let path_begin = self.find_path_for_part_boundary(part_id.idx, part_id.total)?;
-        let path_end = self.find_path_for_part_boundary(part_id.idx + 1, part_id.total)?;
+        let path_begin = self.find_state_part_boundary(part_id.idx, part_id.total)?;
+        let path_end = self.find_state_part_boundary(part_id.idx + 1, part_id.total)?;
         self.iter()?.get_trie_items(&path_begin, &path_end)
     }
 }

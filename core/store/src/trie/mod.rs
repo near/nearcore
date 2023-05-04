@@ -218,6 +218,13 @@ impl TrieNode {
         Ok(())
     }
 
+    pub fn has_value(&self) -> bool {
+        match self {
+            Self::Branch(_, Some(_)) | Self::Leaf(_, _) => true,
+            _ => false,
+        }
+    }
+
     #[cfg(test)]
     fn deep_to_string(&self, memory: &NodesStorage) -> String {
         let mut buf = String::new();
