@@ -20,7 +20,7 @@ use std::collections::HashMap;
 
 use borsh::BorshDeserialize;
 
-use near_primitives::challenge::{PartialState, StateItem};
+use near_primitives::challenge::PartialState;
 use near_primitives::state_part::PartId;
 use near_primitives::types::StateRoot;
 use tracing::error;
@@ -217,7 +217,7 @@ impl Trie {
         part_id: PartId,
         partial_state: PartialState,
     ) -> Result<(), StorageError> {
-        let PartialState::Full(nodes) = &partial_state;
+        let PartialState::Nodes(nodes) = &partial_state;
         let num_nodes = nodes.len();
         let trie =
             Trie::from_recorded_storage(PartialStorage { nodes: partial_state }, *state_root);
@@ -324,8 +324,8 @@ mod tests {
             state_root: &StateRoot,
             parts: &[PartialState],
         ) -> Result<TrieChanges, StorageError> {
-            let nodes = PartialState::Full(
-                parts.iter().flat_map(|PartialState::Full(nodes)| nodes.iter()).cloned().collect(),
+            let nodes = PartialState::Nodes(
+                parts.iter().flat_map(|PartialState::Nodes(nodes)| nodes.iter()).cloned().collect(),
             );
             let trie = Trie::from_recorded_storage(PartialStorage { nodes }, *state_root);
             let mut insertions = <HashMap<CryptoHash, (Vec<u8>, u32)>>::new();
@@ -438,10 +438,10 @@ mod tests {
         let _ = Trie::validate_trie_nodes_for_part(
             &state_root,
             PartId::new(0, 1),
-            PartialState::Full(vec![]),
+            PartialState::Nodes(vec![]),
         )
         .unwrap();
-        let _ = Trie::apply_state_part(&state_root, PartId::new(0, 1), PartialState::Full(vec![]));
+        let _ = Trie::apply_state_part(&state_root, PartId::new(0, 1), PartialState::Nodes(vec![]));
     }
 
     fn construct_trie_for_big_parts_1(
@@ -533,10 +533,12 @@ mod tests {
                 })
                 .collect::<Vec<_>>();
             let part_nodecounts_vec =
-                parts.iter().map(|PartialState::Full(nodes)| nodes.len()).collect::<Vec<_>>();
+                parts.iter().map(|PartialState::Nodes(nodes)| nodes.len()).collect::<Vec<_>>();
             let sizes_vec = parts
                 .iter()
-                .map(|PartialState::Full(nodes)| nodes.iter().map(|node| node.len()).sum::<usize>())
+                .map(|PartialState::Nodes(nodes)| {
+                    nodes.iter().map(|node| node.len()).sum::<usize>()
+                })
                 .collect::<Vec<_>>();
 
             println!("Node counts of parts: {:?}", part_nodecounts_vec);
@@ -612,11 +614,13 @@ mod tests {
                 let mut nodes = <HashMap<CryptoHash, Arc<[u8]>>>::new();
                 let sizes_vec = parts
                     .iter()
-                    .map(|nodes| nodes.iter().map(|node| node.len()).sum::<usize>())
+                    .map(|PartialState::Nodes(nodes)| {
+                        nodes.iter().map(|node| node.len()).sum::<usize>()
+                    })
                     .collect::<Vec<_>>();
 
                 for part in parts {
-                    let PartialState::Full(part_nodes) = part;
+                    let PartialState::Nodes(part_nodes) = part;
                     for node in part_nodes {
                         nodes.insert(hash(&node), node);
                     }
@@ -628,7 +632,7 @@ mod tests {
                 Trie::validate_trie_nodes_for_part(
                     trie.get_root(),
                     PartId::new(0, 1),
-                    PartialState::Full(all_nodes),
+                    PartialState::Nodes(all_nodes),
                 )
                 .expect("validate ok");
 

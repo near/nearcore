@@ -11,12 +11,12 @@ pub type StateItem = std::sync::Arc<[u8]>;
 
 #[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq)]
 pub enum PartialState {
-    Full(Vec<StateItem>),
+    Nodes(Vec<StateItem>),
 }
 
 impl PartialState {
     pub fn len(&self) -> usize {
-        let Self::Full(nodes) = self;
+        let Self::Nodes(nodes) = self;
         nodes.len()
     }
 }

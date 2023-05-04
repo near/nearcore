@@ -23,7 +23,7 @@ pub struct IncompletePartialStorage {
 
 impl IncompletePartialStorage {
     pub fn new(partial_storage: PartialStorage, nodes_count_to_fail_at: usize) -> Self {
-        let PartialState::Full(nodes) = partial_storage.nodes;
+        let PartialState::Nodes(nodes) = partial_storage.nodes;
         let recorded_storage = nodes.into_iter().map(|value| (hash(&value), value)).collect();
         Self {
             recorded_storage,

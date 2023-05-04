@@ -438,7 +438,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         assert_eq!(prev_merkle_proofs[0], challenge_body.prev_merkle_proof);
         assert_eq!(merkle_proofs[0], challenge_body.merkle_proof);
         // TODO (#6316): enable storage proof generation
-        assert_eq!(challenge_body.partial_state, PartialState::Full(Vec::<StateItem>::new()));
+        assert_eq!(challenge_body.partial_state, PartialState::Nodes(Vec::<StateItem>::new()));
         // assert_eq!(
         //     challenge_body.partial_state.0,
         //     vec![
