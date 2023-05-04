@@ -244,8 +244,7 @@ impl ProtocolFeature {
             ProtocolFeature::Ed25519Verify
             | ProtocolFeature::ZeroBalanceAccount
             | ProtocolFeature::DelegateAction => 59,
-            ProtocolFeature::ComputeCosts
-            | ProtocolFeature::FlatStorageReads => 61,
+            ProtocolFeature::ComputeCosts | ProtocolFeature::FlatStorageReads => 61,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
