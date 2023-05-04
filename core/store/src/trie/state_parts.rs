@@ -7,7 +7,7 @@ use near_primitives::state_part::PartId;
 use near_primitives::types::StateRoot;
 use tracing::error;
 
-use crate::flat::{FlatStateChanges, FlatStateValue};
+use crate::flat::FlatStateChanges;
 use crate::trie::iterator::TrieTraversalItem;
 use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::{
@@ -216,7 +216,7 @@ impl Trie {
             map.entry(hash).or_insert_with(|| (value.to_vec(), 0)).1 += 1;
             if let Some(trie_key) = key {
                 let value_ref = ValueRef::new(&value);
-                flat_state_delta.insert(trie_key.clone(), Some(FlatStateValue::Ref(value_ref)));
+                flat_state_delta.insert(trie_key.clone(), Some(value_ref));
                 if is_contract_code_key(&trie_key) {
                     contract_codes.push(ContractCode::new(value.to_vec(), None));
                 }

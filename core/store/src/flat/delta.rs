@@ -7,8 +7,7 @@ use near_primitives::types::RawStateChangesWithTrieKey;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use super::types::INLINE_DISK_VALUE_THRESHOLD;
-use super::{store_helper, BlockInfo, FlatStateValue};
+use super::{store_helper, BlockInfo};
 use crate::{CryptoHash, StoreUpdate};
 
 #[derive(Debug)]
@@ -35,14 +34,14 @@ impl KeyForFlatStateDelta {
         res
     }
 }
-/// Delta of the state for some shard and block, stores mapping from keys to values
-/// or None, if key was removed in this block.
+/// Delta of the state for some shard and block, stores mapping from keys to value refs or None, if key was removed in
+/// this block.
 #[derive(BorshSerialize, BorshDeserialize, Clone, Default, PartialEq, Eq)]
-pub struct FlatStateChanges(pub(crate) HashMap<Vec<u8>, Option<FlatStateValue>>);
+pub struct FlatStateChanges(pub(crate) HashMap<Vec<u8>, Option<ValueRef>>);
 
 impl<T> From<T> for FlatStateChanges
 where
-    T: IntoIterator<Item = (Vec<u8>, Option<FlatStateValue>)>,
+    T: IntoIterator<Item = (Vec<u8>, Option<ValueRef>)>,
 {
     fn from(iter: T) -> Self {
         Self(HashMap::from_iter(iter))
@@ -58,17 +57,13 @@ impl std::fmt::Debug for FlatStateChanges {
 }
 
 impl FlatStateChanges {
-    /// Returns `Some(Option<FlatStateValue>)` from delta for the given key. If key is not present, returns None.
-    pub fn get(&self, key: &[u8]) -> Option<Option<FlatStateValue>> {
+    /// Returns `Some(Option<ValueRef>)` from delta for the given key. If key is not present, returns None.
+    pub fn get(&self, key: &[u8]) -> Option<Option<ValueRef>> {
         self.0.get(key).cloned()
     }
 
     /// Inserts a key-value pair to delta.
-    pub fn insert(
-        &mut self,
-        key: Vec<u8>,
-        value: Option<FlatStateValue>,
-    ) -> Option<Option<FlatStateValue>> {
+    pub fn insert(&mut self, key: Vec<u8>, value: Option<ValueRef>) -> Option<Option<ValueRef>> {
         self.0.insert(key, value)
     }
 
@@ -93,14 +88,12 @@ impl FlatStateChanges {
                 .last()
                 .expect("Committed entry should have at least one change")
                 .data;
-            let flat_state_value = last_change.as_ref().map(|value| {
-                if value.len() <= INLINE_DISK_VALUE_THRESHOLD {
-                    FlatStateValue::inlined(value)
-                } else {
-                    FlatStateValue::value_ref(value)
+            match last_change {
+                Some(value) => {
+                    delta.insert(key, Some(near_primitives::state::ValueRef::new(value)))
                 }
-            });
-            delta.insert(key, flat_state_value);
+                None => delta.insert(key, None),
+            };
         }
         Self(delta)
     }
@@ -108,8 +101,7 @@ impl FlatStateChanges {
     /// Applies delta to the flat state.
     pub fn apply_to_flat_state(self, store_update: &mut StoreUpdate, shard_uid: ShardUId) {
         for (key, value) in self.0.into_iter() {
-            store_helper::set_flat_state_value(store_update, shard_uid, key, value)
-                .expect("Borsh cannot fail");
+            store_helper::set_ref(store_update, shard_uid, key, value).expect("Borsh cannot fail");
         }
     }
 }
@@ -125,13 +117,7 @@ pub struct CachedFlatStateDelta {
 
 impl From<FlatStateChanges> for CachedFlatStateChanges {
     fn from(delta: FlatStateChanges) -> Self {
-        Self(
-            delta
-                .0
-                .into_iter()
-                .map(|(key, value)| (hash(&key), value.map(|v| v.to_value_ref())))
-                .collect(),
-        )
+        Self(delta.0.into_iter().map(|(key, value)| (hash(&key), value)).collect())
     }
 }
 
@@ -158,9 +144,8 @@ impl CachedFlatStateChanges {
 
 #[cfg(test)]
 mod tests {
-    use crate::flat::FlatStateValue;
-
     use super::FlatStateChanges;
+    use near_primitives::state::ValueRef;
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::{RawStateChange, RawStateChangesWithTrieKey, StateChangeCause};
 
@@ -223,17 +208,17 @@ mod tests {
         let flat_state_changes = FlatStateChanges::from_state_changes(&state_changes);
         assert_eq!(
             flat_state_changes.get(&alice_trie_key.to_vec()),
-            Some(Some(FlatStateValue::inlined(&[3, 4])))
+            Some(Some(ValueRef::new(&[3, 4])))
         );
         assert_eq!(flat_state_changes.get(&bob_trie_key.to_vec()), Some(None));
         assert_eq!(flat_state_changes.get(&carol_trie_key.to_vec()), None);
         assert_eq!(
             flat_state_changes.get(&delayed_trie_key.to_vec()),
-            Some(Some(FlatStateValue::inlined(&[1])))
+            Some(Some(ValueRef::new(&[1])))
         );
         assert_eq!(
             flat_state_changes.get(&delayed_receipt_trie_key.to_vec()),
-            Some(Some(FlatStateValue::inlined(&[2])))
+            Some(Some(ValueRef::new(&[2])))
         );
     }
 
@@ -242,23 +227,23 @@ mod tests {
     #[test]
     fn flat_state_changes_merge() {
         let mut changes = FlatStateChanges::from([
-            (vec![1], Some(FlatStateValue::value_ref(&[4]))),
-            (vec![2], Some(FlatStateValue::value_ref(&[5]))),
+            (vec![1], Some(ValueRef::new(&[4]))),
+            (vec![2], Some(ValueRef::new(&[5]))),
             (vec![3], None),
-            (vec![4], Some(FlatStateValue::value_ref(&[6]))),
+            (vec![4], Some(ValueRef::new(&[6]))),
         ]);
         let changes_new = FlatStateChanges::from([
-            (vec![2], Some(FlatStateValue::value_ref(&[7]))),
-            (vec![3], Some(FlatStateValue::value_ref(&[8]))),
+            (vec![2], Some(ValueRef::new(&[7]))),
+            (vec![3], Some(ValueRef::new(&[8]))),
             (vec![4], None),
-            (vec![5], Some(FlatStateValue::value_ref(&[9]))),
+            (vec![5], Some(ValueRef::new(&[9]))),
         ]);
         changes.merge(changes_new);
 
-        assert_eq!(changes.get(&[1]), Some(Some(FlatStateValue::value_ref(&[4]))));
-        assert_eq!(changes.get(&[2]), Some(Some(FlatStateValue::value_ref(&[7]))));
-        assert_eq!(changes.get(&[3]), Some(Some(FlatStateValue::value_ref(&[8]))));
+        assert_eq!(changes.get(&[1]), Some(Some(ValueRef::new(&[4]))));
+        assert_eq!(changes.get(&[2]), Some(Some(ValueRef::new(&[7]))));
+        assert_eq!(changes.get(&[3]), Some(Some(ValueRef::new(&[8]))));
         assert_eq!(changes.get(&[4]), Some(None));
-        assert_eq!(changes.get(&[5]), Some(Some(FlatStateValue::value_ref(&[9]))));
+        assert_eq!(changes.get(&[5]), Some(Some(ValueRef::new(&[9]))));
     }
 }
