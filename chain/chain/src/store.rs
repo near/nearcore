@@ -626,14 +626,13 @@ impl ChainStore {
         &self,
         height: BlockHeight,
     ) -> Result<Arc<HashMap<EpochId, HashSet<CryptoHash>>>, Error> {
-        option_to_not_found(
-            self.read_with_cache(
+        Ok(self
+            .read_with_cache(
                 DBCol::BlockPerHeight,
                 &self.block_hash_per_height,
                 &index_to_bytes(height),
-            ),
-            format_args!("BLOCK PER HEIGHT: {}", height),
-        )
+            )?
+            .unwrap_or_default())
     }
 
     /// Returns a HashSet of Chunk Hashes for current Height
@@ -2723,11 +2722,9 @@ impl<'a> ChainStoreUpdate<'a> {
         )?;
         debug_assert!(self.chain_store_cache_update.blocks.len() <= 1);
         for (hash, block) in self.chain_store_cache_update.blocks.iter() {
-            let mut map =
-                match self.chain_store.get_all_block_hashes_by_height(block.header().height()) {
-                    Ok(m) => HashMap::clone(&m),
-                    Err(_) => HashMap::new(),
-                };
+            let map_ref =
+                self.chain_store.get_all_block_hashes_by_height(block.header().height())?;
+            let mut map = HashMap::clone(&map_ref);
             map.entry(block.header().epoch_id().clone())
                 .or_insert_with(|| HashSet::new())
                 .insert(*hash);
@@ -3388,10 +3385,15 @@ mod tests {
                 assert!(chain
                     .mut_store()
                     .get_all_block_hashes_by_height(i as BlockHeight)
-                    .is_err());
+                    .unwrap()
+                    .is_empty());
             } else {
                 assert!(chain.get_block(blocks[i].hash()).is_ok());
-                assert!(chain.mut_store().get_all_block_hashes_by_height(i as BlockHeight).is_ok());
+                assert!(!chain
+                    .mut_store()
+                    .get_all_block_hashes_by_height(i as BlockHeight)
+                    .unwrap()
+                    .is_empty());
             }
         }
     }
@@ -3492,9 +3494,9 @@ mod tests {
         assert!(chain.get_block_header(blocks[4].hash()).is_ok());
         assert!(chain.get_block_header(blocks[5].hash()).is_ok());
         assert!(chain.get_block_header(blocks[6].hash()).is_ok());
-        assert!(chain.mut_store().get_all_block_hashes_by_height(4).is_err());
-        assert!(chain.mut_store().get_all_block_hashes_by_height(5).is_ok());
-        assert!(chain.mut_store().get_all_block_hashes_by_height(6).is_ok());
+        assert!(chain.mut_store().get_all_block_hashes_by_height(4).unwrap().is_empty());
+        assert!(!chain.mut_store().get_all_block_hashes_by_height(5).unwrap().is_empty());
+        assert!(!chain.mut_store().get_all_block_hashes_by_height(6).unwrap().is_empty());
         assert!(chain.mut_store().get_next_block_hash(blocks[4].hash()).is_err());
         assert!(chain.mut_store().get_next_block_hash(blocks[5].hash()).is_ok());
         assert!(chain.mut_store().get_next_block_hash(blocks[6].hash()).is_ok());
@@ -3569,13 +3571,15 @@ mod tests {
                     assert!(chain
                         .mut_store()
                         .get_all_block_hashes_by_height(i as BlockHeight)
-                        .is_err());
+                        .unwrap()
+                        .is_empty());
                 } else {
                     assert!(chain.get_block(&blocks[i].hash()).is_ok());
-                    assert!(chain
+                    assert!(!chain
                         .mut_store()
                         .get_all_block_hashes_by_height(i as BlockHeight)
-                        .is_ok());
+                        .unwrap()
+                        .is_empty());
                 }
             }
             let mut genesis = GenesisConfig::default();
