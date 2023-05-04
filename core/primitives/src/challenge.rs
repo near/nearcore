@@ -14,6 +14,12 @@ pub enum PartialState {
     Full(Vec<StateItem>),
 }
 
+impl PartialState {
+    pub fn len(&self) -> usize {
+        let Self::Full(nodes) = self;
+        nodes.len()
+    }
+}
 /// Double signed block.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct BlockDoubleSign {

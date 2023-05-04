@@ -1284,7 +1284,7 @@ mod tests {
             let trie2 = tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads();
             trie2.get(b"doge").unwrap();
             // record extension, branch and one leaf with value, but not the other
-            assert_eq!(trie2.recorded_storage().unwrap().nodes.0.len(), 4);
+            assert_eq!(trie2.recorded_storage().unwrap().nodes.len(), 4);
         }
 
         {
@@ -1292,7 +1292,7 @@ mod tests {
             let updates = vec![(b"doge".to_vec(), None)];
             trie2.update(updates).unwrap();
             // record extension, branch and both leaves (one with value)
-            assert_eq!(trie2.recorded_storage().unwrap().nodes.0.len(), 5);
+            assert_eq!(trie2.recorded_storage().unwrap().nodes.len(), 5);
         }
 
         {
@@ -1300,7 +1300,7 @@ mod tests {
             let updates = vec![(b"dodo".to_vec(), Some(b"asdf".to_vec()))];
             trie2.update(updates).unwrap();
             // record extension and branch, but not leaves
-            assert_eq!(trie2.recorded_storage().unwrap().nodes.0.len(), 2);
+            assert_eq!(trie2.recorded_storage().unwrap().nodes.len(), 2);
         }
     }
 
