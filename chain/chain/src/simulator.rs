@@ -101,9 +101,9 @@ impl TransactionSimulator {
                 ((shard_id, depth), group.map(|(_, gas)| gas).reduce(|a, b| a + b).unwrap())
             })
             .collect::<Vec<_>>();
-        println!("[SIM] Total gas per shard and depth:");
+        println!("[SIM]   Total gas per shard and depth:");
         for ((shard_id, depth), gas) in total_gas_by_shard_and_depth {
-            println!("[SIM]   Shard {} depth {}: {}", shard_id, depth, gas);
+            println!("[SIM]    Shard {} depth {}: {}", shard_id, depth, gas);
         }
         SimulationResult { tx_outcome: state.tx_outcome, outcomes: state.outcomes, error }
     }
@@ -300,10 +300,10 @@ impl SimulationRunner {
         let thread = std::thread::spawn(move || {
             for request in receiver {
                 let SimulationRequest { transaction, global_state_root, prev_block_hash } = request;
-                let result = simulator.simulate(&global_state_root, &prev_block_hash, &transaction);
+                let result = simulator.simulate(&prev_block_hash, &global_state_root, &transaction);
                 if let Some(err) = result.error {
                     let hash = transaction.get_hash();
-                    println!("Error simulating transaction {:?}: {:?}", hash, err);
+                    println!("[SIM]   Error simulating transaction {:?}: {:?}", hash, err);
                 }
             }
         });
