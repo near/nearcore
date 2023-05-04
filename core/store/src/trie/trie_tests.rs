@@ -176,7 +176,7 @@ mod nodes_counter_tests {
             (create_trie_key(&[1, 0, 0]), Some(vec![2])),
         ];
         let trie = create_trie(&trie_items);
-        assert_eq!(get_touched_nodes_numbers(trie.clone(), &trie_items), vec![5, 5, 4]);
+        assert_eq!(get_touched_nodes_numbers(trie, &trie_items), vec![5, 5, 4]);
     }
 
     // Check that same values are stored in the same trie node.
@@ -190,7 +190,7 @@ mod nodes_counter_tests {
             (create_trie_key(&[1, 1]), Some(vec![1])),
         ];
         let trie = create_trie(&trie_items);
-        assert_eq!(get_touched_nodes_numbers(trie.clone(), &trie_items), vec![4, 4]);
+        assert_eq!(get_touched_nodes_numbers(trie, &trie_items), vec![4, 4]);
     }
 }
 
