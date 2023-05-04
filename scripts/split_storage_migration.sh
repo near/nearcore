@@ -18,6 +18,7 @@
 
 NEAR_HOME=/home/ubuntu/.near
 chain=$1
+service_name=neard
 
 if [ "$chain" != "testnet" ] && [ "$chain" != "mainnet" ]
 then
@@ -37,7 +38,7 @@ function check_jq() {
 function check_aws() {
     if ! command -v aws &> /dev/null; then
         echo "'aws' command not found. Installing 'awscli' package using 'apt'..."
-        sudo apt update && sudo apt install jq
+        sudo apt update && sudo apt install awscli
     else
         echo "'aws' command is already installed"
     fi
@@ -60,8 +61,8 @@ function prepare_configs {
 function run_with_trie_changes {
   echo 'Starting an archival run with TrieChanges'
   cp $NEAR_HOME/config.json.archival $NEAR_HOME/config.json
-  echo 'Restarting the systemd service "neard"'
-  sudo systemctl restart neard
+  echo "Restarting the systemd service '$service_name'"
+  sudo systemctl restart $service_name
 
   echo 'Waiting 10 minutes'
   sleep 600
@@ -71,11 +72,12 @@ function run_with_trie_changes {
 function init_cold_storage {
   # Switch to migration mode
   echo 'Starting initial migration run'
-  echo 'Expect the migration to take some time (>10 minutes) not printing updates as often as usual. That is normal.'
+  echo 'Expect the migration to take a long time (>1 hour).'
   echo 'Do not interrupt. Any interruption will undo the migration process.'
   cp $NEAR_HOME/config.json.migration $NEAR_HOME/config.json
-  echo 'Restarting the systemd service "neard"'
-  sudo systemctl restart neard
+
+  echo "Restarting the systemd service '$service_name'"
+  sudo systemctl restart $service_name
 
   # Wait for the migration to complete
   while [[ -z "$head" || -z "$cold_head" || $(($head - $cold_head)) -ge 1000 ]]; do
@@ -103,17 +105,18 @@ function download_latest_rpc_backup {
 
 # Finish migration to split storage
 function finish_split_storage_migration {
+  echo "Stopping the systemd service '$service_name'"
+  sudo systemctl stop $service_name
+
   # Change hot store type
-  echo 'Stopping the systemd service "neard"'
-  sudo systemctl stop neard
   echo 'Changing RPC DB kind to Hot'
   /home/ubuntu/neard cold-store prepare-hot --store-relative-path='hot-data'
 
   # Switch to split storage mode
   echo 'Starting split storage run'
   cp $NEAR_HOME/config.json.split $NEAR_HOME/config.json
-  echo 'Restarting the systemd service "neard"'
-  sudo systemctl restart neard
+  echo "Restarting the systemd service '$service_name'"
+  sudo systemctl restart $service_name
 
   sleep 300
 
