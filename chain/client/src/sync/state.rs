@@ -190,17 +190,14 @@ impl ExternalConnection {
             .start_timer();
         match self {
             ExternalConnection::S3 { bucket } => {
+                let prefix = format!("{}/", directory_location);
                 let list_results =
-                    bucket.list("/".to_string(), Some("/".to_string())).await.unwrap();
+                    bucket.list(prefix.clone(), Some("/".to_string())).await.unwrap();
                 tracing::debug!(target: "state_sync_dump", shard_id, ?directory_location, "List state parts in s3");
                 let mut file_names = vec![];
                 for res in list_results {
                     for obj in res.contents {
-                        let file_name = obj.key;
-                        // file_name: state_part_000100_of_0123456
-                        // let chars = file_name.replace("state_part_","").split("_");
-                        // let part_id_str = chars.next().unwrap().to_string();
-                        // let total_parts_str = chars.next().unwrap().to_string();
+                        let file_name = obj.key.replace(&prefix, "");
                         file_names.push(file_name);
                     }
                 }
@@ -208,6 +205,7 @@ impl ExternalConnection {
             }
             ExternalConnection::Filesystem { root_dir } => {
                 let path = root_dir.join(directory_location);
+                let prefix = format!("{}/", path.display());
                 tracing::debug!(target: "state_sync_dump", shard_id, ?path, "List state parts in local directory");
                 if let Some(parent_dir) = path.parent() {
                     std::fs::create_dir_all(parent_dir)?;
@@ -215,11 +213,7 @@ impl ExternalConnection {
                 let mut file_names = vec![];
                 let files = std::fs::read_dir(path).unwrap();
                 for file in files {
-                    let file_name = file.unwrap().path().display().to_string();
-                    // file_name: state_part_000100_of_0123456
-                    // let chars = file_name.replace("state_part_","").split("_");
-                    // let part_id_str = chars.next().unwrap().to_string();
-                    // let total_parts_str = chars.next().unwrap().to_string();
+                    let file_name = file.unwrap().path().display().to_string().replace(&prefix, "");
                     file_names.push(file_name);
                 }
                 Ok(file_names)
@@ -1500,44 +1494,19 @@ impl<T: Clone> Iterator for SamplerLimited<T> {
 
 /// Construct a location on the external storage.
 pub fn external_storage_location(
+    prefix: &str,
     chain_id: &str,
     epoch_height: u64,
-    shard_id: u64,
-    part_id: u64,
-    num_parts: u64,
-) -> String {
-    format!(
-        "{}/{}",
-        location_prefix(chain_id, epoch_height, shard_id),
-        part_filename(part_id, num_parts)
-    )
-}
-
-/// multi node dump: Construct a location on the external storage.
-pub fn external_storage_location_multi_node(
-    chain_id: &str,
     epoch_id: &EpochId,
-    epoch_height: u64,
     shard_id: u64,
     part_id: u64,
     num_parts: u64,
 ) -> String {
     format!(
-        "multi_node_tmp_1/{}/{}",
+        "{}/{}/{}",
+        prefix,
         location_prefix_with_epoch_id(chain_id, epoch_height, epoch_id, shard_id),
         part_filename(part_id, num_parts)
-    )
-}
-
-pub fn external_storage_location_directory_multi_node(
-    chain_id: &str,
-    epoch_id: &EpochId,
-    epoch_height: u64,
-    shard_id: u64,
-) -> String {
-    format!(
-        "multi_node_tmp_1/{}",
-        location_prefix_with_epoch_id(chain_id, epoch_height, epoch_id, shard_id)
     )
 }
 
