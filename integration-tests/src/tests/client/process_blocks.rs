@@ -2872,11 +2872,11 @@ fn test_execution_metadata() {
         "cost": "CONTRACT_LOADING_BYTES",
         "gas_used": "18423750"
       },
-      // We spend two wasm instructions (call & drop), plus 8 ops for initializing the stack.
+      // We spend two wasm instructions (call & drop).
       {
         "cost_category": "WASM_HOST_COST",
         "cost": "WASM_INSTRUCTION",
-        "gas_used": (config.wasm_config.regular_op_cost as u64 * 10).to_string()
+        "gas_used": (config.wasm_config.regular_op_cost as u64 * 2).to_string()
       }
     ]);
     let outcome = &execution_outcome.receipts_outcome[0].outcome;
