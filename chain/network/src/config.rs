@@ -250,7 +250,7 @@ impl NetworkConfig {
             node_key,
             validator: validator_signer.map(|signer| ValidatorConfig {
                 signer,
-                proxies: if cfg.public_addrs.len() > 0 {
+                proxies: if !cfg.public_addrs.is_empty() {
                     ValidatorProxies::Static(cfg.public_addrs)
                 } else {
                     ValidatorProxies::Dynamic(cfg.trusted_stun_servers)

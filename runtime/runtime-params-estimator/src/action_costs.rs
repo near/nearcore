@@ -282,7 +282,7 @@ impl ActionEstimation {
         estimated_fn: fn(&Self, &mut Testbed, Vec<Action>) -> GasCost,
     ) -> GasCost {
         assert!(
-            self.actions.len() > 0 || self.inner_iters == 1,
+            !self.actions.is_empty() || self.inner_iters == 1,
             "inner iterations don't work if there are no actions to multiply"
         );
         let num_total_actions = self.actions.len() * self.inner_iters;
