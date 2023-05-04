@@ -432,7 +432,7 @@ impl Trie {
     pub fn from_recorded_storage(partial_storage: PartialStorage, root: StateRoot) -> Self {
         let recorded_storage =
             partial_storage.nodes.0.into_iter().map(|value| (hash(&value), value)).collect();
-        let storage = Box::new(TrieMemoryPartialStorage {
+        let storage = Rc::new(TrieMemoryPartialStorage {
             recorded_storage,
             visited_nodes: Default::default(),
         });
