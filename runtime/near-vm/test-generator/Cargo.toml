@@ -3,7 +3,7 @@ name = "near-vm-test-generator"
 version = "0.0.0"
 edition = "2021"
 authors = ["Wasmer Engineering Team <engineering@wasmer.io>", "Near Inc <hello@nearprotocol.com>"]
-publish = false
+publish = true
 license = "Apache-2.0 WITH LLVM-exception"
 
 [dependencies]
