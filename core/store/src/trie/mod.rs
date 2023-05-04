@@ -1173,6 +1173,7 @@ mod tests {
         for _test_run in 0..10 {
             let num_iterations = rng.gen_range(1..20);
             let tries = create_tries();
+            let store = tries.get_store();
             let mut state_root = Trie::EMPTY_ROOT;
             for _ in 0..num_iterations {
                 let trie_changes = gen_changes(&mut rng, 20);
@@ -1198,17 +1199,7 @@ mod tests {
             state_root =
                 test_populate_trie(&tries, &state_root, ShardUId::single_shard(), trie_changes);
             assert_eq!(state_root, Trie::EMPTY_ROOT, "Trie must be empty");
-            assert!(
-                trie.storage
-                    .as_caching_storage()
-                    .unwrap()
-                    .store
-                    .iter(DBCol::State)
-                    .peekable()
-                    .peek()
-                    .is_none(),
-                "Storage must be empty"
-            );
+            assert!(store.iter(DBCol::State).peekable().peek().is_none(), "Storage must be empty");
         }
     }
 

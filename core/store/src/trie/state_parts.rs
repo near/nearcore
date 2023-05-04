@@ -22,14 +22,11 @@ impl Trie {
     /// Computes the set of trie nodes for a state part.
     ///
     /// # Panics
-    /// storage must be a TrieCachingStorage
     /// part_id must be in [0..num_parts)
     ///
     /// # Errors
     /// StorageError if the storage is corrupted
     pub fn get_trie_nodes_for_part(&self, part_id: PartId) -> Result<PartialState, StorageError> {
-        assert!(self.storage.as_caching_storage().is_some());
-
         let with_recording = self.recording_reads();
         with_recording.visit_nodes_for_state_part(part_id)?;
         let recorded = with_recording.recorded_storage().unwrap();
@@ -421,7 +418,6 @@ mod tests {
             &self,
             part_id: PartId,
         ) -> Result<PartialState, StorageError> {
-            assert!(self.storage.as_caching_storage().is_some());
             let root_node = self.retrieve_node(&self.root)?.1;
             let total_size = root_node.memory_usage;
             let size_start = (total_size + part_id.total - 1) / part_id.total * part_id.idx;

@@ -296,6 +296,9 @@ pub trait TrieStorage {
     /// [`StorageError`] if the storage fails internally or the hash is not present.
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError>;
 
+    /// Returns `TrieCachingStorage` if `TrieStorage` is implemented by it.
+    /// TODO (#9004) remove it once `TrieCachingStorage` impl details become well hidden.
+    /// Please avoid using it for now.
     fn as_caching_storage(&self) -> Option<&TrieCachingStorage> {
         None
     }
