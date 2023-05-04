@@ -215,10 +215,12 @@ impl Trie {
     pub fn validate_trie_nodes_for_part(
         state_root: &StateRoot,
         part_id: PartId,
-        trie_nodes: PartialState,
+        partial_state: PartialState,
     ) -> Result<(), StorageError> {
-        let num_nodes = trie_nodes.0.len();
-        let trie = Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes }, *state_root);
+        let PartialState::Full(nodes) = &partial_state;
+        let num_nodes = nodes.len();
+        let trie =
+            Trie::from_recorded_storage(PartialStorage { nodes: partial_state }, *state_root);
 
         trie.visit_nodes_for_state_part(part_id)?;
         let storage = trie.storage.as_partial_storage().unwrap();
@@ -243,8 +245,10 @@ impl Trie {
                 contract_codes: vec![],
             });
         }
-        let trie =
-            Trie::from_recorded_storage(PartialStorage { nodes: PartialState(part) }, *state_root);
+        let trie = Trie::from_recorded_storage(
+            PartialStorage { nodes: PartialState::Full(part) },
+            *state_root,
+        );
         let path_begin = trie.find_state_part_boundary(part_id.idx, part_id.total)?;
         let path_end = trie.find_state_part_boundary(part_id.idx + 1, part_id.total)?;
         let mut iterator = trie.iter()?;
@@ -323,7 +327,8 @@ mod tests {
             state_root: &StateRoot,
             parts: &[Vec<StateItem>],
         ) -> Result<TrieChanges, StorageError> {
-            let nodes = PartialState(parts.iter().flat_map(|part| part.iter()).cloned().collect());
+            let nodes =
+                PartialState::Full(parts.iter().flat_map(|part| part.iter()).cloned().collect());
             let trie = Trie::from_recorded_storage(PartialStorage { nodes }, *state_root);
             let mut insertions = <HashMap<CryptoHash, (Vec<u8>, u32)>>::new();
             trie.traverse_all_nodes(|hash| {
@@ -435,7 +440,7 @@ mod tests {
         let _ = Trie::validate_trie_nodes_for_part(
             &state_root,
             PartId::new(0, 1),
-            PartialState(vec![]),
+            PartialState::Full(vec![]),
         )
         .unwrap();
         let _ = Trie::apply_state_part(&state_root, PartId::new(0, 1), vec![]);
@@ -623,7 +628,7 @@ mod tests {
                 Trie::validate_trie_nodes_for_part(
                     trie.get_root(),
                     PartId::new(0, 1),
-                    PartialState(all_nodes),
+                    PartialState::Full(all_nodes),
                 )
                 .expect("validate ok");
 

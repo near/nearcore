@@ -10,7 +10,9 @@ use near_crypto::Signature;
 pub type StateItem = std::sync::Arc<[u8]>;
 
 #[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq)]
-pub struct PartialState(pub Vec<StateItem>);
+pub enum PartialState {
+    Full(Vec<StateItem>),
+}
 
 /// Double signed block.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]

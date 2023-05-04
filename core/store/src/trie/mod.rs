@@ -435,12 +435,12 @@ impl Trie {
         let mut nodes: Vec<_> =
             storage.recorded.borrow_mut().drain().map(|(_key, value)| value).collect();
         nodes.sort();
-        Some(PartialStorage { nodes: PartialState(nodes) })
+        Some(PartialStorage { nodes: PartialState::Full(nodes) })
     }
 
     pub fn from_recorded_storage(partial_storage: PartialStorage, root: StateRoot) -> Self {
-        let recorded_storage =
-            partial_storage.nodes.0.into_iter().map(|value| (hash(&value), value)).collect();
+        let PartialState::Full(nodes) = partial_storage.nodes;
+        let recorded_storage = nodes.into_iter().map(|value| (hash(&value), value)).collect();
         let storage = Box::new(TrieMemoryPartialStorage {
             recorded_storage,
             visited_nodes: Default::default(),
