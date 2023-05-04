@@ -146,7 +146,7 @@ enum ColdStoreInitialMigrationResult {
     MigrationInterrupted,
 }
 
-/// This function performes intial population of cold storage if needed.
+/// This function performs initial population of cold storage if needed.
 /// Migration can be interrupted via `keep_going` flag.
 ///
 /// First, checks that hot store is of kind `Archive`. If not, no migration needed.

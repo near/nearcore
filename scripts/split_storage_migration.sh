@@ -25,11 +25,27 @@ then
   exit 1
 fi
 
+function check_jq() {
+    if ! command -v jq &> /dev/null; then
+        echo "'jq' command not found. Installing 'jq' package using 'apt'..."
+        sudo apt update && sudo apt install jq
+    else
+        echo "'jq' command is already installed"
+    fi
+}
+
+function check_aws() {
+    if ! command -v aws &> /dev/null; then
+        echo "'aws' command not found. Installing 'awscli' package using 'apt'..."
+        sudo apt update && sudo apt install jq
+    else
+        echo "'aws' command is already installed"
+    fi
+}
+
 # Prepare all configs
 function prepare_configs {
-  sudo apt update
-  sudo apt install jq -y
-
+  check_jq
   # make archival config
   jq '.archive = true | .save_trie_changes=true' < $NEAR_HOME/config.json > $NEAR_HOME/config.json.archival
 
@@ -44,6 +60,7 @@ function prepare_configs {
 function run_with_trie_changes {
   echo 'Starting an archival run with TrieChanges'
   cp $NEAR_HOME/config.json.archival $NEAR_HOME/config.json
+  echo 'Restarting the systemd service "neard"'
   sudo systemctl restart neard
 
   echo 'Waiting 10 minutes'
@@ -54,32 +71,30 @@ function run_with_trie_changes {
 function init_cold_storage {
   # Switch to migration mode
   echo 'Starting initial migration run'
+  echo 'Expect the migration to take some time (>10 minutes) not printing updates as often as usual. That is normal.'
+  echo 'Do not interrupt. Any interruption will undo the migration process.'
   cp $NEAR_HOME/config.json.migration $NEAR_HOME/config.json
+  echo 'Restarting the systemd service "neard"'
   sudo systemctl restart neard
 
-  # Wait for migration success status
-  while true
-  do
-    head=$(curl 0.0.0.0:3030/metrics | grep 'block_height_head' | tail -n1 | awk '{print $2}')
-    cold_head=$(curl 0.0.0.0:3030/metrics | grep 'cold_head_height' | tail -n1 | awk '{print $2}')
+  # Wait for the migration to complete
+  while [[ -z "$head" || -z "$cold_head" || $(($head - $cold_head)) -ge 1000 ]]; do
+    # Get data from the metrics page of a localhost node that is assumed to listen on port 3030.
+  metrics_url="http://0.0.0.0:3030/metrics"
+    head=$(curl "$metrics_url" --silent | grep 'block_height_head' | tail -n1 | awk '{print $2}')
+    cold_head=$(curl "$metrics_url" --silent | grep 'cold_head_height' | tail -n1 | awk '{print $2}')
 
-    echo "$head"
-    echo "$cold_head"
+    echo "Head of hot storage: '$head'"
+    echo "Head of cold storage: '$cold_head'"
 
-    if [[ -n "$head" && -n "$cold_head" ]]
-    then
-      if ((head - cold_head < 1000))
-      then
-        break
-      fi
-    fi
-
+    # Wait for 2 minutes before trying again
     sleep 120
   done
 }
 
 # Download latest rpc backup
 function download_latest_rpc_backup {
+  check_aws
   echo 'Starting rpc download'
   aws s3 --no-sign-request cp "s3://near-protocol-public/backups/$chain/rpc/latest" .
   latest=$(cat latest)
@@ -89,18 +104,21 @@ function download_latest_rpc_backup {
 # Finish migration to split storage
 function finish_split_storage_migration {
   # Change hot store type
-  echo 'Changing rpc db kind to hot'
+  echo 'Stopping the systemd service "neard"'
   sudo systemctl stop neard
+  echo 'Changing RPC DB kind to Hot'
   /home/ubuntu/neard cold-store prepare-hot --store-relative-path='hot-data'
 
   # Switch to split storage mode
   echo 'Starting split storage run'
   cp $NEAR_HOME/config.json.split $NEAR_HOME/config.json
+  echo 'Restarting the systemd service "neard"'
   sudo systemctl restart neard
 
   sleep 300
 
   hot_db_kind=$(curl \
+    --silent
     -H "Content-Type: application/json" \
     -X POST \
     --data '{"jsonrpc":"2.0","method":"EXPERIMENTAL_split_storage_info","params":[],"id":"dontcare"}' \
