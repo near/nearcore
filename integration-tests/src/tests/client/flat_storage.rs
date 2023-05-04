@@ -333,8 +333,7 @@ fn test_flat_storage_creation_start_from_state_part() {
         };
         let mut store_update = store.store_update();
         for key in trie_keys[1].iter() {
-            store_helper::set_flat_state_value(&mut store_update, shard_uid, key.clone(), None)
-                .unwrap();
+            store_helper::set_ref(&mut store_update, shard_uid, key.clone(), None).unwrap();
         }
         store_helper::set_flat_storage_status(
             &mut store_update,
@@ -369,7 +368,7 @@ fn test_flat_storage_creation_start_from_state_part() {
         let chunk_view = trie.flat_storage_chunk_view.unwrap();
         for part_trie_keys in trie_keys.iter() {
             for trie_key in part_trie_keys.iter() {
-                assert_matches!(chunk_view.get_value(trie_key), Ok(Some(_)));
+                assert_matches!(chunk_view.get_ref(trie_key), Ok(Some(_)));
             }
         }
     }
