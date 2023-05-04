@@ -9,7 +9,7 @@ repository = "https://github.com/near/nearcore"
 license = "MIT"
 readme = "README.md"
 edition = "2021"
-publish = true
+publish = false
 rust-version.workspace = true
 
 # Shared dependencies.
