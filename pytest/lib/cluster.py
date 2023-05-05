@@ -400,6 +400,16 @@ class LocalNode(BaseNode):
             },
             'rpc': {
                 'addr': f'0.0.0.0:{rpc_port}',
+                'polling_config': {
+                    'polling_interval': {
+                        'secs': 0,
+                        'nanos': 500000000
+                    },
+                    'polling_timeout': {
+                        'secs': 30,
+                        'nanos': 0,
+                    }
+                }
             },
             'consensus': {
                 'min_num_peers': int(not single_node)
