@@ -2,6 +2,7 @@ env:
   RUST_BACKTRACE: short
   RUSTFLAGS: -D warnings
 
+#This test should allow to run buildkite on pr due to my gh user
 steps:
   - label: "protobuf backward compatibility"
     command: |
