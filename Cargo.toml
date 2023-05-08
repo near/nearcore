@@ -286,7 +286,7 @@ testlib = { path = "test-utils/testlib" }
 thiserror = "1.0.30"
 tikv-jemallocator = "0.5.0"
 time = "0.3.9"
-tokio = { version = "~1.19", features = ["fs", "macros", "net", "rt-multi-thread", "sync", "time"] }
+tokio = { version = "~1.28", features = ["fs", "macros", "net", "rt-multi-thread", "sync", "time"] }
 tokio-stream = { version = "0.1.2", features = ["net"] }
 tokio-util = { version = "0.7.1", features = ["codec", "io"] }
 toml = "0.5.8"
