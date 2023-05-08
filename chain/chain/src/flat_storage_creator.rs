@@ -14,13 +14,12 @@ use assert_matches::assert_matches;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use near_chain_primitives::Error;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::state::ValueRef;
 use near_primitives::state_part::PartId;
 use near_primitives::types::{AccountId, BlockHeight, StateRoot};
 use near_store::flat::{
-    store_helper, BlockInfo, FetchingStateStatus, FlatStateChanges, FlatStorageCreationMetrics,
-    FlatStorageCreationStatus, FlatStorageReadyStatus, FlatStorageStatus, NUM_PARTS_IN_ONE_STEP,
-    STATE_PART_MEMORY_LIMIT,
+    store_helper, BlockInfo, FetchingStateStatus, FlatStateChanges, FlatStateValue,
+    FlatStorageCreationMetrics, FlatStorageCreationStatus, FlatStorageReadyStatus,
+    FlatStorageStatus, NUM_PARTS_IN_ONE_STEP, STATE_PART_MEMORY_LIMIT,
 };
 use near_store::Store;
 use near_store::{Trie, TrieDBStorage, TrieTraversalItem};
@@ -105,9 +104,13 @@ impl FlatStorageShardCreator {
         {
             if let Some(key) = key {
                 let value = trie.storage.retrieve_raw_bytes(&hash).unwrap();
-                let value_ref = ValueRef::new(&value);
-                store_helper::set_ref(&mut store_update, shard_uid, key, Some(value_ref))
-                    .expect("Failed to put value in FlatState");
+                store_helper::set_flat_state_value(
+                    &mut store_update,
+                    shard_uid,
+                    key,
+                    Some(FlatStateValue::value_ref(&value)),
+                )
+                .expect("Failed to put value in FlatState");
                 num_items += 1;
             }
         }

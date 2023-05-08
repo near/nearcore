@@ -315,3 +315,31 @@ pub fn migrate_34_to_35(store: &Store) -> anyhow::Result<()> {
     update.commit()?;
     Ok(())
 }
+
+/// Migrates the database from version 36 to 37.
+///
+/// This involves rewriting all FlatStateChanges entries in the new format.
+/// The size of that column should not exceed several dozens of entries.
+pub fn migrate_36_to_37(store: &Store) -> anyhow::Result<()> {
+    #[derive(borsh::BorshDeserialize)]
+    struct LegacyFlatStateChanges(HashMap<Vec<u8>, Option<near_primitives::state::ValueRef>>);
+
+    let mut update = store.store_update();
+    update.delete_all(DBCol::FlatStateChanges);
+    for result in store.iter(DBCol::FlatStateChanges) {
+        let (key, old_value) = result?;
+        let new_value = crate::flat::FlatStateChanges(
+            LegacyFlatStateChanges::try_from_slice(&old_value)?
+                .0
+                .into_iter()
+                .map(|(key, value_ref)| {
+                    (key, value_ref.map(|v| crate::flat::FlatStateValue::Ref(v)))
+                })
+                .collect(),
+        )
+        .try_to_vec()?;
+        update.set(DBCol::FlatStateChanges, &key, &new_value);
+    }
+    update.commit()?;
+    Ok(())
+}
