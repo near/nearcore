@@ -18,7 +18,6 @@ use near_vm_logic::VMConfig;
 use std::hash::{Hash, Hasher};
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
-use wasmer_compiler::{CpuFeature, Target};
 use wasmer_engine::Executable;
 
 #[test]
@@ -122,13 +121,13 @@ fn test_wasmer2_artifact_output_stability() {
     ];
     let mut got_prepared_hashes = Vec::with_capacity(seeds.len());
     let compiled_hashes = [
-        3818562753706235018,
-        11870140033216711259,
-        5923781907461180018,
-        13755860129954519309,
-        4832119422677650601,
-        14075229507958855911,
-        8220837142162862198,
+        9393269650223240896,
+        6124152160101285799,
+        8789306975506976814,
+        11819823914734034238,
+        5479892730668892774,
+        8176904529073798417,
+        345836015667433529,
     ];
     let mut got_compiled_hashes = Vec::with_capacity(seeds.len());
     for seed in seeds {
