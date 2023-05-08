@@ -26,6 +26,32 @@ then
   exit 1
 fi
 
+function intro() {
+  echo "This script is going to migrate your archival node to cold storage"
+  echo
+  echo "The script makes the following assumptions:"
+  echo " * You have about 10TB of disk space available. Recommended setup is to mount a cheap HDD to '~/.near/cold-data'."
+  echo " * The node can be controlled as a systemd service. The script will run 'sudo systemctl restart $service_name' when it needs to restart the node."
+  echo " * The machine has commands 'jq' and 'aws' available, or if those commands are not available, they can be installed using 'apt'."
+  echo " * It's ok to stop the node for several minutes."
+  echo " * You are not going to do any other maintenance on this node in the next 24 hours."
+  echo
+  read -p "Do you want to proceed? (Y/N): " choice
+  case "$choice" in
+    y|Y )
+      echo "Proceeding with migration..."
+      ;;
+    n|N )
+      echo "Aborting migration..."
+      exit 1 # Exit with status code 1
+      ;;
+    * )
+      echo "Invalid choice, please enter Y or N"
+      intro # Re-run the intro function until a valid choice is made
+      ;;
+  esac
+}
+
 function check_jq() {
     if ! command -v jq &> /dev/null; then
         echo "'jq' command not found. Installing 'jq' package using 'apt'..."
@@ -139,6 +165,7 @@ function finish_split_storage_migration {
 }
 
 # Backup old config.json
+intro
 cp $NEAR_HOME/config.json $NEAR_HOME/config.json.init
 prepare_configs
 run_with_trie_changes
