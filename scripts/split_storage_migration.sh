@@ -35,6 +35,7 @@ function intro() {
   echo " * The machine has commands 'jq' and 'aws' available, or if those commands are not available, they can be installed using 'apt'."
   echo " * It's ok to stop the node for several minutes."
   echo " * You are not going to do any other maintenance on this node in the next 24 hours."
+  echo " * You have data backups in an unlikely case of something going wrong."
   echo
   read -p "Do you want to proceed? (Y/N): " choice
   case "$choice" in
