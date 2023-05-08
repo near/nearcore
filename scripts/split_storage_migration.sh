@@ -27,7 +27,7 @@ then
 fi
 
 function intro() {
-  echo "This script is going to migrate your archival node to cold storage"
+  echo "This script is going to migrate this archival node to cold storage"
   echo
   echo "The script makes the following assumptions:"
   echo " * You have about 10TB of disk space available. Recommended setup is to mount a cheap HDD to '~/.near/cold-data'."
