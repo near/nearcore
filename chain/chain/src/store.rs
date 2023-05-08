@@ -2344,8 +2344,8 @@ impl<'a> ChainStoreUpdate<'a> {
         epoch_id: &EpochId,
     ) -> Result<(), Error> {
         let mut store_update = self.store().store_update();
-        let epoch_to_hashes = self.chain_store.get_all_block_hashes_by_height(height)?;
-        let mut epoch_to_hashes = HashMap::clone(&epoch_to_hashes);
+        let mut epoch_to_hashes =
+            HashMap::clone(self.chain_store.get_all_block_hashes_by_height(height)?.as_ref());
         let hashes = epoch_to_hashes.get_mut(epoch_id).ok_or_else(|| {
             near_chain_primitives::Error::Other("current epoch id should exist".into())
         })?;
@@ -2722,9 +2722,9 @@ impl<'a> ChainStoreUpdate<'a> {
         )?;
         debug_assert!(self.chain_store_cache_update.blocks.len() <= 1);
         for (hash, block) in self.chain_store_cache_update.blocks.iter() {
-            let map_ref =
-                self.chain_store.get_all_block_hashes_by_height(block.header().height())?;
-            let mut map = HashMap::clone(&map_ref);
+            let mut map = HashMap::clone(
+                self.chain_store.get_all_block_hashes_by_height(block.header().height())?.as_ref(),
+            );
             map.entry(block.header().epoch_id().clone())
                 .or_insert_with(|| HashSet::new())
                 .insert(*hash);
