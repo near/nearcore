@@ -35,6 +35,7 @@ use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::Arc;
 
 pub(crate) fn apply_block(
@@ -788,7 +789,7 @@ fn get_trie(store: Store, hash: CryptoHash, shard_id: u32, shard_version: u32) -
     let trie_config: TrieConfig = Default::default();
     let shard_cache = TrieCache::new(&trie_config, shard_uid, true);
     let trie_storage = TrieCachingStorage::new(store, shard_cache, shard_uid, true, None);
-    Trie::new(Box::new(trie_storage), hash, None)
+    Trie::new(Rc::new(trie_storage), hash, None)
 }
 
 pub(crate) fn view_trie(
@@ -913,7 +914,7 @@ pub(crate) fn contract_accounts(
         let storage = TrieDBStorage::new(store.clone(), shard_uid);
         // We don't need flat state to traverse all accounts.
         let flat_storage_chunk_view = None;
-        Trie::new(Box::new(storage), state_root, flat_storage_chunk_view)
+        Trie::new(Rc::new(storage), state_root, flat_storage_chunk_view)
     });
 
     filter.write_header(&mut std::io::stdout().lock())?;

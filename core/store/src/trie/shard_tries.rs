@@ -13,6 +13,7 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     NumShards, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
 };
+use std::rc::Rc;
 use std::sync::{Arc, RwLock};
 
 struct ShardTriesInner {
@@ -138,7 +139,7 @@ impl ShardTries {
                 .clone()
         });
 
-        let storage = Box::new(TrieCachingStorage::new(
+        let storage = Rc::new(TrieCachingStorage::new(
             self.0.store.clone(),
             cache,
             shard_uid,

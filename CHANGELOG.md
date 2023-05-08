@@ -20,7 +20,6 @@
 * undo-block tool to reset the chain head from current head to its prev block. Use the tool by running: `./target/release/neard undo-block`. [#8681](https://github.com/near/nearcore/pull/8681)
 * Add prometheus metrics for expected number of blocks/chunks at the end of the epoch. [#8759](https://github.com/near/nearcore/pull/8759)
 * Node can sync State from S3. [#8789](https://github.com/near/nearcore/pull/8789)
-* The contract runtime switched to using our fork of wasmer, with various improvements. [#8912](https://github.com/near/nearcore/pull/8912)
 * Node can sync State from local filesystem. [#8913](https://github.com/near/nearcore/pull/8913)
 * Add per shard granularity for chunks in validator info metric. [#8934](https://github.com/near/nearcore/pull/8934)
 
@@ -67,14 +66,14 @@ to pay for the storage of their accounts.
 [Stabilization #8601](https://github.com/near/nearcore/pull/8601)
 
 ### Non-protocol Changes
-* Config validation can be done by following command: 
-  `./target/debug/neard --home {path_to_config_files} validate-config`. 
-  This will show error if there are file issues or semantic issues in `config.json`, `genesis.json`, `records.json`, `node_key.json` and `validator_key.json`. 
+* Config validation can be done by following command:
+  `./target/debug/neard --home {path_to_config_files} validate-config`.
+  This will show error if there are file issues or semantic issues in `config.json`, `genesis.json`, `records.json`, `node_key.json` and `validator_key.json`.
   [#8485](https://github.com/near/nearcore/pull/8485)
 * Comments are allowed in configs. This includes
   `config.json`, `genesis.json`, `node_key.json` and `validator_key.json`. You can use `//`, `#` and `/*...*/` for comments.
   [#8423](https://github.com/near/nearcore/pull/8423)
-* `/debug` page now has client_config linked. 
+* `/debug` page now has client_config linked.
   You can also check your client_config directly at /debug/client_config
   [#8400](https://github.com/near/nearcore/pull/8400)
 * Added cold store loop - a background thread that copies data from hot to cold storage and a new json rpc endpoing - split_storage_info - that

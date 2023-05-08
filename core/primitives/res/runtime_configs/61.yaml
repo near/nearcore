@@ -1,6 +1,3 @@
-max_stack_height: { old: 16384, new: 262144 }
-contract_prepare_version: { old: 1, new: 2 }
-
 # Compute costs to allow for flat storage read-only MVP.
 # See https://github.com/near/nearcore/issues/8006
 wasm_touching_trie_node:    { old: 16_101_955_926, new: { gas: 16_101_955_926, compute: 110_000_000_000 } }
