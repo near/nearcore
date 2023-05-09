@@ -311,6 +311,38 @@ pub trait ChainStoreAccess {
     }
 }
 
+struct CachedColumn<Value> {
+    column: CellLruCache<Vec<u8>, Value>,
+}
+
+impl<Value: Clone> CachedColumn<Value> {
+    fn new(size: usize) -> Self {
+        CachedColumn { column: CellLruCache::new(size) }
+    }
+}
+
+enum CachedColumnTypes {
+    Headers(CachedColumn<BlockHeader>),
+    Blocks(CachedColumn<Block>),
+    Chunks(CachedColumn<Arc<ShardChunk>>),
+}
+
+struct CachedColumns {
+    headers: CachedColumnTypes,
+    blocks: CachedColumnTypes,
+    chunks: CachedColumnTypes,
+}
+
+impl CachedColumns {
+    fn new() -> Self {
+        CachedColumns {
+            headers: CachedColumnTypes::Headers(CachedColumn::new(CACHE_SIZE)),
+            blocks: CachedColumnTypes::Blocks(CachedColumn::new(CACHE_SIZE)),
+            chunks: CachedColumnTypes::Chunks(CachedColumn::new(CACHE_SIZE)),
+        }
+    }
+}
+
 /// All chain-related database operations.
 pub struct ChainStore {
     store: Store,
