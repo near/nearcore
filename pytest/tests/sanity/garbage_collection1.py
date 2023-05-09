@@ -17,7 +17,7 @@ import utils
 TARGET_HEIGHT = 60
 TIMEOUT = 30
 
-consensus_config = {
+nodes_config = {
     "consensus": {
         "min_block_production_delay": {
             "secs": 0,
@@ -31,7 +31,8 @@ consensus_config = {
             "secs": 0,
             "nanos": 400000000
         }
-    }
+    },
+    "state_sync_enabled": True
 }
 
 nodes = start_cluster(
@@ -44,9 +45,9 @@ nodes = start_cluster(
          "records", 0, "Account", "account", "locked",
          "260000000000000000000000000000000"
      ]], {
-         0: consensus_config,
-         1: consensus_config,
-         2: consensus_config
+         0: nodes_config,
+         1: nodes_config,
+         2: nodes_config
      })
 
 logger.info('kill node1 and node2')

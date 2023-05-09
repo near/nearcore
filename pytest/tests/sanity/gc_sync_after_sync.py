@@ -16,20 +16,21 @@ from cluster import start_cluster
 from configured_logger import logger
 import utils
 
-TARGET_HEIGHT1 = 125
-TARGET_HEIGHT2 = 245
-TARGET_HEIGHT3 = 370
+TARGET_HEIGHT1 = 60
+TARGET_HEIGHT2 = 170
+TARGET_HEIGHT3 = 250
 
-consensus_config = {
+node1_config = {
     "consensus": {
         "block_fetch_horizon": 20,
         "block_header_fetch_horizon": 20
-    }
+    },
+    "state_sync_enabled": True
 }
 
 nodes = start_cluster(
     4, 0, 1, None,
-    [["epoch_length", 30],
+    [["epoch_length", 10],
      ["validators", 0, "amount", "12500000000000000000000000000000"],
      [
          "records", 0, "Account", "account", "locked",
@@ -41,7 +42,7 @@ nodes = start_cluster(
      ], ['total_supply', "4925000000000000000000000000000000"],
      ["block_producer_kickout_threshold", 40],
      ["chunk_producer_kickout_threshold", 40], ["num_block_producer_seats", 10],
-     ["num_block_producer_seats_per_shard", [10]]], {1: consensus_config})
+     ["num_block_producer_seats_per_shard", [10]]], {1: node1_config})
 
 logger.info('Kill node 1')
 nodes[1].kill()
@@ -102,7 +103,7 @@ assert blocks_count == 0
 
 # all data before second sync should be GCed
 blocks_count = 0
-for height in range(100, 120):
+for height in range(130, 150):
     block1 = nodes[1].json_rpc('block', [height], timeout=15)
     if 'result' in block1:
         blocks_count += 1
