@@ -2959,7 +2959,7 @@ impl<'a> ChainStoreUpdate<'a> {
             assert_ne!(remove_idx, prev_table.len());
             prev_table.swap_remove(remove_idx);
 
-            if prev_table.len() > 0 {
+            if !prev_table.is_empty() {
                 store_update.set_ser(DBCol::BlocksToCatchup, prev_hash.as_ref(), &prev_table)?;
             } else {
                 store_update.delete(DBCol::BlocksToCatchup, prev_hash.as_ref());

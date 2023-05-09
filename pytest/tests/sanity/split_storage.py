@@ -172,9 +172,7 @@ class TestSplitStorage(unittest.TestCase):
 
         self._configure_hot_storage(archival_dir, rpc_dst)
 
-        logger.info("")
         logger.info("Phase 4 - After migration.")
-        logger.info("")
 
         archival.kill(gentle=True)
         archival.start()
@@ -449,6 +447,8 @@ class TestSplitStorage(unittest.TestCase):
         logger.info("")
         # Archival node should be able to sync to split storage without problems.
         wait_for_blocks(archival, target=n + epoch_length, timeout=120)
+        archival.kill()
+        split.kill()
 
 
 if __name__ == "__main__":

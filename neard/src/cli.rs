@@ -775,7 +775,7 @@ impl VerifyProofSubCommand {
             light_block_merkle_root
         );
         println!(
-            "OR verify that block with this hash {:?} is in the chain at this heigth {:?}",
+            "OR verify that block with this hash {:?} is in the chain at this height {:?}",
             block_hash, light_client_proof.block_header_lite.inner_lite.height
         );
         Ok((

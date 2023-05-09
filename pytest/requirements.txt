@@ -15,3 +15,4 @@ scipy
 semver
 toml
 tqdm
+urllib3<2

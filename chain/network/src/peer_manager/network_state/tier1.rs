@@ -122,7 +122,7 @@ impl super::NetworkState {
                     node_ips.extend(q.await.unwrap());
                 }
                 // Check that we have received non-zero responses and that they are consistent.
-                if node_ips.len() == 0 {
+                if node_ips.is_empty() {
                     vec![]
                 } else if !node_ips.iter().all(|ip| ip == &node_ips[0]) {
                     tracing::warn!(target:"network", "received inconsistent responses from the STUN servers");

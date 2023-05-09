@@ -14,17 +14,17 @@ use assert_matches::assert_matches;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use near_chain_primitives::Error;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::state::ValueRef;
 use near_primitives::state_part::PartId;
 use near_primitives::types::{AccountId, BlockHeight, StateRoot};
 use near_store::flat::{
-    store_helper, BlockInfo, FetchingStateStatus, FlatStateChanges, FlatStorageCreationMetrics,
-    FlatStorageCreationStatus, FlatStorageReadyStatus, FlatStorageStatus, NUM_PARTS_IN_ONE_STEP,
-    STATE_PART_MEMORY_LIMIT,
+    store_helper, BlockInfo, FetchingStateStatus, FlatStateChanges, FlatStateValue,
+    FlatStorageCreationMetrics, FlatStorageCreationStatus, FlatStorageReadyStatus,
+    FlatStorageStatus, NUM_PARTS_IN_ONE_STEP, STATE_PART_MEMORY_LIMIT,
 };
 use near_store::Store;
 use near_store::{Trie, TrieDBStorage, TrieTraversalItem};
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use tracing::{debug, info};
@@ -90,7 +90,7 @@ impl FlatStorageShardCreator {
         result_sender: Sender<u64>,
     ) {
         let trie_storage = TrieDBStorage::new(store.clone(), shard_uid);
-        let trie = Trie::new(Box::new(trie_storage), state_root, None);
+        let trie = Trie::new(Rc::new(trie_storage), state_root, None);
         let path_begin = trie.find_path_for_part_boundary(part_id.idx, part_id.total).unwrap();
         let path_end = trie.find_path_for_part_boundary(part_id.idx + 1, part_id.total).unwrap();
         let hex_path_begin = Self::nibbles_to_hex(&path_begin);
@@ -104,9 +104,13 @@ impl FlatStorageShardCreator {
         {
             if let Some(key) = key {
                 let value = trie.storage.retrieve_raw_bytes(&hash).unwrap();
-                let value_ref = ValueRef::new(&value);
-                store_helper::set_ref(&mut store_update, shard_uid, key, Some(value_ref))
-                    .expect("Failed to put value in FlatState");
+                store_helper::set_flat_state_value(
+                    &mut store_update,
+                    shard_uid,
+                    key,
+                    Some(FlatStateValue::value_ref(&value)),
+                )
+                .expect("Failed to put value in FlatState");
                 num_items += 1;
             }
         }
@@ -183,7 +187,7 @@ impl FlatStorageShardCreator {
                     let trie_storage = TrieDBStorage::new(store, shard_uid);
                     let state_root =
                         *chain_store.get_chunk_extra(&block_hash, &shard_uid)?.state_root();
-                    let trie = Trie::new(Box::new(trie_storage), state_root, None);
+                    let trie = Trie::new(Rc::new(trie_storage), state_root, None);
                     let root_node = trie.retrieve_root_node().unwrap();
                     let num_state_parts =
                         root_node.memory_usage / STATE_PART_MEMORY_LIMIT.as_u64() + 1;

@@ -613,7 +613,7 @@ impl NetworkState {
             // Broadcast any new data we have found, even in presence of an error.
             // This will prevent a malicious peer from forcing us to re-verify valid
             // datasets. See accounts_data::Cache documentation for details.
-            if new_data.len() > 0 {
+            if !new_data.is_empty() {
                 let tier2 = this.tier2.load();
                 let tasks: Vec<_> = tier2
                     .ready
