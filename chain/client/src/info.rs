@@ -241,10 +241,9 @@ impl InfoHelper {
 
     /// Records protocol version of the current epoch.
     fn record_protocol_version(head: &Tip, client: &crate::client::Client) {
-        let _ = client
-            .runtime_adapter
-            .get_epoch_protocol_version(&head.epoch_id)
-            .map(|version| metrics::CURRENT_PROTOCOL_VERSION.set(version as i64));
+        if let Ok(version) = client.runtime_adapter.get_epoch_protocol_version(&head.epoch_id) {
+            metrics::CURRENT_PROTOCOL_VERSION.set(version as i64);
+        }
     }
 
     /// Print current summary.
@@ -305,11 +304,13 @@ impl InfoHelper {
         InfoHelper::record_chunk_producers(&head, &client);
         let next_epoch_id = Some(head.epoch_id.clone());
         if self.epoch_id.ne(&next_epoch_id) {
-            // We only want to compute this once per epoch.
+            // We only want to compute this once per epoch to avoid heavy computational work, that can last up to 100ms.
             InfoHelper::record_epoch_settlement_info(&head, &client);
+            // This isn't heavy computationally.
+            InfoHelper::record_protocol_version(&head, &client);
+
             self.epoch_id = next_epoch_id;
         }
-        InfoHelper::record_protocol_version(&head, &client);
 
         self.info(
             &head,
