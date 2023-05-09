@@ -436,6 +436,13 @@ impl SimulationRunner {
                 }
             }
         }
+        if txns_simulated > 0 && txns_simulated_with_error == txns_simulated && txns_simulated > 5 {
+            println!("Simulation all failed. Clearing last simulated and trying again",);
+            let mut update = store.store_update();
+            update.delete(DBCol::LastSimulatedBlockOrdinal, b"");
+            update.commit()?;
+            return Ok(false);
+        }
         update.set_ser::<u64>(DBCol::LastSimulatedBlockOrdinal, b"", &next_block_ordinal)?;
         update.commit()?;
         println!(
