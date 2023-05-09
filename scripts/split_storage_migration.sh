@@ -106,18 +106,23 @@ function init_cold_storage {
   echo "Restarting the systemd service '$service_name'"
   sudo systemctl restart $service_name
 
-  # Wait for the migration to complete
-  while [[ -z "$head" || -z "$cold_head" || $(($head - $cold_head)) -ge 1000 ]]; do
-    # Get data from the metrics page of a localhost node that is assumed to listen on port 3030.
   metrics_url="http://0.0.0.0:3030/metrics"
+  # Wait for the migration to complete
+  while true; do
+    # Get data from the metrics page of a localhost node that is assumed to listen on port 3030.
     head=$(curl "$metrics_url" --silent | grep 'block_height_head' | tail -n1 | awk '{print $2}')
     cold_head=$(curl "$metrics_url" --silent | grep 'cold_head_height' | tail -n1 | awk '{print $2}')
 
     echo "Head of hot storage: '$head'"
     echo "Head of cold storage: '$cold_head'"
 
-    # Wait for 2 minutes before trying again
-    sleep 120
+    if [[ -n "$head" && -n "$cold_head" && $(($head - $cold_head)) -lt 1000 ]]; then
+      break
+    else
+      echo "Cold head hasn't caught up yet. Will check again in 2 minutes. Please don't interrupt."
+      # Wait for 2 minutes before trying again
+      sleep 120
+    fi
   done
 }
 
@@ -158,10 +163,11 @@ function finish_split_storage_migration {
   echo "Hot DbKind is '$hot_db_kind'"
   if [ "$hot_db_kind" != '"Hot"' ]
   then
-    "Hot DbKind is not 'Hot'"
+    echo "Hot DbKind is not 'Hot'"
     exit 1
   else
-    "Hot DbKind is correct"
+    echo "Hot DbKind is correct"
+    echo "Migration complete"
   fi
 }
 
