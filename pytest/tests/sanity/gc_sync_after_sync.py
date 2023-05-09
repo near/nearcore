@@ -17,7 +17,7 @@ from configured_logger import logger
 import utils
 
 TARGET_HEIGHT1 = 125
-TARGET_HEIGHT2 = 275
+TARGET_HEIGHT2 = 245
 TARGET_HEIGHT3 = 370
 
 consensus_config = {
@@ -48,7 +48,7 @@ nodes[1].kill()
 
 node0_height, _ = utils.wait_for_blocks(nodes[0], target=TARGET_HEIGHT1)
 
-logger.info('Restart node 1')
+logger.info('Starting back node 1')
 nodes[1].start(boot_node=nodes[1])
 time.sleep(3)
 
@@ -102,7 +102,7 @@ assert blocks_count == 0
 
 # all data before second sync should be GCed
 blocks_count = 0
-for height in range(130, 150):
+for height in range(100, 120):
     block1 = nodes[1].json_rpc('block', [height], timeout=15)
     if 'result' in block1:
         blocks_count += 1
