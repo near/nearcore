@@ -362,10 +362,10 @@ impl SimulationRunner {
                         Some(tail_block) => break tail_block,
                         None => {
                             println!(
-                                "Could not find tail block at height {}, trying again at +1000",
+                                "Could not find tail block at height {}, trying again at +1",
                                 tail_height
                             );
-                            tail_height += 1000;
+                            tail_height += 1;
                         }
                     }
                 };
