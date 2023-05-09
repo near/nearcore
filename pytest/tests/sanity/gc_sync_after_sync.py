@@ -22,8 +22,8 @@ TARGET_HEIGHT3 = 370
 
 consensus_config = {
     "consensus": {
-        "block_fetch_horizon": 40,
-        "block_header_fetch_horizon": 40
+        "block_fetch_horizon": 20,
+        "block_header_fetch_horizon": 20
     }
 }
 
