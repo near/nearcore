@@ -267,7 +267,12 @@ pub fn start_with_config_and_synchronization(
     let client_adapter_for_shards_manager = Arc::new(LateBoundSender::default());
     let adv = near_client::adversarial::Controls::new(config.client_config.archive);
 
-    SimulationRunner::init(epoch_manager.clone(), runtime.clone(), epoch_manager.clone());
+    SimulationRunner::continuously_simulate_history(
+        epoch_manager.clone(),
+        runtime.clone(),
+        epoch_manager.clone(),
+        storage.get_hot_store(),
+    );
     let view_client = start_view_client(
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
         chain_genesis.clone(),

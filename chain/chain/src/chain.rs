@@ -3898,17 +3898,17 @@ impl Chain {
                         return Err(Error::InvalidChunkProofs(Box::new(chunk_proof)));
                     }
 
-                    for transaction in transactions {
-                        SimulationRunner::maybe_send(SimulationRequest {
-                            state_roots: block
-                                .chunks()
-                                .iter()
-                                .map(|chunk| chunk.prev_state_root())
-                                .collect(),
-                            prev_block_hash: *prev_block.hash(),
-                            transaction: transaction.clone(),
-                        });
-                    }
+                    // for transaction in transactions {
+                    //     SimulationRunner::maybe_send(SimulationRequest {
+                    //         state_roots: block
+                    //             .chunks()
+                    //             .iter()
+                    //             .map(|chunk| chunk.prev_state_root())
+                    //             .collect(),
+                    //         prev_block_hash: *prev_block.hash(),
+                    //         transaction: transaction.clone(),
+                    //     });
+                    // }
 
                     // if we are running mock_node, ignore this check because
                     // this check may require old block headers, which may not exist in storage

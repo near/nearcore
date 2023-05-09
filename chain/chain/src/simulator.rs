@@ -1,20 +1,28 @@
 use std::{
     collections::VecDeque,
-    sync::{mpsc, Arc, Mutex, RwLock},
+    sync::{mpsc, Arc, RwLock},
+    thread::JoinHandle,
 };
 
+use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::{
+    block::{Block, Tip},
     block_header::BlockHeader,
     hash::CryptoHash,
     receipt::{Receipt, ReceiptEnum},
     runtime::migration_data::MigrationFlags,
-    transaction::{ExecutionOutcome, ExecutionOutcomeWithId, SignedTransaction},
+    sharding::ShardChunk,
+    transaction::{ExecutionOutcome, SignedTransaction},
     types::{EpochInfoProvider, ShardId},
 };
-use near_store::{get_received_data, DBCol, StoreCompiledContractCache, TrieUpdate};
+use near_store::{
+    get_received_data, DBCol, Store, StoreCompiledContractCache, TrieUpdate, FINAL_HEAD_KEY,
+    TAIL_KEY,
+};
 use node_runtime::{ApplyState, ApplyStats, Runtime};
+use tokio::sync::oneshot;
 
 use crate::types::RuntimeAdapter;
 
@@ -75,18 +83,18 @@ impl TransactionSimulator {
         state_roots: &[CryptoHash],
         transaction: &SignedTransaction,
     ) -> SimulationResult {
-        println!(
-            "[SIM] Simulating transaction {:?} to {:?}",
-            transaction.get_hash(),
-            transaction.transaction.receiver_id
-        );
+        // println!(
+        //     "[SIM] Simulating transaction {:?} to {:?}",
+        //     transaction.get_hash(),
+        //     transaction.transaction.receiver_id
+        // );
         let mut state = match self.prepare_simulation(prev_block_hash, state_roots, transaction) {
             Ok(state) => state,
             Err(err) => {
                 return SimulationResult {
                     tx_outcome: None,
                     outcomes: Vec::new(),
-                    error: Some(err),
+                    error: Some(err.to_string()),
                 }
             }
         };
@@ -101,11 +109,15 @@ impl TransactionSimulator {
                 ((shard_id, depth), group.map(|(_, gas)| gas).reduce(|a, b| a + b).unwrap())
             })
             .collect::<Vec<_>>();
-        println!("[SIM]   Total gas per shard and depth:");
-        for ((shard_id, depth), gas) in total_gas_by_shard_and_depth {
-            println!("[SIM]    Shard {} depth {}: {}", shard_id, depth, gas);
+        // println!("[SIM]   Total gas per shard and depth:");
+        // for ((shard_id, depth), gas) in total_gas_by_shard_and_depth {
+        //     println!("[SIM]    Shard {} depth {}: {}", shard_id, depth, gas);
+        // }
+        SimulationResult {
+            tx_outcome: state.tx_outcome,
+            outcomes: state.outcomes,
+            error: error.map(|err| err.to_string()),
         }
-        SimulationResult { tx_outcome: state.tx_outcome, outcomes: state.outcomes, error }
     }
 }
 
@@ -122,12 +134,14 @@ pub struct SimulationState {
     runtime: Runtime,
 }
 
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug)]
 pub struct SimulationResult {
     pub tx_outcome: Option<ExecutionOutcome>,
     pub outcomes: Vec<ReceiptExecutionOutcome>,
-    pub error: Option<crate::Error>,
+    pub error: Option<String>,
 }
 
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug)]
 pub struct ReceiptExecutionOutcome {
     pub receipt: Receipt,
     pub outcome: ExecutionOutcome,
@@ -293,22 +307,154 @@ impl SimulationRunner {
     ) {
         let simulator = Arc::new(TransactionSimulator::new(
             epoch_manager,
-            runtime_adapter,
+            runtime_adapter.clone(),
             epoch_info_provider,
         ));
         let (sender, receiver) = mpsc::sync_channel(1000);
         let thread = std::thread::spawn(move || {
             for request in receiver {
-                let SimulationRequest { transaction, state_roots, prev_block_hash } = request;
+                let SimulationRequest { transaction, state_roots, prev_block_hash, done } = request;
                 let result = simulator.simulate(&prev_block_hash, &state_roots, &transaction);
-                if let Some(err) = result.error {
-                    let hash = transaction.get_hash();
-                    println!("[SIM]   Error simulating transaction {:?}: {:?}", hash, err);
-                }
+                // if let Some(err) = result.error {
+                //     let hash = transaction.get_hash();
+                //     println!("[SIM]   Error simulating transaction {:?}: {:?}", hash, err);
+                // }
+                let mut update = runtime_adapter.store().store_update();
+                update
+                    .set_ser(
+                        DBCol::TransactionSimulationResult,
+                        transaction.get_hash().as_bytes(),
+                        &result.try_to_vec().unwrap(),
+                    )
+                    .unwrap();
+                update.commit().unwrap();
+                done.send(()).unwrap();
             }
         });
 
         *SIMULATION_RUNNER.simulator.write().unwrap() = Some(Arc::new(Self { thread, sender }));
+    }
+
+    fn simulate_history_once(
+        epoch_manager: Arc<dyn EpochManagerAdapter>,
+        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        epoch_info_provider: Arc<dyn EpochInfoProvider>,
+        store: Store,
+    ) -> Result<bool, crate::Error> {
+        let simulator = Arc::new(TransactionSimulator::new(
+            epoch_manager.clone(),
+            runtime_adapter,
+            epoch_info_provider,
+        ));
+        let last_simulated = store.get_ser::<u64>(DBCol::LastSimulatedBlockOrdinal, b"")?;
+        let last_simulated = match last_simulated {
+            Some(last_simulated) => last_simulated,
+            None => {
+                let tail_height = store
+                    .get_ser::<u64>(DBCol::BlockMisc, TAIL_KEY)?
+                    .ok_or_else(|| crate::Error::DBNotFoundErr(format!("No tail key")))?;
+                let tail_block = store
+                    .get_ser::<BlockHeader>(DBCol::BlockHeader, tail_height.to_be_bytes().as_ref())?
+                    .ok_or_else(|| crate::Error::DBNotFoundErr(format!("No tail block")))?;
+                let tail_ordinal = tail_block.block_ordinal();
+                let mut update = store.store_update();
+                update.set_ser::<u64>(DBCol::LastSimulatedBlockOrdinal, b"", &tail_ordinal)?;
+                update.commit();
+                tail_ordinal
+            }
+        };
+        let next_block_ordinal = last_simulated + 1;
+        let final_head = store
+            .get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?
+            .ok_or_else(|| crate::Error::DBNotFoundErr(format!("No final head")))?;
+        let final_head_header = store
+            .get_ser::<BlockHeader>(DBCol::BlockHeader, final_head.last_block_hash.as_ref())?
+            .ok_or_else(|| crate::Error::DBNotFoundErr(format!("No final head block")))?;
+        let final_head_ordinal = final_head_header.block_ordinal();
+        if next_block_ordinal > final_head_ordinal {
+            return Ok(false);
+        }
+        let next_block_hash = store
+            .get_ser::<CryptoHash>(DBCol::BlockOrdinal, &next_block_ordinal.try_to_vec().unwrap())?
+            .ok_or_else(|| {
+                crate::Error::DBNotFoundErr(format!(
+                    "No block hash for ordinal {}",
+                    next_block_ordinal
+                ))
+            })?;
+        let next_block =
+            store.get_ser::<Block>(DBCol::Block, next_block_hash.as_ref())?.ok_or_else(|| {
+                crate::Error::DBNotFoundErr(format!("No block for hash {:?}", next_block_hash))
+            })?;
+        let state_roots =
+            next_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect::<Vec<_>>();
+
+        let mut txns_simulated = 0;
+        let mut txns_simulated_with_error = 0;
+        let mut update = store.store_update();
+        for chunk in next_block.chunks().iter() {
+            let chunk_body = store
+                .get_ser::<ShardChunk>(DBCol::Chunks, chunk.chunk_hash().as_ref())?
+                .ok_or_else(|| {
+                    crate::Error::DBNotFoundErr(format!(
+                        "No chunk for hash {:?}",
+                        chunk.chunk_hash()
+                    ))
+                })?;
+            for transaction in chunk_body.transactions() {
+                let result = simulator.simulate(
+                    &next_block.header().prev_hash(),
+                    &state_roots,
+                    &transaction,
+                );
+                update.set_ser::<SimulationResult>(
+                    DBCol::TransactionSimulationResult,
+                    transaction.get_hash().as_bytes(),
+                    &result,
+                )?;
+                txns_simulated += 1;
+                if result.error.is_some() {
+                    txns_simulated_with_error += 1;
+                }
+            }
+        }
+        update.set_ser::<u64>(DBCol::LastSimulatedBlockOrdinal, b"", &next_block_ordinal)?;
+        update.commit()?;
+        println!(
+            "Simulated {} transactions, {} with error, at block {}",
+            txns_simulated, txns_simulated_with_error, next_block_ordinal
+        );
+
+        return Ok(true);
+    }
+
+    pub fn continuously_simulate_history(
+        epoch_manager: Arc<dyn EpochManagerAdapter>,
+        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        epoch_info_provider: Arc<dyn EpochInfoProvider>,
+        store: Store,
+    ) -> JoinHandle<()> {
+        println!("Starting simulation thread");
+        std::thread::spawn(move || loop {
+            match Self::simulate_history_once(
+                epoch_manager.clone(),
+                runtime_adapter.clone(),
+                epoch_info_provider.clone(),
+                store.clone(),
+            ) {
+                Ok(true) => {}
+                Ok(false) => {
+                    std::thread::sleep(std::time::Duration::from_secs(10));
+                }
+                Err(err) => {
+                    println!(
+                        "Error simulating history, sleeping for 10 seconds to try again: {:?}",
+                        err
+                    );
+                    std::thread::sleep(std::time::Duration::from_secs(10));
+                }
+            }
+        })
     }
 }
 
@@ -316,6 +462,7 @@ pub struct SimulationRequest {
     pub transaction: SignedTransaction,
     pub state_roots: Vec<CryptoHash>,
     pub prev_block_hash: CryptoHash,
+    pub done: oneshot::Sender<()>,
 }
 
 pub struct SimulationRunnerStatic {
