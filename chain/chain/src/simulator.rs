@@ -350,20 +350,19 @@ impl SimulationRunner {
         let last_simulated = match last_simulated {
             Some(last_simulated) => last_simulated,
             None => {
-                let tail_height = store
-                    .get_ser::<u64>(DBCol::BlockMisc, TAIL_KEY)?
-                    .ok_or_else(|| crate::Error::DBNotFoundErr(format!("No tail key")))?;
-                let tail_block_hash = store
-                    .get_ser::<CryptoHash>(DBCol::BlockHeight, &tail_height.try_to_vec().unwrap())?
-                    .ok_or_else(|| crate::Error::DBNotFoundErr(format!("No tail block")))?;
-                let tail_block_header = store
-                    .get_ser::<BlockHeader>(DBCol::BlockHeader, tail_block_hash.as_ref())?
-                    .ok_or_else(|| crate::Error::DBNotFoundErr(format!("No tail block header")))?;
-                let tail_ordinal = tail_block_header.block_ordinal();
+                let head = store
+                    .get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?
+                    .ok_or_else(|| crate::Error::DBNotFoundErr(format!("No final head")))?;
+                let start = epoch_manager.get_epoch_id(&head.last_block_hash)?;
+                let start_block_hash = start.0;
+                let start_block_header = store
+                    .get_ser::<BlockHeader>(DBCol::BlockHeader, start_block_hash.as_ref())?
+                    .ok_or_else(|| crate::Error::DBNotFoundErr(format!("No start block header")))?;
+                let start_ordinal = start_block_header.block_ordinal();
                 let mut update = store.store_update();
-                update.set_ser::<u64>(DBCol::LastSimulatedBlockOrdinal, b"", &tail_ordinal)?;
+                update.set_ser::<u64>(DBCol::LastSimulatedBlockOrdinal, b"", &start_ordinal)?;
                 update.commit()?;
-                tail_ordinal
+                start_ordinal
             }
         };
         let next_block_ordinal = last_simulated + 1;
