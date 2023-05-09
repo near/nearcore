@@ -165,8 +165,8 @@ class TransferFT(Transaction):
             "ft_transfer",
             json.dumps(args).encode('utf-8'),
             # About enough gas per call to fit N such transactions into an average block.
-            self.tgas**account.TGAS,
-            # Gotta deposit some NEAR for storage?
+            self.tgas * account.TGAS,
+            # Gotta attach exactly 1 yoctoNEAR according to NEP-141 to avoid calls from restricted access keys
             1,
             sender.use_nonce(),
             block_hash)

@@ -232,19 +232,22 @@ fn test_sanity_used_gas() {
         .collect::<Vec<_>>();
 
     // Executing `used_gas` costs `base_cost`. When executing `used_gas` twice
-    // within a metered block, the returned values should differ by that amount
-    // plus 2 regular_op_cost, one for the local.set and one for the call.
+    // within a metered block, the returned values should differ by that amount.
     let base_cost =
         node.client.read().unwrap().runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::base);
-    let regular_op_cost =
-        u64::from(node.client.read().unwrap().runtime_config.wasm_config.regular_op_cost);
-    assert_eq!(used_gas[1] - used_gas[0], base_cost + 2 * regular_op_cost);
+    assert_eq!(used_gas[1] - used_gas[0], base_cost);
 
-    // Similarly, we have 7 instructions between the two used_gas calls.
-    assert_eq!(used_gas[2] - used_gas[1], base_cost + 7 * regular_op_cost);
+    // The fees for executing a metered block's WASM code should be paid before
+    // any of the call instructions within that block are executed. Hence, even
+    // after arithmetics, the next call of `used_gas` should still return a
+    // value that differs only by `base_cost`.
+    assert_eq!(used_gas[2] - used_gas[1], base_cost);
 
-    // And still the same if there are br_if calls (6 regular ops, as block doesn’t count)
-    assert_eq!(used_gas[3] - used_gas[2], base_cost + 6 * regular_op_cost);
+    // Entering a new metered block, all of its instructions are paid upfront.
+    // Therefore, the difference across blocks must be larger than `base_cost`,
+    // given that the block contains other instructions besides the call of
+    // `used_gas`.
+    assert!(used_gas[3] - used_gas[2] > base_cost);
 }
 
 /// Returns a contract which calls host function `used_gas` multiple times, both
