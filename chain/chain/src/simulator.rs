@@ -352,14 +352,14 @@ impl SimulationRunner {
             None => {
                 let tail_height = store
                     .get_ser::<u64>(DBCol::BlockMisc, TAIL_KEY)?
-                    .ok_or_else(|| crate::Error::DBNotFoundErr(format!("No tail key")))?;
+                    .ok_or_else(|| crate::Error::DBNotFoundErr(format!("No tail key")))? + 1;
                 let tail_block = store
                     .get_ser::<BlockHeader>(DBCol::BlockHeader, tail_height.to_be_bytes().as_ref())?
                     .ok_or_else(|| crate::Error::DBNotFoundErr(format!("No tail block")))?;
                 let tail_ordinal = tail_block.block_ordinal();
                 let mut update = store.store_update();
                 update.set_ser::<u64>(DBCol::LastSimulatedBlockOrdinal, b"", &tail_ordinal)?;
-                update.commit();
+                update.commit()?;
                 tail_ordinal
             }
         };
