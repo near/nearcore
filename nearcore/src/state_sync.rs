@@ -18,7 +18,7 @@ use rand::{seq::IteratorRandom, thread_rng};
 use std::collections::HashSet;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Starts one a thread per tracked shard.
 /// Each started thread will be dumping state parts of a single epoch to external storage.
@@ -421,7 +421,7 @@ async fn state_sync_dump_multi_node(
                 epoch_id,
                 epoch_height,
                 sync_hash,
-                parts_dumped: _,
+                parts_dumped,
             })) => {
                 let in_progress_data = get_in_progress_data(shard_id, sync_hash, &chain);
                 match in_progress_data {
@@ -438,25 +438,32 @@ async fn state_sync_dump_multi_node(
                         .await;
 
                         match missing_parts {
-                            Err(_) => Err(Error::Other(format!("get_missing_state_parts_for_epoch_from_s3 failed"))),
-                            Ok(parts_not_dumped) if parts_not_dumped.len() == 0 => check_new_epoch(
-                                None,
-                                None,
-                                None,
-                                shard_id,
-                                &chain,
-                                &runtime,
-                                &account_id,
-                            ),
+                            Err(_) => Err(Error::Other(format!(
+                                "get_missing_state_parts_for_epoch_from_s3 failed"
+                            ))),
+                            Ok(parts_not_dumped) if parts_not_dumped.len() == 0 => {
+                                Ok(Some(StateSyncDumpProgress::AllDumped {
+                                    epoch_id,
+                                    epoch_height,
+                                    num_parts: Some(num_parts),
+                                }))
+                            }
                             Ok(parts_not_dumped) => {
-                                let batch_size: u64 = 100;
+                                // use a big batch_size here, because small batch_size may mean the time limit is not being used
+                                let batch_size: u64 = 1000;
                                 let parts_to_dump =
                                     select_random_parts_to_dump(parts_not_dumped, batch_size);
 
+                                let timer = Instant::now();
                                 for part_id in parts_to_dump {
                                     let _timer = metrics::STATE_SYNC_DUMP_ITERATION_ELAPSED
                                         .with_label_values(&[&shard_id.to_string()])
                                         .start_timer();
+
+                                    // stop generating and uploading the remaining parts if 60 secs passed
+                                    if timer.elapsed().as_secs() >= 60 {
+                                        break;
+                                    }
 
                                     let state_part = match obtain_and_store_state_part(
                                         &runtime,
@@ -495,38 +502,14 @@ async fn state_sync_dump_multi_node(
                                         break;
                                     }
                                 }
-                                let new_missing_parts = get_missing_state_parts_for_epoch_from_s3(
-                                    shard_id,
-                                    &chain_id,
-                                    &epoch_id,
+                                // record the same state.
+                                // if all parts in s3 are actually already dumped, the node will figure out in next loop and update progress
+                                Ok(Some(StateSyncDumpProgress::InProgress {
+                                    epoch_id,
                                     epoch_height,
-                                    num_parts,
-                                    &external,
-                                )
-                                .await;
-                                match new_missing_parts {
-                                    Err(_) => Err(Error::Other(format!("get_missing_state_parts_for_epoch_from_s3 failed"))),
-                                    Ok(parts_not_dumped) if parts_not_dumped.len() == 0 => {
-                                        Ok(Some(StateSyncDumpProgress::AllDumped {
-                                            epoch_id,
-                                            epoch_height,
-                                            num_parts: Some(num_parts),
-                                        }))
-                                    }
-                                    // still dumping for the same state
-                                    Ok(parts_not_dumped) => {
-                                        let missing_count: u64 =
-                                            parts_not_dumped.len().try_into().unwrap();
-                                        let parts_dumped = num_parts - missing_count;
-                                        Ok(Some(StateSyncDumpProgress::InProgress {
-                                            epoch_id,
-                                            epoch_height,
-                                            sync_hash,
-                                            // note we don't use this value in multi-node dumping, just updating to avoid confusion
-                                            parts_dumped,
-                                        }))
-                                    }
-                                }
+                                    sync_hash,
+                                    parts_dumped,
+                                }))
                             }
                         }
                     }
