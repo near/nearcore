@@ -1364,11 +1364,36 @@ async fn debug_handler(
             Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
         };
     }
+    if req.path() == "/debug/pprof" {
+        // extract duration parameter
+        let query_string = req.query_string();
+        let duration = query_string
+            .split('&')
+            .find(|s| s.starts_with("duration="))
+            .map(|s| s.trim_start_matches("duration="))
+            .and_then(|s| s.parse::<u64>().ok())
+            .map(|s| std::time::Duration::from_secs(s))
+            .unwrap_or(std::time::Duration::from_secs(30));
+        return pprof(duration).await;
+    }
     match handler.debug(req.path()).await {
         Ok(Some(value)) => Ok(HttpResponse::Ok().json(&value)),
         Ok(None) => Ok(HttpResponse::MethodNotAllowed().finish()),
         Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
     }
+}
+
+async fn pprof(duration: std::time::Duration) -> Result<HttpResponse, HttpError> {
+    let guard = pprof::ProfilerGuard::new(1000).unwrap();
+    sleep(duration).await;
+    let report = guard.report().build().unwrap();
+    let profile = report.pprof().unwrap();
+    let mut content = Vec::new();
+    pprof::protos::Message::write_to_vec(&profile, &mut content).unwrap();
+    Ok(HttpResponse::Ok()
+        .content_type("application/octet-stream")
+        .append_header(("Content-Disposition", "attachment; filename=\"profile.pb\""))
+        .body(content))
 }
 
 async fn debug_block_status_handler(
