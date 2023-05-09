@@ -325,7 +325,7 @@ async fn state_sync_dump_single_node(
 }
 
 // return the list of missing state part ids
-async fn get_missing_state_parts_for_epoch_from_s3(
+async fn get_missing_state_parts_for_epoch(
     shard_id: ShardId,
     chain_id: &String,
     epoch_id: &EpochId,
@@ -427,7 +427,7 @@ async fn state_sync_dump_multi_node(
                 match in_progress_data {
                     Err(error) => Err(error),
                     Ok((state_root, num_parts, sync_prev_hash)) => {
-                        let missing_parts = get_missing_state_parts_for_epoch_from_s3(
+                        let missing_parts = get_missing_state_parts_for_epoch(
                             shard_id,
                             &chain_id,
                             &epoch_id,
@@ -438,9 +438,10 @@ async fn state_sync_dump_multi_node(
                         .await;
 
                         match missing_parts {
-                            Err(_) => Err(Error::Other(format!(
-                                "get_missing_state_parts_for_epoch_from_s3 failed"
-                            ))),
+                            Err(err) => {
+                                tracing::debug!(target: "state_sync_dump", shard_id, ?err, "list parts error");
+                                Err(Error::Other(format!("get_missing_state_parts_for_epoch failed")))
+                            }
                             Ok(parts_not_dumped) if parts_not_dumped.len() == 0 => {
                                 Ok(Some(StateSyncDumpProgress::AllDumped {
                                     epoch_id,
@@ -740,7 +741,7 @@ mod tests {
     use crate::state_sync::spawn_state_sync_dump;
     use near_chain::{ChainGenesis, Provenance};
     use near_chain_configs::{DumpConfig, ExternalStorageLocation};
-    use near_client::sync::state::external_storage_location;
+    use near_client::sync::state::{external_storage_location, external_storage_location_multi_node};
     use near_client::test_utils::TestEnv;
     use near_network::test_utils::wait_or_timeout;
     use near_o11y::testonly::init_test_logger;
@@ -751,7 +752,7 @@ mod tests {
     #[test]
     /// Produce several blocks, wait for the state dump thread to notice and
     /// write files to a temp dir.
-    fn test_state_dump() {
+    fn test_state_dump_single_node() {
         init_test_logger();
 
         let mut chain_genesis = ChainGenesis::test();
@@ -769,6 +770,7 @@ mod tests {
             },
             restart_dump_for_shards: None,
             iteration_delay: Some(Duration::from_millis(250)),
+            multi_node: Some(false)
         });
 
         const MAX_HEIGHT: BlockHeight = 15;
@@ -804,6 +806,82 @@ mod tests {
                     for part_id in 0..num_parts {
                         let path = root_dir.path().join(external_storage_location(
                             "unittest",
+                            epoch_height,
+                            shard_id,
+                            part_id,
+                            num_parts,
+                        ));
+                        if std::fs::read(&path).is_err() {
+                            println!("Missing {:?}", path);
+                            all_parts_present = false;
+                        }
+                    }
+                }
+                if all_parts_present {
+                    ControlFlow::Break(())
+                } else {
+                    ControlFlow::Continue(())
+                }
+            })
+            .await
+            .unwrap();
+            actix_rt::System::current().stop();
+        });
+    }
+
+    #[test]
+    /// Produce several blocks, wait for the state dump thread to notice and
+    /// write files to a temp dir.
+    fn test_state_dump_multi_node() {
+        init_test_logger();
+
+        let mut chain_genesis = ChainGenesis::test();
+        chain_genesis.epoch_length = 5;
+        let mut env = TestEnv::builder(chain_genesis.clone()).build();
+        let chain = &env.clients[0].chain;
+        let runtime = chain.runtime_adapter();
+        let mut config = env.clients[0].config.clone();
+        let root_dir = tempfile::Builder::new().prefix("state_dump").tempdir().unwrap();
+        config.state_sync.dump = Some(DumpConfig {
+            location: ExternalStorageLocation::Filesystem {
+                root_dir: root_dir.path().to_path_buf(),
+            },
+            restart_dump_for_shards: None,
+            iteration_delay: Some(Duration::from_millis(250)),
+            multi_node: Some(true)
+        });
+
+        const MAX_HEIGHT: BlockHeight = 15;
+
+        near_actix_test_utils::run_actix(async move {
+            let _state_sync_dump_handle = spawn_state_sync_dump(
+                &config,
+                chain_genesis,
+                runtime.clone(),
+                Some("test0".parse().unwrap()),
+            )
+            .unwrap();
+            for i in 1..=MAX_HEIGHT {
+                let block = env.clients[0].produce_block(i as u64).unwrap().unwrap();
+                env.process_block(0, block, Provenance::PRODUCED);
+            }
+            let head = &env.clients[0].chain.head().unwrap();
+            let epoch_id = head.clone().epoch_id;
+            let epoch_info = runtime.get_epoch_info(&epoch_id).unwrap();
+            let epoch_height = epoch_info.epoch_height();
+
+            wait_or_timeout(100, 10000, || async {
+                let mut all_parts_present = true;
+
+                let num_shards = runtime.num_shards(&epoch_id).unwrap();
+                assert_ne!(num_shards, 0);
+
+                for shard_id in 0..num_shards {
+                    let num_parts = 3;
+                    for part_id in 0..num_parts {
+                        let path = root_dir.path().join(external_storage_location_multi_node(
+                            "unittest",
+                            &epoch_id,
                             epoch_height,
                             shard_id,
                             part_id,

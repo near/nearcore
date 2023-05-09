@@ -206,11 +206,9 @@ impl ExternalConnection {
                 let path = root_dir.join(directory_location);
                 let prefix = format!("{}/", path.display());
                 tracing::debug!(target: "state_sync_dump", shard_id, ?path, "List state parts in local directory");
-                if let Some(parent_dir) = path.parent() {
-                    std::fs::create_dir_all(parent_dir)?;
-                }
+                std::fs::create_dir_all(&path)?;
                 let mut file_names = vec![];
-                let files = std::fs::read_dir(path)?;
+                let files = std::fs::read_dir(&path)?;
                 for file in files {
                     let file_name = file?.path().display().to_string().replace(&prefix, "");
                     file_names.push(file_name);
