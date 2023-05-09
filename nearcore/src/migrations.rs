@@ -125,6 +125,7 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
                 tracing::info!(target: "migrations", "It will happen in parallel with regular block processing. ETA is 15h for RPC node and 2d for archival node.");
                 Ok(())
             }
+            36 => near_store::migrations::migrate_36_to_37(store),
             DB_VERSION.. => unreachable!(),
         }
     }
