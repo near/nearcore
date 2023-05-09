@@ -16,20 +16,20 @@ from cluster import start_cluster
 from configured_logger import logger
 import utils
 
-TARGET_HEIGHT1 = 60
-TARGET_HEIGHT2 = 170
-TARGET_HEIGHT3 = 250
+TARGET_HEIGHT1 = 125
+TARGET_HEIGHT2 = 275
+TARGET_HEIGHT3 = 370
 
 consensus_config = {
     "consensus": {
-        "block_fetch_horizon": 20,
-        "block_header_fetch_horizon": 20
+        "block_fetch_horizon": 40,
+        "block_header_fetch_horizon": 40
     }
 }
 
 nodes = start_cluster(
     4, 0, 1, None,
-    [["epoch_length", 10],
+    [["epoch_length", 30],
      ["validators", 0, "amount", "12500000000000000000000000000000"],
      [
          "records", 0, "Account", "account", "locked",
@@ -46,17 +46,13 @@ nodes = start_cluster(
 logger.info('Kill node 1')
 nodes[1].kill()
 
-node0_height, _ = utils.wait_for_blocks(nodes[0],
-                                        target=TARGET_HEIGHT1,
-                                        verbose=True)
+node0_height, _ = utils.wait_for_blocks(nodes[0], target=TARGET_HEIGHT1)
 
 logger.info('Restart node 1')
 nodes[1].start(boot_node=nodes[1])
 time.sleep(3)
 
-node1_height, _ = utils.wait_for_blocks(nodes[1],
-                                        target=node0_height,
-                                        verbose=True)
+node1_height, _ = utils.wait_for_blocks(nodes[1], target=node0_height)
 
 if swap_nodes:
     logger.info('Swap nodes 0 and 1')
@@ -65,17 +61,13 @@ if swap_nodes:
 logger.info('Kill node 1')
 nodes[1].kill()
 
-node0_height, _ = utils.wait_for_blocks(nodes[0],
-                                        target=TARGET_HEIGHT2,
-                                        verbose=True)
+node0_height, _ = utils.wait_for_blocks(nodes[0], target=TARGET_HEIGHT2)
 
 logger.info('Restart node 1')
 nodes[1].start(boot_node=nodes[1])
 time.sleep(3)
 
-node1_height, _ = utils.wait_for_blocks(nodes[1],
-                                        target=node0_height,
-                                        verbose=True)
+node1_height, _ = utils.wait_for_blocks(nodes[1], target=node0_height)
 
 # all fresh data should be synced
 blocks_count = 0
