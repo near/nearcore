@@ -508,7 +508,9 @@ async fn state_sync_dump_multi_node(
                         match missing_parts {
                             Err(err) => {
                                 tracing::debug!(target: "state_sync_dump", shard_id, ?err, "list parts error");
-                                Err(Error::Other(format!("get_missing_state_parts_for_epoch failed")))
+                                Err(Error::Other(format!(
+                                    "get_missing_state_parts_for_epoch failed"
+                                )))
                             }
                             Ok(parts_not_dumped) if parts_not_dumped.len() == 0 => {
                                 Ok(Some(StateSyncDumpProgress::AllDumped {
@@ -531,6 +533,7 @@ async fn state_sync_dump_multi_node(
 
                                     // stop generating and uploading the remaining parts if 60 secs passed
                                     if timer.elapsed().as_secs() >= 60 {
+                                        tracing::debug!(target: "state_sync_dump", shard_id, "Time's up for this iteration");
                                         break;
                                     }
 
@@ -785,7 +788,9 @@ mod tests {
     use crate::state_sync::spawn_state_sync_dump;
     use near_chain::{ChainGenesis, Provenance};
     use near_chain_configs::{DumpConfig, ExternalStorageLocation};
-    use near_client::sync::state::{external_storage_location, external_storage_location_multi_node};
+    use near_client::sync::state::{
+        external_storage_location, external_storage_location_multi_node,
+    };
     use near_client::test_utils::TestEnv;
     use near_network::test_utils::wait_or_timeout;
     use near_o11y::testonly::init_test_logger;
@@ -814,7 +819,7 @@ mod tests {
             },
             restart_dump_for_shards: None,
             iteration_delay: Some(Duration::from_millis(250)),
-            multi_node: Some(false)
+            multi_node: Some(false),
         });
 
         const MAX_HEIGHT: BlockHeight = 15;
@@ -892,7 +897,7 @@ mod tests {
             },
             restart_dump_for_shards: None,
             iteration_delay: Some(Duration::from_millis(250)),
-            multi_node: Some(true)
+            multi_node: Some(true),
         });
 
         const MAX_HEIGHT: BlockHeight = 15;
