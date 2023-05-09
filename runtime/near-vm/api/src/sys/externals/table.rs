@@ -3,8 +3,8 @@ use crate::sys::store::Store;
 use crate::sys::types::{Val, ValFuncRef};
 use crate::sys::RuntimeError;
 use crate::sys::TableType;
-use std::sync::Arc;
 use near_vm_vm::{Export, Table as RuntimeTable, TableElement, VMTable};
+use std::sync::Arc;
 
 /// A WebAssembly `table` instance.
 ///

@@ -8,8 +8,8 @@
 
 use crate::sys::cell::WasmCell;
 use crate::sys::{externals::Memory, FromToNativeWasmType};
-use std::{cell::Cell, marker::PhantomData, mem};
 use near_vm_types::ValueType;
+use std::{cell::Cell, marker::PhantomData, mem};
 
 /// The `Array` marker type. This type can be used like `WasmPtr<T, Array>`
 /// to get access to methods

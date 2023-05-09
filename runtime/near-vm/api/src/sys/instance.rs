@@ -1,9 +1,9 @@
 use crate::sys::module::Module;
 use crate::sys::{HostEnvInitError, LinkError, RuntimeError};
 use crate::{ExportError, NativeFunc, WasmTypeList};
+use near_vm_vm::{InstanceHandle, Resolver};
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
-use near_vm_vm::{InstanceHandle, Resolver};
 
 pub use near_vm_types::InstanceConfig;
 

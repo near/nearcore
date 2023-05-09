@@ -1,10 +1,10 @@
 use crate::sys::exports::Exportable;
 use crate::sys::store::Store;
 use crate::sys::{MemoryType, MemoryView};
-use std::convert::TryInto;
-use std::slice;
 use near_vm_types::{Pages, ValueType};
 use near_vm_vm::{Export, MemoryError, VMMemory};
+use std::convert::TryInto;
+use std::slice;
 
 /// A WebAssembly `memory` instance.
 ///

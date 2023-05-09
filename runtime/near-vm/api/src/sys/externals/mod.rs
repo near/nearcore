@@ -13,8 +13,8 @@ pub use self::table::Table;
 
 use crate::sys::exports::Exportable;
 use crate::sys::store::{Store, StoreObject};
-use std::fmt;
 use near_vm_vm::Export;
+use std::fmt;
 
 /// An `Extern` is the runtime representation of an entity that
 /// can be imported or exported.

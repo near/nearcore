@@ -4,13 +4,13 @@
 //!
 //! Please try to keep this file as clean as possible.
 
+use near_vm_test_generator::{
+    test_directory, test_directory_module, wast_processor, with_test_module, Testsuite,
+};
 use std::env;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
-use near_vm_test_generator::{
-    test_directory, test_directory_module, wast_processor, with_test_module, Testsuite,
-};
 
 fn main() -> anyhow::Result<()> {
     // As rerun-if-changed doesn't support globs, we use another crate
@@ -22,10 +22,7 @@ fn main() -> anyhow::Result<()> {
 
     // Spectests test generation
     {
-        let mut spectests = Testsuite {
-            buffer: String::new(),
-            path: vec![],
-        };
+        let mut spectests = Testsuite { buffer: String::new(), path: vec![] };
 
         with_test_module(&mut spectests, "spec", |spectests| {
             let _spec_tests = test_directory(spectests, "../tests/wast/spec", wast_processor)?;

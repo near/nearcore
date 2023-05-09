@@ -1,9 +1,9 @@
 use crate::sys::externals::Extern;
 use crate::sys::import_object::LikeNamespace;
 use indexmap::IndexMap;
+use near_vm_vm::Export;
 use std::sync::Arc;
 use thiserror::Error;
-use near_vm_vm::Export;
 
 /// The `ExportError` can happen when trying to get a specific
 /// export [`Extern`] from the [`Instance`] exports.

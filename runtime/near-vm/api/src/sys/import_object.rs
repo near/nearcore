@@ -1,12 +1,12 @@
 //! The import module contains the implementation data structures and helper functions used to
 //! manipulate and access a wasm module's imports including memories, tables, globals, and
 //! functions.
+use near_vm_vm::{Export, NamedResolver};
 use std::borrow::{Borrow, BorrowMut};
 use std::collections::VecDeque;
 use std::collections::{hash_map::Entry, HashMap};
 use std::fmt;
 use std::sync::{Arc, Mutex};
-use near_vm_vm::{Export, NamedResolver};
 
 /// The `LikeNamespace` trait represents objects that act as a namespace for imports.
 /// For example, an `Instance` or `Namespace` could be

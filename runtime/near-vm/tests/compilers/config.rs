@@ -20,12 +20,7 @@ pub struct Config {
 
 impl Config {
     pub fn new(engine: Engine, compiler: Compiler) -> Self {
-        Self {
-            compiler,
-            engine,
-            features: None,
-            canonicalize_nans: false,
-        }
+        Self { compiler, engine, features: None, canonicalize_nans: false }
     }
 
     pub fn set_features(&mut self, features: Features) {

@@ -11,11 +11,11 @@ use std::marker::PhantomData;
 
 use crate::sys::externals::function::{DynamicFunction, VMDynamicFunction};
 use crate::sys::{FromToNativeWasmType, Function, RuntimeError, Store, WasmTypeList};
-use std::panic::{catch_unwind, AssertUnwindSafe};
 use near_vm_types::NativeWasmType;
 use near_vm_vm::{
     ExportFunction, VMDynamicFunctionContext, VMFunctionBody, VMFunctionEnvironment, VMFunctionKind,
 };
+use std::panic::{catch_unwind, AssertUnwindSafe};
 
 /// A WebAssembly function that can be called natively
 /// (using the Native ABI).

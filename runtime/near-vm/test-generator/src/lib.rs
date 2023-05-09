@@ -34,16 +34,8 @@ pub fn test_directory_module(
 }
 
 fn write_test(out: &mut Testsuite, testname: &str, body: &str) -> anyhow::Result<()> {
-    writeln!(
-        out.buffer,
-        "#[compiler_test({})]",
-        out.path[..out.path.len() - 1].join("::")
-    )?;
-    writeln!(
-        out.buffer,
-        "fn r#{}(config: crate::Config) -> anyhow::Result<()> {{",
-        &testname
-    )?;
+    writeln!(out.buffer, "#[compiler_test({})]", out.path[..out.path.len() - 1].join("::"))?;
+    writeln!(out.buffer, "fn r#{}(config: crate::Config) -> anyhow::Result<()> {{", &testname)?;
     writeln!(out.buffer, "{}", body)?;
     writeln!(out.buffer, "}}")?;
     writeln!(out.buffer)?;
@@ -65,11 +57,7 @@ pub fn test_directory(
 
     dir_entries.sort();
 
-    for Test {
-        name: testname,
-        body,
-    } in dir_entries.iter()
-    {
+    for Test { name: testname, body } in dir_entries.iter() {
         out.path.push(testname.to_string());
         write_test(out, &testname, &body).unwrap();
         out.path.pop().unwrap();

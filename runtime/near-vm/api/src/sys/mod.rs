@@ -39,7 +39,6 @@ pub use crate::sys::types::{
     ValType,
 };
 pub use crate::sys::types::{Val as Value, ValType as Type};
-pub use target_lexicon::{Architecture, CallingConvention, OperatingSystem, Triple, HOST};
 #[cfg(feature = "compiler")]
 pub use near_vm_compiler::{wasmparser, CompilerConfig};
 pub use near_vm_compiler::{
@@ -53,6 +52,7 @@ pub use near_vm_types::{
 pub use near_vm_vm::{
     ChainableNamedResolver, Export, NamedResolver, NamedResolverChain, Resolver, Tunables,
 };
+pub use target_lexicon::{Architecture, CallingConvention, OperatingSystem, Triple, HOST};
 
 // TODO: should those be moved into near_vm::vm as well?
 pub use near_vm_vm::{raise_user_trap, MemoryError};

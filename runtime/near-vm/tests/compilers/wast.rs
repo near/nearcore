@@ -1,6 +1,6 @@
 use ::near_vm::Features;
-use std::path::Path;
 use near_vm_wast::Wast;
+use std::path::Path;
 
 // The generated tests (from build.rs) look like:
 // #[cfg(test)]

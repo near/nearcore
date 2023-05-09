@@ -39,11 +39,7 @@ fn compilation_test() {
         match compile_uncached(&store, &engine, &code, false) {
             Ok(art) => {
                 let serialized = art.serialize().unwrap();
-                println!(
-                    "{}: artifact is compiled, size is {}",
-                    factor,
-                    serialized.len()
-                );
+                println!("{}: artifact is compiled, size is {}", factor, serialized.len());
             }
             Err(err) => {
                 println!("err is {:?}", err);

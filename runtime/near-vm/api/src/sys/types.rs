@@ -41,7 +41,8 @@ pub trait ValFuncRef {
 
     unsafe fn from_vm_funcref(item: VMFuncRef, store: &Store) -> Self;
 
-    fn into_table_reference(&self, store: &Store) -> Result<near_vm_vm::TableElement, RuntimeError>;
+    fn into_table_reference(&self, store: &Store)
+        -> Result<near_vm_vm::TableElement, RuntimeError>;
 
     unsafe fn from_table_reference(item: near_vm_vm::TableElement, store: &Store) -> Self;
 }
@@ -65,7 +66,10 @@ impl ValFuncRef for Val {
         Self::FuncRef(Function::from_vm_funcref(store, func_ref))
     }
 
-    fn into_table_reference(&self, store: &Store) -> Result<near_vm_vm::TableElement, RuntimeError> {
+    fn into_table_reference(
+        &self,
+        store: &Store,
+    ) -> Result<near_vm_vm::TableElement, RuntimeError> {
         if !self.comes_from_same_store(store) {
             return Err(RuntimeError::new("cross-`Store` values are not supported"));
         }

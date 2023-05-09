@@ -4,9 +4,9 @@ use crate::sys::types::Val;
 use crate::sys::GlobalType;
 use crate::sys::Mutability;
 use crate::sys::RuntimeError;
+use near_vm_vm::{Export, Global as RuntimeGlobal, VMGlobal};
 use std::fmt;
 use std::sync::Arc;
-use near_vm_vm::{Export, Global as RuntimeGlobal, VMGlobal};
 
 /// A WebAssembly `global` instance.
 ///
