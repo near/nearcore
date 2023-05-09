@@ -428,6 +428,11 @@ impl SimulationRunner {
                 )?;
                 txns_simulated += 1;
                 if result.error.is_some() {
+                    println(
+                        "Error simulating transaction {:?}: {:?}",
+                        transaction.get_hash(),
+                        result.error,
+                    );
                     txns_simulated_with_error += 1;
                 }
             }
