@@ -377,18 +377,29 @@ impl SimulationRunner {
         if next_block_ordinal > final_head_ordinal {
             return Ok(false);
         }
-        let next_block_hash = store
-            .get_ser::<CryptoHash>(DBCol::BlockOrdinal, &next_block_ordinal.try_to_vec().unwrap())?
-            .ok_or_else(|| {
-                crate::Error::DBNotFoundErr(format!(
-                    "No block hash for ordinal {}",
+        let next_block_hash = store.get_ser::<CryptoHash>(
+            DBCol::BlockOrdinal,
+            &next_block_ordinal.try_to_vec().unwrap(),
+        )?;
+        let next_block = match next_block_hash {
+            None => None,
+            Some(next_block_hash) => {
+                store.get_ser::<Block>(DBCol::Block, next_block_hash.as_ref())?
+            }
+        };
+        let next_block = match next_block {
+            None => {
+                println!(
+                    "Block ordinal {} is missing, resetting last simulated ordinal; sleeping for 10 seconds to try again",
                     next_block_ordinal
-                ))
-            })?;
-        let next_block =
-            store.get_ser::<Block>(DBCol::Block, next_block_hash.as_ref())?.ok_or_else(|| {
-                crate::Error::DBNotFoundErr(format!("No block for hash {:?}", next_block_hash))
-            })?;
+                );
+                let mut update = store.store_update();
+                update.delete(DBCol::LastSimulatedBlockOrdinal, b"");
+                update.commit()?;
+                return Ok(false);
+            }
+            Some(next_block) => next_block,
+        };
         let state_roots =
             next_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect::<Vec<_>>();
 
