@@ -58,9 +58,9 @@ pub struct InfoHelper {
     /// Telemetry actor.
     // The field can be None for testing. This allows avoiding running actix in tests.
     telemetry_actor: Option<Addr<TelemetryActor>>,
-    /// Log coloring enabled
+    /// Log coloring enabled.
     log_summary_style: LogSummaryStyle,
-    /// Epoch height
+    /// Epoch id.
     epoch_id: Option<EpochId>,
     /// Timestamp of starting the client.
     pub boot_time_seconds: i64,
@@ -239,6 +239,13 @@ impl InfoHelper {
         }
     }
 
+    /// Records protocol version of the current epoch.
+    fn record_protocol_version(head: &Tip, client: &crate::client::Client) {
+        if let Ok(version) = client.runtime_adapter.get_epoch_protocol_version(&head.epoch_id) {
+            metrics::CURRENT_PROTOCOL_VERSION.set(version as i64);
+        }
+    }
+
     /// Print current summary.
     pub fn log_summary(
         &mut self,
@@ -297,8 +304,11 @@ impl InfoHelper {
         InfoHelper::record_chunk_producers(&head, &client);
         let next_epoch_id = Some(head.epoch_id.clone());
         if self.epoch_id.ne(&next_epoch_id) {
-            // We only want to compute this once per epoch.
+            // We only want to compute this once per epoch to avoid heavy computational work, that can last up to 100ms.
             InfoHelper::record_epoch_settlement_info(&head, &client);
+            // This isn't heavy computationally.
+            InfoHelper::record_protocol_version(&head, &client);
+
             self.epoch_id = next_epoch_id;
         }
 
