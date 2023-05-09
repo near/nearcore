@@ -25,10 +25,10 @@ impl VMKind {
         // Only wasmtime supports non-x86_64 systems
         #[cfg(all(
             not(target_arch = "x86_64"),
-            any(feature = "force_wasmer0", feature = "force_wasmer2", feature = "force_near_vm")
+            any(feature = "force_wasmer0", feature = "force_wasmer2")
         ))]
         compile_error!(
-            "Wasmer and NearVM only support x86_64, but such a force_* feature was passed to near-vm-runner"
+            "Wasmer only supports x86_64, but a force_wasmer* feature was passed to near-vm-runner"
         );
 
         if cfg!(feature = "force_wasmer0") {
@@ -40,14 +40,9 @@ impl VMKind {
         if cfg!(feature = "force_wasmer2") {
             return VMKind::Wasmer2;
         }
-        if cfg!(feature = "force_near_vm") {
-            return VMKind::NearVm;
-        }
 
         if cfg!(target_arch = "x86_64") {
-            if checked_feature!("stable", NearVm, protocol_version) {
-                VMKind::NearVm
-            } else if checked_feature!("stable", Wasmer2, protocol_version) {
+            if checked_feature!("stable", Wasmer2, protocol_version) {
                 VMKind::Wasmer2
             } else {
                 VMKind::Wasmer0

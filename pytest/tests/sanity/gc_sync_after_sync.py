@@ -20,11 +20,12 @@ TARGET_HEIGHT1 = 60
 TARGET_HEIGHT2 = 170
 TARGET_HEIGHT3 = 250
 
-consensus_config = {
+node1_config = {
     "consensus": {
         "block_fetch_horizon": 20,
         "block_header_fetch_horizon": 20
-    }
+    },
+    "state_sync_enabled": True
 }
 
 nodes = start_cluster(
@@ -41,22 +42,18 @@ nodes = start_cluster(
      ], ['total_supply', "4925000000000000000000000000000000"],
      ["block_producer_kickout_threshold", 40],
      ["chunk_producer_kickout_threshold", 40], ["num_block_producer_seats", 10],
-     ["num_block_producer_seats_per_shard", [10]]], {1: consensus_config})
+     ["num_block_producer_seats_per_shard", [10]]], {1: node1_config})
 
 logger.info('Kill node 1')
 nodes[1].kill()
 
-node0_height, _ = utils.wait_for_blocks(nodes[0],
-                                        target=TARGET_HEIGHT1,
-                                        verbose=True)
+node0_height, _ = utils.wait_for_blocks(nodes[0], target=TARGET_HEIGHT1)
 
-logger.info('Restart node 1')
+logger.info('Starting back node 1')
 nodes[1].start(boot_node=nodes[1])
 time.sleep(3)
 
-node1_height, _ = utils.wait_for_blocks(nodes[1],
-                                        target=node0_height,
-                                        verbose=True)
+node1_height, _ = utils.wait_for_blocks(nodes[1], target=node0_height)
 
 if swap_nodes:
     logger.info('Swap nodes 0 and 1')
@@ -65,17 +62,13 @@ if swap_nodes:
 logger.info('Kill node 1')
 nodes[1].kill()
 
-node0_height, _ = utils.wait_for_blocks(nodes[0],
-                                        target=TARGET_HEIGHT2,
-                                        verbose=True)
+node0_height, _ = utils.wait_for_blocks(nodes[0], target=TARGET_HEIGHT2)
 
 logger.info('Restart node 1')
 nodes[1].start(boot_node=nodes[1])
 time.sleep(3)
 
-node1_height, _ = utils.wait_for_blocks(nodes[1],
-                                        target=node0_height,
-                                        verbose=True)
+node1_height, _ = utils.wait_for_blocks(nodes[1], target=node0_height)
 
 # all fresh data should be synced
 blocks_count = 0
