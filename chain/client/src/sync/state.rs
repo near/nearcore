@@ -44,7 +44,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_part::PartId;
 use near_primitives::static_clock::StaticClock;
 use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponse};
-use near_primitives::types::{AccountId, EpochHeight, ShardId, StateRoot, EpochId};
+use near_primitives::types::{AccountId, EpochHeight, EpochId, ShardId, StateRoot};
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use std::collections::HashMap;
@@ -191,8 +191,7 @@ impl ExternalConnection {
         match self {
             ExternalConnection::S3 { bucket } => {
                 let prefix = format!("{}/", directory_location);
-                let list_results =
-                    bucket.list(prefix.clone(), Some("/".to_string())).await.unwrap();
+                let list_results = bucket.list(prefix.clone(), Some("/".to_string())).await?;
                 tracing::debug!(target: "state_sync_dump", shard_id, ?directory_location, "List state parts in s3");
                 let mut file_names = vec![];
                 for res in list_results {
@@ -211,9 +210,9 @@ impl ExternalConnection {
                     std::fs::create_dir_all(parent_dir)?;
                 }
                 let mut file_names = vec![];
-                let files = std::fs::read_dir(path).unwrap();
+                let files = std::fs::read_dir(path)?;
                 for file in files {
-                    let file_name = file.unwrap().path().display().to_string().replace(&prefix, "");
+                    let file_name = file?.path().display().to_string().replace(&prefix, "");
                     file_names.push(file_name);
                 }
                 Ok(file_names)
@@ -1494,19 +1493,44 @@ impl<T: Clone> Iterator for SamplerLimited<T> {
 
 /// Construct a location on the external storage.
 pub fn external_storage_location(
-    prefix: &str,
     chain_id: &str,
     epoch_height: u64,
-    epoch_id: &EpochId,
     shard_id: u64,
     part_id: u64,
     num_parts: u64,
 ) -> String {
     format!(
-        "{}/{}/{}",
-        prefix,
+        "{}/{}",
+        location_prefix(chain_id, epoch_height, shard_id),
+        part_filename(part_id, num_parts)
+    )
+}
+
+/// multi node dump: Construct a location on the external storage.
+pub fn external_storage_location_multi_node(
+    chain_id: &str,
+    epoch_id: &EpochId,
+    epoch_height: u64,
+    shard_id: u64,
+    part_id: u64,
+    num_parts: u64,
+) -> String {
+    format!(
+        "multi_node_tmp_1/{}/{}",
         location_prefix_with_epoch_id(chain_id, epoch_height, epoch_id, shard_id),
         part_filename(part_id, num_parts)
+    )
+}
+
+pub fn external_storage_location_directory_multi_node(
+    chain_id: &str,
+    epoch_id: &EpochId,
+    epoch_height: u64,
+    shard_id: u64,
+) -> String {
+    format!(
+        "multi_node_tmp_1/{}",
+        location_prefix_with_epoch_id(chain_id, epoch_height, epoch_id, shard_id)
     )
 }
 
