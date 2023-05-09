@@ -340,12 +340,10 @@ fn dynamic_function_with_env_wasmer_env_init_works(config: crate::Config) -> Res
             MemoryType { minimum: 0.into(), maximum: None, shared: false },
         )?,
     };
-    let function_fn = Function::new_with_env(
-        &store,
-        FunctionType::new(vec![], vec![]),
-        env.clone(),
-        |env, _values| Ok(vec![]),
-    );
+    let function_fn =
+        Function::new_with_env(&store, FunctionType::new(vec![], vec![]), env, |env, _values| {
+            Ok(vec![])
+        });
     let instance = Instance::new_with_config(
         &module,
         InstanceConfig::with_stack_limit(1000000),
