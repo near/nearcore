@@ -1748,7 +1748,7 @@ impl Client {
                                     approval,
                                     approval_type,
                                     true,
-                                    near_chain::Error::Other(format!(
+                                    near_chain::Error::DBNotFoundErr(format!(
                                         "Cannot find any block on height {}",
                                         parent_height
                                     )),
