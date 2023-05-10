@@ -272,6 +272,7 @@ pub fn start_with_config_and_synchronization(
     let disable_node = std::env::var("NODE_OFF").unwrap_or_default() == "1";
     let simulation_threads =
         std::env::var("SIM_THREADS").unwrap_or("8".to_string()).parse::<usize>().unwrap();
+    let batch_size = std::env::var("SIM_BATCH").unwrap_or("64".to_string()).parse::<u64>().unwrap();
 
     if enable_simulation {
         SimulationRunner::continuously_simulate_history(
@@ -280,6 +281,7 @@ pub fn start_with_config_and_synchronization(
             epoch_manager.clone(),
             storage.get_hot_store(),
             simulation_threads,
+            batch_size,
         );
     }
     if disable_node {
