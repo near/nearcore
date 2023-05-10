@@ -915,30 +915,32 @@ impl Chain {
             if gc_blocks_remaining == 0 {
                 return Ok(());
             }
-            let blocks_current_height = self.store.get_all_block_hashes_by_height(height);
+            let blocks_current_height = self
+                .store
+                .get_all_block_hashes_by_height(height)?
+                .values()
+                .flatten()
+                .cloned()
+                .collect::<Vec<_>>();
             let mut chain_store_update = self.store.store_update();
-            if let Ok(blocks_current_height) = blocks_current_height {
-                let blocks_current_height =
-                    blocks_current_height.values().flatten().cloned().collect::<Vec<_>>();
-                if let Some(block_hash) = blocks_current_height.first() {
-                    let prev_hash = *chain_store_update.get_block_header(block_hash)?.prev_hash();
-                    let prev_block_refcount = chain_store_update.get_block_refcount(&prev_hash)?;
-                    if prev_block_refcount > 1 {
-                        // Block of `prev_hash` starts a Fork, stopping
-                        break;
-                    } else if prev_block_refcount == 1 {
-                        debug_assert_eq!(blocks_current_height.len(), 1);
-                        chain_store_update.clear_block_data(
-                            &*self.runtime_adapter,
-                            *block_hash,
-                            GCMode::Canonical(tries.clone()),
-                        )?;
-                        gc_blocks_remaining -= 1;
-                    } else {
-                        return Err(Error::GCError(
-                            "block on canonical chain shouldn't have refcount 0".into(),
-                        ));
-                    }
+            if let Some(block_hash) = blocks_current_height.first() {
+                let prev_hash = *chain_store_update.get_block_header(block_hash)?.prev_hash();
+                let prev_block_refcount = chain_store_update.get_block_refcount(&prev_hash)?;
+                if prev_block_refcount > 1 {
+                    // Block of `prev_hash` starts a Fork, stopping
+                    break;
+                } else if prev_block_refcount == 1 {
+                    debug_assert_eq!(blocks_current_height.len(), 1);
+                    chain_store_update.clear_block_data(
+                        &*self.runtime_adapter,
+                        *block_hash,
+                        GCMode::Canonical(tries.clone()),
+                    )?;
+                    gc_blocks_remaining -= 1;
+                } else {
+                    return Err(Error::GCError(
+                        "block on canonical chain shouldn't have refcount 0".into(),
+                    ));
                 }
             }
             chain_store_update.update_tail(height)?;
@@ -978,38 +980,41 @@ impl Chain {
         height: BlockHeight,
         gc_blocks_remaining: &mut NumBlocks,
     ) -> Result<(), Error> {
-        if let Ok(blocks_current_height) = self.store.get_all_block_hashes_by_height(height) {
-            let blocks_current_height =
-                blocks_current_height.values().flatten().cloned().collect::<Vec<_>>();
-            for block_hash in blocks_current_height.iter() {
-                let mut current_hash = *block_hash;
-                loop {
-                    if *gc_blocks_remaining == 0 {
-                        return Ok(());
-                    }
-                    // Block `block_hash` is not on the Canonical Chain
-                    // because shorter chain cannot be Canonical one
-                    // and it may be safely deleted
-                    // and all its ancestors while there are no other sibling blocks rely on it.
-                    let mut chain_store_update = self.store.store_update();
-                    if chain_store_update.get_block_refcount(&current_hash)? == 0 {
-                        let prev_hash =
-                            *chain_store_update.get_block_header(&current_hash)?.prev_hash();
+        let blocks_current_height = self
+            .store
+            .get_all_block_hashes_by_height(height)?
+            .values()
+            .flatten()
+            .cloned()
+            .collect::<Vec<_>>();
+        for block_hash in blocks_current_height.iter() {
+            let mut current_hash = *block_hash;
+            loop {
+                if *gc_blocks_remaining == 0 {
+                    return Ok(());
+                }
+                // Block `block_hash` is not on the Canonical Chain
+                // because shorter chain cannot be Canonical one
+                // and it may be safely deleted
+                // and all its ancestors while there are no other sibling blocks rely on it.
+                let mut chain_store_update = self.store.store_update();
+                if chain_store_update.get_block_refcount(&current_hash)? == 0 {
+                    let prev_hash =
+                        *chain_store_update.get_block_header(&current_hash)?.prev_hash();
 
-                        // It's safe to call `clear_block_data` for prev data because it clears fork only here
-                        chain_store_update.clear_block_data(
-                            &*self.runtime_adapter,
-                            current_hash,
-                            GCMode::Fork(tries.clone()),
-                        )?;
-                        chain_store_update.commit()?;
-                        *gc_blocks_remaining -= 1;
+                    // It's safe to call `clear_block_data` for prev data because it clears fork only here
+                    chain_store_update.clear_block_data(
+                        &*self.runtime_adapter,
+                        current_hash,
+                        GCMode::Fork(tries.clone()),
+                    )?;
+                    chain_store_update.commit()?;
+                    *gc_blocks_remaining -= 1;
 
-                        current_hash = prev_hash;
-                    } else {
-                        // Block of `current_hash` is an ancestor for some other blocks, stopping
-                        break;
-                    }
+                    current_hash = prev_hash;
+                } else {
+                    // Block of `current_hash` is an ancestor for some other blocks, stopping
+                    break;
                 }
             }
         }
@@ -1185,19 +1190,18 @@ impl Chain {
 
         // Check we don't know a block with given height already.
         // If we do - send out double sign challenge and keep going as double signed blocks are valid blocks.
-        if let Ok(epoch_id_to_blocks) = self.store.get_all_block_hashes_by_height(header.height()) {
-            // Check if there is already known block of the same height that has the same epoch id
-            if let Some(block_hashes) = epoch_id_to_blocks.get(header.epoch_id()) {
-                // This should be guaranteed but it doesn't hurt to check again
-                if !block_hashes.contains(header.hash()) {
-                    let other_header =
-                        self.get_block_header(block_hashes.iter().next().unwrap())?;
+        // Check if there is already known block of the same height that has the same epoch id
+        if let Some(block_hashes) =
+            self.store.get_all_block_hashes_by_height(header.height())?.get(header.epoch_id())
+        {
+            // This should be guaranteed but it doesn't hurt to check again
+            if !block_hashes.contains(header.hash()) {
+                let other_header = self.get_block_header(block_hashes.iter().next().unwrap())?;
 
-                    challenges.push(ChallengeBody::BlockDoubleSign(BlockDoubleSign {
-                        left_block_header: header.try_to_vec().expect("Failed to serialize"),
-                        right_block_header: other_header.try_to_vec().expect("Failed to serialize"),
-                    }));
-                }
+                challenges.push(ChallengeBody::BlockDoubleSign(BlockDoubleSign {
+                    left_block_header: header.try_to_vec().expect("Failed to serialize"),
+                    right_block_header: other_header.try_to_vec().expect("Failed to serialize"),
+                }));
             }
         }
 
@@ -1831,31 +1835,34 @@ impl Chain {
         let tail = self.store.tail()?;
         let mut tail_prev_block_cleaned = false;
         for height in tail..gc_height {
-            if let Ok(blocks_current_height) = self.store.get_all_block_hashes_by_height(height) {
-                let blocks_current_height =
-                    blocks_current_height.values().flatten().cloned().collect::<Vec<_>>();
-                for block_hash in blocks_current_height {
-                    let runtime_adapter = self.runtime_adapter();
-                    let mut chain_store_update = self.mut_store().store_update();
-                    if !tail_prev_block_cleaned {
-                        let prev_block_hash =
-                            *chain_store_update.get_block_header(&block_hash)?.prev_hash();
-                        if chain_store_update.get_block(&prev_block_hash).is_ok() {
-                            chain_store_update.clear_block_data(
-                                &*runtime_adapter,
-                                prev_block_hash,
-                                GCMode::StateSync { clear_block_info: true },
-                            )?;
-                        }
-                        tail_prev_block_cleaned = true;
+            let blocks_current_height = self
+                .store
+                .get_all_block_hashes_by_height(height)?
+                .values()
+                .flatten()
+                .cloned()
+                .collect::<Vec<_>>();
+            for block_hash in blocks_current_height {
+                let runtime_adapter = self.runtime_adapter();
+                let mut chain_store_update = self.mut_store().store_update();
+                if !tail_prev_block_cleaned {
+                    let prev_block_hash =
+                        *chain_store_update.get_block_header(&block_hash)?.prev_hash();
+                    if chain_store_update.get_block(&prev_block_hash).is_ok() {
+                        chain_store_update.clear_block_data(
+                            &*runtime_adapter,
+                            prev_block_hash,
+                            GCMode::StateSync { clear_block_info: true },
+                        )?;
                     }
-                    chain_store_update.clear_block_data(
-                        &*runtime_adapter,
-                        block_hash,
-                        GCMode::StateSync { clear_block_info: block_hash != prev_hash },
-                    )?;
-                    chain_store_update.commit()?;
+                    tail_prev_block_cleaned = true;
                 }
+                chain_store_update.clear_block_data(
+                    &*runtime_adapter,
+                    block_hash,
+                    GCMode::StateSync { clear_block_info: block_hash != prev_hash },
+                )?;
+                chain_store_update.commit()?;
             }
         }
 

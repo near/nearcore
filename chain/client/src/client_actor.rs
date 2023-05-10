@@ -434,7 +434,7 @@ impl Handler<WithSpanContext<BlockResponse>> for ClientActor {
                 .chain
                 .store()
                 .get_all_block_hashes_by_height(block.header().height());
-            if was_requested || !blocks_at_height.is_ok() {
+            if was_requested || blocks_at_height.is_err() || blocks_at_height.as_ref().unwrap().is_empty() {
                 if let SyncStatus::StateSync(sync_hash, _) = &mut this.client.sync_status {
                     if let Ok(header) = this.client.chain.get_block_header(sync_hash) {
                         if block.hash() == header.prev_hash() {
