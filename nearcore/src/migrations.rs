@@ -100,21 +100,7 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
 
     fn migrate(&self, store: &Store, version: DbVersion) -> anyhow::Result<()> {
         match version {
-            0..=26 => unreachable!(),
-            27 => {
-                // version 27 => 28: add DBCol::StateChangesForSplitStates
-                //
-                // Does not need to do anything since open db with option
-                // `create_missing_column_families`.  Nevertheless need to bump
-                // db version, because db_version 27 binary can't open
-                // db_version 28 db.  Combine it with migration from 28 to 29;
-                // don’t do anything here.
-                Ok(())
-            }
-            28 => near_store::migrations::migrate_28_to_29(store),
-            29 => near_store::migrations::migrate_29_to_30(store),
-            30 => migrate_30_to_31(store, self.config),
-            31 => near_store::migrations::migrate_31_to_32(store),
+            0..=31 => unreachable!(),
             32 => near_store::migrations::migrate_32_to_33(store),
             33 => {
                 near_store::migrations::migrate_33_to_34(store, self.config.client_config.archive)
