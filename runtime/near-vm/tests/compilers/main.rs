@@ -2,7 +2,7 @@
 //! implementation, such as: singlepass.
 
 #[macro_use]
-extern crate compiler_test_derive;
+extern crate near_vm_compiler_test_derive;
 
 mod config;
 mod deterministic;

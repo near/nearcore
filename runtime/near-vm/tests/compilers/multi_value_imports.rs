@@ -2,12 +2,12 @@
 //! This tests checks that the provided functions (both native and
 //! dynamic ones) work properly.
 
-use wasmer::*;
+use near_vm::*;
 
 macro_rules! mvr_test {
     ($test_name:ident, $( $result_type:ty ),* ) => {
         mod $test_name {
-            use wasmer::*;
+            use near_vm::*;
 
             fn get_module(store: &Store) -> anyhow::Result<wasmer::Module> {
                 let wat: String = r#"
