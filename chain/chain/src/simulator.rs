@@ -301,7 +301,8 @@ impl SimulationRunner {
                 let head = store
                     .get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?
                     .ok_or_else(|| crate::Error::DBNotFoundErr(format!("No final head")))?;
-                let start = epoch_manager.get_epoch_id(&head.last_block_hash)?;
+                let start =
+                    epoch_manager.get_prev_epoch_id_from_prev_block(&head.prev_block_hash)?;
                 let start_block_hash = start.0;
                 let start_block_header = store
                     .get_ser::<BlockHeader>(DBCol::BlockHeader, start_block_hash.as_ref())?
