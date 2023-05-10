@@ -82,7 +82,6 @@ function check_aws() {
 
 # Prepare all configs
 function prepare_configs {
-  check_jq
   # make archival config
   jq '.archive = true | .save_trie_changes=true' <$NEAR_HOME/config.json >$NEAR_HOME/config.json.archival
 
@@ -135,7 +134,6 @@ function init_cold_storage {
 
 # Download latest rpc backup
 function download_latest_rpc_backup {
-  check_aws
   echo 'Starting rpc download'
   aws s3 --no-sign-request cp "s3://near-protocol-public/backups/$chain/rpc/latest" .
   latest=$(cat latest)
@@ -179,6 +177,8 @@ function finish_split_storage_migration {
 
 # Backup old config.json
 intro
+check_jq
+check_aws
 cp $NEAR_HOME/config.json $NEAR_HOME/config.json.init
 prepare_configs
 run_with_trie_changes
