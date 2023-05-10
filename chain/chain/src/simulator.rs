@@ -340,6 +340,7 @@ impl SimulationRunner {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         epoch_info_provider: Arc<dyn EpochInfoProvider>,
         store: Store,
+        simulation_sender: crossbeam_channel::Sender<SimulationRequest>,
     ) -> Result<bool, crate::Error> {
         let simulator = Arc::new(TransactionSimulator::new(
             epoch_manager.clone(),
@@ -365,7 +366,8 @@ impl SimulationRunner {
                 start_ordinal
             }
         };
-        let next_block_ordinal = last_simulated + 1;
+
+        const BATCH_SIZE: u64 = 10;
         let final_head = store
             .get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?
             .ok_or_else(|| crate::Error::DBNotFoundErr(format!("No final head")))?;
@@ -373,81 +375,87 @@ impl SimulationRunner {
             .get_ser::<BlockHeader>(DBCol::BlockHeader, final_head.last_block_hash.as_ref())?
             .ok_or_else(|| crate::Error::DBNotFoundErr(format!("No final head block")))?;
         let final_head_ordinal = final_head_header.block_ordinal();
-        if next_block_ordinal > final_head_ordinal {
+        if last_simulated + BATCH_SIZE > final_head_ordinal {
             return Ok(false);
         }
-        let next_block_hash = store.get_ser::<CryptoHash>(
-            DBCol::BlockOrdinal,
-            &next_block_ordinal.try_to_vec().unwrap(),
-        )?;
-        let next_block = match next_block_hash {
-            None => None,
-            Some(next_block_hash) => {
-                store.get_ser::<Block>(DBCol::Block, next_block_hash.as_ref())?
-            }
-        };
-        let next_block = match next_block {
-            None => {
-                println!(
+
+        let mut requests = Vec::<(CryptoHash, oneshot::Receiver<SimulationResult>)>::new();
+
+        for block_ordinal in last_simulated + 1..=last_simulated + BATCH_SIZE {
+            let next_block_hash = store
+                .get_ser::<CryptoHash>(DBCol::BlockOrdinal, &block_ordinal.try_to_vec().unwrap())?;
+            let next_block = match next_block_hash {
+                None => None,
+                Some(next_block_hash) => {
+                    store.get_ser::<Block>(DBCol::Block, next_block_hash.as_ref())?
+                }
+            };
+            let next_block = match next_block {
+                None => {
+                    println!(
                     "Block ordinal {} is missing, resetting last simulated ordinal; sleeping for 10 seconds to try again",
-                    next_block_ordinal
+                    block_ordinal
                 );
-                let mut update = store.store_update();
-                update.delete(DBCol::LastSimulatedBlockOrdinal, b"");
-                update.commit()?;
-                return Ok(false);
+                    let mut update = store.store_update();
+                    update.delete(DBCol::LastSimulatedBlockOrdinal, b"");
+                    update.commit()?;
+                    return Ok(false);
+                }
+                Some(next_block) => next_block,
+            };
+            let state_roots =
+                next_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect::<Vec<_>>();
+
+            for chunk in next_block.chunks().iter() {
+                let chunk_body = store
+                    .get_ser::<ShardChunk>(DBCol::Chunks, chunk.chunk_hash().as_ref())?
+                    .ok_or_else(|| {
+                        crate::Error::DBNotFoundErr(format!(
+                            "No chunk for hash {:?}",
+                            chunk.chunk_hash()
+                        ))
+                    })?;
+                for transaction in chunk_body.transactions() {
+                    let (sender, receiver) = oneshot::channel();
+                    simulation_sender.send(SimulationRequest {
+                        transaction: transaction.clone(),
+                        state_roots: state_roots.clone(),
+                        prev_block_hash: next_block.header().prev_hash().clone(),
+                        done: sender,
+                    });
+                    requests.push((transaction.get_hash(), receiver));
+                }
             }
-            Some(next_block) => next_block,
-        };
-        let state_roots =
-            next_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect::<Vec<_>>();
+        }
 
         let mut txns_simulated = 0;
         let mut txns_simulated_with_error = 0;
         let mut update = store.store_update();
-        for chunk in next_block.chunks().iter() {
-            let chunk_body = store
-                .get_ser::<ShardChunk>(DBCol::Chunks, chunk.chunk_hash().as_ref())?
-                .ok_or_else(|| {
-                    crate::Error::DBNotFoundErr(format!(
-                        "No chunk for hash {:?}",
-                        chunk.chunk_hash()
-                    ))
-                })?;
-            for transaction in chunk_body.transactions() {
-                let result = simulator.simulate(
-                    &next_block.header().prev_hash(),
-                    &state_roots,
-                    &transaction,
-                );
-                update.set_ser::<SimulationResult>(
-                    DBCol::TransactionSimulationResult,
-                    transaction.get_hash().as_bytes(),
-                    &result,
-                )?;
-                txns_simulated += 1;
-                if result.error.is_some() {
-                    println!(
-                        "Error simulating transaction {:?}: {:?}",
-                        transaction.get_hash(),
-                        result.error,
-                    );
-                    txns_simulated_with_error += 1;
-                }
+        for (hash, receiver) in requests {
+            let result = receiver.recv().unwrap();
+            if let Some(err) = result.error {
+                println!("[SIM]   Error simulating transaction {:?}: {:?}", hash, err);
+                txns_simulated_with_error += 1;
             }
+            update
+                .set_ser(
+                    DBCol::TransactionSimulationResult,
+                    hash.as_bytes(),
+                    &result.try_to_vec().unwrap(),
+                )
+                .unwrap();
+            txns_simulated += 1;
         }
-        if txns_simulated > 0 && txns_simulated_with_error == txns_simulated && txns_simulated > 5 {
-            println!("Simulation all failed. Clearing last simulated and trying again",);
-            let mut update = store.store_update();
-            update.delete(DBCol::LastSimulatedBlockOrdinal, b"");
-            update.commit()?;
-            return Ok(false);
-        }
-        update.set_ser::<u64>(DBCol::LastSimulatedBlockOrdinal, b"", &next_block_ordinal)?;
+
+        let last_simulated = last_simulated + BATCH_SIZE;
+        update.set_ser::<u64>(DBCol::LastSimulatedBlockOrdinal, b"", &last_simulated)?;
         update.commit()?;
         println!(
-            "Simulated {} transactions, {} with error, at block {}",
-            txns_simulated, txns_simulated_with_error, next_block_ordinal
+            "Simulated {} transactions, {} with error, from {} to {}",
+            txns_simulated,
+            txns_simulated_with_error,
+            last_simulated - 9,
+            last_simulated
         );
 
         return Ok(true);
@@ -458,14 +466,38 @@ impl SimulationRunner {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         epoch_info_provider: Arc<dyn EpochInfoProvider>,
         store: Store,
+        num_threads: usize,
     ) -> JoinHandle<()> {
+        let (sender, receiver) = crossbeam_channel::unbounded::<SimulationRequest>();
+        for i in 0..num_threads {
+            let receiver = receiver.clone();
+            let epoch_manager = epoch_manager.clone();
+            let runtime_adapter = runtime_adapter.clone();
+            let epoch_info_provider = epoch_info_provider.clone();
+            std::thread::spawn(move || {
+                let simulator = Arc::new(TransactionSimulator::new(
+                    epoch_manager.clone(),
+                    runtime_adapter,
+                    epoch_info_provider,
+                ));
+                for request in receiver {
+                    let SimulationRequest { transaction, state_roots, prev_block_hash, done } =
+                        request;
+                    let result = simulator.simulate(&prev_block_hash, &state_roots, &transaction);
+                    done.send(result).unwrap();
+                }
+            });
+        }
+
         println!("Starting simulation thread");
+
         std::thread::spawn(move || loop {
             match Self::simulate_history_once(
                 epoch_manager.clone(),
                 runtime_adapter.clone(),
                 epoch_info_provider.clone(),
                 store.clone(),
+                sender.clone(),
             ) {
                 Ok(true) => {}
                 Ok(false) => {
@@ -487,7 +519,7 @@ pub struct SimulationRequest {
     pub transaction: SignedTransaction,
     pub state_roots: Vec<CryptoHash>,
     pub prev_block_hash: CryptoHash,
-    pub done: oneshot::Sender<()>,
+    pub done: oneshot::Sender<SimulationResult>,
 }
 
 pub struct SimulationRunnerStatic {

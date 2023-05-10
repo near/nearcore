@@ -268,13 +268,23 @@ pub fn start_with_config_and_synchronization(
     let client_adapter_for_shards_manager = Arc::new(LateBoundSender::default());
     let adv = near_client::adversarial::Controls::new(config.client_config.archive);
 
-    SimulationRunner::continuously_simulate_history(
-        epoch_manager.clone(),
-        runtime.clone(),
-        epoch_manager.clone(),
-        storage.get_hot_store(),
-    );
-    std::thread::sleep(Duration::from_secs(100 * 86400));
+    let enable_simulation = std::env::var("SIM_ON").unwrap_or_default() == "1";
+    let disable_node = std::env::var("NODE_OFF").unwrap_or_default() == "1";
+    let simulation_threads =
+        std::env::var("SIM_THREADS").unwrap_or("8".to_string()).parse::<usize>().unwrap();
+
+    if enable_simulation {
+        SimulationRunner::continuously_simulate_history(
+            epoch_manager.clone(),
+            runtime.clone(),
+            epoch_manager.clone(),
+            storage.get_hot_store(),
+            simulation_threads,
+        );
+    }
+    if disable_node {
+        std::thread::sleep(Duration::from_secs(100 * 86400));
+    }
     let view_client = start_view_client(
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
         chain_genesis.clone(),
