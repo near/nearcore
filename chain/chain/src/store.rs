@@ -1,7 +1,6 @@
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::io;
-use std::ops::Index;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
@@ -320,6 +319,10 @@ impl<Value: Clone> CachedColumn<Value> {
     fn new(size: usize) -> Self {
         CachedColumn { column: CellLruCache::new(size) }
     }
+
+    fn pop(&self, key: &[u8]) {
+        self.column.pop(key);
+    }
 }
 
 enum CachedColumnTypes {
@@ -329,7 +332,7 @@ enum CachedColumnTypes {
     Blocks(CachedColumn<Block>),
     /// Cache with chunks
     Chunks(CachedColumn<Arc<ShardChunk>>),
-   /// Cache with partial chunks
+    /// Cache with partial chunks
     PartialChunks(CachedColumn<Arc<PartialEncodedChunk>>),
     /// Cache with block extra.
     BlockExtra(CachedColumn<Arc<BlockExtra>>),
@@ -365,6 +368,12 @@ enum CachedColumnTypes {
     ProcessedBlockHeights(CachedColumn<()>),
 }
 
+impl CachedColumnTypes {
+    fn pop(&self, key: &[u8]) {
+        self.pop(key);
+    }
+}
+
 struct CachedColumns {
     headers: CachedColumnTypes,
     blocks: CachedColumnTypes,
@@ -398,32 +407,29 @@ impl CachedColumns {
             block_extras: CachedColumnTypes::BlockExtra(CachedColumn::new(CACHE_SIZE)),
             chunk_extras: CachedColumnTypes::ChunkExtra(CachedColumn::new(CACHE_SIZE)),
             height: CachedColumnTypes::Height(CachedColumn::new(CACHE_SIZE)),
-            block_hash_per_height: CachedColumnTypes::BlockHashPerHeight(CachedColumn::new(CACHE_SIZE)),
+            block_hash_per_height: CachedColumnTypes::BlockHashPerHeight(CachedColumn::new(
+                CACHE_SIZE,
+            )),
             block_refcounts: CachedColumnTypes::BlockRefcounts(CachedColumn::new(CACHE_SIZE)),
             next_block_hashes: CachedColumnTypes::NextBlockHashes(CachedColumn::new(CACHE_SIZE)),
-            epoch_light_client_blocks: CachedColumnTypes::EpochLightClientBlocks(CachedColumn::new(CACHE_SIZE)),
+            epoch_light_client_blocks: CachedColumnTypes::EpochLightClientBlocks(
+                CachedColumn::new(CACHE_SIZE),
+            ),
             outgoing_receipts: CachedColumnTypes::OutgoingReceipts(CachedColumn::new(CACHE_SIZE)),
             incoming_receipts: CachedColumnTypes::IncomingReceipts(CachedColumn::new(CACHE_SIZE)),
             invalid_chunks: CachedColumnTypes::InvalidChunks(CachedColumn::new(CACHE_SIZE)),
-            receipt_id_to_shard_id: CachedColumnTypes::ReceiptIdToShardId(CachedColumn::new(CHUNK_CACHE_SIZE)),
+            receipt_id_to_shard_id: CachedColumnTypes::ReceiptIdToShardId(CachedColumn::new(
+                CHUNK_CACHE_SIZE,
+            )),
             transactions: CachedColumnTypes::Transactions(CachedColumn::new(CHUNK_CACHE_SIZE)),
             receipts: CachedColumnTypes::Receipts(CachedColumn::new(CHUNK_CACHE_SIZE)),
             block_merkle_tree: CachedColumnTypes::BlockMerkleTree(CachedColumn::new(CACHE_SIZE)),
-            block_ordinal_to_hash: CachedColumnTypes::BlockOrdinalToHash(CachedColumn::new(CACHE_SIZE)),
-            processed_block_heights: CachedColumnTypes::ProcessedBlockHeights(CachedColumn::new(CACHE_SIZE)),
-        }
-    }
-}
-
-impl Index<DBCol> for CachedColumns {
-    type Output = CachedColumnTypes;
-
-    fn index(&self, col_type: DBCol) -> &Self::Output {
-        match col_type {
-            DBCol::BlockHeader => &self.headers,
-            DBCol::Block => &self.blocks,
-            DBCol::Chunks => &self.chunks,
-            _ => panic!("Oh no"),
+            block_ordinal_to_hash: CachedColumnTypes::BlockOrdinalToHash(CachedColumn::new(
+                CACHE_SIZE,
+            )),
+            processed_block_heights: CachedColumnTypes::ProcessedBlockHeights(CachedColumn::new(
+                CACHE_SIZE,
+            )),
         }
     }
 }
@@ -431,7 +437,7 @@ impl Index<DBCol> for CachedColumns {
 /// All chain-related database operations.
 pub struct ChainStore {
     store: Store,
-     // Genbsis block height.
+    // Genbsis block height.
     genesis_height: BlockHeight,
     /// Latest known.
     latest_known: once_cell::unsync::OnceCell<LatestKnown>,
@@ -439,7 +445,7 @@ pub struct ChainStore {
     head: Option<Tip>,
     /// Tail height of the chain,
     tail: Option<BlockHeight>,
-    cached_columns: CachedColumns,
+    cached_columns: HashMap<DBCol, CachedColumnTypes>,
     /// Cache with headers.
     headers: CellLruCache<Vec<u8>, BlockHeader>,
     /// Cache with blocks.
@@ -506,7 +512,38 @@ impl ChainStore {
             latest_known: once_cell::unsync::OnceCell::new(),
             head: None,
             tail: None,
-            cached_columns: CachedColumns::new(),
+            cached_columns: HashMap::from([
+                (DBCol::BlockHeader, CachedColumnTypes::Headers(CachedColumn::new(CACHE_SIZE))),
+                (DBCol::Block, CachedColumnTypes::Blocks(CachedColumn::new(CACHE_SIZE))),
+                (DBCol::Chunks, CachedColumnTypes::Chunks(CachedColumn::new(CHUNK_CACHE_SIZE))),
+                (DBCol::PartialChunks, CachedColumnTypes::PartialChunks(CachedColumn::new(CHUNK_CACHE_SIZE))),
+                (DBCol::BlockExtra, CachedColumnTypes::BlockExtra(CachedColumn::new(CACHE_SIZE))),
+                (DBCol::ChunkExtra, CachedColumnTypes::ChunkExtra(CachedColumn::new(CACHE_SIZE))),
+                (DBCol::BlockHeight, CachedColumnTypes::Height(CachedColumn::new(CACHE_SIZE))),
+                (DBCol::BlockPerHeight, CachedColumnTypes::BlockHashPerHeight(CachedColumn::new(
+                    CACHE_SIZE,
+                ))),
+                (DBCol::BlockRefCount, CachedColumnTypes::BlockRefcounts(CachedColumn::new(CACHE_SIZE))),
+                (DBCol::NextBlockHashes, CachedColumnTypes::NextBlockHashes(CachedColumn::new(CACHE_SIZE))),
+                (DBCol::EpochLightClientBlocks, CachedColumnTypes::EpochLightClientBlocks(
+                    CachedColumn::new(CACHE_SIZE),
+                )),
+                (DBCol::OutgoingReceipts, CachedColumnTypes::OutgoingReceipts(CachedColumn::new(CACHE_SIZE))),
+                (DBCol::IncomingReceipts, CachedColumnTypes::IncomingReceipts(CachedColumn::new(CACHE_SIZE))),
+                (DBCol::InvalidChunks, CachedColumnTypes::InvalidChunks(CachedColumn::new(CACHE_SIZE))),
+                (DBCol::ReceiptIdToShardId, CachedColumnTypes::ReceiptIdToShardId(CachedColumn::new(
+                    CHUNK_CACHE_SIZE,
+                ))),
+                (DBCol::Transactions, CachedColumnTypes::Transactions(CachedColumn::new(CHUNK_CACHE_SIZE))),
+                (DBCol::Receipts, CachedColumnTypes::Receipts(CachedColumn::new(CHUNK_CACHE_SIZE))),
+                (DBCol::BlockMerkleTree, CachedColumnTypes::BlockMerkleTree(CachedColumn::new(CACHE_SIZE))),
+                (DBCol::BlockOrdinal, CachedColumnTypes::BlockOrdinalToHash(CachedColumn::new(
+                    CACHE_SIZE,
+                ))),
+                (DBCol::ProcessedBlockHeights, CachedColumnTypes::ProcessedBlockHeights(CachedColumn::new(
+                    CACHE_SIZE,
+                )))
+            ]),
             blocks: CellLruCache::new(CACHE_SIZE),
             headers: CellLruCache::new(CACHE_SIZE),
             chunks: CellLruCache::new(CHUNK_CACHE_SIZE),
@@ -2560,13 +2597,6 @@ impl<'a> ChainStoreUpdate<'a> {
             DBCol::OutgoingReceipts => {
                 panic!("Must use gc_outgoing_receipts");
             }
-            DBCol::IncomingReceipts => {
-                store_update.delete(col, key);
-                self.chain_store.incoming_receipts.pop(key);
-            }
-            DBCol::StateHeaders => {
-                store_update.delete(col, key);
-            }
             DBCol::BlockHeader => {
                 // TODO(#3488) At the moment header sync needs block headers.
                 // However, we want to eventually garbage collect headers.
@@ -2576,91 +2606,48 @@ impl<'a> ChainStoreUpdate<'a> {
                 self.chain_store.headers.pop(key);
                 unreachable!();
             }
-            DBCol::Block => {
+            DBCol::IncomingReceipts
+            | DBCol::Block
+            | DBCol::BlockExtra
+            | DBCol::NextBlockHashes
+            | DBCol::BlockRefCount
+            | DBCol::Chunks
+            | DBCol::ChunkExtra
+            | DBCol::PartialChunks
+            | DBCol::InvalidChunks 
+            | DBCol::ProcessedBlockHeights => {
                 store_update.delete(col, key);
-                self.chain_store.blocks.pop(key);
+                self.chain_store.cached_columns[&col].pop(key);
             }
-            DBCol::BlockExtra => {
+            DBCol::StateHeaders 
+            | DBCol::ChallengedBlocks 
+            | DBCol::BlocksToCatchup 
+            | DBCol::StateChanges 
+            | DBCol::ChunkHashesByHeight 
+            | DBCol::StateParts 
+            | DBCol::TrieChanges 
+            | DBCol::TransactionResultForBlock 
+            | DBCol::OutcomeIds 
+            | DBCol::StateDlInfos 
+            | DBCol::BlockInfo 
+            | DBCol::HeaderHashesByHeight => {
                 store_update.delete(col, key);
-                self.chain_store.block_extras.pop(key);
-            }
-            DBCol::NextBlockHashes => {
-                store_update.delete(col, key);
-                self.chain_store.next_block_hashes.pop(key);
-            }
-            DBCol::ChallengedBlocks => {
-                store_update.delete(col, key);
-            }
-            DBCol::BlocksToCatchup => {
-                store_update.delete(col, key);
-            }
-            DBCol::StateChanges => {
-                store_update.delete(col, key);
-            }
-            DBCol::BlockRefCount => {
-                store_update.delete(col, key);
-                self.chain_store.block_refcounts.pop(key);
             }
             DBCol::ReceiptIdToShardId => {
                 panic!("Must use gc_outgoing_receipts");
             }
-            DBCol::Transactions => {
+            DBCol::Transactions | DBCol::Receipts => {
                 store_update.decrement_refcount(col, key);
                 self.chain_store.transactions.pop(key);
             }
-            DBCol::Receipts => {
-                store_update.decrement_refcount(col, key);
-                self.chain_store.receipts.pop(key);
-            }
-            DBCol::Chunks => {
-                store_update.delete(col, key);
-                self.chain_store.chunks.pop(key);
-            }
-            DBCol::ChunkExtra => {
-                store_update.delete(col, key);
-                self.chain_store.chunk_extras.pop(key);
-            }
-            DBCol::PartialChunks => {
-                store_update.delete(col, key);
-                self.chain_store.partial_chunks.pop(key);
-            }
-            DBCol::InvalidChunks => {
-                store_update.delete(col, key);
-                self.chain_store.invalid_chunks.pop(key);
-            }
             DBCol::ChunkHashesByHeight => {
-                store_update.delete(col, key);
-            }
-            DBCol::StateParts => {
                 store_update.delete(col, key);
             }
             DBCol::State => {
                 panic!("Actual gc happens elsewhere, call inc_gc_col_state to increase gc count");
             }
-            DBCol::TrieChanges => {
-                store_update.delete(col, key);
-            }
             DBCol::BlockPerHeight => {
                 panic!("Must use gc_col_glock_per_height method to gc DBCol::BlockPerHeight");
-            }
-            DBCol::TransactionResultForBlock => {
-                store_update.delete(col, key);
-            }
-            DBCol::OutcomeIds => {
-                store_update.delete(col, key);
-            }
-            DBCol::StateDlInfos => {
-                store_update.delete(col, key);
-            }
-            DBCol::BlockInfo => {
-                store_update.delete(col, key);
-            }
-            DBCol::ProcessedBlockHeights => {
-                store_update.delete(col, key);
-                self.chain_store.processed_block_heights.pop(key);
-            }
-            DBCol::HeaderHashesByHeight => {
-                store_update.delete(col, key);
             }
             DBCol::DbVersion
             | DBCol::BlockMisc
@@ -2695,149 +2682,6 @@ impl<'a> ChainStoreUpdate<'a> {
         }
         self.merge(store_update);
     }
-
-/*    fn gc_col_new(&mut self, col: DBCol, key: &[u8]) {*/
-        /*let mut store_update = self.store().store_update();*/
-        /*cached_columns[col]*/
-        /*match col {*/
-            /*DBCol::OutgoingReceipts => {*/
-                /*panic!("Must use gc_outgoing_receipts");*/
-            /*}*/
-            /*DBCol::IncomingReceipts => {*/
-                /*store_update.delete(col, key);*/
-                /*self.chain_store.incoming_receipts.pop(key);*/
-            /*}*/
-            /*DBCol::StateHeaders => {*/
-                /*store_update.delete(col, key);*/
-            /*}*/
-            /*DBCol::BlockHeader => {*/
-                /*// TODO(#3488) At the moment header sync needs block headers.*/
-                /*// However, we want to eventually garbage collect headers.*/
-                /*// When that happens we should make sure that block headers is*/
-                /*// copied to the cold storage.*/
-                /*store_update.delete(col, key);*/
-                /*self.chain_store.headers.pop(key);*/
-                /*unreachable!();*/
-            /*}*/
-            /*DBCol::Block => {*/
-                /*store_update.delete(col, key);*/
-                /*self.chain_store.blocks.pop(key);*/
-            /*}*/
-            /*DBCol::BlockExtra => {*/
-                /*store_update.delete(col, key);*/
-                /*self.chain_store.block_extras.pop(key);*/
-            /*}*/
-            /*DBCol::NextBlockHashes => {*/
-                /*store_update.delete(col, key);*/
-                /*self.chain_store.next_block_hashes.pop(key);*/
-            /*}*/
-            /*DBCol::ChallengedBlocks => {*/
-                /*store_update.delete(col, key);*/
-            /*}*/
-            /*DBCol::BlocksToCatchup => {*/
-                /*store_update.delete(col, key);*/
-            /*}*/
-            /*DBCol::StateChanges => {*/
-                /*store_update.delete(col, key);*/
-            /*}*/
-            /*DBCol::BlockRefCount => {*/
-                /*store_update.delete(col, key);*/
-                /*self.chain_store.block_refcounts.pop(key);*/
-            /*}*/
-            /*DBCol::ReceiptIdToShardId => {*/
-                /*panic!("Must use gc_outgoing_receipts");*/
-            /*}*/
-            /*DBCol::Transactions => {*/
-                /*store_update.decrement_refcount(col, key);*/
-                /*self.chain_store.transactions.pop(key);*/
-            /*}*/
-            /*DBCol::Receipts => {*/
-                /*store_update.decrement_refcount(col, key);*/
-                /*self.chain_store.receipts.pop(key);*/
-            /*}*/
-            /*DBCol::Chunks => {*/
-                /*store_update.delete(col, key);*/
-                /*self.chain_store.chunks.pop(key);*/
-            /*}*/
-            /*DBCol::ChunkExtra => {*/
-                /*store_update.delete(col, key);*/
-                /*self.chain_store.chunk_extras.pop(key);*/
-            /*}*/
-            /*DBCol::PartialChunks => {*/
-                /*store_update.delete(col, key);*/
-                /*self.chain_store.partial_chunks.pop(key);*/
-            /*}*/
-            /*DBCol::InvalidChunks => {*/
-                /*store_update.delete(col, key);*/
-                /*self.chain_store.invalid_chunks.pop(key);*/
-            /*}*/
-            /*DBCol::ChunkHashesByHeight => {*/
-                /*store_update.delete(col, key);*/
-            /*}*/
-            /*DBCol::StateParts => {*/
-                /*store_update.delete(col, key);*/
-            /*}*/
-            /*DBCol::State => {*/
-                /*panic!("Actual gc happens elsewhere, call inc_gc_col_state to increase gc count");*/
-            /*}*/
-            /*DBCol::TrieChanges => {*/
-                /*store_update.delete(col, key);*/
-            /*}*/
-            /*DBCol::BlockPerHeight => {*/
-                /*panic!("Must use gc_col_glock_per_height method to gc DBCol::BlockPerHeight");*/
-            /*}*/
-            /*DBCol::TransactionResultForBlock => {*/
-                /*store_update.delete(col, key);*/
-            /*}*/
-            /*DBCol::OutcomeIds => {*/
-                /*store_update.delete(col, key);*/
-            /*}*/
-            /*DBCol::StateDlInfos => {*/
-                /*store_update.delete(col, key);*/
-            /*}*/
-            /*DBCol::BlockInfo => {*/
-                /*store_update.delete(col, key);*/
-            /*}*/
-            /*DBCol::ProcessedBlockHeights => {*/
-                /*store_update.delete(col, key);*/
-                /*self.chain_store.processed_block_heights.pop(key);*/
-            /*}*/
-            /*DBCol::HeaderHashesByHeight => {*/
-                /*store_update.delete(col, key);*/
-            /*}*/
-            /*DBCol::DbVersion*/
-            /*| DBCol::BlockMisc*/
-            /*| DBCol::_GCCount*/
-            /*| DBCol::BlockHeight  // block sync needs it + genesis should be accessible*/
-            /*| DBCol::_Peers*/
-            /*| DBCol::RecentOutboundConnections*/
-            /*| DBCol::BlockMerkleTree*/
-            /*| DBCol::AccountAnnouncements*/
-            /*| DBCol::EpochLightClientBlocks*/
-            /*| DBCol::PeerComponent*/
-            /*| DBCol::LastComponentNonce*/
-            /*| DBCol::ComponentEdges*/
-            /*// https://github.com/nearprotocol/nearcore/pull/2952*/
-            /*| DBCol::EpochInfo*/
-            /*| DBCol::EpochStart*/
-            /*| DBCol::EpochValidatorInfo*/
-            /*| DBCol::BlockOrdinal*/
-            /*| DBCol::_ChunkPerHeightShard*/
-            /*| DBCol::_NextBlockWithNewChunk*/
-            /*| DBCol::_LastBlockWithNewChunk*/
-            /*| DBCol::_TransactionRefCount*/
-            /*| DBCol::_TransactionResult*/
-            /*| DBCol::StateChangesForSplitStates*/
-            /*| DBCol::CachedContractCode*/
-            /*| DBCol::FlatState*/
-            /*| DBCol::FlatStateChanges*/
-            /*| DBCol::FlatStateDeltaMetadata*/
-            /*| DBCol::FlatStorageStatus => {*/
-                /*unreachable!();*/
-            /*}*/
-        /*}*/
-        /*self.merge(store_update);*/
-    /*}*/
 
     /// Merge another StoreUpdate into this one
     pub fn merge(&mut self, store_update: StoreUpdate) {
