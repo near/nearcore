@@ -105,6 +105,10 @@ pub enum StoreOpenerError {
     /// Error while performing migration.
     #[error("{0}")]
     MigrationError(#[source] anyhow::Error),
+
+    /// Checkpointing errors.
+    #[error("{0}")]
+    CheckpointError(#[source] anyhow::Error),
 }
 
 impl From<SnapshotError> for StoreOpenerError {
@@ -576,24 +580,28 @@ pub trait StoreMigrator {
 /// If `columns_to_keep` is None doesn't cleanup columns.
 /// Otherwise deletes all columns that are not in `columns_to_keep`.
 ///
+/// `store` must be the hot DB.
+///
 /// Returns NodeStorage of checkpoint db.
 /// `archive` -- is hot storage archival (needed to open checkpoint).
-#[allow(dead_code)]
 pub fn checkpoint_hot_storage_and_cleanup_columns(
-    db_storage: &NodeStorage,
-    home_dir: &std::path::Path,
-    checkpoint_relative_path: std::path::PathBuf,
+    hot_store: &Store,
+    checkpoint_base_path: &std::path::Path,
     columns_to_keep: Option<Vec<DBCol>>,
     archive: bool,
-) -> anyhow::Result<NodeStorage> {
-    let checkpoint_path = home_dir.join(checkpoint_relative_path);
+) -> Result<NodeStorage, StoreOpenerError> {
+    let checkpoint_path = checkpoint_base_path.join("data");
+    std::fs::create_dir_all(&checkpoint_base_path)?;
 
-    db_storage.hot_storage.create_checkpoint(&checkpoint_path)?;
+    hot_store
+        .storage
+        .create_checkpoint(&checkpoint_path)
+        .map_err(StoreOpenerError::CheckpointError)?;
 
     // As only path from config is used in StoreOpener, default config with custom path will do.
     let mut config = StoreConfig::default();
     config.path = Some(checkpoint_path);
-    let opener = StoreOpener::new(home_dir, archive, &config, None);
+    let opener = StoreOpener::new(checkpoint_base_path, archive, &config, None);
     let node_storage = opener.open()?;
 
     if let Some(columns_to_keep) = columns_to_keep {

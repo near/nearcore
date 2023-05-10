@@ -517,6 +517,26 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> bool;
 
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error>;
+
+    /// Makes a state snapshot.
+    /// Opens another Store that has exactly the same state as the main Store.
+    fn make_state_snapshot(
+        &self,
+        last_block_hash: &CryptoHash,
+        last_block_height: BlockHeight,
+        prev_block_hash: &CryptoHash,
+    ) -> Result<(), Error>;
+
+    /// Obtains a state part from a state snapshots.
+    /// If no state snapshot is available, returns an error.
+    /// Never tries to use the main Store for obtaining a state part.
+    fn obtain_state_part_from_snapshot(
+        &self,
+        shard_id: ShardId,
+        block_hash: &CryptoHash,
+        state_root: &StateRoot,
+        part_id: PartId,
+    ) -> Result<Vec<u8>, Error>;
 }
 
 /// The last known / checked height and time when we have processed it.

@@ -96,6 +96,34 @@ impl ShardTries {
         TrieUpdate::new(self.get_view_trie_for_shard(shard_uid, state_root))
     }
 
+    /// Gets a read-only trie for the given store.
+    pub fn get_view_trie_for_shard_uid_with_custom_store(
+        &self,
+        shard_uid: ShardUId,
+        state_root: StateRoot,
+        block_hash: Option<CryptoHash>,
+        store: Store,
+        flat_storage_manager: FlatStorageManager,
+    ) -> Trie {
+        let is_view = true;
+        let prefetch_api = None;
+
+        let caches_to_use = &self.0.view_caches;
+        let cache = {
+            let mut caches = caches_to_use.write().expect(POISONED_LOCK_ERR);
+            caches
+                .entry(shard_uid)
+                .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, is_view))
+                .clone()
+        };
+
+        let storage = TrieCachingStorage::new(store, cache, shard_uid, is_view, prefetch_api);
+        let flat_storage_chunk_view =
+            flat_storage_manager.chunk_view(shard_uid, block_hash, is_view);
+
+        Trie::new(Rc::new(storage), state_root, flat_storage_chunk_view)
+    }
+
     #[allow(unused_variables)]
     fn get_trie_for_shard_internal(
         &self,

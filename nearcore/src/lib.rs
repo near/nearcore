@@ -152,6 +152,9 @@ pub fn open_storage(home_dir: &Path, near_config: &mut NearConfig) -> anyhow::Re
         Err(StoreOpenerError::MigrationError(err)) => {
             Err(err)
         },
+        Err(StoreOpenerError::CheckpointError(err)) => {
+            Err(err)
+        },
     }.with_context(|| format!("unable to open database at {}", opener.path().display()))?;
 
     near_config.config.archive = storage.is_archive()?;
