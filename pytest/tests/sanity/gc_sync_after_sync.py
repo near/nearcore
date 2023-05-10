@@ -30,7 +30,10 @@ node1_config = {
 }
 
 nodes = start_cluster(
-    4, 0, 1, None,
+    4,
+    0,
+    1,
+    None,
     [["epoch_length", 10],
      ["validators", 0, "amount", "12500000000000000000000000000000"],
      [
@@ -43,7 +46,14 @@ nodes = start_cluster(
      ], ['total_supply', "4925000000000000000000000000000000"],
      ["block_producer_kickout_threshold", 40],
      ["chunk_producer_kickout_threshold", 40], ["num_block_producer_seats", 10],
-     ["num_block_producer_seats_per_shard", [10]]], {1: node1_config})
+     ["num_block_producer_seats_per_shard", [10]]],
+    {
+        0: {
+            # we need to enable it for swap nodes case
+            "state_sync_enabled": True
+        },
+        1: node1_config
+    })
 
 logger.info('Kill node 1')
 nodes[1].kill()
