@@ -319,6 +319,56 @@ pub mod flat_state_metrics {
         )
         .unwrap()
     });
+
+    pub mod inlining_migration {
+        use near_o11y::metrics::{
+            try_create_histogram, try_create_int_counter, Histogram, IntCounter,
+        };
+        use once_cell::sync::Lazy;
+
+        pub static PROCESSED_COUNT: Lazy<IntCounter> = Lazy::new(|| {
+            try_create_int_counter(
+                "near_flat_state_inlining_migration_processed_count",
+                "Total number of processed FlatState rows since the migration start.",
+            )
+            .unwrap()
+        });
+        pub static PROCESSED_TOTAL_VALUES_SIZE: Lazy<IntCounter> = Lazy::new(|| {
+            try_create_int_counter(
+                "near_flat_state_inlining_migration_processed_total_values_size",
+                "Total size processed FlatState values since the migration start.",
+            )
+            .unwrap()
+        });
+        pub static INLINED_COUNT: Lazy<IntCounter> = Lazy::new(|| {
+            try_create_int_counter(
+                "near_flat_state_inlining_migration_inlined_count",
+                "Total number of inlined FlatState values since the migration start.",
+            )
+            .unwrap()
+        });
+        pub static INLINED_TOTAL_VALUES_SIZE: Lazy<IntCounter> = Lazy::new(|| {
+            try_create_int_counter(
+                "near_flat_state_inlining_migration_inlined_total_values_size",
+                "Total size of inlined FlatState values since the migration start.",
+            )
+            .unwrap()
+        });
+        pub static SKIPPED_COUNT: Lazy<IntCounter> = Lazy::new(|| {
+            try_create_int_counter(
+                "near_flat_state_inlining_migration_skipped_count",
+                "Total number of FlatState values skipped since the migration start due to some kind of an issue while trying to read the value.",
+            )
+            .unwrap()
+        });
+        pub static FLAT_STATE_PAUSED_DURATION: Lazy<Histogram> = Lazy::new(|| {
+            try_create_histogram(
+                "near_flat_state_inlining_migration_flat_state_paused_duration",
+                "FlatState inlining paused duration.",
+            )
+            .unwrap()
+        });
+    }
 }
 pub static COLD_STORE_MIGRATION_BATCH_WRITE_COUNT: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
