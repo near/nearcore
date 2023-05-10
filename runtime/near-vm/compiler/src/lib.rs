@@ -7,8 +7,7 @@
 
 #![deny(missing_docs, trivial_numeric_casts, unused_extern_crates)]
 #![warn(unused_import_braces)]
-#![cfg_attr(feature = "std", deny(unstable_features))]
-#![cfg_attr(not(feature = "std"), no_std)]
+#![deny(unstable_features)]
 #![cfg_attr(feature = "cargo-clippy", allow(clippy::new_without_default))]
 #![cfg_attr(
     feature = "cargo-clippy",
@@ -23,26 +22,7 @@
     )
 )]
 
-#[cfg(all(feature = "std", feature = "core"))]
-compile_error!(
-    "The `std` and `core` features are both enabled, which is an error. Please enable only once."
-);
-
-#[cfg(all(not(feature = "std"), not(feature = "core")))]
-compile_error!("Both the `std` and `core` features are disabled. Please enable one of them.");
-
-#[cfg(feature = "core")]
-extern crate alloc;
-
 mod lib {
-    #[cfg(feature = "core")]
-    pub mod std {
-        pub use alloc::{borrow, boxed, str, string, sync, vec};
-        pub use core::fmt;
-        pub use hashbrown as collections;
-    }
-
-    #[cfg(feature = "std")]
     pub mod std {
         pub use std::{borrow, boxed, collections, fmt, str, string, sync, vec};
     }
