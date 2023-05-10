@@ -9,8 +9,8 @@ use crate::target::Target;
 use crate::FunctionBodyData;
 use crate::ModuleTranslationState;
 use crate::SectionIndex;
-use wasmer_types::entity::PrimaryMap;
-use wasmer_types::{Features, FunctionIndex, LocalFunctionIndex, SignatureIndex};
+use near_vm_types::entity::PrimaryMap;
+use near_vm_types::{Features, FunctionIndex, LocalFunctionIndex, SignatureIndex};
 use wasmparser::{Validator, WasmFeatures};
 
 /// The compiler configuration options.
@@ -115,7 +115,7 @@ pub trait Compiler: Send {
         module_translation: &ModuleTranslationState,
         // The list of function bodies
         function_body_inputs: PrimaryMap<LocalFunctionIndex, FunctionBodyData<'data>>,
-        tunables: &dyn wasmer_vm::Tunables,
+        tunables: &dyn near_vm_vm::Tunables,
         instrumentation: &finite_wasm::AnalysisOutcome,
     ) -> Result<Compilation, CompileError>;
 
@@ -130,14 +130,14 @@ pub trait Compiler: Send {
         // The list of function bodies
         _function_body_inputs: &PrimaryMap<LocalFunctionIndex, FunctionBodyData<'data>>,
         _symbol_registry: &dyn SymbolRegistry,
-        // The metadata to inject into the wasmer_metadata section of the object file.
-        _wasmer_metadata: &[u8],
+        // The metadata to inject into the near_vm_metadata section of the object file.
+        _near_vm_metadata: &[u8],
     ) -> Option<Result<Vec<u8>, CompileError>> {
         None
     }
 }
 
-/// The kinds of wasmer_types objects that might be found in a native object file.
+/// The kinds of near_vm_types objects that might be found in a native object file.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Symbol {
     /// A function defined in the wasm.

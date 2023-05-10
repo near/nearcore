@@ -1,10 +1,10 @@
 //! Engine trait and associated types.
 
+use near_vm_compiler::{CompileError, Target};
+use near_vm_types::FunctionType;
+use near_vm_vm::{Artifact, Tunables, VMCallerCheckedAnyfunc, VMFuncRef, VMSharedSignatureIndex};
 use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
 use std::sync::Arc;
-use wasmer_compiler::{CompileError, Target};
-use wasmer_types::FunctionType;
-use wasmer_vm::{Artifact, Tunables, VMCallerCheckedAnyfunc, VMFuncRef, VMSharedSignatureIndex};
 
 mod private {
     pub struct Internal(pub(super) ());

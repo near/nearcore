@@ -1,4 +1,4 @@
-//! The `wasmer-compiler` crate provides the necessary abstractions
+//! The `near_vm-compiler` crate provides the necessary abstractions
 //! to create a compiler.
 //!
 //! It provides an universal way of parsing a module via `wasmparser`,
@@ -93,8 +93,7 @@ pub use crate::translator::{
 };
 pub use crate::trap::TrapInformation;
 pub use crate::unwind::{CompiledFunctionUnwindInfo, CompiledFunctionUnwindInfoRef};
-
-pub use wasmer_types::Features;
+pub use near_vm_types::Features;
 
 #[cfg(feature = "translator")]
 /// wasmparser is exported as a module to slim compiler dependencies

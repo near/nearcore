@@ -4,26 +4,26 @@ use crate::{config::Singlepass, emitter_x64::*, machine::Machine, x64_decl::*};
 use dynasmrt::{x64::X64Relocation, DynamicLabel, VecAssembler};
 use finite_wasm::gas::InstrumentationKind;
 use memoffset::offset_of;
-use smallvec::{smallvec, SmallVec};
-use std::convert::TryFrom;
-use std::iter;
-use std::slice;
-use wasmer_compiler::wasmparser::{BlockType as WpBlockType, MemArg, Operator, ValType as WpType};
-use wasmer_compiler::{
+use near_vm_compiler::wasmparser::{BlockType as WpBlockType, MemArg, Operator, ValType as WpType};
+use near_vm_compiler::{
     CallingConvention, CompiledFunction, CompiledFunctionFrameInfo, CustomSection,
     CustomSectionProtection, FunctionBody, FunctionBodyData, InstructionAddressMap,
     ModuleTranslationState, Relocation, RelocationKind, RelocationTarget, SectionBody,
     SectionIndex, SourceLoc, Target,
 };
-use wasmer_types::{
+use near_vm_types::{
     entity::{EntityRef, PrimaryMap, SecondaryMap},
     FastGasCounter, FunctionType,
 };
-use wasmer_types::{
+use near_vm_types::{
     FunctionIndex, GlobalIndex, LocalFunctionIndex, LocalMemoryIndex, MemoryIndex, ModuleInfo,
     SignatureIndex, TableIndex, Type,
 };
-use wasmer_vm::{TableStyle, TrapCode, VMBuiltinFunctionIndex, VMOffsets};
+use near_vm_vm::{TableStyle, TrapCode, VMBuiltinFunctionIndex, VMOffsets};
+use smallvec::{smallvec, SmallVec};
+use std::convert::TryFrom;
+use std::iter;
+use std::slice;
 
 type Assembler = VecAssembler<X64Relocation>;
 
@@ -61,7 +61,7 @@ pub(crate) struct FuncGen<'a> {
     assembler: Assembler,
 
     /// Types of the local variables, including arguments.
-    local_types: wasmer_types::partial_sum_map::PartialSumMap<u32, WpType>,
+    local_types: near_vm_types::partial_sum_map::PartialSumMap<u32, WpType>,
 
     /// Value stack.
     value_stack: Vec<Location>,
@@ -1746,7 +1746,7 @@ impl<'a> FuncGen<'a> {
             config,
             target,
             vmoffsets,
-            local_types: wasmer_types::partial_sum_map::PartialSumMap::new(),
+            local_types: near_vm_types::partial_sum_map::PartialSumMap::new(),
             assembler,
             value_stack: vec![],
             fp_stack: vec![],

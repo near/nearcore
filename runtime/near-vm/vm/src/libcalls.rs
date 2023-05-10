@@ -43,11 +43,11 @@ use crate::table::{RawTableElement, TableElement};
 use crate::trap::{raise_lib_trap, Trap, TrapCode};
 use crate::vmcontext::VMContext;
 use crate::VMExternRef;
-use std::fmt;
-use wasmer_types::{
+use near_vm_types::{
     DataIndex, ElemIndex, FunctionIndex, LocalMemoryIndex, LocalTableIndex, MemoryIndex,
     TableIndex, Type,
 };
+use std::fmt;
 
 /// Implementation of f32.ceil
 #[no_mangle]
@@ -643,8 +643,8 @@ pub unsafe extern "C" fn near_vm_data_drop(vmctx: *mut VMContext, data_index: u3
 ///
 /// # Safety
 ///
-/// Only safe to call when wasm code is on the stack, aka `wasmer_call` or
-/// `wasmer_call_trampoline` must have been previously called.
+/// Only safe to call when wasm code is on the stack, aka `near_vm_call` or
+/// `near_vm_call_trampoline` must have been previously called.
 #[no_mangle]
 pub unsafe extern "C" fn near_vm_raise_trap(trap_code: TrapCode) -> ! {
     let trap = Trap::lib(trap_code);
