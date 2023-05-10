@@ -25,6 +25,7 @@ node1_config = {
         "block_fetch_horizon": 20,
         "block_header_fetch_horizon": 20
     },
+    # Enabling explicitly state sync, default value is False
     "state_sync_enabled": True
 }
 
