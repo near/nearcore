@@ -32,6 +32,7 @@ nodes_config = {
             "nanos": 400000000
         }
     },
+    # Enabling explicitly state sync, default value is False
     "state_sync_enabled": True
 }
 
