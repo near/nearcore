@@ -322,14 +322,68 @@ impl<Value: Clone> CachedColumn<Value> {
 }
 
 enum CachedColumnTypes {
+    /// Cache with headers
     Headers(CachedColumn<BlockHeader>),
+    /// Cache with block
     Blocks(CachedColumn<Block>),
+    /// Cache with chunks
     Chunks(CachedColumn<Arc<ShardChunk>>),
+   /// Cache with partial chunks
+    PartialChunks(CachedColumn<Arc<PartialEncodedChunk>>),
+    /// Cache with block extra.
+    BlockExtra(CachedColumn<Arc<BlockExtra>>),
+    /// Cache with chunk extra.
+    ChunkExtra(CachedColumn<Arc<ChunkExtra>>),
+    /// Cache with height to hash on the main chain.
+    Height(CachedColumn<CryptoHash>),
+    /// Cache with height to block hash on any chain.
+    BlockHashPerHeight(CachedColumn<Arc<HashMap<EpochId, HashSet<CryptoHash>>>>),
+    /// Next block hashes for each block on the canonical chain
+    NextBlockHashes(CachedColumn<CryptoHash>),
+    /// Light client blocks corresponding to the last finalized block of each epoch
+    EpochLightClientBlocks(CachedColumn<Arc<LightClientBlockView>>),
+    /// Cache with outgoing receipts.
+    OutgoingReceipts(CachedColumn<Arc<Vec<Receipt>>>),
+    /// Cache with incoming receipts.
+    IncomingReceipts(CachedColumn<Arc<Vec<ReceiptProof>>>),
+    /// Invalid chunks.
+    InvalidChunks(CachedColumn<Arc<EncodedShardChunk>>),
+    /// Mapping from receipt id to destination shard id
+    ReceiptIdToShardId(CachedColumn<ShardId>),
+    /// Transactions
+    Transactions(CachedColumn<Arc<SignedTransaction>>),
+    /// Receipts
+    Receipts(CachedColumn<Arc<Receipt>>),
+    /// Cache with Block Refcounts
+    BlockRefcounts(CachedColumn<u64>),
+    /// Cache of block hash -> block merkle tree at the current block
+    BlockMerkleTree(CachedColumn<Arc<PartialMerkleTree>>),
+    /// Cache of block ordinal to block hash.
+    BlockOrdinalToHash(CachedColumn<CryptoHash>),
+    /// Processed block heights.
+    ProcessedBlockHeights(CachedColumn<()>),
 }
 
 struct CachedColumns {
     headers: CachedColumnTypes,
     blocks: CachedColumnTypes,
+    partial_chunks: CachedColumnTypes,
+    block_extras: CachedColumnTypes,
+    chunk_extras: CachedColumnTypes,
+    height: CachedColumnTypes,
+    block_hash_per_height: CachedColumnTypes,
+    block_refcounts: CachedColumnTypes,
+    next_block_hashes: CachedColumnTypes,
+    epoch_light_client_blocks: CachedColumnTypes,
+    outgoing_receipts: CachedColumnTypes,
+    incoming_receipts: CachedColumnTypes,
+    invalid_chunks: CachedColumnTypes,
+    receipt_id_to_shard_id: CachedColumnTypes,
+    transactions: CachedColumnTypes,
+    receipts: CachedColumnTypes,
+    block_merkle_tree: CachedColumnTypes,
+    block_ordinal_to_hash: CachedColumnTypes,
+    processed_block_heights: CachedColumnTypes,
     chunks: CachedColumnTypes,
 }
 
@@ -338,7 +392,24 @@ impl CachedColumns {
         CachedColumns {
             headers: CachedColumnTypes::Headers(CachedColumn::new(CACHE_SIZE)),
             blocks: CachedColumnTypes::Blocks(CachedColumn::new(CACHE_SIZE)),
-            chunks: CachedColumnTypes::Chunks(CachedColumn::new(CACHE_SIZE)),
+            chunks: CachedColumnTypes::Chunks(CachedColumn::new(CHUNK_CACHE_SIZE)),
+            partial_chunks: CachedColumnTypes::PartialChunks(CachedColumn::new(CHUNK_CACHE_SIZE)),
+            block_extras: CachedColumnTypes::BlockExtra(CachedColumn::new(CACHE_SIZE)),
+            chunk_extras: CachedColumnTypes::ChunkExtra(CachedColumn::new(CACHE_SIZE)),
+            height: CachedColumnTypes::Height(CachedColumn::new(CACHE_SIZE)),
+            block_hash_per_height: CachedColumnTypes::BlockHashPerHeight(CachedColumn::new(CACHE_SIZE)),
+            block_refcounts: CachedColumnTypes::BlockRefcounts(CachedColumn::new(CACHE_SIZE)),
+            next_block_hashes: CachedColumnTypes::NextBlockHashes(CachedColumn::new(CACHE_SIZE)),
+            epoch_light_client_blocks: CachedColumnTypes::EpochLightClientBlocks(CachedColumn::new(CACHE_SIZE)),
+            outgoing_receipts: CachedColumnTypes::OutgoingReceipts(CachedColumn::new(CACHE_SIZE)),
+            incoming_receipts: CachedColumnTypes::IncomingReceipts(CachedColumn::new(CACHE_SIZE)),
+            invalid_chunks: CachedColumnTypes::InvalidChunks(CachedColumn::new(CACHE_SIZE)),
+            receipt_id_to_shard_id: CachedColumnTypes::ReceiptIdToShardId(CachedColumn::new(CHUNK_CACHE_SIZE)),
+            transactions: CachedColumnTypes::Transactions(CachedColumn::new(CHUNK_CACHE_SIZE)),
+            receipts: CachedColumnTypes::Receipts(CachedColumn::new(CHUNK_CACHE_SIZE)),
+            block_merkle_tree: CachedColumnTypes::BlockMerkleTree(CachedColumn::new(CACHE_SIZE)),
+            block_ordinal_to_hash: CachedColumnTypes::BlockOrdinalToHash(CachedColumn::new(CACHE_SIZE)),
+            processed_block_heights: CachedColumnTypes::ProcessedBlockHeights(CachedColumn::new(CACHE_SIZE)),
         }
     }
 }
@@ -354,46 +425,13 @@ pub struct ChainStore {
     head: Option<Tip>,
     /// Tail height of the chain,
     tail: Option<BlockHeight>,
+    cached_columns: CachedColumns,
     /// Cache with headers.
-    headers: CellLruCache<Vec<u8>, BlockHeader>,
-    /// Cache with blocks.
-    blocks: CellLruCache<Vec<u8>, Block>,
-    /// Cache with chunks
-    chunks: CellLruCache<Vec<u8>, Arc<ShardChunk>>,
-    /// Cache with partial chunks
-    partial_chunks: CellLruCache<Vec<u8>, Arc<PartialEncodedChunk>>,
-    /// Cache with block extra.
-    block_extras: CellLruCache<Vec<u8>, Arc<BlockExtra>>,
-    /// Cache with chunk extra.
-    chunk_extras: CellLruCache<Vec<u8>, Arc<ChunkExtra>>,
-    /// Cache with height to hash on the main chain.
-    height: CellLruCache<Vec<u8>, CryptoHash>,
-    /// Cache with height to block hash on any chain.
-    block_hash_per_height: CellLruCache<Vec<u8>, Arc<HashMap<EpochId, HashSet<CryptoHash>>>>,
-    /// Next block hashes for each block on the canonical chain
-    next_block_hashes: CellLruCache<Vec<u8>, CryptoHash>,
-    /// Light client blocks corresponding to the last finalized block of each epoch
-    epoch_light_client_blocks: CellLruCache<Vec<u8>, Arc<LightClientBlockView>>,
-    /// Cache with outgoing receipts.
-    outgoing_receipts: CellLruCache<Vec<u8>, Arc<Vec<Receipt>>>,
-    /// Cache with incoming receipts.
-    incoming_receipts: CellLruCache<Vec<u8>, Arc<Vec<ReceiptProof>>>,
-    /// Invalid chunks.
-    invalid_chunks: CellLruCache<Vec<u8>, Arc<EncodedShardChunk>>,
-    /// Mapping from receipt id to destination shard id
-    receipt_id_to_shard_id: CellLruCache<Vec<u8>, ShardId>,
-    /// Transactions
-    transactions: CellLruCache<Vec<u8>, Arc<SignedTransaction>>,
-    /// Receipts
-    receipts: CellLruCache<Vec<u8>, Arc<Receipt>>,
-    /// Cache with Block Refcounts
-    block_refcounts: CellLruCache<Vec<u8>, u64>,
-    /// Cache of block hash -> block merkle tree at the current block
-    block_merkle_tree: CellLruCache<Vec<u8>, Arc<PartialMerkleTree>>,
-    /// Cache of block ordinal to block hash.
-    block_ordinal_to_hash: CellLruCache<Vec<u8>, CryptoHash>,
-    /// Processed block heights.
-    processed_block_heights: CellLruCache<Vec<u8>, ()>,
+/*    headers: CellLruCache<Vec<u8>, BlockHeader>,*/
+    /*/// Cache with blocks.*/
+    /*blocks: CellLruCache<Vec<u8>, Block>,*/
+    /*/// Cache with chunks*/
+    /*chunks: CellLruCache<Vec<u8>, Arc<ShardChunk>>,*/
     /// save_trie_changes should be set to true iff
     /// - archive if false - non-archival nodes need trie changes to perform garbage collection
     /// - archive is true, cold_store is configured and migration to split_storage is finished - node
@@ -420,26 +458,27 @@ impl ChainStore {
             latest_known: once_cell::unsync::OnceCell::new(),
             head: None,
             tail: None,
-            blocks: CellLruCache::new(CACHE_SIZE),
-            headers: CellLruCache::new(CACHE_SIZE),
-            chunks: CellLruCache::new(CHUNK_CACHE_SIZE),
-            partial_chunks: CellLruCache::new(CHUNK_CACHE_SIZE),
-            block_extras: CellLruCache::new(CACHE_SIZE),
-            chunk_extras: CellLruCache::new(CACHE_SIZE),
-            height: CellLruCache::new(CACHE_SIZE),
-            block_hash_per_height: CellLruCache::new(CACHE_SIZE),
-            block_refcounts: CellLruCache::new(CACHE_SIZE),
-            next_block_hashes: CellLruCache::new(CACHE_SIZE),
-            epoch_light_client_blocks: CellLruCache::new(CACHE_SIZE),
-            outgoing_receipts: CellLruCache::new(CACHE_SIZE),
-            incoming_receipts: CellLruCache::new(CACHE_SIZE),
-            invalid_chunks: CellLruCache::new(CACHE_SIZE),
-            receipt_id_to_shard_id: CellLruCache::new(CHUNK_CACHE_SIZE),
-            transactions: CellLruCache::new(CHUNK_CACHE_SIZE),
-            receipts: CellLruCache::new(CHUNK_CACHE_SIZE),
-            block_merkle_tree: CellLruCache::new(CACHE_SIZE),
-            block_ordinal_to_hash: CellLruCache::new(CACHE_SIZE),
-            processed_block_heights: CellLruCache::new(CACHE_SIZE),
+            cached_columns: CachedColumns::new(),
+/*            blocks: CellLruCache::new(CACHE_SIZE),*/
+            /*headers: CellLruCache::new(CACHE_SIZE),*/
+            /*chunks: CellLruCache::new(CHUNK_CACHE_SIZE),*/
+            /*partial_chunks: CellLruCache::new(CHUNK_CACHE_SIZE),*/
+            /*block_extras: CellLruCache::new(CACHE_SIZE),*/
+            /*chunk_extras: CellLruCache::new(CACHE_SIZE),*/
+            /*height: CellLruCache::new(CACHE_SIZE),*/
+            /*block_hash_per_height: CellLruCache::new(CACHE_SIZE),*/
+            /*block_refcounts: CellLruCache::new(CACHE_SIZE),*/
+            /*next_block_hashes: CellLruCache::new(CACHE_SIZE),*/
+            /*epoch_light_client_blocks: CellLruCache::new(CACHE_SIZE),*/
+            /*outgoing_receipts: CellLruCache::new(CACHE_SIZE),*/
+            /*incoming_receipts: CellLruCache::new(CACHE_SIZE),*/
+            /*invalid_chunks: CellLruCache::new(CACHE_SIZE),*/
+            /*receipt_id_to_shard_id: CellLruCache::new(CHUNK_CACHE_SIZE),*/
+            /*transactions: CellLruCache::new(CHUNK_CACHE_SIZE),*/
+            /*receipts: CellLruCache::new(CHUNK_CACHE_SIZE),*/
+            /*block_merkle_tree: CellLruCache::new(CACHE_SIZE),*/
+            /*block_ordinal_to_hash: CellLruCache::new(CACHE_SIZE),*/
+            /*processed_block_heights: CellLruCache::new(CACHE_SIZE),*/
             save_trie_changes,
         }
     }
