@@ -1,6 +1,6 @@
 use anyhow::Result;
+use near_vm::*;
 use std::panic::{self, AssertUnwindSafe};
-use wasmer::*;
 
 #[compiler_test(traps)]
 fn test_trap_return(config: crate::Config) -> Result<()> {
@@ -25,9 +25,7 @@ fn test_trap_return(config: crate::Config) -> Result<()> {
             }
         },
     )?;
-    let run_func = instance
-        .lookup_function("run")
-        .expect("expected function export");
+    let run_func = instance.lookup_function("run").expect("expected function export");
 
     let e = run_func.call(&[]).err().expect("error calling function");
 
@@ -48,10 +46,12 @@ fn test_trap_trace(config: crate::Config) -> Result<()> {
     "#;
 
     let module = Module::new(&store, wat)?;
-    let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &imports! {})?;
-    let run_func = instance
-        .lookup_function("run")
-        .expect("expected function export");
+    let instance = Instance::new_with_config(
+        &module,
+        InstanceConfig::with_stack_limit(1000000),
+        &imports! {},
+    )?;
+    let run_func = instance.lookup_function("run").expect("expected function export");
 
     let e = run_func.call(&[]).err().expect("error calling function");
 
@@ -63,11 +63,7 @@ fn test_trap_trace(config: crate::Config) -> Result<()> {
     assert_eq!(trace[1].module_name(), "hello_mod");
     assert_eq!(trace[1].func_index(), 0);
     assert_eq!(trace[1].function_name(), None);
-    assert!(
-        e.message().contains("unreachable"),
-        "wrong message: {}",
-        e.message()
-    );
+    assert!(e.message().contains("unreachable"), "wrong message: {}", e.message());
 
     Ok(())
 }
@@ -96,9 +92,7 @@ fn test_trap_trace_cb(config: crate::Config) -> Result<()> {
             }
         },
     )?;
-    let run_func = instance
-        .lookup_function("run")
-        .expect("expected function export");
+    let run_func = instance.lookup_function("run").expect("expected function export");
 
     let e = run_func.call(&[]).err().expect("error calling function");
 
@@ -126,10 +120,12 @@ fn test_trap_stack_overflow(config: crate::Config) -> Result<()> {
     "#;
 
     let module = Module::new(&store, wat)?;
-    let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &imports! {})?;
-    let run_func = instance
-        .lookup_function("run")
-        .expect("expected function export");
+    let instance = Instance::new_with_config(
+        &module,
+        InstanceConfig::with_stack_limit(1000000),
+        &imports! {},
+    )?;
+    let run_func = instance.lookup_function("run").expect("expected function export");
 
     let e = run_func.call(&[]).err().expect("error calling function");
 
@@ -159,10 +155,12 @@ fn trap_display_pretty(config: crate::Config) -> Result<()> {
     "#;
 
     let module = Module::new(&store, wat)?;
-    let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &imports! {})?;
-    let run_func = instance
-        .lookup_function("bar")
-        .expect("expected function export");
+    let instance = Instance::new_with_config(
+        &module,
+        InstanceConfig::with_stack_limit(1000000),
+        &imports! {},
+    )?;
+    let run_func = instance.lookup_function("bar").expect("expected function export");
 
     let e = run_func.call(&[]).err().expect("error calling function");
     assert_eq!(
@@ -191,7 +189,11 @@ fn trap_display_multi_module(config: crate::Config) -> Result<()> {
     "#;
 
     let module = Module::new(&store, wat)?;
-    let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &imports! {})?;
+    let instance = Instance::new_with_config(
+        &module,
+        InstanceConfig::with_stack_limit(1000000),
+        &imports! {},
+    )?;
     let bar = instance.lookup_function("bar").unwrap();
 
     let wat = r#"
@@ -211,9 +213,7 @@ fn trap_display_multi_module(config: crate::Config) -> Result<()> {
             }
         },
     )?;
-    let bar2 = instance
-        .lookup_function("bar2")
-        .expect("expected function export");
+    let bar2 = instance.lookup_function("bar2").expect("expected function export");
 
     let e = bar2.call(&[]).err().expect("error calling function");
     assert_eq!(
@@ -352,10 +352,7 @@ fn rust_panic_start_function(config: crate::Config) -> Result<()> {
         ));
     }))
     .unwrap_err();
-    assert_eq!(
-        err.downcast_ref::<&'static str>(),
-        Some(&"this is another panic")
-    );
+    assert_eq!(err.downcast_ref::<&'static str>(), Some(&"this is another panic"));
     Ok(())
 }
 
@@ -369,7 +366,11 @@ fn mismatched_arguments(config: crate::Config) -> Result<()> {
     "#;
 
     let module = Module::new(&store, &binary)?;
-    let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &imports! {})?;
+    let instance = Instance::new_with_config(
+        &module,
+        InstanceConfig::with_stack_limit(1000000),
+        &imports! {},
+    )?;
     let func: Function = instance.lookup_function("foo").unwrap();
     assert_eq!(
         func.call(&[]).unwrap_err().message(),
@@ -380,9 +381,7 @@ fn mismatched_arguments(config: crate::Config) -> Result<()> {
         "Parameters of type [F32] did not match signature [I32] -> []",
     );
     assert_eq!(
-        func.call(&[Val::I32(0), Val::I32(1)])
-            .unwrap_err()
-            .message(),
+        func.call(&[Val::I32(0), Val::I32(1)]).unwrap_err().message(),
         "Parameters of type [I32, I32] did not match signature [I32] -> []"
     );
     Ok(())
@@ -406,9 +405,10 @@ fn call_signature_mismatch(config: crate::Config) -> Result<()> {
     "#;
 
     let module = Module::new(&store, &binary)?;
-    let err = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &imports! {})
-        .err()
-        .expect("expected error");
+    let err =
+        Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &imports! {})
+            .err()
+            .expect("expected error");
     assert_eq!(
         format!("{}", err),
         "\
@@ -434,9 +434,10 @@ fn start_trap_pretty(config: crate::Config) -> Result<()> {
     "#;
 
     let module = Module::new(&store, wat)?;
-    let err = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &imports! {})
-        .err()
-        .expect("expected error");
+    let err =
+        Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &imports! {})
+            .err()
+            .expect("expected error");
 
     assert_eq!(
         format!("{}", err),
@@ -455,7 +456,11 @@ RuntimeError: unreachable
 fn present_after_module_drop(config: crate::Config) -> Result<()> {
     let store = config.store();
     let module = Module::new(&store, r#"(func (export "foo") unreachable)"#)?;
-    let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &imports! {})?;
+    let instance = Instance::new_with_config(
+        &module,
+        InstanceConfig::with_stack_limit(1000000),
+        &imports! {},
+    )?;
     let func: Function = instance.lookup_function("foo").unwrap();
 
     println!("asserting before we drop modules");

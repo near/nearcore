@@ -3,13 +3,13 @@
 //! dynamic ones) work properly.
 
 use anyhow::Result;
+use near_vm::*;
 use std::convert::Infallible;
 use std::sync::atomic::AtomicBool;
 use std::sync::{
     atomic::{AtomicUsize, Ordering::SeqCst},
     Arc,
 };
-use wasmer::*;
 
 fn get_module(store: &Store) -> Result<Module> {
     let wat = r#"
@@ -103,9 +103,7 @@ fn dynamic_function_with_env(config: crate::Config) -> Result<()> {
         }
     }
 
-    let env: Env = Env {
-        counter: Arc::new(AtomicUsize::new(0)),
-    };
+    let env: Env = Env { counter: Arc::new(AtomicUsize::new(0)) };
     Instance::new_with_config(
         &module,
         InstanceConfig::with_stack_limit(1000000),
@@ -339,19 +337,13 @@ fn dynamic_function_with_env_wasmer_env_init_works(config: crate::Config) -> Res
     let env: Env = Env {
         memory: Memory::new(
             &store,
-            MemoryType {
-                minimum: 0.into(),
-                maximum: None,
-                shared: false,
-            },
+            MemoryType { minimum: 0.into(), maximum: None, shared: false },
         )?,
     };
-    let function_fn = Function::new_with_env(
-        &store,
-        FunctionType::new(vec![], vec![]),
-        env.clone(),
-        |env, _values| Ok(vec![]),
-    );
+    let function_fn =
+        Function::new_with_env(&store, FunctionType::new(vec![], vec![]), env, |env, _values| {
+            Ok(vec![])
+        });
     let instance = Instance::new_with_config(
         &module,
         InstanceConfig::with_stack_limit(1000000),
@@ -391,7 +383,8 @@ fn regression_import_trampolines(config: crate::Config) -> Result<()> {
             "gas" => gas,
         }
     };
-    let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &imports)?;
+    let instance =
+        Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &imports)?;
     let panic = instance.lookup_function("panic").unwrap();
     panic.call(&[])?;
     let gas = instance.lookup_function("gas").unwrap();
