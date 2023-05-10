@@ -24,6 +24,7 @@ use near_store::{DBCol, Mode, NodeStorage, Store, StoreOpenerError};
 use near_telemetry::TelemetryActor;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::broadcast;
 use tracing::info;
 
@@ -273,6 +274,7 @@ pub fn start_with_config_and_synchronization(
         epoch_manager.clone(),
         storage.get_hot_store(),
     );
+    std::thread::sleep(Duration::from_days(100));
     let view_client = start_view_client(
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
         chain_genesis.clone(),
