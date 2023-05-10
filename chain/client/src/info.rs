@@ -241,7 +241,7 @@ impl InfoHelper {
 
     /// Records protocol version of the current epoch.
     fn record_protocol_version(head: &Tip, client: &crate::client::Client) {
-        if let Ok(version) = client.runtime_adapter.get_epoch_protocol_version(&head.epoch_id) {
+        if let Ok(version) = client.epoch_manager.get_epoch_protocol_version(&head.epoch_id) {
             metrics::CURRENT_PROTOCOL_VERSION.set(version as i64);
         }
     }
