@@ -47,7 +47,7 @@ use near_primitives::views::{
     AccessKeyInfoView, CallResult, QueryRequest, QueryResponse, QueryResponseKind, ViewApplyState,
     ViewStateResult,
 };
-use near_store::flat::FlatStorageManager;
+use near_store::flat::{store_helper, FlatStorage, FlatStorageManager, FlatStorageStatus};
 use near_store::metadata::DbKind;
 use near_store::split_state::get_delayed_receipts;
 use near_store::{
@@ -739,6 +739,51 @@ impl RuntimeAdapter for NightshadeRuntime {
         Some(self.flat_storage_manager.clone())
     }
 
+    fn get_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Option<FlatStorage> {
+        self.flat_storage_manager.get_flat_storage_for_shard(shard_uid)
+    }
+
+    fn get_flat_storage_status(&self, shard_uid: ShardUId) -> FlatStorageStatus {
+        store_helper::get_flat_storage_status(&self.store, shard_uid)
+    }
+
+    // TODO (#7327): consider passing flat storage errors here to handle them gracefully
+    fn create_flat_storage_for_shard(&self, shard_uid: ShardUId) {
+        let flat_storage = FlatStorage::new(self.store.clone(), shard_uid);
+        self.flat_storage_manager.add_flat_storage_for_shard(shard_uid, flat_storage);
+    }
+
+    fn remove_flat_storage_for_shard(
+        &self,
+        shard_uid: ShardUId,
+        epoch_id: &EpochId,
+    ) -> Result<(), Error> {
+        let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
+        self.flat_storage_manager
+            .remove_flat_storage_for_shard(shard_uid, shard_layout)
+            .map_err(Error::StorageError)?;
+        Ok(())
+    }
+
+    fn set_flat_storage_for_genesis(
+        &self,
+        genesis_block: &CryptoHash,
+        genesis_block_height: BlockHeight,
+        genesis_epoch_id: &EpochId,
+    ) -> Result<StoreUpdate, Error> {
+        let mut store_update = self.store.store_update();
+        for shard_id in 0..self.epoch_manager.num_shards(genesis_epoch_id)? {
+            let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, genesis_epoch_id)?;
+            self.flat_storage_manager.set_flat_storage_for_genesis(
+                &mut store_update,
+                shard_uid,
+                genesis_block,
+                genesis_block_height,
+            );
+        }
+        Ok(store_update)
+    }
+
     fn validate_tx(
         &self,
         gas_price: Balance,
@@ -1156,6 +1201,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
+    /// Returns StorageError when storage is inconsistent.
+    /// This is possible with the used isolation level + running ViewClient in a separate thread
+    /// `block_hash` is a block whose `prev_state_root` is `state_root`
     fn obtain_state_part(
         &self,
         shard_id: ShardId,

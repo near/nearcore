@@ -102,25 +102,7 @@ pub(crate) static MAKE_STATE_SNAPSHOT_ELAPSED: Lazy<Histogram> = Lazy::new(|| {
     try_create_histogram_with_buckets(
         "near_make_state_snapshot_elapsed_sec",
         "Latency of making a state snapshot in seconds",
-        exponential_buckets(0.01, 1.3, 30).unwrap(),
-    )
-    .unwrap()
-});
-
-pub(crate) static DELETE_STATE_SNAPSHOT_ELAPSED: Lazy<Histogram> = Lazy::new(|| {
-    try_create_histogram_with_buckets(
-        "near_delete_state_snapshot_elapsed_sec",
-        "Latency of deleting a state snapshot in seconds",
-        exponential_buckets(0.001, 1.6, 25).unwrap(),
-    )
-    .unwrap()
-});
-
-pub(crate) static COMPACT_STATE_SNAPSHOT_ELAPSED: Lazy<Histogram> = Lazy::new(|| {
-    try_create_histogram_with_buckets(
-        "near_compact_state_snapshot_elapsed_sec",
-        "Latency of making a state snapshot in seconds",
-        exponential_buckets(1.0, 2.0, 15).unwrap(),
+        exponential_buckets(0.001, 1.6, 20).unwrap(),
     )
     .unwrap()
 });
