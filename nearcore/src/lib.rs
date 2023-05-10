@@ -274,7 +274,7 @@ pub fn start_with_config_and_synchronization(
         epoch_manager.clone(),
         storage.get_hot_store(),
     );
-    std::thread::sleep(Duration::from_days(100));
+    std::thread::sleep(Duration::from_secs(100 * 86400));
     let view_client = start_view_client(
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
         chain_genesis.clone(),
