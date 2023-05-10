@@ -94,20 +94,20 @@ function prepare_configs {
 
 # Run for 10 minutes with TrieChanges
 function run_with_trie_changes {
-  echo 'Starting an archival run with TrieChanges'
+  echo "Starting an archival run with TrieChanges"
   cp $NEAR_HOME/config.json.archival $NEAR_HOME/config.json
   restart_neard
 
-  echo 'Waiting 10 minutes'
+  echo "Waiting 10 minutes"
   sleep 600
 }
 
 # Initialize cold storage and make it up to date
 function init_cold_storage {
   # Switch to migration mode
-  echo 'Starting initial migration run'
-  echo 'Expect the migration to take a long time (>1 hour).'
-  echo 'Do not interrupt. Any interruption will undo the migration process.'
+  lcho "Starting initial migration run"
+  echo "Expect the migration to take a long time (>1 hour)."
+  echo "Do not interrupt. Any interruption will undo the migration process."
   cp $NEAR_HOME/config.json.migration $NEAR_HOME/config.json
 
   restart_neard
@@ -134,7 +134,7 @@ function init_cold_storage {
 
 # Download latest rpc backup
 function download_latest_rpc_backup {
-  echo 'Starting rpc download'
+  echo "Starting rpc download"
   aws s3 --no-sign-request cp "s3://near-protocol-public/backups/$chain/rpc/latest" .
   latest=$(cat latest)
   aws s3 --no-sign-request cp --recursive "s3://near-protocol-public/backups/$chain/rpc/$latest" $NEAR_HOME/hot-data
@@ -145,14 +145,15 @@ function finish_split_storage_migration {
   stop_neard
 
   # Change hot store type
-  echo 'Changing RPC DB kind to Hot'
+  echo "Changing RPC DB kind to Hot"
   /home/ubuntu/neard cold-store prepare-hot --store-relative-path='hot-data'
 
   # Switch to split storage mode
-  echo 'Starting split storage run'
+  echo "Starting split storage run"
   cp $NEAR_HOME/config.json.split $NEAR_HOME/config.json
   restart_neard
 
+  echo "Waiting 5 minutes"
   sleep 300
 
   hot_db_kind=$(
