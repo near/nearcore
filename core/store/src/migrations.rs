@@ -1,17 +1,10 @@
-use std::collections::HashMap;
-
-use borsh::{BorshDeserialize, BorshSerialize};
-
-use near_primitives::epoch_manager::epoch_info::{EpochInfo, EpochInfoV1};
-use near_primitives::hash::CryptoHash;
-use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof};
-use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::AccountId;
-use near_primitives::utils::get_outcome_id_block_hash;
-use tracing::info;
-
 use crate::metadata::DbKind;
 use crate::{DBCol, Store, StoreUpdate};
+use borsh::{BorshDeserialize, BorshSerialize};
+use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof};
+use near_primitives::utils::get_outcome_id_block_hash;
+use std::collections::HashMap;
+use tracing::info;
 
 pub struct BatchedStoreUpdate<'a> {
     batch_size_limit: usize,
@@ -102,135 +95,6 @@ impl<'a> BatchedStoreUpdate<'a> {
 
         Ok(())
     }
-}
-
-fn map_col<T, U, F>(store: &Store, col: DBCol, f: F) -> std::io::Result<()>
-where
-    T: BorshDeserialize,
-    U: BorshSerialize,
-    F: Fn(T) -> U,
-{
-    let mut store_update = BatchedStoreUpdate::new(store, 10_000_000);
-    for pair in store.iter(col) {
-        let (key, value) = pair?;
-        let new_value = f(T::try_from_slice(&value).unwrap());
-        store_update.set_ser(col, &key, &new_value)?;
-    }
-    store_update.finish()
-}
-
-/// Migrates database from version 28 to 29.
-///
-/// Deletes all data from _NextBlockWithNewChunk and _LastBlockWithNewChunk
-/// columns.
-pub fn migrate_28_to_29(store: &Store) -> anyhow::Result<()> {
-    let mut update = store.store_update();
-    update.delete_all(DBCol::_NextBlockWithNewChunk);
-    update.delete_all(DBCol::_LastBlockWithNewChunk);
-    update.commit()?;
-    Ok(())
-}
-
-/// Migrates database from version 29 to 30.
-///
-/// Migrates all structures that use ValidatorStake to versionized version.
-pub fn migrate_29_to_30(store: &Store) -> anyhow::Result<()> {
-    use near_primitives::epoch_manager::block_info::BlockInfo;
-    use near_primitives::epoch_manager::epoch_info::EpochSummary;
-    use near_primitives::epoch_manager::AGGREGATOR_KEY;
-    use near_primitives::types::chunk_extra::ChunkExtra;
-    use near_primitives::types::validator_stake::ValidatorStakeV1;
-    use near_primitives::types::{
-        BlockChunkValidatorStats, EpochId, ProtocolVersion, ShardId, ValidatorId,
-        ValidatorKickoutReason, ValidatorStats,
-    };
-    use std::collections::BTreeMap;
-
-    #[derive(BorshDeserialize)]
-    pub struct OldEpochSummary {
-        pub prev_epoch_last_block_hash: CryptoHash,
-        pub all_proposals: Vec<ValidatorStakeV1>,
-        pub validator_kickout: HashMap<AccountId, ValidatorKickoutReason>,
-        pub validator_block_chunk_stats: HashMap<AccountId, BlockChunkValidatorStats>,
-        pub next_version: ProtocolVersion,
-    }
-
-    #[derive(BorshDeserialize)]
-    pub struct OldEpochInfoAggregator {
-        pub block_tracker: HashMap<ValidatorId, ValidatorStats>,
-        pub shard_tracker: HashMap<ShardId, HashMap<ValidatorId, ValidatorStats>>,
-        pub version_tracker: HashMap<ValidatorId, ProtocolVersion>,
-        pub all_proposals: BTreeMap<AccountId, ValidatorStakeV1>,
-        pub epoch_id: EpochId,
-        pub last_block_hash: CryptoHash,
-    }
-    #[derive(BorshSerialize)]
-    pub struct NewEpochInfoAggregator {
-        pub block_tracker: HashMap<ValidatorId, ValidatorStats>,
-        pub shard_tracker: HashMap<ShardId, HashMap<ValidatorId, ValidatorStats>>,
-        pub version_tracker: HashMap<ValidatorId, ProtocolVersion>,
-        pub all_proposals: BTreeMap<AccountId, ValidatorStake>,
-        pub epoch_id: EpochId,
-        pub last_block_hash: CryptoHash,
-    }
-
-    map_col(&store, DBCol::ChunkExtra, ChunkExtra::V1)?;
-
-    map_col(&store, DBCol::BlockInfo, BlockInfo::V1)?;
-
-    map_col(&store, DBCol::EpochValidatorInfo, |info: OldEpochSummary| EpochSummary {
-        prev_epoch_last_block_hash: info.prev_epoch_last_block_hash,
-        all_proposals: info.all_proposals.into_iter().map(ValidatorStake::V1).collect(),
-        validator_kickout: info.validator_kickout,
-        validator_block_chunk_stats: info.validator_block_chunk_stats,
-        next_version: info.next_version,
-    })?;
-
-    // DBCol::EpochInfo has a special key which contains a different type than all other
-    // values (EpochInfoAggregator), so we cannot use `map_col` on it. We need to handle
-    // the AGGREGATOR_KEY differently from all others.
-    let col = DBCol::EpochInfo;
-    let keys = store
-        .iter(col)
-        .map(|item| item.map(|(key, _)| key))
-        .collect::<std::io::Result<Vec<_>>>()?;
-    let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
-    for key in keys {
-        if key.as_ref() == AGGREGATOR_KEY {
-            let value: OldEpochInfoAggregator = store.get_ser(col, key.as_ref()).unwrap().unwrap();
-            let new_value = NewEpochInfoAggregator {
-                block_tracker: value.block_tracker,
-                shard_tracker: value.shard_tracker,
-                version_tracker: value.version_tracker,
-                epoch_id: value.epoch_id,
-                last_block_hash: value.last_block_hash,
-                all_proposals: value
-                    .all_proposals
-                    .into_iter()
-                    .map(|(account, stake)| (account, ValidatorStake::V1(stake)))
-                    .collect(),
-            };
-            store_update.set_ser(col, key.as_ref(), &new_value)?;
-        } else {
-            let value: EpochInfoV1 = store.get_ser(col, key.as_ref()).unwrap().unwrap();
-            let new_value = EpochInfo::V1(value);
-            store_update.set_ser(col, key.as_ref(), &new_value)?;
-        }
-    }
-
-    store_update.finish()?;
-    Ok(())
-}
-
-/// Migrates the database from version 31 to 32.
-///
-/// This involves deleting contents of ChunkPerHeightShard column which is now
-/// deprecated and no longer used.
-pub fn migrate_31_to_32(store: &Store) -> anyhow::Result<()> {
-    let mut update = store.store_update();
-    update.delete_all(DBCol::_ChunkPerHeightShard);
-    update.commit()?;
-    Ok(())
 }
 
 /// Migrates the database from version 32 to 33.

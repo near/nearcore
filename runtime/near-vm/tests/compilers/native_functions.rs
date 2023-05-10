@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::convert::Infallible;
 use std::sync::{Arc, Mutex};
 
-use wasmer::*;
+use near_vm::*;
 
 fn long_f(a: u32, b: u32, c: u32, d: u32, e: u32, f: u16, g: u64, h: u64, i: u16, j: u32) -> u64 {
     j as u64
@@ -52,7 +52,11 @@ fn native_function_works_for_wasm(config: crate::Config) -> anyhow::Result<()> {
         },
     };
 
-    let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &import_object)?;
+    let instance = Instance::new_with_config(
+        &module,
+        InstanceConfig::with_stack_limit(1000000),
+        &import_object,
+    )?;
 
     {
         let f: NativeFunc<(i32, i32), i32> = instance.get_native_function("add")?;
@@ -61,17 +65,13 @@ fn native_function_works_for_wasm(config: crate::Config) -> anyhow::Result<()> {
     }
 
     {
-        let f: Function = instance
-            .lookup_function("double_then_add")
-            .expect("lookup function");
+        let f: Function = instance.lookup_function("double_then_add").expect("lookup function");
         let result = f.call(&[Val::I32(4), Val::I32(6)])?;
         assert_eq!(result[0], Val::I32(20));
     }
 
     {
-        let dyn_f: Function = instance
-            .lookup_function("double_then_add")
-            .expect("lookup function");
+        let dyn_f: Function = instance.lookup_function("double_then_add").expect("lookup function");
         let f: NativeFunc<(i32, i32), i32> = dyn_f.native().unwrap();
         let result = f.call(4, 6)?;
         assert_eq!(result, 20);
@@ -153,7 +153,11 @@ fn non_native_functions_and_closures_with_no_env_work(config: crate::Config) -> 
         },
     };
 
-    let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &import_object)?;
+    let instance = Instance::new_with_config(
+        &module,
+        InstanceConfig::with_stack_limit(1000000),
+        &import_object,
+    )?;
 
     let test: NativeFunc<(i32, i32, i32, i32, i32), i32> = instance.get_native_function("test")?;
 
@@ -181,7 +185,11 @@ fn native_function_works_for_wasm_function_manyparams(config: crate::Config) -> 
         },
     };
 
-    let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &import_object)?;
+    let instance = Instance::new_with_config(
+        &module,
+        InstanceConfig::with_stack_limit(1000000),
+        &import_object,
+    )?;
 
     {
         let dyn_f: Function = instance.lookup_function("longf").unwrap();
@@ -221,7 +229,11 @@ fn native_function_works_for_wasm_function_manyparams_dynamic(
         },
     };
 
-    let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &import_object)?;
+    let instance = Instance::new_with_config(
+        &module,
+        InstanceConfig::with_stack_limit(1000000),
+        &import_object,
+    )?;
 
     {
         let dyn_f: Function = instance.lookup_function("longf").unwrap();

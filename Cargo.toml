@@ -33,15 +33,15 @@ members = [
     "integration-tests",
     "nearcore",
     "neard",
-    "runtime/near-vm/lib/api",
-    "runtime/near-vm/lib/compiler",
-    "runtime/near-vm/lib/compiler-singlepass",
-    "runtime/near-vm/lib/engine",
-    "runtime/near-vm/lib/engine-universal",
-    "runtime/near-vm/lib/vm",
-    "runtime/near-vm/lib/types",
-    "runtime/near-vm/tests/lib/wast",
-    "runtime/near-vm/tests/lib/compiler-test-derive",
+    "runtime/near-vm/api",
+    "runtime/near-vm/compiler",
+    "runtime/near-vm/compiler-singlepass",
+    "runtime/near-vm/engine",
+    "runtime/near-vm/engine-universal",
+    "runtime/near-vm/vm",
+    "runtime/near-vm/types",
+    "runtime/near-vm/wast",
+    "runtime/near-vm/compiler-test-derive",
     "runtime/near-vm-logic",
     "runtime/near-vm-runner",
     "runtime/near-vm-runner/fuzz",
@@ -174,6 +174,7 @@ near-client = { path = "chain/client" }
 near-client-primitives = {path = "chain/client-primitives"}
 near-cold-store-tool = { path = "tools/cold-store", package = "cold-store-tool" }
 near-config-utils = { path = "utils/config" }
+nearcore = { path = "nearcore" }
 near-crypto = { path = "core/crypto" }
 near-dyn-configs = { path = "core/dyn-configs" }
 near-epoch-manager = { path = "chain/epoch-manager" }
@@ -206,22 +207,25 @@ near-store = { path = "core/store" }
 near-telemetry = { path = "chain/telemetry" }
 near-test-contracts = { path = "runtime/near-test-contracts" }
 near-undo-block = { path = "tools/undo-block" }
-near-vm-compiler = { path = "runtime/near-vm/lib/compiler"}
-near-vm-compiler-singlepass = { path = "runtime/near-vm/lib/compiler-singlepass" }
-near-vm-engine = { path = "runtime/near-vm/lib/engine" }
-near-vm-engine-universal = { path = "runtime/near-vm/lib/engine-universal" }
+near-vm = { path = "runtime/near-vm/api" }
+near-vm-compiler = { path = "runtime/near-vm/compiler"}
+near-vm-compiler-singlepass = { path = "runtime/near-vm/compiler-singlepass" }
+near-vm-compiler-test-derive = { path = "runtime/near-vm/compiler-test-derive" }
+near-vm-engine = { path = "runtime/near-vm/engine" }
+near-vm-engine-universal = { path = "runtime/near-vm/engine-universal" }
 near-vm-errors = { path = "runtime/near-vm-errors" }
 near-vm-logic = { path = "runtime/near-vm-logic" }
 near-vm-runner = { path = "runtime/near-vm-runner"}
-near-vm-types = { path = "runtime/near-vm/lib/types" }
-near-vm-vm = { path = "runtime/near-vm/lib/vm" }
-nearcore = { path = "nearcore" }
+near-vm-test-generator = { path = "runtime/near-vm/test-generator" }
+near-vm-types = { path = "runtime/near-vm/types" }
+near-vm-vm = { path = "runtime/near-vm/vm" }
+near-vm-wast = { path = "runtime/near-vm/wast" }
 nix = "0.24"
 node-runtime = { path = "runtime/runtime" }
 num-bigint = "0.3"
+num_cpus = "1.11"
 num-rational = { version = "0.3.1", features = ["serde"] }
 num-traits = "0.2.15"
-num_cpus = "1.11"
 once_cell = "1.13.1"
 openssl = { version = "0.10", features = ["vendored"] }
 openssl-probe = "0.1.4"
@@ -258,9 +262,9 @@ rkyv = "0.7.31"
 rlimit = "0.7"
 rocksdb = { version = "0.19.0", default-features = false, features = ["snappy", "lz4", "zstd", "zlib", "jemalloc"] }
 runtime-tester = { path = "test-utils/runtime-tester" }
-rust-s3 = { version = "0.32.3", features = ["blocking"] }
-rustc-demangle = "0.1"
 rusqlite = {version = "0.27.0", features = ["bundled", "chrono", "functions"] }
+rustc-demangle = "0.1"
+rust-s3 = { version = "0.32.3", features = ["blocking"] }
 secp256k1 = { version = "0.27.0", features = ["recovery", "rand-std"] }
 semver = "1.0.4"
 serde = { version = "1.0.136", features = ["alloc", "derive", "rc"] }
@@ -268,6 +272,7 @@ serde_ignored = "0.1"
 serde_json = "1.0.68"
 serde_repr = "0.1.8"
 serde_yaml = "0.9"
+serial_test = "0.5"
 sha2 = "0.10"
 sha3 = "0.10"
 shell-escape = "0.1.5"
@@ -283,6 +288,7 @@ tar = "0.4.38"
 target-lexicon = { version = "0.12.2", default-features = false }
 tempfile = "3.3"
 testlib = { path = "test-utils/testlib" }
+test-log = { version = "0.2", default-features = false, features = ["trace"] }
 thiserror = "1.0.30"
 tikv-jemallocator = "0.5.0"
 time = "0.3.9"
@@ -300,7 +306,6 @@ trybuild = "1.0.11"
 turn = "0.6"
 validator = "0.12"
 wasm-encoder = "0.11.0"
-wasm-smith = "0.10"
 wasmer-compiler = { package = "wasmer-compiler-near", version = "=2.4.0" }
 wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", version = "=2.4.0" }
 wasmer-engine = { package = "wasmer-engine-near", version = "=2.4.0" }
@@ -311,6 +316,7 @@ wasmer-types = { package = "wasmer-types-near", version = "=2.4.0" }
 wasmer-vm = { package = "wasmer-vm-near", version = "=2.4.0" }
 wasmparser = "0.78" # TODO: unify at least the versions of wasmparser we have in our codebase
 wasmprinter = "0.2"
+wasm-smith = "0.10"
 wasmtime = { version = "4.0.0", default-features = false, features = ["cranelift"] }
 wast = "40.0"
 wat = "1.0.40"

@@ -1,6 +1,6 @@
 //! This file is mainly to assure specific issues are working well
 use anyhow::Result;
-use wasmer::*;
+use near_vm::*;
 
 #[derive(Clone)]
 struct Env {
@@ -55,9 +55,7 @@ fn issue_2329(mut config: crate::Config) -> Result<()> {
         (elem (;0;) (i32.const 1) func $__read_memory))
     "#;
     let module = Module::new(&store, wat)?;
-    let env = Env {
-        memory: LazyInit::new(),
-    };
+    let env = Env { memory: LazyInit::new() };
     let imports: ImportObject = imports! {
         "env" => {
             "__read_memory" => Function::new_native_with_env(
@@ -67,7 +65,8 @@ fn issue_2329(mut config: crate::Config) -> Result<()> {
             ),
         }
     };
-    let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &imports)?;
+    let instance =
+        Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &imports)?;
     instance.lookup_function("read_memory").unwrap().call(&[])?;
     Ok(())
 }
@@ -107,6 +106,7 @@ fn regression_gpr_exhaustion_for_calls(mut config: crate::Config) -> Result<()> 
     "#;
     let module = Module::new(&store, wat)?;
     let imports: ImportObject = imports! {};
-    let instance = Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &imports)?;
+    let instance =
+        Instance::new_with_config(&module, InstanceConfig::with_stack_limit(1000000), &imports)?;
     Ok(())
 }

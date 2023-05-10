@@ -1,10 +1,10 @@
+use near_vm::*;
+use near_vm_compiler_singlepass::Singlepass;
+use near_vm_engine_universal::Universal;
+use near_vm_types::{FastGasCounter, InstanceConfig};
 use std::ptr;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::SeqCst;
-use wasmer::*;
-use wasmer_compiler_singlepass::Singlepass;
-use wasmer_engine_universal::Universal;
-use wasmer_types::{FastGasCounter, InstanceConfig};
 
 fn get_module_with_start(store: &Store) -> Module {
     let wat = r#"
@@ -109,7 +109,9 @@ fn test_gas_intrinsic_in_start() {
     static HITS: AtomicUsize = AtomicUsize::new(0);
     let result = Instance::new_with_config(
         &module,
-        unsafe { InstanceConfig::with_stack_limit(1000000).with_counter(ptr::addr_of_mut!(gas_counter)) },
+        unsafe {
+            InstanceConfig::with_stack_limit(1000000).with_counter(ptr::addr_of_mut!(gas_counter))
+        },
         &imports! {
             "host" => {
                 "func" => Function::new(&store, FunctionType::new(vec![], vec![]), |_values| {
@@ -145,7 +147,9 @@ fn test_gas_regular(opcode_cost: u64) {
     let hits = std::sync::Arc::new(AtomicUsize::new(0));
     let instance = Instance::new_with_config(
         &module,
-        unsafe { InstanceConfig::with_stack_limit(1000000).with_counter(ptr::addr_of_mut!(gas_counter)) },
+        unsafe {
+            InstanceConfig::with_stack_limit(1000000).with_counter(ptr::addr_of_mut!(gas_counter))
+        },
         &imports! {
             "host" => {
                 "func" => Function::new(&store, FunctionType::new(vec![], vec![]), {
@@ -172,15 +176,9 @@ fn test_gas_regular(opcode_cost: u64) {
     );
     assert!(instance.is_ok());
     let instance = instance.unwrap();
-    let foo_func = instance
-        .lookup_function("foo")
-        .expect("expected function foo");
-    let bar_func = instance
-        .lookup_function("bar")
-        .expect("expected function bar");
-    let zoo_func = instance
-        .lookup_function("zoo")
-        .expect("expected function zoo");
+    let foo_func = instance.lookup_function("foo").expect("expected function foo");
+    let bar_func = instance.lookup_function("bar").expect("expected function bar");
+    let zoo_func = instance.lookup_function("zoo").expect("expected function zoo");
     // Ensure "func" was not called.
     assert_eq!(hits.load(SeqCst), 0);
     let e = bar_func.call(&[]);
@@ -238,12 +236,8 @@ fn test_gas_intrinsic_default() {
     );
     assert!(instance.is_ok());
     let instance = instance.unwrap();
-    let foo_func = instance
-        .lookup_function("foo")
-        .expect("expected function foo");
-    let bar_func = instance
-        .lookup_function("bar")
-        .expect("expected function bar");
+    let foo_func = instance.lookup_function("foo").expect("expected function foo");
+    let bar_func = instance.lookup_function("bar").expect("expected function bar");
     // Ensure "func" was called.
     assert_eq!(HITS.load(SeqCst), 0);
     let e = bar_func.call(&[]);
@@ -288,9 +282,7 @@ fn test_gas_intrinsic_tricky() {
     );
     assert!(instance.is_ok());
     let instance = instance.unwrap();
-    let foo_func = instance
-        .lookup_function("foo")
-        .expect("expected function foo");
+    let foo_func = instance.lookup_function("foo").expect("expected function foo");
 
     let _e = foo_func.call(&[]);
 
@@ -298,9 +290,7 @@ fn test_gas_intrinsic_tricky() {
     // Ensure "gas" was called.
     assert_eq!(HITS.load(SeqCst), 1);
 
-    let zoo_func = instance
-        .lookup_function("zoo")
-        .expect("expected function zoo");
+    let zoo_func = instance.lookup_function("zoo").expect("expected function zoo");
 
     let _e = zoo_func.call(&[]);
     // We decremented gas by two.
