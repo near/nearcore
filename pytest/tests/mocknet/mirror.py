@@ -69,7 +69,7 @@ def get_validator_list(nodes):
             'account_id': validator_key['account_id'],
             'public_key': validator_key['public_key'],
             # TODO: give a way to specify the stakes
-            'amount': str(10**30),
+            'amount': str(10**33),
         })
 
     return validators
