@@ -13,6 +13,16 @@ use std::ops::Bound;
 mod metrics;
 pub mod types;
 
+#[derive(Debug)]
+pub enum InsertTransactionResult {
+    /// Transaction was successfully inserted.
+    Success,
+    /// Transaction is already in the pool.
+    Duplicate,
+    /// Not enough space to fit the transaction.
+    NoSpaceLeft,
+}
+
 /// Transaction pool: keeps track of transactions that were not yet accepted into the block chain.
 pub struct TransactionPool {
     /// Transactions are grouped by a pair of (account ID, signer public key).
@@ -25,17 +35,20 @@ pub struct TransactionPool {
     key_seed: RngSeed,
     /// The key after which the pool iterator starts. Doesn't have to be present in the pool.
     last_used_key: PoolKey,
+    /// If set, new transactions that bring the size of the pool over this limit will be rejected.
+    total_transaction_size_limit: Option<u64>,
     /// Total size of transactions in the pool measured in bytes.
     total_transaction_size: u64,
 }
 
 impl TransactionPool {
-    pub fn new(key_seed: RngSeed) -> Self {
+    pub fn new(key_seed: RngSeed, total_transaction_size_limit: Option<u64>) -> Self {
         Self {
             key_seed,
             transactions: BTreeMap::new(),
             unique_transactions: HashSet::new(),
             last_used_key: CryptoHash::default(),
+            total_transaction_size_limit,
             total_transaction_size: 0,
         }
     }
@@ -53,27 +66,38 @@ impl TransactionPool {
     }
 
     /// Inserts a signed transaction that passed validation into the pool.
-    pub fn insert_transaction(&mut self, signed_transaction: SignedTransaction) -> bool {
+    pub fn insert_transaction(
+        &mut self,
+        signed_transaction: SignedTransaction,
+    ) -> InsertTransactionResult {
         if !self.unique_transactions.insert(signed_transaction.get_hash()) {
             // The hash of this transaction was already seen, skip it.
-            return false;
+            return InsertTransactionResult::Duplicate;
         }
-        metrics::TRANSACTION_POOL_TOTAL.inc();
-
-        let signer_id = &signed_transaction.transaction.signer_id;
-        let signer_public_key = &signed_transaction.transaction.public_key;
         // We never expect the total size to go over `u64` during real operation as that would
         // be more than 10^9 GiB of RAM consumed for transaction pool, so panicing here is intended
         // to catch a logic error in estimation of transaction size.
-        self.total_transaction_size = self
+        let new_total_transaction_size = self
             .total_transaction_size
             .checked_add(signed_transaction.get_size())
             .expect("Total transaction size is too large");
+        if let Some(limit) = self.total_transaction_size_limit {
+            if new_total_transaction_size > limit {
+                return InsertTransactionResult::NoSpaceLeft;
+            }
+        }
+
+        // At this point transaction is accepted to the pool.
+        metrics::TRANSACTION_POOL_TOTAL.inc();
+        self.total_transaction_size = new_total_transaction_size;
+
+        let signer_id = &signed_transaction.transaction.signer_id;
+        let signer_public_key = &signed_transaction.transaction.public_key;
         self.transactions
             .entry(self.key(signer_id, signer_public_key))
             .or_insert_with(Vec::new)
             .push(signed_transaction);
-        true
+        InsertTransactionResult::Success
     }
 
     /// Returns a pool iterator wrapper that implements an iterator-like trait to iterate over

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use actix::Message;
 
-use near_pool::{PoolIteratorWrapper, TransactionPool};
+use near_pool::{InsertTransactionResult, PoolIteratorWrapper, TransactionPool};
 use near_primitives::{
     epoch_manager::RngSeed,
     sharding::{EncodedShardChunk, PartialEncodedChunk, ShardChunk, ShardChunkHeader},
@@ -28,16 +28,6 @@ pub enum ShardsManagerResponse {
     /// block, so that if we are a block producer, we may create a block that contains
     /// this chunk now. The producer of this chunk is also provided.
     ChunkHeaderReadyForInclusion { chunk_header: ShardChunkHeader, chunk_producer: AccountId },
-}
-
-#[derive(Debug)]
-pub enum InsertTransactionResult {
-    /// Transaction was successfully inserted.
-    Success,
-    /// Transaction is already in the pool.
-    Duplicate,
-    /// Not enough space to fit the transaction.
-    NoSpaceLeft,
 }
 
 pub struct ShardedTransactionPool {
@@ -68,17 +58,7 @@ impl ShardedTransactionPool {
         shard_id: ShardId,
         tx: SignedTransaction,
     ) -> InsertTransactionResult {
-        if let Some(limit) = self.pool_size_limit {
-            if self.pool_for_shard(shard_id).transaction_size() > limit {
-                return InsertTransactionResult::NoSpaceLeft;
-            }
-        }
-
-        if !self.pool_for_shard(shard_id).insert_transaction(tx) {
-            return InsertTransactionResult::Duplicate;
-        }
-
-        InsertTransactionResult::Success
+        self.pool_for_shard(shard_id).insert_transaction(tx)
     }
 
     pub fn remove_transactions(&mut self, shard_id: ShardId, transactions: &[SignedTransaction]) {
@@ -99,9 +79,9 @@ impl ShardedTransactionPool {
     }
 
     fn pool_for_shard(&mut self, shard_id: ShardId) -> &mut TransactionPool {
-        self.tx_pools
-            .entry(shard_id)
-            .or_insert_with(|| TransactionPool::new(Self::random_seed(&self.rng_seed, shard_id)))
+        self.tx_pools.entry(shard_id).or_insert_with(|| {
+            TransactionPool::new(Self::random_seed(&self.rng_seed, shard_id), self.pool_size_limit)
+        })
     }
 
     pub fn reintroduce_transactions(

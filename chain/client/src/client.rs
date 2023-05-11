@@ -38,6 +38,7 @@ use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter, ReasonForBan,
 };
 use near_o11y::log_assert;
+use near_pool::InsertTransactionResult;
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::block_header::ApprovalType;
 use near_primitives::challenge::{Challenge, ChallengeBody};
@@ -2012,16 +2013,19 @@ impl Client {
                 // Transactions only need to be recorded if the node is a validator.
                 if me.is_some() {
                     match self.sharded_tx_pool.insert_transaction(shard_id, tx.clone()) {
-                        near_chunks::client::InsertTransactionResult::Success => {
+                        InsertTransactionResult::Success => {
                             trace!(target: "client", shard_id, "Recorded a transaction.");
                         }
-                        near_chunks::client::InsertTransactionResult::Duplicate => {
-                            // TODO(akashin): Decide what to do in this case.
-                            return Err(Error::Other("Duplicate transaction inserted".to_string()));
+                        InsertTransactionResult::Duplicate => {
+                            trace!(target: "client", shard_id, "Duplicate transaction, not forwarding it.");
+                            return Ok(ProcessTxResponse::ValidTx);
                         }
-                        near_chunks::client::InsertTransactionResult::NoSpaceLeft => {
-                            // TODO(akashin): Introduce a dedicated error code.
-                            return Err(Error::Other("No space left".to_string()));
+                        InsertTransactionResult::NoSpaceLeft => {
+                            if is_forwarded {
+                                trace!(target: "client", shard_id, "No space left for transaction, dropping it.");
+                            } else {
+                                trace!(target: "client", shard_id, "No space left for transaction, trying to forward it.");
+                            }
                         }
                     }
                 }
