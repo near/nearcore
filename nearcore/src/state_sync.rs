@@ -396,7 +396,6 @@ async fn state_sync_dump(
     tracing::debug!(target: "state_sync_dump", shard_id, "Stopped state dump thread");
 }
 
-// return the list of missing state part ids
 async fn get_missing_state_parts_for_epoch(
     shard_id: ShardId,
     chain_id: &String,
@@ -438,14 +437,12 @@ async fn get_missing_state_parts_for_epoch(
     }
 }
 
-// select a part_id and remove it from parts_to_be_dumped so that we draw without replacement
-fn draw_part_id_without_replacement(parts_to_be_dumped: &mut Vec<u64>) -> u64 {
+fn select_random_part_id_with_index(parts_to_be_dumped: &Vec<u64>) -> (u64, usize) {
     let mut rng = thread_rng();
     let selected_idx = rng.gen_range(0..parts_to_be_dumped.len());
     let selected_element = parts_to_be_dumped[selected_idx];
     tracing::debug!(target: "state_sync_dump", ?selected_element, "selected parts to dump: ");
-    parts_to_be_dumped.swap_remove(selected_idx);
-    selected_element
+    (selected_element, selected_idx)
 }
 
 async fn state_sync_dump_multi_node(
@@ -543,8 +540,7 @@ async fn state_sync_dump_multi_node(
                                         .with_label_values(&[&shard_id.to_string()])
                                         .start_timer();
 
-                                    let part_id =
-                                        draw_part_id_without_replacement(&mut parts_to_dump);
+                                    let (part_id, selected_idx) = select_random_part_id_with_index(&parts_to_dump);
 
                                     let state_part = match obtain_and_store_state_part(
                                         runtime.as_ref(),
@@ -577,6 +573,9 @@ async fn state_sync_dump_multi_node(
                                         // reason is we are dumping random selected parts, so it's fine if we are not able to finish all of them
                                         continue;
                                     }
+
+                                    // remove the dumped part from parts_to_dump so that we draw without replacement
+                                    parts_to_dump.swap_remove(selected_idx);
 
                                     // Stop if the node is stopped.
                                     // Note that without this check the state dumping thread is unstoppable, i.e. non-interruptable.
