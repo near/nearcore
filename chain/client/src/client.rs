@@ -38,6 +38,7 @@ use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter, ReasonForBan,
 };
 use near_o11y::log_assert;
+use near_pool::InsertTransactionResult;
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::block_header::ApprovalType;
 use near_primitives::challenge::{Challenge, ChallengeBody};
@@ -217,7 +218,8 @@ impl Client {
             chain.store(),
             chain_config.background_migration_threads,
         )?;
-        let sharded_tx_pool = ShardedTransactionPool::new(rng_seed);
+        let sharded_tx_pool =
+            ShardedTransactionPool::new(rng_seed, config.transaction_pool_size_limit);
         let sync_status = SyncStatus::AwaitingPeers;
         let genesis_block = chain.genesis_block();
         let epoch_sync = EpochSync::new(
@@ -361,11 +363,15 @@ impl Client {
                     false,
                     &self.shard_tracker,
                 ) {
-                    self.sharded_tx_pool.reintroduce_transactions(
-                        shard_id,
-                        // By now the chunk must be in store, otherwise the block would have been orphaned
-                        self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap().transactions(),
-                    );
+                    // By now the chunk must be in store, otherwise the block would have been orphaned
+                    let chunk = self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap();
+                    let reintroduced_count = self
+                        .sharded_tx_pool
+                        .reintroduce_transactions(shard_id, &chunk.transactions());
+                    if reintroduced_count < chunk.transactions().len() {
+                        debug!(target: "client", "Reintroduced {} transactions out of {}",
+                               reintroduced_count, chunk.transactions().len());
+                    }
                 }
             }
         }
@@ -914,7 +920,11 @@ impl Client {
         };
         // Reintroduce valid transactions back to the pool. They will be removed when the chunk is
         // included into the block.
-        sharded_tx_pool.reintroduce_transactions(shard_id, &transactions);
+        let reintroduced_count = sharded_tx_pool.reintroduce_transactions(shard_id, &transactions);
+        if reintroduced_count < transactions.len() {
+            debug!(target: "client", "Reintroduced {} transactions out of {}",
+                   reintroduced_count, transactions.len());
+        }
         Ok(transactions)
     }
 
@@ -2010,8 +2020,22 @@ impl Client {
             } else {
                 // Transactions only need to be recorded if the node is a validator.
                 if me.is_some() {
-                    self.sharded_tx_pool.insert_transaction(shard_id, tx.clone());
-                    trace!(target: "client", shard_id, "Recorded a transaction.");
+                    match self.sharded_tx_pool.insert_transaction(shard_id, tx.clone()) {
+                        InsertTransactionResult::Success => {
+                            trace!(target: "client", shard_id, "Recorded a transaction.");
+                        }
+                        InsertTransactionResult::Duplicate => {
+                            trace!(target: "client", shard_id, "Duplicate transaction, not forwarding it.");
+                            return Ok(ProcessTxResponse::ValidTx);
+                        }
+                        InsertTransactionResult::NoSpaceLeft => {
+                            if is_forwarded {
+                                trace!(target: "client", shard_id, "Transaction pool is full, dropping the transaction.");
+                            } else {
+                                trace!(target: "client", shard_id, "Transaction pool is full, trying to forward the transaction.");
+                            }
+                        }
+                    }
                 }
 
                 // Active validator:
