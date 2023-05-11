@@ -67,7 +67,8 @@ impl TestShardUpgradeEnv {
         let validators: Vec<AccountId> =
             (0..num_validators).map(|i| format!("test{}", i).parse().unwrap()).collect();
         let initial_accounts =
-            [validators, gen_unique_accounts(&mut rng, num_init_accounts)].concat();
+            [validators, gen_unique_accounts(&mut rng, num_init_accounts, num_init_accounts)]
+                .concat();
         let genesis =
             setup_genesis(epoch_length, num_validators as u64, initial_accounts.clone(), gas_limit);
         let chain_genesis = ChainGenesis::new(&genesis);

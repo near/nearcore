@@ -13,6 +13,16 @@ use std::ops::Bound;
 mod metrics;
 pub mod types;
 
+#[derive(Debug, PartialEq)]
+pub enum InsertTransactionResult {
+    /// Transaction was successfully inserted.
+    Success,
+    /// Transaction is already in the pool.
+    Duplicate,
+    /// Not enough space to fit the transaction.
+    NoSpaceLeft,
+}
+
 /// Transaction pool: keeps track of transactions that were not yet accepted into the block chain.
 pub struct TransactionPool {
     /// Transactions are grouped by a pair of (account ID, signer public key).
@@ -25,17 +35,20 @@ pub struct TransactionPool {
     key_seed: RngSeed,
     /// The key after which the pool iterator starts. Doesn't have to be present in the pool.
     last_used_key: PoolKey,
+    /// If set, new transactions that bring the size of the pool over this limit will be rejected.
+    total_transaction_size_limit: Option<u64>,
     /// Total size of transactions in the pool measured in bytes.
     total_transaction_size: u64,
 }
 
 impl TransactionPool {
-    pub fn new(key_seed: RngSeed) -> Self {
+    pub fn new(key_seed: RngSeed, total_transaction_size_limit: Option<u64>) -> Self {
         Self {
             key_seed,
             transactions: BTreeMap::new(),
             unique_transactions: HashSet::new(),
             last_used_key: CryptoHash::default(),
+            total_transaction_size_limit,
             total_transaction_size: 0,
         }
     }
@@ -53,27 +66,39 @@ impl TransactionPool {
     }
 
     /// Inserts a signed transaction that passed validation into the pool.
-    pub fn insert_transaction(&mut self, signed_transaction: SignedTransaction) -> bool {
+    #[must_use]
+    pub fn insert_transaction(
+        &mut self,
+        signed_transaction: SignedTransaction,
+    ) -> InsertTransactionResult {
         if !self.unique_transactions.insert(signed_transaction.get_hash()) {
             // The hash of this transaction was already seen, skip it.
-            return false;
+            return InsertTransactionResult::Duplicate;
         }
-        metrics::TRANSACTION_POOL_TOTAL.inc();
-
-        let signer_id = &signed_transaction.transaction.signer_id;
-        let signer_public_key = &signed_transaction.transaction.public_key;
         // We never expect the total size to go over `u64` during real operation as that would
         // be more than 10^9 GiB of RAM consumed for transaction pool, so panicing here is intended
         // to catch a logic error in estimation of transaction size.
-        self.total_transaction_size = self
+        let new_total_transaction_size = self
             .total_transaction_size
             .checked_add(signed_transaction.get_size())
             .expect("Total transaction size is too large");
+        if let Some(limit) = self.total_transaction_size_limit {
+            if new_total_transaction_size > limit {
+                return InsertTransactionResult::NoSpaceLeft;
+            }
+        }
+
+        // At this point transaction is accepted to the pool.
+        metrics::TRANSACTION_POOL_TOTAL.inc();
+        self.total_transaction_size = new_total_transaction_size;
+
+        let signer_id = &signed_transaction.transaction.signer_id;
+        let signer_public_key = &signed_transaction.transaction.public_key;
         self.transactions
             .entry(self.key(signer_id, signer_public_key))
             .or_insert_with(Vec::new)
             .push(signed_transaction);
-        true
+        InsertTransactionResult::Success
     }
 
     /// Returns a pool iterator wrapper that implements an iterator-like trait to iterate over
@@ -121,13 +146,6 @@ impl TransactionPool {
                     entry.remove_entry();
                 }
             }
-        }
-    }
-
-    /// Reintroduces transactions back during the chain reorg.
-    pub fn reintroduce_transactions(&mut self, transactions: Vec<SignedTransaction>) {
-        for tx in transactions {
-            self.insert_transaction(tx);
         }
     }
 
@@ -280,11 +298,11 @@ mod tests {
         mut transactions: Vec<SignedTransaction>,
         expected_weight: u32,
     ) -> (Vec<u64>, TransactionPool) {
-        let mut pool = TransactionPool::new(TEST_SEED);
+        let mut pool = TransactionPool::new(TEST_SEED, None);
         let mut rng = thread_rng();
         transactions.shuffle(&mut rng);
         for tx in transactions {
-            pool.insert_transaction(tx);
+            assert_eq!(pool.insert_transaction(tx), InsertTransactionResult::Success);
         }
         (
             prepare_transactions(&mut pool, expected_weight)
@@ -391,12 +409,12 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        let mut pool = TransactionPool::new(TEST_SEED);
+        let mut pool = TransactionPool::new(TEST_SEED, None);
         let mut rng = thread_rng();
         transactions.shuffle(&mut rng);
         for tx in transactions.clone() {
             println!("{:?}", tx);
-            pool.insert_transaction(tx);
+            assert_eq!(pool.insert_transaction(tx), InsertTransactionResult::Success);
         }
         assert_eq!(pool.len(), n as usize);
 
@@ -448,7 +466,10 @@ mod tests {
         assert_eq!(pool.len(), 5);
 
         for tx in transactions {
-            pool.insert_transaction(tx);
+            assert!(matches!(
+                pool.insert_transaction(tx),
+                InsertTransactionResult::Success | InsertTransactionResult::Duplicate
+            ));
         }
         assert_eq!(pool.len(), 10);
         let txs = prepare_transactions(&mut pool, 10);
@@ -482,7 +503,10 @@ mod tests {
         assert_eq!(pool.len(), 5);
 
         for tx in transactions {
-            pool.insert_transaction(tx);
+            assert!(matches!(
+                pool.insert_transaction(tx),
+                InsertTransactionResult::Success | InsertTransactionResult::Duplicate
+            ));
         }
         assert_eq!(pool.len(), 10);
         let txs = prepare_transactions(&mut pool, 5);
@@ -495,13 +519,13 @@ mod tests {
 
     #[test]
     fn test_transaction_pool_size() {
-        let mut pool = TransactionPool::new(TEST_SEED);
+        let mut pool = TransactionPool::new(TEST_SEED, None);
         let transactions = generate_transactions("alice.near", "alice.near", 1, 100);
         let mut total_transaction_size = 0;
         // Adding transactions increases the size.
         for tx in transactions.clone() {
             total_transaction_size += tx.get_size();
-            pool.insert_transaction(tx);
+            assert_eq!(pool.insert_transaction(tx), InsertTransactionResult::Success);
             assert_eq!(pool.transaction_size(), total_transaction_size);
         }
         // Removing transactions decreases the size.
@@ -511,5 +535,21 @@ mod tests {
             assert_eq!(pool.transaction_size(), total_transaction_size);
         }
         assert_eq!(pool.transaction_size(), 0);
+    }
+
+    #[test]
+    fn test_transaction_pool_size_limit() {
+        let transactions = generate_transactions("alice.near", "alice.near", 1, 100);
+        // Each transaction is at least 1 byte in size, so the last transaction will not fit.
+        let pool_size_limit =
+            transactions.iter().map(|tx| tx.get_size()).sum::<u64>().checked_sub(1).unwrap();
+        let mut pool = TransactionPool::new(TEST_SEED, Some(pool_size_limit));
+        for (i, tx) in transactions.iter().cloned().enumerate() {
+            if i + 1 < transactions.len() {
+                assert_eq!(pool.insert_transaction(tx), InsertTransactionResult::Success);
+            } else {
+                assert_eq!(pool.insert_transaction(tx), InsertTransactionResult::NoSpaceLeft);
+            }
+        }
     }
 }
