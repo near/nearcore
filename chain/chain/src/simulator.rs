@@ -142,7 +142,7 @@ pub struct SimulationResult {
     pub error: Option<String>,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Serialize)]
 pub struct ReceiptExecutionOutcome {
     pub receipt: Receipt,
     pub outcome: ExecutionOutcome,
