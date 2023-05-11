@@ -28,11 +28,12 @@ use futures::{future, FutureExt};
 use near_async::messaging::CanSendAsync;
 use near_chain::chain::{ApplyStatePartsRequest, StateSplitRequest};
 use near_chain::near_chain_primitives;
-use near_chain::{Chain, RuntimeWithEpochManagerAdapter};
+use near_chain::Chain;
 use near_chain_configs::{ExternalStorageConfig, ExternalStorageLocation, SyncConfig};
 use near_client_primitives::types::{
     DownloadStatus, ShardSyncDownload, ShardSyncStatus, StateSplitApplyingStatus,
 };
+use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::AccountOrPeerIdOrHash;
 use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{
@@ -292,7 +293,7 @@ impl StateSync {
         sync_hash: CryptoHash,
         new_shard_sync: &mut HashMap<u64, ShardSyncDownload>,
         chain: &mut Chain,
-        runtime_adapter: &Arc<dyn RuntimeWithEpochManagerAdapter>,
+        epoch_manager: &dyn EpochManagerAdapter,
         highest_height_peers: &[HighestHeightPeerInfo],
         tracking_shards: Vec<ShardId>,
         now: DateTime<Utc>,
@@ -306,12 +307,12 @@ impl StateSync {
         let prev_hash = *chain.get_block_header(&sync_hash)?.prev_hash();
         let prev_epoch_id = chain.get_block_header(&prev_hash)?.epoch_id().clone();
         let epoch_id = chain.get_block_header(&sync_hash)?.epoch_id().clone();
-        if runtime_adapter.get_shard_layout(&prev_epoch_id)?
-            != runtime_adapter.get_shard_layout(&epoch_id)?
+        if epoch_manager.get_shard_layout(&prev_epoch_id)?
+            != epoch_manager.get_shard_layout(&epoch_id)?
         {
             panic!("cannot sync to the first epoch after sharding upgrade. Please wait for the next epoch or find peers that are more up to date");
         }
-        let split_states = runtime_adapter.will_shard_layout_change_next_epoch(&prev_hash)?;
+        let split_states = epoch_manager.will_shard_layout_change(&prev_hash)?;
 
         for shard_id in tracking_shards {
             let mut download_timeout = false;
@@ -426,7 +427,7 @@ impl StateSync {
                     me,
                     shard_id,
                     chain,
-                    runtime_adapter,
+                    epoch_manager,
                     sync_hash,
                     shard_sync_download,
                     highest_height_peers,
@@ -516,25 +517,23 @@ impl StateSync {
         me: &Option<AccountId>,
         shard_id: ShardId,
         chain: &Chain,
-        runtime_adapter: &Arc<dyn RuntimeWithEpochManagerAdapter>,
+        epoch_manager: &dyn EpochManagerAdapter,
         sync_hash: CryptoHash,
         highest_height_peers: &[HighestHeightPeerInfo],
     ) -> Result<Vec<AccountOrPeerIdOrHash>, near_chain::Error> {
         let prev_block_hash = *chain.get_block_header(&sync_hash)?.prev_hash();
-        let epoch_hash = runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash)?;
+        let epoch_hash = epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
 
         let block_producers =
-            runtime_adapter.get_epoch_block_producers_ordered(&epoch_hash, &sync_hash)?;
+            epoch_manager.get_epoch_block_producers_ordered(&epoch_hash, &sync_hash)?;
         let peers = block_producers
             .iter()
             .filter_map(|(validator_stake, _slashed)| {
                 let account_id = validator_stake.account_id();
-                if runtime_adapter.cares_about_shard(
-                    Some(account_id),
-                    &prev_block_hash,
-                    shard_id,
-                    false,
-                ) {
+                if epoch_manager
+                    .cares_about_shard_from_prev_block(&prev_block_hash, account_id, shard_id)
+                    .unwrap_or(false)
+                {
                     // If we are one of the validators (me is not None) - then make sure that we don't try to send request to ourselves.
                     if me.as_ref().map(|me| me != account_id).unwrap_or(true) {
                         Some(AccountOrPeerIdOrHash::AccountId(account_id.clone()))
@@ -590,7 +589,7 @@ impl StateSync {
         me: &Option<AccountId>,
         shard_id: ShardId,
         chain: &Chain,
-        runtime_adapter: &Arc<dyn RuntimeWithEpochManagerAdapter>,
+        epoch_manager: &dyn EpochManagerAdapter,
         sync_hash: CryptoHash,
         shard_sync_download: &mut ShardSyncDownload,
         highest_height_peers: &[HighestHeightPeerInfo],
@@ -599,7 +598,7 @@ impl StateSync {
             me,
             shard_id,
             chain,
-            runtime_adapter,
+            epoch_manager,
             sync_hash,
             highest_height_peers,
         )?;
@@ -715,7 +714,7 @@ impl StateSync {
             StateSyncInner::PartsFromExternal { chain_id, requests_remaining, external } => {
                 let sync_block_header = chain.get_block_header(&sync_hash).unwrap();
                 let epoch_id = sync_block_header.epoch_id();
-                let epoch_info = chain.runtime_adapter.get_epoch_info(epoch_id).unwrap();
+                let epoch_info = chain.epoch_manager.get_epoch_info(epoch_id).unwrap();
                 let epoch_height = epoch_info.epoch_height();
 
                 let shard_state_header = chain.get_state_header(shard_id, sync_hash).unwrap();
@@ -748,7 +747,7 @@ impl StateSync {
         sync_hash: CryptoHash,
         new_shard_sync: &mut HashMap<u64, ShardSyncDownload>,
         chain: &mut Chain,
-        runtime_adapter: &Arc<dyn RuntimeWithEpochManagerAdapter>,
+        epoch_manager: &dyn EpochManagerAdapter,
         highest_height_peers: &[HighestHeightPeerInfo],
         // Shards to sync.
         tracking_shards: Vec<ShardId>,
@@ -782,7 +781,7 @@ impl StateSync {
             sync_hash,
             new_shard_sync,
             chain,
-            runtime_adapter,
+            epoch_manager,
             highest_height_peers,
             tracking_shards,
             now,
@@ -1522,7 +1521,7 @@ mod test {
         );
         let mut new_shard_sync = HashMap::new();
 
-        let (mut chain, kv, signer) = test_utils::setup();
+        let (mut chain, kv, _, signer) = test_utils::setup();
 
         // TODO: lower the epoch length
         for _ in 0..(chain.epoch_length + 1) {
@@ -1564,7 +1563,7 @@ mod test {
                     *request_hash,
                     &mut new_shard_sync,
                     &mut chain,
-                    &(kv as Arc<dyn RuntimeWithEpochManagerAdapter>),
+                    kv.as_ref(),
                     &[],
                     vec![0],
                     &apply_parts_fn,

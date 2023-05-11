@@ -8,6 +8,7 @@ use near_chain::types::{BlockHeaderInfo, RuntimeAdapter};
 use near_chain::{Block, Chain, ChainStore};
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType};
+use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::{genesis_chunks, Tip};
 use near_primitives::contract::ContractCode;
@@ -57,6 +58,7 @@ pub struct GenesisBuilder {
     tmpdir: tempfile::TempDir,
     genesis: Arc<Genesis>,
     store: Store,
+    epoch_manager: Arc<EpochManagerHandle>,
     runtime: Arc<NightshadeRuntime>,
     unflushed_records: BTreeMap<ShardId, Vec<StateRecord>>,
     roots: BTreeMap<ShardId, StateRoot>,
@@ -73,12 +75,19 @@ pub struct GenesisBuilder {
 impl GenesisBuilder {
     pub fn from_config_and_store(home_dir: &Path, config: NearConfig, store: Store) -> Self {
         let tmpdir = tempfile::Builder::new().prefix("storage").tempdir().unwrap();
-        let runtime = NightshadeRuntime::from_config(tmpdir.path(), store.clone(), &config);
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &config.genesis.config);
+        let runtime = NightshadeRuntime::from_config(
+            tmpdir.path(),
+            store.clone(),
+            &config,
+            epoch_manager.clone(),
+        );
         Self {
             home_dir: home_dir.to_path_buf(),
             tmpdir,
             genesis: Arc::new(config.genesis),
             store,
+            epoch_manager,
             runtime,
             unflushed_records: Default::default(),
             roots: Default::default(),
@@ -206,7 +215,7 @@ impl GenesisBuilder {
             self.genesis.config.min_gas_price,
             self.genesis.config.total_supply,
             Chain::compute_bp_hash(
-                &*self.runtime,
+                self.epoch_manager.as_ref(),
                 EpochId::default(),
                 EpochId::default(),
                 &CryptoHash::default(),

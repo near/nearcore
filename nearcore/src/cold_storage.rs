@@ -1,7 +1,7 @@
 use std::sync::{atomic::AtomicBool, Arc};
 
 use near_chain::types::Tip;
-use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::{hash::CryptoHash, types::BlockHeight};
 use near_store::cold_storage::{copy_all_data_to_cold, CopyAllDataToColdStatus};
 use near_store::{
@@ -11,7 +11,7 @@ use near_store::{
 };
 
 use crate::config::SplitStorageConfig;
-use crate::{metrics, NearConfig, NightshadeRuntime};
+use crate::{metrics, NearConfig};
 
 /// A handle that keeps the state of the cold store loop and can be used to stop it.
 pub struct ColdStoreLoopHandle {
@@ -53,7 +53,7 @@ fn cold_store_copy(
     cold_store: &Store,
     cold_db: &Arc<ColdDB>,
     genesis_height: BlockHeight,
-    runtime: &Arc<NightshadeRuntime>,
+    epoch_manager: &EpochManagerHandle,
 ) -> anyhow::Result<ColdStoreCopyResult> {
     // If COLD_HEAD is not set for hot storage we default it to genesis_height.
     let cold_head = cold_store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)?;
@@ -102,8 +102,8 @@ fn cold_store_copy(
         .ok_or(anyhow::anyhow!("Failed to read the cold head hash at height {cold_head_height}"))?;
 
     // The previous block is the cold head so we can use it to get epoch id.
-    let epoch_id = &runtime.get_epoch_id_from_prev_block(&cold_head_hash)?;
-    let shard_layout = runtime.get_shard_layout(epoch_id)?;
+    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&cold_head_hash)?;
+    let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
 
     let mut next_height = cold_head_height + 1;
     while !update_cold_db(cold_db, hot_store, &shard_layout, &next_height)? {
@@ -251,7 +251,7 @@ fn cold_store_loop(
     cold_store: Store,
     cold_db: Arc<ColdDB>,
     genesis_height: BlockHeight,
-    runtime: Arc<NightshadeRuntime>,
+    epoch_manager: &EpochManagerHandle,
 ) {
     tracing::info!(target : "cold_store", "Starting the cold store loop");
 
@@ -260,7 +260,8 @@ fn cold_store_loop(
             tracing::debug!(target : "cold_store", "Stopping the cold store loop");
             break;
         }
-        let result = cold_store_copy(&hot_store, &cold_store, &cold_db, genesis_height, &runtime);
+        let result =
+            cold_store_copy(&hot_store, &cold_store, &cold_db, genesis_height, epoch_manager);
 
         metrics::COLD_STORE_COPY_RESULT
             .with_label_values(&[cold_store_copy_result_to_string(&result)])
@@ -301,7 +302,7 @@ fn cold_store_loop(
 pub fn spawn_cold_store_loop(
     config: &NearConfig,
     storage: &NodeStorage,
-    runtime: Arc<NightshadeRuntime>,
+    epoch_manager: Arc<EpochManagerHandle>,
 ) -> anyhow::Result<Option<ColdStoreLoopHandle>> {
     if config.config.save_trie_changes != Some(true) {
         tracing::debug!(target:"cold_store", "Not spawning cold store because TrieChanges are not saved");
@@ -347,7 +348,7 @@ pub fn spawn_cold_store_loop(
                 cold_store,
                 cold_db,
                 genesis_height,
-                runtime,
+                epoch_manager.as_ref(),
             )
         })?;
 

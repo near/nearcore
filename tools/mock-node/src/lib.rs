@@ -461,7 +461,7 @@ fn retrieve_partial_encoded_chunk(
     chain: &Chain,
     request: &PartialEncodedChunkRequestMsg,
 ) -> Result<PartialEncodedChunkResponseMsg, Error> {
-    let num_total_parts = chain.runtime_adapter.num_total_parts();
+    let num_total_parts = chain.epoch_manager.num_total_parts();
     let partial_chunk = chain.store().get_partial_chunk(&request.chunk_hash)?;
     let present_parts: HashMap<u64, _> =
         partial_chunk.parts().iter().map(|part| (part.part_ord, part)).collect();

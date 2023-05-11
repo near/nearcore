@@ -280,12 +280,6 @@ impl TrieCache {
     pub(crate) fn lock(&self) -> std::sync::MutexGuard<TrieCacheInner> {
         self.0.lock().expect(POISONED_LOCK_ERR)
     }
-
-    #[cfg(test)]
-    pub(crate) fn len(&self) -> usize {
-        let guard = self.lock();
-        guard.len()
-    }
 }
 
 pub trait TrieStorage {
@@ -296,6 +290,9 @@ pub trait TrieStorage {
     /// [`StorageError`] if the storage fails internally or the hash is not present.
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError>;
 
+    /// DEPRECATED.
+    /// Returns `TrieCachingStorage` if `TrieStorage` is implemented by it.
+    /// TODO (#9004) remove all remaining calls.
     fn as_caching_storage(&self) -> Option<&TrieCachingStorage> {
         None
     }

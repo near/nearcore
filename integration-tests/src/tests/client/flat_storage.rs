@@ -1,6 +1,6 @@
 /// Tests which check correctness of background flat storage creation.
 use assert_matches::assert_matches;
-use near_chain::{ChainGenesis, Provenance, RuntimeWithEpochManagerAdapter};
+use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_o11y::testonly::init_test_logger;
@@ -15,11 +15,11 @@ use near_store::flat::{
 use near_store::test_utils::create_test_store;
 use near_store::{KeyLookupMode, Store, TrieTraversalItem};
 use nearcore::config::GenesisExt;
-use std::path::Path;
 use std::str::FromStr;
-use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
+
+use super::utils::TestEnvNightshadeSetupExt;
 
 /// Height on which we start flat storage background creation.
 const START_HEIGHT: BlockHeight = 4;
@@ -30,9 +30,11 @@ const CREATION_TIMEOUT: BlockHeight = 30;
 /// Setup environment with one Near client for testing.
 fn setup_env(genesis: &Genesis, store: Store) -> TestEnv {
     let chain_genesis = ChainGenesis::new(genesis);
-    let runtimes: Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> =
-        vec![nearcore::NightshadeRuntime::test(Path::new("../../../.."), store, genesis)];
-    TestEnv::builder(chain_genesis).runtime_adapters(runtimes).build()
+    TestEnv::builder(chain_genesis)
+        .stores(vec![store])
+        .real_epoch_managers(&genesis.config)
+        .nightshade_runtimes(genesis)
+        .build()
 }
 
 /// Waits for flat storage creation on given shard for `CREATION_TIMEOUT` blocks.
@@ -158,7 +160,7 @@ fn test_flat_storage_creation_sanity() {
         }
 
         let block_hash = env.clients[0].chain.get_block_hash_by_height(START_HEIGHT - 1).unwrap();
-        let epoch_id = env.clients[0].chain.runtime_adapter.get_epoch_id(&block_hash).unwrap();
+        let epoch_id = env.clients[0].chain.epoch_manager.get_epoch_id(&block_hash).unwrap();
         env.clients[0]
             .chain
             .runtime_adapter
@@ -246,7 +248,7 @@ fn test_flat_storage_creation_two_shards() {
         }
 
         let block_hash = env.clients[0].chain.get_block_hash_by_height(START_HEIGHT - 1).unwrap();
-        let epoch_id = env.clients[0].chain.runtime_adapter.get_epoch_id(&block_hash).unwrap();
+        let epoch_id = env.clients[0].chain.epoch_manager.get_epoch_id(&block_hash).unwrap();
         env.clients[0]
             .chain
             .runtime_adapter
@@ -392,7 +394,7 @@ fn test_catchup_succeeds_even_if_no_new_blocks() {
         }
         // Remove flat storage.
         let block_hash = env.clients[0].chain.get_block_hash_by_height(START_HEIGHT - 1).unwrap();
-        let epoch_id = env.clients[0].chain.runtime_adapter.get_epoch_id(&block_hash).unwrap();
+        let epoch_id = env.clients[0].chain.epoch_manager.get_epoch_id(&block_hash).unwrap();
         env.clients[0]
             .chain
             .runtime_adapter

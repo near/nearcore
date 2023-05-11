@@ -431,10 +431,8 @@ mod test {
     use near_client::test_utils::TestEnv;
     use near_client::ProcessTxResponse;
     use near_crypto::{InMemorySigner, KeyType};
-    use near_epoch_manager::shard_tracker::TrackedConfig;
     use near_epoch_manager::{EpochManager, EpochManagerAdapter};
     use near_primitives::hash::CryptoHash;
-    use near_primitives::runtime::config_store::RuntimeConfigStore;
     use near_primitives::shard_layout;
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::utils::get_num_seats_per_shard;
@@ -476,16 +474,9 @@ mod test {
 
         let store = create_test_store();
         let mut chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height, false);
-        let epoch_manager = EpochManager::new_from_genesis_config(store.clone(), &genesis.config)
-            .unwrap()
-            .into_handle();
-        let runtime = NightshadeRuntime::test_with_runtime_config_store(
-            Path::new("."),
-            store,
-            &genesis,
-            TrackedConfig::AllShards,
-            RuntimeConfigStore::test(),
-        );
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let runtime =
+            NightshadeRuntime::test(Path::new("."), store.clone(), &genesis, epoch_manager.clone());
         let chain_genesis = ChainGenesis::test();
 
         let signers = (0..4)
@@ -495,8 +486,12 @@ mod test {
             })
             .collect::<Vec<_>>();
 
-        let mut env =
-            TestEnv::builder(chain_genesis).runtime_adapters(vec![runtime.clone()]).build();
+        let mut env = TestEnv::builder(chain_genesis)
+            .stores(vec![store])
+            .epoch_managers(vec![epoch_manager.clone()])
+            .track_all_shards()
+            .runtimes(vec![runtime.clone()])
+            .build();
         let genesis_hash = *env.clients[0].chain.genesis().hash();
 
         for height in 1..10 {
@@ -512,7 +507,7 @@ mod test {
 
             let new_roots = (0..4)
                 .map(|i| {
-                    let shard_uid = runtime.shard_id_to_uid(i, &epoch_id).unwrap();
+                    let shard_uid = epoch_manager.shard_id_to_uid(i, &epoch_id).unwrap();
                     *chain_store.get_chunk_extra(&hash, &shard_uid).unwrap().state_root()
                 })
                 .collect::<Vec<_>>();
@@ -528,7 +523,7 @@ mod test {
                     let new_root = new_roots[shard];
 
                     let (apply_result, _) = crate::apply_chunk::apply_chunk(
-                        &epoch_manager,
+                        epoch_manager.as_ref(),
                         runtime.as_ref(),
                         &mut chain_store,
                         chunk_hash.clone(),
@@ -557,16 +552,9 @@ mod test {
 
         let store = create_test_store();
         let chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height, false);
-        let epoch_manager = EpochManager::new_from_genesis_config(store.clone(), &genesis.config)
-            .unwrap()
-            .into_handle();
-        let runtime = NightshadeRuntime::test_with_runtime_config_store(
-            Path::new("."),
-            store.clone(),
-            &genesis,
-            TrackedConfig::AllShards,
-            RuntimeConfigStore::test(),
-        );
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let runtime =
+            NightshadeRuntime::test(Path::new("."), store.clone(), &genesis, epoch_manager.clone());
         let mut chain_genesis = ChainGenesis::test();
         // receipts get delayed with the small ChainGenesis::test() limit
         chain_genesis.gas_limit = genesis.config.gas_limit;
@@ -578,8 +566,12 @@ mod test {
             })
             .collect::<Vec<_>>();
 
-        let mut env =
-            TestEnv::builder(chain_genesis).runtime_adapters(vec![runtime.clone()]).build();
+        let mut env = TestEnv::builder(chain_genesis)
+            .stores(vec![store.clone()])
+            .epoch_managers(vec![epoch_manager.clone()])
+            .track_all_shards()
+            .runtimes(vec![runtime.clone()])
+            .build();
         let genesis_hash = *env.clients[0].chain.genesis().hash();
 
         // first check that applying txs and receipts works when the block exists
@@ -598,11 +590,11 @@ mod test {
 
             let new_roots = (0..4)
                 .map(|i| {
-                    let shard_uid = runtime.shard_id_to_uid(i, &epoch_id).unwrap();
+                    let shard_uid = epoch_manager.shard_id_to_uid(i, &epoch_id).unwrap();
                     *chain_store.get_chunk_extra(&hash, &shard_uid).unwrap().state_root()
                 })
                 .collect::<Vec<_>>();
-            let shard_layout = runtime.get_shard_layout_from_prev_block(&prev_hash).unwrap();
+            let shard_layout = epoch_manager.get_shard_layout_from_prev_block(&prev_hash).unwrap();
 
             if height >= 2 {
                 for shard_id in 0..4 {
