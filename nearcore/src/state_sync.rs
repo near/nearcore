@@ -507,7 +507,7 @@ async fn state_sync_dump_multi_node(
 
                         match missing_parts {
                             Err(err) => {
-                                tracing::debug!(target: "state_sync_dump", shard_id, ?err, "list parts error");
+                                tracing::debug!(target: "state_sync_dump", shard_id, ?err, "get_missing_state_parts_for_epoch error");
                                 Err(Error::Other(format!(
                                     "get_missing_state_parts_for_epoch failed"
                                 )))
