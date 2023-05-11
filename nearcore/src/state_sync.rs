@@ -435,7 +435,7 @@ async fn get_missing_state_parts_for_epoch(
 }
 
 // select a part_id and remove it from parts_to_be_dumped so that we draw without replacement
-fn select_random_part_to_dump(parts_to_be_dumped: &mut Vec<u64>) -> u64 {
+fn draw_part_id_without_replacement(parts_to_be_dumped: &mut Vec<u64>) -> u64 {
     let mut rng = thread_rng();
     let selected_idx = rng.gen_range(0..parts_to_be_dumped.len());
     let selected_element = parts_to_be_dumped[selected_idx];
@@ -522,12 +522,13 @@ async fn state_sync_dump_multi_node(
                             Ok(parts_not_dumped) => {
                                 let mut parts_to_dump = parts_not_dumped.clone();
                                 let timer = Instant::now();
-                                while timer.elapsed().as_secs() <= 60 {
+                                while timer.elapsed().as_secs() <= 60 && parts_to_dump.len() > 0 {
                                     let _timer = metrics::STATE_SYNC_DUMP_ITERATION_ELAPSED
                                         .with_label_values(&[&shard_id.to_string()])
                                         .start_timer();
 
-                                    let part_id = select_random_part_to_dump(&mut parts_to_dump);
+                                    let part_id =
+                                        draw_part_id_without_replacement(&mut parts_to_dump);
 
                                     let state_part = match obtain_and_store_state_part(
                                         &runtime,
@@ -567,14 +568,21 @@ async fn state_sync_dump_multi_node(
                                         break;
                                     }
                                 }
-                                // record the same state.
-                                // if all parts in s3 are actually already dumped, the node will figure out in next loop and update progress
-                                Ok(Some(StateSyncDumpProgress::InProgress {
-                                    epoch_id,
-                                    epoch_height,
-                                    sync_hash,
-                                    parts_dumped,
-                                }))
+
+                                if parts_to_dump.len() == 0 {
+                                    Ok(Some(StateSyncDumpProgress::AllDumped {
+                                        epoch_id,
+                                        epoch_height,
+                                        num_parts: Some(num_parts),
+                                    }))
+                                } else {
+                                    Ok(Some(StateSyncDumpProgress::InProgress {
+                                        epoch_id,
+                                        epoch_height,
+                                        sync_hash,
+                                        parts_dumped,
+                                    }))
+                                }
                             }
                         }
                     }
@@ -791,10 +799,7 @@ mod tests {
     use std::ops::ControlFlow;
     use std::time::Duration;
 
-    #[test]
-    /// Produce several blocks, wait for the state dump thread to notice and
-    /// write files to a temp dir.
-    fn test_state_dump_single_node() {
+    fn test_state_dump(multi_node: bool) {
         init_test_logger();
 
         let mut chain_genesis = ChainGenesis::test();
@@ -921,14 +926,24 @@ mod tests {
                 for shard_id in 0..num_shards {
                     let num_parts = 3;
                     for part_id in 0..num_parts {
-                        let path = root_dir.path().join(external_storage_location_multi_node(
-                            "unittest",
-                            &epoch_id,
-                            epoch_height,
-                            shard_id,
-                            part_id,
-                            num_parts,
-                        ));
+                        let path = if multi_node {
+                            root_dir.path().join(external_storage_location_multi_node(
+                                "unittest",
+                                &epoch_id,
+                                epoch_height,
+                                shard_id,
+                                part_id,
+                                num_parts,
+                            ))
+                        } else {
+                            root_dir.path().join(external_storage_location(
+                                "unittest",
+                                epoch_height,
+                                shard_id,
+                                part_id,
+                                num_parts,
+                            ))
+                        };
                         if std::fs::read(&path).is_err() {
                             println!("Missing {:?}", path);
                             all_parts_present = false;
@@ -945,5 +960,19 @@ mod tests {
             .unwrap();
             actix_rt::System::current().stop();
         });
+    }
+
+    #[test]
+    /// Produce several blocks, wait for the state dump thread to notice and
+    /// write files to a temp dir.
+    fn test_state_dump_single_node() {
+        test_state_dump(false)
+    }
+
+    #[test]
+    /// Produce several blocks, wait for the state dump thread to notice and
+    /// write files to a temp dir.
+    fn test_state_dump_multi_node() {
+        test_state_dump(true)
     }
 }
