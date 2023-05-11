@@ -289,8 +289,6 @@ structures.</p>
 <p>This crate contains most of the chain logic (consensus, block processing, etc).
 <code>ChainUpdate::process_block</code> is where most of the block processing logic
 happens.</p>
-<p><strong>Architecture Invariant:</strong> interface between chain and runtime is defined by
-<code>RuntimeWithEpochManagerAdapter</code>. All invocations of runtime go through <code>RuntimeWithEpochManagerAdapter</code></p>
 <p><strong>State update</strong></p>
 <p>The blockchain state of a node can be changed in the following two ways:</p>
 <ul>
@@ -374,8 +372,8 @@ contracts on NEAR.</p>
 <h3 id="neard"><a class="header" href="#neard"><code>neard</code></a></h3>
 <p>As mentioned before, <code>neard</code> is the crate that contains that main entry points.
 All the actors are spawned in <code>start_with_config</code>. It is also worth noting that
-<code>NightshadeRuntime</code> is the struct that implements <code>RuntimeWithEpochManagerAdapter</code>.</p>
-<!-- TODO: Maybe add RuntimeWithEpochManagerAdapter mention or explanation in runtime/runtime chapter? -->
+<code>NightshadeRuntime</code> is the struct that implements <code>RuntimeAdapter</code>.</p>
+<!-- TODO: Maybe add RuntimeAdapter mention or explanation in runtime/runtime chapter? -->
 <h3 id="corestoresrcdbrs"><a class="header" href="#corestoresrcdbrs"><code>core/store/src/db.rs</code></a></h3>
 <p>This file contains the schema (DBCol) of our internal RocksDB storage - a good
 starting point when reading the code base.</p>
@@ -4907,7 +4905,7 @@ first one has some tests still scheduled to run.</p>
 <p>Different levels of the reference implementation have different infrastructures
 available to test them.</p>
 <h2 id="client"><a class="header" href="#client">Client</a></h2>
-<p>The Client is separated from the runtime via a <code>RuntimeWithEpochManagerAdapter</code> trait.
+<p>The Client is separated from the runtime via a <code>RuntimeAdapter</code> trait.
 In production, it uses <code>NightshadeRuntime</code> which uses real runtime and epoch managers.
 To test the client without instantiating runtime and epoch manager, we have a mock runtime
 <code>KeyValueRuntime</code>.</p>
@@ -5242,15 +5240,16 @@ to use the seed that is matching the account name.</p>
 </span>let store = create_test_store();
 <span class="boring">}
 </span></code></pre></pre>
+<h2 id="epochmanager"><a class="header" href="#epochmanager">EpochManager</a></h2>
+<p>See usages of MockEpochManager. Note that this is deprecated. Try to use
+EpochManager itself wherever possible.</p>
 <h2 id="runtime-1"><a class="header" href="#runtime-1">Runtime</a></h2>
 <p>You can use the KeyValueRuntime (instead of the Nightshade one):</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>KeyValueRuntime::new(store, epoch_length);
+</span>KeyValueRuntime::new(store, &amp;epoch_manager);
 <span class="boring">}
 </span></code></pre></pre>
-<h2 id="epochmanager"><a class="header" href="#epochmanager">EpochManager</a></h2>
-<p>Currently still embedded into Runtime - see above to use the KeyValueRuntime</p>
 <h2 id="chain"><a class="header" href="#chain">Chain</a></h2>
 <p>No fakes or mocks.</p>
 <h3 id="chain-genesis"><a class="header" href="#chain-genesis">Chain genesis</a></h3>
@@ -5264,7 +5263,7 @@ to use the seed that is matching the account name.</p>
 <p>TestEnv - for testing multiple clients (without network):</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>TestEnvBuilder::new(genesis).client(vec![&quot;aa&quot;]).validators(..).runtime_adapters(..).build();
+</span>TestEnvBuilder::new(genesis).client(vec![&quot;aa&quot;]).validators(..).epoch_managers(..).build();
 <span class="boring">}
 </span></code></pre></pre>
 <h2 id="network-1"><a class="header" href="#network-1">Network</a></h2>

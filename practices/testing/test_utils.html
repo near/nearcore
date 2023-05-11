@@ -181,15 +181,16 @@ to use the seed that is matching the account name.</p>
 </span>let store = create_test_store();
 <span class="boring">}
 </span></code></pre></pre>
+<h2 id="epochmanager"><a class="header" href="#epochmanager">EpochManager</a></h2>
+<p>See usages of MockEpochManager. Note that this is deprecated. Try to use
+EpochManager itself wherever possible.</p>
 <h2 id="runtime"><a class="header" href="#runtime">Runtime</a></h2>
 <p>You can use the KeyValueRuntime (instead of the Nightshade one):</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>KeyValueRuntime::new(store, epoch_length);
+</span>KeyValueRuntime::new(store, &amp;epoch_manager);
 <span class="boring">}
 </span></code></pre></pre>
-<h2 id="epochmanager"><a class="header" href="#epochmanager">EpochManager</a></h2>
-<p>Currently still embedded into Runtime - see above to use the KeyValueRuntime</p>
 <h2 id="chain"><a class="header" href="#chain">Chain</a></h2>
 <p>No fakes or mocks.</p>
 <h3 id="chain-genesis"><a class="header" href="#chain-genesis">Chain genesis</a></h3>
@@ -203,7 +204,7 @@ to use the seed that is matching the account name.</p>
 <p>TestEnv - for testing multiple clients (without network):</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>TestEnvBuilder::new(genesis).client(vec![&quot;aa&quot;]).validators(..).runtime_adapters(..).build();
+</span>TestEnvBuilder::new(genesis).client(vec![&quot;aa&quot;]).validators(..).epoch_managers(..).build();
 <span class="boring">}
 </span></code></pre></pre>
 <h2 id="network"><a class="header" href="#network">Network</a></h2>
