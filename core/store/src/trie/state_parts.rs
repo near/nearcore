@@ -3,13 +3,13 @@
 //! Needed when a node wants to download state from scratch. Single shard state size
 //! is on the order of GBs, and state part size is expected to be on the order of MBs.
 //!
-//! State partition is defined using DFS traversal of trie. All parts are disjoint
+//! State partition is defined using DFS traversal of trie. All parts are disjoint and
 //! contiguous in this order. Left boundary of i-th part is determined by computing
 //! prefix sums of memory usages of nodes.
-//! More precisely, we compute `(total_size + num_parts - 1) / num_parts * part_id`
-//! which serves as a threshold for single part size.
-//! Then i-th boundary is a first node which corresponds to some key-value pair and
-//! prefix memory usage for it is greater than a threshold.
+//! A bit more precisely - memory usage threshold for i-th part is approximately
+//! `total_size / num_parts * part_id`. The boundary itself is a first node which
+//! corresponds to some key-value pair and prefix memory usage for it is greater
+//! than a threshold.
 //!
 //! We include paths from root to both boundaries in state parts, because they are
 //! necessary for receiver to prove existence of all nodes knowing just a state root.
@@ -59,7 +59,9 @@ impl Trie {
         part_id: u64,
         num_parts: u64,
     ) -> Result<Vec<u8>, StorageError> {
-        assert!(part_id <= num_parts);
+        if part_id > num_parts {
+            return Err(StorageError::StorageInternalError);
+        }
         if part_id == 0 {
             return Ok(vec![]);
         }
