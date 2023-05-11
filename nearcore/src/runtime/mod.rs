@@ -695,6 +695,7 @@ impl NightshadeRuntime {
         hot_store_path: &Path,
         state_snapshot_subdir: &Path,
     ) {
+        let _timer = metrics::DELETE_STATE_SNAPSHOT_ELAPSED.start_timer();
         let path = get_state_snapshot_base_dir(
             last_block_hash,
             prev_block_hash,
@@ -1409,7 +1410,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         part_id: PartId,
     ) -> Result<Vec<u8>, Error> {
         let _span = tracing::debug_span!(
-            target: "runtime",
+            target: "state_snapshot",
             "obtain_state_part_from_snapshot",
             part_id = part_id.idx,
             shard_id,
@@ -1426,11 +1427,11 @@ impl RuntimeAdapter for NightshadeRuntime {
         let (store, flat_storage_manager, prev_block_hash) = {
             let lock = self.state_snapshot.lock().unwrap();
             if lock.is_none() {
-                tracing::debug!(target: "runtime", "obtain_state_part_from_snapshot no snapshot");
+                tracing::debug!(target: "state_snapshot", "obtain_state_part_from_snapshot no snapshot");
                 return Err(Error::Other("No state snapshot available".to_string()));
             }
             let data = lock.as_ref().unwrap();
-            tracing::debug!(target: "runtime", snapshot_last_block_hash = ?data.last_block_hash, snapshot_prev_block_hash = ?data.prev_block_hash, "obtain_state_part_from_snapshot");
+            tracing::debug!(target: "state_snapshot", snapshot_last_block_hash = ?data.last_block_hash, snapshot_prev_block_hash = ?data.prev_block_hash, "obtain_state_part_from_snapshot");
             (data.store.clone(), data.flat_storage_manager.clone(), data.prev_block_hash)
         };
 
@@ -1445,7 +1446,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let result = match trie.get_trie_nodes_for_part(part_id) {
             Ok(partial_state) => partial_state,
             Err(e) => {
-                tracing::error!(target: "runtime",
+                tracing::error!(target: "state_snapshot",
                        "Can't get_trie_nodes_for_part for block {:?} state root {:?}, part_id {:?}, num_parts {:?}, {:?}",
                        block_hash, state_root, part_id.idx, part_id.total, e
                 );
@@ -1649,7 +1650,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         last_block_height: BlockHeight,
         prev_block_hash: &CryptoHash,
     ) -> Result<(), Error> {
-        let _span = tracing::info_span!(target: "runtime", "make_state_snapshot", ?last_block_hash)
+        let _span = tracing::info_span!(target: "state_snapshot", "make_state_snapshot", ?last_block_hash)
             .entered();
         tracing::info!(target: "state_snapshot", ?last_block_hash, ?last_block_height, ?prev_block_hash, "make_state_snapshot");
         let _timer = metrics::MAKE_STATE_SNAPSHOT_ELAPSED.start_timer();
@@ -1669,7 +1670,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
                 if let Some(state_snapshot) = &*state_snapshot_lock {
                     if &state_snapshot.last_block_hash == last_block_hash {
-                        tracing::warn!(target: "runtime", ?last_block_hash, "Requested a state snapshot but that is already available");
+                        tracing::warn!(target: "state_snapshot", ?last_block_hash, "Requested a state snapshot but that is already available");
                         return Ok(());
                     } else {
                         self.delete_state_snapshot(

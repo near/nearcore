@@ -2034,7 +2034,7 @@ impl Chain {
 
         if block_preprocess_info.need_state_snapshot {
             if let Err(err) = self.make_state_snapshot() {
-                tracing::error!(target: "chain", ?err, "Failed to make a state snapshot before starting a new epoch");
+                tracing::error!(target: "state_snapshot", ?err, "Failed to make a state snapshot before starting a new epoch");
             }
         }
 
