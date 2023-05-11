@@ -23,6 +23,7 @@ pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::Write;
+use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 use std::str;
 
@@ -353,6 +354,12 @@ impl TrieRefcountChange {
     }
 }
 
+impl Hash for TrieRefcountChange {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write(&self.trie_node_or_value_hash.0);
+        state.write_u32(self.rc.into());
+    }
+}
 ///
 /// TrieChanges stores delta for refcount.
 /// Multiple versions of the state work the following way:

@@ -143,7 +143,9 @@ impl<'a> TrieIterator<'a> {
                 TrieNode::Empty => break,
                 TrieNode::Leaf(leaf_key, _) => {
                     let existing_key = NibbleSlice::from_encoded(leaf_key).0;
+                    println!("see leaf {:?} {:?}", leaf_key, existing_key);
                     if !check_ext_key(&key, &existing_key) {
+                        println!("yes");
                         self.key_nibbles.extend(existing_key.iter());
                         *status = CrumbStatus::Exiting;
                     }
@@ -356,6 +358,9 @@ impl<'a> TrieIterator<'a> {
                 }
                 IterStep::Continue => {}
                 IterStep::Value(hash) => {
+                    if self.key_nibbles[prefix..] >= path_end[prefix..] {
+                        break;
+                    }
                     self.trie.storage.retrieve_raw_bytes(&hash)?;
                     nodes_list.push(TrieTraversalItem {
                         hash,
@@ -368,6 +373,7 @@ impl<'a> TrieIterator<'a> {
     }
 }
 
+#[derive(Debug)]
 enum IterStep {
     Continue,
     PopTrail,
