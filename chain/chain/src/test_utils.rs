@@ -5,6 +5,7 @@ use std::cmp::Ordering;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::test_utils::create_test_signer;
 use num_rational::Ratio;
 use tracing::debug;
@@ -33,6 +34,7 @@ use near_primitives::utils::MaybeValidated;
 
 pub use self::kv_runtime::account_id_to_shard_id;
 pub use self::kv_runtime::KeyValueRuntime;
+pub use self::kv_runtime::MockEpochManager;
 
 pub use self::validator_schedule::ValidatorSchedule;
 
@@ -79,17 +81,22 @@ pub fn process_block_sync(
 }
 
 // TODO(#8190) Improve this testing API.
-pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {
+pub fn setup() -> (Chain, Arc<MockEpochManager>, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>)
+{
     setup_with_tx_validity_period(100)
 }
 
 pub fn setup_with_tx_validity_period(
     tx_validity_period: NumBlocks,
-) -> (Chain, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {
+) -> (Chain, Arc<MockEpochManager>, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {
     let store = create_test_store();
     let epoch_length = 1000;
-    let runtime = KeyValueRuntime::new(store, epoch_length);
+    let epoch_manager = MockEpochManager::new(store.clone(), epoch_length);
+    let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
+    let runtime = KeyValueRuntime::new(store, epoch_manager.as_ref());
     let chain = Chain::new(
+        epoch_manager.clone(),
+        shard_tracker,
         runtime.clone(),
         &ChainGenesis {
             time: StaticClock::utc(),
@@ -109,19 +116,23 @@ pub fn setup_with_tx_validity_period(
     .unwrap();
 
     let signer = Arc::new(create_test_signer("test"));
-    (chain, runtime, signer)
+    (chain, epoch_manager, runtime, signer)
 }
 
 pub fn setup_with_validators(
     vs: ValidatorSchedule,
     epoch_length: u64,
     tx_validity_period: NumBlocks,
-) -> (Chain, Arc<KeyValueRuntime>, Vec<Arc<InMemoryValidatorSigner>>) {
+) -> (Chain, Arc<MockEpochManager>, Arc<KeyValueRuntime>, Vec<Arc<InMemoryValidatorSigner>>) {
     let store = create_test_store();
     let signers =
         vs.all_block_producers().map(|x| Arc::new(create_test_signer(x.as_str()))).collect();
-    let runtime = KeyValueRuntime::new_with_validators(store, vs, epoch_length);
+    let epoch_manager = MockEpochManager::new_with_validators(store.clone(), vs, epoch_length);
+    let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
+    let runtime = KeyValueRuntime::new(store, epoch_manager.as_ref());
     let chain = Chain::new(
+        epoch_manager.clone(),
+        shard_tracker,
         runtime.clone(),
         &ChainGenesis {
             time: StaticClock::utc(),
@@ -139,7 +150,7 @@ pub fn setup_with_validators(
         ChainConfig::test(),
     )
     .unwrap();
-    (chain, runtime, signers)
+    (chain, epoch_manager, runtime, signers)
 }
 
 pub fn setup_with_validators_and_start_time(
@@ -147,12 +158,16 @@ pub fn setup_with_validators_and_start_time(
     epoch_length: u64,
     tx_validity_period: NumBlocks,
     start_time: DateTime<Utc>,
-) -> (Chain, Arc<KeyValueRuntime>, Vec<Arc<InMemoryValidatorSigner>>) {
+) -> (Chain, Arc<MockEpochManager>, Arc<KeyValueRuntime>, Vec<Arc<InMemoryValidatorSigner>>) {
     let store = create_test_store();
     let signers =
         vs.all_block_producers().map(|x| Arc::new(create_test_signer(x.as_str()))).collect();
-    let runtime = KeyValueRuntime::new_with_validators(store, vs, epoch_length);
+    let epoch_manager = MockEpochManager::new_with_validators(store.clone(), vs, epoch_length);
+    let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
+    let runtime = KeyValueRuntime::new(store, epoch_manager.as_ref());
     let chain = Chain::new(
+        epoch_manager.clone(),
+        shard_tracker,
         runtime.clone(),
         &ChainGenesis {
             time: start_time,
@@ -170,7 +185,7 @@ pub fn setup_with_validators_and_start_time(
         ChainConfig::test(),
     )
     .unwrap();
-    (chain, runtime, signers)
+    (chain, epoch_manager, runtime, signers)
 }
 
 pub fn format_hash(hash: CryptoHash) -> String {
@@ -181,7 +196,7 @@ pub fn format_hash(hash: CryptoHash) -> String {
 
 /// Displays chain from given store.
 pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
-    let runtime_adapter = chain.runtime_adapter();
+    let epoch_manager = chain.epoch_manager.clone();
     let chain_store = chain.mut_store();
     let head = chain_store.head().unwrap();
     debug!(
@@ -215,10 +230,9 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
         } else {
             let parent_header = chain_store.get_block_header(header.prev_hash()).unwrap().clone();
             let maybe_block = chain_store.get_block(header.hash()).ok();
-            let epoch_id =
-                runtime_adapter.get_epoch_id_from_prev_block(header.prev_hash()).unwrap();
+            let epoch_id = epoch_manager.get_epoch_id_from_prev_block(header.prev_hash()).unwrap();
             let block_producer =
-                runtime_adapter.get_block_producer(&epoch_id, header.height()).unwrap();
+                epoch_manager.get_block_producer(&epoch_id, header.height()).unwrap();
             debug!(
                 "{: >3} {} | {: >10} | parent: {: >3} {} | {}",
                 header.height(),
@@ -234,7 +248,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
             );
             if let Some(block) = maybe_block {
                 for chunk_header in block.chunks().iter() {
-                    let chunk_producer = runtime_adapter
+                    let chunk_producer = epoch_manager
                         .get_chunk_producer(
                             &epoch_id,
                             chunk_header.height_created(),

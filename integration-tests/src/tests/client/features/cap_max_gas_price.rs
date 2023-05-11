@@ -12,7 +12,7 @@ fn does_gas_price_exceed_limit(protocol_version: ProtocolVersion) -> bool {
         env.produce_block(0, i);
         let block = env.clients[0].chain.get_block_by_height(i).unwrap().clone();
         let protocol_version = env.clients[0]
-            .runtime_adapter
+            .epoch_manager
             .get_epoch_protocol_version(block.header().epoch_id())
             .unwrap();
         let min_gas_price =

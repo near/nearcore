@@ -2,7 +2,9 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain::types::{ChainConfig, Tip};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::GenesisValidationMode;
+use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::types::EpochInfoAggregator;
+use near_epoch_manager::EpochManager;
 use near_primitives::block::Block;
 use near_primitives::block_header::BlockHeader;
 use near_primitives::epoch_manager::block_info::BlockInfo;
@@ -226,9 +228,15 @@ fn load_snapshot(load_cmd: LoadCmd) {
         .unwrap()
         .get_hot_store();
     let chain_genesis = ChainGenesis::new(&config.genesis);
-    let runtime = NightshadeRuntime::from_config(home_dir, store.clone(), &config);
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &config.genesis.config);
+    let shard_tracker =
+        ShardTracker::new(TrackedConfig::from_config(&config.client_config), epoch_manager.clone());
+    let runtime =
+        NightshadeRuntime::from_config(home_dir, store.clone(), &config, epoch_manager.clone());
     // This will initialize the database (add genesis block etc)
     let _chain = Chain::new(
+        epoch_manager,
+        shard_tracker,
         runtime,
         &chain_genesis,
         DoomslugThresholdMode::TwoThirds,

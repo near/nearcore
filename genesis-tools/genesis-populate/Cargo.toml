@@ -14,6 +14,7 @@ tempfile.workspace = true
 nearcore.workspace = true
 near-chain-configs.workspace = true
 near-crypto.workspace = true
+near-epoch-manager.workspace = true
 near-primitives.workspace = true
 near-store.workspace = true
 near-chain.workspace = true

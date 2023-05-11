@@ -4,6 +4,8 @@ use std::time::{Duration, Instant};
 
 use borsh::BorshDeserialize;
 use enum_map::Enum;
+use near_epoch_manager::shard_tracker::ShardTracker;
+use near_epoch_manager::EpochManagerAdapter;
 use strum::IntoEnumIterator;
 use tracing::warn;
 
@@ -24,7 +26,7 @@ use near_store::db::refcount;
 use near_store::{DBCol, Store, TrieChanges};
 use validate::StoreValidatorError;
 
-use crate::RuntimeWithEpochManagerAdapter;
+use crate::types::RuntimeAdapter;
 use near_primitives::shard_layout::get_block_shard_uid_rev;
 use near_primitives::static_clock::StaticClock;
 
@@ -69,7 +71,9 @@ pub struct ErrorMessage {
 pub struct StoreValidator {
     me: Option<AccountId>,
     config: GenesisConfig,
-    runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
+    epoch_manager: Arc<dyn EpochManagerAdapter>,
+    shard_tracker: ShardTracker,
+    runtime: Arc<dyn RuntimeAdapter>,
     store: Store,
     inner: StoreValidatorCache,
     timeout: Option<u64>,
@@ -84,14 +88,18 @@ impl StoreValidator {
     pub fn new(
         me: Option<AccountId>,
         config: GenesisConfig,
-        runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
+        epoch_manager: Arc<dyn EpochManagerAdapter>,
+        shard_tracker: ShardTracker,
+        runtime: Arc<dyn RuntimeAdapter>,
         store: Store,
         is_archival: bool,
     ) -> Self {
         StoreValidator {
             me,
             config,
-            runtime_adapter,
+            epoch_manager,
+            shard_tracker,
+            runtime,
             store: store,
             inner: StoreValidatorCache::new(),
             timeout: None,
@@ -379,7 +387,7 @@ impl StoreValidator {
 mod tests {
     use near_store::test_utils::create_test_store;
 
-    use crate::test_utils::KeyValueRuntime;
+    use crate::test_utils::{KeyValueRuntime, MockEpochManager};
     use crate::types::ChainConfig;
     use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 
@@ -388,17 +396,24 @@ mod tests {
     fn init() -> (Chain, StoreValidator) {
         let store = create_test_store();
         let chain_genesis = ChainGenesis::test();
-        let runtime_adapter = KeyValueRuntime::new(store.clone(), chain_genesis.epoch_length);
+        let epoch_manager = MockEpochManager::new(store.clone(), chain_genesis.epoch_length);
+        let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
+        let runtime = KeyValueRuntime::new(store.clone(), epoch_manager.as_ref());
         let mut genesis = GenesisConfig::default();
         genesis.genesis_height = 0;
         let chain = Chain::new(
-            runtime_adapter.clone(),
+            epoch_manager.clone(),
+            shard_tracker.clone(),
+            runtime.clone(),
             &chain_genesis,
             DoomslugThresholdMode::NoApprovals,
             ChainConfig::test(),
         )
         .unwrap();
-        (chain, StoreValidator::new(None, genesis, runtime_adapter, store, false))
+        (
+            chain,
+            StoreValidator::new(None, genesis, epoch_manager, shard_tracker, runtime, store, false),
+        )
     }
 
     #[test]

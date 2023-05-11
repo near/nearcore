@@ -1,4 +1,5 @@
 use chrono::DateTime;
+use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::{Block, Tip};
 use near_primitives::borsh::maybestd::collections::hash_map::Entry;
 use near_primitives::hash::CryptoHash;
@@ -14,7 +15,7 @@ use std::mem;
 use std::time::Instant;
 use tracing::error;
 
-use crate::{metrics, Chain, ChainStoreAccess, RuntimeWithEpochManagerAdapter};
+use crate::{metrics, Chain, ChainStoreAccess};
 
 const BLOCK_DELAY_TRACKING_COUNT: u64 = 50;
 
@@ -92,7 +93,7 @@ impl ChunkTrackingStats {
     fn to_chunk_processing_info(
         &self,
         chunk_hash: ChunkHash,
-        runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
+        epoch_manager: &dyn EpochManagerAdapter,
     ) -> ChunkProcessingInfo {
         let status = if self.completed_timestamp.is_some() {
             ChunkProcessingStatus::Completed
@@ -101,10 +102,10 @@ impl ChunkTrackingStats {
         } else {
             ChunkProcessingStatus::NeedToRequest
         };
-        let created_by = runtime_adapter
+        let created_by = epoch_manager
             .get_epoch_id_from_prev_block(&self.prev_block_hash)
             .and_then(|epoch_id| {
-                runtime_adapter.get_chunk_producer(&epoch_id, self.height_created, self.shard_id)
+                epoch_manager.get_chunk_producer(&epoch_id, self.height_created, self.shard_id)
             })
             .ok();
         let request_duration = if let Some(requested_timestamp) = self.requested_timestamp {
@@ -353,7 +354,7 @@ impl BlocksDelayTracker {
         block_height: BlockHeight,
         block_hash: &CryptoHash,
         chain: &Chain,
-        runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
+        epoch_manager: &dyn EpochManagerAdapter,
     ) -> Option<BlockProcessingInfo> {
         self.blocks.get(block_hash).map(|block_stats| {
             let chunks_info: Vec<_> = block_stats
@@ -361,9 +362,9 @@ impl BlocksDelayTracker {
                 .iter()
                 .map(|chunk_hash| {
                     if let Some(chunk_hash) = chunk_hash {
-                        self.chunks.get(chunk_hash).map(|x| {
-                            x.to_chunk_processing_info(chunk_hash.clone(), runtime_adapter)
-                        })
+                        self.chunks
+                            .get(chunk_hash)
+                            .map(|x| x.to_chunk_processing_info(chunk_hash.clone(), epoch_manager))
                     } else {
                         None
                     }
@@ -451,7 +452,7 @@ impl Chain {
                             *height,
                             hash,
                             self,
-                            &*self.runtime_adapter,
+                            self.epoch_manager.as_ref(),
                         )
                     })
                     .collect::<Vec<_>>()
@@ -463,7 +464,8 @@ impl Chain {
             .iter()
             .flat_map(|(chunk_hash, _)| {
                 self.blocks_delay_tracker.chunks.get(chunk_hash).map(|chunk_stats| {
-                    chunk_stats.to_chunk_processing_info(chunk_hash.clone(), &*self.runtime_adapter)
+                    chunk_stats
+                        .to_chunk_processing_info(chunk_hash.clone(), self.epoch_manager.as_ref())
                 })
             })
             .collect::<Vec<_>>();
