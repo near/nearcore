@@ -16,7 +16,7 @@ TARGET_HEIGHT = 30
 AFTER_SYNC_HEIGHT = 150
 TIMEOUT = 300
 
-consensus_config = {
+node_config = {
     "consensus": {
         # We're generating 150 blocks here - lower the min production delay to speed
         # up the test running time a little.
@@ -24,7 +24,9 @@ consensus_config = {
             "secs": 0,
             "nanos": 100000000
         },
-    }
+    },
+    # Enabling explicitly state sync, default value is False
+    "state_sync_enabled": True
 }
 
 nodes = start_cluster(
@@ -37,7 +39,7 @@ nodes = start_cluster(
          "records", 0, "Account", "account", "locked",
          "60000000000000000000000000000000"
      ], ["total_supply", "5010000000000000000000000000000000"]],
-    {x: consensus_config for x in range(4)})
+    {x: node_config for x in range(4)})
 
 node0_height, _ = utils.wait_for_blocks(nodes[0], target=TARGET_HEIGHT)
 
