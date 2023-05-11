@@ -5,7 +5,7 @@ use actix::{Context, Handler};
 use borsh::BorshSerialize;
 use itertools::Itertools;
 use near_chain::crypto_hash_timer::CryptoHashTimer;
-use near_chain::{near_chain_primitives, Chain, ChainStoreAccess, RuntimeWithEpochManagerAdapter};
+use near_chain::{near_chain_primitives, Chain, ChainStoreAccess};
 use near_client_primitives::debug::{
     ApprovalAtHeightStatus, BlockProduction, ChunkCollection, DebugBlockStatusData, DebugStatus,
     DebugStatusResponse, MissedHeightInfo, ProductionAtHeight, ValidatorStatus,
@@ -15,6 +15,7 @@ use near_client_primitives::{
     debug::{EpochInfoView, TrackedShardsView},
     types::StatusError,
 };
+use near_epoch_manager::EpochManagerAdapter;
 use near_o11y::{handler_debug_span, log_assert, OpenTelemetrySpanExt, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::syncing::get_num_state_parts;
@@ -119,7 +120,7 @@ impl BlockProductionTracker {
         epoch_id: &EpochId,
         num_shards: ShardId,
         new_chunks: &HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>, AccountId)>,
-        runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
+        epoch_manager: &dyn EpochManagerAdapter,
     ) -> Result<Vec<ChunkCollection>, Error> {
         let mut chunk_collection_info = vec![];
         for shard_id in 0..num_shards {
@@ -131,7 +132,7 @@ impl BlockProductionTracker {
                 });
             } else {
                 let chunk_producer =
-                    runtime_adapter.get_chunk_producer(epoch_id, block_height, shard_id)?;
+                    epoch_manager.get_chunk_producer(epoch_id, block_height, shard_id)?;
                 chunk_collection_info.push(ChunkCollection {
                     chunk_producer,
                     received_time: None,
@@ -192,7 +193,7 @@ impl ClientActor {
         let mut block_producers_set = HashSet::new();
         let block_producers: Vec<ValidatorInfo> = self
             .client
-            .runtime_adapter
+            .epoch_manager
             .get_epoch_block_producers_ordered(epoch_id, last_known_block_hash)?
             .into_iter()
             .map(|(validator_stake, is_slashed)| {
@@ -202,7 +203,7 @@ impl ClientActor {
             .collect();
         let chunk_only_producers = self
             .client
-            .runtime_adapter
+            .epoch_manager
             .get_epoch_chunk_producers(&epoch_id)?
             .iter()
             .filter_map(|producer| {
@@ -224,7 +225,7 @@ impl ClientActor {
         is_current_block_head: bool,
     ) -> Result<(EpochInfoView, CryptoHash), Error> {
         let epoch_start_height =
-            self.client.runtime_adapter.get_epoch_start_height(&current_block)?;
+            self.client.epoch_manager.get_epoch_start_height(&current_block)?;
 
         let block = self.client.chain.get_block_by_height(epoch_start_height)?;
         let epoch_id = block.header().epoch_id();
@@ -279,11 +280,11 @@ impl ClientActor {
 
         let validator_info = if is_current_block_head {
             self.client
-                .runtime_adapter
+                .epoch_manager
                 .get_validator_info(ValidatorInfoIdentifier::BlockHash(current_block))?
         } else {
             self.client
-                .runtime_adapter
+                .epoch_manager
                 .get_validator_info(ValidatorInfoIdentifier::EpochId(epoch_id.clone()))?
         };
         return Ok((
@@ -296,7 +297,7 @@ impl ClientActor {
                 validator_info: Some(validator_info),
                 protocol_version: self
                     .client
-                    .runtime_adapter
+                    .epoch_manager
                     .get_epoch_protocol_version(epoch_id)
                     .unwrap_or(0),
                 shards_size_and_parts,
@@ -309,7 +310,7 @@ impl ClientActor {
     fn get_next_epoch_view(&self) -> Result<EpochInfoView, Error> {
         let head = self.client.chain.head()?;
         let epoch_start_height =
-            self.client.runtime_adapter.get_epoch_start_height(&head.last_block_hash)?;
+            self.client.epoch_manager.get_epoch_start_height(&head.last_block_hash)?;
         let (validators, chunk_only_producers) =
             self.get_producers_for_epoch(&head.next_epoch_id, &head.last_block_hash)?;
 
@@ -323,7 +324,7 @@ impl ClientActor {
             validator_info: None,
             protocol_version: self
                 .client
-                .runtime_adapter
+                .epoch_manager
                 .get_epoch_protocol_version(&head.next_epoch_id)?,
             shards_size_and_parts: vec![],
         })
@@ -334,25 +335,23 @@ impl ClientActor {
         let fetch_hash = self.client.chain.header_head()?.last_block_hash;
         let me = self.client.validator_signer.as_ref().map(|x| x.validator_id().clone());
 
-        let tracked_shards: Vec<(bool, bool)> =
-            (0..self.client.runtime_adapter.num_shards(&epoch_id).unwrap())
-                .map(|x| {
-                    (
-                        self.client.runtime_adapter.cares_about_shard(
-                            me.as_ref(),
-                            &fetch_hash,
-                            x,
-                            true,
-                        ),
-                        self.client.runtime_adapter.will_care_about_shard(
-                            me.as_ref(),
-                            &fetch_hash,
-                            x,
-                            true,
-                        ),
-                    )
-                })
-                .collect();
+        let tracked_shards: Vec<(bool, bool)> = (0..self
+            .client
+            .epoch_manager
+            .num_shards(&epoch_id)
+            .unwrap())
+            .map(|x| {
+                (
+                    self.client.shard_tracker.care_about_shard(me.as_ref(), &fetch_hash, x, true),
+                    self.client.shard_tracker.will_care_about_shard(
+                        me.as_ref(),
+                        &fetch_hash,
+                        x,
+                        true,
+                    ),
+                )
+            })
+            .collect();
         Ok(TrackedShardsView {
             shards_tracked_this_epoch: tracked_shards.iter().map(|x| x.0).collect(),
             shards_tracked_next_epoch: tracked_shards.iter().map(|x| x.1).collect(),
@@ -413,7 +412,7 @@ impl ClientActor {
                         block_height: height_to_fetch,
                         block_producer: self
                             .client
-                            .runtime_adapter
+                            .epoch_manager
                             .get_block_producer(&last_epoch_id, height_to_fetch)
                             .ok(),
                     });
@@ -447,7 +446,7 @@ impl ClientActor {
 
                 let block_producer = self
                     .client
-                    .runtime_adapter
+                    .epoch_manager
                     .get_block_producer(block_header.epoch_id(), block_header.height())
                     .ok();
 
@@ -460,7 +459,7 @@ impl ClientActor {
                             chunk_hash: chunk.chunk_hash(),
                             chunk_producer: self
                                 .client
-                                .runtime_adapter
+                                .epoch_manager
                                 .get_chunk_producer(
                                     block_header.epoch_id(),
                                     block_header.height(),
@@ -530,7 +529,7 @@ impl ClientActor {
 
             let estimated_epoch_end = max(
                 head.height,
-                self.client.runtime_adapter.get_epoch_start_height(&head.last_block_hash)?
+                self.client.epoch_manager.get_epoch_start_height(&head.last_block_hash)?
                     + self.client.chain.epoch_length,
             );
             let max_height = self.client.doomslug.get_largest_approval_height().clamp(
@@ -553,12 +552,12 @@ impl ClientActor {
                 // And if we are the block (or chunk) producer for this height - collect some timing info.
                 let block_producer = self
                     .client
-                    .runtime_adapter
+                    .epoch_manager
                     .get_block_producer(&epoch_id, height)
                     .map(|f| f.to_string())
                     .unwrap_or_default();
 
-                let num_chunks = self.client.runtime_adapter.num_shards(&epoch_id)?;
+                let num_chunks = self.client.epoch_manager.num_shards(&epoch_id)?;
 
                 if block_producer == validator_id {
                     // For each height - we want to collect information about received approvals.
@@ -572,7 +571,7 @@ impl ClientActor {
                 for shard_id in 0..num_chunks {
                     let chunk_producer = self
                         .client
-                        .runtime_adapter
+                        .epoch_manager
                         .get_chunk_producer(&epoch_id, height, shard_id)
                         .map(|f| f.to_string())
                         .unwrap_or_default();
@@ -605,7 +604,7 @@ impl ClientActor {
             // We can fix it in the future, if we see that this debug page is useful.
             validators: self
                 .client
-                .runtime_adapter
+                .epoch_manager
                 .get_epoch_block_approvers_ordered(&head.last_block_hash)
                 .map(|validators| {
                     validators
@@ -620,7 +619,7 @@ impl ClientActor {
                 })
                 .ok(),
             head_height: head.height,
-            shards: self.client.runtime_adapter.num_shards(&head.epoch_id).unwrap_or_default(),
+            shards: self.client.epoch_manager.num_shards(&head.epoch_id).unwrap_or_default(),
             approval_history: self.client.doomslug.get_approval_history(),
             production: productions,
             banned_chunk_producers: self

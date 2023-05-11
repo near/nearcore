@@ -6,7 +6,8 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::ChainStoreUpdate;
 use near_chain::{Chain, ChainGenesis, ChainStore, ChainStoreAccess, DoomslugThresholdMode};
 use near_crypto::{KeyType, SecretKey};
-use near_epoch_manager::{EpochManager, EpochManagerAdapter};
+use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
+use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_jsonrpc_client::JsonRpcClient;
 use near_network::tcp;
 use near_network::types::PeerInfo;
@@ -26,7 +27,7 @@ fn setup_runtime(
     home_dir: &Path,
     config: &NearConfig,
     in_memory_storage: bool,
-) -> Arc<NightshadeRuntime> {
+) -> (Arc<EpochManagerHandle>, ShardTracker, Arc<NightshadeRuntime>) {
     let store = if in_memory_storage {
         create_test_store()
     } else {
@@ -35,8 +36,11 @@ fn setup_runtime(
             .unwrap()
             .get_hot_store()
     };
-
-    NightshadeRuntime::from_config(home_dir, store, config)
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &config.genesis.config);
+    let shard_tracker =
+        ShardTracker::new(TrackedConfig::from_config(&config.client_config), epoch_manager.clone());
+    let runtime = NightshadeRuntime::from_config(home_dir, store, config, epoch_manager.clone());
+    (epoch_manager, shard_tracker, runtime)
 }
 
 fn setup_mock_peer(
@@ -113,14 +117,16 @@ pub fn setup_mock_node(
     mock_listen_addr: tcp::ListenerAddr,
 ) -> MockNode {
     let parent_span = tracing::debug_span!(target: "mock_node", "setup_mock_node").entered();
-    let mock_network_runtime = setup_runtime(network_home_dir, &config, false);
+    let (mock_network_epoch_manager, mock_network_shard_tracker, mock_network_runtime) =
+        setup_runtime(network_home_dir, &config, false);
 
     let chain_genesis = ChainGenesis::new(&config.genesis);
 
     // set up client dir to be ready to process blocks from client_start_height
     if client_start_height > 0 {
         tracing::info!(target: "mock_node", "Preparing client data dir to be able to start at the specified start height {}", client_start_height);
-        let client_runtime = setup_runtime(client_home_dir, &config, in_memory_storage);
+        let (client_epoch_manager, _, client_runtime) =
+            setup_runtime(client_home_dir, &config, in_memory_storage);
         let mut chain_store = ChainStore::new(
             client_runtime.store().clone(),
             config.genesis.config.genesis_height,
@@ -148,8 +154,9 @@ pub fn setup_mock_node(
             network_head_height
         );
         let hash = network_chain_store.get_block_hash_by_height(client_start_height).unwrap();
-        if !mock_network_runtime.is_next_block_epoch_start(&hash).unwrap() {
-            let epoch_start_height = mock_network_runtime.get_epoch_start_height(&hash).unwrap();
+        if !mock_network_epoch_manager.is_next_block_epoch_start(&hash).unwrap() {
+            let epoch_start_height =
+                mock_network_epoch_manager.get_epoch_start_height(&hash).unwrap();
             panic!(
                 "start height must be the last block of an epoch, try using {} instead",
                 epoch_start_height - 1
@@ -160,25 +167,17 @@ pub fn setup_mock_node(
         let chain_store_update = ChainStoreUpdate::copy_chain_state_as_of_block(
             &mut chain_store,
             &hash,
-            mock_network_runtime.clone(),
+            mock_network_epoch_manager.as_ref(),
             &mut network_chain_store,
         )
         .unwrap();
         chain_store_update.commit().unwrap();
         tracing::info!(target: "mock_node", "Done preparing chain state");
 
-        // copy epoch info
-        let mut epoch_manager = EpochManager::new_from_genesis_config(
-            client_runtime.store().clone(),
-            &config.genesis.config,
-        )
-        .unwrap();
-        let mock_epoch_manager = EpochManager::new_from_genesis_config(
-            mock_network_runtime.store().clone(),
-            &config.genesis.config,
-        )
-        .unwrap();
-        epoch_manager.copy_epoch_info_as_of_block(&hash, &mock_epoch_manager).unwrap();
+        client_epoch_manager
+            .write()
+            .copy_epoch_info_as_of_block(&hash, &mock_network_epoch_manager.read())
+            .unwrap();
         tracing::info!(target: "mock_node", "Done preparing epoch info");
 
         // copy state for all shards
@@ -220,7 +219,7 @@ pub fn setup_mock_node(
                             &state_root,
                             PartId::new(part_id, num_parts),
                             &state_part,
-                            &mock_network_runtime.get_epoch_id_from_prev_block(&hash)?,
+                            &mock_network_epoch_manager.get_epoch_id_from_prev_block(&hash)?,
                         )
                         .with_context(|| {
                             format!("Applying state part {} in shard {}", part_id, shard_id)
@@ -240,7 +239,9 @@ pub fn setup_mock_node(
     }
 
     let chain = Chain::new_for_view_client(
-        mock_network_runtime.clone(),
+        mock_network_epoch_manager.clone(),
+        mock_network_shard_tracker,
+        mock_network_runtime,
         &chain_genesis,
         DoomslugThresholdMode::NoApprovals,
         config.client_config.save_trie_changes,
@@ -248,7 +249,7 @@ pub fn setup_mock_node(
     .unwrap();
     let head = chain.head().unwrap();
     let target_height = min(target_height.unwrap_or(head.height), head.height);
-    let num_shards = mock_network_runtime.num_shards(&head.epoch_id).unwrap();
+    let num_shards = mock_network_epoch_manager.num_shards(&head.epoch_id).unwrap();
 
     config.network_config.peer_store.boot_nodes.clear();
     let mock_peer = setup_mock_peer(

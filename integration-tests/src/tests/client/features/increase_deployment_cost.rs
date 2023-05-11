@@ -1,19 +1,17 @@
 use assert_matches::assert_matches;
-use near_chain::{ChainGenesis, RuntimeWithEpochManagerAdapter};
+use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType};
-use near_epoch_manager::shard_tracker::TrackedConfig;
 use near_primitives::config::VMConfig;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::transaction::{Action, DeployContractAction};
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::FinalExecutionStatus;
-use near_store::test_utils::create_test_store;
 use near_vm_runner::internal::VMKind;
 use nearcore::config::GenesisExt;
-use std::path::Path;
-use std::sync::Arc;
+
+use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 
 /// Tests if the cost of deployment is higher after the protocol update 53
 #[test]
@@ -38,15 +36,13 @@ fn test_deploy_cost_increased() {
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = old_protocol_version;
         let chain_genesis = ChainGenesis::new(&genesis);
-        let runtimes: Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> =
-            vec![nearcore::NightshadeRuntime::test_with_runtime_config_store(
-                Path::new("../../../.."),
-                create_test_store(),
+        TestEnv::builder(chain_genesis)
+            .real_epoch_managers(&genesis.config)
+            .nightshade_runtimes_with_runtime_config_store(
                 &genesis,
-                TrackedConfig::new_empty(),
-                RuntimeConfigStore::new(None),
-            )];
-        TestEnv::builder(chain_genesis).runtime_adapters(runtimes).build()
+                vec![RuntimeConfigStore::new(None)],
+            )
+            .build()
     };
 
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");

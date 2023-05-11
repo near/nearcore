@@ -132,13 +132,24 @@ pub(crate) fn apply_block_at_height(
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
     );
-    let runtime = NightshadeRuntime::from_config(home_dir, store.clone(), &near_config);
-    let epoch_manager =
-        EpochManager::new_from_genesis_config(store, &near_config.genesis.config)?.into_handle();
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+    let runtime =
+        NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone());
     let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
-    let (block, apply_result) =
-        apply_block(block_hash, shard_id, &epoch_manager, runtime.as_ref(), &mut chain_store);
-    check_apply_block_result(&block, &apply_result, &epoch_manager, &mut chain_store, shard_id)
+    let (block, apply_result) = apply_block(
+        block_hash,
+        shard_id,
+        epoch_manager.as_ref(),
+        runtime.as_ref(),
+        &mut chain_store,
+    );
+    check_apply_block_result(
+        &block,
+        &apply_result,
+        epoch_manager.as_ref(),
+        &mut chain_store,
+        shard_id,
+    )
 }
 
 pub(crate) fn apply_chunk(
@@ -148,18 +159,21 @@ pub(crate) fn apply_chunk(
     chunk_hash: ChunkHash,
     target_height: Option<u64>,
 ) -> anyhow::Result<()> {
-    let epoch_manager =
-        EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)?
-            .into_handle();
-    let runtime = NightshadeRuntime::from_config(home_dir, store.clone(), &near_config);
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+    let runtime = NightshadeRuntime::from_config(
+        home_dir,
+        store.clone(),
+        &near_config,
+        epoch_manager.clone(),
+    );
     let mut chain_store = ChainStore::new(
         store,
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
     );
     let (apply_result, gas_limit) = apply_chunk::apply_chunk(
-        &epoch_manager,
-        &*runtime,
+        epoch_manager.as_ref(),
+        runtime.as_ref(),
         &mut chain_store,
         chunk_hash,
         target_height,
@@ -183,18 +197,20 @@ pub(crate) fn apply_range(
 ) {
     let mut csv_file = csv_file.map(|filename| std::fs::File::create(filename).unwrap());
 
-    let epoch_manager =
-        EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)
-            .unwrap()
-            .into_handle();
-    let runtime = NightshadeRuntime::from_config(home_dir, store.clone(), &near_config);
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+    let runtime = NightshadeRuntime::from_config(
+        home_dir,
+        store.clone(),
+        &near_config,
+        epoch_manager.clone(),
+    );
     apply_chain_range(
         store,
         &near_config.genesis,
         start_index,
         end_index,
         shard_id,
-        &epoch_manager,
+        epoch_manager.as_ref(),
         runtime,
         verbose_output,
         csv_file.as_mut(),
@@ -209,14 +225,17 @@ pub(crate) fn apply_receipt(
     store: Store,
     hash: CryptoHash,
 ) -> anyhow::Result<()> {
-    let epoch_manager =
-        EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)?
-            .into_handle();
-    let runtime = NightshadeRuntime::from_config(home_dir, store.clone(), &near_config);
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+    let runtime = NightshadeRuntime::from_config(
+        home_dir,
+        store.clone(),
+        &near_config,
+        epoch_manager.clone(),
+    );
     apply_chunk::apply_receipt(
         near_config.genesis.config.genesis_height,
-        &epoch_manager,
-        &*runtime,
+        epoch_manager.as_ref(),
+        runtime.as_ref(),
         store,
         hash,
     )
@@ -229,14 +248,17 @@ pub(crate) fn apply_tx(
     store: Store,
     hash: CryptoHash,
 ) -> anyhow::Result<()> {
-    let epoch_manager =
-        EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)?
-            .into_handle();
-    let runtime = NightshadeRuntime::from_config(home_dir, store.clone(), &near_config);
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+    let runtime = NightshadeRuntime::from_config(
+        home_dir,
+        store.clone(),
+        &near_config,
+        epoch_manager.clone(),
+    );
     apply_chunk::apply_tx(
         near_config.genesis.config.genesis_height,
-        &epoch_manager,
-        &*runtime,
+        epoch_manager.as_ref(),
+        runtime.as_ref(),
         store,
         hash,
     )
@@ -259,7 +281,7 @@ pub(crate) fn dump_account_storage(
     } else {
         panic!("block_height should be either number or \"latest\"")
     };
-    let (runtime, state_roots, header) =
+    let (_, runtime, state_roots, header) =
         load_trie_stop_at_height(store, home_dir, &near_config, block_height);
     for (shard_id, state_root) in state_roots.iter().enumerate() {
         let trie = runtime
@@ -299,11 +321,11 @@ pub(crate) fn dump_code(
     near_config: NearConfig,
     store: Store,
 ) {
-    let (runtime, state_roots, header) = load_trie(store, home_dir, &near_config);
-    let epoch_id = &runtime.get_epoch_id(header.hash()).unwrap();
+    let (epoch_manager, runtime, state_roots, header) = load_trie(store, home_dir, &near_config);
+    let epoch_id = &epoch_manager.get_epoch_id(header.hash()).unwrap();
 
     for (shard_id, state_root) in state_roots.iter().enumerate() {
-        let shard_uid = runtime.shard_id_to_uid(shard_id as u64, epoch_id).unwrap();
+        let shard_uid = epoch_manager.shard_id_to_uid(shard_id as u64, epoch_id).unwrap();
         if let Ok(contract_code) =
             runtime.view_contract_code(&shard_uid, *state_root, &account_id.parse().unwrap())
         {
@@ -333,7 +355,7 @@ pub(crate) fn dump_state(
         Some(h) => LoadTrieMode::LastFinalFromHeight(h),
         None => LoadTrieMode::Latest,
     };
-    let (runtime, state_roots, header) =
+    let (epoch_manager, runtime, state_roots, header) =
         load_trie_stop_at_height(store, home_dir, &near_config, mode);
     let height = header.height();
     let home_dir = PathBuf::from(&home_dir);
@@ -342,6 +364,7 @@ pub(crate) fn dump_state(
         let output_dir = file.unwrap_or(home_dir.join("output"));
         let records_path = output_dir.join("records.json");
         let new_near_config = state_dump(
+            epoch_manager.as_ref(),
             runtime,
             &state_roots,
             header,
@@ -352,8 +375,15 @@ pub(crate) fn dump_state(
         println!("Saving state at {:?} @ {} into {}", state_roots, height, output_dir.display(),);
         new_near_config.save_to_dir(&output_dir);
     } else {
-        let new_near_config =
-            state_dump(runtime, &state_roots, header, &near_config, None, change_config);
+        let new_near_config = state_dump(
+            epoch_manager.as_ref(),
+            runtime,
+            &state_roots,
+            header,
+            &near_config,
+            None,
+            change_config,
+        );
         let output_file = file.unwrap_or(home_dir.join("output.json"));
         println!("Saving state at {:?} @ {} into {}", state_roots, height, output_file.display(),);
         new_near_config.genesis.to_file(&output_file);
@@ -370,7 +400,7 @@ pub(crate) fn dump_state_redis(
         Some(h) => LoadTrieMode::LastFinalFromHeight(h),
         None => LoadTrieMode::Latest,
     };
-    let (runtime, state_roots, header) =
+    let (_, runtime, state_roots, header) =
         load_trie_stop_at_height(store, home_dir, &near_config, mode);
 
     let res = state_dump_redis(runtime, &state_roots, header);
@@ -509,7 +539,6 @@ pub(crate) fn check_apply_block_result(
 pub(crate) fn print_chain(
     start_height: BlockHeight,
     end_height: BlockHeight,
-    home_dir: &Path,
     near_config: NearConfig,
     store: Store,
     show_full_hashes: bool,
@@ -519,7 +548,7 @@ pub(crate) fn print_chain(
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
     );
-    let runtime = NightshadeRuntime::from_config(home_dir, store, &near_config);
+    let epoch_manager = EpochManager::new_arc_handle(store, &near_config.genesis.config);
     let mut account_id_to_blocks = HashMap::new();
     let mut cur_epoch_id = None;
     for height in start_height..=end_height {
@@ -534,21 +563,22 @@ pub(crate) fn print_chain(
             } else {
                 let parent_header =
                     chain_store.get_block_header(header.prev_hash()).unwrap().clone();
-                let epoch_id = runtime.get_epoch_id_from_prev_block(header.prev_hash()).unwrap();
+                let epoch_id =
+                    epoch_manager.get_epoch_id_from_prev_block(header.prev_hash()).unwrap();
                 cur_epoch_id = Some(epoch_id.clone());
-                if runtime.is_next_block_epoch_start(header.prev_hash()).unwrap() {
+                if epoch_manager.is_next_block_epoch_start(header.prev_hash()).unwrap() {
                     println!("{:?}", account_id_to_blocks);
                     account_id_to_blocks = HashMap::new();
                     println!(
                         "Epoch {} Validators {:?}",
                         format_hash(epoch_id.0, show_full_hashes),
-                        runtime
+                        epoch_manager
                             .get_epoch_block_producers_ordered(&epoch_id, header.hash())
                             .unwrap()
                     );
                 }
                 let block_producer =
-                    runtime.get_block_producer(&epoch_id, header.height()).unwrap();
+                    epoch_manager.get_block_producer(&epoch_id, header.height()).unwrap();
                 account_id_to_blocks
                     .entry(block_producer.clone())
                     .and_modify(|e| *e += 1)
@@ -559,7 +589,7 @@ pub(crate) fn print_chain(
                 let mut chunk_debug_str: Vec<String> = Vec::new();
 
                 for shard_id in 0..header.chunk_mask().len() {
-                    let chunk_producer = runtime
+                    let chunk_producer = epoch_manager
                         .get_chunk_producer(&epoch_id, header.height(), shard_id as u64)
                         .unwrap();
                     if header.chunk_mask()[shard_id] {
@@ -593,7 +623,7 @@ pub(crate) fn print_chain(
                 );
             }
         } else if let Some(epoch_id) = &cur_epoch_id {
-            let block_producer = runtime.get_block_producer(epoch_id, height).unwrap();
+            let block_producer = epoch_manager.get_block_producer(epoch_id, height).unwrap();
             println!("{: >3} {} | {: >10}", height, Red.bold().paint("MISSING"), block_producer);
         } else {
             println!("{: >3} {}", height, Red.bold().paint("MISSING"));
@@ -614,7 +644,9 @@ pub(crate) fn replay_chain(
         near_config.client_config.save_trie_changes,
     );
     let new_store = create_test_store();
-    let runtime = NightshadeRuntime::from_config(home_dir, new_store, &near_config);
+    let epoch_manager =
+        EpochManager::new_arc_handle(new_store.clone(), &near_config.genesis.config);
+    let runtime = NightshadeRuntime::from_config(home_dir, new_store, &near_config, epoch_manager);
     for height in start_height..=end_height {
         if let Ok(block_hash) = chain_store.get_block_hash_by_height(height) {
             let header = chain_store.get_block_header(&block_hash).unwrap().clone();
@@ -644,7 +676,7 @@ pub(crate) fn resulting_chunk_extra(result: &ApplyTransactionResult, gas_limit: 
 }
 
 pub(crate) fn state(home_dir: &Path, near_config: NearConfig, store: Store) {
-    let (runtime, state_roots, header) = load_trie(store, home_dir, &near_config);
+    let (_, runtime, state_roots, header) = load_trie(store, home_dir, &near_config);
     println!("Storage roots are {:?}, block height is {}", state_roots, header.height());
     for (shard_id, state_root) in state_roots.iter().enumerate() {
         let trie = runtime
@@ -830,7 +862,7 @@ fn load_trie(
     store: Store,
     home_dir: &Path,
     near_config: &NearConfig,
-) -> (Arc<NightshadeRuntime>, Vec<StateRoot>, BlockHeader) {
+) -> (Arc<EpochManagerHandle>, Arc<NightshadeRuntime>, Vec<StateRoot>, BlockHeader) {
     load_trie_stop_at_height(store, home_dir, near_config, LoadTrieMode::Latest)
 }
 
@@ -839,14 +871,16 @@ fn load_trie_stop_at_height(
     home_dir: &Path,
     near_config: &NearConfig,
     mode: LoadTrieMode,
-) -> (Arc<NightshadeRuntime>, Vec<StateRoot>, BlockHeader) {
+) -> (Arc<EpochManagerHandle>, Arc<NightshadeRuntime>, Vec<StateRoot>, BlockHeader) {
     let chain_store = ChainStore::new(
         store.clone(),
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
     );
 
-    let runtime = NightshadeRuntime::from_config(home_dir, store, near_config);
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+    let runtime =
+        NightshadeRuntime::from_config(home_dir, store, near_config, epoch_manager.clone());
     let head = chain_store.head().unwrap();
     let last_block = match mode {
         LoadTrieMode::LastFinalFromHeight(height) => {
@@ -881,7 +915,7 @@ fn load_trie_stop_at_height(
         LoadTrieMode::Latest => chain_store.get_block(&head.last_block_hash).unwrap(),
     };
     let state_roots = last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
-    (runtime, state_roots, last_block.header().clone())
+    (epoch_manager, runtime, state_roots, last_block.header().clone())
 }
 
 fn format_hash(h: CryptoHash, show_full_hashes: bool) -> String {
@@ -902,7 +936,7 @@ pub(crate) fn contract_accounts(
     near_config: NearConfig,
     filter: ContractAccountFilter,
 ) -> anyhow::Result<()> {
-    let (_runtime, state_roots, _header) = load_trie(store.clone(), home_dir, &near_config);
+    let (_, _runtime, state_roots, _header) = load_trie(store.clone(), home_dir, &near_config);
 
     let tries = state_roots.iter().enumerate().map(|(shard_id, &state_root)| {
         // TODO: This assumes simple nightshade layout, it will need an update when we reshard.

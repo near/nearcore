@@ -1,13 +1,15 @@
 use ansi_term::Color::{Green, Red, White, Yellow};
 use clap::{Arg, Command};
 use near_chain::store_validator::StoreValidator;
-use near_chain::RuntimeWithEpochManagerAdapter;
 use near_chain_configs::GenesisValidationMode;
+use near_epoch_manager::{
+    shard_tracker::{ShardTracker, TrackedConfig},
+    EpochManager,
+};
 use near_o11y::testonly::init_integration_logger;
 use nearcore::{get_default_home, load_config};
 use std::path::PathBuf;
 use std::process;
-use std::sync::Arc;
 
 fn main() {
     init_integration_logger();
@@ -37,13 +39,24 @@ fn main() {
     .open()
     .unwrap()
     .get_hot_store();
-    let runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter> =
-        nearcore::NightshadeRuntime::from_config(home_dir, store.clone(), &near_config);
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+    let shard_tracker = ShardTracker::new(
+        TrackedConfig::from_config(&near_config.client_config),
+        epoch_manager.clone(),
+    );
+    let runtime = nearcore::NightshadeRuntime::from_config(
+        home_dir,
+        store.clone(),
+        &near_config,
+        epoch_manager.clone(),
+    );
 
     let mut store_validator = StoreValidator::new(
         near_config.validator_signer.as_ref().map(|x| x.validator_id().clone()),
         near_config.genesis.config,
-        runtime_adapter.clone(),
+        epoch_manager,
+        shard_tracker,
+        runtime,
         store,
         false,
     );

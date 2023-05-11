@@ -13,6 +13,8 @@ use near_async::time;
 use near_chain::{Chain, ChainGenesis};
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::{start_client, start_view_client, ClientActor, ConfigUpdater, ViewClientActor};
+use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
+use near_epoch_manager::EpochManager;
 use near_network::PeerManagerActor;
 use near_primitives::block::GenesisId;
 use near_store::metadata::DbKind;
@@ -214,22 +216,45 @@ pub fn start_with_config_and_synchronization(
         None
     };
 
-    let runtime = NightshadeRuntime::from_config(home_dir, storage.get_hot_store(), &config);
+    let epoch_manager =
+        EpochManager::new_arc_handle(storage.get_hot_store(), &config.genesis.config);
+    let shard_tracker =
+        ShardTracker::new(TrackedConfig::from_config(&config.client_config), epoch_manager.clone());
+    let runtime = NightshadeRuntime::from_config(
+        home_dir,
+        storage.get_hot_store(),
+        &config,
+        epoch_manager.clone(),
+    );
 
-    // Get the split store. If split store is some then create a new runtime for
-    // the view client. Otherwise just re-use the existing runtime.
+    // Get the split store. If split store is some then create a new set of structures for
+    // the view client. Otherwise just re-use the existing ones.
     let split_store = get_split_store(&config, &storage)?;
-    let view_runtime = if let Some(split_store) = &split_store {
-        NightshadeRuntime::from_config(home_dir, split_store.clone(), &config)
-    } else {
-        runtime.clone()
-    };
+    let (view_epoch_manager, view_shard_tracker, view_runtime) =
+        if let Some(split_store) = &split_store {
+            let view_epoch_manager =
+                EpochManager::new_arc_handle(split_store.clone(), &config.genesis.config);
+            let view_shard_tracker = ShardTracker::new(
+                TrackedConfig::from_config(&config.client_config),
+                epoch_manager.clone(),
+            );
+            let view_runtime = NightshadeRuntime::from_config(
+                home_dir,
+                split_store.clone(),
+                &config,
+                view_epoch_manager.clone(),
+            );
+            (view_epoch_manager, view_shard_tracker, view_runtime)
+        } else {
+            (epoch_manager.clone(), shard_tracker.clone(), runtime.clone())
+        };
 
-    let cold_store_loop_handle = spawn_cold_store_loop(&config, &storage, runtime.clone())?;
+    let cold_store_loop_handle = spawn_cold_store_loop(&config, &storage, epoch_manager.clone())?;
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
     let chain_genesis = ChainGenesis::new(&config.genesis);
-    let genesis_block = Chain::make_genesis_block(&*runtime, &chain_genesis)?;
+    let genesis_block =
+        Chain::make_genesis_block(epoch_manager.as_ref(), runtime.as_ref(), &chain_genesis)?;
     let genesis_id = GenesisId {
         chain_id: config.client_config.chain_id.clone(),
         hash: *genesis_block.header().hash(),
@@ -244,6 +269,8 @@ pub fn start_with_config_and_synchronization(
     let view_client = start_view_client(
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
         chain_genesis.clone(),
+        view_epoch_manager,
+        view_shard_tracker,
         view_runtime,
         network_adapter.clone().into(),
         config.client_config.clone(),
@@ -252,6 +279,8 @@ pub fn start_with_config_and_synchronization(
     let (client_actor, client_arbiter_handle) = start_client(
         config.client_config.clone(),
         chain_genesis.clone(),
+        epoch_manager.clone(),
+        shard_tracker.clone(),
         runtime.clone(),
         node_id,
         network_adapter.clone().into(),
@@ -264,7 +293,8 @@ pub fn start_with_config_and_synchronization(
     );
     client_adapter_for_shards_manager.bind(client_actor.clone().with_auto_span_context());
     let (shards_manager_actor, shards_manager_arbiter_handle) = start_shards_manager(
-        runtime.clone(),
+        epoch_manager.clone(),
+        shard_tracker.clone(),
         network_adapter.as_sender(),
         client_adapter_for_shards_manager.as_sender(),
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
@@ -276,6 +306,8 @@ pub fn start_with_config_and_synchronization(
     let state_sync_dump_handle = spawn_state_sync_dump(
         &config.client_config,
         chain_genesis,
+        epoch_manager,
+        shard_tracker,
         runtime,
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
     )?;

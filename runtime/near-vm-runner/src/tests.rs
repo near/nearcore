@@ -8,6 +8,7 @@ mod ts_contract;
 mod wasm_validation;
 
 use crate::vm_kind::VMKind;
+#[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
 use near_primitives::config::ContractPrepareVersion;
 use near_primitives::version::ProtocolVersion;
 use near_vm_logic::{VMConfig, VMContext};
@@ -19,7 +20,7 @@ const PREDECESSOR_ACCOUNT_ID: &str = "carol";
 
 const LATEST_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::MAX;
 
-pub(crate) fn with_vm_variants(cfg: &VMConfig, runner: impl Fn(VMKind) -> ()) {
+pub(crate) fn with_vm_variants(#[allow(unused)] cfg: &VMConfig, runner: impl Fn(VMKind) -> ()) {
     #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
     runner(VMKind::Wasmer0);
 
