@@ -273,6 +273,12 @@ pub fn start_with_config_and_synchronization(
     let simulation_threads =
         std::env::var("SIM_THREADS").unwrap_or("8".to_string()).parse::<usize>().unwrap();
     let batch_size = std::env::var("SIM_BATCH").unwrap_or("64".to_string()).parse::<u64>().unwrap();
+    let do_dump = std::env::var("SIM_DUMP").unwrap_or_default() == "1";
+
+    if do_dump {
+        SimulationRunner::dump_simulation_results(storage.get_hot_store());
+        std::process::exit(0);
+    }
 
     if enable_simulation {
         SimulationRunner::continuously_simulate_history(

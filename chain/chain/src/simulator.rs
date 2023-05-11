@@ -22,6 +22,7 @@ use near_store::{
     TAIL_KEY,
 };
 use node_runtime::{ApplyState, ApplyStats, Runtime};
+use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 
 use crate::types::RuntimeAdapter;
@@ -134,7 +135,7 @@ pub struct SimulationState {
     runtime: Runtime,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Serialize, Deserialize)]
 pub struct SimulationResult {
     pub tx_outcome: Option<ExecutionOutcome>,
     pub outcomes: Vec<ReceiptExecutionOutcome>,
@@ -403,7 +404,7 @@ impl SimulationRunner {
             "Simulated {} transactions, {} with error, from {} to {}",
             txns_simulated,
             txns_simulated_with_error,
-            last_simulated - 9,
+            last_simulated - batch_size + 1,
             last_simulated
         );
 
@@ -461,6 +462,32 @@ impl SimulationRunner {
                 }
             }
         })
+    }
+
+    pub fn dump_simulation_results(store: Store) {
+        std::fs::create_dir_all("sim_results").unwrap();
+        let mut batch_num = 0;
+        let mut batch = Vec::new();
+        for item in
+            store.iter_prefix_ser::<SimulationResult>(DBCol::TransactionSimulationResult, b"")
+        {
+            match item {
+                Ok((key, value)) => {
+                    batch.push((key, value));
+                    if batch.size() >= 10000 {
+                        let data = serde_json::to_vec(&batch).unwrap();
+                        std::fs::write(&format!("sim_results/{}.json", batch_num), data).unwrap();
+                        batch_num += 1;
+                        batch.clear();
+                    }
+                }
+                Err(err) => panic!(err),
+            }
+        }
+        if !batch.is_empty() {
+            let data = serde_json::to_vec(&batch).unwrap();
+            std::fs::write(&format!("sim_results/{}.json", batch_num), data).unwrap();
+        }
     }
 }
 
