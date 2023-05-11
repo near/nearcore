@@ -1843,7 +1843,7 @@ impl<'a> FuncGen<'a> {
                 _ => {}
             }
             if self.unreachable_depth > 0 {
-                while self.consume_gas_offset(/* true */).is_some() {}; // do not instrument unreachable code
+                while self.consume_gas_offset(/* true */).is_some() {} // do not instrument unreachable code
                 return Ok(());
             }
         }
