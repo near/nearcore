@@ -436,14 +436,9 @@ mod tests {
     fn test_visit_interval() {
         let trie_changes = vec![(b"aa".to_vec(), Some(vec![1])), (b"abb".to_vec(), Some(vec![2]))];
         let tries = create_tries();
-        let state_root = test_populate_trie(
-            &tries,
-            &Trie::EMPTY_ROOT,
-            ShardUId::single_shard(),
-            trie_changes.clone(),
-        );
+        let state_root =
+            test_populate_trie(&tries, &Trie::EMPTY_ROOT, ShardUId::single_shard(), trie_changes);
         let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
-
         let path_begin: Vec<_> = NibbleSlice::new(b"aa").iter().collect();
         let path_end: Vec<_> = NibbleSlice::new(b"abb").iter().collect();
         let mut trie_iter = trie.iter().unwrap();
