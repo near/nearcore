@@ -219,7 +219,7 @@ impl Trie {
         part_id: PartId,
         partial_state: PartialState,
     ) -> Result<(), StorageError> {
-        let PartialState::Nodes(nodes) = &partial_state;
+        let PartialState::TrieValues(nodes) = &partial_state;
         let num_nodes = nodes.len();
         let trie =
             Trie::from_recorded_storage(PartialStorage { nodes: partial_state }, *state_root);
@@ -409,8 +409,12 @@ mod tests {
             state_root: &StateRoot,
             parts: &[PartialState],
         ) -> Result<TrieChanges, StorageError> {
-            let nodes = PartialState::Nodes(
-                parts.iter().flat_map(|PartialState::Nodes(nodes)| nodes.iter()).cloned().collect(),
+            let nodes = PartialState::TrieValues(
+                parts
+                    .iter()
+                    .flat_map(|PartialState::TrieValues(nodes)| nodes.iter())
+                    .cloned()
+                    .collect(),
             );
             let trie = Trie::from_recorded_storage(PartialStorage { nodes }, *state_root);
             let mut insertions = <HashMap<CryptoHash, (Vec<u8>, u32)>>::new();
@@ -523,10 +527,14 @@ mod tests {
         let _ = Trie::validate_trie_nodes_for_part(
             &state_root,
             PartId::new(0, 1),
-            PartialState::Nodes(vec![]),
+            PartialState::TrieValues(vec![]),
         )
         .unwrap();
-        let _ = Trie::apply_state_part(&state_root, PartId::new(0, 1), PartialState::Nodes(vec![]));
+        let _ = Trie::apply_state_part(
+            &state_root,
+            PartId::new(0, 1),
+            PartialState::TrieValues(vec![]),
+        );
     }
 
     fn construct_trie_for_big_parts_1(
@@ -625,7 +633,7 @@ mod tests {
                 if part_id != 0 {
                     assert_matches!(trie.get(&left_key_boundary), Ok(Some(_)));
                 }
-                let PartialState::Nodes(proof_nodes) =
+                let PartialState::TrieValues(proof_nodes) =
                     trie_recording.recorded_storage().unwrap().nodes;
                 let proof_size = proof_nodes.iter().map(|node| node.len()).sum::<usize>() as u64;
                 assert!(
@@ -637,7 +645,7 @@ mod tests {
                     max_proof_overhead
                 );
 
-                let PartialState::Nodes(part_nodes) =
+                let PartialState::TrieValues(part_nodes) =
                     trie.get_trie_nodes_for_part(PartId::new(part_id, num_parts)).unwrap();
                 // TODO (#8997): it's a bit weird that raw lengths are compared to
                 // config values. Consider better defined assertion.
@@ -721,13 +729,13 @@ mod tests {
                 let mut nodes = <HashMap<CryptoHash, Arc<[u8]>>>::new();
                 let sizes_vec = parts
                     .iter()
-                    .map(|PartialState::Nodes(nodes)| {
+                    .map(|PartialState::TrieValues(nodes)| {
                         nodes.iter().map(|node| node.len()).sum::<usize>()
                     })
                     .collect::<Vec<_>>();
 
                 for part in parts {
-                    let PartialState::Nodes(part_nodes) = part;
+                    let PartialState::TrieValues(part_nodes) = part;
                     for node in part_nodes {
                         nodes.insert(hash(&node), node);
                     }
@@ -739,7 +747,7 @@ mod tests {
                 Trie::validate_trie_nodes_for_part(
                     trie.get_root(),
                     PartId::new(0, 1),
-                    PartialState::Nodes(all_nodes),
+                    PartialState::TrieValues(all_nodes),
                 )
                 .expect("validate ok");
 

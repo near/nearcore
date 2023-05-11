@@ -6,21 +6,21 @@ use crate::validator_signer::ValidatorSigner;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;
 
-/// Serialized TrieNodeWithSize
-pub type StateItem = std::sync::Arc<[u8]>;
+/// Serialized TrieNodeWithSize or state value.
+pub type TrieValue = std::sync::Arc<[u8]>;
 
 #[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq)]
-/// TODO (#8984): consider supporting format containing trie nodes only for
+/// TODO (#8984): consider supporting format containing trie values only for
 /// state part boundaries and storing state items for state part range.
 pub enum PartialState {
-    /// State represented by the trie nodes.
-    Nodes(Vec<StateItem>),
+    /// State represented by the set of unique trie values.
+    TrieValues(Vec<TrieValue>),
 }
 
 impl PartialState {
     pub fn len(&self) -> usize {
-        let Self::Nodes(nodes) = self;
-        nodes.len()
+        let Self::TrieValues(values) = self;
+        values.len()
     }
 }
 /// Double signed block.
