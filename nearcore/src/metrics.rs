@@ -113,5 +113,5 @@ pub(crate) static DELETE_STATE_SNAPSHOT_ELAPSED: Lazy<Histogram> = Lazy::new(|| 
         "Latency of deleting a state snapshot in seconds",
         exponential_buckets(0.001, 1.6, 25).unwrap(),
     )
-        .unwrap()
+    .unwrap()
 });

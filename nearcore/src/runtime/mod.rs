@@ -1650,8 +1650,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         last_block_height: BlockHeight,
         prev_block_hash: &CryptoHash,
     ) -> Result<(), Error> {
-        let _span = tracing::info_span!(target: "state_snapshot", "make_state_snapshot", ?last_block_hash)
-            .entered();
+        let _span =
+            tracing::info_span!(target: "state_snapshot", "make_state_snapshot", ?last_block_hash)
+                .entered();
         tracing::info!(target: "state_snapshot", ?last_block_hash, ?last_block_height, ?prev_block_hash, "make_state_snapshot");
         let _timer = metrics::MAKE_STATE_SNAPSHOT_ELAPSED.start_timer();
         match &self.state_snapshot_config {

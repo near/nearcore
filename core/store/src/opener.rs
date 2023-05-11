@@ -590,6 +590,9 @@ pub fn checkpoint_hot_storage_and_cleanup_columns(
     columns_to_keep: Option<Vec<DBCol>>,
     archive: bool,
 ) -> Result<NodeStorage, StoreOpenerError> {
+    let _span =
+        tracing::info_span!(target: "state_snapshot", "checkpoint_hot_storage_and_cleanup_columns")
+            .entered();
     let checkpoint_path = checkpoint_base_path.join("data");
     std::fs::create_dir_all(&checkpoint_base_path)?;
 
@@ -605,6 +608,7 @@ pub fn checkpoint_hot_storage_and_cleanup_columns(
     let node_storage = opener.open()?;
 
     if let Some(columns_to_keep) = columns_to_keep {
+        let _span = tracing::info_span!(target: "state_snapshot", "delete columns in checkpoint_hot_storage_and_cleanup_columns").entered();
         let columns_to_keep_set: std::collections::HashSet<DBCol> =
             std::collections::HashSet::from_iter(columns_to_keep.into_iter());
         let mut transaction = DBTransaction::new();
