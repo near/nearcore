@@ -23,6 +23,7 @@ impl PartialState {
         values.len()
     }
 }
+
 /// Double signed block.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct BlockDoubleSign {
