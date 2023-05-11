@@ -157,21 +157,12 @@ impl Trie {
                     }
                     *memory_skipped += child.memory_usage;
                 }
-                // This line should not be reached if node.memory_usage > size_start
-                // To avoid changing production behavior, I'm just adding a debug_assert here
-                // to indicate that
-                debug_assert!(
-                    false,
-                    "This should not be reached target size {} node memory usage {} size skipped {}",
-                    memory_threshold, node.memory_usage, memory_skipped,
-                );
-                error!(
-                    target: "state_parts",
-                    "This should not be reached target size {} node memory usage {} size skipped {}",
-                    memory_threshold, node.memory_usage, memory_skipped,
-                );
-                key_nibbles.extend(LAST_STATE_PART_BOUNDARY);
-                Ok(false)
+                // This line should be unreachable if we descended into current node.
+                // TODO (#8997): test this case properly by simulating trie data corruption.
+                Err(StorageError::StorageInconsistentState(format!(
+                    "Skipped all children of node {node:?} while finding memory \
+                    threshold {memory_threshold} and skipped {memory_skipped}"
+                )))
             }
             TrieNode::Extension(key, child_handle) => {
                 let child = match child_handle {
@@ -320,17 +311,20 @@ mod tests {
     use super::*;
     use near_primitives::shard_layout::ShardUId;
 
+    // Helper to convert nibbles to bytes.
     fn nibbles_to_bytes(nibbles: &[u8]) -> Vec<u8> {
         assert_eq!(nibbles.len() % 2, 0);
         let encoded = NibbleSlice::encode_nibbles(&nibbles, false);
+        // Ignore first element returned by `encode_nibbles` because it contains only
+        // `is_leaf` info for even length.
         encoded[1..].to_vec()
     }
 
-    /// Checks that sampling state boundaries results always gives valid state
-    /// keys, even if trie contains intermediate nodes.
+    /// Checks that sampling state boundaries always gives valid state keys
+    /// even if trie contains intermediate nodes.
     #[test]
     fn boundary_is_state_key() {
-        // Trie should contain at least two intermediate branches, for strings
+        // Trie should contain at least two intermediate branches for strings
         // "a" and "b".
         let trie_changes = vec![
             (b"after".to_vec(), Some(vec![1])),
@@ -363,7 +357,7 @@ mod tests {
         assert_eq!(nibbles_boundary, LAST_STATE_PART_BOUNDARY);
     }
 
-    /// Checks that on degenerate case when trie is a single path state
+    /// Checks that on degenerate case when trie is a single path, state
     /// parts are still distributed evenly.
     #[test]
     fn single_path_trie() {
