@@ -462,44 +462,11 @@ pub struct ChainStore {
     /// Tail height of the chain,
     tail: Option<BlockHeight>,
     cached_columns: HashMap<DBCol, CachedColumnTypes>,
-    /// Cache with blocks.
-    blocks: CellLruCache<Vec<u8>, Block>,
-    /// Cache with chunks
-    chunks: CellLruCache<Vec<u8>, Arc<ShardChunk>>,
-    /// Cache with partial chunks
-    partial_chunks: CellLruCache<Vec<u8>, Arc<PartialEncodedChunk>>,
-    /// Cache with block extra.
-    block_extras: CellLruCache<Vec<u8>, Arc<BlockExtra>>,
-    /// Cache with chunk extra.
-    chunk_extras: CellLruCache<Vec<u8>, Arc<ChunkExtra>>,
-    /// Cache with height to hash on the main chain.
-    height: CellLruCache<Vec<u8>, CryptoHash>,
-    /// Cache with height to block hash on any chain.
     block_hash_per_height: CellLruCache<Vec<u8>, Arc<HashMap<EpochId, HashSet<CryptoHash>>>>,
     /// Next block hashes for each block on the canonical chain
-    next_block_hashes: CellLruCache<Vec<u8>, CryptoHash>,
-    /// Light clientC blocks corresponding to the last finalized block of each epoch
-    epoch_light_client_blocks: CellLruCache<Vec<u8>, Arc<LightClientBlockView>>,
-    /// Cache with outgoing receipts.
     outgoing_receipts: CellLruCache<Vec<u8>, Arc<Vec<Receipt>>>,
     /// Cache with incoming receipts.
-    incoming_receipts: CellLruCache<Vec<u8>, Arc<Vec<ReceiptProof>>>,
-    /// Invalid chunks.
-    invalid_chunks: CellLruCache<Vec<u8>, Arc<EncodedShardChunk>>,
-    /// Mapping from receipt id to destination shard id
     receipt_id_to_shard_id: CellLruCache<Vec<u8>, ShardId>,
-    /// Transactions
-    transactions: CellLruCache<Vec<u8>, Arc<SignedTransaction>>,
-    /// Receipts
-    receipts: CellLruCache<Vec<u8>, Arc<Receipt>>,
-    /// Cache with Block Refcounts
-    block_refcounts: CellLruCache<Vec<u8>, u64>,
-    /// Cache of block hash -> block merkle tree at the current block
-    block_merkle_tree: CellLruCache<Vec<u8>, Arc<PartialMerkleTree>>,
-    /// Cache of block ordinal to block hash.
-    block_ordinal_to_hash: CellLruCache<Vec<u8>, CryptoHash>,
-    /// Processed block heights.
-    processed_block_heights: CellLruCache<Vec<u8>, ()>,
     /// save_trie_changes should be set to true iff
     /// - archive if false - non-archival nodes need trie changes to perform garbage collection
     /// - archive is true, cold_store is configured and migration to split_storage is finished - node
@@ -558,25 +525,9 @@ impl ChainStore {
                     CACHE_SIZE,
                 )))
             ]),
-            blocks: CellLruCache::new(CACHE_SIZE),
-            chunks: CellLruCache::new(CHUNK_CACHE_SIZE),
-            partial_chunks: CellLruCache::new(CHUNK_CACHE_SIZE),
-            block_extras: CellLruCache::new(CACHE_SIZE),
-            chunk_extras: CellLruCache::new(CACHE_SIZE),
-            height: CellLruCache::new(CACHE_SIZE),
             block_hash_per_height: CellLruCache::new(CACHE_SIZE),
-            block_refcounts: CellLruCache::new(CACHE_SIZE),
-            next_block_hashes: CellLruCache::new(CACHE_SIZE),
-            epoch_light_client_blocks: CellLruCache::new(CACHE_SIZE),
             outgoing_receipts: CellLruCache::new(CACHE_SIZE),
-            incoming_receipts: CellLruCache::new(CACHE_SIZE),
-            invalid_chunks: CellLruCache::new(CACHE_SIZE),
             receipt_id_to_shard_id: CellLruCache::new(CHUNK_CACHE_SIZE),
-            transactions: CellLruCache::new(CHUNK_CACHE_SIZE),
-            receipts: CellLruCache::new(CHUNK_CACHE_SIZE),
-            block_merkle_tree: CellLruCache::new(CACHE_SIZE),
-            block_ordinal_to_hash: CellLruCache::new(CACHE_SIZE),
-            processed_block_heights: CellLruCache::new(CACHE_SIZE),
             save_trie_changes,
         }
     }
