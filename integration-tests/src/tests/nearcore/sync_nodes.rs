@@ -104,6 +104,9 @@ fn add_blocks(
 fn setup_configs() -> (Genesis, Block, NearConfig, NearConfig) {
     let mut genesis = Genesis::test(vec!["other".parse().unwrap()], 1);
     genesis.config.epoch_length = 5;
+    // Avoid InvalidGasPrice error. Blocks must contain accurate `total_supply` value.
+    // Accounting for the inflation in tests is hard.
+    // Disabling inflation in tests is much simpler.
     genesis.config.max_inflation_rate = Rational32::from_integer(0);
     let genesis_block = genesis_block(&genesis);
 
