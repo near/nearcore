@@ -363,11 +363,15 @@ impl Client {
                     false,
                     &self.shard_tracker,
                 ) {
-                    self.sharded_tx_pool.reintroduce_transactions(
-                        shard_id,
-                        // By now the chunk must be in store, otherwise the block would have been orphaned
-                        self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap().transactions(),
-                    );
+                    // By now the chunk must be in store, otherwise the block would have been orphaned
+                    let chunk = self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap();
+                    let reintroduced_count = self
+                        .sharded_tx_pool
+                        .reintroduce_transactions(shard_id, &chunk.transactions());
+                    if reintroduced_count < chunk.transactions().len() {
+                        debug!(target: "client", "Reintroduced {} transactions out of {}",
+                               reintroduced_count, chunk.transactions().len());
+                    }
                 }
             }
         }
@@ -916,7 +920,11 @@ impl Client {
         };
         // Reintroduce valid transactions back to the pool. They will be removed when the chunk is
         // included into the block.
-        sharded_tx_pool.reintroduce_transactions(shard_id, &transactions);
+        let reintroduced_count = sharded_tx_pool.reintroduce_transactions(shard_id, &transactions);
+        if reintroduced_count < transactions.len() {
+            debug!(target: "client", "Reintroduced {} transactions out of {}",
+                   reintroduced_count, transactions.len());
+        }
         Ok(transactions)
     }
 

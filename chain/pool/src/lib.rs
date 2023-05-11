@@ -149,13 +149,6 @@ impl TransactionPool {
         }
     }
 
-    /// Reintroduces transactions back during the chain reorg.
-    pub fn reintroduce_transactions(&mut self, transactions: Vec<SignedTransaction>) {
-        for tx in transactions {
-            self.insert_transaction(tx);
-        }
-    }
-
     /// Returns the number of unique transactions in the pool.
     pub fn len(&self) -> usize {
         self.unique_transactions.len()

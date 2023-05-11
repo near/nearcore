@@ -84,13 +84,22 @@ impl ShardedTransactionPool {
         })
     }
 
+    /// Reintroduces transactions back during the chain reorg. Returns the number of transactions
+    /// that were added or are already present in the pool.
     pub fn reintroduce_transactions(
         &mut self,
         shard_id: ShardId,
         transactions: &[SignedTransaction],
-    ) {
-        // TODO(akashin): Enforce size limit here as well.
-        self.pool_for_shard(shard_id).reintroduce_transactions(transactions.to_vec());
+    ) -> usize {
+        let mut reintroduced_count = 0;
+        let pool = self.pool_for_shard(shard_id);
+        for tx in transactions {
+            reintroduced_count += match pool.insert_transaction(tx.clone()) {
+                InsertTransactionResult::Success | InsertTransactionResult::Duplicate => 1,
+                InsertTransactionResult::NoSpaceLeft => 0,
+            }
+        }
+        reintroduced_count
     }
 }
 
