@@ -1,5 +1,5 @@
 use anyhow::Result;
-use wasmer::*;
+use near_vm::*;
 
 #[compiler_test(serialize)]
 fn test_serialize(config: crate::Config) -> Result<()> {

@@ -1487,15 +1487,17 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
                 .chain
                 .mut_store()
                 .get_all_block_hashes_by_height(i as BlockHeight)
-                .is_err());
+                .unwrap()
+                .is_empty());
         } else {
             assert!(env.clients[0].chain.get_block(blocks[i as usize].hash()).is_ok());
             assert!(env.clients[0].chain.get_block_by_height(i).is_ok());
-            assert!(env.clients[0]
+            assert!(!env.clients[0]
                 .chain
                 .mut_store()
                 .get_all_block_hashes_by_height(i as BlockHeight)
-                .is_ok());
+                .unwrap()
+                .is_empty());
         }
     }
     assert_eq!(env.clients[0].chain.store().chunk_tail().unwrap(), epoch_length - 1);
@@ -1553,7 +1555,11 @@ fn test_archival_save_trie_changes() {
 
         assert!(chain.get_block(block.hash()).is_ok());
         assert!(chain.get_block_by_height(i).is_ok());
-        assert!(chain.store().get_all_block_hashes_by_height(i as BlockHeight).is_ok());
+        assert!(!chain
+            .store()
+            .get_all_block_hashes_by_height(i as BlockHeight)
+            .unwrap()
+            .is_empty());
 
         // The genesis block does not contain trie changes.
         if i == 0 {
@@ -1644,7 +1650,11 @@ fn test_archival_gc_common(
         } else {
             assert!(chain.get_block(block.hash()).is_ok());
             assert!(chain.get_block_by_height(i).is_ok());
-            assert!(chain.store().get_all_block_hashes_by_height(i as BlockHeight).is_ok());
+            assert!(!chain
+                .store()
+                .get_all_block_hashes_by_height(i as BlockHeight)
+                .unwrap()
+                .is_empty());
         }
     }
 }
@@ -2872,11 +2882,11 @@ fn test_execution_metadata() {
         "cost": "CONTRACT_LOADING_BYTES",
         "gas_used": "18423750"
       },
-      // We spend two wasm instructions (call & drop), plus 8 ops for initializing the stack.
+      // We spend two wasm instructions (call & drop).
       {
         "cost_category": "WASM_HOST_COST",
         "cost": "WASM_INSTRUCTION",
-        "gas_used": (config.wasm_config.regular_op_cost as u64 * 10).to_string()
+        "gas_used": (config.wasm_config.regular_op_cost as u64 * 2).to_string()
       }
     ]);
     let outcome = &execution_outcome.receipts_outcome[0].outcome;

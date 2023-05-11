@@ -1,7 +1,7 @@
 use anyhow::Result;
-use wasmer::{wat2wasm, BaseTunables, Engine};
-use wasmer_compiler_singlepass::Singlepass;
-use wasmer_engine_universal::Universal;
+use near_vm::{wat2wasm, BaseTunables, Engine};
+use near_vm_compiler_singlepass::Singlepass;
+use near_vm_engine_universal::Universal;
 
 fn compile_and_compare(wasm: &[u8]) -> Result<()> {
     let compiler = Singlepass::default();

@@ -334,6 +334,11 @@ pub(crate) static NODE_PROTOCOL_VERSION: Lazy<IntGauge> = Lazy::new(|| {
         .unwrap()
 });
 
+pub(crate) static CURRENT_PROTOCOL_VERSION: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge("near_current_protocol_version", "Protocol version of the current epoch")
+        .unwrap()
+});
+
 pub(crate) static NODE_PROTOCOL_UPGRADE_VOTING_START: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge(
         "near_node_protocol_upgrade_voting_start",
