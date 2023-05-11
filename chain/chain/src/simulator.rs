@@ -465,6 +465,7 @@ impl SimulationRunner {
     }
 
     pub fn dump_simulation_results(store: Store) {
+        println!("Begin dump");
         std::fs::create_dir_all("sim_results").unwrap();
         let mut batch_num = 0;
         let mut batch = Vec::new();
@@ -475,6 +476,7 @@ impl SimulationRunner {
                 Ok((key, value)) => {
                     batch.push((key, value));
                     if batch.len() >= 10000 {
+                        println!("Dumping sim_results/{}.json", batch_num);
                         let data = serde_json::to_vec(&batch).unwrap();
                         std::fs::write(&format!("sim_results/{}.json", batch_num), data).unwrap();
                         batch_num += 1;
@@ -485,6 +487,7 @@ impl SimulationRunner {
             }
         }
         if !batch.is_empty() {
+            println!("Dumping sim_results/{}.json", batch_num);
             let data = serde_json::to_vec(&batch).unwrap();
             std::fs::write(&format!("sim_results/{}.json", batch_num), data).unwrap();
         }
