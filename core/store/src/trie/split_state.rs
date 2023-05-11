@@ -635,7 +635,7 @@ mod tests {
     fn test_split_and_update_state_impl(rng: &mut impl Rng) {
         let tries = create_tries();
         // add accounts and receipts to state
-        let mut account_ids = gen_unique_accounts(rng, 100);
+        let mut account_ids = gen_unique_accounts(rng, 1, 100);
         let mut trie_update = tries.new_trie_update(ShardUId::single_shard(), Trie::EMPTY_ROOT);
         for account_id in account_ids.iter() {
             set_account(
@@ -712,7 +712,7 @@ mod tests {
         // update the original shard
         for _ in 0..10 {
             // add accounts
-            let new_accounts = gen_unique_accounts(rng, 10);
+            let new_accounts = gen_unique_accounts(rng, 1, 10);
             let mut trie_update = tries.new_trie_update(ShardUId::single_shard(), state_root);
             for account_id in new_accounts.iter() {
                 set_account(

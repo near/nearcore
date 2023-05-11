@@ -107,10 +107,11 @@ pub fn test_populate_store_rc(store: &Store, data: &[(DBCol, Vec<u8>, Vec<u8>)])
 
 fn gen_accounts_from_alphabet(
     rng: &mut impl Rng,
+    min_size: usize,
     max_size: usize,
     alphabet: &[u8],
 ) -> Vec<AccountId> {
-    let size = rng.gen_range(0..max_size) + 1;
+    let size = rng.gen_range(min_size..=max_size);
     std::iter::repeat_with(|| gen_account(rng, alphabet)).take(size).collect()
 }
 
@@ -120,15 +121,15 @@ pub fn gen_account(rng: &mut impl Rng, alphabet: &[u8]) -> AccountId {
     from_utf8(&s).unwrap().parse().unwrap()
 }
 
-pub fn gen_unique_accounts(rng: &mut impl Rng, max_size: usize) -> Vec<AccountId> {
+pub fn gen_unique_accounts(rng: &mut impl Rng, min_size: usize, max_size: usize) -> Vec<AccountId> {
     let alphabet = b"abcdefghijklmn";
-    let accounts = gen_accounts_from_alphabet(rng, max_size, alphabet);
+    let accounts = gen_accounts_from_alphabet(rng, min_size, max_size, alphabet);
     accounts.into_iter().collect::<HashSet<_>>().into_iter().collect()
 }
 
 pub fn gen_receipts(rng: &mut impl Rng, max_size: usize) -> Vec<Receipt> {
     let alphabet = &b"abcdefgh"[0..rng.gen_range(4..8)];
-    let accounts = gen_accounts_from_alphabet(rng, max_size, alphabet);
+    let accounts = gen_accounts_from_alphabet(rng, 1, max_size, alphabet);
     accounts
         .iter()
         .map(|account_id| Receipt {

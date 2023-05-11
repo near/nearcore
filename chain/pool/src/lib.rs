@@ -1,3 +1,4 @@
+use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
 use crate::types::{PoolIterator, PoolKey, TransactionGroup};
@@ -24,6 +25,8 @@ pub struct TransactionPool {
     key_seed: RngSeed,
     /// The key after which the pool iterator starts. Doesn't have to be present in the pool.
     last_used_key: PoolKey,
+    /// Total size of transactions in the pool measured in bytes.
+    total_transaction_size: u64,
 }
 
 impl TransactionPool {
@@ -33,6 +36,7 @@ impl TransactionPool {
             transactions: BTreeMap::new(),
             unique_transactions: HashSet::new(),
             last_used_key: CryptoHash::default(),
+            total_transaction_size: 0,
         }
     }
 
@@ -58,6 +62,13 @@ impl TransactionPool {
 
         let signer_id = &signed_transaction.transaction.signer_id;
         let signer_public_key = &signed_transaction.transaction.public_key;
+        // We never expect the total size to go over `u64` during real operation as that would
+        // be more than 10^9 GiB of RAM consumed for transaction pool, so panicing here is intended
+        // to catch a logic error in estimation of transaction size.
+        self.total_transaction_size = self
+            .total_transaction_size
+            .checked_add(signed_transaction.get_size())
+            .expect("Total transaction size is too large");
         self.transactions
             .entry(self.key(signer_id, signer_public_key))
             .or_insert_with(Vec::new)
@@ -79,10 +90,11 @@ impl TransactionPool {
     pub fn remove_transactions(&mut self, transactions: &[SignedTransaction]) {
         let mut grouped_transactions = HashMap::new();
         for tx in transactions {
-            // Transaction is not present in the pool, skip it.
-            if !self.unique_transactions.contains(&tx.get_hash()) {
+            // If transaction is not present in the pool, skip it.
+            if !self.unique_transactions.remove(&tx.get_hash()) {
                 continue;
             }
+            metrics::TRANSACTION_POOL_TOTAL.dec();
 
             let signer_id = &tx.transaction.signer_id;
             let signer_public_key = &tx.transaction.public_key;
@@ -92,17 +104,21 @@ impl TransactionPool {
                 .insert(tx.get_hash());
         }
         for (key, hashes) in grouped_transactions {
-            let mut remove_entry = false;
-            if let Some(v) = self.transactions.get_mut(&key) {
-                v.retain(|tx| !hashes.contains(&tx.get_hash()));
-                remove_entry = v.is_empty();
-            }
-            if remove_entry {
-                self.transactions.remove(&key);
-            }
-            for hash in &hashes {
-                if self.unique_transactions.remove(&hash) {
-                    metrics::TRANSACTION_POOL_TOTAL.dec();
+            if let Entry::Occupied(mut entry) = self.transactions.entry(key) {
+                entry.get_mut().retain(|tx| {
+                    if !hashes.contains(&tx.get_hash()) {
+                        return true;
+                    }
+                    // See the comment above where we increase the size for reasoning why panicing
+                    // here catches a logic error.
+                    self.total_transaction_size = self
+                        .total_transaction_size
+                        .checked_sub(tx.get_size())
+                        .expect("Total transaction size dropped below zero");
+                    false
+                });
+                if entry.get().is_empty() {
+                    entry.remove_entry();
                 }
             }
         }
@@ -118,6 +134,11 @@ impl TransactionPool {
     /// Returns the number of unique transactions in the pool.
     pub fn len(&self) -> usize {
         self.unique_transactions.len()
+    }
+
+    /// Returns the total size of transactions in the pool in bytes.
+    pub fn transaction_size(&self) -> u64 {
+        self.total_transaction_size
     }
 }
 
@@ -470,5 +491,25 @@ mod tests {
         let mut new_nonces = txs.iter().map(|tx| tx.transaction.nonce).collect::<Vec<_>>();
         new_nonces.sort();
         assert_ne!(nonces, new_nonces);
+    }
+
+    #[test]
+    fn test_transaction_pool_size() {
+        let mut pool = TransactionPool::new(TEST_SEED);
+        let transactions = generate_transactions("alice.near", "alice.near", 1, 100);
+        let mut total_transaction_size = 0;
+        // Adding transactions increases the size.
+        for tx in transactions.clone() {
+            total_transaction_size += tx.get_size();
+            pool.insert_transaction(tx);
+            assert_eq!(pool.transaction_size(), total_transaction_size);
+        }
+        // Removing transactions decreases the size.
+        for tx in transactions {
+            total_transaction_size -= tx.get_size();
+            pool.remove_transactions(&[tx]);
+            assert_eq!(pool.transaction_size(), total_transaction_size);
+        }
+        assert_eq!(pool.transaction_size(), 0);
     }
 }
