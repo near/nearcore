@@ -23,7 +23,6 @@ use borsh::BorshDeserialize;
 use near_primitives::challenge::PartialState;
 use near_primitives::state_part::PartId;
 use near_primitives::types::StateRoot;
-use tracing::error;
 
 use crate::flat::{FlatStateChanges, FlatStateValue};
 use crate::trie::iterator::TrieTraversalItem;
