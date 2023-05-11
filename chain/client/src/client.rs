@@ -2030,9 +2030,9 @@ impl Client {
                         }
                         InsertTransactionResult::NoSpaceLeft => {
                             if is_forwarded {
-                                trace!(target: "client", shard_id, "No space left for transaction, dropping it.");
+                                trace!(target: "client", shard_id, "Transaction pool is full, dropping the transaction.");
                             } else {
-                                trace!(target: "client", shard_id, "No space left for transaction, trying to forward it.");
+                                trace!(target: "client", shard_id, "Transaction pool is full, trying to forward the transaction.");
                             }
                         }
                     }
