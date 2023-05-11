@@ -387,13 +387,7 @@ impl SimulationRunner {
                 println!("[SIM]   Error simulating transaction {:?}: {:?}", hash, err);
                 txns_simulated_with_error += 1;
             }
-            update
-                .set_ser(
-                    DBCol::TransactionSimulationResult,
-                    hash.as_bytes(),
-                    &result.try_to_vec().unwrap(),
-                )
-                .unwrap();
+            update.set_ser(DBCol::TransactionSimulationResult, hash.as_bytes(), &result).unwrap();
             txns_simulated += 1;
         }
 
@@ -469,11 +463,10 @@ impl SimulationRunner {
         std::fs::create_dir_all("sim_results").unwrap();
         let mut batch_num = 0;
         let mut batch = Vec::new();
-        for item in
-            store.iter_prefix_ser::<SimulationResult>(DBCol::TransactionSimulationResult, b"")
-        {
+        for item in store.iter_prefix_ser::<Vec<u8>>(DBCol::TransactionSimulationResult, b"") {
             match item {
                 Ok((key, value)) => {
+                    let value = SimulationResult::try_from_slice(&value).unwrap();
                     batch.push((key, value));
                     if batch.len() >= 10000 {
                         println!("Dumping sim_results/{}.json", batch_num);
