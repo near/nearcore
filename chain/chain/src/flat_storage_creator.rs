@@ -158,12 +158,8 @@ impl FlatStorageShardCreator {
                     // heights than one on which we launched a node. Check that it is true:
                     for height in final_height + 1..=chain_store.head()?.height {
                         // We skip heights for which there are no blocks, because certain heights can be skipped.
-                        // TODO (#8057): make `get_all_block_hashes_by_height` return empty hashmap instead of error
-                        // in such case.
-                        for (_, hashes) in chain_store
-                            .get_all_block_hashes_by_height(height)
-                            .unwrap_or_default()
-                            .iter()
+                        for (_, hashes) in
+                            chain_store.get_all_block_hashes_by_height(height)?.iter()
                         {
                             for hash in hashes {
                                 debug!(target: "store", %shard_id, %height, %hash, "Checking delta existence");
