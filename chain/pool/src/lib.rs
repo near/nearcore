@@ -13,7 +13,7 @@ use std::ops::Bound;
 mod metrics;
 pub mod types;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum InsertTransactionResult {
     /// Transaction was successfully inserted.
     Success,
@@ -66,6 +66,7 @@ impl TransactionPool {
     }
 
     /// Inserts a signed transaction that passed validation into the pool.
+    #[must_use]
     pub fn insert_transaction(
         &mut self,
         signed_transaction: SignedTransaction,
@@ -304,11 +305,11 @@ mod tests {
         mut transactions: Vec<SignedTransaction>,
         expected_weight: u32,
     ) -> (Vec<u64>, TransactionPool) {
-        let mut pool = TransactionPool::new(TEST_SEED);
+        let mut pool = TransactionPool::new(TEST_SEED, None);
         let mut rng = thread_rng();
         transactions.shuffle(&mut rng);
         for tx in transactions {
-            pool.insert_transaction(tx);
+            assert_eq!(pool.insert_transaction(tx), InsertTransactionResult::Success);
         }
         (
             prepare_transactions(&mut pool, expected_weight)
@@ -415,12 +416,12 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        let mut pool = TransactionPool::new(TEST_SEED);
+        let mut pool = TransactionPool::new(TEST_SEED, None);
         let mut rng = thread_rng();
         transactions.shuffle(&mut rng);
         for tx in transactions.clone() {
             println!("{:?}", tx);
-            pool.insert_transaction(tx);
+            assert_eq!(pool.insert_transaction(tx), InsertTransactionResult::Success);
         }
         assert_eq!(pool.len(), n as usize);
 
@@ -472,7 +473,10 @@ mod tests {
         assert_eq!(pool.len(), 5);
 
         for tx in transactions {
-            pool.insert_transaction(tx);
+            assert!(matches!(
+                pool.insert_transaction(tx),
+                InsertTransactionResult::Success | InsertTransactionResult::Duplicate
+            ));
         }
         assert_eq!(pool.len(), 10);
         let txs = prepare_transactions(&mut pool, 10);
@@ -506,7 +510,10 @@ mod tests {
         assert_eq!(pool.len(), 5);
 
         for tx in transactions {
-            pool.insert_transaction(tx);
+            assert!(matches!(
+                pool.insert_transaction(tx),
+                InsertTransactionResult::Success | InsertTransactionResult::Duplicate
+            ));
         }
         assert_eq!(pool.len(), 10);
         let txs = prepare_transactions(&mut pool, 5);
@@ -519,13 +526,13 @@ mod tests {
 
     #[test]
     fn test_transaction_pool_size() {
-        let mut pool = TransactionPool::new(TEST_SEED);
+        let mut pool = TransactionPool::new(TEST_SEED, None);
         let transactions = generate_transactions("alice.near", "alice.near", 1, 100);
         let mut total_transaction_size = 0;
         // Adding transactions increases the size.
         for tx in transactions.clone() {
             total_transaction_size += tx.get_size();
-            pool.insert_transaction(tx);
+            assert_eq!(pool.insert_transaction(tx), InsertTransactionResult::Success);
             assert_eq!(pool.transaction_size(), total_transaction_size);
         }
         // Removing transactions decreases the size.
@@ -535,5 +542,26 @@ mod tests {
             assert_eq!(pool.transaction_size(), total_transaction_size);
         }
         assert_eq!(pool.transaction_size(), 0);
+    }
+
+    #[test]
+    fn test_transaction_pool_size_limit() {
+        let pool_size_limit = 1000;
+        let mut pool = TransactionPool::new(TEST_SEED, Some(pool_size_limit));
+        let transactions = generate_transactions("alice.near", "alice.near", 1, 100);
+        let mut total_transaction_size = 0;
+        // Repeatedly fills the pool to capacity and then removes all transactions and starts
+        // again.
+        for tx in transactions.clone() {
+            if total_transaction_size + tx.get_size() > pool_size_limit {
+                assert_eq!(pool.insert_transaction(tx), InsertTransactionResult::NoSpaceLeft);
+                pool.remove_transactions(&transactions);
+                total_transaction_size = 0;
+            } else {
+                total_transaction_size += tx.get_size();
+                assert_eq!(pool.insert_transaction(tx), InsertTransactionResult::Success);
+            }
+            assert_eq!(pool.transaction_size(), total_transaction_size);
+        }
     }
 }
