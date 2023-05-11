@@ -77,7 +77,6 @@ pub fn spawn_state_sync_dump(
 
     let chain_id = client_config.chain_id.clone();
     let keep_running = Arc::new(AtomicBool::new(true));
-
     // Start a thread for each shard.
     let handles = (0..num_shards as usize)
         .map(|shard_id| {
@@ -98,7 +97,9 @@ pub fn spawn_state_sync_dump(
                     assert!(arbiter_handle.spawn(state_sync_dump_multi_node(
                         shard_id as ShardId,
                         chain,
-                        runtime,
+                        epoch_manager.clone(),
+                        shard_tracker.clone(),
+                        runtime.clone(),
                         chain_id.clone(),
                         external.clone(),
                         dump_config.iteration_delay.unwrap_or(Duration::from_secs(10)),
@@ -110,7 +111,9 @@ pub fn spawn_state_sync_dump(
                     assert!(arbiter_handle.spawn(state_sync_dump_single_node(
                         shard_id as ShardId,
                         chain,
-                        runtime,
+                        epoch_manager.clone(),
+                        shard_tracker.clone(),
+                        runtime.clone(),
                         chain_id.clone(),
                         dump_config.restart_dump_for_shards.clone().unwrap_or_default(),
                         external.clone(),
@@ -119,7 +122,8 @@ pub fn spawn_state_sync_dump(
                         keep_running.clone(),
                     )));
                 }
-            }
+             }
+            
             arbiter_handle
         })
         .collect();
@@ -447,7 +451,9 @@ fn draw_part_id_without_replacement(parts_to_be_dumped: &mut Vec<u64>) -> u64 {
 async fn state_sync_dump_multi_node(
     shard_id: ShardId,
     chain: Chain,
-    runtime: Arc<dyn RuntimeWithEpochManagerAdapter>,
+    epoch_manager: Arc<dyn EpochManagerAdapter>,
+    shard_tracker: ShardTracker,
+    runtime: Arc<dyn RuntimeAdapter>,
     chain_id: String,
     external: ExternalConnection,
     iteration_delay: Duration,
@@ -469,13 +475,23 @@ async fn state_sync_dump_multi_node(
                     num_parts,
                     shard_id,
                     &chain,
-                    &runtime,
+                    epoch_manager.as_ref(),
+                    &shard_tracker,
                     &account_id,
                 )
             }
             Err(Error::DBNotFoundErr(_)) | Ok(None) => {
                 // First invocation of this state-machine. See if at least one epoch is available for dumping.
-                check_new_epoch(None, None, None, shard_id, &chain, &runtime, &account_id)
+                check_new_epoch(
+                    None,
+                    None,
+                    None,
+                    shard_id,
+                    &chain,
+                    epoch_manager.as_ref(),
+                    &shard_tracker,
+                    &account_id,
+                )
             }
             Err(err) => {
                 // Something went wrong, let's retry.
@@ -531,7 +547,7 @@ async fn state_sync_dump_multi_node(
                                         draw_part_id_without_replacement(&mut parts_to_dump);
 
                                     let state_part = match obtain_and_store_state_part(
-                                        &runtime,
+                                        runtime.as_ref(),
                                         shard_id,
                                         sync_hash,
                                         &sync_prev_hash,
@@ -904,6 +920,8 @@ mod tests {
             let _state_sync_dump_handle = spawn_state_sync_dump(
                 &config,
                 chain_genesis,
+                epoch_manager.clone(),
+                shard_tracker.clone(),
                 runtime.clone(),
                 Some("test0".parse().unwrap()),
             )
@@ -914,13 +932,13 @@ mod tests {
             }
             let head = &env.clients[0].chain.head().unwrap();
             let epoch_id = head.clone().epoch_id;
-            let epoch_info = runtime.get_epoch_info(&epoch_id).unwrap();
+            let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap();
             let epoch_height = epoch_info.epoch_height();
 
             wait_or_timeout(100, 10000, || async {
                 let mut all_parts_present = true;
 
-                let num_shards = runtime.num_shards(&epoch_id).unwrap();
+                let num_shards = epoch_manager.num_shards(&epoch_id).unwrap();
                 assert_ne!(num_shards, 0);
 
                 for shard_id in 0..num_shards {
