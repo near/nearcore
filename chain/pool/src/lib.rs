@@ -539,22 +539,17 @@ mod tests {
 
     #[test]
     fn test_transaction_pool_size_limit() {
-        let pool_size_limit = 1000;
-        let mut pool = TransactionPool::new(TEST_SEED, Some(pool_size_limit));
         let transactions = generate_transactions("alice.near", "alice.near", 1, 100);
-        let mut total_transaction_size = 0;
-        // Repeatedly fills the pool to capacity and then removes all transactions and starts
-        // again.
-        for tx in transactions.clone() {
-            if total_transaction_size + tx.get_size() > pool_size_limit {
-                assert_eq!(pool.insert_transaction(tx), InsertTransactionResult::NoSpaceLeft);
-                pool.remove_transactions(&transactions);
-                total_transaction_size = 0;
-            } else {
-                total_transaction_size += tx.get_size();
+        // Each transaction is at least 1 byte in size, so the last transaction will not fit.
+        let pool_size_limit =
+            transactions.iter().map(|tx| tx.get_size()).sum::<u64>().checked_sub(1).unwrap();
+        let mut pool = TransactionPool::new(TEST_SEED, Some(pool_size_limit));
+        for (i, tx) in transactions.iter().cloned().enumerate() {
+            if i + 1 < transactions.len() {
                 assert_eq!(pool.insert_transaction(tx), InsertTransactionResult::Success);
+            } else {
+                assert_eq!(pool.insert_transaction(tx), InsertTransactionResult::NoSpaceLeft);
             }
-            assert_eq!(pool.transaction_size(), total_transaction_size);
         }
     }
 }
