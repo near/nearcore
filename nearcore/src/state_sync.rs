@@ -408,7 +408,7 @@ async fn get_missing_state_parts_for_epoch(
         external_storage_location_directory_multi_node(chain_id, epoch_id, epoch_height, shard_id);
     let file_names = external.list_state_parts(shard_id, &s3_directory).await?;
     let mut res = vec![];
-    if file_names.len() > 0 {
+    if !file_names.is_empty() {
         let mut total_parts: u64 = 0;
         let mut existing_nums = HashSet::new();
         for name in file_names {
@@ -525,7 +525,7 @@ async fn state_sync_dump_multi_node(
                                     "get_missing_state_parts_for_epoch failed"
                                 )))
                             }
-                            Ok(parts_not_dumped) if parts_not_dumped.len() == 0 => {
+                            Ok(parts_not_dumped) if parts_not_dumped.is_empty() => {
                                 Ok(Some(StateSyncDumpProgress::AllDumped {
                                     epoch_id,
                                     epoch_height,
@@ -535,7 +535,7 @@ async fn state_sync_dump_multi_node(
                             Ok(parts_not_dumped) => {
                                 let mut parts_to_dump = parts_not_dumped.clone();
                                 let timer = Instant::now();
-                                while timer.elapsed().as_secs() <= 60 && parts_to_dump.len() > 0 {
+                                while timer.elapsed().as_secs() <= 60 && !parts_to_dump.is_empty() {
                                     let _timer = metrics::STATE_SYNC_DUMP_ITERATION_ELAPSED
                                         .with_label_values(&[&shard_id.to_string()])
                                         .start_timer();
@@ -585,7 +585,7 @@ async fn state_sync_dump_multi_node(
                                     }
                                 }
 
-                                if parts_to_dump.len() == 0 {
+                                if parts_to_dump.is_empty() {
                                     Ok(Some(StateSyncDumpProgress::AllDumped {
                                         epoch_id,
                                         epoch_height,
