@@ -434,7 +434,7 @@ fn sync_state_dump() {
                 location: Filesystem { root_dir: dump_dir.path().to_path_buf() },
                 restart_dump_for_shards: None,
                 iteration_delay: Some(Duration::from_millis(100)),
-                multi_node: Some(multi_node)
+                multi_node: Some(multi_node),
             });
 
             let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();

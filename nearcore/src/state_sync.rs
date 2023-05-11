@@ -122,8 +122,8 @@ pub fn spawn_state_sync_dump(
                         keep_running.clone(),
                     )));
                 }
-             }
-            
+            }
+
             arbiter_handle
         })
         .collect();
@@ -540,7 +540,8 @@ async fn state_sync_dump_multi_node(
                                         .with_label_values(&[&shard_id.to_string()])
                                         .start_timer();
 
-                                    let (part_id, selected_idx) = select_random_part_id_with_index(&parts_to_dump);
+                                    let (part_id, selected_idx) =
+                                        select_random_part_id_with_index(&parts_to_dump);
 
                                     let state_part = match obtain_and_store_state_part(
                                         runtime.as_ref(),
