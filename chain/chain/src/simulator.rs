@@ -135,7 +135,7 @@ pub struct SimulationState {
     runtime: Runtime,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Serialize, Deserialize)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Serialize)]
 pub struct SimulationResult {
     pub tx_outcome: Option<ExecutionOutcome>,
     pub outcomes: Vec<ReceiptExecutionOutcome>,
@@ -474,14 +474,14 @@ impl SimulationRunner {
             match item {
                 Ok((key, value)) => {
                     batch.push((key, value));
-                    if batch.size() >= 10000 {
+                    if batch.len() >= 10000 {
                         let data = serde_json::to_vec(&batch).unwrap();
                         std::fs::write(&format!("sim_results/{}.json", batch_num), data).unwrap();
                         batch_num += 1;
                         batch.clear();
                     }
                 }
-                Err(err) => panic!(err),
+                Err(err) => panic!(),
             }
         }
         if !batch.is_empty() {
