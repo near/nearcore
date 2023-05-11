@@ -14,7 +14,7 @@ use near_primitives::state_part::PartId;
 use near_primitives::syncing::{get_num_state_parts, StatePartKey, StateSyncDumpProgress};
 use near_primitives::types::{AccountId, EpochHeight, EpochId, ShardId, StateRoot};
 use near_store::DBCol;
-use rand::{seq::IteratorRandom, thread_rng};
+use rand::{thread_rng, Rng};
 use std::collections::HashSet;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -434,14 +434,14 @@ async fn get_missing_state_parts_for_epoch(
     }
 }
 
-fn select_random_parts_to_dump(parts_to_be_dumped: Vec<u64>, target_size: u64) -> Vec<u64> {
+// select a part_id and remove it from parts_to_be_dumped so that we draw without replacement
+fn select_random_part_to_dump(parts_to_be_dumped: &mut Vec<u64>) -> u64 {
     let mut rng = thread_rng();
-    let res = parts_to_be_dumped
-        .iter()
-        .cloned()
-        .choose_multiple(&mut rng, target_size.try_into().unwrap());
-    tracing::debug!(target: "state_sync_dump", ?res, "selected parts to dump: ");
-    res
+    let selected_idx = rng.gen_range(0..parts_to_be_dumped.len());
+    let selected_element = parts_to_be_dumped[selected_idx];
+    tracing::debug!(target: "state_sync_dump", ?selected_element, "selected parts to dump: ");
+    parts_to_be_dumped.swap_remove(selected_idx);
+    selected_element
 }
 
 async fn state_sync_dump_multi_node(
@@ -520,22 +520,14 @@ async fn state_sync_dump_multi_node(
                                 }))
                             }
                             Ok(parts_not_dumped) => {
-                                // use a big batch_size here, because small batch_size may mean the time limit is not being used
-                                let batch_size: u64 = 1000;
-                                let parts_to_dump =
-                                    select_random_parts_to_dump(parts_not_dumped, batch_size);
-
+                                let mut parts_to_dump = parts_not_dumped.clone();
                                 let timer = Instant::now();
-                                for part_id in parts_to_dump {
+                                while timer.elapsed().as_secs() <= 60 {
                                     let _timer = metrics::STATE_SYNC_DUMP_ITERATION_ELAPSED
                                         .with_label_values(&[&shard_id.to_string()])
                                         .start_timer();
 
-                                    // stop generating and uploading the remaining parts if 60 secs passed
-                                    if timer.elapsed().as_secs() >= 60 {
-                                        tracing::debug!(target: "state_sync_dump", shard_id, "Time's up for this iteration");
-                                        break;
-                                    }
+                                    let part_id = select_random_part_to_dump(&mut parts_to_dump);
 
                                     let state_part = match obtain_and_store_state_part(
                                         &runtime,
@@ -568,6 +560,7 @@ async fn state_sync_dump_multi_node(
                                         // reason is we are dumping random selected parts, so it's fine if we are not able to finish all of them
                                         continue;
                                     }
+
                                     // Stop if the node is stopped.
                                     // Note that without this check the state dumping thread is unstoppable, i.e. non-interruptable.
                                     if !keep_running.load(std::sync::atomic::Ordering::Relaxed) {
