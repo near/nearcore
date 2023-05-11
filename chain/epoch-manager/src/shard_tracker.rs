@@ -58,6 +58,10 @@ impl ShardTracker {
         }
     }
 
+    pub fn new_empty(epoch_manager: Arc<dyn EpochManagerAdapter>) -> Self {
+        Self::new(TrackedConfig::new_empty(), epoch_manager)
+    }
+
     fn tracks_shard_at_epoch(
         &self,
         shard_id: ShardId,

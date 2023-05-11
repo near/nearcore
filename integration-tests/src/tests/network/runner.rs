@@ -3,12 +3,13 @@ use anyhow::{anyhow, bail, Context};
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::messaging::{IntoSender, LateBoundSender};
 use near_async::time;
-use near_chain::test_utils::{KeyValueRuntime, ValidatorSchedule};
+use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis};
 use near_chain_configs::ClientConfig;
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::{start_client, start_view_client};
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::actix::ActixSystem;
 use near_network::blacklist;
 use near_network::config;
@@ -51,7 +52,9 @@ fn setup_network_node(
     let num_validators = validators.len() as ValidatorId;
 
     let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![validators]);
-    let runtime = KeyValueRuntime::new_with_validators(store.get_hot_store(), vs, 5);
+    let epoch_manager = MockEpochManager::new_with_validators(store.get_hot_store(), vs, 5);
+    let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
+    let runtime = KeyValueRuntime::new(store.get_hot_store(), epoch_manager.as_ref());
     let signer = Arc::new(create_test_signer(account_id.as_str()));
     let telemetry_actor = TelemetryActor::new(TelemetryConfig::default()).start();
 
@@ -59,7 +62,9 @@ fn setup_network_node(
     let mut client_config = ClientConfig::test(false, 100, 200, num_validators, false, true, true);
     client_config.archive = config.archive;
     client_config.ttl_account_id_router = config.ttl_account_id_router.try_into().unwrap();
-    let genesis_block = Chain::make_genesis_block(&*runtime, &chain_genesis).unwrap();
+    let genesis_block =
+        Chain::make_genesis_block(epoch_manager.as_ref(), runtime.as_ref(), &chain_genesis)
+            .unwrap();
     let genesis_id = GenesisId {
         chain_id: client_config.chain_id.clone(),
         hash: *genesis_block.header().hash(),
@@ -70,6 +75,8 @@ fn setup_network_node(
     let client_actor = start_client(
         client_config.clone(),
         chain_genesis.clone(),
+        epoch_manager.clone(),
+        shard_tracker.clone(),
         runtime.clone(),
         config.node_id(),
         network_adapter.clone().into(),
@@ -84,13 +91,16 @@ fn setup_network_node(
     let view_client_actor = start_view_client(
         config.validator.as_ref().map(|v| v.account_id()),
         chain_genesis,
+        epoch_manager.clone(),
+        shard_tracker.clone(),
         runtime.clone(),
         network_adapter.clone().into(),
         client_config.clone(),
         adv,
     );
     let (shards_manager_actor, _) = start_shards_manager(
-        runtime.clone(),
+        epoch_manager,
+        shard_tracker,
         network_adapter.as_sender(),
         client_actor.clone().with_auto_span_context().into_sender(),
         Some(signer.validator_id().clone()),

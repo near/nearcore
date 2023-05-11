@@ -1,10 +1,9 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::{Arc, RwLock, Weak};
+use std::sync::{Arc, RwLock};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::{EpochManagerAdapter, RngSeed};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_part::PartId;
@@ -49,7 +48,7 @@ use near_store::{
 use crate::types::{
     ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, RuntimeAdapter,
 };
-use crate::{BlockHeader, RuntimeWithEpochManagerAdapter};
+use crate::BlockHeader;
 
 use near_primitives::epoch_manager::ShardConfig;
 
@@ -59,6 +58,13 @@ use super::ValidatorSchedule;
 
 /// Simple key value runtime for tests.
 ///
+/// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+/// WARNING: If you choose to use KeyValueRuntime for your tests, BE PREPARED TO
+/// HAVE A BAD TIME. Use it only if you understand it to its entirety. It has
+/// implicit behavior, very specific partially implemented logic, and is generally
+/// incorrect. USE NightshadeRuntime WHENEVER POSSIBLE. YOU HAVE BEEN WARNED.
+/// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+///
 /// Major differences with production `NightshadeRuntime`:
 ///   * Uses in-memory storage
 ///   * Doesn't have WASM runtime, so can only process simple transfer
@@ -66,23 +72,33 @@ use super::ValidatorSchedule;
 ///   * Uses hard-coded validator schedule instead of using `EpochManager` and
 ///     staking to assign block and chunk producers.
 pub struct KeyValueRuntime {
-    myself: Weak<KeyValueRuntime>,
     store: Store,
     tries: ShardTries,
-    /// A pre determined list of validator sets. We rotate validator set in this list.
-    /// Epoch i uses validators from `validators_by_valset[i % validators_by_valset.len()]`.
-    validators_by_valset: Vec<EpochValidatorSet>,
-    /// Maps from account id to validator stake for all validators, both block producers and
-    /// chunk producers
-    validators: HashMap<AccountId, ValidatorStake>,
     num_shards: NumShards,
-    tracks_all_shards: bool,
     epoch_length: u64,
     no_gc: bool,
 
     // A mapping state_root => {account id => amounts}, for transactions and receipts
     state: RwLock<HashMap<StateRoot, KVState>>,
     state_size: RwLock<HashMap<StateRoot, u64>>,
+    headers_cache: RwLock<HashMap<CryptoHash, BlockHeader>>,
+}
+
+/// DEPRECATED. DO NOT USE for new tests. Use the real EpochManager, familiarize
+/// yourself with how block producers, chunk producers, epoch transitions, etc.
+/// work, and write your test to be compatible with what's in production.
+/// MockEpochManager is simpler, but it deviates considerably from the production
+/// validator selection and epoch management behavior.
+pub struct MockEpochManager {
+    store: Store,
+    num_shards: NumShards,
+    epoch_length: u64,
+    /// A pre determined list of validator sets. We rotate validator set in this list.
+    /// Epoch i uses validators from `validators_by_valset[i % validators_by_valset.len()]`.
+    validators_by_valset: Vec<EpochValidatorSet>,
+    /// Maps from account id to validator stake for all validators, both block producers and
+    /// chunk producers
+    validators: HashMap<AccountId, ValidatorStake>,
 
     headers_cache: RwLock<HashMap<CryptoHash, BlockHeader>>,
     hash_to_epoch: RwLock<HashMap<CryptoHash, EpochId>>,
@@ -115,10 +131,7 @@ struct KVState {
     tx_nonces: HashSet<AccountNonce>,
 }
 
-/// DEPRECATED. DO NOT USE for new tests. Consider the `TestLoop` framework in
-/// core/async. The KeyValueRuntime is inaccurate, and deviates a lot from the
-/// production validator selection and epoch management behavior.
-impl KeyValueRuntime {
+impl MockEpochManager {
     pub fn new(store: Store, epoch_length: u64) -> Arc<Self> {
         let vs =
             ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test".parse().unwrap()]]);
@@ -130,36 +143,9 @@ impl KeyValueRuntime {
         vs: ValidatorSchedule,
         epoch_length: u64,
     ) -> Arc<Self> {
-        Self::new_with_validators_and_no_gc(store, vs, epoch_length, false)
-    }
-
-    pub fn new_with_validators_and_no_gc(
-        store: Store,
-        vs: ValidatorSchedule,
-        epoch_length: u64,
-        no_gc: bool,
-    ) -> Arc<Self> {
-        let tries = ShardTries::test(store.clone(), vs.num_shards);
-        let mut initial_amounts = HashMap::new();
-        for (i, validator) in vs.block_producers.iter().flatten().enumerate() {
-            initial_amounts.insert(validator.clone(), (1000 + 100 * i) as u128);
-        }
-
         let map_with_default_hash1 = HashMap::from([(CryptoHash::default(), EpochId::default())]);
         let map_with_default_hash2 = HashMap::from([(CryptoHash::default(), 0)]);
         let map_with_default_hash3 = HashMap::from([(EpochId::default(), 0)]);
-
-        let kv_state = KVState {
-            amounts: initial_amounts,
-            receipt_nonces: HashSet::default(),
-            tx_nonces: HashSet::default(),
-        };
-        let data = kv_state.try_to_vec().unwrap();
-        let data_len = data.len() as u64;
-        // StateRoot is actually faked here.
-        // We cannot do any reasonable validations of it in test_utils.
-        let state = HashMap::from([(Trie::EMPTY_ROOT, kv_state)]);
-        let state_size = HashMap::from([(Trie::EMPTY_ROOT, data_len)]);
 
         let mut validators = HashMap::new();
         #[allow(unused_mut)]
@@ -216,37 +202,19 @@ impl KeyValueRuntime {
             }
         }
 
-        Arc::new_cyclic(|myself| KeyValueRuntime {
-            myself: myself.clone(),
+        Arc::new(MockEpochManager {
             store,
-            tries,
+            num_shards: vs.num_shards,
+            epoch_length,
             validators,
             validators_by_valset,
-            num_shards: vs.num_shards,
-            tracks_all_shards: false,
-            epoch_length,
-            state: RwLock::new(state),
-            state_size: RwLock::new(state_size),
             headers_cache: RwLock::new(HashMap::new()),
             hash_to_epoch: RwLock::new(HashMap::new()),
             hash_to_next_epoch_approvals_req: RwLock::new(HashMap::new()),
             hash_to_next_epoch: RwLock::new(map_with_default_hash1),
             hash_to_valset: RwLock::new(map_with_default_hash3),
             epoch_start: RwLock::new(map_with_default_hash2),
-            no_gc,
         })
-    }
-
-    fn get_block_header(&self, hash: &CryptoHash) -> Result<Option<BlockHeader>, EpochError> {
-        let mut headers_cache = self.headers_cache.write().unwrap();
-        if headers_cache.get(hash).is_some() {
-            return Ok(Some(headers_cache.get(hash).unwrap().clone()));
-        }
-        if let Some(result) = self.store.get_ser(DBCol::BlockHeader, hash.as_ref())? {
-            headers_cache.insert(*hash, result);
-            return Ok(Some(headers_cache.get(hash).unwrap().clone()));
-        }
-        Ok(None)
     }
 
     /// Get epoch and index of validator set by the hash of previous block.
@@ -343,6 +311,78 @@ impl KeyValueRuntime {
             .ok_or_else(|| EpochError::EpochOutOfBounds(epoch_id.clone()))? as usize
             % self.validators_by_valset.len())
     }
+
+    fn get_block_header(&self, hash: &CryptoHash) -> Result<Option<BlockHeader>, EpochError> {
+        let mut headers_cache = self.headers_cache.write().unwrap();
+        if headers_cache.get(hash).is_some() {
+            return Ok(Some(headers_cache.get(hash).unwrap().clone()));
+        }
+        if let Some(result) = self.store.get_ser(DBCol::BlockHeader, hash.as_ref())? {
+            headers_cache.insert(*hash, result);
+            return Ok(Some(headers_cache.get(hash).unwrap().clone()));
+        }
+        Ok(None)
+    }
+}
+
+impl KeyValueRuntime {
+    pub fn new(store: Store, epoch_manager: &MockEpochManager) -> Arc<Self> {
+        Self::new_with_no_gc(store, epoch_manager, false)
+    }
+    pub fn new_with_no_gc(
+        store: Store,
+        epoch_manager: &MockEpochManager,
+        no_gc: bool,
+    ) -> Arc<Self> {
+        let num_shards = epoch_manager.num_shards(&EpochId::default()).unwrap();
+        let epoch_length =
+            epoch_manager.get_epoch_config(&EpochId::default()).unwrap().epoch_length;
+        let tries = ShardTries::test(store.clone(), num_shards);
+        let mut initial_amounts = HashMap::new();
+        for (i, validator_stake) in epoch_manager
+            .validators_by_valset
+            .iter()
+            .flat_map(|set| set.block_producers.iter())
+            .enumerate()
+        {
+            initial_amounts.insert(validator_stake.account_id().clone(), (1000 + 100 * i) as u128);
+        }
+
+        let kv_state = KVState {
+            amounts: initial_amounts,
+            receipt_nonces: HashSet::default(),
+            tx_nonces: HashSet::default(),
+        };
+        let data = kv_state.try_to_vec().unwrap();
+        let data_len = data.len() as u64;
+        // StateRoot is actually faked here.
+        // We cannot do any reasonable validations of it in test_utils.
+        let state = HashMap::from([(Trie::EMPTY_ROOT, kv_state)]);
+        let state_size = HashMap::from([(Trie::EMPTY_ROOT, data_len)]);
+
+        Arc::new(KeyValueRuntime {
+            store,
+            tries,
+            no_gc,
+            num_shards,
+            epoch_length,
+            headers_cache: RwLock::new(HashMap::new()),
+            state: RwLock::new(state),
+            state_size: RwLock::new(state_size),
+        })
+    }
+
+    fn get_block_header(&self, hash: &CryptoHash) -> Result<Option<BlockHeader>, EpochError> {
+        let mut headers_cache = self.headers_cache.write().unwrap();
+        if headers_cache.get(hash).is_some() {
+            return Ok(Some(headers_cache.get(hash).unwrap().clone()));
+        }
+        if let Some(result) = self.store.get_ser(DBCol::BlockHeader, hash.as_ref())? {
+            headers_cache.insert(*hash, result);
+            return Ok(Some(headers_cache.get(hash).unwrap().clone()));
+        }
+        Ok(None)
+    }
 }
 
 pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: NumShards) -> ShardId {
@@ -367,7 +407,7 @@ fn create_receipt_nonce(
     CryptoHash::hash_borsh(ReceiptNonce { from, to, amount, nonce })
 }
 
-impl EpochManagerAdapter for KeyValueRuntime {
+impl EpochManagerAdapter for MockEpochManager {
     fn epoch_exists(&self, epoch_id: &EpochId) -> bool {
         self.hash_to_valset.write().unwrap().contains_key(epoch_id)
     }
@@ -421,7 +461,7 @@ impl EpochManagerAdapter for KeyValueRuntime {
 
     fn get_epoch_config(&self, _epoch_id: &EpochId) -> Result<EpochConfig, EpochError> {
         Ok(EpochConfig {
-            epoch_length: 10,
+            epoch_length: self.epoch_length,
             num_block_producer_seats: 2,
             num_block_producer_seats_per_shard: vec![1, 1],
             avg_hidden_validator_seats_per_shard: vec![1, 1],
@@ -884,6 +924,15 @@ impl EpochManagerAdapter for KeyValueRuntime {
         }
         Ok(false)
     }
+
+    fn will_shard_layout_change(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError> {
+        // Copied from EpochManager (KeyValueRuntime is deprecated anyway).
+        let epoch_id = self.get_epoch_id_from_prev_block(parent_hash)?;
+        let next_epoch_id = self.get_next_epoch_id_from_prev_block(parent_hash)?;
+        let shard_layout = self.get_shard_layout(&epoch_id)?;
+        let next_shard_layout = self.get_shard_layout(&next_epoch_id)?;
+        Ok(shard_layout != next_shard_layout)
+    }
 }
 
 impl RuntimeAdapter for KeyValueRuntime {
@@ -950,42 +999,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         _genesis_epoch_id: &EpochId,
     ) -> Result<StoreUpdate, Error> {
         Ok(self.store.store_update())
-    }
-
-    fn cares_about_shard(
-        &self,
-        account_id: Option<&AccountId>,
-        parent_hash: &CryptoHash,
-        shard_id: ShardId,
-        _is_me: bool,
-    ) -> bool {
-        if self.tracks_all_shards {
-            return true;
-        }
-        if let Some(account_id) = account_id {
-            self.cares_about_shard_from_prev_block(parent_hash, account_id, shard_id)
-                .unwrap_or(false)
-        } else {
-            false
-        }
-    }
-
-    fn will_care_about_shard(
-        &self,
-        account_id: Option<&AccountId>,
-        parent_hash: &CryptoHash,
-        shard_id: ShardId,
-        _is_me: bool,
-    ) -> bool {
-        if self.tracks_all_shards {
-            return true;
-        }
-        if let Some(account_id) = account_id {
-            self.cares_about_shard_next_epoch_from_prev_block(parent_hash, account_id, shard_id)
-                .unwrap_or(false)
-        } else {
-            false
-        }
     }
 
     fn validate_tx(
@@ -1056,10 +1069,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
         for receipt in receipts.iter() {
             if let ReceiptEnum::Action(action) = &receipt.receipt {
-                assert_eq!(
-                    self.account_id_to_shard_id(&receipt.receiver_id, &EpochId::default())?,
-                    shard_id
-                );
+                assert_eq!(account_id_to_shard_id(&receipt.receiver_id, self.num_shards), shard_id);
                 if !state.receipt_nonces.contains(&receipt.receipt_id) {
                     state.receipt_nonces.insert(receipt.receipt_id);
                     if let Action::Transfer(TransferAction { deposit }) = action.actions[0] {
@@ -1081,10 +1091,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
         for transaction in transactions {
             assert_eq!(
-                self.account_id_to_shard_id(
-                    &transaction.transaction.signer_id,
-                    &EpochId::default()
-                )?,
+                account_id_to_shard_id(&transaction.transaction.signer_id, self.num_shards),
                 shard_id
             );
             if transaction.transaction.actions.is_empty() {
@@ -1126,7 +1133,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         for (hash, from, to, amount, nonce) in balance_transfers {
             let mut good_to_go = false;
 
-            if self.account_id_to_shard_id(&from, &EpochId::default())? != shard_id {
+            if account_id_to_shard_id(&from, self.num_shards) != shard_id {
                 // This is a receipt, was already debited
                 good_to_go = true;
             } else if let Some(balance) = state.amounts.get(&from) {
@@ -1138,8 +1145,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             }
 
             if good_to_go {
-                let new_receipt_hashes = if self.account_id_to_shard_id(&to, &EpochId::default())?
-                    == shard_id
+                let new_receipt_hashes = if account_id_to_shard_id(&to, self.num_shards) == shard_id
                 {
                     state.amounts.insert(to.clone(), state.amounts.get(&to).unwrap_or(&0) + amount);
                     vec![]
@@ -1427,22 +1433,5 @@ impl RuntimeAdapter for KeyValueRuntime {
         _state_split_status: Arc<StateSplitApplyingStatus>,
     ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
         Ok(HashMap::new())
-    }
-}
-
-impl RuntimeWithEpochManagerAdapter for KeyValueRuntime {
-    fn epoch_manager_adapter(&self) -> &dyn EpochManagerAdapter {
-        self
-    }
-    fn epoch_manager_adapter_arc(&self) -> Arc<dyn EpochManagerAdapter> {
-        self.myself.upgrade().unwrap()
-    }
-    fn shard_tracker(&self) -> ShardTracker {
-        let config = if self.tracks_all_shards {
-            TrackedConfig::AllShards
-        } else {
-            TrackedConfig::new_empty()
-        };
-        ShardTracker::new(config, self.epoch_manager_adapter_arc())
     }
 }

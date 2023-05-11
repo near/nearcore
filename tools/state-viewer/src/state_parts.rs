@@ -4,6 +4,8 @@ use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use near_client::sync::state::{
     get_num_parts_from_filename, is_part_filename, location_prefix, part_filename, StateSync,
 };
+use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
+use near_epoch_manager::EpochManager;
 use near_primitives::challenge::PartialState;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::state_part::PartId;
@@ -79,9 +81,22 @@ impl StatePartsSubCommand {
         near_config: NearConfig,
         store: Store,
     ) {
-        let runtime = NightshadeRuntime::from_config(home_dir, store.clone(), &near_config);
+        let epoch_manager =
+            EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+        let shard_tracker = ShardTracker::new(
+            TrackedConfig::from_config(&near_config.client_config),
+            epoch_manager.clone(),
+        );
+        let runtime = NightshadeRuntime::from_config(
+            home_dir,
+            store.clone(),
+            &near_config,
+            epoch_manager.clone(),
+        );
         let chain_genesis = ChainGenesis::new(&near_config.genesis);
         let mut chain = Chain::new_for_view_client(
+            epoch_manager,
+            shard_tracker,
             runtime,
             &chain_genesis,
             DoomslugThresholdMode::TwoThirds,
@@ -140,7 +155,7 @@ impl EpochSelection {
     fn to_epoch_id(&self, store: Store, chain: &Chain) -> EpochId {
         match self {
             EpochSelection::Current => {
-                chain.runtime_adapter.get_epoch_id(&chain.head().unwrap().last_block_hash).unwrap()
+                chain.epoch_manager.get_epoch_id(&chain.head().unwrap().last_block_hash).unwrap()
             }
             EpochSelection::EpochId { epoch_id } => {
                 EpochId(CryptoHash::from_str(epoch_id).unwrap())
@@ -157,12 +172,12 @@ impl EpochSelection {
             }
             EpochSelection::BlockHash { block_hash } => {
                 let block_hash = CryptoHash::from_str(block_hash).unwrap();
-                chain.runtime_adapter.get_epoch_id(&block_hash).unwrap()
+                chain.epoch_manager.get_epoch_id(&block_hash).unwrap()
             }
             EpochSelection::BlockHeight { block_height } => {
                 // Fetch an epoch containing the given block height.
                 let block_hash = chain.store().get_block_hash_by_height(*block_height).unwrap();
-                chain.runtime_adapter.get_epoch_id(&block_hash).unwrap()
+                chain.epoch_manager.get_epoch_id(&block_hash).unwrap()
             }
         }
     }
@@ -200,15 +215,14 @@ impl Location {
 /// Returns block hash of some block of the given `epoch_info` epoch.
 fn get_any_block_hash_of_epoch(epoch_info: &EpochInfo, chain: &Chain) -> CryptoHash {
     let head = chain.store().head().unwrap();
-    let mut cur_block_info = chain.runtime_adapter.get_block_info(&head.last_block_hash).unwrap();
+    let mut cur_block_info = chain.epoch_manager.get_block_info(&head.last_block_hash).unwrap();
     // EpochManager doesn't have an API that maps EpochId to Blocks, and this function works
     // around that limitation by iterating over the epochs.
     // This workaround is acceptable because:
     // 1) Extending EpochManager's API is a major change.
     // 2) This use case is not critical at all.
     loop {
-        let cur_epoch_info =
-            chain.runtime_adapter.get_epoch_info(cur_block_info.epoch_id()).unwrap();
+        let cur_epoch_info = chain.epoch_manager.get_epoch_info(cur_block_info.epoch_id()).unwrap();
         let cur_epoch_height = cur_epoch_info.epoch_height();
         assert!(
             cur_epoch_height >= epoch_info.epoch_height(),
@@ -217,9 +231,9 @@ fn get_any_block_hash_of_epoch(epoch_info: &EpochInfo, chain: &Chain) -> CryptoH
             epoch_info.epoch_height()
         );
         let epoch_first_block_info =
-            chain.runtime_adapter.get_block_info(cur_block_info.epoch_first_block()).unwrap();
+            chain.epoch_manager.get_block_info(cur_block_info.epoch_first_block()).unwrap();
         let prev_epoch_last_block_info =
-            chain.runtime_adapter.get_block_info(epoch_first_block_info.prev_hash()).unwrap();
+            chain.epoch_manager.get_block_info(epoch_first_block_info.prev_hash()).unwrap();
 
         if cur_epoch_height == epoch_info.epoch_height() {
             return *cur_block_info.hash();
@@ -247,7 +261,7 @@ fn load_state_parts(
             (state_root, *epoch_height, None, None)
         } else {
             let epoch_id = epoch_selection.to_epoch_id(store, chain);
-            let epoch = chain.runtime_adapter.get_epoch_info(&epoch_id).unwrap();
+            let epoch = chain.epoch_manager.get_epoch_info(&epoch_id).unwrap();
 
             let sync_hash = get_any_block_hash_of_epoch(&epoch, chain);
             let sync_hash = StateSync::get_epoch_start_sync_hash(chain, &sync_hash).unwrap();
@@ -334,7 +348,7 @@ fn dump_state_parts(
     location: Location,
 ) {
     let epoch_id = epoch_selection.to_epoch_id(store, chain);
-    let epoch = chain.runtime_adapter.get_epoch_info(&epoch_id).unwrap();
+    let epoch = chain.epoch_manager.get_epoch_info(&epoch_id).unwrap();
     let sync_hash = get_any_block_hash_of_epoch(&epoch, chain);
     let sync_hash = StateSync::get_epoch_start_sync_hash(chain, &sync_hash).unwrap();
     let sync_block = chain.get_block_header(&sync_hash).unwrap();
@@ -407,7 +421,7 @@ fn read_state_header(
     store: Store,
 ) {
     let epoch_id = epoch_selection.to_epoch_id(store, chain);
-    let epoch = chain.runtime_adapter.get_epoch_info(&epoch_id).unwrap();
+    let epoch = chain.epoch_manager.get_epoch_info(&epoch_id).unwrap();
 
     let sync_hash = get_any_block_hash_of_epoch(&epoch, chain);
     let sync_hash = StateSync::get_epoch_start_sync_hash(chain, &sync_hash).unwrap();

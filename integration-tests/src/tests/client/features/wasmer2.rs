@@ -1,4 +1,5 @@
-use crate::tests::client::process_blocks::{create_nightshade_runtimes, deploy_test_contract};
+use crate::tests::client::process_blocks::deploy_test_contract;
+use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
@@ -27,7 +28,8 @@ fn test_wasmer2_upgrade() {
         genesis.config.protocol_version = old_protocol_version;
         let chain_genesis = ChainGenesis::new(&genesis);
         let mut env = TestEnv::builder(chain_genesis)
-            .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+            .real_epoch_managers(&genesis.config)
+            .nightshade_runtimes(&genesis)
             .build();
 
         deploy_test_contract(

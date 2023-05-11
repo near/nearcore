@@ -1,11 +1,11 @@
 use crate::metrics;
 use borsh::BorshSerialize;
-use near_chain::{
-    Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error,
-    RuntimeWithEpochManagerAdapter,
-};
+use near_chain::types::RuntimeAdapter;
+use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error};
 use near_chain_configs::{ClientConfig, ExternalStorageLocation};
 use near_client::sync::state::{external_storage_location, ExternalConnection, StateSync};
+use near_epoch_manager::shard_tracker::ShardTracker;
+use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::PartId;
 use near_primitives::syncing::{get_num_state_parts, StatePartKey, StateSyncDumpProgress};
@@ -20,7 +20,9 @@ use std::time::Duration;
 pub fn spawn_state_sync_dump(
     client_config: &ClientConfig,
     chain_genesis: ChainGenesis,
-    runtime: Arc<dyn RuntimeWithEpochManagerAdapter>,
+    epoch_manager: Arc<dyn EpochManagerAdapter>,
+    shard_tracker: ShardTracker,
+    runtime: Arc<dyn RuntimeAdapter>,
     account_id: Option<AccountId>,
 ) -> anyhow::Result<Option<StateSyncDumpHandle>> {
     let dump_config = if let Some(dump_config) = client_config.state_sync.dump.clone() {
@@ -57,13 +59,15 @@ pub fn spawn_state_sync_dump(
     let num_shards = {
         // Sadly, `Chain` is not `Send` and each thread needs to create its own `Chain` instance.
         let chain = Chain::new_for_view_client(
+            epoch_manager.clone(),
+            shard_tracker.clone(),
             runtime.clone(),
             &chain_genesis,
             DoomslugThresholdMode::TwoThirds,
             false,
         )?;
         let epoch_id = chain.head()?.epoch_id;
-        runtime.num_shards(&epoch_id)
+        epoch_manager.num_shards(&epoch_id)
     }?;
 
     let chain_id = client_config.chain_id.clone();
@@ -74,6 +78,8 @@ pub fn spawn_state_sync_dump(
             let runtime = runtime.clone();
             let chain_genesis = chain_genesis.clone();
             let chain = Chain::new_for_view_client(
+                epoch_manager.clone(),
+                shard_tracker.clone(),
                 runtime.clone(),
                 &chain_genesis,
                 DoomslugThresholdMode::TwoThirds,
@@ -84,7 +90,9 @@ pub fn spawn_state_sync_dump(
             assert!(arbiter_handle.spawn(state_sync_dump(
                 shard_id as ShardId,
                 chain,
-                runtime,
+                epoch_manager.clone(),
+                shard_tracker.clone(),
+                runtime.clone(),
                 chain_id.clone(),
                 dump_config.restart_dump_for_shards.clone().unwrap_or_default(),
                 external.clone(),
@@ -126,7 +134,9 @@ impl StateSyncDumpHandle {
 async fn state_sync_dump(
     shard_id: ShardId,
     chain: Chain,
-    runtime: Arc<dyn RuntimeWithEpochManagerAdapter>,
+    epoch_manager: Arc<dyn EpochManagerAdapter>,
+    shard_tracker: ShardTracker,
+    runtime: Arc<dyn RuntimeAdapter>,
     chain_id: String,
     restart_dump_for_shards: Vec<ShardId>,
     external: ExternalConnection,
@@ -154,13 +164,23 @@ async fn state_sync_dump(
                     num_parts,
                     shard_id,
                     &chain,
-                    &runtime,
+                    epoch_manager.as_ref(),
+                    &shard_tracker,
                     &account_id,
                 )
             }
             Err(Error::DBNotFoundErr(_)) | Ok(None) => {
                 // First invocation of this state-machine. See if at least one epoch is available for dumping.
-                check_new_epoch(None, None, None, shard_id, &chain, &runtime, &account_id)
+                check_new_epoch(
+                    None,
+                    None,
+                    None,
+                    shard_id,
+                    &chain,
+                    epoch_manager.as_ref(),
+                    &shard_tracker,
+                    &account_id,
+                )
             }
             Err(err) => {
                 // Something went wrong, let's retry.
@@ -190,7 +210,7 @@ async fn state_sync_dump(
                                 .start_timer();
 
                             let state_part = match obtain_and_store_state_part(
-                                &runtime,
+                                runtime.as_ref(),
                                 shard_id,
                                 sync_hash,
                                 &sync_prev_hash,
@@ -363,7 +383,7 @@ fn set_metrics(
 
 /// Obtains and then saves the part data.
 fn obtain_and_store_state_part(
-    runtime: &Arc<dyn RuntimeWithEpochManagerAdapter>,
+    runtime: &dyn RuntimeAdapter,
     shard_id: ShardId,
     sync_hash: CryptoHash,
     sync_prev_hash: &CryptoHash,
@@ -392,10 +412,11 @@ fn start_dumping(
     sync_hash: CryptoHash,
     shard_id: ShardId,
     chain: &Chain,
-    runtime: &Arc<dyn RuntimeWithEpochManagerAdapter>,
+    epoch_manager: &dyn EpochManagerAdapter,
+    shard_tracker: &ShardTracker,
     account_id: &Option<AccountId>,
 ) -> Result<Option<StateSyncDumpProgress>, Error> {
-    let epoch_info = runtime.get_epoch_info(&epoch_id)?;
+    let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
     let epoch_height = epoch_info.epoch_height();
 
     let sync_header = chain.get_block_header(&sync_hash)?;
@@ -410,7 +431,7 @@ fn start_dumping(
 
     let state_header = chain.get_state_response_header(shard_id, sync_hash)?;
     let num_parts = get_num_state_parts(state_header.state_root_node().memory_usage);
-    if runtime.cares_about_shard(account_id.as_ref(), sync_prev_prev_hash, shard_id, true) {
+    if shard_tracker.care_about_shard(account_id.as_ref(), sync_prev_prev_hash, shard_id, true) {
         tracing::info!(target: "state_sync_dump", shard_id, ?epoch_id, %sync_prev_hash, %sync_hash, "Initialize dumping state of Epoch");
         // Note that first the state of the state machines gets changes to
         // `InProgress` and it starts dumping state after a short interval.
@@ -435,7 +456,8 @@ fn check_new_epoch(
     num_parts: Option<u64>,
     shard_id: ShardId,
     chain: &Chain,
-    runtime: &Arc<dyn RuntimeWithEpochManagerAdapter>,
+    epoch_manager: &dyn EpochManagerAdapter,
+    shard_tracker: &ShardTracker,
     account_id: &Option<AccountId>,
 ) -> Result<Option<StateSyncDumpProgress>, Error> {
     let head = chain.head()?;
@@ -454,7 +476,15 @@ fn check_new_epoch(
             // Still in the latest dumped epoch. Do nothing.
             Ok(None)
         } else {
-            start_dumping(head.epoch_id, sync_hash, shard_id, chain, runtime, account_id)
+            start_dumping(
+                head.epoch_id,
+                sync_hash,
+                shard_id,
+                chain,
+                epoch_manager,
+                shard_tracker,
+                account_id,
+            )
         }
     }
 }
@@ -482,7 +512,9 @@ mod tests {
         chain_genesis.epoch_length = 5;
         let mut env = TestEnv::builder(chain_genesis.clone()).build();
         let chain = &env.clients[0].chain;
-        let runtime = chain.runtime_adapter();
+        let epoch_manager = chain.epoch_manager.clone();
+        let shard_tracker = chain.shard_tracker.clone();
+        let runtime = chain.runtime_adapter.clone();
         let mut config = env.clients[0].config.clone();
         let root_dir = tempfile::Builder::new().prefix("state_dump").tempdir().unwrap();
         config.state_sync.dump = Some(DumpConfig {
@@ -499,6 +531,8 @@ mod tests {
             let _state_sync_dump_handle = spawn_state_sync_dump(
                 &config,
                 chain_genesis,
+                epoch_manager.clone(),
+                shard_tracker.clone(),
                 runtime.clone(),
                 Some("test0".parse().unwrap()),
             )
@@ -509,14 +543,14 @@ mod tests {
                 last_block_hash = Some(*block.hash());
                 env.process_block(0, block, Provenance::PRODUCED);
             }
-            let epoch_id = runtime.get_epoch_id(last_block_hash.as_ref().unwrap()).unwrap();
-            let epoch_info = runtime.get_epoch_info(&epoch_id).unwrap();
+            let epoch_id = epoch_manager.get_epoch_id(last_block_hash.as_ref().unwrap()).unwrap();
+            let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap();
             let epoch_height = epoch_info.epoch_height();
 
             wait_or_timeout(100, 10000, || async {
                 let mut all_parts_present = true;
 
-                let num_shards = runtime.num_shards(&epoch_id).unwrap();
+                let num_shards = epoch_manager.num_shards(&epoch_id).unwrap();
                 assert_ne!(num_shards, 0);
 
                 for shard_id in 0..num_shards {
