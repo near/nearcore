@@ -143,9 +143,7 @@ impl<'a> TrieIterator<'a> {
                 TrieNode::Empty => break,
                 TrieNode::Leaf(leaf_key, _) => {
                     let existing_key = NibbleSlice::from_encoded(leaf_key).0;
-                    println!("see leaf {:?} {:?}", leaf_key, existing_key);
                     if !check_ext_key(&key, &existing_key) {
-                        println!("yes");
                         self.key_nibbles.extend(existing_key.iter());
                         *status = CrumbStatus::Exiting;
                     }

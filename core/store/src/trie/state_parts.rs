@@ -149,7 +149,6 @@ impl Trie {
                     };
                     if *memory_skipped + child.memory_usage > memory_threshold {
                         core::mem::drop(iter);
-                        // println!("push {:?}", vec![index]);
                         key_nibbles.push(index);
                         *node = child;
                         return Ok(true);
@@ -248,7 +247,6 @@ impl Trie {
                 contract_codes: vec![],
             });
         }
-        println!("NODES: {:?}", part);
         let trie = Trie::from_recorded_storage(PartialStorage { nodes: part }, *state_root);
         let path_begin = trie.find_state_part_boundary(part_id.idx, part_id.total)?;
         let path_end = trie.find_state_part_boundary(part_id.idx + 1, part_id.total)?;
@@ -700,7 +698,6 @@ mod tests {
         for _ in 0..2000 {
             let tries = create_tries();
             let trie_changes = gen_changes(&mut rng, 20);
-            println!("{:?}", trie_changes);
             let state_root = test_populate_trie(
                 &tries,
                 &Trie::EMPTY_ROOT,
@@ -805,7 +802,6 @@ mod tests {
                 })
                 .collect::<Vec<_>>();
 
-            println!("{:?}", changes);
             merge_trie_changes(changes)
         };
         assert_eq!(
