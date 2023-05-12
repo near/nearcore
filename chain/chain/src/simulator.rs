@@ -592,7 +592,7 @@ impl SimulationRunner {
         {
             match item {
                 Ok((key, value)) => {
-                    batch.push((key, value));
+                    batch.push((CryptoHash::try_from_slice(&key).unwrap(), value));
                     if batch.len() >= 10000 {
                         println!("Dumping sim_results/{}.json", batch_num);
                         let data = serde_json::to_vec(&batch).unwrap();
