@@ -608,18 +608,23 @@ pub fn checkpoint_hot_storage_and_cleanup_columns(
     let node_storage = opener.open()?;
 
     if let Some(columns_to_keep) = columns_to_keep {
-        let _span = tracing::info_span!(target: "state_snapshot", "delete columns in checkpoint_hot_storage_and_cleanup_columns").entered();
+        let _span = tracing::info_span!(target: "state_snapshot", "Deleting columns").entered();
         let columns_to_keep_set: std::collections::HashSet<DBCol> =
             std::collections::HashSet::from_iter(columns_to_keep.into_iter());
         let mut transaction = DBTransaction::new();
 
         for col in DBCol::iter() {
             if !columns_to_keep_set.contains(&col) {
+                tracing::info!(target: "state_snapshot", ?col, "Delete column");
                 transaction.delete_all(col);
+            } else {
+                tracing::info!(target: "state_snapshot", ?col, "Keep column");
             }
         }
 
+        tracing::info!(target: "state_snapshot", "Transaction ready");
         node_storage.hot_storage.write(transaction)?;
+        tracing::info!(target: "state_snapshot", "Transaction written");
     }
 
     Ok(node_storage)

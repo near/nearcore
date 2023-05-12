@@ -112,7 +112,12 @@ impl NightshadeRuntime {
                 columns_to_keep: if config.config.store.state_snapshot_all_columns {
                     None
                 } else {
-                    Some(vec![DBCol::FlatState])
+                    Some(vec![
+                        DBCol::FlatState,
+                        DBCol::FlatStateChanges,
+                        DBCol::FlatStateDeltaMetadata,
+                        DBCol::FlatStorageStatus,
+                    ])
                 },
                 archive: config.client_config.archive,
             }
@@ -696,6 +701,8 @@ impl NightshadeRuntime {
         state_snapshot_subdir: &Path,
     ) {
         let _timer = metrics::DELETE_STATE_SNAPSHOT_ELAPSED.start_timer();
+        let _span =
+            tracing::info_span!(target: "state_snapshot", "delete_state_snapshot").entered();
         let path = get_state_snapshot_base_dir(
             last_block_hash,
             prev_block_hash,
@@ -1674,14 +1681,17 @@ impl RuntimeAdapter for NightshadeRuntime {
                         tracing::warn!(target: "state_snapshot", ?last_block_hash, "Requested a state snapshot but that is already available");
                         return Ok(());
                     } else {
+                        let last_block_hash = state_snapshot.last_block_hash;
+                        let prev_block_hash = state_snapshot.prev_block_hash;
+                        // Drop Store before deleting the underlying data.
+                        *state_snapshot_lock = None;
                         self.delete_state_snapshot(
-                            &state_snapshot.last_block_hash,
-                            &state_snapshot.prev_block_hash,
+                            &last_block_hash,
+                            &prev_block_hash,
                             home_dir,
                             hot_store_path,
                             state_snapshot_subdir,
                         );
-                        *state_snapshot_lock = None;
                     }
                 }
 
