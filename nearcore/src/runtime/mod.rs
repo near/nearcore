@@ -113,6 +113,10 @@ impl NightshadeRuntime {
                     None
                 } else {
                     Some(vec![
+                        // Keep DbVersion and BlockMisc, otherwise you'll not be able to open the state snapshot as a Store.
+                        DBCol::DbVersion,
+                        DBCol::BlockMisc,
+                        // Flat storage columns.
                         DBCol::FlatState,
                         DBCol::FlatStateChanges,
                         DBCol::FlatStateDeltaMetadata,
