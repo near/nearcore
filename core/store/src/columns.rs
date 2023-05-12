@@ -275,6 +275,8 @@ pub enum DBCol {
     FlatStorageStatus,
     /// Simulation result
     TransactionSimulationResult,
+    /// Simulation results
+    TransactionSimulationResults,
     /// Last simulated block ordinal
     LastSimulatedBlockOrdinal,
 }
@@ -471,6 +473,7 @@ impl DBCol {
             | DBCol::FlatStateDeltaMetadata
             | DBCol::FlatStorageStatus
             | DBCol::TransactionSimulationResult
+            | DBCol::TransactionSimulationResults
             | DBCol::LastSimulatedBlockOrdinal => false,
         }
     }
@@ -540,6 +543,7 @@ impl DBCol {
             DBCol::FlatStateDeltaMetadata => &[DBKeyType::ShardUId, DBKeyType::BlockHash],
             DBCol::FlatStorageStatus => &[DBKeyType::ShardUId],
             DBCol::TransactionSimulationResult => &[DBKeyType::TransactionHash],
+            DBCol::TransactionSimulationResults => &[DBKeyType::TransactionHash],
             DBCol::LastSimulatedBlockOrdinal => &[DBKeyType::Empty],
         }
     }

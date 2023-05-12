@@ -1,11 +1,11 @@
 use std::{
     collections::VecDeque,
-    sync::{mpsc, Arc, RwLock},
+    sync::{atomic::AtomicU64, Arc},
     thread::JoinHandle,
 };
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use itertools::Itertools;
+use chrono::Utc;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::{
     block::{Block, Tip},
@@ -14,15 +14,14 @@ use near_primitives::{
     receipt::{Receipt, ReceiptEnum},
     runtime::migration_data::MigrationFlags,
     sharding::ShardChunk,
-    transaction::{ExecutionOutcome, SignedTransaction},
-    types::{EpochInfoProvider, ShardId},
+    transaction::{ExecutionOutcome, ExecutionOutcomeWithProof, SignedTransaction},
+    types::{EpochId, EpochInfoProvider, ShardId},
 };
 use near_store::{
     get_received_data, DBCol, Store, StoreCompiledContractCache, TrieUpdate, FINAL_HEAD_KEY,
-    TAIL_KEY,
 };
 use node_runtime::{ApplyState, ApplyStats, Runtime};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use tokio::sync::oneshot;
 
 use crate::types::RuntimeAdapter;
@@ -84,11 +83,6 @@ impl TransactionSimulator {
         state_roots: &[CryptoHash],
         transaction: &SignedTransaction,
     ) -> SimulationResult {
-        // println!(
-        //     "[SIM] Simulating transaction {:?} to {:?}",
-        //     transaction.get_hash(),
-        //     transaction.transaction.receiver_id
-        // );
         let mut state = match self.prepare_simulation(prev_block_hash, state_roots, transaction) {
             Ok(state) => state,
             Err(err) => {
@@ -100,20 +94,6 @@ impl TransactionSimulator {
             }
         };
         let error = if let Err(err) = state.simulate_all_receipts() { Some(err) } else { None };
-        let total_gas_by_shard_and_depth = state
-            .outcomes
-            .iter()
-            .map(|outcome| ((outcome.shard_id, outcome.execution_depth), outcome.outcome.gas_burnt))
-            .group_by(|(key, _)| key.clone())
-            .into_iter()
-            .map(|((shard_id, depth), group)| {
-                ((shard_id, depth), group.map(|(_, gas)| gas).reduce(|a, b| a + b).unwrap())
-            })
-            .collect::<Vec<_>>();
-        // println!("[SIM]   Total gas per shard and depth:");
-        // for ((shard_id, depth), gas) in total_gas_by_shard_and_depth {
-        //     println!("[SIM]    Shard {} depth {}: {}", shard_id, depth, gas);
-        // }
         SimulationResult {
             tx_outcome: state.tx_outcome,
             outcomes: state.outcomes,
@@ -140,6 +120,13 @@ pub struct SimulationResult {
     pub tx_outcome: Option<ExecutionOutcome>,
     pub outcomes: Vec<ReceiptExecutionOutcome>,
     pub error: Option<String>,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Serialize)]
+pub struct SimulationResults {
+    pub real_result: SimulationResult,
+    pub same_block_result: SimulationResult,
+    pub earlier_block_result: SimulationResult,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Serialize)]
@@ -327,7 +314,12 @@ impl SimulationRunner {
             return Ok(false);
         }
 
-        let mut requests = Vec::<(CryptoHash, oneshot::Receiver<SimulationResult>)>::new();
+        let mut requests = Vec::<(
+            CryptoHash,
+            oneshot::Receiver<SimulationResult>,
+            oneshot::Receiver<SimulationResult>,
+            SimulationResult,
+        )>::new();
 
         for block_ordinal in last_simulated + 1..=last_simulated + batch_size {
             let next_block_hash = store
@@ -354,6 +346,40 @@ impl SimulationRunner {
             let state_roots =
                 next_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect::<Vec<_>>();
 
+            let prev_block_header = store
+                .get_ser::<BlockHeader>(
+                    DBCol::BlockHeader,
+                    next_block.header().prev_hash().as_ref(),
+                )?
+                .ok_or_else(|| {
+                    crate::Error::DBNotFoundErr(format!(
+                        "No prev block header for block {:?}",
+                        next_block.header().prev_hash()
+                    ))
+                })?;
+            let prev_prev_block_header = store
+                .get_ser::<BlockHeader>(DBCol::BlockHeader, prev_block_header.prev_hash().as_ref())?
+                .ok_or_else(|| {
+                    crate::Error::DBNotFoundErr(format!(
+                        "No prev prev block header for block {:?}",
+                        prev_block_header.prev_hash()
+                    ))
+                })?;
+            let prev_prev_prev_block = store
+                .get_ser::<Block>(DBCol::Block, prev_prev_block_header.prev_hash().as_ref())?
+                .ok_or_else(|| {
+                    crate::Error::DBNotFoundErr(format!(
+                        "No prev prev prev block for block {:?}",
+                        prev_prev_block_header.prev_hash()
+                    ))
+                })?;
+            let prev_prev_prev_prev_block_hash = prev_prev_prev_block.header().prev_hash().clone();
+            let prev_prev_prev_state_roots = prev_prev_prev_block
+                .chunks()
+                .iter()
+                .map(|chunk| chunk.prev_state_root())
+                .collect::<Vec<_>>();
+
             for chunk in next_block.chunks().iter() {
                 let chunk_body = store
                     .get_ser::<ShardChunk>(DBCol::Chunks, chunk.chunk_hash().as_ref())?
@@ -365,6 +391,7 @@ impl SimulationRunner {
                     })?;
                 for transaction in chunk_body.transactions() {
                     let (sender, receiver) = oneshot::channel();
+                    let (lag_sender, lag_receiver) = oneshot::channel();
                     simulation_sender
                         .send(SimulationRequest {
                             transaction: transaction.clone(),
@@ -373,7 +400,26 @@ impl SimulationRunner {
                             done: sender,
                         })
                         .unwrap();
-                    requests.push((transaction.get_hash(), receiver));
+                    simulation_sender
+                        .send(SimulationRequest {
+                            transaction: transaction.clone(),
+                            state_roots: prev_prev_prev_state_roots.clone(),
+                            prev_block_hash: prev_prev_prev_prev_block_hash,
+                            done: lag_sender,
+                        })
+                        .unwrap();
+                    let real_result = Self::fetch_real_simulation_results(
+                        epoch_manager.as_ref(),
+                        &next_block.header().epoch_id(),
+                        transaction,
+                        &store,
+                    )
+                    .unwrap_or_else(|err| SimulationResult {
+                        tx_outcome: None,
+                        outcomes: Vec::new(),
+                        error: Some(err.to_string()),
+                    });
+                    requests.push((transaction.get_hash(), receiver, lag_receiver, real_result));
                 }
             }
         }
@@ -381,13 +427,32 @@ impl SimulationRunner {
         let mut txns_simulated = 0;
         let mut txns_simulated_with_error = 0;
         let mut update = store.store_update();
-        for (hash, receiver) in requests {
+        for (hash, receiver, lag_receiver, real_result) in requests {
             let result = receiver.blocking_recv().unwrap();
+            let lag_result = lag_receiver.blocking_recv().unwrap();
             if let Some(err) = &result.error {
                 println!("[SIM]   Error simulating transaction {:?}: {:?}", hash, err);
                 txns_simulated_with_error += 1;
             }
-            update.set_ser(DBCol::TransactionSimulationResult, hash.as_bytes(), &result).unwrap();
+            let data = SimulationResults {
+                same_block_result: result,
+                earlier_block_result: lag_result,
+                real_result,
+            };
+            const LOG_EVERY: std::time::Duration = std::time::Duration::from_secs(60);
+            static last_log_time: AtomicU64 = AtomicU64::new(0);
+            if last_log_time.load(std::sync::atomic::Ordering::Relaxed) + LOG_EVERY.as_secs()
+                <= Utc::now().timestamp() as u64
+            {
+                last_log_time
+                    .store(Utc::now().timestamp() as u64, std::sync::atomic::Ordering::Relaxed);
+                println!(
+                    "Sample simulation result: {:?} -> {}",
+                    hash,
+                    serde_json::to_string(&data).unwrap(),
+                );
+            }
+            update.set_ser(DBCol::TransactionSimulationResults, hash.as_bytes(), &data).unwrap();
             txns_simulated += 1;
         }
 
@@ -458,15 +523,73 @@ impl SimulationRunner {
         })
     }
 
+    fn fetch_real_simulation_results(
+        epoch_manager: &dyn EpochManagerAdapter,
+        epoch_id_for_shard_id_query: &EpochId,
+        tx: &SignedTransaction,
+        store: &Store,
+    ) -> Result<SimulationResult, crate::Error> {
+        let hash = tx.get_hash();
+        let transaction = store
+            .get_ser::<SignedTransaction>(DBCol::Transactions, hash.as_bytes())?
+            .ok_or_else(|| crate::Error::DBNotFoundErr(format!("No transaction for {:?}", hash)))?;
+        let tx_outcome = store
+            .iter_prefix_ser::<ExecutionOutcomeWithProof>(
+                DBCol::TransactionResultForBlock,
+                hash.as_bytes(),
+            )
+            .next()
+            .ok_or_else(|| crate::Error::DBNotFoundErr(format!("No outcome for {:?}", hash)))??;
+        let mut receipt_outcomes = Vec::new();
+        let mut receipt_ids = VecDeque::new();
+        let is_local_receipt =
+            transaction.transaction.signer_id == transaction.transaction.receiver_id;
+        for receipt_id in &tx_outcome.1.outcome.receipt_ids {
+            receipt_ids.push_back((if is_local_receipt { 0 } else { 1 }, receipt_id.clone()));
+        }
+        while !receipt_ids.is_empty() {
+            let (depth, receipt_id) = receipt_ids.pop_front().unwrap();
+            let receipt_outcome = store
+                .iter_prefix_ser::<ExecutionOutcomeWithProof>(
+                    DBCol::TransactionResultForBlock,
+                    receipt_id.as_bytes(),
+                )
+                .next()
+                .ok_or_else(|| {
+                    crate::Error::DBNotFoundErr(format!("No outcome for {:?}", receipt_id))
+                })??;
+            let receipt =
+                store.get_ser::<Receipt>(DBCol::Receipts, receipt_id.as_bytes())?.ok_or_else(
+                    || crate::Error::DBNotFoundErr(format!("No receipt for {:?}", receipt_id)),
+                )?;
+            for receipt_id in &receipt_outcome.1.outcome.receipt_ids {
+                receipt_ids.push_back((depth + 1, receipt_id.clone()));
+            }
+            receipt_outcomes.push(ReceiptExecutionOutcome {
+                shard_id: epoch_manager
+                    .account_id_to_shard_id(&receipt.receiver_id, epoch_id_for_shard_id_query)?,
+                receipt,
+                outcome: receipt_outcome.1.outcome,
+                execution_depth: depth,
+            });
+        }
+        Ok(SimulationResult {
+            tx_outcome: Some(tx_outcome.1.outcome),
+            outcomes: receipt_outcomes,
+            error: None,
+        })
+    }
+
     pub fn dump_simulation_results(store: Store) {
         println!("Begin dump");
         std::fs::create_dir_all("sim_results").unwrap();
         let mut batch_num = 0;
         let mut batch = Vec::new();
-        for item in store.iter_prefix_ser::<Vec<u8>>(DBCol::TransactionSimulationResult, b"") {
+        for item in
+            store.iter_prefix_ser::<SimulationResults>(DBCol::TransactionSimulationResults, b"")
+        {
             match item {
                 Ok((key, value)) => {
-                    let value = SimulationResult::try_from_slice(&value).unwrap();
                     batch.push((key, value));
                     if batch.len() >= 10000 {
                         println!("Dumping sim_results/{}.json", batch_num);
@@ -476,7 +599,7 @@ impl SimulationRunner {
                         batch.clear();
                     }
                 }
-                Err(err) => panic!(),
+                Err(_) => panic!(),
             }
         }
         if !batch.is_empty() {
