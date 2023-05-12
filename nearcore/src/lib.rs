@@ -284,7 +284,7 @@ pub fn start_with_config_and_synchronization(
     if clear_data {
         println!("CLEARING SIMULATION DATA! ENTER YES TO CONTINUE");
         let mut buffer = String::new();
-        io::stdin().read_line(&mut buffer)?;
+        std::io::stdin().read_line(&mut buffer)?;
         if buffer != "YES\n" {
             std::process::exit(1);
         }
