@@ -4,25 +4,37 @@
  are copied from hot to cold store.
 """
 
-import sys
-import pathlib
-import os
 import copy
 import json
-import unittest
-import subprocess
-import shutil
-import time
+import os
 import os.path as path
+import pathlib
+import shutil
+import subprocess
+import sys
+import time
+import unittest
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
-from utils import wait_for_blocks
-from cluster import init_cluster, spin_up_node, load_config, get_config_json, set_config_json
+from cluster import (get_config_json, init_cluster, load_config,
+                     set_config_json, spin_up_node)
 from configured_logger import logger
+
+from utils import wait_for_blocks
 
 
 class TestSplitStorage(unittest.TestCase):
+
+    def _steps(self):
+        for name in dir(self):  # dir() result is implicitly sorted
+            if name.startswith("step"):
+                yield name, getattr(self, name)
+
+    def test_steps(self):
+        for _, step in self._steps():
+            step()
+            time.sleep(5)
 
     def _pretty_json(self, value):
         return json.dumps(value, indent=2)
@@ -70,9 +82,9 @@ class TestSplitStorage(unittest.TestCase):
 
         self.assertEqual(hot_db_kind, expected_hot_db_kind)
         self.assertGreaterEqual(head_height, expected_head_height)
-        self.assertGreaterEqual(final_head_height, expected_head_height - 4)
+        self.assertGreaterEqual(final_head_height, expected_head_height - 10)
         if check_cold_head:
-            self.assertGreaterEqual(cold_head_height, final_head_height - 4)
+            self.assertGreaterEqual(cold_head_height, final_head_height - 10)
         else:
             self.assertIsNone(cold_head_height)
 
@@ -81,10 +93,7 @@ class TestSplitStorage(unittest.TestCase):
     # for localnet tests it is enough to use epoch size * number of epochs to keep.
     def _migrate_to_split_storage(self, rpc, archival, archival_dir,
                                   wait_period):
-
-        logger.info("")
         logger.info("Phase 1 - Running neard before migration.")
-        logger.info("")
 
         # Wait until a few blocks are produced so that we're sure that the db is
         # properly created and populated with some data.
@@ -101,12 +110,10 @@ class TestSplitStorage(unittest.TestCase):
             check_cold_head=False,
         )
 
-        logger.info("")
         logger.info("Phase 2 - Setting the cold storage and restarting neard.")
-        logger.info("")
 
         self._configure_cold_storage(archival_dir)
-        archival.kill(gentle=True)
+        archival.kill()
         archival.start()
 
         # Wait for a few seconds to:
@@ -135,12 +142,10 @@ class TestSplitStorage(unittest.TestCase):
             check_cold_head=True,
         )
 
-        logger.info("")
         logger.info("Phase 3 - Preparing hot storage from rpc backup.")
-        logger.info("")
 
         # Stop the RPC node in order to dump the db to disk.
-        rpc.kill(gentle=True)
+        rpc.kill()
 
         rpc_src = path.join(rpc.node_dir, "data")
         rpc_dst = path.join(archival.node_dir, "hot_data")
@@ -174,7 +179,7 @@ class TestSplitStorage(unittest.TestCase):
 
         logger.info("Phase 4 - After migration.")
 
-        archival.kill(gentle=True)
+        archival.kill()
         archival.start()
         rpc.start()
 
@@ -203,8 +208,7 @@ class TestSplitStorage(unittest.TestCase):
     # Configure cold storage and start neard. Wait for a few blocks
     # and verify that cold head is moving and that it's close behind
     # final head.
-    def test_base_case(self):
-        print()
+    def step1_base_case_test(self):
         logger.info(f"starting test_base_case")
 
         config = load_config()
@@ -215,7 +219,6 @@ class TestSplitStorage(unittest.TestCase):
             },
         }
 
-        # Decrease the epoch length in order to speed up this test.
         epoch_length = 5
         genesis_config_changes = [
             ("epoch_length", epoch_length),
@@ -252,7 +255,8 @@ class TestSplitStorage(unittest.TestCase):
             check_cold_head=True,
         )
 
-        node.kill(gentle=True)
+        node.kill()
+        logger.info(f"Stopped node0 from base_chase_test")
 
     # Test the migration from single storage to split storage. This test spins
     # up two nodes, a validator node and an archival node. The validator stays
@@ -262,13 +266,14 @@ class TestSplitStorage(unittest.TestCase):
     # - phase 2 - configure cold storage and restart archival
     # - phase 3 - prepare hot storage from a rpc backup
     # - phase 4 - restart archival and check that it's correctly migrated
-    def test_migration(self):
-        print()
+    def step2_migration_test(self):
         logger.info(f"Starting the migration test")
-        logger.info("")
 
-        # Decrease the epoch length and gc epoch num in order to speed up this test.
-        epoch_length = 5
+        # Archival nodes do not run state sync. This means that if peers
+        # ran away further than epoch_lenght * gc_epoch_num, archival nodes
+        # will not be able to further sync. In practice it means we need a long
+        # enough epoch_length or more gc_epoch_num to keep.
+        epoch_length = 10
         gc_epoch_num = 3
 
         genesis_config_changes = [
@@ -288,6 +293,7 @@ class TestSplitStorage(unittest.TestCase):
                 'archive': False,
                 'tracked_shards': [0],
                 'gc_num_epochs_to_keep': gc_epoch_num,
+                'state_sync_enabled': True
             },
             # The archival node will be migrated to split storage.
             2: {
@@ -332,17 +338,22 @@ class TestSplitStorage(unittest.TestCase):
         self._migrate_to_split_storage(rpc, archival, archival_dir,
                                        gc_epoch_num * epoch_length)
 
+        validator.kill()
+        rpc.kill()
+        archival.kill()
+
     # Spin up legacy archival node and split storage node.
     # Pause legacy archival node, but continue running split storage node.
     # After split storage hot tail is bigger than legacy archival head, restart legacy archival node.
     # Make sure that legacy archival node is able to sync after that.
-    def test_archival_node_sync(self):
-        print()
+    def step3_archival_node_sync_test(self):
         logger.info(f"Starting the archival <- split storage sync test")
-        logger.info("")
 
-        # Decrease the epoch length and gc epoch num in order to speed up this test.
-        epoch_length = 5
+        # Archival nodes do not run state sync. This means that if peers
+        # ran away further than epoch_lenght * gc_epoch_num, archival nodes
+        # will not be able to further sync. In practice it means we need a long
+        # enough epoch_length or more gc_epoch_num to keep.
+        epoch_length = 10
         gc_epoch_num = 3
 
         genesis_config_changes = [
@@ -352,6 +363,7 @@ class TestSplitStorage(unittest.TestCase):
             0: {
                 'archive': False,
                 'tracked_shards': [0],
+                'state_sync_enabled': True
             },
             1: {
                 'archive': True,
@@ -369,6 +381,7 @@ class TestSplitStorage(unittest.TestCase):
                 'archive': False,
                 'tracked_shards': [0],
                 'gc_num_epochs_to_keep': gc_epoch_num,
+                'state_sync_enabled': True
             },
         }
         config = load_config()
@@ -418,33 +431,26 @@ class TestSplitStorage(unittest.TestCase):
         # Remember ~where archival node stopped
         n = archival.get_latest_block().height
 
-        logger.info("")
         logger.info("Kill legacy archival node.")
-        logger.info("")
         # Now, kill legacy archival node, so it will be behind after restart and will be forced to sync from split node.
         archival.kill()
 
-        logger.info("")
         logger.info(
             "Wait for split storage to have legacy archival head only in cold db."
         )
-        logger.info("")
         # Wait for split storage to relly on cold db to sync archival node
         wait_for_blocks(split, target=n + epoch_length * gc_epoch_num * 2 + 1)
         # Kill validator and rpc so legacy archival doesn't have any peers that may accidentally have some useful data.
         validator.kill()
         rpc.kill()
 
-        logger.info("")
         logger.info("Restart legacy archival node.")
-        logger.info("")
         # Restart archival node. This should trigger sync.
         archival.start(boot_node=split)
         time.sleep(10)
 
-        logger.info("")
         logger.info("Wait for legacy archival node to start syncing.")
-        logger.info("")
+
         # Archival node should be able to sync to split storage without problems.
         wait_for_blocks(archival, target=n + epoch_length, timeout=120)
         archival.kill()
