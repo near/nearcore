@@ -103,7 +103,16 @@ impl NightshadeRuntime {
                 columns_to_keep: if config.config.store.state_snapshot_all_columns {
                     None
                 } else {
-                    Some(vec![DBCol::FlatState])
+                    Some(vec![
+                        // Keep DbVersion and BlockMisc, otherwise you'll not be able to open the state snapshot as a Store.
+                        DBCol::DbVersion,
+                        DBCol::BlockMisc,
+                        // Flat storage columns.
+                        DBCol::FlatState,
+                        DBCol::FlatStateChanges,
+                        DBCol::FlatStateDeltaMetadata,
+                        DBCol::FlatStorageStatus,
+                    ])
                 },
                 archive: config.client_config.archive,
             }
