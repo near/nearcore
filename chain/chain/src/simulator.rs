@@ -124,6 +124,7 @@ pub struct SimulationResult {
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Serialize)]
 pub struct SimulationResults {
+    pub tx: SignedTransaction,
     pub real_result: SimulationResult,
     pub same_block_result: SimulationResult,
     pub earlier_block_result: SimulationResult,
@@ -315,7 +316,7 @@ impl SimulationRunner {
         }
 
         let mut requests = Vec::<(
-            CryptoHash,
+            SignedTransaction,
             oneshot::Receiver<SimulationResult>,
             oneshot::Receiver<SimulationResult>,
             SimulationResult,
@@ -419,7 +420,7 @@ impl SimulationRunner {
                         outcomes: Vec::new(),
                         error: Some(err.to_string()),
                     });
-                    requests.push((transaction.get_hash(), receiver, lag_receiver, real_result));
+                    requests.push((transaction.clone(), receiver, lag_receiver, real_result));
                 }
             }
         }
@@ -427,14 +428,15 @@ impl SimulationRunner {
         let mut txns_simulated = 0;
         let mut txns_simulated_with_error = 0;
         let mut update = store.store_update();
-        for (hash, receiver, lag_receiver, real_result) in requests {
+        for (txn, receiver, lag_receiver, real_result) in requests {
             let result = receiver.blocking_recv().unwrap();
             let lag_result = lag_receiver.blocking_recv().unwrap();
             if let Some(err) = &result.error {
-                println!("[SIM]   Error simulating transaction {:?}: {:?}", hash, err);
+                println!("[SIM]   Error simulating transaction {:?}: {:?}", txn.get_hash(), err);
                 txns_simulated_with_error += 1;
             }
             let data = SimulationResults {
+                tx: txn.clone(),
                 same_block_result: result,
                 earlier_block_result: lag_result,
                 real_result,
@@ -448,11 +450,13 @@ impl SimulationRunner {
                     .store(Utc::now().timestamp() as u64, std::sync::atomic::Ordering::Relaxed);
                 println!(
                     "Sample simulation result: {:?} -> {}",
-                    hash,
+                    txn.get_hash(),
                     serde_json::to_string(&data).unwrap(),
                 );
             }
-            update.set_ser(DBCol::TransactionSimulationResults, hash.as_bytes(), &data).unwrap();
+            update
+                .set_ser(DBCol::TransactionSimulationResults, txn.get_hash().as_bytes(), &data)
+                .unwrap();
             txns_simulated += 1;
         }
 
