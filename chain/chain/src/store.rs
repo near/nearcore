@@ -378,74 +378,77 @@ enum CachedColumnTypes {
 
 impl CachedColumnTypes {
     fn pop(&self, key: &[u8]) {
-        self.pop(key);
+        match self {
+            CachedColumnTypes::Headers(v) => v.pop(key),
+            CachedColumnTypes::Blocks(v) => v.pop(key),
+            CachedColumnTypes::Chunks(v) => v.pop(key),
+            CachedColumnTypes::PartialChunks(v) => v.pop(key),
+            CachedColumnTypes::BlockExtra(v) => v.pop(key),
+            CachedColumnTypes::ChunkExtra(v) => v.pop(key),
+            CachedColumnTypes::Height(v) => v.pop(key),
+            CachedColumnTypes::BlockHashPerHeight(v) => v.pop(key),
+            CachedColumnTypes::NextBlockHashes(v) => v.pop(key),
+            CachedColumnTypes::EpochLightClientBlocks(v) => v.pop(key),
+            CachedColumnTypes::OutgoingReceipts(v) => v.pop(key),
+            CachedColumnTypes::IncomingReceipts(v) => v.pop(key),
+            CachedColumnTypes::InvalidChunks(v) => v.pop(key),
+            CachedColumnTypes::ReceiptIdToShardId(v) => v.pop(key),
+            CachedColumnTypes::Transactions(v) => v.pop(key),
+            CachedColumnTypes::Receipts(v) => v.pop(key),
+            CachedColumnTypes::BlockRefcounts(v) => v.pop(key),
+            CachedColumnTypes::BlockMerkleTree(v) => v.pop(key),
+            CachedColumnTypes::BlockOrdinalToHash(v) => v.pop(key),
+            CachedColumnTypes::ProcessedBlockHeights(v) => v.pop(key),
+        }
     }
 
-    fn put<T>(&self, hash: Vec<u8>, val: T) {
-        self.put(hash, val);
+    fn put<Value>(&self, hash: Vec<u8>, val: Value) {
+        match self {
+            CachedColumnTypes::Headers(v) => v.put(hash, val as BlockHeight),
+/*            CachedColumnTypes::Blocks(v) => v.put(hash, val),*/
+            /*CachedColumnTypes::Chunks(v) => v.put(hash, val),*/
+            /*CachedColumnTypes::PartialChunks(v) => v.put(hash, val),*/
+            /*CachedColumnTypes::BlockExtra(v) => v.put(hash, val),*/
+            /*CachedColumnTypes::ChunkExtra(v) => v.put(hash, val),*/
+            /*CachedColumnTypes::Height(v) => v.put(hash, val),*/
+            /*CachedColumnTypes::BlockHashPerHeight(v) => v.put(hash, val),*/
+            /*CachedColumnTypes::NextBlockHashes(v) => v.put(hash, val),*/
+            /*CachedColumnTypes::EpochLightClientBlocks(v) => v.put(hash, val),*/
+            /*CachedColumnTypes::OutgoingReceipts(v) => v.put(hash, val),*/
+            /*CachedColumnTypes::IncomingReceipts(v) => v.put(hash, val),*/
+            /*CachedColumnTypes::InvalidChunks(v) => v.put(hash, val),*/
+            /*CachedColumnTypes::ReceiptIdToShardId(v) => v.put(hash, val),*/
+            /*CachedColumnTypes::Transactions(v) => v.put(hash, val),*/
+            /*CachedColumnTypes::Receipts(v) => v.put(hash, val),*/
+            /*CachedColumnTypes::BlockRefcounts(v) => v.put(hash, val),*/
+            /*CachedColumnTypes::BlockMerkleTree(v) => v.put(hash, val),*/
+            /*CachedColumnTypes::BlockOrdinalToHash(v) => v.put(hash, val),*/
+            /*CachedColumnTypes::ProcessedBlockHeights(v) => v.put(hash, val),*/
+        }
     }
 
     fn get<Value>(&self, key: &[u8]) -> Option<Value> {
-        return self.get(key);
-    }
-}
-
-struct CachedColumns {
-    headers: CachedColumnTypes,
-    blocks: CachedColumnTypes,
-    partial_chunks: CachedColumnTypes,
-    block_extras: CachedColumnTypes,
-    chunk_extras: CachedColumnTypes,
-    height: CachedColumnTypes,
-    block_hash_per_height: CachedColumnTypes,
-    block_refcounts: CachedColumnTypes,
-    next_block_hashes: CachedColumnTypes,
-    epoch_light_client_blocks: CachedColumnTypes,
-    outgoing_receipts: CachedColumnTypes,
-    incoming_receipts: CachedColumnTypes,
-    invalid_chunks: CachedColumnTypes,
-    receipt_id_to_shard_id: CachedColumnTypes,
-    transactions: CachedColumnTypes,
-    receipts: CachedColumnTypes,
-    block_merkle_tree: CachedColumnTypes,
-    block_ordinal_to_hash: CachedColumnTypes,
-    processed_block_heights: CachedColumnTypes,
-    chunks: CachedColumnTypes,
-}
-
-impl CachedColumns {
-    fn new() -> Self {
-        CachedColumns {
-            headers: CachedColumnTypes::Headers(CachedColumn::new(CACHE_SIZE)),
-            blocks: CachedColumnTypes::Blocks(CachedColumn::new(CACHE_SIZE)),
-            chunks: CachedColumnTypes::Chunks(CachedColumn::new(CHUNK_CACHE_SIZE)),
-            partial_chunks: CachedColumnTypes::PartialChunks(CachedColumn::new(CHUNK_CACHE_SIZE)),
-            block_extras: CachedColumnTypes::BlockExtra(CachedColumn::new(CACHE_SIZE)),
-            chunk_extras: CachedColumnTypes::ChunkExtra(CachedColumn::new(CACHE_SIZE)),
-            height: CachedColumnTypes::Height(CachedColumn::new(CACHE_SIZE)),
-            block_hash_per_height: CachedColumnTypes::BlockHashPerHeight(CachedColumn::new(
-                CACHE_SIZE,
-            )),
-            block_refcounts: CachedColumnTypes::BlockRefcounts(CachedColumn::new(CACHE_SIZE)),
-            next_block_hashes: CachedColumnTypes::NextBlockHashes(CachedColumn::new(CACHE_SIZE)),
-            epoch_light_client_blocks: CachedColumnTypes::EpochLightClientBlocks(
-                CachedColumn::new(CACHE_SIZE),
-            ),
-            outgoing_receipts: CachedColumnTypes::OutgoingReceipts(CachedColumn::new(CACHE_SIZE)),
-            incoming_receipts: CachedColumnTypes::IncomingReceipts(CachedColumn::new(CACHE_SIZE)),
-            invalid_chunks: CachedColumnTypes::InvalidChunks(CachedColumn::new(CACHE_SIZE)),
-            receipt_id_to_shard_id: CachedColumnTypes::ReceiptIdToShardId(CachedColumn::new(
-                CHUNK_CACHE_SIZE,
-            )),
-            transactions: CachedColumnTypes::Transactions(CachedColumn::new(CHUNK_CACHE_SIZE)),
-            receipts: CachedColumnTypes::Receipts(CachedColumn::new(CHUNK_CACHE_SIZE)),
-            block_merkle_tree: CachedColumnTypes::BlockMerkleTree(CachedColumn::new(CACHE_SIZE)),
-            block_ordinal_to_hash: CachedColumnTypes::BlockOrdinalToHash(CachedColumn::new(
-                CACHE_SIZE,
-            )),
-            processed_block_heights: CachedColumnTypes::ProcessedBlockHeights(CachedColumn::new(
-                CACHE_SIZE,
-            )),
+        match self {
+            CachedColumnTypes::Headers(v) => v.get(key),
+            CachedColumnTypes::Blocks(v) => v.get(key),
+            CachedColumnTypes::Chunks(v) => v.get(key),
+            CachedColumnTypes::PartialChunks(v) => v.get(key),
+            CachedColumnTypes::BlockExtra(v) => v.get(key),
+            CachedColumnTypes::ChunkExtra(v) => v.get(key),
+            CachedColumnTypes::Height(v) => v.get(key),
+            CachedColumnTypes::BlockHashPerHeight(v) => v.get(key),
+            CachedColumnTypes::NextBlockHashes(v) => v.get(key),
+            CachedColumnTypes::EpochLightClientBlocks(v) => v.get(key),
+            CachedColumnTypes::OutgoingReceipts(v) => v.get(key),
+            CachedColumnTypes::IncomingReceipts(v) => v.get(key),
+            CachedColumnTypes::InvalidChunks(v) => v.get(key),
+            CachedColumnTypes::ReceiptIdToShardId(v) => v.get(key),
+            CachedColumnTypes::Transactions(v) => v.get(key),
+            CachedColumnTypes::Receipts(v) => v.get(key),
+            CachedColumnTypes::BlockRefcounts(v) => v.get(key),
+            CachedColumnTypes::BlockMerkleTree(v) => v.get(key),
+            CachedColumnTypes::BlockOrdinalToHash(v) => v.get(key),
+            CachedColumnTypes::ProcessedBlockHeights(v) => v.get(key),
         }
     }
 }
@@ -462,11 +465,6 @@ pub struct ChainStore {
     /// Tail height of the chain,
     tail: Option<BlockHeight>,
     cached_columns: HashMap<DBCol, CachedColumnTypes>,
-    block_hash_per_height: CellLruCache<Vec<u8>, Arc<HashMap<EpochId, HashSet<CryptoHash>>>>,
-    /// Next block hashes for each block on the canonical chain
-    outgoing_receipts: CellLruCache<Vec<u8>, Arc<Vec<Receipt>>>,
-    /// Cache with incoming receipts.
-    receipt_id_to_shard_id: CellLruCache<Vec<u8>, ShardId>,
     /// save_trie_changes should be set to true iff
     /// - archive if false - non-archival nodes need trie changes to perform garbage collection
     /// - archive is true, cold_store is configured and migration to split_storage is finished - node
@@ -525,9 +523,6 @@ impl ChainStore {
                     CACHE_SIZE,
                 )))
             ]),
-            block_hash_per_height: CellLruCache::new(CACHE_SIZE),
-            outgoing_receipts: CellLruCache::new(CACHE_SIZE),
-            receipt_id_to_shard_id: CellLruCache::new(CHUNK_CACHE_SIZE),
             save_trie_changes,
         }
     }
@@ -2467,10 +2462,9 @@ impl<'a> ChainStoreUpdate<'a> {
         let key = &index_to_bytes(height)[..];
         if epoch_to_hashes.is_empty() {
             store_update.delete(DBCol::BlockPerHeight, key);
-            self.chain_store.block_hash_per_height.pop(key);
+            self.chain_store.cached_columns[&DBCol::BlockPerHeight].pop(key);
         } else {
-            store_update.set_ser(DBCol::BlockPerHeight, key, &epoch_to_hashes)?;
-            self.chain_store.block_hash_per_height.put(key.to_vec(), Arc::new(epoch_to_hashes));
+            self.chain_store.cached_columns[&DBCol::BlockPerHeight].put(key.to_vec(), Arc::new(epoch_to_hashes));
         }
         if self.is_height_processed(height)? {
             self.gc_col(DBCol::ProcessedBlockHeights, key);
@@ -2502,7 +2496,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 for receipt_id in receipt_ids {
                     let key: Vec<u8> = receipt_id.into();
                     store_update.decrement_refcount(DBCol::ReceiptIdToShardId, &key);
-                    self.chain_store.receipt_id_to_shard_id.pop(&key);
+                    self.chain_store.cached_columns[&DBCol::ReceiptIdToShardId].pop(&key);
                 }
             }
             Err(error) => {
@@ -2520,7 +2514,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
         let key = get_block_shard_id(block_hash, shard_id);
         store_update.delete(DBCol::OutgoingReceipts, &key);
-        self.chain_store.outgoing_receipts.pop(&key);
+        self.chain_store.cached_columns[&DBCol::OutgoingReceipts].pop(&key);
         self.merge(store_update);
     }
 
@@ -2593,9 +2587,6 @@ impl<'a> ChainStoreUpdate<'a> {
             DBCol::Transactions | DBCol::Receipts => {
                 store_update.decrement_refcount(col, key);
                 self.chain_store.cached_columns[&col].pop(key);
-            }
-            DBCol::ChunkHashesByHeight => {
-                store_update.delete(col, key);
             }
             DBCol::State => {
                 panic!("Actual gc happens elsewhere, call inc_gc_col_state to increase gc count");
@@ -3194,7 +3185,7 @@ mod tests {
     use near_primitives::block::{Block, Tip};
     use near_primitives::epoch_manager::block_info::BlockInfo;
     use near_primitives::errors::InvalidTxError;
-    use near_primitives::hash::hash;
+    use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::test_utils::create_test_signer;
     use near_primitives::test_utils::TestBlockBuilder;
     use near_primitives::types::{BlockHeight, EpochId, NumBlocks};
@@ -3396,9 +3387,9 @@ mod tests {
             .insert(*block1.header().hash(), block1.clone());
         store_update.commit().unwrap();
 
-        let block_hash = chain.mut_store().height.get(&index_to_bytes(1).to_vec());
+        let block_hash: Option<CryptoHash> = chain.mut_store().cached_columns[&DBCol::BlockHeight].get(&index_to_bytes(1).to_vec());
         let epoch_id_to_hash =
-            chain.mut_store().block_hash_per_height.get(&index_to_bytes(1).to_vec());
+            chain.mut_store().cached_columns[&DBCol::BlockPerHeight].get(&index_to_bytes(1).to_vec());
 
         let mut store_update = chain.mut_store().store_update();
         store_update.chain_store_cache_update.height_to_hashes.insert(1, Some(hash(&[2])));
@@ -3408,9 +3399,9 @@ mod tests {
             .insert(*block2.header().hash(), block2.clone());
         store_update.commit().unwrap();
 
-        let block_hash1 = chain.mut_store().height.get(&index_to_bytes(1).to_vec());
+        let block_hash1 = chain.mut_store().cached_columns[&DBCol::BlockHeight].get(&index_to_bytes(1).to_vec());
         let epoch_id_to_hash1 =
-            chain.mut_store().block_hash_per_height.get(&index_to_bytes(1).to_vec());
+            chain.mut_store().cached_columns[&DBCol::BlockPerHeight].get(&index_to_bytes(1).to_vec());
 
         assert_ne!(block_hash, block_hash1);
         assert_ne!(epoch_id_to_hash, epoch_id_to_hash1);
