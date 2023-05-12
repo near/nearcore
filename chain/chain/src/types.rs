@@ -4,7 +4,6 @@ use std::sync::Arc;
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
 use chrono::Utc;
-use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use num_rational::Rational32;
 
@@ -24,8 +23,8 @@ use near_primitives::state_part::PartId;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash, NumBlocks,
-    ShardId, StateChangesForSplitStates, StateRoot, StateRootNode,
+    Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash, NumBlocks, ShardId,
+    StateChangesForSplitStates, StateRoot, StateRootNode,
 };
 use near_primitives::version::{
     ProtocolVersion, MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, MIN_PROTOCOL_VERSION_NEP_92,
@@ -363,37 +362,6 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Current epoch is the epoch of the block after `parent_hash`
     fn will_shard_layout_change_next_epoch(&self, parent_hash: &CryptoHash) -> Result<bool, Error>;
 
-    /// Whether the client cares about some shard right now.
-    /// * If `account_id` is None, `is_me` is not checked and the
-    /// result indicates whether the client is tracking the shard
-    /// * If `account_id` is not None, it is supposed to be a validator
-    /// account and `is_me` indicates whether we check what shards
-    /// the client tracks.
-    fn cares_about_shard(
-        &self,
-        account_id: Option<&AccountId>,
-        parent_hash: &CryptoHash,
-        shard_id: ShardId,
-        is_me: bool,
-    ) -> bool;
-
-    /// Whether the client cares about some shard in the next epoch.
-    //  Note that `shard_id` always refers to a shard in the current epoch
-    //  If shard layout will change next epoch,
-    //  returns true if it cares about any shard that `shard_id` will split to
-    /// * If `account_id` is None, `is_me` is not checked and the
-    /// result indicates whether the client will track the shard
-    /// * If `account_id` is not None, it is supposed to be a validator
-    /// account and `is_me` indicates whether we check what shards
-    /// the client will track.
-    fn will_care_about_shard(
-        &self,
-        account_id: Option<&AccountId>,
-        parent_hash: &CryptoHash,
-        shard_id: ShardId,
-        is_me: bool,
-    ) -> bool;
-
     /// Get the block height for which garbage collection should not go over
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight;
 
@@ -568,13 +536,6 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> bool;
 
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error>;
-}
-
-/// LEGACY trait. Will be removed. Use RuntimeAdapter or EpochManagerHandler instead.
-pub trait RuntimeWithEpochManagerAdapter: RuntimeAdapter + EpochManagerAdapter {
-    fn epoch_manager_adapter(&self) -> &dyn EpochManagerAdapter;
-    fn epoch_manager_adapter_arc(&self) -> Arc<dyn EpochManagerAdapter>;
-    fn shard_tracker(&self) -> ShardTracker;
 }
 
 /// The last known / checked height and time when we have processed it.

@@ -169,18 +169,14 @@ mod nodes_counter_tests {
     #[test]
     fn test_count() {
         // For keys with nibbles [000, 011, 100], we expect 6 touched nodes to get value for the first key 000:
-        // Extension -> Branch -> Branch -> Leaf plus retrieving the value by its hash. In total
-        // there will be 9 distinct nodes, because 011 and 100 both add one Leaf and value.
+        // Extension -> Branch -> Branch -> Leaf plus retrieving the value by its hash.
         let trie_items = vec![
             (create_trie_key(&[0, 0, 0]), Some(vec![0])),
             (create_trie_key(&[0, 1, 1]), Some(vec![1])),
             (create_trie_key(&[1, 0, 0]), Some(vec![2])),
         ];
         let trie = create_trie(&trie_items);
-        assert_eq!(get_touched_nodes_numbers(trie.clone(), &trie_items), vec![5, 5, 4]);
-
-        let storage = trie.storage.as_caching_storage().unwrap();
-        assert_eq!(storage.shard_cache.len(), 9);
+        assert_eq!(get_touched_nodes_numbers(trie, &trie_items), vec![5, 5, 4]);
     }
 
     // Check that same values are stored in the same trie node.
@@ -194,10 +190,7 @@ mod nodes_counter_tests {
             (create_trie_key(&[1, 1]), Some(vec![1])),
         ];
         let trie = create_trie(&trie_items);
-        assert_eq!(get_touched_nodes_numbers(trie.clone(), &trie_items), vec![4, 4]);
-
-        let storage = trie.storage.as_caching_storage().unwrap();
-        assert_eq!(storage.shard_cache.len(), 5);
+        assert_eq!(get_touched_nodes_numbers(trie, &trie_items), vec![4, 4]);
     }
 }
 

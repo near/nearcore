@@ -1,5 +1,3 @@
-use crate::tests::client::process_blocks::create_nightshade_runtime_with_store;
-use crate::tests::client::process_blocks::create_nightshade_runtimes;
 use borsh::BorshDeserialize;
 use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::Genesis;
@@ -23,6 +21,8 @@ use near_store::{DBCol, Store, COLD_HEAD_KEY, HEAD_KEY};
 use nearcore::config::GenesisExt;
 use std::collections::HashSet;
 use strum::IntoEnumIterator;
+
+use super::utils::TestEnvNightshadeSetupExt;
 
 fn check_key(first_store: &Store, second_store: &Store, col: DBCol, key: &[u8]) {
     let pretty_key = near_fmt::StorageKey(key);
@@ -79,7 +79,8 @@ fn test_storage_after_commit_of_cold_update() {
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
     let mut env = TestEnv::builder(chain_genesis)
-        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+        .real_epoch_managers(&genesis.config)
+        .nightshade_runtimes(&genesis)
         .build();
 
     let (store, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
@@ -147,12 +148,9 @@ fn test_storage_after_commit_of_cold_update() {
             &*store.cold_db().unwrap(),
             &env.clients[0].runtime_adapter.store(),
             &env.clients[0]
-                .runtime_adapter
+                .epoch_manager
                 .get_shard_layout(
-                    &env.clients[0]
-                        .runtime_adapter
-                        .get_epoch_id_from_prev_block(&last_hash)
-                        .unwrap(),
+                    &env.clients[0].epoch_manager.get_epoch_id_from_prev_block(&last_hash).unwrap(),
                 )
                 .unwrap(),
             &h,
@@ -233,8 +231,11 @@ fn test_cold_db_head_update() {
     let (store, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
     let hot_store = &store.get_hot_store();
     let cold_store = &store.get_cold_store().unwrap();
-    let runtime_adapter = create_nightshade_runtime_with_store(&genesis, &hot_store);
-    let mut env = TestEnv::builder(chain_genesis).runtime_adapters(vec![runtime_adapter]).build();
+    let mut env = TestEnv::builder(chain_genesis)
+        .stores(vec![hot_store.clone()])
+        .real_epoch_managers(&genesis.config)
+        .nightshade_runtimes(&genesis)
+        .build();
 
     for h in 1..max_height {
         env.produce_block(0, h);
@@ -273,7 +274,8 @@ fn test_cold_db_copy_with_height_skips() {
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
     let mut env = TestEnv::builder(chain_genesis)
-        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+        .real_epoch_managers(&genesis.config)
+        .nightshade_runtimes(&genesis)
         .build();
 
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
@@ -318,12 +320,9 @@ fn test_cold_db_copy_with_height_skips() {
             &*storage.cold_db().unwrap(),
             &env.clients[0].runtime_adapter.store(),
             &env.clients[0]
-                .runtime_adapter
+                .epoch_manager
                 .get_shard_layout(
-                    &env.clients[0]
-                        .runtime_adapter
-                        .get_epoch_id_from_prev_block(&last_hash)
-                        .unwrap(),
+                    &env.clients[0].epoch_manager.get_epoch_id_from_prev_block(&last_hash).unwrap(),
                 )
                 .unwrap(),
             &h,
@@ -393,7 +392,8 @@ fn test_initial_copy_to_cold(batch_size: usize) {
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
     let mut env = TestEnv::builder(chain_genesis)
-        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+        .real_epoch_managers(&genesis.config)
+        .nightshade_runtimes(&genesis)
         .build();
 
     let (store, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Archive);

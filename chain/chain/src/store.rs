@@ -44,9 +44,9 @@ use near_store::{
     LATEST_KNOWN_KEY, TAIL_KEY,
 };
 
+use crate::byzantine_assert;
 use crate::chunks_store::ReadOnlyChunksStore;
 use crate::types::{Block, BlockHeader, LatestKnown};
-use crate::{byzantine_assert, RuntimeWithEpochManagerAdapter};
 use near_store::db::StoreStatistics;
 use near_store::flat::store_helper;
 use std::sync::Arc;
@@ -470,19 +470,19 @@ impl ChainStore {
     /// <https://github.com/near/nearcore/issues/4877>
     pub fn get_outgoing_receipts_for_shard(
         &self,
-        runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
+        epoch_manager: &dyn EpochManagerAdapter,
         prev_block_hash: CryptoHash,
         shard_id: ShardId,
         last_included_height: BlockHeight,
     ) -> Result<Vec<Receipt>, Error> {
-        let shard_layout = runtime_adapter.get_shard_layout_from_prev_block(&prev_block_hash)?;
+        let shard_layout = epoch_manager.get_shard_layout_from_prev_block(&prev_block_hash)?;
         let mut receipts_block_hash = prev_block_hash;
         loop {
             let block_header = self.get_block_header(&receipts_block_hash)?;
 
             if block_header.height() == last_included_height {
                 let receipts_shard_layout =
-                    runtime_adapter.get_shard_layout(block_header.epoch_id())?;
+                    epoch_manager.get_shard_layout(block_header.epoch_id())?;
 
                 // get the shard from which the outgoing receipt were generated
                 let receipts_shard_id = if shard_layout != receipts_shard_layout {
@@ -2062,13 +2062,12 @@ impl<'a> ChainStoreUpdate<'a> {
 
     fn get_shard_uids_to_gc(
         &mut self,
-        runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
+        epoch_manager: &dyn EpochManagerAdapter,
         block_hash: &CryptoHash,
     ) -> Vec<ShardUId> {
         let block_header = self.get_block_header(block_hash).expect("block header must exist");
-        let shard_layout = runtime_adapter
-            .get_shard_layout(block_header.epoch_id())
-            .expect("epoch info must exist");
+        let shard_layout =
+            epoch_manager.get_shard_layout(block_header.epoch_id()).expect("epoch info must exist");
         // gc shards in this epoch
         let mut shard_uids_to_gc: Vec<_> = shard_layout.get_shard_uids();
         // gc shards in the shard layout in the next epoch if shards will change in the next epoch
@@ -2078,7 +2077,7 @@ impl<'a> ChainStoreUpdate<'a> {
         // block_header.epoch_id() as next_epoch_id
         let next_epoch_id = block_header.next_epoch_id();
         let next_shard_layout =
-            runtime_adapter.get_shard_layout(next_epoch_id).expect("epoch info must exist");
+            epoch_manager.get_shard_layout(next_epoch_id).expect("epoch info must exist");
         if shard_layout != next_shard_layout {
             shard_uids_to_gc.extend(next_shard_layout.get_shard_uids());
         }
@@ -2089,7 +2088,7 @@ impl<'a> ChainStoreUpdate<'a> {
     // Clearing block data of `block_hash.prev`, if on the Canonical Chain.
     pub fn clear_block_data(
         &mut self,
-        runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
+        epoch_manager: &dyn EpochManagerAdapter,
         mut block_hash: CryptoHash,
         gc_mode: GCMode,
     ) -> Result<(), Error> {
@@ -2097,7 +2096,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
         // 1. Apply revert insertions or deletions from DBCol::TrieChanges for Trie
         {
-            let shard_uids_to_gc: Vec<_> = self.get_shard_uids_to_gc(runtime_adapter, &block_hash);
+            let shard_uids_to_gc: Vec<_> = self.get_shard_uids_to_gc(epoch_manager, &block_hash);
             match gc_mode.clone() {
                 GCMode::Fork(tries) => {
                     // If the block is on a fork, we delete the state that's the result of applying this block
@@ -2170,7 +2169,7 @@ impl<'a> ChainStoreUpdate<'a> {
             }
         }
         // gc DBCol::ChunkExtra based on shard_uid since it's indexed by shard_uid in the storage
-        for shard_uid in self.get_shard_uids_to_gc(runtime_adapter, &block_hash) {
+        for shard_uid in self.get_shard_uids_to_gc(epoch_manager, &block_hash) {
             let block_shard_uid = get_block_shard_uid(&block_hash, &shard_uid);
             self.gc_col(DBCol::ChunkExtra, &block_shard_uid);
         }
@@ -2231,7 +2230,7 @@ impl<'a> ChainStoreUpdate<'a> {
     // and that indicates a link between current head and its prev block
     pub fn clear_head_block_data(
         &mut self,
-        runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
+        epoch_manager: &dyn EpochManagerAdapter,
     ) -> Result<(), Error> {
         let header_head = self.header_head().unwrap();
         let header_head_height = header_head.height;
@@ -2246,7 +2245,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
         // 1. Delete shard_id-indexed data (TrieChanges, Receipts, ChunkExtra, State Headers and Parts, FlatStorage data)
         for shard_id in 0..block.header().chunk_mask().len() as ShardId {
-            let shard_uid = runtime_adapter.shard_id_to_uid(shard_id, epoch_id).unwrap();
+            let shard_uid = epoch_manager.shard_id_to_uid(shard_id, epoch_id).unwrap();
             let block_shard_id = get_block_shard_uid(&block_hash, &shard_uid);
 
             // delete TrieChanges
@@ -2598,7 +2597,7 @@ impl<'a> ChainStoreUpdate<'a> {
     pub fn copy_chain_state_as_of_block(
         chain_store: &'a mut ChainStore,
         block_hash: &CryptoHash,
-        source_runtime: Arc<dyn RuntimeWithEpochManagerAdapter>,
+        source_epoch_manager: &dyn EpochManagerAdapter,
         source_store: &ChainStore,
     ) -> Result<ChainStoreUpdate<'a>, Error> {
         let mut chain_store_update = ChainStoreUpdate::new(chain_store);
@@ -2641,7 +2640,7 @@ impl<'a> ChainStoreUpdate<'a> {
             .chain_store_cache_update
             .block_extras
             .insert(*block_hash, source_store.get_block_extra(block_hash)?);
-        let shard_layout = source_runtime.get_shard_layout(&header.epoch_id())?;
+        let shard_layout = source_epoch_manager.get_shard_layout(&header.epoch_id())?;
         for shard_uid in shard_layout.get_shard_uids() {
             chain_store_update.chain_store_cache_update.chunk_extras.insert(
                 (*block_hash, shard_uid),
@@ -3128,6 +3127,8 @@ mod tests {
     use std::sync::Arc;
 
     use near_chain_configs::{GCConfig, GenesisConfig};
+    use near_epoch_manager::shard_tracker::ShardTracker;
+    use near_epoch_manager::EpochManagerAdapter;
     use near_primitives::block::{Block, Tip};
     use near_primitives::epoch_manager::block_info::BlockInfo;
     use near_primitives::errors::InvalidTxError;
@@ -3142,9 +3143,9 @@ mod tests {
 
     use crate::store::{ChainStoreAccess, GCMode};
     use crate::store_validator::StoreValidator;
-    use crate::test_utils::{KeyValueRuntime, ValidatorSchedule};
+    use crate::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
     use crate::types::ChainConfig;
-    use crate::{Chain, ChainGenesis, DoomslugThresholdMode, RuntimeWithEpochManagerAdapter};
+    use crate::{Chain, ChainGenesis, DoomslugThresholdMode};
 
     fn get_chain() -> Chain {
         get_chain_with_epoch_length(10)
@@ -3155,9 +3156,13 @@ mod tests {
         let chain_genesis = ChainGenesis::test();
         let vs = ValidatorSchedule::new()
             .block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]]);
-        let runtime_adapter = KeyValueRuntime::new_with_validators(store, vs, epoch_length);
+        let epoch_manager = MockEpochManager::new_with_validators(store.clone(), vs, epoch_length);
+        let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
+        let runtime = KeyValueRuntime::new(store, epoch_manager.as_ref());
         Chain::new(
-            runtime_adapter,
+            epoch_manager,
+            shard_tracker,
+            runtime,
             &chain_genesis,
             DoomslugThresholdMode::NoApprovals,
             ChainConfig::test(),
@@ -3358,7 +3363,7 @@ mod tests {
     #[test]
     fn test_clear_old_data() {
         let mut chain = get_chain_with_epoch_length(1);
-        let runtime_adapter = chain.runtime_adapter.clone();
+        let epoch_manager = chain.epoch_manager.clone();
         let genesis = chain.get_block_by_height(0).unwrap();
         let signer = Arc::new(create_test_signer("test1"));
         let mut prev_block = genesis;
@@ -3366,7 +3371,7 @@ mod tests {
         for i in 1..15 {
             add_block(
                 &mut chain,
-                runtime_adapter.clone(),
+                epoch_manager.as_ref(),
                 &mut prev_block,
                 &mut blocks,
                 signer.clone(),
@@ -3401,13 +3406,13 @@ mod tests {
     // Adds block to the chain at given height after prev_block.
     fn add_block(
         chain: &mut Chain,
-        runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
+        epoch_manager: &dyn EpochManagerAdapter,
         prev_block: &mut Block,
         blocks: &mut Vec<Block>,
         signer: Arc<InMemoryValidatorSigner>,
         height: u64,
     ) {
-        let next_epoch_id = runtime_adapter
+        let next_epoch_id = epoch_manager
             .get_next_epoch_id_from_prev_block(prev_block.hash())
             .expect("block must exist");
         let mut store_update = chain.mut_store().store_update();
@@ -3418,7 +3423,7 @@ mod tests {
             let prev_hash = prev_block.hash();
             let epoch_id = prev_block.header().next_epoch_id().clone();
             let next_bp_hash = Chain::compute_bp_hash(
-                &*runtime_adapter,
+                epoch_manager,
                 next_epoch_id.clone(),
                 epoch_id.clone(),
                 &prev_hash,
@@ -3448,7 +3453,7 @@ mod tests {
     #[test]
     fn test_clear_old_data_fixed_height() {
         let mut chain = get_chain();
-        let runtime_adapter = chain.runtime_adapter.clone();
+        let epoch_manager = chain.epoch_manager.clone();
         let genesis = chain.get_block_by_height(0).unwrap();
         let signer = Arc::new(create_test_signer("test1"));
         let mut prev_block = genesis;
@@ -3456,7 +3461,7 @@ mod tests {
         for i in 1..10 {
             add_block(
                 &mut chain,
-                runtime_adapter.clone(),
+                epoch_manager.as_ref(),
                 &mut prev_block,
                 &mut blocks,
                 signer.clone(),
@@ -3483,7 +3488,7 @@ mod tests {
         let trie = chain.runtime_adapter.get_tries();
         let mut store_update = chain.mut_store().store_update();
         assert!(store_update
-            .clear_block_data(&*runtime_adapter, *blocks[5].hash(), GCMode::Canonical(trie))
+            .clear_block_data(epoch_manager.as_ref(), *blocks[5].hash(), GCMode::Canonical(trie))
             .is_ok());
         store_update.commit().unwrap();
 
@@ -3587,6 +3592,8 @@ mod tests {
             let mut store_validator = StoreValidator::new(
                 None,
                 genesis.clone(),
+                chain.epoch_manager.clone(),
+                chain.shard_tracker.clone(),
                 chain.runtime_adapter.clone(),
                 chain.store().store().clone(),
                 false,
@@ -3599,7 +3606,7 @@ mod tests {
     #[test]
     fn test_fork_chunk_tail_updates() {
         let mut chain = get_chain();
-        let runtime_adapter = chain.runtime_adapter.clone();
+        let epoch_manager = chain.epoch_manager.clone();
         let genesis = chain.get_block_by_height(0).unwrap();
         let signer = Arc::new(create_test_signer("test1"));
         let mut prev_block = genesis;
@@ -3607,7 +3614,7 @@ mod tests {
         for i in 1..10 {
             add_block(
                 &mut chain,
-                runtime_adapter.clone(),
+                epoch_manager.as_ref(),
                 &mut prev_block,
                 &mut blocks,
                 signer.clone(),

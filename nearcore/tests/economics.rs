@@ -1,18 +1,18 @@
 /// Test economic edge cases.
 use std::path::Path;
-use std::sync::Arc;
 
 use near_client::ProcessTxResponse;
+use near_epoch_manager::EpochManager;
 use num_rational::Ratio;
 
-use near_chain::{ChainGenesis, RuntimeWithEpochManagerAdapter};
+use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType};
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::transaction::SignedTransaction;
 use near_store::test_utils::create_test_store;
-use nearcore::config::GenesisExt;
+use nearcore::{config::GenesisExt, NightshadeRuntime};
 use testlib::fees_utils::FeeHelper;
 
 use near_primitives::types::EpochId;
@@ -32,10 +32,14 @@ fn build_genesis() -> Genesis {
 
 fn setup_env(genesis: &Genesis) -> TestEnv {
     init_integration_logger();
-    let store1 = create_test_store();
+    let store = create_test_store();
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+    let runtime =
+        NightshadeRuntime::test(Path::new("."), store.clone(), genesis, epoch_manager.clone());
     TestEnv::builder(ChainGenesis::new(&genesis))
-        .runtime_adapters(vec![nearcore::NightshadeRuntime::test(Path::new("."), store1, genesis)
-            as Arc<dyn RuntimeWithEpochManagerAdapter>])
+        .stores(vec![store])
+        .epoch_managers(vec![epoch_manager])
+        .runtimes(vec![runtime])
         .build()
 }
 

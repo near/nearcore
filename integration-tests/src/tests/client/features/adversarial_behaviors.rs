@@ -1,23 +1,22 @@
-use std::{collections::HashSet, path::Path, sync::Arc};
+use std::{collections::HashSet, sync::Arc};
 
 use near_async::messaging::CanSend;
-use near_chain::{ChainGenesis, Provenance, RuntimeWithEpochManagerAdapter};
+use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
-use near_epoch_manager::shard_tracker::TrackedConfig;
 use near_network::{
     shards_manager::ShardsManagerRequestFromNetwork,
     types::{NetworkRequests, PeerManagerMessageRequest},
 };
 use near_o11y::testonly::init_test_logger;
 use near_primitives::{
-    runtime::config_store::RuntimeConfigStore,
     shard_layout::ShardLayout,
     types::{AccountId, EpochId, ShardId},
 };
-use near_store::test_utils::create_test_store;
 use nearcore::config::GenesisExt;
 use tracing::log::debug;
+
+use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 
 struct AdversarialBehaviorTestData {
     num_validators: usize,
@@ -52,21 +51,12 @@ impl AdversarialBehaviorTestData {
             config.chunk_producer_kickout_threshold = 50;
         }
         let chain_genesis = ChainGenesis::new(&genesis);
-        let runtimes: Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> = (0..num_clients)
-            .map(|_| {
-                nearcore::NightshadeRuntime::test_with_runtime_config_store(
-                    Path::new("."),
-                    create_test_store(),
-                    &genesis,
-                    TrackedConfig::AllShards,
-                    RuntimeConfigStore::test(),
-                ) as Arc<dyn RuntimeWithEpochManagerAdapter>
-            })
-            .collect();
         let env = TestEnv::builder(chain_genesis)
             .clients_count(num_clients)
             .validator_seats(num_validators as usize)
-            .runtime_adapters(runtimes)
+            .real_epoch_managers(&genesis.config)
+            .track_all_shards()
+            .nightshade_runtimes(&genesis)
             .build();
 
         AdversarialBehaviorTestData { num_validators, env }
@@ -131,16 +121,16 @@ impl AdversarialBehaviorTestData {
 fn test_non_adversarial_case() {
     init_test_logger();
     let mut test = AdversarialBehaviorTestData::new();
-    let runtime_adapter = test.env.clients[0].runtime_adapter.clone();
+    let epoch_manager = test.env.clients[0].epoch_manager.clone();
     for height in 1..=EPOCH_LENGTH * 4 + 5 {
         debug!(target: "test", "======= Height {} ======", height);
         test.process_all_actor_messages();
-        let epoch_id = runtime_adapter
+        let epoch_id = epoch_manager
             .get_epoch_id_from_prev_block(
                 &test.env.clients[0].chain.head().unwrap().last_block_hash,
             )
             .unwrap();
-        let block_producer = runtime_adapter.get_block_producer(&epoch_id, height).unwrap();
+        let block_producer = epoch_manager.get_block_producer(&epoch_id, height).unwrap();
 
         let block = test.env.client(&block_producer).produce_block(height).unwrap().unwrap();
         assert_eq!(block.header().height(), height);
@@ -191,13 +181,13 @@ fn test_non_adversarial_case() {
     assert_eq!(test.env.clients[0].chain.head().unwrap().height, EPOCH_LENGTH * 4 + 5);
     let final_prev_block_hash = test.env.clients[0].chain.head().unwrap().prev_block_hash;
     let final_epoch_id =
-        runtime_adapter.get_epoch_id_from_prev_block(&final_prev_block_hash).unwrap();
-    let final_block_producers = runtime_adapter
+        epoch_manager.get_epoch_id_from_prev_block(&final_prev_block_hash).unwrap();
+    let final_block_producers = epoch_manager
         .get_epoch_block_producers_ordered(&final_epoch_id, &final_prev_block_hash)
         .unwrap();
     // No producers should be kicked out.
     assert_eq!(final_block_producers.len(), 4);
-    let final_chunk_producers = runtime_adapter.get_epoch_chunk_producers(&final_epoch_id).unwrap();
+    let final_chunk_producers = epoch_manager.get_epoch_chunk_producers(&final_epoch_id).unwrap();
     assert_eq!(final_chunk_producers.len(), 8);
 }
 
@@ -207,7 +197,7 @@ fn test_non_adversarial_case() {
 fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
     mut test: AdversarialBehaviorTestData,
 ) {
-    let runtime_adapter = test.env.clients[0].runtime_adapter.clone();
+    let epoch_manager = test.env.clients[0].epoch_manager.clone();
     let bad_chunk_producer =
         test.env.clients[7].validator_signer.as_ref().unwrap().validator_id().clone();
     let mut epochs_seen_invalid_chunk: HashSet<EpochId> = HashSet::new();
@@ -215,12 +205,12 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
     for height in 1..=EPOCH_LENGTH * 4 + 5 {
         debug!(target: "test", "======= Height {} ======", height);
         test.process_all_actor_messages();
-        let epoch_id = runtime_adapter
+        let epoch_id = epoch_manager
             .get_epoch_id_from_prev_block(
                 &test.env.clients[0].chain.head().unwrap().last_block_hash,
             )
             .unwrap();
-        let block_producer = runtime_adapter.get_block_producer(&epoch_id, height).unwrap();
+        let block_producer = epoch_manager.get_block_producer(&epoch_id, height).unwrap();
 
         let block = test.env.client(&block_producer).produce_block(height).unwrap().unwrap();
         assert_eq!(block.header().height(), height);
@@ -234,7 +224,7 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
                 assert_eq!(block.header().prev_height().unwrap(), height - 1);
             }
             for shard_id in 0..4 {
-                let chunk_producer = runtime_adapter
+                let chunk_producer = epoch_manager
                     .get_chunk_producer(
                         &epoch_id,
                         block.header().prev_height().unwrap() + 1,
@@ -319,12 +309,12 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
     assert_eq!(epochs_seen_invalid_chunk.len(), 2);
     let final_prev_block_hash = test.env.clients[0].chain.head().unwrap().prev_block_hash;
     let final_epoch_id =
-        runtime_adapter.get_epoch_id_from_prev_block(&final_prev_block_hash).unwrap();
-    let final_block_producers = runtime_adapter
+        epoch_manager.get_epoch_id_from_prev_block(&final_prev_block_hash).unwrap();
+    let final_block_producers = epoch_manager
         .get_epoch_block_producers_ordered(&final_epoch_id, &final_prev_block_hash)
         .unwrap();
     assert!(final_block_producers.len() >= 3); // 3 validators if the bad validator was a block producer
-    let final_chunk_producers = runtime_adapter.get_epoch_chunk_producers(&final_epoch_id).unwrap();
+    let final_chunk_producers = epoch_manager.get_epoch_chunk_producers(&final_epoch_id).unwrap();
     assert_eq!(final_chunk_producers.len(), 7);
 }
 
