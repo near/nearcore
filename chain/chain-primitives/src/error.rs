@@ -167,7 +167,7 @@ pub enum Error {
     /// Invalid Gas Limit
     #[error("Invalid Gas Limit")]
     InvalidGasLimit,
-    /// Invalid Gas Limit
+    /// Invalid Gas Price
     #[error("Invalid Gas Price")]
     InvalidGasPrice,
     /// Invalid Gas Used
