@@ -549,6 +549,10 @@ impl SimulationRunner {
         }
         while !receipt_ids.is_empty() {
             let (depth, receipt_id) = receipt_ids.pop_front().unwrap();
+            let receipt = match store.get_ser::<Receipt>(DBCol::Receipts, receipt_id.as_bytes())? {
+                Some(receipt) => receipt,
+                None => continue,
+            };
             let receipt_outcome = store
                 .iter_prefix_ser::<ExecutionOutcomeWithProof>(
                     DBCol::TransactionResultForBlock,
@@ -558,10 +562,6 @@ impl SimulationRunner {
                 .ok_or_else(|| {
                     crate::Error::DBNotFoundErr(format!("No outcome for {:?}", receipt_id))
                 })??;
-            let receipt =
-                store.get_ser::<Receipt>(DBCol::Receipts, receipt_id.as_bytes())?.ok_or_else(
-                    || crate::Error::DBNotFoundErr(format!("No receipt for {:?}", receipt_id)),
-                )?;
             for receipt_id in &receipt_outcome.1.outcome.receipt_ids {
                 receipt_ids.push_back((depth + 1, receipt_id.clone()));
             }
