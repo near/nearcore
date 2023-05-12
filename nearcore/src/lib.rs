@@ -274,10 +274,18 @@ pub fn start_with_config_and_synchronization(
         std::env::var("SIM_THREADS").unwrap_or("8".to_string()).parse::<usize>().unwrap();
     let batch_size = std::env::var("SIM_BATCH").unwrap_or("64".to_string()).parse::<u64>().unwrap();
     let do_dump = std::env::var("SIM_DUMP").unwrap_or_default() == "1";
+    let clear_data = std::env::var("CLEAR_DATA").unwrap_or_default() == "1";
 
     if do_dump {
         SimulationRunner::dump_simulation_results(storage.get_hot_store());
         std::process::exit(0);
+    }
+
+    if clear_data {
+        println!("CLEARING SIMULATION DATA");
+        let mut update = storage.get_hot_store().store_update();
+        update.delete_all(DBCol::LastSimulatedBlockOrdinal);
+        update.commit().unwrap();
     }
 
     if enable_simulation {
