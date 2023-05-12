@@ -21,14 +21,11 @@ impl Trie {
     /// Computes the set of trie items (nodes with keys and values) for a state part.
     ///
     /// # Panics
-    /// storage must be a TrieCachingStorage
     /// part_id must be in [0..num_parts)
     ///
     /// # Errors
     /// StorageError if the storage is corrupted
     pub fn get_trie_items_for_part(&self, part_id: PartId) -> Result<Vec<TrieItem>, StorageError> {
-        assert!(self.storage.as_caching_storage().is_some());
-
         let path_begin = self.find_path_for_part_boundary(part_id.idx, part_id.total)?;
         let path_end = self.find_path_for_part_boundary(part_id.idx + 1, part_id.total)?;
         self.iter()?.get_trie_items(&path_begin, &path_end)
@@ -635,7 +632,7 @@ mod tests {
     fn test_split_and_update_state_impl(rng: &mut impl Rng) {
         let tries = create_tries();
         // add accounts and receipts to state
-        let mut account_ids = gen_unique_accounts(rng, 100);
+        let mut account_ids = gen_unique_accounts(rng, 1, 100);
         let mut trie_update = tries.new_trie_update(ShardUId::single_shard(), Trie::EMPTY_ROOT);
         for account_id in account_ids.iter() {
             set_account(
@@ -712,7 +709,7 @@ mod tests {
         // update the original shard
         for _ in 0..10 {
             // add accounts
-            let new_accounts = gen_unique_accounts(rng, 10);
+            let new_accounts = gen_unique_accounts(rng, 1, 10);
             let mut trie_update = tries.new_trie_update(ShardUId::single_shard(), state_root);
             for account_id in new_accounts.iter() {
                 set_account(

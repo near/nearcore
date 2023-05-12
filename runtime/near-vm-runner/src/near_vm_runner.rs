@@ -618,8 +618,7 @@ impl finite_wasm::max_stack::SizeConfig for MaxStackCfg {
             ValType::F32 => 4,
             ValType::F64 => 8,
             ValType::V128 => 16,
-            ValType::FuncRef => 8,
-            ValType::ExternRef => 8,
+            ValType::Ref(_) => 8,
         }
     }
     fn size_of_function_activation(

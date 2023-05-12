@@ -17,8 +17,9 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, Nonce};
 
+use crate::types::RuntimeAdapter;
 use crate::{byzantine_assert, Chain};
-use crate::{ChainStore, Error, RuntimeWithEpochManagerAdapter};
+use crate::{ChainStore, Error};
 
 /// Gas limit cannot be adjusted for more than 0.1% at a time.
 const GAS_LIMIT_ADJUSTMENT_FACTOR: u64 = 1000;
@@ -121,7 +122,7 @@ pub fn validate_transactions_order(transactions: &[SignedTransaction]) -> bool {
 /// Validate that all next chunk information matches previous chunk extra.
 pub fn validate_chunk_with_chunk_extra(
     chain_store: &ChainStore,
-    runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
     prev_block_hash: &CryptoHash,
     prev_chunk_extra: &ChunkExtra,
     prev_chunk_height_included: BlockHeight,
@@ -156,13 +157,13 @@ pub fn validate_chunk_with_chunk_extra(
     }
 
     let outgoing_receipts = chain_store.get_outgoing_receipts_for_shard(
-        runtime_adapter,
+        epoch_manager,
         *prev_block_hash,
         chunk_header.shard_id(),
         prev_chunk_height_included,
     )?;
     let outgoing_receipts_hashes = {
-        let shard_layout = runtime_adapter.get_shard_layout_from_prev_block(prev_block_hash)?;
+        let shard_layout = epoch_manager.get_shard_layout_from_prev_block(prev_block_hash)?;
         Chain::build_receipts_hashes(&outgoing_receipts, &shard_layout)
     };
     let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
@@ -184,23 +185,23 @@ pub fn validate_chunk_with_chunk_extra(
 /// Validates a double sign challenge.
 /// Only valid if ancestors of both blocks are present in the chain.
 fn validate_double_sign(
-    runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
     block_double_sign: &BlockDoubleSign,
 ) -> Result<(CryptoHash, Vec<AccountId>), Error> {
     let left_block_header = BlockHeader::try_from_slice(&block_double_sign.left_block_header)?;
     let right_block_header = BlockHeader::try_from_slice(&block_double_sign.right_block_header)?;
-    let block_producer = runtime_adapter
+    let block_producer = epoch_manager
         .get_block_producer(left_block_header.epoch_id(), left_block_header.height())?;
     if left_block_header.hash() != right_block_header.hash()
         && left_block_header.height() == right_block_header.height()
-        && runtime_adapter.verify_validator_signature(
+        && epoch_manager.verify_validator_signature(
             left_block_header.epoch_id(),
             left_block_header.prev_hash(),
             &block_producer,
             left_block_header.hash().as_ref(),
             left_block_header.signature(),
         )?
-        && runtime_adapter.verify_validator_signature(
+        && epoch_manager.verify_validator_signature(
             right_block_header.epoch_id(),
             right_block_header.prev_hash(),
             &block_producer,
@@ -220,10 +221,10 @@ fn validate_double_sign(
 }
 
 fn validate_header_authorship(
-    runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
     block_header: &BlockHeader,
 ) -> Result<(), Error> {
-    if runtime_adapter.verify_header_signature(block_header)? {
+    if epoch_manager.verify_header_signature(block_header)? {
         Ok(())
     } else {
         Err(Error::InvalidChallenge)
@@ -231,16 +232,16 @@ fn validate_header_authorship(
 }
 
 fn validate_chunk_authorship(
-    runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
     chunk_header: &ShardChunkHeader,
 ) -> Result<AccountId, Error> {
-    let epoch_id = runtime_adapter.get_epoch_id_from_prev_block(&chunk_header.prev_block_hash())?;
-    if runtime_adapter.verify_chunk_header_signature(
+    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&chunk_header.prev_block_hash())?;
+    if epoch_manager.verify_chunk_header_signature(
         chunk_header,
         &epoch_id,
         &chunk_header.prev_block_hash(),
     )? {
-        let chunk_producer = runtime_adapter.get_chunk_producer(
+        let chunk_producer = epoch_manager.get_chunk_producer(
             &epoch_id,
             chunk_header.height_created(),
             chunk_header.shard_id(),
@@ -252,16 +253,16 @@ fn validate_chunk_authorship(
 }
 
 fn validate_chunk_proofs_challenge(
-    runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
     chunk_proofs: &ChunkProofs,
 ) -> Result<(CryptoHash, Vec<AccountId>), Error> {
     let block_header = BlockHeader::try_from_slice(&chunk_proofs.block_header)?;
-    validate_header_authorship(runtime_adapter, &block_header)?;
+    validate_header_authorship(epoch_manager, &block_header)?;
     let chunk_header = match &chunk_proofs.chunk {
         MaybeEncodedShardChunk::Encoded(encoded_chunk) => encoded_chunk.cloned_header(),
         MaybeEncodedShardChunk::Decoded(chunk) => chunk.cloned_header(),
     };
-    let chunk_producer = validate_chunk_authorship(runtime_adapter, &chunk_header)?;
+    let chunk_producer = validate_chunk_authorship(epoch_manager, &chunk_header)?;
     let account_to_slash_for_valid_challenge = Ok((*block_header.hash(), vec![chunk_producer]));
     if !Block::validate_chunk_header_proof(
         &chunk_header,
@@ -275,7 +276,7 @@ fn validate_chunk_proofs_challenge(
     let tmp_chunk;
     let chunk_ref = match &chunk_proofs.chunk {
         MaybeEncodedShardChunk::Encoded(encoded_chunk) => {
-            match encoded_chunk.decode_chunk(runtime_adapter.num_data_parts()) {
+            match encoded_chunk.decode_chunk(epoch_manager.num_data_parts()) {
                 Ok(chunk) => {
                     tmp_chunk = Some(chunk);
                     tmp_chunk.as_ref().unwrap()
@@ -289,7 +290,7 @@ fn validate_chunk_proofs_challenge(
         MaybeEncodedShardChunk::Decoded(chunk) => chunk,
     };
 
-    if !validate_chunk_proofs(chunk_ref, runtime_adapter.epoch_manager_adapter())? {
+    if !validate_chunk_proofs(chunk_ref, epoch_manager)? {
         // Chunk proofs are invalid. Good challenge.
         return account_to_slash_for_valid_challenge;
     }
@@ -304,13 +305,13 @@ fn validate_chunk_proofs_challenge(
 }
 
 fn validate_chunk_state_challenge(
-    _runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
+    _runtime: &dyn RuntimeAdapter,
     _chunk_state: &ChunkState,
 ) -> Result<(CryptoHash, Vec<AccountId>), Error> {
     // TODO (#2445): Enable challenges when they are working correctly.
     // let prev_block_header = BlockHeader::try_from_slice(&chunk_state.prev_block_header)?;
     // let block_header = BlockHeader::try_from_slice(&chunk_state.block_header)?;
-    //
+
     // // Validate previous chunk and block header.
     // validate_header_authorship(runtime_adapter, &prev_block_header)?;
     // let prev_chunk_header = chunk_state.prev_chunk.cloned_header();
@@ -337,7 +338,7 @@ fn validate_chunk_state_challenge(
     // Apply state transition and check that the result state and other data doesn't match.
     // TODO (#6316): enable storage proof generation
     // let partial_storage = PartialStorage { nodes: chunk_state.partial_state.clone() };
-    // let result = runtime_adapter
+    // let result = runtime
     //     .check_state_transition(
     //         partial_storage,
     //         prev_chunk_header.shard_id(),
@@ -384,13 +385,14 @@ fn validate_chunk_state_challenge(
 /// Returns `Some(block_hash, vec![account_id])` of invalid block and who to
 /// slash if challenge is correct and None if incorrect.
 pub fn validate_challenge(
-    runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
+    runtime: &dyn RuntimeAdapter,
     epoch_id: &EpochId,
     last_block_hash: &CryptoHash,
     challenge: &Challenge,
 ) -> Result<(CryptoHash, Vec<AccountId>), Error> {
     // Check signature is correct on the challenge.
-    if !runtime_adapter.verify_validator_or_fisherman_signature(
+    if !epoch_manager.verify_validator_or_fisherman_signature(
         epoch_id,
         last_block_hash,
         &challenge.account_id,
@@ -401,13 +403,13 @@ pub fn validate_challenge(
     }
     match &challenge.body {
         ChallengeBody::BlockDoubleSign(block_double_sign) => {
-            validate_double_sign(runtime_adapter, block_double_sign)
+            validate_double_sign(epoch_manager, block_double_sign)
         }
         ChallengeBody::ChunkProofs(chunk_proofs) => {
-            validate_chunk_proofs_challenge(runtime_adapter, chunk_proofs)
+            validate_chunk_proofs_challenge(epoch_manager, chunk_proofs)
         }
         ChallengeBody::ChunkState(chunk_state) => {
-            validate_chunk_state_challenge(runtime_adapter, chunk_state)
+            validate_chunk_state_challenge(runtime, chunk_state)
         }
     }
 }

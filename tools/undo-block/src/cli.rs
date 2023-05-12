@@ -1,8 +1,8 @@
 use near_chain::ChainStore;
 use near_chain_configs::GenesisValidationMode;
+use near_epoch_manager::EpochManager;
 use near_store::{Mode, NodeStorage};
 use nearcore::load_config;
-use nearcore::NightshadeRuntime;
 use std::path::Path;
 
 #[derive(clap::Parser)]
@@ -27,7 +27,8 @@ impl UndoBlockCommand {
         let storage = store_opener.open_in_mode(Mode::ReadWrite).unwrap();
         let store = storage.get_hot_store();
 
-        let runtime = NightshadeRuntime::from_config(home_dir, store.clone(), &near_config);
+        let epoch_manager =
+            EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
 
         let mut chain_store = ChainStore::new(
             store,
@@ -35,6 +36,6 @@ impl UndoBlockCommand {
             near_config.client_config.save_trie_changes,
         );
 
-        crate::undo_block(&mut chain_store, &*runtime)
+        crate::undo_block(&mut chain_store, &*epoch_manager)
     }
 }

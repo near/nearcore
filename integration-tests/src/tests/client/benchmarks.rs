@@ -4,7 +4,7 @@
 //! we want to test here are pretty heavy and its enough to run them once and
 //! note the wall-clock time.
 
-use crate::tests::client::process_blocks::create_nightshade_runtimes;
+use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 use borsh::BorshSerialize;
 use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
@@ -32,7 +32,8 @@ fn benchmark_large_chunk_production_time() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let chain_genesis = ChainGenesis::new(&genesis);
     let mut env = TestEnv::builder(chain_genesis)
-        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+        .real_epoch_managers(&genesis.config)
+        .nightshade_runtimes(&genesis)
         .build();
 
     let account_id = env.get_client_id(0).clone();

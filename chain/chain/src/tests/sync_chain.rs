@@ -6,7 +6,7 @@ use near_primitives::test_utils::TestBlockBuilder;
 #[test]
 fn chain_sync_headers() {
     init_test_logger();
-    let (mut chain, _, bls_signer) = setup();
+    let (mut chain, _, _, bls_signer) = setup();
     assert_eq!(chain.header_head().unwrap().height, 0);
     let mut blocks = vec![chain.get_block(&chain.genesis().hash().clone()).unwrap()];
     let mut block_merkle_tree = PartialMerkleTree::default();

@@ -4,7 +4,6 @@ use near_async::messaging::CanSend;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_primitives::test_utils::create_test_signer;
 
-use crate::tests::client::process_blocks::create_nightshade_runtimes;
 use near_chain::validate::validate_challenge;
 use near_chain::{Block, Chain, ChainGenesis, ChainStoreAccess, Error, Provenance};
 use near_chain_configs::Genesis;
@@ -29,12 +28,11 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, EpochId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_store::test_utils::create_test_store;
 use near_store::Trie;
 use nearcore::config::{GenesisExt, FISHERMEN_THRESHOLD};
-use nearcore::NightshadeRuntime;
-use std::path::Path;
 use std::sync::Arc;
+
+use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 
 /// Check that block containing a challenge is rejected.
 /// TODO (#2445): Enable challenges when they are working correctly.
@@ -71,7 +69,8 @@ fn test_block_with_challenges() {
 fn test_invalid_chunk_state() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     let mut env = TestEnv::builder(ChainGenesis::test())
-        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+        .real_epoch_managers(&genesis.config)
+        .nightshade_runtimes(&genesis)
         .build();
     env.produce_block(0, 1);
     let block_hash = env.clients[0].chain.get_block_hash_by_height(1).unwrap();
@@ -135,11 +134,16 @@ fn test_verify_block_double_sign_challenge() {
         }),
         &signer,
     );
-    let runtime_adapter = env.clients[1].chain.runtime_adapter.clone();
     assert_eq!(
-        &validate_challenge(&*runtime_adapter, &epoch_id, genesis.hash(), &valid_challenge)
-            .unwrap()
-            .0,
+        &validate_challenge(
+            env.clients[1].chain.epoch_manager.as_ref(),
+            env.clients[1].chain.runtime_adapter.as_ref(),
+            &epoch_id,
+            genesis.hash(),
+            &valid_challenge
+        )
+        .unwrap()
+        .0,
         if b1.hash() > b2.hash() { b1.hash() } else { b2.hash() }
     );
     let invalid_challenge = Challenge::produce(
@@ -149,9 +153,14 @@ fn test_verify_block_double_sign_challenge() {
         }),
         &signer,
     );
-    let runtime_adapter = env.clients[1].chain.runtime_adapter.clone();
-    assert!(validate_challenge(&*runtime_adapter, &epoch_id, genesis.hash(), &invalid_challenge,)
-        .is_err());
+    assert!(validate_challenge(
+        env.clients[1].chain.epoch_manager.as_ref(),
+        env.clients[1].chain.runtime_adapter.as_ref(),
+        &epoch_id,
+        genesis.hash(),
+        &invalid_challenge,
+    )
+    .is_err());
     let b3 = env.clients[0].produce_block(3).unwrap().unwrap();
     let invalid_challenge = Challenge::produce(
         ChallengeBody::BlockDoubleSign(BlockDoubleSign {
@@ -160,9 +169,14 @@ fn test_verify_block_double_sign_challenge() {
         }),
         &signer,
     );
-    let runtime_adapter = env.clients[1].chain.runtime_adapter.clone();
-    assert!(validate_challenge(&*runtime_adapter, &epoch_id, genesis.hash(), &invalid_challenge,)
-        .is_err());
+    assert!(validate_challenge(
+        env.clients[1].chain.epoch_manager.as_ref(),
+        env.clients[1].chain.runtime_adapter.as_ref(),
+        &epoch_id,
+        genesis.hash(),
+        &invalid_challenge,
+    )
+    .is_err());
 
     let result = env.clients[0].process_block_test(b2.into(), Provenance::SYNC);
     assert!(result.is_ok());
@@ -206,7 +220,7 @@ fn test_verify_chunk_invalid_proofs_challenge_decoded_chunk() {
     let (encoded_chunk, _merkle_paths, _receipts, block) =
         create_invalid_proofs_chunk(&mut env.clients[0]);
     let chunk =
-        encoded_chunk.decode_chunk(env.clients[0].chain.runtime_adapter.num_data_parts()).unwrap();
+        encoded_chunk.decode_chunk(env.clients[0].chain.epoch_manager.num_data_parts()).unwrap();
 
     let shard_id = chunk.shard_id();
     let challenge_result =
@@ -314,9 +328,9 @@ fn challenge(
         }),
         &*env.clients[0].validator_signer.as_ref().unwrap().clone(),
     );
-    let runtime_adapter = env.clients[0].chain.runtime_adapter.clone();
     validate_challenge(
-        &*runtime_adapter,
+        env.clients[0].chain.epoch_manager.as_ref(),
+        env.clients[0].chain.runtime_adapter.as_ref(),
         block.header().epoch_id(),
         block.header().prev_hash(),
         &valid_challenge,
@@ -325,14 +339,10 @@ fn challenge(
 
 #[test]
 fn test_verify_chunk_invalid_state_challenge() {
-    let store1 = create_test_store();
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let mut env = TestEnv::builder(ChainGenesis::test())
-        .runtime_adapters(vec![nearcore::NightshadeRuntime::test(
-            Path::new("../../../.."),
-            store1,
-            &genesis,
-        )])
+        .real_epoch_managers(&genesis.config)
+        .nightshade_runtimes(&genesis)
         .build();
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let validator_signer = create_test_signer("test0");
@@ -358,8 +368,8 @@ fn test_verify_chunk_invalid_state_challenge() {
     // Invalid chunk & block.
     let last_block_hash = env.clients[0].chain.head().unwrap().last_block_hash;
     let last_block = env.clients[0].chain.get_block(&last_block_hash).unwrap();
-    let total_parts = env.clients[0].runtime_adapter.num_total_parts();
-    let data_parts = env.clients[0].runtime_adapter.num_data_parts();
+    let total_parts = env.clients[0].epoch_manager.num_total_parts();
+    let data_parts = env.clients[0].epoch_manager.num_data_parts();
     let parity_parts = total_parts - data_parts;
     let mut rs = ReedSolomonWrapper::new(data_parts, parity_parts);
     let (mut invalid_chunk, merkle_paths) = ShardsManager::create_encoded_shard_chunk(
@@ -458,12 +468,12 @@ fn test_verify_chunk_invalid_state_challenge() {
     }
     let challenge =
         Challenge::produce(ChallengeBody::ChunkState(challenge_body), &validator_signer);
-    let runtime_adapter = client.chain.runtime_adapter.clone();
     // Invalidate chunk state challenges because they are not supported yet.
     // TODO (#2445): Enable challenges when they are working correctly.
     assert_matches!(
         validate_challenge(
-            &*runtime_adapter,
+            client.chain.epoch_manager.as_ref(),
+            client.chain.runtime_adapter.as_ref(),
             block.header().epoch_id(),
             block.header().prev_hash(),
             &challenge,
@@ -521,8 +531,7 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
     assert!(result.is_err());
     assert_eq!(client.chain.head().unwrap().height, 1);
     // But everyone who doesn't track this shard have accepted.
-    let shard_layout =
-        env.clients[0].runtime_adapter.get_shard_layout(&EpochId::default()).unwrap();
+    let shard_layout = env.clients[0].epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
     let receipts_hashes = Chain::build_receipts_hashes(&receipts, &shard_layout);
     let (_receipts_root, receipts_proofs) = merklize(&receipts_hashes);
     let receipts_by_shard = Chain::group_receipts_by_shard(receipts, &shard_layout);
@@ -602,19 +611,10 @@ fn test_fishermen_challenge() {
         1,
     );
     genesis.config.epoch_length = 5;
-    let create_runtime = || -> Arc<NightshadeRuntime> {
-        nearcore::NightshadeRuntime::test(
-            Path::new("../../../.."),
-            create_test_store(),
-            &genesis.clone(),
-        )
-    };
-    let runtime1 = create_runtime();
-    let runtime2 = create_runtime();
-    let runtime3 = create_runtime();
     let mut env = TestEnv::builder(ChainGenesis::test())
         .clients_count(3)
-        .runtime_adapters(vec![runtime1, runtime2, runtime3])
+        .real_epoch_managers(&genesis.config)
+        .nightshade_runtimes(&genesis)
         .build();
     let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
     let genesis_hash = *env.clients[0].chain.genesis().hash();
@@ -671,17 +671,14 @@ fn test_challenge_in_different_epoch() {
     genesis.config.epoch_length = 3;
     //    genesis.config.validator_kickout_threshold = 10;
     let network_adapter = Arc::new(MockPeerManagerAdapter::default());
-    let runtime1 =
-        nearcore::NightshadeRuntime::test(Path::new("../../../.."), create_test_store(), &genesis);
-    let runtime2 =
-        nearcore::NightshadeRuntime::test(Path::new("../../../.."), create_test_store(), &genesis);
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = 3;
 
     let mut env = TestEnv::builder(chain_genesis)
         .clients_count(2)
         .validator_seats(2)
-        .runtime_adapters(vec![runtime1, runtime2])
+        .real_epoch_managers(&genesis.config)
+        .nightshade_runtimes(&genesis)
         .network_adapters(vec![network_adapter.clone(), network_adapter.clone()])
         .build();
 

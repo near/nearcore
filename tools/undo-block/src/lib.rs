@@ -1,6 +1,5 @@
 use chrono::Utc;
-use near_chain::types::LatestKnown;
-use near_chain::RuntimeWithEpochManagerAdapter;
+use near_chain::types::{EpochManagerAdapter, LatestKnown};
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use near_primitives::block::Tip;
 use near_primitives::utils::to_timestamp;
@@ -9,7 +8,7 @@ pub mod cli;
 
 pub fn undo_block(
     chain_store: &mut ChainStore,
-    runtime: &dyn RuntimeWithEpochManagerAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
 ) -> anyhow::Result<()> {
     let current_head = chain_store.head()?;
     let current_head_hash = current_head.last_block_hash;
@@ -28,7 +27,7 @@ pub fn undo_block(
 
     let mut chain_store_update = ChainStoreUpdate::new(chain_store);
 
-    chain_store_update.clear_head_block_data(runtime)?;
+    chain_store_update.clear_head_block_data(epoch_manager)?;
 
     chain_store_update.save_head(&prev_tip)?;
 

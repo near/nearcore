@@ -1843,12 +1843,12 @@ impl<'a> FuncGen<'a> {
                 _ => {}
             }
             if self.unreachable_depth > 0 {
-                self.consume_gas_offset(/* true */); // do not instrument unreachable code
+                while self.consume_gas_offset(/* true */).is_some() {} // do not instrument unreachable code
                 return Ok(());
             }
         }
 
-        if let Some(cost) = self.consume_gas_offset(/* false */) {
+        while let Some(cost) = self.consume_gas_offset(/* false */) {
             self.emit_gas_const(cost);
         }
 
