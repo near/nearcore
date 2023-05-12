@@ -131,7 +131,7 @@ pub struct SimulationResults {
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Serialize)]
 pub struct ReceiptExecutionOutcome {
-    pub receipt: Receipt,
+    pub receipt: Option<Receipt>,
     pub outcome: ExecutionOutcome,
     pub shard_id: ShardId,
     pub execution_depth: u32,
@@ -254,7 +254,7 @@ impl SimulationState {
             .map_err(|err| crate::Error::Other(err.to_string()))?;
         if let Some(result) = result {
             self.outcomes.push(ReceiptExecutionOutcome {
-                receipt,
+                receipt: Some(receipt),
                 outcome: result.outcome,
                 shard_id,
                 execution_depth: depth,
@@ -439,7 +439,7 @@ impl SimulationRunner {
                 earlier_block_result: lag_result,
                 real_result,
             };
-            const LOG_EVERY: std::time::Duration = std::time::Duration::from_secs(60);
+            const LOG_EVERY: std::time::Duration = std::time::Duration::from_secs(30);
             static last_log_time: AtomicU64 = AtomicU64::new(0);
             if last_log_time.load(std::sync::atomic::Ordering::Relaxed) + LOG_EVERY.as_secs()
                 <= Utc::now().timestamp() as u64
@@ -549,10 +549,7 @@ impl SimulationRunner {
         }
         while !receipt_ids.is_empty() {
             let (depth, receipt_id) = receipt_ids.pop_front().unwrap();
-            let receipt = match store.get_ser::<Receipt>(DBCol::Receipts, receipt_id.as_bytes())? {
-                Some(receipt) => receipt,
-                None => continue,
-            };
+            let receipt = store.get_ser::<Receipt>(DBCol::Receipts, receipt_id.as_bytes())?;
             let receipt_outcome = store
                 .iter_prefix_ser::<ExecutionOutcomeWithProof>(
                     DBCol::TransactionResultForBlock,
@@ -566,8 +563,13 @@ impl SimulationRunner {
                 receipt_ids.push_back((depth + 1, receipt_id.clone()));
             }
             receipt_outcomes.push(ReceiptExecutionOutcome {
-                shard_id: epoch_manager
-                    .account_id_to_shard_id(&receipt.receiver_id, epoch_id_for_shard_id_query)?,
+                shard_id: epoch_manager.account_id_to_shard_id(
+                    receipt
+                        .as_ref()
+                        .map(|receipt| &receipt.receiver_id)
+                        .unwrap_or(&transaction.transaction.receiver_id),
+                    epoch_id_for_shard_id_query,
+                )?,
                 receipt,
                 outcome: receipt_outcome.1.outcome,
                 execution_depth: depth,
