@@ -8,7 +8,7 @@ use near_chain::{
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::{state::ValueRef, trie_key::trie_key_parsers::parse_account_id_from_raw_key};
 use near_store::flat::{store_helper, FlatStateDelta, FlatStateDeltaMetadata, FlatStorageStatus};
-use near_store::{Mode, NodeStorage, ShardUId, Store, StoreOpener, DBCol};
+use near_store::{DBCol, Mode, NodeStorage, ShardUId, Store, StoreOpener};
 use nearcore::{load_config, NearConfig, NightshadeRuntime};
 use std::{path::PathBuf, sync::Arc, time::Duration};
 use tqdm::tqdm;

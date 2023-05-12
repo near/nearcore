@@ -3,7 +3,7 @@
 
 use crate::flat::delta::{FlatStateChanges, KeyForFlatStateDelta};
 use crate::flat::types::FlatStorageError;
-use crate::{Store, StoreUpdate, DBCol};
+use crate::{DBCol, Store, StoreUpdate};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
@@ -92,9 +92,7 @@ pub(crate) fn get_flat_state_value(
     key: &[u8],
 ) -> Result<Option<FlatStateValue>, FlatStorageError> {
     let db_key = encode_flat_state_db_key(shard_uid, key);
-    store
-        .get_ser(DBCol::FlatState, &db_key)
-        .map_err(|_| FlatStorageError::StorageInternalError)
+    store.get_ser(DBCol::FlatState, &db_key).map_err(|_| FlatStorageError::StorageInternalError)
 }
 
 // TODO(#8577): make pub(crate) once flat storage creator is moved inside `flat` module.
@@ -144,11 +142,7 @@ pub fn iter_flat_state_entries<'a>(
     to: Option<&'a Vec<u8>>,
 ) -> impl Iterator<Item = (Vec<u8>, Box<[u8]>)> + 'a {
     store
-        .iter_range(
-            DBCol::FlatState, 
-            from.map(|x| x.as_slice()),
-            to.map(|x| x.as_slice()),
-        )
+        .iter_range(DBCol::FlatState, from.map(|x| x.as_slice()), to.map(|x| x.as_slice()))
         .filter_map(move |result| {
             if let Ok((key, value)) = result {
                 // Currently all the data in flat storage is 'together' - so we have to parse the key,

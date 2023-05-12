@@ -8,7 +8,7 @@ use tracing::{debug, info, warn};
 
 use crate::flat::delta::CachedFlatStateChanges;
 use crate::flat::{FlatStorageReadyStatus, FlatStorageStatus};
-use crate::{Store, StoreUpdate, DBCol};
+use crate::{DBCol, Store, StoreUpdate};
 
 use super::delta::{CachedFlatStateDelta, FlatStateDelta};
 use super::metrics::FlatStorageMetrics;
