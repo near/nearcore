@@ -1,13 +1,7 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, RwLock};
-use std::time::Duration;
-
-use actix::{Actor, Addr, System};
-use futures::{future, FutureExt};
-use near_primitives::test_utils::create_test_signer;
-
 use crate::genesis_helpers::genesis_block;
 use crate::test_helpers::heavy_test;
+use actix::{Actor, Addr, System};
+use futures::{future, FutureExt};
 use near_actix_test_utils::run_actix;
 use near_chain::Block;
 use near_chain_configs::Genesis;
@@ -21,7 +15,8 @@ use near_o11y::WithSpanContextExt;
 use near_primitives::block::Approval;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::PartialMerkleTree;
-use near_primitives::num_rational::Ratio;
+use near_primitives::num_rational::{Ratio, Rational32};
+use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{BlockHeightDelta, EpochId};
@@ -29,6 +24,9 @@ use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use nearcore::config::{GenesisExt, TESTING_INIT_STAKE};
 use nearcore::{load_test_config, start_with_config, NearConfig};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, RwLock};
+use std::time::Duration;
 
 // This assumes that there is no height skipped. Otherwise epoch hash calculation will be wrong.
 fn add_blocks(
@@ -106,6 +104,10 @@ fn add_blocks(
 fn setup_configs() -> (Genesis, Block, NearConfig, NearConfig) {
     let mut genesis = Genesis::test(vec!["other".parse().unwrap()], 1);
     genesis.config.epoch_length = 5;
+    // Avoid InvalidGasPrice error. Blocks must contain accurate `total_supply` value.
+    // Accounting for the inflation in tests is hard.
+    // Disabling inflation in tests is much simpler.
+    genesis.config.max_inflation_rate = Rational32::from_integer(0);
     let genesis_block = genesis_block(&genesis);
 
     let (port1, port2) =
@@ -115,11 +117,13 @@ fn setup_configs() -> (Genesis, Block, NearConfig, NearConfig) {
     near1.client_config.min_num_peers = 1;
     near1.client_config.epoch_sync_enabled = false;
     near1.client_config.state_sync_enabled = true;
+
     let mut near2 = load_test_config("test2", port2, genesis.clone());
     near2.network_config.peer_store.boot_nodes = convert_boot_nodes(vec![("test1", *port1)]);
     near2.client_config.min_num_peers = 1;
     near2.client_config.epoch_sync_enabled = false;
     near2.client_config.state_sync_enabled = true;
+
     (genesis, genesis_block, near1, near2)
 }
 
