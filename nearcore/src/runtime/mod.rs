@@ -94,12 +94,24 @@ pub struct NightshadeRuntime {
 }
 
 impl NightshadeRuntime {
-    pub fn from_config(
-        home_dir: &Path,
-        store: Store,
-        config: &NearConfig,
-        epoch_manager: Arc<EpochManagerHandle>,
-    ) -> Arc<Self> {
+    pub fn from_config(home_dir: &Path, store: Store, config: &NearConfig) -> Arc<Self> {
+        let state_snapshot_config = if config.config.store.state_snapshot_enabled {
+            StateSnapshotConfig::Enabled {
+                home_dir: home_dir.to_path_buf(),
+                hot_store_path: config.config.store.path.clone().unwrap_or(PathBuf::from("data")),
+                state_snapshot_subdir: PathBuf::from("state_snapshot"),
+                columns_to_keep: if config.config.store.state_snapshot_all_columns {
+                    None
+                } else {
+                    Some(vec![DBCol::FlatState])
+                },
+                archive: config.client_config.archive,
+            }
+        } else {
+            StateSnapshotConfig::Disabled
+        };
+        let state_snapshot = maybe_open_state_snapshot(&state_snapshot_config, config).unwrap();
+
         Self::new(
             home_dir,
             store,
