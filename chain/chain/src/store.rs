@@ -2544,6 +2544,9 @@ impl<'a> ChainStoreUpdate<'a> {
             DBCol::TransactionSimulationResult => {
                 store_update.delete(col, key);
             }
+            DBCol::TransactionSimulationResults => {
+                store_update.delete(col, key);
+            }
             DBCol::DbVersion
             | DBCol::BlockMisc
             | DBCol::_GCCount
