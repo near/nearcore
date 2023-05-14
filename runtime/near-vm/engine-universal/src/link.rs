@@ -1,13 +1,13 @@
 //! Linking for Universal-compiled code.
 
-use std::collections::HashMap;
-use std::ptr::{read_unaligned, write_unaligned};
-use wasmer_compiler::{
+use near_vm_compiler::{
     JumpTable, Relocation, RelocationKind, RelocationTarget, SectionIndex, TrampolinesSection,
 };
-use wasmer_types::entity::PrimaryMap;
-use wasmer_types::LocalFunctionIndex;
-use wasmer_vm::{SectionBodyPtr, VMLocalFunction};
+use near_vm_types::entity::PrimaryMap;
+use near_vm_types::LocalFunctionIndex;
+use near_vm_vm::{SectionBodyPtr, VMLocalFunction};
+use std::collections::HashMap;
+use std::ptr::{read_unaligned, write_unaligned};
 
 /// Add a new trampoline address, given the base adress of the Section. Return the address of the jump
 /// The trampoline itself still have to be writen
@@ -71,7 +71,7 @@ fn apply_relocation(
     body: usize,
     r: &Relocation,
     allocated_functions: &PrimaryMap<LocalFunctionIndex, VMLocalFunction>,
-    jt_offsets: impl Fn(LocalFunctionIndex, JumpTable) -> wasmer_compiler::CodeOffset,
+    jt_offsets: impl Fn(LocalFunctionIndex, JumpTable) -> near_vm_compiler::CodeOffset,
     allocated_sections: &PrimaryMap<SectionIndex, SectionBodyPtr>,
     trampolines: &Option<TrampolinesSection>,
     trampolines_map: &mut HashMap<usize, usize>,
@@ -168,7 +168,7 @@ fn apply_relocation(
 #[tracing::instrument(skip_all)]
 pub fn link_module(
     allocated_functions: &PrimaryMap<LocalFunctionIndex, VMLocalFunction>,
-    jt_offsets: impl Fn(LocalFunctionIndex, JumpTable) -> wasmer_compiler::CodeOffset,
+    jt_offsets: impl Fn(LocalFunctionIndex, JumpTable) -> near_vm_compiler::CodeOffset,
     function_relocations: impl Iterator<Item = (LocalFunctionIndex, impl Iterator<Item = Relocation>)>,
     allocated_sections: &PrimaryMap<SectionIndex, SectionBodyPtr>,
     section_relocations: impl Iterator<Item = (SectionIndex, impl Iterator<Item = Relocation>)>,

@@ -4,8 +4,8 @@
 use crate::instance::ImportFunctionEnv;
 use crate::vmcontext::{VMFunctionImport, VMGlobalImport, VMMemoryImport, VMTableImport};
 use crate::{VMSharedSignatureIndex, VMTrampoline};
-use wasmer_types::entity::{BoxedSlice, PrimaryMap};
-use wasmer_types::{FunctionIndex, GlobalIndex, MemoryIndex, TableIndex};
+use near_vm_types::entity::{BoxedSlice, PrimaryMap};
+use near_vm_types::{FunctionIndex, GlobalIndex, MemoryIndex, TableIndex};
 
 /// Type of the import.
 pub enum VMImportType {
@@ -17,11 +17,11 @@ pub enum VMImportType {
         static_trampoline: VMTrampoline,
     },
     /// A global.
-    Global(wasmer_types::GlobalType),
+    Global(near_vm_types::GlobalType),
     /// A table.
-    Table(wasmer_types::TableType),
+    Table(near_vm_types::TableType),
     /// Some memory.
-    Memory(wasmer_types::MemoryType, crate::MemoryStyle),
+    Memory(near_vm_types::MemoryType, crate::MemoryStyle),
 }
 
 /// A module import.

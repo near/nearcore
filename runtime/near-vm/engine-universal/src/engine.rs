@@ -2,28 +2,28 @@
 
 use crate::executable::{unrkyv, UniversalExecutableRef};
 use crate::{CodeMemory, UniversalArtifact, UniversalExecutable};
-use rkyv::de::deserializers::SharedDeserializeMap;
-use std::collections::BTreeMap;
-use std::convert::TryFrom;
-use std::sync::{Arc, Mutex};
 #[cfg(feature = "compiler")]
-use wasmer_compiler::Compiler;
-use wasmer_compiler::{
+use near_vm_compiler::Compiler;
+use near_vm_compiler::{
     CompileError, CustomSectionProtection, CustomSectionRef, FunctionBodyRef, JumpTable,
     SectionIndex, Target,
 };
-use wasmer_engine::{Engine, EngineId};
-use wasmer_types::entity::{EntityRef, PrimaryMap};
-use wasmer_types::{
+use near_vm_engine::{Engine, EngineId};
+use near_vm_types::entity::{EntityRef, PrimaryMap};
+use near_vm_types::{
     DataInitializer, ExportIndex, Features, FunctionIndex, FunctionType, FunctionTypeRef,
     GlobalInit, GlobalType, ImportCounts, ImportIndex, LocalFunctionIndex, LocalGlobalIndex,
     MemoryIndex, SignatureIndex, TableIndex,
 };
-use wasmer_vm::{
+use near_vm_vm::{
     FuncDataRegistry, FunctionBodyPtr, SectionBodyPtr, SignatureRegistry, Tunables,
     VMCallerCheckedAnyfunc, VMFuncRef, VMFunctionBody, VMImportType, VMLocalFunction, VMOffsets,
     VMSharedSignatureIndex, VMTrampoline,
 };
+use rkyv::de::deserializers::SharedDeserializeMap;
+use std::collections::BTreeMap;
+use std::convert::TryFrom;
+use std::sync::{Arc, Mutex};
 
 /// A WebAssembly `Universal` Engine.
 #[derive(Clone)]
@@ -105,16 +105,16 @@ impl UniversalEngine {
         let inner_engine = self.inner_mut();
         let features = inner_engine.features();
         let compiler = inner_engine.compiler()?;
-        let environ = wasmer_compiler::ModuleEnvironment::new();
+        let environ = near_vm_compiler::ModuleEnvironment::new();
         let translation = environ.translate(binary).map_err(CompileError::Wasm)?;
 
-        let memory_styles: PrimaryMap<wasmer_types::MemoryIndex, _> = translation
+        let memory_styles: PrimaryMap<near_vm_types::MemoryIndex, _> = translation
             .module
             .memories
             .values()
             .map(|memory_type| tunables.memory_style(memory_type))
             .collect();
-        let table_styles: PrimaryMap<wasmer_types::TableIndex, _> = translation
+        let table_styles: PrimaryMap<near_vm_types::TableIndex, _> = translation
             .module
             .tables
             .values()
@@ -122,13 +122,13 @@ impl UniversalEngine {
             .collect();
 
         // Compile the Module
-        let compile_info = wasmer_compiler::CompileModuleInfo {
+        let compile_info = near_vm_compiler::CompileModuleInfo {
             module: Arc::new(translation.module),
             features: features.clone(),
             memory_styles,
             table_styles,
         };
-        let wasmer_compiler::Compilation {
+        let near_vm_compiler::Compilation {
             functions,
             custom_sections,
             function_call_trampolines,
@@ -149,7 +149,7 @@ impl UniversalEngine {
         let data_initializers = translation
             .data_initializers
             .iter()
-            .map(wasmer_types::OwnedDataInitializer::new)
+            .map(near_vm_types::OwnedDataInitializer::new)
             .collect();
         let mut function_frame_info = PrimaryMap::with_capacity(functions.len());
         let mut function_bodies = PrimaryMap::with_capacity(functions.len());
@@ -238,7 +238,7 @@ impl UniversalEngine {
         let imports = module
             .imports
             .iter()
-            .map(|((module_name, field, idx), entity)| wasmer_vm::VMImport {
+            .map(|((module_name, field, idx), entity)| near_vm_vm::VMImport {
                 module: String::from(module_name),
                 field: String::from(field),
                 import_no: *idx,
@@ -347,7 +347,7 @@ impl UniversalEngine {
         let data_segments = executable.data_initializers.iter();
         let data_segments = data_segments.map(|s| DataInitializer::from(s).into()).collect();
         let element_segments = unrkyv(&module.table_initializers);
-        let passive_elements: BTreeMap<wasmer_types::ElemIndex, Box<[FunctionIndex]>> =
+        let passive_elements: BTreeMap<near_vm_types::ElemIndex, Box<[FunctionIndex]>> =
             unrkyv(&module.passive_elements);
 
         let import_counts: ImportCounts = unrkyv(&module.import_counts);
@@ -383,7 +383,7 @@ impl UniversalEngine {
             module
                 .imports
                 .iter()
-                .map(|((module_name, field, idx), entity)| wasmer_vm::VMImport {
+                .map(|((module_name, field, idx), entity)| near_vm_vm::VMImport {
                     module: String::from(module_name.as_str()),
                     field: String::from(field.as_str()),
                     import_no: *idx,
@@ -490,7 +490,7 @@ impl Engine for UniversalEngine {
         &self,
         binary: &[u8],
         tunables: &dyn Tunables,
-    ) -> Result<Box<dyn wasmer_engine::Executable>, CompileError> {
+    ) -> Result<Box<dyn near_vm_engine::Executable>, CompileError> {
         return Err(CompileError::Codegen(
             "The UniversalEngine is operating in headless mode, so it can not compile Modules."
                 .to_string(),
@@ -504,15 +504,15 @@ impl Engine for UniversalEngine {
         &self,
         binary: &[u8],
         tunables: &dyn Tunables,
-    ) -> Result<Box<dyn wasmer_engine::Executable>, CompileError> {
+    ) -> Result<Box<dyn near_vm_engine::Executable>, CompileError> {
         self.compile_universal(binary, tunables).map(|ex| Box::new(ex) as _)
     }
 
     #[tracing::instrument(skip_all)]
     fn load(
         &self,
-        executable: &(dyn wasmer_engine::Executable),
-    ) -> Result<Arc<dyn wasmer_vm::Artifact>, CompileError> {
+        executable: &(dyn near_vm_engine::Executable),
+    ) -> Result<Arc<dyn near_vm_vm::Artifact>, CompileError> {
         executable.load(self)
     }
 

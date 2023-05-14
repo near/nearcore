@@ -1,8 +1,8 @@
 [package]
 name = "near-vm-types"
 version = "0.0.0"
-description = "Wasmer Common Types"
-categories = ["wasm", "no-std", "data-structures"]
+description = "Near VM Common Types"
+categories = ["wasm", "data-structures"]
 keywords = ["wasm", "webassembly", "types"]
 authors = ["Wasmer Engineering Team <engineering@wasmer.io>", "Near Inc <hello@nearprotocol.com>"]
 repository = "https://github.com/near/nearcore"
@@ -20,10 +20,6 @@ rkyv.workspace = true
 
 [dev-dependencies]
 bolero.workspace = true
-
-[features]
-default = ["std"]
-std = []
 
 [[test]]
 name = "partial-sum-map"

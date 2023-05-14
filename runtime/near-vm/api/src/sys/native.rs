@@ -132,7 +132,7 @@ macro_rules! impl_native_traits {
                         rets_list.as_mut()
                     };
                     unsafe {
-                        near_vm_vm::wasmer_call_trampoline(
+                        near_vm_vm::near_vm_call_trampoline(
                             self.vmctx(),
                             trampoline,
                             self.address(),

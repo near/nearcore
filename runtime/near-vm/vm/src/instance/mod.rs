@@ -26,10 +26,16 @@ use crate::vmcontext::{
     VMFunctionEnvironment, VMFunctionImport, VMFunctionKind, VMGlobalDefinition, VMGlobalImport,
     VMLocalFunction, VMMemoryDefinition, VMMemoryImport, VMTableDefinition, VMTableImport,
 };
-use crate::{wasmer_call_trampoline, Artifact, VMOffsets, VMTrampoline};
+use crate::{near_vm_call_trampoline, Artifact, VMOffsets, VMTrampoline};
 use crate::{VMExtern, VMFunction, VMGlobal};
 use memoffset::offset_of;
 use more_asserts::assert_lt;
+use near_vm_types::entity::{packed_option::ReservedValue, BoxedSlice, EntityRef, PrimaryMap};
+use near_vm_types::{
+    DataIndex, DataInitializer, ElemIndex, ExportIndex, FastGasCounter, FunctionIndex, GlobalIndex,
+    GlobalInit, InstanceConfig, LocalGlobalIndex, LocalMemoryIndex, LocalTableIndex, MemoryIndex,
+    OwnedTableInitializer, Pages, TableIndex,
+};
 use std::any::Any;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -40,12 +46,6 @@ use std::mem;
 use std::ptr::{self, NonNull};
 use std::slice;
 use std::sync::Arc;
-use wasmer_types::entity::{packed_option::ReservedValue, BoxedSlice, EntityRef, PrimaryMap};
-use wasmer_types::{
-    DataIndex, DataInitializer, ElemIndex, ExportIndex, FastGasCounter, FunctionIndex, GlobalIndex,
-    GlobalInit, InstanceConfig, LocalGlobalIndex, LocalMemoryIndex, LocalTableIndex, MemoryIndex,
-    OwnedTableInitializer, Pages, TableIndex,
-};
 
 /// The function pointer to call with data and an [`Instance`] pointer to
 /// finish initializing the host env.
@@ -811,7 +811,7 @@ impl InstanceHandle {
     /// Extreme care must be taken when working with `InstanceHandle` and it's
     /// recommended to have relatively intimate knowledge of how it works
     /// internally if you'd like to do so. If possible it's recommended to use
-    /// the `wasmer` crate API rather than this type since that is vetted for
+    /// the `near_vm` crate API rather than this type since that is vetted for
     /// safety.
     ///
     /// However the following must be taken care of before calling this function:
@@ -948,7 +948,7 @@ impl InstanceHandle {
         Ok(())
     }
 
-    /// See [`traphandlers::wasmer_call_trampoline`].
+    /// See [`traphandlers::near_vm_call_trampoline`].
     pub unsafe fn invoke_function(
         &self,
         vmctx: VMFunctionEnvironment,
@@ -961,7 +961,7 @@ impl InstanceHandle {
             let instance = self.instance().as_ref();
             instance.reset_stack_meter();
         }
-        wasmer_call_trampoline(vmctx, trampoline, callee, values_vec)
+        near_vm_call_trampoline(vmctx, trampoline, callee, values_vec)
     }
 
     /// Return a reference to the vmctx used by compiled wasm code.
@@ -1137,9 +1137,9 @@ impl InstanceHandle {
 ///
 /// # Safety
 /// - This function must be called with the correct `Err` type parameter: the error type is not
-///   visible to code in `wasmer_vm`, so it's the caller's responsibility to ensure these
+///   visible to code in `near_vm_vm`, so it's the caller's responsibility to ensure these
 ///   functions are called with the correct type.
-/// - `instance_ptr` must point to a valid `wasmer::Instance`.
+/// - `instance_ptr` must point to a valid `near_vm::Instance`.
 #[tracing::instrument(skip_all)]
 pub unsafe fn initialize_host_envs<Err: Sized>(
     handle: &std::sync::Mutex<InstanceHandle>,

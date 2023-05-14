@@ -13,9 +13,9 @@ use crate::lib::std::fmt;
 use crate::lib::std::vec::Vec;
 use crate::section::SectionIndex;
 use crate::{Addend, CodeOffset, JumpTable};
-use wasmer_types::entity::PrimaryMap;
-use wasmer_types::LocalFunctionIndex;
-use wasmer_vm::libcalls::LibCall;
+use near_vm_types::entity::PrimaryMap;
+use near_vm_types::LocalFunctionIndex;
+use near_vm_vm::libcalls::LibCall;
 
 /// Relocation kinds for every ISA.
 #[derive(rkyv::Serialize, rkyv::Deserialize, rkyv::Archive, Copy, Clone, Debug, PartialEq, Eq)]

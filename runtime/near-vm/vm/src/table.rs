@@ -9,13 +9,13 @@ use crate::func_data_registry::VMFuncRef;
 use crate::trap::{Trap, TrapCode};
 use crate::vmcontext::VMTableDefinition;
 use crate::VMExternRef;
+use near_vm_types::{ExternRef, TableType, Type as ValType};
 use std::borrow::{Borrow, BorrowMut};
 use std::cell::UnsafeCell;
 use std::convert::TryFrom;
 use std::fmt;
 use std::ptr::NonNull;
 use std::sync::Mutex;
-use wasmer_types::{ExternRef, TableType, Type as ValType};
 
 /// Implementation styles for WebAssembly tables.
 #[derive(Debug, Clone, Hash, PartialEq, Eq, rkyv::Serialize, rkyv::Deserialize, rkyv::Archive)]
