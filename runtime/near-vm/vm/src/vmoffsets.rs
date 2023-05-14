@@ -1,18 +1,18 @@
 // This file contains code from external sources.
 // Attributions: https://github.com/wasmerio/wasmer/blob/master/ATTRIBUTIONS.md
 
-//! Offsets and sizes of various structs in wasmer-vm's vmcontext
+//! Offsets and sizes of various structs in near_vm-vm's vmcontext
 //! module.
 
 #![deny(rustdoc::broken_intra_doc_links)]
 
 use crate::VMBuiltinFunctionIndex;
 use more_asserts::assert_lt;
-use std::convert::TryFrom;
-use wasmer_types::{
+use near_vm_types::{
     FunctionIndex, GlobalIndex, LocalGlobalIndex, LocalMemoryIndex, LocalTableIndex, MemoryIndex,
     ModuleInfo, SignatureIndex, TableIndex,
 };
+use std::convert::TryFrom;
 
 #[cfg(target_pointer_width = "32")]
 fn cast_to_u32(sz: usize) -> u32 {

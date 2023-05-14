@@ -7,8 +7,8 @@ use crate::memory::{Memory, MemoryStyle};
 use crate::table::{Table, TableStyle};
 use crate::vmcontext::{VMFunctionBody, VMFunctionEnvironment, VMFunctionKind, VMTrampoline};
 use crate::VMSharedSignatureIndex;
+use near_vm_types::{MemoryType, TableType};
 use std::sync::Arc;
-use wasmer_types::{MemoryType, TableType};
 
 /// The value of an export passed from one instance to another.
 #[derive(Debug)]

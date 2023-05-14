@@ -62,8 +62,6 @@ maintenance = { status = "actively-developed" }
 
 [features]
 default = ["sys-default"]
-std = []
-core = []
 
 # Features for `sys`.
 sys = []

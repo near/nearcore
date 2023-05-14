@@ -1,8 +1,8 @@
 use crate::Engine;
 use enumset::EnumSet;
-use wasmer_compiler::{CompileError, CpuFeature, Features};
-use wasmer_types::FunctionIndex;
-use wasmer_vm::Artifact;
+use near_vm_compiler::{CompileError, CpuFeature, Features};
+use near_vm_types::FunctionIndex;
+use near_vm_vm::Artifact;
 
 mod private {
     pub struct Internal(pub(super) ());

@@ -1,9 +1,9 @@
 use super::frame_info::{FrameInfo, GlobalFrameInfo, FRAME_INFO};
 use backtrace::Backtrace;
+use near_vm_vm::{raise_user_trap, Trap, TrapCode};
 use std::error::Error;
 use std::fmt;
 use std::sync::Arc;
-use wasmer_vm::{raise_user_trap, Trap, TrapCode};
 
 /// A struct representing an aborted instruction execution, with a message
 /// indicating the cause.

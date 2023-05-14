@@ -14,10 +14,10 @@ rust-version.workspace = true
 
 [dependencies]
 finite-wasm.workspace = true
-wasmer-compiler = { path = "../compiler", package = "near-vm-compiler", features = ["translator"] }
-wasmer-engine = { path = "../engine", package = "near-vm-engine" }
-wasmer-types = { path = "../types", package = "near-vm-types" }
-wasmer-vm = { path = "../vm", package = "near-vm-vm" }
+near-vm-compiler = { workspace = true, features = ["translator"] }
+near-vm-engine.workspace = true
+near-vm-types.workspace = true
+near-vm-vm.workspace = true
 
 cfg-if.workspace = true
 enumset.workspace = true
@@ -35,7 +35,7 @@ winapi.workspace = true
 [features]
 # Enable the `compiler` feature if you want the engine to compile
 # and not be only on headless mode.
-compiler = ["wasmer-compiler/translator"]
+compiler = ["near-vm-compiler/translator"]
 
 [badges]
 maintenance = { status = "actively-developed" }

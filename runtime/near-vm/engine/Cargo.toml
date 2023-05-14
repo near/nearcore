@@ -14,9 +14,9 @@ rust-version.workspace = true
 
 [dependencies]
 finite-wasm.workspace = true
-wasmer-types = { path = "../types", package = "near-vm-types" }
-wasmer-compiler = { path = "../compiler", package = "near-vm-compiler" }
-wasmer-vm = { path = "../vm", package = "near-vm-vm" }
+near-vm-types.workspace = true
+near-vm-compiler.workspace = true
+near-vm-vm.workspace = true
 target-lexicon.workspace = true
 backtrace.workspace = true
 rustc-demangle.workspace = true
