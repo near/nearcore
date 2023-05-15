@@ -242,11 +242,16 @@ pub struct ChainConfig {
     /// Number of threads to execute background migration work.
     /// Currently used for flat storage background creation.
     pub background_migration_threads: usize,
+    pub state_snapshot_on_startup: bool,
 }
 
 impl ChainConfig {
     pub fn test() -> Self {
-        Self { save_trie_changes: true, background_migration_threads: 1 }
+        Self {
+            save_trie_changes: true,
+            background_migration_threads: 1,
+            state_snapshot_on_startup: false,
+        }
     }
 }
 
