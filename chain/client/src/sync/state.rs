@@ -181,11 +181,11 @@ impl ExternalConnection {
     }
 
     fn extract_file_name_from_full_path(full_path: String) -> String {
-        return Self::extract_file_name_from_path_buf(PathBuf::from(full_path))
+        return Self::extract_file_name_from_path_buf(PathBuf::from(full_path));
     }
 
     fn extract_file_name_from_path_buf(path_buf: PathBuf) -> String {
-        return path_buf.file_name().unwrap().to_str().unwrap().to_string()
+        return path_buf.file_name().unwrap().to_str().unwrap().to_string();
     }
 
     pub async fn list_state_parts(
@@ -1235,7 +1235,8 @@ fn request_part_from_external_storage(
     download.state_requests_count += 1;
     download.last_target = None;
 
-    let location = external_storage_location(chain_id, epoch_id, epoch_height, shard_id, part_id, num_parts);
+    let location =
+        external_storage_location(chain_id, epoch_id, epoch_height, shard_id, part_id, num_parts);
     let download_response = download.response.clone();
     near_performance_metrics::actix::spawn("StateSync", {
         async move {
@@ -1519,10 +1520,7 @@ pub fn external_storage_location_directory(
     epoch_height: u64,
     shard_id: u64,
 ) -> String {
-    format!(
-        "{}",
-        location_prefix(chain_id, epoch_height, epoch_id, shard_id)
-    )
+    format!("{}", location_prefix(chain_id, epoch_height, epoch_id, shard_id))
 }
 
 pub fn location_prefix(

@@ -371,7 +371,8 @@ fn dump_state_parts(
         "Dumping state as seen at the beginning of the specified epoch.",
     );
 
-    let part_storage = get_state_part_writer(location, chain_id, &epoch_id, epoch.epoch_height(), shard_id);
+    let part_storage =
+        get_state_part_writer(location, chain_id, &epoch_id, epoch.epoch_height(), shard_id);
 
     let timer = Instant::now();
     for part_id in part_ids {
@@ -451,11 +452,16 @@ fn get_state_part_reader(
     shard_id: ShardId,
 ) -> Box<dyn StatePartReader> {
     match location {
-        Location::Files(root_dir) => {
-            Box::new(FileSystemStorage::new(root_dir, false, chain_id, epoch_id, epoch_height, shard_id))
-        }
+        Location::Files(root_dir) => Box::new(FileSystemStorage::new(
+            root_dir,
+            false,
+            chain_id,
+            epoch_id,
+            epoch_height,
+            shard_id,
+        )),
         Location::S3 { bucket, region } => {
-            Box::new(S3Storage::new(&bucket, &region, chain_id, epoch_id,  epoch_height, shard_id))
+            Box::new(S3Storage::new(&bucket, &region, chain_id, epoch_id, epoch_height, shard_id))
         }
     }
 }
@@ -468,9 +474,14 @@ fn get_state_part_writer(
     shard_id: ShardId,
 ) -> Box<dyn StatePartWriter> {
     match location {
-        Location::Files(root_dir) => {
-            Box::new(FileSystemStorage::new(root_dir, true, chain_id, epoch_id, epoch_height, shard_id))
-        }
+        Location::Files(root_dir) => Box::new(FileSystemStorage::new(
+            root_dir,
+            true,
+            chain_id,
+            epoch_id,
+            epoch_height,
+            shard_id,
+        )),
         Location::S3 { bucket, region } => {
             Box::new(S3Storage::new(&bucket, &region, chain_id, epoch_id, epoch_height, shard_id))
         }
