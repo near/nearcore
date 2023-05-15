@@ -465,6 +465,7 @@ pub struct Chain {
     /// Used to store state parts already requested along with elapsed time
     /// to create the parts. This information is used for debugging
     pub(crate) requested_state_parts: StateRequestTracker,
+
     first_block: Arc<Mutex<bool>>,
 }
 
@@ -2035,7 +2036,13 @@ impl Chain {
         };
         let (apply_chunk_work, block_preprocess_info) = preprocess_res;
 
-        if block_preprocess_info.need_state_snapshot {
+        let mut bb = self.first_block.lock().unwrap();
+        let b = *bb;
+        if b || block_preprocess_info.need_state_snapshot {
+            if b {
+                tracing::error!(target: "state_snapshot", "Snapshotting the first block");
+                *bb = false;
+            }
             if let Err(err) = self.make_state_snapshot() {
                 tracing::error!(target: "state_snapshot", ?err, "Failed to make a state snapshot before starting a new epoch");
             }
@@ -2391,16 +2398,7 @@ impl Chain {
                 let need_state_snapshot = !is_genesis;
                 (state_dl_info.is_none(), state_dl_info, need_state_snapshot)
             } else {
-                let mut b = self.first_block.lock().unwrap();
-                let bb = *b;
-                tracing::info!(target: "state_snapshot", first_block = bb);
-                if bb {
-                    // TODO: Testing only
-                    *b = false;
-                    (self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)?, None, true)
-                } else {
-                    (self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)?, None, false)
-                }
+                (self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)?, None, false)
             };
 
         self.check_if_challenged_block_on_chain(block.header())?;
