@@ -15,7 +15,7 @@ use near_primitives::{
     runtime::migration_data::MigrationFlags,
     sharding::ShardChunk,
     transaction::{ExecutionOutcome, ExecutionOutcomeWithProof, SignedTransaction},
-    types::{EpochId, EpochInfoProvider, ShardId},
+    types::{BlockHeight, EpochId, EpochInfoProvider, ShardId},
 };
 use near_store::{
     get_received_data, DBCol, Store, StoreCompiledContractCache, TrieUpdate, FINAL_HEAD_KEY,
@@ -73,7 +73,8 @@ impl TransactionSimulator {
             if receipt.receiver_id == receipt.predecessor_id { 0 } else { 1 },
             receipt.clone(),
         ));
-        simulation_state.tx_outcome = Some(outcome.outcome);
+        simulation_state.tx_outcome =
+            Some(TransactionExecutionOutcome { outcome: outcome.outcome, shard_id: tx_shard_id });
         Ok(simulation_state)
     }
 
@@ -105,7 +106,7 @@ impl TransactionSimulator {
 pub struct SimulationState {
     trie_updates: Vec<TrieUpdate>,
     remaining_receipts: VecDeque<(u32, Receipt)>,
-    tx_outcome: Option<ExecutionOutcome>,
+    tx_outcome: Option<TransactionExecutionOutcome>,
     outcomes: Vec<ReceiptExecutionOutcome>,
     apply_state: ApplyState,
 
@@ -117,17 +118,24 @@ pub struct SimulationState {
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Serialize)]
 pub struct SimulationResult {
-    pub tx_outcome: Option<ExecutionOutcome>,
+    pub tx_outcome: Option<TransactionExecutionOutcome>,
     pub outcomes: Vec<ReceiptExecutionOutcome>,
     pub error: Option<String>,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Serialize)]
 pub struct SimulationResults {
+    pub block_num: u64,
     pub tx: SignedTransaction,
     pub real_result: SimulationResult,
     pub same_block_result: SimulationResult,
     pub earlier_block_result: SimulationResult,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Serialize)]
+pub struct TransactionExecutionOutcome {
+    pub outcome: ExecutionOutcome,
+    pub shard_id: ShardId,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Serialize)]
@@ -316,6 +324,7 @@ impl SimulationRunner {
         }
 
         let mut requests = Vec::<(
+            BlockHeight,
             SignedTransaction,
             oneshot::Receiver<SimulationResult>,
             oneshot::Receiver<SimulationResult>,
@@ -420,7 +429,13 @@ impl SimulationRunner {
                         outcomes: Vec::new(),
                         error: Some(err.to_string()),
                     });
-                    requests.push((transaction.clone(), receiver, lag_receiver, real_result));
+                    requests.push((
+                        next_block.header().height(),
+                        transaction.clone(),
+                        receiver,
+                        lag_receiver,
+                        real_result,
+                    ));
                 }
             }
         }
@@ -428,7 +443,7 @@ impl SimulationRunner {
         let mut txns_simulated = 0;
         let mut txns_simulated_with_error = 0;
         let mut update = store.store_update();
-        for (txn, receiver, lag_receiver, real_result) in requests {
+        for (block_num, txn, receiver, lag_receiver, real_result) in requests {
             let result = receiver.blocking_recv().unwrap();
             let lag_result = lag_receiver.blocking_recv().unwrap();
             if let Some(err) = &result.error {
@@ -436,6 +451,7 @@ impl SimulationRunner {
                 txns_simulated_with_error += 1;
             }
             let data = SimulationResults {
+                block_num,
                 tx: txn.clone(),
                 same_block_result: result,
                 earlier_block_result: lag_result,
@@ -548,6 +564,10 @@ impl SimulationRunner {
         let mut receipt_ids = VecDeque::new();
         let is_local_receipt =
             transaction.transaction.signer_id == transaction.transaction.receiver_id;
+        let transaction_shard = epoch_manager.account_id_to_shard_id(
+            &transaction.transaction.signer_id,
+            epoch_id_for_shard_id_query,
+        )?;
         for receipt_id in &tx_outcome.1.outcome.receipt_ids {
             receipt_ids.push_back((if is_local_receipt { 0 } else { 1 }, receipt_id.clone()));
         }
@@ -580,7 +600,10 @@ impl SimulationRunner {
             });
         }
         Ok(SimulationResult {
-            tx_outcome: Some(tx_outcome.1.outcome),
+            tx_outcome: Some(TransactionExecutionOutcome {
+                shard_id: transaction_shard,
+                outcome: tx_outcome.1.outcome,
+            }),
             outcomes: receipt_outcomes,
             error: None,
         })
