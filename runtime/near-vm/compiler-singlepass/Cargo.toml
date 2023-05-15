@@ -14,9 +14,9 @@ rust-version.workspace = true
 
 [dependencies]
 finite-wasm.workspace = true
-wasmer-compiler = { path = "../compiler", package = "near-vm-compiler", features = ["translator"], default-features = false }
-wasmer-vm = { path = "../vm", package = "near-vm-vm" }
-wasmer-types = { path = "../types", package = "near-vm-types", default-features = false, features = ["std"] }
+near-vm-compiler = { workspace = true, features = ["translator"] }
+near-vm-vm.workspace = true
+near-vm-types.workspace = true
 dynasm.workspace = true
 dynasmrt.workspace = true
 enumset.workspace = true
@@ -36,5 +36,4 @@ target-lexicon.workspace = true
 maintenance = { status = "actively-developed" }
 
 [features]
-default = ["std", "rayon"]
-std = ["wasmer-compiler/std", "wasmer-types/std"]
+default = ["rayon"]

@@ -15,12 +15,12 @@ use std::ptr;
 pub use tls::TlsRestore;
 
 extern "C" {
-    fn wasmer_register_setjmp(
+    fn near_vm_register_setjmp(
         jmp_buf: *mut *const u8,
         callback: extern "C" fn(*mut u8),
         payload: *mut u8,
     ) -> i32;
-    fn wasmer_unwind(jmp_buf: *const u8) -> !;
+    fn near_vm_unwind(jmp_buf: *const u8) -> !;
 }
 
 /// Raises a user-defined trap immediately.
@@ -143,7 +143,7 @@ impl Trap {
 ///
 /// Wildly unsafe because it calls raw function pointers and reads/writes raw
 /// function pointers.
-pub unsafe fn wasmer_call_trampoline(
+pub unsafe fn near_vm_call_trampoline(
     callee_env: VMFunctionEnvironment,
     trampoline: VMTrampoline,
     callee: *const VMFunctionBody,
@@ -167,7 +167,7 @@ where
     F: FnMut(),
 {
     return CallThreadState::new().with(|cx| {
-        wasmer_register_setjmp(
+        near_vm_register_setjmp(
             cx.jmp_buf.as_ptr(),
             call_closure::<F>,
             &mut closure as *mut F as *mut u8,
@@ -253,7 +253,7 @@ impl<'a> CallThreadState {
     fn unwind_with(&self, reason: UnwindReason) -> ! {
         unsafe {
             (*self.unwind.get()).as_mut_ptr().write(reason);
-            wasmer_unwind(self.jmp_buf.get());
+            near_vm_unwind(self.jmp_buf.get());
         }
     }
 }
@@ -326,7 +326,7 @@ mod tls {
         /// # Safety
         ///
         /// This is not a safe operation since it's intended to only be used
-        /// with stack switching found with fibers and async wasmer.
+        /// with stack switching found with fibers and async near_vm.
         pub unsafe fn take() -> Result<Self, Trap> {
             // Our tls pointer must be set at this time, and it must not be
             // null. We need to restore the previous pointer since we're
@@ -345,7 +345,7 @@ mod tls {
         /// # Safety
         ///
         /// This is unsafe because it's intended to only be used within the
-        /// context of stack switching within wasmer.
+        /// context of stack switching within near_vm.
         pub unsafe fn replace(self) -> Result<(), super::Trap> {
             // We need to configure our previous TLS pointer to whatever is in
             // TLS at this time, and then we set the current state to ourselves.
@@ -403,7 +403,7 @@ extern "C" fn signal_less_trap_handler(pc: *const u8, trap: TrapCode) {
         }
     });
     unsafe {
-        wasmer_unwind(jmp_buf);
+        near_vm_unwind(jmp_buf);
     }
 }
 

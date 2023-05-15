@@ -7,19 +7,19 @@ use crate::codegen_x64::{
     CodegenError, FuncGen,
 };
 use crate::config::Singlepass;
-#[cfg(feature = "rayon")]
-use rayon::prelude::{IntoParallelIterator, ParallelIterator};
-use std::sync::Arc;
-use wasmer_compiler::{
+use near_vm_compiler::{
     Architecture, CallingConvention, Compilation, CompileError, CompileModuleInfo,
     CompiledFunction, Compiler, CompilerConfig, CpuFeature, FunctionBody, FunctionBodyData,
     ModuleTranslationState, OperatingSystem, SectionIndex, Target, TrapInformation,
 };
-use wasmer_types::entity::{EntityRef, PrimaryMap};
-use wasmer_types::{
+use near_vm_types::entity::{EntityRef, PrimaryMap};
+use near_vm_types::{
     FunctionIndex, FunctionType, LocalFunctionIndex, MemoryIndex, ModuleInfo, TableIndex,
 };
-use wasmer_vm::{TrapCode, VMOffsets};
+use near_vm_vm::{TrapCode, VMOffsets};
+#[cfg(feature = "rayon")]
+use rayon::prelude::{IntoParallelIterator, ParallelIterator};
+use std::sync::Arc;
 
 /// A compiler that compiles a WebAssembly module with Singlepass.
 /// It does the compilation in one pass
@@ -49,7 +49,7 @@ impl Compiler for SinglepassCompiler {
         compile_info: &CompileModuleInfo,
         module_translation: &ModuleTranslationState,
         function_body_inputs: PrimaryMap<LocalFunctionIndex, FunctionBodyData<'_>>,
-        tunables: &dyn wasmer_vm::Tunables,
+        tunables: &dyn near_vm_vm::Tunables,
         instrumentation: &finite_wasm::AnalysisOutcome,
     ) -> Result<Compilation, CompileError> {
         /*if target.triple().operating_system == OperatingSystem::Windows {
@@ -110,7 +110,7 @@ impl Compiler for SinglepassCompiler {
             .map(|(i, input)| {
                 tracing::info_span!("function", i = i.index()).in_scope(|| {
                     let reader =
-                        wasmer_compiler::FunctionReader::new(input.module_offset, input.data);
+                        near_vm_compiler::FunctionReader::new(input.module_offset, input.data);
                     let stack_init_gas_cost = tunables
                         .stack_init_gas_cost(instrumentation.function_frame_sizes[i.index()]);
                     let stack_size = instrumentation.function_frame_sizes[i.index()]
@@ -244,10 +244,10 @@ impl<T: IntoIterator> IntoParIterIfRayon for T {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use near_vm_compiler::{CpuFeature, Features, Triple};
+    use near_vm_vm::{MemoryStyle, TableStyle};
     use std::str::FromStr;
     use target_lexicon::triple;
-    use wasmer_compiler::{CpuFeature, Features, Triple};
-    use wasmer_vm::{MemoryStyle, TableStyle};
 
     fn dummy_compilation_ingredients<'a>() -> (
         CompileModuleInfo,
@@ -294,7 +294,7 @@ mod tests {
             &mut info,
             &translation,
             inputs,
-            &wasmer_vm::TestTunables,
+            &near_vm_vm::TestTunables,
             &analysis,
         );
         match result.unwrap_err() {
@@ -310,7 +310,7 @@ mod tests {
             &mut info,
             &translation,
             inputs,
-            &wasmer_vm::TestTunables,
+            &near_vm_vm::TestTunables,
             &analysis,
         );
         match result.unwrap_err() {

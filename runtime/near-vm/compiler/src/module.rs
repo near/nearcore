@@ -1,7 +1,7 @@
 use crate::lib::std::sync::Arc;
-use wasmer_types::entity::PrimaryMap;
-use wasmer_types::{Features, MemoryIndex, ModuleInfo, TableIndex};
-use wasmer_vm::{MemoryStyle, TableStyle};
+use near_vm_types::entity::PrimaryMap;
+use near_vm_types::{Features, MemoryIndex, ModuleInfo, TableIndex};
+use near_vm_vm::{MemoryStyle, TableStyle};
 
 /// The required info for compiling a module.
 ///

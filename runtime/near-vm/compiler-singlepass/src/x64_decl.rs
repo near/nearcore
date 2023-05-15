@@ -1,6 +1,6 @@
 //! X64 structures.
-use wasmer_compiler::CallingConvention;
-use wasmer_types::Type;
+use near_vm_compiler::CallingConvention;
+use near_vm_types::Type;
 
 /// General-purpose registers.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, strum::FromRepr)]

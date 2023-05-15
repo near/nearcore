@@ -8,7 +8,7 @@ use crate::sys::WasmerEnv;
 pub use inner::{FromToNativeWasmType, HostFunction, WasmTypeList, WithEnv, WithoutEnv};
 
 use near_vm_vm::{
-    raise_user_trap, resume_panic, wasmer_call_trampoline, Export, ExportFunction,
+    near_vm_call_trampoline, raise_user_trap, resume_panic, Export, ExportFunction,
     ExportFunctionMetadata, ImportInitializerFuncPtr, TableElement, VMCallerCheckedAnyfunc,
     VMDynamicFunctionContext, VMFuncRef, VMFunction, VMFunctionBody, VMFunctionEnvironment,
     VMFunctionKind, VMTrampoline,
@@ -57,7 +57,7 @@ impl near_vm_types::WasmValueType for Function {
         let store = store.downcast_ref::<Store>().expect("Store expected in `Function::read_value_from`. If you see this error message it likely means you're using a function ref in a place we don't yet support it -- sorry about the inconvenience.");
         match Val::from_vm_funcref(func_ref, store) {
             Val::FuncRef(Some(fr)) => fr,
-            // these bottom two cases indicate bugs in `wasmer-types` or elsewhere.
+            // these bottom two cases indicate bugs in `near_vm-types` or elsewhere.
             // They should never be triggered, so we just panic.
             Val::FuncRef(None) => panic!("Null funcref found in `Function::read_value_from`!"),
             other => panic!("Invalid value in `Function::read_value_from`: {:?}", other),
@@ -472,7 +472,7 @@ impl Function {
 
         // Call the trampoline.
         if let Err(error) = unsafe {
-            wasmer_call_trampoline(
+            near_vm_call_trampoline(
                 self.exported.vm_function.vmctx,
                 trampoline,
                 self.exported.vm_function.address,
@@ -585,8 +585,8 @@ impl Function {
         }
     }
 
-    pub(crate) fn from_vm_export(store: &Store, wasmer_export: ExportFunction) -> Self {
-        Self { store: store.clone(), exported: wasmer_export }
+    pub(crate) fn from_vm_export(store: &Store, near_vm_export: ExportFunction) -> Self {
+        Self { store: store.clone(), exported: near_vm_export }
     }
 
     pub(crate) fn vm_funcref(&self) -> VMFuncRef {
@@ -713,7 +713,7 @@ impl Function {
     /// tests it should not be called by users of the Wasmer API.
     ///
     /// # Safety
-    /// This function is unsafe to call outside of tests for the wasmer crate
+    /// This function is unsafe to call outside of tests for the near_vm crate
     /// because there is no stability guarantee for the returned type and we may
     /// make breaking changes to it at any time or remove this method.
     #[doc(hidden)]

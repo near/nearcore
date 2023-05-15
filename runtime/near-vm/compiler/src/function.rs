@@ -11,8 +11,8 @@ use crate::{
     CompiledFunctionUnwindInfo, CompiledFunctionUnwindInfoRef, FunctionAddressMap,
     JumpTableOffsets, Relocation,
 };
-use wasmer_types::entity::PrimaryMap;
-use wasmer_types::{FunctionIndex, LocalFunctionIndex, SignatureIndex};
+use near_vm_types::entity::PrimaryMap;
+use near_vm_types::{FunctionIndex, LocalFunctionIndex, SignatureIndex};
 
 /// The frame info for a Compiled function.
 ///

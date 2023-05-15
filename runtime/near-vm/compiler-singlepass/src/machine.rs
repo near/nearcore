@@ -1,9 +1,9 @@
 use crate::emitter_x64::*;
+use near_vm_compiler::wasmparser::ValType as WpType;
+use near_vm_compiler::CallingConvention;
 use smallvec::smallvec;
 use smallvec::SmallVec;
 use std::convert::TryFrom;
-use wasmer_compiler::wasmparser::ValType as WpType;
-use wasmer_compiler::CallingConvention;
 
 const NATIVE_PAGE_SIZE: usize = 4096;
 

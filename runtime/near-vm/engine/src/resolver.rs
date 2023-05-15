@@ -3,17 +3,17 @@
 
 use crate::{Engine, ImportError, LinkError};
 use more_asserts::assert_ge;
-use wasmer_types::entity::{BoxedSlice, EntityRef, PrimaryMap};
-use wasmer_types::{ExternType, FunctionIndex, ImportCounts, MemoryType, TableType};
+use near_vm_types::entity::{BoxedSlice, EntityRef, PrimaryMap};
+use near_vm_types::{ExternType, FunctionIndex, ImportCounts, MemoryType, TableType};
 
-use wasmer_vm::{
+use near_vm_vm::{
     Export, ExportFunctionMetadata, FunctionBodyPtr, ImportFunctionEnv, Imports, MemoryStyle,
     Resolver, VMFunctionBody, VMFunctionEnvironment, VMFunctionImport, VMFunctionKind,
     VMGlobalImport, VMImport, VMImportType, VMMemoryImport, VMTableImport,
 };
 
 fn is_compatible_table(ex: &TableType, im: &TableType) -> bool {
-    (ex.ty == wasmer_types::Type::FuncRef || ex.ty == im.ty)
+    (ex.ty == near_vm_types::Type::FuncRef || ex.ty == im.ty)
         && im.minimum <= ex.minimum
         && (im.maximum.is_none()
             || (ex.maximum.is_some() && im.maximum.unwrap() >= ex.maximum.unwrap()))

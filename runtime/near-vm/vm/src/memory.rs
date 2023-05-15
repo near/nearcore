@@ -8,6 +8,7 @@
 use crate::mmap::Mmap;
 use crate::vmcontext::VMMemoryDefinition;
 use more_asserts::assert_ge;
+use near_vm_types::{Bytes, MemoryType, Pages};
 use std::borrow::BorrowMut;
 use std::cell::UnsafeCell;
 use std::convert::TryInto;
@@ -15,7 +16,6 @@ use std::fmt;
 use std::ptr::NonNull;
 use std::sync::Mutex;
 use thiserror::Error;
-use wasmer_types::{Bytes, MemoryType, Pages};
 
 /// Error type describing things that can go wrong when operating on Wasm Memories.
 #[derive(Error, Debug, Clone, PartialEq, Hash)]
