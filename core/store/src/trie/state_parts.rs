@@ -284,7 +284,7 @@ impl Trie {
                 // This line should be unreachable if we descended into current node.
                 // TODO (#8997): test this case properly by simulating trie data corruption.
                 Err(StorageError::StorageInconsistentState(format!(
-                    "Skipped all children of node {node:?} while finding memory \
+                    "Skipped all children of node {node:?} while searching for memory \
                     threshold {memory_threshold} and skipped {memory_skipped}"
                 )))
             }

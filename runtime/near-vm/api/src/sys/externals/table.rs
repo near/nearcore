@@ -77,7 +77,7 @@ impl Table {
     /// tests it should not be called by users of the Wasmer API.
     ///
     /// # Safety
-    /// This function is unsafe to call outside of tests for the masmer crate
+    /// This function is unsafe to call outside of tests for the near-vm crate
     /// because there is no stability guarantee for the returned type and we may
     /// make breaking changes to it at any time or remove this method.
     #[doc(hidden)]

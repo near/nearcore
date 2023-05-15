@@ -2,8 +2,8 @@
 // Attributions: https://github.com/wasmerio/wasmer/blob/master/ATTRIBUTIONS.md
 
 //! Module for Windows x64 ABI unwind registry.
+use near_vm_compiler::CompiledFunctionUnwindInfo;
 use std::collections::HashMap;
-use wasmer_compiler::CompiledFunctionUnwindInfo;
 use winapi::um::winnt;
 
 /// Represents a registry of function unwind information for Windows x64 ABI.

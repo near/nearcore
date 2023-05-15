@@ -1,8 +1,5 @@
-#[cfg(feature = "core")]
-use core::hash::Hash;
 use indexmap::IndexMap;
 use rkyv::Archive;
-#[cfg(feature = "std")]
 use std::hash::Hash;
 
 #[derive(rkyv::Serialize, rkyv::Deserialize, rkyv::Archive)]

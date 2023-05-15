@@ -13,7 +13,7 @@ pub type TrieValue = std::sync::Arc<[u8]>;
 /// TODO (#8984): consider supporting format containing trie values only for
 /// state part boundaries and storing state items for state part range.
 pub enum PartialState {
-    /// State represented by the set of unique trie values.
+    /// State represented by the set of unique trie values (`RawTrieNodeWithSize`s and state values).
     TrieValues(Vec<TrieValue>),
 }
 

@@ -62,7 +62,7 @@ macro_rules! accessors {
 }
 
 /// Trait for reading and writing Wasm values into binary for use on the layer
-/// between the API and the VM internals, specifically with `wasmer_types::Value`.
+/// between the API and the VM internals, specifically with `near_vm_types::Value`.
 pub trait WasmValueType: std::fmt::Debug + 'static {
     /// Write the value
     unsafe fn write_value_to(&self, p: *mut i128);
