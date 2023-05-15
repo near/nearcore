@@ -3,7 +3,7 @@
 
 use crate::flat::delta::{FlatStateChanges, KeyForFlatStateDelta};
 use crate::flat::types::FlatStorageError;
-use crate::{Store, StoreUpdate};
+use crate::{DBCol, Store, StoreUpdate};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
@@ -15,27 +15,6 @@ use super::types::{FlatStateValue, FlatStorageStatus};
 pub const FLAT_STATE_HEAD_KEY_PREFIX: &[u8; 4] = b"HEAD";
 pub const FLAT_STATE_CREATION_STATUS_KEY_PREFIX: &[u8; 6] = b"STATUS";
 
-/// This was needed to avoid `#[cfg(feature = "protocol_feature_flat_state")]`
-/// from `DBCol::FlatState*` cascading all over the code.
-/// TODO (#7327): remove.
-pub enum FlatStateColumn {
-    State,
-    Changes,
-    DeltaMetadata,
-    Status,
-}
-
-impl FlatStateColumn {
-    pub const fn to_db_col(&self) -> crate::DBCol {
-        match self {
-            FlatStateColumn::State => crate::DBCol::FlatState,
-            FlatStateColumn::Changes => crate::DBCol::FlatStateChanges,
-            FlatStateColumn::DeltaMetadata => crate::DBCol::FlatStateDeltaMetadata,
-            FlatStateColumn::Status => crate::DBCol::FlatStorageStatus,
-        }
-    }
-}
-
 pub fn get_delta_changes(
     store: &Store,
     shard_uid: ShardUId,
@@ -43,7 +22,7 @@ pub fn get_delta_changes(
 ) -> Result<Option<FlatStateChanges>, FlatStorageError> {
     let key = KeyForFlatStateDelta { shard_uid, block_hash };
     Ok(store
-        .get_ser::<FlatStateChanges>(FlatStateColumn::Changes.to_db_col(), &key.to_bytes())
+        .get_ser::<FlatStateChanges>(DBCol::FlatStateChanges, &key.to_bytes())
         .map_err(|_| FlatStorageError::StorageInternalError)?)
 }
 
@@ -52,7 +31,7 @@ pub fn get_all_deltas_metadata(
     shard_uid: ShardUId,
 ) -> Result<Vec<FlatStateDeltaMetadata>, FlatStorageError> {
     store
-        .iter_prefix_ser(FlatStateColumn::DeltaMetadata.to_db_col(), &shard_uid.to_bytes())
+        .iter_prefix_ser(DBCol::FlatStateDeltaMetadata, &shard_uid.to_bytes())
         .map(|res| res.map(|(_, value)| value).map_err(|_| FlatStorageError::StorageInternalError))
         .collect()
 }
@@ -64,25 +43,25 @@ pub fn set_delta(
 ) -> Result<(), FlatStorageError> {
     let key = KeyForFlatStateDelta { shard_uid, block_hash: delta.metadata.block.hash }.to_bytes();
     store_update
-        .set_ser(FlatStateColumn::Changes.to_db_col(), &key, &delta.changes)
+        .set_ser(DBCol::FlatStateChanges, &key, &delta.changes)
         .map_err(|_| FlatStorageError::StorageInternalError)?;
     store_update
-        .set_ser(FlatStateColumn::DeltaMetadata.to_db_col(), &key, &delta.metadata)
+        .set_ser(DBCol::FlatStateDeltaMetadata, &key, &delta.metadata)
         .map_err(|_| FlatStorageError::StorageInternalError)?;
     Ok(())
 }
 
 pub fn remove_delta(store_update: &mut StoreUpdate, shard_uid: ShardUId, block_hash: CryptoHash) {
     let key = KeyForFlatStateDelta { shard_uid, block_hash }.to_bytes();
-    store_update.delete(FlatStateColumn::Changes.to_db_col(), &key);
-    store_update.delete(FlatStateColumn::DeltaMetadata.to_db_col(), &key);
+    store_update.delete(DBCol::FlatStateChanges, &key);
+    store_update.delete(DBCol::FlatStateDeltaMetadata, &key);
 }
 
 pub fn remove_all_deltas(store_update: &mut StoreUpdate, shard_uid: ShardUId) {
     let key_from = shard_uid.to_bytes();
     let key_to = ShardUId::next_shard_prefix(&key_from);
-    store_update.delete_range(FlatStateColumn::Changes.to_db_col(), &key_from, &key_to);
-    store_update.delete_range(FlatStateColumn::DeltaMetadata.to_db_col(), &key_from, &key_to);
+    store_update.delete_range(DBCol::FlatStateChanges, &key_from, &key_to);
+    store_update.delete_range(DBCol::FlatStateDeltaMetadata, &key_from, &key_to);
 }
 
 fn encode_flat_state_db_key(shard_uid: ShardUId, key: &[u8]) -> Vec<u8> {
@@ -113,9 +92,7 @@ pub(crate) fn get_flat_state_value(
     key: &[u8],
 ) -> Result<Option<FlatStateValue>, FlatStorageError> {
     let db_key = encode_flat_state_db_key(shard_uid, key);
-    store
-        .get_ser(FlatStateColumn::State.to_db_col(), &db_key)
-        .map_err(|_| FlatStorageError::StorageInternalError)
+    store.get_ser(DBCol::FlatState, &db_key).map_err(|_| FlatStorageError::StorageInternalError)
 }
 
 // TODO(#8577): make pub(crate) once flat storage creator is moved inside `flat` module.
@@ -128,15 +105,15 @@ pub fn set_flat_state_value(
     let db_key = encode_flat_state_db_key(shard_uid, &key);
     match value {
         Some(value) => store_update
-            .set_ser(FlatStateColumn::State.to_db_col(), &db_key, &value)
+            .set_ser(DBCol::FlatState, &db_key, &value)
             .map_err(|_| FlatStorageError::StorageInternalError),
-        None => Ok(store_update.delete(FlatStateColumn::State.to_db_col(), &db_key)),
+        None => Ok(store_update.delete(DBCol::FlatState, &db_key)),
     }
 }
 
 pub fn get_flat_storage_status(store: &Store, shard_uid: ShardUId) -> FlatStorageStatus {
     store
-        .get_ser(FlatStateColumn::Status.to_db_col(), &shard_uid.to_bytes())
+        .get_ser(DBCol::FlatStorageStatus, &shard_uid.to_bytes())
         .expect("Error reading flat head from storage")
         .unwrap_or(FlatStorageStatus::Empty)
 }
@@ -147,7 +124,7 @@ pub fn set_flat_storage_status(
     status: FlatStorageStatus,
 ) {
     store_update
-        .set_ser(FlatStateColumn::Status.to_db_col(), &shard_uid.to_bytes(), &status)
+        .set_ser(DBCol::FlatStorageStatus, &shard_uid.to_bytes(), &status)
         .expect("Borsh should not fail")
 }
 
@@ -165,11 +142,7 @@ pub fn iter_flat_state_entries<'a>(
     to: Option<&'a Vec<u8>>,
 ) -> impl Iterator<Item = (Vec<u8>, Box<[u8]>)> + 'a {
     store
-        .iter_range(
-            FlatStateColumn::State.to_db_col(),
-            from.map(|x| x.as_slice()),
-            to.map(|x| x.as_slice()),
-        )
+        .iter_range(DBCol::FlatState, from.map(|x| x.as_slice()), to.map(|x| x.as_slice()))
         .filter_map(move |result| {
             if let Ok((key, value)) = result {
                 // Currently all the data in flat storage is 'together' - so we have to parse the key,
