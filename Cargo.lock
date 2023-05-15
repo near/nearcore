@@ -4210,6 +4210,7 @@ dependencies = [
  "assert_matches",
  "bolero",
  "borsh 0.10.2",
+ "clap 4.2.4",
  "expect-test",
  "finite-wasm",
  "hex",
