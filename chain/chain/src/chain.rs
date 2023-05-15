@@ -81,7 +81,7 @@ use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration as TimeDuration, Instant};
 use tracing::{debug, error, info, warn, Span};
 
@@ -465,6 +465,7 @@ pub struct Chain {
     /// Used to store state parts already requested along with elapsed time
     /// to create the parts. This information is used for debugging
     pub(crate) requested_state_parts: StateRequestTracker,
+    first_block: Arc<Mutex<bool>>,
 }
 
 impl Drop for Chain {
@@ -529,6 +530,7 @@ impl Chain {
             invalid_blocks: LruCache::new(INVALID_CHUNKS_POOL_SIZE),
             pending_state_patch: Default::default(),
             requested_state_parts: StateRequestTracker::new(),
+            first_block: Arc::new(Mutex::new(false)),
         })
     }
 
@@ -679,6 +681,7 @@ impl Chain {
             last_time_head_updated: StaticClock::instant(),
             pending_state_patch: Default::default(),
             requested_state_parts: StateRequestTracker::new(),
+            first_block: Arc::new(Mutex::new(chain_config.state_snapshot_on_startup)),
         })
     }
 
@@ -2388,7 +2391,14 @@ impl Chain {
                 let need_state_snapshot = !is_genesis;
                 (state_dl_info.is_none(), state_dl_info, need_state_snapshot)
             } else {
-                (self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)?, None, false)
+                let mut b = self.first_block.lock().unwrap();
+                if *b {
+                    // TODO: Testing only
+                    *b = false;
+                    (self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)?, None, true)
+                } else {
+                    (self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)?, None, false)
+                }
             };
 
         self.check_if_challenged_block_on_chain(block.header())?;
