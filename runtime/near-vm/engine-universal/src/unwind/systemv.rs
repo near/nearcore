@@ -3,7 +3,7 @@
 
 //! Module for System V ABI unwind registry.
 
-use wasmer_compiler::CompiledFunctionUnwindInfoRef;
+use near_vm_compiler::CompiledFunctionUnwindInfoRef;
 
 /// Represents a registry of function unwind information for System V ABI.
 pub struct UnwindRegistry {

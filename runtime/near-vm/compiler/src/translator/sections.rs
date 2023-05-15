@@ -15,17 +15,17 @@ use super::state::ModuleTranslationState;
 use crate::wasm_unsupported;
 use crate::{WasmError, WasmResult};
 use core::convert::TryFrom;
+use near_vm_types::entity::packed_option::ReservedValue;
+use near_vm_types::entity::EntityRef;
+use near_vm_types::{
+    DataIndex, ElemIndex, FunctionIndex, FunctionType, GlobalIndex, GlobalInit, GlobalType,
+    MemoryIndex, MemoryType, Mutability, Pages, SignatureIndex, TableIndex, TableType, Type, V128,
+};
 use std::boxed::Box;
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::sync::Arc;
 use std::vec::Vec;
-use wasmer_types::entity::packed_option::ReservedValue;
-use wasmer_types::entity::EntityRef;
-use wasmer_types::{
-    DataIndex, ElemIndex, FunctionIndex, FunctionType, GlobalIndex, GlobalInit, GlobalType,
-    MemoryIndex, MemoryType, Mutability, Pages, SignatureIndex, TableIndex, TableType, Type, V128,
-};
 use wasmparser::{
     self, Data, DataKind, DataSectionReader, Element, ElementItems, ElementKind,
     ElementSectionReader, Export, ExportSectionReader, ExternalKind, FunctionSectionReader,

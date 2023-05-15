@@ -7,9 +7,8 @@ use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use tracing::{debug, info, warn};
 
 use crate::flat::delta::CachedFlatStateChanges;
-use crate::flat::store_helper::FlatStateColumn;
 use crate::flat::{FlatStorageReadyStatus, FlatStorageStatus};
-use crate::{Store, StoreUpdate};
+use crate::{DBCol, Store, StoreUpdate};
 
 use super::delta::{CachedFlatStateDelta, FlatStateDelta};
 use super::metrics::FlatStorageMetrics;
@@ -301,13 +300,13 @@ impl FlatStorage {
         // We should also take fixed accounts into account.
         let mut store_update = guard.store.store_update();
         let mut removed_items = 0;
-        for item in guard.store.iter(FlatStateColumn::State.to_db_col()) {
+        for item in guard.store.iter(DBCol::FlatState) {
             let (key, _) =
                 item.map_err(|e| StorageError::StorageInconsistentState(e.to_string()))?;
 
             if store_helper::key_belongs_to_shard(&key, &shard_layout, shard_id)? {
                 removed_items += 1;
-                store_update.delete(FlatStateColumn::State.to_db_col(), &key);
+                store_update.delete(DBCol::FlatState, &key);
             }
         }
         info!(target: "store", %shard_id, %removed_items, "Removing old items from flat storage");

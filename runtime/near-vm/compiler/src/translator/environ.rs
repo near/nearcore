@@ -6,16 +6,16 @@ use crate::lib::std::string::ToString;
 use crate::lib::std::{boxed::Box, string::String, vec::Vec};
 use crate::translate_module;
 use crate::{WasmError, WasmResult};
-use std::convert::{TryFrom, TryInto};
-use std::sync::Arc;
-use wasmer_types::entity::PrimaryMap;
-use wasmer_types::FunctionType;
-use wasmer_types::{
+use near_vm_types::entity::PrimaryMap;
+use near_vm_types::FunctionType;
+use near_vm_types::{
     CustomSectionIndex, DataIndex, DataInitializer, DataInitializerLocation, ElemIndex,
     ExportIndex, FunctionIndex, GlobalIndex, GlobalInit, GlobalType, ImportIndex,
     LocalFunctionIndex, MemoryIndex, MemoryType, ModuleInfo, OwnedTableInitializer, SignatureIndex,
     TableIndex, TableType,
 };
+use std::convert::{TryFrom, TryInto};
+use std::sync::Arc;
 pub use wasmparser::FunctionBody as FunctionReader;
 
 /// Contains function data: bytecode and its offset in the module.
@@ -309,7 +309,7 @@ impl<'data> ModuleEnvironment<'data> {
         let old = self.module.passive_elements.insert(elem_index, segments);
         debug_assert!(
             old.is_none(),
-            "should never get duplicate element indices, that would be a bug in `wasmer_compiler`'s \
+            "should never get duplicate element indices, that would be a bug in `near_vm_compiler`'s \
              translation"
         );
         Ok(())
@@ -358,7 +358,7 @@ impl<'data> ModuleEnvironment<'data> {
         let old = self.module.passive_data.insert(data_index, Arc::from(data));
         debug_assert!(
             old.is_none(),
-            "a module can't have duplicate indices, this would be a wasmer-compiler bug"
+            "a module can't have duplicate indices, this would be a near_vm-compiler bug"
         );
         Ok(())
     }
