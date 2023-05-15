@@ -319,7 +319,8 @@ impl SimulationRunner {
             .get_ser::<BlockHeader>(DBCol::BlockHeader, final_head.last_block_hash.as_ref())?
             .ok_or_else(|| crate::Error::DBNotFoundErr(format!("No final head block")))?;
         let final_head_ordinal = final_head_header.block_ordinal();
-        if last_simulated + batch_size > final_head_ordinal {
+        // assume no more than 100 hops
+        if last_simulated + batch_size + 100 > final_head_ordinal {
             return Ok(false);
         }
 
