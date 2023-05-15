@@ -23,10 +23,10 @@ use crate::types::{ChainInfo, PeerType, ReasonForBan};
 use anyhow::Context;
 use arc_swap::ArcSwap;
 use near_async::messaging::Sender;
+use near_async::time;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::time;
 use near_primitives::types::AccountId;
 use parking_lot::Mutex;
 use std::net::SocketAddr;
@@ -613,7 +613,7 @@ impl NetworkState {
             // Broadcast any new data we have found, even in presence of an error.
             // This will prevent a malicious peer from forcing us to re-verify valid
             // datasets. See accounts_data::Cache documentation for details.
-            if new_data.len() > 0 {
+            if !new_data.is_empty() {
                 let tier2 = this.tier2.load();
                 let tasks: Vec<_> = tier2
                     .ready

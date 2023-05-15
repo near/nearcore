@@ -6,6 +6,23 @@
 
 ### Non-protocol Changes
 
+## 1.34.0
+
+### Protocol Changes
+
+* Flat Storage for reads, reducing number of DB accesses for state read from `2 * key.len()` in the worst case to 2. [#8761](https://github.com/near/nearcore/pull/8761), [NEP-399](https://github.com/near/NEPs/pull/399)
+* Contract preparation and gas charging for wasm execution also switched to using our own code, as per the finite-wasm specification. Contract execution gas costs will change slightly for expected use cases. This opens up opportunities for further changing the execution gas costs (eg. with different costs per opcode) to lower contract execution cost long-term. [#8912](https://github.com/near/nearcore/pull/8912)
+* Compute Costs are implemented and stabilized. Compute usage of the chunk is now limited according to the compute costs. [#8915](https://github.com/near/nearcore/pull/8915), [NEP-455](https://github.com/near/NEPs/blob/master/neps/nep-0455.md).
+* Write related storage compute costs are increased which means they fill a chunk sooner but gas costs are unaffected. [#8924](https://github.com/near/nearcore/pull/8924)
+
+### Non-protocol Changes
+
+* undo-block tool to reset the chain head from current head to its prev block. Use the tool by running: `./target/release/neard undo-block`. [#8681](https://github.com/near/nearcore/pull/8681)
+* Add prometheus metrics for expected number of blocks/chunks at the end of the epoch. [#8759](https://github.com/near/nearcore/pull/8759)
+* Node can sync State from S3. [#8789](https://github.com/near/nearcore/pull/8789)
+* Node can sync State from local filesystem. [#8913](https://github.com/near/nearcore/pull/8913)
+* Add per shard granularity for chunks in validator info metric. [#8934](https://github.com/near/nearcore/pull/8934)
+
 ## 1.33.0
 
 ### Protocol Changes
@@ -17,6 +34,7 @@
 * State sync is disabled by default [#8730](https://github.com/near/nearcore/pull/8730)
 * Node can restart if State Sync gets interrupted. [#8732](https://github.com/near/nearcore/pull/8732)
 * Merged two `neard view-state` commands: `apply-state-parts` and `dump-state-parts` into a single `state-parts` command. [#8739](https://github.com/near/nearcore/pull/8739)
+* Add config.network.experimental.network_config_overrides to the JSON config. [#8871](https://github.com/near/nearcore/pull/8871)
 
 ## 1.32.2
 
@@ -48,14 +66,14 @@ to pay for the storage of their accounts.
 [Stabilization #8601](https://github.com/near/nearcore/pull/8601)
 
 ### Non-protocol Changes
-* Config validation can be done by following command: 
-  `./target/debug/neard --home {path_to_config_files} validate-config`. 
-  This will show error if there are file issues or semantic issues in `config.json`, `genesis.json`, `records.json`, `node_key.json` and `validator_key.json`. 
+* Config validation can be done by following command:
+  `./target/debug/neard --home {path_to_config_files} validate-config`.
+  This will show error if there are file issues or semantic issues in `config.json`, `genesis.json`, `records.json`, `node_key.json` and `validator_key.json`.
   [#8485](https://github.com/near/nearcore/pull/8485)
 * Comments are allowed in configs. This includes
   `config.json`, `genesis.json`, `node_key.json` and `validator_key.json`. You can use `//`, `#` and `/*...*/` for comments.
   [#8423](https://github.com/near/nearcore/pull/8423)
-* `/debug` page now has client_config linked. 
+* `/debug` page now has client_config linked.
   You can also check your client_config directly at /debug/client_config
   [#8400](https://github.com/near/nearcore/pull/8400)
 * Added cold store loop - a background thread that copies data from hot to cold storage and a new json rpc endpoing - split_storage_info - that

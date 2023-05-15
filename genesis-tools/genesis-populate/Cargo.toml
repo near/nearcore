@@ -14,16 +14,13 @@ tempfile.workspace = true
 nearcore.workspace = true
 near-chain-configs.workspace = true
 near-crypto.workspace = true
+near-epoch-manager.workspace = true
 near-primitives.workspace = true
 near-store.workspace = true
 near-chain.workspace = true
 near-test-contracts.workspace = true
 
 [features]
-protocol_feature_flat_state = [
-  "nearcore/protocol_feature_flat_state",
-]
 nightly = [
-  "protocol_feature_flat_state",
   "nearcore/nightly",
 ]

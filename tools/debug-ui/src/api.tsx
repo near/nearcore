@@ -293,6 +293,64 @@ export interface RecentOutboundConnectionsResponse {
     };
 }
 
+export type DroppedReason = 'HeightProcessed' | 'TooManyProcessingBlocks';
+
+export type BlockProcessingStatus =
+    | 'Orphan'
+    | 'WaitingForChunks'
+    | 'InProcessing'
+    | 'Accepted'
+    | { Error: string }
+    | { Dropped: DroppedReason }
+    | 'Unknown';
+
+export interface BlockProcessingInfo {
+    height: number;
+    hash: string;
+    received_timestamp: string;
+    in_progress_ms: number;
+    orphaned_ms: number | null;
+    missing_chunks_ms: number | null;
+    block_status: BlockProcessingStatus;
+    chunks_info: ChunkProcessingInfo[] | null;
+}
+
+export interface PartCollectionInfo {
+    part_owner: string;
+    received_time: string | null;
+    forwarded_received_time: string | null;
+    chunk_received_time: string | null;
+}
+
+export type ChunkProcessingStatus = 'NeedToRequest' | 'Requested' | 'Completed';
+
+export interface ChunkProcessingInfo {
+    height_created: number;
+    shard_id: number;
+    chunk_hash: string;
+    prev_block_hash: string;
+    created_by: string | null;
+    status: ChunkProcessingStatus;
+    requested_timestamp: string | null;
+    completed_timestamp: string | null;
+    request_duration: number | null;
+    chunk_parts_collection: PartCollectionInfo[];
+}
+
+export interface ChainProcessingInfo {
+    num_blocks_in_processing: number;
+    num_orphans: number;
+    num_blocks_missing_chunks: number;
+    blocks_info: BlockProcessingInfo[];
+    floating_chunks_info: ChunkProcessingInfo[];
+}
+
+export interface ChainProcessingStatusResponse {
+    status_response: {
+        ChainProcessingStatus: ChainProcessingInfo;
+    };
+}
+
 export async function fetchBasicStatus(addr: string): Promise<StatusResponse> {
     const response = await fetch(`http://${addr}/status`);
     return await response.json();
@@ -336,5 +394,12 @@ export async function fetchRecentOutboundConnections(
     addr: string
 ): Promise<RecentOutboundConnectionsResponse> {
     const response = await fetch(`http://${addr}/debug/api/recent_outbound_connections`);
+    return await response.json();
+}
+
+export async function fetchChainProcessingStatus(
+    addr: string
+): Promise<ChainProcessingStatusResponse> {
+    const response = await fetch(`http://${addr}/debug/api/chain_processing_status`);
     return await response.json();
 }

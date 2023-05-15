@@ -1,8 +1,7 @@
 use borsh::BorshSerialize;
+use near_client::ProcessTxResponse;
 
-use crate::tests::client::process_blocks::{
-    create_nightshade_runtimes, set_block_protocol_version,
-};
+use crate::tests::client::process_blocks::set_block_protocol_version;
 use near_chain::near_chain_primitives::Error;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::Genesis;
@@ -29,10 +28,12 @@ use tracing::debug;
 
 use assert_matches::assert_matches;
 use near_chain::test_utils::wait_for_all_blocks_in_processing;
-use rand::seq::SliceRandom;
+use rand::seq::{IteratorRandom, SliceRandom};
 use rand::{thread_rng, Rng};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+
+use super::utils::TestEnvNightshadeSetupExt;
 
 const SIMPLE_NIGHTSHADE_PROTOCOL_VERSION: ProtocolVersion =
     ProtocolFeature::SimpleNightshade.protocol_version();
@@ -66,14 +67,16 @@ impl TestShardUpgradeEnv {
         let validators: Vec<AccountId> =
             (0..num_validators).map(|i| format!("test{}", i).parse().unwrap()).collect();
         let initial_accounts =
-            [validators, gen_unique_accounts(&mut rng, num_init_accounts)].concat();
+            [validators, gen_unique_accounts(&mut rng, num_init_accounts, num_init_accounts)]
+                .concat();
         let genesis =
             setup_genesis(epoch_length, num_validators as u64, initial_accounts.clone(), gas_limit);
         let chain_genesis = ChainGenesis::new(&genesis);
         let env = TestEnv::builder(chain_genesis)
             .clients_count(num_clients)
             .validator_seats(num_validators)
-            .runtime_adapters(create_nightshade_runtimes(&genesis, num_clients))
+            .real_epoch_managers(&genesis.config)
+            .nightshade_runtimes(&genesis)
             .build();
         Self {
             env,
@@ -110,7 +113,10 @@ impl TestShardUpgradeEnv {
         if height == 1 {
             for tx in self.init_txs.iter() {
                 for j in 0..self.num_validators {
-                    env.clients[j].process_tx(tx.clone(), false, false);
+                    assert_eq!(
+                        env.clients[j].process_tx(tx.clone(), false, false),
+                        ProcessTxResponse::ValidTx
+                    );
                 }
             }
         }
@@ -122,7 +128,10 @@ impl TestShardUpgradeEnv {
         if let Some(txs) = self.txs_by_height.get(&(height + 1)) {
             for tx in txs {
                 for j in 0..self.num_validators {
-                    env.clients[j].process_tx(tx.clone(), false, false);
+                    assert_eq!(
+                        env.clients[j].process_tx(tx.clone(), false, false),
+                        ProcessTxResponse::ValidTx
+                    );
                 }
             }
         }
@@ -130,10 +139,10 @@ impl TestShardUpgradeEnv {
         // produce block
         let block_producer = {
             let epoch_id = env.clients[0]
-                .runtime_adapter
+                .epoch_manager
                 .get_epoch_id_from_prev_block(&head.last_block_hash)
                 .unwrap();
-            env.clients[0].runtime_adapter.get_block_producer(&epoch_id, height).unwrap()
+            env.clients[0].epoch_manager.get_block_producer(&epoch_id, height).unwrap()
         };
         let block_producer_client = env.client(&block_producer);
         let mut block = block_producer_client.produce_block(height).unwrap().unwrap();
@@ -174,7 +183,7 @@ impl TestShardUpgradeEnv {
         let expected_num_shards = if height < 2 * self.epoch_length { 1 } else { 4 };
         assert_eq!(
             env.clients[0]
-                .runtime_adapter
+                .epoch_manager
                 .get_shard_layout_from_prev_block(block.hash())
                 .unwrap()
                 .num_shards(),
@@ -281,7 +290,7 @@ impl TestShardUpgradeEnv {
         let block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         // check execution outcomes
         let shard_layout = env.clients[0]
-            .runtime_adapter
+            .epoch_manager
             .get_shard_layout_from_prev_block(&head.last_block_hash)
             .unwrap();
         let mut txs_to_check = vec![];
@@ -298,7 +307,7 @@ impl TestShardUpgradeEnv {
             let account_id = &tx.transaction.signer_id;
             let shard_uid = account_id_to_shard_uid(account_id, &shard_layout);
             for (i, account_id) in env.validators.iter().enumerate() {
-                let cares_about_shard = env.clients[i].runtime_adapter.cares_about_shard(
+                let cares_about_shard = env.clients[i].shard_tracker.care_about_shard(
                     Some(account_id),
                     block.header().prev_hash(),
                     shard_uid.shard_id(),
@@ -338,7 +347,7 @@ impl TestShardUpgradeEnv {
         let env = &mut self.env;
         let head = env.clients[0].chain.head().unwrap();
         let shard_layout = env.clients[0]
-            .runtime_adapter
+            .epoch_manager
             .get_shard_layout_from_prev_block(&head.last_block_hash)
             .unwrap();
         let block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
@@ -392,11 +401,11 @@ impl TestShardUpgradeEnv {
 fn check_account(env: &mut TestEnv, account_id: &AccountId, block: &Block) {
     let prev_hash = block.header().prev_hash();
     let shard_layout =
-        env.clients[0].runtime_adapter.get_shard_layout_from_prev_block(prev_hash).unwrap();
+        env.clients[0].epoch_manager.get_shard_layout_from_prev_block(prev_hash).unwrap();
     let shard_uid = account_id_to_shard_uid(account_id, &shard_layout);
     let shard_id = shard_uid.shard_id();
     for (i, me) in env.validators.iter().enumerate() {
-        if env.clients[i].runtime_adapter.cares_about_shard(Some(me), prev_hash, shard_id, true) {
+        if env.clients[i].shard_tracker.care_about_shard(Some(me), prev_hash, shard_id, true) {
             let state_root = *env.clients[i]
                 .chain
                 .get_chunk_extra(block.hash(), &shard_uid)
@@ -606,12 +615,14 @@ fn setup_test_env_with_cross_contract_txs(
     let mut rng = thread_rng();
 
     let genesis_hash = *test_env.env.clients[0].chain.genesis_block().hash();
-    // use test0, test1 and two random accounts to deploy contracts because we want accounts on different shards
+    // Use test0, test1 and two random accounts to deploy contracts because we want accounts on
+    // different shards.
+    let indices = (4..test_env.initial_accounts.len()).choose_multiple(&mut rng, 2);
     let contract_accounts = vec![
         test_env.initial_accounts[0].clone(),
         test_env.initial_accounts[1].clone(),
-        test_env.initial_accounts[rng.gen_range(0..test_env.initial_accounts.len())].clone(),
-        test_env.initial_accounts[rng.gen_range(0..test_env.initial_accounts.len())].clone(),
+        test_env.initial_accounts[indices[0]].clone(),
+        test_env.initial_accounts[indices[1]].clone(),
     ];
     test_env.set_init_tx(
         contract_accounts

@@ -2,12 +2,14 @@
 name = "near-vm-runner"
 version = "0.0.0"
 authors.workspace = true
-publish = false
+publish = true
+# Please update rust-toolchain.toml as well when changing version here:
+rust-version.workspace = true
 edition.workspace = true
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 categories = ["wasm"]
-repository = "https://github.com/nearprotocol/nearcore"
+repository = "https://github.com/near/nearcore"
 description = """
 This crate implements the specification of the interface that Near blockchain exposes to the smart contracts.
 """
@@ -15,10 +17,12 @@ This crate implements the specification of the interface that Near blockchain ex
 [dependencies]
 anyhow = { workspace = true, optional = true }
 borsh.workspace = true
+finite-wasm = { workspace = true, features = ["instrument"] }
 loupe.workspace = true
 memoffset.workspace = true
 once_cell.workspace = true
 parity-wasm.workspace = true
+prefix-sum-vec.workspace = true
 serde.workspace = true
 tracing.workspace = true
 wasmparser.workspace = true
@@ -57,12 +61,12 @@ assert_matches.workspace = true
 bolero.workspace = true
 expect-test.workspace = true
 hex.workspace = true
+near-primitives-core.workspace = true
+near-test-contracts.workspace = true
 rand.workspace = true
 wasm-smith.workspace = true
 wasmprinter.workspace = true
 wat.workspace = true
-
-near-test-contracts.workspace = true
 
 [features]
 # all vms enabled for now

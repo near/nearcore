@@ -363,13 +363,13 @@ pub(crate) fn block_chunks_exist(
     for chunk_header in block.chunks().iter() {
         if chunk_header.height_included() == block.header().height() {
             if let Some(me) = &sv.me {
-                let cares_about_shard = sv.runtime_adapter.cares_about_shard(
+                let cares_about_shard = sv.shard_tracker.care_about_shard(
                     Some(me),
                     block.header().prev_hash(),
                     chunk_header.shard_id(),
                     true,
                 );
-                let will_care_about_shard = sv.runtime_adapter.will_care_about_shard(
+                let will_care_about_shard = sv.shard_tracker.will_care_about_shard(
                     Some(me),
                     block.header().prev_hash(),
                     chunk_header.shard_id(),
@@ -386,7 +386,7 @@ pub(crate) fn block_chunks_exist(
                     );
                     if cares_about_shard {
                         let shard_uid = sv
-                            .runtime_adapter
+                            .epoch_manager
                             .shard_id_to_uid(chunk_header.shard_id(), block.header().epoch_id())
                             .map_err(|err| StoreValidatorError::DBNotFound {
                                 func_name: "get_shard_layout",
@@ -557,7 +557,7 @@ pub(crate) fn trie_changes_chunk_extra_exists(
         );
     }
     // 4) Trie should exist for `shard_uid` and the root
-    let trie = sv.runtime_adapter.get_tries().get_trie_for_shard(*shard_uid, new_root);
+    let trie = sv.runtime.get_tries().get_trie_for_shard(*shard_uid, new_root);
     let trie_iterator = unwrap_or_err!(
         trie.iter(),
         "Trie Node Missing for shard {:?} root {:?}",
@@ -571,7 +571,7 @@ pub(crate) fn trie_changes_chunk_extra_exists(
     // If the trie_changes we are checking are for the next epoch during sharding upgrade,
     // skip the checks about ShardChunk because there is no corresponding chunk for this shard_uid
     let shard_layout = unwrap_or_err!(
-        sv.runtime_adapter.get_shard_layout(block.header().epoch_id()),
+        sv.epoch_manager.get_shard_layout(block.header().epoch_id()),
         "Error getting shard layout"
     );
     if shard_layout.version() != shard_uid.version {
@@ -691,7 +691,7 @@ pub(crate) fn outcome_indexed_by_block_hash(
     for chunk_header in block.chunks().iter() {
         if chunk_header.height_included() == block.header().height() {
             let shard_uid = sv
-                .runtime_adapter
+                .epoch_manager
                 .shard_id_to_uid(chunk_header.shard_id(), block.header().epoch_id())
                 .map_err(|err| StoreValidatorError::DBNotFound {
                     func_name: "get_shard_layout",
@@ -775,7 +775,7 @@ pub(crate) fn epoch_validity(
     epoch_id: &EpochId,
     _epoch_info: &EpochInfo,
 ) -> Result<(), StoreValidatorError> {
-    check_discrepancy!(sv.runtime_adapter.epoch_exists(epoch_id), true, "Invalid EpochInfo stored");
+    check_discrepancy!(sv.epoch_manager.epoch_exists(epoch_id), true, "Invalid EpochInfo stored");
     Ok(())
 }
 

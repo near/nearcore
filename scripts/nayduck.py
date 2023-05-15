@@ -5,7 +5,7 @@ To request a new run, use the following command:
 
    python3 scripts/nayduck.py      \
        --branch    <your_branch>   \
-       --test_file <test_file>.txt
+       --test-file <test_file>.txt
 
 Scheduled runs can be seen at <https://nayduck.near.org/>.
 

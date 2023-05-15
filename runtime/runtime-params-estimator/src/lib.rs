@@ -191,6 +191,10 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::ActionFunctionCallPerByteSendNotSir, action_costs::function_call_byte_send_not_sir),
     (Cost::ActionFunctionCallPerByteSendSir, action_costs::function_call_byte_send_sir),
     (Cost::ActionFunctionCallPerByteExec, action_costs::function_call_byte_exec),
+    (Cost::ActionDelegate, action_delegate_base),
+    (Cost::ActionDelegateSendNotSir, action_costs::delegate_send_not_sir),
+    (Cost::ActionDelegateSendSir, action_costs::delegate_send_sir),
+    (Cost::ActionDelegateExec, action_costs::delegate_exec),
     (Cost::HostFunctionCall, host_function_call),
     (Cost::WasmInstruction, wasm_instruction),
     (Cost::DataReceiptCreationBase, data_receipt_creation_base),
@@ -817,6 +821,33 @@ fn data_receipt_creation_per_byte(ctx: &mut EstimatorContext) -> GasCost {
     let bytes_per_transaction = 1000 * 100 * 1024;
 
     total_cost.saturating_sub(&base_cost, &NonNegativeTolerance::PER_MILLE) / bytes_per_transaction
+}
+
+fn action_delegate_base(ctx: &mut EstimatorContext) -> GasCost {
+    let total_cost = {
+        let mut nonce = 1;
+        let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
+            let sender = tb.random_unused_account();
+            let receiver = tb.random_unused_account();
+
+            let action =
+                action_costs::empty_delegate_action(nonce, sender.clone(), receiver.clone());
+            nonce += 1;
+            tb.transaction_from_actions(sender, receiver, vec![action])
+        };
+        // meta tx is delayed by 2 block compared to local receipt
+        let block_latency = 2;
+        let block_size = 100;
+        let (gas_cost, _ext_costs) =
+            transaction_cost_ext(ctx, block_size, &mut make_transaction, block_latency);
+        gas_cost
+    };
+
+    // action receipt creation send cost is paid twice for meta transactions,
+    // exec only once, thus we want to subtract this cost 1.5 times
+    let base_cost = action_receipt_creation(ctx) * 3 / 2;
+
+    total_cost.saturating_sub(&base_cost, &NonNegativeTolerance::PER_MILLE)
 }
 
 fn host_function_call(ctx: &mut EstimatorContext) -> GasCost {

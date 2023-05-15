@@ -13,6 +13,7 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     NumShards, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
 };
+use std::rc::Rc;
 use std::sync::{Arc, RwLock};
 
 struct ShardTriesInner {
@@ -138,7 +139,7 @@ impl ShardTries {
                 .clone()
         });
 
-        let storage = Box::new(TrieCachingStorage::new(
+        let storage = Rc::new(TrieCachingStorage::new(
             self.0.store.clone(),
             cache,
             shard_uid,
@@ -573,7 +574,7 @@ mod test {
         let block_hash =
             CryptoHash::from_str("32222222222233333333334444444444445555555777").unwrap();
 
-        for trie_key in [trie_key1.clone(), trie_key2.clone()] {
+        for trie_key in [trie_key1.clone(), trie_key2] {
             let row_key = KeyForStateChanges::delayed_receipt_key_from_trie_key(
                 &block_hash,
                 &trie_key,

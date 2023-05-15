@@ -11,7 +11,7 @@ use near_primitives::utils::MaybeValidated;
 #[ignore]
 fn challenges_new_head_prev() {
     init_test_logger();
-    let (mut chain, _, signer) = setup();
+    let (mut chain, _, _, signer) = setup();
     let mut hashes = vec![];
     for i in 0..5 {
         let prev_hash = *chain.head_header().unwrap().hash();
@@ -95,7 +95,7 @@ fn challenges_new_head_prev() {
 #[test]
 fn test_no_challenge_on_same_header() {
     init_test_logger();
-    let (mut chain, _, signer) = setup();
+    let (mut chain, _, _, signer) = setup();
     let prev_hash = *chain.head_header().unwrap().hash();
     let prev = chain.get_block(&prev_hash).unwrap();
     let block = TestBlockBuilder::new(&prev, signer).build();

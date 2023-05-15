@@ -116,7 +116,8 @@ def check_view_call(legacy_url, split_url):
     legacy_response = json_rpc('query', params, legacy_url)
     split_response = json_rpc('query', params, split_url)
 
-    if legacy_response['result']['result'] != split_response['result']['result']:
+    if legacy_response['result']['result'] != split_response['result'][
+            'result']:
         logger.error(
             f'View call check failed, the legacy response and the split response are different'
             f'\nlegacy response\n{legacy_response}'

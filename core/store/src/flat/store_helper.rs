@@ -7,7 +7,6 @@ use crate::{Store, StoreUpdate};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
-use near_primitives::state::ValueRef;
 
 use super::delta::{FlatStateDelta, FlatStateDeltaMetadata};
 use super::types::{FlatStateValue, FlatStorageStatus};
@@ -16,9 +15,9 @@ use super::types::{FlatStateValue, FlatStorageStatus};
 pub const FLAT_STATE_HEAD_KEY_PREFIX: &[u8; 4] = b"HEAD";
 pub const FLAT_STATE_CREATION_STATUS_KEY_PREFIX: &[u8; 6] = b"STATUS";
 
-/// This is needed to avoid `#[cfg(feature = "protocol_feature_flat_state")]`
+/// This was needed to avoid `#[cfg(feature = "protocol_feature_flat_state")]`
 /// from `DBCol::FlatState*` cascading all over the code.
-/// Should be removed along with protocol_feature_flat_state feature.
+/// TODO (#7327): remove.
 pub enum FlatStateColumn {
     State,
     Changes,
@@ -28,15 +27,12 @@ pub enum FlatStateColumn {
 
 impl FlatStateColumn {
     pub const fn to_db_col(&self) -> crate::DBCol {
-        #[cfg(feature = "protocol_feature_flat_state")]
         match self {
             FlatStateColumn::State => crate::DBCol::FlatState,
             FlatStateColumn::Changes => crate::DBCol::FlatStateChanges,
             FlatStateColumn::DeltaMetadata => crate::DBCol::FlatStateDeltaMetadata,
             FlatStateColumn::Status => crate::DBCol::FlatStorageStatus,
         }
-        #[cfg(not(feature = "protocol_feature_flat_state"))]
-        panic!("protocol_feature_flat_state feature is not enabled")
     }
 }
 
@@ -111,27 +107,25 @@ fn decode_flat_state_db_key(key: &Box<[u8]>) -> Result<(ShardUId, Vec<u8>), Stor
     Ok((shard_uid, trie_key.to_vec()))
 }
 
-pub(crate) fn get_ref(
+pub(crate) fn get_flat_state_value(
     store: &Store,
     shard_uid: ShardUId,
     key: &[u8],
-) -> Result<Option<ValueRef>, FlatStorageError> {
+) -> Result<Option<FlatStateValue>, FlatStorageError> {
     let db_key = encode_flat_state_db_key(shard_uid, key);
     store
         .get_ser(FlatStateColumn::State.to_db_col(), &db_key)
         .map_err(|_| FlatStorageError::StorageInternalError)
-        .map(|maybe_value| maybe_value.map(|FlatStateValue::Ref(v)| v))
 }
 
 // TODO(#8577): make pub(crate) once flat storage creator is moved inside `flat` module.
-pub fn set_ref(
+pub fn set_flat_state_value(
     store_update: &mut StoreUpdate,
     shard_uid: ShardUId,
     key: Vec<u8>,
-    value_ref: Option<ValueRef>,
+    value: Option<FlatStateValue>,
 ) -> Result<(), FlatStorageError> {
     let db_key = encode_flat_state_db_key(shard_uid, &key);
-    let value = value_ref.map(|v| FlatStateValue::Ref(v));
     match value {
         Some(value) => store_update
             .set_ser(FlatStateColumn::State.to_db_col(), &db_key, &value)
@@ -141,9 +135,6 @@ pub fn set_ref(
 }
 
 pub fn get_flat_storage_status(store: &Store, shard_uid: ShardUId) -> FlatStorageStatus {
-    if !cfg!(feature = "protocol_feature_flat_state") {
-        return FlatStorageStatus::Disabled;
-    }
     store
         .get_ser(FlatStateColumn::Status.to_db_col(), &shard_uid.to_bytes())
         .expect("Error reading flat head from storage")

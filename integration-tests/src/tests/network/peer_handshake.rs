@@ -3,6 +3,7 @@ use actix::Actor;
 use actix::System;
 use futures::{future, FutureExt};
 use near_actix_test_utils::run_actix;
+use near_async::time;
 use near_network::config;
 use near_network::tcp;
 use near_network::test_utils::{
@@ -12,7 +13,6 @@ use near_network::PeerManagerActor;
 use near_o11y::testonly::init_test_logger;
 use near_o11y::WithSpanContextExt;
 use near_primitives::block::GenesisId;
-use near_primitives::time;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 

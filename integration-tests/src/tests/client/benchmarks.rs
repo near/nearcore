@@ -4,11 +4,12 @@
 //! we want to test here are pretty heavy and its enough to run them once and
 //! note the wall-clock time.
 
-use crate::tests::client::process_blocks::create_nightshade_runtimes;
+use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 use borsh::BorshSerialize;
 use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::test_utils::{create_chunk_on_height, TestEnv};
+use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
 use nearcore::config::GenesisExt;
@@ -31,7 +32,8 @@ fn benchmark_large_chunk_production_time() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let chain_genesis = ChainGenesis::new(&genesis);
     let mut env = TestEnv::builder(chain_genesis)
-        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+        .real_epoch_managers(&genesis.config)
+        .nightshade_runtimes(&genesis)
         .build();
 
     let account_id = env.get_client_id(0).clone();
@@ -40,14 +42,14 @@ fn benchmark_large_chunk_production_time() {
     let last_block_hash = env.clients[0].chain.head().unwrap().last_block_hash;
     for i in 0..n_txes {
         let tx = SignedTransaction::from_actions(
-            i,
+            i + 1,
             account_id.clone(),
             account_id.clone(),
             &signer,
             vec![Action::DeployContract(DeployContractAction { code: vec![92; tx_size] })],
             last_block_hash,
         );
-        env.clients[0].process_tx(tx, false, false);
+        assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     }
 
     let t = std::time::Instant::now();

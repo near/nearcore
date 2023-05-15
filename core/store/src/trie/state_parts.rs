@@ -1,11 +1,13 @@
 use std::collections::HashMap;
 
+use borsh::BorshDeserialize;
+
 use near_primitives::challenge::{PartialState, StateItem};
 use near_primitives::state_part::PartId;
 use near_primitives::types::StateRoot;
 use tracing::error;
 
-use crate::flat::FlatStateChanges;
+use crate::flat::{FlatStateChanges, FlatStateValue};
 use crate::trie::iterator::TrieTraversalItem;
 use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::{
@@ -20,14 +22,11 @@ impl Trie {
     /// Computes the set of trie nodes for a state part.
     ///
     /// # Panics
-    /// storage must be a TrieCachingStorage
     /// part_id must be in [0..num_parts)
     ///
     /// # Errors
     /// StorageError if the storage is corrupted
     pub fn get_trie_nodes_for_part(&self, part_id: PartId) -> Result<PartialState, StorageError> {
-        assert!(self.storage.as_caching_storage().is_some());
-
         let with_recording = self.recording_reads();
         with_recording.visit_nodes_for_state_part(part_id)?;
         let recorded = with_recording.recorded_storage().unwrap();
@@ -214,7 +213,7 @@ impl Trie {
             map.entry(hash).or_insert_with(|| (value.to_vec(), 0)).1 += 1;
             if let Some(trie_key) = key {
                 let value_ref = ValueRef::new(&value);
-                flat_state_delta.insert(trie_key.clone(), Some(value_ref));
+                flat_state_delta.insert(trie_key.clone(), Some(FlatStateValue::Ref(value_ref)));
                 if is_contract_code_key(&trie_key) {
                     contract_codes.push(ContractCode::new(value.to_vec(), None));
                 }
@@ -245,9 +244,9 @@ impl Trie {
     }
 
     pub fn get_memory_usage_from_serialized(bytes: &[u8]) -> Result<u64, StorageError> {
-        RawTrieNodeWithSize::decode(bytes).map(|raw_node| raw_node.memory_usage).map_err(|err| {
-            StorageError::StorageInconsistentState(format!("Failed to decode node: {err}"))
-        })
+        RawTrieNodeWithSize::try_from_slice(bytes).map(|raw_node| raw_node.memory_usage).map_err(
+            |err| StorageError::StorageInconsistentState(format!("Failed to decode node: {err}")),
+        )
     }
 }
 
@@ -353,7 +352,7 @@ mod tests {
                                 break;
                             }
                             if let Some(NodeHandle::Hash(ref h)) = children[i] {
-                                let h = h.clone();
+                                let h = *h;
                                 let child = self.retrieve_node(&h)?.1;
                                 stack.push((hash, node, CrumbStatus::AtChild(i + 1)));
                                 stack.push((h, child, CrumbStatus::Entering));
@@ -419,7 +418,6 @@ mod tests {
             &self,
             part_id: PartId,
         ) -> Result<PartialState, StorageError> {
-            assert!(self.storage.as_caching_storage().is_some());
             let root_node = self.retrieve_node(&self.root)?.1;
             let total_size = root_node.memory_usage;
             let size_start = (total_size + part_id.total - 1) / part_id.total * part_id.idx;

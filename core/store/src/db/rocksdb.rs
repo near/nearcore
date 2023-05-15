@@ -385,6 +385,12 @@ impl Database for RocksDB {
             Some(result)
         }
     }
+
+    fn create_checkpoint(&self, path: &std::path::Path) -> anyhow::Result<()> {
+        let cp = ::rocksdb::checkpoint::Checkpoint::new(&self.db)?;
+        cp.create_checkpoint(path)?;
+        Ok(())
+    }
 }
 
 /// DB level options
@@ -746,7 +752,7 @@ mod tests {
         let mut result = StoreStatistics { data: vec![] };
         let parse_result = parse_statistics(statistics, &mut result);
         // We should be able to parse stats and the result should be Ok(()).
-        assert_eq!(parse_result.unwrap(), ());
+        parse_result.unwrap();
         assert_eq!(
             result,
             StoreStatistics {

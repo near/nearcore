@@ -28,7 +28,6 @@ mod io_tracer;
 pub mod log_config;
 pub mod macros;
 pub mod metrics;
-pub mod pretty;
 pub mod testonly;
 
 /// Produce a tracing-event for target "io_tracer" that will be consumed by the
@@ -111,18 +110,13 @@ pub struct DefaultSubscriberGuard<S> {
 }
 
 // Doesn't define WARN and ERROR, because the highest verbosity of spans is INFO.
-#[derive(Copy, Clone, Debug, clap::ArgEnum, serde::Serialize, serde::Deserialize)]
+#[derive(Copy, Clone, Debug, Default, clap::ValueEnum, serde::Serialize, serde::Deserialize)]
 pub enum OpenTelemetryLevel {
+    #[default]
     OFF,
     INFO,
     DEBUG,
     TRACE,
-}
-
-impl Default for OpenTelemetryLevel {
-    fn default() -> Self {
-        OpenTelemetryLevel::OFF
-    }
 }
 
 /// Configures exporter of span and trace data.
@@ -130,11 +124,11 @@ impl Default for OpenTelemetryLevel {
 #[derive(Debug, Default, clap::Parser)]
 pub struct Options {
     /// Enables export of span data using opentelemetry exporters.
-    #[clap(long, arg_enum, default_value = "off")]
+    #[clap(long, value_enum, default_value = "off")]
     opentelemetry: OpenTelemetryLevel,
 
     /// Whether the log needs to be colored.
-    #[clap(long, arg_enum, default_value = "auto")]
+    #[clap(long, value_enum, default_value = "auto")]
     color: ColorOutput,
 
     /// Enable logging of spans. For instance, this prints timestamps of entering and exiting a span,
@@ -177,17 +171,12 @@ impl<S: tracing::Subscriber + Send + Sync> DefaultSubscriberGuard<S> {
 /// Whether to use colored log format.
 /// Option `Auto` enables color output only if the logging is done to a terminal and
 /// `NO_COLOR` environment variable is not set.
-#[derive(clap::ArgEnum, Debug, Clone)]
+#[derive(clap::ValueEnum, Debug, Clone, Default)]
 pub enum ColorOutput {
+    #[default]
     Always,
     Never,
     Auto,
-}
-
-impl Default for ColorOutput {
-    fn default() -> Self {
-        ColorOutput::Auto
-    }
 }
 
 fn is_terminal() -> bool {
@@ -459,8 +448,8 @@ pub enum ReloadError {
 pub fn reload_log_config(config: Option<&log_config::LogConfig>) {
     let result = if let Some(config) = config {
         reload(
-            config.rust_log.as_ref().map(|s| s.as_str()),
-            config.verbose_module.as_ref().map(|s| s.as_str()),
+            config.rust_log.as_deref(),
+            config.verbose_module.as_deref(),
             config.opentelemetry_level,
         )
     } else {
@@ -495,10 +484,8 @@ pub fn reload(
     let log_reload_result = LOG_LAYER_RELOAD_HANDLE.get().map_or(
         Err(ReloadError::NoLogReloadHandle),
         |reload_handle| {
-            let mut builder = rust_log.map_or_else(
-                || EnvFilterBuilder::from_env(),
-                |rust_log| EnvFilterBuilder::new(rust_log),
-            );
+            let mut builder =
+                rust_log.map_or_else(EnvFilterBuilder::from_env, EnvFilterBuilder::new);
             if let Some(module) = verbose_module {
                 builder = builder.verbose(Some(module));
             }

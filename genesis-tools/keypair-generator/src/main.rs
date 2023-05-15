@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use clap::{Arg, Command};
 
@@ -12,7 +12,6 @@ fn generate_key_to_file(account_id: &str, key: SecretKey, path: &PathBuf) -> std
 }
 
 fn main() {
-    let default_home = get_default_home();
     let matches = Command::new("Key-pairs generator")
         .subcommand_required(true)
         .arg_required_else_help(true)
@@ -20,26 +19,27 @@ fn main() {
         .arg(
             Arg::new("home")
                 .long("home")
-                .default_value_os(default_home.as_os_str())
+                .default_value(get_default_home().into_os_string())
+                .value_parser(clap::value_parser!(PathBuf))
                 .help("Directory for config and data (default \"~/.near\")")
-                .takes_value(true),
+                .action(clap::ArgAction::Set)
         )
         .arg(
             Arg::new("account-id")
                 .long("account-id")
-                .takes_value(true),
+                .action(clap::ArgAction::Set)
         )
         .arg(
             Arg::new("generate-config")
                 .long("generate-config")
                 .help("Whether to generate a config file when generating keys. Requires account-id to be specified.")
-                .takes_value(false),
+                .action(clap::ArgAction::SetTrue),
         )
         .subcommand(
             Command::new("signer-keys").about("Generate signer keys.").arg(
                 Arg::new("num-keys")
                     .long("num-keys")
-                    .takes_value(true)
+                    .action(clap::ArgAction::Set)
                     .help("Number of signer keys to generate. (default 3)"),
             ),
         )
@@ -49,15 +49,15 @@ fn main() {
         .subcommand(Command::new("validator-key").about("Generate staking key."))
         .get_matches();
 
-    let home_dir = matches.value_of("home").map(|dir| Path::new(dir)).unwrap();
+    let home_dir = matches.get_one::<PathBuf>("home").unwrap();
     fs::create_dir_all(home_dir).expect("Failed to create directory");
-    let account_id = matches.value_of("account-id");
-    let generate_config = matches.is_present("generate-config");
+    let account_id = matches.get_one::<String>("account-id");
+    let generate_config = matches.get_flag("generate-config");
 
     match matches.subcommand() {
         Some(("signer-keys", args)) => {
             let num_keys = args
-                .value_of("num-keys")
+                .get_one::<String>("num-keys")
                 .map(|x| x.parse().expect("Failed to parse number keys."))
                 .unwrap_or(3usize);
             let keys: Vec<SecretKey> =

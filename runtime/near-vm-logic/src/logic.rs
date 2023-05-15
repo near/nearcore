@@ -15,9 +15,9 @@ use near_primitives_core::config::ExtCosts::*;
 use near_primitives_core::config::{ActionCosts, ExtCosts, VMConfig};
 use near_primitives_core::runtime::fees::{transfer_exec_fee, transfer_send_fee};
 use near_primitives_core::types::{
-    AccountId, Balance, EpochHeight, Gas, ProtocolVersion, StorageUsage,
+    AccountId, Balance, Compute, EpochHeight, Gas, GasDistribution, GasWeight, ProtocolVersion,
+    StorageUsage,
 };
-use near_primitives_core::types::{GasDistribution, GasWeight};
 use near_vm_errors::{FunctionCallError, InconsistentStateError};
 use near_vm_errors::{HostError, VMLogicError};
 use std::mem::size_of;
@@ -2409,7 +2409,7 @@ impl<'a> VMLogic<'a> {
 
         near_o11y::io_trace!(
             storage_op = "write",
-            key = %near_o11y::pretty::Bytes(&key),
+            key = %near_fmt::Bytes(&key),
             size = value_len,
             evicted_len = evicted.as_ref().map(Vec::len),
             tn_mem_reads = nodes_delta.mem_reads,
@@ -2498,15 +2498,12 @@ impl<'a> VMLogic<'a> {
         }
         self.gas_counter.pay_per(storage_read_key_byte, key.len() as u64)?;
         let nodes_before = self.ext.get_trie_nodes_count();
-        let read_mode = if checked_feature!(
-            "protocol_feature_flat_state",
-            FlatStorageReads,
-            self.current_protocol_version
-        ) {
-            StorageGetMode::FlatStorage
-        } else {
-            StorageGetMode::Trie
-        };
+        let read_mode =
+            if checked_feature!("stable", FlatStorageReads, self.current_protocol_version) {
+                StorageGetMode::FlatStorage
+            } else {
+                StorageGetMode::Trie
+            };
         let read = self.ext.storage_get(&key, read_mode);
         let nodes_delta = self
             .ext
@@ -2518,7 +2515,7 @@ impl<'a> VMLogic<'a> {
 
         near_o11y::io_trace!(
             storage_op = "read",
-            key = %near_o11y::pretty::Bytes(&key),
+            key = %near_fmt::Bytes(&key),
             size = read.as_ref().map(Vec::len),
             tn_db_reads = nodes_delta.db_reads,
             tn_mem_reads = nodes_delta.mem_reads,
@@ -2590,7 +2587,7 @@ impl<'a> VMLogic<'a> {
 
         near_o11y::io_trace!(
             storage_op = "remove",
-            key = %near_o11y::pretty::Bytes(&key),
+            key = %near_fmt::Bytes(&key),
             evicted_len = removed.as_ref().map(Vec::len),
             tn_mem_reads = nodes_delta.mem_reads,
             tn_db_reads = nodes_delta.db_reads,
@@ -2646,7 +2643,13 @@ impl<'a> VMLogic<'a> {
         }
         self.gas_counter.pay_per(storage_has_key_byte, key.len() as u64)?;
         let nodes_before = self.ext.get_trie_nodes_count();
-        let res = self.ext.storage_has_key(&key);
+        let read_mode =
+            if checked_feature!("stable", FlatStorageReads, self.current_protocol_version) {
+                StorageGetMode::FlatStorage
+            } else {
+                StorageGetMode::Trie
+            };
+        let res = self.ext.storage_has_key(&key, read_mode);
         let nodes_delta = self
             .ext
             .get_trie_nodes_count()
@@ -2655,7 +2658,7 @@ impl<'a> VMLogic<'a> {
 
         near_o11y::io_trace!(
             storage_op = "exists",
-            key = %near_o11y::pretty::Bytes(&key),
+            key = %near_fmt::Bytes(&key),
             tn_mem_reads = nodes_delta.mem_reads,
             tn_db_reads = nodes_delta.db_reads,
         );
@@ -2794,6 +2797,7 @@ impl<'a> VMLogic<'a> {
 
         let mut profile = self.gas_counter.profile_data();
         profile.compute_wasm_instruction_cost(burnt_gas);
+        let compute_usage = profile.total_compute_usage(&self.config.ext_costs);
 
         VMOutcome {
             balance: self.current_account_balance,
@@ -2801,6 +2805,7 @@ impl<'a> VMLogic<'a> {
             return_data: self.return_data,
             burnt_gas,
             used_gas,
+            compute_usage,
             logs: self.logs,
             profile,
             action_receipts: self.receipt_manager.action_receipts,
@@ -2919,6 +2924,7 @@ pub struct VMOutcome {
     pub return_data: ReturnData,
     pub burnt_gas: Gas,
     pub used_gas: Gas,
+    pub compute_usage: Compute,
     pub logs: Vec<String>,
     /// Data collected from making a contract call
     pub profile: ProfileDataV3,
@@ -2952,6 +2958,7 @@ impl VMOutcome {
             return_data: ReturnData::None,
             burnt_gas: 0,
             used_gas: 0,
+            compute_usage: 0,
             logs: Vec::new(),
             profile: ProfileDataV3::default(),
             action_receipts: Vec::new(),

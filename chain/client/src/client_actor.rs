@@ -26,11 +26,12 @@ use near_chain::chain::{
     BlockCatchUpResponse, StateSplitRequest, StateSplitResponse,
 };
 use near_chain::test_utils::format_hash;
+use near_chain::types::RuntimeAdapter;
 #[cfg(feature = "test_features")]
 use near_chain::ChainStoreAccess;
 use near_chain::{
     byzantine_assert, near_chain_primitives, Block, BlockHeader, BlockProcessingArtifact,
-    ChainGenesis, DoneApplyChunkCallback, Provenance, RuntimeWithEpochManagerAdapter,
+    ChainGenesis, DoneApplyChunkCallback, Provenance,
 };
 use near_chain_configs::{ClientConfig, LogSummaryStyle};
 use near_chain_primitives::error::EpochErrorResultToChainError;
@@ -41,6 +42,8 @@ use near_client_primitives::types::{
     Error, GetClientConfig, GetClientConfigError, GetNetworkInfo, NetworkInfoResponse, Status,
     StatusError, StatusSyncInfo, SyncStatus,
 };
+use near_epoch_manager::shard_tracker::ShardTracker;
+use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::ReasonForBan;
 use near_network::types::{
     NetworkInfo, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
@@ -391,6 +394,8 @@ impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ClientActor {
                 let mut store_validator = near_chain::store_validator::StoreValidator::new(
                     this.client.validator_signer.as_ref().map(|x| x.validator_id().clone()),
                     genesis,
+                    this.client.epoch_manager.clone(),
+                    this.client.shard_tracker.clone(),
                     this.client.runtime_adapter.clone(),
                     this.client.chain.store().store().clone(),
                     this.adv.is_archival(),
@@ -434,7 +439,7 @@ impl Handler<WithSpanContext<BlockResponse>> for ClientActor {
                 .chain
                 .store()
                 .get_all_block_hashes_by_height(block.header().height());
-            if was_requested || !blocks_at_height.is_ok() {
+            if was_requested || blocks_at_height.is_err() || blocks_at_height.as_ref().unwrap().is_empty() {
                 if let SyncStatus::StateSync(sync_hash, _) = &mut this.client.sync_status {
                     if let Ok(header) = this.client.chain.get_block_header(sync_hash) {
                         if block.hash() == header.prev_hash() {
@@ -460,7 +465,7 @@ impl Handler<WithSpanContext<BlockResponse>> for ClientActor {
             } else {
                 match this
                     .client
-                    .runtime_adapter
+                    .epoch_manager
                     .get_epoch_id_from_prev_block(block.header().prev_hash())
                 {
                     Ok(epoch_id) => {
@@ -654,7 +659,7 @@ impl Handler<WithSpanContext<Status>> for ClientActor {
         }
         let validators: Vec<ValidatorInfo> = self
             .client
-            .runtime_adapter
+            .epoch_manager
             .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash)
             .into_chain_error()?
             .into_iter()
@@ -665,11 +670,11 @@ impl Handler<WithSpanContext<Status>> for ClientActor {
             .collect();
 
         let epoch_start_height =
-            self.client.runtime_adapter.get_epoch_start_height(&head.last_block_hash).ok();
+            self.client.epoch_manager.get_epoch_start_height(&head.last_block_hash).ok();
 
         let protocol_version = self
             .client
-            .runtime_adapter
+            .epoch_manager
             .get_epoch_protocol_version(&head.epoch_id)
             .into_chain_error()?;
 
@@ -700,7 +705,11 @@ impl Handler<WithSpanContext<Status>> for ClientActor {
                 sync_status: format!(
                     "{} ({})",
                     self.client.sync_status.as_variant_name().to_string(),
-                    display_sync_status(&self.client.sync_status, &self.client.chain.head()?,),
+                    display_sync_status(
+                        &self.client.sync_status,
+                        &self.client.chain.head()?,
+                        &self.client.config.state_sync.sync,
+                    ),
                 ),
                 catchup_status: self.client.get_catchup_status()?,
                 current_head_status: head.clone().into(),
@@ -888,7 +897,7 @@ impl ClientActor {
         // Announce AccountId if client is becoming a validator soon.
         let next_epoch_id = unwrap_or_return!(self
             .client
-            .runtime_adapter
+            .epoch_manager
             .get_next_epoch_id_from_prev_block(&prev_block_hash));
 
         // Check client is part of the futures validators
@@ -1014,14 +1023,14 @@ impl ClientActor {
         );
 
         let epoch_id =
-            self.client.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash)?;
+            self.client.epoch_manager.get_epoch_id_from_prev_block(&head.last_block_hash)?;
         let log_block_production_info =
-            if self.client.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)? {
+            if self.client.epoch_manager.is_next_block_epoch_start(&head.last_block_hash)? {
                 true
             } else {
                 // the next block is still the same epoch
                 let epoch_start_height =
-                    self.client.runtime_adapter.get_epoch_start_height(&head.last_block_hash)?;
+                    self.client.epoch_manager.get_epoch_start_height(&head.last_block_hash)?;
                 latest_known.height - epoch_start_height < EPOCH_START_INFO_BLOCKS
             };
 
@@ -1041,7 +1050,7 @@ impl ClientActor {
         // For debug purpose, we record the approvals we have seen so far to the future blocks
         for height in latest_known.height + 1..=self.client.doomslug.get_largest_approval_height() {
             let next_block_producer_account =
-                self.client.runtime_adapter.get_block_producer(&epoch_id, height)?;
+                self.client.epoch_manager.get_block_producer(&epoch_id, height)?;
 
             if me == next_block_producer_account {
                 self.client.block_production_info.record_approvals(
@@ -1055,7 +1064,7 @@ impl ClientActor {
             latest_known.height + 1..=self.client.doomslug.get_largest_height_crossing_threshold()
         {
             let next_block_producer_account =
-                self.client.runtime_adapter.get_block_producer(&epoch_id, height)?;
+                self.client.epoch_manager.get_block_producer(&epoch_id, height)?;
 
             if me == next_block_producer_account {
                 let num_chunks = self
@@ -1063,7 +1072,7 @@ impl ClientActor {
                     .num_chunk_headers_ready_for_inclusion(&epoch_id, &head.last_block_hash);
                 let have_all_chunks = head.height == 0
                     || num_chunks as u64
-                        == self.client.runtime_adapter.num_shards(&epoch_id).unwrap();
+                        == self.client.epoch_manager.num_shards(&epoch_id).unwrap();
 
                 if self.client.doomslug.ready_to_produce_block(
                     StaticClock::instant(),
@@ -1320,10 +1329,10 @@ impl ClientActor {
             .map_or(0, |block| block.header().height());
 
         let epoch_height =
-            self.client.runtime_adapter.get_epoch_height_from_prev_block(block.hash()).unwrap_or(0);
+            self.client.epoch_manager.get_epoch_height_from_prev_block(block.hash()).unwrap_or(0);
         let epoch_start_height = self
             .client
-            .runtime_adapter
+            .epoch_manager
             .get_epoch_start_height(&last_final_hash)
             .unwrap_or(last_final_block_height);
         let last_final_block_height_in_epoch =
@@ -1368,7 +1377,7 @@ impl ClientActor {
 
     fn receive_headers(&mut self, headers: Vec<BlockHeader>, peer_id: PeerId) -> bool {
         info!(target: "client", "Received {} block headers from {}", headers.len(), peer_id);
-        if headers.len() == 0 {
+        if headers.is_empty() {
             return true;
         }
         info!(target: "client", "Received block headers from height {} to {}", headers.first().unwrap().height(), headers.last().unwrap().height());
@@ -1430,6 +1439,9 @@ impl ClientActor {
     }
 
     fn start_flat_storage_creation(&mut self, ctx: &mut Context<ClientActor>) {
+        if !self.client.config.flat_storage_creation_enabled {
+            return;
+        }
         match self.client.run_flat_storage_creation_step() {
             Ok(false) => {}
             Ok(true) => {
@@ -1650,14 +1662,14 @@ impl ClientActor {
                     let epoch_id =
                         self.client.chain.get_block_header(&sync_hash).unwrap().epoch_id().clone();
                     let shards_to_sync =
-                        (0..self.client.runtime_adapter.num_shards(&epoch_id).unwrap())
+                        (0..self.client.epoch_manager.num_shards(&epoch_id).unwrap())
                             .filter(|x| {
                                 cares_about_shard_this_or_next_epoch(
                                     me.as_ref(),
                                     &prev_hash,
                                     *x,
                                     true,
-                                    self.client.runtime_adapter.as_ref(),
+                                    &self.client.shard_tracker,
                                 )
                             })
                             .collect();
@@ -1673,7 +1685,7 @@ impl ClientActor {
                         sync_hash,
                         &mut new_shard_sync,
                         &mut self.client.chain,
-                        &self.client.runtime_adapter,
+                        self.client.epoch_manager.as_ref(),
                         &self.network_info.highest_height_peers,
                         shards_to_sync,
                         &self.state_parts_task_scheduler,
@@ -1761,13 +1773,13 @@ impl SyncJobsActor {
         msg: &ApplyStatePartsRequest,
     ) -> Result<(), near_chain_primitives::error::Error> {
         let _span = tracing::debug_span!(target: "client", "apply_parts").entered();
-        let store = msg.runtime.store();
+        let store = msg.runtime_adapter.store();
 
         for part_id in 0..msg.num_parts {
             let key = StatePartKey(msg.sync_hash, msg.shard_id, part_id).try_to_vec()?;
             let part = store.get(DBCol::StateParts, &key)?.unwrap();
 
-            msg.runtime.apply_state_part(
+            msg.runtime_adapter.apply_state_part(
                 msg.shard_id,
                 &msg.state_root,
                 PartId::new(part_id, msg.num_parts),
@@ -1871,7 +1883,7 @@ impl Handler<WithSpanContext<StateSplitRequest>> for SyncJobsActor {
         _: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
-        let results = msg.runtime.build_state_for_split_shards(
+        let results = msg.runtime_adapter.build_state_for_split_shards(
             msg.shard_uid,
             &msg.state_root,
             &msg.next_epoch_shard_layout,
@@ -1963,7 +1975,9 @@ pub fn random_seed_from_thread() -> RngSeed {
 pub fn start_client(
     client_config: ClientConfig,
     chain_genesis: ChainGenesis,
-    runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
+    epoch_manager: Arc<dyn EpochManagerAdapter>,
+    shard_tracker: ShardTracker,
+    runtime: Arc<dyn RuntimeAdapter>,
     node_id: PeerId,
     network_adapter: PeerManagerAdapter,
     shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
@@ -1979,7 +1993,9 @@ pub fn start_client(
     let client = Client::new(
         client_config.clone(),
         chain_genesis,
-        runtime_adapter,
+        epoch_manager,
+        shard_tracker,
+        runtime,
         network_adapter.clone(),
         shards_manager_adapter,
         validator_signer.clone(),

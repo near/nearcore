@@ -6,7 +6,7 @@ use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
 use near_chain_primitives::error::EpochErrorResultToChainError;
 use near_crypto::PublicKey;
-use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
@@ -29,32 +29,27 @@ fn is_on_current_chain(
 
 pub(crate) struct ChainAccess {
     chain: ChainStore,
+    epoch_manager: Arc<EpochManagerHandle>,
     runtime: Arc<NightshadeRuntime>,
 }
 
 impl ChainAccess {
     pub(crate) fn new<P: AsRef<Path>>(home: P) -> anyhow::Result<Self> {
-        let config =
+        let mut config =
             nearcore::config::load_config(home.as_ref(), GenesisValidationMode::UnsafeFast)
                 .with_context(|| format!("Error loading config from {:?}", home.as_ref()))?;
-        // leave it ReadWrite since otherwise there are problems with the compiled contract cache
-        let store_opener = near_store::NodeStorage::opener(
-            home.as_ref(),
-            config.config.archive,
-            &config.config.store,
-            None,
-        );
-        let store = store_opener
-            .open()
-            .with_context(|| format!("Error opening store in {:?}", home.as_ref()))?
-            .get_hot_store();
+        let node_storage =
+            nearcore::open_storage(home.as_ref(), &mut config).context("failed opening storage")?;
+        let store = node_storage.get_hot_store();
         let chain = ChainStore::new(
             store.clone(),
             config.genesis.config.genesis_height,
             config.client_config.save_trie_changes,
         );
-        let runtime = NightshadeRuntime::from_config(home.as_ref(), store, &config);
-        Ok(Self { chain, runtime })
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &config.genesis.config);
+        let runtime =
+            NightshadeRuntime::from_config(home.as_ref(), store, &config, epoch_manager.clone());
+        Ok(Self { chain, epoch_manager, runtime })
     }
 }
 
@@ -193,11 +188,11 @@ impl crate::ChainAccess for ChainAccess {
         let mut ret = Vec::new();
         let header = self.chain.get_block_header(block_hash)?;
         let shard_id = self
-            .runtime
+            .epoch_manager
             .account_id_to_shard_id(account_id, header.epoch_id())
             .into_chain_error()?;
         let shard_uid =
-            self.runtime.shard_id_to_uid(shard_id, header.epoch_id()).into_chain_error()?;
+            self.epoch_manager.shard_id_to_uid(shard_id, header.epoch_id()).into_chain_error()?;
         let chunk_extra = self.chain.get_chunk_extra(header.hash(), &shard_uid)?;
         match self
             .runtime

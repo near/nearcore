@@ -23,7 +23,8 @@ use wasmer_engine::Executable;
 
 #[test]
 fn test_caches_compilation_error() {
-    with_vm_variants(|vm_kind: VMKind| {
+    let config = VMConfig::test();
+    with_vm_variants(&config, |vm_kind: VMKind| {
         match vm_kind {
             VMKind::Wasmer0 | VMKind::Wasmer2 | VMKind::NearVm => {}
             VMKind::Wasmtime => return,
@@ -33,12 +34,12 @@ fn test_caches_compilation_error() {
         let terragas = 1000000000000u64;
         assert_eq!(cache.len(), 0);
         let outcome1 =
-            make_cached_contract_call_vm(&cache, &code, "method_name1", terragas, vm_kind)
+            make_cached_contract_call_vm(&config, &cache, &code, "method_name1", terragas, vm_kind)
                 .expect("bad failure");
         println!("{:?}", cache);
         assert_eq!(cache.len(), 1);
         let outcome2 =
-            make_cached_contract_call_vm(&cache, &code, "method_name2", terragas, vm_kind)
+            make_cached_contract_call_vm(&config, &cache, &code, "method_name2", terragas, vm_kind)
                 .expect("bad failure");
         assert_eq!(outcome1.aborted.as_ref(), outcome2.aborted.as_ref());
     })
@@ -46,7 +47,8 @@ fn test_caches_compilation_error() {
 
 #[test]
 fn test_does_not_cache_io_error() {
-    with_vm_variants(|vm_kind: VMKind| {
+    let config = VMConfig::test();
+    with_vm_variants(&config, |vm_kind: VMKind| {
         match vm_kind {
             VMKind::Wasmer0 | VMKind::Wasmer2 | VMKind::NearVm => {}
             VMKind::Wasmtime => return,
@@ -57,14 +59,16 @@ fn test_does_not_cache_io_error() {
         let mut cache = FaultingCompiledContractCache::default();
 
         cache.set_read_fault(true);
-        let result = make_cached_contract_call_vm(&cache, &code, "main", prepaid_gas, vm_kind);
+        let result =
+            make_cached_contract_call_vm(&config, &cache, &code, "main", prepaid_gas, vm_kind);
         assert_matches!(
             result.err(),
             Some(VMRunnerError::CacheError(near_vm_errors::CacheError::ReadError(_)))
         );
 
         cache.set_write_fault(true);
-        let result = make_cached_contract_call_vm(&cache, &code, "main", prepaid_gas, vm_kind);
+        let result =
+            make_cached_contract_call_vm(&config, &cache, &code, "main", prepaid_gas, vm_kind);
         assert_matches!(
             result.err(),
             Some(VMRunnerError::CacheError(near_vm_errors::CacheError::WriteError(_)))
@@ -73,6 +77,7 @@ fn test_does_not_cache_io_error() {
 }
 
 fn make_cached_contract_call_vm(
+    config: &VMConfig,
     cache: &dyn CompiledContractCache,
     code: &[u8],
     method_name: &str,
@@ -81,12 +86,11 @@ fn make_cached_contract_call_vm(
 ) -> VMResult {
     let mut fake_external = MockedExternal::new();
     let mut context = create_context(vec![]);
-    let config = VMConfig::test();
     let fees = RuntimeFeesConfig::test();
     let promise_results = vec![];
     context.prepaid_gas = prepaid_gas;
     let code = ContractCode::new(code.to_vec(), None);
-    let runtime = vm_kind.runtime(config).expect("runtime has not been compiled");
+    let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
     runtime.run(
         &code,
         method_name,
@@ -118,20 +122,21 @@ fn test_wasmer2_artifact_output_stability() {
     ];
     let mut got_prepared_hashes = Vec::with_capacity(seeds.len());
     let compiled_hashes = [
-        9393269650223240896,
-        6124152160101285799,
-        8789306975506976814,
-        11819823914734034238,
-        5479892730668892774,
-        8176904529073798417,
-        345836015667433529,
+        3818562753706235018,
+        11870140033216711259,
+        5923781907461180018,
+        13755860129954519309,
+        4832119422677650601,
+        14075229507958855911,
+        8220837142162862198,
     ];
     let mut got_compiled_hashes = Vec::with_capacity(seeds.len());
     for seed in seeds {
         let contract = ContractCode::new(near_test_contracts::arbitrary_contract(seed), None);
 
         let config = VMConfig::test();
-        let prepared_code = prepare::prepare_contract(contract.code(), &config).unwrap();
+        let prepared_code =
+            prepare::prepare_contract(contract.code(), &config, VMKind::Wasmer2).unwrap();
         let mut hasher = StableHasher::new();
         (&contract.code(), &prepared_code).hash(&mut hasher);
         got_prepared_hashes.push(hasher.finish());

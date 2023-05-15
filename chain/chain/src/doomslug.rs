@@ -752,7 +752,7 @@ mod tests {
 
         // But one second should trigger the skip
         match ds.process_timer(now + Duration::from_millis(1000)) {
-            approvals if approvals.len() == 0 => assert!(false),
+            approvals if approvals.is_empty() => assert!(false),
             approvals => {
                 assert_eq!(approvals[0].inner, ApprovalInner::Skip(1));
                 assert_eq!(approvals[0].target_height, 3);
@@ -782,7 +782,7 @@ mod tests {
         assert_eq!(ds.process_timer(now + Duration::from_millis(199)), vec![]);
 
         match ds.process_timer(now + Duration::from_millis(200)) {
-            approvals if approvals.len() == 0 => assert!(false),
+            approvals if approvals.is_empty() => assert!(false),
             approvals if approvals.len() == 1 => {
                 assert_eq!(approvals[0].inner, ApprovalInner::Skip(3));
                 assert_eq!(approvals[0].target_height, 5);
@@ -797,7 +797,7 @@ mod tests {
         assert_eq!(ds.process_timer(now + Duration::from_millis(499)), vec![]);
 
         match ds.process_timer(now + Duration::from_millis(500)) {
-            approvals if approvals.len() == 0 => assert!(false),
+            approvals if approvals.is_empty() => assert!(false),
             approvals => {
                 assert_eq!(approvals[0].inner, ApprovalInner::Skip(3));
                 assert_eq!(approvals[0].target_height, 6);
@@ -811,7 +811,7 @@ mod tests {
         assert_eq!(ds.process_timer(now + Duration::from_millis(899)), vec![]);
 
         match ds.process_timer(now + Duration::from_millis(900)) {
-            approvals if approvals.len() == 0 => assert!(false),
+            approvals if approvals.is_empty() => assert!(false),
             approvals => {
                 assert_eq!(approvals[0].inner, ApprovalInner::Skip(3));
                 assert_eq!(approvals[0].target_height, 7);
@@ -842,7 +842,7 @@ mod tests {
         assert_eq!(ds.process_timer(now + Duration::from_millis(1099)), vec![]);
 
         match ds.process_timer(now + Duration::from_millis(1100)) {
-            approvals if approvals.len() == 0 => assert!(false),
+            approvals if approvals.is_empty() => assert!(false),
             approvals => {
                 assert_eq!(approvals[0].inner, ApprovalInner::Skip(6));
                 assert_eq!(approvals[0].target_height, 8);

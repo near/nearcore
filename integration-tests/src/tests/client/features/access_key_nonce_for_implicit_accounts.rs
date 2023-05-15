@@ -1,16 +1,14 @@
-use crate::tests::client::process_blocks::{
-    create_nightshade_runtimes, produce_blocks_from_height,
-};
+use crate::tests::client::process_blocks::produce_blocks_from_height;
+use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 use assert_matches::assert_matches;
 use near_async::messaging::CanSend;
 use near_chain::chain::NUM_ORPHAN_ANCESTORS_CHECK;
-use near_chain::{ChainGenesis, Error, Provenance, RuntimeWithEpochManagerAdapter};
+use near_chain::{ChainGenesis, Error, Provenance};
 use near_chain_configs::Genesis;
 use near_chunks::metrics::PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER;
 use near_client::test_utils::{create_chunk_with_transactions, TestEnv};
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, Signer};
-use near_epoch_manager::shard_tracker::TrackedConfig;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::testonly::init_test_logger;
@@ -24,13 +22,11 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
-use near_store::test_utils::create_test_store;
 use nearcore::config::GenesisExt;
 use nearcore::NEAR_BASE;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use std::collections::HashSet;
-use std::path::Path;
 use std::sync::Arc;
 use tracing::debug;
 
@@ -43,7 +39,7 @@ fn check_tx_processing(
     blocks_number: u64,
 ) -> BlockHeight {
     let tx_hash = tx.get_hash();
-    env.clients[0].process_tx(tx, false, false);
+    assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     let next_height = produce_blocks_from_height(env, blocks_number, height);
     let final_outcome = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
     assert_matches!(final_outcome.status, FinalExecutionStatus::SuccessValue(_));
@@ -57,7 +53,8 @@ fn test_transaction_hash_collision() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     let mut env = TestEnv::builder(ChainGenesis::test())
-        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+        .real_epoch_managers(&genesis.config)
+        .nightshade_runtimes(&genesis)
         .build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
 
@@ -80,8 +77,14 @@ fn test_transaction_hash_collision() {
         *genesis_block.hash(),
     );
 
-    env.clients[0].process_tx(send_money_tx.clone(), false, false);
-    env.clients[0].process_tx(delete_account_tx, false, false);
+    assert_eq!(
+        env.clients[0].process_tx(send_money_tx.clone(), false, false),
+        ProcessTxResponse::ValidTx
+    );
+    assert_eq!(
+        env.clients[0].process_tx(delete_account_tx, false, false),
+        ProcessTxResponse::ValidTx
+    );
 
     for i in 1..4 {
         env.produce_block(0, i);
@@ -96,14 +99,18 @@ fn test_transaction_hash_collision() {
         &signer0,
         *genesis_block.hash(),
     );
-    let res = env.clients[0].process_tx(create_account_tx, false, false);
-    assert_matches!(res, ProcessTxResponse::ValidTx);
+    assert_eq!(
+        env.clients[0].process_tx(create_account_tx, false, false),
+        ProcessTxResponse::ValidTx
+    );
     for i in 4..8 {
         env.produce_block(0, i);
     }
 
-    let res = env.clients[0].process_tx(send_money_tx, false, false);
-    assert_matches!(res, ProcessTxResponse::InvalidTx(_));
+    assert_matches!(
+        env.clients[0].process_tx(send_money_tx, false, false),
+        ProcessTxResponse::InvalidTx(_)
+    );
 }
 
 /// Helper for checking that duplicate transactions from implicit accounts are properly rejected.
@@ -118,7 +125,8 @@ fn get_status_of_tx_hash_collision_for_implicit_account(
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = protocol_version;
     let mut env = TestEnv::builder(ChainGenesis::test())
-        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+        .real_epoch_managers(&genesis.config)
+        .nightshade_runtimes(&genesis)
         .build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
 
@@ -179,7 +187,7 @@ fn get_status_of_tx_hash_collision_for_implicit_account(
         100,
         *block.hash(),
     );
-    let status = env.clients[0].process_tx(send_money_from_implicit_account_tx, false, false);
+    let response = env.clients[0].process_tx(send_money_from_implicit_account_tx, false, false);
 
     // Check that sending money from implicit account with correct nonce is still valid.
     let send_money_from_implicit_account_tx = SignedTransaction::send_money(
@@ -192,7 +200,7 @@ fn get_status_of_tx_hash_collision_for_implicit_account(
     );
     check_tx_processing(&mut env, send_money_from_implicit_account_tx, height, blocks_number);
 
-    status
+    response
 }
 
 /// Test that duplicate transactions from implicit accounts are properly rejected.
@@ -223,7 +231,8 @@ fn test_chunk_transaction_validity() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     let mut env = TestEnv::builder(ChainGenesis::test())
-        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+        .real_epoch_managers(&genesis.config)
+        .nightshade_runtimes(&genesis)
         .build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
@@ -259,7 +268,8 @@ fn test_transaction_nonce_too_large() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     let mut env = TestEnv::builder(ChainGenesis::test())
-        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+        .real_epoch_managers(&genesis.config)
+        .nightshade_runtimes(&genesis)
         .build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
@@ -272,8 +282,10 @@ fn test_transaction_nonce_too_large() {
         100,
         *genesis_block.hash(),
     );
-    let res = env.clients[0].process_tx(tx, false, false);
-    assert_matches!(res, ProcessTxResponse::InvalidTx(InvalidTxError::InvalidAccessKeyError(_)));
+    assert_matches!(
+        env.clients[0].process_tx(tx, false, false),
+        ProcessTxResponse::InvalidTx(InvalidTxError::InvalidAccessKeyError(_))
+    );
 }
 
 /// This test tests the logic regarding requesting chunks for orphan.
@@ -321,21 +333,15 @@ fn test_request_chunks_for_orphan() {
     genesis.config.num_block_producer_seats_per_shard =
         vec![num_validators, num_validators, num_validators, num_validators];
     let chain_genesis = ChainGenesis::new(&genesis);
-    let runtimes: Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> = (0..2)
-        .map(|_| {
-            nearcore::NightshadeRuntime::test_with_runtime_config_store(
-                Path::new("."),
-                create_test_store(),
-                &genesis,
-                TrackedConfig::AllShards,
-                RuntimeConfigStore::test(),
-            ) as Arc<dyn RuntimeWithEpochManagerAdapter>
-        })
-        .collect();
     let mut env = TestEnv::builder(chain_genesis)
         .clients_count(num_clients)
         .validator_seats(num_validators as usize)
-        .runtime_adapters(runtimes)
+        .real_epoch_managers(&genesis.config)
+        .track_all_shards()
+        .nightshade_runtimes_with_runtime_config_store(
+            &genesis,
+            vec![RuntimeConfigStore::test(), RuntimeConfigStore::test()],
+        )
         .build();
 
     let mut blocks = vec![];
@@ -468,21 +474,12 @@ fn test_processing_chunks_sanity() {
     genesis.config.num_block_producer_seats_per_shard =
         vec![num_validators, num_validators, num_validators, num_validators];
     let chain_genesis = ChainGenesis::new(&genesis);
-    let runtimes: Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> = (0..2)
-        .map(|_| {
-            nearcore::NightshadeRuntime::test_with_runtime_config_store(
-                Path::new("."),
-                create_test_store(),
-                &genesis,
-                TrackedConfig::AllShards,
-                RuntimeConfigStore::test(),
-            ) as Arc<dyn RuntimeWithEpochManagerAdapter>
-        })
-        .collect();
     let mut env = TestEnv::builder(chain_genesis)
         .clients_count(num_clients)
         .validator_seats(num_validators as usize)
-        .runtime_adapters(runtimes)
+        .real_epoch_managers(&genesis.config)
+        .track_all_shards()
+        .nightshade_runtimes(&genesis)
         .build();
 
     let mut blocks = vec![];
@@ -577,21 +574,12 @@ impl ChunkForwardingOptimizationTestData {
             config.num_block_producer_seats = num_block_producers as u64;
         }
         let chain_genesis = ChainGenesis::new(&genesis);
-        let runtimes: Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> = (0..num_clients)
-            .map(|_| {
-                nearcore::NightshadeRuntime::test_with_runtime_config_store(
-                    Path::new("."),
-                    create_test_store(),
-                    &genesis,
-                    TrackedConfig::AllShards,
-                    RuntimeConfigStore::test(),
-                ) as Arc<dyn RuntimeWithEpochManagerAdapter>
-            })
-            .collect();
         let env = TestEnv::builder(chain_genesis)
             .clients_count(num_clients)
             .validator_seats(num_validators as usize)
-            .runtime_adapters(runtimes)
+            .real_epoch_managers(&genesis.config)
+            .track_all_shards()
+            .nightshade_runtimes(&genesis)
             .build();
 
         ChunkForwardingOptimizationTestData {
@@ -803,21 +791,12 @@ fn test_processing_blocks_async() {
     genesis.config.num_block_producer_seats_per_shard =
         vec![num_validators, num_validators, num_validators, num_validators];
     let chain_genesis = ChainGenesis::new(&genesis);
-    let runtimes: Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> = (0..2)
-        .map(|_| {
-            nearcore::NightshadeRuntime::test_with_runtime_config_store(
-                Path::new("."),
-                create_test_store(),
-                &genesis,
-                TrackedConfig::AllShards,
-                RuntimeConfigStore::test(),
-            ) as Arc<dyn RuntimeWithEpochManagerAdapter>
-        })
-        .collect();
     let mut env = TestEnv::builder(chain_genesis)
         .clients_count(num_clients)
         .validator_seats(num_validators as usize)
-        .runtime_adapters(runtimes)
+        .real_epoch_managers(&genesis.config)
+        .track_all_shards()
+        .nightshade_runtimes(&genesis)
         .build();
 
     let mut blocks = vec![];

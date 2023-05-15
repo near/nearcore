@@ -1,7 +1,9 @@
-use crate::tests::client::process_blocks::{create_nightshade_runtimes, deploy_test_contract};
+use crate::tests::client::process_blocks::deploy_test_contract;
+use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
+use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, FunctionCallAction, Transaction};
@@ -26,7 +28,8 @@ fn test_wasmer2_upgrade() {
         genesis.config.protocol_version = old_protocol_version;
         let chain_genesis = ChainGenesis::new(&genesis);
         let mut env = TestEnv::builder(chain_genesis)
-            .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+            .real_epoch_managers(&genesis.config)
+            .nightshade_runtimes(&genesis)
             .build();
 
         deploy_test_contract(
@@ -60,7 +63,10 @@ fn test_wasmer2_upgrade() {
         let tip = env.clients[0].chain.head().unwrap();
         let signed_transaction =
             Transaction { nonce: 10, block_hash: tip.last_block_hash, ..tx.clone() }.sign(&signer);
-        env.clients[0].process_tx(signed_transaction, false, false);
+        assert_eq!(
+            env.clients[0].process_tx(signed_transaction, false, false),
+            ProcessTxResponse::ValidTx
+        );
         for i in 0..3 {
             env.produce_block(0, tip.height + i + 1);
         }
@@ -74,7 +80,10 @@ fn test_wasmer2_upgrade() {
         let tip = env.clients[0].chain.head().unwrap();
         let signed_transaction =
             Transaction { nonce: 11, block_hash: tip.last_block_hash, ..tx }.sign(&signer);
-        env.clients[0].process_tx(signed_transaction, false, false);
+        assert_eq!(
+            env.clients[0].process_tx(signed_transaction, false, false),
+            ProcessTxResponse::ValidTx
+        );
         for i in 0..3 {
             env.produce_block(0, tip.height + i + 1);
         }

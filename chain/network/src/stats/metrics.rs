@@ -2,6 +2,7 @@ use crate::network_protocol::Encoding;
 use crate::network_protocol::{RoutedMessageBody, RoutedMessageV2};
 use crate::tcp;
 use crate::types::PeerType;
+use near_async::time;
 use near_o11y::metrics::prometheus;
 use near_o11y::metrics::{
     exponential_buckets, try_create_histogram, try_create_histogram_vec,
@@ -9,7 +10,6 @@ use near_o11y::metrics::{
     try_create_int_gauge, try_create_int_gauge_vec, Histogram, HistogramVec, IntCounter,
     IntCounterVec, IntGauge, IntGaugeVec, MetricVec, MetricVecBuilder,
 };
-use near_primitives::time;
 use once_cell::sync::Lazy;
 
 /// Labels represents a schema of an IntGaugeVec metric.

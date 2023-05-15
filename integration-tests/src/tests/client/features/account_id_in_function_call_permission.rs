@@ -1,18 +1,16 @@
-use near_chain::{ChainGenesis, RuntimeWithEpochManagerAdapter};
+use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, Signer};
-use near_epoch_manager::shard_tracker::TrackedConfig;
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::errors::{ActionsValidationError, InvalidTxError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::transaction::{Action, AddKeyAction, Transaction};
-use near_store::test_utils::create_test_store;
 use nearcore::config::GenesisExt;
-use std::path::Path;
-use std::sync::Arc;
+
+use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 
 #[test]
 fn test_account_id_in_function_call_permission_upgrade() {
@@ -35,13 +33,11 @@ fn test_account_id_in_function_call_permission_upgrade() {
         genesis.config.protocol_version = old_protocol_version;
         let chain_genesis = ChainGenesis::new(&genesis);
         TestEnv::builder(chain_genesis)
-            .runtime_adapters(vec![nearcore::NightshadeRuntime::test_with_runtime_config_store(
-                Path::new("../../../.."),
-                create_test_store(),
+            .real_epoch_managers(&genesis.config)
+            .nightshade_runtimes_with_runtime_config_store(
                 &genesis,
-                TrackedConfig::new_empty(),
-                RuntimeConfigStore::new(None),
-            ) as Arc<dyn RuntimeWithEpochManagerAdapter>])
+                vec![RuntimeConfigStore::new(None)],
+            )
             .build()
     };
 
@@ -70,8 +66,10 @@ fn test_account_id_in_function_call_permission_upgrade() {
         let tip = env.clients[0].chain.head().unwrap();
         let signed_transaction =
             Transaction { nonce: 10, block_hash: tip.last_block_hash, ..tx.clone() }.sign(&signer);
-        let res = env.clients[0].process_tx(signed_transaction, false, false);
-        assert_eq!(res, ProcessTxResponse::ValidTx);
+        assert_eq!(
+            env.clients[0].process_tx(signed_transaction, false, false),
+            ProcessTxResponse::ValidTx
+        );
         for i in 0..3 {
             env.produce_block(0, tip.height + i + 1);
         }
@@ -84,9 +82,8 @@ fn test_account_id_in_function_call_permission_upgrade() {
         let tip = env.clients[0].chain.head().unwrap();
         let signed_transaction =
             Transaction { nonce: 11, block_hash: tip.last_block_hash, ..tx }.sign(&signer);
-        let res = env.clients[0].process_tx(signed_transaction, false, false);
         assert_eq!(
-            res,
+            env.clients[0].process_tx(signed_transaction, false, false),
             ProcessTxResponse::InvalidTx(InvalidTxError::ActionsValidation(
                 ActionsValidationError::InvalidAccountId { account_id: "#".to_string() }
             ))
@@ -100,13 +97,11 @@ fn test_very_long_account_id() {
         let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         let chain_genesis = ChainGenesis::new(&genesis);
         TestEnv::builder(chain_genesis)
-            .runtime_adapters(vec![nearcore::NightshadeRuntime::test_with_runtime_config_store(
-                Path::new("../../../.."),
-                create_test_store(),
+            .real_epoch_managers(&genesis.config)
+            .nightshade_runtimes_with_runtime_config_store(
                 &genesis,
-                TrackedConfig::new_empty(),
-                RuntimeConfigStore::new(None),
-            ) as Arc<dyn RuntimeWithEpochManagerAdapter>])
+                vec![RuntimeConfigStore::new(None)],
+            )
             .build()
     };
 
@@ -132,9 +127,8 @@ fn test_very_long_account_id() {
     }
     .sign(&signer);
 
-    let res = env.clients[0].process_tx(tx, false, false);
     assert_eq!(
-        res,
+        env.clients[0].process_tx(tx, false, false),
         ProcessTxResponse::InvalidTx(InvalidTxError::ActionsValidation(
             ActionsValidationError::InvalidAccountId { account_id: "A".repeat(128) }
         ))
