@@ -1,21 +1,21 @@
 //! Define `UniversalArtifact` to allow compiling and instantiating to be
 //! done as separate steps.
 
-use std::collections::BTreeMap;
-use std::convert::TryFrom;
-use std::sync::Arc;
-use wasmer_engine::InstantiationError;
-use wasmer_types::entity::{BoxedSlice, EntityRef, PrimaryMap};
-use wasmer_types::{
+use near_vm_engine::InstantiationError;
+use near_vm_types::entity::{BoxedSlice, EntityRef, PrimaryMap};
+use near_vm_types::{
     DataIndex, ElemIndex, FunctionIndex, GlobalInit, GlobalType, ImportCounts, LocalFunctionIndex,
     LocalGlobalIndex, MemoryType, OwnedDataInitializer, OwnedTableInitializer, SignatureIndex,
     TableType,
 };
-use wasmer_vm::{
+use near_vm_vm::{
     Artifact, FunctionBodyPtr, FunctionExtent, InstanceHandle, Instantiatable, MemoryStyle,
     Resolver, TableStyle, Tunables, VMImport, VMImportType, VMLocalFunction, VMOffsets,
     VMSharedSignatureIndex,
 };
+use std::collections::BTreeMap;
+use std::convert::TryFrom;
+use std::sync::Arc;
 
 /// A compiled wasm module, containing everything necessary for instantiation.
 pub struct UniversalArtifact {
@@ -27,7 +27,7 @@ pub struct UniversalArtifact {
     pub(crate) imports: Vec<VMImport>,
     pub(crate) dynamic_function_trampolines: BoxedSlice<FunctionIndex, FunctionBodyPtr>,
     pub(crate) functions: BoxedSlice<LocalFunctionIndex, VMLocalFunction>,
-    pub(crate) exports: BTreeMap<String, wasmer_types::ExportIndex>,
+    pub(crate) exports: BTreeMap<String, near_vm_types::ExportIndex>,
     pub(crate) signatures: BoxedSlice<SignatureIndex, VMSharedSignatureIndex>,
     pub(crate) local_memories: Vec<(MemoryType, MemoryStyle)>,
     pub(crate) data_segments: Vec<OwnedDataInitializer>,
@@ -60,10 +60,10 @@ impl Instantiatable for UniversalArtifact {
         tunables: &dyn Tunables,
         resolver: &dyn Resolver,
         host_state: Box<dyn std::any::Any>,
-        config: wasmer_types::InstanceConfig,
+        config: near_vm_types::InstanceConfig,
     ) -> Result<InstanceHandle, Self::Error> {
         let (imports, import_function_envs) = {
-            let mut imports = wasmer_engine::resolve_imports(
+            let mut imports = near_vm_engine::resolve_imports(
                 &self.engine,
                 resolver,
                 &self.import_counts,
@@ -80,16 +80,16 @@ impl Instantiatable for UniversalArtifact {
         };
 
         let (allocator, memory_definition_locations, table_definition_locations) =
-            wasmer_vm::InstanceAllocator::new(self.vmoffsets.clone());
+            near_vm_vm::InstanceAllocator::new(self.vmoffsets.clone());
 
         // Memories
-        let mut memories: PrimaryMap<wasmer_types::LocalMemoryIndex, _> =
+        let mut memories: PrimaryMap<near_vm_types::LocalMemoryIndex, _> =
             PrimaryMap::with_capacity(self.local_memories.len());
         for (idx, (ty, style)) in (self.import_counts.memories..).zip(self.local_memories.iter()) {
             let memory = tunables
                 .create_vm_memory(&ty, &style, memory_definition_locations[idx as usize])
                 .map_err(|e| {
-                    InstantiationError::Link(wasmer_engine::LinkError::Resource(format!(
+                    InstantiationError::Link(near_vm_engine::LinkError::Resource(format!(
                         "Failed to create memory: {}",
                         e
                     )))
@@ -98,12 +98,12 @@ impl Instantiatable for UniversalArtifact {
         }
 
         // Tables
-        let mut tables: PrimaryMap<wasmer_types::LocalTableIndex, _> =
+        let mut tables: PrimaryMap<near_vm_types::LocalTableIndex, _> =
             PrimaryMap::with_capacity(self.local_tables.len());
         for (idx, (ty, style)) in (self.import_counts.tables..).zip(self.local_tables.iter()) {
             let table = tunables
                 .create_vm_table(ty, style, table_definition_locations[idx as usize])
-                .map_err(|e| InstantiationError::Link(wasmer_engine::LinkError::Resource(e)))?;
+                .map_err(|e| InstantiationError::Link(near_vm_engine::LinkError::Resource(e)))?;
             tables.push(table);
         }
 
@@ -111,7 +111,7 @@ impl Instantiatable for UniversalArtifact {
         let mut globals =
             PrimaryMap::<LocalGlobalIndex, _>::with_capacity(self.local_globals.len());
         for (ty, _) in self.local_globals.iter() {
-            globals.push(Arc::new(wasmer_vm::Global::new(*ty)));
+            globals.push(Arc::new(near_vm_vm::Global::new(*ty)));
         }
 
         let passive_data = self.passive_data.clone();
@@ -131,7 +131,7 @@ impl Instantiatable for UniversalArtifact {
 }
 
 impl Artifact for UniversalArtifact {
-    fn offsets(&self) -> &wasmer_vm::VMOffsets {
+    fn offsets(&self) -> &near_vm_vm::VMOffsets {
         &self.vmoffsets
     }
 
@@ -163,11 +163,11 @@ impl Artifact for UniversalArtifact {
         self.start_function
     }
 
-    fn export_field(&self, name: &str) -> Option<wasmer_types::ExportIndex> {
+    fn export_field(&self, name: &str) -> Option<near_vm_types::ExportIndex> {
         self.exports.get(name).cloned()
     }
 
-    fn signatures(&self) -> &[wasmer_vm::VMSharedSignatureIndex] {
+    fn signatures(&self) -> &[near_vm_vm::VMSharedSignatureIndex] {
         self.signatures.values().as_slice()
     }
 

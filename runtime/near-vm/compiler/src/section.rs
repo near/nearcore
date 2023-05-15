@@ -7,7 +7,7 @@
 
 use crate::lib::std::vec::Vec;
 use crate::Relocation;
-use wasmer_types::entity::entity_impl;
+use near_vm_types::entity::entity_impl;
 
 /// Index type of a Section defined inside a WebAssembly `Compilation`.
 #[derive(rkyv::Serialize, rkyv::Deserialize, rkyv::Archive)]

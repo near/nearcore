@@ -5,7 +5,7 @@
 //! [Learn more](https://en.wikipedia.org/wiki/Branch_table).
 
 use super::CodeOffset;
-use wasmer_types::entity::{entity_impl, SecondaryMap};
+use near_vm_types::entity::{entity_impl, SecondaryMap};
 
 /// An opaque reference to a [jump table](https://en.wikipedia.org/wiki/Branch_table).
 ///

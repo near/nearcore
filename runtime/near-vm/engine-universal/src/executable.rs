@@ -1,24 +1,24 @@
 use std::sync::Arc;
 
 use enumset::EnumSet;
+use near_vm_compiler::{
+    CompileError, CompileModuleInfo, CompiledFunctionFrameInfo, CpuFeature, CustomSection, Dwarf,
+    Features, FunctionBody, JumpTableOffsets, Relocation, SectionIndex, TrampolinesSection,
+};
+use near_vm_engine::{DeserializeError, Engine};
+use near_vm_types::entity::PrimaryMap;
+use near_vm_types::{
+    ExportIndex, FunctionIndex, ImportIndex, LocalFunctionIndex, OwnedDataInitializer,
+    SignatureIndex,
+};
+use near_vm_vm::Artifact;
 use rkyv::de::deserializers::SharedDeserializeMap;
 use rkyv::ser::serializers::{
     AllocScratchError, AllocSerializer, CompositeSerializerError, SharedSerializeMapError,
 };
-use wasmer_compiler::{
-    CompileError, CompileModuleInfo, CompiledFunctionFrameInfo, CpuFeature, CustomSection, Dwarf,
-    Features, FunctionBody, JumpTableOffsets, Relocation, SectionIndex, TrampolinesSection,
-};
-use wasmer_engine::{DeserializeError, Engine};
-use wasmer_types::entity::PrimaryMap;
-use wasmer_types::{
-    ExportIndex, FunctionIndex, ImportIndex, LocalFunctionIndex, OwnedDataInitializer,
-    SignatureIndex,
-};
-use wasmer_vm::Artifact;
 
 const MAGIC_HEADER: [u8; 32] = {
-    let value = *b"\0wasmer-universal\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF";
+    let value = *b"\0nearvm-universal\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF";
     let _length_must_be_multiple_of_16: bool = [true][value.len() % 16];
     value
 };
@@ -41,7 +41,7 @@ impl<'a> UniversalExecutableRef<'a> {
     /// Verify the buffer for whether it is a valid `UniversalExecutable`.
     pub fn verify_serialized(data: &[u8]) -> Result<(), &'static str> {
         if !data.starts_with(&MAGIC_HEADER) {
-            return Err("the provided bytes are not wasmer-universal");
+            return Err("the provided bytes are not nearvm-universal");
         }
         if data.len() < MAGIC_HEADER.len() + 8 {
             return Err("the data buffer is too small to be valid");
@@ -126,7 +126,7 @@ pub enum ExecutableSerializeError {
     ),
 }
 
-impl wasmer_engine::Executable for UniversalExecutable {
+impl near_vm_engine::Executable for UniversalExecutable {
     fn load(
         &self,
         engine: &(dyn Engine + 'static),
@@ -188,7 +188,7 @@ impl wasmer_engine::Executable for UniversalExecutable {
     }
 }
 
-impl<'a> wasmer_engine::Executable for UniversalExecutableRef<'a> {
+impl<'a> near_vm_engine::Executable for UniversalExecutableRef<'a> {
     fn load(
         &self,
         engine: &(dyn Engine + 'static),

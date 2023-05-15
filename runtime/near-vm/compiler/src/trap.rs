@@ -1,5 +1,5 @@
 use crate::CodeOffset;
-use wasmer_vm::TrapCode;
+use near_vm_vm::TrapCode;
 
 /// Information about trap.
 #[derive(rkyv::Serialize, rkyv::Deserialize, rkyv::Archive, Clone, Debug, PartialEq, Eq)]

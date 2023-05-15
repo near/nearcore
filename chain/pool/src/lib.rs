@@ -213,6 +213,13 @@ impl<'a> PoolIterator for PoolIteratorWrapper<'a> {
             self.pool.last_used_key = key;
             let mut transactions =
                 self.pool.transactions.remove(&key).expect("just checked existence");
+            // See the comment in `insert_transaction` above where we increase the size for
+            // reasoning why panicing here catches a logic error.
+            self.pool.total_transaction_size = self
+                .pool
+                .total_transaction_size
+                .checked_sub(transactions.iter().map(|tx| tx.get_size()).sum())
+                .expect("Total transaction size dropped below zero");
             transactions.sort_by_key(|st| std::cmp::Reverse(st.transaction.nonce));
             self.sorted_groups.push_back(TransactionGroup {
                 key,
@@ -250,6 +257,13 @@ impl<'a> Drop for PoolIteratorWrapper<'a> {
                 }
             }
             if !group.transactions.is_empty() {
+                // See the comment in `insert_transaction` where we increase the size for reasoning
+                // why panicing here catches a logic error.
+                self.pool.total_transaction_size = self
+                    .pool
+                    .total_transaction_size
+                    .checked_add(group.transactions.iter().map(|tx| tx.get_size()).sum())
+                    .expect("Total transaction size is too large");
                 self.pool.transactions.insert(group.key, group.transactions);
             }
         }
@@ -474,6 +488,8 @@ mod tests {
         assert_eq!(pool.len(), 10);
         let txs = prepare_transactions(&mut pool, 10);
         assert_eq!(txs.len(), 10);
+        assert_eq!(pool.len(), 0);
+        assert_eq!(pool.transaction_size(), 0);
     }
 
     /// Test pool iterator remembers the last key.

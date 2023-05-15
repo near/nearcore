@@ -1,10 +1,10 @@
 // This file contains code from external sources.
 // Attributions: https://github.com/wasmerio/wasmer/blob/master/ATTRIBUTIONS.md
 
+use near_vm_types::entity::PrimaryMap;
+use near_vm_types::{FunctionIndex, ImportIndex, ModuleInfo, SignatureIndex};
 use std::boxed::Box;
 use std::collections::HashMap;
-use wasmer_types::entity::PrimaryMap;
-use wasmer_types::{FunctionIndex, ImportIndex, ModuleInfo, SignatureIndex};
 
 /// Map of signatures to a function's parameter and return types.
 pub(crate) type WasmTypes =
@@ -13,7 +13,7 @@ pub(crate) type WasmTypes =
 /// Contains information decoded from the Wasm module that must be referenced
 /// during each Wasm function's translation.
 ///
-/// This is only for data that is maintained by `wasmer-compiler` itself, as
+/// This is only for data that is maintained by `near-vm-compiler` itself, as
 /// opposed to being maintained by the embedder. Data that is maintained by the
 /// embedder is represented with `ModuleEnvironment`.
 #[derive(Debug)]

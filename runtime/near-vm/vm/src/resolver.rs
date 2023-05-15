@@ -62,7 +62,7 @@ pub struct ExportFunctionMetadata {
     /// Thus, we only bother to store the master copy at all here so that
     /// we can free it.
     ///
-    /// See `wasmer_vm::export::VMFunction::vmctx` for the version of
+    /// See `near_vm_vm::export::VMFunction::vmctx` for the version of
     /// this pointer that is used by the VM when creating an `Instance`.
     pub host_env: *mut std::ffi::c_void,
 

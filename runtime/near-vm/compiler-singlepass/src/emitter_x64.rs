@@ -4,7 +4,7 @@ use dynasmrt::{
     x64::X64Relocation, AssemblyOffset, DynamicLabel, DynasmApi, DynasmLabelApi, VecAssembler,
 };
 use enumset::EnumSet;
-use wasmer_compiler::CpuFeature;
+use near_vm_compiler::CpuFeature;
 
 type Assembler = VecAssembler<X64Relocation>;
 

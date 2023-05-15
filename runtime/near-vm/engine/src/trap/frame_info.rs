@@ -5,17 +5,17 @@
 //!
 //! # Example
 //! ```ignore
-//! use wasmer_vm::{FRAME_INFO};
-//! use wasmer_types::ModuleInfo;
+//! use near_vm_vm::{FRAME_INFO};
+//! use near_vm_types::ModuleInfo;
 //!
 //! let module: ModuleInfo = ...;
 //! FRAME_INFO.register(module, compiled_functions);
 //! ```
+use near_vm_compiler::{CompiledFunctionFrameInfo, SourceLoc, TrapInformation};
+use near_vm_types::entity::{EntityRef, PrimaryMap};
+use near_vm_types::{LocalFunctionIndex, ModuleInfo};
 use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
-use wasmer_compiler::{CompiledFunctionFrameInfo, SourceLoc, TrapInformation};
-use wasmer_types::entity::{EntityRef, PrimaryMap};
-use wasmer_types::{LocalFunctionIndex, ModuleInfo};
 
 lazy_static::lazy_static! {
     /// This is a global cache of backtrace frame information for all active
@@ -207,7 +207,7 @@ impl FrameInfo {
     /// available.
     ///
     /// The name of this function may come from the `name` section of the
-    /// WebAssembly binary, or wasmer may try to infer a better name for it if
+    /// WebAssembly binary, or near_vm may try to infer a better name for it if
     /// not available, for example the name of the export if it's exported.
     ///
     /// This return value is primarily used for debugging and human-readable
