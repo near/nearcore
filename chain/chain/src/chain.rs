@@ -2430,14 +2430,7 @@ impl Chain {
                 let state_dl_info = self.get_state_dl_info(me, block)?;
                 (state_dl_info.is_none(), state_dl_info)
             } else {
-                let mut b = self.first_block.lock().unwrap();
-                if *b {
-                    // TODO: Testing only
-                    *b = false;
-                    (self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)?, None, true)
-                } else {
-                    (self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)?, None, false)
-                }
+                (self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)?, None, false)
             };
 
         self.check_if_challenged_block_on_chain(block.header())?;
