@@ -1,6 +1,7 @@
 use crate::test_utils::{create_tries_complex, gen_changes, simplify_changes, test_populate_trie};
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieStorage};
 use crate::{PartialStorage, Trie, TrieUpdate};
+use near_primitives::challenge::PartialState;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::shard_layout::ShardUId;
@@ -22,8 +23,8 @@ pub struct IncompletePartialStorage {
 
 impl IncompletePartialStorage {
     pub fn new(partial_storage: PartialStorage, nodes_count_to_fail_at: usize) -> Self {
-        let recorded_storage =
-            partial_storage.nodes.0.into_iter().map(|value| (hash(&value), value)).collect();
+        let PartialState::TrieValues(nodes) = partial_storage.nodes;
+        let recorded_storage = nodes.into_iter().map(|value| (hash(&value), value)).collect();
         Self {
             recorded_storage,
             visited_nodes: Default::default(),
@@ -73,7 +74,7 @@ where
     Out: PartialEq + Debug,
 {
     let (storage, trie, expected) = setup_storage(trie, &mut test);
-    let size = storage.nodes.0.len();
+    let size = storage.nodes.len();
     print!("Test touches {} nodes, expected result {:?}...", size, expected);
     for i in 0..(size + 1) {
         let storage = IncompletePartialStorage::new(storage.clone(), i);

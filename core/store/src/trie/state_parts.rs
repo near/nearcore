@@ -1,11 +1,28 @@
+//! Logic for splitting state defined by `Trie` into parts.
+//!
+//! Needed when a node wants to download state from scratch. Single shard state size
+//! is on the order of GBs, and state part size is expected to be on the order of MBs.
+//!
+//! State partition is defined using DFS traversal of trie. All parts are disjoint and
+//! contiguous in this order. Left boundary of i-th part is determined by computing
+//! prefix sums of memory usages of nodes.
+//! A bit more precisely - memory usage threshold for i-th part is approximately
+//! `total_size / num_parts * part_id`. The boundary itself is a first node which
+//! corresponds to some key-value pair and prefix memory usage for it is greater
+//! than a threshold.
+//!
+//! We include paths from root to both boundaries in state parts, because they are
+//! necessary for receiver to prove existence of all nodes knowing just a state root.
+//! Moreover, we include all left siblings for each path, because they are
+//! necessary to prove its position in the list of prefix sums.
+
 use std::collections::HashMap;
 
 use borsh::BorshDeserialize;
 
-use near_primitives::challenge::{PartialState, StateItem};
+use near_primitives::challenge::PartialState;
 use near_primitives::state_part::PartId;
 use near_primitives::types::StateRoot;
-use tracing::error;
 
 use crate::flat::{FlatStateChanges, FlatStateValue};
 use crate::trie::iterator::TrieTraversalItem;
@@ -18,7 +35,44 @@ use near_primitives::contract::ContractCode;
 use near_primitives::state::ValueRef;
 use near_primitives::state_record::is_contract_code_key;
 
+/// Trie key in nibbles corresponding to the right boundary for the last state part.
+/// Guaranteed to be bigger than any existing trie key.
+const LAST_STATE_PART_BOUNDARY: &[u8; 1] = &[16];
+
 impl Trie {
+    /// Descends into node corresponding to `part_id`-th boundary node if state
+    /// is divided into `num_parts` parts.
+    /// Visits all the left siblings of nodes on the way to the boundary node.
+    /// Guarantees that the node corresponds to some KV pair or returns `StorageError`,
+    /// except corner cases:
+    /// - for part 0, boundary is empty key;
+    /// - for part `num_parts`, boundary is `LAST_STATE_PART_BOUNDARY`.
+    /// This guarantees that parts cover all nodes in trie.
+    /// Returns trie key in nibbles corresponding to this node.
+    ///
+    /// Note that it is used for both boundary generation and verifying. To verify
+    /// a boundary, it is enough to check that method doesn't return `StorageError`
+    /// and visits all provided nodes.
+    pub fn find_state_part_boundary(
+        &self,
+        part_id: u64,
+        num_parts: u64,
+    ) -> Result<Vec<u8>, StorageError> {
+        if part_id > num_parts {
+            return Err(StorageError::StorageInternalError);
+        }
+        if part_id == 0 {
+            return Ok(vec![]);
+        }
+        if part_id == num_parts {
+            return Ok(LAST_STATE_PART_BOUNDARY.to_vec());
+        }
+        let root_node = self.retrieve_node(&self.root)?.1;
+        let total_size = root_node.memory_usage;
+        let size_start = total_size / num_parts * part_id + part_id.min(total_size % num_parts);
+        self.find_node_in_dfs_order(&root_node, size_start)
+    }
+
     /// Computes the set of trie nodes for a state part.
     ///
     /// # Panics
@@ -43,8 +97,8 @@ impl Trie {
     /// Creating a StatePart takes all these nodes, validating a StatePart checks that it has the
     /// right set of nodes.
     fn visit_nodes_for_state_part(&self, part_id: PartId) -> Result<(), StorageError> {
-        let path_begin = self.find_path_for_part_boundary(part_id.idx, part_id.total)?;
-        let path_end = self.find_path_for_part_boundary(part_id.idx + 1, part_id.total)?;
+        let path_begin = self.find_state_part_boundary(part_id.idx, part_id.total)?;
+        let path_end = self.find_state_part_boundary(part_id.idx + 1, part_id.total)?;
 
         let mut iterator = self.iter()?;
         let nodes_list = iterator.visit_nodes_interval(&path_begin, &path_end)?;
@@ -52,59 +106,38 @@ impl Trie {
             target: "state_parts",
             num_nodes = nodes_list.len());
 
-        // Extra nodes for compatibility with the previous version of computing state parts
-        if part_id.idx + 1 != part_id.total {
-            let mut iterator = self.iter()?;
-            let path_end_encoded = NibbleSlice::encode_nibbles(&path_end, false);
-            iterator
-                .seek_nibble_slice(NibbleSlice::from_encoded(&path_end_encoded[..]).0, false)?;
-            if let Some(item) = iterator.next() {
-                item?;
-            }
-        }
-
         Ok(())
     }
 
-    /// Part part_id has nodes with paths `[path(part_id), path(part_id + 1))`
-    /// path is returned as nibbles, last path is `vec![16]`, previous paths end
-    /// in nodes
-    pub fn find_path_for_part_boundary(
+    /// Helper method for `find_node_in_dfs_order`.
+    /// Tells a child in which we should go to find a node in dfs order corresponding
+    /// to `memory_threshold`.
+    /// Accumulates `memory_skipped` as memory used by all skipped nodes.
+    /// Returns false if we already found desired node and should stop the process.
+    fn find_child_in_dfs_order(
         &self,
-        part_id: u64,
-        num_parts: u64,
-    ) -> Result<Vec<u8>, StorageError> {
-        assert!(part_id <= num_parts);
-        if part_id == num_parts {
-            return Ok(vec![16]);
-        }
-        let root_node = self.retrieve_node(&self.root)?.1;
-        let total_size = root_node.memory_usage;
-        let size_start = (total_size + num_parts - 1) / num_parts * part_id;
-        self.find_path(&root_node, size_start)
-    }
-
-    fn find_child(
-        &self,
-        size_start: u64,
+        memory_threshold: u64,
         node: &mut TrieNodeWithSize,
-        size_skipped: &mut u64,
+        memory_skipped: &mut u64,
         key_nibbles: &mut Vec<u8>,
     ) -> Result<bool, StorageError> {
-        let node_size = node.node.memory_usage_direct_no_memory();
-        if *size_skipped + node_size <= size_start {
-            *size_skipped += node_size;
-        } else {
-            return Ok(false);
-        }
+        *memory_skipped += node.node.memory_usage_direct_no_memory();
+
         match &node.node {
             TrieNode::Empty => Ok(false),
             TrieNode::Leaf(key, _) => {
-                let (slice, _is_leaf) = NibbleSlice::from_encoded(key);
+                let (slice, _) = NibbleSlice::from_encoded(key);
                 key_nibbles.extend(slice.iter());
+
+                // Leaf must contain value, so we found the boundary.
                 Ok(false)
             }
-            TrieNode::Branch(children, _) => {
+            TrieNode::Branch(children, value_handle) => {
+                if *memory_skipped > memory_threshold && value_handle.is_some() {
+                    // If we skipped enough memory and found some value, we found the boundary.
+                    return Ok(false);
+                }
+
                 let mut iter = children.iter();
                 while let Some((index, child)) = iter.next() {
                     let child = if let NodeHandle::Hash(h) = child {
@@ -112,36 +145,27 @@ impl Trie {
                     } else {
                         unreachable!("only possible while mutating")
                     };
-                    if *size_skipped + child.memory_usage > size_start {
+                    if *memory_skipped + child.memory_usage > memory_threshold {
                         core::mem::drop(iter);
                         key_nibbles.push(index);
                         *node = child;
                         return Ok(true);
                     }
-                    *size_skipped += child.memory_usage;
+                    *memory_skipped += child.memory_usage;
                 }
-                // This line should not be reached if node.memory_usage > size_start
-                // To avoid changing production behavior, I'm just adding a debug_assert here
-                // to indicate that
-                debug_assert!(
-                    false,
-                    "This should not be reached target size {} node memory usage {} size skipped {}",
-                    size_start, node.memory_usage, size_skipped,
-                );
-                error!(
-                    target: "state_parts",
-                    "This should not be reached target size {} node memory usage {} size skipped {}",
-                    size_start, node.memory_usage, size_skipped,
-                );
-                key_nibbles.push(16u8);
-                Ok(false)
+                // This line should be unreachable if we descended into current node.
+                // TODO (#8997): test this case properly by simulating trie data corruption.
+                Err(StorageError::StorageInconsistentState(format!(
+                    "Skipped all children of node {node:?} while searching for memory \
+                    threshold {memory_threshold} and skipped {memory_skipped}"
+                )))
             }
             TrieNode::Extension(key, child_handle) => {
                 let child = match child_handle {
                     NodeHandle::InMemory(_) => unreachable!("only possible while mutating"),
                     NodeHandle::Hash(h) => self.retrieve_node(h)?.1,
                 };
-                let (slice, _is_leaf) = NibbleSlice::from_encoded(key);
+                let (slice, _) = NibbleSlice::from_encoded(key);
                 key_nibbles.extend(slice.iter());
                 *node = child;
                 Ok(true)
@@ -149,15 +173,26 @@ impl Trie {
         }
     }
 
-    // find the first node so that including this node, the traversed size is larger than size
-    fn find_path(&self, root_node: &TrieNodeWithSize, size: u64) -> Result<Vec<u8>, StorageError> {
-        if root_node.memory_usage <= size {
-            return Ok(vec![16u8]);
+    /// Finds first node corresponding to some key-value pair, for which prefix memory usage
+    /// is greater than a given threshold.
+    /// Returns trie key in nibbles corresponding to this node.
+    fn find_node_in_dfs_order(
+        &self,
+        root_node: &TrieNodeWithSize,
+        memory_threshold: u64,
+    ) -> Result<Vec<u8>, StorageError> {
+        if root_node.memory_usage <= memory_threshold {
+            return Ok(LAST_STATE_PART_BOUNDARY.to_vec());
         }
         let mut key_nibbles: Vec<u8> = Vec::new();
         let mut node = root_node.clone();
-        let mut size_skipped = 0u64;
-        while self.find_child(size, &mut node, &mut size_skipped, &mut key_nibbles)? {}
+        let mut memory_skipped = 0u64;
+        while self.find_child_in_dfs_order(
+            memory_threshold,
+            &mut node,
+            &mut memory_skipped,
+            &mut key_nibbles,
+        )? {}
         Ok(key_nibbles)
     }
 
@@ -171,10 +206,12 @@ impl Trie {
     pub fn validate_trie_nodes_for_part(
         state_root: &StateRoot,
         part_id: PartId,
-        trie_nodes: PartialState,
+        partial_state: PartialState,
     ) -> Result<(), StorageError> {
-        let num_nodes = trie_nodes.0.len();
-        let trie = Trie::from_recorded_storage(PartialStorage { nodes: trie_nodes }, *state_root);
+        let PartialState::TrieValues(nodes) = &partial_state;
+        let num_nodes = nodes.len();
+        let trie =
+            Trie::from_recorded_storage(PartialStorage { nodes: partial_state }, *state_root);
 
         trie.visit_nodes_for_state_part(part_id)?;
         let storage = trie.storage.as_partial_storage().unwrap();
@@ -190,7 +227,7 @@ impl Trie {
     fn apply_state_part_impl(
         state_root: &StateRoot,
         part_id: PartId,
-        part: Vec<StateItem>,
+        part: PartialState,
     ) -> Result<ApplyStatePartResult, StorageError> {
         if state_root == &Trie::EMPTY_ROOT {
             return Ok(ApplyStatePartResult {
@@ -199,10 +236,9 @@ impl Trie {
                 contract_codes: vec![],
             });
         }
-        let trie =
-            Trie::from_recorded_storage(PartialStorage { nodes: PartialState(part) }, *state_root);
-        let path_begin = trie.find_path_for_part_boundary(part_id.idx, part_id.total)?;
-        let path_end = trie.find_path_for_part_boundary(part_id.idx + 1, part_id.total)?;
+        let trie = Trie::from_recorded_storage(PartialStorage { nodes: part }, *state_root);
+        let path_begin = trie.find_state_part_boundary(part_id.idx, part_id.total)?;
+        let path_end = trie.find_state_part_boundary(part_id.idx + 1, part_id.total)?;
         let mut iterator = trie.iter()?;
         let trie_traversal_items = iterator.visit_nodes_interval(&path_begin, &path_end)?;
         let mut map = HashMap::new();
@@ -237,7 +273,7 @@ impl Trie {
     pub fn apply_state_part(
         state_root: &StateRoot,
         part_id: PartId,
-        part: Vec<StateItem>,
+        part: PartialState,
     ) -> ApplyStatePartResult {
         Self::apply_state_part_impl(state_root, part_id, part)
             .expect("apply_state_part is guaranteed to succeed when each part is valid")
@@ -250,9 +286,13 @@ impl Trie {
     }
 }
 
+/// TODO (#8997): test set seems incomplete. Perhaps `get_trie_items_for_part`
+/// should also belong to this file. We need to use it to check that state
+/// parts are continuous and disjoint. Maybe it is checked in split_state.rs.
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use assert_matches::assert_matches;
+    use std::collections::{HashMap, HashSet};
     use std::sync::Arc;
 
     use rand::prelude::ThreadRng;
@@ -267,6 +307,88 @@ mod tests {
     use super::*;
     use near_primitives::shard_layout::ShardUId;
 
+    // Helper to convert nibbles to bytes.
+    fn nibbles_to_bytes(nibbles: &[u8]) -> Vec<u8> {
+        assert_eq!(nibbles.len() % 2, 0);
+        let encoded = NibbleSlice::encode_nibbles(&nibbles, false);
+        // Ignore first element returned by `encode_nibbles` because it contains only
+        // `is_leaf` info for even length.
+        encoded[1..].to_vec()
+    }
+
+    /// Checks that sampling state boundaries always gives valid state keys
+    /// even if trie contains intermediate nodes.
+    #[test]
+    fn boundary_is_state_key() {
+        // Trie should contain at least two intermediate branches for strings
+        // "a" and "b".
+        let trie_changes = vec![
+            (b"after".to_vec(), Some(vec![1])),
+            (b"alley".to_vec(), Some(vec![2])),
+            (b"berry".to_vec(), Some(vec![3])),
+            (b"brave".to_vec(), Some(vec![4])),
+        ];
+
+        // Number of state parts. Must be larger than number of state items to ensure
+        // that boundaries are nontrivial.
+        let num_parts = 10u64;
+
+        let tries = create_tries();
+        let state_root =
+            test_populate_trie(&tries, &Trie::EMPTY_ROOT, ShardUId::single_shard(), trie_changes);
+        let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
+
+        let nibbles_boundary = trie.find_state_part_boundary(0, num_parts).unwrap();
+        assert!(nibbles_boundary.is_empty());
+
+        // Check that all boundaries correspond to some state key by calling `Trie::get`.
+        // Note that some state parts can be trivial, which is not a concern.
+        for part_id in 1..num_parts {
+            let nibbles_boundary = trie.find_state_part_boundary(part_id, num_parts).unwrap();
+            let key_boundary = nibbles_to_bytes(&nibbles_boundary);
+            assert_matches!(trie.get(&key_boundary), Ok(Some(_)));
+        }
+
+        let nibbles_boundary = trie.find_state_part_boundary(num_parts, num_parts).unwrap();
+        assert_eq!(nibbles_boundary, LAST_STATE_PART_BOUNDARY);
+    }
+
+    /// Checks that on degenerate case when trie is a single path, state
+    /// parts are still distributed evenly.
+    #[test]
+    fn single_path_trie() {
+        // Values should be big enough to ensure that node and key overhead are
+        // not significant.
+        let value_len = 1000usize;
+        // Corner case when trie is a single path from empty string to "aaaa".
+        let trie_changes = vec![
+            (b"a".to_vec(), Some(vec![1; value_len])),
+            (b"aa".to_vec(), Some(vec![2; value_len])),
+            (b"aaa".to_vec(), Some(vec![3; value_len])),
+            (b"aaaa".to_vec(), Some(vec![4; value_len])),
+        ];
+        // We split state into `num_keys + 1` parts for convenience of testing,
+        // because right boundaries are exclusive. This way first part is
+        // empty and other parts contain exactly one key.
+        let num_parts = trie_changes.len() + 1;
+
+        let tries = create_tries();
+        let state_root = test_populate_trie(
+            &tries,
+            &Trie::EMPTY_ROOT,
+            ShardUId::single_shard(),
+            trie_changes.clone(),
+        );
+        let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
+
+        for part_id in 1..num_parts {
+            let nibbles_boundary =
+                trie.find_state_part_boundary(part_id as u64, num_parts as u64).unwrap();
+            let key_boundary = nibbles_to_bytes(&nibbles_boundary);
+            assert_eq!(key_boundary, trie_changes[part_id - 1].0);
+        }
+    }
+
     impl Trie {
         /// Combines all parts and returns TrieChanges that can be applied to storage.
         ///
@@ -277,9 +399,15 @@ mod tests {
         /// StorageError if data is inconsistent. Should never happen if each part was validated.
         pub fn combine_state_parts_naive(
             state_root: &StateRoot,
-            parts: &[Vec<StateItem>],
+            parts: &[PartialState],
         ) -> Result<TrieChanges, StorageError> {
-            let nodes = PartialState(parts.iter().flat_map(|part| part.iter()).cloned().collect());
+            let nodes = PartialState::TrieValues(
+                parts
+                    .iter()
+                    .flat_map(|PartialState::TrieValues(nodes)| nodes.iter())
+                    .cloned()
+                    .collect(),
+            );
             let trie = Trie::from_recorded_storage(PartialStorage { nodes }, *state_root);
             let mut insertions = <HashMap<CryptoHash, (Vec<u8>, u32)>>::new();
             trie.traverse_all_nodes(|hash| {
@@ -382,58 +510,6 @@ mod tests {
             }
             Ok(())
         }
-
-        fn visit_nodes_for_size_range_old(
-            &self,
-            size_start: u64,
-            size_end: u64,
-        ) -> Result<(), StorageError> {
-            let root_node = self.retrieve_node(&self.root)?.1;
-            let path_begin = self.find_path(&root_node, size_start)?;
-            let path_end = self.find_path(&root_node, size_end)?;
-
-            let mut iterator = self.iter()?;
-            let path_begin_encoded = NibbleSlice::encode_nibbles(&path_begin, false);
-            iterator
-                .seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded[..]).0, false)?;
-            loop {
-                match iterator.next() {
-                    None => break,
-                    Some(Err(e)) => {
-                        return Err(e);
-                    }
-                    Some(Ok(_item)) => {
-                        // The last iteration actually reads a value we don't need.
-                    }
-                }
-                // TODO #1603 this is bad for large keys
-                if iterator.key_nibbles >= path_end {
-                    break;
-                }
-            }
-            Ok(())
-        }
-
-        pub fn get_trie_nodes_for_part_old(
-            &self,
-            part_id: PartId,
-        ) -> Result<PartialState, StorageError> {
-            let root_node = self.retrieve_node(&self.root)?.1;
-            let total_size = root_node.memory_usage;
-            let size_start = (total_size + part_id.total - 1) / part_id.total * part_id.idx;
-            let size_end = std::cmp::min(
-                (total_size + part_id.total - 1) / part_id.total * (part_id.idx + 1),
-                total_size,
-            );
-
-            let with_recording = self.recording_reads();
-            with_recording.visit_nodes_for_size_range_old(size_start, size_end)?;
-            let recorded = with_recording.recorded_storage().unwrap();
-
-            let trie_nodes = recorded.nodes;
-
-            Ok(trie_nodes)
-        }
     }
 
     #[test]
@@ -443,10 +519,14 @@ mod tests {
         let _ = Trie::validate_trie_nodes_for_part(
             &state_root,
             PartId::new(0, 1),
-            PartialState(vec![]),
+            PartialState::TrieValues(vec![]),
         )
         .unwrap();
-        let _ = Trie::apply_state_part(&state_root, PartId::new(0, 1), vec![]);
+        let _ = Trie::apply_state_part(
+            &state_root,
+            PartId::new(0, 1),
+            PartialState::TrieValues(vec![]),
+        );
     }
 
     fn construct_trie_for_big_parts_1(
@@ -509,6 +589,10 @@ mod tests {
         trie_changes
     }
 
+    /// Helper function checking that for given trie generator size of each
+    /// part is approximately bounded by `total_size / num_parts` with overhead
+    /// for proof and trie items irregularity.
+    /// TODO (#8997): run it on largest keys (2KB) and values (4MB) allowed in mainnet.
     fn run_test_parts_not_huge<F>(gen_trie_changes: F, big_value_length: u64)
     where
         F: FnOnce(&mut ThreadRng, u64, u64) -> Vec<(Vec<u8>, Option<Vec<u8>>)>,
@@ -516,38 +600,56 @@ mod tests {
         let mut rng = rand::thread_rng();
         let max_key_length = 50u64;
         let max_key_length_in_nibbles = max_key_length * 2;
-        let max_node_serialized_size = 32 * 16 + 100; // DEVNOTE nodes can be pretty big
         let max_node_children = 16;
+        let max_node_serialized_size = 32 * max_node_children + 100; // Full branch node overhead.
+        let max_proof_overhead =
+            max_key_length_in_nibbles * max_node_children * max_node_serialized_size;
         let max_part_overhead =
-            max_key_length_in_nibbles * max_node_serialized_size * max_node_children * 2
-                + big_value_length * 2;
-        println!("Max allowed overhead: {}", max_part_overhead);
+            big_value_length.max(max_key_length_in_nibbles * max_node_serialized_size * 2);
         let trie_changes = gen_trie_changes(&mut rng, max_key_length, big_value_length);
-        println!("Number of nodes: {}", trie_changes.len());
         let tries = create_tries();
         let state_root =
             test_populate_trie(&tries, &Trie::EMPTY_ROOT, ShardUId::single_shard(), trie_changes);
         let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
         let memory_size = trie.retrieve_root_node().unwrap().memory_usage;
-        println!("Total memory size: {}", memory_size);
         for num_parts in [2, 3, 5, 10, 50].iter().cloned() {
-            let approximate_size_per_part = memory_size / num_parts;
-            let parts = (0..num_parts)
-                .map(|part_id| {
-                    trie.get_trie_nodes_for_part(PartId::new(part_id, num_parts)).unwrap().0
-                })
-                .collect::<Vec<_>>();
-            let part_nodecounts_vec = parts.iter().map(|nodes| nodes.len()).collect::<Vec<_>>();
-            let sizes_vec = parts
-                .iter()
-                .map(|nodes| nodes.iter().map(|node| node.len()).sum::<usize>())
-                .collect::<Vec<_>>();
+            let part_size_limit = (memory_size + num_parts - 1) / num_parts;
 
-            println!("Node counts of parts: {:?}", part_nodecounts_vec);
-            println!("Sizes of parts: {:?}", sizes_vec);
-            println!("Max size we allow: {}", approximate_size_per_part + max_part_overhead);
-            for size in sizes_vec {
-                assert!((size as u64) < approximate_size_per_part + max_part_overhead);
+            for part_id in 0..num_parts {
+                // Compute proof with size and check that it doesn't exceed theoretical boundary for
+                // the path with full set of left siblings of maximal possible size.
+                let trie_recording = trie.recording_reads();
+                let left_nibbles_boundary =
+                    trie_recording.find_state_part_boundary(part_id, num_parts).unwrap();
+                let left_key_boundary = nibbles_to_bytes(&left_nibbles_boundary);
+                if part_id != 0 {
+                    assert_matches!(trie.get(&left_key_boundary), Ok(Some(_)));
+                }
+                let PartialState::TrieValues(proof_nodes) =
+                    trie_recording.recorded_storage().unwrap().nodes;
+                let proof_size = proof_nodes.iter().map(|node| node.len()).sum::<usize>() as u64;
+                assert!(
+                    proof_size <= max_proof_overhead,
+                    "For part {}/{} left boundary proof size {} exceeds limit {}",
+                    part_id,
+                    num_parts,
+                    proof_size,
+                    max_proof_overhead
+                );
+
+                let PartialState::TrieValues(part_nodes) =
+                    trie.get_trie_nodes_for_part(PartId::new(part_id, num_parts)).unwrap();
+                // TODO (#8997): it's a bit weird that raw lengths are compared to
+                // config values. Consider better defined assertion.
+                let total_size = part_nodes.iter().map(|node| node.len()).sum::<usize>() as u64;
+                assert!(
+                    total_size <= part_size_limit + proof_size + max_part_overhead,
+                    "Part {}/{} is too big. Size: {}, size limit: {}",
+                    part_id,
+                    num_parts,
+                    total_size,
+                    part_size_limit + proof_size + max_part_overhead,
+                );
             }
         }
     }
@@ -557,6 +659,9 @@ mod tests {
         run_test_parts_not_huge(construct_trie_for_big_parts_1, 100_000);
     }
 
+    /// TODO (#8997): consider:
+    /// * adding more testcases for big and small key/value lengths, other trie structures;
+    /// * speeding this test up.
     #[test]
     fn test_parts_not_huge_2() {
         run_test_parts_not_huge(construct_trie_for_big_parts_2, 100_000);
@@ -607,7 +712,7 @@ mod tests {
                 let num_parts = rng.gen_range(2..10);
                 let parts = (0..num_parts)
                     .map(|part_id| {
-                        trie.get_trie_nodes_for_part(PartId::new(part_id, num_parts)).unwrap().0
+                        trie.get_trie_nodes_for_part(PartId::new(part_id, num_parts)).unwrap()
                     })
                     .collect::<Vec<_>>();
 
@@ -616,11 +721,14 @@ mod tests {
                 let mut nodes = <HashMap<CryptoHash, Arc<[u8]>>>::new();
                 let sizes_vec = parts
                     .iter()
-                    .map(|nodes| nodes.iter().map(|node| node.len()).sum::<usize>())
+                    .map(|PartialState::TrieValues(nodes)| {
+                        nodes.iter().map(|node| node.len()).sum::<usize>()
+                    })
                     .collect::<Vec<_>>();
 
                 for part in parts {
-                    for node in part {
+                    let PartialState::TrieValues(part_nodes) = part;
+                    for node in part_nodes {
                         nodes.insert(hash(&node), node);
                     }
                 }
@@ -631,7 +739,7 @@ mod tests {
                 Trie::validate_trie_nodes_for_part(
                     trie.get_root(),
                     PartId::new(0, 1),
-                    PartialState(all_nodes),
+                    PartialState::TrieValues(all_nodes),
                 )
                 .expect("validate ok");
 
@@ -650,10 +758,35 @@ mod tests {
         }
     }
 
+    fn format_simple_trie_refcount_diff(
+        left: &[TrieRefcountChange],
+        right: &[TrieRefcountChange],
+    ) -> String {
+        let left_set: HashSet<_> = HashSet::from_iter(left.iter());
+        let right_set: HashSet<_> = HashSet::from_iter(right.iter());
+        format!(
+            "left: {:?} right: {:?}",
+            left_set.difference(&right_set),
+            right_set.difference(&left_set)
+        )
+    }
+
+    fn format_simple_trie_changes_diff(left: &TrieChanges, right: &TrieChanges) -> String {
+        format!(
+            "insertions diff: {}, deletions diff: {}",
+            format_simple_trie_refcount_diff(&left.insertions, &right.insertions),
+            format_simple_trie_refcount_diff(&left.deletions, &right.deletions)
+        )
+    }
+
+    /// Helper function checking that two ways of combining state parts are identical:
+    /// 1) Create partial storage over all nodes in state parts and traverse all
+    /// nodes in the storage;
+    /// 2) Traverse each part separately and merge all trie changes.
     fn check_combine_state_parts(
         state_root: &CryptoHash,
         num_parts: u64,
-        parts: &[Vec<Arc<[u8]>>],
+        parts: &[PartialState],
     ) -> TrieChanges {
         let trie_changes = Trie::combine_state_parts_naive(state_root, parts).unwrap();
 
@@ -668,12 +801,21 @@ mod tests {
                     .trie_changes
                 })
                 .collect::<Vec<_>>();
+
             merge_trie_changes(changes)
         };
-        assert_eq!(trie_changes, trie_changes_new);
+        assert_eq!(
+            trie_changes,
+            trie_changes_new,
+            "{}",
+            format_simple_trie_changes_diff(&trie_changes, &trie_changes_new)
+        );
         trie_changes
     }
 
+    /// Check on random samples that state parts can be validated independently
+    /// from the entire trie.
+    /// TODO (#8997): add custom tests where incorrect parts don't pass validation.
     #[test]
     fn test_get_trie_nodes_for_part() {
         let mut rng = rand::thread_rng();
@@ -695,9 +837,6 @@ mod tests {
                 let part_id = rng.gen_range(0..num_parts);
                 let trie_nodes =
                     trie.get_trie_nodes_for_part(PartId::new(part_id, num_parts)).unwrap();
-                let trie_nodes2 =
-                    trie.get_trie_nodes_for_part_old(PartId::new(part_id, num_parts)).unwrap();
-                assert_eq!(trie_nodes, trie_nodes2);
                 Trie::validate_trie_nodes_for_part(
                     trie.get_root(),
                     PartId::new(part_id, num_parts),

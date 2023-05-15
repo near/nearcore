@@ -209,9 +209,8 @@ impl<'a> TrieIterator<'a> {
 
     fn has_value(&self) -> bool {
         match self.trail.last() {
-            Some(b) => match (&b.status, &b.node.node) {
-                (CrumbStatus::At, TrieNode::Branch(_, Some(_))) => true,
-                (CrumbStatus::At, TrieNode::Leaf(_, _)) => true,
+            Some(b) => match &b.status {
+                CrumbStatus::At => b.node.node.has_value(),
                 _ => false,
             },
             None => false, // Trail finished
@@ -372,6 +371,7 @@ impl<'a> TrieIterator<'a> {
     }
 }
 
+#[derive(Debug)]
 enum IterStep {
     Continue,
     PopTrail,

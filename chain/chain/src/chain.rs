@@ -3729,7 +3729,7 @@ impl Chain {
             merkle_proof: merkle_proofs[chunk_shard_id as usize].clone(),
             prev_chunk,
             chunk_header: chunk_header.clone(),
-            partial_state: PartialState(vec![]),
+            partial_state: PartialState::TrieValues(vec![]),
         })
     }
 
