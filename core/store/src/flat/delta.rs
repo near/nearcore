@@ -2,13 +2,13 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_primitives::hash::hash;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::state::ValueRef;
+use near_primitives::state::{FlatStateValue, ValueRef};
 use near_primitives::types::RawStateChangesWithTrieKey;
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use super::types::INLINE_DISK_VALUE_THRESHOLD;
-use super::{store_helper, BlockInfo, FlatStateValue};
+use super::{store_helper, BlockInfo};
 use crate::{CryptoHash, StoreUpdate};
 
 #[derive(Debug)]

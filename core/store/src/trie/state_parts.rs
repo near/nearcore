@@ -16,23 +16,31 @@
 //! Moreover, we include all left siblings for each path, because they are
 //! necessary to prove its position in the list of prefix sums.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
+use std::sync::Arc;
+use std::time::Instant;
 
 use borsh::BorshDeserialize;
 
 use near_primitives::challenge::PartialState;
 use near_primitives::state_part::PartId;
-use near_primitives::types::StateRoot;
+use near_primitives::types::{StateRoot, Stats};
 
-use crate::flat::{FlatStateChanges, FlatStateValue};
+use crate::flat::store_helper::encode_flat_state_db_key;
+use crate::flat::{store_helper, FlatStateChanges};
 use crate::trie::iterator::TrieTraversalItem;
 use crate::trie::nibble_slice::NibbleSlice;
+use crate::trie::trie_storage::TrieMemoryPartialStorage;
 use crate::trie::{
     ApplyStatePartResult, NodeHandle, RawTrieNodeWithSize, TrieNode, TrieNodeWithSize,
 };
 use crate::{PartialStorage, StorageError, Trie, TrieChanges};
 use near_primitives::contract::ContractCode;
-use near_primitives::state::ValueRef;
+use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::shard_layout::ShardUId;
+use near_primitives::state::{FlatStateValue, ValueRef};
 use near_primitives::state_record::is_contract_code_key;
 
 /// Trie key in nibbles corresponding to the right boundary for the last state part.
@@ -81,12 +89,132 @@ impl Trie {
     /// # Errors
     /// StorageError if the storage is corrupted
     pub fn get_trie_nodes_for_part(&self, part_id: PartId) -> Result<PartialState, StorageError> {
-        let with_recording = self.recording_reads();
-        with_recording.visit_nodes_for_state_part(part_id)?;
-        let recorded = with_recording.recorded_storage().unwrap();
+        let trie_values = match &self.flat_storage_chunk_view {
+            None => {
+                let with_recording = self.recording_reads();
+                with_recording.visit_nodes_for_state_part(part_id)?;
+                let recorded = with_recording.recorded_storage().unwrap();
+                recorded.nodes
+            },
+            Some(flat_storage_chunk_view) => {
+                let (trie_values, _) = self.get_trie_nodes_for_part_with_flat_storage(self.storage.shard_uid()?, part_id)?;
+                trie_values
+            }
+        }
 
-        let trie_nodes = recorded.nodes;
-        Ok(trie_nodes)
+        Ok(trie_values)
+    }
+
+    // why is this so complicated?
+    fn nibbles_to_flat_state_db_key(&self, shard_uid: ShardUId, key_nibbles: &[u8]) -> Vec<u8> {
+        if key_nibbles == LAST_STATE_PART_BOUNDARY {
+            return ShardUId::next_shard_prefix(&shard_uid.to_bytes()).to_vec();
+        }
+        encode_flat_state_db_key(shard_uid, &NibbleSlice::nibbles_to_bytes(&key_nibbles))
+    }
+
+    pub fn get_raw_bytes(&self, value_ref: &ValueRef) -> Result<Option<Vec<u8>>, StorageError> {
+        let hash = value_ref.hash;
+        self.storage.retrieve_raw_bytes(&hash).map(|bytes| Some(bytes.to_vec()))
+    }
+
+    fn internal_get_state_part(&self, part_id: PartId) -> Result<PartialState, StorageError> {
+        self.visit_nodes_for_state_part(part_id).expect("Failed to visit nodes for part");
+        let memory_storage = self.storage.as_partial_storage().unwrap();
+        Ok(memory_storage.partial_state())
+    }
+
+    pub fn get_trie_nodes_for_part_with_flat_storage(
+        &self,
+        shard_uid: ShardUId,
+        part_id: PartId,
+    ) -> Result<(PartialState, Stats), StorageError> {
+        let with_recording = self.recording_reads();
+
+        let boundaries_read_start = Instant::now();
+        let nibbles_begin = with_recording.find_state_part_boundary(part_id.idx, part_id.total)?;
+        let nibbles_end =
+            with_recording.find_state_part_boundary(part_id.idx + 1, part_id.total)?;
+        let boundaries_read_duration = boundaries_read_start.elapsed();
+
+        let recorded = with_recording.recorded_storage().unwrap();
+        let PartialState::TrieValues(trie_nodes) = recorded.nodes;
+
+        let values_read_start = Instant::now();
+        let flat_storage_chunk_view = match &self.flat_storage_chunk_view {
+            None => {
+                return Err(StorageError::StorageInconsistentState(format!("Expected flat storage chunk view for shard {shard_uid} and part {part_id:?}")));
+            }
+            Some(chunk_view) => chunk_view,
+        };
+        let key_begin = self.nibbles_to_flat_state_db_key(shard_uid, &nibbles_begin);
+        let key_end = self.nibbles_to_flat_state_db_key(shard_uid, &nibbles_end);
+        let flat_state_iter = flat_storage_chunk_view.iter_flat_state_entries(&key_begin, &key_end);
+        let flat_state_values: Vec<_> = flat_state_iter.map(|(k, v)| {
+            let value = match FlatStateValue::try_from_slice(&v).unwrap() {
+                FlatStateValue::Ref(value_ref) => {
+                    self.storage.retrieve_raw_bytes(&value_ref.hash).map(|bytes| bytes.to_vec())
+                },
+                FlatStateValue::Inlined(value) => Ok(value),
+            };
+            value.map(|v| (k, Some(v)))
+        }).collect::<Result<_, _>>()?;
+        let values_read_duration = values_read_start.elapsed();
+
+        let trie_updates_gen_start = Instant::now();
+        // Now let's create a new trie with all these values included.
+        let in_memory_trie =
+            Trie::new(Rc::new(TrieMemoryPartialStorage::default()), StateRoot::new(), None);
+        // This will generate all the intermediate nodes.
+        let trie_updates = in_memory_trie.update(flat_state_values.into_iter()).unwrap();
+        let trie_updates_gen_duration = trie_updates_gen_start.elapsed();
+
+        let final_trie_gen_start = Instant::now();
+        // Hashes from Trie reads to exclude for flat storage effectiveness computation.
+        let hashes_from_trie: Vec<_> = trie_nodes.iter().map(|entry| hash(entry)).collect();
+
+        // Now let's create another storage with everything included.
+        let mut all_nodes: HashMap<CryptoHash, Arc<[u8]>> = HashMap::new();
+        // Adding nodes from the 'boundary'
+        all_nodes.extend(trie_nodes.iter().map(|entry| (hash(entry), entry.clone())));
+        all_nodes.extend(
+            trie_updates
+                .insertions
+                .iter()
+                .map(|entry| (entry.hash().clone(), entry.payload().to_vec().into())),
+        );
+
+        let final_trie = Trie::new(
+            Rc::new(TrieMemoryPartialStorage {
+                recorded_storage: all_nodes,
+                visited_nodes: RefCell::default(),
+            }),
+            self.root,
+            None,
+        );
+        let final_trie_gen_duration = final_trie_gen_start.elapsed();
+
+        let internal_get_start = Instant::now();
+        let result = final_trie.internal_get_state_part(part_id);
+        if let Ok(PartialState::TrieValues(partial_state)) = &result {
+            let total_num = partial_state.len();
+            let from_flat_storage = partial_state
+                .iter()
+                .filter(|entry| !hashes_from_trie.contains(&hash(*entry)))
+                .count();
+            eprintln!("from FS = {}, total = {}", from_flat_storage, total_num);
+        };
+        let internal_get_duration = internal_get_start.elapsed();
+        Ok((
+            result?,
+            Stats {
+                boundaries_read_duration,
+                values_read_duration,
+                trie_updates_gen_duration,
+                final_trie_gen_duration,
+                internal_get_duration,
+            },
+        ))
     }
 
     /// Assume we lay out all trie nodes in dfs order visiting children after the parent.
@@ -103,7 +231,7 @@ impl Trie {
         let mut iterator = self.iter()?;
         let nodes_list = iterator.visit_nodes_interval(&path_begin, &path_end)?;
         tracing::debug!(
-            target: "state_parts",
+            target: "state-parts",
             num_nodes = nodes_list.len());
 
         Ok(())
@@ -302,19 +430,10 @@ mod tests {
 
     use crate::test_utils::{create_tries, gen_changes, test_populate_trie};
     use crate::trie::iterator::CrumbStatus;
-    use crate::trie::{TrieRefcountChange, ValueHandle};
+    use crate::trie::{nibble_slice, TrieRefcountChange, ValueHandle};
 
     use super::*;
     use near_primitives::shard_layout::ShardUId;
-
-    // Helper to convert nibbles to bytes.
-    fn nibbles_to_bytes(nibbles: &[u8]) -> Vec<u8> {
-        assert_eq!(nibbles.len() % 2, 0);
-        let encoded = NibbleSlice::encode_nibbles(&nibbles, false);
-        // Ignore first element returned by `encode_nibbles` because it contains only
-        // `is_leaf` info for even length.
-        encoded[1..].to_vec()
-    }
 
     /// Checks that sampling state boundaries always gives valid state keys
     /// even if trie contains intermediate nodes.
@@ -345,7 +464,7 @@ mod tests {
         // Note that some state parts can be trivial, which is not a concern.
         for part_id in 1..num_parts {
             let nibbles_boundary = trie.find_state_part_boundary(part_id, num_parts).unwrap();
-            let key_boundary = nibbles_to_bytes(&nibbles_boundary);
+            let key_boundary = NibbleSlice::nibbles_to_bytes(&nibbles_boundary);
             assert_matches!(trie.get(&key_boundary), Ok(Some(_)));
         }
 
@@ -384,7 +503,7 @@ mod tests {
         for part_id in 1..num_parts {
             let nibbles_boundary =
                 trie.find_state_part_boundary(part_id as u64, num_parts as u64).unwrap();
-            let key_boundary = nibbles_to_bytes(&nibbles_boundary);
+            let key_boundary = NibbleSlice::nibbles_to_bytes(&nibbles_boundary);
             assert_eq!(key_boundary, trie_changes[part_id - 1].0);
         }
     }
@@ -621,7 +740,7 @@ mod tests {
                 let trie_recording = trie.recording_reads();
                 let left_nibbles_boundary =
                     trie_recording.find_state_part_boundary(part_id, num_parts).unwrap();
-                let left_key_boundary = nibbles_to_bytes(&left_nibbles_boundary);
+                let left_key_boundary = NibbleSlice::nibbles_to_bytes(&left_nibbles_boundary);
                 if part_id != 0 {
                     assert_matches!(trie.get(&left_key_boundary), Ok(Some(_)));
                 }

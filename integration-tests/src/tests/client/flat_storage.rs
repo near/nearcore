@@ -438,14 +438,11 @@ fn test_flat_storage_iter() {
     }
 
     for shard_id in 0..3 {
-        let items: Vec<_> = store_helper::iter_flat_state_entries(
-            shard_layout.clone(),
-            shard_id,
-            &store,
-            None,
-            None,
-        )
-        .collect();
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+        let key_from = shard_uid.to_bytes();
+        let key_to = ShardUId::next_shard_prefix(&key_from);
+        let items: Vec<_> =
+            store_helper::iter_flat_state_entries(&store, &key_from, &key_to).collect();
 
         match shard_id {
             0 => {

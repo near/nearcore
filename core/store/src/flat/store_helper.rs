@@ -6,10 +6,11 @@ use crate::flat::types::FlatStorageError;
 use crate::{Store, StoreUpdate};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::{ShardLayout, ShardUId};
+use near_primitives::shard_layout::ShardUId;
+use near_primitives::state::FlatStateValue;
 
 use super::delta::{FlatStateDelta, FlatStateDeltaMetadata};
-use super::types::{FlatStateValue, FlatStorageStatus};
+use super::types::FlatStorageStatus;
 
 /// Prefixes for keys in `FlatStateMisc` DB column.
 pub const FLAT_STATE_HEAD_KEY_PREFIX: &[u8; 4] = b"HEAD";
@@ -85,7 +86,7 @@ pub fn remove_all_deltas(store_update: &mut StoreUpdate, shard_uid: ShardUId) {
     store_update.delete_range(FlatStateColumn::DeltaMetadata.to_db_col(), &key_from, &key_to);
 }
 
-fn encode_flat_state_db_key(shard_uid: ShardUId, key: &[u8]) -> Vec<u8> {
+pub fn encode_flat_state_db_key(shard_uid: ShardUId, key: &[u8]) -> Vec<u8> {
     let mut buffer = vec![];
     buffer.extend_from_slice(&shard_uid.to_bytes());
     buffer.extend_from_slice(key);
@@ -158,40 +159,24 @@ pub fn set_flat_storage_status(
 /// this method on the shapshot of the data.
 // TODO(#8676): Support non-trivial ranges and maybe pass `shard_uid` as key prefix.
 pub fn iter_flat_state_entries<'a>(
-    shard_layout: ShardLayout,
-    shard_id: u64,
     store: &'a Store,
-    from: Option<&'a Vec<u8>>,
-    to: Option<&'a Vec<u8>>,
+    from: &'a [u8],
+    to: &'a [u8],
 ) -> impl Iterator<Item = (Vec<u8>, Box<[u8]>)> + 'a {
-    store
-        .iter_range(
-            FlatStateColumn::State.to_db_col(),
-            from.map(|x| x.as_slice()),
-            to.map(|x| x.as_slice()),
-        )
-        .filter_map(move |result| {
+    store.iter_range(FlatStateColumn::State.to_db_col(), Some(from), Some(to)).filter_map(
+        move |result| {
             if let Ok((key, value)) = result {
-                // Currently all the data in flat storage is 'together' - so we have to parse the key,
-                // to see if this element belongs to this shard.
-                if let Ok(key_in_shard) = key_belongs_to_shard(&key, &shard_layout, shard_id) {
-                    if key_in_shard {
-                        let (_, trie_key) = decode_flat_state_db_key(&key).unwrap();
-                        return Some((trie_key, value));
-                    }
-                }
+                let (_, trie_key) = decode_flat_state_db_key(&key).unwrap();
+                return Some((trie_key, value));
             }
             return None;
-        })
+        },
+    )
 }
 
 /// Currently all the data in flat storage is 'together' - so we have to parse the key,
 /// to see if this element belongs to this shard.
-pub fn key_belongs_to_shard(
-    key: &Box<[u8]>,
-    shard_layout: &ShardLayout,
-    shard_id: u64,
-) -> Result<bool, StorageError> {
+pub fn key_belongs_to_shard(key: &Box<[u8]>, shard_uid: &ShardUId) -> Result<bool, StorageError> {
     let (key_shard_uid, _) = decode_flat_state_db_key(key)?;
-    Ok(key_shard_uid.version == shard_layout.version() && key_shard_uid.shard_id as u64 == shard_id)
+    Ok(key_shard_uid == *shard_uid)
 }

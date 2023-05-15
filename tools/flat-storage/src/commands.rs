@@ -243,13 +243,10 @@ impl FlatStorageCommand {
                     .get_view_trie_for_shard(verify_cmd.shard_id, &head_hash, *state_root)
                     .unwrap();
 
-                let flat_state_entries_iter = store_helper::iter_flat_state_entries(
-                    shard_layout,
-                    verify_cmd.shard_id,
-                    &hot_store,
-                    None,
-                    None,
-                );
+                let key_from = shard_uid.to_bytes();
+                let key_to = ShardUId::next_shard_prefix(&key_from);
+                let flat_state_entries_iter =
+                    store_helper::iter_flat_state_entries(&hot_store, &key_from, &key_to);
 
                 // Trie iterator which skips all the 'delayed' keys - that don't contain the account_id as string.
                 let trie_iter = trie.iter().unwrap().filter(|entry| {

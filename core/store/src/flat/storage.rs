@@ -4,6 +4,7 @@ use std::sync::{Arc, RwLock};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
+use near_primitives::state::FlatStateValue;
 use tracing::{debug, info, warn};
 
 use crate::flat::delta::CachedFlatStateChanges;
@@ -13,7 +14,7 @@ use crate::{Store, StoreUpdate};
 
 use super::delta::{CachedFlatStateDelta, FlatStateDelta};
 use super::metrics::FlatStorageMetrics;
-use super::types::{FlatStateValue, FlatStorageError};
+use super::types::FlatStorageError;
 use super::{store_helper, BlockInfo};
 
 /// FlatStorage stores information on which blocks flat storage current supports key lookups on.
@@ -286,7 +287,7 @@ impl FlatStorage {
     }
 
     /// Clears all State key-value pairs from flat storage.
-    pub fn clear_state(&self, shard_layout: ShardLayout) -> Result<(), StorageError> {
+    pub fn clear_state(&self, _shard_layout: ShardLayout) -> Result<(), StorageError> {
         let guard = self.0.write().expect(super::POISONED_LOCK_ERR);
         let shard_id = guard.shard_uid.shard_id();
 
@@ -305,7 +306,7 @@ impl FlatStorage {
             let (key, _) =
                 item.map_err(|e| StorageError::StorageInconsistentState(e.to_string()))?;
 
-            if store_helper::key_belongs_to_shard(&key, &shard_layout, shard_id)? {
+            if store_helper::key_belongs_to_shard(&key, &guard.shard_uid)? {
                 removed_items += 1;
                 store_update.delete(FlatStateColumn::State.to_db_col(), &key);
             }
@@ -322,6 +323,16 @@ impl FlatStorage {
         guard.update_delta_metrics();
 
         Ok(())
+    }
+
+    pub fn get_head_hash(&self) -> CryptoHash {
+        let guard = self.0.read().expect(super::POISONED_LOCK_ERR);
+        guard.flat_head.hash
+    }
+
+    pub fn shard_uid(&self) -> ShardUId {
+        let guard = self.0.read().expect(super::POISONED_LOCK_ERR);
+        guard.shard_uid
     }
 }
 

@@ -1,8 +1,10 @@
+use crate::flat::store_helper;
 use near_primitives::hash::CryptoHash;
+use near_primitives::state::FlatStateValue;
 
 use crate::Store;
 
-use super::{FlatStateValue, FlatStorage};
+use super::FlatStorage;
 
 /// Struct for getting value references from the flat storage, corresponding
 /// to some block defined in `blocks_to_head`.
@@ -40,5 +42,13 @@ impl FlatStorageChunkView {
     // TODO (#7327): consider inlining small values, so we could use only one db access.
     pub fn get_value(&self, key: &[u8]) -> Result<Option<FlatStateValue>, crate::StorageError> {
         self.flat_storage.get_value(&self.block_hash, key)
+    }
+
+    pub fn iter_flat_state_entries<'a>(
+        &'a self,
+        from: &'a [u8],
+        to: &'a [u8],
+    ) -> impl Iterator<Item = (Vec<u8>, Box<[u8]>)> + 'a {
+        store_helper::iter_flat_state_entries(&self.store, from, to)
     }
 }

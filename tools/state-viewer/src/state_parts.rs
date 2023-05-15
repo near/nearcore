@@ -1,5 +1,5 @@
 use crate::epoch_info::iterate_and_filter;
-use borsh::BorshDeserialize;
+use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use near_client::sync::state::{
     get_num_parts_from_filename, is_part_filename, location_prefix, part_filename, StateSync,
@@ -11,7 +11,7 @@ use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::state_part::PartId;
 use near_primitives::state_record::StateRecord;
 use near_primitives::syncing::get_num_state_parts;
-use near_primitives::types::{EpochId, StateRoot};
+use near_primitives::types::{EpochId, StateRoot, Stats};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{BlockHeight, EpochHeight, ShardId};
 use near_store::{PartialStorage, Store, Trie};
@@ -61,6 +61,8 @@ pub(crate) enum StatePartsSubCommand {
         /// Select an epoch to work on.
         #[clap(subcommand)]
         epoch_selection: EpochSelection,
+        #[clap(long)]
+        use_flat: bool,
     },
     /// Read State Header from the DB
     ReadStateHeader {
@@ -118,7 +120,7 @@ impl StatePartsSubCommand {
                     Location::new(root_dir, (s3_bucket, s3_region)),
                 );
             }
-            StatePartsSubCommand::Dump { part_from, part_to, epoch_selection } => {
+            StatePartsSubCommand::Dump { part_from, part_to, epoch_selection, use_flat } => {
                 dump_state_parts(
                     epoch_selection,
                     shard_id,
@@ -128,6 +130,7 @@ impl StatePartsSubCommand {
                     chain_id,
                     store,
                     Location::new(root_dir, (s3_bucket, s3_region)),
+                    use_flat,
                 );
             }
             StatePartsSubCommand::ReadStateHeader { epoch_selection } => {
@@ -343,20 +346,38 @@ fn dump_state_parts(
     part_from: Option<u64>,
     part_to: Option<u64>,
     chain: &Chain,
-    chain_id: &str,
+    _chain_id: &str,
     store: Store,
-    location: Location,
+    _location: Location,
+    use_flat: bool,
 ) {
-    let epoch_id = epoch_selection.to_epoch_id(store, chain);
+    // hope that epoch id is correct for flat storage. anyway shard uids don't change
+    let epoch_id = epoch_selection.to_epoch_id(store, &chain);
+    let shard_uid = chain.epoch_manager.shard_id_to_uid(shard_id, &epoch_id).unwrap();
+    chain.runtime_adapter.create_flat_storage_for_shard(shard_uid);
+    let flat_storage = chain.runtime_adapter.get_flat_storage_for_shard(shard_uid).unwrap();
+    let flat_storage_head = flat_storage.get_head_hash();
+    // StateSync(sync_hash) dumps/applies state at moment BEFORE applying prev(sync_hash).
+    // So we take sync_hash = next(next(fs_head)) as flat storage stores state AFTER applying block at its head.
+    let sync_prev_hash = chain.store().get_next_block_hash(&flat_storage_head).unwrap();
+    let sync_hash = chain.store().get_next_block_hash(&sync_prev_hash).unwrap();
     let epoch = chain.epoch_manager.get_epoch_info(&epoch_id).unwrap();
-    let sync_hash = get_any_block_hash_of_epoch(&epoch, chain);
-    let sync_hash = StateSync::get_epoch_start_sync_hash(chain, &sync_hash).unwrap();
-    let sync_block = chain.get_block_header(&sync_hash).unwrap();
-    let sync_prev_hash = sync_block.prev_hash();
+    // let sync_hash = get_any_block_hash_of_epoch(&epoch, &chain);
+    // let sync_hash = StateSync::get_epoch_start_sync_hash(&chain, &sync_hash).unwrap();
 
-    let state_header = chain.compute_state_response_header(shard_id, sync_hash).unwrap();
-    let state_root = state_header.chunk_prev_state_root();
-    let num_parts = get_num_state_parts(state_header.state_root_node().memory_usage);
+    // InvalidStateRequest("sync_hash is not the first hash of the epoch")
+    // let state_header = chain.compute_state_response_header(shard_id, sync_hash).unwrap();
+    // let state_root = state_header.chunk_prev_state_root();
+    // let num_parts = get_num_state_parts(state_header.state_root_node().memory_usage);
+    // let sync_prev_hash = chain.get_block_header(&sync_hash).unwrap().prev_hash().clone();
+    let sync_prev_block = chain.get_block(&sync_prev_hash).unwrap();
+    let chunk_header = sync_prev_block.chunks()[shard_id as usize].clone();
+    let state_root = chunk_header.prev_state_root();
+    let state_root_node = chain
+        .runtime_adapter
+        .get_state_root_node(shard_id, &sync_prev_hash, &chunk_header.prev_state_root())
+        .unwrap();
+    let num_parts = get_num_state_parts(state_root_node.memory_usage);
     let part_ids = get_part_ids(part_from, part_to, num_parts);
 
     tracing::info!(
@@ -371,31 +392,80 @@ fn dump_state_parts(
         "Dumping state as seen at the beginning of the specified epoch.",
     );
 
-    let part_storage = get_state_part_writer(location, chain_id, epoch.epoch_height(), shard_id);
+    // let part_storage = get_state_part_writer(location, chain_id, epoch.epoch_height(), shard_id);
 
     let timer = Instant::now();
     for part_id in part_ids {
-        let timer = Instant::now();
+        // let timer = Instant::now();
         assert!(part_id < num_parts, "part_id: {}, num_parts: {}", part_id, num_parts);
-        let state_part = chain
-            .runtime_adapter
-            .obtain_state_part(
-                shard_id,
-                &sync_prev_hash,
-                &state_root,
-                PartId::new(part_id, num_parts),
+
+        let state_part_read_start = Instant::now();
+
+        let (state_part, read_stats) = if use_flat {
+            // checked equality on testnet. assume that it works now
+            let sync_prev_hash = chain.get_block_header(&sync_hash).unwrap().prev_hash().clone();
+            let trie = chain
+                .runtime_adapter
+                .get_trie_for_shard(shard_id, &sync_prev_hash, state_root, true)
+                .unwrap();
+            let (partial_state, stats) = trie
+                .get_trie_nodes_for_part_with_flat_storage(
+                    shard_uid,
+                    PartId { idx: part_id, total: num_parts },
+                )
+                .unwrap();
+            let partial_state = partial_state.try_to_vec().unwrap();
+            let partial_state_2 = chain
+                .runtime_adapter
+                .obtain_state_part(
+                    shard_id,
+                    &sync_hash,
+                    &state_root,
+                    PartId::new(part_id, num_parts),
+                )
+                .unwrap();
+            assert_eq!(partial_state, partial_state_2, "part {part_id}/{num_parts} failed");
+            (partial_state, stats)
+        } else {
+            (
+                chain
+                    .runtime_adapter
+                    .obtain_state_part(
+                        shard_id,
+                        &sync_hash,
+                        &state_root,
+                        PartId::new(part_id, num_parts),
+                    )
+                    .unwrap(),
+                Stats::default(),
             )
-            .unwrap();
-        part_storage.write(&state_part, part_id, num_parts);
-        let elapsed_sec = timer.elapsed().as_secs_f64();
+        };
+
+        let state_part_read_duration = state_part_read_start.elapsed();
+        let Stats {
+            boundaries_read_duration,
+            values_read_duration,
+            trie_updates_gen_duration,
+            final_trie_gen_duration,
+            internal_get_duration,
+        } = read_stats;
+
+        // part_storage.write(&trie_state_part, part_id, num_parts);
+        // let elapsed_sec = timer.elapsed().as_secs_f64();
         let first_state_record = get_first_state_record(&state_root, &state_part);
         tracing::info!(
             target: "state-parts",
             part_id,
             part_length = state_part.len(),
-            elapsed_sec,
+            state_part_read_ms = state_part_read_duration.as_millis(),
+            boundaries_read_ms = boundaries_read_duration.as_millis(),
+            values_read_ms = values_read_duration.as_millis(),
+            trie_updates_gen_ms = trie_updates_gen_duration.as_millis(),
+            final_trie_gen_ms = final_trie_gen_duration.as_millis(),
+            internal_get_ms = internal_get_duration.as_millis(),
             first_state_record = ?first_state_record.map(|sr| format!("{}", sr)),
-            "Wrote a state part");
+            "Wrote a state part"
+        );
     }
     tracing::info!(target: "state-parts", total_elapsed_sec = timer.elapsed().as_secs_f64(), "Wrote all requested state parts");
 }
@@ -459,6 +529,7 @@ fn get_state_part_reader(
     }
 }
 
+#[allow(unused)]
 fn get_state_part_writer(
     location: Location,
     chain_id: &str,

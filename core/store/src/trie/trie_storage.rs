@@ -7,6 +7,8 @@ use lru::LruCache;
 use near_o11y::log_assert;
 use near_o11y::metrics::prometheus;
 use near_o11y::metrics::prometheus::core::{GenericCounter, GenericGauge};
+use near_primitives::challenge::PartialState;
+use near_primitives::errors::StorageError::StorageInconsistentState;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{ShardId, TrieCacheMode, TrieNodesCount};
@@ -290,6 +292,10 @@ pub trait TrieStorage {
     /// [`StorageError`] if the storage fails internally or the hash is not present.
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError>;
 
+    fn shard_uid(&self) -> Result<ShardUId, StorageError> {
+        Err(StorageInconsistentState(format!("Shard uid does not exist for this TrieStorage")))
+    }
+
     /// DEPRECATED.
     /// Returns `TrieCachingStorage` if `TrieStorage` is implemented by it.
     /// TODO (#9004) remove all remaining calls.
@@ -326,6 +332,10 @@ impl TrieStorage for TrieRecordingStorage {
         Ok(val)
     }
 
+    fn shard_uid(&self) -> Result<ShardUId, StorageError> {
+        self.storage.shard_uid()
+    }
+
     fn as_recording_storage(&self) -> Option<&TrieRecordingStorage> {
         Some(self)
     }
@@ -337,6 +347,7 @@ impl TrieStorage for TrieRecordingStorage {
 
 /// Storage for validating recorded partial storage.
 /// visited_nodes are to validate that partial storage doesn't contain unnecessary nodes.
+#[derive(Default)]
 pub struct TrieMemoryPartialStorage {
     pub(crate) recorded_storage: HashMap<CryptoHash, Arc<[u8]>>,
     pub(crate) visited_nodes: RefCell<HashSet<CryptoHash>>,
@@ -357,6 +368,26 @@ impl TrieStorage for TrieMemoryPartialStorage {
 
     fn get_trie_nodes_count(&self) -> TrieNodesCount {
         unimplemented!();
+    }
+}
+
+impl TrieMemoryPartialStorage {
+    pub fn partial_state(&self) -> PartialState {
+        let touched_nodes = self.visited_nodes.borrow();
+        let mut nodes: Vec<_> =
+            self.recorded_storage
+                .iter()
+                .filter_map(|(node_hash, value)| {
+                    if touched_nodes.contains(node_hash) {
+                        Some(value.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+        nodes.sort();
+        PartialState::TrieValues(nodes)
     }
 }
 
@@ -611,6 +642,10 @@ impl TrieStorage for TrieCachingStorage {
         Ok(val)
     }
 
+    fn shard_uid(&self) -> Result<ShardUId, StorageError> {
+        Ok(self.shard_uid)
+    }
+
     fn as_caching_storage(&self) -> Option<&TrieCachingStorage> {
         Some(self)
     }
@@ -662,6 +697,10 @@ impl TrieDBStorage {
 impl TrieStorage for TrieDBStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
         read_node_from_db(&self.store, self.shard_uid, hash)
+    }
+
+    fn shard_uid(&self) -> Result<ShardUId, StorageError> {
+        Ok(self.shard_uid)
     }
 
     fn get_trie_nodes_count(&self) -> TrieNodesCount {

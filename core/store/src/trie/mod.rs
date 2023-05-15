@@ -857,13 +857,16 @@ impl Trie {
     {
         let mut memory = NodesStorage::new();
         let mut root_node = self.move_node_to_mutable(&mut memory, &self.root)?;
+        let mut changes_num = 0;
         for (key, value) in changes {
+            changes_num += 1;
             let key = NibbleSlice::new(&key);
             root_node = match value {
                 Some(arr) => self.insert(&mut memory, root_node, key, arr),
                 None => self.delete(&mut memory, root_node, key),
             }?;
         }
+        eprintln!("FS KV pairs = {}", changes_num);
 
         #[cfg(test)]
         {
