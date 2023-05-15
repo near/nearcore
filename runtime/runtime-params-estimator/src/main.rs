@@ -512,7 +512,7 @@ mod tests {
             fs_keys_per_delta: 1,
             skip_build_test_contract: false,
             metric: "time".to_owned(),
-            vm_kind: None,
+            vm_kind: VMKind::for_protocol_version(PROTOCOL_VERSION),
             costs_file: None,
             compare_to: None,
             costs: Some(costs),
