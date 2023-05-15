@@ -4482,6 +4482,7 @@ dependencies = [
  "primitive-types",
  "rand 0.8.5",
  "rayon",
+ "regex",
  "rlimit",
  "rust-s3",
  "serde",

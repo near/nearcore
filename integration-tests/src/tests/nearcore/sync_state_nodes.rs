@@ -398,9 +398,11 @@ fn sync_empty_state() {
     });
 }
 
+#[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 /// Runs one node for some time, which dumps state to a temp directory.
 /// Start the second node which gets state parts from that temp directory.
-fn sync_state_dump(multi_node: bool) {
+fn sync_state_dump() {
     heavy_test(|| {
         init_integration_logger();
 
@@ -431,8 +433,7 @@ fn sync_state_dump(multi_node: bool) {
             near1.client_config.state_sync.dump = Some(DumpConfig {
                 location: Filesystem { root_dir: dump_dir.path().to_path_buf() },
                 restart_dump_for_shards: None,
-                iteration_delay: Some(Duration::from_millis(100)),
-                multi_node: Some(multi_node),
+                iteration_delay: Some(Duration::from_millis(100))
             });
 
             let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
@@ -528,16 +529,4 @@ fn sync_state_dump(multi_node: bool) {
             System::current().stop();
         });
     });
-}
-
-#[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn sync_state_dump_multi_node() {
-    sync_state_dump(true)
-}
-
-#[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn sync_state_dump_single_node() {
-    sync_state_dump(false)
 }

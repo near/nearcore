@@ -4,8 +4,7 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error};
 use near_chain_configs::{ClientConfig, ExternalStorageLocation};
 use near_client::sync::state::{
-    external_storage_location, external_storage_location_directory_multi_node,
-    external_storage_location_multi_node, ExternalConnection, StateSync,
+    external_storage_location, external_storage_location_directory, ExternalConnection, StateSync,
 };
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
@@ -15,6 +14,7 @@ use near_primitives::syncing::{get_num_state_parts, StatePartKey, StateSyncDumpP
 use near_primitives::types::{AccountId, EpochHeight, EpochId, ShardId, StateRoot};
 use near_store::DBCol;
 use rand::{thread_rng, Rng};
+use regex::Regex;
 use std::collections::HashSet;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -92,38 +92,18 @@ pub fn spawn_state_sync_dump(
             )
             .unwrap();
             let arbiter_handle = actix_rt::Arbiter::new().handle();
-            match dump_config.multi_node {
-                Some(true) => {
-                    assert!(arbiter_handle.spawn(state_sync_dump_multi_node(
-                        shard_id as ShardId,
-                        chain,
-                        epoch_manager.clone(),
-                        shard_tracker.clone(),
-                        runtime.clone(),
-                        chain_id.clone(),
-                        external.clone(),
-                        dump_config.iteration_delay.unwrap_or(Duration::from_secs(10)),
-                        account_id.clone(),
-                        keep_running.clone(),
-                    )));
-                }
-                _ => {
-                    assert!(arbiter_handle.spawn(state_sync_dump_single_node(
-                        shard_id as ShardId,
-                        chain,
-                        epoch_manager.clone(),
-                        shard_tracker.clone(),
-                        runtime.clone(),
-                        chain_id.clone(),
-                        dump_config.restart_dump_for_shards.clone().unwrap_or_default(),
-                        external.clone(),
-                        dump_config.iteration_delay.unwrap_or(Duration::from_secs(10)),
-                        account_id.clone(),
-                        keep_running.clone(),
-                    )));
-                }
-            }
-
+            assert!(arbiter_handle.spawn(state_sync_dump(
+                shard_id as ShardId,
+                chain,
+                epoch_manager.clone(),
+                shard_tracker.clone(),
+                runtime.clone(),
+                chain_id.clone(),
+                external.clone(),
+                dump_config.iteration_delay.unwrap_or(Duration::from_secs(10)),
+                account_id.clone(),
+                keep_running.clone(),
+            )));
             arbiter_handle
         })
         .collect();
@@ -152,180 +132,12 @@ impl StateSyncDumpHandle {
     }
 }
 
-/// A thread loop that dumps state of the latest available epoch to S3.
-/// Operates as a state machine. Persists its state in the Misc column.
-/// Shards store the state-machine state separately.
-async fn state_sync_dump_single_node(
-    shard_id: ShardId,
-    chain: Chain,
-    epoch_manager: Arc<dyn EpochManagerAdapter>,
-    shard_tracker: ShardTracker,
-    runtime: Arc<dyn RuntimeAdapter>,
-    chain_id: String,
-    restart_dump_for_shards: Vec<ShardId>,
-    external: ExternalConnection,
-    iteration_delay: Duration,
-    account_id: Option<AccountId>,
-    keep_running: Arc<AtomicBool>,
-) {
-    tracing::info!(target: "state_sync_dump", shard_id, "Running StateSyncDump loop");
-
-    if restart_dump_for_shards.contains(&shard_id) {
-        tracing::debug!(target: "state_sync_dump", shard_id, "Dropped existing progress");
-        chain.store().set_state_sync_dump_progress(shard_id, None).unwrap();
-    }
-
-    while keep_running.load(std::sync::atomic::Ordering::Relaxed) {
-        let progress = chain.store().get_state_sync_dump_progress(shard_id);
-        tracing::debug!(target: "state_sync_dump", shard_id, ?progress, "Running StateSyncDump loop iteration");
-        // The `match` returns the next state of the state machine.
-        let next_state = match progress {
-            Ok(Some(StateSyncDumpProgress::AllDumped { epoch_id, epoch_height, num_parts })) => {
-                // The latest epoch was dumped. Check if a newer epoch is available.
-                check_new_epoch(
-                    Some(epoch_id),
-                    Some(epoch_height),
-                    num_parts,
-                    shard_id,
-                    &chain,
-                    epoch_manager.as_ref(),
-                    &shard_tracker,
-                    &account_id,
-                )
-            }
-            Err(Error::DBNotFoundErr(_)) | Ok(None) => {
-                // First invocation of this state-machine. See if at least one epoch is available for dumping.
-                check_new_epoch(
-                    None,
-                    None,
-                    None,
-                    shard_id,
-                    &chain,
-                    epoch_manager.as_ref(),
-                    &shard_tracker,
-                    &account_id,
-                )
-            }
-            Err(err) => {
-                // Something went wrong, let's retry.
-                tracing::warn!(target: "state_sync_dump", shard_id, ?err, "Failed to read the progress, will now delete and retry");
-                if let Err(err) = chain.store().set_state_sync_dump_progress(shard_id, None) {
-                    tracing::warn!(target: "state_sync_dump", shard_id, ?err, "and failed to delete the progress. Will later retry.");
-                }
-                Ok(None)
-            }
-            Ok(Some(StateSyncDumpProgress::InProgress {
-                epoch_id,
-                epoch_height,
-                sync_hash,
-                parts_dumped,
-            })) => {
-                let in_progress_data = get_in_progress_data(shard_id, sync_hash, &chain);
-                let mut res = None;
-                match in_progress_data {
-                    Ok((state_root, num_parts, sync_prev_hash)) => {
-                        // The actual dumping of state to S3.
-                        tracing::info!(target: "state_sync_dump", shard_id, ?epoch_id, epoch_height, %sync_hash, ?state_root, parts_dumped, "Creating parts and dumping them");
-                        for part_id in parts_dumped..num_parts {
-                            // Dump parts sequentially synchronously.
-                            // TODO: How to make it possible to dump state more effectively using multiple nodes?
-                            let _timer = metrics::STATE_SYNC_DUMP_ITERATION_ELAPSED
-                                .with_label_values(&[&shard_id.to_string()])
-                                .start_timer();
-
-                            let state_part = match obtain_and_store_state_part(
-                                runtime.as_ref(),
-                                shard_id,
-                                sync_hash,
-                                &sync_prev_hash,
-                                &state_root,
-                                part_id,
-                                num_parts,
-                                &chain,
-                            ) {
-                                Ok(state_part) => state_part,
-                                Err(err) => {
-                                    res = Some(err);
-                                    break;
-                                }
-                            };
-                            let location = external_storage_location(
-                                &chain_id,
-                                epoch_height,
-                                shard_id,
-                                part_id,
-                                num_parts,
-                            );
-                            if let Err(err) =
-                                external.put_state_part(&state_part, shard_id, &location).await
-                            {
-                                res = Some(Error::Other(err.to_string()));
-                                break;
-                            }
-                            update_progress(
-                                &shard_id,
-                                &epoch_id,
-                                epoch_height,
-                                &sync_hash,
-                                part_id,
-                                num_parts,
-                                state_part.len(),
-                                &chain,
-                            );
-
-                            // Stop if the node is stopped.
-                            // Note that without this check the state dumping thread is unstoppable, i.e. non-interruptable.
-                            if !keep_running.load(std::sync::atomic::Ordering::Relaxed) {
-                                res = Some(Error::Other("Stopped".to_owned()));
-                                break;
-                            }
-                        }
-                        if let Some(err) = res {
-                            Err(err)
-                        } else {
-                            Ok(Some(StateSyncDumpProgress::AllDumped {
-                                epoch_id,
-                                epoch_height,
-                                num_parts: Some(num_parts),
-                            }))
-                        }
-                    }
-                    Err(err) => Err(err),
-                }
-            }
-        };
-
-        // Record the next state of the state machine.
-        let has_progress = match next_state {
-            Ok(Some(next_state)) => {
-                tracing::debug!(target: "state_sync_dump", shard_id, ?next_state);
-                match chain.store().set_state_sync_dump_progress(shard_id, Some(next_state)) {
-                    Ok(_) => true,
-                    Err(err) => {
-                        // This will be retried.
-                        tracing::debug!(target: "state_sync_dump", shard_id, ?err, "Failed to set progress");
-                        false
-                    }
-                }
-            }
-            Ok(None) => {
-                // Do nothing.
-                tracing::debug!(target: "state_sync_dump", shard_id, "Idle");
-                false
-            }
-            Err(err) => {
-                // Will retry.
-                tracing::debug!(target: "state_sync_dump", shard_id, ?err, "Failed to determine what to do");
-                false
-            }
-        };
-
-        if !has_progress {
-            // Avoid a busy-loop when there is nothing to do.
-            actix_rt::time::sleep(tokio::time::Duration::from(iteration_delay)).await;
-        }
-    }
-    tracing::debug!(target: "state_sync_dump", shard_id, "Stopped state dump thread");
+fn extract_part_id_from_part_file_name(file_name: &String) -> u64 {
+    let re = Regex::new(r"state_part_[0-9]+_of_[0-9]+$").unwrap();
+    assert!(re.is_match(file_name));
+    let splitted: Vec<_> = file_name.split("_").collect();
+    let part_id = splitted.get(2).unwrap().to_string().parse::<u64>().unwrap();
+    return part_id
 }
 
 async fn get_missing_state_parts_for_epoch(
@@ -336,36 +148,19 @@ async fn get_missing_state_parts_for_epoch(
     total_parts: u64,
     external: &ExternalConnection,
 ) -> Result<Vec<u64>, anyhow::Error> {
-    let s3_directory =
-        external_storage_location_directory_multi_node(chain_id, epoch_id, epoch_height, shard_id);
-    let file_names = external.list_state_parts(shard_id, &s3_directory).await?;
-    let mut res = vec![];
+    let directory_path =
+        external_storage_location_directory(chain_id, epoch_id, epoch_height, shard_id);
+    let file_names = external.list_state_parts(shard_id, &directory_path).await?;
     if !file_names.is_empty() {
-        let mut total_parts: u64 = 0;
-        let mut existing_nums = HashSet::new();
-        for name in file_names {
-            let splitted: Vec<_> = name.split("_").collect();
-            let part_id = splitted.get(2).unwrap().to_string().parse::<u64>()?;
-            if total_parts == 0 {
-                total_parts = splitted.get(4).unwrap().to_string().parse::<u64>()?;
-            }
-            existing_nums.insert(part_id);
-        }
-        for i in 0..total_parts {
-            if !existing_nums.contains(&i) {
-                res.push(i)
-            }
-        }
-        let num_missing = res.len();
-        tracing::debug!(target: "state_sync_dump", ?num_missing, ?s3_directory, "number of missing parts: ");
-        Ok(res)
+        let existing_nums : HashSet<_> = file_names.iter().map(|file_name| extract_part_id_from_part_file_name(file_name)).collect();
+        let missing_nums: Vec<u64> = (0..total_parts).filter(|i| !existing_nums.contains(i)).collect();
+        let num_missing = missing_nums.len();
+        tracing::debug!(target: "state_sync_dump", ?num_missing, ?directory_path, "number of missing parts: ");
+        Ok(missing_nums)
     } else {
-        for i in 0..total_parts {
-            res.push(i)
-        }
-        let num_missing = res.len();
-        tracing::debug!(target: "state_sync_dump", ?num_missing, ?s3_directory, "number of missing parts: ");
-        Ok(res)
+        tracing::debug!(target: "state_sync_dump", ?total_parts, ?directory_path, "number of missing parts: ");
+        let missing_nums = (0..total_parts).collect::<Vec<_>>();
+        Ok(missing_nums)
     }
 }
 
@@ -377,7 +172,7 @@ fn select_random_part_id_with_index(parts_to_be_dumped: &Vec<u64>) -> (u64, usiz
     (selected_element, selected_idx)
 }
 
-async fn state_sync_dump_multi_node(
+async fn state_sync_dump(
     shard_id: ShardId,
     chain: Chain,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -434,7 +229,7 @@ async fn state_sync_dump_multi_node(
                 epoch_id,
                 epoch_height,
                 sync_hash,
-                parts_dumped,
+                parts_dumped: _,
             })) => {
                 let in_progress_data = get_in_progress_data(shard_id, sync_hash, &chain);
                 match in_progress_data {
@@ -466,6 +261,8 @@ async fn state_sync_dump_multi_node(
                             }
                             Ok(parts_not_dumped) => {
                                 let mut parts_to_dump = parts_not_dumped.clone();
+                                let cnt_parts_to_dump: u64 = parts_to_dump.len().try_into().unwrap();
+                                let mut cnt_parts_dumped = num_parts - cnt_parts_to_dump;
                                 let timer = Instant::now();
                                 while timer.elapsed().as_secs() <= 60 && !parts_to_dump.is_empty() {
                                     let _timer = metrics::STATE_SYNC_DUMP_ITERATION_ELAPSED
@@ -490,7 +287,7 @@ async fn state_sync_dump_multi_node(
                                             break;
                                         }
                                     };
-                                    let location = external_storage_location_multi_node(
+                                    let location = external_storage_location(
                                         &chain_id,
                                         &epoch_id,
                                         epoch_height,
@@ -509,6 +306,7 @@ async fn state_sync_dump_multi_node(
 
                                     // remove the dumped part from parts_to_dump so that we draw without replacement
                                     parts_to_dump.swap_remove(selected_idx);
+                                    cnt_parts_dumped += 1;
 
                                     // Stop if the node is stopped.
                                     // Note that without this check the state dumping thread is unstoppable, i.e. non-interruptable.
@@ -528,7 +326,7 @@ async fn state_sync_dump_multi_node(
                                         epoch_id,
                                         epoch_height,
                                         sync_hash,
-                                        parts_dumped,
+                                        parts_dumped: cnt_parts_dumped,
                                     }))
                                 }
                             }
@@ -584,37 +382,6 @@ fn get_in_progress_data(
     let sync_block = chain.get_block(&sync_hash)?;
     let sync_prev_hash = sync_block.header().prev_hash();
     Ok((state_root, num_parts, *sync_prev_hash))
-}
-
-fn update_progress(
-    shard_id: &ShardId,
-    epoch_id: &EpochId,
-    epoch_height: EpochHeight,
-    sync_hash: &CryptoHash,
-    part_id: u64,
-    num_parts: u64,
-    part_len: usize,
-    chain: &Chain,
-) {
-    // Record that a part was obtained and dumped.
-    metrics::STATE_SYNC_DUMP_SIZE_TOTAL
-        .with_label_values(&[&epoch_height.to_string(), &shard_id.to_string()])
-        .inc_by(part_len as u64);
-    let next_progress = StateSyncDumpProgress::InProgress {
-        epoch_id: epoch_id.clone(),
-        epoch_height,
-        sync_hash: *sync_hash,
-        parts_dumped: part_id + 1,
-    };
-    match chain.store().set_state_sync_dump_progress(*shard_id, Some(next_progress.clone())) {
-        Ok(_) => {
-            tracing::debug!(target: "state_sync_dump", shard_id, ?next_progress, "Updated dump progress");
-        }
-        Err(err) => {
-            tracing::debug!(target: "state_sync_dump", shard_id, ?err, "Failed to update dump progress, continue");
-        }
-    }
-    set_metrics(shard_id, Some(part_id + 1), Some(num_parts), Some(epoch_height));
 }
 
 fn set_metrics(
@@ -761,9 +528,7 @@ mod tests {
     use crate::state_sync::spawn_state_sync_dump;
     use near_chain::{ChainGenesis, Provenance};
     use near_chain_configs::{DumpConfig, ExternalStorageLocation};
-    use near_client::sync::state::{
-        external_storage_location, external_storage_location_multi_node,
-    };
+    use near_client::sync::state::external_storage_location;
     use near_client::test_utils::TestEnv;
     use near_network::test_utils::wait_or_timeout;
     use near_o11y::testonly::init_test_logger;
@@ -771,7 +536,10 @@ mod tests {
     use std::ops::ControlFlow;
     use std::time::Duration;
 
-    fn test_state_dump(multi_node: bool) {
+    #[test]
+    /// Produce several blocks, wait for the state dump thread to notice and
+    /// write files to a temp dir.
+    fn test_state_dump() {
         init_test_logger();
 
         let mut chain_genesis = ChainGenesis::test();
@@ -789,7 +557,6 @@ mod tests {
             },
             restart_dump_for_shards: None,
             iteration_delay: Some(Duration::from_millis(250)),
-            multi_node: Some(multi_node),
         });
 
         const MAX_HEIGHT: BlockHeight = 15;
@@ -822,24 +589,14 @@ mod tests {
                 for shard_id in 0..num_shards {
                     let num_parts = 3;
                     for part_id in 0..num_parts {
-                        let path = if multi_node {
-                            root_dir.path().join(external_storage_location_multi_node(
+                        let path = root_dir.path().join(external_storage_location(
                                 "unittest",
                                 &epoch_id,
                                 epoch_height,
                                 shard_id,
                                 part_id,
                                 num_parts,
-                            ))
-                        } else {
-                            root_dir.path().join(external_storage_location(
-                                "unittest",
-                                epoch_height,
-                                shard_id,
-                                part_id,
-                                num_parts,
-                            ))
-                        };
+                            ));
                         if std::fs::read(&path).is_err() {
                             println!("Missing {:?}", path);
                             all_parts_present = false;
@@ -856,19 +613,5 @@ mod tests {
             .unwrap();
             actix_rt::System::current().stop();
         });
-    }
-
-    #[test]
-    /// Produce several blocks, wait for the state dump thread to notice and
-    /// write files to a temp dir.
-    fn test_state_dump_single_node() {
-        test_state_dump(false)
-    }
-
-    #[test]
-    /// Produce several blocks, wait for the state dump thread to notice and
-    /// write files to a temp dir.
-    fn test_state_dump_multi_node() {
-        test_state_dump(true)
     }
 }
