@@ -145,6 +145,7 @@ class BaseNode(object):
         self.proxy = None
         self.store_tests = 0
         self.is_check_store = True
+        self.session = requests.session()
 
     def change_config(self, overrides: typing.Dict[str, typing.Any]) -> None:
         """Change client config.json of a node by applying given overrides.
@@ -209,7 +210,8 @@ class BaseNode(object):
             'id': 'dontcare',
             'jsonrpc': '2.0'
         }
-        r = requests.post("http://%s:%s" % self.rpc_addr(),
+        # locust integration overwrites the `session` field, don't use global instance
+        r = self.session.post("http://%s:%s" % self.rpc_addr(),
                           json=j,
                           timeout=timeout)
         r.raise_for_status()
