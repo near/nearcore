@@ -2392,7 +2392,9 @@ impl Chain {
                 (state_dl_info.is_none(), state_dl_info, need_state_snapshot)
             } else {
                 let mut b = self.first_block.lock().unwrap();
-                if *b {
+                let bb = *b;
+                tracing::info!(target: "state_snapshot", first_block = bb);
+                if bb {
                     // TODO: Testing only
                     *b = false;
                     (self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)?, None, true)
