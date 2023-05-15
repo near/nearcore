@@ -51,9 +51,10 @@ use near_store::flat::{store_helper, FlatStorage, FlatStorageManager, FlatStorag
 use near_store::metadata::DbKind;
 use near_store::split_state::get_delayed_receipts;
 use near_store::{
-    get_genesis_hash, get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots,
-    ApplyStatePartResult, DBCol, PartialStorage, ShardTries, Store, StoreCompiledContractCache,
-    StoreUpdate, Trie, TrieConfig, WrappedTrieChanges, COLD_HEAD_KEY,
+    checkpoint_hot_storage_and_cleanup_columns, get_genesis_hash, get_genesis_state_roots,
+    set_genesis_hash, set_genesis_state_roots, ApplyStatePartResult, DBCol, NodeStorage,
+    PartialStorage, ShardTries, Store, StoreCompiledContractCache, StoreConfig, StoreUpdate, Trie,
+    TrieConfig, WrappedTrieChanges, COLD_HEAD_KEY,
 };
 use near_vm_runner::precompile_contract;
 use node_runtime::adapter::ViewRuntimeAdapter;
@@ -114,7 +115,6 @@ impl NightshadeRuntime {
                         DBCol::FlatStorageStatus,
                     ])
                 },
-                archive: config.client_config.archive,
             }
         } else {
             StateSnapshotConfig::Disabled
