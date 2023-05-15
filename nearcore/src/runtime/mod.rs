@@ -51,10 +51,10 @@ use near_store::flat::{store_helper, FlatStorage, FlatStorageManager, FlatStorag
 use near_store::metadata::DbKind;
 use near_store::split_state::get_delayed_receipts;
 use near_store::{
-    checkpoint_hot_storage_and_cleanup_columns, get_genesis_hash, get_genesis_state_roots,
-    set_genesis_hash, set_genesis_state_roots, ApplyStatePartResult, DBCol, NodeStorage,
-    PartialStorage, ShardTries, Store, StoreCompiledContractCache, StoreConfig, StoreUpdate, Trie,
-    TrieConfig, WrappedTrieChanges, COLD_HEAD_KEY,
+    checkpoint_hot_storage_and_cleanup_columns, copy_column_to_new_db, get_genesis_hash,
+    get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots, ApplyStatePartResult,
+    DBCol, NodeStorage, PartialStorage, ShardTries, Store, StoreCompiledContractCache, StoreConfig,
+    StoreUpdate, Trie, TrieConfig, WrappedTrieChanges, COLD_HEAD_KEY,
 };
 use near_vm_runner::precompile_contract;
 use node_runtime::adapter::ViewRuntimeAdapter;
@@ -123,7 +123,7 @@ impl NightshadeRuntime {
                         DBCol::FlatStorageStatus,
                     ])
                 },
-                archive: config.client_config.archive,
+                do_copy: config.config.store.state_snapshot_do_copy,
             }
         } else {
             StateSnapshotConfig::Disabled
@@ -739,7 +739,7 @@ fn maybe_open_state_snapshot(
             hot_store_path,
             state_snapshot_subdir,
             columns_to_keep: _,
-            archive,
+            do_copy: _,
         } => {
             let path = get_state_snapshot_base_dir(
                 &CryptoHash::new(),
@@ -788,7 +788,7 @@ fn maybe_open_state_snapshot(
                 let mut store_config = StoreConfig::default();
                 store_config.path = config.config.store.path.clone(); // Default is "data"
 
-                let opener = NodeStorage::opener(&snapshot_dir, *archive, &store_config, None);
+                let opener = NodeStorage::opener(&snapshot_dir, false, &store_config, None);
                 let storage = opener.open()?;
                 let store = storage.get_hot_store();
                 let flat_storage_manager = FlatStorageManager::new(store.clone());
@@ -1676,7 +1676,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 hot_store_path,
                 state_snapshot_subdir,
                 columns_to_keep,
-                archive,
+                do_copy,
             } => {
                 let mut state_snapshot_lock = self.state_snapshot.lock().unwrap();
 
@@ -1699,19 +1699,33 @@ impl RuntimeAdapter for NightshadeRuntime {
                     }
                 }
 
-                let storage = checkpoint_hot_storage_and_cleanup_columns(
-                    &self.store,
-                    &get_state_snapshot_base_dir(
-                        last_block_hash,
-                        prev_block_hash,
-                        home_dir,
-                        hot_store_path,
-                        state_snapshot_subdir,
-                    ),
-                    columns_to_keep.clone(),
-                    *archive,
-                )
-                .map_err(|err| Error::Other(err.to_string()))?;
+                let storage = if *do_copy {
+                    copy_column_to_new_db(
+                        &self.store,
+                        &get_state_snapshot_base_dir(
+                            last_block_hash,
+                            prev_block_hash,
+                            home_dir,
+                            hot_store_path,
+                            state_snapshot_subdir,
+                        ),
+                        columns_to_keep.as_ref().unwrap(),
+                    )
+                    .map_err(|err| Error::Other(err.to_string()))?
+                } else {
+                    checkpoint_hot_storage_and_cleanup_columns(
+                        &self.store,
+                        &get_state_snapshot_base_dir(
+                            last_block_hash,
+                            prev_block_hash,
+                            home_dir,
+                            hot_store_path,
+                            state_snapshot_subdir,
+                        ),
+                        columns_to_keep.clone(),
+                    )
+                    .map_err(|err| Error::Other(err.to_string()))?
+                };
                 let store = storage.get_hot_store();
                 let flat_storage_manager = FlatStorageManager::new(store.clone());
                 *state_snapshot_lock = Some(StateSnapshot {
@@ -1750,7 +1764,7 @@ enum StateSnapshotConfig {
         hot_store_path: PathBuf,
         state_snapshot_subdir: PathBuf,
         columns_to_keep: Option<Vec<DBCol>>,
-        archive: bool,
+        do_copy: bool,
     },
 }
 

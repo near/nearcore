@@ -1,10 +1,12 @@
-use std::sync::Arc;
-use strum::IntoEnumIterator;
-
+use crate::cold_storage::rc_aware_set;
 use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError, SnapshotRemoveError};
 use crate::db::rocksdb::RocksDB;
+use crate::db::Database;
 use crate::metadata::{DbKind, DbMetadata, DbVersion, DB_VERSION};
 use crate::{DBCol, DBTransaction, Mode, NodeStorage, Store, StoreConfig, Temperature};
+use std::io;
+use std::sync::Arc;
+use strum::IntoEnumIterator;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreOpenerError {
@@ -588,7 +590,6 @@ pub fn checkpoint_hot_storage_and_cleanup_columns(
     hot_store: &Store,
     checkpoint_base_path: &std::path::Path,
     columns_to_keep: Option<Vec<DBCol>>,
-    archive: bool,
 ) -> Result<NodeStorage, StoreOpenerError> {
     let _span =
         tracing::info_span!(target: "state_snapshot", "checkpoint_hot_storage_and_cleanup_columns")
@@ -604,11 +605,11 @@ pub fn checkpoint_hot_storage_and_cleanup_columns(
     // As only path from config is used in StoreOpener, default config with custom path will do.
     let mut config = StoreConfig::default();
     config.path = Some(checkpoint_path);
-    let opener = StoreOpener::new(checkpoint_base_path, archive, &config, None);
+    let opener = StoreOpener::new(checkpoint_base_path, false, &config, None);
     let node_storage = opener.open()?;
 
     if let Some(columns_to_keep) = columns_to_keep {
-        let _span = tracing::info_span!(target: "state_snapshot", "Deleting columns").entered();
+        let _span = tracing::info_span!(target: "state_snapshot", "delete_column").entered();
         let columns_to_keep_set: std::collections::HashSet<DBCol> =
             std::collections::HashSet::from_iter(columns_to_keep.into_iter());
         let mut transaction = DBTransaction::new();
@@ -630,9 +631,101 @@ pub fn checkpoint_hot_storage_and_cleanup_columns(
     Ok(node_storage)
 }
 
+pub fn copy_column_to_new_db(
+    hot_store: &Store,
+    checkpoint_base_path: &std::path::Path,
+    columns_to_keep: &[DBCol],
+) -> Result<NodeStorage, StoreOpenerError> {
+    let _span = tracing::info_span!(target: "state_snapshot", "copy_column_to_new_db").entered();
+    let checkpoint_path = checkpoint_base_path.join("data");
+    std::fs::create_dir_all(&checkpoint_base_path)?;
+
+    let mut config = StoreConfig::default();
+    config.path = Some(checkpoint_path);
+
+    let db_opener = DBOpener::new(&checkpoint_base_path, &config, Temperature::Hot);
+    let rocksdb = Arc::new(db_opener.open_unsafe(Mode::Create)?);
+
+    {
+        let _span = tracing::info_span!(target: "state_snapshot", "copy_columns").entered();
+        for &col in columns_to_keep {
+            tracing::info!(target: "state_snapshot", ?col);
+            let mut transaction = BatchTransaction::new(rocksdb.clone(), 500_000_000);
+            for result in hot_store.iter(col) {
+                let (key, value) = result?;
+                transaction.set_and_write_if_full(col, key.to_vec(), value.to_vec())?;
+            }
+            transaction.write()?;
+        }
+    }
+
+    Ok(NodeStorage::new(rocksdb.clone()))
+}
+
+struct BatchTransaction {
+    db: std::sync::Arc<dyn Database>,
+    transaction: DBTransaction,
+    /// Size of all values keys and values in `transaction` in bytes.
+    transaction_size: usize,
+    /// Minimum size, after which we write transaction
+    threshold_transaction_size: usize,
+}
+
+impl BatchTransaction {
+    fn new(db: std::sync::Arc<dyn Database>, batch_size: usize) -> Self {
+        Self {
+            db,
+            transaction: DBTransaction::new(),
+            transaction_size: 0,
+            threshold_transaction_size: batch_size,
+        }
+    }
+
+    /// Adds a set DBOp to `self.transaction`. Updates `self.transaction_size`.
+    /// If `self.transaction_size` becomes too big, calls for write.
+    fn set_and_write_if_full(
+        &mut self,
+        col: DBCol,
+        key: Vec<u8>,
+        value: Vec<u8>,
+    ) -> io::Result<()> {
+        let size = rc_aware_set(&mut self.transaction, col, key, value);
+        self.transaction_size += size;
+
+        if self.transaction_size > self.threshold_transaction_size {
+            self.write()?;
+        }
+        Ok(())
+    }
+
+    /// Writes `self.transaction` and replaces it with new empty DBTransaction.
+    /// Sets `self.transaction_size` to 0.
+    fn write(&mut self) -> io::Result<()> {
+        if self.transaction.ops.is_empty() {
+            return Ok(());
+        }
+
+        let column_label = [<&str>::from(self.transaction.ops[0].col())];
+
+        tracing::info!(
+                target: "state_snapshot",
+                ?column_label,
+                tx_size_in_megabytes = self.transaction_size as f64 / 1e6,
+                "Writing a Flat Storage transaction");
+
+        let transaction = std::mem::take(&mut self.transaction);
+        self.db.write(transaction)?;
+        self.transaction_size = 0;
+
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use near_o11y::testonly::init_test_logger;
+    use std::path::PathBuf;
 
     fn check_keys_existence(store: &Store, column: &DBCol, keys: &Vec<Vec<u8>>, expected: bool) {
         for key in keys {
@@ -644,6 +737,7 @@ mod tests {
     fn test_checkpoint_hot_storage_and_cleanup_columns() {
         let (home_dir, opener) = NodeStorage::test_opener();
         let node_storage = opener.open().unwrap();
+        let hot_store = Store { storage: node_storage.hot_storage.clone() };
 
         let keys = vec![vec![0], vec![1], vec![2], vec![3]];
         let columns = vec![DBCol::Block, DBCol::Chunks, DBCol::BlockHeader];
@@ -657,11 +751,9 @@ mod tests {
         store_update.commit().unwrap();
 
         let store = checkpoint_hot_storage_and_cleanup_columns(
-            &node_storage,
-            &home_dir.path(),
-            std::path::PathBuf::from("checkpoint_none"),
+            &hot_store,
+            &home_dir.path().join(PathBuf::from("checkpoint_none")),
             None,
-            false,
         )
         .unwrap();
         check_keys_existence(&store.get_hot_store(), &DBCol::Block, &keys, true);
@@ -669,11 +761,9 @@ mod tests {
         check_keys_existence(&store.get_hot_store(), &DBCol::BlockHeader, &keys, true);
 
         let store = checkpoint_hot_storage_and_cleanup_columns(
-            &node_storage,
-            &home_dir.path(),
-            std::path::PathBuf::from("checkpoint_some"),
+            &hot_store,
+            &home_dir.path().join(PathBuf::from("checkpoint_some")),
             Some(vec![DBCol::Block]),
-            false,
         )
         .unwrap();
         check_keys_existence(&store.get_hot_store(), &DBCol::Block, &keys, true);
@@ -681,11 +771,9 @@ mod tests {
         check_keys_existence(&store.get_hot_store(), &DBCol::BlockHeader, &keys, false);
 
         let store = checkpoint_hot_storage_and_cleanup_columns(
-            &node_storage,
-            &home_dir.path(),
-            std::path::PathBuf::from("checkpoint_all"),
+            &hot_store,
+            &home_dir.path().join(PathBuf::from("checkpoint_all")),
             Some(vec![DBCol::Block, DBCol::Chunks, DBCol::BlockHeader]),
-            false,
         )
         .unwrap();
         check_keys_existence(&store.get_hot_store(), &DBCol::Block, &keys, true);
@@ -693,11 +781,58 @@ mod tests {
         check_keys_existence(&store.get_hot_store(), &DBCol::BlockHeader, &keys, true);
 
         let store = checkpoint_hot_storage_and_cleanup_columns(
-            &node_storage,
-            &home_dir.path(),
-            std::path::PathBuf::from("checkpoint_empty"),
+            &hot_store,
+            &home_dir.path().join(PathBuf::from("checkpoint_empty")),
             Some(vec![]),
-            false,
+        )
+        .unwrap();
+        check_keys_existence(&store.get_hot_store(), &DBCol::Block, &keys, false);
+        check_keys_existence(&store.get_hot_store(), &DBCol::Chunks, &keys, false);
+        check_keys_existence(&store.get_hot_store(), &DBCol::BlockHeader, &keys, false);
+    }
+
+    #[test]
+    fn test_copy_column_to_new_db() {
+        init_test_logger();
+        let (home_dir, opener) = NodeStorage::test_opener();
+        let node_storage = opener.open().unwrap();
+        let hot_store = Store { storage: node_storage.hot_storage.clone() };
+
+        let keys = vec![vec![0], vec![1], vec![2], vec![3]];
+        let columns = vec![DBCol::Block, DBCol::Chunks, DBCol::BlockHeader];
+
+        let mut store_update = node_storage.get_hot_store().store_update();
+        for column in columns {
+            for key in &keys {
+                store_update.insert(column, key, &vec![42]);
+            }
+        }
+        store_update.commit().unwrap();
+
+        let store = copy_column_to_new_db(
+            &hot_store,
+            &home_dir.path().join(PathBuf::from("copy_all")),
+            &vec![DBCol::BlockHeader, DBCol::Block, DBCol::Chunks],
+        )
+        .unwrap();
+        check_keys_existence(&store.get_hot_store(), &DBCol::BlockHeader, &keys, true);
+        check_keys_existence(&store.get_hot_store(), &DBCol::Block, &keys, true);
+        check_keys_existence(&store.get_hot_store(), &DBCol::Chunks, &keys, true);
+
+        let store = copy_column_to_new_db(
+            &hot_store,
+            &home_dir.path().join(PathBuf::from("copy_some")),
+            &vec![DBCol::Block],
+        )
+        .unwrap();
+        check_keys_existence(&store.get_hot_store(), &DBCol::Block, &keys, true);
+        check_keys_existence(&store.get_hot_store(), &DBCol::Chunks, &keys, false);
+        check_keys_existence(&store.get_hot_store(), &DBCol::BlockHeader, &keys, false);
+
+        let store = copy_column_to_new_db(
+            &hot_store,
+            &home_dir.path().join(PathBuf::from("copy_empty")),
+            &vec![],
         )
         .unwrap();
         check_keys_existence(&store.get_hot_store(), &DBCol::Block, &keys, false);
