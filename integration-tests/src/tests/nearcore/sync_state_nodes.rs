@@ -433,7 +433,7 @@ fn sync_state_dump() {
             near1.client_config.state_sync.dump = Some(DumpConfig {
                 location: Filesystem { root_dir: dump_dir.path().to_path_buf() },
                 restart_dump_for_shards: None,
-                iteration_delay: Some(Duration::from_millis(100))
+                iteration_delay: Some(Duration::from_millis(100)),
             });
 
             let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();

@@ -389,8 +389,12 @@ async fn get_missing_state_parts_for_epoch(
         external_storage_location_directory(chain_id, epoch_id, epoch_height, shard_id);
     let file_names = external.list_state_parts(shard_id, &directory_path).await?;
     if !file_names.is_empty() {
-        let existing_nums : HashSet<_> = file_names.iter().map(|file_name| extract_part_id_from_part_file_name(file_name)).collect();
-        let missing_nums: Vec<u64> = (0..total_parts).filter(|i| !existing_nums.contains(i)).collect();
+        let existing_nums: HashSet<_> = file_names
+            .iter()
+            .map(|file_name| extract_part_id_from_part_file_name(file_name))
+            .collect();
+        let missing_nums: Vec<u64> =
+            (0..total_parts).filter(|i| !existing_nums.contains(i)).collect();
         let num_missing = missing_nums.len();
         tracing::debug!(target: "state_sync_dump", ?num_missing, ?directory_path, "number of missing parts: ");
         Ok(missing_nums)
@@ -498,7 +502,8 @@ async fn state_sync_dump(
                             }
                             Ok(parts_not_dumped) => {
                                 let mut parts_to_dump = parts_not_dumped.clone();
-                                let cnt_parts_to_dump: u64 = parts_to_dump.len().try_into().unwrap();
+                                let cnt_parts_to_dump: u64 =
+                                    parts_to_dump.len().try_into().unwrap();
                                 let mut cnt_parts_dumped = num_parts - cnt_parts_to_dump;
                                 let timer = Instant::now();
                                 while timer.elapsed().as_secs() <= 60 && !parts_to_dump.is_empty() {
@@ -913,13 +918,13 @@ mod tests {
                     let num_parts = 3;
                     for part_id in 0..num_parts {
                         let path = root_dir.path().join(external_storage_location(
-                                "unittest",
-                                &epoch_id,
-                                epoch_height,
-                                shard_id,
-                                part_id,
-                                num_parts,
-                            ));
+                            "unittest",
+                            &epoch_id,
+                            epoch_height,
+                            shard_id,
+                            part_id,
+                            num_parts,
+                        ));
                         if std::fs::read(&path).is_err() {
                             println!("Missing {:?}", path);
                             all_parts_present = false;
