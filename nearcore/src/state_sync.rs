@@ -3,7 +3,6 @@ use borsh::BorshSerialize;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error};
 use near_chain_configs::{ClientConfig, ExternalStorageLocation};
-use near_client::sync::epoch;
 use near_client::sync::state::{
     external_storage_location, external_storage_location_directory, get_part_id_from_filename,
     is_part_filename, ExternalConnection, StateSync, STATE_DUMP_ITERATION_TIME_LIMIT_SECS,
@@ -202,7 +201,7 @@ async fn state_sync_dump(
         tracing::debug!(target: "state_sync_dump", shard_id, ?progress, "Running StateSyncDump loop iteration");
         // The `match` returns the next state of the state machine.
         let next_state: Result<Option<StateSyncDumpProgress>, Error> = match progress {
-            Ok(Some(StateSyncDumpProgress::AllDumped { epoch_id, epoch_height, num_parts })) => {
+            Ok(Some(StateSyncDumpProgress::AllDumped { epoch_id, epoch_height: _ })) => {
                 // The latest epoch was dumped. Check if a newer epoch is available.
                 check_new_epoch(
                     Some(epoch_id),
@@ -237,124 +236,118 @@ async fn state_sync_dump(
                 match in_progress_data {
                     Err(error) => Err(error),
                     Ok((state_root, num_parts, sync_prev_hash)) => {
-                        match check_new_epoch(
+                        let new_epoch_state = check_new_epoch(
                             Some(epoch_id.clone()),
                             shard_id,
                             &chain,
                             epoch_manager.as_ref(),
                             &shard_tracker,
                             &account_id,
-                        ) {
+                        );
+                        match new_epoch_state {
+                            Err(err) => Err(err),
                             // there's a new epoch available, next iteration will work on it
-                            Ok(Some(state)) => Ok(Some(state)), 
+                            Ok(Some(state)) => Ok(Some(state)),
                             Ok(None) => {
-                                match in_progress_data {
-                                    Err(error) => Err(error),
-                                    Ok((state_root, num_parts, sync_prev_hash)) => {
-                                        let missing_parts = get_missing_part_ids_for_epoch(
-                                            shard_id,
-                                            &chain_id,
-                                            &epoch_id,
+                                let missing_parts = get_missing_part_ids_for_epoch(
+                                    shard_id,
+                                    &chain_id,
+                                    &epoch_id,
+                                    epoch_height,
+                                    num_parts,
+                                    &external,
+                                )
+                                .await;
+
+                                match missing_parts {
+                                    Err(err) => {
+                                        tracing::debug!(target: "state_sync_dump", shard_id, ?err, "get_missing_state_parts_for_epoch error");
+                                        Err(Error::Other(format!(
+                                            "get_missing_state_parts_for_epoch failed"
+                                        )))
+                                    }
+                                    Ok(parts_not_dumped) if parts_not_dumped.is_empty() => {
+                                        Ok(Some(StateSyncDumpProgress::AllDumped {
+                                            epoch_id: epoch_id.clone(),
                                             epoch_height,
-                                            num_parts,
-                                            &external,
-                                        )
-                                        .await;
-        
-                                        match missing_parts {
-                                            Err(err) => {
-                                                tracing::debug!(target: "state_sync_dump", shard_id, ?err, "get_missing_state_parts_for_epoch error");
-                                                Err(Error::Other(format!(
-                                                    "get_missing_state_parts_for_epoch failed"
-                                                )))
-                                            }
-                                            Ok(parts_not_dumped) if parts_not_dumped.is_empty() => {
-                                                Ok(Some(StateSyncDumpProgress::AllDumped {
-                                                    epoch_id: epoch_id.clone(),
-                                                    epoch_height,
-                                                    num_parts: Some(num_parts),
-                                                }))
-                                            }
-                                            Ok(parts_not_dumped) => {
-                                                let mut parts_to_dump = parts_not_dumped.clone();
-                                                let timer = Instant::now();
-                                                // Stop if the node is stopped.
-                                                // Note that without this check the state dumping thread is unstoppable, i.e. non-interruptable.
-                                                while keep_running
-                                                    .load(std::sync::atomic::Ordering::Relaxed)
-                                                    && timer.elapsed().as_secs()
-                                                        <= STATE_DUMP_ITERATION_TIME_LIMIT_SECS
-                                                    && !parts_to_dump.is_empty()
-                                                {
-                                                    let _timer = metrics::STATE_SYNC_DUMP_ITERATION_ELAPSED
-                                                        .with_label_values(&[&shard_id.to_string()])
-                                                        .start_timer();
-        
-                                                    let (part_id, selected_idx) =
-                                                        select_random_part_id_with_index(&parts_to_dump);
-        
-                                                    let state_part = match obtain_and_store_state_part(
-                                                        runtime.as_ref(),
-                                                        shard_id,
-                                                        sync_hash,
-                                                        &sync_prev_hash,
-                                                        &state_root,
-                                                        part_id,
-                                                        num_parts,
-                                                        &chain,
-                                                    ) {
-                                                        Ok(state_part) => state_part,
-                                                        Err(err) => {
-                                                            tracing::warn!(target: "state_sync_dump", shard_id, epoch_height, part_id, ?err, "Failed to obtain and store part. Will skip this part.");
-                                                            break;
-                                                        }
-                                                    };
-                                                    let location = external_storage_location(
-                                                        &chain_id,
-                                                        &epoch_id,
-                                                        epoch_height,
-                                                        shard_id,
-                                                        part_id,
-                                                        num_parts,
-                                                    );
-                                                    if let Err(err) = external
-                                                        .put_state_part(&state_part, shard_id, &location)
-                                                        .await
-                                                    {
-                                                        // no need to break if there's an error, we should keep dumping other parts.
-                                                        // reason is we are dumping random selected parts, so it's fine if we are not able to finish all of them
-                                                        tracing::warn!(target: "state_sync_dump", shard_id, epoch_height, part_id, ?err, "Failed to put state part into external storage location. Will skip this part.");
-                                                        continue;
-                                                    }
-        
-                                                    // remove the dumped part from parts_to_dump so that we draw without replacement
-                                                    parts_to_dump.swap_remove(selected_idx);
-                                                    update_dumped_size_and_cnt_metrics(
-                                                        &shard_id,
-                                                        epoch_height,
-                                                        state_part.len(),
-                                                    );
+                                        }))
+                                    }
+                                    Ok(parts_not_dumped) => {
+                                        let mut parts_to_dump = parts_not_dumped.clone();
+                                        let timer = Instant::now();
+                                        // Stop if the node is stopped.
+                                        // Note that without this check the state dumping thread is unstoppable, i.e. non-interruptable.
+                                        while keep_running
+                                            .load(std::sync::atomic::Ordering::Relaxed)
+                                            && timer.elapsed().as_secs()
+                                                <= STATE_DUMP_ITERATION_TIME_LIMIT_SECS
+                                            && !parts_to_dump.is_empty()
+                                        {
+                                            let _timer = metrics::STATE_SYNC_DUMP_ITERATION_ELAPSED
+                                                .with_label_values(&[&shard_id.to_string()])
+                                                .start_timer();
+
+                                            let (part_id, selected_idx) =
+                                                select_random_part_id_with_index(&parts_to_dump);
+
+                                            let state_part = match obtain_and_store_state_part(
+                                                runtime.as_ref(),
+                                                shard_id,
+                                                sync_hash,
+                                                &sync_prev_hash,
+                                                &state_root,
+                                                part_id,
+                                                num_parts,
+                                                &chain,
+                                            ) {
+                                                Ok(state_part) => state_part,
+                                                Err(err) => {
+                                                    tracing::warn!(target: "state_sync_dump", shard_id, epoch_height, part_id, ?err, "Failed to obtain and store part. Will skip this part.");
+                                                    break;
                                                 }
-        
-                                                if parts_to_dump.is_empty() {
-                                                    Ok(Some(StateSyncDumpProgress::AllDumped {
-                                                        epoch_id: epoch_id.clone(),
-                                                        epoch_height,
-                                                        num_parts: Some(num_parts),
-                                                    }))
-                                                } else {
-                                                    Ok(Some(StateSyncDumpProgress::InProgress {
-                                                        epoch_id: epoch_id.clone(),
-                                                        epoch_height,
-                                                        sync_hash,
-                                                    }))
-                                                }
+                                            };
+                                            let location = external_storage_location(
+                                                &chain_id,
+                                                &epoch_id,
+                                                epoch_height,
+                                                shard_id,
+                                                part_id,
+                                                num_parts,
+                                            );
+                                            if let Err(err) = external
+                                                .put_state_part(&state_part, shard_id, &location)
+                                                .await
+                                            {
+                                                // no need to break if there's an error, we should keep dumping other parts.
+                                                // reason is we are dumping random selected parts, so it's fine if we are not able to finish all of them
+                                                tracing::warn!(target: "state_sync_dump", shard_id, epoch_height, part_id, ?err, "Failed to put state part into external storage location. Will skip this part.");
+                                                continue;
                                             }
+
+                                            // remove the dumped part from parts_to_dump so that we draw without replacement
+                                            parts_to_dump.swap_remove(selected_idx);
+                                            update_dumped_size_and_cnt_metrics(
+                                                &shard_id,
+                                                epoch_height,
+                                                state_part.len(),
+                                            );
+                                        }
+
+                                        if parts_to_dump.is_empty() {
+                                            Ok(Some(StateSyncDumpProgress::AllDumped {
+                                                epoch_id: epoch_id.clone(),
+                                                epoch_height,
+                                            }))
+                                        } else {
+                                            Ok(Some(StateSyncDumpProgress::InProgress {
+                                                epoch_id: epoch_id.clone(),
+                                                epoch_height,
+                                                sync_hash,
+                                            }))
                                         }
                                     }
                                 }
-                            },
-                            Err(err) => Err(err)
+                            }
                         }
                     }
                 }
@@ -749,7 +742,7 @@ fn start_dumping(
         Ok(Some(StateSyncDumpProgress::InProgress { epoch_id, epoch_height, sync_hash }))
     } else {
         tracing::info!(target: "state_sync_dump", shard_id, ?epoch_id, %sync_hash, "Shard is not tracked, skip the epoch");
-        Ok(Some(StateSyncDumpProgress::AllDumped { epoch_id, epoch_height, num_parts: Some(0) }))
+        Ok(Some(StateSyncDumpProgress::AllDumped { epoch_id, epoch_height }))
     }
 }
 
@@ -765,6 +758,7 @@ fn check_new_epoch(
 ) -> Result<Option<StateSyncDumpProgress>, Error> {
     let head = chain.head()?;
     if Some(&head.epoch_id) == epoch_id.as_ref() {
+        tracing::debug!(target: "state_sync_dump", shard_id, ?epoch_id, "Latest epoch is the same epoch.");
         Ok(None)
     } else {
         // Check if the final block is now in the next epoch.
