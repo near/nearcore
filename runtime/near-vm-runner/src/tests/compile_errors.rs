@@ -327,6 +327,7 @@ fn test_limit_locals() {
             }
             .make(),
         )
+        // TODO: check what's up with different errors from different VMs and whether that matters?
         .opaque_error()
         .expect(expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 43682463 used gas 43682463
@@ -384,7 +385,7 @@ fn test_limit_locals_global() {
 }
 
 #[test]
-pub fn test_stablized_host_function() {
+pub fn test_stabilized_host_function() {
     test_builder()
         .wat(
             r#"
@@ -394,7 +395,11 @@ pub fn test_stablized_host_function() {
     (call $ripemd160 (i64.const 0) (i64.const 0) (i64.const 0)))
 )"#,
         )
-        .protocol_features(&[ProtocolFeature::MathExtension])
+        .protocol_features(&[
+            ProtocolFeature::MathExtension,
+            #[cfg(feature = "nightly")]
+            ProtocolFeature::PreparationV2,
+        ])
         .opaque_error()
         .expects(&[
             expect![[r#"
@@ -403,6 +408,10 @@ pub fn test_stablized_host_function() {
             "#]],
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 7143010623 used gas 7143010623
+            "#]],
+            #[cfg(feature = "nightly")]
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 7149592671 used gas 7149592671
             "#]],
         ]);
 }
