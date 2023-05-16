@@ -327,10 +327,10 @@ fn test_limit_locals() {
             }
             .make(),
         )
-        .skip_wasmtime()
+        .opaque_error()
         .expect(expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 43682463 used gas 43682463
-            Err: WebAssembly trap: Stack overflow.
+            Err: ...
         "#]]);
 }
 
