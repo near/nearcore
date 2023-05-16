@@ -233,7 +233,7 @@ impl VMOffsets {
             self.vmctx_trap_handler_begin,
             if self.has_trap_handlers { 1 } else { 0 },
             u32::from(self.pointer_size),
-            align_of::<fn()>(),
+            align_of::<*mut near_vm_types::FastGasCounter>(),
         );
         self.vmctx_stack_limit_begin = offset_by(
             self.vmctx_gas_limiter_pointer,
