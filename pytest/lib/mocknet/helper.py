@@ -121,7 +121,7 @@ def set_s3_state_parts_sync_mode_for_node(node, bucket, region):
     modify_config(
         node, {
             "state_sync": {
-                "dump": {
+                "sync": {
                     "location": {
                         "S3": {
                             "bucket": bucket,
@@ -137,7 +137,7 @@ def set_local_state_parts_sync_mode_for_node(node, root_dir):
     modify_config(
         node, {
             "state_sync": {
-                "dump": {
+                "sync": {
                     "location": {
                         "Filesystem": {
                             "root_dir": root_dir,
@@ -164,7 +164,7 @@ def set_state_parts_sync_mode_for_nodes(nodes,
 
 
 def set_tracked_shard_for_node(node, tracked_shards):
-    modify_config(node, {"consensus": {"tracked_shards": tracked_shards,}})
+    modify_config(node, {"tracked_shards": tracked_shards,})
 
 
 def set_tracked_shard_for_nodes(nodes, tracked_shards):

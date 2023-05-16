@@ -78,6 +78,15 @@ class TestStateSync:
         for i, node in enumerate(self.get_dumping_nodes()[:2]):
             set_tracked_shard_for_node(node, [i * 2, i * 2 + 1])
 
+    def setup_sync_nodes(self, nodes):
+        if self.localnet:
+            set_state_parts_sync_mode_for_nodes(nodes,
+                                                root_dir=self.parts_local_dir)
+        else:
+            set_state_parts_sync_mode_for_nodes(nodes,
+                                                bucket=self.s3_bucket,
+                                                region=self.s3_region)
+
     # Starts the traffic node in mirroring mode
     def start_traffic(self):
         # TODO(posvyatokum): implement
@@ -104,6 +113,8 @@ class TestStateSync:
         all_late_nodes = self.get_late_nodes()
 
         logger.info("Step 2: setup and run late validator for 2 epochs")
+        self.setup_sync_nodes(all_late_nodes)
+
         late_validators = self.get_validators(late=True)
         set_tracked_shard_for_nodes(late_validators, [])
         restart_nodes(late_validators)
@@ -124,7 +135,6 @@ class TestStateSync:
                                                duration=self.sync_duration,
                                                all_stats=all_stats,
                                                stats_bounds=self.stats_bounds)
-
         NodeAccumulationStats(all_stats).print_report(self.stats_bounds)
         if nodes_are_in_sync(final_metrics, all_late_nodes):
             logger.info('Nodes synced successfully')
