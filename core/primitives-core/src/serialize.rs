@@ -1,35 +1,45 @@
-pub fn to_base64<T: AsRef<[u8]>>(input: T) -> String {
-    base64::encode(&input)
+pub fn to_base64(input: &[u8]) -> String {
+    base64::encode(input)
 }
 
 pub fn base64_display(input: &[u8]) -> base64::display::Base64Display<'_> {
     base64::display::Base64Display::with_config(input, base64::STANDARD)
 }
 
-pub fn from_base64(s: &str) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
-    base64::decode(s).map_err(|err| err.into())
+pub fn from_base64(encoded: &str) -> Result<Vec<u8>, base64::DecodeError> {
+    base64::decode(encoded)
 }
 
 pub mod base64_format {
-    use serde::de;
-    use serde::{Deserialize, Deserializer, Serializer};
-
-    use super::{from_base64, to_base64};
+    use serde::de::Error;
 
     pub fn serialize<S, T>(data: T, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: Serializer,
+        S: serde::Serializer,
         T: AsRef<[u8]>,
     {
-        serializer.serialize_str(&to_base64(data))
+        serializer.collect_str(&super::base64_display(data.as_ref()))
+    }
+
+    struct Visitor;
+
+    impl<'de> serde::de::Visitor<'de> for Visitor {
+        type Value = Vec<u8>;
+
+        fn expecting(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+            fmt.write_str("base64-encoded string")
+        }
+
+        fn visit_str<E: Error>(self, value: &str) -> Result<Vec<u8>, E> {
+            super::from_base64(value).map_err(Error::custom)
+        }
     }
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
     where
-        D: Deserializer<'de>,
+        D: serde::Deserializer<'de>,
     {
-        let s = String::deserialize(deserializer)?;
-        from_base64(&s).map_err(|err| de::Error::custom(err.to_string()))
+        deserializer.deserialize_str(Visitor).map(Into::into)
     }
 }
 
@@ -44,32 +54,44 @@ fn test_base64_format() {
 }
 
 pub mod option_base64_format {
-    use serde::de;
-    use serde::{Deserialize, Deserializer, Serializer};
+    use serde::de::Error;
 
-    use super::{from_base64, to_base64};
-
-    pub fn serialize<S>(data: &Option<Vec<u8>>, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<S, T>(data: &Option<T>, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: Serializer,
+        S: serde::Serializer,
+        T: AsRef<[u8]>,
     {
         if let Some(ref bytes) = data {
-            serializer.serialize_str(&to_base64(bytes))
+            serializer.collect_str(&super::base64_display(bytes.as_ref()))
         } else {
             serializer.serialize_none()
         }
     }
 
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<Vec<u8>>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s: Option<String> = Option::deserialize(deserializer)?;
-        if let Some(s) = s {
-            Ok(Some(from_base64(&s).map_err(|err| de::Error::custom(err.to_string()))?))
-        } else {
+    struct Visitor;
+
+    impl<'de> serde::de::Visitor<'de> for Visitor {
+        type Value = Option<Vec<u8>>;
+
+        fn expecting(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+            fmt.write_str("base64-encoded string or null")
+        }
+
+        fn visit_str<E: Error>(self, value: &str) -> Result<Self::Value, E> {
+            super::from_base64(value).map(Option::Some).map_err(Error::custom)
+        }
+
+        fn visit_unit<E: Error>(self) -> Result<Self::Value, E> {
             Ok(None)
         }
+    }
+
+    pub fn deserialize<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+        T: From<Vec<u8>>,
+    {
+        Ok(deserializer.deserialize_any(Visitor)?.map(T::from))
     }
 }
 
