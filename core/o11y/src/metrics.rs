@@ -213,11 +213,11 @@ static EXCEPTIONS: Lazy<HashSet<&str>> = Lazy::new(|| {
 
 /// Expect metrics exported by nearcore to have a common prefix. This helps in the following cases:
 /// * Avoids name conflicts with metrics from other systems.
-/// * Helps filter and query metrics
+/// * Helps filter and query metrics.
 /// * Makes it easy to understand which binary export a certain metric.
 fn check_metric_near_prefix(name: &str) -> Result<()> {
-    // Some metrics were already introduced that without the desired prefix.
-    // TODO: Consistent metric naming.
+    // Some metrics were already introduced without the desired prefix.
+    // TODO(#9065): Consistent metric naming.
     if name.starts_with("near_") || EXCEPTIONS.contains(name) {
         Ok(())
     } else {
