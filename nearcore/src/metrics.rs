@@ -60,6 +60,15 @@ pub(crate) static STATE_SYNC_DUMP_NUM_PARTS_DUMPED: Lazy<IntGaugeVec> = Lazy::ne
     .unwrap()
 });
 
+pub(crate) static STATE_SYNC_DUMP_SIZE_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_state_sync_dump_size_total",
+        "Total size of parts written to S3",
+        &["epoch_height", "shard_id"],
+    )
+    .unwrap()
+});
+
 pub(crate) static STATE_SYNC_DUMP_EPOCH_HEIGHT: Lazy<IntGaugeVec> = Lazy::new(|| {
     try_create_int_gauge_vec(
         "near_state_sync_dump_epoch_height",
