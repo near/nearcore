@@ -31,6 +31,7 @@ def get_nonce_for_pk(
     finality='optimistic',
     addr=LOCAL_ADDR,
     port=RPC_PORT,
+    logger=logger
 ):
     access_keys = json_rpc(
         'query',

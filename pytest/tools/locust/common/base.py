@@ -1,10 +1,30 @@
-import sys
+import base64
+import json
+import base58
+import ctypes
+import locust
+import logging
+import multiprocessing
 import pathlib
+import random
+import requests
+import sys
+import time
+
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
+import cluster
 import transaction
 import key
+import mocknet_helpers
+import utils
+
+from locust import HttpUser, events
+from configured_logger import new_logger
+
+DEFAULT_TRANSACTION_TTL_SECONDS = 20
+logger = new_logger(level=logging.WARN)
 
 class Account:
 
@@ -18,6 +38,7 @@ class Account:
                 self.key,
                 addr=node.rpc_addr()[0],
                 port=node.rpc_addr()[1],
+                logger=logger,
             )
 
     def use_nonce(self):
@@ -53,11 +74,8 @@ class Transaction:
         # The outcome of a successful transaction execution
         self.outcome = None
 
-    def finish(self, block_hash):
+    def sign_and_deser(self, block_hash):
         return None
-
-    def send(self, block_hash):
-        return (self.transaction_id, self.caller)
 
     def is_complete(self):
         return self.outcome is not None
@@ -81,7 +99,7 @@ class Deploy(Transaction):
         self.contract = contract
         self.name = name
 
-    def finish(self, block_hash):
+    def sign_and_deser(self, block_hash):
         account = self.account
         logger.info(f"deploying {self.name} to {account.key.account_id}")
         wasm_binary = utils.load_binary_file(self.contract)
@@ -89,11 +107,6 @@ class Deploy(Transaction):
                                                  account.use_nonce(),
                                                  block_hash)
         return tx
-        
-    def send(self, node, block_hash):
-        tx = self.finish(block_hash)
-        result = node.send_tx(tx)
-        return (result["result"], self.account)
 
 class TransferNear(Transaction):
 
@@ -103,7 +116,7 @@ class TransferNear(Transaction):
         self.sender = sender
         self.how_much = how_much
 
-    def finish(self, block_hash):
+    def sign_and_deser(self, block_hash):
         sender = self.sender
         logger.debug(
             f"sending {self.how_much} NEAR from {sender.key.account_id} to {self.recipient_id}"
@@ -112,11 +125,6 @@ class TransferNear(Transaction):
                                          int(self.how_much * 1E24),
                                          sender.use_nonce(), block_hash)
         return tx
-
-    def send(self, node, block_hash):
-        tx = self.finish(block_hash)
-        result = node.send_tx(tx)
-        return (result["result"], self.sender)
 
 
 class CreateSubAccount(Transaction):
@@ -127,7 +135,7 @@ class CreateSubAccount(Transaction):
         self.sub_key = sub_key
         self.balance = balance
 
-    def finish(self, block_hash):
+    def sign_and_deser(self, block_hash):
         sender = self.sender
         sub = self.sub_key
         logger.debug(f"creating {sub.account_id}")
@@ -135,106 +143,206 @@ class CreateSubAccount(Transaction):
             sender.key, sub.account_id, sub, int(self.balance * 1E24),
             sender.use_nonce(), block_hash)
         return tx
-    
-    def send(self, node, block_hash):
-        tx = self.finish(block_hash)
-        result = node.send_tx(tx)
-        return (result["result"], self.sender)
+
+class NearClient(locust.clients.HttpSession):
+    """
+    Thin wrapper around the HttpSession to add custom validation, which requires `catch_response=True`
+    """
+    def __init__(self, session):
+        self.session = session
+
+    def post(self, *args, **kwargs):
+        with self.session.post(
+            *args, **kwargs,
+            catch_response=True,
+        ) as response:
+            try:
+                evaluate_outcome(response)
+                return response
+            except NearError as err:
+                logging.error(f"marking an error {err.message}")
+                response.failure(err.message)
+
 
 class NearUser(HttpUser):
     abstract = True
     id_counter = 0
+    # initialized in `on_locust_init`
+    funding_account = None
 
     @classmethod
     def get_next_id(cls):
         cls.id_counter += 1
         return cls.id_counter
 
+    @classmethod
+    def random_account_id(cls, but_not=None):
+        if but_not is None:
+            id = random.randint(1, cls.id_counter)
+        else:
+            id = random.randint(1, cls.id_counter-1)
+            if id == but_not:
+                id = cls.id_counter
+        return cls.account_id(id)
+
+    @classmethod
+    def account_id(cls, id):
+        # Pseudo-random 6-digit prefix to spread the users in the state tree
+        prefix = str(hash(str(id)))[-6:]
+        return f"{prefix}_user{id}.{cls.funding_account.key.account_id}"
+
     def __init__(self, environment):
         super().__init__(environment)
         host, port = self.host.split(":")
         self.node = cluster.RpcNode(host, port)
-        self.node.session = self.client
+        # Setting HttpUser.client to get requests tracked by locust 
+        # self.node.session = self.client
         self.id = NearUser.get_next_id()
+        self.account_id = NearUser.account_id(self.id)
 
     def on_start(self):
-        while FT_ACCOUNT is None:
-            logger.debug("init not ready, yet")
-            time.sleep(1)
-        self.funding_account = FUNDING_ACCOUNT
-        self.contract_account = FT_ACCOUNT
-        # TODO: Random prefix for better trie spreading
-        self.account_id = f"user{self.id}.{self.funding_account.key.account_id}"
+        """
+        Called once per user, creating the account on chain
+        """
         self.account = Account(key.Key.from_random(self.account_id))
-        self.send_tx_retry(CreateSubAccount(self.funding_account, self.account.key, balance=5000.0))
+        self.send_tx_retry(CreateSubAccount(NearUser.funding_account, self.account.key, balance=5000.0))
         self.account.refresh_nonce(self.node)
 
     def send_tx(self, tx: Transaction):
+        """
+        Send a transaction and return the result, no retry attempted.
+        """
         block_hash = base58.b58decode(self.node.get_latest_block().hash)
-        signed_tx = tx.finish(block_hash)
-        tx_result = self.node.send_tx_and_wait(signed_tx, timeout=DEFAULT_TRANSACTION_TTL_SECONDS)
-        success = "error" not in tx_result
-        if success:
-            logger.info(
-                f"SUCCESS {tx.transaction_id} for {self.account_id} is successful: {tx_result}"
-            )
-            return True, tx_result
-        elif "UNKNOWN_TRANSACTION" in tx_result:
-            logger.debug(
-                f"transaction {tx.transaction_id} for {self.account_id} timed out / failed to be accepted"
-            )
-        else:
-            logger.warn(
-                f"transaction {tx.transaction_id} for {self.account_id} is not successful: {tx_result}"
-            )
-        return False, tx_result
+        signed_tx = tx.sign_and_deser(block_hash)
+
+        # doesn't work because it raises on status etc
+        # rpc_result = self.node.send_tx_and_wait(signed_tx, timeout=DEFAULT_TRANSACTION_TTL_SECONDS)
+    
+        params = [base64.b64encode(signed_tx).decode('utf8')]
+        j = {
+            "method": "broadcast_tx_commit",
+            "params": params,
+            "id": "dontcare",
+            "jsonrpc": "2.0"
+        }
+
+        # with self.node.session.post(
+        # This is tracked by locust
+        with self.client.post(
+            url = "http://%s:%s" % self.node.rpc_addr(),
+            json = j,
+            timeout = DEFAULT_TRANSACTION_TTL_SECONDS,
+            catch_response = True,
+        ) as response:
+            try:
+                rpc_result = json.loads(response.content)
+                tx_result = evaluate_rpc_result(rpc_result)
+                tx.transaction_id = tx_result["transaction_outcome"]["id"]
+                logger.debug(
+                    f"{tx.transaction_id} for {self.account_id} is successful: {tx_result}"
+                )
+            except NearError as err:
+                logging.error(f"marking an error {err.message}")
+                response.failure(err.message)
+        return response
 
     def send_tx_retry(self, tx: Transaction):
-        ok, tx_result = self.send_tx(tx)
-        while not ok:
-            logger.warn(f"transaction {tx.transaction_id} for {self.account_id} is not successful: {tx_result}")
-            time.sleep(0.25)
-            ok, tx_result = self.send_tx(tx)
-
-    def send_tx_retry_old(self, tx: Transaction):
+        """
+        Send a transaction and retry until it succeeds
+        """
+        # expected error: UNKNOWN_TRANSACTION means TX has not been executed yet
+        # other errors: probably bugs in the test setup (e.g. invalid signer)
+        # this method is very simple and just retries no matter the kind of
+        # error, as long as it is one defined by us (inherits from NearError)
         while True:
-            block_hash = base58.b58decode(self.node.get_latest_block().hash)
-            (tx.transaction_id, _) = tx.send(self.node, block_hash)
-            for _ in range(DEFAULT_TRANSACTION_TTL_SECONDS):
+            try:
+                result = self.send_tx(tx)
+                return result
+            except NearError:
+                logger.warn(
+                    f"transaction {tx.transaction_id} failed: {result}, retrying in 0.25s"
+                )
                 time.sleep(0.25)
-                tx_result = self.node.json_rpc("tx", [tx.transaction_id, self.account_id])
-                success = "error" not in tx_result
-                if success:
-                    logger.info(
-                        f"SUCCESS {tx.transaction_id} for {self.account_id} is successful: {tx_result}"
-                    )
-                    return
-                elif "UNKNOWN_TRANSACTION" in tx_result:
-                    logger.warn(
-                        f"transaction {tx.transaction_id} for {self.account_id} is not successful: {tx_result}"
-                    )
-                else:
-                    logger.debug(
-                        f"transaction {tx.transaction_id} for {self.account_id} not done yet"
-                    )
-            logger.warning(f"transaction {tx.transaction_id} expired, submitting a new one!")
-
 
 def send_transaction(node, tx):
+    """
+    Send a transaction without a user.
+    Retry until it is successful.
+    Used for setting up accounts before actual users start their load.
+    """
     while True:
         block_hash = base58.b58decode(node.get_latest_block().hash)
-        signed_tx = tx.finish(block_hash)
+        signed_tx = tx.sign_and_deser(block_hash)
         tx_result = node.send_tx_and_wait(signed_tx, timeout=DEFAULT_TRANSACTION_TTL_SECONDS)
         success = "error" not in tx_result
         if success:
-            logger.info(f"SUCCESS {tx.transaction_id} (for no account) is successful: {tx_result}")
+            logger.debug(f"transaction {tx.transaction_id} (for no account) is successful: {tx_result}")
             return True, tx_result
         elif "UNKNOWN_TRANSACTION" in tx_result:
             logger.debug(
-                f"transaction {tx.transaction_id} (for no account) timed out / failed to be accepted"
+                f"transaction {tx.transaction_id} (for no account) timed out"
             )
         else:
             logger.warn(
                 f"transaction {tx.transaction_id} (for no account) is not successful: {tx_result}"
             )
-        logger.warning(f"transaction {tx.transaction_id} expired, submitting a new one!")
+        logger.info(f"re-submitting transaction {tx.transaction_id}")
+
+
+class NearError(Exception):
+    def __init__(self, message):
+        self.message = message
+        super().__init__(message)
+
+class RpcError(NearError):
+    def __init__(self, error, message="RPC returned an error"):
+        super().__init__(f"{message}: {error}")
+
+class TxUnknownError(RpcError):
+    def __init__(self, message="RPC does not know the result of this TX, probably it is not executed yet"):
+        super().__init__(message)
+
+class TxError(NearError):
+    def __init__(self, status, message="Transaction to receipt conversion failed"):
+        super().__init__(f"{message}: {status}")
+
+class ReceiptError(NearError):
+    def __init__(self, status, receipt_id, message="Receipt execution failed"):
+        super().__init__(f"{message}: id={receipt_id} {status}")
+
+def evaluate_rpc_result(rpc_result):
+    """
+    Take the json RPC response and translate it into success
+    and failure cases. Failures are raised as exceptions.
+    """
+    if not "result" in rpc_result:
+        raise NearError(f"Error: {rpc_result}")
+                
+    result = rpc_result["result"]
+
+    if "UNKNOWN_TRANSACTION" in result:
+        raise TxUnknownError("UNKNOWN_TRANSACTION")
+    elif not "transaction_outcome" in result:
+        raise RpcError(result)
+
+    transaction_outcome = result["transaction_outcome"]
+    if not "SuccessReceiptId" in transaction_outcome["outcome"]["status"]:
+        raise TxError(transaction_outcome["outcome"]["status"])
+    
+    receipt_outcomes = result["receipts_outcome"]
+    for receipt in receipt_outcomes:
+        outcome = receipt["outcome"]
+        if not "SuccessValue" in outcome["status"]:
+            raise ReceiptError(outcome["status"], receipt["id"])
+    return result
+
+# called once per process before user initialization
+@events.init.add_listener 
+def on_locust_init(environment, **kwargs):
+    funding_key = key.Key.from_json_file(environment.parsed_options.funding_key)
+    NearUser.funding_account = Account(funding_key)
+
+# CLI args
+@events.init_command_line_parser.add_listener
+def _(parser):
+    parser.add_argument("--funding-key", required=True, help= "account to use as source of NEAR for account creation")

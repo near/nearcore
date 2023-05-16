@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
 
+import argparse
+import sys
+import pathlib
+
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
+
+import cluster
+
 def main():
     """
-    Setup a local cluster to run locust against
+    Set up a local cluster to run locust against
     """
-    parser = argparse.ArgumentParser(description='FT transfer benchmark.')
+    parser = argparse.ArgumentParser(description='Run a local cluster for testing.')
     parser.add_argument('--shards', default=10, help='number of shards')
     args = parser.parse_args()
 
-    logger.warning(f"SEED is {SEED}")
-    rng = random.Random(SEED)
-
-    
     config = cluster.load_config()
     nodes = cluster.start_cluster(
         2, 0, args.shards, config, [["epoch_length", 100]], {
