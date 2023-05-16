@@ -3570,6 +3570,7 @@ mod contract_precompilation_tests {
     #[test]
     #[cfg_attr(all(target_arch = "aarch64", target_vendor = "apple"), ignore)]
     fn test_sync_and_call_cached_contract() {
+        init_integration_logger();
         let num_clients = 2;
         let stores: Vec<Store> = (0..num_clients).map(|_| create_test_store()).collect();
         let mut genesis =
