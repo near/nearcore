@@ -46,7 +46,6 @@ impl UpdateableConfigLoader {
         updateable_configs: UpdateableConfigs,
         tx: Sender<Result<UpdateableConfigs, Arc<UpdateableConfigLoaderError>>>,
     ) -> Self {
-        near_o11y::reload_log_config(updateable_configs.log_config.as_ref());
         let mut result = Self { tx: Some(tx) };
         result.reload(Ok(updateable_configs));
         result

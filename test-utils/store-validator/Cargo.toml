@@ -9,6 +9,7 @@ edition.workspace = true
 ansi_term.workspace = true
 clap.workspace = true
 
+near-epoch-manager.workspace = true
 near-chain-configs.workspace = true
 near-primitives.workspace = true
 near-store.workspace = true

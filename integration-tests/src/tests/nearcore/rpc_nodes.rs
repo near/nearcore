@@ -23,7 +23,6 @@ use near_primitives::types::{
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{ExecutionOutcomeView, ExecutionStatusView, RuntimeConfigView};
-use node_runtime::config::RuntimeConfig;
 use std::time::Duration;
 
 #[test]
@@ -257,11 +256,6 @@ fn test_protocol_config_rpc() {
         assert_eq!(
             serde_json::json!(config_response.config_view.runtime_config),
             serde_json::json!(RuntimeConfigView::from(latest_runtime_config.as_ref().clone()))
-        );
-        // compare struct used by runtime
-        assert_eq!(
-            RuntimeConfig::from(config_response.config_view.runtime_config),
-            latest_runtime_config.as_ref().clone()
         );
         System::current().stop();
     });

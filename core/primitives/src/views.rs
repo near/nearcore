@@ -215,10 +215,8 @@ impl From<AccessKeyView> for AccessKey {
 /// Item of the state, key and value are serialized in base64 and proof for inclusion of given state item.
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct StateItem {
-    #[serde(with = "base64_format")]
-    pub key: Vec<u8>,
-    #[serde(with = "base64_format")]
-    pub value: Vec<u8>,
+    pub key: StoreKey,
+    pub value: StoreValue,
     /// Deprecated, always empty, eventually will be deleted.
     // TODO(mina86): This was deprecated in 1.30.  Get rid of the field
     // altogether at 1.33 or something.
@@ -306,7 +304,7 @@ pub enum QueryRequest {
     },
     ViewState {
         account_id: AccountId,
-        #[serde(rename = "prefix_base64", with = "base64_format")]
+        #[serde(rename = "prefix_base64")]
         prefix: StoreKey,
         #[serde(default, skip_serializing_if = "is_false")]
         include_proof: bool,
@@ -321,7 +319,7 @@ pub enum QueryRequest {
     CallFunction {
         account_id: AccountId,
         method_name: String,
-        #[serde(rename = "args_base64", with = "base64_format")]
+        #[serde(rename = "args_base64")]
         args: FunctionArgs,
     },
 }
@@ -1111,8 +1109,7 @@ pub enum ActionView {
     },
     FunctionCall {
         method_name: String,
-        #[serde(with = "base64_format")]
-        args: Vec<u8>,
+        args: FunctionArgs,
         gas: Gas,
         #[serde(with = "dec_format")]
         deposit: Balance,
@@ -1152,7 +1149,7 @@ impl From<Action> for ActionView {
             }
             Action::FunctionCall(action) => ActionView::FunctionCall {
                 method_name: action.method_name,
-                args: action.args,
+                args: action.args.into(),
                 gas: action.gas,
                 deposit: action.deposit,
             },
@@ -1186,7 +1183,12 @@ impl TryFrom<ActionView> for Action {
                 Action::DeployContract(DeployContractAction { code })
             }
             ActionView::FunctionCall { method_name, args, gas, deposit } => {
-                Action::FunctionCall(FunctionCallAction { method_name, args, gas, deposit })
+                Action::FunctionCall(FunctionCallAction {
+                    method_name,
+                    args: args.into(),
+                    gas,
+                    deposit,
+                })
             }
             ActionView::Transfer { deposit } => Action::Transfer(TransferAction { deposit }),
             ActionView::Stake { stake, public_key } => {
@@ -1663,16 +1665,11 @@ pub struct FinalExecutionOutcomeWithReceiptView {
 }
 
 pub mod validator_stake_view {
+    pub use super::ValidatorStakeViewV1;
     use crate::types::validator_stake::ValidatorStake;
     use borsh::{BorshDeserialize, BorshSerialize};
     use near_primitives_core::types::AccountId;
-    use serde::{Deserialize, Serialize};
-
-    use crate::serialize::dec_format;
-    use near_crypto::PublicKey;
-    use near_primitives_core::types::Balance;
-
-    pub use super::ValidatorStakeViewV1;
+    use serde::Deserialize;
 
     #[derive(
         BorshSerialize, BorshDeserialize, serde::Serialize, Deserialize, Debug, Clone, Eq, PartialEq,
@@ -1700,17 +1697,6 @@ pub mod validator_stake_view {
                 Self::V1(v1) => &v1.account_id,
             }
         }
-    }
-
-    #[derive(
-        BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Eq, PartialEq,
-    )]
-    pub struct ValidatorStakeViewV2 {
-        pub account_id: AccountId,
-        pub public_key: PublicKey,
-        #[serde(with = "dec_format")]
-        pub stake: Balance,
-        pub is_chunk_only: bool,
     }
 
     impl From<ValidatorStake> for ValidatorStakeView {
@@ -2036,7 +2022,7 @@ pub enum StateChangesRequestView {
     },
     DataChanges {
         account_ids: Vec<AccountId>,
-        #[serde(rename = "key_prefix_base64", with = "base64_format")]
+        #[serde(rename = "key_prefix_base64")]
         key_prefix: StoreKey,
     },
 }
@@ -2160,14 +2146,14 @@ pub enum StateChangeValueView {
     },
     DataUpdate {
         account_id: AccountId,
-        #[serde(rename = "key_base64", with = "base64_format")]
+        #[serde(rename = "key_base64")]
         key: StoreKey,
-        #[serde(rename = "value_base64", with = "base64_format")]
+        #[serde(rename = "value_base64")]
         value: StoreValue,
     },
     DataDeletion {
         account_id: AccountId,
-        #[serde(rename = "key_base64", with = "base64_format")]
+        #[serde(rename = "key_base64")]
         key: StoreKey,
     },
     ContractCodeUpdate {
@@ -2418,57 +2404,6 @@ impl From<RuntimeConfig> for RuntimeConfigView {
             },
             wasm_config: VMConfigView::from(config.wasm_config),
             account_creation_config: AccountCreationConfigView {
-                min_allowed_top_level_account_length: config
-                    .account_creation_config
-                    .min_allowed_top_level_account_length,
-                registrar_account_id: config.account_creation_config.registrar_account_id,
-            },
-        }
-    }
-}
-
-// reverse direction: rosetta adapter uses this, also we use to test that all fields are present in view
-impl From<RuntimeConfigView> for RuntimeConfig {
-    fn from(config: RuntimeConfigView) -> Self {
-        Self {
-            fees: near_primitives_core::runtime::fees::RuntimeFeesConfig {
-                storage_usage_config: near_primitives_core::runtime::fees::StorageUsageConfig {
-                    storage_amount_per_byte: config.storage_amount_per_byte,
-                    num_bytes_account: config
-                        .transaction_costs
-                        .storage_usage_config
-                        .num_bytes_account,
-                    num_extra_bytes_record: config
-                        .transaction_costs
-                        .storage_usage_config
-                        .num_extra_bytes_record,
-                },
-                burnt_gas_reward: config.transaction_costs.burnt_gas_reward,
-                pessimistic_gas_price_inflation_ratio: config
-                    .transaction_costs
-                    .pessimistic_gas_price_inflation_ratio,
-                action_fees: enum_map::enum_map! {
-                    ActionCosts::create_account => config.transaction_costs.action_creation_config.create_account_cost.clone(),
-                    ActionCosts::delete_account => config.transaction_costs.action_creation_config.delete_account_cost.clone(),
-                    ActionCosts::delegate => config.transaction_costs.action_creation_config.delegate_cost.clone(),
-                    ActionCosts::deploy_contract_base => config.transaction_costs.action_creation_config.deploy_contract_cost.clone(),
-                    ActionCosts::deploy_contract_byte => config.transaction_costs.action_creation_config.deploy_contract_cost_per_byte.clone(),
-                    ActionCosts::function_call_base => config.transaction_costs.action_creation_config.function_call_cost.clone(),
-                    ActionCosts::function_call_byte => config.transaction_costs.action_creation_config.function_call_cost_per_byte.clone(),
-                    ActionCosts::transfer => config.transaction_costs.action_creation_config.transfer_cost.clone(),
-                    ActionCosts::stake => config.transaction_costs.action_creation_config.stake_cost.clone(),
-                    ActionCosts::add_full_access_key => config.transaction_costs.action_creation_config.add_key_cost.full_access_cost.clone(),
-                    ActionCosts::add_function_call_key_base => config.transaction_costs.action_creation_config.add_key_cost.function_call_cost.clone(),
-                    ActionCosts::add_function_call_key_byte => config.transaction_costs.action_creation_config.add_key_cost.function_call_cost_per_byte.clone(),
-                    ActionCosts::delete_key => config.transaction_costs.action_creation_config.delete_key_cost.clone(),
-                    ActionCosts::new_action_receipt => config.transaction_costs.action_receipt_creation_config.clone(),
-                    ActionCosts::new_data_receipt_base => config.transaction_costs.data_receipt_creation_config.base_cost.clone(),
-                    ActionCosts::new_data_receipt_byte => config.transaction_costs.data_receipt_creation_config.cost_per_byte.clone(),
-
-                },
-            },
-            wasm_config: VMConfig::from(config.wasm_config),
-            account_creation_config: crate::runtime::config::AccountCreationConfig {
                 min_allowed_top_level_account_length: config
                     .account_creation_config
                     .min_allowed_top_level_account_length,
@@ -2835,8 +2770,6 @@ impl From<ExtCostsConfigView> for near_primitives_core::config::ExtCostsConfig {
 mod tests {
     #[cfg(not(feature = "nightly"))]
     use super::ExecutionMetadataView;
-    use super::RuntimeConfigView;
-    use crate::runtime::config::RuntimeConfig;
     #[cfg(not(feature = "nightly"))]
     use crate::transaction::ExecutionMetadata;
     #[cfg(not(feature = "nightly"))]
@@ -2847,19 +2780,12 @@ mod tests {
     #[test]
     #[cfg(not(feature = "nightly"))]
     fn test_runtime_config_view() {
+        use crate::runtime::config::RuntimeConfig;
+        use crate::views::RuntimeConfigView;
+
         let config = RuntimeConfig::test();
         let view = RuntimeConfigView::from(config);
         insta::assert_json_snapshot!(&view);
-    }
-
-    /// A `RuntimeConfigView` must contain all info to reconstruct a `RuntimeConfig`.
-    #[test]
-    fn test_runtime_config_view_is_complete() {
-        let config = RuntimeConfig::test();
-        let view = RuntimeConfigView::from(config.clone());
-        let reconstructed_config = RuntimeConfig::from(view);
-
-        assert_eq!(config, reconstructed_config);
     }
 
     /// `ExecutionMetadataView` with profile V1 displayed on the RPC should not change.

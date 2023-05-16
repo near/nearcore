@@ -13,6 +13,7 @@ chrono.workspace = true
 
 near-chain.workspace = true
 near-chain-configs.workspace = true
+near-epoch-manager.workspace = true
 near-store.workspace = true
 nearcore.workspace = true
 near-primitives.workspace = true

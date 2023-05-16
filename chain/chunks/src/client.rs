@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use actix::Message;
 
-use near_pool::{PoolIteratorWrapper, TransactionPool};
+use near_pool::{InsertTransactionResult, PoolIteratorWrapper, TransactionPool};
 use near_primitives::{
     epoch_manager::RngSeed,
     sharding::{EncodedShardChunk, PartialEncodedChunk, ShardChunk, ShardChunkHeader},
@@ -36,20 +36,28 @@ pub struct ShardedTransactionPool {
     /// Useful to make tests deterministic and reproducible,
     /// while keeping the security of randomization of transactions in pool
     rng_seed: RngSeed,
+
+    /// If set, new transactions that bring the size of the pool over this limit will be rejected.
+    /// The size is tracked and enforced separately for each shard.
+    pool_size_limit: Option<u64>,
 }
 
 impl ShardedTransactionPool {
-    pub fn new(rng_seed: RngSeed) -> Self {
+    pub fn new(rng_seed: RngSeed, pool_size_limit: Option<u64>) -> Self {
         TransactionPool::init_metrics();
-        Self { tx_pools: HashMap::new(), rng_seed }
+        Self { tx_pools: HashMap::new(), rng_seed, pool_size_limit }
     }
 
     pub fn get_pool_iterator(&mut self, shard_id: ShardId) -> Option<PoolIteratorWrapper<'_>> {
         self.tx_pools.get_mut(&shard_id).map(|pool| pool.pool_iterator())
     }
 
-    /// Returns true if transaction is not in the pool before call
-    pub fn insert_transaction(&mut self, shard_id: ShardId, tx: SignedTransaction) -> bool {
+    /// Tries to insert the transaction into the pool for a given shard.
+    pub fn insert_transaction(
+        &mut self,
+        shard_id: ShardId,
+        tx: SignedTransaction,
+    ) -> InsertTransactionResult {
         self.pool_for_shard(shard_id).insert_transaction(tx)
     }
 
@@ -71,17 +79,27 @@ impl ShardedTransactionPool {
     }
 
     fn pool_for_shard(&mut self, shard_id: ShardId) -> &mut TransactionPool {
-        self.tx_pools
-            .entry(shard_id)
-            .or_insert_with(|| TransactionPool::new(Self::random_seed(&self.rng_seed, shard_id)))
+        self.tx_pools.entry(shard_id).or_insert_with(|| {
+            TransactionPool::new(Self::random_seed(&self.rng_seed, shard_id), self.pool_size_limit)
+        })
     }
 
+    /// Reintroduces transactions back during the chain reorg. Returns the number of transactions
+    /// that were added or are already present in the pool.
     pub fn reintroduce_transactions(
         &mut self,
         shard_id: ShardId,
         transactions: &[SignedTransaction],
-    ) {
-        self.pool_for_shard(shard_id).reintroduce_transactions(transactions.to_vec());
+    ) -> usize {
+        let mut reintroduced_count = 0;
+        let pool = self.pool_for_shard(shard_id);
+        for tx in transactions {
+            reintroduced_count += match pool.insert_transaction(tx.clone()) {
+                InsertTransactionResult::Success | InsertTransactionResult::Duplicate => 1,
+                InsertTransactionResult::NoSpaceLeft => 0,
+            }
+        }
+        reintroduced_count
     }
 }
 

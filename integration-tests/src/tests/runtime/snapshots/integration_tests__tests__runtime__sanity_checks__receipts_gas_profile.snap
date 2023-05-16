@@ -382,11 +382,6 @@ expression: receipts_gas_profile
             cost: "CONTRACT_LOADING_BYTES",
             gas_used: 0,
         },
-        CostGasUsed {
-            cost_category: "WASM_HOST_COST",
-            cost: "WASM_INSTRUCTION",
-            gas_used: 0,
-        },
     ],
     [],
     [
@@ -400,11 +395,6 @@ expression: receipts_gas_profile
             cost: "CONTRACT_LOADING_BYTES",
             gas_used: 0,
         },
-        CostGasUsed {
-            cost_category: "WASM_HOST_COST",
-            cost: "WASM_INSTRUCTION",
-            gas_used: 0,
-        },
     ],
     [],
     [
@@ -416,11 +406,6 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "CONTRACT_LOADING_BYTES",
-            gas_used: 0,
-        },
-        CostGasUsed {
-            cost_category: "WASM_HOST_COST",
-            cost: "WASM_INSTRUCTION",
             gas_used: 0,
         },
     ],
@@ -440,11 +425,6 @@ expression: receipts_gas_profile
             cost: "CONTRACT_LOADING_BYTES",
             gas_used: 0,
         },
-        CostGasUsed {
-            cost_category: "WASM_HOST_COST",
-            cost: "WASM_INSTRUCTION",
-            gas_used: 0,
-        },
     ],
     [],
     [],
@@ -459,11 +439,6 @@ expression: receipts_gas_profile
         CostGasUsed {
             cost_category: "WASM_HOST_COST",
             cost: "CONTRACT_LOADING_BYTES",
-            gas_used: 0,
-        },
-        CostGasUsed {
-            cost_category: "WASM_HOST_COST",
-            cost: "WASM_INSTRUCTION",
             gas_used: 0,
         },
     ],

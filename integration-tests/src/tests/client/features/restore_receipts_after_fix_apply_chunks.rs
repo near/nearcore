@@ -1,5 +1,6 @@
 use crate::tests::client::process_blocks::set_block_protocol_version;
-use near_chain::{ChainGenesis, Provenance, RuntimeWithEpochManagerAdapter};
+use crate::tests::client::utils::TestEnvNightshadeSetupExt;
+use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_o11y::testonly::init_test_logger;
@@ -7,12 +8,9 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::migration_data::MigrationData;
 use near_primitives::types::BlockHeight;
 use near_primitives::version::ProtocolFeature;
-use near_store::test_utils::create_test_store;
 use nearcore::config::GenesisExt;
 use nearcore::migrations::load_migration_data;
 use std::collections::HashSet;
-use std::path::Path;
-use std::sync::Arc;
 
 const EPOCH_LENGTH: u64 = 5;
 const HEIGHT_TIMEOUT: u64 = 10;
@@ -32,13 +30,12 @@ fn run_test(
     genesis.config.epoch_length = EPOCH_LENGTH;
     genesis.config.protocol_version = protocol_version;
     let chain_genesis = ChainGenesis::new(&genesis);
-    let runtime =
-        nearcore::NightshadeRuntime::test(Path::new("../../../.."), create_test_store(), &genesis);
     // TODO #4305: get directly from NightshadeRuntime
     let migration_data = load_migration_data(&genesis.config.chain_id);
 
     let mut env = TestEnv::builder(chain_genesis)
-        .runtime_adapters(vec![runtime as Arc<dyn RuntimeWithEpochManagerAdapter>])
+        .real_epoch_managers(&genesis.config)
+        .nightshade_runtimes(&genesis)
         .build();
 
     let get_restored_receipt_hashes = |migration_data: &MigrationData| -> HashSet<CryptoHash> {
@@ -79,7 +76,7 @@ fn run_test(
 
         let last_block = env.clients[0].chain.get_block_by_height(height).unwrap().clone();
         let protocol_version = env.clients[0]
-            .runtime_adapter
+            .epoch_manager
             .get_epoch_protocol_version(last_block.header().epoch_id())
             .unwrap();
 

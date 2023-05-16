@@ -1,7 +1,9 @@
-use crate::tests::client::process_blocks::{create_nightshade_runtimes, deploy_test_contract};
+use crate::tests::client::process_blocks::deploy_test_contract;
+use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
+use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, FunctionCallAction, Transaction};
@@ -10,13 +12,12 @@ use nearcore::config::GenesisExt;
 // This test fails on aarch because wasmer0 and wasmer2 are not available.
 #[cfg_attr(all(target_arch = "aarch64", target_vendor = "apple"), ignore)]
 #[test]
-fn test_near_vm_upgrade() {
+fn test_wasmer2_upgrade() {
     let mut capture = near_o11y::testonly::TracingCapture::enable();
 
     let old_protocol_version =
-        near_primitives::version::ProtocolFeature::NearVm.protocol_version() - 1;
+        near_primitives::version::ProtocolFeature::Wasmer2.protocol_version() - 1;
     let new_protocol_version = old_protocol_version + 1;
-    eprintln!("Testing protocol upgrade between {old_protocol_version} and {new_protocol_version}");
 
     // Prepare TestEnv with a contract at the old protocol version.
     let mut env = {
@@ -27,7 +28,8 @@ fn test_near_vm_upgrade() {
         genesis.config.protocol_version = old_protocol_version;
         let chain_genesis = ChainGenesis::new(&genesis);
         let mut env = TestEnv::builder(chain_genesis)
-            .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+            .real_epoch_managers(&genesis.config)
+            .nightshade_runtimes(&genesis)
             .build();
 
         deploy_test_contract(
@@ -61,7 +63,10 @@ fn test_near_vm_upgrade() {
         let tip = env.clients[0].chain.head().unwrap();
         let signed_transaction =
             Transaction { nonce: 10, block_hash: tip.last_block_hash, ..tx.clone() }.sign(&signer);
-        env.clients[0].process_tx(signed_transaction, false, false);
+        assert_eq!(
+            env.clients[0].process_tx(signed_transaction, false, false),
+            ProcessTxResponse::ValidTx
+        );
         for i in 0..3 {
             env.produce_block(0, tip.height + i + 1);
         }
@@ -75,17 +80,16 @@ fn test_near_vm_upgrade() {
         let tip = env.clients[0].chain.head().unwrap();
         let signed_transaction =
             Transaction { nonce: 11, block_hash: tip.last_block_hash, ..tx }.sign(&signer);
-        env.clients[0].process_tx(signed_transaction, false, false);
+        assert_eq!(
+            env.clients[0].process_tx(signed_transaction, false, false),
+            ProcessTxResponse::ValidTx
+        );
         for i in 0..3 {
             env.produce_block(0, tip.height + i + 1);
         }
         capture.drain()
     };
 
-    assert!(logs_at_old_version.iter().any(|l| l.contains(&"vm_kind=Wasmer2")));
-    assert!(
-        logs_at_new_version.iter().any(|l| l.contains(&"vm_kind=NearVm")),
-        "Expected to find 'vm_kind=NearVm' in logs, occurences of vm_kind are {:?}",
-        logs_at_new_version.iter().filter(|l| l.contains("vm_kind")).collect::<Vec<_>>(),
-    );
+    assert!(logs_at_old_version.iter().any(|l| l.contains(&"vm_kind=Wasmer0")));
+    assert!(logs_at_new_version.iter().any(|l| l.contains(&"vm_kind=Wasmer2")));
 }

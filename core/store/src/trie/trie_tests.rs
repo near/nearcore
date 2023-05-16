@@ -1,6 +1,7 @@
 use crate::test_utils::{create_tries_complex, gen_changes, simplify_changes, test_populate_trie};
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieStorage};
 use crate::{PartialStorage, Trie, TrieUpdate};
+use near_primitives::challenge::PartialState;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::shard_layout::ShardUId;
@@ -22,8 +23,8 @@ pub struct IncompletePartialStorage {
 
 impl IncompletePartialStorage {
     pub fn new(partial_storage: PartialStorage, nodes_count_to_fail_at: usize) -> Self {
-        let recorded_storage =
-            partial_storage.nodes.0.into_iter().map(|value| (hash(&value), value)).collect();
+        let PartialState::TrieValues(nodes) = partial_storage.nodes;
+        let recorded_storage = nodes.into_iter().map(|value| (hash(&value), value)).collect();
         Self {
             recorded_storage,
             visited_nodes: Default::default(),
@@ -73,12 +74,12 @@ where
     Out: PartialEq + Debug,
 {
     let (storage, trie, expected) = setup_storage(trie, &mut test);
-    let size = storage.nodes.0.len();
+    let size = storage.nodes.len();
     print!("Test touches {} nodes, expected result {:?}...", size, expected);
     for i in 0..(size + 1) {
         let storage = IncompletePartialStorage::new(storage.clone(), i);
         let new_trie = Trie {
-            storage: Box::new(storage),
+            storage: Rc::new(storage),
             root: *trie.get_root(),
             flat_storage_chunk_view: None,
         };
@@ -169,18 +170,14 @@ mod nodes_counter_tests {
     #[test]
     fn test_count() {
         // For keys with nibbles [000, 011, 100], we expect 6 touched nodes to get value for the first key 000:
-        // Extension -> Branch -> Branch -> Leaf plus retrieving the value by its hash. In total
-        // there will be 9 distinct nodes, because 011 and 100 both add one Leaf and value.
+        // Extension -> Branch -> Branch -> Leaf plus retrieving the value by its hash.
         let trie_items = vec![
             (create_trie_key(&[0, 0, 0]), Some(vec![0])),
             (create_trie_key(&[0, 1, 1]), Some(vec![1])),
             (create_trie_key(&[1, 0, 0]), Some(vec![2])),
         ];
         let trie = create_trie(&trie_items);
-        assert_eq!(get_touched_nodes_numbers(trie.clone(), &trie_items), vec![5, 5, 4]);
-
-        let storage = trie.storage.as_caching_storage().unwrap();
-        assert_eq!(storage.shard_cache.len(), 9);
+        assert_eq!(get_touched_nodes_numbers(trie, &trie_items), vec![5, 5, 4]);
     }
 
     // Check that same values are stored in the same trie node.
@@ -194,10 +191,7 @@ mod nodes_counter_tests {
             (create_trie_key(&[1, 1]), Some(vec![1])),
         ];
         let trie = create_trie(&trie_items);
-        assert_eq!(get_touched_nodes_numbers(trie.clone(), &trie_items), vec![4, 4]);
-
-        let storage = trie.storage.as_caching_storage().unwrap();
-        assert_eq!(storage.shard_cache.len(), 5);
+        assert_eq!(get_touched_nodes_numbers(trie, &trie_items), vec![4, 4]);
     }
 }
 

@@ -2,7 +2,7 @@ use crate::config_updater::ConfigUpdater;
 use crate::{metrics, SyncStatus};
 use actix::Addr;
 use itertools::Itertools;
-use near_chain_configs::{ClientConfig, LogSummaryStyle};
+use near_chain_configs::{ClientConfig, LogSummaryStyle, SyncConfig};
 use near_network::types::NetworkInfo;
 use near_primitives::block::Tip;
 use near_primitives::network::PeerId;
@@ -58,9 +58,9 @@ pub struct InfoHelper {
     /// Telemetry actor.
     // The field can be None for testing. This allows avoiding running actix in tests.
     telemetry_actor: Option<Addr<TelemetryActor>>,
-    /// Log coloring enabled
+    /// Log coloring enabled.
     log_summary_style: LogSummaryStyle,
-    /// Epoch height
+    /// Epoch id.
     epoch_id: Option<EpochId>,
     /// Timestamp of starting the client.
     pub boot_time_seconds: i64,
@@ -133,14 +133,15 @@ impl InfoHelper {
     /// Count which shards are tracked by the node in the epoch indicated by head parameter.
     fn record_tracked_shards(head: &Tip, client: &crate::client::Client) {
         let me = client.validator_signer.as_ref().map(|x| x.validator_id());
-        if let Ok(num_shards) = client.runtime_adapter.num_shards(&head.epoch_id) {
+        if let Ok(num_shards) = client.epoch_manager.num_shards(&head.epoch_id) {
             for shard_id in 0..num_shards {
-                let tracked = client.runtime_adapter.cares_about_shard(
-                    me,
-                    &head.last_block_hash,
-                    shard_id,
-                    false,
-                );
+                let tracked = match me {
+                    None => false,
+                    Some(me) => client
+                        .epoch_manager
+                        .cares_about_shard_from_prev_block(&head.last_block_hash, me, shard_id)
+                        .unwrap_or(false),
+                };
                 metrics::TRACKED_SHARDS
                     .with_label_values(&[&shard_id.to_string()])
                     .set(if tracked { 1 } else { 0 });
@@ -154,7 +155,7 @@ impl InfoHelper {
             // In rare cases block producer information isn't available.
             // Don't set the metric in this case.
             client
-                .runtime_adapter
+                .epoch_manager
                 .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash)
                 .map_or(None, |bp| Some(bp.iter().any(|bp| bp.0.account_id() == &account_id)))
         }) {
@@ -165,7 +166,7 @@ impl InfoHelper {
     fn record_chunk_producers(head: &Tip, client: &crate::client::Client) {
         if let (Some(account_id), Ok(epoch_info)) = (
             client.validator_signer.as_ref().map(|x| x.validator_id().clone()),
-            client.runtime_adapter.get_epoch_info(&head.epoch_id),
+            client.epoch_manager.get_epoch_info(&head.epoch_id),
         ) {
             for (shard_id, validators) in epoch_info.chunk_producers_settlement().iter().enumerate()
             {
@@ -176,7 +177,7 @@ impl InfoHelper {
                     .with_label_values(&[&shard_id.to_string()])
                     .set(if is_chunk_producer_for_shard { 1 } else { 0 });
             }
-        } else if let Ok(num_shards) = client.runtime_adapter.num_shards(&head.epoch_id) {
+        } else if let Ok(num_shards) = client.epoch_manager.num_shards(&head.epoch_id) {
             for shard_id in 0..num_shards {
                 metrics::IS_CHUNK_PRODUCER_FOR_SHARD
                     .with_label_values(&[&shard_id.to_string()])
@@ -190,10 +191,9 @@ impl InfoHelper {
     /// all the blocks in the epoch. However, even this method may not be completely accurate because additional
     /// blocks could potentially be added at the end of the epoch.
     fn record_epoch_settlement_info(head: &Tip, client: &crate::client::Client) {
-        let epoch_info = client.runtime_adapter.get_epoch_info(&head.epoch_id);
+        let epoch_info = client.epoch_manager.get_epoch_info(&head.epoch_id);
         let blocks_in_epoch = client.config.epoch_length;
-        let number_of_shards =
-            client.runtime_adapter.num_shards(&head.epoch_id).unwrap_or_default();
+        let number_of_shards = client.epoch_manager.num_shards(&head.epoch_id).unwrap_or_default();
         if let Ok(epoch_info) = epoch_info {
             let mut stake_per_bp = HashMap::<ValidatorId, Balance>::new();
 
@@ -239,6 +239,13 @@ impl InfoHelper {
         }
     }
 
+    /// Records protocol version of the current epoch.
+    fn record_protocol_version(head: &Tip, client: &crate::client::Client) {
+        if let Ok(version) = client.epoch_manager.get_epoch_protocol_version(&head.epoch_id) {
+            metrics::CURRENT_PROTOCOL_VERSION.set(version as i64);
+        }
+    }
+
     /// Print current summary.
     pub fn log_summary(
         &mut self,
@@ -251,12 +258,12 @@ impl InfoHelper {
         let head = unwrap_or_return!(client.chain.head());
         let validator_info = if !is_syncing {
             let validators = unwrap_or_return!(client
-                .runtime_adapter
+                .epoch_manager
                 .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash));
             let num_validators = validators.len();
             let account_id = client.validator_signer.as_ref().map(|x| x.validator_id());
             let is_validator = if let Some(account_id) = account_id {
-                match client.runtime_adapter.get_validator_by_account_id(
+                match client.epoch_manager.get_validator_by_account_id(
                     &head.epoch_id,
                     &head.last_block_hash,
                     account_id,
@@ -286,7 +293,7 @@ impl InfoHelper {
         } else {
             let epoch_identifier = ValidatorInfoIdentifier::BlockHash(header_head.last_block_hash);
             client
-                .runtime_adapter
+                .epoch_manager
                 .get_validator_info(epoch_identifier)
                 .map(get_validator_epoch_stats)
                 .unwrap_or_default()
@@ -297,8 +304,11 @@ impl InfoHelper {
         InfoHelper::record_chunk_producers(&head, &client);
         let next_epoch_id = Some(head.epoch_id.clone());
         if self.epoch_id.ne(&next_epoch_id) {
-            // We only want to compute this once per epoch.
+            // We only want to compute this once per epoch to avoid heavy computational work, that can last up to 100ms.
             InfoHelper::record_epoch_settlement_info(&head, &client);
+            // This isn't heavy computationally.
+            InfoHelper::record_protocol_version(&head, &client);
+
             self.epoch_id = next_epoch_id;
         }
 
@@ -311,7 +321,7 @@ impl InfoHelper {
             validator_info,
             validator_epoch_stats,
             client
-                .runtime_adapter
+                .epoch_manager
                 .get_estimated_protocol_upgrade_block_height(head.last_block_hash)
                 .unwrap_or(None)
                 .unwrap_or(0),
@@ -343,10 +353,9 @@ impl InfoHelper {
 
         let s = |num| if num == 1 { "" } else { "s" };
 
-        let sync_status_log = Some(display_sync_status(sync_status, head));
-
+        let sync_status_log =
+            Some(display_sync_status(sync_status, head, &client_config.state_sync.sync));
         let catchup_status_log = display_catchup_status(catchup_status);
-
         let validator_info_log = validator_info.as_ref().map(|info| {
             format!(
                 " {}{} validator{}",
@@ -564,7 +573,11 @@ pub fn display_catchup_status(catchup_status: Vec<CatchupStatusView>) -> String 
         .join("\n")
 }
 
-pub fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
+pub fn display_sync_status(
+    sync_status: &SyncStatus,
+    head: &Tip,
+    state_sync_config: &SyncConfig,
+) -> String {
     metrics::SYNC_STATUS.set(sync_status.repr() as i64);
     match sync_status {
         SyncStatus::AwaitingPeers => format!("#{:>8} Waiting for peers", head.height),
@@ -609,14 +622,17 @@ pub fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
             for (shard_id, shard_status) in shard_statuses {
                 write!(res, "[{}: {}]", shard_id, shard_status.status.to_string(),).unwrap();
             }
-            // TODO #8719
-            tracing::warn!(target: "stats",
-                "The node is syncing its State. The current implementation of this mechanism is known to be unreliable. It may never complete, or fail randomly and corrupt the DB.\n\
-                 Suggestions:\n\
-                 * Download a recent data snapshot and restart the node.\n\
-                 * Disable state sync in the config. Add `\"state_sync_enabled\": false` to `config.json`.\n\
-                 \n\
-                 A better implementation of State Sync is work in progress.");
+            if matches!(state_sync_config, SyncConfig::Peers) {
+                // TODO #8719
+                tracing::warn!(
+                    target: "stats",
+                    "The node is syncing its State. The current implementation of this mechanism is known to be unreliable. It may never complete, or fail randomly and corrupt the DB.\n\
+                     Suggestions:\n\
+                     * Download a recent data snapshot and restart the node.\n\
+                     * Disable state sync in the config. Add `\"state_sync_enabled\": false` to `config.json`.\n\
+                     \n\
+                     A better implementation of State Sync is work in progress.");
+            }
             res
         }
         SyncStatus::StateSyncDone => "State sync done".to_string(),
@@ -797,9 +813,10 @@ fn get_validator_epoch_stats(
 mod tests {
     use super::*;
     use assert_matches::assert_matches;
-    use near_chain::test_utils::{KeyValueRuntime, ValidatorSchedule};
+    use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
     use near_chain::types::ChainConfig;
     use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
+    use near_epoch_manager::shard_tracker::ShardTracker;
     use near_network::test_utils::peer_id_from_seed;
     use near_primitives::version::PROTOCOL_VERSION;
     use num_rational::Ratio;
@@ -832,7 +849,9 @@ mod tests {
         let store = near_store::test_utils::create_test_store();
         let vs =
             ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test".parse().unwrap()]]);
-        let runtime = KeyValueRuntime::new_with_validators_and_no_gc(store, vs, 123, false);
+        let epoch_manager = MockEpochManager::new_with_validators(store.clone(), vs, 123);
+        let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
+        let runtime = KeyValueRuntime::new(store, epoch_manager.as_ref());
         let chain_genesis = ChainGenesis {
             time: StaticClock::utc(),
             height: 0,
@@ -846,9 +865,15 @@ mod tests {
             protocol_version: PROTOCOL_VERSION,
         };
         let doomslug_threshold_mode = DoomslugThresholdMode::TwoThirds;
-        let chain =
-            Chain::new(runtime, &chain_genesis, doomslug_threshold_mode, ChainConfig::test())
-                .unwrap();
+        let chain = Chain::new(
+            epoch_manager,
+            shard_tracker,
+            runtime,
+            &chain_genesis,
+            doomslug_threshold_mode,
+            ChainConfig::test(),
+        )
+        .unwrap();
 
         let telemetry = info_helper.telemetry_info(
             &chain.head().unwrap(),

@@ -14,6 +14,7 @@ use std::borrow::Borrow;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::ErrorKind;
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 pub(crate) struct BoundedQueue<T> {
@@ -279,12 +280,6 @@ impl TrieCache {
     pub(crate) fn lock(&self) -> std::sync::MutexGuard<TrieCacheInner> {
         self.0.lock().expect(POISONED_LOCK_ERR)
     }
-
-    #[cfg(test)]
-    pub(crate) fn len(&self) -> usize {
-        let guard = self.lock();
-        guard.len()
-    }
 }
 
 pub trait TrieStorage {
@@ -295,6 +290,9 @@ pub trait TrieStorage {
     /// [`StorageError`] if the storage fails internally or the hash is not present.
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError>;
 
+    /// DEPRECATED.
+    /// Returns `TrieCachingStorage` if `TrieStorage` is implemented by it.
+    /// TODO (#9004) remove all remaining calls.
     fn as_caching_storage(&self) -> Option<&TrieCachingStorage> {
         None
     }
@@ -314,8 +312,7 @@ pub trait TrieStorage {
 /// Used for obtaining state parts (and challenges in the future).
 /// TODO (#6316): implement proper nodes counting logic as in TrieCachingStorage
 pub struct TrieRecordingStorage {
-    pub(crate) store: Store,
-    pub(crate) shard_uid: ShardUId,
+    pub(crate) storage: Rc<dyn TrieStorage>,
     pub(crate) recorded: RefCell<HashMap<CryptoHash, Arc<[u8]>>>,
 }
 
@@ -324,18 +321,9 @@ impl TrieStorage for TrieRecordingStorage {
         if let Some(val) = self.recorded.borrow().get(hash).cloned() {
             return Ok(val);
         }
-        let key = TrieCachingStorage::get_key_from_shard_uid_and_hash(self.shard_uid, hash);
-        let val = self
-            .store
-            .get(DBCol::State, key.as_ref())
-            .map_err(|_| StorageError::StorageInternalError)?;
-        if let Some(val) = val {
-            let val = Arc::from(val);
-            self.recorded.borrow_mut().insert(*hash, Arc::clone(&val));
-            Ok(val)
-        } else {
-            Err(StorageError::StorageInconsistentState("Trie node missing".to_string()))
-        }
+        let val = self.storage.retrieve_raw_bytes(hash)?;
+        self.recorded.borrow_mut().insert(*hash, Arc::clone(&val));
+        Ok(val)
     }
 
     fn as_recording_storage(&self) -> Option<&TrieRecordingStorage> {

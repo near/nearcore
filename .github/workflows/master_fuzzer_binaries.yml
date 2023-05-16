@@ -1,8 +1,8 @@
 name: Build fuzz targets from master
 on:
-  schedule:
-    # Run once a day, at midnight
-    - cron: "0 0 * * *"
+  push:
+    branches:
+      - master
 
 jobs:
   build_fuzzers:
@@ -49,4 +49,4 @@ jobs:
 
       - run: pip install -r scripts/build_fuzzers_requirements.txt
 
-      - run: python3 scripts/build_fuzzers.py master
+      - run: python3 scripts/build_fuzzers.py ${{ github.ref_name }}

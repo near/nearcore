@@ -13,7 +13,7 @@ pub(crate) struct EstimateConfig {
     #[clap(long)]
     pub home: Option<String>,
     /// Comma separated list of metrics to use in estimation.
-    #[clap(long, default_value = "icount,time", possible_values = &["icount", "time"], use_value_delimiter = true)]
+    #[clap(long, default_value = "icount,time", value_parser(["icount", "time"]), use_value_delimiter = true)]
     pub metrics: Vec<String>,
 }
 

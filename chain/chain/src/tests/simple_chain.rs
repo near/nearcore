@@ -22,7 +22,7 @@ fn build_chain() {
     mock_clock_guard.add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 0, 0)); // Client startup timestamp.
     mock_clock_guard.add_instant(Instant::now());
 
-    let (mut chain, _, signer) = setup();
+    let (mut chain, _, _, signer) = setup();
 
     assert_eq!(mock_clock_guard.utc_call_count(), 2);
     assert_eq!(mock_clock_guard.instant_call_count(), 1);
@@ -82,7 +82,7 @@ fn build_chain() {
 #[test]
 fn build_chain_with_orphans() {
     init_test_logger();
-    let (mut chain, _, signer) = setup();
+    let (mut chain, _, _, signer) = setup();
     let mut blocks = vec![chain.get_block(&chain.genesis().hash().clone()).unwrap()];
     for i in 1..4 {
         let block = TestBlockBuilder::new(&blocks[i - 1], signer.clone()).build();
@@ -140,7 +140,7 @@ fn build_chain_with_orphans() {
 #[test]
 fn build_chain_with_skips_and_forks() {
     init_test_logger();
-    let (mut chain, _, signer) = setup();
+    let (mut chain, _, _, signer) = setup();
     let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
     let b1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
     let b2 = TestBlockBuilder::new(&genesis, signer.clone()).height(2).build();
@@ -180,7 +180,7 @@ fn build_chain_with_skips_and_forks() {
 #[test]
 fn blocks_at_height() {
     init_test_logger();
-    let (mut chain, _, signer) = setup();
+    let (mut chain, _, _, signer) = setup();
     let genesis = chain.get_block_by_height(0).unwrap();
     let b_1 = TestBlockBuilder::new(&genesis, signer.clone()).height(1).build();
 
@@ -253,7 +253,7 @@ fn blocks_at_height() {
 #[test]
 fn next_blocks() {
     init_test_logger();
-    let (mut chain, _, signer) = setup();
+    let (mut chain, _, _, signer) = setup();
     let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
     let b1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
     let b2 = TestBlockBuilder::new(&b1, signer.clone()).height(2).build();

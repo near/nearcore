@@ -1,19 +1,3 @@
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::fmt::Write;
-use std::str;
-
-use borsh::{BorshDeserialize, BorshSerialize};
-
-use near_primitives::challenge::PartialState;
-use near_primitives::contract::ContractCode;
-use near_primitives::hash::{hash, CryptoHash};
-pub use near_primitives::shard_layout::ShardUId;
-use near_primitives::state::ValueRef;
-use near_primitives::state_record::StateRecord;
-use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{StateRoot, StateRootNode};
-
 use crate::flat::{FlatStateChanges, FlatStorageChunkView};
 pub use crate::trie::config::TrieConfig;
 pub(crate) use crate::trie::config::DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT;
@@ -25,7 +9,23 @@ pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieCh
 pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage, TrieStorage};
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieRecordingStorage};
 use crate::StorageError;
+use borsh::{BorshDeserialize, BorshSerialize};
+use near_primitives::challenge::PartialState;
+use near_primitives::contract::ContractCode;
+use near_primitives::hash::{hash, CryptoHash};
+pub use near_primitives::shard_layout::ShardUId;
+use near_primitives::state::ValueRef;
+use near_primitives::state_record::StateRecord;
+use near_primitives::trie_key::TrieKey;
 pub use near_primitives::types::TrieNodesCount;
+use near_primitives::types::{StateRoot, StateRootNode};
+pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::fmt::Write;
+use std::hash::{Hash, Hasher};
+use std::rc::Rc;
+use std::str;
 
 mod config;
 mod insert_delete;
@@ -40,8 +40,6 @@ mod trie_storage;
 #[cfg(test)]
 mod trie_tests;
 pub mod update;
-
-pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
@@ -222,6 +220,13 @@ impl TrieNode {
         Ok(())
     }
 
+    pub fn has_value(&self) -> bool {
+        match self {
+            Self::Branch(_, Some(_)) | Self::Leaf(_, _) => true,
+            _ => false,
+        }
+    }
+
     #[cfg(test)]
     fn deep_to_string(&self, memory: &NodesStorage) -> String {
         let mut buf = String::new();
@@ -309,7 +314,7 @@ impl std::fmt::Debug for TrieNode {
 }
 
 pub struct Trie {
-    pub storage: Box<dyn TrieStorage + Send>,
+    pub storage: Rc<dyn TrieStorage>,
     root: StateRoot,
     pub flat_storage_chunk_view: Option<FlatStorageChunkView>,
 }
@@ -349,6 +354,12 @@ impl TrieRefcountChange {
     }
 }
 
+impl Hash for TrieRefcountChange {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write(&self.trie_node_or_value_hash.0);
+        state.write_u32(self.rc.into());
+    }
+}
 ///
 /// TrieChanges stores delta for refcount.
 /// Multiple versions of the state work the following way:
@@ -409,7 +420,7 @@ impl Trie {
     pub const EMPTY_ROOT: StateRoot = StateRoot::new();
 
     pub fn new(
-        storage: Box<dyn TrieStorage + Send>,
+        storage: Rc<dyn TrieStorage>,
         root: StateRoot,
         flat_storage_chunk_view: Option<FlatStorageChunkView>,
     ) -> Self {
@@ -417,14 +428,11 @@ impl Trie {
     }
 
     pub fn recording_reads(&self) -> Self {
-        let storage =
-            self.storage.as_caching_storage().expect("Storage should be TrieCachingStorage");
         let storage = TrieRecordingStorage {
-            store: storage.store.clone(),
-            shard_uid: storage.shard_uid,
+            storage: Rc::clone(&self.storage),
             recorded: RefCell::new(Default::default()),
         };
-        Trie { storage: Box::new(storage), root: self.root, flat_storage_chunk_view: None }
+        Trie { storage: Rc::new(storage), root: self.root, flat_storage_chunk_view: None }
     }
 
     pub fn recorded_storage(&self) -> Option<PartialStorage> {
@@ -432,13 +440,13 @@ impl Trie {
         let mut nodes: Vec<_> =
             storage.recorded.borrow_mut().drain().map(|(_key, value)| value).collect();
         nodes.sort();
-        Some(PartialStorage { nodes: PartialState(nodes) })
+        Some(PartialStorage { nodes: PartialState::TrieValues(nodes) })
     }
 
     pub fn from_recorded_storage(partial_storage: PartialStorage, root: StateRoot) -> Self {
-        let recorded_storage =
-            partial_storage.nodes.0.into_iter().map(|value| (hash(&value), value)).collect();
-        let storage = Box::new(TrieMemoryPartialStorage {
+        let PartialState::TrieValues(nodes) = partial_storage.nodes;
+        let recorded_storage = nodes.into_iter().map(|value| (hash(&value), value)).collect();
+        let storage = Rc::new(TrieMemoryPartialStorage {
             recorded_storage,
             visited_nodes: Default::default(),
         });
@@ -594,20 +602,28 @@ impl Trie {
             return Ok(());
         }
 
-        let raw_node = match self.retrieve_raw_node(hash) {
-            Ok(Some((_, raw_node))) => raw_node.node,
+        let (bytes, raw_node, mem_usage) = match self.retrieve_raw_node(hash) {
+            Ok(Some((bytes, raw_node))) => (bytes, raw_node.node, raw_node.memory_usage),
             Ok(None) => return writeln!(f, "{spaces}EmptyNode"),
-            Err(err) => return writeln!(f, "error {err}"),
+            Err(err) => return writeln!(f, "{spaces}error {err}"),
         };
 
         let children = match raw_node {
             RawTrieNode::Leaf(key, value) => {
                 let (slice, _) = NibbleSlice::from_encoded(key.as_slice());
                 prefix.extend(slice.iter());
+
+                let (chunks, remainder) = stdx::as_chunks::<2, _>(prefix);
+                assert!(remainder.is_empty());
+                let leaf_key =
+                    chunks.into_iter().map(|chunk| (chunk[0] * 16) + chunk[1]).collect::<Vec<u8>>();
+                let state_record = StateRecord::from_raw_key_value(leaf_key, bytes.to_vec());
+
                 writeln!(
                     f,
-                    "{spaces}Leaf {slice:?} {value:?} prefix:{}",
-                    Self::nibbles_to_string(prefix)
+                    "{spaces}Leaf {slice:?} {value:?} prefix:{} hash:{hash} mem_usage:{mem_usage} state_record:{:?}",
+                    Self::nibbles_to_string(prefix),
+                    state_record.map(|sr|format!("{}", sr)),
                 )?;
                 prefix.truncate(prefix.len() - slice.len());
                 return Ok(());
@@ -615,16 +631,16 @@ impl Trie {
             RawTrieNode::BranchNoValue(children) => {
                 writeln!(
                     f,
-                    "{spaces}Branch value:(none) prefix:{}",
-                    Self::nibbles_to_string(prefix)
+                    "{spaces}Branch value:(none) prefix:{} hash:{hash} mem_usage:{mem_usage}",
+                    Self::nibbles_to_string(prefix),
                 )?;
                 children
             }
             RawTrieNode::BranchWithValue(value, children) => {
                 writeln!(
                     f,
-                    "{spaces}Branch value:{value:?} prefix:{}",
-                    Self::nibbles_to_string(prefix)
+                    "{spaces}Branch value:{value:?} prefix:{} hash:{hash} mem_usage:{mem_usage}",
+                    Self::nibbles_to_string(prefix),
                 )?;
                 children
             }
@@ -632,11 +648,11 @@ impl Trie {
                 let (slice, _) = NibbleSlice::from_encoded(key.as_slice());
                 writeln!(
                     f,
-                    "{}Extension {:?} child_hash:{} prefix:{}",
+                    "{}Extension {:?} child_hash:{} prefix:{} hash:{hash} mem_usage:{mem_usage}",
                     spaces,
                     slice,
                     child,
-                    Self::nibbles_to_string(prefix)
+                    Self::nibbles_to_string(prefix),
                 )?;
                 spaces.push_str("  ");
                 prefix.extend(slice.iter());
@@ -791,7 +807,9 @@ impl Trie {
             matches!(mode, KeyLookupMode::FlatStorage) && self.flat_storage_chunk_view.is_some();
 
         if use_flat_storage {
-            self.flat_storage_chunk_view.as_ref().unwrap().get_ref(&key)
+            let flat_state_value =
+                self.flat_storage_chunk_view.as_ref().unwrap().get_value(&key)?;
+            Ok(flat_state_value.map(|value| value.to_value_ref()))
         } else {
             let key_nibbles = NibbleSlice::new(key);
             self.lookup(key_nibbles)
@@ -1169,6 +1187,7 @@ mod tests {
         for _test_run in 0..10 {
             let num_iterations = rng.gen_range(1..20);
             let tries = create_tries();
+            let store = tries.get_store();
             let mut state_root = Trie::EMPTY_ROOT;
             for _ in 0..num_iterations {
                 let trie_changes = gen_changes(&mut rng, 20);
@@ -1194,17 +1213,7 @@ mod tests {
             state_root =
                 test_populate_trie(&tries, &state_root, ShardUId::single_shard(), trie_changes);
             assert_eq!(state_root, Trie::EMPTY_ROOT, "Trie must be empty");
-            assert!(
-                trie.storage
-                    .as_caching_storage()
-                    .unwrap()
-                    .store
-                    .iter(DBCol::State)
-                    .peekable()
-                    .peek()
-                    .is_none(),
-                "Storage must be empty"
-            );
+            assert!(store.iter(DBCol::State).peekable().peek().is_none(), "Storage must be empty");
         }
     }
 
@@ -1271,7 +1280,7 @@ mod tests {
             let trie2 = tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads();
             trie2.get(b"doge").unwrap();
             // record extension, branch and one leaf with value, but not the other
-            assert_eq!(trie2.recorded_storage().unwrap().nodes.0.len(), 4);
+            assert_eq!(trie2.recorded_storage().unwrap().nodes.len(), 4);
         }
 
         {
@@ -1279,7 +1288,7 @@ mod tests {
             let updates = vec![(b"doge".to_vec(), None)];
             trie2.update(updates).unwrap();
             // record extension, branch and both leaves (one with value)
-            assert_eq!(trie2.recorded_storage().unwrap().nodes.0.len(), 5);
+            assert_eq!(trie2.recorded_storage().unwrap().nodes.len(), 5);
         }
 
         {
@@ -1287,7 +1296,7 @@ mod tests {
             let updates = vec![(b"dodo".to_vec(), Some(b"asdf".to_vec()))];
             trie2.update(updates).unwrap();
             // record extension and branch, but not leaves
-            assert_eq!(trie2.recorded_storage().unwrap().nodes.0.len(), 2);
+            assert_eq!(trie2.recorded_storage().unwrap().nodes.len(), 2);
         }
     }
 

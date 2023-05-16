@@ -8,6 +8,7 @@ LINTS=(
   -D clippy::derivable_impls
   -D clippy::redundant_clone
   -D clippy::suspicious
+  -D clippy::len_zero
 )
 
 cargo clippy --all-targets -- "${LINTS[@]}"

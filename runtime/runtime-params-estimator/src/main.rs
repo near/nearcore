@@ -58,16 +58,16 @@ struct CliArgs {
     ///  using qemu instrumentation.
     /// Note that `icount` measurements are not accurate when translating to gas. The main purpose of it is to
     /// have a stable output that can be used to detect performance regressions.
-    #[clap(long, default_value = "time", possible_values = &["icount", "time"])]
+    #[clap(long, default_value = "time", value_parser(["icount", "time"]))]
     metric: String,
     /// Which VM to test.
-    #[clap(long, possible_values = &["wasmer", "wasmer2", "wasmtime", "near-vm"])]
-    vm_kind: Option<String>,
+    #[clap(long, value_enum, default_value_t = VMKind::for_protocol_version(PROTOCOL_VERSION))]
+    vm_kind: VMKind,
     /// Render existing `costs.txt` as `RuntimeConfig`.
     #[clap(long)]
     costs_file: Option<PathBuf>,
     /// Compare baseline `costs-file` with a different costs file.
-    #[clap(long, requires("costs-file"))]
+    #[clap(long, requires("costs_file"))]
     compare_to: Option<PathBuf>,
     /// Coma-separated lists of a subset of costs to estimate.
     #[clap(long, use_value_delimiter = true)]
@@ -285,14 +285,6 @@ fn run_estimation(cli_args: CliArgs) -> anyhow::Result<Option<CostTable>> {
         "time" => GasMetric::Time,
         other => unreachable!("Unknown metric {}", other),
     };
-    let vm_kind = match cli_args.vm_kind.as_deref() {
-        Some("wasmer") => VMKind::Wasmer0,
-        Some("wasmer2") => VMKind::Wasmer2,
-        Some("wasmtime") => VMKind::Wasmtime,
-        Some("near-vm") => VMKind::NearVm,
-        None => VMKind::for_protocol_version(PROTOCOL_VERSION),
-        Some(other) => unreachable!("Unknown vm_kind {}", other),
-    };
     let config = Config {
         warmup_iters_per_block,
         iter_per_block,
@@ -302,7 +294,7 @@ fn run_estimation(cli_args: CliArgs) -> anyhow::Result<Option<CostTable>> {
         fs_keys_per_delta: cli_args.fs_keys_per_delta,
         state_dump_path: state_dump_path,
         metric,
-        vm_kind,
+        vm_kind: cli_args.vm_kind,
         costs_to_measure: cli_args.costs,
         rocksdb_test_config,
         debug: cli_args.debug,
@@ -520,7 +512,7 @@ mod tests {
             fs_keys_per_delta: 1,
             skip_build_test_contract: false,
             metric: "time".to_owned(),
-            vm_kind: None,
+            vm_kind: VMKind::for_protocol_version(PROTOCOL_VERSION),
             costs_file: None,
             compare_to: None,
             costs: Some(costs),
