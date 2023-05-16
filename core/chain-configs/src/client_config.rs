@@ -251,6 +251,8 @@ pub struct ClientConfig {
     pub state_sync_enabled: bool,
     /// Options for syncing state.
     pub state_sync: StateSyncConfig,
+    /// Testing only. Makes a state snapshot after processing the first block after restart.
+    /// Nothing useful can be done with this snapshot.
     pub state_snapshot_on_startup: bool,
 }
 
