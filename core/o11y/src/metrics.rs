@@ -29,21 +29,21 @@
 //! // These metrics are "magically" linked to the global registry defined in `lighthouse_metrics`.
 //! pub static RUN_COUNT: Lazy<IntCounter> = Lazy::new(|| {
 //!     try_create_int_counter(
-//!         "runs_total",
+//!         "near_runs_total",
 //!         "Total number of runs",
 //!     )
 //!     .unwrap()
 //! });
 //! pub static CURRENT_VALUE: Lazy<IntGauge> = Lazy::new(|| {
 //!     try_create_int_gauge(
-//!         "current_value",
+//!         "near_current_value",
 //!         "The current value",
 //!     )
 //!     .unwrap()
 //! });
 //! pub static RUN_TIME: Lazy<Histogram> = Lazy::new(|| {
 //!     try_create_histogram(
-//!         "run_seconds",
+//!         "near_run_seconds",
 //!         "Time taken (measured to high precision)",
 //!     )
 //!     .unwrap()
@@ -67,11 +67,13 @@
 //! }
 //! ```
 
+use once_cell::sync::Lazy;
 pub use prometheus::{
     self, core::MetricVec, core::MetricVecBuilder, exponential_buckets, linear_buckets, Counter,
     Encoder, Gauge, GaugeVec, Histogram, HistogramOpts, HistogramVec, IntCounter, IntCounterVec,
     IntGauge, IntGaugeVec, Opts, Result, TextEncoder,
 };
+use std::collections::HashSet;
 
 /// Collect all the metrics for reporting.
 pub fn gather() -> Vec<prometheus::proto::MetricFamily> {
@@ -81,6 +83,7 @@ pub fn gather() -> Vec<prometheus::proto::MetricFamily> {
 /// Attempts to crate an `IntCounter`, returning `Err` if the registry does not accept the counter
 /// (potentially due to naming conflict).
 pub fn try_create_int_counter(name: &str, help: &str) -> Result<IntCounter> {
+    check_metric_near_prefix(name)?;
     let opts = Opts::new(name, help);
     let counter = IntCounter::with_opts(opts)?;
     prometheus::register(Box::new(counter.clone()))?;
@@ -94,6 +97,7 @@ pub fn try_create_int_counter_vec(
     help: &str,
     labels: &[&str],
 ) -> Result<IntCounterVec> {
+    check_metric_near_prefix(name)?;
     let opts = Opts::new(name, help);
     let counter = IntCounterVec::new(opts, labels)?;
     prometheus::register(Box::new(counter.clone()))?;
@@ -103,6 +107,7 @@ pub fn try_create_int_counter_vec(
 /// Attempts to crate an `Counter`, returning `Err` if the registry does not accept the counter
 /// (potentially due to naming conflict).
 pub fn try_create_counter(name: &str, help: &str) -> Result<Counter> {
+    check_metric_near_prefix(name)?;
     let opts = Opts::new(name, help);
     let counter = Counter::with_opts(opts)?;
     prometheus::register(Box::new(counter.clone()))?;
@@ -112,6 +117,7 @@ pub fn try_create_counter(name: &str, help: &str) -> Result<Counter> {
 /// Attempts to crate an `IntGauge`, returning `Err` if the registry does not accept the gauge
 /// (potentially due to naming conflict).
 pub fn try_create_int_gauge(name: &str, help: &str) -> Result<IntGauge> {
+    check_metric_near_prefix(name)?;
     let opts = Opts::new(name, help);
     let gauge = IntGauge::with_opts(opts)?;
     prometheus::register(Box::new(gauge.clone()))?;
@@ -121,6 +127,7 @@ pub fn try_create_int_gauge(name: &str, help: &str) -> Result<IntGauge> {
 /// Attempts to crate an `IntGaugeVec`, returning `Err` if the registry does not accept the gauge
 /// (potentially due to naming conflict).
 pub fn try_create_int_gauge_vec(name: &str, help: &str, labels: &[&str]) -> Result<IntGaugeVec> {
+    check_metric_near_prefix(name)?;
     let opts = Opts::new(name, help);
     let gauge = IntGaugeVec::new(opts, labels)?;
     prometheus::register(Box::new(gauge.clone()))?;
@@ -130,6 +137,7 @@ pub fn try_create_int_gauge_vec(name: &str, help: &str, labels: &[&str]) -> Resu
 /// Attempts to crate an `Gauge`, returning `Err` if the registry does not accept the gauge
 /// (potentially due to naming conflict).
 pub fn try_create_gauge(name: &str, help: &str) -> Result<Gauge> {
+    check_metric_near_prefix(name)?;
     let opts = Opts::new(name, help);
     let gauge = Gauge::with_opts(opts)?;
     prometheus::register(Box::new(gauge.clone()))?;
@@ -139,6 +147,7 @@ pub fn try_create_gauge(name: &str, help: &str) -> Result<Gauge> {
 /// Attempts to crate an `GaugeVec`, returning `Err` if the registry does not accept the gauge
 /// (potentially due to naming conflict).
 pub fn try_create_gauge_vec(name: &str, help: &str, labels: &[&str]) -> Result<GaugeVec> {
+    check_metric_near_prefix(name)?;
     let opts = Opts::new(name, help);
     let gauge = GaugeVec::new(opts, labels)?;
     prometheus::register(Box::new(gauge.clone()))?;
@@ -148,6 +157,7 @@ pub fn try_create_gauge_vec(name: &str, help: &str, labels: &[&str]) -> Result<G
 /// Attempts to crate a `Histogram`, returning `Err` if the registry does not accept the counter
 /// (potentially due to naming conflict).
 pub fn try_create_histogram(name: &str, help: &str) -> Result<Histogram> {
+    check_metric_near_prefix(name)?;
     let opts = HistogramOpts::new(name, help);
     let histogram = Histogram::with_opts(opts)?;
     prometheus::register(Box::new(histogram.clone()))?;
@@ -161,6 +171,7 @@ pub fn try_create_histogram_with_buckets(
     help: &str,
     buckets: Vec<f64>,
 ) -> Result<Histogram> {
+    check_metric_near_prefix(name)?;
     let opts = HistogramOpts::new(name, help).buckets(buckets);
     let histogram = Histogram::with_opts(opts)?;
     prometheus::register(Box::new(histogram.clone()))?;
@@ -175,6 +186,7 @@ pub fn try_create_histogram_vec(
     labels: &[&str],
     buckets: Option<Vec<f64>>,
 ) -> Result<HistogramVec> {
+    check_metric_near_prefix(name)?;
     let mut opts = HistogramOpts::new(name, help);
     if let Some(buckets) = buckets {
         opts = opts.buckets(buckets);
@@ -182,4 +194,49 @@ pub fn try_create_histogram_vec(
     let histogram = HistogramVec::new(opts, labels)?;
     prometheus::register(Box::new(histogram.clone()))?;
     Ok(histogram)
+}
+
+static EXCEPTIONS: Lazy<HashSet<&str>> = Lazy::new(|| {
+    HashSet::from([
+        "flat_storage_cached_changes_num_items",
+        "flat_storage_cached_changes_size",
+        "flat_storage_cached_deltas",
+        "flat_storage_creation_fetched_state_items",
+        "flat_storage_creation_fetched_state_parts",
+        "flat_storage_creation_remaining_state_parts",
+        "flat_storage_creation_status",
+        "flat_storage_creation_threads_used",
+        "flat_storage_distance_to_head",
+        "flat_storage_head_height",
+    ])
+});
+
+/// Expect metrics exported by nearcore to have a common prefix. This helps in the following cases:
+/// * Avoids name conflicts with metrics from other systems.
+/// * Helps filter and query metrics.
+/// * Makes it easy to understand which binary export a certain metric.
+fn check_metric_near_prefix(name: &str) -> Result<()> {
+    // Some metrics were already introduced without the desired prefix.
+    // TODO(#9065): Consistent metric naming.
+    if name.starts_with("near_") || EXCEPTIONS.contains(name) {
+        Ok(())
+    } else {
+        Err(prometheus::Error::Msg(format!(
+            "Metrics are expected to start with 'near_', got {}",
+            name
+        )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::metrics::check_metric_near_prefix;
+
+    #[test]
+    fn test_near_prefix() {
+        assert!(check_metric_near_prefix("near_abc").is_ok());
+        assert!(check_metric_near_prefix("flat_storage_head_height").is_ok());
+        assert!(check_metric_near_prefix("near").is_err());
+        assert!(check_metric_near_prefix("abc").is_err());
+    }
 }
