@@ -122,10 +122,12 @@ def set_s3_state_parts_sync_mode_for_node(node, bucket, region):
         node, {
             "state_sync": {
                 "sync": {
-                    "location": {
-                        "S3": {
-                            "bucket": bucket,
-                            "region": region,
+                    "ExternalStorage": {
+                        "location": {
+                            "S3": {
+                                "bucket": bucket,
+                                "region": region,
+                            }
                         }
                     }
                 }
@@ -138,9 +140,11 @@ def set_local_state_parts_sync_mode_for_node(node, root_dir):
         node, {
             "state_sync": {
                 "sync": {
-                    "location": {
-                        "Filesystem": {
-                            "root_dir": root_dir,
+                    "ExternalStorage": {
+                        "location": {
+                            "Filesystem": {
+                                "root_dir": root_dir,
+                            }
                         }
                     }
                 }

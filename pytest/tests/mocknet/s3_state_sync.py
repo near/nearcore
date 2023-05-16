@@ -56,7 +56,7 @@ class TestStateSync:
         labels = {'role': 'validator'}
         if late is not None:
             labels['late'] = 'yes' if late else 'no'
-        return get_nodes_by_label(self.nodes, {'role': 'validator'})
+        return get_nodes_by_label(self.nodes, labels)
 
     def get_dumping_nodes(self):
         # TODO(posvyatokum) this will depend on terraform script implementation
