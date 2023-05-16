@@ -60,6 +60,9 @@ pub const MAX_STATE_PART_REQUEST: u64 = 16;
 /// Number of state parts already requested stored as pending.
 /// This number should not exceed MAX_STATE_PART_REQUEST times (number of peers in the network).
 pub const MAX_PENDING_PART: u64 = MAX_STATE_PART_REQUEST * 10000;
+/// Time limit per state dump iteration.
+/// A node must check external storage for parts to dump again once time is up.
+pub const STATE_DUMP_ITERATION_TIME_LIMIT_SECS: u64 = 60;
 
 pub enum StateSyncResult {
     /// No shard has changed its status
@@ -1520,7 +1523,7 @@ pub fn external_storage_location_directory(
     epoch_height: u64,
     shard_id: u64,
 ) -> String {
-    format!("{}", location_prefix(chain_id, epoch_height, epoch_id, shard_id))
+    location_prefix(chain_id, epoch_height, epoch_id, shard_id)
 }
 
 pub fn location_prefix(
@@ -1553,6 +1556,17 @@ pub fn get_num_parts_from_filename(s: &str) -> Option<u64> {
         if let Some(num_parts) = captures.get(2) {
             if let Ok(num_parts) = num_parts.as_str().parse::<u64>() {
                 return Some(num_parts);
+            }
+        }
+    }
+    None
+}
+
+pub fn get_part_id_from_filename(s: &str) -> Option<u64> {
+    if let Some(captures) = match_filename(s) {
+        if let Some(part_id) = captures.get(1) {
+            if let Ok(part_id) = part_id.as_str().parse::<u64>() {
+                return Some(part_id);
             }
         }
     }
@@ -1702,5 +1716,8 @@ mod test {
 
         assert_eq!(get_num_parts_from_filename(&filename), Some(15));
         assert_eq!(get_num_parts_from_filename("123123"), None);
+
+        assert_eq!(get_part_id_from_filename(&filename), Some(5));
+        assert_eq!(get_part_id_from_filename("123123"), None);
     }
 }
