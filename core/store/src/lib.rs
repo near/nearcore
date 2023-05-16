@@ -56,8 +56,7 @@ mod trie;
 
 pub use crate::config::{Mode, StoreConfig};
 pub use crate::opener::{
-    checkpoint_hot_storage_and_cleanup_columns, copy_column_to_new_db, StoreMigrator, StoreOpener,
-    StoreOpenerError,
+    checkpoint_hot_storage_and_cleanup_columns, StoreMigrator, StoreOpener, StoreOpenerError,
 };
 
 /// Specifies temperature of a storage.
