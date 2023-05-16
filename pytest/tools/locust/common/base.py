@@ -195,8 +195,6 @@ class NearUser(HttpUser):
         super().__init__(environment)
         host, port = self.host.split(":")
         self.node = cluster.RpcNode(host, port)
-        # Setting HttpUser.client to get requests tracked by locust 
-        # self.node.session = self.client
         self.id = NearUser.get_next_id()
         self.account_id = NearUser.account_id(self.id)
 
@@ -242,7 +240,7 @@ class NearUser(HttpUser):
                     f"{tx.transaction_id} for {self.account_id} is successful: {tx_result}"
                 )
             except NearError as err:
-                logging.error(f"marking an error {err.message}")
+                logging.warn(f"marking an error {err.message}, {err.details}")
                 response.failure(err.message)
         return response
 
@@ -290,13 +288,14 @@ def send_transaction(node, tx):
 
 
 class NearError(Exception):
-    def __init__(self, message):
+    def __init__(self, message, details):
         self.message = message
+        self.details = details
         super().__init__(message)
 
 class RpcError(NearError):
     def __init__(self, error, message="RPC returned an error"):
-        super().__init__(f"{message}: {error}")
+        super().__init__(message, error)
 
 class TxUnknownError(RpcError):
     def __init__(self, message="RPC does not know the result of this TX, probably it is not executed yet"):
@@ -304,11 +303,11 @@ class TxUnknownError(RpcError):
 
 class TxError(NearError):
     def __init__(self, status, message="Transaction to receipt conversion failed"):
-        super().__init__(f"{message}: {status}")
+        super().__init__(message, status)
 
 class ReceiptError(NearError):
     def __init__(self, status, receipt_id, message="Receipt execution failed"):
-        super().__init__(f"{message}: id={receipt_id} {status}")
+        super().__init__(message, f"id={receipt_id} {status}")
 
 def evaluate_rpc_result(rpc_result):
     """
@@ -316,7 +315,7 @@ def evaluate_rpc_result(rpc_result):
     and failure cases. Failures are raised as exceptions.
     """
     if not "result" in rpc_result:
-        raise NearError(f"Error: {rpc_result}")
+        raise NearError("No result returned", f"Error: {rpc_result}")
                 
     result = rpc_result["result"]
 
