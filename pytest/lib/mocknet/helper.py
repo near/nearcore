@@ -164,7 +164,9 @@ def set_state_parts_sync_mode_for_nodes(nodes,
 
 
 def set_tracked_shard_for_node(node, tracked_shards):
-    modify_config(node, {"tracked_shards": tracked_shards,})
+    modify_config(node, {
+        "tracked_shards": tracked_shards,
+    })
 
 
 def set_tracked_shard_for_nodes(nodes, tracked_shards):
