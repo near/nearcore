@@ -55,7 +55,8 @@ impl TransactionPool {
 
     pub fn init_metrics() {
         // A `get()` call initializes a metric even if its value is zero.
-        metrics::TRANSACTION_POOL_TOTAL.get();
+        metrics::TRANSACTION_POOL_COUNT.get();
+        metrics::TRANSACTION_POOL_SIZE.get();
     }
 
     fn key(&self, account_id: &AccountId, public_key: &PublicKey) -> PoolKey {
@@ -89,15 +90,16 @@ impl TransactionPool {
         }
 
         // At this point transaction is accepted to the pool.
-        metrics::TRANSACTION_POOL_TOTAL.inc();
         self.total_transaction_size = new_total_transaction_size;
-
         let signer_id = &signed_transaction.transaction.signer_id;
         let signer_public_key = &signed_transaction.transaction.public_key;
         self.transactions
             .entry(self.key(signer_id, signer_public_key))
             .or_insert_with(Vec::new)
             .push(signed_transaction);
+
+        metrics::TRANSACTION_POOL_COUNT.inc();
+        metrics::TRANSACTION_POOL_SIZE.set(self.total_transaction_size as i64);
         InsertTransactionResult::Success
     }
 
@@ -119,7 +121,6 @@ impl TransactionPool {
             if !self.unique_transactions.remove(&tx.get_hash()) {
                 continue;
             }
-            metrics::TRANSACTION_POOL_TOTAL.dec();
 
             let signer_id = &tx.transaction.signer_id;
             let signer_public_key = &tx.transaction.public_key;
@@ -147,6 +148,10 @@ impl TransactionPool {
                 }
             }
         }
+
+        // We can update metrics only once for the whole batch of transactions.
+        metrics::TRANSACTION_POOL_COUNT.set(self.unique_transactions.len() as i64);
+        metrics::TRANSACTION_POOL_SIZE.set(self.total_transaction_size as i64);
     }
 
     /// Returns the number of unique transactions in the pool.
@@ -220,6 +225,7 @@ impl<'a> PoolIterator for PoolIteratorWrapper<'a> {
                 .total_transaction_size
                 .checked_sub(transactions.iter().map(|tx| tx.get_size()).sum())
                 .expect("Total transaction size dropped below zero");
+            metrics::TRANSACTION_POOL_SIZE.set(self.pool.transaction_size() as i64);
             transactions.sort_by_key(|st| std::cmp::Reverse(st.transaction.nonce));
             self.sorted_groups.push_back(TransactionGroup {
                 key,
@@ -232,7 +238,7 @@ impl<'a> PoolIterator for PoolIteratorWrapper<'a> {
                 if sorted_group.transactions.is_empty() {
                     for hash in sorted_group.removed_transaction_hashes {
                         if self.pool.unique_transactions.remove(&hash) {
-                            metrics::TRANSACTION_POOL_TOTAL.dec();
+                            metrics::TRANSACTION_POOL_COUNT.dec();
                         }
                     }
                 } else {
@@ -252,9 +258,7 @@ impl<'a> Drop for PoolIteratorWrapper<'a> {
     fn drop(&mut self) {
         for group in self.sorted_groups.drain(..) {
             for hash in group.removed_transaction_hashes {
-                if self.pool.unique_transactions.remove(&hash) {
-                    metrics::TRANSACTION_POOL_TOTAL.dec();
-                }
+                self.pool.unique_transactions.remove(&hash);
             }
             if !group.transactions.is_empty() {
                 // See the comment in `insert_transaction` where we increase the size for reasoning
@@ -267,6 +271,9 @@ impl<'a> Drop for PoolIteratorWrapper<'a> {
                 self.pool.transactions.insert(group.key, group.transactions);
             }
         }
+        // We can update metrics only once for the whole batch of transactions.
+        metrics::TRANSACTION_POOL_COUNT.set(self.pool.unique_transactions.len() as i64);
+        metrics::TRANSACTION_POOL_SIZE.set(self.pool.transaction_size() as i64);
     }
 }
 
