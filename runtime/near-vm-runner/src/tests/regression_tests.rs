@@ -20,7 +20,7 @@ fn memory_size_alignment_issue() {
         .method("foo")
         .expects(&[
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 52993773 used gas 52993773
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 46411725 used gas 46411725
             "#]],
         ]);
 }
