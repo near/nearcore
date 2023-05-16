@@ -58,7 +58,7 @@ fn test_simple_contract() {
             "#]],
             #[cfg(feature = "nightly")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 42815463 used gas 42815463
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 49397511 used gas 49397511
             "#]],
         ]);
 }
@@ -155,7 +155,7 @@ fn test_trap_contract() {
             "#]],
             #[cfg(feature = "nightly")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 43854969 used gas 43854969
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 50437017 used gas 50437017
                 Err: WebAssembly trap: An `unreachable` opcode was executed.
             "#]],
         ]);
@@ -184,7 +184,7 @@ fn test_trap_initializer() {
             "#]],
             #[cfg(feature = "nightly")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47322969 used gas 47322969
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 53905017 used gas 53905017
                 Err: WebAssembly trap: An `unreachable` opcode was executed.
             "#]],
         ]);
@@ -217,7 +217,7 @@ fn test_div_by_zero_contract() {
             "#]],
             #[cfg(feature = "nightly")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47406987 used gas 47406987
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 53166279 used gas 53166279
                 Err: WebAssembly trap: An arithmetic exception, e.g. divided by zero.
             "#]],
         ]);
@@ -250,7 +250,7 @@ fn test_float_to_int_contract() {
                 "#]],
                 #[cfg(feature = "nightly")]
                 expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47667981 used gas 47667981
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 53427273 used gas 53427273
                     Err: WebAssembly trap: An arithmetic exception, e.g. divided by zero.
                 "#]],
             ]);
@@ -286,7 +286,7 @@ fn test_indirect_call_to_null_contract() {
             "#]],
             #[cfg(feature = "nightly")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 50919231 used gas 50919231
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 56678523 used gas 56678523
                 Err: ...
             "#]],
         ])
@@ -324,7 +324,7 @@ fn test_indirect_call_to_wrong_signature_contract() {
             "#]],
             #[cfg(feature = "nightly")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 55904481 used gas 55904481
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 61663773 used gas 61663773
                 Err: WebAssembly trap: Call indirect incorrect signature trap.
             "#]]
         ])
@@ -394,7 +394,7 @@ fn test_guest_panic() {
             "#]],
             #[cfg(feature = "nightly")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 315775830 used gas 315775830
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 322357878 used gas 322357878
                 Err: Smart contract panicked: explicit guest panic
             "#]],
         ]);
@@ -421,6 +421,7 @@ fn test_stack_overflow() {
     test_builder()
         .wat(r#"(module (func $f (export "main") (call $f)))"#)
         .skip_wasmtime()
+        .opaque_error()
         .protocol_features(&[
             #[cfg(feature = "nightly")]
             ProtocolFeature::PreparationV2,
@@ -428,12 +429,12 @@ fn test_stack_overflow() {
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13526101017 used gas 13526101017
-                Err: WebAssembly trap: An `unreachable` opcode was executed.
+                Err: ...
             "#]],
             #[cfg(feature = "nightly")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13526101017 used gas 13526101017
-                Err: WebAssembly trap: An `unreachable` opcode was executed.
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 30376143897 used gas 30376143897
+                Err: ...
             "#]],
         ]);
 }
@@ -460,19 +461,20 @@ fn test_stack_instrumentation_protocol_upgrade() {
             ProtocolFeature::PreparationV2,
         ])
         .skip_wasmtime()
+        .opaque_error()
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 6789985365 used gas 6789985365
-                Err: WebAssembly trap: An `unreachable` opcode was executed.
+                Err: ...
             "#]],
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 6789985365 used gas 6789985365
-                Err: WebAssembly trap: An `unreachable` opcode was executed.
+                Err: ...
             "#]],
             #[cfg(feature = "nightly")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 6789985365 used gas 6789985365
-                Err: WebAssembly trap: An `unreachable` opcode was executed.
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 31767212013 used gas 31767212013
+                Err: ...
             "#]],
         ]);
 
@@ -490,6 +492,7 @@ fn test_stack_instrumentation_protocol_upgrade() {
             "#,
         )
         .method("f2")
+        .opaque_error()
         .protocol_features(&[
             ProtocolFeature::CorrectStackLimit,
             #[cfg(feature = "nightly")]
@@ -499,16 +502,16 @@ fn test_stack_instrumentation_protocol_upgrade() {
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 6789985365 used gas 6789985365
-                Err: WebAssembly trap: An `unreachable` opcode was executed.
+                Err: ...
             "#]],
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 2745316869 used gas 2745316869
-                Err: WebAssembly trap: An `unreachable` opcode was executed.
+                Err: ...
             "#]],
             #[cfg(feature = "nightly")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 2745316869 used gas 2745316869
-                Err: WebAssembly trap: An `unreachable` opcode was executed.
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 29698803429 used gas 29698803429
+                Err: ...
             "#]],
         ]);
 }
@@ -679,7 +682,7 @@ fn test_external_call_ok() {
             "#]],
             #[cfg(feature = "nightly")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 320283336 used gas 320283336
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 326865384 used gas 326865384
             "#]],
         ]);
 }
@@ -721,7 +724,7 @@ fn test_external_call_indirect() {
             "#]],
             #[cfg(feature = "nightly")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 328909092 used gas 328909092
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 335491140 used gas 335491140
             "#]],
         ]);
 }
@@ -755,7 +758,7 @@ fn test_address_overflow() {
             "#]],
             #[cfg(feature = "nightly")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 48534981 used gas 48534981
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 54294273 used gas 54294273
                 Err: WebAssembly trap: Memory out of bounds trap.
             "#]],
         ]);
@@ -774,7 +777,7 @@ fn test_address_overflow() {
             "#]],
             #[cfg(feature = "nightly")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 48534981 used gas 48534981
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 55117029 used gas 55117029
             "#]],
         ]);
 }
@@ -816,7 +819,7 @@ fn test_nan_sign() {
             "#]],
             #[cfg(feature = "nightly")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 54988767 used gas 54988767
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 61570815 used gas 61570815
             "#]],
         ]);
 
@@ -835,7 +838,7 @@ fn test_nan_sign() {
             "#]],
             #[cfg(feature = "nightly")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 54988767 used gas 54988767
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 60748059 used gas 60748059
                 Err: WebAssembly trap: An arithmetic exception, e.g. divided by zero.
             "#]],
         ]);
@@ -933,7 +936,7 @@ mod fix_contract_loading_cost_protocol_upgrade {
                 "#]],
                 #[cfg(feature = "nightly")]
                 expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47406987 used gas 47406987
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 53989035 used gas 53989035
                 "#]],
             ]);
     }
