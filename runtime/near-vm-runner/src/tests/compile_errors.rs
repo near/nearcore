@@ -165,6 +165,8 @@ fn test_limit_contract_functions_number() {
         ProtocolFeature::LimitContractFunctionsNumber,
         #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
         ProtocolFeature::FixContractLoadingCost,
+        #[cfg(feature = "nightly")]
+        ProtocolFeature::PreparationV2,
     ])
     .expects(&[
         expect![[r#"
@@ -176,6 +178,10 @@ fn test_limit_contract_functions_number() {
         #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
         expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13048032213 used gas 13048032213
+        "#]],
+        #[cfg(feature = "nightly")]
+        expect![[r#"
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13054614261 used gas 13054614261
         "#]],
     ]);
 
@@ -190,6 +196,8 @@ fn test_limit_contract_functions_number() {
         ProtocolFeature::LimitContractFunctionsNumber,
         #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
         ProtocolFeature::FixContractLoadingCost,
+        #[cfg(feature = "nightly")]
+        ProtocolFeature::PreparationV2,
     ])
     .expects(&[
         expect![[r#"
@@ -200,6 +208,11 @@ fn test_limit_contract_functions_number() {
             Err: PrepareError: Too many functions in contract.
         "#]],
         #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
+        expect![[r#"
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13049332713 used gas 13049332713
+            Err: PrepareError: Too many functions in contract.
+        "#]],
+        #[cfg(feature = "nightly")]
         expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13049332713 used gas 13049332713
             Err: PrepareError: Too many functions in contract.
@@ -218,6 +231,8 @@ fn test_limit_contract_functions_number() {
         .protocol_features(&[
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             ProtocolFeature::FixContractLoadingCost,
+            #[cfg(feature = "nightly")]
+            ProtocolFeature::PreparationV2,
         ])
         .expects(&[
             expect![[r#"
@@ -225,6 +240,11 @@ fn test_limit_contract_functions_number() {
                 Err: PrepareError: Too many functions in contract.
             "#]],
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 19554433713 used gas 19554433713
+                Err: PrepareError: Too many functions in contract.
+            "#]],
+            #[cfg(feature = "nightly")]
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 19554433713 used gas 19554433713
                 Err: PrepareError: Too many functions in contract.
@@ -243,6 +263,8 @@ fn test_limit_contract_functions_number() {
         .protocol_features(&[
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             ProtocolFeature::FixContractLoadingCost,
+            #[cfg(feature = "nightly")]
+            ProtocolFeature::PreparationV2,
         ])
         .expects(&[
             expect![[r#"
@@ -250,6 +272,11 @@ fn test_limit_contract_functions_number() {
                 Err: PrepareError: Too many functions in contract.
             "#]],
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13051283463 used gas 13051283463
+                Err: PrepareError: Too many functions in contract.
+            "#]],
+            #[cfg(feature = "nightly")]
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13051283463 used gas 13051283463
                 Err: PrepareError: Too many functions in contract.
@@ -271,6 +298,8 @@ fn test_limit_locals() {
         .protocol_features(&[
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             ProtocolFeature::FixContractLoadingCost,
+            #[cfg(feature = "nightly")]
+            ProtocolFeature::PreparationV2,
         ])
         .expects(&[
             expect![[r#"
@@ -278,6 +307,11 @@ fn test_limit_locals() {
                 Err: PrepareError: Error happened while deserializing the module.
             "#]],
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 43682463 used gas 43682463
+                Err: PrepareError: Error happened while deserializing the module.
+            "#]],
+            #[cfg(feature = "nightly")]
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 43682463 used gas 43682463
                 Err: PrepareError: Error happened while deserializing the module.
@@ -296,7 +330,7 @@ fn test_limit_locals() {
         .skip_wasmtime()
         .expect(expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 43682463 used gas 43682463
-            Err: WebAssembly trap: An `unreachable` opcode was executed.
+            Err: WebAssembly trap: Stack overflow.
         "#]]);
 }
 
@@ -312,6 +346,8 @@ fn test_limit_locals_global() {
         ProtocolFeature::LimitContractLocals,
         #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
         ProtocolFeature::FixContractLoadingCost,
+        #[cfg(feature = "nightly")]
+        ProtocolFeature::PreparationV2,
     ])
     .expects(&[
         expect![[r#"
@@ -322,6 +358,11 @@ fn test_limit_locals_global() {
             Err: PrepareError: Too many locals declared in the contract.
         "#]],
         #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
+        expect![[r#"
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 195407463 used gas 195407463
+            Err: PrepareError: Too many locals declared in the contract.
+        "#]],
+        #[cfg(feature = "nightly")]
         expect![[r#"
             VMOutcome: balance 4 storage_usage 12 return data None burnt gas 195407463 used gas 195407463
             Err: PrepareError: Too many locals declared in the contract.
@@ -338,7 +379,7 @@ fn test_limit_locals_global() {
             .make(),
         )
         .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 139269213 used gas 139269213
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13001413761 used gas 13001413761
         "#]]);
 }
 

@@ -162,8 +162,6 @@ pub enum ProtocolFeature {
     RejectBlocksWithOutdatedProtocolVersions,
     #[cfg(feature = "protocol_feature_preparation_v2")]
     PreparationV2,
-
-
 }
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
