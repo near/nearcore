@@ -218,7 +218,7 @@ fn test_near_vm_artifact_output_stability() {
         features.insert(CpuFeature::AVX);
         let triple = "x86_64-unknown-linux-gnu".parse().unwrap();
         let target = Target::new(triple, features);
-        let vm = NearVM::new_for_target(config, target);
+        let vm = crate::near_vm_runner::NearVM::new_for_target(config, target);
         let artifact = vm.compile_uncached(&contract).unwrap();
         let serialized = artifact.serialize().unwrap();
         let mut hasher = StableHasher::new();
@@ -231,7 +231,7 @@ fn test_near_vm_artifact_output_stability() {
     // These asserts have failed as a result of some change and the following text describes what
     // the implications of the change.
     //
-    // May need a protocol version change, and definitely wants a `WASMER2_CONFIG version update
+    // May need a protocol version change, and definitely wants a `VM_CONFIG` version update
     // too, as below. Maybe something else too.
     assert!(
         got_prepared_hashes == prepared_hashes,
