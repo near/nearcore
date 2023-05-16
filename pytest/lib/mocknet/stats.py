@@ -22,8 +22,9 @@ class NodeMetrics:
         self.metrics = {node["name"]: get_metrics(node) for node in nodes}
         # for every node calculating missed chunks of connected account (if any exists)
         for node, metrics in self.metrics.items():
-            for full_label_str in metrics["expected_chunks"].keys():
-                account_id = full_label_str.strip()
+            for full_label_str in metrics[
+                    METRICS_MAPPING["expected_chunks"]].keys():
+                account_id = full_label_str.strip("{'\"}")
                 if account_id in node:
                     expected_chunks = self.get_metric(node, "expected_chunks",
                                                       full_label_str)

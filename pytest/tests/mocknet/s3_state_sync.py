@@ -7,7 +7,7 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from mocknet.nodes import get_gcloud_nodes, get_nodes_by_label, get_localnet_nodes, exclude_nodes, intersect_nodes
 from mocknet.stats import NodeAccumulationStats, NodeMetrics
 from mocknet.helper import stop_nodes, restart_nodes, set_state_parts_dump_mode_for_nodes, set_tracked_shard_for_node, \
-    set_tracked_shard_for_nodes, set_state_parts_sync_mode_for_nodes
+    set_tracked_shard_for_nodes, set_state_parts_sync_mode_for_nodes, enable_state_sync
 from mocknet.test_flow import loop_for, wait_for_metric, wait_n_epochs, wait_for_nodes_to_sync, nodes_are_in_sync, \
     init_nodes, wait_for_nodes_to_be_up
 from configured_logger import logger
@@ -86,6 +86,7 @@ class TestStateSync:
             set_state_parts_sync_mode_for_nodes(nodes,
                                                 bucket=self.s3_bucket,
                                                 region=self.s3_region)
+        enable_state_sync(nodes)
 
     # Starts the traffic node in mirroring mode
     def start_traffic(self):
