@@ -30,7 +30,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
 /// If we launched a node with enabled flat storage but it doesn't have flat storage data on disk, we have to create it.
 /// This struct is responsible for this process for the given shard.
@@ -130,7 +130,15 @@ impl FlatStorageShardCreator {
             proccessed parts: {processed_parts}"
         );
 
-        result_sender.send(num_items).unwrap();
+        match result_sender.send(num_items) {
+            Ok(_) => {}
+            Err(e) => {
+                error!(target: "client", "During flat storage creation, state \
+                part sender channel was disconnected: {e}. Results of fetching \
+                state part {part_id:?} for shard {shard_uid} will not be recorded \
+                and flat storage creation will stall. Please restart the node.");
+            }
+        }
     }
 
     /// Checks current flat storage creation status, execute work related to it and possibly switch to next status.
