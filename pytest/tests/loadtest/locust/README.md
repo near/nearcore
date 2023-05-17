@@ -1,0 +1,37 @@
+# Locust based load testing
+
+WIP: This is work in progress, motivation described in https://github.com/near/nearcore/issues/8999
+
+TLDR: Use [locust](https://locust.io/) to generate transactions against a Near chain and produce statistics.
+
+## Install
+```
+pip3 install locust
+```
+
+## Run a first load test
+
+The load generator needs access to a FT contract WASM and it needs access to a account key with plenty of tokens.
+For a local test setup, this works just fine.
+```
+CONTRACT=runtime/near-test-contracts/res/fungible_token.wasm
+KEY=~/.near/test0/validator_key.json
+```
+
+For a quick demo, you can also run a local cluster using the provided script.
+```
+NEAR_ROOT=./target/release/  python3 ./pytest/tools/locust/local_cluster.py --shards 4
+```
+
+Then to actually run it, this is the command.
+```
+cd pytest/tools/locust
+locust -f pytest/tools/locust/locustfile.py \
+  --fungible-token-wasm=$CONTRACT \
+  -H 127.0.0.1:3040 \
+  --contract-key=$KEY
+```
+
+This will print a link to a web UI where the loadtest can be started and statistics & graphs can be observed.
+But if you only want the pure numbers, it can also be run headless.
+(add `--headless` and something like `-t 120s -u 1000` to the command to specify total time and max concurrent users)
