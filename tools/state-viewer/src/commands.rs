@@ -980,4 +980,5 @@ pub(crate) fn contract_accounts(
 pub(crate) fn clear_cache(store: Store) {
     let mut store_update = store.store_update();
     store_update.delete_all(DBCol::CachedContractCode);
+    store_update.commit().unwrap();
 }
