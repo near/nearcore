@@ -15,9 +15,7 @@ cargo-fuzz = true
 libfuzzer-sys.workspace = true
 borsh.workspace = true
 serde_json.workspace = true
-
-[dependencies.near-account-id]
-path = ".."
+near-account-id.workspace = true
 
 [[bin]]
 name = "serde"
