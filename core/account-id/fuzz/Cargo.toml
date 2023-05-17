@@ -1,10 +1,12 @@
-
 [package]
 name = "near-account-id-fuzz"
-version = "0.0.0"
+version.workspace = true
 authors.workspace = true
-publish = false
 edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
 
 [package.metadata]
 cargo-fuzz = true
@@ -13,9 +15,7 @@ cargo-fuzz = true
 libfuzzer-sys.workspace = true
 borsh.workspace = true
 serde_json.workspace = true
-
-[dependencies.near-account-id]
-path = ".."
+near-account-id.workspace = true
 
 [[bin]]
 name = "serde"

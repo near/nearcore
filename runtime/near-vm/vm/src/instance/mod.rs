@@ -218,7 +218,13 @@ impl Instance {
     /// Return the indexed `VMMemoryImport`.
     fn imported_memory(&self, index: MemoryIndex) -> &VMMemoryImport {
         let index = usize::try_from(index.as_u32()).unwrap();
-        unsafe { &*self.imported_memories_ptr().add(index) }
+        let addr = unsafe { self.imported_memories_ptr().add(index) };
+        let align = std::mem::align_of::<VMMemoryImport>();
+        debug_assert!(
+            addr as usize % align == 0,
+            "VMMemoryImport addr is not aligned to {align}: {addr:p}"
+        );
+        unsafe { &*addr }
     }
 
     /// Return a pointer to the `VMMemoryImport`s.

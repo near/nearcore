@@ -1,11 +1,12 @@
 [package]
+name = "near-rosetta-rpc"
+version.workspace = true
 authors.workspace = true
 edition.workspace = true
-name = "near-rosetta-rpc"
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
 publish = false
-version = "0.0.0"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 actix-cors.workspace = true

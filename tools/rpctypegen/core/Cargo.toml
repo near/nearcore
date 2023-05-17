@@ -1,16 +1,13 @@
 [package]
 name = "near-rpc-error-core"
-version = "0.0.0"
+version.workspace = true
 authors.workspace = true
-publish = true
-# Please update rust-toolchain.toml as well when changing version here:
-rust-version.workspace = true
 edition.workspace = true
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/near/nearcore"
-description = """
-This crate generates schema for Rust structs which can be used by TypeScript.
-"""
+rust-version.workspace = true
+description = "This crate generates schema for Rust structs which can be used by TypeScript."
+repository.workspace = true
+license.workspace = true
+publish = true
 
 [dependencies]
 quote.workspace = true

@@ -1,9 +1,12 @@
 [package]
-authors.workspace = true
 name = "estimator-warehouse"
-version = "0.0.0"
-publish = false
+version.workspace = true
+authors.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
 
 [dependencies]
 anyhow.workspace = true
