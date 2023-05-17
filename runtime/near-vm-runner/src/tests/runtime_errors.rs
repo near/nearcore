@@ -433,7 +433,7 @@ fn test_stack_overflow() {
             "#]],
             #[cfg(feature = "nightly")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 30376143897 used gas 30376143897
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 1941696537 used gas 1941696537
                 Err: ...
             "#]],
         ]);
@@ -473,7 +473,7 @@ fn test_stack_instrumentation_protocol_upgrade() {
             "#]],
             #[cfg(feature = "nightly")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 31767212013 used gas 31767212013
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 2024582613 used gas 2024582613
                 Err: ...
             "#]],
         ]);
@@ -510,7 +510,7 @@ fn test_stack_instrumentation_protocol_upgrade() {
             "#]],
             #[cfg(feature = "nightly")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 29698803429 used gas 29698803429
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 1896232677 used gas 1896232677
                 Err: ...
             "#]],
         ]);

@@ -327,11 +327,12 @@ fn test_limit_locals() {
             }
             .make(),
         )
+        .skip_wasmer0()
+        .opaque_error()
         .protocol_features(&[
             #[cfg(feature = "nightly")]
             ProtocolFeature::PreparationV2,
         ])
-        .opaque_error()
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 43682463 used gas 43682463
@@ -389,6 +390,7 @@ fn test_limit_locals_global() {
             }
             .make(),
         )
+        .opaque_error()
         .protocol_features(&[
             #[cfg(feature = "nightly")]
             ProtocolFeature::PreparationV2,
@@ -399,7 +401,8 @@ fn test_limit_locals_global() {
             "#]],
             #[cfg(feature = "nightly")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13001413761 used gas 13001413761
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 139269213 used gas 139269213
+                Err: ...
             "#]]
         ]);
 }
