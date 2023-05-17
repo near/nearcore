@@ -1,3 +1,16 @@
+[workspace.package]
+version = "0.0.0" # managed by cargo-workspaces, see below
+authors = ["Near Inc <hello@nearprotocol.com>"]
+edition = "2021"
+rust-version = "1.69.0"
+repository = "https://github.com/near/nearcore"
+license = "MIT OR Apache-2.0"
+
+[workspace.metadata.workspaces]
+# shared version of all public crates in the workspace
+version = "0.16.1"
+exclude = ["neard"]
+
 [workspace]
 members = [
     "chain/chain",
@@ -75,10 +88,6 @@ members = [
     "utils/stdx",
 ]
 
-[workspace.metadata.workspaces]
-version = "0.16.1"
-exclude = [ "neard" ]
-
 [workspace.dependencies]
 actix = "0.13.0"
 actix-cors = "0.6.1"
@@ -135,7 +144,7 @@ flate2 = "1.0.22"
 fs2 = "0.4"
 futures = "0.3.5"
 futures-util = "0.3"
-genesis-populate = { path = "genesis-tools/genesis-populate"}
+genesis-populate = { path = "genesis-tools/genesis-populate" }
 hashbrown = "0.11"
 hex = { version = "0.4.2", features = ["serde"] }
 hex-literal = "0.2"
@@ -160,7 +169,7 @@ lru = "0.7.2"
 memmap2 = "0.5"
 memoffset = "0.6"
 more-asserts = "0.2"
-near-account-id = { path = "core/account-id", features = [ "internal_unstable" ] }
+near-account-id = { path = "core/account-id", features = ["internal_unstable"] }
 near-actix-test-utils = { path = "test-utils/actix-test-utils" }
 near-amend-genesis = { path = "tools/amend-genesis" }
 near-async = { path = "core/async" }
@@ -171,7 +180,7 @@ near-chain-primitives = { path = "chain/chain-primitives" }
 near-chunks = { path = "chain/chunks" }
 near-chunks-primitives = { path = "chain/chunks-primitives" }
 near-client = { path = "chain/client" }
-near-client-primitives = {path = "chain/client-primitives"}
+near-client-primitives = { path = "chain/client-primitives" }
 near-cold-store-tool = { path = "tools/cold-store", package = "cold-store-tool" }
 near-config-utils = { path = "utils/config" }
 nearcore = { path = "nearcore" }
@@ -208,14 +217,14 @@ near-telemetry = { path = "chain/telemetry" }
 near-test-contracts = { path = "runtime/near-test-contracts" }
 near-undo-block = { path = "tools/undo-block" }
 near-vm = { path = "runtime/near-vm/api" }
-near-vm-compiler = { path = "runtime/near-vm/compiler"}
+near-vm-compiler = { path = "runtime/near-vm/compiler" }
 near-vm-compiler-singlepass = { path = "runtime/near-vm/compiler-singlepass" }
 near-vm-compiler-test-derive = { path = "runtime/near-vm/compiler-test-derive" }
 near-vm-engine = { path = "runtime/near-vm/engine" }
 near-vm-engine-universal = { path = "runtime/near-vm/engine-universal" }
 near-vm-errors = { path = "runtime/near-vm-errors" }
 near-vm-logic = { path = "runtime/near-vm-logic" }
-near-vm-runner = { path = "runtime/near-vm-runner"}
+near-vm-runner = { path = "runtime/near-vm-runner" }
 near-vm-test-generator = { path = "runtime/near-vm/test-generator" }
 near-vm-types = { path = "runtime/near-vm/types" }
 near-vm-vm = { path = "runtime/near-vm/vm" }
@@ -262,7 +271,7 @@ rkyv = "0.7.31"
 rlimit = "0.7"
 rocksdb = { version = "0.19.0", default-features = false, features = ["snappy", "lz4", "zstd", "zlib", "jemalloc"] }
 runtime-tester = { path = "test-utils/runtime-tester" }
-rusqlite = {version = "0.27.0", features = ["bundled", "chrono", "functions"] }
+rusqlite = { version = "0.27.0", features = ["bundled", "chrono", "functions"] }
 rustc-demangle = "0.1"
 rust-s3 = { version = "0.32.3", features = ["blocking"] }
 secp256k1 = { version = "0.27.0", features = ["recovery", "rand-std"] }
@@ -325,12 +334,7 @@ winapi = { version = "0.3", features = ["winbase", "memoryapi", "errhandlingapi"
 xshell = "0.2.1"
 xz2 = "0.1.6"
 
-# Polyfill crate introduced in https://github.com/near/nearcore/pull/8087
-# Because public crates depend on it, we have to also publish this.
-# When changing the workspace version, set this back to a local dependency and
-# then update again to the higher published version once we release crates again.
-# TODO(#8604): Fix this process.
-stdx = { package = "near-stdx", version = "0.16.0" }
+stdx = { package = "near-stdx", path = "utils/stdx" }
 
 [patch.crates-io]
 
@@ -363,8 +367,3 @@ opt-level = 3
 opt-level = 3
 [profile.dev.package.sha2]
 opt-level = 3
-
-[workspace.package]
-edition = "2021"
-authors = ["Near Inc <hello@nearprotocol.com>"]
-rust-version = "1.69.0"

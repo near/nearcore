@@ -1,15 +1,15 @@
 [package]
 name = "near-account-id"
-version = "0.0.0"
+version.workspace = true
 authors.workspace = true
-publish = true
-# This crate is published to crates.io with a semver API.  Care must be taken
+edition.workspace = true
+# This crate is published to crates.io with a semver API. Care must be taken
 # when updaing its rust-version.
-rust-version = "1.60.0"
-edition = "2021"
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/near/nearcore"
+rust-version = "1.64.0"
 description = "This crate contains the Account ID primitive and its validation facilities"
+repository.workspace = true
+license.workspace = true
+publish = true
 
 [features]
 default = ["borsh", "serde"]

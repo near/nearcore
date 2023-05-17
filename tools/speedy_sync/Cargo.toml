@@ -1,12 +1,12 @@
 [package]
 name = "speedy_sync"
-version = "0.0.0"
+version.workspace = true
 authors.workspace = true
-publish = false
-rust-version.workspace = true
 edition.workspace = true
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
 
 [dependencies]
 near-store.workspace = true

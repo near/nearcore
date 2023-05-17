@@ -795,6 +795,7 @@ pub(crate) fn check_block_chunk_existence(near_config: NearConfig, store: Store)
 pub(crate) fn print_epoch_info(
     epoch_selection: epoch_info::EpochSelection,
     validator_account_id: Option<AccountId>,
+    kickouts_summary: bool,
     near_config: NearConfig,
     store: Store,
 ) {
@@ -809,6 +810,7 @@ pub(crate) fn print_epoch_info(
     epoch_info::print_epoch_info(
         epoch_selection,
         validator_account_id,
+        kickouts_summary,
         store,
         &mut chain_store,
         &epoch_manager,

@@ -237,7 +237,7 @@ impl NearVmConfig {
 //  major version << 6
 //  minor version
 const VM_CONFIG: NearVmConfig = NearVmConfig {
-    seed: (2 << 10) | (1 << 6) | 0,
+    seed: (2 << 10) | (1 << 6) | 1,
     engine: NearVmEngine::Universal,
     compiler: NearVmCompiler::Singlepass,
 };

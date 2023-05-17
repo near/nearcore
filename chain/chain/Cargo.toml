@@ -1,9 +1,9 @@
 [package]
 name = "near-chain"
-version = "0.0.0"
+version.workspace = true
 authors.workspace = true
-publish = false
 edition.workspace = true
+publish = false
 
 [dependencies]
 actix.workspace = true
