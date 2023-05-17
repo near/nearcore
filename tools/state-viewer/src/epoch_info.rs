@@ -208,10 +208,10 @@ pub(crate) fn iterate_and_filter(
 }
 
 fn display_kickouts(epoch_info: &EpochInfo) {
-    for (key, value) in
-        epoch_info.validator_kickout().iter().sorted_by_key(|(&ref account_id, _)| account_id)
+    for (account_id, kickout_reason) in
+        epoch_info.validator_kickout().iter().sorted_by_key(|&(account_id, _)| account_id)
     {
-        println!("{:?}: {:?}", key, value);
+        println!("{:?}: {:?}", account_id, kickout_reason);
     }
 }
 
