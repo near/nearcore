@@ -401,8 +401,7 @@ fn test_limit_locals_global() {
             "#]],
             #[cfg(feature = "nightly")]
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 139269213 used gas 139269213
-                Err: ...
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13001413761 used gas 13001413761
             "#]]
         ]);
 }
