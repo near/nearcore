@@ -12,7 +12,6 @@ use near_primitives::types::{ShardId, TrieCacheMode, TrieNodesCount};
 use std::borrow::Borrow;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::io::ErrorKind;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
@@ -36,6 +35,7 @@ impl<T> BoundedQueue<T> {
         self.queue.pop_front()
     }
 
+    #[allow(dead_code)]
     pub(crate) fn put(&mut self, key: T) -> Option<T> {
         self.queue.push_back(key);
         if self.queue.len() > self.capacity {
@@ -45,6 +45,7 @@ impl<T> BoundedQueue<T> {
         }
     }
 
+    #[allow(dead_code)]
     pub(crate) fn len(&self) -> usize {
         self.queue.len()
     }
@@ -81,6 +82,7 @@ pub struct TrieCacheInner {
 }
 
 struct TrieCacheMetrics {
+    #[allow(dead_code)]
     shard_cache_too_large: GenericCounter<prometheus::core::AtomicU64>,
     shard_cache_pop_hits: GenericCounter<prometheus::core::AtomicU64>,
     shard_cache_pop_misses: GenericCounter<prometheus::core::AtomicU64>,
@@ -177,6 +179,7 @@ impl TrieCacheInner {
 
     // Adds key to the deletions queue if it is present in cache.
     // Returns key-value pair which are popped if deletions queue is full.
+    #[allow(dead_code)]
     pub(crate) fn pop(&mut self, key: &CryptoHash) -> Option<(CryptoHash, Arc<[u8]>)> {
         self.metrics.shard_cache_deletions_size.set(self.deletions.len() as i64);
         // Do nothing if key was removed before.

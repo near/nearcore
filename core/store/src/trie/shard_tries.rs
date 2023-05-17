@@ -198,47 +198,6 @@ impl ShardTries {
         }
     }
 
-    /*    pub(crate) fn update_cache(&self, transaction: &DBTransaction) -> std::io::Result<()> {*/
-    /*let mut caches = self.0.caches.write().expect(POISONED_LOCK_ERR);*/
-    /*let mut shards = HashMap::new();*/
-    /*for op in &transaction.ops {*/
-    /*match op {*/
-    /*DBOp::UpdateRefcount { col, key, value } => {*/
-    /*if *col == DBCol::State {*/
-    /*let (shard_uid, hash) =*/
-    /*TrieCachingStorage::get_shard_uid_and_hash_from_key(key)?;*/
-    /*shards*/
-    /*.entry(shard_uid)*/
-    /*.or_insert(vec![])*/
-    /*.push((hash, Some(value.as_slice())));*/
-    /*}*/
-    /*}*/
-    /*DBOp::DeleteAll { col } => {*/
-    /*if *col == DBCol::State {*/
-    /*// Delete is possible in reset_data_pre_state_sync*/
-    /*for (_, cache) in caches.iter() {*/
-    /*cache.clear();*/
-    /*}*/
-    /*}*/
-    /*}*/
-    /*DBOp::Set { col, .. }*/
-    /*| DBOp::Insert { col, .. }*/
-    /*| DBOp::Delete { col, .. }*/
-    /*| DBOp::DeleteRange { col, .. } => {*/
-    /*assert_ne!(*col, DBCol::State);*/
-    /*}*/
-    /*}*/
-    /*}*/
-    /*for (shard_uid, ops) in shards {*/
-    /*let cache = caches*/
-    /*.entry(shard_uid)*/
-    /*.or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, false))*/
-    /*.clone();*/
-    /*cache.update_cache(ops);*/
-    /*}*/
-    /*Ok(())*/
-    /*}*/
-
     fn apply_deletions_inner(
         &self,
         deletions: &[TrieRefcountChange],
@@ -365,19 +324,9 @@ impl WrappedTrieChanges {
     ) -> Self {
         WrappedTrieChanges { tries, shard_uid, trie_changes, state_changes, block_hash }
     }
+
     pub fn state_changes(&self) -> &[RawStateChangesWithTrieKey] {
         &self.state_changes
-    }
-    pub fn trie_changes(&self) -> &TrieChanges {
-        &self.trie_changes
-    }
-
-    pub fn shard_tries(&mut self) -> &mut ShardTries {
-        &mut self.tries
-    }
-
-    pub fn shard_uid(&mut self) -> ShardUId {
-        self.shard_uid
     }
 
     pub fn update_trie_caches(&self) {
