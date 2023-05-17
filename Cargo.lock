@@ -2615,7 +2615,7 @@ dependencies = [
  "near-performance-metrics",
  "near-primitives",
  "near-primitives-core",
- "near-stdx 0.16.0",
+ "near-stdx",
  "near-store",
  "near-telemetry",
  "near-test-contracts",
@@ -3409,7 +3409,7 @@ dependencies = [
  "hex-literal",
  "near-account-id",
  "near-config-utils",
- "near-stdx 0.16.0",
+ "near-stdx",
  "once_cell",
  "primitive-types",
  "rand 0.7.3",
@@ -3837,7 +3837,7 @@ dependencies = [
  "near-fmt",
  "near-primitives-core",
  "near-rpc-error-macro",
- "near-stdx 0.16.0",
+ "near-stdx",
  "near-vm-errors",
  "num-rational",
  "once_cell",
@@ -3955,12 +3955,6 @@ name = "near-stdx"
 version = "0.0.0"
 
 [[package]]
-name = "near-stdx"
-version = "0.16.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6c05ded9a90c087aaebfafdf01f2801f5d31817f9a3514ce09aed270001d650e"
-
-[[package]]
 name = "near-store"
 version = "0.0.0"
 dependencies = [
@@ -3984,7 +3978,7 @@ dependencies = [
  "near-fmt",
  "near-o11y",
  "near-primitives",
- "near-stdx 0.16.0",
+ "near-stdx",
  "num_cpus",
  "once_cell",
  "rand 0.8.5",
@@ -4190,7 +4184,7 @@ dependencies = [
  "near-o11y",
  "near-primitives",
  "near-primitives-core",
- "near-stdx 0.16.0",
+ "near-stdx",
  "near-vm-errors",
  "ripemd",
  "serde",

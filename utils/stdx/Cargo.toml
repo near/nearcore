@@ -1,15 +1,13 @@
 [package]
 name = "near-stdx"
-version = "0.0.0"
+version.workspace = true
 authors.workspace = true
 edition.workspace = true
-publish = true
 rust-version.workspace = true
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/near/nearcore"
-description = """
-This crate contains polyfills which should really be in std, but currently aren't for one reason or another.
-"""
+description = "This crate contains polyfills which should really be in std, but currently aren't for one reason or another."
+repository.workspace = true
+license.workspace = true
+publish = true
 
 [dependencies]
 # Absolutely must not depend on any crates from nearcore workspace,
