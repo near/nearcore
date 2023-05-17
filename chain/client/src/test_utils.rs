@@ -143,10 +143,13 @@ impl Client {
         provenance: Provenance,
         should_produce_chunk: bool,
     ) -> Result<Vec<CryptoHash>, near_chain::Error> {
-        self.start_process_block(block, provenance, Arc::new(|_| {}))?;
+        self.start_process_block(block, provenance, Arc::new(|_| {}), Arc::new(|_, _, _| {}))?;
         wait_for_all_blocks_in_processing(&mut self.chain);
-        let (accepted_blocks, errors) =
-            self.postprocess_ready_blocks(Arc::new(|_| {}), should_produce_chunk);
+        let (accepted_blocks, errors) = self.postprocess_ready_blocks(
+            Arc::new(|_| {}),
+            Arc::new(|_, _, _| {}),
+            should_produce_chunk,
+        );
         assert!(errors.is_empty(), "unexpected errors when processing blocks: {errors:#?}");
         Ok(accepted_blocks)
     }
@@ -171,7 +174,9 @@ impl Client {
     pub fn finish_blocks_in_processing(&mut self) -> Vec<CryptoHash> {
         let mut accepted_blocks = vec![];
         while wait_for_all_blocks_in_processing(&mut self.chain) {
-            accepted_blocks.extend(self.postprocess_ready_blocks(Arc::new(|_| {}), true).0);
+            accepted_blocks.extend(
+                self.postprocess_ready_blocks(Arc::new(|_| {}), Arc::new(|_, _, _| {}), true).0,
+            );
         }
         accepted_blocks
     }
@@ -180,7 +185,8 @@ impl Client {
     /// has started.
     pub fn finish_block_in_processing(&mut self, hash: &CryptoHash) -> Vec<CryptoHash> {
         if let Ok(()) = wait_for_block_in_processing(&mut self.chain, hash) {
-            let (accepted_blocks, _) = self.postprocess_ready_blocks(Arc::new(|_| {}), true);
+            let (accepted_blocks, _) =
+                self.postprocess_ready_blocks(Arc::new(|_| {}), Arc::new(|_, _, _| {}), true);
             return accepted_blocks;
         }
         vec![]
@@ -236,6 +242,7 @@ pub fn setup(
             background_migration_threads: 1,
             state_snapshot_on_startup: false,
         },
+        None,
     )
     .unwrap();
     let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap();
@@ -287,6 +294,7 @@ pub fn setup(
         Some(signer.clone()),
         enable_doomslug,
         TEST_SEED,
+        None,
     )
     .unwrap();
     let client_actor = ClientActor::new(
@@ -297,6 +305,7 @@ pub fn setup(
         network_adapter,
         Some(signer),
         telemetry,
+        None,
         ctx,
         None,
         adv,
@@ -354,6 +363,7 @@ pub fn setup_only_view(
             background_migration_threads: 1,
             state_snapshot_on_startup: false,
         },
+        None,
     )
     .unwrap();
 
@@ -1166,6 +1176,7 @@ pub fn setup_client_with_runtime(
         validator_signer,
         enable_doomslug,
         rng_seed,
+        None,
     )
     .unwrap();
     client.sync_status = SyncStatus::NoSync;
@@ -1230,6 +1241,7 @@ pub fn setup_synchronous_shards_manager(
             background_migration_threads: 1,
             state_snapshot_on_startup: false,
         }, // irrelevant
+        None,
     )
     .unwrap();
     let chain_head = chain.head().unwrap();
@@ -1932,6 +1944,7 @@ impl TestEnv {
                         partial_chunk,
                         shard_chunk,
                         Arc::new(|_| {}),
+                        Arc::new(|_, _, _| {}),
                     );
                 }
                 ShardsManagerResponse::InvalidChunk(encoded_chunk) => {
@@ -2361,6 +2374,7 @@ pub fn run_catchup(
             &block_catch_up,
             &state_split,
             Arc::new(|_| {}),
+            Arc::new(|_, _, _| {}),
         )?;
         let mut catchup_done = true;
         for msg in block_messages.write().unwrap().drain(..) {

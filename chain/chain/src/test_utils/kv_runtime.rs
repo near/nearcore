@@ -1410,8 +1410,8 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn make_state_snapshot(
         &self,
-        _last_block_hash: &CryptoHash,
         _last_block_height: BlockHeight,
+        _last_block_hash: &CryptoHash,
         _prev_block_hash: &CryptoHash,
     ) -> Result<(), Error> {
         unreachable!("make_state_snapshot() isn't supported");

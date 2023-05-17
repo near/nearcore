@@ -16,6 +16,16 @@ macro_rules! handler_span {
     }};
 }
 
+#[macro_export]
+macro_rules! handler_info_span {
+    (target: $target:expr, $msg:expr) => {
+        $crate::handler_span!(target: $target, level: tracing::Level::INFO, $msg, )
+    };
+    (target: $target:expr, $msg:expr, $($extra_fields:tt)*) => {
+        $crate::handler_span!(target: $target, level: tracing::Level::INFO, $msg, $($extra_fields)*)
+    };
+}
+
 /// A macro that lets attach `handle()` functions to the tracing context that
 /// generated the actix message being processed.
 /// Creates a DEBUG-level span with the handler type name and the message type name as attributes.
