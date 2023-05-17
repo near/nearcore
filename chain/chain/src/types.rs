@@ -527,8 +527,8 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Opens another Store that has exactly the same state as the main Store.
     fn make_state_snapshot(
         &self,
-        last_block_hash: &CryptoHash,
         last_block_height: BlockHeight,
+        last_block_hash: &CryptoHash,
         prev_block_hash: &CryptoHash,
     ) -> Result<(), Error>;
 

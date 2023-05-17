@@ -1655,8 +1655,8 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn make_state_snapshot(
         &self,
-        last_block_hash: &CryptoHash,
         last_block_height: BlockHeight,
+        last_block_hash: &CryptoHash,
         prev_block_hash: &CryptoHash,
     ) -> Result<(), Error> {
         let _span =

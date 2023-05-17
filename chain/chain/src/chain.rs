@@ -81,6 +81,7 @@ use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration as TimeDuration, Instant};
 use tracing::{debug, error, info, warn, Span};
@@ -122,6 +123,9 @@ pub const TX_ROUTING_HEIGHT_HORIZON: BlockHeightDelta = 4;
 
 /// Private constant for 1 NEAR (copy from near/config.rs) used for reporting.
 const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
+
+pub type StartSnapshotCallback =
+    Arc<dyn Fn(BlockHeight, CryptoHash, CryptoHash) -> () + Send + Sync + 'static>;
 
 /// apply_chunks may be called in two code paths, through process_block or through catchup_blocks
 /// When it is called through process_block, it is possible that the shard state for the next epoch
@@ -467,6 +471,7 @@ pub struct Chain {
     pub(crate) requested_state_parts: StateRequestTracker,
 
     first_block: Arc<Mutex<bool>>,
+    in_progress: Option<Arc<AtomicBool>>,
 }
 
 impl Drop for Chain {
@@ -532,6 +537,7 @@ impl Chain {
             pending_state_patch: Default::default(),
             requested_state_parts: StateRequestTracker::new(),
             first_block: Arc::new(Mutex::new(false)),
+            in_progress: None,
         })
     }
 
@@ -540,6 +546,7 @@ impl Chain {
         chain_genesis: &ChainGenesis,
         doomslug_threshold_mode: DoomslugThresholdMode,
         chain_config: ChainConfig,
+        in_progress: Option<Arc<AtomicBool>>,
     ) -> Result<Chain, Error> {
         // Get runtime initial state and create genesis block out of it.
         let (store, state_roots) = runtime_adapter.genesis_state();
@@ -683,6 +690,7 @@ impl Chain {
             pending_state_patch: Default::default(),
             requested_state_parts: StateRequestTracker::new(),
             first_block: Arc::new(Mutex::new(chain_config.state_snapshot_on_startup)),
+            in_progress,
         })
     }
 
@@ -1637,6 +1645,7 @@ impl Chain {
         provenance: Provenance,
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_callback: DoneApplyChunkCallback,
+        start_snapshot_callback: StartSnapshotCallback,
     ) -> Result<(), Error> {
         let block_received_time = StaticClock::instant();
         metrics::BLOCK_PROCESSING_ATTEMPTS_TOTAL.inc();
@@ -1650,6 +1659,7 @@ impl Chain {
             block_processing_artifacts,
             apply_chunks_done_callback,
             block_received_time,
+            start_snapshot_callback,
         );
 
         if matches!(res, Err(Error::TooManyProcessingBlocks)) {
@@ -1677,6 +1687,7 @@ impl Chain {
         me: &Option<AccountId>,
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_callback: DoneApplyChunkCallback,
+        start_snapshot_callback: StartSnapshotCallback,
     ) -> (Vec<AcceptedBlock>, HashMap<CryptoHash, Error>) {
         let mut accepted_blocks = vec![];
         let mut errors = HashMap::new();
@@ -1687,6 +1698,7 @@ impl Chain {
                 apply_result,
                 block_processing_artifacts,
                 apply_chunks_done_callback.clone(),
+                start_snapshot_callback.clone(),
             ) {
                 Err(e) => {
                     errors.insert(block_hash, e);
@@ -1892,6 +1904,7 @@ impl Chain {
         sync_hash: CryptoHash,
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_callback: DoneApplyChunkCallback,
+        start_snapshot_callback: StartSnapshotCallback,
     ) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "sync", "reset_heads_post_state_sync").entered();
         // Get header we were syncing into.
@@ -1916,7 +1929,13 @@ impl Chain {
         // Check if there are any orphans unlocked by this state sync.
         // We can't fail beyond this point because the caller will not process accepted blocks
         //    and the blocks with missing chunks if this method fails
-        self.check_orphans(me, hash, block_processing_artifacts, apply_chunks_done_callback);
+        self.check_orphans(
+            me,
+            hash,
+            block_processing_artifacts,
+            apply_chunks_done_callback,
+            start_snapshot_callback,
+        );
         Ok(())
     }
 
@@ -1930,6 +1949,7 @@ impl Chain {
         block_processing_artifact: &mut BlockProcessingArtifact,
         apply_chunks_done_callback: DoneApplyChunkCallback,
         block_received_time: Instant,
+        start_snapshot_callback: StartSnapshotCallback,
     ) -> Result<(), Error> {
         let block_height = block.header().height();
         let _span = tracing::debug_span!(
@@ -2036,6 +2056,7 @@ impl Chain {
         };
         let (apply_chunk_work, block_preprocess_info) = preprocess_res;
 
+        // This is a test-only piece to trigger snapshots immediately upon the node's startup.
         let mut bb = self.first_block.lock().unwrap();
         let b = *bb;
         if b || block_preprocess_info.need_state_snapshot {
@@ -2043,9 +2064,7 @@ impl Chain {
                 tracing::error!(target: "state_snapshot", "Snapshotting the first block");
                 *bb = false;
             }
-            if let Err(err) = self.make_state_snapshot() {
-                tracing::error!(target: "state_snapshot", ?err, "Failed to make a state snapshot before starting a new epoch");
-            }
+            self.make_state_snapshot(start_snapshot_callback);
         }
 
         let block = block.into_inner();
@@ -2122,7 +2141,13 @@ impl Chain {
         block: &Block,
         shard_uid: ShardUId,
     ) -> Result<(), Error> {
+        let _span = tracing::info_span!(target: "state_snapshot", "update_flat_storage_for_block", block_height = block.header().height()).entered();
         if let Some(flat_storage) = self.runtime_adapter.get_flat_storage_for_shard(shard_uid) {
+            if self.state_snapshot_is_in_progress() {
+                tracing::info!(target: "state_snapshot", "Ignore update_flat_storage_for_block() because state snapshot is in progress");
+                return Ok(());
+            }
+
             let mut new_flat_head = *block.header().last_final_block();
             if new_flat_head == CryptoHash::default() {
                 new_flat_head = *self.genesis.hash();
@@ -2168,6 +2193,7 @@ impl Chain {
         apply_results: Vec<Result<ApplyChunkResult, Error>>,
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_callback: DoneApplyChunkCallback,
+        start_snapshot_callback: StartSnapshotCallback,
     ) -> Result<AcceptedBlock, Error> {
         let timer = metrics::BLOCK_POSTPROCESSING_TIME.start_timer();
         let (block, block_preprocess_info) =
@@ -2282,6 +2308,7 @@ impl Chain {
             *block.hash(),
             block_processing_artifacts,
             apply_chunks_done_callback,
+            start_snapshot_callback,
         );
 
         // Determine the block status of this block (whether it is a side fork and updates the chain head)
@@ -2619,6 +2646,7 @@ impl Chain {
         me: &Option<AccountId>,
         block_processing_artifact: &mut BlockProcessingArtifact,
         apply_chunks_done_callback: DoneApplyChunkCallback,
+        start_snapshot_callback: StartSnapshotCallback,
     ) {
         let blocks = self.blocks_with_missing_chunks.ready_blocks();
         debug!(target:"chain", "Got {} blocks that were missing chunks but now are ready.", blocks.len());
@@ -2632,6 +2660,7 @@ impl Chain {
                 block.provenance,
                 block_processing_artifact,
                 apply_chunks_done_callback.clone(),
+                start_snapshot_callback.clone(),
             );
             match res {
                 Ok(_) => {
@@ -2660,6 +2689,7 @@ impl Chain {
         prev_hash: CryptoHash,
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_callback: DoneApplyChunkCallback,
+        start_snapshot_callback: StartSnapshotCallback,
     ) {
         // Check if there are orphans we can process.
         debug!(target: "chain", "Check orphans: from {}, # total orphans {}", prev_hash, self.orphans.len());
@@ -2687,6 +2717,7 @@ impl Chain {
                     orphan.provenance,
                     block_processing_artifacts,
                     apply_chunks_done_callback.clone(),
+                    start_snapshot_callback.clone(),
                 );
                 if let Err(err) = res {
                     debug!(target: "chain", "Orphan {:?} declined, error: {:?}", block_hash, err);
@@ -3450,6 +3481,7 @@ impl Chain {
         epoch_first_block: &CryptoHash,
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_callback: DoneApplyChunkCallback,
+        start_snapshot_callback: StartSnapshotCallback,
         affected_blocks: &[CryptoHash],
     ) -> Result<(), Error> {
         debug!(
@@ -3482,6 +3514,7 @@ impl Chain {
                 *hash,
                 block_processing_artifacts,
                 apply_chunks_done_callback.clone(),
+                start_snapshot_callback.clone(),
             );
         }
 
@@ -4087,16 +4120,23 @@ impl Chain {
 
     /// Makes a state snapshot.
     /// If there was already a state snapshot, deletes that first.
-    pub fn make_state_snapshot(&self) -> Result<(), Error> {
-        let head = self.head()?;
-        let last_block_hash = head.last_block_hash;
-        let prev_block_hash = head.prev_block_hash;
-        self.runtime_adapter.make_state_snapshot(
-            &last_block_hash,
-            head.height,
-            &prev_block_hash,
-        )?;
-        Ok(())
+    pub fn make_state_snapshot(&self, start_snapshot_callback: StartSnapshotCallback) {
+        match self.head() {
+            Ok(head) => {
+                let last_block_hash = head.last_block_hash;
+                let prev_block_hash = head.prev_block_hash;
+                start_snapshot_callback(head.height, last_block_hash, prev_block_hash);
+            }
+            Err(err) => {
+                tracing::error!(target: "state_snapshot", ?err, "Didn't start state snapshot because head() failed");
+            }
+        }
+    }
+
+    fn state_snapshot_is_in_progress(&self) -> bool {
+        self.in_progress
+            .as_ref()
+            .map_or(true, |in_progress| in_progress.load(Ordering::Relaxed) == false)
     }
 }
 

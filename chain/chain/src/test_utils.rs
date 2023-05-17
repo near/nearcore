@@ -71,10 +71,15 @@ pub fn process_block_sync(
         provenance,
         block_processing_artifacts,
         Arc::new(|_| {}),
+        Arc::new(|_, _, _| {}),
     )?;
     wait_for_block_in_processing(chain, &block_hash).unwrap();
-    let (accepted_blocks, errors) =
-        chain.postprocess_ready_blocks(me, block_processing_artifacts, Arc::new(|_| {}));
+    let (accepted_blocks, errors) = chain.postprocess_ready_blocks(
+        me,
+        block_processing_artifacts,
+        Arc::new(|_| {}),
+        Arc::new(|_, _, _| {}),
+    );
     // This is in test, we should never get errors when postprocessing blocks
     debug_assert!(errors.is_empty());
     Ok(accepted_blocks)
@@ -112,6 +117,7 @@ pub fn setup_with_tx_validity_period(
         },
         DoomslugThresholdMode::NoApprovals,
         ChainConfig::test(),
+        None,
     )
     .unwrap();
 
@@ -148,6 +154,7 @@ pub fn setup_with_validators(
         },
         DoomslugThresholdMode::NoApprovals,
         ChainConfig::test(),
+        None,
     )
     .unwrap();
     (chain, epoch_manager, runtime, signers)
@@ -183,6 +190,7 @@ pub fn setup_with_validators_and_start_time(
         },
         DoomslugThresholdMode::NoApprovals,
         ChainConfig::test(),
+        None,
     )
     .unwrap();
     (chain, epoch_manager, runtime, signers)
