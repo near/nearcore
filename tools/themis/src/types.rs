@@ -170,21 +170,23 @@ mod tests {
             read_toml_with_potential_inheritance(&pkg, Some(&workspace), &["dependencies", "syn"])
         );
 
-        assert_ne!(
-            Some(&toml::Value::String("..".to_owned())),
-            read_toml_with_potential_inheritance(
-                &pkg,
-                Some(&workspace),
-                &["dependencies", "serde", "path"]
-            )
-        );
-
         assert_eq!(
             Some(&toml::Value::Boolean(true)),
             read_toml_with_potential_inheritance(
                 &pkg,
                 Some(&workspace),
                 &["dependencies", "quote", "optional"]
+            )
+        );
+
+        assert_eq!(
+            Some(&toml! {
+                "path" = "../serde"
+            }),
+            read_toml_with_potential_inheritance(
+                &pkg,
+                Some(&workspace),
+                &["dependencies", "serde"]
             )
         );
     }
@@ -201,6 +203,7 @@ mod tests {
             [dependencies]
             syn.workspace = true
             quote.workspace = true
+            serde = { workspace = true }
         };
 
         let workspace = toml! {
@@ -227,21 +230,23 @@ mod tests {
             read_toml_with_potential_inheritance(&pkg, Some(&workspace), &["dependencies", "syn"])
         );
 
-        assert_ne!(
-            Some(&toml::Value::String("..".to_owned())),
-            read_toml_with_potential_inheritance(
-                &pkg,
-                Some(&workspace),
-                &["dependencies", "serde", "path"]
-            )
-        );
-
         assert_eq!(
             Some(&toml::Value::Boolean(true)),
             read_toml_with_potential_inheritance(
                 &pkg,
                 Some(&workspace),
                 &["dependencies", "quote", "optional"]
+            )
+        );
+
+        assert_eq!(
+            Some(&toml! {
+                "path" = "../serde"
+            }),
+            read_toml_with_potential_inheritance(
+                &pkg,
+                Some(&workspace),
+                &["dependencies", "serde"]
             )
         );
     }
