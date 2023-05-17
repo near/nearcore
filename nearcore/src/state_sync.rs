@@ -199,7 +199,7 @@ async fn state_sync_dump(
                 let in_progress_data = get_in_progress_data(shard_id, sync_hash, &chain);
                 let mut res = None;
                 match in_progress_data {
-                    Ok((state_root, num_parts, sync_prev_hash)) => {
+                    Ok((state_root, num_parts, sync_prev_prev_hash)) => {
                         // The actual dumping of state to S3.
                         tracing::info!(target: "state_sync_dump", shard_id, ?epoch_id, epoch_height, %sync_hash, ?state_root, parts_dumped, "Creating parts and dumping them");
                         for part_id in parts_dumped..num_parts {
@@ -213,7 +213,7 @@ async fn state_sync_dump(
                                 runtime.as_ref(),
                                 shard_id,
                                 sync_hash,
-                                &sync_prev_hash,
+                                &sync_prev_prev_hash,
                                 &state_root,
                                 part_id,
                                 num_parts,
@@ -314,9 +314,10 @@ fn get_in_progress_data(
     let state_root = state_header.chunk_prev_state_root();
     let num_parts = get_num_state_parts(state_header.state_root_node().memory_usage);
 
-    let sync_block = chain.get_block(&sync_hash)?;
-    let sync_prev_hash = sync_block.header().prev_hash();
-    Ok((state_root, num_parts, *sync_prev_hash))
+    let sync_block_header = chain.get_block_header(&sync_hash)?;
+    let sync_prev_block_header = chain.get_previous_header(&sync_block_header)?;
+    let sync_prev_prev_hash = sync_prev_block_header.prev_hash();
+    Ok((state_root, num_parts, *sync_prev_prev_hash))
 }
 
 fn update_progress(
@@ -386,7 +387,7 @@ fn obtain_and_store_state_part(
     runtime: &dyn RuntimeAdapter,
     shard_id: ShardId,
     sync_hash: CryptoHash,
-    sync_prev_hash: &CryptoHash,
+    sync_prev_prev_hash: &CryptoHash,
     state_root: &StateRoot,
     part_id: u64,
     num_parts: u64,
@@ -394,7 +395,7 @@ fn obtain_and_store_state_part(
 ) -> Result<Vec<u8>, Error> {
     let state_part = runtime.obtain_state_part(
         shard_id,
-        sync_prev_hash,
+        sync_prev_prev_hash,
         state_root,
         PartId::new(part_id, num_parts),
     )?;
