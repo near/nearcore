@@ -102,7 +102,7 @@ function run_with_trie_changes {
   sleep 600
 }
 
-# Initialize cold storage and make it up to date
+# Initialize cold storage
 function init_cold_storage {
   # Switch to migration mode
   lcho "Starting initial migration run"
@@ -122,10 +122,10 @@ function init_cold_storage {
     echo "Head of hot storage: '$head'"
     echo "Head of cold storage: '$cold_head'"
 
-    if [[ -n "$head" && -n "$cold_head" && $(($head - $cold_head)) -lt 1000 ]]; then
+    if [[ -n "$head" && -n "$cold_head" ]]; then
       break
     else
-      echo "Cold head hasn't caught up yet. Will check again in 2 minutes. Please don't interrupt."
+      echo "Cold storage isn't initialised yet. Will check again in 2 minutes. Please don't interrupt."
       # Wait for 2 minutes before trying again
       sleep 120
     fi
@@ -142,11 +142,24 @@ function download_latest_rpc_backup {
 
 # Finish migration to split storage
 function finish_split_storage_migration {
-  stop_neard
 
   # Change hot store type
-  echo "Changing RPC DB kind to Hot"
-  /home/ubuntu/neard cold-store prepare-hot --store-relative-path='hot-data'
+  while true
+  do
+    stop_neard
+    echo "Trying to change RPC DB kind to Hot"
+    if /home/ubuntu/neard cold-store prepare-hot --store-relative-path='hot-data'
+    then
+      echo "Successfully changed RPC DB kind to Hot"
+      break
+    else
+      echo "Failed to change RPC DB king to Hot. Check the error above."
+      echo "Assuming the error is cold head being behind rpc tail."
+      echo "Restarting the node with legacy archival db and waiting an hour for cold head to increase."
+      restart_neard
+      sleep 3600
+    fi
+  done
 
   # Switch to split storage mode
   echo "Starting split storage run"
