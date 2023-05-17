@@ -4,7 +4,7 @@ import argparse
 import sys
 import pathlib
 
-sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[3] / 'lib'))
 
 import cluster
 

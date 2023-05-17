@@ -12,7 +12,7 @@ import sys
 import time
 
 
-sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[4] / 'lib'))
 
 import cluster
 import transaction
@@ -59,36 +59,18 @@ class Transaction:
         self.id = Transaction.ID
         Transaction.ID += 1
 
-        # Number of times we are going to check this transaction for completion before retrying
-        # submission
-        self.ttl = 0
-        self.expiration = 0
         # The transaction id hash
         #
         # str if the transaction has been submitted and may eventually conclude.
+        # FIXME: this is currently not set in some cases
         self.transaction_id = None
-        # The transaction caller (used for checking the transaction status.
-        #
-        # `str` if the transaction has been submitted and may eventually conclude.
-        self.caller = None
-        # The outcome of a successful transaction execution
-        self.outcome = None
 
     def sign_and_deser(self, block_hash):
+        """
+        Each transaction class is supposed to define this method to deserialize and
+        sign the transaction and return the raw message to be sent.
+        """
         return None
-
-    def is_complete(self):
-        return self.outcome is not None
-
-    def is_success(self, tx_result):
-        success = 'error' not in tx_result
-        if not success:
-            logger.debug(
-                f"transaction {self.transaction_id} for {self.caller} is not successful: {tx_result}"
-            )
-        # only set TTL if we managed to check for success or failure...
-        self.ttl = self.expiration - time.time()
-        return success
 
 
 class Deploy(Transaction):
@@ -143,26 +125,6 @@ class CreateSubAccount(Transaction):
             sender.key, sub.account_id, sub, int(self.balance * 1E24),
             sender.use_nonce(), block_hash)
         return tx
-
-class NearClient(locust.clients.HttpSession):
-    """
-    Thin wrapper around the HttpSession to add custom validation, which requires `catch_response=True`
-    """
-    def __init__(self, session):
-        self.session = session
-
-    def post(self, *args, **kwargs):
-        with self.session.post(
-            *args, **kwargs,
-            catch_response=True,
-        ) as response:
-            try:
-                evaluate_outcome(response)
-                return response
-            except NearError as err:
-                logging.error(f"marking an error {err.message}")
-                response.failure(err.message)
-
 
 class NearUser(HttpUser):
     abstract = True

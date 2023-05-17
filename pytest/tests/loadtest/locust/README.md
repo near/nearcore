@@ -25,10 +25,9 @@ NEAR_ROOT=./target/release/  python3 ./pytest/tools/locust/local_cluster.py --sh
 
 Then to actually run it, this is the command.
 ```
-cd pytest/tools/locust
-locust -f pytest/tools/locust/locustfile.py \
+cd pytest/tests/loadtest/locust/
+locust -H 127.0.0.1:3040 \
   --fungible-token-wasm=$CONTRACT \
-  -H 127.0.0.1:3040 \
   --contract-key=$KEY
 ```
 

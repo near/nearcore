@@ -7,7 +7,7 @@ import pathlib
 import random
 import sys
 
-sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[3] / 'lib'))
 
 import account
 import cluster

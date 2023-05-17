@@ -209,7 +209,6 @@ class BaseNode(object):
             'id': 'dontcare',
             'jsonrpc': '2.0'
         }
-        # locust integration overwrites the `session` field, don't use global instance
         r = requests.post("http://%s:%s" % self.rpc_addr(),
                           json=j,
                           timeout=timeout)
