@@ -2902,19 +2902,20 @@ impl<'a> ChainStoreUpdate<'a> {
         // Convert trie changes to database ops for trie nodes.
         // Create separate store update for deletions, because we want to update cache and don't want to remove nodes
         // from the store.
-        let mut deletions_store_update = self.store().store_update();
-        for mut wrapped_trie_changes in self.trie_changes.drain(..) {
-            wrapped_trie_changes.insertions_into(&mut store_update);
-            wrapped_trie_changes.deletions_into(&mut deletions_store_update);
-            wrapped_trie_changes.state_changes_into(&mut store_update);
+        // TODO(jbajic) Do we need this part?
+        /*        let mut deletions_store_update = self.store().store_update();*/
+        /*for mut wrapped_trie_changes in self.trie_changes.drain(..) {*/
+        /*wrapped_trie_changes.insertions_into(&mut store_update);*/
+        /*wrapped_trie_changes.deletions_into(&mut deletions_store_update);*/
+        /*wrapped_trie_changes.state_changes_into(&mut store_update);*/
 
-            if self.chain_store.save_trie_changes {
-                wrapped_trie_changes
-                    .trie_changes_into(&mut store_update)
-                    .map_err(|err| Error::Other(err.to_string()))?;
-            }
-        }
-        deletions_store_update.update_cache()?;
+        /*if self.chain_store.save_trie_changes {*/
+        /*wrapped_trie_changes*/
+        /*.trie_changes_into(&mut store_update)*/
+        /*.map_err(|err| Error::Other(err.to_string()))?;*/
+        /*}*/
+        /*}*/
+        // TODO(jbajic) This is where we update cache
 
         for ((block_hash, shard_id), state_changes) in
             self.add_state_changes_for_split_states.drain()
@@ -3018,6 +3019,10 @@ impl<'a> ChainStoreUpdate<'a> {
     pub fn commit(mut self) -> Result<(), Error> {
         let store_update = self.finalize()?;
         store_update.commit()?;
+        // We update cached here plus there is a call in apply_insertions_inner????
+        for wrapped_trie_changes in self.trie_changes.drain(..) {
+            wrapped_trie_changes.update_trie_caches();
+        }
         let ChainStoreCacheUpdate {
             blocks,
             headers,

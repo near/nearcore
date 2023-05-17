@@ -17,6 +17,8 @@ use std::io::ErrorKind;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
+use super::TrieRefcountChange;
+
 pub(crate) struct BoundedQueue<T> {
     queue: VecDeque<T>,
     /// If queue size exceeds capacity, item from the tail is removed.
@@ -258,24 +260,20 @@ impl TrieCache {
         self.lock().clear()
     }
 
-    pub fn update_cache(&self, ops: Vec<(CryptoHash, Option<&[u8]>)>) {
-        let mut guard = self.lock();
-        for (hash, opt_value_rc) in ops {
-            if let Some(value_rc) = opt_value_rc {
-                if let (Some(value), _rc) = decode_value_with_rc(&value_rc) {
-                    if value.len() < TrieConfig::max_cached_value_size() {
-                        guard.put(hash, value.into());
-                    } else {
-                        guard.metrics.shard_cache_too_large.inc();
-                    }
-                } else {
-                    guard.pop(&hash);
-                }
-            } else {
-                guard.pop(&hash);
-            }
-        }
-    }
+    /*    pub fn update_cache(&self, changes: &[TrieRefcountChange]) {*/
+    /*let mut guard = self.lock();*/
+    /*for change in changes {*/
+    /*if let (Some(value), _rc) = decode_value_with_rc(&change.payload()) {*/
+    /*if value.len() < TrieConfig::max_cached_value_size() {*/
+    /*guard.put(change.hash().clone(), value.into());*/
+    /*} else {*/
+    /*guard.metrics.shard_cache_too_large.inc();*/
+    /*}*/
+    /*} else {*/
+    /*guard.pop(change.hash());*/
+    /*}*/
+    /*}*/
+    /*}*/
 
     pub(crate) fn lock(&self) -> std::sync::MutexGuard<TrieCacheInner> {
         self.0.lock().expect(POISONED_LOCK_ERR)

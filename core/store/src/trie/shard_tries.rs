@@ -3,7 +3,7 @@ use crate::trie::config::TrieConfig;
 use crate::trie::prefetching_trie_storage::PrefetchingThreadsHandle;
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::trie::{TrieRefcountChange, POISONED_LOCK_ERR};
-use crate::{metrics, DBCol, DBOp, DBTransaction, PrefetchApi};
+use crate::{metrics, DBCol, PrefetchApi};
 use crate::{Store, StoreUpdate, Trie, TrieChanges, TrieUpdate};
 use borsh::BorshSerialize;
 use near_primitives::borsh::maybestd::collections::HashMap;
@@ -181,46 +181,63 @@ impl ShardTries {
         &self.0.store.storage
     }
 
-    pub(crate) fn update_cache(&self, transaction: &DBTransaction) -> std::io::Result<()> {
+    pub fn update_cache(&self, changes: &[TrieRefcountChange], shard_uid: ShardUId) {
         let mut caches = self.0.caches.write().expect(POISONED_LOCK_ERR);
         let mut shards = HashMap::new();
-        for op in &transaction.ops {
-            match op {
-                DBOp::UpdateRefcount { col, key, value } => {
-                    if *col == DBCol::State {
-                        let (shard_uid, hash) =
-                            TrieCachingStorage::get_shard_uid_and_hash_from_key(key)?;
-                        shards
-                            .entry(shard_uid)
-                            .or_insert(vec![])
-                            .push((hash, Some(value.as_slice())));
-                    }
-                }
-                DBOp::DeleteAll { col } => {
-                    if *col == DBCol::State {
-                        // Delete is possible in reset_data_pre_state_sync
-                        for (_, cache) in caches.iter() {
-                            cache.clear();
-                        }
-                    }
-                }
-                DBOp::Set { col, .. }
-                | DBOp::Insert { col, .. }
-                | DBOp::Delete { col, .. }
-                | DBOp::DeleteRange { col, .. } => {
-                    assert_ne!(*col, DBCol::State);
-                }
-            }
+        for change in changes {
+            let hash = change.hash();
+            shards.entry(shard_uid).or_insert(vec![]).push((hash, Some(change.payload())));
         }
         for (shard_uid, ops) in shards {
             let cache = caches
                 .entry(shard_uid)
                 .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, false))
                 .clone();
-            cache.update_cache(ops);
+            // TODO Fix this as well
+            //cache.update_cache(ops);
         }
-        Ok(())
     }
+
+    /*    pub(crate) fn update_cache(&self, transaction: &DBTransaction) -> std::io::Result<()> {*/
+    /*let mut caches = self.0.caches.write().expect(POISONED_LOCK_ERR);*/
+    /*let mut shards = HashMap::new();*/
+    /*for op in &transaction.ops {*/
+    /*match op {*/
+    /*DBOp::UpdateRefcount { col, key, value } => {*/
+    /*if *col == DBCol::State {*/
+    /*let (shard_uid, hash) =*/
+    /*TrieCachingStorage::get_shard_uid_and_hash_from_key(key)?;*/
+    /*shards*/
+    /*.entry(shard_uid)*/
+    /*.or_insert(vec![])*/
+    /*.push((hash, Some(value.as_slice())));*/
+    /*}*/
+    /*}*/
+    /*DBOp::DeleteAll { col } => {*/
+    /*if *col == DBCol::State {*/
+    /*// Delete is possible in reset_data_pre_state_sync*/
+    /*for (_, cache) in caches.iter() {*/
+    /*cache.clear();*/
+    /*}*/
+    /*}*/
+    /*}*/
+    /*DBOp::Set { col, .. }*/
+    /*| DBOp::Insert { col, .. }*/
+    /*| DBOp::Delete { col, .. }*/
+    /*| DBOp::DeleteRange { col, .. } => {*/
+    /*assert_ne!(*col, DBCol::State);*/
+    /*}*/
+    /*}*/
+    /*}*/
+    /*for (shard_uid, ops) in shards {*/
+    /*let cache = caches*/
+    /*.entry(shard_uid)*/
+    /*.or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, false))*/
+    /*.clone();*/
+    /*cache.update_cache(ops);*/
+    /*}*/
+    /*Ok(())*/
+    /*}*/
 
     fn apply_deletions_inner(
         &self,
@@ -236,6 +253,7 @@ impl ShardTries {
             );
             store_update.decrement_refcount_by(DBCol::State, key.as_ref(), *rc);
         }
+        self.update_cache(deletions, shard_uid);
     }
 
     fn apply_insertions_inner(
@@ -254,6 +272,7 @@ impl ShardTries {
             );
             store_update.increment_refcount_by(DBCol::State, key.as_ref(), trie_node_or_value, *rc);
         }
+        self.update_cache(insertions, shard_uid);
     }
 
     fn apply_all_inner(
@@ -346,9 +365,24 @@ impl WrappedTrieChanges {
     ) -> Self {
         WrappedTrieChanges { tries, shard_uid, trie_changes, state_changes, block_hash }
     }
-
     pub fn state_changes(&self) -> &[RawStateChangesWithTrieKey] {
         &self.state_changes
+    }
+    pub fn trie_changes(&self) -> &TrieChanges {
+        &self.trie_changes
+    }
+
+    pub fn shard_tries(&mut self) -> &mut ShardTries {
+        &mut self.tries
+    }
+
+    pub fn shard_uid(&mut self) -> ShardUId {
+        self.shard_uid
+    }
+
+    pub fn update_trie_caches(&self) {
+        self.tries.update_cache(self.trie_changes.deletions.as_slice(), self.shard_uid);
+        self.tries.update_cache(self.trie_changes.insertions.as_slice(), self.shard_uid);
     }
 
     /// Save insertions of trie nodes into Store.
