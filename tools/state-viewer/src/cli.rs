@@ -402,11 +402,15 @@ impl DumpTxCmd {
 
 #[derive(clap::Args)]
 pub struct EpochInfoCmd {
+    /// Which EpochInfos to process.
     #[clap(subcommand)]
     epoch_selection: crate::epoch_info::EpochSelection,
     /// Displays kickouts of the given validator and expected and missed blocks and chunks produced.
     #[clap(long)]
     validator_account_id: Option<String>,
+    /// Show only information about kickouts.
+    #[clap(long)]
+    kickouts_summary: bool,
 }
 
 impl EpochInfoCmd {
@@ -414,6 +418,7 @@ impl EpochInfoCmd {
         print_epoch_info(
             self.epoch_selection,
             self.validator_account_id.map(|s| AccountId::from_str(&s).unwrap()),
+            self.kickouts_summary,
             near_config,
             store,
         );
