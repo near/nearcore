@@ -11,7 +11,6 @@ import requests
 import sys
 import time
 
-
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[4] / 'lib'))
 
 import cluster
@@ -25,6 +24,7 @@ from configured_logger import new_logger
 
 DEFAULT_TRANSACTION_TTL_SECONDS = 20
 logger = new_logger(level=logging.WARN)
+
 
 class Account:
 
@@ -90,6 +90,7 @@ class Deploy(Transaction):
                                                  block_hash)
         return tx
 
+
 class TransferNear(Transaction):
 
     def __init__(self, sender, recipient_id, how_much=2.0):
@@ -126,6 +127,7 @@ class CreateSubAccount(Transaction):
             sender.use_nonce(), block_hash)
         return tx
 
+
 class NearUser(HttpUser):
     abstract = True
     id_counter = 0
@@ -155,7 +157,10 @@ class NearUser(HttpUser):
         Called once per user, creating the account on chain
         """
         self.account = Account(key.Key.from_random(self.account_id))
-        self.send_tx_retry(CreateSubAccount(NearUser.funding_account, self.account.key, balance=5000.0))
+        self.send_tx_retry(
+            CreateSubAccount(NearUser.funding_account,
+                             self.account.key,
+                             balance=5000.0))
         self.account.refresh_nonce(self.node)
 
     def send_tx(self, tx: Transaction):
@@ -167,7 +172,7 @@ class NearUser(HttpUser):
 
         # doesn't work because it raises on status etc
         # rpc_result = self.node.send_tx_and_wait(signed_tx, timeout=DEFAULT_TRANSACTION_TTL_SECONDS)
-    
+
         params = [base64.b64encode(signed_tx).decode('utf8')]
         j = {
             "method": "broadcast_tx_commit",
@@ -179,10 +184,10 @@ class NearUser(HttpUser):
         # with self.node.session.post(
         # This is tracked by locust
         with self.client.post(
-            url = "http://%s:%s" % self.node.rpc_addr(),
-            json = j,
-            timeout = DEFAULT_TRANSACTION_TTL_SECONDS,
-            catch_response = True,
+                url="http://%s:%s" % self.node.rpc_addr(),
+                json=j,
+                timeout=DEFAULT_TRANSACTION_TTL_SECONDS,
+                catch_response=True,
         ) as response:
             try:
                 rpc_result = json.loads(response.content)
@@ -214,6 +219,7 @@ class NearUser(HttpUser):
                 )
                 time.sleep(0.25)
 
+
 def send_transaction(node, tx):
     """
     Send a transaction without a user.
@@ -223,15 +229,17 @@ def send_transaction(node, tx):
     while True:
         block_hash = base58.b58decode(node.get_latest_block().hash)
         signed_tx = tx.sign_and_deser(block_hash)
-        tx_result = node.send_tx_and_wait(signed_tx, timeout=DEFAULT_TRANSACTION_TTL_SECONDS)
+        tx_result = node.send_tx_and_wait(
+            signed_tx, timeout=DEFAULT_TRANSACTION_TTL_SECONDS)
         success = "error" not in tx_result
         if success:
-            logger.debug(f"transaction {tx.transaction_id} (for no account) is successful: {tx_result}")
+            logger.debug(
+                f"transaction {tx.transaction_id} (for no account) is successful: {tx_result}"
+            )
             return True, tx_result
         elif "UNKNOWN_TRANSACTION" in tx_result:
             logger.debug(
-                f"transaction {tx.transaction_id} (for no account) timed out"
-            )
+                f"transaction {tx.transaction_id} (for no account) timed out")
         else:
             logger.warn(
                 f"transaction {tx.transaction_id} (for no account) is not successful: {tx_result}"
@@ -240,26 +248,41 @@ def send_transaction(node, tx):
 
 
 class NearError(Exception):
+
     def __init__(self, message, details):
         self.message = message
         self.details = details
         super().__init__(message)
 
+
 class RpcError(NearError):
+
     def __init__(self, error, message="RPC returned an error"):
         super().__init__(message, error)
 
+
 class TxUnknownError(RpcError):
-    def __init__(self, message="RPC does not know the result of this TX, probably it is not executed yet"):
+
+    def __init__(
+        self,
+        message="RPC does not know the result of this TX, probably it is not executed yet"
+    ):
         super().__init__(message)
 
+
 class TxError(NearError):
-    def __init__(self, status, message="Transaction to receipt conversion failed"):
+
+    def __init__(self,
+                 status,
+                 message="Transaction to receipt conversion failed"):
         super().__init__(message, status)
 
+
 class ReceiptError(NearError):
+
     def __init__(self, status, receipt_id, message="Receipt execution failed"):
         super().__init__(message, f"id={receipt_id} {status}")
+
 
 def evaluate_rpc_result(rpc_result):
     """
@@ -268,7 +291,7 @@ def evaluate_rpc_result(rpc_result):
     """
     if not "result" in rpc_result:
         raise NearError("No result returned", f"Error: {rpc_result}")
-                
+
     result = rpc_result["result"]
 
     if "UNKNOWN_TRANSACTION" in result:
@@ -279,7 +302,7 @@ def evaluate_rpc_result(rpc_result):
     transaction_outcome = result["transaction_outcome"]
     if not "SuccessReceiptId" in transaction_outcome["outcome"]["status"]:
         raise TxError(transaction_outcome["outcome"]["status"])
-    
+
     receipt_outcomes = result["receipts_outcome"]
     for receipt in receipt_outcomes:
         outcome = receipt["outcome"]
@@ -287,13 +310,18 @@ def evaluate_rpc_result(rpc_result):
             raise ReceiptError(outcome["status"], receipt["id"])
     return result
 
+
 # called once per process before user initialization
-@events.init.add_listener 
+@events.init.add_listener
 def on_locust_init(environment, **kwargs):
     funding_key = key.Key.from_json_file(environment.parsed_options.funding_key)
     NearUser.funding_account = Account(funding_key)
 
+
 # CLI args
 @events.init_command_line_parser.add_listener
 def _(parser):
-    parser.add_argument("--funding-key", required=True, help= "account to use as source of NEAR for account creation")
+    parser.add_argument(
+        "--funding-key",
+        required=True,
+        help="account to use as source of NEAR for account creation")

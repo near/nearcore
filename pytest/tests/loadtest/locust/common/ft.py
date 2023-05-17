@@ -9,6 +9,7 @@ import transaction
 from account import TGAS
 from common.base import Transaction
 
+
 class TransferFT(Transaction):
 
     def __init__(self, ft, sender, recipient_id, how_much=1, tgas=300):
@@ -37,6 +38,7 @@ class TransferFT(Transaction):
             block_hash)
         return tx
 
+
 class InitFT(Transaction):
 
     def __init__(self, contract):
@@ -56,6 +58,7 @@ class InitFT(Transaction):
                                                0, contract.use_nonce(),
                                                block_hash)
         return tx
+
 
 class InitFTAccount(Transaction):
 

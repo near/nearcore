@@ -22,8 +22,9 @@ logger = new_logger(level=logging.WARN)
 
 FT_ACCOUNT = None
 
+
 class FtTransferUser(NearUser):
-    wait_time = between(1, 3) # random pause between transactions
+    wait_time = between(1, 3)  # random pause between transactions
     registered_users = []
 
     @task
@@ -39,13 +40,10 @@ class FtTransferUser(NearUser):
             receiver = self.contract_account.key.account_id
 
         self.send_tx(
-            TransferFT(
-                self.contract_account,
-                self.account,
-                receiver,
-                how_much=1
-                )
-            )
+            TransferFT(self.contract_account,
+                       self.account,
+                       receiver,
+                       how_much=1))
         logger.debug(f"FT TRANSFER {self.id} DONE")
 
     def on_start(self):
@@ -56,10 +54,15 @@ class FtTransferUser(NearUser):
         logger.debug(f"starting user {self.id} init")
         self.send_tx(InitFTAccount(self.contract_account, self.account))
         logger.debug(f"user {self.account_id} InitFTAccount done")
-        self.send_tx(TransferFT(self.contract_account, self.contract_account, self.account_id, how_much=1E8))
+        self.send_tx(
+            TransferFT(self.contract_account,
+                       self.contract_account,
+                       self.account_id,
+                       how_much=1E8))
         logger.debug(f"user {self.account_id} TransferFT done, user ready")
 
         FtTransferUser.registered_users.append(self.account_id)
+
 
 # called once per process before user initialization
 @events.init.add_listener
@@ -77,15 +80,20 @@ def on_locust_init(environment, **kwargs):
     # Note: These setup requests are not tracked by locust because we use our own http session
     host, port = environment.host.split(":")
     node = cluster.RpcNode(host, port)
-    send_transaction(node, CreateSubAccount(funding_account, ft_account.key, balance=50000.0))
+    send_transaction(
+        node, CreateSubAccount(funding_account, ft_account.key,
+                               balance=50000.0))
     ft_account.refresh_nonce(node)
     logger.info("INIT Deploying")
     send_transaction(node, Deploy(ft_account, contract_code, "FT"))
     logger.info("INIT FT init")
     send_transaction(node, InitFT(ft_account))
 
+
 # Add custom CLI args here, will be available in `environment.parsed_options`
 @events.init_command_line_parser.add_listener
 def _(parser):
-    parser.add_argument("--fungible-token-wasm", type=str, required=True, help="Path to the compiled Fungible Token contract")
-
+    parser.add_argument("--fungible-token-wasm",
+                        type=str,
+                        required=True,
+                        help="Path to the compiled Fungible Token contract")
