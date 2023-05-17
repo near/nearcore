@@ -270,6 +270,8 @@ impl ChainGenesis {
 /// Bridge between the chain and the runtime.
 /// Main function is to update state given transactions.
 /// Additionally handles validators.
+/// Naming note: `state_root` is a pre state root for block `block_hash` and a
+/// post state root for block `prev_hash`.
 pub trait RuntimeAdapter: Send + Sync {
     /// Get store and genesis state roots
     fn genesis_state(&self) -> (Store, Vec<StateRoot>);
