@@ -239,16 +239,18 @@ fn test_sanity_used_gas() {
         .map(|bytes| u64::from_le_bytes(*bytes))
         .collect::<Vec<_>>();
 
-    // Executing `used_gas` costs `base_cost` plus an instruction to execute the `call` itself.
-    // When executing `used_gas` twice within a metered block, the returned values should differ by
-    // that amount.
     let runtime_config = node.client.read().unwrap().runtime_config.clone();
     let base_cost = runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::base);
     let op_cost = match runtime_config.wasm_config.limit_config.contract_prepare_version {
-        // Entering a new metered block, all of its instructions are paid upfront.
-        // Therefore, the difference across blocks must be larger than `base_cost`,
-        // given that the block contains other instructions besides the call of
-        // `used_gas`.
+        // In old implementations of preparation, all of the contained instructions are paid
+        // for upfront when entering a new metered block,
+        //
+        // It fails to be precise in that it does not consider calls to `used_gas` as
+        // breaking up a metered block and so none of the gas cost to execute instructions between
+        // calls to this function will be observable from within wasm code.
+        //
+        // In this test we account for this by setting `op_cost` to zero, but if future tests
+        // change test WASM in significant ways, this approach may become incorrect.
         near_primitives::config::ContractPrepareVersion::V0
         | near_primitives::config::ContractPrepareVersion::V1 => 0,
         // Gas accounting is precise and instructions executed between calls to the side-effectful
@@ -258,14 +260,12 @@ fn test_sanity_used_gas() {
         }
     };
 
+    // Executing `used_gas` costs `base_cost` plus an instruction to execute the `call` itself.
+    // When executing `used_gas` twice within a metered block, the returned values should differ by
+    // that amount.
     assert_eq!(used_gas[1] - used_gas[0], base_cost + op_cost);
-
-    // The fees for executing WASM code should be paid before
-    // any of the call instructions within that block are executed. Hence, even
-    // after arithmetics, the next call of `used_gas` should still return a
-    // value that differs only by `base_cost`.
+    // Between these two observations additional arithmetics have been executed.
     assert_eq!(used_gas[2] - used_gas[1], base_cost + 8 * op_cost);
-
     assert!(used_gas[3] - used_gas[2] > base_cost);
 }
 
