@@ -1,4 +1,3 @@
-use crate::db::refcount::decode_value_with_rc;
 use crate::trie::config::TrieConfig;
 use crate::trie::prefetching_trie_storage::PrefetcherResult;
 use crate::trie::POISONED_LOCK_ERR;
@@ -16,8 +15,6 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::ErrorKind;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
-
-use super::TrieRefcountChange;
 
 pub(crate) struct BoundedQueue<T> {
     queue: VecDeque<T>,
@@ -449,17 +446,6 @@ impl TrieCachingStorage {
             mem_read_nodes: Cell::new(0),
             metrics,
         }
-    }
-
-    pub(crate) fn get_shard_uid_and_hash_from_key(
-        key: &[u8],
-    ) -> Result<(ShardUId, CryptoHash), std::io::Error> {
-        if key.len() != 40 {
-            return Err(std::io::Error::new(ErrorKind::Other, "Key is always shard_uid + hash"));
-        }
-        let id = ShardUId::try_from(&key[..8]).unwrap();
-        let hash = CryptoHash::try_from(&key[8..]).unwrap();
-        Ok((id, hash))
     }
 
     pub(crate) fn get_key_from_shard_uid_and_hash(

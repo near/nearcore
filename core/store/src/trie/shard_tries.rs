@@ -188,12 +188,12 @@ impl ShardTries {
             let hash = change.hash();
             shards.entry(shard_uid).or_insert(vec![]).push((hash, Some(change.payload())));
         }
-        for (shard_uid, ops) in shards {
-            let cache = caches
+        // TODO(jbajic) Check if this is needed
+        for (shard_uid, _) in shards {
+            caches
                 .entry(shard_uid)
-                .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, false))
-                .clone();
-            // TODO Fix this as well
+                .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, false));
+            // TODO(jbajic) Fix this as well
             //cache.update_cache(ops);
         }
     }
