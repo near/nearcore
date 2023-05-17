@@ -1,5 +1,6 @@
 use borsh::BorshDeserialize;
 use core::ops::Range;
+use itertools::Itertools;
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::account::id::AccountId;
@@ -207,7 +208,9 @@ pub(crate) fn iterate_and_filter(
 }
 
 fn display_kickouts(epoch_info: &EpochInfo) {
-    for (key, value) in epoch_info.validator_kickout() {
+    for (key, value) in
+        epoch_info.validator_kickout().iter().sorted_by_key(|(&ref account_id, _)| account_id)
+    {
         println!("{:?}: {:?}", key, value);
     }
 }
