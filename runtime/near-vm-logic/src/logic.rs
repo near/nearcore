@@ -1295,6 +1295,8 @@ impl<'a> VMLogic<'a> {
         &mut self,
         account_id_len: u64,
         account_id_ptr: u64,
+        namespace_len: u64,
+        namespace_ptr: u64,
         method_name_len: u64,
         method_name_ptr: u64,
         arguments_len: u64,
@@ -1305,6 +1307,8 @@ impl<'a> VMLogic<'a> {
         let new_promise_idx = self.promise_batch_create(account_id_len, account_id_ptr)?;
         self.promise_batch_action_function_call(
             new_promise_idx,
+            namespace_len,
+            namespace_ptr,
             method_name_len,
             method_name_ptr,
             arguments_len,
@@ -1339,6 +1343,8 @@ impl<'a> VMLogic<'a> {
         promise_idx: u64,
         account_id_len: u64,
         account_id_ptr: u64,
+        namespace_len: u64,
+        namespace_ptr: u64,
         method_name_len: u64,
         method_name_ptr: u64,
         arguments_len: u64,
@@ -1350,6 +1356,8 @@ impl<'a> VMLogic<'a> {
             self.promise_batch_then(promise_idx, account_id_len, account_id_ptr)?;
         self.promise_batch_action_function_call(
             new_promise_idx,
+            namespace_len,
+            namespace_ptr,
             method_name_len,
             method_name_ptr,
             arguments_len,
@@ -1660,6 +1668,8 @@ impl<'a> VMLogic<'a> {
     pub fn promise_batch_action_function_call(
         &mut self,
         promise_idx: u64,
+        namespace_len: u64,
+        namespace_ptr: u64,
         method_name_len: u64,
         method_name_ptr: u64,
         arguments_len: u64,
@@ -1669,6 +1679,8 @@ impl<'a> VMLogic<'a> {
     ) -> Result<()> {
         self.promise_batch_action_function_call_weight(
             promise_idx,
+            namespace_len,
+            namespace_ptr,
             method_name_len,
             method_name_ptr,
             arguments_len,
@@ -1718,6 +1730,8 @@ impl<'a> VMLogic<'a> {
     pub fn promise_batch_action_function_call_weight(
         &mut self,
         promise_idx: u64,
+        namespace_len: u64,
+        namespace_ptr: u64,
         method_name_len: u64,
         method_name_ptr: u64,
         arguments_len: u64,
@@ -1734,6 +1748,7 @@ impl<'a> VMLogic<'a> {
             .into());
         }
         let amount = self.memory.get_u128(&mut self.gas_counter, amount_ptr)?;
+        let namespace = get_memory_or_register!(self, namespace_ptr, namespace_len)?;
         let method_name = get_memory_or_register!(self, method_name_ptr, method_name_len)?;
         if method_name.is_empty() {
             return Err(HostError::EmptyMethodName.into());
@@ -1742,6 +1757,7 @@ impl<'a> VMLogic<'a> {
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
+        let namespace = namespace.into_owned();
         let method_name = method_name.into_owned();
         let arguments = arguments.into_owned();
         // Input can't be large enough to overflow
@@ -1755,6 +1771,7 @@ impl<'a> VMLogic<'a> {
 
         self.receipt_manager.append_action_function_call_weight(
             receipt_idx,
+            namespace,
             method_name,
             arguments,
             amount,

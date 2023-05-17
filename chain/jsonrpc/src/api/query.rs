@@ -1,3 +1,4 @@
+use near_primitives::namespace::Namespace;
 use serde_json::Value;
 
 use near_client_primitives::types::QueryError;
@@ -75,6 +76,7 @@ fn parse_path_data(path: String, data: String) -> Result<RpcQueryRequest, RpcPar
         "call" => match maybe_extra_arg {
             Some(method_name) => QueryRequest::CallFunction {
                 account_id,
+                namespace: Namespace::default(), // TODO: update to support choosing namespace
                 method_name: method_name.to_string(),
                 args: parse_data()?.into(),
             },

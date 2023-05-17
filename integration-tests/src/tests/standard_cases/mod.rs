@@ -63,7 +63,15 @@ pub fn test_smart_contract_simple(node: impl Node) {
     let node_user = node.user();
     let root = node_user.get_state_root();
     let transaction_result = node_user
-        .function_call(alice_account(), bob_account(), "run_test", vec![], 10u64.pow(14), 0)
+        .function_call(
+            alice_account(),
+            bob_account(),
+            Namespace::default(),
+            "run_test",
+            vec![],
+            10u64.pow(14),
+            0,
+        )
         .unwrap();
     assert_eq!(
         transaction_result.status,
@@ -80,6 +88,7 @@ pub fn test_smart_contract_panic(node: impl Node) {
         .function_call(
             alice_account(),
             alice_account(),
+            Namespace::default(),
             "panic_with_message",
             vec![],
             10u64.pow(14),
@@ -106,7 +115,15 @@ pub fn test_smart_contract_self_call(node: impl Node) {
     let node_user = node.user();
     let root = node_user.get_state_root();
     let transaction_result = node_user
-        .function_call(account_id.clone(), account_id.clone(), "run_test", vec![], 10u64.pow(14), 0)
+        .function_call(
+            account_id.clone(),
+            account_id.clone(),
+            Namespace::default(),
+            "run_test",
+            vec![],
+            10u64.pow(14),
+            0,
+        )
         .unwrap();
     assert_eq!(
         transaction_result.status,
@@ -122,7 +139,15 @@ pub fn test_smart_contract_bad_method_name(node: impl Node) {
     let node_user = node.user();
     let root = node_user.get_state_root();
     let transaction_result = node_user
-        .function_call(account_id.clone(), bob_account(), "_run_test", vec![], 10u64.pow(14), 0)
+        .function_call(
+            account_id.clone(),
+            bob_account(),
+            Namespace::default(),
+            "_run_test",
+            vec![],
+            10u64.pow(14),
+            0,
+        )
         .unwrap();
     assert_eq!(
         transaction_result.status,
@@ -146,7 +171,15 @@ pub fn test_smart_contract_empty_method_name_with_no_tokens(node: impl Node) {
     let node_user = node.user();
     let root = node_user.get_state_root();
     let transaction_result = node_user
-        .function_call(account_id.clone(), bob_account(), "", vec![], 10u64.pow(14), 0)
+        .function_call(
+            account_id.clone(),
+            bob_account(),
+            Namespace::default(),
+            "",
+            vec![],
+            10u64.pow(14),
+            0,
+        )
         .unwrap();
     assert_eq!(
         transaction_result.status,
@@ -170,7 +203,15 @@ pub fn test_smart_contract_empty_method_name_with_tokens(node: impl Node) {
     let node_user = node.user();
     let root = node_user.get_state_root();
     let transaction_result = node_user
-        .function_call(account_id.clone(), bob_account(), "", vec![], 10u64.pow(14), 10)
+        .function_call(
+            account_id.clone(),
+            bob_account(),
+            Namespace::default(),
+            "",
+            vec![],
+            10u64.pow(14),
+            10,
+        )
         .unwrap();
     assert_eq!(
         transaction_result.status,
@@ -197,6 +238,7 @@ pub fn test_smart_contract_with_args(node: impl Node) {
         .function_call(
             account_id.clone(),
             bob_account(),
+            Namespace::default(),
             "sum_with_input",
             (2u64..4).flat_map(|x| x.to_le_bytes().to_vec()).collect(),
             10u64.pow(14),
@@ -217,7 +259,15 @@ pub fn test_async_call_with_logs(node: impl Node) {
     let node_user = node.user();
     let root = node_user.get_state_root();
     let transaction_result = node_user
-        .function_call(account_id.clone(), bob_account(), "log_something", vec![], 10u64.pow(14), 0)
+        .function_call(
+            account_id.clone(),
+            bob_account(),
+            Namespace::default(),
+            "log_something",
+            vec![],
+            10u64.pow(14),
+            0,
+        )
         .unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
     assert_eq!(transaction_result.receipts_outcome.len(), 2);
@@ -231,8 +281,9 @@ pub fn test_nonce_update_when_deploying_contract(node: impl Node) {
     let wasm_binary = b"test_binary";
     let node_user = node.user();
     let root = node_user.get_state_root();
-    let transaction_result =
-        node_user.deploy_contract(account_id.clone(), wasm_binary.to_vec()).unwrap();
+    let transaction_result = node_user
+        .deploy_contract(account_id.clone(), Namespace::default(), wasm_binary.to_vec())
+        .unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
     assert_eq!(transaction_result.receipts_outcome.len(), 1);
     assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 1);
@@ -271,8 +322,9 @@ pub fn test_upload_contract(node: impl Node) {
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
     let wasm_binary = b"test_binary";
-    let transaction_result =
-        node_user.deploy_contract(eve_dot_alice_account(), wasm_binary.to_vec()).unwrap();
+    let transaction_result = node_user
+        .deploy_contract(eve_dot_alice_account(), Namespace::default(), wasm_binary.to_vec())
+        .unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
     assert_eq!(transaction_result.receipts_outcome.len(), 1);
     let new_root = node_user.get_state_root();
@@ -289,8 +341,9 @@ pub fn test_redeploy_contract(node: impl Node) {
     let node_user = node.user();
     let root = node_user.get_state_root();
     let test_binary = b"test_binary";
-    let transaction_result =
-        node_user.deploy_contract(account_id.clone(), test_binary.to_vec()).unwrap();
+    let transaction_result = node_user
+        .deploy_contract(account_id.clone(), Namespace::default(), test_binary.to_vec())
+        .unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
     assert_eq!(transaction_result.receipts_outcome.len(), 1);
     let new_root = node_user.get_state_root();
@@ -446,7 +499,15 @@ pub fn test_smart_contract_reward(node: impl Node) {
     let bob = node_user.view_account(&bob_account()).unwrap();
     assert_eq!(bob.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
     let transaction_result = node_user
-        .function_call(alice_account(), bob_account(), "run_test", vec![], 10u64.pow(14), 0)
+        .function_call(
+            alice_account(),
+            bob_account(),
+            Namespace::default(),
+            "run_test",
+            vec![],
+            10u64.pow(14),
+            0,
+        )
         .unwrap();
     assert_eq!(
         transaction_result.status,
@@ -982,7 +1043,15 @@ pub fn test_access_key_smart_contract(node: impl Node) {
     let exec_gas = fee_helper.function_call_exec_gas(method_name.as_bytes().len() as u64);
     let root = node_user.get_state_root();
     let transaction_result = node_user
-        .function_call(account_id.clone(), bob_account(), method_name, vec![], prepaid_gas, 0)
+        .function_call(
+            account_id.clone(),
+            bob_account(),
+            Namespace::default(),
+            method_name,
+            vec![],
+            prepaid_gas,
+            0,
+        )
         .unwrap();
     assert_eq!(
         transaction_result.status,
@@ -1027,7 +1096,15 @@ pub fn test_access_key_smart_contract_reject_method_name(node: impl Node) {
     node_user.set_signer(Arc::new(signer2));
 
     let transaction_result = node_user
-        .function_call(account_id.clone(), bob_account(), "run_test", vec![], 10u64.pow(14), 0)
+        .function_call(
+            account_id.clone(),
+            bob_account(),
+            Namespace::default(),
+            "run_test",
+            vec![],
+            10u64.pow(14),
+            0,
+        )
         .unwrap_err();
     assert_eq!(
         transaction_result,
@@ -1058,6 +1135,7 @@ pub fn test_access_key_smart_contract_reject_contract_id(node: impl Node) {
         .function_call(
             account_id.clone(),
             eve_dot_alice_account(),
+            Namespace::default(),
             "run_test",
             vec![],
             10u64.pow(14),
@@ -1316,7 +1394,15 @@ pub fn test_smart_contract_free(node: impl Node) {
     let node_user = node.user();
     let root = node_user.get_state_root();
     let transaction_result = node_user
-        .function_call(alice_account(), bob_account(), "run_test", vec![], 10u64.pow(14), 0)
+        .function_call(
+            alice_account(),
+            bob_account(),
+            Namespace::default(),
+            "run_test",
+            vec![],
+            10u64.pow(14),
+            0,
+        )
         .unwrap();
     assert_eq!(
         transaction_result.status,
@@ -1371,6 +1457,7 @@ pub fn test_contract_write_key_value_cost(node: impl Node) {
             .function_call(
                 alice_account(),
                 bob_account(),
+                Namespace::default(),
                 "write_key_value",
                 test_utils::encode(&[10u64, 20u64]),
                 10u64.pow(14),
@@ -1391,6 +1478,7 @@ pub fn test_contract_write_key_value_cost(node: impl Node) {
 fn make_write_key_value_action(key: Vec<u64>, value: Vec<u64>) -> Action {
     let args: Vec<u64> = key.into_iter().chain(value.into_iter()).collect();
     FunctionCallAction {
+        namespace: Namespace::default(),
         method_name: "write_key_value".to_string(),
         args: test_utils::encode(&args),
         gas: 10u64.pow(14),
@@ -1556,8 +1644,9 @@ pub fn test_storage_read_write_costs(node: impl Node, runtime_config: RuntimeCon
         make_receipt(
             &node,
             vec![FunctionCallAction {
-                args: test_utils::encode(&[1]),
+                namespace: Namespace::default(),
                 method_name: "read_value".to_string(),
+                args: test_utils::encode(&[1]),
                 gas: 10u64.pow(14),
                 deposit: 0,
             }

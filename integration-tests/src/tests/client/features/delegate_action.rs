@@ -579,6 +579,7 @@ fn meta_tx_ft_transfer() {
         .function_call(
             relayer.clone(),
             ft_contract.clone(),
+            Namespace::default(),
             "new_default_meta",
             // make the relayer (alice) owner, makes initialization easier
             br#"{"owner_id": "alice.near", "total_supply": "1000000"}"#.to_vec(),
@@ -642,6 +643,7 @@ fn meta_tx_ft_transfer() {
 /// Call the function "log_something" in the test contract.
 fn log_something_fn_call() -> Action {
     Action::FunctionCall(FunctionCallAction {
+        namespace: Namespace::default(),
         method_name: TEST_METHOD.to_owned(),
         args: vec![],
         gas: 30_000_000_000_000,
@@ -664,6 +666,7 @@ fn ft_transfer_action(receiver: &str, amount: u128) -> (Action, u64) {
     let method_name = "ft_transfer".to_owned();
     let num_bytes = method_name.len() + args.len();
     let action = Action::FunctionCall(FunctionCallAction {
+        namespace: Namespace::default(),
         method_name,
         args,
         gas: 20_000_000_000_000,
@@ -684,6 +687,7 @@ fn ft_register_action(receiver: &str) -> Action {
     .bytes()
     .collect();
     Action::FunctionCall(FunctionCallAction {
+        namespace: Namespace::default(),
         method_name: "storage_deposit".to_owned(),
         args,
         gas: 20_000_000_000_000,
@@ -718,7 +722,12 @@ fn assert_ft_balance(
 ) {
     let response = node
         .user()
-        .view_call(ft_contract, "ft_balance_of", format!(r#"{{"account_id":"{user}"}}"#).as_bytes())
+        .view_call(
+            ft_contract,
+            &Namespace::default(),
+            "ft_balance_of",
+            format!(r#"{{"account_id":"{user}"}}"#).as_bytes(),
+        )
         .expect("view call failed");
     let balance = std::str::from_utf8(&response.result).expect("invalid UTF8");
     assert_eq!(format!("\"{expected_balance}\""), balance);
@@ -832,7 +841,11 @@ fn meta_tx_create_and_use_implicit_account() {
     let initial_amount = nearcore::NEAR_BASE;
     let actions = vec![
         Action::Transfer(TransferAction { deposit: initial_amount }),
-        Action::DeployContract(DeployContractAction { code: ft_contract().to_vec(), namespace: Namespace::default(), routing_table: RoutingTable::default() }),
+        Action::DeployContract(DeployContractAction {
+            code: ft_contract().to_vec(),
+            namespace: Namespace::default(),
+            routing_table: RoutingTable::default(),
+        }),
     ];
 
     // Execute and expect `AccountDoesNotExist`, as we try to call a meta

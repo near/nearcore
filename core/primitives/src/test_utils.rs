@@ -60,12 +60,14 @@ impl Transaction {
 
     pub fn function_call(
         mut self,
+        namespace: Namespace,
         method_name: String,
         args: Vec<u8>,
         gas: Gas,
         deposit: Balance,
     ) -> Self {
         self.actions.push(Action::FunctionCall(FunctionCallAction {
+            namespace,
             method_name,
             args,
             gas,
@@ -219,6 +221,7 @@ impl SignedTransaction {
         receiver_id: AccountId,
         signer: &dyn Signer,
         deposit: Balance,
+        namespace: Namespace,
         method_name: String,
         args: Vec<u8>,
         gas: Gas,
@@ -229,7 +232,13 @@ impl SignedTransaction {
             signer_id,
             receiver_id,
             signer,
-            vec![Action::FunctionCall(FunctionCallAction { args, method_name, gas, deposit })],
+            vec![Action::FunctionCall(FunctionCallAction {
+                namespace,
+                args,
+                method_name,
+                gas,
+                deposit,
+            })],
             block_hash,
         )
     }

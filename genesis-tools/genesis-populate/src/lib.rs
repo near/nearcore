@@ -291,7 +291,8 @@ impl GenesisBuilder {
             let code = ContractCode::new(wasm_binary.clone(), None);
             let namespace = Namespace::default();
             set_code(&mut state_update, account_id.clone(), namespace.clone(), &code);
-            let contract_record = StateRecord::Contract { account_id, code: wasm_binary.clone(), namespace };
+            let contract_record =
+                StateRecord::Contract { account_id, code: wasm_binary.clone(), namespace };
             records.push(contract_record);
         }
 

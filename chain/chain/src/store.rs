@@ -796,7 +796,8 @@ impl ChainStore {
             StateChangesRequest::ContractCodeChanges { account_ids } => {
                 let mut changes = StateChanges::new();
                 for account_id in account_ids {
-                    let data_key = trie_key_parsers::get_raw_prefix_for_contract_code(account_id, &[]);
+                    let data_key =
+                        trie_key_parsers::get_raw_prefix_for_contract_code(account_id, &[]);
                     let storage_key = KeyForStateChanges::from_raw_key(block_hash, &data_key);
                     let changes_per_key = storage_key.find_iter(&self.store);
                     changes.extend(StateChanges::from_contract_code_changes(changes_per_key)?);

@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use genesis_populate::get_account_id;
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::hash::CryptoHash;
+use near_primitives::namespace::{self, Namespace};
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
 use near_primitives::types::AccountId;
 use rand::prelude::ThreadRng;
@@ -63,11 +64,13 @@ impl TransactionBuilder {
     pub(crate) fn transaction_from_function_call(
         &mut self,
         sender: AccountId,
+        namespace: Namespace,
         method: &str,
         args: Vec<u8>,
     ) -> SignedTransaction {
         let receiver = sender.clone();
         let actions = vec![Action::FunctionCall(FunctionCallAction {
+            namespace,
             method_name: method.to_string(),
             args,
             gas: 10u64.pow(18),
@@ -92,7 +95,12 @@ impl TransactionBuilder {
             .chain(value.iter().cloned())
             .collect();
 
-        self.transaction_from_function_call(account, "account_storage_insert_key", arg)
+        self.transaction_from_function_call(
+            account,
+            Namespace::default(),
+            "account_storage_insert_key",
+            arg,
+        )
     }
 
     /// Transaction that checks existence of a given key under an account.
@@ -100,7 +108,12 @@ impl TransactionBuilder {
     pub(crate) fn account_has_key(&mut self, account: AccountId, key: &str) -> SignedTransaction {
         let arg = (key.len() as u64).to_le_bytes().into_iter().chain(key.bytes()).collect();
 
-        self.transaction_from_function_call(account, "account_storage_has_key", arg)
+        self.transaction_from_function_call(
+            account,
+            Namespace::default(),
+            "account_storage_has_key",
+            arg,
+        )
     }
 
     pub(crate) fn rng(&mut self) -> ThreadRng {

@@ -118,6 +118,7 @@ fn test_storage_after_commit_of_cold_update() {
                     "test0".parse().unwrap(),
                     &signer,
                     vec![Action::FunctionCall(FunctionCallAction {
+                        namespace: Namespace::default(),
                         method_name: "write_random_value".to_string(),
                         args: vec![],
                         gas: 100_000_000_000_000,

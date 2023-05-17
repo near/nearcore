@@ -322,6 +322,7 @@ pub enum QueryRequest {
     },
     CallFunction {
         account_id: AccountId,
+        namespace: Namespace,
         method_name: String,
         #[serde(rename = "args_base64", with = "base64_format")]
         args: FunctionArgs,
@@ -1116,6 +1117,7 @@ pub enum ActionView {
         routing_table: RoutingTable,
     },
     FunctionCall {
+        namespace: Namespace,
         method_name: String,
         #[serde(with = "base64_format")]
         args: Vec<u8>,
@@ -1161,6 +1163,7 @@ impl From<Action> for ActionView {
                 }
             }
             Action::FunctionCall(action) => ActionView::FunctionCall {
+                namespace: action.namespace,
                 method_name: action.method_name,
                 args: action.args,
                 gas: action.gas,
@@ -1195,8 +1198,14 @@ impl TryFrom<ActionView> for Action {
             ActionView::DeployContract { code, namespace, routing_table } => {
                 Action::DeployContract(DeployContractAction { code, namespace, routing_table })
             }
-            ActionView::FunctionCall { method_name, args, gas, deposit } => {
-                Action::FunctionCall(FunctionCallAction { method_name, args, gas, deposit })
+            ActionView::FunctionCall { namespace, method_name, args, gas, deposit } => {
+                Action::FunctionCall(FunctionCallAction {
+                    namespace,
+                    method_name,
+                    args,
+                    gas,
+                    deposit,
+                })
             }
             ActionView::Transfer { deposit } => Action::Transfer(TransferAction { deposit }),
             ActionView::Stake { stake, public_key } => {

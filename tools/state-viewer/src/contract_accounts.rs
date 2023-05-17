@@ -569,6 +569,7 @@ mod tests {
             "alice.near",
             "bob.near",
             vec![Action::FunctionCall(FunctionCallAction {
+                namespace: Namespace::default(),
                 method_name: "foo".to_owned(),
                 args: vec![],
                 gas: 1000,

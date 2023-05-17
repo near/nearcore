@@ -18,6 +18,7 @@ use near_primitives::views::{
     ExecutionOutcomeView, ExecutionOutcomeWithIdView, ExecutionStatusView,
     FinalExecutionOutcomeView, FinalExecutionStatus, ViewApplyState, ViewStateResult,
 };
+use near_primitives_core::namespace::Namespace;
 use near_store::{ShardTries, TrieUpdate};
 use nearcore::config::MIN_GAS_PRICE;
 use node_runtime::state_viewer::TrieViewer;
@@ -254,6 +255,7 @@ impl User for RuntimeUser {
     fn view_call(
         &self,
         account_id: &AccountId,
+        namespace: &Namespace,
         method_name: &str,
         args: &[u8],
     ) -> Result<CallResult, String> {
@@ -277,6 +279,7 @@ impl User for RuntimeUser {
                 state_update,
                 view_state,
                 account_id,
+                namespace,
                 method_name,
                 args,
                 &mut result.logs,

@@ -39,7 +39,6 @@ pub(crate) mod col {
     pub const DELAYED_RECEIPT: u8 = 8;
     /// This column id is used when storing Key-Value data from a contract on an `account_id`.
     pub const CONTRACT_DATA: u8 = 9;
-    pub const ROUTING_TABLE: u8 = 10;
     /// All columns
     pub const NON_DELAYED_RECEIPT_COLUMNS: [(u8, &str); 8] = [
         (ACCOUNT, "Account"),

@@ -1,6 +1,7 @@
 use crate::node::{Node, RuntimeNode};
 use near_primitives::errors::{ActionError, ActionErrorKind};
 use near_primitives::views::FinalExecutionStatus;
+use near_primitives_core::namespace::Namespace;
 use near_vm_errors::FunctionCallErrorSer;
 use std::mem::size_of;
 
@@ -30,8 +31,13 @@ fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
     assert_eq!(transaction_result.receipts_outcome.len(), 2);
 
-    let transaction_result =
-        node_user.deploy_contract("test_contract".parse().unwrap(), wasm_binary.to_vec()).unwrap();
+    let transaction_result = node_user
+        .deploy_contract(
+            "test_contract".parse().unwrap(),
+            Namespace::default(),
+            wasm_binary.to_vec(),
+        )
+        .unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
     assert_eq!(transaction_result.receipts_outcome.len(), 1);
 
@@ -53,6 +59,7 @@ fn test_evil_deep_trie() {
             .function_call(
                 "alice.near".parse().unwrap(),
                 "test_contract".parse().unwrap(),
+                Namespace::default(),
                 "insert_strings",
                 input_data.to_vec(),
                 MAX_GAS,
@@ -74,6 +81,7 @@ fn test_evil_deep_trie() {
             .function_call(
                 "alice.near".parse().unwrap(),
                 "test_contract".parse().unwrap(),
+                Namespace::default(),
                 "delete_strings",
                 input_data.to_vec(),
                 MAX_GAS,
@@ -96,6 +104,7 @@ fn test_evil_deep_recursion() {
             .function_call(
                 "alice.near".parse().unwrap(),
                 "test_contract".parse().unwrap(),
+                Namespace::default(),
                 "recurse",
                 n_bytes.clone(),
                 MAX_GAS,
@@ -118,6 +127,7 @@ fn test_evil_abort() {
         .function_call(
             "alice.near".parse().unwrap(),
             "test_contract".parse().unwrap(),
+            Namespace::default(),
             "abort_with_zero",
             vec![],
             MAX_GAS,

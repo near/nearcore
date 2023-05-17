@@ -13,6 +13,7 @@ pub(super) fn promise_create(
     gas: Gas,
 ) -> Result<u64> {
     let account_id = logic.internal_mem_write(account_id);
+    let namespace = logic.internal_mem_write(b"");
     let method = logic.internal_mem_write(b"promise_create");
     let args = logic.internal_mem_write(b"args");
     let amount = logic.internal_mem_write(&amount.to_le_bytes());
@@ -20,6 +21,8 @@ pub(super) fn promise_create(
     logic.promise_create(
         account_id.len,
         account_id.ptr,
+        namespace.len,
+        namespace.ptr,
         method.len,
         method.ptr,
         args.len,
@@ -62,11 +65,14 @@ pub(super) fn promise_batch_action_function_call_ext(
     gas: Gas,
 ) -> Result<()> {
     let method_id = logic.internal_mem_write(method_id);
+    let namespace = logic.internal_mem_write(b"");
     let args = logic.internal_mem_write(args);
     let amount = logic.internal_mem_write(&amount.to_le_bytes());
 
     logic.promise_batch_action_function_call(
         promise_index,
+        namespace.len,
+        namespace.ptr,
         method_id.len,
         method_id.ptr,
         args.len,
@@ -106,11 +112,14 @@ pub(super) fn promise_batch_action_function_call_weight_ext(
     weight: u64,
 ) -> Result<()> {
     let method_id = logic.internal_mem_write(method_id);
+    let namespace = logic.internal_mem_write(b"");
     let args = logic.internal_mem_write(args);
     let amount = logic.internal_mem_write(&amount.to_le_bytes());
 
     logic.promise_batch_action_function_call_weight(
         promise_index,
+        namespace.len,
+        namespace.ptr,
         method_id.len,
         method_id.ptr,
         args.len,

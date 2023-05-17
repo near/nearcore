@@ -23,6 +23,7 @@ use near_primitives::views::{
     EpochValidatorInfo, ExecutionOutcomeView, FinalExecutionOutcomeView, QueryRequest,
     ViewStateResult,
 };
+use near_primitives_core::namespace::Namespace;
 
 use crate::user::User;
 
@@ -99,11 +100,13 @@ impl User for RpcUser {
     fn view_call(
         &self,
         account_id: &AccountId,
+        namespace: &Namespace,
         method_name: &str,
         args: &[u8],
     ) -> Result<CallResult, String> {
         let query = QueryRequest::CallFunction {
             account_id: account_id.clone(),
+            namespace: namespace.clone(),
             method_name: method_name.to_string(),
             args: args.to_vec().into(),
         };

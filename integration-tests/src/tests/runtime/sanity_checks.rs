@@ -9,6 +9,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     CostGasUsed, ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionStatus,
 };
+use near_primitives_core::namespace::Namespace;
 use nearcore::config::GenesisExt;
 use std::collections::HashSet;
 use std::mem::size_of;
@@ -65,8 +66,9 @@ fn setup_runtime_node_with_contract(wasm_binary: &[u8]) -> RuntimeNode {
     assert_eq!(tx_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
     assert_eq!(tx_result.receipts_outcome.len(), 2);
 
-    let tx_result =
-        node_user.deploy_contract(test_contract_account(), wasm_binary.to_vec()).unwrap();
+    let tx_result = node_user
+        .deploy_contract(test_contract_account(), Namespace::default(), wasm_binary.to_vec())
+        .unwrap();
     assert_eq!(tx_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
     assert_eq!(tx_result.receipts_outcome.len(), 1);
 
@@ -120,6 +122,7 @@ fn test_cost_sanity() {
         .function_call(
             alice_account(),
             test_contract_account(),
+            Namespace::default(),
             "sanity_check",
             args.into_bytes(),
             MAX_GAS,
@@ -175,7 +178,15 @@ fn test_cost_sanity_nondeterministic() {
     let node = setup_runtime_node_with_contract(&contract);
     let res = node
         .user()
-        .function_call(alice_account(), test_contract_account(), "main", vec![], MAX_GAS, 0)
+        .function_call(
+            alice_account(),
+            test_contract_account(),
+            Namespace::default(),
+            "main",
+            vec![],
+            MAX_GAS,
+            0,
+        )
         .unwrap();
     assert_eq!(res.status, FinalExecutionStatus::SuccessValue(Vec::new()));
     assert_eq!(res.transaction_outcome.outcome.metadata.gas_profile, None);
@@ -215,7 +226,15 @@ fn test_sanity_used_gas() {
     let node = setup_runtime_node_with_contract(&contract_sanity_check_used_gas());
     let res = node
         .user()
-        .function_call(alice_account(), test_contract_account(), "main", vec![], MAX_GAS, 0)
+        .function_call(
+            alice_account(),
+            test_contract_account(),
+            Namespace::default(),
+            "main",
+            vec![],
+            MAX_GAS,
+            0,
+        )
         .unwrap();
 
     let num_return_values = 4;

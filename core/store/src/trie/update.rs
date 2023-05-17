@@ -179,7 +179,11 @@ mod tests {
     const COMPLEX_SHARD_UID: ShardUId = ShardUId { version: SHARD_VERSION, shard_id: 0 };
 
     fn test_key(key: Vec<u8>) -> TrieKey {
-        TrieKey::ContractData { account_id: "alice".parse().unwrap(), namespace: Default::default(), key }
+        TrieKey::ContractData {
+            account_id: "alice".parse().unwrap(),
+            namespace: Default::default(),
+            key,
+        }
     }
 
     #[test]

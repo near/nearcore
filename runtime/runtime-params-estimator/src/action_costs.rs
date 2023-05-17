@@ -663,6 +663,7 @@ fn function_call_action(size: ActionSize) -> Action {
     let method_name: String = "noop".chars().take(method_len).collect();
     let arg_len = total_size as usize - method_len;
     Action::FunctionCall(near_primitives::transaction::FunctionCallAction {
+        namespace: Namespace::default(), // TODO: correct?
         method_name,
         args: vec![1u8; arg_len],
         gas: 3 * 10u64.pow(12), // 3 Tgas, to allow 100 copies in the same receipt

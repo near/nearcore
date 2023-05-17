@@ -122,9 +122,14 @@ impl TrieViewer {
     ) -> Result<ViewStateResult, errors::ViewStateError> {
         match get_account(state_update, account_id)? {
             Some(account) => {
-                let code_len = get_code(state_update, account_id, Namespace::default(), Some(account.code_hash()))?
-                    .map(|c| c.code().len() as u64)
-                    .unwrap_or_default();
+                let code_len = get_code(
+                    state_update,
+                    account_id,
+                    Namespace::default(),
+                    Some(account.code_hash()),
+                )?
+                .map(|c| c.code().len() as u64)
+                .unwrap_or_default();
                 if let Some(limit) = self.state_size_limit {
                     if account.storage_usage().saturating_sub(code_len) > limit {
                         return Err(errors::ViewStateError::AccountStateTooLarge {
@@ -142,10 +147,7 @@ impl TrieViewer {
 
         let mut values = vec![];
         // TODO: Namespace state viewing
-        let query = trie_key_parsers::get_raw_prefix_for_contract_data(
-            account_id,
-            prefix,
-        );
+        let query = trie_key_parsers::get_raw_prefix_for_contract_data(account_id, prefix);
         let acc_sep_len = query.len() - prefix.len();
         let mut iter = state_update.trie().iter()?;
         iter.remember_visited_nodes(include_proof);
@@ -167,6 +169,7 @@ impl TrieViewer {
         mut state_update: TrieUpdate,
         view_state: ViewApplyState,
         contract_id: &AccountId,
+        namespace: &Namespace,
         method_name: &str,
         args: &[u8],
         logs: &mut Vec<String>,
@@ -222,6 +225,7 @@ impl TrieViewer {
             actions: vec![],
         };
         let function_call = FunctionCallAction {
+            namespace: namespace.clone(),
             method_name: method_name.to_string(),
             args: args.to_vec(),
             gas: self.max_gas_burnt_view,

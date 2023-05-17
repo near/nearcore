@@ -248,6 +248,7 @@ fn test_overflowing_burn_gas_with_promises_gas() {
     let mut logic = logic_builder.build();
 
     let account_id = logic.internal_mem_write(b"rick.test");
+    let namespace = logic.internal_mem_write(b"");
     let args = logic.internal_mem_write(b"");
     let num_100u128 = logic.internal_mem_write(&100u128.to_le_bytes());
     let num_10u128 = logic.internal_mem_write(&10u128.to_le_bytes());
@@ -261,6 +262,8 @@ fn test_overflowing_burn_gas_with_promises_gas() {
         needed_gas_charge / logic.config().ext_costs.gas_cost(ExtCosts::read_memory_byte);
     let result = logic.promise_batch_action_function_call(
         call_id,
+        namespace.len,
+        namespace.ptr,
         function_name_len,
         /* function_name_ptr: */ 0,
         args.len,
@@ -284,6 +287,7 @@ fn test_overflowing_burn_gas_with_promises_gas_2() {
     let mut logic = logic_builder.build();
 
     let account_id = logic.internal_mem_write(b"rick.test");
+    let namespace = logic.internal_mem_write(b"");
     let args = logic.internal_mem_write(b"");
     let num_100u128 = logic.internal_mem_write(&100u128.to_le_bytes());
 
@@ -302,6 +306,8 @@ fn test_overflowing_burn_gas_with_promises_gas_2() {
         needed_gas_charge / logic.config().ext_costs.gas_cost(ExtCosts::read_memory_byte);
     let result = logic.promise_batch_action_function_call(
         call_id,
+        namespace.len,
+        namespace.ptr,
         function_name_len,
         /* function_name_ptr: */ 0,
         args.len,

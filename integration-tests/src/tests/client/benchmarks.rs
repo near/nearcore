@@ -10,7 +10,11 @@ use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::test_utils::{create_chunk_on_height, TestEnv};
 use near_crypto::{InMemorySigner, KeyType};
-use near_primitives::{transaction::{Action, DeployContractAction, SignedTransaction}, namespace::Namespace, routing_table::RoutingTable};
+use near_primitives::{
+    namespace::Namespace,
+    routing_table::RoutingTable,
+    transaction::{Action, DeployContractAction, SignedTransaction},
+};
 use nearcore::config::GenesisExt;
 
 /// How long does it take to produce a large chunk?
@@ -44,7 +48,11 @@ fn benchmark_large_chunk_production_time() {
             account_id.clone(),
             account_id.clone(),
             &signer,
-            vec![Action::DeployContract(DeployContractAction { code: vec![92; tx_size], namespace: Namespace::default(), routing_table: RoutingTable::default() })],
+            vec![Action::DeployContract(DeployContractAction {
+                code: vec![92; tx_size],
+                namespace: Namespace::default(),
+                routing_table: RoutingTable::default(),
+            })],
             last_block_hash,
         );
         env.clients[0].process_tx(tx, false, false);

@@ -224,7 +224,11 @@ fn account_records(row: &Row, gas_price: Balance) -> Vec<StateRecord> {
 
     // Add smart contract code if was specified.
     if let Some(code) = smart_contract_code {
-        res.push(StateRecord::Contract { account_id: row.account_id.clone(), code, namespace: Namespace::default() });
+        res.push(StateRecord::Contract {
+            account_id: row.account_id.clone(),
+            code,
+            namespace: Namespace::default(),
+        });
     }
 
     // Add init function call if smart contract was provided.
@@ -260,6 +264,7 @@ fn account_records(row: &Row, gas_price: Balance) -> Vec<StateRecord> {
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
                 actions: vec![Action::FunctionCall(FunctionCallAction {
+                    namespace: Namespace::default(), // TODO: Not really sure what to do here.
                     method_name: "init".to_string(),
                     args,
                     gas: INIT_GAS,

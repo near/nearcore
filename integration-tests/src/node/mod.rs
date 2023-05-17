@@ -168,8 +168,11 @@ pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
             }
         }
         assert!(is_account_record_found);
-        records
-            .push(StateRecord::Contract { account_id: seed.parse().unwrap(), code: code.to_vec(), namespace: Namespace::default() });
+        records.push(StateRecord::Contract {
+            account_id: seed.parse().unwrap(),
+            code: code.to_vec(),
+            namespace: Namespace::default(),
+        });
     }
     near_configs_to_node_configs(configs, validator_signers, network_signers, genesis)
 }

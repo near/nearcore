@@ -191,6 +191,7 @@ impl ReceiptManager {
     pub(crate) fn append_action_function_call_weight(
         &mut self,
         receipt_index: ReceiptIndex,
+        namespace: Vec<u8>,
         method_name: Vec<u8>,
         args: Vec<u8>,
         attached_deposit: Balance,
@@ -200,6 +201,9 @@ impl ReceiptManager {
         let action_index = self.append_action(
             receipt_index,
             Action::FunctionCall(FunctionCallAction {
+                namespace: String::from_utf8(namespace)
+                    .map_err(|_| HostError::InvalidNamespace)?
+                    .into(),
                 method_name: String::from_utf8(method_name)
                     .map_err(|_| HostError::InvalidMethodName)?,
                 args,

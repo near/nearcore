@@ -81,7 +81,11 @@ impl<'a> RuntimeExt<'a> {
         self.account_id
     }
 
-    pub fn get_code(&self, namespace: Namespace, code_hash: CryptoHash) -> Result<Option<ContractCode>, StorageError> {
+    pub fn get_code(
+        &self,
+        namespace: Namespace,
+        code_hash: CryptoHash,
+    ) -> Result<Option<ContractCode>, StorageError> {
         get_code(self.trie_update, self.account_id, namespace, Some(code_hash))
     }
 
@@ -163,8 +167,11 @@ impl<'a> External for RuntimeExt<'a> {
             .collect::<Result<Vec<_>, _>>()
             .map_err(wrap_storage_error)?;
         for (namespace, key) in namespace_data_keys {
-            self.trie_update
-                .remove(TrieKey::ContractData { account_id: self.account_id.clone(), namespace, key });
+            self.trie_update.remove(TrieKey::ContractData {
+                account_id: self.account_id.clone(),
+                namespace,
+                key,
+            });
         }
         Ok(())
     }

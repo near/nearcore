@@ -591,6 +591,7 @@ fn gen_cross_contract_transaction(
         account1.clone(),
         &signer0,
         vec![Action::FunctionCall(FunctionCallAction {
+            namespace: Namespace::default(),
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
             gas: GAS_1,

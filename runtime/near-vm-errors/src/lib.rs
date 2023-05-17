@@ -270,6 +270,8 @@ pub enum HostError {
     InvalidIteratorIndex { iterator_index: u64 },
     /// VM Logic returned an invalid account id
     InvalidAccountId,
+    /// VM Logic returned an invalid namespace
+    InvalidNamespace,
     /// VM Logic returned an invalid method name
     InvalidMethodName,
     /// VM Logic provided an invalid public key
@@ -492,6 +494,7 @@ impl std::fmt::Display for HostError {
             MemoryAccessViolation => write!(f, "Accessed memory outside the bounds."),
             InvalidReceiptIndex { receipt_index } => write!(f, "VM Logic returned an invalid receipt index: {:?}", receipt_index),
             InvalidAccountId => write!(f, "VM Logic returned an invalid account id"),
+            InvalidNamespace => write!(f, "VM Logic returned an invalid namespace"),
             InvalidMethodName => write!(f, "VM Logic returned an invalid method name"),
             InvalidPublicKey => write!(f, "VM Logic provided an invalid public key"),
             ProhibitedInView { method_name } => write!(f, "{} is not allowed in view calls", method_name),

@@ -933,6 +933,7 @@ mod tests {
                 bob_account(),
                 &*signer,
                 vec![Action::FunctionCall(FunctionCallAction {
+                    namespace: Namespace::default(),
                     method_name: "hello".to_string(),
                     args: b"abc".to_vec(),
                     gas: 200,
@@ -1095,6 +1096,7 @@ mod tests {
                 bob_account(),
                 &*signer,
                 vec![Action::FunctionCall(FunctionCallAction {
+                    namespace: Namespace::default(),
                     method_name: "hello".to_string(),
                     args: b"abc".to_vec(),
                     gas: 300,
@@ -1228,6 +1230,7 @@ mod tests {
                     &*signer,
                     vec![
                         Action::FunctionCall(FunctionCallAction {
+                            namespace: Namespace::default(),
                             method_name: "hello".to_string(),
                             args: b"abc".to_vec(),
                             gas: 100,
@@ -1321,6 +1324,7 @@ mod tests {
                     eve_dot_alice_account(),
                     &*signer,
                     vec![Action::FunctionCall(FunctionCallAction {
+                        namespace: Namespace::default(),
                         method_name: "hello".to_string(),
                         args: b"abc".to_vec(),
                         gas: 100,
@@ -1369,6 +1373,7 @@ mod tests {
                     bob_account(),
                     &*signer,
                     vec![Action::FunctionCall(FunctionCallAction {
+                        namespace: Namespace::default(),
                         method_name: "hello".to_string(),
                         args: b"abc".to_vec(),
                         gas: 100,
@@ -1414,6 +1419,7 @@ mod tests {
                     bob_account(),
                     &*signer,
                     vec![Action::FunctionCall(FunctionCallAction {
+                        namespace: Namespace::default(),
                         method_name: "hello".to_string(),
                         args: b"abc".to_vec(),
                         gas: 100,
@@ -1573,6 +1579,7 @@ mod tests {
         validate_actions(
             &limit_config,
             &[Action::FunctionCall(FunctionCallAction {
+                namespace: Namespace::default(),
                 method_name: "hello".to_string(),
                 args: b"abc".to_vec(),
                 gas: 100,
@@ -1592,12 +1599,14 @@ mod tests {
                 &limit_config,
                 &[
                     Action::FunctionCall(FunctionCallAction {
+                        namespace: Namespace::default(),
                         method_name: "hello".to_string(),
                         args: b"abc".to_vec(),
                         gas: 100,
                         deposit: 0,
                     }),
                     Action::FunctionCall(FunctionCallAction {
+                        namespace: Namespace::default(),
                         method_name: "hello".to_string(),
                         args: b"abc".to_vec(),
                         gas: 150,
@@ -1620,12 +1629,14 @@ mod tests {
                 &limit_config,
                 &[
                     Action::FunctionCall(FunctionCallAction {
+                        namespace: Namespace::default(),
                         method_name: "hello".to_string(),
                         args: b"abc".to_vec(),
                         gas: u64::max_value() / 2 + 1,
                         deposit: 0,
                     }),
                     Action::FunctionCall(FunctionCallAction {
+                        namespace: Namespace::default(),
                         method_name: "hello".to_string(),
                         args: b"abc".to_vec(),
                         gas: u64::max_value() / 2 + 1,
@@ -1716,6 +1727,7 @@ mod tests {
         validate_action(
             &VMLimitConfig::test(),
             &Action::FunctionCall(FunctionCallAction {
+                namespace: Namespace::default(),
                 method_name: "hello".to_string(),
                 args: b"abc".to_vec(),
                 gas: 100,
@@ -1732,6 +1744,7 @@ mod tests {
             validate_action(
                 &VMLimitConfig::test(),
                 &Action::FunctionCall(FunctionCallAction {
+                    namespace: Namespace::default(),
                     method_name: "new".to_string(),
                     args: vec![],
                     gas: 0,

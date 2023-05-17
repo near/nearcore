@@ -11,6 +11,7 @@ use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::transaction::{Action, FunctionCallAction, Transaction};
 use near_primitives::types::BlockHeight;
 use near_primitives::views::FinalExecutionStatus;
+use near_primitives_core::namespace::Namespace;
 use near_store::test_utils::create_test_store;
 use nearcore::config::GenesisExt;
 use std::path::Path;
@@ -73,6 +74,7 @@ fn protocol_upgrade() {
         receiver_id: "test0".parse().unwrap(),
         public_key: signer.public_key(),
         actions: vec![Action::FunctionCall(FunctionCallAction {
+            namespace: Namespace::default(),
             method_name: "write_key_value".to_string(),
             args,
             gas: 10u64.pow(14),
@@ -133,6 +135,7 @@ fn protocol_upgrade() {
             receiver_id: "test0".parse().unwrap(),
             public_key: signer.public_key(),
             actions: vec![Action::FunctionCall(FunctionCallAction {
+                namespace: Namespace::default(),
                 method_name: "write_key_value".to_string(),
                 args,
                 gas: 10u64.pow(14),

@@ -248,6 +248,7 @@ pub(crate) fn prepare_env_with_congestion(
             "test0".parse().unwrap(),
             &signer,
             vec![Action::FunctionCall(FunctionCallAction {
+                namespace: Namespace::default(),
                 method_name: "call_promise".to_string(),
                 args: serde_json::to_vec(&data).unwrap(),
                 gas: gas_1,
@@ -2391,6 +2392,7 @@ fn test_validate_chunk_extra() {
         "test0".parse().unwrap(),
         &signer,
         vec![Action::FunctionCall(FunctionCallAction {
+            namespace: Namespace::default(),
             method_name: "write_block_height".to_string(),
             args: vec![],
             gas: 100000000000000,
@@ -3454,6 +3456,7 @@ fn test_validator_stake_host_function() {
         "test0".parse().unwrap(),
         &signer,
         vec![Action::FunctionCall(FunctionCallAction {
+            namespace: Namespace::default(),
             method_name: "ext_validator_stake".to_string(),
             args: b"test0".to_vec(),
             gas: 100_000_000_000_000,
@@ -3621,6 +3624,7 @@ mod contract_precompilation_tests {
                 state_update,
                 view_state,
                 &"test0".parse().unwrap(),
+                &Namespace::default(),
                 "log_something",
                 &[],
                 &mut logs,

@@ -65,8 +65,9 @@ fn test_deploy_max_size_contract() {
     // Rune code through preparation for validation. (Deploying will succeed either way).
     near_vm_runner::prepare::prepare_contract(&wasm_binary, &config.wasm_config, VMKind::NearVm)
         .unwrap();
-    let transaction_result =
-        node_user.deploy_contract(test_contract_id, wasm_binary.to_vec()).unwrap();
+    let transaction_result = node_user
+        .deploy_contract(test_contract_id, Namespace::default(), wasm_binary.to_vec())
+        .unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(Vec::new()));
     assert_eq!(transaction_result.receipts_outcome.len(), 1);
 

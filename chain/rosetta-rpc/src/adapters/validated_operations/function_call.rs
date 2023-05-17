@@ -1,7 +1,10 @@
+use near_primitives::namespace::Namespace;
+
 use super::ValidatedOperation;
 
 pub(crate) struct FunctionCallOperation {
     pub(crate) account: crate::models::AccountIdentifier,
+    pub(crate) namespace: Namespace,
     pub(crate) method_name: String,
     pub(crate) args: Vec<u8>,
     pub(crate) attached_gas: near_primitives::types::Gas,
@@ -51,6 +54,7 @@ impl TryFrom<crate::models::Operation> for FunctionCallOperation {
         Self::validate_operation_type(operation.type_)?;
         let metadata = operation.metadata.ok_or_else(required_fields_error)?;
         let method_name = metadata.method_name.ok_or_else(required_fields_error)?;
+        let namespace = metadata.namespace.ok_or_else(required_fields_error)?.into();
         let args = metadata.args.ok_or_else(required_fields_error)?.into_inner();
         let attached_gas = metadata.attached_gas.ok_or_else(required_fields_error)?;
         let attached_gas = if attached_gas.is_positive() {
@@ -71,6 +75,13 @@ impl TryFrom<crate::models::Operation> for FunctionCallOperation {
             0
         };
 
-        Ok(Self { account: operation.account, method_name, args, attached_gas, attached_amount })
+        Ok(Self {
+            namespace,
+            account: operation.account,
+            method_name,
+            args,
+            attached_gas,
+            attached_amount,
+        })
     }
 }

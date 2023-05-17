@@ -3,6 +3,7 @@ use std::str::FromStr;
 
 use actix::System;
 use futures::{future, FutureExt};
+use near_primitives::namespace::Namespace;
 use serde_json::json;
 
 use near_actix_test_utils::run_actix;
@@ -322,6 +323,7 @@ fn test_query_call_function() {
                 block_reference: BlockReference::latest(),
                 request: QueryRequest::CallFunction {
                     account_id: "test".parse().unwrap(),
+                    namespace: Namespace::default(),
                     method_name: "method".to_string(),
                     args: vec![].into(),
                 },

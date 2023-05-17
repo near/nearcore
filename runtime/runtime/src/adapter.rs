@@ -3,6 +3,7 @@ use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
+use near_primitives::namespace::Namespace;
 use near_primitives::types::{
     AccountId, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, MerkleHash,
 };
@@ -36,6 +37,7 @@ pub trait ViewRuntimeAdapter {
         epoch_height: EpochHeight,
         epoch_id: &EpochId,
         contract_id: &AccountId,
+        namespace: &Namespace,
         method_name: &str,
         args: &[u8],
         logs: &mut Vec<String>,

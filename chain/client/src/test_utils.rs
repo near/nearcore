@@ -14,6 +14,7 @@ use near_chunks::shards_manager_actor::start_shards_manager;
 use near_chunks::ShardsManager;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_primitives::errors::InvalidTxError;
+use near_primitives::namespace::Namespace;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::time;
 use num_rational::Ratio;
@@ -1895,6 +1896,7 @@ impl TestEnv {
     pub fn call_main(&mut self, account: &AccountId) -> FinalExecutionOutcomeView {
         let signer = InMemorySigner::from_seed(account.clone(), KeyType::ED25519, account.as_str());
         let actions = vec![Action::FunctionCall(FunctionCallAction {
+            namespace: Namespace::default(),
             method_name: "main".to_string(),
             args: vec![],
             gas: 3 * 10u64.pow(14),

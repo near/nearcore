@@ -126,7 +126,7 @@ pub(crate) fn fn_cost_count(
     let block_size = 20;
     let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
         let sender = tb.random_unused_account();
-        tb.transaction_from_function_call(sender, method, Vec::new())
+        tb.transaction_from_function_call(sender, Namespace::default(), method, Vec::new())
     };
     let (gas_cost, ext_costs) =
         transaction_cost_ext(ctx, block_size, &mut make_transaction, block_latency);
@@ -142,7 +142,7 @@ pub(crate) fn noop_function_call_cost(ctx: &mut EstimatorContext) -> GasCost {
     let cost = {
         let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
             let sender = tb.random_unused_account();
-            tb.transaction_from_function_call(sender, "noop", Vec::new())
+            tb.transaction_from_function_call(sender, Namespace::default(), "noop", Vec::new())
         };
         transaction_cost(ctx, &mut make_transaction)
     };
@@ -181,9 +181,18 @@ pub(crate) fn fn_cost_with_setup(
                 let mut block = Vec::new();
                 for _ in 0..block_size {
                     let sender = tb.random_unused_account();
-                    let setup_tx =
-                        tb.transaction_from_function_call(sender.clone(), setup, Vec::new());
-                    let tx = tb.transaction_from_function_call(sender, method, Vec::new());
+                    let setup_tx = tb.transaction_from_function_call(
+                        sender.clone(),
+                        Namespace::default(),
+                        setup,
+                        Vec::new(),
+                    );
+                    let tx = tb.transaction_from_function_call(
+                        sender,
+                        Namespace::default(),
+                        method,
+                        Vec::new(),
+                    );
 
                     setup_block.push(setup_tx);
                     block.push(tx);
@@ -308,6 +317,7 @@ pub(crate) fn fn_cost_in_contract(
 
 fn function_call_action(method_name: String) -> Action {
     Action::FunctionCall(FunctionCallAction {
+        namespace: Namespace::default(),
         method_name,
         args: Vec::new(),
         gas: 10u64.pow(15),

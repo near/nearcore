@@ -43,6 +43,7 @@ pub trait User {
     fn view_call(
         &self,
         account_id: &AccountId,
+        namespace: &Namespace,
         method_name: &str,
         args: &[u8],
     ) -> Result<CallResult, String>;
@@ -125,6 +126,7 @@ pub trait User {
     fn deploy_contract(
         &self,
         signer_id: AccountId,
+        namespace: Namespace,
         code: Vec<u8>,
     ) -> Result<FinalExecutionOutcomeView, ServerError> {
         self.sign_and_commit_actions(
@@ -132,7 +134,7 @@ pub trait User {
             signer_id,
             vec![Action::DeployContract(DeployContractAction {
                 code,
-                namespace: Namespace::default(),
+                namespace,
                 routing_table: RoutingTable::default(),
             })],
         )
@@ -142,6 +144,7 @@ pub trait User {
         &self,
         signer_id: AccountId,
         contract_id: AccountId,
+        namespace: Namespace,
         method_name: &str,
         args: Vec<u8>,
         gas: Gas,
@@ -151,6 +154,7 @@ pub trait User {
             signer_id,
             contract_id,
             vec![Action::FunctionCall(FunctionCallAction {
+                namespace,
                 method_name: method_name.to_string(),
                 args,
                 gas,

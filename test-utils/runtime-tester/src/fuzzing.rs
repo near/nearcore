@@ -748,8 +748,9 @@ impl Function {
             }
         };
         Ok(FunctionCallAction {
+            namespace: Namespace::default(), // TODO: fuzz namespaces?
             method_name: method_name.to_string(),
-            args: args,
+            args,
             gas: GAS_1,
             deposit: 0,
         })

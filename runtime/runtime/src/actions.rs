@@ -1188,6 +1188,7 @@ mod tests {
                     non_delegate_action(
                         Action::FunctionCall(
                             FunctionCallAction {
+                                namespace: Namespace::default(),
                                  method_name: "ft_transfer".parse().unwrap(),
                                  args: vec![123, 34, 114, 101, 99, 101, 105, 118, 101, 114, 95, 105, 100, 34, 58, 34, 106, 97, 110, 101, 46, 116, 101, 115, 116, 46, 110, 101, 97, 114, 34, 44, 34, 97, 109, 111, 117, 110, 116, 34, 58, 34, 52, 34, 125],
                                  gas: 30000000000000,
@@ -1587,6 +1588,7 @@ mod tests {
         let mut delegate_action = signed_delegate_action.delegate_action.clone();
         delegate_action.actions =
             vec![non_delegate_action(Action::FunctionCall(FunctionCallAction {
+                namespace: Namespace::default(),
                 args: Vec::new(),
                 deposit: 0,
                 gas: 300,
@@ -1638,12 +1640,14 @@ mod tests {
         let mut delegate_action = signed_delegate_action.delegate_action.clone();
         delegate_action.actions = vec![
             non_delegate_action(Action::FunctionCall(FunctionCallAction {
+                namespace: Namespace::default(),
                 args: Vec::new(),
                 deposit: 0,
                 gas: 300,
                 method_name: "test_method".parse().unwrap(),
             })),
             non_delegate_action(Action::FunctionCall(FunctionCallAction {
+                namespace: Namespace::default(),
                 args: Vec::new(),
                 deposit: 0,
                 gas: 300,
@@ -1677,6 +1681,7 @@ mod tests {
         let mut delegate_action = signed_delegate_action.delegate_action.clone();
         delegate_action.actions =
             vec![non_delegate_action(Action::FunctionCall(FunctionCallAction {
+                namespace: Namespace::default(),
                 args: Vec::new(),
                 deposit: 1,
                 gas: 300,
@@ -1709,6 +1714,7 @@ mod tests {
         let mut delegate_action = signed_delegate_action.delegate_action.clone();
         delegate_action.actions =
             vec![non_delegate_action(Action::FunctionCall(FunctionCallAction {
+                namespace: Namespace::default(),
                 args: Vec::new(),
                 deposit: 0,
                 gas: 300,
@@ -1744,6 +1750,7 @@ mod tests {
         let mut delegate_action = signed_delegate_action.delegate_action.clone();
         delegate_action.actions =
             vec![non_delegate_action(Action::FunctionCall(FunctionCallAction {
+                namespace: Namespace::default(),
                 args: Vec::new(),
                 deposit: 0,
                 gas: 300,

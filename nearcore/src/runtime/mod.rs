@@ -26,6 +26,7 @@ use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::namespace::Namespace;
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
@@ -1123,7 +1124,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     block_hash: *block_hash,
                 })
             }
-            QueryRequest::CallFunction { account_id, method_name, args } => {
+            QueryRequest::CallFunction { account_id, namespace, method_name, args } => {
                 let mut logs = vec![];
                 let (epoch_height, current_protocol_version) = {
                     let epoch_manager = self.epoch_manager.read();
@@ -1148,6 +1149,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         epoch_height,
                         epoch_id,
                         account_id,
+                        namespace,
                         method_name,
                         args.as_ref(),
                         &mut logs,
@@ -1526,6 +1528,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         epoch_height: EpochHeight,
         epoch_id: &EpochId,
         contract_id: &AccountId,
+        namespace: &Namespace,
         method_name: &str,
         args: &[u8],
         logs: &mut Vec<String>,
@@ -1547,6 +1550,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             state_update,
             view_state,
             contract_id,
+            namespace,
             method_name,
             args,
             logs,

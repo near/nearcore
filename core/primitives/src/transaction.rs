@@ -148,6 +148,7 @@ impl fmt::Debug for DeployContractAction {
     BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone,
 )]
 pub struct FunctionCallAction {
+    pub namespace: Namespace,
     pub method_name: String,
     #[serde(with = "base64_format")]
     pub args: Vec<u8>,
@@ -165,6 +166,7 @@ impl From<FunctionCallAction> for Action {
 impl fmt::Debug for FunctionCallAction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("FunctionCallAction")
+            .field("namespace", &format_args!("{}", &self.namespace))
             .field("method_name", &format_args!("{}", &self.method_name))
             .field("args", &format_args!("{}", pretty::AbbrBytes(&self.args)))
             .field("gas", &format_args!("{}", &self.gas))
@@ -577,6 +579,7 @@ mod tests {
                     routing_table: RoutingTable::default(),
                 }),
                 Action::FunctionCall(FunctionCallAction {
+                    namespace: Namespace::default(),
                     method_name: "qqq".to_string(),
                     args: vec![1, 2, 3],
                     gas: 1_000,

@@ -758,7 +758,7 @@ fn inner_action_function_call_per_byte(ctx: &mut EstimatorContext, arg_len: usiz
     let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
         let sender = tb.random_unused_account();
         let args = utils::random_vec(arg_len);
-        tb.transaction_from_function_call(sender, "noop", args)
+        tb.transaction_from_function_call(sender, Namespace::default(), "noop", args)
     };
     let block_size = 5;
     let block_latency = 0;

@@ -2305,6 +2305,7 @@ mod tests {
         let gas = 2 * 10u64.pow(14);
         let gas_price = GAS_PRICE / 10;
         let actions = vec![Action::FunctionCall(FunctionCallAction {
+            namespace: Namespace::default(),
             method_name: "hello".to_string(),
             args: b"world".to_vec(),
             gas,
@@ -2374,6 +2375,7 @@ mod tests {
         let gas = 1_000_000;
         let gas_price = GAS_PRICE / 10;
         let actions = vec![Action::FunctionCall(FunctionCallAction {
+            namespace: Namespace::default(),
             method_name: "hello".to_string(),
             args: b"world".to_vec(),
             gas,

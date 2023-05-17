@@ -33,6 +33,7 @@ fn test_simple_func_call() {
         signer_receiver.account_id,
         &signer_sender,
         vec![Action::FunctionCall(FunctionCallAction {
+            namespace: Namespace::default(),
             method_name: "sum_n".to_string(),
             args: 10u64.to_le_bytes().to_vec(),
             gas: GAS_1,
@@ -79,6 +80,7 @@ fn test_single_promise_no_callback() {
         signer_receiver.account_id,
         &signer_sender,
         vec![Action::FunctionCall(FunctionCallAction {
+            namespace: Namespace::default(),
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
             gas: GAS_1,
@@ -145,6 +147,7 @@ fn test_single_promise_with_callback() {
         signer_receiver.account_id,
         &signer_sender,
         vec![Action::FunctionCall(FunctionCallAction {
+            namespace: Namespace::default(),
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
             gas: GAS_1,
@@ -229,6 +232,7 @@ fn test_two_promises_no_callbacks() {
         signer_receiver.account_id,
         &signer_sender,
         vec![Action::FunctionCall(FunctionCallAction {
+            namespace: Namespace::default(),
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
             gas: GAS_1,
@@ -323,6 +327,7 @@ fn test_two_promises_with_two_callbacks() {
         signer_receiver.account_id,
         &signer_sender,
         vec![Action::FunctionCall(FunctionCallAction {
+            namespace: Namespace::default(),
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
             gas: GAS_1,
@@ -414,6 +419,7 @@ fn test_single_promise_no_callback_batch() {
         signer_receiver.account_id,
         &signer_sender,
         vec![Action::FunctionCall(FunctionCallAction {
+            namespace: Namespace::default(),
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
             gas: GAS_1,
@@ -486,6 +492,7 @@ fn test_single_promise_with_callback_batch() {
         signer_receiver.account_id,
         &signer_sender,
         vec![Action::FunctionCall(FunctionCallAction {
+            namespace: Namespace::default(),
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
             gas: GAS_1,
@@ -560,6 +567,7 @@ fn test_simple_transfer() {
         signer_receiver.account_id,
         &signer_sender,
         vec![Action::FunctionCall(FunctionCallAction {
+            namespace: Namespace::default(),
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
             gas: GAS_1,
@@ -627,6 +635,7 @@ fn test_create_account_with_transfer_and_full_key() {
         signer_receiver.account_id,
         &signer_sender,
         vec![Action::FunctionCall(FunctionCallAction {
+            namespace: Namespace::default(),
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
             gas: GAS_1,
@@ -739,6 +748,7 @@ fn test_account_factory() {
         signer_receiver.account_id,
         &signer_sender,
         vec![Action::FunctionCall(FunctionCallAction {
+            namespace: Namespace::default(),
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
             gas: GAS_1,
@@ -885,6 +895,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
         signer_receiver.account_id,
         &signer_sender,
         vec![Action::FunctionCall(FunctionCallAction {
+            namespace: Namespace::default(),
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
             gas: GAS_1,
@@ -979,6 +990,7 @@ fn test_transfer_64len_hex() {
         signer_receiver.account_id,
         &signer_sender,
         vec![Action::FunctionCall(FunctionCallAction {
+            namespace: Namespace::default(),
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
             gas: GAS_1,
@@ -1045,6 +1057,7 @@ fn test_create_transfer_64len_hex_fail() {
         signer_receiver.account_id,
         &signer_sender,
         vec![Action::FunctionCall(FunctionCallAction {
+            namespace: Namespace::default(),
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
             gas: GAS_1,

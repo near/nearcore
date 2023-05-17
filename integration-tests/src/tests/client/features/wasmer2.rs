@@ -5,6 +5,7 @@ use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, FunctionCallAction, Transaction};
+use near_primitives_core::namespace::Namespace;
 use nearcore::config::GenesisExt;
 
 // This test fails on aarch because wasmer0 and wasmer2 are not available.
@@ -45,6 +46,7 @@ fn test_wasmer2_upgrade() {
         receiver_id: "test0".parse().unwrap(),
         public_key: signer.public_key(),
         actions: vec![Action::FunctionCall(FunctionCallAction {
+            namespace: Namespace::default(),
             method_name: "log_something".to_string(),
             args: Vec::new(),
             gas: 100_000_000_000_000,

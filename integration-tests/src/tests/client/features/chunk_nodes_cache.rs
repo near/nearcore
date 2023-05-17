@@ -15,6 +15,7 @@ use near_primitives::transaction::{
 use near_primitives::types::{BlockHeightDelta, Gas, TrieNodesCount};
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
+use near_primitives_core::namespace::Namespace;
 use near_store::test_utils::create_test_store;
 use nearcore::config::GenesisExt;
 use std::path::Path;
@@ -41,14 +42,16 @@ fn process_transaction(
         signer,
         vec![
             Action::FunctionCall(FunctionCallAction {
-                args: encode(&[0u64, 10u64]),
+                namespace: Namespace::default(),
                 method_name: "write_key_value".to_string(),
+                args: encode(&[0u64, 10u64]),
                 gas,
                 deposit: 0,
             }),
             Action::FunctionCall(FunctionCallAction {
-                args: encode(&[1u64, 20u64]),
+                namespace: Namespace::default(),
                 method_name: "write_key_value".to_string(),
+                args: encode(&[1u64, 20u64]),
                 gas,
                 deposit: 0,
             }),

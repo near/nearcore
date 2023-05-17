@@ -299,7 +299,8 @@ impl StateChanges {
                         },
                     ))
                 }
-                TrieKey::ContractCode { account_id, namespace: _ } => { // TODO: Should this state change kind include namespace?
+                TrieKey::ContractCode { account_id, namespace: _ } => {
+                    // TODO: Should this state change kind include namespace?
                     state_changes.extend(changes.into_iter().map(
                         |RawStateChange { cause, data }| StateChangeWithCause {
                             cause,
@@ -315,7 +316,8 @@ impl StateChanges {
                         },
                     ));
                 }
-                TrieKey::ContractData { account_id, namespace, key } => { // TODO: Namespace here?
+                TrieKey::ContractData { account_id, namespace, key } => {
+                    // TODO: Namespace here?
                     state_changes.extend(changes.into_iter().map(
                         |RawStateChange { cause, data }| StateChangeWithCause {
                             cause,

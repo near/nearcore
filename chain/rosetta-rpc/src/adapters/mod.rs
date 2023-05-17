@@ -410,6 +410,7 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                     related_operations.push(initiate_function_call_operation_id);
                     let deploy_contract_operation = validated_operations::FunctionCallOperation {
                         account: receiver_account_identifier.clone(),
+                        namespace: action.namespace,
                         method_name: action.method_name,
                         args: action.args,
                         attached_gas: action.gas,
@@ -703,6 +704,7 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                     }
                     actions.push(
                         near_primitives::transaction::FunctionCallAction {
+                            namespace: function_call_operation.namespace,
                             method_name: function_call_operation.method_name,
                             args: function_call_operation.args,
                             gas: function_call_operation.attached_gas,
@@ -1006,6 +1008,7 @@ mod tests {
         .into()];
         let function_call_without_balance_actions =
             vec![near_primitives::transaction::FunctionCallAction {
+                namespace: Namespace::default(),
                 method_name: "method-name".parse().unwrap(),
                 args: b"args".to_vec(),
                 gas: 100500,
@@ -1014,6 +1017,7 @@ mod tests {
             .into()];
         let function_call_with_balance_actions =
             vec![near_primitives::transaction::FunctionCallAction {
+                namespace: Namespace::default(),
                 method_name: "method-name".parse().unwrap(),
                 args: b"args".to_vec(),
                 gas: 100500,

@@ -146,6 +146,8 @@ imports! {
     promise_create<[
         account_id_len: u64,
         account_id_ptr: u64,
+        namespace_len: u64,
+        namespace_ptr: u64,
         method_name_len: u64,
         method_name_ptr: u64,
         arguments_len: u64,
@@ -157,6 +159,8 @@ imports! {
         promise_index: u64,
         account_id_len: u64,
         account_id_ptr: u64,
+        namespace_len: u64,
+        namespace_ptr: u64,
         method_name_len: u64,
         method_name_ptr: u64,
         arguments_len: u64,
@@ -174,6 +178,8 @@ imports! {
     promise_batch_action_deploy_contract<[promise_index: u64, code_len: u64, code_ptr: u64] -> []>,
     promise_batch_action_function_call<[
         promise_index: u64,
+        namespace_len: u64,
+        namespace_ptr: u64,
         method_name_len: u64,
         method_name_ptr: u64,
         arguments_len: u64,
@@ -183,6 +189,8 @@ imports! {
     ] -> []>,
     #[FunctionCallWeight] promise_batch_action_function_call_weight<[
         promise_index: u64,
+        namespace_len: u64,
+        namespace_ptr: u64,
         method_name_len: u64,
         method_name_ptr: u64,
         arguments_len: u64,
