@@ -97,8 +97,8 @@ impl FlatStorageShardCreator {
     ) {
         let trie_storage = TrieDBStorage::new(store.clone(), shard_uid);
         let trie = Trie::new(Rc::new(trie_storage), state_root, None);
-        let path_begin = trie.find_path_for_part_boundary(part_id.idx, part_id.total).unwrap();
-        let path_end = trie.find_path_for_part_boundary(part_id.idx + 1, part_id.total).unwrap();
+        let path_begin = trie.find_state_part_boundary(part_id.idx, part_id.total).unwrap();
+        let path_end = trie.find_state_part_boundary(part_id.idx + 1, part_id.total).unwrap();
         let hex_path_begin = Self::nibbles_to_hex(&path_begin);
         debug!(target: "store", "Preload state part from {hex_path_begin}");
         let mut trie_iter = trie.iter().unwrap();

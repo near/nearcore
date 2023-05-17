@@ -23,6 +23,7 @@ pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::Write;
+use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 use std::str;
 
@@ -219,6 +220,13 @@ impl TrieNode {
         Ok(())
     }
 
+    pub fn has_value(&self) -> bool {
+        match self {
+            Self::Branch(_, Some(_)) | Self::Leaf(_, _) => true,
+            _ => false,
+        }
+    }
+
     #[cfg(test)]
     fn deep_to_string(&self, memory: &NodesStorage) -> String {
         let mut buf = String::new();
@@ -346,6 +354,12 @@ impl TrieRefcountChange {
     }
 }
 
+impl Hash for TrieRefcountChange {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write(&self.trie_node_or_value_hash.0);
+        state.write_u32(self.rc.into());
+    }
+}
 ///
 /// TrieChanges stores delta for refcount.
 /// Multiple versions of the state work the following way:
@@ -426,12 +440,12 @@ impl Trie {
         let mut nodes: Vec<_> =
             storage.recorded.borrow_mut().drain().map(|(_key, value)| value).collect();
         nodes.sort();
-        Some(PartialStorage { nodes: PartialState(nodes) })
+        Some(PartialStorage { nodes: PartialState::TrieValues(nodes) })
     }
 
     pub fn from_recorded_storage(partial_storage: PartialStorage, root: StateRoot) -> Self {
-        let recorded_storage =
-            partial_storage.nodes.0.into_iter().map(|value| (hash(&value), value)).collect();
+        let PartialState::TrieValues(nodes) = partial_storage.nodes;
+        let recorded_storage = nodes.into_iter().map(|value| (hash(&value), value)).collect();
         let storage = Rc::new(TrieMemoryPartialStorage {
             recorded_storage,
             visited_nodes: Default::default(),
@@ -1266,7 +1280,7 @@ mod tests {
             let trie2 = tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads();
             trie2.get(b"doge").unwrap();
             // record extension, branch and one leaf with value, but not the other
-            assert_eq!(trie2.recorded_storage().unwrap().nodes.0.len(), 4);
+            assert_eq!(trie2.recorded_storage().unwrap().nodes.len(), 4);
         }
 
         {
@@ -1274,7 +1288,7 @@ mod tests {
             let updates = vec![(b"doge".to_vec(), None)];
             trie2.update(updates).unwrap();
             // record extension, branch and both leaves (one with value)
-            assert_eq!(trie2.recorded_storage().unwrap().nodes.0.len(), 5);
+            assert_eq!(trie2.recorded_storage().unwrap().nodes.len(), 5);
         }
 
         {
@@ -1282,7 +1296,7 @@ mod tests {
             let updates = vec![(b"dodo".to_vec(), Some(b"asdf".to_vec()))];
             trie2.update(updates).unwrap();
             // record extension and branch, but not leaves
-            assert_eq!(trie2.recorded_storage().unwrap().nodes.0.len(), 2);
+            assert_eq!(trie2.recorded_storage().unwrap().nodes.len(), 2);
         }
     }
 

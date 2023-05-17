@@ -13,6 +13,7 @@ publish = true
 [dependencies]
 anyhow = { workspace = true, optional = true }
 borsh.workspace = true
+clap = { workspace = true, optional = true }
 finite-wasm = { workspace = true, features = ["instrument"] }
 loupe.workspace = true
 memoffset.workspace = true
