@@ -176,16 +176,6 @@ class NearUser(HttpUser):
         return cls.id_counter
 
     @classmethod
-    def random_account_id(cls, but_not=None):
-        if but_not is None:
-            id = random.randint(1, cls.id_counter)
-        else:
-            id = random.randint(1, cls.id_counter-1)
-            if id == but_not:
-                id = cls.id_counter
-        return cls.account_id(id)
-
-    @classmethod
     def account_id(cls, id):
         # Pseudo-random 6-digit prefix to spread the users in the state tree
         prefix = str(hash(str(id)))[-6:]

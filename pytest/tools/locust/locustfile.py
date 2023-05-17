@@ -2,10 +2,10 @@
 TODO
 """
 
-
-import sys
-import pathlib
 import logging
+import pathlib
+import random
+import sys
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -24,11 +24,20 @@ FT_ACCOUNT = None
 
 class FtTransferUser(NearUser):
     wait_time = between(1, 3) # random pause between transactions
+    registered_users = []
 
     @task
     def ft_transfer(self):
         logger.debug(f"START FT TRANSFER {self.id}")
-        receiver = NearUser.random_account_id(but_not=self.id)
+        rng = random.Random()
+
+        receiver = rng.choice(FtTransferUser.registered_users)
+        # Sender must be != receiver but maybe there is no other registered user
+        # yet, so we just send to the contract account which is registered
+        # implicitly from the start
+        if receiver == self.account_id:
+            receiver = self.contract_account.key.account_id
+
         self.send_tx(
             TransferFT(
                 self.contract_account,
@@ -48,7 +57,9 @@ class FtTransferUser(NearUser):
         self.send_tx(InitFTAccount(self.contract_account, self.account))
         logger.debug(f"user {self.account_id} InitFTAccount done")
         self.send_tx(TransferFT(self.contract_account, self.contract_account, self.account_id, how_much=1E8))
-        logger.debug(f"user {self.id} TransferFT done, user ready")
+        logger.debug(f"user {self.account_id} TransferFT done, user ready")
+
+        FtTransferUser.registered_users.append(self.account_id)
 
 # called once per process before user initialization
 @events.init.add_listener
@@ -56,7 +67,7 @@ def on_locust_init(environment, **kwargs):
     funding_account = NearUser.funding_account
     contract_code = environment.parsed_options.fungible_token_wasm
 
-    # TODO; more than one contract
+    # TODO: more than one FT contract
     contract_key = key.Key.from_random(f"ft.{funding_account.key.account_id}")
     ft_account = Account(contract_key)
 
