@@ -18,7 +18,6 @@ use rand::{thread_rng, Rng};
 use std::collections::HashSet;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 /// Starts one a thread per tracked shard.

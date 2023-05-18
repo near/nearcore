@@ -62,7 +62,7 @@ pub const MAX_STATE_PART_REQUEST: u64 = 16;
 pub const MAX_PENDING_PART: u64 = MAX_STATE_PART_REQUEST * 10000;
 /// Time limit per state dump iteration.
 /// A node must check external storage for parts to dump again once time is up.
-pub const STATE_DUMP_ITERATION_TIME_LIMIT_SECS: u64 = 1;
+pub const STATE_DUMP_ITERATION_TIME_LIMIT_SECS: u64 = 300;
 
 pub enum StateSyncResult {
     /// No shard has changed its status
