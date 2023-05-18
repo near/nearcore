@@ -249,7 +249,5 @@ pub enum StateSyncDumpProgress {
         /// Block hash of the first block of the epoch.
         /// The dumped state corresponds to the state before applying this block.
         sync_hash: CryptoHash,
-        /// Progress made.
-        parts_dumped: u64,
     },
 }

@@ -26,6 +26,7 @@ num-rational.workspace = true
 once_cell.workspace = true
 rand.workspace = true
 rayon.workspace = true
+regex.workspace = true
 rlimit.workspace = true
 rust-s3.workspace = true
 serde.workspace = true
