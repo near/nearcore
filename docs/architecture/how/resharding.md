@@ -47,7 +47,7 @@ StateSync in this phase would send the ``StateSplitRequest`` to the ``SyncJobAct
 
 We'd use the background thread to do the state splitting: the goal is to change the one trie (that represents the state of the current shard) - to multiple tries (one for each of the new shards).
 
-Currently we re-use some of the code that we have for state sync (for example to figure out the number of parts) - and the we take alll the items for a given part, which a list of trie **items** (key-value pairs that are stored in the trie - NOT trie nodes) - and for each one, we try to extract the account id that this key belongs to.
+Currently we re-use some of the code that we have for state sync (for example to figure out the number of parts) - and the we take all the items for a given part, which a list of trie **items** (key-value pairs that are stored in the trie - NOT trie nodes) - and for each one, we try to extract the account id that this key belongs to.
 
 **TODO**: It seems that the code was written with the idea of persisting the "progress" (that's why have parts etc) - but AFAIK currently we never persist the progress of the resharding - so if the node restarts, we're starting from scratch.
 
