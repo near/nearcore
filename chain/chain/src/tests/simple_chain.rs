@@ -13,13 +13,18 @@ use num_rational::Ratio;
 use std::sync::Arc;
 use std::time::Instant;
 
+fn timestamp(hour: u32, min: u32, sec: u32, millis: u32) -> chrono::DateTime<chrono::Utc> {
+    chrono::Utc.with_ymd_and_hms(2020, 10, 1, hour, min, sec).single().unwrap()
+        + chrono::Duration::milliseconds(i64::from(millis))
+}
+
 #[test]
 fn build_chain() {
     init_test_logger();
     let mock_clock_guard = MockClockGuard::default();
 
-    mock_clock_guard.add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444));
-    mock_clock_guard.add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 0, 0)); // Client startup timestamp.
+    mock_clock_guard.add_utc(timestamp(0, 0, 3, 444));
+    mock_clock_guard.add_utc(timestamp(0, 0, 0, 0)); // Client startup timestamp.
     mock_clock_guard.add_instant(Instant::now());
 
     let (mut chain, _, _, signer) = setup();
@@ -52,8 +57,8 @@ fn build_chain() {
         // two entries, because the clock is called 2 times per block
         // - one time for creation of the block
         // - one time for validating block header
-        mock_clock_guard.add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444 + i));
-        mock_clock_guard.add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444 + i));
+        mock_clock_guard.add_utc(timestamp(0, 0, 3, 444 + i));
+        mock_clock_guard.add_utc(timestamp(0, 0, 3, 444 + i));
         // Instant calls for CryptoHashTimer.
         mock_clock_guard.add_instant(Instant::now());
         mock_clock_guard.add_instant(Instant::now());
