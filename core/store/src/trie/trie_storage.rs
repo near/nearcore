@@ -13,6 +13,7 @@ use near_primitives::types::{ShardId, TrieCacheMode, TrieNodesCount};
 use std::borrow::Borrow;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::{println, panic};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
@@ -258,7 +259,7 @@ impl TrieCache {
         self.lock().clear()
     }
 
-    pub fn update_cache(&self, ops: Vec<(&CryptoHash, Option<&[u8]>)>) {
+    pub fn update_cache(&self, ops: Vec<(&CryptoHash, Option<Vec<u8>>)>) {
         let mut guard = self.lock();
         for (hash, opt_value_rc) in ops {
             if let Some(value_rc) = opt_value_rc {

@@ -1,3 +1,4 @@
+use crate::db::refcount;
 use crate::flat::FlatStorageManager;
 use crate::trie::config::TrieConfig;
 use crate::trie::prefetching_trie_storage::PrefetchingThreadsHandle;
@@ -184,24 +185,15 @@ impl ShardTries {
     pub fn update_cache(&self, changes: &[TrieRefcountChange], shard_uid: ShardUId) {
         let mut caches = self.0.caches.write().expect(POISONED_LOCK_ERR);
         let mut ops = Vec::new();
-        for change in changes {
+        for change in changes.iter() {
             let hash = change.hash();
-            ops.push((hash, Some(change.payload())));
+            ops.push((hash, Some(refcount::add_positive_refcount(change.payload(), change.rc))));
         }
         let cache = caches
                 .entry(shard_uid)
                 .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, false))
                 .clone();
         cache.update_cache(ops);
-
-        // Update shards cache
-/*        for (shard_uid, ops) in shards {*/
-            /*let cache = caches*/
-                /*.entry(shard_uid)*/
-                /*.or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, false))*/
-                /*.clone();*/
-            /*cache.update_cache(ops);*/
-        /*}*/
     }
 
     fn apply_deletions_inner(
