@@ -206,7 +206,9 @@ mod tests {
             let init_sql = include_str!("init.sql");
             conn.execute_batch(init_sql).unwrap();
             let db = Self::new(conn);
-            db.mock_time(NaiveDate::from_ymd(2015, 5, 15).and_hms(11, 22, 33));
+            db.mock_time(
+                NaiveDate::from_ymd_opt(2015, 5, 15).unwrap().and_hms_opt(11, 22, 33).unwrap(),
+            );
             db
         }
 
