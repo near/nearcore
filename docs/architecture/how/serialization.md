@@ -136,7 +136,7 @@ could lead to some programmatic bugs.
 ## Advanced section - RawTrieNode
 
 There is one more place in the code where we use a ‘custom’ encoding:
-RawTrieNodeWithSize defined in store/src/trie/raw_nodes.rs.  While the format
+RawTrieNodeWithSize defined in store/src/trie/raw_node.rs.  While the format
 uses Borsh derives and API, there is a difference in how branch children
 (`[Option<CryptoHash>; 16]`) are encoded.  Standard Borsh encoding would
 encode `Option<CryptoHash>` sixteen times.  Instead, RawTrieNodeWithSize uses
