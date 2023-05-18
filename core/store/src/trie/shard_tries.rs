@@ -183,19 +183,25 @@ impl ShardTries {
 
     pub fn update_cache(&self, changes: &[TrieRefcountChange], shard_uid: ShardUId) {
         let mut caches = self.0.caches.write().expect(POISONED_LOCK_ERR);
-        let mut shards = HashMap::new();
+        let mut ops = Vec::new();
         for change in changes {
             let hash = change.hash();
-            shards.entry(shard_uid).or_insert(vec![]).push((hash, Some(change.payload())));
+            ops.push((hash, Some(change.payload())));
         }
-        // Update shards cache
-        for (shard_uid, ops) in shards {
-            let cache = caches
+        let cache = caches
                 .entry(shard_uid)
                 .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, false))
                 .clone();
-            cache.update_cache(ops);
-        }
+        cache.update_cache(ops);
+
+        // Update shards cache
+/*        for (shard_uid, ops) in shards {*/
+            /*let cache = caches*/
+                /*.entry(shard_uid)*/
+                /*.or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, false))*/
+                /*.clone();*/
+            /*cache.update_cache(ops);*/
+        /*}*/
     }
 
     fn apply_deletions_inner(
