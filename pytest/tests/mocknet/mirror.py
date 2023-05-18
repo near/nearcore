@@ -221,10 +221,10 @@ def restart_cmd(args, traffic_generator, nodes):
 
 
 # returns boot nodes and validators we want for the new test network
-def get_network_nodes(init_rpc_responses, num_validators):
+def get_network_nodes(new_test_rpc_responses, num_validators):
     validators = []
     boot_nodes = []
-    for ip_addr, response in init_rpc_responses:
+    for ip_addr, response in new_test_rpc_responses:
         if len(validators) < num_validators:
             if response['validator_account_id'] is not None:
                 # we assume here that validator_account_id is not null, validator_public_key
@@ -363,7 +363,7 @@ def neard_runner_reset(node):
 
 
 def start_nodes_cmd(args, traffic_generator, nodes):
-    if not all(pmap(neard_runner_ready, nodes + [traffic_generator])):
+    if not all(pmap(neard_runner_ready, nodes)):
         logger.warn(
             'not all nodes are ready to start yet. Run the `status` command to check their statuses'
         )
