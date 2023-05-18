@@ -399,7 +399,6 @@ impl TrieChanges {
     pub fn insertions(&self) -> &[TrieRefcountChange] {
         self.insertions.as_slice()
     }
-
 }
 
 /// Result of applying state part to Trie.

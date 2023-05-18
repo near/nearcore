@@ -188,10 +188,13 @@ impl ShardTries {
             let hash = change.hash();
             shards.entry(shard_uid).or_insert(vec![]).push((hash, Some(change.payload())));
         }
-        for (shard_uid, _) in shards {
-            caches
+        // Update shards cache
+        for (shard_uid, ops) in shards {
+            let cache = caches
                 .entry(shard_uid)
-                .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, false));
+                .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, false))
+                .clone();
+            cache.update_cache(ops);
         }
     }
 

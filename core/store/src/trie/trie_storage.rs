@@ -1,3 +1,4 @@
+use crate::db::refcount::decode_value_with_rc;
 use crate::trie::config::TrieConfig;
 use crate::trie::prefetching_trie_storage::PrefetcherResult;
 use crate::trie::POISONED_LOCK_ERR;
@@ -35,7 +36,6 @@ impl<T> BoundedQueue<T> {
         self.queue.pop_front()
     }
 
-    #[allow(dead_code)]
     pub(crate) fn put(&mut self, key: T) -> Option<T> {
         self.queue.push_back(key);
         if self.queue.len() > self.capacity {
@@ -45,7 +45,6 @@ impl<T> BoundedQueue<T> {
         }
     }
 
-    #[allow(dead_code)]
     pub(crate) fn len(&self) -> usize {
         self.queue.len()
     }
@@ -179,7 +178,6 @@ impl TrieCacheInner {
 
     // Adds key to the deletions queue if it is present in cache.
     // Returns key-value pair which are popped if deletions queue is full.
-    #[allow(dead_code)]
     pub(crate) fn pop(&mut self, key: &CryptoHash) -> Option<(CryptoHash, Arc<[u8]>)> {
         self.metrics.shard_cache_deletions_size.set(self.deletions.len() as i64);
         // Do nothing if key was removed before.
@@ -260,20 +258,24 @@ impl TrieCache {
         self.lock().clear()
     }
 
-    /*    pub fn update_cache(&self, changes: &[TrieRefcountChange]) {*/
-    /*let mut guard = self.lock();*/
-    /*for change in changes {*/
-    /*if let (Some(value), _rc) = decode_value_with_rc(&change.payload()) {*/
-    /*if value.len() < TrieConfig::max_cached_value_size() {*/
-    /*guard.put(change.hash().clone(), value.into());*/
-    /*} else {*/
-    /*guard.metrics.shard_cache_too_large.inc();*/
-    /*}*/
-    /*} else {*/
-    /*guard.pop(change.hash());*/
-    /*}*/
-    /*}*/
-    /*}*/
+    pub fn update_cache(&self, ops: Vec<(&CryptoHash, Option<&[u8]>)>) {
+        let mut guard = self.lock();
+        for (hash, opt_value_rc) in ops {
+            if let Some(value_rc) = opt_value_rc {
+                if let (Some(value), _rc) = decode_value_with_rc(&value_rc) {
+                    if value.len() < TrieConfig::max_cached_value_size() {
+                        guard.put(*hash, value.into());
+                    } else {
+                        guard.metrics.shard_cache_too_large.inc();
+                    }
+                } else {
+                    guard.pop(&hash);
+                }
+            } else {
+                guard.pop(&hash);
+            }
+        }
+    }
 
     pub(crate) fn lock(&self) -> std::sync::MutexGuard<TrieCacheInner> {
         self.0.lock().expect(POISONED_LOCK_ERR)
