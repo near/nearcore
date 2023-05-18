@@ -911,40 +911,21 @@ pub struct BlockHeaderInnerLiteView {
 
 impl From<BlockHeader> for BlockHeaderInnerLiteView {
     fn from(header: BlockHeader) -> Self {
-        match header {
-            BlockHeader::BlockHeaderV1(header) => BlockHeaderInnerLiteView {
-                height: header.inner_lite.height,
-                epoch_id: header.inner_lite.epoch_id.0,
-                next_epoch_id: header.inner_lite.next_epoch_id.0,
-                prev_state_root: header.inner_lite.prev_state_root,
-                outcome_root: header.inner_lite.outcome_root,
-                timestamp: header.inner_lite.timestamp,
-                timestamp_nanosec: header.inner_lite.timestamp,
-                next_bp_hash: header.inner_lite.next_bp_hash,
-                block_merkle_root: header.inner_lite.block_merkle_root,
-            },
-            BlockHeader::BlockHeaderV2(header) => BlockHeaderInnerLiteView {
-                height: header.inner_lite.height,
-                epoch_id: header.inner_lite.epoch_id.0,
-                next_epoch_id: header.inner_lite.next_epoch_id.0,
-                prev_state_root: header.inner_lite.prev_state_root,
-                outcome_root: header.inner_lite.outcome_root,
-                timestamp: header.inner_lite.timestamp,
-                timestamp_nanosec: header.inner_lite.timestamp,
-                next_bp_hash: header.inner_lite.next_bp_hash,
-                block_merkle_root: header.inner_lite.block_merkle_root,
-            },
-            BlockHeader::BlockHeaderV3(header) => BlockHeaderInnerLiteView {
-                height: header.inner_lite.height,
-                epoch_id: header.inner_lite.epoch_id.0,
-                next_epoch_id: header.inner_lite.next_epoch_id.0,
-                prev_state_root: header.inner_lite.prev_state_root,
-                outcome_root: header.inner_lite.outcome_root,
-                timestamp: header.inner_lite.timestamp,
-                timestamp_nanosec: header.inner_lite.timestamp,
-                next_bp_hash: header.inner_lite.next_bp_hash,
-                block_merkle_root: header.inner_lite.block_merkle_root,
-            },
+        let inner_lite = match header {
+            BlockHeader::BlockHeaderV1(ref header) => &header.inner_lite,
+            BlockHeader::BlockHeaderV2(ref header) => &header.inner_lite,
+            BlockHeader::BlockHeaderV3(ref header) => &header.inner_lite,
+        };
+        BlockHeaderInnerLiteView {
+            height: inner_lite.height,
+            epoch_id: inner_lite.epoch_id.0,
+            next_epoch_id: inner_lite.next_epoch_id.0,
+            prev_state_root: inner_lite.prev_state_root,
+            outcome_root: inner_lite.outcome_root,
+            timestamp: inner_lite.timestamp,
+            timestamp_nanosec: inner_lite.timestamp,
+            next_bp_hash: inner_lite.next_bp_hash,
+            block_merkle_root: inner_lite.block_merkle_root,
         }
     }
 }
