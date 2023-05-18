@@ -1,6 +1,5 @@
 use crate::tests::test_builder::test_builder;
 use expect_test::expect;
-use near_primitives::version::ProtocolFeature;
 
 #[test]
 fn memory_size_alignment_issue() {
@@ -21,7 +20,7 @@ fn memory_size_alignment_issue() {
         .method("foo")
         .protocol_features(&[
             #[cfg(feature = "nightly")]
-            ProtocolFeature::PreparationV2,
+            near_primitives::version::ProtocolFeature::PreparationV2,
         ])
         .expects(&[
             expect![[r#"
