@@ -2903,10 +2903,10 @@ impl<'a> ChainStoreUpdate<'a> {
         // Convert trie changes to database ops for trie nodes.
         // Create separate store update for deletions, because we want to update cache and don't want to remove nodes
         // from the store.
-        // TODO(jbajic) Do we need this part?
+        let mut deletions_store_update = self.store().store_update();
         for wrapped_trie_changes in self.trie_changes.iter_mut() {
             wrapped_trie_changes.insertions_into(&mut store_update);
-            wrapped_trie_changes.deletions_into(&mut store_update);
+            wrapped_trie_changes.deletions_into(&mut deletions_store_update);
             wrapped_trie_changes.state_changes_into(&mut store_update);
 
             if self.chain_store.save_trie_changes {
@@ -3017,12 +3017,11 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     pub fn commit(mut self) -> Result<(), Error> {
+        // Prepare data
         let store_update = self.finalize()?;
+        // Update cache
         store_update.commit()?;
-        // We update cached here plus there is a call in apply_insertions_inner????
-        for wrapped_trie_changes in self.trie_changes.drain(..) {
-            wrapped_trie_changes.update_trie_caches();
-        }
+
         let ChainStoreCacheUpdate {
             blocks,
             headers,
