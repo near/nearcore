@@ -123,13 +123,13 @@ pub fn set_flat_storage_status(
     shard_uid: ShardUId,
     status: FlatStorageStatus,
 ) {
-    ShardUId::next_shard_prefix(&key_from);
     store_update
         .set_ser(DBCol::FlatStorageStatus, &shard_uid.to_bytes(), &status)
         .expect("Borsh should not fail")
 }
 
-/// Iterate over flat storage entries for a given shard.
+/// Returns iterator over flat storage entries for a given shard and range of
+/// state keys. `None` means that there is no bound in respective direction.
 /// It reads data only from `FlatState` column which represents the state at
 /// flat storage head.
 pub fn iter_flat_state_entries<'a>(
@@ -138,10 +138,15 @@ pub fn iter_flat_state_entries<'a>(
     from: Option<&[u8]>,
     to: Option<&[u8]>,
 ) -> impl Iterator<Item = (Vec<u8>, Box<[u8]>)> + 'a {
+    // If left direction is unbounded, encoded `shard_uid` serves as the
+    // smallest possible key in DB for the shard.
     let db_key_from = match from {
         Some(from) => encode_flat_state_db_key(shard_uid, from),
         None => shard_uid.to_bytes().to_vec(),
     };
+    // If right direction is unbounded, `ShardUId::next_shard_prefix` serves as
+    // the key which is strictly bigger than all keys in DB for this shard and
+    // still doesn't include keys from other shards.
     let db_key_to = match to {
         Some(to) => encode_flat_state_db_key(shard_uid, to),
         None => ShardUId::next_shard_prefix(&shard_uid.to_bytes()).to_vec(),
