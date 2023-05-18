@@ -188,13 +188,10 @@ impl ShardTries {
             let hash = change.hash();
             shards.entry(shard_uid).or_insert(vec![]).push((hash, Some(change.payload())));
         }
-        // TODO(jbajic) Check if this is needed
         for (shard_uid, _) in shards {
             caches
                 .entry(shard_uid)
                 .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, false));
-            // TODO(jbajic) Fix this as well
-            //cache.update_cache(ops);
         }
     }
 
@@ -327,11 +324,6 @@ impl WrappedTrieChanges {
 
     pub fn state_changes(&self) -> &[RawStateChangesWithTrieKey] {
         &self.state_changes
-    }
-
-    pub fn update_trie_caches(&self) {
-        self.tries.update_cache(self.trie_changes.deletions.as_slice(), self.shard_uid);
-        self.tries.update_cache(self.trie_changes.insertions.as_slice(), self.shard_uid);
     }
 
     /// Save insertions of trie nodes into Store.

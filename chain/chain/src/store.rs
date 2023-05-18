@@ -2904,7 +2904,7 @@ impl<'a> ChainStoreUpdate<'a> {
         // Create separate store update for deletions, because we want to update cache and don't want to remove nodes
         // from the store.
         let mut deletions_store_update = self.store().store_update();
-        for wrapped_trie_changes in self.trie_changes.iter_mut() {
+        for mut wrapped_trie_changes in self.trie_changes.drain(..) {
             wrapped_trie_changes.insertions_into(&mut store_update);
             wrapped_trie_changes.deletions_into(&mut deletions_store_update);
             wrapped_trie_changes.state_changes_into(&mut store_update);
@@ -2915,7 +2915,6 @@ impl<'a> ChainStoreUpdate<'a> {
                     .map_err(|err| Error::Other(err.to_string()))?;
             }
         }
-        //TODO(jbajic) This is where we used to update cache
 
         for ((block_hash, shard_id), state_changes) in
             self.add_state_changes_for_split_states.drain()
@@ -3017,11 +3016,8 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     pub fn commit(mut self) -> Result<(), Error> {
-        // Prepare data
         let store_update = self.finalize()?;
-        // Update cache
         store_update.commit()?;
-
         let ChainStoreCacheUpdate {
             blocks,
             headers,

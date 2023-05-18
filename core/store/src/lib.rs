@@ -650,7 +650,6 @@ impl StoreUpdate {
         }
         let storage = match &self.storage {
             StoreUpdateStorage::Tries(tries) => {
-                // TODO(jbajic) This is where we update cache in commit
                 tries.get_db()
             }
             StoreUpdateStorage::DB(db) => &db,
