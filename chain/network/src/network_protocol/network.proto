@@ -168,6 +168,8 @@ message Handshake {
   PartialEdgeInfo partial_edge_info = 7;
   // See description of OwnedAccount.
   AccountKeySignedPayload owned_account = 8; // optional
+  // Sender's signature to verify ip address of the sender
+  IpAddr owned_ip_address = 9; // required, but marked as optional for protocol buffer backward compatibility
 }
 
 // Response to Handshake, in case the Handshake was rejected.

@@ -62,8 +62,11 @@ fn serialize_deserialize_protobuf_only() {
     let mut rng = make_rng(39521947542);
     let mut clock = time::FakeClock::default();
     let chain = data::Chain::make(&mut clock, &mut rng, 12);
+    let ip_addr: net::IpAddr = data::make_ipv4(&mut rng);
     let msgs = [
-        PeerMessage::Tier1Handshake(data::make_handshake(&mut rng, &chain)),
+        PeerMessage::Tier1Handshake(data::make_handshake_with_ip(&mut rng, &chain, Some(ip_addr))), // with ip address
+        PeerMessage::Tier1Handshake(data::make_handshake(&mut rng, &chain)), // without ip address, temporarily supported for backwards compatibility migration
+        PeerMessage::Tier2Handshake(data::make_handshake_with_ip(&mut rng, &chain, Some(ip_addr))), // Tier2 Handshake does not maintain ip address with borsh serialization
         PeerMessage::SyncAccountsData(SyncAccountsData {
             accounts_data: (0..4)
                 .map(|_| Arc::new(data::make_signed_account_data(&mut rng, &clock.clock())))
@@ -108,7 +111,7 @@ fn serialize_deserialize() -> anyhow::Result<()> {
         }),
     ));
     let msgs = [
-        PeerMessage::Tier2Handshake(data::make_handshake(&mut rng, &chain)),
+        PeerMessage::Tier2Handshake(data::make_handshake(&mut rng, &chain)), // without ip address, temporarily supported for backwards compatibility migration
         PeerMessage::HandshakeFailure(
             data::make_peer_info(&mut rng),
             HandshakeFailureReason::InvalidTarget,

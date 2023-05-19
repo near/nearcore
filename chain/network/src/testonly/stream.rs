@@ -7,7 +7,7 @@ use crate::network_protocol::{Encoding, PeerMessage};
 use crate::tcp;
 
 pub struct Stream {
-    stream: tcp::Stream,
+    pub stream: tcp::Stream,
     force_encoding: Option<Encoding>,
     protocol_buffers_supported: bool,
 }

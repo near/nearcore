@@ -332,7 +332,7 @@ impl Chain {
     }
 }
 
-pub fn make_handshake<R: Rng>(rng: &mut R, chain: &Chain) -> Handshake {
+pub fn make_handshake_with_ip<R: Rng>(rng: &mut R, chain: &Chain, ip_addr: Option<std::net::IpAddr>) -> Handshake {
     let a = make_signer(rng);
     let b = make_signer(rng);
     let a_id = PeerId::new(a.public_key);
@@ -346,7 +346,12 @@ pub fn make_handshake<R: Rng>(rng: &mut R, chain: &Chain) -> Handshake {
         sender_chain_info: chain.get_peer_chain_info(),
         partial_edge_info: make_partial_edge(rng),
         owned_account: None,
+        owned_ip_address: ip_addr,
     }
+}
+
+pub fn make_handshake<R: Rng>(rng: &mut R, chain: &Chain) -> Handshake {
+    make_handshake_with_ip(rng, chain, None)
 }
 
 pub fn make_routed_message<R: Rng>(rng: &mut R, body: RoutedMessageBody) -> RoutedMessageV2 {

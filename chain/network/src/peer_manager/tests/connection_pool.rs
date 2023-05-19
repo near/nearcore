@@ -103,6 +103,7 @@ async fn loop_connection() {
                 &pm.cfg.node_key,
             ),
             owned_account: None,
+            owned_ip_address: Some(stream.stream.local_addr.ip()),
         }))
         .await;
     let reason = events
@@ -171,6 +172,7 @@ async fn owned_account_mismatch() {
                 }
                 .sign(vc.signer.as_ref()),
             ),
+            owned_ip_address: Some(stream.stream.local_addr.ip()),
         }))
         .await;
     let reason = events
@@ -284,6 +286,7 @@ async fn invalid_edge() {
                     }
                     .sign(vc.signer.as_ref()),
                 ),
+                owned_ip_address: Some(stream.stream.local_addr.ip()),
             };
             let handshake = match tier {
                 tcp::Tier::T1 => PeerMessage::Tier1Handshake(handshake),

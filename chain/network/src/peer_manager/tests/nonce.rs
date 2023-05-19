@@ -75,6 +75,7 @@ async fn test_nonces() {
             sender_chain_info: chain.get_peer_chain_info(),
             partial_edge_info: PartialEdgeInfo::new(&peer_id, &pm.cfg.node_id(), test.0, &peer_key),
             owned_account: None,
+            owned_ip_address: Some(stream.stream.local_addr.ip()),
         });
         stream.write(&handshake).await;
         if test.1 {

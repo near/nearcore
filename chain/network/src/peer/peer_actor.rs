@@ -442,6 +442,7 @@ impl PeerActor {
                 }
                 .sign(vc.signer.as_ref())
             }),
+            owned_ip_address: self.my_node_info.addr.map(|addr| addr.ip()),
         };
         let msg = match spec.tier {
             tcp::Tier::T1 => PeerMessage::Tier1Handshake(handshake),
