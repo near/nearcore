@@ -65,7 +65,7 @@ IMPORTANT: in the current code, we only support such 'splitting' (so a new shard
 ### Why delayed receipts are special?
 For all the other columns, there is no dependency between entries, but in case of delayed receipts - we are forming a 'queue'. We store the information about the first index and the last index (in DelayedReceiptIndices struct).
 
-Then, we receipt arrives, we add it as the 'DELATED_RECEIPT + last_index' key (and increment last_index by 1).
+Then, we receipt arrives, we add it as the 'DELAYED_RECEIPT + last_index' key (and increment last_index by 1).
 
 That's why we cannot move it column 'in trie parts' (like we did for others), but we do it by 'iterating' over this queue.
 
