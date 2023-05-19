@@ -536,8 +536,10 @@ impl KeyForStateChanges {
 
 #[cfg(test)]
 mod test {
+    use crate::test_utils::create_test_store;
+
     use super::*;
-    use std::str::FromStr;
+    use std::{assert_eq, str::FromStr};
 
     #[test]
     fn test_delayed_receipt_row_key() {
@@ -602,4 +604,32 @@ mod test {
             shard_uid
         );
     }
+
+    #[test]
+    fn test_trie_cache() {
+        let store = create_test_store();
+
+        let trie = ShardTries::test(store.clone(), 1);
+        let shard_uid = ShardUId { version: 0, shard_id: 0 };
+
+        let trie_caches = &trie.0.caches;
+        // Assert only one cache for one shard exists
+        assert_eq!(trie_caches.read().unwrap().len(), 1);
+        // Assert the shard uid is correct
+        assert!(trie_caches.read().unwrap().get(&shard_uid).is_some());
+
+        // Read from cache
+        let key = CryptoHash::from_str("32222222222233333333334444444444445555555777").unwrap();
+        let val: Vec<u8> = Vec::from([0, 1, 2, 3, 4]);
+
+        assert!(trie_caches.read().unwrap().get(&shard_uid).unwrap().get(&key).is_none());
+
+        let insert_ops = Vec::from([(&key, Some(val.as_slice()))]);
+        trie.update_cache(insert_ops, shard_uid);
+        assert_eq!(
+            trie_caches.read().unwrap().get(&shard_uid).unwrap().get(&key).unwrap().to_vec(),
+            val
+        );
+    }
 }
+
