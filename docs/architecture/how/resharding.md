@@ -95,7 +95,7 @@ one advantage of sharduid, is that it allows us to quickly remove the contents o
 
 #### Or should we replace it with 'account' sharduid? 
 
-Another alternative, is to use the account hash as a prefix for the trie nodes instead. This allow relatively quick shard-level data removal (assuming couple million accounts per shard), and it means that we could od the resharding a lot more efficiently.
+Another alternative, is to use the account hash as a prefix for the trie nodes instead. This allow relatively quick shard-level data removal (assuming couple million accounts per shard), and it means that we could do the resharding a lot more efficiently.
 
 We could also do something special for the 'simple' (zero-cost) accounts - the ones that just have a few keys added and don't have any other state (if we assume that we're going to get a lot of them).
 
