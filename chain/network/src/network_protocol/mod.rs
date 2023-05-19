@@ -289,8 +289,9 @@ impl RoutingTableUpdate {
     }
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, Default)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub struct ShortestPathTree {
+    pub root: PeerId,
     pub edges: Vec<Edge>,
 }
 

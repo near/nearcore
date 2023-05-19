@@ -263,7 +263,10 @@ message RoutingTableUpdate {
 // It contains a collection of edges constituting a shortest path tree
 // over the network rooted at the peer sending the message.
 message ShortestPathTree {
-  repeated Edge edges = 1;
+  // PeerId of the node at which the ShortestPathTree is rooted.
+  PublicKey root = 1;
+  // List of edges which together form the ShortestPathTree.
+  repeated Edge edges = 2;
 }
 
 // TODO: document it.

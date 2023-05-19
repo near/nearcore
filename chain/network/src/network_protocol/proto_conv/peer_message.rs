@@ -46,6 +46,36 @@ impl TryFrom<&proto::RoutingTableUpdate> for RoutingTableUpdate {
 
 //////////////////////////////////////////
 
+#[derive(thiserror::Error, Debug)]
+pub enum ParseShortestPathTreeError {
+    #[error("root {0}")]
+    Root(ParseRequiredError<ParsePublicKeyError>),
+    #[error("edges {0}")]
+    Edges(ParseVecError<ParseEdgeError>),
+}
+
+impl From<&ShortestPathTree> for proto::ShortestPathTree {
+    fn from(x: &ShortestPathTree) -> Self {
+        Self {
+            root: MF::some((&x.root).into()),
+            edges: x.edges.iter().map(Into::into).collect(),
+            ..Default::default()
+        }
+    }
+}
+
+impl TryFrom<&proto::ShortestPathTree> for ShortestPathTree {
+    type Error = ParseShortestPathTreeError;
+    fn try_from(x: &proto::ShortestPathTree) -> Result<Self, Self::Error> {
+        Ok(Self {
+            root: try_from_required(&x.root).map_err(Self::Error::Root)?,
+            edges: try_from_slice(&x.edges).map_err(Self::Error::Edges)?,
+        })
+    }
+}
+
+//////////////////////////////////////////
+
 impl From<&BlockHeader> for proto::BlockHeader {
     fn from(x: &BlockHeader) -> Self {
         Self { borsh: x.try_to_vec().unwrap(), ..Default::default() }
@@ -94,12 +124,7 @@ impl From<&PeerMessage> for proto::PeerMessage {
                     ..Default::default()
                 }),
                 PeerMessage::SyncRoutingTable(rtu) => ProtoMT::SyncRoutingTable(rtu.into()),
-                PeerMessage::ShortestPathTree(spt) => {
-                    ProtoMT::ShortestPathTree(proto::ShortestPathTree {
-                        edges: spt.edges.iter().map(Into::into).collect(),
-                        ..Default::default()
-                    })
-                }
+                PeerMessage::ShortestPathTree(spt) => ProtoMT::ShortestPathTree(spt.into()),
                 PeerMessage::RequestUpdateNonce(pei) => {
                     ProtoMT::UpdateNonceRequest(proto::UpdateNonceRequest {
                         partial_edge_info: MF::some(pei.into()),
@@ -190,7 +215,7 @@ pub enum ParsePeerMessageError {
     #[error("sync_routing_table: {0}")]
     SyncRoutingTable(ParseRoutingTableUpdateError),
     #[error("shortest_path_tree: {0}")]
-    ShortestPathTree(ParseVecError<ParseEdgeError>),
+    ShortestPathTree(ParseShortestPathTreeError),
     #[error("update_nonce_requrest: {0}")]
     UpdateNonceRequest(ParseRequiredError<ParsePartialEdgeInfoError>),
     #[error("update_nonce_response: {0}")]
@@ -239,9 +264,9 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
             ProtoMT::SyncRoutingTable(rtu) => PeerMessage::SyncRoutingTable(
                 rtu.try_into().map_err(Self::Error::SyncRoutingTable)?,
             ),
-            ProtoMT::ShortestPathTree(spt) => PeerMessage::ShortestPathTree(ShortestPathTree {
-                edges: try_from_slice(&spt.edges).map_err(Self::Error::ShortestPathTree)?,
-            }),
+            ProtoMT::ShortestPathTree(spt) => PeerMessage::ShortestPathTree(
+                spt.try_into().map_err(Self::Error::ShortestPathTree)?,
+            ),
             ProtoMT::UpdateNonceRequest(unr) => PeerMessage::RequestUpdateNonce(
                 try_from_required(&unr.partial_edge_info)
                     .map_err(Self::Error::UpdateNonceRequest)?,
