@@ -1,4 +1,3 @@
-use crate::db::refcount;
 use crate::flat::FlatStorageManager;
 use crate::trie::config::TrieConfig;
 use crate::trie::prefetching_trie_storage::PrefetchingThreadsHandle;
