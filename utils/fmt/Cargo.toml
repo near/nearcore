@@ -1,14 +1,13 @@
 [package]
 name = "near-fmt"
-version = "0.0.0"
+version.workspace = true
 authors.workspace = true
-publish = true
-rust-version.workspace = true
 edition.workspace = true
-readme = "README.md"
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/near/nearcore"
+rust-version.workspace = true
 description = "Helpers for pretty formatting."
+repository.workspace = true
+license.workspace = true
+publish = true
 
 [dependencies]
 near-primitives-core.workspace = true

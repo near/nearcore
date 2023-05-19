@@ -44,7 +44,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_part::PartId;
 use near_primitives::static_clock::StaticClock;
 use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponse};
-use near_primitives::types::{AccountId, EpochHeight, ShardId, StateRoot};
+use near_primitives::types::{AccountId, EpochHeight, EpochId, ShardId, StateRoot};
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use std::collections::HashMap;
@@ -60,6 +60,9 @@ pub const MAX_STATE_PART_REQUEST: u64 = 16;
 /// Number of state parts already requested stored as pending.
 /// This number should not exceed MAX_STATE_PART_REQUEST times (number of peers in the network).
 pub const MAX_PENDING_PART: u64 = MAX_STATE_PART_REQUEST * 10000;
+/// Time limit per state dump iteration.
+/// A node must check external storage for parts to dump again once time is up.
+pub const STATE_DUMP_ITERATION_TIME_LIMIT_SECS: u64 = 300;
 
 pub enum StateSyncResult {
     /// No shard has changed its status
@@ -176,6 +179,50 @@ impl ExternalConnection {
                 file.write_all(state_part)?;
                 tracing::debug!(target: "state_sync_dump", shard_id, part_length = state_part.len(), ?location, "Wrote a state part to a file");
                 Ok(())
+            }
+        }
+    }
+
+    fn extract_file_name_from_full_path(full_path: String) -> String {
+        return Self::extract_file_name_from_path_buf(PathBuf::from(full_path));
+    }
+
+    fn extract_file_name_from_path_buf(path_buf: PathBuf) -> String {
+        return path_buf.file_name().unwrap().to_str().unwrap().to_string();
+    }
+
+    pub async fn list_state_parts(
+        &self,
+        shard_id: ShardId,
+        directory_path: &str,
+    ) -> Result<Vec<String>, anyhow::Error> {
+        let _timer = metrics::STATE_SYNC_DUMP_LIST_OBJECT_ELAPSED
+            .with_label_values(&[&shard_id.to_string()])
+            .start_timer();
+        match self {
+            ExternalConnection::S3 { bucket } => {
+                let prefix = format!("{}/", directory_path);
+                let list_results = bucket.list(prefix.clone(), Some("/".to_string())).await?;
+                tracing::debug!(target: "state_sync_dump", shard_id, ?directory_path, "List state parts in s3");
+                let mut file_names = vec![];
+                for res in list_results {
+                    for obj in res.contents {
+                        file_names.push(Self::extract_file_name_from_full_path(obj.key))
+                    }
+                }
+                Ok(file_names)
+            }
+            ExternalConnection::Filesystem { root_dir } => {
+                let path = root_dir.join(directory_path);
+                tracing::debug!(target: "state_sync_dump", shard_id, ?path, "List state parts in local directory");
+                std::fs::create_dir_all(&path)?;
+                let mut file_names = vec![];
+                let files = std::fs::read_dir(&path)?;
+                for file in files {
+                    let file_name = Self::extract_file_name_from_path_buf(file?.path());
+                    file_names.push(file_name);
+                }
+                Ok(file_names)
             }
         }
     }
@@ -726,6 +773,7 @@ impl StateSync {
                         part_id,
                         download,
                         shard_id,
+                        epoch_id,
                         epoch_height,
                         state_num_parts,
                         &chain_id.clone(),
@@ -1172,6 +1220,7 @@ fn request_part_from_external_storage(
     part_id: u64,
     download: &mut DownloadStatus,
     shard_id: ShardId,
+    epoch_id: &EpochId,
     epoch_height: EpochHeight,
     num_parts: u64,
     chain_id: &str,
@@ -1189,7 +1238,8 @@ fn request_part_from_external_storage(
     download.state_requests_count += 1;
     download.last_target = None;
 
-    let location = external_storage_location(chain_id, epoch_height, shard_id, part_id, num_parts);
+    let location =
+        external_storage_location(chain_id, epoch_id, epoch_height, shard_id, part_id, num_parts);
     let download_response = download.response.clone();
     near_performance_metrics::actix::spawn("StateSync", {
         async move {
@@ -1454,6 +1504,7 @@ impl<T: Clone> Iterator for SamplerLimited<T> {
 /// Construct a location on the external storage.
 pub fn external_storage_location(
     chain_id: &str,
+    epoch_id: &EpochId,
     epoch_height: u64,
     shard_id: u64,
     part_id: u64,
@@ -1461,13 +1512,30 @@ pub fn external_storage_location(
 ) -> String {
     format!(
         "{}/{}",
-        location_prefix(chain_id, epoch_height, shard_id),
+        location_prefix(chain_id, epoch_height, epoch_id, shard_id),
         part_filename(part_id, num_parts)
     )
 }
 
-pub fn location_prefix(chain_id: &str, epoch_height: u64, shard_id: u64) -> String {
-    format!("chain_id={}/epoch_height={}/shard_id={}", chain_id, epoch_height, shard_id)
+pub fn external_storage_location_directory(
+    chain_id: &str,
+    epoch_id: &EpochId,
+    epoch_height: u64,
+    shard_id: u64,
+) -> String {
+    location_prefix(chain_id, epoch_height, epoch_id, shard_id)
+}
+
+pub fn location_prefix(
+    chain_id: &str,
+    epoch_height: u64,
+    epoch_id: &EpochId,
+    shard_id: u64,
+) -> String {
+    format!(
+        "chain_id={}/epoch_height={}/epoch_id={}/shard_id={}",
+        chain_id, epoch_height, epoch_id.0, shard_id
+    )
 }
 
 pub fn part_filename(part_id: u64, num_parts: u64) -> String {
@@ -1488,6 +1556,17 @@ pub fn get_num_parts_from_filename(s: &str) -> Option<u64> {
         if let Some(num_parts) = captures.get(2) {
             if let Ok(num_parts) = num_parts.as_str().parse::<u64>() {
                 return Some(num_parts);
+            }
+        }
+    }
+    None
+}
+
+pub fn get_part_id_from_filename(s: &str) -> Option<u64> {
+    if let Some(captures) = match_filename(s) {
+        if let Some(part_id) = captures.get(1) {
+            if let Ok(part_id) = part_id.as_str().parse::<u64>() {
+                return Some(part_id);
             }
         }
     }
@@ -1637,5 +1716,8 @@ mod test {
 
         assert_eq!(get_num_parts_from_filename(&filename), Some(15));
         assert_eq!(get_num_parts_from_filename("123123"), None);
+
+        assert_eq!(get_part_id_from_filename(&filename), Some(5));
+        assert_eq!(get_part_id_from_filename("123123"), None);
     }
 }

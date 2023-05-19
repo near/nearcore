@@ -65,14 +65,16 @@ pub fn remove_all_deltas(store_update: &mut StoreUpdate, shard_uid: ShardUId) {
     store_update.delete_range(DBCol::FlatStateDeltaMetadata, &key_from, &key_to);
 }
 
-pub fn encode_flat_state_db_key(shard_uid: ShardUId, key: &[u8]) -> Vec<u8> {
+pub(crate) fn encode_flat_state_db_key(shard_uid: ShardUId, key: &[u8]) -> Vec<u8> {
     let mut buffer = vec![];
     buffer.extend_from_slice(&shard_uid.to_bytes());
     buffer.extend_from_slice(key);
     buffer
 }
 
-fn decode_flat_state_db_key(key: &Box<[u8]>) -> Result<(ShardUId, Vec<u8>), StorageError> {
+pub(crate) fn decode_flat_state_db_key(
+    key: &Box<[u8]>,
+) -> Result<(ShardUId, Vec<u8>), StorageError> {
     if key.len() < 8 {
         return Err(StorageError::StorageInconsistentState(format!(
             "Found key in flat storage with length < 8: {key:?}"
@@ -129,24 +131,38 @@ pub fn set_flat_storage_status(
         .expect("Borsh should not fail")
 }
 
-/// Iterate over flat storage entries for a given shard.
-/// It reads data only from the 'main' column - which represents the state as of final head.
-///
-/// WARNING: flat storage keeps changing, so the results might be inconsistent, unless you're running
-/// this method on the shapshot of the data.
-// TODO(#8676): Support non-trivial ranges and maybe pass `shard_uid` as key prefix.
+/// Returns iterator over flat storage entries for a given shard and range of
+/// state keys. `None` means that there is no bound in respective direction.
+/// It reads data only from `FlatState` column which represents the state at
+/// flat storage head.
 pub fn iter_flat_state_entries<'a>(
+    shard_uid: ShardUId,
     store: &'a Store,
-    from: &'a [u8],
-    to: &'a [u8],
+    from: Option<&[u8]>,
+    to: Option<&[u8]>,
 ) -> impl Iterator<Item = (Vec<u8>, Box<[u8]>)> + 'a {
-    store.iter_range(DBCol::FlatState, Some(from), Some(to)).filter_map(move |result| {
-        if let Ok((key, value)) = result {
-            let (_, trie_key) = decode_flat_state_db_key(&key).unwrap();
-            return Some((trie_key, value));
-        }
-        return None;
-    })
+    // If left direction is unbounded, encoded `shard_uid` serves as the
+    // smallest possible key in DB for the shard.
+    let db_key_from = match from {
+        Some(from) => encode_flat_state_db_key(shard_uid, from),
+        None => shard_uid.to_bytes().to_vec(),
+    };
+    // If right direction is unbounded, `ShardUId::next_shard_prefix` serves as
+    // the key which is strictly bigger than all keys in DB for this shard and
+    // still doesn't include keys from other shards.
+    let db_key_to = match to {
+        Some(to) => encode_flat_state_db_key(shard_uid, to),
+        None => ShardUId::next_shard_prefix(&shard_uid.to_bytes()).to_vec(),
+    };
+    store.iter_range(DBCol::FlatState, Some(&db_key_from), Some(&db_key_to)).filter_map(
+        move |result| {
+            if let Ok((key, value)) = result {
+                let (_, trie_key) = decode_flat_state_db_key(&key).unwrap();
+                return Some((trie_key, value));
+            }
+            return None;
+        },
+    )
 }
 
 /// Currently all the data in flat storage is 'together' - so we have to parse the key,

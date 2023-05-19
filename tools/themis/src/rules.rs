@@ -10,7 +10,7 @@ pub fn has_publish_spec(workspace: &Workspace) -> anyhow::Result<()> {
     let outliers: Vec<_> = workspace
         .members
         .iter()
-        .filter(|pkg| pkg.raw["package"].get("publish").is_none())
+        .filter(|pkg| pkg.manifest.read(&["package", "publish"]).is_none())
         .map(|pkg| Outlier { path: pkg.parsed.manifest_path.clone(), found: None, extra: None })
         .collect();
 
@@ -32,7 +32,7 @@ pub fn has_rust_version(workspace: &Workspace) -> anyhow::Result<()> {
         .iter()
         .filter(|pkg| {
             pkg.parsed.rust_version.is_none()
-                && pkg.raw["package"].get("publish") != Some(&toml::Value::Boolean(false))
+                && pkg.manifest.read(&["package", "publish"]) != Some(&toml::Value::Boolean(false))
         })
         .map(|pkg| Outlier { path: pkg.parsed.manifest_path.clone(), found: None, extra: None })
         .collect();
@@ -63,7 +63,11 @@ pub fn rust_version_matches_toolchain(workspace: &Workspace) -> anyhow::Result<(
         None => return Ok(()),
     };
     let toolchain_version = get(&toolchain_file, &["toolchain", "channel"])?;
-    let workspace_version = get(&workspace.raw, &["workspace", "package", "rust-version"])?;
+
+    let workspace_version =
+        workspace.manifest.read(&["workspace", "package", "rust-version"]).ok_or_else(|| {
+            anyhow::format_err!("no `workspace.package.rust-version` in the root Cargo.toml")
+        })?;
 
     if toolchain_version != workspace_version {
         bail!(ComplianceError {

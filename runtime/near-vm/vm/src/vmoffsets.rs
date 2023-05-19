@@ -159,9 +159,19 @@ impl VMOffsets {
     }
 
     fn precompute(&mut self) {
+        use std::mem::align_of;
+
         /// Offset base by num_items items of size item_size, panicking on overflow
-        fn offset_by(base: u32, num_items: u32, item_size: u32) -> u32 {
-            base.checked_add(num_items.checked_mul(item_size).unwrap()).unwrap()
+        fn offset_by(
+            base: u32,
+            num_items: u32,
+            prev_item_size: u32,
+            next_item_align: usize,
+        ) -> u32 {
+            align(
+                base.checked_add(num_items.checked_mul(prev_item_size).unwrap()).unwrap(),
+                next_item_align as u32,
+            )
         }
 
         self.vmctx_signature_ids_begin = 0;
@@ -169,57 +179,68 @@ impl VMOffsets {
             self.vmctx_signature_ids_begin,
             self.num_signature_ids,
             u32::from(self.size_of_vmshared_signature_index()),
+            align_of::<crate::VMFunctionImport>(),
         );
         self.vmctx_imported_tables_begin = offset_by(
             self.vmctx_imported_functions_begin,
             self.num_imported_functions,
             u32::from(self.size_of_vmfunction_import()),
+            align_of::<crate::VMTableImport>(),
         );
         self.vmctx_imported_memories_begin = offset_by(
             self.vmctx_imported_tables_begin,
             self.num_imported_tables,
             u32::from(self.size_of_vmtable_import()),
+            align_of::<crate::VMMemoryImport>(),
         );
         self.vmctx_imported_globals_begin = offset_by(
             self.vmctx_imported_memories_begin,
             self.num_imported_memories,
             u32::from(self.size_of_vmmemory_import()),
+            align_of::<crate::VMGlobalImport>(),
         );
         self.vmctx_tables_begin = offset_by(
             self.vmctx_imported_globals_begin,
             self.num_imported_globals,
             u32::from(self.size_of_vmglobal_import()),
+            align_of::<crate::VMTableImport>(),
         );
         self.vmctx_memories_begin = offset_by(
             self.vmctx_tables_begin,
             self.num_local_tables,
             u32::from(self.size_of_vmtable_definition()),
+            align_of::<crate::VMMemoryDefinition>(),
         );
-        self.vmctx_globals_begin = align(
-            offset_by(
-                self.vmctx_memories_begin,
-                self.num_local_memories,
-                u32::from(self.size_of_vmmemory_definition()),
-            ),
-            16,
+        self.vmctx_globals_begin = offset_by(
+            self.vmctx_memories_begin,
+            self.num_local_memories,
+            u32::from(self.size_of_vmmemory_definition()),
+            align_of::<crate::VMGlobalDefinition>(),
         );
         self.vmctx_builtin_functions_begin = offset_by(
             self.vmctx_globals_begin,
             self.num_local_globals,
             u32::from(self.size_of_vmglobal_local()),
+            align_of::<crate::vmcontext::VMBuiltinFunctionsArray>(),
         );
         self.vmctx_trap_handler_begin = offset_by(
             self.vmctx_builtin_functions_begin,
             VMBuiltinFunctionIndex::builtin_functions_total_number(),
             u32::from(self.pointer_size),
+            align_of::<fn()>(),
         );
         self.vmctx_gas_limiter_pointer = offset_by(
             self.vmctx_trap_handler_begin,
             if self.has_trap_handlers { 1 } else { 0 },
             u32::from(self.pointer_size),
+            align_of::<*mut near_vm_types::FastGasCounter>(),
         );
-        self.vmctx_stack_limit_begin =
-            offset_by(self.vmctx_gas_limiter_pointer, 1, u32::from(self.pointer_size));
+        self.vmctx_stack_limit_begin = offset_by(
+            self.vmctx_gas_limiter_pointer,
+            1,
+            u32::from(self.pointer_size),
+            align_of::<u32>(),
+        );
         self.vmctx_stack_limit_initial_begin = self.vmctx_stack_limit_begin.checked_add(4).unwrap();
         self.size_of_vmctx = self.vmctx_stack_limit_begin.checked_add(4).unwrap();
     }

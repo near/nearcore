@@ -408,10 +408,10 @@ macro_rules! unwrap_or_return {
 
 /// Converts timestamp in ns into DateTime UTC time.
 pub fn from_timestamp(timestamp: u64) -> DateTime<chrono::Utc> {
-    let secs =
-        timestamp.checked_div(NS_IN_SECOND).expect("dividing by non-zero const is safe") as i64;
-    let nsecs = timestamp.checked_rem(NS_IN_SECOND).expect("modulo non-zero const is safe") as u32;
-    DateTime::from_utc(NaiveDateTime::from_timestamp(secs, nsecs), chrono::Utc)
+    let secs = (timestamp / NS_IN_SECOND) as i64;
+    let nsecs = (timestamp % NS_IN_SECOND) as u32;
+    let naive = NaiveDateTime::from_timestamp_opt(secs, nsecs).unwrap();
+    DateTime::from_utc(naive, chrono::Utc)
 }
 
 /// Converts DateTime UTC time into timestamp in ns.

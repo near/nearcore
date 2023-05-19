@@ -18,7 +18,7 @@ use crate::merkle::{combine_hash, MerklePath};
 use crate::network::PeerId;
 use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum};
 use crate::runtime::config::RuntimeConfig;
-use crate::serialize::{base64_format, dec_format, option_base64_format};
+use crate::serialize::dec_format;
 use crate::sharding::{
     ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderInnerV2,
     ShardChunkHeaderV3,
@@ -43,6 +43,8 @@ use near_fmt::{AbbrBytes, Slice};
 use near_primitives_core::config::{ActionCosts, ExtCosts, ParameterCost, VMConfig};
 use near_primitives_core::runtime::fees::Fee;
 use num_rational::Rational32;
+use serde_with::base64::Base64;
+use serde_with::serde_as;
 use std::collections::HashMap;
 use std::fmt;
 use std::ops::Range;
@@ -65,9 +67,11 @@ pub struct AccountView {
 }
 
 /// A view of the contract code.
+#[serde_as]
 #[derive(serde::Serialize, serde::Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct ContractCodeView {
-    #[serde(rename = "code_base64", with = "base64_format")]
+    #[serde(rename = "code_base64")]
+    #[serde_as(as = "Base64")]
     pub code: Vec<u8>,
     pub hash: CryptoHash,
 }
@@ -911,40 +915,21 @@ pub struct BlockHeaderInnerLiteView {
 
 impl From<BlockHeader> for BlockHeaderInnerLiteView {
     fn from(header: BlockHeader) -> Self {
-        match header {
-            BlockHeader::BlockHeaderV1(header) => BlockHeaderInnerLiteView {
-                height: header.inner_lite.height,
-                epoch_id: header.inner_lite.epoch_id.0,
-                next_epoch_id: header.inner_lite.next_epoch_id.0,
-                prev_state_root: header.inner_lite.prev_state_root,
-                outcome_root: header.inner_lite.outcome_root,
-                timestamp: header.inner_lite.timestamp,
-                timestamp_nanosec: header.inner_lite.timestamp,
-                next_bp_hash: header.inner_lite.next_bp_hash,
-                block_merkle_root: header.inner_lite.block_merkle_root,
-            },
-            BlockHeader::BlockHeaderV2(header) => BlockHeaderInnerLiteView {
-                height: header.inner_lite.height,
-                epoch_id: header.inner_lite.epoch_id.0,
-                next_epoch_id: header.inner_lite.next_epoch_id.0,
-                prev_state_root: header.inner_lite.prev_state_root,
-                outcome_root: header.inner_lite.outcome_root,
-                timestamp: header.inner_lite.timestamp,
-                timestamp_nanosec: header.inner_lite.timestamp,
-                next_bp_hash: header.inner_lite.next_bp_hash,
-                block_merkle_root: header.inner_lite.block_merkle_root,
-            },
-            BlockHeader::BlockHeaderV3(header) => BlockHeaderInnerLiteView {
-                height: header.inner_lite.height,
-                epoch_id: header.inner_lite.epoch_id.0,
-                next_epoch_id: header.inner_lite.next_epoch_id.0,
-                prev_state_root: header.inner_lite.prev_state_root,
-                outcome_root: header.inner_lite.outcome_root,
-                timestamp: header.inner_lite.timestamp,
-                timestamp_nanosec: header.inner_lite.timestamp,
-                next_bp_hash: header.inner_lite.next_bp_hash,
-                block_merkle_root: header.inner_lite.block_merkle_root,
-            },
+        let inner_lite = match header {
+            BlockHeader::BlockHeaderV1(ref header) => &header.inner_lite,
+            BlockHeader::BlockHeaderV2(ref header) => &header.inner_lite,
+            BlockHeader::BlockHeaderV3(ref header) => &header.inner_lite,
+        };
+        BlockHeaderInnerLiteView {
+            height: inner_lite.height,
+            epoch_id: inner_lite.epoch_id.0,
+            next_epoch_id: inner_lite.next_epoch_id.0,
+            prev_state_root: inner_lite.prev_state_root,
+            outcome_root: inner_lite.outcome_root,
+            timestamp: inner_lite.timestamp,
+            timestamp_nanosec: inner_lite.timestamp,
+            next_bp_hash: inner_lite.next_bp_hash,
+            block_merkle_root: inner_lite.block_merkle_root,
         }
     }
 }
@@ -1091,6 +1076,7 @@ impl ChunkView {
     }
 }
 
+#[serde_as]
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -1104,7 +1090,7 @@ impl ChunkView {
 pub enum ActionView {
     CreateAccount,
     DeployContract {
-        #[serde(with = "base64_format")]
+        #[serde_as(as = "Base64")]
         code: Vec<u8>,
     },
     FunctionCall {
@@ -1253,6 +1239,7 @@ impl From<SignedTransaction> for SignedTransactionView {
     }
 }
 
+#[serde_as]
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -1272,7 +1259,7 @@ pub enum FinalExecutionStatus {
     /// The execution has failed with the given error.
     Failure(TxExecutionError),
     /// The execution has succeeded and returned some value or an empty vec encoded in base64.
-    SuccessValue(#[serde(with = "base64_format")] Vec<u8>),
+    SuccessValue(#[serde_as(as = "Base64")] Vec<u8>),
 }
 
 impl fmt::Debug for FinalExecutionStatus {
@@ -1304,6 +1291,7 @@ pub enum ServerError {
     Closed,
 }
 
+#[serde_as]
 #[derive(
     BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone,
 )]
@@ -1313,7 +1301,7 @@ pub enum ExecutionStatusView {
     /// The execution has failed.
     Failure(TxExecutionError),
     /// The final action succeeded and returned some value or an empty vec encoded in base64.
-    SuccessValue(#[serde(with = "base64_format")] Vec<u8>),
+    SuccessValue(#[serde_as(as = "Base64")] Vec<u8>),
     /// The final action of the receipt returned a promise or the signed transaction was converted
     /// to a receipt. Contains the receipt_id of the generated receipt.
     SuccessReceiptId(CryptoHash),
@@ -1770,6 +1758,7 @@ pub struct DataReceiverView {
     pub receiver_id: AccountId,
 }
 
+#[serde_as]
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -1792,7 +1781,7 @@ pub enum ReceiptEnumView {
     },
     Data {
         data_id: CryptoHash,
-        #[serde(with = "option_base64_format")]
+        #[serde_as(as = "Option<Base64>")]
         data: Option<Vec<u8>>,
     },
 }
@@ -2124,6 +2113,7 @@ impl From<StateChangeCause> for StateChangeCauseView {
     }
 }
 
+#[serde_as]
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case", tag = "type", content = "change")]
 pub enum StateChangeValueView {
@@ -2158,7 +2148,8 @@ pub enum StateChangeValueView {
     },
     ContractCodeUpdate {
         account_id: AccountId,
-        #[serde(rename = "code_base64", with = "base64_format")]
+        #[serde(rename = "code_base64")]
+        #[serde_as(as = "Base64")]
         code: Vec<u8>,
     },
     ContractCodeDeletion {

@@ -1,7 +1,6 @@
 use crate::account::{AccessKey, Account};
 use crate::hash::{hash, CryptoHash};
 use crate::receipt::{Receipt, ReceivedData};
-use crate::serialize::{base64_format, option_base64_format};
 use crate::trie_key::col;
 use crate::trie_key::trie_key_parsers::{
     parse_account_id_from_access_key_key, parse_account_id_from_account_key,
@@ -12,9 +11,12 @@ use crate::trie_key::trie_key_parsers::{
 use crate::types::{AccountId, StoreKey, StoreValue};
 use borsh::BorshDeserialize;
 use near_crypto::PublicKey;
+use serde_with::base64::Base64;
+use serde_with::serde_as;
 use std::fmt::{Display, Formatter};
 
 /// Record in the state storage.
+#[serde_as]
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub enum StateRecord {
     /// Account information.
@@ -24,7 +26,7 @@ pub enum StateRecord {
     /// Contract code encoded in base64.
     Contract {
         account_id: AccountId,
-        #[serde(with = "base64_format")]
+        #[serde_as(as = "Base64")]
         code: Vec<u8>,
     },
     /// Access key associated with some account.
@@ -35,7 +37,7 @@ pub enum StateRecord {
     ReceivedData {
         account_id: AccountId,
         data_id: CryptoHash,
-        #[serde(with = "option_base64_format")]
+        #[serde_as(as = "Option<Base64>")]
         data: Option<Vec<u8>>,
     },
     /// Delayed Receipt.

@@ -7,7 +7,10 @@ use near_chain::{
 };
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::{state::ValueRef, trie_key::trie_key_parsers::parse_account_id_from_raw_key};
-use near_store::flat::{store_helper, FlatStateDelta, FlatStateDeltaMetadata, FlatStorageStatus};
+use near_store::flat::{
+    inline_flat_state_values, store_helper, FlatStateDelta, FlatStateDeltaMetadata,
+    FlatStorageManager, FlatStorageStatus,
+};
 use near_store::{DBCol, Mode, NodeStorage, ShardUId, Store, StoreOpener};
 use nearcore::{load_config, NearConfig, NightshadeRuntime};
 use std::{path::PathBuf, sync::Arc, time::Duration};
@@ -37,6 +40,9 @@ enum SubCommand {
     /// Temporary command to set the store version (useful as long flat
     /// storage is enabled only during nightly with separate DB version).
     SetStoreVersion(SetStoreVersionCmd),
+
+    /// Run FlatState value inininig migration
+    MigrateValueInlining(MigrateValueInliningCmd),
 }
 
 #[derive(Parser)]
@@ -61,6 +67,15 @@ pub struct InitCmd {
 #[derive(Parser)]
 pub struct VerifyCmd {
     shard_id: u64,
+}
+
+#[derive(Parser)]
+pub struct MigrateValueInliningCmd {
+    #[clap(default_value = "16")]
+    num_threads: usize,
+
+    #[clap(default_value = "50000")]
+    batch_size: usize,
 }
 
 fn print_delta(store: &Store, shard_uid: ShardUId, metadata: FlatStateDeltaMetadata) {
@@ -243,10 +258,8 @@ impl FlatStorageCommand {
                     .get_view_trie_for_shard(verify_cmd.shard_id, &head_hash, *state_root)
                     .unwrap();
 
-                let key_from = shard_uid.to_bytes();
-                let key_to = ShardUId::next_shard_prefix(&key_from);
                 let flat_state_entries_iter =
-                    store_helper::iter_flat_state_entries(&hot_store, &key_from, &key_to);
+                    store_helper::iter_flat_state_entries(shard_uid, &hot_store, None, None);
 
                 // Trie iterator which skips all the 'delayed' keys - that don't contain the account_id as string.
                 let trie_iter = trie.iter().unwrap().filter(|entry| {
@@ -299,6 +312,22 @@ impl FlatStorageCommand {
                 } else {
                     println!("FAILED - on node {:?}", verified);
                 }
+            }
+            SubCommand::MigrateValueInlining(cmd) => {
+                let store = Self::get_db(
+                    &opener,
+                    home_dir,
+                    &near_config,
+                    near_store::Mode::ReadWriteExisting,
+                )
+                .4;
+                let flat_storage_manager = FlatStorageManager::new(store.clone());
+                inline_flat_state_values(
+                    store,
+                    &flat_storage_manager,
+                    cmd.num_threads,
+                    cmd.batch_size,
+                );
             }
         }
 
