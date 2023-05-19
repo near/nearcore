@@ -649,9 +649,7 @@ impl StoreUpdate {
             }
         }
         let storage = match &self.storage {
-            StoreUpdateStorage::Tries(tries) => {
-                tries.get_db()
-            }
+            StoreUpdateStorage::Tries(tries) => tries.get_db(),
             StoreUpdateStorage::DB(db) => &db,
         };
         storage.write(self.transaction)

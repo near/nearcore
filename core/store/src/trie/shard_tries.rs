@@ -187,12 +187,14 @@ impl ShardTries {
         let mut ops = Vec::new();
         for change in changes.iter() {
             let hash = change.hash();
-            ops.push((hash, Some(refcount::add_positive_refcount(change.payload(), change.rc))));
+            //ops.push((hash, Some(refcount::add_positive_refcount(change.payload(), change.rc))));
+            ops.push((hash, Some(change.payload())));
         }
+
         let cache = caches
-                .entry(shard_uid)
-                .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, false))
-                .clone();
+            .entry(shard_uid)
+            .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, false))
+            .clone();
         cache.update_cache(ops);
     }
 
