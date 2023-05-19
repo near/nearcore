@@ -181,13 +181,8 @@ impl ShardTries {
         &self.0.store.storage
     }
 
-    pub fn update_cache(&self, changes: &[TrieRefcountChange], shard_uid: ShardUId) {
+    pub fn update_cache(&self, ops: Vec<(&CryptoHash, Option<&[u8]>)>, shard_uid: ShardUId) {
         let mut caches = self.0.caches.write().expect(POISONED_LOCK_ERR);
-        let mut ops = Vec::new();
-        for change in changes.iter() {
-            ops.push((change.hash(), Some(change.payload())));
-        }
-
         let cache = caches
             .entry(shard_uid)
             .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, false))
@@ -202,14 +197,17 @@ impl ShardTries {
         store_update: &mut StoreUpdate,
     ) {
         store_update.set_shard_tries(self);
+        let mut ops = Vec::new();
         for TrieRefcountChange { trie_node_or_value_hash, rc, .. } in deletions.iter() {
             let key = TrieCachingStorage::get_key_from_shard_uid_and_hash(
                 shard_uid,
                 trie_node_or_value_hash,
             );
             store_update.decrement_refcount_by(DBCol::State, key.as_ref(), *rc);
+            ops.push((trie_node_or_value_hash, None));
         }
-        self.update_cache(deletions, shard_uid);
+
+        self.update_cache(ops, shard_uid);
     }
 
     fn apply_insertions_inner(
@@ -219,6 +217,7 @@ impl ShardTries {
         store_update: &mut StoreUpdate,
     ) {
         store_update.set_shard_tries(self);
+        let mut ops = Vec::new();
         for TrieRefcountChange { trie_node_or_value_hash, trie_node_or_value, rc } in
             insertions.iter()
         {
@@ -227,8 +226,9 @@ impl ShardTries {
                 trie_node_or_value_hash,
             );
             store_update.increment_refcount_by(DBCol::State, key.as_ref(), trie_node_or_value, *rc);
+            ops.push((trie_node_or_value_hash, Some(trie_node_or_value.as_slice())));
         }
-        self.update_cache(insertions, shard_uid);
+        self.update_cache(ops, shard_uid);
     }
 
     fn apply_all_inner(
