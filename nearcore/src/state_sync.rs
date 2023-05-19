@@ -202,7 +202,7 @@ async fn state_sync_dump(
         tracing::debug!(target: "state_sync_dump", shard_id, ?progress, "Running StateSyncDump loop iteration");
         // The `match` returns the next state of the state machine.
         let next_state: Result<Option<StateSyncDumpProgress>, Error> = match progress {
-            Ok(Some(StateSyncDumpProgress::AllDumped { epoch_id, epoch_height, num_parts })) => {
+            Ok(Some(StateSyncDumpProgress::AllDumped { epoch_id })) => {
                 // The latest epoch was dumped. Check if a newer epoch is available.
                 check_new_epoch(
                     Some(epoch_id),
@@ -259,7 +259,7 @@ async fn state_sync_dump(
                                     &external,
                                 )
                                 .await;
-        
+
                                 match missing_parts {
                                     Err(err) => {
                                         tracing::debug!(target: "state_sync_dump", shard_id, ?err, "get_missing_state_parts_for_epoch error");
@@ -268,18 +268,15 @@ async fn state_sync_dump(
                                         )))
                                     }
                                     Ok(parts_not_dumped) if parts_not_dumped.is_empty() => {
-                                        Ok(Some(StateSyncDumpProgress::AllDumped {
-                                            epoch_id,
-                                            epoch_height,
-                                            num_parts: Some(num_parts),
-                                        }))
+                                        Ok(Some(StateSyncDumpProgress::AllDumped { epoch_id }))
                                     }
                                     Ok(parts_not_dumped) => {
                                         let mut parts_to_dump = parts_not_dumped.clone();
                                         let timer = Instant::now();
                                         // Stop if the node is stopped.
                                         // Note that without this check the state dumping thread is unstoppable, i.e. non-interruptable.
-                                        while keep_running.load(std::sync::atomic::Ordering::Relaxed)
+                                        while keep_running
+                                            .load(std::sync::atomic::Ordering::Relaxed)
                                             && timer.elapsed().as_secs()
                                                 <= STATE_DUMP_ITERATION_TIME_LIMIT_SECS
                                             && !parts_to_dump.is_empty()
@@ -287,10 +284,10 @@ async fn state_sync_dump(
                                             let _timer = metrics::STATE_SYNC_DUMP_ITERATION_ELAPSED
                                                 .with_label_values(&[&shard_id.to_string()])
                                                 .start_timer();
-        
+
                                             let (part_id, selected_idx) =
                                                 select_random_part_id_with_index(&parts_to_dump);
-        
+
                                             let state_part = match obtain_and_store_state_part(
                                                 runtime.as_ref(),
                                                 shard_id,
@@ -323,7 +320,7 @@ async fn state_sync_dump(
                                                 // reason is we are dumping random selected parts, so it's fine if we are not able to finish all of them
                                                 continue;
                                             }
-        
+
                                             // remove the dumped part from parts_to_dump so that we draw without replacement
                                             parts_to_dump.swap_remove(selected_idx);
                                             update_dumped_size_and_cnt_metrics(
@@ -332,13 +329,9 @@ async fn state_sync_dump(
                                                 state_part.len(),
                                             );
                                         }
-        
+
                                         if parts_to_dump.is_empty() {
-                                            Ok(Some(StateSyncDumpProgress::AllDumped {
-                                                epoch_id,
-                                                epoch_height,
-                                                num_parts: Some(num_parts),
-                                            }))
+                                            Ok(Some(StateSyncDumpProgress::AllDumped { epoch_id }))
                                         } else {
                                             Ok(Some(StateSyncDumpProgress::InProgress {
                                                 epoch_id,
@@ -498,14 +491,14 @@ fn start_dumping(
     let state_header = chain.get_state_response_header(shard_id, sync_hash)?;
     let num_parts = get_num_state_parts(state_header.state_root_node().memory_usage);
     if shard_tracker.care_about_shard(account_id.as_ref(), sync_prev_prev_hash, shard_id, true) {
-        tracing::info!(target: "state_sync_dump", shard_id, ?epoch_id, %sync_prev_hash, %sync_hash, "Initialize dumping state of Epoch");
+        tracing::info!(target: "state_sync_dump", shard_id, ?epoch_id, epoch_height, %sync_prev_hash, %sync_hash, "Initialize dumping state of Epoch");
         // Note that first the state of the state machines gets changes to
         // `InProgress` and it starts dumping state after a short interval.
         set_metrics(&shard_id, Some(0), Some(num_parts), Some(epoch_height));
         Ok(Some(StateSyncDumpProgress::InProgress { epoch_id, epoch_height, sync_hash }))
     } else {
-        tracing::info!(target: "state_sync_dump", shard_id, ?epoch_id, %sync_hash, "Shard is not tracked, skip the epoch");
-        Ok(Some(StateSyncDumpProgress::AllDumped { epoch_id, epoch_height, num_parts: Some(0) }))
+        tracing::info!(target: "state_sync_dump", shard_id, ?epoch_id, epoch_height, %sync_hash, "Shard is not tracked, skip the epoch");
+        Ok(Some(StateSyncDumpProgress::AllDumped { epoch_id }))
     }
 }
 
