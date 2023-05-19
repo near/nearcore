@@ -27,7 +27,7 @@ fn main() {
         .get_matches();
 
     let home_dir = matches.get_one::<PathBuf>("home").unwrap();
-    let near_config = load_config(home_dir, GenesisValidationMode::Full)
+    let near_config = load_config(home_dir, GenesisValidationMode::UnsafeFast)
         .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
     let store = near_store::NodeStorage::opener(

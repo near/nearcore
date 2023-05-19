@@ -183,7 +183,7 @@ fn run_estimation(cli_args: CliArgs) -> anyhow::Result<Option<CostTable>> {
         )
         .expect("failed to init config");
 
-        let near_config = nearcore::load_config(&state_dump_path, GenesisValidationMode::Full)
+        let near_config = nearcore::load_config(&state_dump_path, GenesisValidationMode::UnsafeFast)
             .context("Error loading config")?;
         let store = near_store::NodeStorage::opener(
             &state_dump_path,

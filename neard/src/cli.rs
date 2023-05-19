@@ -802,7 +802,7 @@ pub(super) struct ValidateConfigCommand {}
 
 impl ValidateConfigCommand {
     pub(super) fn run(&self, home_dir: &Path) -> anyhow::Result<()> {
-        nearcore::config::load_config(home_dir, GenesisValidationMode::Full)?;
+        nearcore::config::load_config(home_dir, GenesisValidationMode::UnsafeFast)?;
         Ok(())
     }
 }

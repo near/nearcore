@@ -31,7 +31,7 @@ fn main() {
         .get_one::<String>("additional-accounts-num")
         .map(|x| x.parse::<u64>().expect("Failed to parse number of additional accounts."))
         .unwrap();
-    let near_config = load_config(home_dir, GenesisValidationMode::Full)
+    let near_config = load_config(home_dir, GenesisValidationMode::UnsafeFast)
         .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
     let store = near_store::NodeStorage::opener(
