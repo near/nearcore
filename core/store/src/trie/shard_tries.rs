@@ -185,9 +185,7 @@ impl ShardTries {
         let mut caches = self.0.caches.write().expect(POISONED_LOCK_ERR);
         let mut ops = Vec::new();
         for change in changes.iter() {
-            let hash = change.hash();
-            //ops.push((hash, Some(refcount::add_positive_refcount(change.payload(), change.rc))));
-            ops.push((hash, Some(change.payload())));
+            ops.push((change.hash(), Some(change.payload())));
         }
 
         let cache = caches

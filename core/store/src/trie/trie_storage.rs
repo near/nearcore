@@ -80,7 +80,6 @@ pub struct TrieCacheInner {
 }
 
 struct TrieCacheMetrics {
-    #[allow(dead_code)]
     shard_cache_too_large: GenericCounter<prometheus::core::AtomicU64>,
     shard_cache_pop_hits: GenericCounter<prometheus::core::AtomicU64>,
     shard_cache_pop_misses: GenericCounter<prometheus::core::AtomicU64>,
