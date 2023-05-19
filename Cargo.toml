@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 
 [workspace.metadata.workspaces]
 # shared version of all public crates in the workspace
-version = "0.16.1"
+version = "0.17.0"
 exclude = ["neard"]
 
 [workspace]
