@@ -260,17 +260,12 @@ impl TrieCache {
     pub fn update_cache(&self, ops: Vec<(&CryptoHash, Option<&[u8]>)>) {
         let mut guard = self.lock();
         for (hash, opt_value_rc) in ops {
-            if let Some(value_rc) = opt_value_rc {
-                guard.put(*hash, value_rc.into());
-            /*                if let (Some(value), _rc) = decode_value_with_rc(&value_rc) {*/
-            /*if value.len() < TrieConfig::max_cached_value_size() {*/
-            /*guard.put(*hash, value.into());*/
-            /*} else {*/
-            /*guard.metrics.shard_cache_too_large.inc();*/
-            /*}*/
-            /*} else {*/
-            /*guard.pop(&hash);*/
-            /*}*/
+            if let Some(value) = opt_value_rc {
+                if value.len() < TrieConfig::max_cached_value_size() {
+                    guard.put(*hash, value.into());
+                } else {
+                    guard.metrics.shard_cache_too_large.inc();
+                }
             } else {
                 guard.pop(&hash);
             }
