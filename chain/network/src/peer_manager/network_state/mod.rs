@@ -118,6 +118,8 @@ pub(crate) struct NetworkState {
     pub pending_reconnect: Mutex<Vec<PeerInfo>>,
     /// A graph of the whole NEAR network.
     pub graph: Arc<crate::routing::Graph>,
+    /// A sparsified graph of the whole NEAR network.
+    pub graph_v2: Arc<crate::routing::GraphV2>,
 
     /// Hashes of the body of recently received routed messages.
     /// It allows us to determine whether messages arrived faster over TIER1 or TIER2 network.
@@ -164,6 +166,14 @@ impl NetworkState {
             runtime: Runtime::new(),
             graph: Arc::new(crate::routing::Graph::new(
                 crate::routing::GraphConfig {
+                    node_id: config.node_id(),
+                    prune_unreachable_peers_after: PRUNE_UNREACHABLE_PEERS_AFTER,
+                    prune_edges_after: Some(PRUNE_EDGES_AFTER),
+                },
+                store.clone(),
+            )),
+            graph_v2: Arc::new(crate::routing::GraphV2::new(
+                crate::routing::GraphConfigV2 {
                     node_id: config.node_id(),
                     prune_unreachable_peers_after: PRUNE_UNREACHABLE_PEERS_AFTER,
                     prune_edges_after: Some(PRUNE_EDGES_AFTER),
