@@ -7,6 +7,8 @@ use crate::types::{PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg
 use anyhow::{bail, Context as _};
 use itertools::Itertools as _;
 use near_async::time;
+use near_crypto::{KeyType, SecretKey};
+use near_primitives::network::PeerId;
 use rand::Rng as _;
 use std::net;
 
@@ -191,4 +193,29 @@ fn serialize_deserialize_ip_addr() {
     assert!(result_deserialized_actual_ip_addr.is_ok());
     let deserialized_actual_ip_addr = result_deserialized_actual_ip_addr.unwrap();
     assert_eq!(ip_addr_before_serialize, deserialized_actual_ip_addr);
+}
+
+#[test]
+fn sign_and_verify_ip_addr_with_peer_id() {
+    // Design sign and verify algorithm for std::net::IpAddr
+    let seed = "123";
+    let node_key = SecretKey::from_seed(KeyType::ED25519, seed);
+    let peer_id = PeerId::new(node_key.public_key());
+    let mut rng = make_rng(89028037453);
+    let ip_addr: net::IpAddr = data::make_ipv4(&mut rng);
+    let ip_bytes: Vec<u8> = match ip_addr {
+        net::IpAddr::V4(ip) => ip.octets().to_vec(),
+        net::IpAddr::V6(ip) => ip.octets().to_vec(),
+    };
+    let signature = node_key.sign(&ip_bytes);
+    assert!(signature.verify(&ip_bytes, &node_key.public_key()));
+    assert!(signature.verify(&ip_bytes, peer_id.public_key()));
+
+    // Wrap ip address sign and verify algorithm with interfaces: OwnedIpAddress and SignedOwnedIpAddress
+    let owned_ip_address = OwnedIpAddress {
+        ip_address: ip_addr.clone(),
+    };
+    let signed_owned_ip_address: SignedOwnedIpAddress = owned_ip_address.sign(&node_key);
+    assert!(signed_owned_ip_address.verify(&node_key.public_key()));
+    assert!(signed_owned_ip_address.verify(peer_id.public_key()));
 }

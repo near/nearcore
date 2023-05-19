@@ -90,6 +90,45 @@ impl std::str::FromStr for PeerAddr {
     }
 }
 
+// Wrapper around std::net::IpAddr, which constructs a SignedOwnedIpAddress
+#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+pub struct OwnedIpAddress {
+    pub(crate) ip_address: std::net::IpAddr,
+}
+
+impl OwnedIpAddress {
+    // Serialization of ip address for signing and verification
+    fn ip_bytes(&self) -> Vec<u8> {
+        let ip_bytes: Vec<u8> = match self.ip_address {
+            std::net::IpAddr::V4(ip) => ip.octets().to_vec().clone(),
+            std::net::IpAddr::V6(ip) => ip.octets().to_vec().clone(),
+        };
+        return ip_bytes;
+    }
+
+    /// Sign with a given SecretKey, but must not store it.
+    pub fn sign(self, secret_key: &near_crypto::SecretKey) -> SignedOwnedIpAddress {
+        let signature = secret_key.sign(&self.ip_bytes());
+        SignedOwnedIpAddress {
+            owned_ip_address: self,
+            signature_ip_address: signature,
+        }
+    }
+}
+
+/// Proof that a given peer_id owns an ip address, included in Handshake message
+#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+pub struct SignedOwnedIpAddress {
+    pub(crate) owned_ip_address: OwnedIpAddress,
+    pub(crate) signature_ip_address: near_crypto::Signature, // signature for signed ip_address
+}
+
+impl SignedOwnedIpAddress {
+    pub fn verify(&self, public_key: &PublicKey) -> bool {
+        self.signature_ip_address.verify(&self.owned_ip_address.ip_bytes(), &public_key)
+    }
+}
+
 /// AccountData is a piece of global state that a validator
 /// signs and broadcasts to the network. It is essentially
 /// the data that a validator wants to share with the network.
