@@ -4,7 +4,8 @@ use super::*;
 use crate::network_protocol::proto;
 use crate::network_protocol::proto::peer_message::Message_type as ProtoMT;
 use crate::network_protocol::{
-    Disconnect, PeerMessage, PeersRequest, PeersResponse, RoutingTableUpdate, SyncAccountsData,
+    Disconnect, PeerMessage, PeersRequest, PeersResponse, RoutingTableUpdate, ShortestPathTree,
+    SyncAccountsData,
 };
 use crate::network_protocol::{RoutedMessage, RoutedMessageV2};
 use borsh::{BorshDeserialize as _, BorshSerialize as _};
@@ -93,6 +94,12 @@ impl From<&PeerMessage> for proto::PeerMessage {
                     ..Default::default()
                 }),
                 PeerMessage::SyncRoutingTable(rtu) => ProtoMT::SyncRoutingTable(rtu.into()),
+                PeerMessage::ShortestPathTree(spt) => {
+                    ProtoMT::ShortestPathTree(proto::ShortestPathTree {
+                        edges: spt.edges.iter().map(Into::into).collect(),
+                        ..Default::default()
+                    })
+                }
                 PeerMessage::RequestUpdateNonce(pei) => {
                     ProtoMT::UpdateNonceRequest(proto::UpdateNonceRequest {
                         partial_edge_info: MF::some(pei.into()),
@@ -182,6 +189,8 @@ pub enum ParsePeerMessageError {
     LastEdge(ParseRequiredError<ParseEdgeError>),
     #[error("sync_routing_table: {0}")]
     SyncRoutingTable(ParseRoutingTableUpdateError),
+    #[error("shortest_path_tree: {0}")]
+    ShortestPathTree(ParseVecError<ParseEdgeError>),
     #[error("update_nonce_requrest: {0}")]
     UpdateNonceRequest(ParseRequiredError<ParsePartialEdgeInfoError>),
     #[error("update_nonce_response: {0}")]
@@ -230,6 +239,9 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
             ProtoMT::SyncRoutingTable(rtu) => PeerMessage::SyncRoutingTable(
                 rtu.try_into().map_err(Self::Error::SyncRoutingTable)?,
             ),
+            ProtoMT::ShortestPathTree(spt) => PeerMessage::ShortestPathTree(ShortestPathTree {
+                edges: try_from_slice(&spt.edges).map_err(Self::Error::ShortestPathTree)?,
+            }),
             ProtoMT::UpdateNonceRequest(unr) => PeerMessage::RequestUpdateNonce(
                 try_from_required(&unr.partial_edge_info)
                     .map_err(Self::Error::UpdateNonceRequest)?,

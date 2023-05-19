@@ -259,6 +259,13 @@ message RoutingTableUpdate {
   repeated AnnounceAccount accounts = 2;
 }
 
+// Message sent by a peer providing a view of the whole NEAR network.
+// It contains a collection of edges constituting a shortest path tree
+// over the network rooted at the peer sending the message.
+message ShortestPathTree {
+  repeated Edge edges = 1;
+}
+
 // TODO: document it.
 message UpdateNonceRequest {
   PartialEdgeInfo partial_edge_info = 1;
@@ -416,6 +423,7 @@ message PeerMessage {
     HandshakeFailure handshake_failure = 5;
     LastEdge last_edge = 6;
     RoutingTableUpdate sync_routing_table = 7;
+    ShortestPathTree shortest_path_tree = 28;
     
     UpdateNonceRequest update_nonce_request = 8;
     UpdateNonceResponse update_nonce_response = 9;

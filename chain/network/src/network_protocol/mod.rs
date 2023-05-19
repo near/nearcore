@@ -288,6 +288,12 @@ impl RoutingTableUpdate {
         Self { edges, accounts }
     }
 }
+
+#[derive(PartialEq, Eq, Clone, Debug, Default)]
+pub struct ShortestPathTree {
+    pub edges: Vec<Edge>,
+}
+
 /// Structure representing handshake between peers.
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct Handshake {
@@ -361,6 +367,7 @@ pub enum PeerMessage {
     LastEdge(Edge),
     /// Contains accounts and edge information.
     SyncRoutingTable(RoutingTableUpdate),
+    ShortestPathTree(ShortestPathTree),
     RequestUpdateNonce(PartialEdgeInfo),
 
     SyncAccountsData(SyncAccountsData),
