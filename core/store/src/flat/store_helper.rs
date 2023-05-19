@@ -64,14 +64,16 @@ pub fn remove_all_deltas(store_update: &mut StoreUpdate, shard_uid: ShardUId) {
     store_update.delete_range(DBCol::FlatStateDeltaMetadata, &key_from, &key_to);
 }
 
-fn encode_flat_state_db_key(shard_uid: ShardUId, key: &[u8]) -> Vec<u8> {
+pub(crate) fn encode_flat_state_db_key(shard_uid: ShardUId, key: &[u8]) -> Vec<u8> {
     let mut buffer = vec![];
     buffer.extend_from_slice(&shard_uid.to_bytes());
     buffer.extend_from_slice(key);
     buffer
 }
 
-fn decode_flat_state_db_key(key: &Box<[u8]>) -> Result<(ShardUId, Vec<u8>), StorageError> {
+pub(crate) fn decode_flat_state_db_key(
+    key: &Box<[u8]>,
+) -> Result<(ShardUId, Vec<u8>), StorageError> {
     if key.len() < 8 {
         return Err(StorageError::StorageInconsistentState(format!(
             "Found key in flat storage with length < 8: {key:?}"
