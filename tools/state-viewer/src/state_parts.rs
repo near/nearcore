@@ -254,13 +254,13 @@ fn load_state_parts(
     store: Store,
     location: Location,
 ) {
+    let epoch_id = epoch_selection.to_epoch_id(store, chain);
     let (state_root, epoch_height, epoch_id, sync_hash) =
         if let (Some(state_root), EpochSelection::EpochHeight { epoch_height }) =
             (maybe_state_root, &epoch_selection)
         {
-            (state_root, *epoch_height, None, None)
+            (state_root, *epoch_height, epoch_id, None)
         } else {
-            let epoch_id = epoch_selection.to_epoch_id(store, chain);
             let epoch = chain.epoch_manager.get_epoch_info(&epoch_id).unwrap();
 
             let sync_hash = get_any_block_hash_of_epoch(&epoch, chain);
@@ -269,10 +269,10 @@ fn load_state_parts(
             let state_header = chain.get_state_response_header(shard_id, sync_hash).unwrap();
             let state_root = state_header.chunk_prev_state_root();
 
-            (state_root, epoch.epoch_height(), Some(epoch_id), Some(sync_hash))
+            (state_root, epoch.epoch_height(), epoch_id, Some(sync_hash))
         };
 
-    let part_storage = get_state_part_reader(location, chain_id, epoch_height, shard_id);
+    let part_storage = get_state_part_reader(location, chain_id, &epoch_id, epoch_height, shard_id);
 
     let num_parts = part_storage.num_parts();
     assert_ne!(num_parts, 0, "Too few num_parts: {}", num_parts);
@@ -310,7 +310,7 @@ fn load_state_parts(
                         &state_root,
                         PartId::new(part_id, num_parts),
                         &part,
-                        epoch_id.as_ref().unwrap(),
+                        &epoch_id,
                     )
                     .unwrap();
                 tracing::info!(target: "state-parts", part_id, part_length = part.len(), elapsed_sec = timer.elapsed().as_secs_f64(), "Loaded a state part");
@@ -371,7 +371,8 @@ fn dump_state_parts(
         "Dumping state as seen at the beginning of the specified epoch.",
     );
 
-    let part_storage = get_state_part_writer(location, chain_id, epoch.epoch_height(), shard_id);
+    let part_storage =
+        get_state_part_writer(location, chain_id, &epoch_id, epoch.epoch_height(), shard_id);
 
     let timer = Instant::now();
     for part_id in part_ids {
@@ -446,15 +447,21 @@ trait StatePartReader {
 fn get_state_part_reader(
     location: Location,
     chain_id: &str,
+    epoch_id: &EpochId,
     epoch_height: u64,
     shard_id: ShardId,
 ) -> Box<dyn StatePartReader> {
     match location {
-        Location::Files(root_dir) => {
-            Box::new(FileSystemStorage::new(root_dir, false, chain_id, epoch_height, shard_id))
-        }
+        Location::Files(root_dir) => Box::new(FileSystemStorage::new(
+            root_dir,
+            false,
+            chain_id,
+            epoch_id,
+            epoch_height,
+            shard_id,
+        )),
         Location::S3 { bucket, region } => {
-            Box::new(S3Storage::new(&bucket, &region, chain_id, epoch_height, shard_id))
+            Box::new(S3Storage::new(&bucket, &region, chain_id, epoch_id, epoch_height, shard_id))
         }
     }
 }
@@ -462,15 +469,21 @@ fn get_state_part_reader(
 fn get_state_part_writer(
     location: Location,
     chain_id: &str,
+    epoch_id: &EpochId,
     epoch_height: u64,
     shard_id: ShardId,
 ) -> Box<dyn StatePartWriter> {
     match location {
-        Location::Files(root_dir) => {
-            Box::new(FileSystemStorage::new(root_dir, true, chain_id, epoch_height, shard_id))
-        }
+        Location::Files(root_dir) => Box::new(FileSystemStorage::new(
+            root_dir,
+            true,
+            chain_id,
+            epoch_id,
+            epoch_height,
+            shard_id,
+        )),
         Location::S3 { bucket, region } => {
-            Box::new(S3Storage::new(&bucket, &region, chain_id, epoch_height, shard_id))
+            Box::new(S3Storage::new(&bucket, &region, chain_id, epoch_id, epoch_height, shard_id))
         }
     }
 }
@@ -484,10 +497,11 @@ impl FileSystemStorage {
         root_dir: PathBuf,
         create_dir: bool,
         chain_id: &str,
+        epoch_id: &EpochId,
         epoch_height: u64,
         shard_id: u64,
     ) -> Self {
-        let prefix = location_prefix(chain_id, epoch_height, shard_id);
+        let prefix = location_prefix(chain_id, epoch_height, epoch_id, shard_id);
         let state_parts_dir = root_dir.join(&prefix);
         if create_dir {
             tracing::info!(target: "state-parts", ?root_dir, ?prefix, ?state_parts_dir, "Ensuring the directory exists");
@@ -557,10 +571,11 @@ impl S3Storage {
         s3_bucket: &str,
         s3_region: &str,
         chain_id: &str,
+        epoch_id: &EpochId,
         epoch_height: u64,
         shard_id: u64,
     ) -> Self {
-        let location = location_prefix(chain_id, epoch_height, shard_id);
+        let location = location_prefix(chain_id, epoch_height, epoch_id, shard_id);
         let bucket = s3::Bucket::new(
             s3_bucket,
             s3_region.parse::<s3::Region>().unwrap(),

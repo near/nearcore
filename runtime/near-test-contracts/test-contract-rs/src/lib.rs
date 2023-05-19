@@ -608,7 +608,8 @@ fn log_u64(msg: u64) {
 }
 
 pub fn from_base64(s: &str) -> Vec<u8> {
-    base64::decode(s).unwrap()
+    let engine = &base64::engine::general_purpose::STANDARD;
+    base64::Engine::decode(engine, s).unwrap()
 }
 
 #[no_mangle]
