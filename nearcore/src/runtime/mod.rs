@@ -717,7 +717,9 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<Trie, Error> {
         let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_hash)?;
         if use_flat_storage {
-            Ok(self.tries.get_trie_with_block_hash_for_shard(shard_uid, state_root, prev_hash))
+            Ok(self
+                .tries
+                .get_trie_with_block_hash_for_shard(shard_uid, state_root, prev_hash, false))
         } else {
             Ok(self.tries.get_trie_for_shard(shard_uid, state_root))
         }
@@ -1201,7 +1203,8 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn obtain_state_part(
         &self,
         shard_id: ShardId,
-        block_hash: &CryptoHash,
+        // !!! TEMPORARY CHANGING FROM block_hash TO prev_hash IN PROTOTYPE
+        prev_hash: &CryptoHash,
         state_root: &StateRoot,
         part_id: PartId,
     ) -> Result<Vec<u8>, Error> {
@@ -1210,22 +1213,23 @@ impl RuntimeAdapter for NightshadeRuntime {
             "obtain_state_part",
             part_id = part_id.idx,
             shard_id,
-            %block_hash,
+            %prev_hash,
             num_parts = part_id.total)
         .entered();
         let _timer = metrics::STATE_SYNC_OBTAIN_PART_DELAY
             .with_label_values(&[&shard_id.to_string()])
             .start_timer();
 
-        let epoch_id = self.epoch_manager.get_epoch_id(block_hash)?;
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
-        let trie = self.tries.get_view_trie_for_shard(shard_uid, *state_root);
-        let result = match trie.get_trie_nodes_for_part(part_id) {
+        let trie =
+            self.tries.get_trie_with_block_hash_for_shard(shard_uid, *state_root, &prev_hash, true);
+        let result = match trie.get_trie_nodes_for_part(prev_hash, part_id) {
             Ok(partial_state) => partial_state,
             Err(e) => {
                 error!(target: "runtime",
                        "Can't get_trie_nodes_for_part for block {:?} state root {:?}, part_id {:?}, num_parts {:?}, {:?}",
-                       block_hash, state_root, part_id.idx, part_id.total, e
+                       prev_hash, state_root, part_id.idx, part_id.total, e
                 );
                 return Err(e.into());
             }

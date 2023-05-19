@@ -1,5 +1,5 @@
 use crate::epoch_info::iterate_and_filter;
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::BorshDeserialize;
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use near_client::sync::state::{
     get_num_parts_from_filename, is_part_filename, location_prefix, part_filename, StateSync,
@@ -10,8 +10,7 @@ use near_primitives::challenge::PartialState;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::state_part::PartId;
 use near_primitives::state_record::StateRecord;
-use near_primitives::syncing::get_num_state_parts;
-use near_primitives::types::{EpochId, StateRoot, Stats};
+use near_primitives::types::{EpochId, StateRoot};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{BlockHeight, EpochHeight, ShardId};
 use near_store::{PartialStorage, Store, Trie};
@@ -61,8 +60,9 @@ pub(crate) enum StatePartsSubCommand {
         /// Select an epoch to work on.
         #[clap(subcommand)]
         epoch_selection: EpochSelection,
+        /// State part size in MBs
         #[clap(long)]
-        use_flat: bool,
+        mbs: Option<u64>,
     },
     /// Read State Header from the DB
     ReadStateHeader {
@@ -120,7 +120,7 @@ impl StatePartsSubCommand {
                     Location::new(root_dir, (s3_bucket, s3_region)),
                 );
             }
-            StatePartsSubCommand::Dump { part_from, part_to, epoch_selection, use_flat } => {
+            StatePartsSubCommand::Dump { part_from, part_to, epoch_selection, mbs } => {
                 dump_state_parts(
                     epoch_selection,
                     shard_id,
@@ -130,7 +130,7 @@ impl StatePartsSubCommand {
                     chain_id,
                     store,
                     Location::new(root_dir, (s3_bucket, s3_region)),
-                    use_flat,
+                    mbs,
                 );
             }
             StatePartsSubCommand::ReadStateHeader { epoch_selection } => {
@@ -349,7 +349,7 @@ fn dump_state_parts(
     _chain_id: &str,
     store: Store,
     _location: Location,
-    use_flat: bool,
+    mbs: Option<u64>,
 ) {
     // hope that epoch id is correct for flat storage. anyway shard uids don't change
     let epoch_id = epoch_selection.to_epoch_id(store, &chain);
@@ -359,6 +359,7 @@ fn dump_state_parts(
     let flat_storage_head = flat_storage.get_head_hash();
     // StateSync(sync_hash) dumps/applies state at moment BEFORE applying prev(sync_hash).
     // So we take sync_hash = next(next(fs_head)) as flat storage stores state AFTER applying block at its head.
+    let sync_prev_prev_hash = flat_storage_head.clone();
     let sync_prev_hash = chain.store().get_next_block_hash(&flat_storage_head).unwrap();
     let sync_hash = chain.store().get_next_block_hash(&sync_prev_hash).unwrap();
     let epoch = chain.epoch_manager.get_epoch_info(&epoch_id).unwrap();
@@ -377,7 +378,7 @@ fn dump_state_parts(
         .runtime_adapter
         .get_state_root_node(shard_id, &sync_prev_hash, &chunk_header.prev_state_root())
         .unwrap();
-    let num_parts = get_num_state_parts(state_root_node.memory_usage);
+    let num_parts = state_root_node.memory_usage / (mbs.unwrap_or(1) * 1_000_000) + 3; // get_num_state_parts(state_root_node.memory_usage);
     let part_ids = get_part_ids(part_from, part_to, num_parts);
 
     tracing::info!(
@@ -399,73 +400,18 @@ fn dump_state_parts(
         // let timer = Instant::now();
         assert!(part_id < num_parts, "part_id: {}, num_parts: {}", part_id, num_parts);
 
-        let state_part_read_start = Instant::now();
-
-        let (state_part, read_stats) = if use_flat {
-            // checked equality on testnet. assume that it works now
-            let sync_prev_hash = chain.get_block_header(&sync_hash).unwrap().prev_hash().clone();
-            let trie = chain
-                .runtime_adapter
-                .get_trie_for_shard(shard_id, &sync_prev_hash, state_root, true)
-                .unwrap();
-            let (partial_state, stats) = trie
-                .get_trie_nodes_for_part_with_flat_storage(
-                    shard_uid,
-                    PartId { idx: part_id, total: num_parts },
-                )
-                .unwrap();
-            let partial_state = partial_state.try_to_vec().unwrap();
-            let partial_state_2 = chain
-                .runtime_adapter
-                .obtain_state_part(
-                    shard_id,
-                    &sync_hash,
-                    &state_root,
-                    PartId::new(part_id, num_parts),
-                )
-                .unwrap();
-            assert_eq!(partial_state, partial_state_2, "part {part_id}/{num_parts} failed");
-            (partial_state, stats)
-        } else {
-            (
-                chain
-                    .runtime_adapter
-                    .obtain_state_part(
-                        shard_id,
-                        &sync_hash,
-                        &state_root,
-                        PartId::new(part_id, num_parts),
-                    )
-                    .unwrap(),
-                Stats::default(),
+        let state_part = chain
+            .runtime_adapter
+            .obtain_state_part(
+                shard_id,
+                &sync_prev_prev_hash,
+                &state_root,
+                PartId::new(part_id, num_parts),
             )
-        };
+            .unwrap();
 
-        let state_part_read_duration = state_part_read_start.elapsed();
-        let Stats {
-            boundaries_read_duration,
-            values_read_duration,
-            trie_updates_gen_duration,
-            final_trie_gen_duration,
-            internal_get_duration,
-        } = read_stats;
-
-        // part_storage.write(&trie_state_part, part_id, num_parts);
-        // let elapsed_sec = timer.elapsed().as_secs_f64();
         let first_state_record = get_first_state_record(&state_root, &state_part);
-        tracing::info!(
-            target: "state-parts",
-            part_id,
-            part_length = state_part.len(),
-            state_part_read_ms = state_part_read_duration.as_millis(),
-            boundaries_read_ms = boundaries_read_duration.as_millis(),
-            values_read_ms = values_read_duration.as_millis(),
-            trie_updates_gen_ms = trie_updates_gen_duration.as_millis(),
-            final_trie_gen_ms = final_trie_gen_duration.as_millis(),
-            internal_get_ms = internal_get_duration.as_millis(),
-            first_state_record = ?first_state_record.map(|sr| format!("{}", sr)),
-            "Wrote a state part"
-        );
+        tracing::info!(target: "state-parts", "{:?}", first_state_record.map(|sr| format!("{}", sr)));
     }
     tracing::info!(target: "state-parts", total_elapsed_sec = timer.elapsed().as_secs_f64(), "Wrote all requested state parts");
 }

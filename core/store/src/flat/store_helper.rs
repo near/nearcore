@@ -140,15 +140,13 @@ pub fn iter_flat_state_entries<'a>(
     from: &'a [u8],
     to: &'a [u8],
 ) -> impl Iterator<Item = (Vec<u8>, Box<[u8]>)> + 'a {
-    store.iter_range(FlatStateColumn::State.to_db_col(), Some(from), Some(to)).filter_map(
-        move |result| {
-            if let Ok((key, value)) = result {
-                let (_, trie_key) = decode_flat_state_db_key(&key).unwrap();
-                return Some((trie_key, value));
-            }
-            return None;
-        },
-    )
+    store.iter_range(DBCol::FlatState, Some(from), Some(to)).filter_map(move |result| {
+        if let Ok((key, value)) = result {
+            let (_, trie_key) = decode_flat_state_db_key(&key).unwrap();
+            return Some((trie_key, value));
+        }
+        return None;
+    })
 }
 
 /// Currently all the data in flat storage is 'together' - so we have to parse the key,

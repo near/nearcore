@@ -588,8 +588,7 @@ mod tests {
             let block_hash = chain.get_block_hash(i);
             let blocks = flat_storage.get_blocks_to_head(&block_hash).unwrap();
             assert_eq!(blocks.len(), i as usize);
-            let chunk_view =
-                flat_storage_manager.chunk_view(shard_uid, Some(block_hash), false).unwrap();
+            let chunk_view = flat_storage_manager.chunk_view(shard_uid, block_hash).unwrap();
             assert_eq!(
                 chunk_view.get_value(&[1]).unwrap(),
                 Some(FlatStateValue::value_ref(&[i as u8]))
@@ -614,12 +613,10 @@ mod tests {
         //    Verify that they return the correct values
         let blocks = flat_storage.get_blocks_to_head(&chain.get_block_hash(10)).unwrap();
         assert_eq!(blocks.len(), 10);
-        let chunk_view0 = flat_storage_manager
-            .chunk_view(shard_uid, Some(chain.get_block_hash(10)), false)
-            .unwrap();
-        let chunk_view1 = flat_storage_manager
-            .chunk_view(shard_uid, Some(chain.get_block_hash(4)), false)
-            .unwrap();
+        let chunk_view0 =
+            flat_storage_manager.chunk_view(shard_uid, chain.get_block_hash(10)).unwrap();
+        let chunk_view1 =
+            flat_storage_manager.chunk_view(shard_uid, chain.get_block_hash(4)).unwrap();
         assert_eq!(chunk_view0.get_value(&[1]).unwrap(), None);
         assert_eq!(chunk_view0.get_value(&[2]).unwrap(), Some(FlatStateValue::value_ref(&[1])));
         assert_eq!(chunk_view1.get_value(&[1]).unwrap(), Some(FlatStateValue::value_ref(&[4])));

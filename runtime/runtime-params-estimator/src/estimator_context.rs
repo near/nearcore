@@ -404,7 +404,12 @@ impl Testbed<'_> {
         // will be at the same number.
         let tip_height = self.config.finality_lag;
         let tip = fs_fake_block_height_to_hash(tip_height as u64);
-        self.tries.get_trie_with_block_hash_for_shard(ShardUId::single_shard(), self.root, &tip)
+        self.tries.get_trie_with_block_hash_for_shard(
+            ShardUId::single_shard(),
+            self.root,
+            &tip,
+            false,
+        )
     }
 }
 

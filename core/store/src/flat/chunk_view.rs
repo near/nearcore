@@ -51,4 +51,8 @@ impl FlatStorageChunkView {
     ) -> impl Iterator<Item = (Vec<u8>, Box<[u8]>)> + 'a {
         store_helper::iter_flat_state_entries(&self.store, from, to)
     }
+
+    pub fn get_head_hash(&self) -> CryptoHash {
+        self.flat_storage.get_head_hash()
+    }
 }
