@@ -536,7 +536,10 @@ impl KeyForStateChanges {
 
 #[cfg(test)]
 mod test {
-    use crate::test_utils::create_test_store;
+    use crate::{
+        config::TrieCacheConfig, test_utils::create_test_store,
+        trie::DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
+    };
 
     use super::*;
     use std::{assert_eq, str::FromStr};
@@ -608,8 +611,26 @@ mod test {
     #[test]
     fn test_trie_cache() {
         let store = create_test_store();
+        let trie_cache_config = TrieCacheConfig {
+            default_max_bytes: DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
+            per_shard_max_bytes: Default::default(),
+            shard_cache_deletions_queue_capacity: 0,
+        };
+        let trie_config = TrieConfig {
+            shard_cache_config: trie_cache_config.clone(),
+            view_shard_cache_config: trie_cache_config,
+            enable_receipt_prefetching: false,
+            sweat_prefetch_receivers: Vec::new(),
+            sweat_prefetch_senders: Vec::new(),
+        };
+        let shard_uids = Vec::from([ShardUId { shard_id: 0, version: 0 }]);
 
-        let trie = ShardTries::test(store.clone(), 1);
+        let trie = ShardTries::new(
+            store.clone(),
+            trie_config,
+            &shard_uids,
+            FlatStorageManager::test(store, &shard_uids, CryptoHash::default()),
+        );
         let shard_uid = ShardUId { version: 0, shard_id: 0 };
 
         let trie_caches = &trie.0.caches;
@@ -630,6 +651,9 @@ mod test {
             trie_caches.read().unwrap().get(&shard_uid).unwrap().get(&key).unwrap().to_vec(),
             val
         );
+
+        let deletions_ops = Vec::from([(&key, None)]);
+        trie.update_cache(deletions_ops, shard_uid);
+        assert!(trie_caches.read().unwrap().get(&shard_uid).unwrap().get(&key).is_none());
     }
 }
-
