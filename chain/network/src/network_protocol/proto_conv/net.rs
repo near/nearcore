@@ -9,6 +9,40 @@ use near_primitives::network::AnnounceAccount;
 use protobuf::MessageField as MF;
 use std::net::{IpAddr, SocketAddr};
 
+////////////////////////////////////////
+// Parse std::net::IpAddr to Protocol Buffer and back
+#[derive(thiserror::Error, Debug)]
+pub enum ParseIpAddrError {
+    #[error("invalid IP")]
+    InvalidIP,
+}
+
+impl From<&std::net::IpAddr> for proto::IpAddr{
+    fn from(x: &std::net::IpAddr) -> Self {
+        Self {
+            ip: match x {
+                std::net::IpAddr::V4(ip) => ip.octets().to_vec(),
+                std::net::IpAddr::V6(ip) => ip.octets().to_vec(),
+            },
+            ..Self::default()
+        }
+    }
+}
+
+impl TryFrom<&proto::IpAddr> for std::net::IpAddr {
+    type Error = ParseIpAddrError;
+    fn try_from(x: &proto::IpAddr) -> Result<Self, Self::Error> {
+        let ip = match x.ip.len() {
+            4 => IpAddr::from(<[u8; 4]>::try_from(&x.ip[..]).unwrap()),
+            16 => IpAddr::from(<[u8; 16]>::try_from(&x.ip[..]).unwrap()),
+            _ => return Err(Self::Error::InvalidIP),
+        };
+        Ok(ip)
+    }
+}
+
+////////////////////////////////////////
+
 #[derive(thiserror::Error, Debug)]
 pub enum ParseSocketAddrError {
     #[error("invalid IP")]

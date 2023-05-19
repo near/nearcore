@@ -199,6 +199,11 @@ message LastEdge {
   Edge edge = 1;
 }
 
+message IpAddr {
+  // IPv4 (4 bytes) or IPv6 (16 bytes) in network byte order.
+  bytes ip = 1;
+}
+
 message SocketAddr {
   // IPv4 (4 bytes) or IPv6 (16 bytes) in network byte order.
   bytes ip = 1;

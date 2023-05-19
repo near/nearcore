@@ -8,6 +8,7 @@ use anyhow::{bail, Context as _};
 use itertools::Itertools as _;
 use near_async::time;
 use rand::Rng as _;
+use std::net;
 
 #[test]
 fn deduplicate_edges() {
@@ -169,4 +170,22 @@ fn serialize_deserialize() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+#[test]
+fn serialize_deserialize_ip_addr() {
+    let mut rng = make_rng(89028037453);
+
+    // Convert IpAddr to proto::IpAddr for protocol buffer serialization
+    let ip_addr_before_serialize: net::IpAddr = data::make_ipv4(&mut rng);
+    let proto_ip_addr_before_serialize: proto::IpAddr = proto::IpAddr::from(&ip_addr_before_serialize);
+    // Serialize and deserialize for transporting over the network
+    let ip_addr_bytes: Vec<u8> = proto_ip_addr_before_serialize.write_to_bytes().unwrap();
+    let proto_ip_addr_after_deserialize = proto::IpAddr::parse_from_bytes(&ip_addr_bytes).unwrap();
+    assert_eq!(proto_ip_addr_before_serialize,  proto_ip_addr_after_deserialize);
+    // Convert proto::IpAddr back to IpAddr to be independent of protocol buffer in near network
+    let result_deserialized_actual_ip_addr = net::IpAddr::try_from(&proto_ip_addr_after_deserialize);
+    assert!(result_deserialized_actual_ip_addr.is_ok());
+    let deserialized_actual_ip_addr = result_deserialized_actual_ip_addr.unwrap();
+    assert_eq!(ip_addr_before_serialize, deserialized_actual_ip_addr);
 }
