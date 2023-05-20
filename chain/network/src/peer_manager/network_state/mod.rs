@@ -331,7 +331,10 @@ impl NetworkState {
                     // First verify and broadcast the edge of the connection, so that in case
                     // it is invalid, the connection is not added to the pool.
                     // TODO(gprusak): consider actually banning the peer for consistency.
-                    this.add_edges(&clock, vec![edge])
+                    this.add_edges(&clock, vec![edge.clone()])
+                        .await
+                        .map_err(|_: ReasonForBan| RegisterPeerError::InvalidEdge)?;
+                    this.update_shortest_path_tree(&clock, this.config.node_id(), vec![edge])
                         .await
                         .map_err(|_: ReasonForBan| RegisterPeerError::InvalidEdge)?;
                     this.tier2.insert_ready(conn.clone()).map_err(RegisterPeerError::PoolError)?;
@@ -374,6 +377,13 @@ impl NetworkState {
                     let edge_update =
                         edge.remove_edge(this.config.node_id(), &this.config.node_key);
                     this.add_edges(&clock, vec![edge_update.clone()]).await.unwrap();
+                    this.update_shortest_path_tree(
+                        &clock,
+                        this.config.node_id(),
+                        vec![edge_update.clone()],
+                    )
+                    .await
+                    .unwrap();
                 }
             }
 
@@ -650,6 +660,7 @@ impl NetworkState {
     /// Try to resolve the inconsistency.
     /// We call this function every FIX_LOCAL_EDGES_INTERVAL from peer_manager_actor.rs.
     pub async fn fix_local_edges(self: &Arc<Self>, clock: &time::Clock, timeout: time::Duration) {
+        // TODO: This just operates on graph. Do something similar for graph_v2.
         let this = self.clone();
         let clock = clock.clone();
         self.spawn(async move {
