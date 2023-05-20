@@ -517,30 +517,51 @@ impl NetworkState {
                 };
                 return self.tier1.send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
             }
-            tcp::Tier::T2 => match self.find_route(&clock, &msg.target) {
-                Ok(peer_id) => {
-                    // Remember if we expect a response for this message.
-                    if msg.author == my_peer_id && msg.expect_response() {
-                        tracing::trace!(target: "network", ?msg, "initiate route back");
-                        self.tier2_route_back.lock().insert(clock, msg.hash(), my_peer_id);
-                    }
-                    return self.tier2.send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
-                }
-                Err(find_route_error) => {
-                    // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
-                    metrics::MessageDropped::NoRouteFound.inc(&msg.body);
+            tcp::Tier::T2 => {
+                // TODO: Think about what we really want to check and make this more robust,
+                // also log it to metrics rather than printing
+                match &msg.target {
+                    PeerIdOrHash::PeerId(peer_id) => {
+                        let hop_ct_v1 =
+                            self.graph.routing_table.count_next_hops_for_peer_id(peer_id);
+                        let hop_ct_v2 =
+                            self.graph_v2.routing_table.count_next_hops_for_peer_id(peer_id);
+                        tracing::info!(target: "stats", "num next hops for {} are {} vs {}", &peer_id, hop_ct_v1, hop_ct_v2);
 
-                    tracing::debug!(target: "network",
-                          account_id = ?self.config.validator.as_ref().map(|v|v.account_id()),
-                          to = ?msg.target,
-                          reason = ?find_route_error,
-                          known_peers = ?self.graph.routing_table.reachable_peers(),
-                          msg = ?msg.body,
-                        "Drop signed message"
-                    );
-                    return false;
+                        if hop_ct_v1 != hop_ct_v2 {
+                            tracing::error!(target: "stats", "number of next hops mismatched between routing protocols for target {}", &peer_id);
+                        }
+                    }
+                    Default => {}
                 }
-            },
+
+                match self.find_route(&clock, &msg.target) {
+                    Ok(peer_id) => {
+                        // Remember if we expect a response for this message.
+                        if msg.author == my_peer_id && msg.expect_response() {
+                            tracing::trace!(target: "network", ?msg, "initiate route back");
+                            self.tier2_route_back.lock().insert(clock, msg.hash(), my_peer_id);
+                        }
+                        return self
+                            .tier2
+                            .send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
+                    }
+                    Err(find_route_error) => {
+                        // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
+                        metrics::MessageDropped::NoRouteFound.inc(&msg.body);
+
+                        tracing::debug!(target: "network",
+                              account_id = ?self.config.validator.as_ref().map(|v|v.account_id()),
+                              to = ?msg.target,
+                              reason = ?find_route_error,
+                              known_peers = ?self.graph.routing_table.reachable_peers(),
+                              msg = ?msg.body,
+                            "Drop signed message"
+                        );
+                        return false;
+                    }
+                }
+            }
         }
     }
 
