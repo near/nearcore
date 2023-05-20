@@ -5,7 +5,7 @@ use crate::config::PEERS_RESPONSE_MAX_PEERS;
 use crate::network_protocol::{
     Edge, EdgeState, Encoding, OwnedAccount, ParsePeerMessageError, PartialEdgeInfo,
     PeerChainInfoV2, PeerIdOrHash, PeerInfo, PeersRequest, PeersResponse, RawRoutedMessage,
-    RoutedMessageBody, RoutingTableUpdate, StateResponseInfo, SyncAccountsData,
+    RoutedMessageBody, RoutingTableUpdate, ShortestPathTree, StateResponseInfo, SyncAccountsData,
 };
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
@@ -1202,6 +1202,19 @@ impl PeerActor {
                         .push(Event::MessageProcessed(conn.tier, peer_msg));
                 }));
             }
+            PeerMessage::ShortestPathTree(spt) => {
+                let clock = self.clock.clone();
+                let conn = conn.clone();
+                let network_state = self.network_state.clone();
+                ctx.spawn(wrap_future(async move {
+                    Self::handle_shortest_path_tree(&clock, &network_state, conn.clone(), spt)
+                        .await;
+                    network_state
+                        .config
+                        .event_sink
+                        .push(Event::MessageProcessed(conn.tier, peer_msg));
+                }));
+            }
             PeerMessage::SyncAccountsData(msg) => {
                 metrics::SYNC_ACCOUNTS_DATA
                     .with_label_values(&[
@@ -1380,6 +1393,21 @@ impl PeerActor {
         match network_state.client.announce_account(accounts).await {
             Err(ban_reason) => conn.stop(Some(ban_reason)),
             Ok(accounts) => network_state.add_accounts(accounts).await,
+        }
+    }
+
+    async fn handle_shortest_path_tree(
+        clock: &time::Clock,
+        network_state: &Arc<NetworkState>,
+        conn: Arc<connection::Connection>,
+        spt: ShortestPathTree,
+    ) {
+        // TODO: Check that spt.root matches peer_id and ban otherwise
+        let _span = tracing::trace_span!(target: "network", "handle_shortest_path_tree").entered();
+        if let Err(ban_reason) =
+            network_state.update_shortest_path_tree(&clock, spt.root, spt.edges).await
+        {
+            conn.stop(Some(ban_reason));
         }
     }
 }

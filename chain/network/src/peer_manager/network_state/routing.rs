@@ -3,7 +3,7 @@ use crate::network_protocol::{
     Edge, EdgeState, PartialEdgeInfo, PeerMessage, RoutingTableUpdate, ShortestPathTree,
 };
 use crate::peer_manager::connection;
-use crate::peer_manager::network_state::PeerIdOrHash;
+use crate::peer_manager::network_state::{PeerIdOrHash, RoutedMessageV2};
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::routing::routing_table_view::FindRouteError;
 use crate::stats::metrics;
