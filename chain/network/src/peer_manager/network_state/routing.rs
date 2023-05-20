@@ -1,6 +1,6 @@
 use super::NetworkState;
 use crate::network_protocol::{
-    Edge, EdgeState, PartialEdgeInfo, PeerMessage, RoutedMessageV2, RoutingTableUpdate,
+    Edge, EdgeState, PartialEdgeInfo, PeerMessage, RoutingTableUpdate, ShortestPathTree,
 };
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::PeerIdOrHash;
@@ -23,6 +23,15 @@ impl NetworkState {
         }
         rtu.edges = Edge::deduplicate(rtu.edges);
         let msg = Arc::new(PeerMessage::SyncRoutingTable(rtu));
+        for conn in self.tier2.load().ready.values() {
+            conn.send_message(msg.clone());
+        }
+    }
+
+    // TODO(gprusak): eventually, this should be blocking, as it should be up to the caller
+    // whether to wait for the broadcast to finish, or run it in parallel with sth else.
+    fn broadcast_shortest_path_tree_update(&self, spt: ShortestPathTree) {
+        let msg = Arc::new(PeerMessage::ShortestPathTree(spt));
         for conn in self.tier2.load().ready.values() {
             conn.send_message(msg.clone());
         }
@@ -163,5 +172,48 @@ impl NetworkState {
 
     pub(crate) fn compare_route_back(&self, hash: CryptoHash, peer_id: &PeerId) -> bool {
         self.tier2_route_back.lock().get(&hash).map_or(false, |value| value == peer_id)
+    }
+
+    /// Cloned version of add_edges
+    pub async fn update_shortest_path_tree(
+        self: &Arc<Self>,
+        clock: &time::Clock,
+        root: PeerId,
+        edges: Vec<Edge>,
+    ) -> Result<(), ReasonForBan> {
+        if edges.is_empty() {
+            return Ok(());
+        }
+        let this = self.clone();
+        let clock = clock.clone();
+        self.update_spt_demux
+            .call(edges, |edges: Vec<Vec<Edge>>| async move {
+                let (mut edges, oks) = this.graph_v2.update(&clock, edges).await;
+                // Don't send tombstones during the initial time.
+                // Most of the network is created during this time, which results
+                // in us sending a lot of tombstones to peers.
+                // Later, the amount of new edges is a lot smaller.
+                if let Some(skip_tombstones_duration) = this.config.skip_tombstones {
+                    if clock.now() < this.created_at + skip_tombstones_duration {
+                        edges.retain(|edge| edge.edge_type() == EdgeState::Active);
+                        metrics::EDGE_TOMBSTONE_SENDING_SKIPPED.inc();
+                    }
+                }
+                // Broadcast new edges to all other peers.
+                this.config.event_sink.push(Event::EdgesAdded(edges.clone()));
+                this.broadcast_shortest_path_tree_update(ShortestPathTree {
+                    root: this.config.node_id(),
+                    edges,
+                });
+                // Retu
+                oks.iter()
+                    .map(|ok| match ok {
+                        true => Ok(()),
+                        false => Err(ReasonForBan::InvalidEdge),
+                    })
+                    .collect()
+            })
+            .await
+            .unwrap_or(Ok(()))
     }
 }
