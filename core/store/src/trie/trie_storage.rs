@@ -263,6 +263,7 @@ impl TrieCache {
                 if value.len() < TrieConfig::max_cached_value_size() {
                     guard.put(*hash, value.into());
                 } else {
+                    guard.pop(&hash);
                     guard.metrics.shard_cache_too_large.inc();
                 }
             } else {

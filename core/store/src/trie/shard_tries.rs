@@ -538,7 +538,7 @@ impl KeyForStateChanges {
 mod test {
     use crate::{
         config::TrieCacheConfig, test_utils::create_test_store,
-        trie::DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
+        trie::DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT, TrieConfig,
     };
 
     use super::*;
@@ -609,7 +609,7 @@ mod test {
     }
 
     #[test]
-    fn test_trie_cache() {
+    fn test_insert_delete_trie_cache() {
         let store = create_test_store();
         let trie_cache_config = TrieCacheConfig {
             default_max_bytes: DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
@@ -624,6 +624,7 @@ mod test {
             sweat_prefetch_senders: Vec::new(),
         };
         let shard_uids = Vec::from([ShardUId { shard_id: 0, version: 0 }]);
+        let shard_uid = shard_uids.first().unwrap().clone();
 
         let trie = ShardTries::new(
             store.clone(),
@@ -631,7 +632,6 @@ mod test {
             &shard_uids,
             FlatStorageManager::test(store, &shard_uids, CryptoHash::default()),
         );
-        let shard_uid = ShardUId { version: 0, shard_id: 0 };
 
         let trie_caches = &trie.0.caches;
         // Assert only one cache for one shard exists
@@ -654,6 +654,51 @@ mod test {
 
         let deletions_ops = Vec::from([(&key, None)]);
         trie.update_cache(deletions_ops, shard_uid);
+        assert!(trie_caches.read().unwrap().get(&shard_uid).unwrap().get(&key).is_none());
+    }
+
+    #[test]
+    fn test_shard_cache_max_value() {
+        let store = create_test_store();
+        let trie_cache_config = TrieCacheConfig {
+            default_max_bytes: DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
+            per_shard_max_bytes: Default::default(),
+            shard_cache_deletions_queue_capacity: 0,
+        };
+        let trie_config = TrieConfig {
+            shard_cache_config: trie_cache_config.clone(),
+            view_shard_cache_config: trie_cache_config.clone(),
+            enable_receipt_prefetching: false,
+            sweat_prefetch_receivers: Vec::new(),
+            sweat_prefetch_senders: Vec::new(),
+        };
+        let shard_uids = Vec::from([ShardUId { shard_id: 0, version: 0 }]);
+        let shard_uid = shard_uids.first().unwrap().clone();
+
+        let trie = ShardTries::new(
+            store.clone(),
+            trie_config,
+            &shard_uids,
+            FlatStorageManager::test(store, &shard_uids, CryptoHash::default()),
+        );
+
+        let trie_caches = &trie.0.caches;
+
+        // Insert into cache value just at the configure size maximum
+        let key = CryptoHash::from_str("32222222222233333333334444444444445555555777").unwrap();
+        let val: Vec<u8> = vec![0; TrieConfig::max_cached_value_size() - 1];
+        let insert_ops = Vec::from([(&key, Some(val.as_slice()))]);
+        trie.update_cache(insert_ops, shard_uid);
+        assert_eq!(
+            trie_caches.read().unwrap().get(&shard_uid).unwrap().get(&key).unwrap().to_vec(),
+            val
+        );
+
+        // Cannot insert into cache values bigger then configured
+        let key = CryptoHash::from_str("32222222222233333333334444444444445555555777").unwrap();
+        let val: Vec<u8> = vec![0; TrieConfig::max_cached_value_size()];
+        let insert_ops = Vec::from([(&key, Some(val.as_slice()))]);
+        trie.update_cache(insert_ops, shard_uid);
         assert!(trie_caches.read().unwrap().get(&shard_uid).unwrap().get(&key).is_none());
     }
 }
