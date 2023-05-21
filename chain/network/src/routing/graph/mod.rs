@@ -276,8 +276,6 @@ pub(crate) struct Graph {
     inner: Arc<Mutex<Inner>>,
     snapshot: ArcSwap<GraphSnapshot>,
     unreliable_peers: ArcSwap<HashSet<PeerId>>,
-    // TODO(gprusak): RoutingTableView consists of a bunch of unrelated stateful features.
-    // It requires a refactor.
     pub routing_table: RoutingTableView,
 
     runtime: Runtime,
