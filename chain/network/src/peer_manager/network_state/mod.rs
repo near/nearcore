@@ -1,4 +1,5 @@
 use crate::accounts_data;
+use crate::announce_accounts;
 use crate::client;
 use crate::concurrency::demux;
 use crate::concurrency::runtime::Runtime;
@@ -102,6 +103,8 @@ pub(crate) struct NetworkState {
     pub chain_info: ArcSwap<Option<ChainInfo>>,
     /// AccountsData for TIER1 accounts.
     pub accounts_data: Arc<accounts_data::Cache>,
+    /// AnnounceAccounts mapping TIER1 account ids to peer ids.
+    pub account_announcements: Arc<announce_accounts::Cache>,
     /// Connected peers (inbound and outbound) with their full peer information.
     pub tier2: connection::Pool,
     pub tier1: connection::Pool,
@@ -175,9 +178,10 @@ impl NetworkState {
             tier1: connection::Pool::new(config.node_id()),
             inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
             peer_store,
-            connection_store: connection_store::ConnectionStore::new(store).unwrap(),
+            connection_store: connection_store::ConnectionStore::new(store.clone()).unwrap(),
             pending_reconnect: Mutex::new(Vec::<PeerInfo>::new()),
             accounts_data: Arc::new(accounts_data::Cache::new()),
+            account_announcements: Arc::new(announce_accounts::Cache::new(store)),
             tier2_route_back: Mutex::new(RouteBackCache::default()),
             tier1_route_back: Mutex::new(RouteBackCache::default()),
             recent_routed_messages: Mutex::new(lru::LruCache::new(
@@ -571,7 +575,7 @@ impl NetworkState {
         let target = if let Some(peer_id) = peer_id_from_account_data {
             metrics::ACCOUNT_TO_PEER_LOOKUPS.with_label_values(&["AccountData"]).inc();
             peer_id
-        } else if let Some(peer_id) = self.graph.routing_table.account_owner(account_id) {
+        } else if let Some(peer_id) = self.account_announcements.get_account_owner(account_id) {
             metrics::ACCOUNT_TO_PEER_LOOKUPS.with_label_values(&["AnnounceAccount"]).inc();
             peer_id
         } else {
@@ -582,7 +586,7 @@ impl NetworkState {
                    to = ?account_id,
                    ?msg,"Drop message: unknown account",
             );
-            tracing::trace!(target: "network", known_peers = ?self.graph.routing_table.get_accounts_keys(), "Known peers");
+            tracing::trace!(target: "network", known_peers = ?self.account_announcements.get_accounts_keys(), "Known peers");
             return false;
         };
 

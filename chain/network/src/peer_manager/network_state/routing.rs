@@ -33,7 +33,7 @@ impl NetworkState {
     pub async fn add_accounts(self: &Arc<NetworkState>, accounts: Vec<AnnounceAccount>) {
         let this = self.clone();
         self.spawn(async move {
-            let new_accounts = this.graph.routing_table.add_accounts(accounts);
+            let new_accounts = this.account_announcements.add_accounts(accounts);
             tracing::debug!(target: "network", account_id = ?this.config.validator.as_ref().map(|v|v.account_id()), ?new_accounts, "Received new accounts");
             this.broadcast_routing_table_update(RoutingTableUpdate::from_accounts(
                 new_accounts.clone(),

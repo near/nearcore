@@ -451,7 +451,7 @@ impl ActorHandler {
         loop {
             let account = account.clone();
             let got = self
-                .with_state(|s| async move { s.graph.routing_table.account_owner(&account) })
+                .with_state(|s| async move { s.account_announcements.get_account_owner(&account) })
                 .await;
             if let Some(got) = got {
                 return got;

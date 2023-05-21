@@ -286,7 +286,7 @@ pub(crate) struct Graph {
 impl Graph {
     pub fn new(config: GraphConfig, store: store::Store) -> Self {
         Self {
-            routing_table: RoutingTableView::new(store.clone()),
+            routing_table: RoutingTableView::new(),
             inner: Arc::new(Mutex::new(Inner {
                 graph: bfs::Graph::new(config.node_id.clone()),
                 config,

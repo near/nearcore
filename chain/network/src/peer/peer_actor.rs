@@ -802,7 +802,7 @@ impl PeerActor {
             known_edges.retain(|edge| edge.removal_info().is_none());
             metrics::EDGE_TOMBSTONE_SENDING_SKIPPED.inc();
         }
-        let known_accounts = self.network_state.graph.routing_table.get_announce_accounts();
+        let known_accounts = self.network_state.account_announcements.get_announcements();
         self.send_message_or_log(&PeerMessage::SyncRoutingTable(RoutingTableUpdate::new(
             known_edges,
             known_accounts,
@@ -1367,9 +1367,8 @@ impl PeerActor {
         // as well as filter out those which are older than the fetched ones (to avoid overriding
         // a newer announce with an older one).
         let old = network_state
-            .graph
-            .routing_table
-            .get_broadcasted_announces(rtu.accounts.iter().map(|a| &a.account_id));
+            .account_announcements
+            .get_broadcasted_announcements(rtu.accounts.iter().map(|a| &a.account_id));
         let accounts: Vec<(AnnounceAccount, Option<EpochId>)> = rtu
             .accounts
             .into_iter()
