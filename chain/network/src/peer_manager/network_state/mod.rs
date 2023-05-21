@@ -121,12 +121,11 @@ pub(crate) struct NetworkState {
     pub recent_routed_messages: Mutex<lru::LruCache<CryptoHash, ()>>,
 
     /// Hash of messages that requires routing back to respective previous hop.
+    pub tier2_route_back: Mutex<RouteBackCache>,
     /// Currently unused, as TIER1 messages do not require a response.
     /// Also TIER1 connections are direct by design (except for proxies),
     /// so routing shouldn't really be needed.
     /// TODO(gprusak): consider removing it altogether.
-    ///
-    /// Note that the route_back table for TIER2 is stored in graph.routing_table_view.
     pub tier1_route_back: Mutex<RouteBackCache>,
 
     /// Shared counter across all PeerActors, which counts number of `RoutedMessageBody::ForwardTx`
@@ -179,6 +178,7 @@ impl NetworkState {
             connection_store: connection_store::ConnectionStore::new(store).unwrap(),
             pending_reconnect: Mutex::new(Vec::<PeerInfo>::new()),
             accounts_data: Arc::new(accounts_data::Cache::new()),
+            tier2_route_back: Mutex::new(RouteBackCache::default()),
             tier1_route_back: Mutex::new(RouteBackCache::default()),
             recent_routed_messages: Mutex::new(lru::LruCache::new(
                 RECENT_ROUTED_MESSAGES_CACHE_SIZE,
@@ -426,9 +426,7 @@ impl NetworkState {
         let my_peer_id = self.config.node_id();
         match target {
             PeerIdOrHash::PeerId(peer_id) => &my_peer_id == peer_id,
-            PeerIdOrHash::Hash(hash) => {
-                self.graph.routing_table.compare_route_back(*hash, &my_peer_id)
-            }
+            PeerIdOrHash::Hash(hash) => self.compare_route_back(*hash, &my_peer_id),
         }
     }
 
@@ -492,12 +490,12 @@ impl NetworkState {
                 };
                 return self.tier1.send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
             }
-            tcp::Tier::T2 => match self.graph.routing_table.find_route(&clock, &msg.target) {
+            tcp::Tier::T2 => match self.find_route(&clock, &msg.target) {
                 Ok(peer_id) => {
                     // Remember if we expect a response for this message.
                     if msg.author == my_peer_id && msg.expect_response() {
                         tracing::trace!(target: "network", ?msg, "initiate route back");
-                        self.graph.routing_table.add_route_back(&clock, msg.hash(), my_peer_id);
+                        self.tier2_route_back.lock().insert(clock, msg.hash(), my_peer_id);
                     }
                     return self.tier2.send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
                 }

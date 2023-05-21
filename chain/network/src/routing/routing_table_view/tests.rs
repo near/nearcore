@@ -1,10 +1,8 @@
 use crate::network_protocol::testonly as data;
-use crate::network_protocol::PeerIdOrHash;
 use crate::routing;
 use crate::routing::routing_table_view::*;
 use crate::test_utils::{random_epoch_id, random_peer_id};
 use crate::testonly::make_rng;
-use near_async::time;
 use near_crypto::Signature;
 use near_primitives::network::AnnounceAccount;
 use rand::seq::SliceRandom;
@@ -13,7 +11,6 @@ use std::sync::Arc;
 #[test]
 fn find_route() {
     let mut rng = make_rng(385305732);
-    let clock = time::FakeClock::default();
     let rng = &mut rng;
     let store = crate::store::Store::from(near_store::db::TestDB::new());
 
@@ -30,7 +27,7 @@ fn find_route() {
     rtv.update(next_hops.clone());
     for _ in 0..1000 {
         let p = peers.choose(rng).unwrap();
-        let got = rtv.find_route(&clock.clock(), &PeerIdOrHash::PeerId(p.clone())).unwrap();
+        let got = rtv.find_route_from_peer_id(&p).unwrap();
         assert!(next_hops.get(p).unwrap().contains(&got));
     }
 }

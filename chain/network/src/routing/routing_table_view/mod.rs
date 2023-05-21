@@ -1,10 +1,6 @@
-use crate::network_protocol::PeerIdOrHash;
 use crate::routing;
-use crate::routing::route_back_cache::RouteBackCache;
 use crate::store;
 use lru::LruCache;
-use near_async::time;
-use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
 use parking_lot::Mutex;
@@ -32,8 +28,6 @@ struct Inner {
     /// Alternatively, if we look at the set of all shortest path from `my_peer_id` to peer,
     /// this will be the set of first nodes on all such paths.
     next_hops: Arc<routing::NextHopTable>,
-    /// Hash of messages that requires routing back to respective previous hop.
-    route_back: RouteBackCache,
     /// Access to store on disk
     store: store::Store,
 
@@ -55,11 +49,6 @@ impl Inner {
         self.last_routed.put(next_hop.clone(), self.find_route_calls);
         self.find_route_calls += 1;
         Ok(next_hop.clone())
-    }
-
-    // Find route back with given hash and removes it from cache.
-    fn fetch_route_back(&mut self, clock: &time::Clock, hash: CryptoHash) -> Option<PeerId> {
-        self.route_back.remove(clock, &hash)
     }
 
     /// Get AnnounceAccount for the given AccountId.
@@ -93,7 +82,6 @@ impl RoutingTableView {
             account_peers: LruCache::new(ANNOUNCE_ACCOUNT_CACHE_SIZE),
             account_peers_broadcasted: LruCache::new(ANNOUNCE_ACCOUNT_CACHE_SIZE),
             next_hops: Default::default(),
-            route_back: RouteBackCache::default(),
             store,
             find_route_calls: 0,
             last_routed: LruCache::new(LAST_ROUTED_CACHE_SIZE),
@@ -111,18 +99,11 @@ impl RoutingTableView {
         self.0.lock().next_hops.len()
     }
 
-    pub(crate) fn find_route(
+    pub(crate) fn find_route_from_peer_id(
         &self,
-        clock: &time::Clock,
-        target: &PeerIdOrHash,
+        target: &PeerId,
     ) -> Result<PeerId, FindRouteError> {
-        let mut inner = self.0.lock();
-        match target {
-            PeerIdOrHash::PeerId(peer_id) => inner.find_route_from_peer_id(peer_id),
-            PeerIdOrHash::Hash(hash) => {
-                inner.fetch_route_back(clock, *hash).ok_or(FindRouteError::RouteBackNotFound)
-            }
-        }
+        self.0.lock().find_route_from_peer_id(target)
     }
 
     pub(crate) fn view_route(&self, peer_id: &PeerId) -> Option<Vec<PeerId>> {
@@ -156,14 +137,6 @@ impl RoutingTableView {
             res.push(aa);
         }
         res
-    }
-
-    pub(crate) fn add_route_back(&self, clock: &time::Clock, hash: CryptoHash, peer_id: PeerId) {
-        self.0.lock().route_back.insert(clock, hash, peer_id);
-    }
-
-    pub(crate) fn compare_route_back(&self, hash: CryptoHash, peer_id: &PeerId) -> bool {
-        self.0.lock().route_back.get(&hash).map_or(false, |value| value == peer_id)
     }
 
     pub(crate) fn info(&self) -> RoutingTableInfo {
