@@ -684,7 +684,7 @@ mod test {
 
         let trie_caches = &trie.0.caches;
 
-        // Insert into cache value just at the configure size maximum
+        // Insert into cache value at the configured maximum size
         let key = CryptoHash::from_str("32222222222233333333334444444444445555555777").unwrap();
         let val: Vec<u8> = vec![0; TrieConfig::max_cached_value_size() - 1];
         let insert_ops = Vec::from([(&key, Some(val.as_slice()))]);
@@ -694,7 +694,7 @@ mod test {
             val
         );
 
-        // Cannot insert into cache values bigger then configured
+        // Try to insert into cache value bigger then the maximum allowed size
         let key = CryptoHash::from_str("32222222222233333333334444444444445555555777").unwrap();
         let val: Vec<u8> = vec![0; TrieConfig::max_cached_value_size()];
         let insert_ops = Vec::from([(&key, Some(val.as_slice()))]);
