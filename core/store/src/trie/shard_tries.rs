@@ -624,7 +624,7 @@ mod test {
             sweat_prefetch_senders: Vec::new(),
         };
         let shard_uids = Vec::from([ShardUId { shard_id: 0, version: 0 }]);
-        let shard_uid = shard_uids.first().unwrap().clone();
+        let shard_uid = *shard_uids.first().unwrap();
 
         let trie = ShardTries::new(
             store.clone(),
@@ -667,13 +667,13 @@ mod test {
         };
         let trie_config = TrieConfig {
             shard_cache_config: trie_cache_config.clone(),
-            view_shard_cache_config: trie_cache_config.clone(),
+            view_shard_cache_config: trie_cache_config,
             enable_receipt_prefetching: false,
             sweat_prefetch_receivers: Vec::new(),
             sweat_prefetch_senders: Vec::new(),
         };
         let shard_uids = Vec::from([ShardUId { shard_id: 0, version: 0 }]);
-        let shard_uid = shard_uids.first().unwrap().clone();
+        let shard_uid = *shard_uids.first().unwrap();
 
         let trie = ShardTries::new(
             store.clone(),
