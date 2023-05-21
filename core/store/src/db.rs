@@ -187,8 +187,8 @@ pub trait Database: Sync + Send {
     fn iter_range<'a>(
         &'a self,
         col: DBCol,
-        lower_bound: Option<&'a [u8]>,
-        upper_bound: Option<&'a [u8]>,
+        lower_bound: Option<&[u8]>,
+        upper_bound: Option<&[u8]>,
     ) -> DBIterator<'a>;
 
     /// Iterate over items in given column bypassing reference count decoding if

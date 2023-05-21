@@ -130,7 +130,16 @@ impl FlatStorageShardCreator {
             proccessed parts: {processed_parts}"
         );
 
-        result_sender.send(num_items).unwrap();
+        if let Err(e) = result_sender.send(num_items) {
+            // Log error with `eprintln` because `tracing` stops working after
+            // SIGTERM.
+            eprintln!(
+                "During flat storage creation, state part sender channel \
+                was disconnected: {e}. Results of fetching state part \
+                {part_id:?} for shard {shard_uid} will not be recorded \
+                and flat storage creation will stall. Please restart the node."
+            );
+        }
     }
 
     /// Checks current flat storage creation status, execute work related to it and possibly switch to next status.
