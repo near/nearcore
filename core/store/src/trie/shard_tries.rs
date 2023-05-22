@@ -608,6 +608,7 @@ mod test {
         );
     }
 
+    //TODO(jbajic) Simplify logic for creating configuration
     #[test]
     fn test_insert_delete_trie_cache() {
         let store = create_test_store();
@@ -640,7 +641,7 @@ mod test {
         assert!(trie_caches.read().unwrap().get(&shard_uid).is_some());
 
         // Read from cache
-        let key = CryptoHash::from_str("32222222222233333333334444444444445555555777").unwrap();
+        let key = CryptoHash::hash_borsh("alice");
         let val: Vec<u8> = Vec::from([0, 1, 2, 3, 4]);
 
         assert!(trie_caches.read().unwrap().get(&shard_uid).unwrap().get(&key).is_none());
@@ -685,7 +686,7 @@ mod test {
         let trie_caches = &trie.0.caches;
 
         // Insert into cache value at the configured maximum size
-        let key = CryptoHash::from_str("32222222222233333333334444444444445555555777").unwrap();
+        let key = CryptoHash::hash_borsh("alice");
         let val: Vec<u8> = vec![0; TrieConfig::max_cached_value_size() - 1];
         let insert_ops = Vec::from([(&key, Some(val.as_slice()))]);
         trie.update_cache(insert_ops, shard_uid);
