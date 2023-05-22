@@ -203,12 +203,17 @@ impl FlatStorage {
     /// and updating the flat state to reflect the state at the new head. If updating to given head is not possible,
     /// returns an error.
     pub fn update_flat_head(&self, new_head: &CryptoHash) -> Result<(), FlatStorageError> {
-        let _span =
-            tracing::debug_span!(target: "state_snapshot", "update_flat_head", ?new_head).entered();
         let mut guard = self.0.write().expect(crate::flat::POISONED_LOCK_ERR);
 
         let shard_uid = guard.shard_uid;
         let shard_id = shard_uid.shard_id();
+        let _span = tracing::debug_span!(
+            target: "chain",
+            "update_flat_head",
+            ?new_head,
+            ?shard_id
+        )
+        .entered();
         let blocks = guard.get_blocks_to_head(new_head)?;
         for block_hash in blocks.into_iter().rev() {
             let mut store_update = StoreUpdate::new(guard.store.storage.clone());
@@ -266,10 +271,16 @@ impl FlatStorage {
     /// in case the node stopped or crashed in between and a block is on chain but its delta is not
     /// stored or vice versa.
     pub fn add_delta(&self, delta: FlatStateDelta) -> Result<StoreUpdate, FlatStorageError> {
-        let _span = tracing::info_span!(target: "state_snapshot", "add_delta", block_height = delta.metadata.block.height).entered();
         let mut guard = self.0.write().expect(super::POISONED_LOCK_ERR);
         let shard_uid = guard.shard_uid;
         let shard_id = shard_uid.shard_id();
+        let _span = tracing::debug_span!(
+            target: "chain",
+            "add_delta",
+            block_height = delta.metadata.block.height,
+            ?shard_id
+        )
+        .entered();
         let block = &delta.metadata.block;
         let block_hash = block.hash;
         let block_height = block.height;

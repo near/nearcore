@@ -13,9 +13,10 @@ use lru::LruCache;
 use near_async::messaging::{CanSend, Sender};
 use near_chain::chain::{
     ApplyStatePartsRequest, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
-    OrphanMissingChunks, StartSnapshotCallback, StateSplitRequest, TX_ROUTING_HEIGHT_HORIZON,
+    OrphanMissingChunks, StateSplitRequest, TX_ROUTING_HEIGHT_HORIZON,
 };
 use near_chain::flat_storage_creator::FlatStorageCreator;
+use near_chain::state_snapshot_actor::StartSnapshotCallback;
 use near_chain::test_utils::format_hash;
 use near_chain::types::RuntimeAdapter;
 use near_chain::types::{ChainConfig, LatestKnown};
@@ -199,7 +200,8 @@ impl Client {
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
         enable_doomslug: bool,
         rng_seed: RngSeed,
-        in_progress: Option<Arc<AtomicBool>>,
+        state_snapshot_in_progress: Option<Arc<AtomicBool>>,
+        start_state_snapshot_callback: Option<StartSnapshotCallback>,
     ) -> Result<Self, Error> {
         let doomslug_threshold_mode = if enable_doomslug {
             DoomslugThresholdMode::TwoThirds
@@ -209,7 +211,7 @@ impl Client {
         let chain_config = ChainConfig {
             save_trie_changes: config.save_trie_changes,
             background_migration_threads: config.client_background_migration_threads,
-            state_snapshot_on_startup: config.state_snapshot_on_startup,
+            state_snapshot_every_n_blocks: config.state_snapshot_every_n_blocks,
         };
         let chain = Chain::new(
             epoch_manager.clone(),
@@ -218,7 +220,8 @@ impl Client {
             &chain_genesis,
             doomslug_threshold_mode,
             chain_config.clone(),
-            in_progress,
+            state_snapshot_in_progress,
+            start_state_snapshot_callback,
         )?;
         let me = validator_signer.as_ref().map(|x| x.validator_id().clone());
         // Create flat storage or initiate migration to flat storage.
@@ -959,7 +962,6 @@ impl Client {
         peer_id: PeerId,
         was_requested: bool,
         apply_chunks_done_callback: DoneApplyChunkCallback,
-        start_snapshot_callback: StartSnapshotCallback,
     ) {
         let hash = *block.hash();
         let prev_hash = *block.header().prev_hash();
@@ -974,13 +976,8 @@ impl Client {
             was_requested)
         .entered();
 
-        let res = self.receive_block_impl(
-            block,
-            peer_id,
-            was_requested,
-            apply_chunks_done_callback,
-            start_snapshot_callback,
-        );
+        let res =
+            self.receive_block_impl(block, peer_id, was_requested, apply_chunks_done_callback);
         // Log the errors here. Note that the real error handling logic is already
         // done within process_block_impl, this is just for logging.
         if let Err(err) = res {
@@ -1015,7 +1012,6 @@ impl Client {
         peer_id: PeerId,
         was_requested: bool,
         apply_chunks_done_callback: DoneApplyChunkCallback,
-        start_snapshot_callback: StartSnapshotCallback,
     ) -> Result<(), near_chain::Error> {
         self.chain.blocks_delay_tracker.mark_block_received(
             &block,
@@ -1035,12 +1031,7 @@ impl Client {
         self.verify_and_rebroadcast_block(&block, was_requested, &peer_id)?;
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
-        let res = self.start_process_block(
-            block,
-            provenance,
-            apply_chunks_done_callback,
-            start_snapshot_callback,
-        );
+        let res = self.start_process_block(block, provenance, apply_chunks_done_callback);
         match &res {
             Err(near_chain::Error::Orphan) => {
                 if !self.chain.is_orphan(&prev_hash) {
@@ -1141,7 +1132,6 @@ impl Client {
         block: MaybeValidated<Block>,
         provenance: Provenance,
         apply_chunks_done_callback: DoneApplyChunkCallback,
-        start_snapshot_callback: StartSnapshotCallback,
     ) -> Result<(), near_chain::Error> {
         let mut block_processing_artifacts = BlockProcessingArtifact::default();
 
@@ -1156,7 +1146,6 @@ impl Client {
                 provenance,
                 &mut block_processing_artifacts,
                 apply_chunks_done_callback,
-                start_snapshot_callback,
             )
         };
 
@@ -1195,7 +1184,6 @@ impl Client {
     pub fn postprocess_ready_blocks(
         &mut self,
         apply_chunks_done_callback: DoneApplyChunkCallback,
-        start_snapshot_callback: StartSnapshotCallback,
         should_produce_chunk: bool,
     ) -> (Vec<CryptoHash>, HashMap<CryptoHash, near_chain::Error>) {
         let me = self
@@ -1207,7 +1195,6 @@ impl Client {
             &me,
             &mut block_processing_artifacts,
             apply_chunks_done_callback,
-            start_snapshot_callback,
         );
         if accepted_blocks.iter().any(|accepted_block| accepted_block.status.is_new_head()) {
             self.shards_manager_adapter.send(ShardsManagerRequestFromClient::UpdateChainHeads {
@@ -1305,7 +1292,6 @@ impl Client {
         partial_chunk: PartialEncodedChunk,
         shard_chunk: Option<ShardChunk>,
         apply_chunks_done_callback: DoneApplyChunkCallback,
-        start_snapshot_callback: StartSnapshotCallback,
     ) {
         let chunk_header = partial_chunk.cloned_header();
         self.chain.blocks_delay_tracker.mark_chunk_completed(&chunk_header, StaticClock::utc());
@@ -1316,7 +1302,7 @@ impl Client {
         // We're marking chunk as accepted.
         self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
         // If this was the last chunk that was missing for a block, it will be processed now.
-        self.process_blocks_with_missing_chunks(apply_chunks_done_callback, start_snapshot_callback)
+        self.process_blocks_with_missing_chunks(apply_chunks_done_callback)
     }
 
     /// Called asynchronously when the ShardsManager finishes processing a chunk but the chunk
@@ -1686,7 +1672,6 @@ impl Client {
     pub fn process_blocks_with_missing_chunks(
         &mut self,
         apply_chunks_done_callback: DoneApplyChunkCallback,
-        start_snapshot_callback: StartSnapshotCallback,
     ) {
         let me =
             self.validator_signer.as_ref().map(|validator_signer| validator_signer.validator_id());
@@ -1695,7 +1680,6 @@ impl Client {
             &me.map(|x| x.clone()),
             &mut blocks_processing_artifacts,
             apply_chunks_done_callback,
-            start_snapshot_callback,
         );
         self.process_block_processing_artifact(blocks_processing_artifacts);
     }
@@ -2134,7 +2118,6 @@ impl Client {
         block_catch_up_task_scheduler: &dyn Fn(BlockCatchUpRequest),
         state_split_scheduler: &dyn Fn(StateSplitRequest),
         apply_chunks_done_callback: DoneApplyChunkCallback,
-        start_snapshot_callback: StartSnapshotCallback,
     ) -> Result<(), Error> {
         let me = &self.validator_signer.as_ref().map(|x| x.validator_id().clone());
         for (sync_hash, state_sync_info) in self.chain.store().iterate_state_sync_infos()? {
@@ -2233,7 +2216,6 @@ impl Client {
                             &sync_hash,
                             &mut block_processing_artifacts,
                             apply_chunks_done_callback.clone(),
-                            start_snapshot_callback.clone(),
                             &blocks_catch_up_state.done_blocks,
                         )?;
 

@@ -251,9 +251,8 @@ pub struct ClientConfig {
     pub state_sync_enabled: bool,
     /// Options for syncing state.
     pub state_sync: StateSyncConfig,
-    /// Testing only. Makes a state snapshot after processing the first block after restart.
-    /// Nothing useful can be done with this snapshot.
-    pub state_snapshot_on_startup: bool,
+    /// Testing only. Makes a state snapshot after every epoch, but also every N blocks. The first snapshot is done after processng the first block.
+    pub state_snapshot_every_n_blocks: Option<u64>,
 }
 
 impl ClientConfig {
@@ -326,7 +325,7 @@ impl ClientConfig {
             flat_storage_creation_period: Duration::from_secs(1),
             state_sync_enabled: false,
             state_sync: StateSyncConfig::default(),
-            state_snapshot_on_startup: false,
+            state_snapshot_every_n_blocks: None,
         }
     }
 }

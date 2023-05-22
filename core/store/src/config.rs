@@ -97,8 +97,6 @@ pub struct StoreConfig {
 
     /// Enables state snapshot at the beginning of epochs.
     pub state_snapshot_enabled: bool,
-    /// Keeps all columns in a state snapshot.
-    pub state_snapshot_all_columns: bool,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -239,7 +237,6 @@ impl Default for StoreConfig {
             flat_storage_creation_period: Duration::from_secs(1),
 
             state_snapshot_enabled: false,
-            state_snapshot_all_columns: false,
         }
     }
 }

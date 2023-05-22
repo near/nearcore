@@ -23,8 +23,9 @@ use chrono::{DateTime, Utc};
 use near_async::messaging::{CanSend, Sender};
 use near_chain::chain::{
     do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
-    BlockCatchUpResponse, StartSnapshotCallback, StateSplitRequest, StateSplitResponse,
+    BlockCatchUpResponse, StateSplitRequest, StateSplitResponse,
 };
+use near_chain::state_snapshot_actor::StartSnapshotCallback;
 use near_chain::test_utils::format_hash;
 use near_chain::types::RuntimeAdapter;
 #[cfg(feature = "test_features")]
@@ -48,10 +49,7 @@ use near_network::types::ReasonForBan;
 use near_network::types::{
     NetworkInfo, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
 };
-use near_o11y::{
-    handler_debug_span, handler_info_span, OpenTelemetrySpanExt, WithSpanContext,
-    WithSpanContextExt,
-};
+use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
 use near_performance_metrics;
 use near_performance_metrics_macros::perf;
 use near_primitives::block::Tip;
@@ -74,7 +72,7 @@ use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -128,8 +126,6 @@ pub struct ClientActor {
 
     /// Manages updating the config.
     config_updater: Option<ConfigUpdater>,
-
-    state_snapshot_addr: Option<actix::Addr<StateSnapshotActor>>,
 }
 
 /// Blocks the program until given genesis time arrives.
@@ -161,7 +157,6 @@ impl ClientActor {
         network_adapter: PeerManagerAdapter,
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
         telemetry_actor: Addr<TelemetryActor>,
-        state_snapshot_addr: Option<actix::Addr<StateSnapshotActor>>,
         ctx: &Context<ClientActor>,
         shutdown_signal: Option<broadcast::Sender<()>>,
         adv: crate::adversarial::Controls,
@@ -224,7 +219,6 @@ impl ClientActor {
             fastforward_delta: 0,
             shutdown_signal,
             config_updater,
-            state_snapshot_addr,
         })
     }
 }
@@ -469,7 +463,6 @@ impl Handler<WithSpanContext<BlockResponse>> for ClientActor {
                     peer_id,
                     was_requested,
                     this.get_apply_chunks_done_callback(),
-                    this.get_start_snapshot_callback(),
                 );
             } else {
                 match this
@@ -1229,11 +1222,8 @@ impl ClientActor {
     /// this function in `check_triggers`, because the actix queue may be blocked by other messages
     /// and we want to prioritize block processing.
     fn try_process_unfinished_blocks(&mut self) {
-        let (accepted_blocks, _errors) = self.client.postprocess_ready_blocks(
-            self.get_apply_chunks_done_callback(),
-            self.get_start_snapshot_callback(),
-            true,
-        );
+        let (accepted_blocks, _errors) =
+            self.client.postprocess_ready_blocks(self.get_apply_chunks_done_callback(), true);
         // TODO: log the errors
         self.process_accepted_blocks(accepted_blocks);
     }
@@ -1289,7 +1279,6 @@ impl ClientActor {
                 block,
                 Provenance::PRODUCED,
                 self.get_apply_chunks_done_callback(),
-                self.get_start_snapshot_callback(),
             );
             if let Err(e) = &res {
                 match e {
@@ -1386,22 +1375,6 @@ impl ClientActor {
         Arc::new(move |_| {
             addr.do_send(ApplyChunksDoneMessage {}.with_span_context());
         })
-    }
-
-    fn get_start_snapshot_callback(&self) -> StartSnapshotCallback {
-        if let Some(state_snapshot_addr) = self.state_snapshot_addr.clone() {
-            Arc::new(move |block_height, last_block_hash, prev_block_hash| {
-                tracing::info!(target: "state_snapshot", block_height, ?last_block_hash, ?prev_block_hash, "start_snapshot_callback sends `StartSnapshotCallback` to state_snapshot_addr");
-                state_snapshot_addr.do_send(
-                    StartSnapshotRequest { block_height, last_block_hash, prev_block_hash }
-                        .with_span_context(),
-                );
-            })
-        } else {
-            Arc::new(move |_, _, _| {
-                tracing::info!(target: "state_snapshot", "start_snapshot_callback does nothing because state_snapshot_addr is None");
-            })
-        }
     }
 
     fn receive_headers(&mut self, headers: Vec<BlockHeader>, peer_id: PeerId) -> bool {
@@ -1552,7 +1525,6 @@ impl ClientActor {
             &self.block_catch_up_scheduler,
             &self.state_split_scheduler,
             self.get_apply_chunks_done_callback(),
-            self.get_start_snapshot_callback(),
         ) {
             error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), err);
         }
@@ -1754,7 +1726,6 @@ impl ClientActor {
                                 sync_hash,
                                 &mut block_processing_artifacts,
                                 self.get_apply_chunks_done_callback(),
-                                self.get_start_snapshot_callback(),
                             ));
 
                             self.client
@@ -1965,7 +1936,6 @@ impl Handler<WithSpanContext<ShardsManagerResponse>> for ClientActor {
                     partial_chunk,
                     shard_chunk,
                     self.get_apply_chunks_done_callback(),
-                    self.get_start_snapshot_callback(),
                 );
             }
             ShardsManagerResponse::InvalidChunk(encoded_chunk) => {
@@ -2015,8 +1985,8 @@ pub fn start_client(
     shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     telemetry_actor: Addr<TelemetryActor>,
-    state_snapshot_actor: Option<Addr<StateSnapshotActor>>,
-    in_progress: Option<Arc<AtomicBool>>,
+    state_snapshot_in_progress: Option<Arc<AtomicBool>>,
+    start_state_snapshot_callback: Option<StartSnapshotCallback>,
     sender: Option<broadcast::Sender<()>>,
     adv: crate::adversarial::Controls,
     config_updater: Option<ConfigUpdater>,
@@ -2035,7 +2005,8 @@ pub fn start_client(
         validator_signer.clone(),
         true,
         random_seed_from_thread(),
-        in_progress,
+        state_snapshot_in_progress,
+        start_state_snapshot_callback,
     )
     .unwrap();
     let client_addr = ClientActor::start_in_arbiter(&client_arbiter_handle, move |ctx| {
@@ -2047,7 +2018,6 @@ pub fn start_client(
             network_adapter,
             validator_signer,
             telemetry_actor,
-            state_snapshot_actor,
             ctx,
             sender,
             adv,
@@ -2056,59 +2026,4 @@ pub fn start_client(
         .unwrap()
     });
     (client_addr, client_arbiter_handle)
-}
-
-pub struct StateSnapshotActor {
-    pub in_progress: Arc<AtomicBool>,
-    pub runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
-}
-
-impl StateSnapshotActor {
-    pub fn new(
-        in_progress: Arc<AtomicBool>,
-        runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
-    ) -> Self {
-        Self { in_progress, runtime_adapter }
-    }
-}
-
-impl actix::Actor for StateSnapshotActor {
-    type Context = actix::Context<Self>;
-}
-
-impl Handler<WithSpanContext<StartSnapshotRequest>> for StateSnapshotActor {
-    type Result = ();
-
-    fn handle(
-        &mut self,
-        msg: WithSpanContext<StartSnapshotRequest>,
-        _: &mut Context<Self>,
-    ) -> Self::Result {
-        let (_span, msg) = handler_info_span!(target: "state_snapshot", msg);
-        let StartSnapshotRequest { block_height, last_block_hash, prev_block_hash } = msg;
-
-        assert!(
-            !self.in_progress.swap(true, Ordering::Relaxed),
-            "Tried to start a state snapshot while state snapshotting"
-        );
-        if let Err(err) = self.runtime_adapter.make_state_snapshot(
-            block_height,
-            &last_block_hash,
-            &prev_block_hash,
-        ) {
-            tracing::error!(target: "state_snapshot", ?err, "State snapshot creation failed");
-        }
-        assert!(
-            self.in_progress.swap(false, Ordering::Relaxed),
-            "Tried to stop a state snapshot which wasn't running"
-        );
-    }
-}
-
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
-struct StartSnapshotRequest {
-    block_height: BlockHeight,
-    last_block_hash: CryptoHash,
-    prev_block_hash: CryptoHash,
 }
