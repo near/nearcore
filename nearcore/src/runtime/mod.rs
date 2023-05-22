@@ -109,20 +109,16 @@ impl NightshadeRuntime {
                 home_dir: home_dir.to_path_buf(),
                 hot_store_path: config.config.store.path.clone().unwrap_or(PathBuf::from("data")),
                 state_snapshot_subdir: PathBuf::from("state_snapshot"),
-                columns_to_keep: if config.config.store.state_snapshot_all_columns {
-                    None
-                } else {
-                    Some(vec![
-                        // Keep DbVersion and BlockMisc, otherwise you'll not be able to open the state snapshot as a Store.
-                        DBCol::DbVersion,
-                        DBCol::BlockMisc,
-                        // Flat storage columns.
-                        DBCol::FlatState,
-                        DBCol::FlatStateChanges,
-                        DBCol::FlatStateDeltaMetadata,
-                        DBCol::FlatStorageStatus,
-                    ])
-                },
+                columns_to_keep: Some(vec![
+                    // Keep DbVersion and BlockMisc, otherwise you'll not be able to open the state snapshot as a Store.
+                    DBCol::DbVersion,
+                    DBCol::BlockMisc,
+                    // Flat storage columns.
+                    DBCol::FlatState,
+                    DBCol::FlatStateChanges,
+                    DBCol::FlatStateDeltaMetadata,
+                    DBCol::FlatStorageStatus,
+                ]),
             }
         } else {
             StateSnapshotConfig::Disabled
@@ -728,6 +724,8 @@ fn maybe_open_state_snapshot(
     state_snapshot_config: &StateSnapshotConfig,
     config: &NearConfig,
 ) -> Result<Option<StateSnapshot>, anyhow::Error> {
+    let _span =
+        tracing::info_span!(target: "state_snapshot", "maybe_open_state_snapshot").entered();
     match state_snapshot_config {
         StateSnapshotConfig::Disabled => {
             tracing::debug!(target: "state_snapshot", "Disabled");

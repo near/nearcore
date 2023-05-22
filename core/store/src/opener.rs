@@ -606,7 +606,6 @@ pub fn checkpoint_hot_storage_and_cleanup_columns(
     let node_storage = opener.open()?;
 
     if let Some(columns_to_keep) = columns_to_keep {
-        let _span = tracing::info_span!(target: "state_snapshot", "delete_column").entered();
         let columns_to_keep_set: std::collections::HashSet<DBCol> =
             std::collections::HashSet::from_iter(columns_to_keep.into_iter());
         let mut transaction = DBTransaction::new();
