@@ -14,19 +14,21 @@ pip3 install locust
 The load generator needs access to a FT contract WASM and it needs access to an account key with plenty of tokens.
 For a local test setup, this works just fine.
 ```sh
-CONTRACT=runtime/near-test-contracts/res/fungible_token.wasm
-KEY=~/.near/test0/validator_key.json
+# This assumes your shell is are in nearcore directory
+CONTRACT="${PWD}/runtime/near-test-contracts/res/fungible_token.wasm"
+# This assumes you are running against localnet
+KEY=KEY=~/.near/test0/validator_key.json
 ```
 
-For a quick demo, you can also run a local cluster using the provided script.
+For a quick demo, you can also run a localnet using [nearup](https://github.com/near/nearup).
 ```sh
-NEAR_ROOT=./target/release/  python3 ./pytest/tools/locust/local_cluster.py --shards 4
+nearup run localnet --binary-path ../nearcore/target/release/ --num-nodes 4 --num-shards 4 --override
 ```
 
-Then to actually run it, this is the command.
+Then to actually run it, this is the command. (Update ports and IP according to your localnet, nearup will print it.)
 ```sh
 cd pytest/tests/loadtest/locust/
-locust -H 127.0.0.1:3040 \
+locust -H 127.0.0.1:3030 \
   --fungible-token-wasm=$CONTRACT \
   --contract-key=$KEY
 ```
