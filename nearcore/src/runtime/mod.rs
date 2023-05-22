@@ -1202,13 +1202,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    /// Returns StorageError when storage is inconsistent.
-    /// This is possible with the used isolation level + running ViewClient in a separate thread
-    /// `block_hash` is a block whose `prev_state_root` is `state_root`
     fn obtain_state_part(
         &self,
         shard_id: ShardId,
-        // !!! TEMPORARY CHANGING FROM block_hash TO prev_hash IN PROTOTYPE
         prev_hash: &CryptoHash,
         state_root: &StateRoot,
         part_id: PartId,
@@ -1233,8 +1229,9 @@ impl RuntimeAdapter for NightshadeRuntime {
             Ok(partial_state) => partial_state,
             Err(e) => {
                 error!(target: "runtime",
-                       "Can't get_trie_nodes_for_part for block {:?} state root {:?}, part_id {:?}, num_parts {:?}, {:?}",
-                       prev_hash, state_root, part_id.idx, part_id.total, e
+                    "Can't get trie nodes for state part {}/{} for prev hash \
+                    {prev_hash} and state root {state_root}: {:?}",
+                    part_id.idx, part_id.total, e
                 );
                 return Err(e.into());
             }
