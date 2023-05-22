@@ -237,6 +237,7 @@ pub enum StateSyncDumpProgress {
     AllDumped {
         /// The dumped state corresponds to the state at the beginning of the specified epoch.
         epoch_id: EpochId,
+        epoch_height: EpochHeight,
     },
     /// Represents the case of an epoch being partially dumped.
     InProgress {
