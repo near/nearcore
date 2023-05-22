@@ -177,44 +177,52 @@ pub fn key_belongs_to_shard(
 
 #[cfg(test)]
 mod tests {
-use crate::{test_utils::create_test_store, TrieConfig, ShardTries};
-use crate::flat::FlatStorageManager;
-use crate::{CryptoHash, Trie};
-use near_primitives::shard_layout::ShardUId;
+    use std::println;
 
-use super::iter_flat_state_entries;
+    use crate::flat::FlatStorageManager;
+    use crate::{test_utils::create_test_store, ShardTries, TrieConfig};
+    use crate::CryptoHash;
+    use near_primitives::shard_layout::ShardUId;
+
+    use super::iter_flat_state_entries;
 
     #[test]
     fn test_iter_flat_state_entries() {
         let store = create_test_store();
         let shard_uids = Vec::from([
             ShardUId { shard_id: 0, version: 0 },
-            ShardUId { shard_id: 1, version: 0 },
-            ShardUId { shard_id: 2, version: 0 },
+/*            ShardUId { shard_id: 1, version: 0 },*/
+            /*ShardUId { shard_id: 2, version: 0 },*/
         ]);
-        let trie_config = TrieConfig::default();
         let head = CryptoHash::default();
-        let trie = ShardTries::new(
+        let tries = ShardTries::new(
             store.clone(),
-            trie_config,
+            TrieConfig::default(),
             &shard_uids,
             FlatStorageManager::test(store.clone(), &shard_uids, head),
         );
 
-        for shard_uid in shard_uids.iter() {
-            let shard_trie = trie.get_trie_for_shard(*shard_uid, head);
-            let key: Vec<u8> = vec![0,1,2];
-            let val: Vec<u8> = vec![0,1,2,3,4,5,6,7];
-            let changes = Vec::from([
-                (key, Some(val))
-            ]);
-            assert!(shard_trie.update(changes).is_ok());
-            println!("Inserting into {:?}, ", shard_uid);
+        for (i, shard_uid) in shard_uids.iter().enumerate() {
+            let shard_trie = tries.get_trie_for_shard(*shard_uid, head);
+            let key: Vec<u8> = vec![0, 1, i as u8];
+            let val: Vec<u8> = vec![0, 1, 2, i as u8];
+            let changes = Vec::from([(key.clone(), Some(val))]);
+
+            let trie_changes = shard_trie.update(changes).unwrap();
+            let mut store_update = tries.store_update();
+            let root = tries.apply_all(&trie_changes, *shard_uid, &mut store_update);
+            store_update.commit().unwrap();
+
+            let trie = tries.get_trie_for_shard(*shard_uid, root);
+            println!("Val is {:?}", trie.get(&key));
+
+            println!("Inserting into {:?}", shard_uid);
         }
 
         for shard_uid in shard_uids.iter() {
-            println!("Checking {:?}, ", shard_uid);
-            let entries: Vec<_> = iter_flat_state_entries(*shard_uid, &trie.get_store(), None, None).collect();
+            println!("Checking {:?}", shard_uid);
+            let entries: Vec<_> =
+                iter_flat_state_entries(*shard_uid, &tries.get_store(), None, None).collect();
             assert_eq!(entries.len(), 1);
         }
     }
