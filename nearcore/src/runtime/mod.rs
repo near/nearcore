@@ -1195,13 +1195,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    /// Returns StorageError when storage is inconsistent.
-    /// This is possible with the used isolation level + running ViewClient in a separate thread
-    /// `block_hash` is a block whose `prev_state_root` is `state_root`
     fn obtain_state_part(
         &self,
         shard_id: ShardId,
-        block_hash: &CryptoHash,
+        prev_hash: &CryptoHash,
         state_root: &StateRoot,
         part_id: PartId,
     ) -> Result<Vec<u8>, Error> {
@@ -1210,22 +1207,23 @@ impl RuntimeAdapter for NightshadeRuntime {
             "obtain_state_part",
             part_id = part_id.idx,
             shard_id,
-            %block_hash,
+            %prev_hash,
             num_parts = part_id.total)
         .entered();
         let _timer = metrics::STATE_SYNC_OBTAIN_PART_DELAY
             .with_label_values(&[&shard_id.to_string()])
             .start_timer();
 
-        let epoch_id = self.epoch_manager.get_epoch_id(block_hash)?;
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
         let trie = self.tries.get_view_trie_for_shard(shard_uid, *state_root);
         let result = match trie.get_trie_nodes_for_part(part_id) {
             Ok(partial_state) => partial_state,
             Err(e) => {
                 error!(target: "runtime",
-                       "Can't get_trie_nodes_for_part for block {:?} state root {:?}, part_id {:?}, num_parts {:?}, {:?}",
-                       block_hash, state_root, part_id.idx, part_id.total, e
+                    "Can't get trie nodes for state part {}/{} for prev hash \
+                    {prev_hash} and state root {state_root}: {:?}",
+                    part_id.idx, part_id.total, e
                 );
                 return Err(e.into());
             }
