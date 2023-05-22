@@ -86,8 +86,9 @@ class Deploy(Transaction):
         logger.info(f"deploying {self.name} to {account.key.account_id}")
         wasm_binary = utils.load_binary_file(self.contract)
         return transaction.sign_deploy_contract_tx(account.key, wasm_binary,
-                                                 account.use_nonce(),
-                                                 block_hash)
+                                                   account.use_nonce(),
+                                                   block_hash)
+
 
 class TransferNear(Transaction):
 
@@ -103,8 +104,9 @@ class TransferNear(Transaction):
             f"sending {self.how_much} NEAR from {sender.key.account_id} to {self.recipient_id}"
         )
         return transaction.sign_payment_tx(sender.key, self.recipient_id,
-                                         int(self.how_much * 1E24),
-                                         sender.use_nonce(), block_hash)
+                                           int(self.how_much * 1E24),
+                                           sender.use_nonce(), block_hash)
+
 
 class CreateSubAccount(Transaction):
 
@@ -121,6 +123,7 @@ class CreateSubAccount(Transaction):
         return transaction.sign_create_account_with_full_access_key_and_balance_tx(
             sender.key, sub.account_id, sub, int(self.balance * 1E24),
             sender.use_nonce(), block_hash)
+
 
 class NearUser(HttpUser):
     abstract = True

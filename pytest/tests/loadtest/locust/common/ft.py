@@ -37,6 +37,7 @@ class TransferFT(Transaction):
             sender.use_nonce(),
             block_hash)
 
+
 class InitFT(Transaction):
 
     def __init__(self, contract):
@@ -50,11 +51,13 @@ class InitFT(Transaction):
             "total_supply": str(10**33)
         })
         return transaction.sign_function_call_tx(contract.key,
-                                               contract.key.account_id,
-                                               "new_default_meta",
-                                               args.encode('utf-8'), int(3E14),
-                                               0, contract.use_nonce(),
-                                               block_hash)
+                                                 contract.key.account_id,
+                                                 "new_default_meta",
+                                                 args.encode('utf-8'),
+                                                 int(3E14), 0,
+                                                 contract.use_nonce(),
+                                                 block_hash)
+
 
 class InitFTAccount(Transaction):
 
@@ -67,8 +70,9 @@ class InitFTAccount(Transaction):
         contract, account = self.contract, self.account
         args = json.dumps({"account_id": account.key.account_id})
         return transaction.sign_function_call_tx(account.key,
-                                               contract.key.account_id,
-                                               "storage_deposit",
-                                               args.encode('utf-8'), int(3E14),
-                                               int(1E23), account.use_nonce(),
-                                               block_hash)
+                                                 contract.key.account_id,
+                                                 "storage_deposit",
+                                                 args.encode('utf-8'),
+                                                 int(3E14), int(1E23),
+                                                 account.use_nonce(),
+                                                 block_hash)
