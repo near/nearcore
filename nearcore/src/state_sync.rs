@@ -240,7 +240,7 @@ async fn state_sync_dump(
                 let in_progress_data = get_in_progress_data(shard_id, sync_hash, &chain);
                 match in_progress_data {
                     Err(error) => Err(error),
-                    Ok((state_root, num_parts, sync_prev_hash)) => {
+                    Ok((state_root, num_parts, sync_prev_prev_hash)) => {
                         let missing_parts = get_missing_part_ids_for_epoch(
                             shard_id,
                             &chain_id,
@@ -286,7 +286,7 @@ async fn state_sync_dump(
                                         runtime.as_ref(),
                                         shard_id,
                                         sync_hash,
-                                        &sync_prev_hash,
+                                        &sync_prev_prev_hash,
                                         &state_root,
                                         part_id,
                                         num_parts,
@@ -387,9 +387,10 @@ fn get_in_progress_data(
     let state_root = state_header.chunk_prev_state_root();
     let num_parts = get_num_state_parts(state_header.state_root_node().memory_usage);
 
-    let sync_block = chain.get_block(&sync_hash)?;
-    let sync_prev_hash = sync_block.header().prev_hash();
-    Ok((state_root, num_parts, *sync_prev_hash))
+    let sync_block_header = chain.get_block_header(&sync_hash)?;
+    let sync_prev_block_header = chain.get_previous_header(&sync_block_header)?;
+    let sync_prev_prev_hash = sync_prev_block_header.prev_hash();
+    Ok((state_root, num_parts, *sync_prev_prev_hash))
 }
 
 fn update_dumped_size_and_cnt_metrics(
@@ -440,7 +441,7 @@ fn obtain_and_store_state_part(
     runtime: &dyn RuntimeAdapter,
     shard_id: ShardId,
     sync_hash: CryptoHash,
-    sync_prev_hash: &CryptoHash,
+    sync_prev_prev_hash: &CryptoHash,
     state_root: &StateRoot,
     part_id: u64,
     num_parts: u64,
@@ -448,7 +449,7 @@ fn obtain_and_store_state_part(
 ) -> Result<Vec<u8>, Error> {
     let state_part = runtime.obtain_state_part(
         shard_id,
-        sync_prev_hash,
+        sync_prev_prev_hash,
         state_root,
         PartId::new(part_id, num_parts),
     )?;

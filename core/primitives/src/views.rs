@@ -915,10 +915,10 @@ pub struct BlockHeaderInnerLiteView {
 
 impl From<BlockHeader> for BlockHeaderInnerLiteView {
     fn from(header: BlockHeader) -> Self {
-        let inner_lite = match header {
-            BlockHeader::BlockHeaderV1(ref header) => &header.inner_lite,
-            BlockHeader::BlockHeaderV2(ref header) => &header.inner_lite,
-            BlockHeader::BlockHeaderV3(ref header) => &header.inner_lite,
+        let inner_lite = match &header {
+            BlockHeader::BlockHeaderV1(header) => &header.inner_lite,
+            BlockHeader::BlockHeaderV2(header) => &header.inner_lite,
+            BlockHeader::BlockHeaderV3(header) => &header.inner_lite,
         };
         BlockHeaderInnerLiteView {
             height: inner_lite.height,

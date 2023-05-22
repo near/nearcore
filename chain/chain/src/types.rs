@@ -270,6 +270,8 @@ impl ChainGenesis {
 /// Bridge between the chain and the runtime.
 /// Main function is to update state given transactions.
 /// Additionally handles validators.
+/// Naming note: `state_root` is a pre state root for block `block_hash` and a
+/// post state root for block `prev_hash`.
 pub trait RuntimeAdapter: Send + Sync {
     /// Get store and genesis state roots
     fn genesis_state(&self) -> (Store, Vec<StateRoot>);
@@ -278,9 +280,9 @@ pub trait RuntimeAdapter: Send + Sync {
 
     fn store(&self) -> &Store;
 
-    /// Returns trie with non-view cache for given `state_root`. `prev_hash` is used to access flat storage and to
-    /// identify the epoch the given `shard_id` is at.
-    /// Note that `prev_hash` and `state_root` must correspond to the same block.
+    /// Returns trie with non-view cache for given `state_root`.
+    /// `prev_hash` is a block whose post state root is `state_root`, used to
+    /// access flat storage and to identify the epoch the given `shard_id` is at.
     fn get_trie_for_shard(
         &self,
         shard_id: ShardId,
@@ -477,12 +479,13 @@ pub trait RuntimeAdapter: Send + Sync {
         request: &QueryRequest,
     ) -> Result<QueryResponse, near_chain_primitives::error::QueryError>;
 
-    /// Get the part of the state from given state root.
-    /// `block_hash` is a block whose `prev_state_root` is `state_root`
+    /// Get part of the state corresponding to the given state root.
+    /// `prev_hash` is a block whose post state root is `state_root`.
+    /// Returns error when storage is inconsistent.
     fn obtain_state_part(
         &self,
         shard_id: ShardId,
-        block_hash: &CryptoHash,
+        prev_hash: &CryptoHash,
         state_root: &StateRoot,
         part_id: PartId,
     ) -> Result<Vec<u8>, Error>;
