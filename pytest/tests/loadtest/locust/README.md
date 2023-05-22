@@ -5,26 +5,26 @@ WIP: This is work in progress, motivation described in https://github.com/near/n
 TLDR: Use [locust](https://locust.io/) to generate transactions against a Near chain and produce statistics.
 
 ## Install
-```
+```sh
 pip3 install locust
 ```
 
 ## Run a first load test
 
-The load generator needs access to a FT contract WASM and it needs access to a account key with plenty of tokens.
+The load generator needs access to a FT contract WASM and it needs access to an account key with plenty of tokens.
 For a local test setup, this works just fine.
-```
+```sh
 CONTRACT=runtime/near-test-contracts/res/fungible_token.wasm
 KEY=~/.near/test0/validator_key.json
 ```
 
 For a quick demo, you can also run a local cluster using the provided script.
-```
+```sh
 NEAR_ROOT=./target/release/  python3 ./pytest/tools/locust/local_cluster.py --shards 4
 ```
 
 Then to actually run it, this is the command.
-```
+```sh
 cd pytest/tests/loadtest/locust/
 locust -H 127.0.0.1:3040 \
   --fungible-token-wasm=$CONTRACT \

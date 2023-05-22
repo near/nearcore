@@ -30,11 +30,11 @@ class Account:
 
     def __init__(self, key):
         self.key = key
-        self.nonce = multiprocessing.Value(ctypes.c_ulong, 0)
+        self.current_nonce = multiprocessing.Value(ctypes.c_ulong, 0)
 
     def refresh_nonce(self, node):
-        with self.nonce.get_lock():
-            self.nonce.value = mocknet_helpers.get_nonce_for_key(
+        with self.current_nonce.get_lock():
+            self.current_nonce.value = mocknet_helpers.get_nonce_for_key(
                 self.key,
                 addr=node.rpc_addr()[0],
                 port=node.rpc_addr()[1],
@@ -42,9 +42,9 @@ class Account:
             )
 
     def use_nonce(self):
-        with self.nonce.get_lock():
-            new_nonce = self.nonce.value + 1
-            self.nonce.value = new_nonce
+        with self.current_nonce.get_lock():
+            new_nonce = self.current_nonce.value + 1
+            self.current_nonce.value = new_nonce
             return new_nonce
 
 
@@ -65,9 +65,9 @@ class Transaction:
         # FIXME: this is currently not set in some cases
         self.transaction_id = None
 
-    def sign_and_deser(self, block_hash):
+    def sign_and_serialize(self, block_hash):
         """
-        Each transaction class is supposed to define this method to deserialize and
+        Each transaction class is supposed to define this method to serialize and
         sign the transaction and return the raw message to be sent.
         """
         return None
@@ -81,15 +81,13 @@ class Deploy(Transaction):
         self.contract = contract
         self.name = name
 
-    def sign_and_deser(self, block_hash):
+    def sign_and_serialize(self, block_hash):
         account = self.account
         logger.info(f"deploying {self.name} to {account.key.account_id}")
         wasm_binary = utils.load_binary_file(self.contract)
-        tx = transaction.sign_deploy_contract_tx(account.key, wasm_binary,
+        return transaction.sign_deploy_contract_tx(account.key, wasm_binary,
                                                  account.use_nonce(),
                                                  block_hash)
-        return tx
-
 
 class TransferNear(Transaction):
 
@@ -99,16 +97,14 @@ class TransferNear(Transaction):
         self.sender = sender
         self.how_much = how_much
 
-    def sign_and_deser(self, block_hash):
+    def sign_and_serialize(self, block_hash):
         sender = self.sender
         logger.debug(
             f"sending {self.how_much} NEAR from {sender.key.account_id} to {self.recipient_id}"
         )
-        tx = transaction.sign_payment_tx(sender.key, self.recipient_id,
+        return transaction.sign_payment_tx(sender.key, self.recipient_id,
                                          int(self.how_much * 1E24),
                                          sender.use_nonce(), block_hash)
-        return tx
-
 
 class CreateSubAccount(Transaction):
 
@@ -118,15 +114,13 @@ class CreateSubAccount(Transaction):
         self.sub_key = sub_key
         self.balance = balance
 
-    def sign_and_deser(self, block_hash):
+    def sign_and_serialize(self, block_hash):
         sender = self.sender
         sub = self.sub_key
         logger.debug(f"creating {sub.account_id}")
-        tx = transaction.sign_create_account_with_full_access_key_and_balance_tx(
+        return transaction.sign_create_account_with_full_access_key_and_balance_tx(
             sender.key, sub.account_id, sub, int(self.balance * 1E24),
             sender.use_nonce(), block_hash)
-        return tx
-
 
 class NearUser(HttpUser):
     abstract = True
@@ -168,7 +162,7 @@ class NearUser(HttpUser):
         Send a transaction and return the result, no retry attempted.
         """
         block_hash = base58.b58decode(self.node.get_latest_block().hash)
-        signed_tx = tx.sign_and_deser(block_hash)
+        signed_tx = tx.sign_and_serialize(block_hash)
 
         # doesn't work because it raises on status etc
         # rpc_result = self.node.send_tx_and_wait(signed_tx, timeout=DEFAULT_TRANSACTION_TTL_SECONDS)
@@ -213,9 +207,9 @@ class NearUser(HttpUser):
             try:
                 result = self.send_tx(tx)
                 return result
-            except NearError:
+            except NearError as error:
                 logger.warn(
-                    f"transaction {tx.transaction_id} failed: {result}, retrying in 0.25s"
+                    f"transaction {tx.transaction_id} failed: {error}, retrying in 0.25s"
                 )
                 time.sleep(0.25)
 
@@ -228,7 +222,7 @@ def send_transaction(node, tx):
     """
     while True:
         block_hash = base58.b58decode(node.get_latest_block().hash)
-        signed_tx = tx.sign_and_deser(block_hash)
+        signed_tx = tx.sign_and_serialize(block_hash)
         tx_result = node.send_tx_and_wait(
             signed_tx, timeout=DEFAULT_TRANSACTION_TTL_SECONDS)
         success = "error" not in tx_result
