@@ -62,8 +62,8 @@ impl Database for TestDB {
     fn iter_range<'a>(
         &'a self,
         col: DBCol,
-        lower_bound: Option<&'a [u8]>,
-        upper_bound: Option<&'a [u8]>,
+        lower_bound: Option<&[u8]>,
+        upper_bound: Option<&[u8]>,
     ) -> DBIterator<'a> {
         let lower = lower_bound.map_or(Bound::Unbounded, |f| Bound::Included(f.to_vec()));
         let upper = upper_bound.map_or(Bound::Unbounded, |f| Bound::Excluded(f.to_vec()));

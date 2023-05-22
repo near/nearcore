@@ -86,7 +86,8 @@ impl JsonRpcRequest {
 
 impl Serialize for Base64String {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        near_primitives::serialize::base64_format::serialize(&self.0, serializer)
+        let encoded = near_primitives::serialize::to_base64(&self.0);
+        serializer.serialize_str(&encoded)
     }
 }
 

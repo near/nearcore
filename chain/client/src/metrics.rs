@@ -487,3 +487,13 @@ pub(crate) static STATE_SYNC_DUMP_PUT_OBJECT_ELAPSED: Lazy<HistogramVec> = Lazy:
     )
     .unwrap()
 });
+
+pub(crate) static STATE_SYNC_DUMP_LIST_OBJECT_ELAPSED: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_state_sync_dump_list_object_elapsed_sec",
+        "Latency of ls in external storage",
+        &["shard_id"],
+        Some(exponential_buckets(0.001, 1.6, 25).unwrap()),
+    )
+    .unwrap()
+});

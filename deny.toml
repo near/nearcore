@@ -117,6 +117,7 @@ skip = [
     # criterion and wasmer-runtime-core-near depend on this older
     # version of the crate.
     { name = "rustc_version", version = "=0.2.3" },
+    { name = "errno", version = "=0.2.8" },
 
     # paperclip-macros, strum_macros, walrus-macro depend on this while clap3.1.6 uses heck=0.4.0
     { name = "heck", version = "=0.3.3" },
@@ -144,4 +145,8 @@ skip = [
 
     # near-test-contracts
     { name = "wasm-encoder", version = "=0.11.0" },
+
+    # Various packages haven’t upgraded to 0.base64 21 yet.
+    { name = "base64", version = "=0.13.0" },
+    { name = "ahash", version = "=0.7.6" },
 ]

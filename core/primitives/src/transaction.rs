@@ -3,13 +3,15 @@ use crate::delegate_action::SignedDelegateAction;
 use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::MerklePath;
-use crate::serialize::{base64_format, dec_format};
+use crate::serialize::dec_format;
 use crate::types::{AccountId, Balance, Gas, Nonce};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature};
 use near_fmt::{AbbrBytes, Slice};
 use near_primitives_core::profile::{ProfileDataV2, ProfileDataV3};
 use near_primitives_core::types::Compute;
+use serde_with::base64::Base64;
+use serde_with::serde_as;
 use std::borrow::Borrow;
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -114,12 +116,13 @@ impl From<CreateAccountAction> for Action {
 }
 
 /// Deploy contract action
+#[serde_as]
 #[derive(
     BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone,
 )]
 pub struct DeployContractAction {
     /// WebAssembly binary
-    #[serde(with = "base64_format")]
+    #[serde_as(as = "Base64")]
     pub code: Vec<u8>,
 }
 
@@ -137,12 +140,13 @@ impl fmt::Debug for DeployContractAction {
     }
 }
 
+#[serde_as]
 #[derive(
     BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone,
 )]
 pub struct FunctionCallAction {
     pub method_name: String,
-    #[serde(with = "base64_format")]
+    #[serde_as(as = "Base64")]
     pub args: Vec<u8>,
     pub gas: Gas,
     #[serde(with = "dec_format")]
