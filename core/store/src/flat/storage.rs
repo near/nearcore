@@ -337,7 +337,7 @@ impl FlatStorage {
         Ok(())
     }
 
-    pub(crate) fn get_head_hash(&self) -> CryptoHash {
+    pub fn get_head_hash(&self) -> CryptoHash {
         let guard = self.0.read().expect(super::POISONED_LOCK_ERR);
         guard.flat_head.hash
     }
@@ -358,7 +358,7 @@ mod tests {
     use crate::flat::delta::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
     use crate::flat::manager::FlatStorageManager;
     use crate::flat::storage::FlatStorage;
-    use crate::flat::types::{BlockInfo, FlatStateValue, FlatStorageError};
+    use crate::flat::types::{BlockInfo, FlatStorageError};
     use crate::flat::{store_helper, FlatStorageReadyStatus, FlatStorageStatus};
     use crate::test_utils::create_test_store;
     use crate::StorageError;
@@ -368,6 +368,7 @@ mod tests {
 
     use assert_matches::assert_matches;
     use near_primitives::shard_layout::ShardUId;
+    use near_primitives::state::FlatStateValue;
     use std::collections::HashMap;
 
     struct MockChain {

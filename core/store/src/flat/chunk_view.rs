@@ -46,10 +46,10 @@ impl FlatStorageChunkView {
 
     pub fn iter_flat_state_entries<'a>(
         &'a self,
-        from: &'a [u8],
-        to: &'a [u8],
+        from: Option<&[u8]>,
+        to: Option<&[u8]>,
     ) -> impl Iterator<Item = (Vec<u8>, Box<[u8]>)> + 'a {
-        store_helper::iter_flat_state_entries(&self.store, from, to)
+        store_helper::iter_flat_state_entries(self.flat_storage.shard_uid(), &self.store, from, to)
     }
 
     pub fn get_head_hash(&self) -> CryptoHash {

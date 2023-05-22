@@ -158,9 +158,8 @@ impl CachedFlatStateChanges {
 
 #[cfg(test)]
 mod tests {
-    use crate::flat::FlatStateValue;
-
     use super::FlatStateChanges;
+    use near_primitives::state::FlatStateValue;
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::{RawStateChange, RawStateChangesWithTrieKey, StateChangeCause};
 

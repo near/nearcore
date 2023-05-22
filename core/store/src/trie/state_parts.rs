@@ -28,7 +28,6 @@ use near_primitives::challenge::PartialState;
 use near_primitives::state_part::PartId;
 use near_primitives::types::{StateRoot, Stats};
 
-use crate::flat::store_helper::encode_flat_state_db_key;
 use crate::flat::FlatStateChanges;
 use crate::trie::iterator::TrieTraversalItem;
 use crate::trie::nibble_slice::NibbleSlice;
@@ -39,7 +38,6 @@ use crate::trie::{
 use crate::{PartialStorage, StorageError, Trie, TrieChanges};
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::{FlatStateValue, ValueRef};
 use near_primitives::state_record::is_contract_code_key;
 
@@ -99,12 +97,12 @@ impl Trie {
         &self,
         prev_hash: &CryptoHash,
         part_id: PartId,
+        debug: bool,
     ) -> Result<PartialState, StorageError> {
         let trie_values = if self.can_use_flat_storage(prev_hash) {
             let state_part_read_start = Instant::now();
 
-            let (trie_values, stats) =
-                self.get_trie_nodes_for_part_with_flat_storage(self.storage.shard_uid()?, part_id)?;
+            let (trie_values, stats) = self.get_trie_nodes_for_part_with_flat_storage(part_id)?;
 
             let state_part_read_duration = state_part_read_start.elapsed();
             let Stats {
@@ -128,11 +126,18 @@ impl Trie {
                 "Generated state part"
             );
 
-            // let with_recording = self.recording_reads();
-            // with_recording.visit_nodes_for_state_part(part_id)?;
-            // let recorded = with_recording.recorded_storage().unwrap();
-            // let trie_values_2 = recorded.nodes;
-            // assert_eq!(trie_values, trie_values_2, "part {part_id:?} failed");
+            if debug {
+                tracing::info!(
+                    target: "state-parts",
+                    "DEBUG"
+                );
+
+                let with_recording = self.recording_reads();
+                with_recording.visit_nodes_for_state_part(part_id)?;
+                let recorded = with_recording.recorded_storage().unwrap();
+                let trie_values_2 = recorded.nodes;
+                assert_eq!(trie_values, trie_values_2, "part {part_id:?} failed");
+            }
 
             trie_values
         } else {
@@ -145,17 +150,42 @@ impl Trie {
         Ok(trie_values)
     }
 
-    // why is this so complicated?
-    fn nibbles_to_flat_state_db_key(&self, shard_uid: ShardUId, key_nibbles: &[u8]) -> Vec<u8> {
-        if key_nibbles == LAST_STATE_PART_BOUNDARY {
-            return ShardUId::next_shard_prefix(&shard_uid.to_bytes()).to_vec();
-        }
-        encode_flat_state_db_key(shard_uid, &NibbleSlice::nibbles_to_bytes(&key_nibbles))
+    fn iter_flat_state_entries<'a>(
+        &'a self,
+        nibbles_begin: Vec<u8>,
+        nibbles_end: Vec<u8>,
+    ) -> Result<impl Iterator<Item = (Vec<u8>, Box<[u8]>)> + 'a, StorageError> {
+        let flat_storage_chunk_view = match &self.flat_storage_chunk_view {
+            None => {
+                return Err(StorageError::StorageInconsistentState(format!(
+                    "Flat storage chunk view not found"
+                )));
+            }
+            Some(chunk_view) => chunk_view,
+        };
+
+        // If left key in nibbles is already the largest, return empty
+        // iterator. Otherwise convert it to key in bytes.
+        let key_begin = if nibbles_begin == LAST_STATE_PART_BOUNDARY {
+            return Ok(flat_storage_chunk_view.iter_flat_state_entries(Some(&[]), Some(&[])));
+        } else {
+            Some(NibbleSlice::nibbles_to_bytes(&nibbles_begin))
+        };
+        let key_begin = key_begin.as_deref();
+
+        // Convert right key in nibbles to key in bytes.
+        let key_end = if nibbles_end == LAST_STATE_PART_BOUNDARY {
+            None
+        } else {
+            Some(NibbleSlice::nibbles_to_bytes(&nibbles_end))
+        };
+        let key_end = key_end.as_deref();
+
+        Ok(flat_storage_chunk_view.iter_flat_state_entries(key_begin, key_end))
     }
 
     pub fn get_trie_nodes_for_part_with_flat_storage(
         &self,
-        shard_uid: ShardUId,
         part_id: PartId,
     ) -> Result<(PartialState, Stats), StorageError> {
         // 1. Extract nodes corresponding to state part boundaries.
@@ -170,17 +200,7 @@ impl Trie {
 
         // 2. Extract all key-value pairs in state part from flat storage.
         let values_read_start = Instant::now();
-        let flat_storage_chunk_view = match &self.flat_storage_chunk_view {
-            None => {
-                return Err(StorageError::StorageInconsistentState(format!(
-                    "Expected flat storage chunk view for shard {shard_uid} and part {part_id:?}"
-                )));
-            }
-            Some(chunk_view) => chunk_view,
-        };
-        let key_begin = self.nibbles_to_flat_state_db_key(shard_uid, &nibbles_begin);
-        let key_end = self.nibbles_to_flat_state_db_key(shard_uid, &nibbles_end);
-        let flat_state_iter = flat_storage_chunk_view.iter_flat_state_entries(&key_begin, &key_end);
+        let flat_state_iter = self.iter_flat_state_entries(nibbles_begin, nibbles_end)?;
         let mut values_ref = 0;
         let mut values_inlined = 0;
         let all_state_part_items: Vec<_> = flat_state_iter
@@ -471,7 +491,7 @@ mod tests {
 
     use crate::test_utils::{create_tries, gen_changes, test_populate_trie};
     use crate::trie::iterator::CrumbStatus;
-    use crate::trie::{nibble_slice, TrieRefcountChange, ValueHandle};
+    use crate::trie::{TrieRefcountChange, ValueHandle};
 
     use super::*;
     use near_primitives::shard_layout::ShardUId;
@@ -801,6 +821,7 @@ mod tests {
                     .get_trie_nodes_for_part(
                         &CryptoHash::default(),
                         PartId::new(part_id, num_parts),
+                        false,
                     )
                     .unwrap();
                 // TODO (#8997): it's a bit weird that raw lengths are compared to
@@ -879,6 +900,7 @@ mod tests {
                         trie.get_trie_nodes_for_part(
                             &CryptoHash::default(),
                             PartId::new(part_id, num_parts),
+                            false,
                         )
                         .unwrap()
                     })
@@ -1007,6 +1029,7 @@ mod tests {
                     .get_trie_nodes_for_part(
                         &CryptoHash::default(),
                         PartId::new(part_id, num_parts),
+                        false,
                     )
                     .unwrap();
                 Trie::validate_trie_nodes_for_part(

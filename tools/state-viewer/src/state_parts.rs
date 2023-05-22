@@ -82,7 +82,10 @@ impl StatePartsSubCommand {
         home_dir: &Path,
         near_config: NearConfig,
         store: Store,
+        debug: bool,
     ) {
+        let mut near_config = near_config.clone();
+        near_config.client_config.debug_mode = debug;
         let epoch_manager =
             EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
         let shard_tracker = ShardTracker::new(
