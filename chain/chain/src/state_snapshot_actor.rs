@@ -1,4 +1,4 @@
-use crate::RuntimeWithEpochManagerAdapter;
+use crate::types::RuntimeAdapter;
 use near_o11y::{handler_info_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::BlockHeight;
@@ -7,14 +7,11 @@ use std::sync::Arc;
 
 pub struct StateSnapshotActor {
     pub in_progress: Arc<AtomicBool>,
-    pub runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
+    pub runtime_adapter: Arc<dyn RuntimeAdapter>,
 }
 
 impl StateSnapshotActor {
-    pub fn new(
-        in_progress: Arc<AtomicBool>,
-        runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
-    ) -> Self {
+    pub fn new(in_progress: Arc<AtomicBool>, runtime_adapter: Arc<dyn RuntimeAdapter>) -> Self {
         Self { in_progress, runtime_adapter }
     }
 }

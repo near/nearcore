@@ -430,7 +430,7 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
     let network_adapter = Arc::new(LateBoundSender::default());
     let mut vca: Option<Addr<ViewClientActor>> = None;
     let mut sma: Option<ShardsManagerAdapterForTest> = None;
-    let client_addr = ClientActor::create(|ctx: &mut actix::Context<ClientActor>| {
+    let client_addr = ClientActor::create(|ctx: &mut Context<ClientActor>| {
         let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![validators]);
         let (_, client, view_client_addr, shards_manager_adapter) = setup(
             vs,

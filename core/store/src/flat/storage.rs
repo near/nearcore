@@ -7,9 +7,8 @@ use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use tracing::{debug, info, warn};
 
 use crate::flat::delta::CachedFlatStateChanges;
-use crate::flat::store_helper::FlatStateColumn;
 use crate::flat::{FlatStorageReadyStatus, FlatStorageStatus};
-use crate::{Store, StoreUpdate};
+use crate::{DBCol, Store, StoreUpdate};
 
 use super::delta::{CachedFlatStateDelta, FlatStateDelta};
 use super::metrics::FlatStorageMetrics;
@@ -41,6 +40,9 @@ pub(crate) struct FlatStorageInner {
     flat_head: BlockInfo,
     /// Cached deltas for all blocks supported by this flat storage.
     deltas: HashMap<CryptoHash, CachedFlatStateDelta>,
+    /// This flag enables skipping flat head moves, needed temporarily for FlatState
+    /// values inlining migration.
+    move_head_enabled: bool,
     metrics: FlatStorageMetrics,
 }
 
@@ -159,7 +161,14 @@ impl FlatStorage {
             );
         }
 
-        let inner = FlatStorageInner { store, shard_uid, flat_head, deltas, metrics };
+        let inner = FlatStorageInner {
+            store,
+            shard_uid,
+            flat_head,
+            deltas,
+            move_head_enabled: true,
+            metrics,
+        };
         inner.update_delta_metrics();
         Self(Arc::new(RwLock::new(inner)))
     }
@@ -204,6 +213,9 @@ impl FlatStorage {
     /// returns an error.
     pub fn update_flat_head(&self, new_head: &CryptoHash) -> Result<(), FlatStorageError> {
         let mut guard = self.0.write().expect(crate::flat::POISONED_LOCK_ERR);
+        if !guard.move_head_enabled {
+            return Ok(());
+        }
 
         let shard_uid = guard.shard_uid;
         let shard_id = shard_uid.shard_id();
@@ -316,13 +328,13 @@ impl FlatStorage {
         // We should also take fixed accounts into account.
         let mut store_update = guard.store.store_update();
         let mut removed_items = 0;
-        for item in guard.store.iter(FlatStateColumn::State.to_db_col()) {
+        for item in guard.store.iter(DBCol::FlatState) {
             let (key, _) =
                 item.map_err(|e| StorageError::StorageInconsistentState(e.to_string()))?;
 
             if store_helper::key_belongs_to_shard(&key, &shard_layout, shard_id)? {
                 removed_items += 1;
-                store_update.delete(FlatStateColumn::State.to_db_col(), &key);
+                store_update.delete(DBCol::FlatState, &key);
             }
         }
         info!(target: "store", %shard_id, %removed_items, "Removing old items from flat storage");
@@ -337,6 +349,11 @@ impl FlatStorage {
         guard.update_delta_metrics();
 
         Ok(())
+    }
+
+    pub(crate) fn set_flat_head_update_mode(&self, enabled: bool) {
+        let mut guard = self.0.write().expect(crate::flat::POISONED_LOCK_ERR);
+        guard.move_head_enabled = enabled;
     }
 }
 

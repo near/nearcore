@@ -251,6 +251,9 @@ pub struct ClientConfig {
     pub state_sync_enabled: bool,
     /// Options for syncing state.
     pub state_sync: StateSyncConfig,
+    /// Limit of the size of per-shard transaction pool measured in bytes. If not set, the size
+    /// will be unbounded.
+    pub transaction_pool_size_limit: Option<u64>,
     /// Testing only. Makes a state snapshot after every epoch, but also every N blocks. The first snapshot is done after processng the first block.
     pub state_snapshot_every_n_blocks: Option<u64>,
 }
@@ -325,6 +328,7 @@ impl ClientConfig {
             flat_storage_creation_period: Duration::from_secs(1),
             state_sync_enabled: false,
             state_sync: StateSyncConfig::default(),
+            transaction_pool_size_limit: None,
             state_snapshot_every_n_blocks: None,
         }
     }

@@ -684,6 +684,7 @@ impl NearConfig {
                 flat_storage_creation_period: config.store.flat_storage_creation_period,
                 state_sync_enabled: config.state_sync_enabled.unwrap_or(false),
                 state_sync: config.state_sync.unwrap_or_default(),
+                transaction_pool_size_limit: None,
                 state_snapshot_every_n_blocks: config.state_snapshot_every_n_blocks,
             },
             network_config: NetworkConfig::new(
