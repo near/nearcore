@@ -4136,7 +4136,7 @@ impl Chain {
     fn state_snapshot_is_in_progress(&self) -> bool {
         self.in_progress
             .as_ref()
-            .map_or(true, |in_progress| in_progress.load(Ordering::Relaxed) == false)
+            .map_or(false, |in_progress| in_progress.load(Ordering::Relaxed) == true)
     }
 }
 
