@@ -398,10 +398,10 @@ fn sync_empty_state() {
     });
 }
 
-/// Runs one node for some time, which dumps state to a temp directory.
-/// Start the second node which gets state parts from that temp directory.
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
+/// Runs one node for some time, which dumps state to a temp directory.
+/// Start the second node which gets state parts from that temp directory.
 fn sync_state_dump() {
     heavy_test(|| {
         init_integration_logger();

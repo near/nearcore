@@ -156,4 +156,11 @@ impl FlatStorageManager {
 
         Ok(())
     }
+
+    pub fn set_flat_state_updates_mode(&self, enabled: bool) {
+        let flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
+        for flat_storage in flat_storages.values() {
+            flat_storage.set_flat_head_update_mode(enabled);
+        }
+    }
 }
