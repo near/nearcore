@@ -527,6 +527,13 @@ impl RunCmd {
             )
             .expect("start_with_config");
 
+            info!(target: "store", "store LOG MAIN THREAD");
+            info!("no-target log LOG MAIN THREAD");
+            std::thread::spawn(|| {
+                info!(target: "store", "store LOG BACKGROUND THREAD");
+                info!("no-target LOG BACKGROUND THREAD");
+            }).join().unwrap();
+
             let sig = loop {
                 let sig = wait_for_interrupt_signal(home_dir, &mut rx_crash).await;
                 if sig == "SIGHUP" {
