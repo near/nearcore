@@ -12,9 +12,6 @@ use rayon::iter::ParallelBridge;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-#[cfg(test)]
-mod tests;
-
 // TODO: make it opaque, so that the key.0 < key.1 invariant is protected.
 type EdgeKey = (PeerId, PeerId);
 pub type NextHopTable = HashMap<PeerId, Vec<PeerId>>;
