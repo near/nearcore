@@ -589,7 +589,7 @@ pub fn checkpoint_hot_storage_and_cleanup_columns(
     columns_to_keep: Option<Vec<DBCol>>,
 ) -> Result<NodeStorage, StoreOpenerError> {
     let _span =
-        tracing::info_span!(target: "state_snapshot", "checkpoint_hot_storage_and_cleanup_columns")
+        tracing::debug_span!(target: "state_snapshot", "checkpoint_hot_storage_and_cleanup_columns")
             .entered();
     let checkpoint_path = checkpoint_base_path.join("data");
     std::fs::create_dir_all(&checkpoint_base_path)?;
@@ -612,16 +612,13 @@ pub fn checkpoint_hot_storage_and_cleanup_columns(
 
         for col in DBCol::iter() {
             if !columns_to_keep_set.contains(&col) {
-                tracing::info!(target: "state_snapshot", ?col, "Delete column");
                 transaction.delete_all(col);
-            } else {
-                tracing::info!(target: "state_snapshot", ?col, "Keep column");
             }
         }
 
-        tracing::info!(target: "state_snapshot", ?transaction, "Transaction ready");
+        tracing::debug!(target: "state_snapshot", ?transaction, "Transaction ready");
         node_storage.hot_storage.write(transaction)?;
-        tracing::info!(target: "state_snapshot", "Transaction written");
+        tracing::debug!(target: "state_snapshot", "Transaction written");
     }
 
     Ok(node_storage)

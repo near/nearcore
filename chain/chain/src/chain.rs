@@ -473,14 +473,20 @@ pub struct Chain {
     pub(crate) requested_state_parts: StateRequestTracker,
 
     /// Data to initiate and check progress of state snapshots.
-    state_snapshot_info: Option<SnapshotInfo>,
+    state_snapshot_helper: Option<StateSnapshotHelper>,
 }
 
-struct SnapshotInfo {
-    blocks_until_snapshot: Option<u64>,
-    snapshot_every_n_blocks: Option<u64>,
+/// Provides access to information about state snapshot progress and lets
+/// trigger new state snapshots.
+struct StateSnapshotHelper {
+    /// Indicates whether a state snapshot is in progress.
     in_progress: Arc<AtomicBool>,
+    /// A callback to initiate state snapshot.
     start_snapshot_callback: StartSnapshotCallback,
+    /// Test-only. Artificially triggers state snapshots every N blocks.
+    snapshot_every_n_blocks: Option<u64>,
+    /// Test-only. Count down to starting the next artificial state snapshot.
+    blocks_until_snapshot: Option<u64>,
 }
 
 impl Drop for Chain {
@@ -554,7 +560,7 @@ impl Chain {
             invalid_blocks: LruCache::new(INVALID_CHUNKS_POOL_SIZE),
             pending_state_patch: Default::default(),
             requested_state_parts: StateRequestTracker::new(),
-            state_snapshot_info: None,
+            state_snapshot_helper: None,
         })
     }
 
@@ -711,18 +717,18 @@ impl Chain {
             last_time_head_updated: StaticClock::instant(),
             pending_state_patch: Default::default(),
             requested_state_parts: StateRequestTracker::new(),
-            state_snapshot_info: if let Some(in_progress) = state_snapshot_in_progress {
+            state_snapshot_helper: if let Some(in_progress) = state_snapshot_in_progress {
                 let (blocks_until_snapshot, snapshot_every_n_blocks) =
                     if let Some(n) = chain_config.state_snapshot_every_n_blocks {
                         (Some(0), Some(n))
                     } else {
                         (None, None)
                     };
-                Some(SnapshotInfo {
-                    blocks_until_snapshot,
-                    snapshot_every_n_blocks,
+                Some(StateSnapshotHelper {
                     in_progress,
                     start_snapshot_callback: start_snapshot_callback.unwrap(),
+                    snapshot_every_n_blocks,
+                    blocks_until_snapshot,
                 })
             } else {
                 None
@@ -2095,7 +2101,7 @@ impl Chain {
         let (apply_chunk_work, block_preprocess_info) = preprocess_res;
 
         let mut need_state_snapshot = block_preprocess_info.need_state_snapshot;
-        if let Some(snapshot_info) = &mut self.state_snapshot_info {
+        if let Some(snapshot_info) = &mut self.state_snapshot_helper {
             if snapshot_info.blocks_until_snapshot == Some(0) {
                 need_state_snapshot = true;
             }
@@ -3032,7 +3038,7 @@ impl Chain {
         }
         let state_root = sync_prev_block.chunks()[shard_id as usize].prev_state_root();
         let sync_prev_hash = *sync_prev_block.hash();
-        let _sync_prev_prev_hash = *sync_prev_block.header().prev_hash();
+        let sync_prev_prev_hash = *sync_prev_block.header().prev_hash();
         let state_root_node = self
             .runtime_adapter
             .get_state_root_node(shard_id, &sync_prev_hash, &state_root)
@@ -3045,9 +3051,9 @@ impl Chain {
         let current_time = Instant::now();
         let state_part = self
             .runtime_adapter
-            .obtain_state_part_from_snapshot(
+            .obtain_state_part(
                 shard_id,
-                &sync_prev_hash,
+                &sync_prev_prev_hash,
                 &state_root,
                 PartId::new(part_id, num_parts),
             )
@@ -4176,11 +4182,8 @@ impl Chain {
             tracing::debug_span!(target: "state_snapshot", "start_state_snapshot").entered();
         match self.head() {
             Ok(head) => {
-                let last_block_hash = head.last_block_hash;
                 let prev_block_hash = head.prev_block_hash;
-                (self.state_snapshot_info.as_ref().unwrap().start_snapshot_callback)(
-                    head.height,
-                    last_block_hash,
+                (self.state_snapshot_helper.as_ref().unwrap().start_snapshot_callback)(
                     prev_block_hash,
                 );
             }
@@ -4191,7 +4194,7 @@ impl Chain {
     }
 
     fn state_snapshot_is_in_progress(&self) -> bool {
-        self.state_snapshot_info
+        self.state_snapshot_helper
             .as_ref()
             .map_or(false, |info| info.in_progress.load(Ordering::Relaxed))
     }
