@@ -2,6 +2,7 @@ use crate::blacklist;
 use crate::concurrency::rate;
 use crate::network_protocol::PeerAddr;
 use crate::network_protocol::PeerInfo;
+use crate::network_protocol::{OwnedIpAddress, SignedOwnedIpAddress};
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_store;
 use crate::sink::Sink;
@@ -446,7 +447,24 @@ impl NetworkConfig {
         self.routing_table_update_rate_limit
             .validate()
             .context("routing_table_update_rate_limit")?;
-        Ok(VerifiedConfig { node_id: self.node_id(), inner: self })
+
+        // Verify ip address can be signed and verified
+        if !(self.node_addr.is_some()) {
+            anyhow::bail!("no node address given that is necessary for near network handshake");
+        }
+        let owned_ip_address = OwnedIpAddress {
+            ip_address: self.node_addr.unwrap().ip(),
+        };
+        let my_node_id = self.node_id();
+        let my_signed_owned_ip_address: SignedOwnedIpAddress = owned_ip_address.sign(&self.node_key);
+        if !(my_signed_owned_ip_address.verify(my_node_id.public_key())) {
+            anyhow::bail!("Unable to sign and verify ip address with given node_key");
+        }
+        Ok(VerifiedConfig {
+            node_id: my_node_id,
+            inner: self,
+            signed_owned_ip_address: my_signed_owned_ip_address
+        })
     }
 }
 
@@ -461,11 +479,17 @@ pub struct VerifiedConfig {
     /// Cached inner.node_id().
     /// It allows to avoid recomputing the public key every time.
     node_id: PeerId,
+    // Cache of SignedOwnedIpAddress as can be re-used for each new handshake connection.
+    signed_owned_ip_address: SignedOwnedIpAddress,
 }
 
 impl VerifiedConfig {
     pub fn node_id(&self) -> PeerId {
         self.node_id.clone()
+    }
+
+    pub fn signed_owned_ip_address(&self) -> SignedOwnedIpAddress {
+        self.signed_owned_ip_address.clone() // Clone as it's sent over the network
     }
 }
 
@@ -594,6 +618,15 @@ mod test {
         nc_after.override_config(overrides.clone());
         check_fields(&nc_before, &nc_after, &overrides);
         assert!(nc_after.verify().is_ok());
+    }
+
+    #[test]
+    fn test_verified_network_config() {
+        let nc = config::NetworkConfig::from_seed("123", tcp::ListenerAddr::reserve_for_test());
+        let verified_config = nc.verify().unwrap();
+        // Assert that the verified config's signed_owned_ip_address can be verified with its owned node_id
+        let signed_owned_ip_address = verified_config.signed_owned_ip_address();
+        assert!(signed_owned_ip_address.verify(verified_config.node_id().public_key()));
     }
 
     // Check that MAX_PEER_ADDRS limit is consistent with the
