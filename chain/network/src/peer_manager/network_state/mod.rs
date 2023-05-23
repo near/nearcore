@@ -174,14 +174,11 @@ impl NetworkState {
                 },
                 store.clone(),
             )),
-            graph_v2: Arc::new(crate::routing::GraphV2::new(
-                crate::routing::GraphConfigV2 {
-                    node_id: config.node_id(),
-                    prune_unreachable_peers_after: PRUNE_UNREACHABLE_PEERS_AFTER,
-                    prune_edges_after: Some(PRUNE_EDGES_AFTER),
-                },
-                store.clone(),
-            )),
+            graph_v2: Arc::new(crate::routing::GraphV2::new(crate::routing::GraphConfigV2 {
+                node_id: config.node_id(),
+                prune_unreachable_peers_after: PRUNE_UNREACHABLE_PEERS_AFTER,
+                prune_edges_after: Some(PRUNE_EDGES_AFTER),
+            })),
             genesis_id,
             client,
             shards_manager_adapter,

@@ -4,7 +4,6 @@ use crate::network_protocol::{Edge, EdgeState};
 use crate::routing::bfs;
 use crate::routing::routing_table_view::RoutingTableView;
 use crate::stats::metrics;
-use crate::store;
 use arc_swap::ArcSwap;
 use near_async::time;
 use near_primitives::network::PeerId;
@@ -45,7 +44,6 @@ struct Inner {
     edges: im::HashMap<EdgeKey, Edge>,
     /// Last time a peer was reachable.
     peer_reachable_at: HashMap<PeerId, time::Instant>,
-    store: store::Store,
 }
 
 fn has(set: &im::HashMap<EdgeKey, Edge>, edge: &Edge) -> bool {
@@ -221,7 +219,7 @@ pub(crate) struct GraphV2 {
 }
 
 impl GraphV2 {
-    pub fn new(config: GraphConfigV2, store: store::Store) -> Self {
+    pub fn new(config: GraphConfigV2) -> Self {
         Self {
             routing_table: RoutingTableView::new(),
             inner: Arc::new(Mutex::new(Inner {
@@ -229,7 +227,6 @@ impl GraphV2 {
                 config,
                 edges: Default::default(),
                 peer_reachable_at: HashMap::new(),
-                store,
             })),
             unreliable_peers: ArcSwap::default(),
             snapshot: ArcSwap::default(),
