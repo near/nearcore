@@ -27,7 +27,7 @@ fn setup_subscriber_from_filter(mut env_filter: EnvFilter) {
 }
 
 pub fn init_test_logger() {
-    let env_filter = EnvFilter::new("tokio_reactor=info,tokio_core=info,hyper=info,state_sync_dump=debug");
+    let env_filter = EnvFilter::new("tokio_reactor=info,tokio_core=info,hyper=info,debug");
     setup_subscriber_from_filter(env_filter);
 }
 
