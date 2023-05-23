@@ -206,6 +206,15 @@ message IpAddr {
   bytes ip = 1;
 }
 
+message OwnedIpAddr {
+  IpAddr ip_addr = 1;
+}
+
+message SignedOwnedIpAddr {
+  OwnedIpAddr owned_ip_addr = 1;
+  Signature signature_ip_addr = 2;
+}
+
 message SocketAddr {
   // IPv4 (4 bytes) or IPv6 (16 bytes) in network byte order.
   bytes ip = 1;
