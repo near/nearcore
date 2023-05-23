@@ -144,8 +144,8 @@ impl Database for SplitDB {
     fn iter_range<'a>(
         &'a self,
         col: DBCol,
-        lower_bound: Option<&'a [u8]>,
-        upper_bound: Option<&'a [u8]>,
+        lower_bound: Option<&[u8]>,
+        upper_bound: Option<&[u8]>,
     ) -> DBIterator<'a> {
         if !col.is_cold() {
             return self.hot.iter_range(col, lower_bound, upper_bound);

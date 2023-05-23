@@ -286,6 +286,10 @@ mod tests {
 
     #[test]
     fn test_with_file() {
+        fn timestamp(hour: u32, min: u32, sec: u32) -> Option<DateTime<Utc>> {
+            Some(Utc.with_ymd_and_hms(2019, 12, 21, hour, min, sec).single().unwrap())
+        }
+
         let file = NamedTempFile::new().unwrap();
         let mut writer = WriterBuilder::new().has_headers(true).from_writer(file.reopen().unwrap());
         writer
@@ -300,10 +304,10 @@ mod tests {
                 foundation_pks: vec![PublicKey::empty(KeyType::ED25519)],
                 full_pks: vec![],
                 amount: 1000,
-                lockup: Some(Utc.ymd(2019, 12, 21).and_hms(23, 0, 0)),
-                vesting_start: Some(Utc.ymd(2019, 12, 21).and_hms(22, 0, 0)),
-                vesting_end: Some(Utc.ymd(2019, 12, 21).and_hms(23, 30, 0)),
-                vesting_cliff: Some(Utc.ymd(2019, 12, 21).and_hms(22, 30, 20)),
+                lockup: timestamp(23, 0, 0),
+                vesting_start: timestamp(22, 0, 0),
+                vesting_end: timestamp(23, 30, 0),
+                vesting_cliff: timestamp(22, 30, 20),
                 validator_stake: 100,
                 validator_key: Some(PublicKey::empty(KeyType::ED25519)),
                 peer_info: Some(PeerInfo {
@@ -324,7 +328,7 @@ mod tests {
                 foundation_pks: vec![PublicKey::empty(KeyType::ED25519)],
                 full_pks: vec![],
                 amount: 2000,
-                lockup: Some(Utc.ymd(2019, 12, 21).and_hms(23, 0, 0)),
+                lockup: timestamp(23, 0, 0),
                 vesting_start: None,
                 vesting_end: None,
                 vesting_cliff: None,

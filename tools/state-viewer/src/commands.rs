@@ -26,8 +26,7 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{chunk_extra::ChunkExtra, BlockHeight, ShardId, StateRoot};
 use near_primitives_core::types::Gas;
 use near_store::test_utils::create_test_store;
-use near_store::TrieDBStorage;
-use near_store::{Store, Trie, TrieCache, TrieCachingStorage, TrieConfig};
+use near_store::{DBCol, Store, Trie, TrieCache, TrieCachingStorage, TrieConfig, TrieDBStorage};
 use nearcore::{NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
 use serde_json::json;
@@ -796,6 +795,7 @@ pub(crate) fn check_block_chunk_existence(near_config: NearConfig, store: Store)
 pub(crate) fn print_epoch_info(
     epoch_selection: epoch_info::EpochSelection,
     validator_account_id: Option<AccountId>,
+    kickouts_summary: bool,
     near_config: NearConfig,
     store: Store,
 ) {
@@ -810,6 +810,7 @@ pub(crate) fn print_epoch_info(
     epoch_info::print_epoch_info(
         epoch_selection,
         validator_account_id,
+        kickouts_summary,
         store,
         &mut chain_store,
         &epoch_manager,
@@ -976,4 +977,10 @@ pub(crate) fn contract_accounts(
     }
 
     Ok(())
+}
+
+pub(crate) fn clear_cache(store: Store) {
+    let mut store_update = store.store_update();
+    store_update.delete_all(DBCol::CachedContractCode);
+    store_update.commit().unwrap();
 }

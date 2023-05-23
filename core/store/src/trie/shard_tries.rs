@@ -3,7 +3,7 @@ use crate::trie::config::TrieConfig;
 use crate::trie::prefetching_trie_storage::PrefetchingThreadsHandle;
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::trie::{TrieRefcountChange, POISONED_LOCK_ERR};
-use crate::{metrics, DBCol, DBOp, DBTransaction, PrefetchApi};
+use crate::{metrics, DBCol, PrefetchApi};
 use crate::{Store, StoreUpdate, Trie, TrieChanges, TrieUpdate};
 use borsh::BorshSerialize;
 use near_primitives::borsh::maybestd::collections::HashMap;
@@ -181,45 +181,13 @@ impl ShardTries {
         &self.0.store.storage
     }
 
-    pub(crate) fn update_cache(&self, transaction: &DBTransaction) -> std::io::Result<()> {
+    pub fn update_cache(&self, ops: Vec<(&CryptoHash, Option<&[u8]>)>, shard_uid: ShardUId) {
         let mut caches = self.0.caches.write().expect(POISONED_LOCK_ERR);
-        let mut shards = HashMap::new();
-        for op in &transaction.ops {
-            match op {
-                DBOp::UpdateRefcount { col, key, value } => {
-                    if *col == DBCol::State {
-                        let (shard_uid, hash) =
-                            TrieCachingStorage::get_shard_uid_and_hash_from_key(key)?;
-                        shards
-                            .entry(shard_uid)
-                            .or_insert(vec![])
-                            .push((hash, Some(value.as_slice())));
-                    }
-                }
-                DBOp::DeleteAll { col } => {
-                    if *col == DBCol::State {
-                        // Delete is possible in reset_data_pre_state_sync
-                        for (_, cache) in caches.iter() {
-                            cache.clear();
-                        }
-                    }
-                }
-                DBOp::Set { col, .. }
-                | DBOp::Insert { col, .. }
-                | DBOp::Delete { col, .. }
-                | DBOp::DeleteRange { col, .. } => {
-                    assert_ne!(*col, DBCol::State);
-                }
-            }
-        }
-        for (shard_uid, ops) in shards {
-            let cache = caches
-                .entry(shard_uid)
-                .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, false))
-                .clone();
-            cache.update_cache(ops);
-        }
-        Ok(())
+        let cache = caches
+            .entry(shard_uid)
+            .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, false))
+            .clone();
+        cache.update_cache(ops);
     }
 
     fn apply_deletions_inner(
@@ -229,13 +197,17 @@ impl ShardTries {
         store_update: &mut StoreUpdate,
     ) {
         store_update.set_shard_tries(self);
+        let mut ops = Vec::new();
         for TrieRefcountChange { trie_node_or_value_hash, rc, .. } in deletions.iter() {
             let key = TrieCachingStorage::get_key_from_shard_uid_and_hash(
                 shard_uid,
                 trie_node_or_value_hash,
             );
             store_update.decrement_refcount_by(DBCol::State, key.as_ref(), *rc);
+            ops.push((trie_node_or_value_hash, None));
         }
+
+        self.update_cache(ops, shard_uid);
     }
 
     fn apply_insertions_inner(
@@ -245,6 +217,7 @@ impl ShardTries {
         store_update: &mut StoreUpdate,
     ) {
         store_update.set_shard_tries(self);
+        let mut ops = Vec::new();
         for TrieRefcountChange { trie_node_or_value_hash, trie_node_or_value, rc } in
             insertions.iter()
         {
@@ -253,7 +226,9 @@ impl ShardTries {
                 trie_node_or_value_hash,
             );
             store_update.increment_refcount_by(DBCol::State, key.as_ref(), trie_node_or_value, *rc);
+            ops.push((trie_node_or_value_hash, Some(trie_node_or_value.as_slice())));
         }
+        self.update_cache(ops, shard_uid);
     }
 
     fn apply_all_inner(
@@ -561,8 +536,13 @@ impl KeyForStateChanges {
 
 #[cfg(test)]
 mod test {
+    use crate::{
+        config::TrieCacheConfig, test_utils::create_test_store,
+        trie::DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT, TrieConfig,
+    };
+
     use super::*;
-    use std::str::FromStr;
+    use std::{assert_eq, str::FromStr};
 
     #[test]
     fn test_delayed_receipt_row_key() {
@@ -626,5 +606,100 @@ mod test {
             .unwrap(),
             shard_uid
         );
+    }
+
+    //TODO(jbajic) Simplify logic for creating configuration
+    #[test]
+    fn test_insert_delete_trie_cache() {
+        let store = create_test_store();
+        let trie_cache_config = TrieCacheConfig {
+            default_max_bytes: DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
+            per_shard_max_bytes: Default::default(),
+            shard_cache_deletions_queue_capacity: 0,
+        };
+        let trie_config = TrieConfig {
+            shard_cache_config: trie_cache_config.clone(),
+            view_shard_cache_config: trie_cache_config,
+            enable_receipt_prefetching: false,
+            sweat_prefetch_receivers: Vec::new(),
+            sweat_prefetch_senders: Vec::new(),
+        };
+        let shard_uids = Vec::from([ShardUId { shard_id: 0, version: 0 }]);
+        let shard_uid = *shard_uids.first().unwrap();
+
+        let trie = ShardTries::new(
+            store.clone(),
+            trie_config,
+            &shard_uids,
+            FlatStorageManager::test(store, &shard_uids, CryptoHash::default()),
+        );
+
+        let trie_caches = &trie.0.caches;
+        // Assert only one cache for one shard exists
+        assert_eq!(trie_caches.read().unwrap().len(), 1);
+        // Assert the shard uid is correct
+        assert!(trie_caches.read().unwrap().get(&shard_uid).is_some());
+
+        // Read from cache
+        let key = CryptoHash::hash_borsh("alice");
+        let val: Vec<u8> = Vec::from([0, 1, 2, 3, 4]);
+
+        assert!(trie_caches.read().unwrap().get(&shard_uid).unwrap().get(&key).is_none());
+
+        let insert_ops = Vec::from([(&key, Some(val.as_slice()))]);
+        trie.update_cache(insert_ops, shard_uid);
+        assert_eq!(
+            trie_caches.read().unwrap().get(&shard_uid).unwrap().get(&key).unwrap().to_vec(),
+            val
+        );
+
+        let deletions_ops = Vec::from([(&key, None)]);
+        trie.update_cache(deletions_ops, shard_uid);
+        assert!(trie_caches.read().unwrap().get(&shard_uid).unwrap().get(&key).is_none());
+    }
+
+    #[test]
+    fn test_shard_cache_max_value() {
+        let store = create_test_store();
+        let trie_cache_config = TrieCacheConfig {
+            default_max_bytes: DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
+            per_shard_max_bytes: Default::default(),
+            shard_cache_deletions_queue_capacity: 0,
+        };
+        let trie_config = TrieConfig {
+            shard_cache_config: trie_cache_config.clone(),
+            view_shard_cache_config: trie_cache_config,
+            enable_receipt_prefetching: false,
+            sweat_prefetch_receivers: Vec::new(),
+            sweat_prefetch_senders: Vec::new(),
+        };
+        let shard_uids = Vec::from([ShardUId { shard_id: 0, version: 0 }]);
+        let shard_uid = *shard_uids.first().unwrap();
+
+        let trie = ShardTries::new(
+            store.clone(),
+            trie_config,
+            &shard_uids,
+            FlatStorageManager::test(store, &shard_uids, CryptoHash::default()),
+        );
+
+        let trie_caches = &trie.0.caches;
+
+        // Insert into cache value at the configured maximum size
+        let key = CryptoHash::hash_borsh("alice");
+        let val: Vec<u8> = vec![0; TrieConfig::max_cached_value_size() - 1];
+        let insert_ops = Vec::from([(&key, Some(val.as_slice()))]);
+        trie.update_cache(insert_ops, shard_uid);
+        assert_eq!(
+            trie_caches.read().unwrap().get(&shard_uid).unwrap().get(&key).unwrap().to_vec(),
+            val
+        );
+
+        // Try to insert into cache value bigger then the maximum allowed size
+        let key = CryptoHash::from_str("32222222222233333333334444444444445555555777").unwrap();
+        let val: Vec<u8> = vec![0; TrieConfig::max_cached_value_size()];
+        let insert_ops = Vec::from([(&key, Some(val.as_slice()))]);
+        trie.update_cache(insert_ops, shard_uid);
+        assert!(trie_caches.read().unwrap().get(&shard_uid).unwrap().get(&key).is_none());
     }
 }

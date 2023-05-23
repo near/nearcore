@@ -308,8 +308,8 @@ fn test_flat_storage_creation_start_from_state_part() {
             .unwrap();
         (0..NUM_PARTS)
             .map(|part_id| {
-                let path_begin = trie.find_path_for_part_boundary(part_id, NUM_PARTS).unwrap();
-                let path_end = trie.find_path_for_part_boundary(part_id + 1, NUM_PARTS).unwrap();
+                let path_begin = trie.find_state_part_boundary(part_id, NUM_PARTS).unwrap();
+                let path_end = trie.find_state_part_boundary(part_id + 1, NUM_PARTS).unwrap();
                 let mut trie_iter = trie.iter().unwrap();
                 let mut keys = vec![];
                 for item in trie_iter.visit_nodes_interval(&path_begin, &path_end).unwrap() {
@@ -438,14 +438,9 @@ fn test_flat_storage_iter() {
     }
 
     for shard_id in 0..3 {
-        let items: Vec<_> = store_helper::iter_flat_state_entries(
-            shard_layout.clone(),
-            shard_id,
-            &store,
-            None,
-            None,
-        )
-        .collect();
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+        let items: Vec<_> =
+            store_helper::iter_flat_state_entries(shard_uid, &store, None, None).collect();
 
         match shard_id {
             0 => {

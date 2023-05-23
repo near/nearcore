@@ -2968,6 +2968,7 @@ impl Chain {
         }
         let state_root = sync_prev_block.chunks()[shard_id as usize].prev_state_root();
         let sync_prev_hash = *sync_prev_block.hash();
+        let sync_prev_prev_hash = *sync_prev_block.header().prev_hash();
         let state_root_node = self
             .runtime_adapter
             .get_state_root_node(shard_id, &sync_prev_hash, &state_root)
@@ -2982,7 +2983,7 @@ impl Chain {
             .runtime_adapter
             .obtain_state_part(
                 shard_id,
-                &sync_prev_hash,
+                &sync_prev_prev_hash,
                 &state_root,
                 PartId::new(part_id, num_parts),
             )
@@ -3729,7 +3730,7 @@ impl Chain {
             merkle_proof: merkle_proofs[chunk_shard_id as usize].clone(),
             prev_chunk,
             chunk_header: chunk_header.clone(),
-            partial_state: PartialState(vec![]),
+            partial_state: PartialState::TrieValues(vec![]),
         })
     }
 

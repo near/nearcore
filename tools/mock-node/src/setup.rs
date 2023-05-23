@@ -206,7 +206,7 @@ pub fn setup_mock_node(
                     let state_part = mock_network_runtime
                         .obtain_state_part(
                             shard_id,
-                            &next_hash,
+                            &hash,
                             &state_root,
                             PartId::new(part_id, num_parts),
                         )

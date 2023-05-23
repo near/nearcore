@@ -1,13 +1,13 @@
 [package]
 name = "near-async"
-version = "0.0.0"
+version.workspace = true
 authors.workspace = true
-publish = false
-rust-version.workspace = true
 edition.workspace = true
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/near/nearcore"
+rust-version.workspace = true
 description = "This crate contains the async helpers specific for nearcore"
+repository.workspace = true
+license.workspace = true
+publish = false
 
 [dependencies]
 actix.workspace = true
