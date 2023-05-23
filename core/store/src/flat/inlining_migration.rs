@@ -1,4 +1,7 @@
 use std::collections::HashMap;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
+use std::thread::JoinHandle;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use crossbeam::channel;
@@ -7,15 +10,69 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use tracing::{debug, info};
 
+use crate::flat::store_helper::set_flat_state_values_inlining_migration_status;
 use crate::metrics::flat_state_metrics::inlining_migration::{
     FLAT_STATE_PAUSED_DURATION, INLINED_COUNT, INLINED_TOTAL_VALUES_SIZE, PROCESSED_COUNT,
     PROCESSED_TOTAL_VALUES_SIZE, SKIPPED_COUNT,
 };
 use crate::{DBCol, Store, TrieDBStorage, TrieStorage};
 
-use super::store_helper::decode_flat_state_db_key;
-use super::types::INLINE_DISK_VALUE_THRESHOLD;
+use super::store_helper::{
+    decode_flat_state_db_key, get_flat_state_values_inlining_migration_status,
+};
+use super::types::{FlatStateValuesInliningMigrationStatus, INLINE_DISK_VALUE_THRESHOLD};
 use super::{FlatStateValue, FlatStorageManager};
+
+pub struct FlatStateValuesInliningMigrationHandle {
+    handle: JoinHandle<()>,
+    keep_running: Arc<AtomicBool>,
+}
+
+const BACKGROUND_MIGRATION_BATCH_SIZE: usize = 50_000;
+
+impl FlatStateValuesInliningMigrationHandle {
+    pub fn start_background_migration(
+        store: Store,
+        flat_storage_manager: FlatStorageManager,
+        read_state_threads: usize,
+    ) -> Self {
+        let keep_running = Arc::new(AtomicBool::new(true));
+        let keep_runnning_clone = keep_running.clone();
+        let handle = std::thread::spawn(move || {
+            let status = get_flat_state_values_inlining_migration_status(&store)
+                .expect("failed to read fs migration status");
+            info!(target: "store", ?status, "Read FlatState values inlining migration status");
+            if status == FlatStateValuesInliningMigrationStatus::Finished {
+                return;
+            }
+            set_flat_state_values_inlining_migration_status(
+                &store,
+                FlatStateValuesInliningMigrationStatus::InProgress,
+            )
+            .expect("failed to set fs migration in-progress status");
+            let completed = inline_flat_state_values(
+                store.clone(),
+                &flat_storage_manager,
+                &keep_running,
+                read_state_threads,
+                BACKGROUND_MIGRATION_BATCH_SIZE,
+            );
+            if completed {
+                set_flat_state_values_inlining_migration_status(
+                    &store,
+                    FlatStateValuesInliningMigrationStatus::Finished,
+                )
+                .expect("failed to set fs migration finished status");
+            }
+        });
+        Self { handle, keep_running: keep_runnning_clone }
+    }
+
+    pub fn stop(self) {
+        self.keep_running.store(false, std::sync::atomic::Ordering::Relaxed);
+        self.handle.join().expect("join should not fail here");
+    }
+}
 
 struct ReadValueRequest {
     shard_uid: ShardUId,
@@ -33,7 +90,7 @@ struct StateValueReader {
     pending_requests: usize,
     value_request_send: channel::Sender<ReadValueRequest>,
     value_response_recv: channel::Receiver<ReadValueResponse>,
-    join_handles: Vec<std::thread::JoinHandle<()>>,
+    join_handles: Vec<JoinHandle<()>>,
 }
 
 impl StateValueReader {
@@ -110,16 +167,23 @@ impl StateValueReader {
 pub fn inline_flat_state_values(
     store: Store,
     flat_storage_manager: &FlatStorageManager,
+    keep_running: &AtomicBool,
     read_state_threads: usize,
     batch_size: usize,
-) {
+) -> bool {
     info!(target: "store", %read_state_threads, %batch_size, "Starting FlatState value inlining migration");
     let migration_start = std::time::Instant::now();
     let mut value_reader = StateValueReader::new(store.clone(), read_state_threads);
     let mut inlined_total_count = 0;
+    let mut interrupted = false;
     for (batch_index, batch) in
         store.iter(DBCol::FlatState).chunks(batch_size).into_iter().enumerate()
     {
+        if !keep_running.load(std::sync::atomic::Ordering::Relaxed) {
+            info!(target: "store", %batch_index, "FlatState value inlining migration was interrupted");
+            interrupted = true;
+            break;
+        }
         let (mut min_key, mut max_key) = (None, None);
         for entry in batch {
             PROCESSED_COUNT.inc();
@@ -204,7 +268,8 @@ pub fn inline_flat_state_values(
     }
     value_reader.close();
     let migration_elapsed = migration_start.elapsed();
-    info!(target: "store", %inlined_total_count, ?migration_elapsed, "Finished FlatState value inlining migration");
+    info!(target: "store", %inlined_total_count, ?migration_elapsed, %interrupted, "Finished FlatState value inlining migration");
+    !interrupted
 }
 
 fn log_skipped(reason: &str, err: impl std::error::Error) {
@@ -214,6 +279,8 @@ fn log_skipped(reason: &str, err: impl std::error::Error) {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::AtomicBool;
+
     use borsh::{BorshDeserialize, BorshSerialize};
     use near_primitives::hash::hash;
     use near_primitives::shard_layout::ShardLayout;
@@ -243,7 +310,13 @@ mod tests {
             }
             store_update.commit().unwrap();
         }
-        inline_flat_state_values(store.clone(), &FlatStorageManager::new(store.clone()), 2, 4);
+        inline_flat_state_values(
+            store.clone(),
+            &FlatStorageManager::new(store.clone()),
+            &AtomicBool::new(true),
+            2,
+            4,
+        );
         assert_eq!(
             store
                 .iter(DBCol::FlatState)

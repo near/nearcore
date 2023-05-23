@@ -1,6 +1,7 @@
 //! This file contains helper functions for accessing flat storage data in DB
 //! TODO(#8577): remove this file and move functions to the corresponding structs
 
+use crate::db::FLAT_STATE_VALUES_INLINING_MIGRATION_STATUS_KEY;
 use crate::flat::delta::{FlatStateChanges, KeyForFlatStateDelta};
 use crate::flat::types::FlatStorageError;
 use crate::{DBCol, Store, StoreUpdate};
@@ -9,7 +10,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 
 use super::delta::{FlatStateDelta, FlatStateDeltaMetadata};
-use super::types::{FlatStateValue, FlatStorageStatus};
+use super::types::{FlatStateValue, FlatStateValuesInliningMigrationStatus, FlatStorageStatus};
 
 /// Prefixes for keys in `FlatStateMisc` DB column.
 pub const FLAT_STATE_HEAD_KEY_PREFIX: &[u8; 4] = b"HEAD";
@@ -86,6 +87,26 @@ pub(crate) fn decode_flat_state_db_key(
         ))
     })?;
     Ok((shard_uid, trie_key.to_vec()))
+}
+
+pub fn get_flat_state_values_inlining_migration_status(
+    store: &Store,
+) -> Result<FlatStateValuesInliningMigrationStatus, FlatStorageError> {
+    store
+        .get_ser(DBCol::Misc, FLAT_STATE_VALUES_INLINING_MIGRATION_STATUS_KEY)
+        .map(|status| status.unwrap_or(FlatStateValuesInliningMigrationStatus::Empty))
+        .map_err(|_| FlatStorageError::StorageInternalError)
+}
+
+pub fn set_flat_state_values_inlining_migration_status(
+    store: &Store,
+    status: FlatStateValuesInliningMigrationStatus,
+) -> Result<(), FlatStorageError> {
+    let mut store_update = store.store_update();
+    store_update
+        .set_ser(DBCol::Misc, FLAT_STATE_VALUES_INLINING_MIGRATION_STATUS_KEY, &status)
+        .map_err(|_| FlatStorageError::StorageInternalError)?;
+    store_update.commit().map_err(|_| FlatStorageError::StorageInternalError)
 }
 
 pub(crate) fn get_flat_state_value(
