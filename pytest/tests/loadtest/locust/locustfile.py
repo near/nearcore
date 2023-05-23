@@ -29,9 +29,7 @@ class FtTransferUser(NearUser):
 
     @task
     def ft_transfer(self):
-        logger.debug(f"START FT TRANSFER {self.id}")
         rng = random.Random()
-
         receiver = rng.choice(FtTransferUser.registered_users)
         # Sender must be != receiver but maybe there is no other registered user
         # yet, so we just send to the contract account which is registered
@@ -44,22 +42,21 @@ class FtTransferUser(NearUser):
                        self.account,
                        receiver,
                        how_much=1))
-        logger.debug(f"FT TRANSFER {self.id} DONE")
 
     def on_start(self):
         super().on_start()
 
         self.contract_account = FT_ACCOUNT
 
-        logger.debug(f"starting user {self.id} init")
         self.send_tx(InitFTAccount(self.contract_account, self.account))
-        logger.debug(f"user {self.account_id} InitFTAccount done")
         self.send_tx(
             TransferFT(self.contract_account,
                        self.contract_account,
                        self.account_id,
                        how_much=1E8))
-        logger.debug(f"user {self.account_id} TransferFT done, user ready")
+        logger.debug(
+            f"{self.account_id} ready to use FT contract {self.contract_account.key.account_id}"
+        )
 
         FtTransferUser.registered_users.append(self.account_id)
 
@@ -84,9 +81,7 @@ def on_locust_init(environment, **kwargs):
         node, CreateSubAccount(funding_account, ft_account.key,
                                balance=50000.0))
     ft_account.refresh_nonce(node)
-    logger.info("INIT Deploying")
     send_transaction(node, Deploy(ft_account, contract_code, "FT"))
-    logger.info("INIT FT init")
     send_transaction(node, InitFT(ft_account))
 
 

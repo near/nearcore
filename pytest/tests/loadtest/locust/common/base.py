@@ -90,24 +90,6 @@ class Deploy(Transaction):
                                                    block_hash)
 
 
-class TransferNear(Transaction):
-
-    def __init__(self, sender, recipient_id, how_much=2.0):
-        super().__init__()
-        self.recipient_id = recipient_id
-        self.sender = sender
-        self.how_much = how_much
-
-    def sign_and_serialize(self, block_hash):
-        sender = self.sender
-        logger.debug(
-            f"sending {self.how_much} NEAR from {sender.key.account_id} to {self.recipient_id}"
-        )
-        return transaction.sign_payment_tx(sender.key, self.recipient_id,
-                                           int(self.how_much * 1E24),
-                                           sender.use_nonce(), block_hash)
-
-
 class CreateSubAccount(Transaction):
 
     def __init__(self, sender, sub_key, balance=50.0):

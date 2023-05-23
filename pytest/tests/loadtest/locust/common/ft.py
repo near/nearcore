@@ -12,13 +12,12 @@ from common.base import Transaction
 
 class TransferFT(Transaction):
 
-    def __init__(self, ft, sender, recipient_id, how_much=1, tgas=300):
+    def __init__(self, ft, sender, recipient_id, how_much=1):
         super().__init__()
         self.ft = ft
         self.sender = sender
         self.recipient_id = recipient_id
         self.how_much = how_much
-        self.attached_tgas = tgas
 
     def sign_and_serialize(self, block_hash):
         (ft, sender, recipient_id) = self.ft, self.sender, self.recipient_id
@@ -31,7 +30,7 @@ class TransferFT(Transaction):
             ft.key.account_id,
             "ft_transfer",
             json.dumps(args).encode('utf-8'),
-            self.attached_tgas * TGAS,
+            300 * TGAS,
             # Attach exactly 1 yoctoNEAR according to NEP-141 to avoid calls from restricted access keys
             1,
             sender.use_nonce(),
