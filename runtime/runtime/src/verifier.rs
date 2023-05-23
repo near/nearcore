@@ -2,6 +2,7 @@ use near_crypto::key_conversion::is_valid_staking_key;
 use near_primitives::checked_feature;
 use near_primitives::delegate_action::SignedDelegateAction;
 use near_primitives::runtime::config::RuntimeConfig;
+use near_primitives::transaction::DeleteAccountAction;
 use near_primitives::types::{BlockHeight, StorageUsage};
 use near_primitives::version::ProtocolFeature;
 use near_primitives::{
@@ -403,7 +404,7 @@ pub fn validate_action(
         Action::Stake(a) => validate_stake_action(a),
         Action::AddKey(a) => validate_add_key_action(limit_config, a),
         Action::DeleteKey(_) => Ok(()),
-        Action::DeleteAccount(_) => Ok(()),
+        Action::DeleteAccount(a) => validate_delete_action(a),
         Action::Delegate(a) => validate_delegate_action(limit_config, a, current_protocol_version),
     }
 }
@@ -511,6 +512,19 @@ fn validate_add_key_action(
                 limit: limit_config.max_number_bytes_method_names,
             });
         }
+    }
+
+    Ok(())
+}
+
+/// Validates `DeleteAction`.
+///
+/// Checks that the `beneficiary_id` is a valid account ID.
+fn validate_delete_action(action: &DeleteAccountAction) -> Result<(), ActionsValidationError> {
+    if AccountId::validate(&action.beneficiary_id).is_err() {
+        return Err(ActionsValidationError::InvalidAccountId {
+            account_id: action.beneficiary_id.to_string(),
+        });
     }
 
     Ok(())
