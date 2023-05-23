@@ -91,7 +91,7 @@ impl FlatStorageManager {
         assert!(original_value.is_none());
     }
 
-    /// Creates `FlatStorageChunkView` to access state for `shard_id` and block `block_hash`.
+    /// Creates `FlatStorageChunkView` to access state for `shard_uid` and block `block_hash`.
     /// Note that:
     /// * the state includes changes by the block `block_hash`;
     /// * request to get value locks shared `FlatStorage` struct which may cause write slowdowns.
