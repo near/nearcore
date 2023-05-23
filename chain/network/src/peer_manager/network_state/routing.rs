@@ -178,7 +178,7 @@ impl NetworkState {
     pub async fn update_shortest_path_tree(
         self: &Arc<Self>,
         clock: &time::Clock,
-        root: PeerId,
+        _root: PeerId,
         edges: Vec<Edge>,
     ) -> Result<(), ReasonForBan> {
         if edges.is_empty() {

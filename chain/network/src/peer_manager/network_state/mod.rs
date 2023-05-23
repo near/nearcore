@@ -523,13 +523,13 @@ impl NetworkState {
                             self.graph.routing_table.count_next_hops_for_peer_id(peer_id);
                         let hop_ct_v2 =
                             self.graph_v2.routing_table.count_next_hops_for_peer_id(peer_id);
-                        tracing::info!(target: "stats", "num next hops for {} are {} vs {}", &peer_id, hop_ct_v1, hop_ct_v2);
+                        //tracing::info!(target: "stats", "num next hops for {} are {} vs {}", &peer_id, hop_ct_v1, hop_ct_v2);
 
                         if hop_ct_v1 != hop_ct_v2 {
-                            tracing::error!(target: "stats", "number of next hops mismatched between routing protocols for target {}", &peer_id);
+                            //tracing::error!(target: "stats", "number of next hops mismatched between routing protocols for target {}", &peer_id);
                         }
                     }
-                    Default => {}
+                    _default => {}
                 }
 
                 match self.find_route(&clock, &msg.target) {

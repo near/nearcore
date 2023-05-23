@@ -125,7 +125,7 @@ impl Inner {
         }
 
         // Prune edges from graph.
-        let edges = self.remove_adjacent_edges(&peers);
+        self.remove_adjacent_edges(&peers);
     }
 
     /// Verifies edges, then adds them to the graph.
@@ -231,7 +231,7 @@ impl GraphV2 {
         }
     }
 
-    pub fn load(&self) -> Arc<GraphSnapshotV2> {
+    pub fn _load(&self) -> Arc<GraphSnapshotV2> {
         self.snapshot.load_full()
     }
 
