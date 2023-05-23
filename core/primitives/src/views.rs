@@ -228,7 +228,7 @@ pub struct StateItem {
 pub struct ViewStateResult {
     pub values: Vec<StateItem>,
     #[serde_as(as = "Vec<Base64>")]
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub proof: Vec<Arc<[u8]>>,
 }
 
