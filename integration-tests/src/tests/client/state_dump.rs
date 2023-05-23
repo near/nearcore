@@ -17,6 +17,18 @@ use std::time::Duration;
 
 use super::utils::TestEnvNightshadeSetupExt;
 
+/// Setup environment with one Near client for testing.
+fn setup_env(genesis: &Genesis, store: Store) -> (TestEnv, Arc<dyn EpochManagerAdapter>) {
+    let chain_genesis = ChainGenesis::new(genesis);
+    let env = TestEnv::builder(chain_genesis)
+        .stores(vec![store])
+        .real_epoch_managers(&genesis.config)
+        .nightshade_runtimes(genesis)
+        .build();
+    let epoch_manager = env.clients[0].epoch_manager.clone();
+    (env, epoch_manager)
+}
+
 #[test]
 /// Produce several blocks, wait for the state dump thread to notice and
 /// write files to a temp dir.
@@ -42,7 +54,7 @@ fn test_state_dump() {
         iteration_delay: Some(Duration::from_millis(250)),
     });
 
-    const MAX_HEIGHT: BlockHeight = 15;
+    const MAX_HEIGHT: BlockHeight = 37;
 
     near_actix_test_utils::run_actix(async move {
         let _state_sync_dump_handle = spawn_state_sync_dump(
