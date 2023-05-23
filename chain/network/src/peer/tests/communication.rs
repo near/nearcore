@@ -1,4 +1,4 @@
-use crate::network_protocol::testonly as data;
+use crate::network_protocol::testonly::{self as data, make_signed_owned_ip_addr};
 use crate::network_protocol::{
     Encoding, Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerMessage, PeersRequest,
     PeersResponse, RoutedMessageBody,
@@ -199,6 +199,9 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
     let inbound = PeerHandle::start_endpoint(clock.clock(), inbound_cfg, inbound_stream).await;
     let outbound_port = outbound_stream.local_addr.port();
     let mut outbound = Stream::new(outbound_encoding, outbound_stream);
+    let ip_addr = outbound.stream.local_addr.ip();
+    let secret_key = near_crypto::SecretKey::from_seed(near_crypto::KeyType::ED25519, "123");
+    let signed_owned_ip_address = make_signed_owned_ip_addr(&ip_addr, &secret_key);
 
     // Send too old PROTOCOL_VERSION, expect ProtocolVersionMismatch
     let mut handshake = Handshake {
@@ -210,7 +213,7 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
         sender_chain_info: outbound_cfg.chain.get_peer_chain_info(),
         partial_edge_info: outbound_cfg.partial_edge_info(&inbound.cfg.id(), 1),
         owned_account: None,
-        owned_ip_address: Some(outbound.stream.local_addr.ip()),
+        signed_owned_ip_address: Some(signed_owned_ip_address),
     };
     // We will also introduce chain_id mismatch, but ProtocolVersionMismatch is expected to take priority.
     handshake.sender_chain_info.genesis_id.chain_id = "unknown_chain".to_string();

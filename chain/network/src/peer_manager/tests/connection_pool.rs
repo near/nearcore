@@ -1,4 +1,4 @@
-use crate::network_protocol::testonly as data;
+use crate::network_protocol::testonly::{self as data, make_signed_owned_ip_addr};
 use crate::network_protocol::PeerMessage;
 use crate::network_protocol::{Encoding, Handshake, OwnedAccount, PartialEdgeInfo};
 use crate::peer::peer_actor::ClosingReason;
@@ -76,7 +76,7 @@ async fn loop_connection() {
     cfg.node_key = pm.cfg.node_key.clone();
 
     // Starting an outbound loop connection on TIER2 should be stopped without sending the handshake.
-    let conn = pm.start_outbound(chain.clone(), cfg, tcp::Tier::T2).await;
+    let conn = pm.start_outbound(chain.clone(), cfg.clone(), tcp::Tier::T2).await;
     assert_eq!(
         ClosingReason::OutboundNotAllowed(connection::PoolError::UnexpectedLoopConnection),
         conn.manager_fail_handshake(&clock.clock()).await
@@ -88,6 +88,8 @@ async fn loop_connection() {
     let port = stream.local_addr.port();
     let mut events = pm.events.from_now();
     let mut stream = Stream::new(Some(Encoding::Proto), stream);
+    let ip_addr = stream.stream.local_addr.ip();
+    let signed_owned_ip_address = make_signed_owned_ip_addr(&ip_addr, &cfg.node_key);
     stream
         .write(&PeerMessage::Tier2Handshake(Handshake {
             protocol_version: PROTOCOL_VERSION,
@@ -103,7 +105,7 @@ async fn loop_connection() {
                 &pm.cfg.node_key,
             ),
             owned_account: None,
-            owned_ip_address: Some(stream.stream.local_addr.ip()),
+            signed_owned_ip_address: Some(signed_owned_ip_address),
         }))
         .await;
     let reason = events
@@ -149,6 +151,8 @@ async fn owned_account_mismatch() {
     let mut stream = Stream::new(Some(Encoding::Proto), stream);
     let cfg = chain.make_config(rng);
     let vc = cfg.validator.clone().unwrap();
+    let ip_addr = stream.stream.local_addr.ip();
+    let signed_owned_ip_address = make_signed_owned_ip_addr(&ip_addr, &cfg.node_key);
     stream
         .write(&PeerMessage::Tier2Handshake(Handshake {
             protocol_version: PROTOCOL_VERSION,
@@ -172,7 +176,7 @@ async fn owned_account_mismatch() {
                 }
                 .sign(vc.signer.as_ref()),
             ),
-            owned_ip_address: Some(stream.stream.local_addr.ip()),
+            signed_owned_ip_address: Some(signed_owned_ip_address),
         }))
         .await;
     let reason = events
@@ -269,6 +273,8 @@ async fn invalid_edge() {
             let port = stream.local_addr.port();
             let mut events = pm.events.from_now();
             let mut stream = Stream::new(Some(Encoding::Proto), stream);
+            let ip_addr = stream.stream.local_addr.ip();
+            let signed_owned_ip_address = make_signed_owned_ip_addr(&ip_addr, &cfg.node_key);
             let vc = cfg.validator.clone().unwrap();
             let handshake = Handshake {
                 protocol_version: PROTOCOL_VERSION,
@@ -286,7 +292,7 @@ async fn invalid_edge() {
                     }
                     .sign(vc.signer.as_ref()),
                 ),
-                owned_ip_address: Some(stream.stream.local_addr.ip()),
+                signed_owned_ip_address: Some(signed_owned_ip_address),
             };
             let handshake = match tier {
                 tcp::Tier::T1 => PeerMessage::Tier1Handshake(handshake),

@@ -346,8 +346,8 @@ pub struct Handshake {
     pub(crate) partial_edge_info: PartialEdgeInfo,
     /// Account owned by the sender.
     pub(crate) owned_account: Option<SignedOwnedAccount>,
-    /// Ip Address of the sender
-    pub(crate) owned_ip_address: Option<std::net::IpAddr>,
+    /// Signed Ip Address of the sender
+    pub(crate) signed_owned_ip_address: Option<SignedOwnedIpAddress>,
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, strum::IntoStaticStr)]
