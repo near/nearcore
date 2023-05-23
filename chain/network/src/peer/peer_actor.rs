@@ -110,6 +110,8 @@ pub(crate) enum ClosingReason {
     TooLargeClockSkew,
     #[error("owned_account.peer_id doesn't match handshake.sender_peer_id")]
     OwnedAccountMismatch,
+    #[error("signed_owned_ip_address's peer address doesn't match tcp stream's peer_addr")]
+    SignedOwnedIpAddressIpAddressMismatch,
     #[error("PeerActor stopped NOT via PeerActor::stop()")]
     Unknown,
 }
@@ -132,6 +134,7 @@ impl ClosingReason {
             ClosingReason::TooLargeClockSkew => true, // reconnect will fail for the same reason
             ClosingReason::OwnedAccountMismatch => true, // misbehaving peer
             ClosingReason::Unknown => false,        // only happens in tests
+            ClosingReason::SignedOwnedIpAddressIpAddressMismatch => true, // invalid ip address or signature must be banned
         }
     }
 }
@@ -565,6 +568,20 @@ impl PeerActor {
                 }
             }
         }
+
+        // Verify the sender's peer_id has signed on the stream's ip_addr for both inbound and outbound connection
+        if let Some(signed_owned_ip_address) = &handshake.signed_owned_ip_address {
+            if self.peer_addr.ip() != signed_owned_ip_address.owned_ip_address.ip_address {
+                self.stop(ctx, ClosingReason::SignedOwnedIpAddressIpAddressMismatch);
+                return;
+            }
+            // Verify signature of the sender on its ip address
+            if !(signed_owned_ip_address.verify(handshake.sender_peer_id.public_key())) {
+                self.stop(ctx, ClosingReason::Ban(ReasonForBan::InvalidSignature));
+                return;
+            }
+        } // else do nothing as temporary leniency for backward compatibility purposes
+        // TODO(soon): Fail the handshake if its doesn't include the required signed_owned_ip_address after all production nodes have upgraded to latest handshake protocol
 
         // Verify that handshake.owned_account is valid.
         if let Some(owned_account) = &handshake.owned_account {

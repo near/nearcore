@@ -15,6 +15,7 @@ use near_async::time;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::version::PROTOCOL_VERSION;
 use std::sync::Arc;
+use crate::types::ReasonForBan;
 
 #[tokio::test]
 async fn connection_spam_security_test() {
@@ -318,4 +319,94 @@ async fn invalid_edge() {
             );
         }
     }
+}
+
+async fn test_signed_owned_ip_address(expected_closing_reason: ClosingReason, wrong_ip_address: &Option<std::net::IpAddr>, wrong_node_key: &Option<near_crypto::SecretKey>) {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+    let pm = peer_manager::testonly::start(
+        clock.clock(),
+        near_store::db::TestDB::new(),
+        chain.make_config(rng),
+        chain.clone(),
+    )
+    .await;
+
+    let cfg = chain.make_config(rng);
+    for tier in [tcp::Tier::T1, tcp::Tier::T2] {
+        let stream = tcp::Stream::connect(&pm.peer_info(), tier).await.unwrap();
+        let stream_id = stream.id();
+        let port = stream.local_addr.port();
+        let mut events = pm.events.from_now();
+        let mut stream = Stream::new(Some(Encoding::Proto), stream);
+        let ip_addr = match *wrong_ip_address {
+            Some(wrong_ip_address) => wrong_ip_address,
+            None => stream.stream.local_addr.ip(),
+        };
+        let wrong_node_key = wrong_node_key.clone();
+        let node_key = match wrong_node_key {
+            Some(wrong_node_key) => wrong_node_key,
+            None => cfg.node_key.clone(),
+        };
+        let signed_owned_ip_address = make_signed_owned_ip_addr(&ip_addr, &node_key);
+        let vc = cfg.validator.clone().unwrap();
+        let handshake = Handshake {
+            protocol_version: PROTOCOL_VERSION,
+            oldest_supported_version: PROTOCOL_VERSION,
+            sender_peer_id: cfg.node_id(),
+            target_peer_id: pm.cfg.node_id(),
+            sender_listen_port: Some(port),
+            sender_chain_info: chain.get_peer_chain_info(),
+            partial_edge_info: PartialEdgeInfo::new(
+                &cfg.node_id(),
+                &pm.cfg.node_id(),
+                1,
+                &cfg.node_key,
+            ),
+            owned_account: Some(
+                OwnedAccount {
+                    account_key: vc.signer.public_key().clone(),
+                    peer_id: cfg.node_id(),
+                    timestamp: clock.now_utc(),
+                }
+                .sign(vc.signer.as_ref()),
+            ),
+            signed_owned_ip_address: Some(signed_owned_ip_address),
+        };
+        let handshake = match tier {
+            tcp::Tier::T1 => PeerMessage::Tier1Handshake(handshake),
+            tcp::Tier::T2 => PeerMessage::Tier2Handshake(handshake),
+        };
+        stream.write(&handshake).await;
+        let reason: ClosingReason = events
+            .recv_until(|ev| match ev {
+                Event::PeerManager(PME::ConnectionClosed(ev)) if ev.stream_id == stream_id => {
+                    Some(ev.reason)
+                }
+                Event::PeerManager(PME::HandshakeCompleted(ev))
+                    if ev.stream_id == stream_id => {
+                        panic!("PeerManager accepted the handshake")
+                    }
+                _ => None,
+            })
+            .await;
+        assert_eq!(expected_closing_reason, reason);
+    }
+}
+
+#[tokio::test]
+async fn signed_with_wrong_ip_address() {
+    let wrong_ip_address: std::net::IpAddr = data::make_ipv4(&mut make_rng(89028037453));
+    let expected_closing_reason = ClosingReason::SignedOwnedIpAddressIpAddressMismatch;
+    test_signed_owned_ip_address(expected_closing_reason, &Some(wrong_ip_address), &None).await;
+}
+
+#[tokio::test]
+async fn signed_with_wrong_key() {
+    let wrong_node_key = near_crypto::SecretKey::from_seed(near_crypto::KeyType::ED25519, "123");
+    let expected_closing_reason = ClosingReason::Ban(ReasonForBan::InvalidSignature);
+    test_signed_owned_ip_address(expected_closing_reason, &None, &Some(wrong_node_key)).await;
 }
