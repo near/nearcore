@@ -38,7 +38,7 @@ fn test_state_dump() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = 5;
     let store = create_test_store();
-    let (mut env, epoch_manager) = setup_env(&genesis, store.clone());
+    let (mut env, epoch_manager) = setup_env(&genesis, store);
 
     let chain_genesis = ChainGenesis::new(&genesis);
 
