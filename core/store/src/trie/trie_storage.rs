@@ -8,7 +8,6 @@ use near_o11y::log_assert;
 use near_o11y::metrics::prometheus;
 use near_o11y::metrics::prometheus::core::{GenericCounter, GenericGauge};
 use near_primitives::challenge::PartialState;
-use near_primitives::errors::StorageError::StorageInconsistentState;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{ShardId, TrieCacheMode, TrieNodesCount};
@@ -292,10 +291,6 @@ pub trait TrieStorage {
     /// [`StorageError`] if the storage fails internally or the hash is not present.
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError>;
 
-    fn shard_uid(&self) -> Result<ShardUId, StorageError> {
-        Err(StorageInconsistentState(format!("Shard uid does not exist for this TrieStorage")))
-    }
-
     /// DEPRECATED.
     /// Returns `TrieCachingStorage` if `TrieStorage` is implemented by it.
     /// TODO (#9004) remove all remaining calls.
@@ -330,10 +325,6 @@ impl TrieStorage for TrieRecordingStorage {
         let val = self.storage.retrieve_raw_bytes(hash)?;
         self.recorded.borrow_mut().insert(*hash, Arc::clone(&val));
         Ok(val)
-    }
-
-    fn shard_uid(&self) -> Result<ShardUId, StorageError> {
-        self.storage.shard_uid()
     }
 
     fn as_recording_storage(&self) -> Option<&TrieRecordingStorage> {
@@ -372,6 +363,10 @@ impl TrieStorage for TrieMemoryPartialStorage {
 }
 
 impl TrieMemoryPartialStorage {
+    pub fn new(recorded_storage: HashMap<CryptoHash, Arc<[u8]>>) -> Self {
+        Self { recorded_storage, visited_nodes: Default::default() }
+    }
+
     pub fn partial_state(&self) -> PartialState {
         let touched_nodes = self.visited_nodes.borrow();
         let mut nodes: Vec<_> =
@@ -642,10 +637,6 @@ impl TrieStorage for TrieCachingStorage {
         Ok(val)
     }
 
-    fn shard_uid(&self) -> Result<ShardUId, StorageError> {
-        Ok(self.shard_uid)
-    }
-
     fn as_caching_storage(&self) -> Option<&TrieCachingStorage> {
         Some(self)
     }
@@ -664,7 +655,7 @@ fn read_node_from_db(
     let val = store
         .get(DBCol::State, key.as_ref())
         .map_err(|_| StorageError::StorageInternalError)?
-        .ok_or_else(|| StorageError::StorageInconsistentState("Trie node missing".to_string()))?;
+        .ok_or_else(|| StorageError::TrieNodeMissing)?;
     Ok(val.into())
 }
 
@@ -697,10 +688,6 @@ impl TrieDBStorage {
 impl TrieStorage for TrieDBStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
         read_node_from_db(&self.store, self.shard_uid, hash)
-    }
-
-    fn shard_uid(&self) -> Result<ShardUId, StorageError> {
-        Ok(self.shard_uid)
     }
 
     fn get_trie_nodes_count(&self) -> TrieNodesCount {

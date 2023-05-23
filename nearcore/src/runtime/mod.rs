@@ -91,7 +91,6 @@ pub struct NightshadeRuntime {
     genesis_state_roots: Vec<StateRoot>,
     migration_data: Arc<MigrationData>,
     gc_num_epochs_to_keep: u64,
-    debug_mode: bool,
 }
 
 impl NightshadeRuntime {
@@ -111,7 +110,6 @@ impl NightshadeRuntime {
             None,
             config.config.gc.gc_num_epochs_to_keep(),
             TrieConfig::from_store_config(&config.config.store),
-            config.client_config.debug_mode,
         )
     }
 
@@ -125,7 +123,6 @@ impl NightshadeRuntime {
         runtime_config_store: Option<RuntimeConfigStore>,
         gc_num_epochs_to_keep: u64,
         trie_config: TrieConfig,
-        debug_mode: bool,
     ) -> Arc<Self> {
         let runtime_config_store = match runtime_config_store {
             Some(store) => store,
@@ -163,7 +160,6 @@ impl NightshadeRuntime {
             genesis_state_roots: state_roots,
             migration_data: Arc::new(load_migration_data(&genesis.config.chain_id)),
             gc_num_epochs_to_keep: gc_num_epochs_to_keep.max(MIN_GC_NUM_EPOCHS_TO_KEEP),
-            debug_mode,
         })
     }
 
@@ -183,7 +179,6 @@ impl NightshadeRuntime {
             None,
             Some(runtime_config_store),
             DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
-            Default::default(),
             Default::default(),
         )
     }
@@ -1225,7 +1220,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
         let trie =
             self.tries.get_trie_with_block_hash_for_shard(shard_uid, *state_root, &prev_hash, true);
-        let result = match trie.get_trie_nodes_for_part(prev_hash, part_id, self.debug_mode) {
+        let result = match trie.get_trie_nodes_for_part(prev_hash, part_id) {
             Ok(partial_state) => partial_state,
             Err(e) => {
                 error!(target: "runtime",
@@ -1703,7 +1698,6 @@ mod test {
                 None,
                 Some(RuntimeConfigStore::free()),
                 DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
-                Default::default(),
                 Default::default(),
             );
             let (_store, state_roots) = runtime.genesis_state();

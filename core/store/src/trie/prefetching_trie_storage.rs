@@ -295,10 +295,6 @@ impl TrieStorage for TriePrefetchingStorage {
     fn get_trie_nodes_count(&self) -> TrieNodesCount {
         unimplemented!()
     }
-
-    fn shard_uid(&self) -> Result<ShardUId, StorageError> {
-        Ok(self.shard_uid)
-    }
 }
 
 impl TriePrefetchingStorage {

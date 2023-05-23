@@ -13,7 +13,6 @@ use once_cell::sync::Lazy;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
 use std::sync::Arc;
-use std::time::Duration;
 
 /// Hash used by to store state root.
 pub type StateRoot = CryptoHash;
@@ -1026,13 +1025,4 @@ pub struct StateChangesForBlock {
 pub struct StateChangesForShard {
     pub shard_id: ShardId,
     pub state_changes: Vec<RawStateChangesWithTrieKey>,
-}
-
-#[derive(Default)]
-pub struct Stats {
-    pub boundaries_read_duration: Duration,
-    pub values_read_duration: Duration,
-    pub trie_updates_gen_duration: Duration,
-    pub final_trie_gen_duration: Duration,
-    pub internal_get_duration: Duration,
 }

@@ -337,7 +337,7 @@ impl FlatStorage {
         Ok(())
     }
 
-    pub fn get_head_hash(&self) -> CryptoHash {
+    pub(crate) fn get_head_hash(&self) -> CryptoHash {
         let guard = self.0.read().expect(super::POISONED_LOCK_ERR);
         guard.flat_head.hash
     }

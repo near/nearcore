@@ -508,8 +508,6 @@ pub struct StatePartsCmd {
     /// Store state parts in an S3 bucket.
     #[clap(long)]
     s3_region: Option<String>,
-    #[clap(long)]
-    debug: bool,
     /// Dump or Apply state parts.
     #[clap(subcommand)]
     command: crate::state_parts::StatePartsSubCommand,
@@ -525,7 +523,6 @@ impl StatePartsCmd {
             home_dir,
             near_config,
             store,
-            self.debug,
         );
     }
 }
