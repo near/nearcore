@@ -253,7 +253,7 @@ async fn state_sync_dump(
                 let in_progress_data = get_in_progress_data(shard_id, sync_hash, &chain);
                 match in_progress_data {
                     Err(error) => Err(error),
-                    Ok((state_root, num_parts, sync_prev_hash)) => {
+                    Ok((state_root, num_parts, sync_prev_prev_hash)) => {
                         let missing_parts = get_missing_part_ids_for_epoch(
                             shard_id,
                             &chain_id,
@@ -295,7 +295,7 @@ async fn state_sync_dump(
                                         runtime.as_ref(),
                                         shard_id,
                                         sync_hash,
-                                        &sync_prev_hash,
+                                        &sync_prev_prev_hash,
                                         &state_root,
                                         part_id,
                                         num_parts,
