@@ -10,12 +10,9 @@ import base64
 import json
 import base58
 import ctypes
-import locust
 import logging
 import multiprocessing
 import pathlib
-import random
-import requests
 import sys
 import time
 
@@ -342,6 +339,7 @@ def on_locust_init(environment, **kwargs):
             f"unexpected runner class {environment.runner.__class__.__name__}")
 
     NearUser.funding_account = funding_account
+    environment.master_funding_account = master_funding_account
 
 
 # Add custom CLI args here, will be available in `environment.parsed_options`
