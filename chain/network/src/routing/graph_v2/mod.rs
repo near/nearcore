@@ -1,6 +1,6 @@
 use crate::concurrency;
 use crate::concurrency::runtime::Runtime;
-use crate::network_protocol::{Edge, EdgeState};
+use crate::network_protocol::{Edge, EdgeState, ShortestPathTree};
 use crate::routing::bfs;
 use crate::routing::routing_table_view::RoutingTableView;
 use crate::stats::metrics;
@@ -257,12 +257,14 @@ impl GraphV2 {
     pub async fn update(
         self: &Arc<Self>,
         clock: &time::Clock,
-        edges: Vec<Vec<Edge>>,
-    ) -> (Vec<Edge>, Vec<bool>) {
+        spts: Vec<ShortestPathTree>,
+    ) -> (Option<ShortestPathTree>, Vec<bool>) {
         // Computation is CPU heavy and accesses DB so we execute it on a dedicated thread.
         // TODO(gprusak): It would be better to move CPU heavy stuff to rayon and make DB calls async,
         // but that will require further refactor. Or even better: get rid of the Graph all
         // together.
+        // TODO(saketh): Consider whether we can move this to rayon now that DB calls are
+        // eliminated.
         let this = self.clone();
         let clock = clock.clone();
         self.runtime
@@ -271,8 +273,8 @@ impl GraphV2 {
                 let mut inner = this.inner.lock();
                 let mut new_edges = vec![];
                 let mut oks = vec![];
-                for es in edges {
-                    let (es, ok) = inner.add_edges(&clock, es);
+                for spt in spts {
+                    let (es, ok) = inner.add_edges(&clock, spt.edges);
                     oks.push(ok);
                     new_edges.extend(es);
                 }
@@ -280,7 +282,10 @@ impl GraphV2 {
                 let snapshot = Arc::new(snapshot);
                 this.routing_table.update(snapshot.next_hops.clone());
                 this.snapshot.store(snapshot);
-                (new_edges, oks)
+                (
+                    Some(ShortestPathTree { root: inner.config.node_id.clone(), edges: new_edges }),
+                    oks,
+                )
             })
             .await
             .unwrap()

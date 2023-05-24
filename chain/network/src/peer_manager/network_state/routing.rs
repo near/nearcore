@@ -195,36 +195,25 @@ impl NetworkState {
         clock: &time::Clock,
         spt: ShortestPathTree,
     ) -> Result<(), ReasonForBan> {
-        if spt.edges.is_empty() {
-            return Ok(());
-        }
         let this = self.clone();
         let clock = clock.clone();
         self.update_spt_demux
             .call(spt, |spts: Vec<ShortestPathTree>| async move {
-                let edges: Vec<Vec<Edge>> = spts.iter().map(|spt| spt.edges.clone()).collect();
-                let (mut edges, oks) = this.graph_v2.update(&clock, edges).await;
-                // Don't send tombstones during the initial time.
-                // Most of the network is created during this time, which results
-                // in us sending a lot of tombstones to peers.
-                // Later, the amount of new edges is a lot smaller.
-                if let Some(skip_tombstones_duration) = this.config.skip_tombstones {
-                    if clock.now() < this.created_at + skip_tombstones_duration {
-                        edges.retain(|edge| edge.edge_type() == EdgeState::Active);
-                        metrics::EDGE_TOMBSTONE_SENDING_SKIPPED.inc();
+                let (updated_local_spt, oks) = this.graph_v2.update(&clock, spts).await;
+                match updated_local_spt {
+                    Some(spt) => {
+                        // TODO: change this event type
+                        this.config.event_sink.push(Event::EdgesAdded(spt.edges.clone()));
+                        // Broadcast updated SPT to all other peers
+                        this.broadcast_shortest_path_tree_update(spt);
                     }
+                    None => {}
                 }
-                // Broadcast new edges to all other peers.
-                this.config.event_sink.push(Event::EdgesAdded(edges.clone()));
-                this.broadcast_shortest_path_tree_update(ShortestPathTree {
-                    root: this.config.node_id(),
-                    edges,
-                });
                 // Retu
                 oks.iter()
                     .map(|ok| match ok {
                         true => Ok(()),
-                        false => Err(ReasonForBan::InvalidEdge),
+                        false => Err(ReasonForBan::InvalidEdge), // TODO: replace it
                     })
                     .collect()
             })
