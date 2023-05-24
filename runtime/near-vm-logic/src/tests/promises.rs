@@ -120,19 +120,32 @@ fn test_promise_batch_action_deploy_contract() {
     let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
 
     let index_ptr = logic.internal_mem_write(&index.to_le_bytes()).ptr;
+    let namespace = logic.internal_mem_write(b"");
     let code = logic.internal_mem_write(b"sample");
 
     logic
-        .promise_batch_action_deploy_contract(123, code.len, code.ptr)
+        .promise_batch_action_deploy_contract(123, namespace.len, namespace.ptr, code.len, code.ptr)
         .expect_err("shouldn't accept not existent promise index");
     let non_receipt =
         logic.promise_and(index_ptr, 1u64).expect("should create a non-receipt promise");
     logic
-        .promise_batch_action_deploy_contract(non_receipt, code.len, code.ptr)
+        .promise_batch_action_deploy_contract(
+            non_receipt,
+            namespace.len,
+            namespace.ptr,
+            code.len,
+            code.ptr,
+        )
         .expect_err("shouldn't accept non-receipt promise index");
 
     logic
-        .promise_batch_action_deploy_contract(index, code.len, code.ptr)
+        .promise_batch_action_deploy_contract(
+            index,
+            namespace.len,
+            namespace.ptr,
+            code.len,
+            code.ptr,
+        )
         .expect("should add an action to deploy contract");
     assert_eq!(logic.used_gas().unwrap(), 5255774958146);
     let expected = serde_json::json!(

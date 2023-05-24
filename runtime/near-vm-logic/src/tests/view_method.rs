@@ -24,7 +24,7 @@ fn test_prohibited_view_methods() {
     test_prohibited!(promise_batch_create, 0, 0);
     test_prohibited!(promise_batch_then, 0, 0, 0);
     test_prohibited!(promise_batch_action_create_account, 0);
-    test_prohibited!(promise_batch_action_deploy_contract, 0, 0, 0);
+    test_prohibited!(promise_batch_action_deploy_contract, 0, 0, 0, 0, 0);
     test_prohibited!(promise_batch_action_function_call, 0, 0, 0, 0, 0, 0, 0, 0, 0);
     test_prohibited!(promise_batch_action_transfer, 0, 0);
     test_prohibited!(promise_batch_action_stake, 0, 0, 0, 0);

@@ -585,9 +585,16 @@ fn out_of_gas_deploy_contract_byte() {
 /// function to trigger base + 26 bytes deployment costs (26 is arbitrary)
 fn deploy_contract(logic: &mut TestVMLogic) -> Result<(), VMLogicError> {
     let account_id = "rick.test";
+    let namespace = logic.internal_mem_write(b"");
     let idx = promise_batch_create(logic, account_id)?;
     let code = logic.internal_mem_write(b"lorem ipsum with length 26");
-    logic.promise_batch_action_deploy_contract(idx, code.len, code.ptr)?;
+    logic.promise_batch_action_deploy_contract(
+        idx,
+        namespace.len,
+        namespace.ptr,
+        code.len,
+        code.ptr,
+    )?;
     Ok(())
 }
 

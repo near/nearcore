@@ -793,7 +793,7 @@ fn test_account_factory() {
                             method_names: vec!["call_promise".to_string(), "hello".to_string()],
                         }));
                      },
-                     a3, Action::DeployContract(DeployContractAction{code,namespace}), {
+                     a3, Action::DeployContract(DeployContractAction{code,namespace: _}), {
                         assert_eq!(code, near_test_contracts::rs_contract());
                      },
                      a4, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
@@ -930,7 +930,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
                         assert_eq!(access_key.nonce, 1);
                         assert_eq!(access_key.permission, AccessKeyPermission::FullAccess);
                      },
-                     a3, Action::DeployContract(DeployContractAction{code, namespace}), {
+                     a3, Action::DeployContract(DeployContractAction{code, namespace: _}), {
                         assert_eq!(code, near_test_contracts::rs_contract());
                      },
                      a4, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {

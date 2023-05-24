@@ -119,11 +119,11 @@ impl From<CreateAccountAction> for Action {
     BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone,
 )]
 pub struct DeployContractAction {
+    #[serde(default)]
+    pub namespace: Namespace,
     /// WebAssembly binary
     #[serde(with = "base64_format")]
     pub code: Vec<u8>,
-    #[serde(default)]
-    pub namespace: Namespace,
 }
 
 impl From<DeployContractAction> for Action {
@@ -145,6 +145,7 @@ impl fmt::Debug for DeployContractAction {
     BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone,
 )]
 pub struct FunctionCallAction {
+    #[serde(default)]
     pub namespace: Namespace,
     pub method_name: String,
     #[serde(with = "base64_format")]

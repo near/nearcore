@@ -182,7 +182,7 @@ pub fn state_dump_redis(
                     println!("Data written: {}", account_id);
                 }
 
-                if let StateRecord::Contract { account_id, namespace, code } = &sr {
+                if let StateRecord::Contract { account_id, namespace: _, code } = &sr {
                     // TODO: dump namespace
                     println!("Contract: {}", account_id);
                     let redis_key = [b"code:", account_id.as_ref().as_bytes()].concat();

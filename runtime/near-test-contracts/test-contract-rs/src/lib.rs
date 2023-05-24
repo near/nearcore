@@ -48,6 +48,8 @@ extern "C" {
     fn promise_create(
         account_id_len: u64,
         account_id_ptr: u64,
+        namespace_len: u64,
+        namespace_ptr: u64,
         method_name_len: u64,
         method_name_ptr: u64,
         arguments_len: u64,
@@ -59,6 +61,8 @@ extern "C" {
         promise_index: u64,
         account_id_len: u64,
         account_id_ptr: u64,
+        namespace_len: u64,
+        namespace_ptr: u64,
         method_name_len: u64,
         method_name_ptr: u64,
         arguments_len: u64,
@@ -73,9 +77,17 @@ extern "C" {
     // # Promise API actions #
     // #######################
     fn promise_batch_action_create_account(promise_index: u64);
-    fn promise_batch_action_deploy_contract(promise_index: u64, code_len: u64, code_ptr: u64);
+    fn promise_batch_action_deploy_contract(
+        promise_index: u64,
+        namespace_len: u64,
+        namespace_ptr: u64,
+        code_len: u64,
+        code_ptr: u64,
+    );
     fn promise_batch_action_function_call(
         promise_index: u64,
+        namespace_len: u64,
+        namespace_ptr: u64,
         method_name_len: u64,
         method_name_ptr: u64,
         arguments_len: u64,
@@ -86,6 +98,8 @@ extern "C" {
     #[cfg(feature = "latest_protocol")]
     fn promise_batch_action_function_call_weight(
         promise_index: u64,
+        namespace_len: u64,
+        namespace_ptr: u64,
         method_name_len: u64,
         method_name_ptr: u64,
         arguments_len: u64,
@@ -621,6 +635,7 @@ fn call_promise() {
         for arg in input_args.as_array().unwrap() {
             let actual_id = if let Some(create) = arg.get("create") {
                 let account_id = create["account_id"].as_str().unwrap().as_bytes();
+                let namespace = create["namespace"].as_str().unwrap().as_bytes();
                 let method_name = create["method_name"].as_str().unwrap().as_bytes();
                 let arguments = serde_json::to_vec(&create["arguments"]).unwrap();
                 let amount = create["amount"].as_str().unwrap().parse::<u128>().unwrap();
@@ -628,6 +643,8 @@ fn call_promise() {
                 promise_create(
                     account_id.len() as u64,
                     account_id.as_ptr() as u64,
+                    namespace.len() as u64,
+                    namespace.as_ptr() as u64,
                     method_name.len() as u64,
                     method_name.as_ptr() as u64,
                     arguments.len() as u64,
@@ -638,6 +655,7 @@ fn call_promise() {
             } else if let Some(then) = arg.get("then") {
                 let promise_index = then["promise_index"].as_i64().unwrap() as u64;
                 let account_id = then["account_id"].as_str().unwrap().as_bytes();
+                let namespace = then["namespace"].as_str().unwrap().as_bytes();
                 let method_name = then["method_name"].as_str().unwrap().as_bytes();
                 let arguments = serde_json::to_vec(&then["arguments"]).unwrap();
                 let amount = then["amount"].as_str().unwrap().parse::<u128>().unwrap();
@@ -646,6 +664,8 @@ fn call_promise() {
                     promise_index,
                     account_id.len() as u64,
                     account_id.as_ptr() as u64,
+                    namespace.len() as u64,
+                    namespace.as_ptr() as u64,
                     method_name.len() as u64,
                     method_name.as_ptr() as u64,
                     arguments.len() as u64,
@@ -677,21 +697,27 @@ fn call_promise() {
                 promise_index
             } else if let Some(action) = arg.get("action_deploy_contract") {
                 let promise_index = action["promise_index"].as_i64().unwrap() as u64;
+                let namespace = action["namespace"].as_str().unwrap().as_bytes();
                 let code = from_base64(action["code"].as_str().unwrap());
                 promise_batch_action_deploy_contract(
                     promise_index,
+                    namespace.len() as u64,
+                    namespace.as_ptr() as u64,
                     code.len() as u64,
                     code.as_ptr() as u64,
                 );
                 promise_index
             } else if let Some(action) = arg.get("action_function_call") {
                 let promise_index = action["promise_index"].as_i64().unwrap() as u64;
+                let namespace = action["namespace"].as_str().unwrap().as_bytes();
                 let method_name = action["method_name"].as_str().unwrap().as_bytes();
                 let arguments = serde_json::to_vec(&action["arguments"]).unwrap();
                 let amount = action["amount"].as_str().unwrap().parse::<u128>().unwrap();
                 let gas = action["gas"].as_i64().unwrap() as u64;
                 promise_batch_action_function_call(
                     promise_index,
+                    namespace.len() as u64,
+                    namespace.as_ptr() as u64,
                     method_name.len() as u64,
                     method_name.as_ptr() as u64,
                     arguments.len() as u64,
@@ -788,6 +814,7 @@ fn attach_unspent_gas_but_burn_all_gas() {
         let account_id = "alice.near";
         let promise_idx = promise_batch_create(account_id.len() as u64, account_id.as_ptr() as u64);
 
+        let namespace = "";
         let method_name = "f";
         let arguments_ptr = 0;
         let arguments_len = 0;
@@ -796,6 +823,8 @@ fn attach_unspent_gas_but_burn_all_gas() {
         let gas_weight = 1;
         promise_batch_action_function_call_weight(
             promise_idx,
+            namespace.len() as u64,
+            namespace.as_ptr() as u64,
             method_name.len() as u64,
             method_name.as_ptr() as u64,
             arguments_ptr,
@@ -817,6 +846,7 @@ fn attach_unspent_gas_but_use_all_gas() {
         let account_id = "alice.near";
         let promise_idx = promise_batch_create(account_id.len() as u64, account_id.as_ptr() as u64);
 
+        let namespace = "";
         let method_name = "f";
         let arguments_ptr = 0;
         let arguments_len = 0;
@@ -825,6 +855,8 @@ fn attach_unspent_gas_but_use_all_gas() {
         let gas_weight = 1;
         promise_batch_action_function_call_weight(
             promise_idx,
+            namespace.len() as u64,
+            namespace.as_ptr() as u64,
             method_name.len() as u64,
             method_name.as_ptr() as u64,
             arguments_ptr,
@@ -840,6 +872,8 @@ fn attach_unspent_gas_but_use_all_gas() {
         let gas_weight = 0;
         promise_batch_action_function_call_weight(
             promise_idx,
+            namespace.len() as u64,
+            namespace.as_ptr() as u64,
             method_name.len() as u64,
             method_name.as_ptr() as u64,
             arguments_ptr,
@@ -924,6 +958,7 @@ pub unsafe fn sanity_check() {
     value_return(value.len() as u64, value.as_ptr() as u64);
 
     // Calling host functions that terminate execution via promises.
+    let namespace = "";
     let method_name_panic = b"sanity_check_panic";
     let args_panic = b"";
     let amount_zero = 0u128;
@@ -932,6 +967,8 @@ pub unsafe fn sanity_check() {
         promise_create(
             account_id.len() as u64,
             account_id.as_ptr() as u64,
+            namespace.len() as u64,
+            namespace.as_ptr() as u64,
             method_name_panic.len() as u64,
             method_name_panic.as_ptr() as u64,
             args_panic.len() as u64,
@@ -947,6 +984,8 @@ pub unsafe fn sanity_check() {
         promise_create(
             account_id.len() as u64,
             account_id.as_ptr() as u64,
+            namespace.len() as u64,
+            namespace.as_ptr() as u64,
             method_name_panic_utf8.len() as u64,
             method_name_panic_utf8.as_ptr() as u64,
             args_panic_utf8.len() as u64,
@@ -972,6 +1011,8 @@ pub unsafe fn sanity_check() {
         promise_create(
             account_id.len() as u64,
             account_id.as_ptr() as u64,
+            namespace.len() as u64,
+            namespace.as_ptr() as u64,
             method_name_noop.len() as u64,
             method_name_noop.as_ptr() as u64,
             args_noop.len() as u64,
@@ -988,6 +1029,8 @@ pub unsafe fn sanity_check() {
                 2,
                 account_id.len() as u64,
                 account_id.as_ptr() as u64,
+                namespace.len() as u64,
+                namespace.as_ptr() as u64,
                 method_name_noop.len() as u64,
                 method_name_noop.as_ptr() as u64,
                 args_noop.len() as u64,
@@ -1010,6 +1053,7 @@ pub unsafe fn sanity_check() {
     let amount_non_zero = 50_000_000_000_000_000_000_000u128;
     let contract_code = from_base64(input_args["contract_code"].as_str().unwrap());
     let method_deployed_contract = input_args["method_name"].as_str().unwrap().as_bytes();
+    let namespace = input_args["namespace"].as_str().unwrap().as_bytes();
     let args_deployed_contract = from_base64(input_args["method_args"].as_str().unwrap());
     assert_eq!(
         promise_batch_create(new_account_id.len() as u64, new_account_id.as_ptr() as u64),
@@ -1022,11 +1066,15 @@ pub unsafe fn sanity_check() {
     );
     promise_batch_action_deploy_contract(
         batch_promise_idx,
+        namespace.len() as u64,
+        namespace.as_ptr() as u64,
         contract_code.len() as u64,
         contract_code.as_ptr() as u64,
     );
     promise_batch_action_function_call(
         batch_promise_idx,
+        namespace.len() as u64,
+        namespace.as_ptr() as u64,
         method_deployed_contract.len() as u64,
         method_deployed_contract.as_ptr() as u64,
         args_deployed_contract.len() as u64,
@@ -1037,6 +1085,8 @@ pub unsafe fn sanity_check() {
     #[cfg(feature = "latest_protocol")]
     promise_batch_action_function_call_weight(
         batch_promise_idx,
+        namespace.len() as u64,
+        namespace.as_ptr() as u64,
         method_deployed_contract.len() as u64,
         method_deployed_contract.as_ptr() as u64,
         args_deployed_contract.len() as u64,
@@ -1102,6 +1152,8 @@ pub unsafe fn sanity_check() {
         promise_create(
             account_id.len() as u64,
             account_id.as_ptr() as u64,
+            namespace.len() as u64,
+            namespace.as_ptr() as u64,
             method_name_noop.len() as u64,
             method_name_noop.as_ptr() as u64,
             args_noop.len() as u64,
@@ -1118,6 +1170,8 @@ pub unsafe fn sanity_check() {
             10,
             account_id.len() as u64,
             account_id.as_ptr() as u64,
+            namespace.len() as u64,
+            namespace.as_ptr() as u64,
             method_name_promise_results.len() as u64,
             method_name_promise_results.as_ptr() as u64,
             args_promise_results.len() as u64,

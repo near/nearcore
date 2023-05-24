@@ -2578,6 +2578,7 @@ mod tests {
             alice_account(),
             signer.clone(),
             vec![Action::DeployContract(DeployContractAction {
+                namespace: Namespace::default(),
                 code: near_test_contracts::rs_contract().to_vec(),
             })],
         );
@@ -2586,6 +2587,7 @@ mod tests {
             alice_account(),
             signer.clone(),
             vec![Action::FunctionCall(FunctionCallAction {
+                namespace: Namespace::default(),
                 method_name: "ext_sha256".to_string(),
                 args: b"first".to_vec(),
                 gas: 1,
@@ -2597,6 +2599,7 @@ mod tests {
             alice_account(),
             signer.clone(),
             vec![Action::FunctionCall(FunctionCallAction {
+                namespace: Namespace::default(),
                 method_name: "ext_sha256".to_string(),
                 args: b"second".to_vec(),
                 gas: 1,

@@ -13,6 +13,7 @@ use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::version::is_implicit_account_creation_enabled;
 use near_primitives_core::config::ExtCosts::*;
 use near_primitives_core::config::{ActionCosts, ExtCosts, VMConfig};
+use near_primitives_core::namespace::Namespace;
 use near_primitives_core::runtime::fees::{transfer_exec_fee, transfer_send_fee};
 use near_primitives_core::types::{
     AccountId, Balance, Compute, EpochHeight, Gas, GasDistribution, GasWeight, ProtocolVersion,
@@ -1620,6 +1621,8 @@ impl<'a> VMLogic<'a> {
     pub fn promise_batch_action_deploy_contract(
         &mut self,
         promise_idx: u64,
+        namespace_len: u64,
+        namespace_ptr: u64,
         code_len: u64,
         code_ptr: u64,
     ) -> Result<()> {
@@ -1643,7 +1646,10 @@ impl<'a> VMLogic<'a> {
         self.pay_action_base(ActionCosts::deploy_contract_base, sir)?;
         self.pay_action_per_byte(ActionCosts::deploy_contract_byte, code_len, sir)?;
 
-        self.receipt_manager.append_action_deploy_contract(receipt_idx, code)?;
+        let namespace = get_memory_or_register!(self, namespace_ptr, namespace_len)?;
+        let namespace = Namespace::try_from(namespace.as_ref()).unwrap_or_default(); // TODO: Proper error here instead of default
+
+        self.receipt_manager.append_action_deploy_contract(receipt_idx, namespace, code)?;
         Ok(())
     }
 

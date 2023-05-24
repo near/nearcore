@@ -381,15 +381,22 @@ fn test_contract_size_limit() {
     let mut logic = logic_builder.build();
 
     let account_id = logic.internal_mem_write(b"alice");
+    let namespace = logic.internal_mem_write(b"");
 
     let promise_id = logic
         .promise_batch_create(account_id.len, account_id.ptr)
         .expect("Number of promises is under the limit");
     logic
-        .promise_batch_action_deploy_contract(promise_id, limit, 0)
+        .promise_batch_action_deploy_contract(promise_id, namespace.len, namespace.ptr, limit, 0)
         .expect("The length of the contract code is under the limit");
     assert_eq!(
-        logic.promise_batch_action_deploy_contract(promise_id, limit + 1, 0),
+        logic.promise_batch_action_deploy_contract(
+            promise_id,
+            namespace.len,
+            namespace.ptr,
+            limit + 1,
+            0
+        ),
         Err(HostError::ContractSizeExceeded { size: limit + 1, limit }.into())
     );
 }

@@ -153,15 +153,12 @@ impl ReceiptManager {
     pub(crate) fn append_action_deploy_contract(
         &mut self,
         receipt_index: ReceiptIndex,
+        namespace: Namespace,
         code: Vec<u8>,
     ) -> logic::Result<()> {
-        // TODO: Namespaces here
         self.append_action(
             receipt_index,
-            Action::DeployContract(DeployContractAction {
-                code,
-                namespace: Namespace::default(),
-            }),
+            Action::DeployContract(DeployContractAction { code, namespace }),
         );
         Ok(())
     }

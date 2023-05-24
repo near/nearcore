@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use genesis_populate::get_account_id;
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::hash::CryptoHash;
-use near_primitives::namespace::{self, Namespace};
+use near_primitives::namespace::Namespace;
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
 use near_primitives::types::AccountId;
 use rand::prelude::ThreadRng;

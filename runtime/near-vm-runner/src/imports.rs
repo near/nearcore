@@ -175,7 +175,7 @@ imports! {
     // # Promise API actions #
     // #######################
     promise_batch_action_create_account<[promise_index: u64] -> []>,
-    promise_batch_action_deploy_contract<[promise_index: u64, code_len: u64, code_ptr: u64] -> []>,
+    promise_batch_action_deploy_contract<[promise_index: u64, namespace_len: u64, namespace_ptr: u64, code_len: u64, code_ptr: u64] -> []>,
     promise_batch_action_function_call<[
         promise_index: u64,
         namespace_len: u64,
