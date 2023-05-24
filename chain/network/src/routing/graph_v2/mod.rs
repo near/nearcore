@@ -23,13 +23,6 @@ pub struct GraphConfigV2 {
     pub prune_edges_after: Option<time::Duration>,
 }
 
-#[derive(Default)]
-pub struct GraphSnapshotV2 {
-    pub edges: im::HashMap<EdgeKey, Edge>,
-    pub local_edges: HashMap<PeerId, Edge>,
-    pub next_hops: Arc<NextHopTable>,
-}
-
 struct Inner {
     config: GraphConfigV2,
 
@@ -169,18 +162,18 @@ impl Inner {
 
     /// 1. Prunes expired edges.
     /// 2. Prunes unreachable graph components.
-    /// 3. Recomputes GraphSnapshotV2.
+    /// 3. Recomputes the NextHopTable.
     pub fn update(
         &mut self,
         clock: &time::Clock,
         unreliable_peers: &HashSet<PeerId>,
-    ) -> GraphSnapshotV2 {
+    ) -> NextHopTable {
         let _update_time = metrics::ROUTING_TABLE_RECALCULATION_HISTOGRAM.start_timer();
         // Update metrics after edge update
         if let Some(prune_edges_after) = self.config.prune_edges_after {
             self.prune_old_edges(clock.now_utc() - prune_edges_after);
         }
-        let next_hops = Arc::new(self.graph.calculate_distance(unreliable_peers));
+        let next_hops = self.graph.calculate_distance(unreliable_peers);
 
         // Update peer_reachable_at.
         let now = clock.now();
@@ -202,13 +195,12 @@ impl Inner {
         metrics::PEER_REACHABLE.set(next_hops.len() as i64);
         metrics::EDGE_ACTIVE.set(self.graph.total_active_edges() as i64);
         metrics::EDGE_TOTAL.set(self.edges.len() as i64);
-        GraphSnapshotV2 { edges: self.edges.clone(), local_edges, next_hops }
+        return next_hops;
     }
 }
 
 pub(crate) struct GraphV2 {
     inner: Arc<Mutex<Inner>>,
-    snapshot: ArcSwap<GraphSnapshotV2>,
     unreliable_peers: ArcSwap<HashSet<PeerId>>,
     pub routing_table: RoutingTableView,
 
@@ -226,16 +218,13 @@ impl GraphV2 {
                 peer_reachable_at: HashMap::new(),
             })),
             unreliable_peers: ArcSwap::default(),
-            snapshot: ArcSwap::default(),
             runtime: Runtime::new(),
         }
     }
 
-    pub fn _load(&self) -> Arc<GraphSnapshotV2> {
-        self.snapshot.load_full()
-    }
-
     pub fn set_unreliable_peers(&self, unreliable_peers: HashSet<PeerId>) {
+        // TODO: unreliable peers are used in computation of next hops;
+        // consider whether setting them should trigger immediate re-computation
         self.unreliable_peers.store(Arc::new(unreliable_peers));
     }
 
@@ -273,15 +262,17 @@ impl GraphV2 {
                 let mut inner = this.inner.lock();
                 let mut new_edges = vec![];
                 let mut oks = vec![];
+
+                // TODO: a simple optimization could be to skip all but the latest SPT for each
+                // peer; it saves time, but allows the possibility that we skip an invalid SPT
+                // fail to ban the node (which seems to be an acceptable tradeoff)
                 for spt in spts {
                     let (es, ok) = inner.add_edges(&clock, spt.edges);
                     oks.push(ok);
                     new_edges.extend(es);
                 }
-                let snapshot = inner.update(&clock, &this.unreliable_peers.load());
-                let snapshot = Arc::new(snapshot);
-                this.routing_table.update(snapshot.next_hops.clone());
-                this.snapshot.store(snapshot);
+                let next_hops = inner.update(&clock, &this.unreliable_peers.load());
+                this.routing_table.update(next_hops.into());
                 (
                     Some(ShortestPathTree { root: inner.config.node_id.clone(), edges: new_edges }),
                     oks,
