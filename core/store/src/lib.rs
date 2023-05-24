@@ -603,14 +603,6 @@ impl StoreUpdate {
         }
     }
 
-    pub fn update_cache(&self) -> io::Result<()> {
-        if let StoreUpdateStorage::Tries(tries) = &self.storage {
-            tries.update_cache(&self.transaction)
-        } else {
-            Ok(())
-        }
-    }
-
     pub fn commit(self) -> io::Result<()> {
         debug_assert!(
             {
@@ -657,10 +649,7 @@ impl StoreUpdate {
             }
         }
         let storage = match &self.storage {
-            StoreUpdateStorage::Tries(tries) => {
-                tries.update_cache(&self.transaction)?;
-                tries.get_db()
-            }
+            StoreUpdateStorage::Tries(tries) => tries.get_db(),
             StoreUpdateStorage::DB(db) => &db,
         };
         storage.write(self.transaction)

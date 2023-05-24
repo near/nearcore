@@ -12,7 +12,7 @@ pub(crate) const DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT: u64 =
 
 /// Capacity for the deletions queue.
 /// It is chosen to fit all hashes of deleted nodes for 3 completely full blocks.
-const DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY: usize =
+pub(crate) const DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY: usize =
     if cfg!(feature = "no_cache") { 1 } else { 100_000 };
 
 /// Values above this size (in bytes) are never cached.
@@ -70,6 +70,6 @@ impl TrieConfig {
     /// Thus, deleted and overwritten values are evicted to the deletion queue which
     /// delays the actual eviction.
     pub fn deletions_queue_capacity(&self) -> usize {
-        DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY
+        self.shard_cache_config.shard_cache_deletions_queue_capacity
     }
 }

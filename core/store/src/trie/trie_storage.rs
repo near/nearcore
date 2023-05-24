@@ -1,4 +1,3 @@
-use crate::db::refcount::decode_value_with_rc;
 use crate::trie::config::TrieConfig;
 use crate::trie::prefetching_trie_storage::PrefetcherResult;
 use crate::trie::POISONED_LOCK_ERR;
@@ -13,7 +12,6 @@ use near_primitives::types::{ShardId, TrieCacheMode, TrieNodesCount};
 use std::borrow::Borrow;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::io::ErrorKind;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
@@ -258,18 +256,15 @@ impl TrieCache {
         self.lock().clear()
     }
 
-    pub fn update_cache(&self, ops: Vec<(CryptoHash, Option<&[u8]>)>) {
+    pub fn update_cache(&self, ops: Vec<(&CryptoHash, Option<&[u8]>)>) {
         let mut guard = self.lock();
-        for (hash, opt_value_rc) in ops {
-            if let Some(value_rc) = opt_value_rc {
-                if let (Some(value), _rc) = decode_value_with_rc(&value_rc) {
-                    if value.len() < TrieConfig::max_cached_value_size() {
-                        guard.put(hash, value.into());
-                    } else {
-                        guard.metrics.shard_cache_too_large.inc();
-                    }
+        for (hash, opt_value) in ops {
+            if let Some(value) = opt_value {
+                if value.len() < TrieConfig::max_cached_value_size() {
+                    guard.put(*hash, value.into());
                 } else {
                     guard.pop(&hash);
+                    guard.metrics.shard_cache_too_large.inc();
                 }
             } else {
                 guard.pop(&hash);
@@ -451,17 +446,6 @@ impl TrieCachingStorage {
             mem_read_nodes: Cell::new(0),
             metrics,
         }
-    }
-
-    pub(crate) fn get_shard_uid_and_hash_from_key(
-        key: &[u8],
-    ) -> Result<(ShardUId, CryptoHash), std::io::Error> {
-        if key.len() != 40 {
-            return Err(std::io::Error::new(ErrorKind::Other, "Key is always shard_uid + hash"));
-        }
-        let id = ShardUId::try_from(&key[..8]).unwrap();
-        let hash = CryptoHash::try_from(&key[8..]).unwrap();
-        Ok((id, hash))
     }
 
     pub(crate) fn get_key_from_shard_uid_and_hash(
