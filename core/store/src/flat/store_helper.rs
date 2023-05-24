@@ -21,6 +21,10 @@ pub fn get_delta_changes(
     block_hash: CryptoHash,
 ) -> Result<Option<FlatStateChanges>, FlatStorageError> {
     let key = KeyForFlatStateDelta { shard_uid, block_hash };
+    let res = store
+        .get_ser::<FlatStateChanges>(DBCol::FlatStateChanges, &key.to_bytes());
+    println!("Res is ladida: {:?}", res);
+
     Ok(store
         .get_ser::<FlatStateChanges>(DBCol::FlatStateChanges, &key.to_bytes())
         .map_err(|_| FlatStorageError::StorageInternalError)?)
@@ -133,7 +137,7 @@ pub fn set_flat_storage_status(
 /// Returns iterator over flat storage entries for a given shard and range of
 /// state keys. `None` means that there is no bound in respective direction.
 /// It reads data only from `FlatState` column which represents the state at
-/// flat storage head.
+/// flat storage head. Reads only commited changes.
 pub fn iter_flat_state_entries<'a>(
     shard_uid: ShardUId,
     store: &'a Store,
@@ -179,12 +183,13 @@ pub fn key_belongs_to_shard(
 mod tests {
     use std::println;
 
-    use crate::flat::FlatStorageManager;
+    use crate::flat::store_helper::set_delta;
+    use crate::flat::{FlatStorageManager, FlatStateDelta, FlatStateChanges, FlatStateDeltaMetadata, BlockInfo, FlatStorageStatus, FlatStorageReadyStatus};
     use crate::{test_utils::create_test_store, ShardTries, TrieConfig};
     use crate::CryptoHash;
     use near_primitives::shard_layout::ShardUId;
 
-    use super::iter_flat_state_entries;
+    use super::{iter_flat_state_entries, set_flat_storage_status};
 
     #[test]
     fn test_iter_flat_state_entries() {
@@ -194,28 +199,48 @@ mod tests {
 /*            ShardUId { shard_id: 1, version: 0 },*/
             /*ShardUId { shard_id: 2, version: 0 },*/
         ]);
-        let head = CryptoHash::default();
+        let root = CryptoHash::default();
+        let flat_storage_manager = FlatStorageManager::test(store.clone(), &shard_uids, root);
         let tries = ShardTries::new(
             store.clone(),
             TrieConfig::default(),
             &shard_uids,
-            FlatStorageManager::test(store.clone(), &shard_uids, head),
+            flat_storage_manager.clone()
         );
 
         for (i, shard_uid) in shard_uids.iter().enumerate() {
-            let shard_trie = tries.get_trie_for_shard(*shard_uid, head);
+            let block_info = BlockInfo {hash: root, height: 1, prev_hash: root};
+            set_flat_storage_status(
+                &mut tries.store_update(),
+                *shard_uid,
+                FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head: block_info }),
+            );
+
+            let shard_trie = tries.get_trie_for_shard(*shard_uid, root);
             let key: Vec<u8> = vec![0, 1, i as u8];
             let val: Vec<u8> = vec![0, 1, 2, i as u8];
-            let changes = Vec::from([(key.clone(), Some(val))]);
+            let changes = Vec::from([(key.clone(), Some(val.clone()))]);
 
             let trie_changes = shard_trie.update(changes).unwrap();
             let mut store_update = tries.store_update();
-            let root = tries.apply_all(&trie_changes, *shard_uid, &mut store_update);
+            let new_root = tries.apply_all(&trie_changes, *shard_uid, &mut store_update);
             store_update.commit().unwrap();
 
             let trie = tries.get_trie_for_shard(*shard_uid, root);
             println!("Val is {:?}", trie.get(&key));
 
+            let block_info = BlockInfo {hash: new_root, height: 1, prev_hash: root};
+            let delta = FlatStateDelta {
+                changes: FlatStateChanges::default(),
+                metadata: FlatStateDeltaMetadata { block: block_info }
+            };
+            assert!(set_delta(&mut tries.store_update(), *shard_uid, &delta).is_ok());
+            let res_delta_update = flat_storage_manager.get_flat_storage_for_shard(*shard_uid).unwrap().add_delta(delta);
+            println!("Delta Res is {:?}", res_delta_update);
+            // root needs ti be in deltas 
+            let res = flat_storage_manager.get_flat_storage_for_shard(*shard_uid).unwrap().update_flat_head(&new_root);
+            println!("Res is {:?}", res);
+            assert!(res.is_ok());
             println!("Inserting into {:?}", shard_uid);
         }
 
