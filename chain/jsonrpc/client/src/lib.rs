@@ -15,10 +15,15 @@ use near_primitives::views::{
 };
 use std::time::Duration;
 
+/// Unique identifier for a chunk.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(untagged)]
 pub enum ChunkId {
+    /// Identifies chunk by block it belongs to and shard index.
     BlockShardId(BlockId, ShardId),
+    /// Identifies chunk by block it belongs to and account held in that shard.
+    BlockAccountId(BlockId, AccountId),
+    /// Identifies chunk by its hash.
     Hash(CryptoHash),
 }
 
@@ -38,7 +43,11 @@ where
     P: serde::Serialize,
     R: serde::de::DeserializeOwned + 'static,
 {
-    let request = Message::request(method.to_string(), serde_json::to_value(&params).unwrap());
+    let request = serde_json::to_value(&params).unwrap();
+    if method == "chunk" {
+        eprintln!("\n\n{request}\n\n");
+    }
+    let request = Message::request(method.to_string(), request);
     // TODO: simplify this.
     client
         .post(server_addr)

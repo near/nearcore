@@ -1,21 +1,9 @@
 use serde_json::Value;
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, arbitrary::Arbitrary)]
-#[serde(untagged)]
-pub enum ChunkReference {
-    BlockShardId {
-        block_id: near_primitives::types::BlockId,
-        shard_id: near_primitives::types::ShardId,
-    },
-    ChunkHash {
-        chunk_id: near_primitives::hash::CryptoHash,
-    },
-}
-
 #[derive(serde::Serialize, serde::Deserialize, Debug, arbitrary::Arbitrary)]
 pub struct RpcChunkRequest {
     #[serde(flatten)]
-    pub chunk_reference: ChunkReference,
+    pub chunk_reference: near_primitives::types::ChunkReference,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
@@ -38,6 +26,8 @@ pub enum RpcChunkError {
     InvalidShardId { shard_id: u64 },
     #[error("Chunk with hash {chunk_hash:?} has never been observed on this node")]
     UnknownChunk { chunk_hash: near_primitives::sharding::ChunkHash },
+    #[error("Epoch {epoch_id} has been garbage collected")]
+    EpochOutOfBounds { epoch_id: near_primitives::types::EpochId },
 }
 
 impl From<RpcChunkError> for crate::errors::RpcError {
@@ -51,7 +41,11 @@ impl From<RpcChunkError> for crate::errors::RpcError {
             RpcChunkError::InvalidShardId { .. } => Some(Value::String(error.to_string())),
             RpcChunkError::UnknownChunk { chunk_hash } => Some(Value::String(format!(
                 "Chunk Missing (unavailable on the node): ChunkHash(`{}`) \n Cause: Unknown",
-                chunk_hash.0
+                chunk_hash.0,
+            ))),
+            RpcChunkError::EpochOutOfBounds { epoch_id } => Some(Value::String(format!(
+                "Epoch Missing (unavailable on the node): EpochId(`{}`) \n Cause: Unknown",
+                epoch_id.0,
             ))),
         };
 

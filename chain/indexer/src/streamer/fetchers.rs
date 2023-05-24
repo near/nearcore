@@ -141,8 +141,9 @@ async fn fetch_single_chunk(
     client: &Addr<near_client::ViewClientActor>,
     chunk_hash: near_primitives::hash::CryptoHash,
 ) -> Result<views::ChunkView, FailedToFetchData> {
+    let chunk_hash = near_primitives::sharding::ChunkHash(chunk_hash);
     client
-        .send(near_client::GetChunk::ChunkHash(chunk_hash.into()).with_span_context())
+        .send(near_client::GetChunk::from(chunk_hash).with_span_context())
         .await?
         .map_err(|err| FailedToFetchData::String(err.to_string()))
 }

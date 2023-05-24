@@ -8,6 +8,7 @@ use near_network::test_utils::wait_or_timeout;
 use near_o11y::testonly::init_integration_logger;
 use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
+use near_primitives::types::{BlockId, ChunkReference};
 
 use crate::tests::nearcore::node_cluster::NodeCluster;
 
@@ -30,8 +31,9 @@ fn track_shards() {
         wait_or_timeout(100, 30000, || async {
             let bh = *last_block_hash.read().unwrap();
             if let Some(block_hash) = bh {
-                let res =
-                    view_client.send(GetChunk::BlockHash(block_hash, 3).with_span_context()).await;
+                let block_id = BlockId::Hash(block_hash);
+                let chunk_ref = ChunkReference::BlockShardId { block_id, shard_id: 3 };
+                let res = view_client.send(GetChunk(chunk_ref).with_span_context()).await;
                 match &res {
                     Ok(Ok(_)) => {
                         return ControlFlow::Break(());

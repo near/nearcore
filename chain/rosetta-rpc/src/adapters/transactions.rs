@@ -3,6 +3,7 @@ use actix::Addr;
 use near_account_id::AccountId;
 use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
+use near_primitives::sharding::ChunkHash;
 use near_primitives::views::SignedTransactionView;
 use std::collections::HashMap;
 use std::string::ToString;
@@ -38,13 +39,9 @@ impl ExecutionToReceipts {
         let mut receipts = HashMap::new();
         for (shard_id, contained) in block.header.chunk_mask.iter().enumerate() {
             if *contained {
+                let chunk_hash = ChunkHash::from(block.chunks[shard_id].chunk_hash);
                 let chunk = view_client_addr
-                    .send(
-                        near_client::GetChunk::ChunkHash(near_primitives::sharding::ChunkHash(
-                            block.chunks[shard_id].chunk_hash,
-                        ))
-                        .with_span_context(),
-                    )
+                    .send(near_client::GetChunk::from(chunk_hash).with_span_context())
                     .await?
                     .map_err(|e| crate::errors::ErrorKind::InternalInvariantError(e.to_string()))?;
                 transactions.extend(chunk.transactions.into_iter().map(|t| (t.hash, t)));

@@ -485,6 +485,13 @@ impl StateRootNode {
 #[as_ref(forward)]
 pub struct EpochId(pub CryptoHash);
 
+impl std::fmt::Display for EpochId {
+    #[inline]
+    fn fmt(&self, fmtr: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(fmtr)
+    }
+}
+
 /// Stores validator and its stake for two consecutive epochs.
 /// It is necessary because the blocks on the epoch boundary need to contain approvals from both
 /// epochs.
@@ -846,6 +853,19 @@ impl From<Finality> for BlockReference {
     fn from(finality: Finality) -> Self {
         Self::Finality(finality)
     }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, arbitrary::Arbitrary)]
+#[serde(untagged)]
+pub enum ChunkReference {
+    /// Identifies chunk by its hash.
+    ChunkHash { chunk_id: CryptoHash },
+    /// Identifies chunk by block it belongs to and shard index the chunk is
+    /// for.
+    BlockShardId { block_id: BlockId, shard_id: ShardId },
+    /// Identifies chunk by block it belongs to and account that belongs to the
+    /// shard.
+    BlockAccountId { block_id: BlockId, account_id: AccountId },
 }
 
 #[derive(Default, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]

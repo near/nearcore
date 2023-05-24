@@ -7,8 +7,8 @@ use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::network::PeerId;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockReference, EpochId, EpochReference, MaybeBlockId, ShardId,
-    TransactionOrReceiptId,
+    AccountId, BlockHeight, BlockReference, ChunkReference, EpochId, EpochReference, MaybeBlockId,
+    ShardId, TransactionOrReceiptId,
 };
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
@@ -362,11 +362,15 @@ impl Message for GetBlockWithMerkleTree {
     type Result = Result<(BlockView, Arc<PartialMerkleTree>), GetBlockError>;
 }
 
-/// Actor message requesting a chunk by chunk hash and block hash + shard id.
-pub enum GetChunk {
-    Height(BlockHeight, ShardId),
-    BlockHash(CryptoHash, ShardId),
-    ChunkHash(ChunkHash),
+/// Actor message requesting a chunk by chunk hash, block and shard id or block
+/// and account name.
+pub struct GetChunk(pub ChunkReference);
+
+impl From<ChunkHash> for GetChunk {
+    #[inline]
+    fn from(hash: ChunkHash) -> Self {
+        Self(ChunkReference::ChunkHash { chunk_id: hash.0 })
+    }
 }
 
 impl Message for GetChunk {
@@ -383,6 +387,8 @@ pub enum GetChunkError {
     InvalidShardId { shard_id: u64 },
     #[error("Chunk with hash {chunk_hash:?} has never been observed on this node")]
     UnknownChunk { chunk_hash: ChunkHash },
+    #[error("Epoch {epoch_id} has been garbage collected")]
+    EpochOutOfBounds { epoch_id: EpochId },
     // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
     // expected cases, we cannot statically guarantee that no other errors will be returned
     // in the future.
