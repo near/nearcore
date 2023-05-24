@@ -1169,6 +1169,7 @@ impl PeerActor {
                                 && cur_edge.nonce() >= edge_info.nonce =>
                         {
                             // Found a newer local edge, so just send it to the peer.
+                            // TODO: need to implement some equivalent behavior for V2 routing
                             conn.send_message(Arc::new(PeerMessage::SyncRoutingTable(
                                 RoutingTableUpdate::from_edges(vec![cur_edge.clone()]),
                             )));
@@ -1404,9 +1405,7 @@ impl PeerActor {
     ) {
         // TODO: Check that spt.root matches peer_id and ban otherwise
         let _span = tracing::trace_span!(target: "network", "handle_shortest_path_tree").entered();
-        if let Err(ban_reason) =
-            network_state.update_shortest_path_tree(&clock, spt.root, spt.edges).await
-        {
+        if let Err(ban_reason) = network_state.update_shortest_path_tree(&clock, spt).await {
             conn.stop(Some(ban_reason));
         }
     }

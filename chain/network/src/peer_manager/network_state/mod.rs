@@ -6,7 +6,7 @@ use crate::concurrency::runtime::Runtime;
 use crate::config;
 use crate::network_protocol::{
     Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerInfo, PeerMessage, RawRoutedMessage,
-    RoutedMessageBody, RoutedMessageV2, SignedAccountData,
+    RoutedMessageBody, RoutedMessageV2, ShortestPathTree, SignedAccountData,
 };
 use crate::peer::peer_actor::PeerActor;
 use crate::peer::peer_actor::{ClosingReason, ConnectionClosedEvent};
@@ -146,7 +146,7 @@ pub(crate) struct NetworkState {
     /// Demultiplexer aggregating calls to add_edges().
     add_edges_demux: demux::Demux<Vec<Edge>, Result<(), ReasonForBan>>,
     /// Demultiplexer aggregating calls to update_shortest_path_tree().
-    update_spt_demux: demux::Demux<Vec<Edge>, Result<(), ReasonForBan>>,
+    update_spt_demux: demux::Demux<ShortestPathTree, Result<(), ReasonForBan>>,
 
     /// Mutex serializing calls to set_chain_info(), which mutates a bunch of stuff non-atomically.
     /// TODO(gprusak): make it use synchronization primitives in some more canonical way.
@@ -331,9 +331,10 @@ impl NetworkState {
                     this.add_edges(&clock, vec![edge.clone()])
                         .await
                         .map_err(|_: ReasonForBan| RegisterPeerError::InvalidEdge)?;
-                    this.update_shortest_path_tree(&clock, this.config.node_id(), vec![edge])
-                        .await
-                        .map_err(|_: ReasonForBan| RegisterPeerError::InvalidEdge)?;
+                    // Update the V2 routing table
+                    this.add_or_update_local_edge(&clock, peer_info.id.clone(), edge.clone())
+                        .await.map_err(|_: ReasonForBan| RegisterPeerError::InvalidEdge)?;
+                    // Insert to the local connection pool
                     this.tier2.insert_ready(conn.clone()).map_err(RegisterPeerError::PoolError)?;
                     // Write to the peer store
                     this.peer_store.peer_connected(&clock, peer_info);
@@ -374,15 +375,11 @@ impl NetworkState {
                     let edge_update =
                         edge.remove_edge(this.config.node_id(), &this.config.node_key);
                     this.add_edges(&clock, vec![edge_update.clone()]).await.unwrap();
-                    this.update_shortest_path_tree(
-                        &clock,
-                        this.config.node_id(),
-                        vec![edge_update.clone()],
-                    )
-                    .await
-                    .unwrap();
                 }
             }
+
+            // Update the V2 routing table
+            this.remove_local_edge(&clock, peer_id).await.unwrap();
 
             // Save the fact that we are disconnecting to the PeerStore.
             let res = match reason {
@@ -523,10 +520,10 @@ impl NetworkState {
                             self.graph.routing_table.count_next_hops_for_peer_id(peer_id);
                         let hop_ct_v2 =
                             self.graph_v2.routing_table.count_next_hops_for_peer_id(peer_id);
-                        //tracing::info!(target: "stats", "num next hops for {} are {} vs {}", &peer_id, hop_ct_v1, hop_ct_v2);
+                        tracing::info!(target: "stats", "num next hops for {} are {} vs {}", &peer_id, hop_ct_v1, hop_ct_v2);
 
                         if hop_ct_v1 != hop_ct_v2 {
-                            //tracing::error!(target: "stats", "number of next hops mismatched between routing protocols for target {}", &peer_id);
+                            tracing::error!(target: "stats", "number of next hops mismatched between routing protocols for target {}", &peer_id);
                         }
                     }
                     _default => {}

@@ -91,6 +91,7 @@ impl NetworkState {
             edge_info.signature,
         );
         self.add_edges(&clock, vec![edge.clone()]).await?;
+        self.add_or_update_local_edge(&clock, peer_id.clone(), edge.clone()).await?;
         Ok(edge)
     }
 
@@ -174,20 +175,34 @@ impl NetworkState {
         self.tier2_route_back.lock().get(&hash).map_or(false, |value| value == peer_id)
     }
 
-    /// Cloned version of add_edges
+    /// Validates the given ShortestPathTree, including
+    ///     * Validation of signatures on all included edges
+    ///     * Validation that the provided edges form a tree
+    ///     * Validation that the specified tree includes the indicated root
+    ///
+    /// Returns an error iff the ShortestPathTree is invalid.
+    /// Even if an error is returned, any valid input edges may be cached.
+    ///
+    /// If the given ShortestPathTree is valid, the V2 routing table is updated.
+    /// If the local node's ShortestPathTree changes as a result, it is broadcasted.
+    ///
+    /// Calls to this function are demultiplexed using the update_spt_demux.
+    /// The following special cases are supported:
+    ///     * Insertion or update of a local edge, represented by passing an SPT with a single edge
+    ///     * Removal of a local edge, representing by passing an SPT with no edges
     pub async fn update_shortest_path_tree(
         self: &Arc<Self>,
         clock: &time::Clock,
-        _root: PeerId,
-        edges: Vec<Edge>,
+        spt: ShortestPathTree,
     ) -> Result<(), ReasonForBan> {
-        if edges.is_empty() {
+        if spt.edges.is_empty() {
             return Ok(());
         }
         let this = self.clone();
         let clock = clock.clone();
         self.update_spt_demux
-            .call(edges, |edges: Vec<Vec<Edge>>| async move {
+            .call(spt, |spts: Vec<ShortestPathTree>| async move {
+                let edges: Vec<Vec<Edge>> = spts.iter().map(|spt| spt.edges.clone()).collect();
                 let (mut edges, oks) = this.graph_v2.update(&clock, edges).await;
                 // Don't send tombstones during the initial time.
                 // Most of the network is created during this time, which results
@@ -215,5 +230,24 @@ impl NetworkState {
             })
             .await
             .unwrap_or(Ok(()))
+    }
+
+    pub async fn add_or_update_local_edge(
+        self: &Arc<Self>,
+        clock: &time::Clock,
+        peer_id: PeerId,
+        edge: Edge,
+    ) -> Result<(), ReasonForBan> {
+        self.update_shortest_path_tree(clock, ShortestPathTree { root: peer_id, edges: vec![edge] })
+            .await
+    }
+
+    pub async fn remove_local_edge(
+        self: &Arc<Self>,
+        clock: &time::Clock,
+        peer_id: PeerId,
+    ) -> Result<(), ReasonForBan> {
+        self.update_shortest_path_tree(clock, ShortestPathTree { root: peer_id, edges: vec![] })
+            .await
     }
 }
