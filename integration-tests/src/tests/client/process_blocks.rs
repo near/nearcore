@@ -46,8 +46,8 @@ use near_o11y::WithSpanContextExt;
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::BlockHeader;
 use near_primitives::epoch_manager::RngSeed;
-use near_primitives::errors::InvalidTxError;
-use near_primitives::errors::TxExecutionError;
+use near_primitives::errors::{ActionError, InvalidTxError};
+use near_primitives::errors::{ActionErrorKind, TxExecutionError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{verify_hash, PartialMerkleTree};
 use near_primitives::receipt::DelayedReceiptIndices;
@@ -82,6 +82,7 @@ use near_store::test_utils::create_test_node_storage_with_cold;
 use near_store::test_utils::create_test_store;
 use near_store::NodeStorage;
 use near_store::{get, DBCol, Store, TrieChanges};
+use near_vm_errors::FunctionCallErrorSer;
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use nearcore::NEAR_BASE;
 use rand::prelude::StdRng;
@@ -2844,7 +2845,7 @@ fn test_execution_metadata() {
     };
 
     // Call the contract and get the execution outcome.
-    let execution_outcome = env.call_main(&"test0".parse().unwrap());
+    let execution_outcome = env.call_main(&"test0".parse().unwrap(), Namespace::default());
 
     // Now, let's assert that we get the cost breakdown we expect.
     let config = RuntimeConfigStore::test().get_config(PROTOCOL_VERSION).clone();
@@ -2937,10 +2938,7 @@ fn test_execution_metadata_namespaced() {
     };
 
     // Call the contract and get the execution outcome.
-    // TODO: new version of call_main that accepts namespace
-    let execution_outcome = env.call_main(&"test0".parse().unwrap());
-
-    dbg!(&execution_outcome);
+    let execution_outcome = env.call_main(&"test0".parse().unwrap(), namespace.clone());
 
     // Now, let's assert that we get the cost breakdown we expect.
     let config = RuntimeConfigStore::test().get_config(PROTOCOL_VERSION).clone();
@@ -2992,6 +2990,58 @@ fn test_execution_metadata_namespaced() {
             .sum::<u64>();
 
     assert_eq!(expected_receipt_cost, actual_receipt_cost)
+}
+
+#[test]
+fn test_execution_metadata_namespaced_mismatch() {
+    // Prepare TestEnv with a very simple WASM contract.
+    let wasm_code = wat::parse_str(
+        r#"
+(module
+    (import "env" "block_index" (func $block_index (result i64)))
+    (func (export "main")
+        (call $block_index)
+        drop
+    )
+)"#,
+    )
+    .unwrap();
+
+    let mut env = {
+        let epoch_length = 5;
+        let mut genesis =
+            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+        genesis.config.epoch_length = epoch_length;
+        let chain_genesis = ChainGenesis::new(&genesis);
+        let mut env = TestEnv::builder(chain_genesis)
+            .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+            .build();
+
+        deploy_test_contract(
+            &mut env,
+            "test0".parse().unwrap(),
+            Namespace::default(), // deploy to default namespace but call explicit namespace
+            &wasm_code,
+            epoch_length,
+            1,
+        );
+        env
+    };
+
+    let namespace = Namespace::from("namespace");
+
+    // Call the contract and get the execution outcome.
+    let execution_outcome = env.call_main(&"test0".parse().unwrap(), namespace.clone());
+
+    assert_eq!(
+        execution_outcome.status,
+        FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+            index: Some(0),
+            kind: ActionErrorKind::FunctionCallError(
+                FunctionCallErrorSer::NamespaceDoesNotExistError(namespace.to_string())
+            )
+        }))
+    );
 }
 
 #[test]

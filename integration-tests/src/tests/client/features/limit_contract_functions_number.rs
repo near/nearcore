@@ -59,11 +59,11 @@ fn verify_contract_limits_upgrade(
     };
 
     let account = "test0".parse().unwrap();
-    let old_outcome = env.call_main(&account);
+    let old_outcome = env.call_main(&account, Namespace::default());
 
     env.upgrade_protocol(new_protocol_version);
 
-    let new_outcome = env.call_main(&account);
+    let new_outcome = env.call_main(&account, Namespace::default());
 
     assert_matches!(old_outcome.status, FinalExecutionStatus::SuccessValue(_));
     let e = match new_outcome.status {

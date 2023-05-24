@@ -1,4 +1,3 @@
-use near_primitives::namespace::Namespace;
 use paperclip::actix::{api_v2_errors, Apiv2Schema};
 
 use near_primitives::hash::CryptoHash;

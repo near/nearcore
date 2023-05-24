@@ -13,7 +13,6 @@ use near_primitives::contract::ContractCode;
 use near_primitives::delegate_action::{DelegateAction, SignedDelegateAction};
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
 use near_primitives::hash::CryptoHash;
-use near_primitives::namespace::Namespace;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::runtime::config::AccountCreationConfig;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
@@ -60,8 +59,8 @@ pub(crate) fn execute_function_call(
     let code_hash = match account.code_hashes().get(&function_call.namespace) {
         Some(code_hash) => *code_hash,
         None => {
-            return Ok(VMOutcome::nop_outcome(FunctionCallError::CompilationError(
-                CompilationError::CodeDoesNotExist { account_id: account_id.clone() },
+            return Ok(VMOutcome::nop_outcome(FunctionCallError::NamespaceDoesNotExistError(
+                function_call.namespace.to_string(),
             )));
         }
     };
@@ -249,7 +248,7 @@ pub(crate) fn action_function_call(
                 metrics::FUNCTION_CALL_PROCESSED_HOST_ERRORS
                     .with_label_values(&[inner_err.into()])
                     .inc();
-            },
+            }
             FunctionCallError::NamespaceDoesNotExistError(ref namespace) => {
                 metrics::FUNCTION_CALL_PROCESSED_NAMESPACE_DOES_NOT_EXIST_ERRORS
                     .with_label_values(&[namespace])
@@ -990,6 +989,7 @@ mod tests {
     use near_primitives::delegate_action::NonDelegateAction;
     use near_primitives::errors::InvalidAccessKeyError;
     use near_primitives::hash::hash;
+    use near_primitives::namespace::Namespace;
     use near_primitives::runtime::migration_data::MigrationFlags;
     use near_primitives::transaction::CreateAccountAction;
     use near_primitives::trie_key::TrieKey;

@@ -1893,10 +1893,10 @@ impl TestEnv {
     /// This function assumes that account has been deployed and that
     /// `InMemorySigner::from_seed` produces a valid signer that has it's key
     /// deployed already.
-    pub fn call_main(&mut self, account: &AccountId) -> FinalExecutionOutcomeView {
+    pub fn call_main(&mut self, account: &AccountId, namespace: Namespace) -> FinalExecutionOutcomeView {
         let signer = InMemorySigner::from_seed(account.clone(), KeyType::ED25519, account.as_str());
         let actions = vec![Action::FunctionCall(FunctionCallAction {
-            namespace: Namespace::default(),
+            namespace,
             method_name: "main".to_string(),
             args: vec![],
             gas: 3 * 10u64.pow(14),

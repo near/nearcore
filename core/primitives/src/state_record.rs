@@ -7,8 +7,8 @@ use crate::trie_key::trie_key_parsers::{
     parse_account_id_from_access_key_key, parse_account_id_from_account_key,
     parse_account_id_from_contract_code_key, parse_account_id_from_contract_data_key,
     parse_account_id_from_received_data_key, parse_data_id_from_received_data_key,
-    parse_data_key_from_contract_data_key, parse_namespace_from_contract_code_key,
-    parse_parts_from_contract_data_key, parse_public_key_from_access_key_key,
+    parse_namespace_from_contract_code_key, parse_parts_from_contract_data_key,
+    parse_public_key_from_access_key_key,
 };
 use crate::types::AccountId;
 use borsh::BorshDeserialize;

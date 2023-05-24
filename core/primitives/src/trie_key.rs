@@ -309,7 +309,7 @@ pub mod trie_key_parsers {
                     )
                 })
                 .and_then(|s| {
-                    Namespace::try_from(s).map(|n| (n, s.len())).map_err(|e| {
+                    Namespace::try_from(s).map(|n| (n, s.len())).map_err(|_| {
                         std::io::Error::new(
                             std::io::ErrorKind::InvalidData,
                             "could not decode namespace part of contract data trie key as utf-8",

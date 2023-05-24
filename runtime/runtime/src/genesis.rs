@@ -42,13 +42,13 @@ impl<'a> StorageComputer<'a> {
             StateRecord::Account { account_id, .. } => {
                 Some((account_id.clone(), self.config.num_bytes_account))
             }
-            StateRecord::Data { account_id, namespace, data_key, value } => {
+            StateRecord::Data { account_id, namespace: _, data_key, value } => {
                 // TODO: Accounting
                 let storage_usage =
                     self.config.num_extra_bytes_record + data_key.len() as u64 + value.len() as u64;
                 Some((account_id.clone(), storage_usage))
             }
-            StateRecord::Contract { account_id, namespace, code } => {
+            StateRecord::Contract { account_id, namespace: _, code } => {
                 // TODO: Accounting
                 Some((account_id.clone(), code.len() as u64))
             }
