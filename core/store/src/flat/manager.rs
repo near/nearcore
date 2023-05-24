@@ -137,10 +137,19 @@ impl FlatStorageManager {
         Ok(())
     }
 
-    pub fn set_flat_state_updates_mode(&self, enabled: bool) {
+    pub fn set_flat_state_updates_mode(&self, enabled: bool) -> Option<bool> {
         let flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
+        let mut prev_value = None;
         for flat_storage in flat_storages.values() {
-            flat_storage.set_flat_head_update_mode(enabled);
+            let p = flat_storage.set_flat_head_update_mode(enabled);
+            match prev_value {
+                None => prev_value = Some(p),
+                Some(v) => assert_eq!(
+                    p, v,
+                    "All FlatStorage are expected to have the same value of `move_head_enabled`"
+                ),
+            }
         }
+        prev_value
     }
 }

@@ -84,7 +84,6 @@ use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration as TimeDuration, Instant};
 use tracing::{debug, error, info, warn, Span};
@@ -479,8 +478,6 @@ pub struct Chain {
 /// Provides access to information about state snapshot progress and lets
 /// trigger new state snapshots.
 struct StateSnapshotHelper {
-    /// Indicates whether a state snapshot is in progress.
-    in_progress: Arc<AtomicBool>,
     /// A callback to initiate state snapshot.
     start_snapshot_callback: StartSnapshotCallback,
     /// Test-only. Artificially triggers state snapshots every N blocks.
@@ -571,7 +568,6 @@ impl Chain {
         chain_genesis: &ChainGenesis,
         doomslug_threshold_mode: DoomslugThresholdMode,
         chain_config: ChainConfig,
-        state_snapshot_in_progress: Option<Arc<AtomicBool>>,
         start_snapshot_callback: Option<StartSnapshotCallback>,
     ) -> Result<Chain, Error> {
         // Get runtime initial state and create genesis block out of it.
@@ -717,7 +713,7 @@ impl Chain {
             last_time_head_updated: StaticClock::instant(),
             pending_state_patch: Default::default(),
             requested_state_parts: StateRequestTracker::new(),
-            state_snapshot_helper: if let Some(in_progress) = state_snapshot_in_progress {
+            state_snapshot_helper: if let Some(callback) = start_snapshot_callback {
                 let (blocks_until_snapshot, snapshot_every_n_blocks) =
                     if let Some(n) = chain_config.state_snapshot_every_n_blocks {
                         (Some(0), Some(n))
@@ -725,8 +721,7 @@ impl Chain {
                         (None, None)
                     };
                 Some(StateSnapshotHelper {
-                    in_progress,
-                    start_snapshot_callback: start_snapshot_callback.unwrap(),
+                    start_snapshot_callback: callback,
                     snapshot_every_n_blocks,
                     blocks_until_snapshot,
                 })
@@ -2199,11 +2194,6 @@ impl Chain {
         )
         .entered();
         if let Some(flat_storage) = self.runtime_adapter.get_flat_storage_for_shard(shard_uid) {
-            if self.state_snapshot_is_in_progress() {
-                tracing::warn!(target: "state_snapshot", "Ignore update_flat_storage_for_block() because state snapshot is in progress");
-                return Ok(());
-            }
-
             let mut new_flat_head = *block.header().last_final_block();
             if new_flat_head == CryptoHash::default() {
                 new_flat_head = *self.genesis.hash();
@@ -4191,12 +4181,6 @@ impl Chain {
                 tracing::error!(target: "state_snapshot", ?err, "Didn't start state snapshot because head() failed");
             }
         }
-    }
-
-    fn state_snapshot_is_in_progress(&self) -> bool {
-        self.state_snapshot_helper
-            .as_ref()
-            .map_or(false, |info| info.in_progress.load(Ordering::Relaxed))
     }
 }
 

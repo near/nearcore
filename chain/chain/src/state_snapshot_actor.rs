@@ -1,17 +1,20 @@
 use crate::types::RuntimeAdapter;
 use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
 use near_primitives::hash::CryptoHash;
-use std::sync::atomic::{AtomicBool, Ordering};
+use near_store::flat::FlatStorageManager;
 use std::sync::Arc;
 
 pub struct StateSnapshotActor {
-    in_progress: Arc<AtomicBool>,
+    flat_storage_manager: FlatStorageManager,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
 }
 
 impl StateSnapshotActor {
-    pub fn new(in_progress: Arc<AtomicBool>, runtime_adapter: Arc<dyn RuntimeAdapter>) -> Self {
-        Self { in_progress, runtime_adapter }
+    pub fn new(
+        flat_storage_manager: FlatStorageManager,
+        runtime_adapter: Arc<dyn RuntimeAdapter>,
+    ) -> Self {
+        Self { flat_storage_manager, runtime_adapter }
     }
 }
 
@@ -36,16 +39,19 @@ impl actix::Handler<WithSpanContext<StartSnapshotRequest>> for StateSnapshotActo
         let (_span, msg) = handler_debug_span!(target: "state_snapshot", msg);
         let StartSnapshotRequest { prev_block_hash } = msg;
 
-        assert!(
-            !self.in_progress.swap(true, Ordering::Relaxed),
-            "Tried to start a state snapshot while state snapshotting"
+        // TODO(nikurt): Add `set_flat_state_updates_mode()` to the trait `RuntimeAdapter`.
+        assert_ne!(
+            self.flat_storage_manager.set_flat_state_updates_mode(false),
+            Some(false),
+            "Failed to lock flat state updates"
         );
         if let Err(err) = self.runtime_adapter.make_state_snapshot(&prev_block_hash) {
             tracing::error!(target: "state_snapshot", ?err, "State snapshot creation failed");
         }
-        assert!(
-            self.in_progress.swap(false, Ordering::Relaxed),
-            "Tried to stop a state snapshot which wasn't running"
+        assert_ne!(
+            self.flat_storage_manager.set_flat_state_updates_mode(true),
+            Some(true),
+            "Failed to unlock flat state updates"
         );
     }
 }

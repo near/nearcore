@@ -18,12 +18,12 @@ use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
 use near_network::PeerManagerActor;
 use near_primitives::block::GenesisId;
+use near_store::flat::FlatStorageManager;
 use near_store::metadata::DbKind;
 use near_store::metrics::spawn_db_metrics_loop;
 use near_store::{DBCol, Mode, NodeStorage, Store, StoreOpenerError};
 use near_telemetry::TelemetryActor;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tracing::info;
@@ -271,9 +271,12 @@ pub fn start_with_config_and_synchronization(
     let client_adapter_for_shards_manager = Arc::new(LateBoundSender::default());
     let adv = near_client::adversarial::Controls::new(config.client_config.archive);
 
-    let state_snapshot_in_progress = Arc::new(AtomicBool::new(false));
     let state_snapshot_actor = Arc::new(
-        StateSnapshotActor::new(state_snapshot_in_progress.clone(), runtime.clone()).start(),
+        StateSnapshotActor::new(
+            FlatStorageManager::new(storage.get_hot_store().clone()),
+            runtime.clone(),
+        )
+        .start(),
     );
 
     let view_client = start_view_client(
@@ -297,7 +300,6 @@ pub fn start_with_config_and_synchronization(
         shards_manager_adapter.as_sender(),
         config.validator_signer.clone(),
         telemetry,
-        Some(state_snapshot_in_progress),
         Some(get_start_snapshot_callback(state_snapshot_actor)),
         shutdown_signal,
         adv,

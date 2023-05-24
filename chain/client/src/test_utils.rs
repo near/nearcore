@@ -237,7 +237,6 @@ pub fn setup(
             state_snapshot_every_n_blocks: None,
         },
         None,
-        None,
     )
     .unwrap();
     let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap();
@@ -289,7 +288,6 @@ pub fn setup(
         Some(signer.clone()),
         enable_doomslug,
         TEST_SEED,
-        None,
         None,
     )
     .unwrap();
@@ -358,7 +356,6 @@ pub fn setup_only_view(
             background_migration_threads: 1,
             state_snapshot_every_n_blocks: None,
         },
-        None,
         None,
     )
     .unwrap();
@@ -1173,7 +1170,6 @@ pub fn setup_client_with_runtime(
         enable_doomslug,
         rng_seed,
         None,
-        None,
     )
     .unwrap();
     client.sync_status = SyncStatus::NoSync;
@@ -1238,7 +1234,6 @@ pub fn setup_synchronous_shards_manager(
             background_migration_threads: 1,
             state_snapshot_every_n_blocks: None,
         }, // irrelevant
-        None,
         None,
     )
     .unwrap();

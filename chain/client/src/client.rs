@@ -66,7 +66,6 @@ use near_primitives::views::{CatchupStatusView, DroppedReason};
 use near_store::metadata::DbKind;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, trace, warn};
@@ -200,7 +199,6 @@ impl Client {
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
         enable_doomslug: bool,
         rng_seed: RngSeed,
-        state_snapshot_in_progress: Option<Arc<AtomicBool>>,
         start_state_snapshot_callback: Option<StartSnapshotCallback>,
     ) -> Result<Self, Error> {
         let doomslug_threshold_mode = if enable_doomslug {
@@ -220,7 +218,6 @@ impl Client {
             &chain_genesis,
             doomslug_threshold_mode,
             chain_config.clone(),
-            state_snapshot_in_progress,
             start_state_snapshot_callback,
         )?;
         let me = validator_signer.as_ref().map(|x| x.validator_id().clone());

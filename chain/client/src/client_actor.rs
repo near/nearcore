@@ -72,7 +72,6 @@ use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -1985,7 +1984,6 @@ pub fn start_client(
     shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     telemetry_actor: Addr<TelemetryActor>,
-    state_snapshot_in_progress: Option<Arc<AtomicBool>>,
     start_state_snapshot_callback: Option<StartSnapshotCallback>,
     sender: Option<broadcast::Sender<()>>,
     adv: crate::adversarial::Controls,
@@ -2005,7 +2003,6 @@ pub fn start_client(
         validator_signer.clone(),
         true,
         random_seed_from_thread(),
-        state_snapshot_in_progress,
         start_state_snapshot_callback,
     )
     .unwrap();
