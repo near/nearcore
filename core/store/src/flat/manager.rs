@@ -145,7 +145,7 @@ impl FlatStorageManager {
         for flat_storage in flat_storages.values() {
             let prev_shard_value = flat_storage.set_flat_head_update_mode(enabled);
             match prev_seen_value {
-                None => prev_value = Some(prev_shard_value),
+                None => prev_seen_value = Some(prev_shard_value),
                 Some(v) => assert_eq!(
                     prev_shard_value, v,
                     "All FlatStorage are expected to have the same value of `move_head_enabled`"
