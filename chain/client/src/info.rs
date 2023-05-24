@@ -888,6 +888,7 @@ mod tests {
             &chain_genesis,
             doomslug_threshold_mode,
             ChainConfig::test(),
+            None,
         )
         .unwrap();
 

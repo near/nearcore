@@ -627,7 +627,6 @@ pub fn checkpoint_hot_storage_and_cleanup_columns(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use near_o11y::testonly::init_test_logger;
     use std::path::PathBuf;
 
     fn check_keys_existence(store: &Store, column: &DBCol, keys: &Vec<Vec<u8>>, expected: bool) {

@@ -1986,6 +1986,8 @@ mod test {
                 Some(RuntimeConfigStore::free()),
                 DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
                 Default::default(),
+                StateSnapshotConfig::Disabled,
+                None,
             );
             let (_store, state_roots) = runtime.genesis_state();
             let genesis_hash = hash(&[0]);

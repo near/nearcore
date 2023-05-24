@@ -2190,6 +2190,7 @@ fn test_incorrect_validator_key_produce_block() {
         Some(signer),
         false,
         TEST_SEED,
+        None,
     )
     .unwrap();
     let res = client.produce_block(1);

@@ -84,6 +84,7 @@ fn setup_network_node(
         Some(signer.clone()),
         telemetry_actor,
         None,
+        None,
         adv.clone(),
         None,
     )
