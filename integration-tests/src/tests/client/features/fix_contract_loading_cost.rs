@@ -5,6 +5,7 @@ use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::views::FinalExecutionStatus;
+use near_primitives::namespace::Namespace;
 use nearcore::config::GenesisExt;
 
 /// Create a `TestEnv` with an account and a contract deployed to that account.
@@ -20,7 +21,7 @@ fn prepare_env_with_contract(
     let mut env = TestEnv::builder(ChainGenesis::new(&genesis))
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
         .build();
-    deploy_test_contract(&mut env, account, &contract, epoch_length.clone(), 1);
+    deploy_test_contract(&mut env, account, Namespace::default(), &contract, epoch_length.clone(), 1);
     env
 }
 
