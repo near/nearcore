@@ -21,8 +21,6 @@ pub fn get_delta_changes(
     block_hash: CryptoHash,
 ) -> Result<Option<FlatStateChanges>, FlatStorageError> {
     let key = KeyForFlatStateDelta { shard_uid, block_hash };
-    let res = store.get_ser::<FlatStateChanges>(DBCol::FlatStateChanges, &key.to_bytes());
-    println!("Res is ladida: {:?}", res);
 
     Ok(store
         .get_ser::<FlatStateChanges>(DBCol::FlatStateChanges, &key.to_bytes())
