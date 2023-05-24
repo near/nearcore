@@ -2541,6 +2541,12 @@ impl<'a> ChainStoreUpdate<'a> {
             DBCol::HeaderHashesByHeight => {
                 store_update.delete(col, key);
             }
+            DBCol::TransactionSimulationResult => {
+                store_update.delete(col, key);
+            }
+            DBCol::TransactionSimulationResults => {
+                store_update.delete(col, key);
+            }
             DBCol::DbVersion
             | DBCol::BlockMisc
             | DBCol::_GCCount
@@ -2568,7 +2574,8 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::FlatState
             | DBCol::FlatStateChanges
             | DBCol::FlatStateDeltaMetadata
-            | DBCol::FlatStorageStatus => {
+            | DBCol::FlatStorageStatus
+            | DBCol::LastSimulatedBlockOrdinal => {
                 unreachable!();
             }
         }

@@ -10,6 +10,7 @@ use near_crypto::{PublicKey, Signature};
 use near_fmt::{AbbrBytes, Slice};
 use near_primitives_core::profile::{ProfileDataV2, ProfileDataV3};
 use near_primitives_core::types::Compute;
+use serde::Serialize;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
 use std::borrow::Borrow;
@@ -335,7 +336,7 @@ impl Borrow<CryptoHash> for SignedTransaction {
 }
 
 /// The status of execution for a transaction or a receipt.
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Default)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Default, serde::Serialize)]
 pub enum ExecutionStatus {
     /// The execution is pending or unknown.
     #[default]
@@ -407,7 +408,15 @@ impl From<ExecutionStatus> for PartialExecutionStatus {
 }
 
 /// Execution outcome for one signed transaction or one receipt.
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone, smart_default::SmartDefault, Eq)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    PartialEq,
+    Clone,
+    smart_default::SmartDefault,
+    Eq,
+    serde::Serialize,
+)]
 pub struct ExecutionOutcome {
     /// Logs from this transaction or receipt.
     pub logs: Vec<LogEntry>,
@@ -435,6 +444,7 @@ pub struct ExecutionOutcome {
     /// ExecutionStatus::Failure
     pub status: ExecutionStatus,
     /// Execution metadata, versioned
+    #[serde(skip)]
     pub metadata: ExecutionMetadata,
 }
 

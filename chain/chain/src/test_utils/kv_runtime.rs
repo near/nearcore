@@ -5,6 +5,7 @@ use std::sync::{Arc, RwLock};
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_epoch_manager::{EpochManagerAdapter, RngSeed};
+use near_primitives::runtime::migration_data::MigrationData;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_part::PartId;
 use num_rational::Ratio;
@@ -1433,5 +1434,9 @@ impl RuntimeAdapter for KeyValueRuntime {
         _state_split_status: Arc<StateSplitApplyingStatus>,
     ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
         Ok(HashMap::new())
+    }
+
+    fn get_migration_data(&self) -> Arc<near_primitives::runtime::migration_data::MigrationData> {
+        Arc::new(MigrationData::default())
     }
 }

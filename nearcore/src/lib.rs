@@ -10,6 +10,7 @@ use cold_storage::ColdStoreLoopHandle;
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::messaging::{IntoSender, LateBoundSender};
 use near_async::time;
+use near_chain::simulator::SimulationRunner;
 use near_chain::{Chain, ChainGenesis};
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::{start_client, start_view_client, ClientActor, ConfigUpdater, ViewClientActor};
@@ -23,6 +24,7 @@ use near_store::{DBCol, Mode, NodeStorage, Store, StoreOpenerError};
 use near_telemetry::TelemetryActor;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::broadcast;
 use tracing::info;
 
@@ -266,6 +268,44 @@ pub fn start_with_config_and_synchronization(
     let client_adapter_for_shards_manager = Arc::new(LateBoundSender::default());
     let adv = near_client::adversarial::Controls::new(config.client_config.archive);
 
+    let enable_simulation = std::env::var("SIM_ON").unwrap_or_default() == "1";
+    let disable_node = std::env::var("NODE_OFF").unwrap_or_default() == "1";
+    let simulation_threads =
+        std::env::var("SIM_THREADS").unwrap_or("8".to_string()).parse::<usize>().unwrap();
+    let batch_size = std::env::var("SIM_BATCH").unwrap_or("64".to_string()).parse::<u64>().unwrap();
+    let do_dump = std::env::var("SIM_DUMP").unwrap_or_default() == "1";
+    let clear_data = std::env::var("CLEAR_DATA").unwrap_or_default() == "1";
+
+    if do_dump {
+        SimulationRunner::dump_simulation_results(storage.get_hot_store());
+        std::process::exit(0);
+    }
+
+    if clear_data {
+        println!("CLEARING SIMULATION DATA! ENTER YES TO CONTINUE");
+        let mut buffer = String::new();
+        std::io::stdin().read_line(&mut buffer)?;
+        if buffer != "YES\n" {
+            std::process::exit(1);
+        }
+        let mut update = storage.get_hot_store().store_update();
+        update.delete_all(DBCol::LastSimulatedBlockOrdinal);
+        update.commit().unwrap();
+    }
+
+    if enable_simulation {
+        SimulationRunner::continuously_simulate_history(
+            epoch_manager.clone(),
+            runtime.clone(),
+            epoch_manager.clone(),
+            storage.get_hot_store(),
+            simulation_threads,
+            batch_size,
+        );
+    }
+    if disable_node {
+        std::thread::sleep(Duration::from_secs(100 * 86400));
+    }
     let view_client = start_view_client(
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
         chain_genesis.clone(),

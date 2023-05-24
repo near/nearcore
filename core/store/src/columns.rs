@@ -273,6 +273,12 @@ pub enum DBCol {
     /// - *Rows*: `shard_uid`
     /// - *Column type*: `FlatStorageStatus`
     FlatStorageStatus,
+    /// Simulation result
+    TransactionSimulationResult,
+    /// Simulation results
+    TransactionSimulationResults,
+    /// Last simulated block ordinal
+    LastSimulatedBlockOrdinal,
 }
 
 /// Defines different logical parts of a db key.
@@ -465,7 +471,10 @@ impl DBCol {
             | DBCol::FlatState
             | DBCol::FlatStateChanges
             | DBCol::FlatStateDeltaMetadata
-            | DBCol::FlatStorageStatus => false,
+            | DBCol::FlatStorageStatus
+            | DBCol::TransactionSimulationResult
+            | DBCol::TransactionSimulationResults
+            | DBCol::LastSimulatedBlockOrdinal => false,
         }
     }
 
@@ -533,6 +542,9 @@ impl DBCol {
             DBCol::FlatStateChanges => &[DBKeyType::ShardUId, DBKeyType::BlockHash],
             DBCol::FlatStateDeltaMetadata => &[DBKeyType::ShardUId, DBKeyType::BlockHash],
             DBCol::FlatStorageStatus => &[DBKeyType::ShardUId],
+            DBCol::TransactionSimulationResult => &[DBKeyType::TransactionHash],
+            DBCol::TransactionSimulationResults => &[DBKeyType::TransactionHash],
+            DBCol::LastSimulatedBlockOrdinal => &[DBKeyType::Empty],
         }
     }
 }

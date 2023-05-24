@@ -213,7 +213,7 @@ impl Runtime {
     /// `ExecutionOutcomeWithId` for the transaction.
     /// In case of an error, returns either `InvalidTxError` if the transaction verification failed
     /// or a `StorageError` wrapped into `RuntimeError`.
-    fn process_transaction(
+    pub fn process_transaction(
         &self,
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
@@ -846,7 +846,7 @@ impl Runtime {
         Ok(gas_deficit_amount)
     }
 
-    fn process_receipt(
+    pub fn process_receipt(
         &self,
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
