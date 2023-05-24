@@ -1,6 +1,5 @@
 use crate::hash::CryptoHash;
 use crate::namespace::Namespace;
-use crate::routing_table::RoutingTable;
 use crate::serialize::dec_format;
 use crate::types::{Balance, Nonce, StorageUsage};
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -40,7 +39,6 @@ pub struct Account {
     locked: Balance,
     /// Hash of the code stored in the storage for this account.
     code_hashes: HashMap<Namespace, CryptoHash>,
-    routing_table: RoutingTable,
     /// Storage used by the given account, includes account id, this struct, access keys and other data.
     storage_usage: StorageUsage,
     /// Version of Account in re migrations and similar
@@ -63,7 +61,6 @@ impl Account {
             amount,
             locked,
             code_hashes: [(Namespace::default(), code_hash)].into_iter().collect(),
-            routing_table: RoutingTable::new(),
             storage_usage,
             version: AccountVersion::V1,
         }
@@ -87,16 +84,6 @@ impl Account {
     #[inline]
     pub fn code_hashes(&self) -> &HashMap<Namespace, CryptoHash> {
         &self.code_hashes
-    }
-
-    #[inline]
-    pub fn routing_table(&self) -> &RoutingTable {
-        &self.routing_table
-    }
-
-    #[inline]
-    pub fn routing_table_mut(&mut self) -> &mut RoutingTable {
-        &mut self.routing_table
     }
 
     #[inline]
@@ -144,7 +131,6 @@ struct LegacyAccount {
     amount: Balance,
     locked: Balance,
     code_hashes: HashMap<Namespace, CryptoHash>,
-    routing_table: RoutingTable,
     storage_usage: StorageUsage,
 }
 
@@ -157,7 +143,6 @@ impl BorshDeserialize for Account {
             amount: deserialized_account.amount,
             locked: deserialized_account.locked,
             code_hashes: deserialized_account.code_hashes,
-            routing_table: deserialized_account.routing_table,
             storage_usage: deserialized_account.storage_usage,
             version: AccountVersion::V1,
         })
@@ -171,7 +156,6 @@ impl BorshSerialize for Account {
                 amount: self.amount,
                 locked: self.locked,
                 code_hashes: self.code_hashes.clone(),
-                routing_table: self.routing_table.clone(),
                 storage_usage: self.storage_usage,
             }
             .serialize(writer),
@@ -291,7 +275,6 @@ mod tests {
             amount: 100,
             locked: 200,
             code_hashes: HashMap::default(),
-            routing_table: RoutingTable::default(),
             storage_usage: 300,
         };
         let mut old_bytes = &old_account.try_to_vec().unwrap()[..];

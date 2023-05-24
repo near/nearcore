@@ -8,6 +8,7 @@ use near_primitives::errors::{ActionErrorKind, TxExecutionError};
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::FinalExecutionStatus;
+use near_primitives_core::namespace::Namespace;
 use near_store::test_utils::create_test_store;
 use near_vm_errors::{CompilationError, FunctionCallErrorSer, PrepareError};
 use nearcore::config::GenesisExt;
@@ -44,6 +45,7 @@ fn verify_contract_limits_upgrade(
         deploy_test_contract(
             &mut env,
             "test0".parse().unwrap(),
+            Namespace::default(),
             &near_test_contracts::LargeContract {
                 functions: function_limit + 1,
                 locals_per_function: local_limit + 1,

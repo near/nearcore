@@ -3,7 +3,6 @@ use crate::estimator_context::EstimatorContext;
 use crate::gas_cost::{GasCost, NonNegativeTolerance};
 use crate::transaction_builder::TransactionBuilder;
 use near_primitives::namespace::Namespace;
-use near_primitives::routing_table::RoutingTable;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
@@ -274,7 +273,6 @@ pub(crate) fn fn_cost_in_contract(
         let setup = vec![Action::DeployContract(DeployContractAction {
             code: code.to_vec(),
             namespace: Namespace::default(),
-            routing_table: RoutingTable::default(),
         })];
         let setup_tx = tb.transaction_from_actions(account.clone(), account.clone(), setup);
 

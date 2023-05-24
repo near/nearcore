@@ -6,7 +6,6 @@ pub use near_primitives_core::hash;
 pub use near_primitives_core::namespace;
 pub use near_primitives_core::num_rational;
 pub use near_primitives_core::profile;
-pub use near_primitives_core::routing_table;
 pub use near_primitives_core::serialize;
 
 pub mod block;

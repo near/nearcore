@@ -371,7 +371,6 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                             account: receiver_account_identifier.clone(),
                             code: action.code,
                             namespace: action.namespace,
-                            routing_table: action.routing_table,
                         }
                         .into_related_operation(
                             crate::models::OperationIdentifier::new(&operations),
@@ -670,7 +669,6 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                         near_primitives::transaction::DeployContractAction {
                             code: deploy_contract_operation.code,
                             namespace: deploy_contract_operation.namespace,
-                            routing_table: deploy_contract_operation.routing_table,
                         }
                         .into(),
                     )
@@ -834,7 +832,6 @@ mod tests {
     use near_crypto::{KeyType, SecretKey};
     use near_primitives::delegate_action::{DelegateAction, SignedDelegateAction};
     use near_primitives::namespace::Namespace;
-    use near_primitives::routing_table::RoutingTable;
     use near_primitives::runtime::config::RuntimeConfig;
     use near_primitives::transaction::{Action, TransferAction};
     use near_primitives::views::RuntimeConfigView;
@@ -1003,7 +1000,6 @@ mod tests {
         let deploy_contract_actions = vec![near_primitives::transaction::DeployContractAction {
             code: b"binary-data".to_vec(),
             namespace: Namespace::default(),
-            routing_table: RoutingTable::default(),
         }
         .into()];
         let function_call_without_balance_actions =

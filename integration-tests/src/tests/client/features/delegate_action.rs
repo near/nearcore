@@ -17,7 +17,6 @@ use near_primitives::errors::{
     TxExecutionError,
 };
 use near_primitives::namespace::Namespace;
-use near_primitives::routing_table::RoutingTable;
 use near_primitives::test_utils::{create_user_test_signer, implicit_test_account};
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
@@ -438,7 +437,6 @@ fn meta_tx_deploy() {
     let actions = vec![Action::DeployContract(DeployContractAction {
         code,
         namespace: Namespace::default(),
-        routing_table: RoutingTable::default(),
     })];
     check_meta_tx_no_fn_call(&node, actions, tx_cost, 0, sender, relayer, receiver);
 }
@@ -844,7 +842,6 @@ fn meta_tx_create_and_use_implicit_account() {
         Action::DeployContract(DeployContractAction {
             code: ft_contract().to_vec(),
             namespace: Namespace::default(),
-            routing_table: RoutingTable::default(),
         }),
     ];
 

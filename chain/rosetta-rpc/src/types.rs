@@ -24,7 +24,7 @@ impl fmt::Debug for AccountId {
     }
 }
 
-use near_primitives::{namespace::Namespace, routing_table::RoutingTable};
+use near_primitives::namespace::Namespace;
 use paperclip::v2::{models::DataType, schema::TypedData};
 use serde::{Deserialize, Serialize};
 impl TypedData for AccountId {
@@ -59,34 +59,5 @@ impl Deref for TypedNamespace {
 impl TypedData for TypedNamespace {
     fn data_type() -> DataType {
         DataType::String
-    }
-}
-
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Default)]
-pub(crate) struct TypedRoutingTable(RoutingTable);
-
-impl From<RoutingTable> for TypedRoutingTable {
-    fn from(value: RoutingTable) -> Self {
-        Self(value)
-    }
-}
-
-impl From<TypedRoutingTable> for RoutingTable {
-    fn from(value: TypedRoutingTable) -> Self {
-        value.0
-    }
-}
-
-impl Deref for TypedRoutingTable {
-    type Target = RoutingTable;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl TypedData for TypedRoutingTable {
-    fn data_type() -> DataType {
-        DataType::Object
     }
 }

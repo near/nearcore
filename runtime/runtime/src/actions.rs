@@ -56,12 +56,8 @@ pub(crate) fn execute_function_call(
 ) -> Result<VMOutcome, RuntimeError> {
     let account_id = runtime_ext.account_id();
     tracing::debug!(target: "runtime", %account_id, "Calling the contract");
-    let (resolved_namespace, resolved_method_name) = account
-        .routing_table()
-        .resolve_method(&function_call.method_name)
-        .map(|(namespace, method_name)| (namespace.clone(), method_name.as_str()))
-        .unwrap_or((Namespace::default(), &function_call.method_name)); // fallback: default namespace, same method name
-    let code_hash = match account.code_hashes().get(&resolved_namespace) {
+
+    let code_hash = match account.code_hashes().get(&function_call.namespace) {
         Some(code_hash) => *code_hash,
         None => {
             return Ok(VMOutcome::nop_outcome(FunctionCallError::CompilationError(
@@ -70,7 +66,7 @@ pub(crate) fn execute_function_call(
         }
     };
 
-    let code = match runtime_ext.get_code(resolved_namespace.clone(), code_hash) {
+    let code = match runtime_ext.get_code(function_call.namespace.clone(), code_hash) {
         Ok(Some(code)) => code,
         Ok(None) => {
             let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
@@ -125,8 +121,7 @@ pub(crate) fn execute_function_call(
     }
     let result = near_vm_runner::run(
         &code,
-        // &function_call.method_name,
-        resolved_method_name,
+        &function_call.method_name,
         runtime_ext,
         context,
         &config.wasm_config,
@@ -253,6 +248,11 @@ pub(crate) fn action_function_call(
             FunctionCallError::HostError(ref inner_err) => {
                 metrics::FUNCTION_CALL_PROCESSED_HOST_ERRORS
                     .with_label_values(&[inner_err.into()])
+                    .inc();
+            },
+            FunctionCallError::NamespaceDoesNotExistError(ref namespace) => {
+                metrics::FUNCTION_CALL_PROCESSED_NAMESPACE_DOES_NOT_EXIST_ERRORS
+                    .with_label_values(&[namespace])
                     .inc();
             }
         }
@@ -504,8 +504,6 @@ pub(crate) fn action_deploy_contract(
     );
     account.set_code_hash_for(deploy_contract.namespace.clone(), *code.hash());
     set_code(state_update, account_id.clone(), deploy_contract.namespace.clone(), &code);
-    // TODO: Accounting for routing table storage costs
-    account.routing_table_mut().merge(deploy_contract.routing_table.clone());
     // Precompile the contract and store result (compiled code or error) in the database.
     // Note, that contract compilation costs are already accounted in deploy cost using
     // special logic in estimator (see get_runtime_config() function).

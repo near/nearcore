@@ -108,6 +108,7 @@ fn compare_node_counts() {
     deploy_test_contract(
         &mut env,
         "test0".parse().unwrap(),
+        Namespace::default(),
         near_test_contracts::base_rs_contract(),
         num_blocks,
         1,

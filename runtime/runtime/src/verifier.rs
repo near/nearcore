@@ -551,7 +551,6 @@ mod tests {
     use near_primitives::delegate_action::{DelegateAction, NonDelegateAction};
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::namespace::Namespace;
-    use near_primitives::routing_table::RoutingTable;
     use near_primitives::test_utils::account_new;
     use near_primitives::transaction::{
         CreateAccountAction, DeleteAccountAction, DeleteKeyAction, StakeAction, TransferAction,
@@ -1451,7 +1450,6 @@ mod tests {
             vec![Action::DeployContract(DeployContractAction {
                 code: vec![1; 5],
                 namespace: Namespace::default(),
-                routing_table: RoutingTable::default(),
             })],
             CryptoHash::default(),
         );

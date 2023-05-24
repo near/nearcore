@@ -8,7 +8,6 @@ pub mod hash;
 pub mod namespace;
 pub mod parameter;
 pub mod profile;
-pub mod routing_table;
 pub mod runtime;
 pub mod serialize;
 pub mod types;

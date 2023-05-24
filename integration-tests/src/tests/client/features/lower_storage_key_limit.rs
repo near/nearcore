@@ -60,6 +60,7 @@ fn protocol_upgrade() {
         deploy_test_contract_with_protocol_version(
             &mut env,
             "test0".parse().unwrap(),
+            Namespace::default(),
             near_test_contracts::base_rs_contract(),
             epoch_length,
             1,

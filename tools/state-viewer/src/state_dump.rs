@@ -303,7 +303,6 @@ mod test {
     use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, SecretKey};
     use near_primitives::account::id::AccountId;
     use near_primitives::namespace::Namespace;
-    use near_primitives::routing_table::RoutingTable;
     use near_primitives::state_record::StateRecord;
     use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
     use near_primitives::types::{
@@ -447,7 +446,6 @@ mod test {
             vec![Action::DeployContract(DeployContractAction {
                 code: near_test_contracts::base_rs_contract().to_vec(),
                 namespace: Namespace::default(),
-                routing_table: RoutingTable::default(),
             })],
             genesis_hash,
         );

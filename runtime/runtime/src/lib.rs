@@ -1601,7 +1601,6 @@ mod tests {
     use near_primitives::contract::ContractCode;
     use near_primitives::hash::hash;
     use near_primitives::namespace::Namespace;
-    use near_primitives::routing_table::RoutingTable;
     use near_primitives::shard_layout::ShardUId;
     use near_primitives::test_utils::{account_new, MockEpochInfoProvider};
     use near_primitives::transaction::DeployContractAction;
@@ -2529,7 +2528,6 @@ mod tests {
         let actions = vec![Action::DeployContract(DeployContractAction {
             code: wasm_code.clone(),
             namespace: Namespace::default(),
-            routing_table: RoutingTable::default(),
         })];
 
         let receipts = vec![create_receipt_with_actions(alice_account(), signer, actions)];

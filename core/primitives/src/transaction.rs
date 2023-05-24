@@ -10,7 +10,6 @@ use near_crypto::{PublicKey, Signature};
 use near_o11y::pretty;
 use near_primitives_core::namespace::Namespace;
 use near_primitives_core::profile::{ProfileDataV2, ProfileDataV3};
-use near_primitives_core::routing_table::RoutingTable;
 use near_primitives_core::types::Compute;
 use std::borrow::Borrow;
 use std::fmt;
@@ -125,8 +124,6 @@ pub struct DeployContractAction {
     pub code: Vec<u8>,
     #[serde(default)]
     pub namespace: Namespace,
-    #[serde(default)]
-    pub routing_table: RoutingTable,
 }
 
 impl From<DeployContractAction> for Action {
@@ -576,7 +573,6 @@ mod tests {
                 Action::DeployContract(DeployContractAction {
                     code: vec![1, 2, 3],
                     namespace: Namespace::default(),
-                    routing_table: RoutingTable::default(),
                 }),
                 Action::FunctionCall(FunctionCallAction {
                     namespace: Namespace::default(),

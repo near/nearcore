@@ -3,7 +3,6 @@ use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_primitives::{
     account::{AccessKey, AccessKeyPermission, FunctionCallPermission},
     namespace::Namespace,
-    routing_table::RoutingTable,
     transaction::{
         Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
         DeployContractAction, FunctionCallAction, TransferAction,
@@ -219,7 +218,6 @@ impl TransactionConfig {
                 actions: vec![Action::DeployContract(DeployContractAction {
                     code: scope.available_contracts[contract_id].code.clone(),
                     namespace: Namespace::default(),
-                    routing_table: RoutingTable::default(),
                 })],
             })
         });

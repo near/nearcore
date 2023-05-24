@@ -12,7 +12,6 @@ use near_client::test_utils::{create_chunk_on_height, TestEnv};
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::{
     namespace::Namespace,
-    routing_table::RoutingTable,
     transaction::{Action, DeployContractAction, SignedTransaction},
 };
 use nearcore::config::GenesisExt;
@@ -51,7 +50,6 @@ fn benchmark_large_chunk_production_time() {
             vec![Action::DeployContract(DeployContractAction {
                 code: vec![92; tx_size],
                 namespace: Namespace::default(),
-                routing_table: RoutingTable::default(),
             })],
             last_block_hash,
         );

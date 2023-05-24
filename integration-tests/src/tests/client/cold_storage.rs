@@ -9,7 +9,6 @@ use near_o11y::pretty;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
 use near_primitives::namespace::Namespace;
-use near_primitives::routing_table::RoutingTable;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
@@ -101,7 +100,6 @@ fn test_storage_after_commit_of_cold_update() {
                 vec![Action::DeployContract(DeployContractAction {
                     code: near_test_contracts::rs_contract().to_vec(),
                     namespace: Namespace::default(),
-                    routing_table: RoutingTable::default(),
                 })],
                 last_hash,
             );

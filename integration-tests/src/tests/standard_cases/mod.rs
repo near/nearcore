@@ -13,7 +13,6 @@ use near_primitives::errors::{
 };
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::namespace::Namespace;
-use near_primitives::routing_table::RoutingTable;
 use near_primitives::types::{AccountId, Balance, TrieNodesCount};
 use near_primitives::views::{
     AccessKeyView, AccountView, ExecutionMetadataView, FinalExecutionOutcomeView,
@@ -1616,7 +1615,6 @@ pub fn test_chunk_nodes_cache_mode(node: impl Node, runtime_config: RuntimeConfi
             vec![DeployContractAction {
                 code: test_utils::encode(&[2]),
                 namespace: Namespace::default(),
-                routing_table: RoutingTable::default(),
             }
             .into()],
             alice_account(),

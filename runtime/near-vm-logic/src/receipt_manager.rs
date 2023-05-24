@@ -4,7 +4,6 @@ use crate::External;
 use near_crypto::PublicKey;
 use near_primitives::namespace::Namespace;
 use near_primitives::receipt::DataReceiver;
-use near_primitives::routing_table::RoutingTable;
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
@@ -162,7 +161,6 @@ impl ReceiptManager {
             Action::DeployContract(DeployContractAction {
                 code,
                 namespace: Namespace::default(),
-                routing_table: RoutingTable::default(),
             }),
         );
         Ok(())

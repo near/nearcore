@@ -105,3 +105,12 @@ pub static FUNCTION_CALL_PROCESSED_CACHE_ERRORS: Lazy<IntCounterVec> = Lazy::new
     )
     .unwrap()
 });
+pub static FUNCTION_CALL_PROCESSED_NAMESPACE_DOES_NOT_EXIST_ERRORS: Lazy<IntCounterVec> =
+    Lazy::new(|| {
+        try_create_int_counter_vec(
+            "near_function_call_processed_namespace_does_not_exist_errors",
+            "The number of function calls resulting in namespace does not exist errors, since starting this node",
+            &["error_type"],
+        )
+        .unwrap()
+    });

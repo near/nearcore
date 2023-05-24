@@ -94,7 +94,6 @@ use near_crypto::{KeyType, SecretKey};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::contract::ContractCode;
 use near_primitives::namespace::Namespace;
-use near_primitives::routing_table::RoutingTable;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
@@ -651,7 +650,6 @@ fn deploy_contract_cost(
         let actions = vec![Action::DeployContract(DeployContractAction {
             code: code_factory(),
             namespace: Namespace::default(), // TODO: non-default options?
-            routing_table: RoutingTable::default(),
         })];
         tb.transaction_from_actions(sender, receiver, actions)
     };

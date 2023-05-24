@@ -9,7 +9,6 @@ use near_primitives::delegate_action::{DelegateAction, NonDelegateAction, Signed
 use near_primitives::hash::CryptoHash;
 use near_primitives::namespace::Namespace;
 use near_primitives::receipt::Receipt;
-use near_primitives::routing_table::RoutingTable;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
@@ -135,7 +134,6 @@ pub trait User {
             vec![Action::DeployContract(DeployContractAction {
                 code,
                 namespace,
-                routing_table: RoutingTable::default(),
             })],
         )
     }

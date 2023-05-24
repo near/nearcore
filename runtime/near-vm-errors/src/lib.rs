@@ -54,6 +54,7 @@ pub enum FunctionCallError {
     /// A trap happened during execution of a binary
     WasmTrap(WasmTrap),
     HostError(HostError),
+    NamespaceDoesNotExistError(String),
 }
 
 /// Serializable version of `FunctionCallError`. Must never reorder/remove elements, can only
@@ -91,6 +92,7 @@ pub enum FunctionCallErrorSer {
     // error borsh serialized at correct index
     _EVMError,
     ExecutionError(String),
+    NamespaceDoesNotExistError(String),
 }
 
 #[derive(Debug, strum::IntoStaticStr, thiserror::Error)]
@@ -343,6 +345,9 @@ impl From<FunctionCallError> for FunctionCallErrorSer {
             FunctionCallError::WasmTrap(ref _e) => {
                 FunctionCallErrorSer::ExecutionError(outer_err.to_string())
             }
+            FunctionCallError::NamespaceDoesNotExistError(namespace) => {
+                FunctionCallErrorSer::NamespaceDoesNotExistError(namespace)
+            }
         }
     }
 }
@@ -417,6 +422,9 @@ impl fmt::Display for FunctionCallError {
             FunctionCallError::HostError(e) => e.fmt(f),
             FunctionCallError::LinkError { msg } => write!(f, "{}", msg),
             FunctionCallError::WasmTrap(trap) => write!(f, "WebAssembly trap: {}", trap),
+            FunctionCallError::NamespaceDoesNotExistError(namespace) => {
+                write!(f, "Namespace DNE: {}", namespace)
+            }
         }
     }
 }

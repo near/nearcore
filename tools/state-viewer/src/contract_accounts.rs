@@ -489,7 +489,6 @@ mod tests {
     use near_primitives::hash::CryptoHash;
     use near_primitives::namespace::Namespace;
     use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
-    use near_primitives::routing_table::RoutingTable;
     use near_primitives::transaction::{
         Action, CreateAccountAction, DeployContractAction, ExecutionMetadata, ExecutionOutcome,
         ExecutionOutcomeWithProof, ExecutionStatus, FunctionCallAction, TransferAction,
@@ -590,7 +589,6 @@ mod tests {
                 Action::DeployContract(DeployContractAction {
                     code: vec![],
                     namespace: Namespace::default(),
-                    routing_table: RoutingTable::default(),
                 }),
             ],
         );

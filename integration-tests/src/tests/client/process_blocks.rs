@@ -51,7 +51,6 @@ use near_primitives::errors::TxExecutionError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{verify_hash, PartialMerkleTree};
 use near_primitives::receipt::DelayedReceiptIndices;
-use near_primitives::routing_table::RoutingTable;
 use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
@@ -144,6 +143,7 @@ pub(crate) fn produce_blocks_from_height(
 pub(crate) fn deploy_test_contract_with_protocol_version(
     env: &mut TestEnv,
     account_id: AccountId,
+    namespace: Namespace,
     wasm_code: &[u8],
     epoch_length: u64,
     height: BlockHeight,
@@ -158,11 +158,7 @@ pub(crate) fn deploy_test_contract_with_protocol_version(
         account_id.clone(),
         account_id,
         &signer,
-        vec![Action::DeployContract(DeployContractAction {
-            code: wasm_code.to_vec(),
-            namespace: Namespace::default(),
-            routing_table: RoutingTable::default(),
-        })],
+        vec![Action::DeployContract(DeployContractAction { code: wasm_code.to_vec(), namespace })],
         *block.hash(),
     );
     env.clients[0].process_tx(tx, false, false);
@@ -172,6 +168,7 @@ pub(crate) fn deploy_test_contract_with_protocol_version(
 pub(crate) fn deploy_test_contract(
     env: &mut TestEnv,
     account_id: AccountId,
+    namespace: Namespace,
     wasm_code: &[u8],
     epoch_length: u64,
     height: BlockHeight,
@@ -179,6 +176,7 @@ pub(crate) fn deploy_test_contract(
     deploy_test_contract_with_protocol_version(
         env,
         account_id,
+        namespace,
         wasm_code,
         epoch_length,
         height,
@@ -217,7 +215,6 @@ pub(crate) fn prepare_env_with_congestion(
         vec![Action::DeployContract(DeployContractAction {
             code: near_test_contracts::base_rs_contract().to_vec(),
             namespace: Namespace::default(),
-            routing_table: RoutingTable::default(),
         })],
         *genesis_block.hash(),
     );
@@ -2373,7 +2370,6 @@ fn test_validate_chunk_extra() {
         vec![Action::DeployContract(DeployContractAction {
             code: near_test_contracts::rs_contract().to_vec(),
             namespace: Namespace::default(),
-            routing_table: RoutingTable::default(),
         })],
         *genesis_block.hash(),
     );
@@ -2836,12 +2832,115 @@ fn test_execution_metadata() {
             .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
             .build();
 
-        deploy_test_contract(&mut env, "test0".parse().unwrap(), &wasm_code, epoch_length, 1);
+        deploy_test_contract(
+            &mut env,
+            "test0".parse().unwrap(),
+            Namespace::default(),
+            &wasm_code,
+            epoch_length,
+            1,
+        );
         env
     };
 
     // Call the contract and get the execution outcome.
     let execution_outcome = env.call_main(&"test0".parse().unwrap());
+
+    // Now, let's assert that we get the cost breakdown we expect.
+    let config = RuntimeConfigStore::test().get_config(PROTOCOL_VERSION).clone();
+
+    // Total costs for creating a function call receipt.
+    let expected_receipt_cost = config.fees.fee(ActionCosts::new_action_receipt).execution
+        + config.fees.fee(ActionCosts::function_call_base).exec_fee()
+        + config.fees.fee(ActionCosts::function_call_byte).exec_fee() * "main".len() as u64;
+
+    // Profile for what's happening *inside* wasm vm during function call.
+    let expected_profile = serde_json::json!([
+      // Inside the contract, we called one host function.
+      {
+        "cost_category": "WASM_HOST_COST",
+        "cost": "BASE",
+        "gas_used": config.wasm_config.ext_costs.gas_cost(ExtCosts::base).to_string()
+      },
+      // We include compilation costs into running the function.
+      {
+        "cost_category": "WASM_HOST_COST",
+        "cost": "CONTRACT_LOADING_BASE",
+        "gas_used": config.wasm_config.ext_costs.gas_cost(ExtCosts::contract_loading_base).to_string()
+      },
+      {
+        "cost_category": "WASM_HOST_COST",
+        "cost": "CONTRACT_LOADING_BYTES",
+        "gas_used": "18423750"
+      },
+      // We spend two wasm instructions (call & drop).
+      {
+        "cost_category": "WASM_HOST_COST",
+        "cost": "WASM_INSTRUCTION",
+        "gas_used": (config.wasm_config.regular_op_cost as u64 * 2).to_string()
+      }
+    ]);
+    let outcome = &execution_outcome.receipts_outcome[0].outcome;
+    let metadata = &outcome.metadata;
+
+    let actual_profile = serde_json::to_value(&metadata.gas_profile).unwrap();
+    assert_eq!(expected_profile, actual_profile);
+
+    let actual_receipt_cost = outcome.gas_burnt
+        - metadata
+            .gas_profile
+            .clone()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|it| it.gas_used)
+            .sum::<u64>();
+
+    assert_eq!(expected_receipt_cost, actual_receipt_cost)
+}
+
+#[test]
+fn test_execution_metadata_namespaced() {
+    // Prepare TestEnv with a very simple WASM contract.
+    let wasm_code = wat::parse_str(
+        r#"
+(module
+    (import "env" "block_index" (func $block_index (result i64)))
+    (func (export "main")
+        (call $block_index)
+        drop
+    )
+)"#,
+    )
+    .unwrap();
+
+    let namespace: Namespace = "namespace".into();
+
+    let mut env = {
+        let epoch_length = 5;
+        let mut genesis =
+            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+        genesis.config.epoch_length = epoch_length;
+        let chain_genesis = ChainGenesis::new(&genesis);
+        let mut env = TestEnv::builder(chain_genesis)
+            .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+            .build();
+
+        deploy_test_contract(
+            &mut env,
+            "test0".parse().unwrap(),
+            namespace.clone(),
+            &wasm_code,
+            epoch_length,
+            1,
+        );
+        env
+    };
+
+    // Call the contract and get the execution outcome.
+    // TODO: new version of call_main that accepts namespace
+    let execution_outcome = env.call_main(&"test0".parse().unwrap());
+
+    dbg!(&execution_outcome);
 
     // Now, let's assert that we get the cost breakdown we expect.
     let config = RuntimeConfigStore::test().get_config(PROTOCOL_VERSION).clone();
@@ -3445,6 +3544,7 @@ fn test_validator_stake_host_function() {
     let block_height = deploy_test_contract(
         &mut env,
         "test0".parse().unwrap(),
+        Namespace::default(),
         near_test_contracts::rs_contract(),
         epoch_length,
         1,
@@ -3561,6 +3661,7 @@ mod contract_precompilation_tests {
         let height = deploy_test_contract(
             &mut env,
             "test0".parse().unwrap(),
+            Namespace::default(),
             &wasm_code,
             EPOCH_LENGTH,
             start_height,
@@ -3635,6 +3736,107 @@ mod contract_precompilation_tests {
 
     #[test]
     #[cfg_attr(all(target_arch = "aarch64", target_vendor = "apple"), ignore)]
+    fn test_sync_and_call_cached_contract_namespaced() {
+        let num_clients = 2;
+        let stores: Vec<Store> = (0..num_clients).map(|_| create_test_store()).collect();
+        let mut genesis =
+            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+        genesis.config.epoch_length = EPOCH_LENGTH;
+        let runtime_adapters = stores
+            .iter()
+            .map(|store| {
+                nearcore::NightshadeRuntime::test(Path::new("../../../.."), store.clone(), &genesis)
+                    as Arc<dyn RuntimeWithEpochManagerAdapter>
+            })
+            .collect();
+
+        let mut env = TestEnv::builder(ChainGenesis::test())
+            .clients_count(num_clients)
+            .runtime_adapters(runtime_adapters)
+            .build();
+        let start_height = 1;
+
+        let namespace: Namespace = "namespace".into();
+        // Process test contract deployment on the first client.
+        let wasm_code = near_test_contracts::rs_contract().to_vec();
+        let height = deploy_test_contract(
+            &mut env,
+            "test0".parse().unwrap(),
+            namespace.clone(),
+            &wasm_code,
+            EPOCH_LENGTH,
+            start_height,
+        );
+
+        // Perform state sync for the second client.
+        state_sync_on_height(&mut env, height - 1);
+
+        // Check existence of contract in both caches.
+        let mut caches: Vec<StoreCompiledContractCache> =
+            stores.iter().map(StoreCompiledContractCache::new).collect();
+        let contract_code = ContractCode::new(wasm_code.clone(), None);
+        let vm_kind = VMKind::for_protocol_version(PROTOCOL_VERSION);
+        let epoch_id = env.clients[0]
+            .chain
+            .get_block_by_height(height - 1)
+            .unwrap()
+            .header()
+            .epoch_id()
+            .clone();
+        let runtime_config = env.get_runtime_config(0, epoch_id);
+        let key = get_contract_cache_key(&contract_code, vm_kind, &runtime_config.wasm_config);
+        for i in 0..num_clients {
+            caches[i]
+                .get(&key)
+                .unwrap_or_else(|_| panic!("Failed to get cached result for client {}", i))
+                .unwrap_or_else(|| {
+                    panic!("Compilation result should be non-empty for client {}", i)
+                });
+        }
+
+        // Check that contract function may be successfully called on the second client.
+        // Note that we can't test that behaviour is the same on two clients, because
+        // compile_module_cached_wasmer0 is cached by contract key via macro.
+        let block = env.clients[0].chain.get_block_by_height(EPOCH_LENGTH).unwrap();
+        let chunk_extra =
+            env.clients[0].chain.get_chunk_extra(block.hash(), &ShardUId::single_shard()).unwrap();
+        let state_root = *chunk_extra.state_root();
+
+        let viewer = TrieViewer::default();
+        // TODO (#7327): set use_flat_storage to true when we implement support for state sync for FlatStorage
+        let trie = env.clients[1]
+            .runtime_adapter
+            .get_trie_for_shard(0, block.header().prev_hash(), state_root, false)
+            .unwrap();
+        let state_update = TrieUpdate::new(trie);
+
+        let mut logs = vec![];
+        let view_state = ViewApplyState {
+            block_height: EPOCH_LENGTH,
+            prev_block_hash: *block.header().prev_hash(),
+            block_hash: *block.hash(),
+            epoch_id: block.header().epoch_id().clone(),
+            epoch_height: 1,
+            block_timestamp: block.header().raw_timestamp(),
+            current_protocol_version: PROTOCOL_VERSION,
+            cache: Some(Box::new(caches.swap_remove(1))),
+        };
+        viewer
+            .call_function(
+                state_update,
+                view_state,
+                &"test0".parse().unwrap(),
+                &namespace,
+                "log_something",
+                &[],
+                &mut logs,
+                &MockEpochInfoProvider::default(),
+            )
+            .unwrap();
+    }
+
+    #[test]
+    #[cfg_attr(all(target_arch = "aarch64", target_vendor = "apple"), ignore)]
     fn test_two_deployments() {
         let num_clients = 2;
         let stores: Vec<Store> = (0..num_clients).map(|_| create_test_store()).collect();
@@ -3660,6 +3862,7 @@ mod contract_precompilation_tests {
         height = deploy_test_contract(
             &mut env,
             "test0".parse().unwrap(),
+            Namespace::default(),
             &tiny_wasm_code,
             EPOCH_LENGTH,
             height,
@@ -3673,6 +3876,7 @@ mod contract_precompilation_tests {
         height = deploy_test_contract(
             &mut env,
             "test0".parse().unwrap(),
+            Namespace::default(),
             &wasm_code,
             EPOCH_LENGTH,
             height,
@@ -3741,6 +3945,7 @@ mod contract_precompilation_tests {
         height = deploy_test_contract(
             &mut env,
             "test2".parse().unwrap(),
+            Namespace::default(),
             &wasm_code,
             EPOCH_LENGTH,
             height,

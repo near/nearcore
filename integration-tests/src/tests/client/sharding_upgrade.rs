@@ -1,6 +1,5 @@
 use borsh::BorshSerialize;
 use near_primitives::namespace::Namespace;
-use near_primitives::routing_table::RoutingTable;
 
 use crate::tests::client::process_blocks::{
     create_nightshade_runtimes, set_block_protocol_version,
@@ -633,7 +632,6 @@ fn setup_test_env_with_cross_contract_txs(
                     vec![Action::DeployContract(DeployContractAction {
                         code: near_test_contracts::base_rs_contract().to_vec(),
                         namespace: Namespace::default(),
-                        routing_table: RoutingTable::default(),
                     })],
                     genesis_hash,
                 )

@@ -33,6 +33,7 @@ fn test_wasmer2_upgrade() {
         deploy_test_contract(
             &mut env,
             "test0".parse().unwrap(),
+            Namespace::default(),
             near_test_contracts::rs_contract(),
             epoch_length,
             1,
