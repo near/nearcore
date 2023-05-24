@@ -10,7 +10,7 @@ use cold_storage::ColdStoreLoopHandle;
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::messaging::{IntoSender, LateBoundSender};
 use near_async::time;
-use near_chain::state_snapshot_actor::{get_start_snapshot_callback, StateSnapshotActor};
+use near_chain::state_snapshot_actor::{get_make_snapshot_callback, StateSnapshotActor};
 use near_chain::{Chain, ChainGenesis};
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::{start_client, start_view_client, ClientActor, ConfigUpdater, ViewClientActor};
@@ -300,7 +300,7 @@ pub fn start_with_config_and_synchronization(
         shards_manager_adapter.as_sender(),
         config.validator_signer.clone(),
         telemetry,
-        Some(get_start_snapshot_callback(state_snapshot_actor)),
+        Some(get_make_snapshot_callback(state_snapshot_actor)),
         shutdown_signal,
         adv,
         config_updater,

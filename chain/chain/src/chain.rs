@@ -7,7 +7,7 @@ use crate::lightclient::get_epoch_block_producers_view;
 use crate::migrations::check_if_block_is_first_with_chunk_of_version;
 use crate::missing_chunks::{BlockLike, MissingChunksPool};
 use crate::state_request_tracker::StateRequestTracker;
-use crate::state_snapshot_actor::StartSnapshotCallback;
+use crate::state_snapshot_actor::MakeSnapshotCallback;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode};
 use crate::types::{
     AcceptedBlock, ApplySplitStateResult, ApplySplitStateResultOrStateChanges,
@@ -471,19 +471,18 @@ pub struct Chain {
     /// to create the parts. This information is used for debugging
     pub(crate) requested_state_parts: StateRequestTracker,
 
-    /// Data to initiate and check progress of state snapshots.
+    /// Lets trigger new state snapshots.
     state_snapshot_helper: Option<StateSnapshotHelper>,
 }
 
-/// Provides access to information about state snapshot progress and lets
-/// trigger new state snapshots.
+/// Lets trigger new state snapshots.
 struct StateSnapshotHelper {
     /// A callback to initiate state snapshot.
-    start_snapshot_callback: StartSnapshotCallback,
+    make_snapshot_callback: MakeSnapshotCallback,
+
     /// Test-only. Artificially triggers state snapshots every N blocks.
-    snapshot_every_n_blocks: Option<u64>,
-    /// Test-only. Count down to starting the next artificial state snapshot.
-    blocks_until_snapshot: Option<u64>,
+    /// The value is (countdown, N).
+    test_snapshot_countdown_and_frequency: Option<(u64, u64)>,
 }
 
 impl Drop for Chain {
@@ -568,7 +567,7 @@ impl Chain {
         chain_genesis: &ChainGenesis,
         doomslug_threshold_mode: DoomslugThresholdMode,
         chain_config: ChainConfig,
-        start_snapshot_callback: Option<StartSnapshotCallback>,
+        make_snapshot_callback: Option<MakeSnapshotCallback>,
     ) -> Result<Chain, Error> {
         // Get runtime initial state and create genesis block out of it.
         let (store, state_roots) = runtime_adapter.genesis_state();
@@ -713,17 +712,16 @@ impl Chain {
             last_time_head_updated: StaticClock::instant(),
             pending_state_patch: Default::default(),
             requested_state_parts: StateRequestTracker::new(),
-            state_snapshot_helper: if let Some(callback) = start_snapshot_callback {
-                let (blocks_until_snapshot, snapshot_every_n_blocks) =
+            state_snapshot_helper: if let Some(callback) = make_snapshot_callback {
+                let test_snapshot_countdown_and_frequency =
                     if let Some(n) = chain_config.state_snapshot_every_n_blocks {
-                        (Some(0), Some(n))
+                        Some((0, n))
                     } else {
-                        (None, None)
+                        None
                     };
                 Some(StateSnapshotHelper {
-                    start_snapshot_callback: callback,
-                    snapshot_every_n_blocks,
-                    blocks_until_snapshot,
+                    make_snapshot_callback: callback,
+                    test_snapshot_countdown_and_frequency,
                 })
             } else {
                 None
@@ -2095,22 +2093,9 @@ impl Chain {
         };
         let (apply_chunk_work, block_preprocess_info) = preprocess_res;
 
-        let mut need_state_snapshot = block_preprocess_info.need_state_snapshot;
-        if let Some(snapshot_info) = &mut self.state_snapshot_helper {
-            if snapshot_info.blocks_until_snapshot == Some(0) {
-                need_state_snapshot = true;
-            }
-            snapshot_info.blocks_until_snapshot = snapshot_info.blocks_until_snapshot.map(|x| {
-                if x == 0 {
-                    snapshot_info.snapshot_every_n_blocks.unwrap()
-                } else {
-                    x - 1
-                }
-            });
-        }
-        if need_state_snapshot {
-            self.start_state_snapshot();
-        }
+        let need_state_snapshot = block_preprocess_info.need_state_snapshot
+            | self.need_test_state_snapshot(block_preprocess_info.need_state_snapshot);
+        self.maybe_start_state_snapshot(need_state_snapshot);
 
         let block = block.into_inner();
         let block_hash = *block.hash();
@@ -2186,13 +2171,6 @@ impl Chain {
         block: &Block,
         shard_uid: ShardUId,
     ) -> Result<(), Error> {
-        let _span = tracing::debug_span!(
-            target: "chain",
-            "update_flat_storage_for_block",
-            block_height = block.header().height(),
-            shard_id = shard_uid.shard_id
-        )
-        .entered();
         if let Some(flat_storage) = self.runtime_adapter.get_flat_storage_for_shard(shard_uid) {
             let mut new_flat_head = *block.header().last_final_block();
             if new_flat_head == CryptoHash::default() {
@@ -4165,20 +4143,36 @@ impl Chain {
             .collect()
     }
 
+    /// Checks if the time has come to make a state snapshot for testing purposes.
+    /// If a state snapshot was requested for another reason, then resets the countdown.
+    fn need_test_state_snapshot(&mut self, need_state_snapshot: bool) -> bool {
+        let mut res = false;
+        if let Some(helper) = &mut self.state_snapshot_helper {
+            if let Some((countdown, frequency)) = helper.test_snapshot_countdown_and_frequency {
+                helper.test_snapshot_countdown_and_frequency = if need_state_snapshot {
+                    Some((frequency, frequency))
+                } else if countdown == 0 {
+                    res = true;
+                    Some((frequency, frequency))
+                } else {
+                    Some((countdown - 1, frequency))
+                };
+            }
+        }
+        res
+    }
+
     /// Makes a state snapshot.
     /// If there was already a state snapshot, deletes that first.
-    fn start_state_snapshot(&self) {
-        let _span =
-            tracing::debug_span!(target: "state_snapshot", "start_state_snapshot").entered();
-        match self.head() {
-            Ok(head) => {
-                let prev_block_hash = head.prev_block_hash;
-                (self.state_snapshot_helper.as_ref().unwrap().start_snapshot_callback)(
-                    prev_block_hash,
-                );
-            }
-            Err(err) => {
-                tracing::error!(target: "state_snapshot", ?err, "Didn't start state snapshot because head() failed");
+    fn maybe_start_state_snapshot(&self, need_state_snapshot: bool) {
+        if need_state_snapshot {
+            if let Some(helper) = &self.state_snapshot_helper {
+                match self.head() {
+                    Ok(head) => (helper.make_snapshot_callback)(head.prev_block_hash),
+                    Err(err) => {
+                        tracing::error!(target: "state_snapshot", ?err, "Didn't start state snapshot because head() failed")
+                    }
+                }
             }
         }
     }

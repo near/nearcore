@@ -25,7 +25,7 @@ use near_chain::chain::{
     do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
     BlockCatchUpResponse, StateSplitRequest, StateSplitResponse,
 };
-use near_chain::state_snapshot_actor::StartSnapshotCallback;
+use near_chain::state_snapshot_actor::MakeSnapshotCallback;
 use near_chain::test_utils::format_hash;
 use near_chain::types::RuntimeAdapter;
 #[cfg(feature = "test_features")]
@@ -1984,7 +1984,7 @@ pub fn start_client(
     shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     telemetry_actor: Addr<TelemetryActor>,
-    start_state_snapshot_callback: Option<StartSnapshotCallback>,
+    start_state_snapshot_callback: Option<MakeSnapshotCallback>,
     sender: Option<broadcast::Sender<()>>,
     adv: crate::adversarial::Controls,
     config_updater: Option<ConfigUpdater>,

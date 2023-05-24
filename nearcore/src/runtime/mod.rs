@@ -722,6 +722,8 @@ impl NightshadeRuntime {
     }
 }
 
+/// Looks for directories on disk with names that look like `prev_block_hash`.
+/// Checks that there is at most one such directory. Opens it as a Store.
 fn maybe_open_state_snapshot(
     state_snapshot_config: &StateSnapshotConfig,
     config: &NearConfig,
@@ -1593,7 +1595,6 @@ impl RuntimeAdapter for NightshadeRuntime {
             tracing::info_span!(target: "state_snapshot", "make_state_snapshot", ?prev_block_hash)
                 .entered();
         tracing::info!(target: "state_snapshot", ?prev_block_hash, "make_state_snapshot");
-        let _timer = metrics::MAKE_STATE_SNAPSHOT_ELAPSED.start_timer();
         match &self.state_snapshot_config {
             StateSnapshotConfig::Disabled => {
                 tracing::info!(target: "state_snapshot", "State Snapshots are disabled");
@@ -1605,8 +1606,8 @@ impl RuntimeAdapter for NightshadeRuntime {
                 state_snapshot_subdir,
                 columns_to_keep,
             } => {
+                let _timer = metrics::MAKE_STATE_SNAPSHOT_ELAPSED.start_timer();
                 let mut state_snapshot_lock = self.state_snapshot.write().unwrap();
-
                 if let Some(state_snapshot) = &*state_snapshot_lock {
                     if &state_snapshot.prev_block_hash == prev_block_hash {
                         tracing::warn!(target: "state_snapshot", ?prev_block_hash, "Requested a state snapshot but that is already available");
@@ -1646,6 +1647,27 @@ impl RuntimeAdapter for NightshadeRuntime {
                 tracing::info!(target: "state_snapshot", ?prev_block_hash, "Made a checkpoint");
                 Ok(())
             }
+        }
+    }
+
+    fn compact_state_snapshot(&self, prev_block_hash: &CryptoHash) -> Result<(), Error> {
+        let _span =
+            tracing::info_span!(target: "state_snapshot", "compact_state_snapshot", ?prev_block_hash)
+                .entered();
+        tracing::info!(target: "state_snapshot", ?prev_block_hash, "compact_state_snapshot");
+
+        let state_snapshot_lock = self.state_snapshot.write().unwrap();
+        if let Some(state_snapshot) = &*state_snapshot_lock {
+            if &state_snapshot.prev_block_hash != prev_block_hash {
+                tracing::warn!(target: "state_snapshot", ?prev_block_hash, "Requested compaction of a state snapshot with a different prev_hash. Ignoring.");
+                Ok(())
+            } else {
+                let _timer = metrics::COMPACT_STATE_SNAPSHOT_ELAPSED.start_timer();
+                Ok(state_snapshot.store.compact()?)
+            }
+        } else {
+            tracing::warn!(target: "state_snapshot", ?prev_block_hash, "Requested compaction but no state snapshot is available.");
+            Ok(())
         }
     }
 }

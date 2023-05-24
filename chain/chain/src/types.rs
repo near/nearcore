@@ -526,6 +526,9 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Makes a state snapshot.
     /// Opens another Store that has exactly the same state as the main Store.
     fn make_state_snapshot(&self, prev_block_hash: &CryptoHash) -> Result<(), Error>;
+
+    /// Runs compaction for the Store which is a state snapshot.
+    fn compact_state_snapshot(&self, prev_block_hash: &CryptoHash) -> Result<(), Error>;
 }
 
 /// The last known / checked height and time when we have processed it.

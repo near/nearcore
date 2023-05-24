@@ -137,19 +137,21 @@ impl FlatStorageManager {
         Ok(())
     }
 
+    /// Updates `move_head_enabled` for all shards and returns the previous value
+    /// assuming that all shards had the same `move_head_enabled` value.
     pub fn set_flat_state_updates_mode(&self, enabled: bool) -> Option<bool> {
         let flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
-        let mut prev_value = None;
+        let mut prev_seen_value = None;
         for flat_storage in flat_storages.values() {
-            let p = flat_storage.set_flat_head_update_mode(enabled);
-            match prev_value {
-                None => prev_value = Some(p),
+            let prev_shard_value = flat_storage.set_flat_head_update_mode(enabled);
+            match prev_seen_value {
+                None => prev_value = Some(prev_shard_value),
                 Some(v) => assert_eq!(
-                    p, v,
+                    prev_shard_value, v,
                     "All FlatStorage are expected to have the same value of `move_head_enabled`"
                 ),
             }
         }
-        prev_value
+        prev_seen_value
     }
 }

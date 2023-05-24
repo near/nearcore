@@ -1411,4 +1411,8 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn make_state_snapshot(&self, _prev_block_hash: &CryptoHash) -> Result<(), Error> {
         unreachable!("make_state_snapshot() isn't supported");
     }
+
+    fn compact_state_snapshot(&self, _prev_block_hash: &CryptoHash) -> Result<(), Error> {
+        unreachable!("compact_state_snapshot() isn't supported");
+    }
 }

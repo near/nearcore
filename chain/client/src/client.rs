@@ -16,7 +16,7 @@ use near_chain::chain::{
     OrphanMissingChunks, StateSplitRequest, TX_ROUTING_HEIGHT_HORIZON,
 };
 use near_chain::flat_storage_creator::FlatStorageCreator;
-use near_chain::state_snapshot_actor::StartSnapshotCallback;
+use near_chain::state_snapshot_actor::MakeSnapshotCallback;
 use near_chain::test_utils::format_hash;
 use near_chain::types::RuntimeAdapter;
 use near_chain::types::{ChainConfig, LatestKnown};
@@ -199,7 +199,7 @@ impl Client {
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
         enable_doomslug: bool,
         rng_seed: RngSeed,
-        start_state_snapshot_callback: Option<StartSnapshotCallback>,
+        start_state_snapshot_callback: Option<MakeSnapshotCallback>,
     ) -> Result<Self, Error> {
         let doomslug_threshold_mode = if enable_doomslug {
             DoomslugThresholdMode::TwoThirds
