@@ -95,6 +95,19 @@ impl StateRecord {
             _ => unreachable!(),
         }
     }
+
+    pub fn get_type_string(&self) -> String {
+        match self {
+            StateRecord::Account { .. } => "Account",
+            StateRecord::Data { .. } => "Data",
+            StateRecord::Contract { .. } => "Contract",
+            StateRecord::AccessKey { .. } => "AccessKey",
+            StateRecord::PostponedReceipt { .. } => "PostponedReceipt",
+            StateRecord::ReceivedData { .. } => "ReceivedData",
+            StateRecord::DelayedReceipt { .. } => "DelayedReceipt",
+        }
+        .to_string()
+    }
 }
 
 impl Display for StateRecord {

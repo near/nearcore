@@ -1,14 +1,18 @@
 use crate::commands::*;
 use crate::contract_accounts::ContractAccountFilter;
 use crate::rocksdb_stats::get_rocksdb_stats;
+use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::{GenesisChangeConfig, GenesisValidationMode};
+use near_epoch_manager::EpochManager;
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
+use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::types::{BlockHeight, ShardId};
-use near_store::{Mode, NodeStorage, Store, Temperature};
+use near_store::{Mode, NodeStorage, ShardUId, Store, Temperature, Trie, TrieDBStorage};
 use nearcore::{load_config, NearConfig};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::str::FromStr;
 
 #[derive(clap::Subcommand)]
@@ -75,6 +79,8 @@ pub enum StateViewerSubCommand {
     StateChanges(StateChangesCmd),
     /// Dump or apply state parts.
     StateParts(StatePartsCmd),
+    /// Benchmark how long does it take to iterate the trie.
+    TrieIterationBenchmark(TrieIterationBenchmarkCmd),
     /// View head of the storage.
     #[clap(alias = "view_chain")]
     ViewChain(ViewChainCmd),
@@ -138,6 +144,9 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::StateParts(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ViewChain(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::ViewTrie(cmd) => cmd.run(store),
+            StateViewerSubCommand::TrieIterationBenchmark(cmd) => {
+                cmd.run(home_dir, near_config, store)
+            }
         }
     }
 }
@@ -604,5 +613,75 @@ impl ViewTrieCmd {
                     .unwrap();
             }
         }
+    }
+}
+
+#[derive(clap::Parser)]
+pub struct TrieIterationBenchmarkCmd {}
+
+impl TrieIterationBenchmarkCmd {
+    pub fn run(self, _home_dir: &Path, near_config: NearConfig, store: Store) {
+        let genesis_config = &near_config.genesis.config;
+        let chain_store = ChainStore::new(
+            store.clone(),
+            genesis_config.genesis_height,
+            near_config.client_config.save_trie_changes,
+        );
+        let head = chain_store.head().unwrap();
+        let block = chain_store.get_block(&head.last_block_hash).unwrap();
+        let epoch_manager =
+            EpochManager::new_from_genesis_config(store.clone(), &genesis_config).unwrap();
+        let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
+
+        for (i, chunk_header) in block.chunks().iter().enumerate() {
+            if chunk_header.height_included() != block.header().height() {
+                continue;
+            }
+            let shard_uid = ShardUId::from_shard_id_and_layout(i as ShardId, &shard_layout);
+            println!("shard uid {shard_uid:#?}");
+            // Question for reviewer - there are different TrieStorage
+            // implementation, which would be best suited here? I picked this
+            // one since it looked simplest and I don't think there is much
+            // point in using caches.
+            let storage = TrieDBStorage::new(store.clone(), shard_uid);
+            // Question for reviewer - my assumption is that flat storgage
+            // should be disabled or is irrelevant for this task, can you
+            // confirm please?
+            let flat_storage_chunk_view = None;
+
+            // Note: here we get the previous state root but the shard layout
+            // corresponds to the current epoch id. In practice shouldn't
+            // matter as the shard layout doesn't change.
+            let state_root = chunk_header.prev_state_root();
+            let trie = Trie::new(Rc::new(storage), state_root, flat_storage_chunk_view);
+
+            for item in trie.iter().unwrap() {
+                let (key, value) = match item {
+                    Ok((key, value)) => (key, value),
+                    Err(err) => {
+                        println!("Failed to iterate node with error: {err}");
+                        continue;
+                    }
+                };
+
+                // TODO remove the printing before actually trying to measure anything.
+                let state_record = StateRecord::from_raw_key_value(key.clone(), value);
+                Self::print_state_record(&state_record);
+            }
+        }
+    }
+
+    fn print_state_record(state_record: &Option<StateRecord>) {
+        let state_record_string = match state_record {
+            None => "none".to_string(),
+            Some(state_record) => {
+                format!(
+                    "{} {:?}",
+                    &state_record.get_type_string(),
+                    state_record_to_account_id(&state_record)
+                )
+            }
+        };
+        println!("{state_record_string}");
     }
 }
