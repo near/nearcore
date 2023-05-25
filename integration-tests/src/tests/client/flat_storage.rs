@@ -159,11 +159,7 @@ fn test_flat_storage_creation_sanity() {
             );
         }
 
-        env.clients[0]
-            .chain
-            .runtime_adapter
-            .remove_flat_storage_for_shard(shard_uid)
-            .unwrap();
+        env.clients[0].chain.runtime_adapter.remove_flat_storage_for_shard(shard_uid).unwrap();
     }
 
     // Create new chain and runtime using the same store. It should produce next blocks normally, but now it should
@@ -245,11 +241,7 @@ fn test_flat_storage_creation_two_shards() {
             );
         }
 
-        env.clients[0]
-            .chain
-            .runtime_adapter
-            .remove_flat_storage_for_shard(shard_uids[0])
-            .unwrap();
+        env.clients[0].chain.runtime_adapter.remove_flat_storage_for_shard(shard_uids[0]).unwrap();
     }
 
     // Check that flat storage is not ready for shard 0 but ready for shard 1.
@@ -389,11 +381,7 @@ fn test_catchup_succeeds_even_if_no_new_blocks() {
             env.produce_block(0, height);
         }
         // Remove flat storage.
-        env.clients[0]
-            .chain
-            .runtime_adapter
-            .remove_flat_storage_for_shard(shard_uid)
-            .unwrap();
+        env.clients[0].chain.runtime_adapter.remove_flat_storage_for_shard(shard_uid).unwrap();
     }
     let mut env = setup_env(&genesis, store.clone());
     assert!(env.clients[0].runtime_adapter.get_flat_storage_for_shard(shard_uid).is_none());
