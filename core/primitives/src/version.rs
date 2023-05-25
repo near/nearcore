@@ -160,6 +160,8 @@ pub enum ProtocolFeature {
     FixContractLoadingCost,
     #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
     RejectBlocksWithOutdatedProtocolVersions,
+    #[cfg(feature = "protocol_feature_preparation_v2")]
+    PreparationV2,
 }
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
@@ -253,6 +255,8 @@ impl ProtocolFeature {
             ProtocolFeature::FixContractLoadingCost => 129,
             #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
             ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 132,
+            #[cfg(feature = "protocol_feature_preparation_v2")]
+            ProtocolFeature::PreparationV2 => 133,
         }
     }
 }

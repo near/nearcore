@@ -54,7 +54,13 @@ pub fn prepare_contract(
     config: &VMConfig,
     kind: VMKind,
 ) -> Result<Vec<u8>, PrepareError> {
-    match config.limit_config.contract_prepare_version {
+    let prepare = config.limit_config.contract_prepare_version;
+    // NearVM => ContractPrepareVersion::V2
+    assert!(
+        (kind != VMKind::NearVm) || (prepare == near_vm_logic::ContractPrepareVersion::V2),
+        "NearVM only works with contract prepare version V2",
+    );
+    match prepare {
         near_vm_logic::ContractPrepareVersion::V0 => {
             // NB: v1 here is not a bug, we are reusing the code.
             prepare_v1::validate_contract(original_code, config)?;
