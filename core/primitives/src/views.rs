@@ -2774,6 +2774,8 @@ mod tests {
         use crate::runtime::config::RuntimeConfig;
         use crate::views::RuntimeConfigView;
 
+        // FIXME(#8202): This is snapshotting a config used for *tests*, rather than proper
+        // production configurations. That seems… subpar?
         let config = RuntimeConfig::test();
         let view = RuntimeConfigView::from(config);
         insta::assert_json_snapshot!(&view);

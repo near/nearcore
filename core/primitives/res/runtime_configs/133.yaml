@@ -1,0 +1,5 @@
+# Finite-wasm counts in bytes, parity-wasm was counting in stack slots, so there’s a factor of at
+# least 8. Plus some additional slack for the new algorithm potentially being more accurate or
+# correct.
+max_stack_height: { old: 16384, new: 262144 }
+contract_prepare_version: { old: 1, new: 2 }
