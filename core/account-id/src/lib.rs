@@ -61,7 +61,6 @@ pub use errors::{ParseAccountError, ParseErrorKind};
 ///
 /// assert!("ƒelicia.near".parse::<AccountId>().is_err()); // (ƒ is not f)
 /// ```
-#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(Eq, Ord, Hash, Clone, Debug, PartialEq, PartialOrd)]
 pub struct AccountId(Box<str>);
 
@@ -368,6 +367,39 @@ impl From<AccountId> for String {
 impl From<AccountId> for Box<str> {
     fn from(value: AccountId) -> Box<str> {
         value.0
+    }
+}
+
+#[cfg(feature = "arbitrary")]
+impl<'a> arbitrary::Arbitrary<'a> for AccountId {
+    fn size_hint(_depth: usize) -> (usize, Option<usize>) {
+        (AccountId::MIN_LEN, Some(AccountId::MAX_LEN))
+    }
+
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        let s = u.arbitrary::<String>()?;
+        match s.parse::<AccountId>() {
+            Ok(account_id) => return Ok(account_id),
+            Err(e) => {
+                if let Some(valid_up_to) = e.char.map(|(i, _)| i) {
+                    let valid = &s[..valid_up_to];
+                    debug_assert!(AccountId::validate(valid).is_ok());
+                    #[allow(deprecated)]
+                    return Ok(AccountId::new_unvalidated(valid.to_string()));
+                }
+            }
+        }
+        Err(arbitrary::Error::IncorrectFormat)
+    }
+
+    fn arbitrary_take_rest(u: arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        let bytes = u.take_rest();
+        if let Ok(s) = std::str::from_utf8(bytes) {
+            if let Ok(a) = s.parse::<AccountId>() {
+                return Ok(a);
+            }
+        }
+        return Err(arbitrary::Error::IncorrectFormat);
     }
 }
 
