@@ -11,6 +11,7 @@ use near_store::flat::{
 };
 use near_store::{DBCol, Mode, NodeStorage, ShardUId, Store, StoreOpener};
 use nearcore::{load_config, NearConfig, NightshadeRuntime};
+use std::sync::atomic::AtomicBool;
 use std::{path::PathBuf, sync::Arc, time::Duration};
 use tqdm::tqdm;
 
@@ -318,6 +319,7 @@ impl FlatStorageCommand {
                 inline_flat_state_values(
                     store,
                     &flat_storage_manager,
+                    &AtomicBool::new(true),
                     cmd.num_threads,
                     cmd.batch_size,
                 );

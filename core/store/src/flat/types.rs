@@ -75,6 +75,13 @@ impl From<FlatStorageError> for StorageError {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, PartialEq, Eq)]
+pub enum FlatStateValuesInliningMigrationStatus {
+    Empty,
+    InProgress,
+    Finished,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Debug, PartialEq, Eq)]
 pub enum FlatStorageStatus {
     /// Flat Storage is not supported.
     Disabled,

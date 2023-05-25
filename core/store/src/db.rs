@@ -20,6 +20,7 @@ pub use self::splitdb::SplitDB;
 pub use self::slice::DBSlice;
 pub use self::testdb::TestDB;
 
+// `DBCol::BlockMisc` keys
 pub const HEAD_KEY: &[u8; 4] = b"HEAD";
 pub const TAIL_KEY: &[u8; 4] = b"TAIL";
 pub const CHUNK_TAIL_KEY: &[u8; 10] = b"CHUNK_TAIL";
@@ -31,6 +32,10 @@ pub const LARGEST_TARGET_HEIGHT_KEY: &[u8; 21] = b"LARGEST_TARGET_HEIGHT";
 pub const GENESIS_JSON_HASH_KEY: &[u8; 17] = b"GENESIS_JSON_HASH";
 pub const GENESIS_STATE_ROOTS_KEY: &[u8; 19] = b"GENESIS_STATE_ROOTS";
 pub const COLD_HEAD_KEY: &[u8; 9] = b"COLD_HEAD";
+
+// `DBCol::Misc` keys
+pub const FLAT_STATE_VALUES_INLINING_MIGRATION_STATUS_KEY: &[u8] =
+    b"FLAT_STATE_VALUES_INLINING_MIGRATION_STATUS";
 
 #[derive(Default, Debug)]
 pub struct DBTransaction {

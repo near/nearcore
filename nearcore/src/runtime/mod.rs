@@ -733,6 +733,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(self.tries.get_view_trie_for_shard(shard_uid, state_root))
     }
 
+    fn get_flat_storage_manager(&self) -> Option<FlatStorageManager> {
+        Some(self.flat_storage_manager.clone())
+    }
+
     fn get_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Option<FlatStorage> {
         self.flat_storage_manager.get_flat_storage_for_shard(shard_uid)
     }
