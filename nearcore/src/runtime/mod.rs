@@ -747,10 +747,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         self.flat_storage_manager.add_flat_storage_for_shard(shard_uid, flat_storage);
     }
 
-    fn remove_flat_storage_for_shard(
-        &self,
-        shard_uid: ShardUId
-    ) -> Result<(), Error> {
+    fn remove_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Result<(), Error> {
         self.flat_storage_manager
             .remove_flat_storage_for_shard(shard_uid)
             .map_err(Error::StorageError)?;

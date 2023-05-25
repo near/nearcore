@@ -984,10 +984,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         panic!("Flat storage state can't be created for shard {shard_uid} because KeyValueRuntime doesn't support this");
     }
 
-    fn remove_flat_storage_for_shard(
-        &self,
-        _shard_uid: ShardUId,
-    ) -> Result<(), Error> {
+    fn remove_flat_storage_for_shard(&self, _shard_uid: ShardUId) -> Result<(), Error> {
         Ok(())
     }
 
