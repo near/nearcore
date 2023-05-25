@@ -278,7 +278,7 @@ mod trie_storage_tests {
         let key = hash(&value);
 
         let result = trie_caching_storage.retrieve_raw_bytes(&key);
-        assert_matches!(result, Err(StorageError::StorageInconsistentState(_)));
+        assert_matches!(result, Err(StorageError::TrieNodeMissing));
     }
 
     /// Check that large values does not fall into shard cache, but fall into chunk cache.
