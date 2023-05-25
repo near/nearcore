@@ -17,6 +17,7 @@
 //! necessary to prove its position in the list of prefix sums.
 
 use std::collections::{HashMap, HashSet};
+use std::iter::Empty;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
@@ -119,9 +120,9 @@ impl Trie {
     ) -> Result<impl Iterator<Item = (Vec<u8>, Box<[u8]>)> + 'a, StorageError> {
         let flat_storage_chunk_view = match &self.flat_storage_chunk_view {
             None => {
-                return Err(StorageError::StorageInconsistentState(format!(
-                    "Flat storage chunk view not found"
-                )));
+                return Err(StorageError::StorageInconsistentState(
+                    "Flat storage chunk view not found".to_string(),
+                ));
             }
             Some(chunk_view) => chunk_view,
         };
@@ -129,11 +130,12 @@ impl Trie {
         // If left key in nibbles is already the largest, return empty
         // iterator. Otherwise convert it to key in bytes.
         let key_begin = if nibbles_begin == LAST_STATE_PART_BOUNDARY {
+            // TODO (#8997): use std::iter::empty here. Currently doesn't work
+            // because it doesn't match impl Iterator type.
             return Ok(flat_storage_chunk_view.iter_flat_state_entries(Some(&[]), Some(&[])));
         } else {
             Some(NibbleSlice::nibbles_to_bytes(&nibbles_begin))
         };
-        let key_begin = key_begin.as_deref();
 
         // Convert right key in nibbles to key in bytes.
         let key_end = if nibbles_end == LAST_STATE_PART_BOUNDARY {
@@ -141,9 +143,9 @@ impl Trie {
         } else {
             Some(NibbleSlice::nibbles_to_bytes(&nibbles_end))
         };
-        let key_end = key_end.as_deref();
 
-        Ok(flat_storage_chunk_view.iter_flat_state_entries(key_begin, key_end))
+        Ok(flat_storage_chunk_view
+            .iter_flat_state_entries(key_begin.as_deref(), key_end.as_deref()))
     }
 
     /// Helper to create `PartialState` for given state part using flat storage
@@ -154,6 +156,8 @@ impl Trie {
         &self,
         part_id: PartId,
     ) -> Result<PartialState, StorageError> {
+        let PartId { idx, total } = part_id;
+
         // 1. Extract nodes corresponding to state part boundaries.
         let recording_trie = self.recording_reads();
         let boundaries_read_start = Instant::now();
@@ -187,13 +191,15 @@ impl Trie {
         let values_read_duration = values_read_start.elapsed();
 
         // 3. Create trie out of all key-value pairs.
-        let trie_creation_start = Instant::now();
+        let local_trie_creation_start = Instant::now();
         let local_state_part_trie =
             Trie::new(Rc::new(TrieMemoryPartialStorage::default()), StateRoot::new(), None);
         let local_state_part_nodes =
             local_state_part_trie.update(all_state_part_items.into_iter())?.insertions;
+        let local_trie_creation_duration = local_trie_creation_start.elapsed();
 
         // 4. Unite all nodes in memory, traverse trie based on them, return set of visited nodes.
+        let final_part_creation_start = Instant::now();
         let boundary_nodes_storage: HashMap<_, _> =
             path_boundary_nodes.iter().map(|entry| (hash(entry), entry.clone())).collect();
         let disk_read_hashes: HashSet<_> = boundary_nodes_storage.keys().cloned().collect();
@@ -211,22 +217,25 @@ impl Trie {
         let final_trie_storage = final_trie.storage.as_partial_storage().unwrap();
         let final_state_part_nodes = final_trie_storage.partial_state();
         let PartialState::TrieValues(trie_values) = &final_state_part_nodes;
+        let final_part_creation_duration = final_part_creation_start.elapsed();
 
         // Compute how many nodes were recreated from memory.
         let state_part_num_nodes = trie_values.len();
         let in_memory_created_nodes =
             trie_values.iter().filter(|entry| !disk_read_hashes.contains(&hash(*entry))).count();
-        let trie_creation_duration = trie_creation_start.elapsed();
         tracing::info!(
             target: "state-parts",
-            "Created state part {}/{}. \
-            Value refs: {values_ref}, inlined: {values_inlined}.\n \
-            Nodes created from flat storage: {in_memory_created_nodes}, total: {state_part_num_nodes}.\n \
-            Boundaries read in {boundaries_read_duration:?}, \
-            values read in {values_read_duration:?}, \
-            trie created in {trie_creation_duration:?}.",
-            part_id.idx,
-            part_id.total,
+            %idx,
+            %total,
+            %values_ref,
+            %values_inlined,
+            %in_memory_created_nodes,
+            %state_part_num_nodes,
+            ?boundaries_read_duration,
+            ?values_read_duration,
+            ?local_trie_creation_duration,
+            ?final_part_creation_duration,
+            "Created state part",
         );
 
         Ok(final_state_part_nodes)

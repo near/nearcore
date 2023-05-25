@@ -72,9 +72,7 @@ pub(crate) fn encode_flat_state_db_key(shard_uid: ShardUId, key: &[u8]) -> Vec<u
     buffer
 }
 
-pub(crate) fn decode_flat_state_db_key(
-    key: &Box<[u8]>,
-) -> Result<(ShardUId, Vec<u8>), StorageError> {
+pub(crate) fn decode_flat_state_db_key(key: &[u8]) -> Result<(ShardUId, Vec<u8>), StorageError> {
     if key.len() < 8 {
         return Err(StorageError::StorageInconsistentState(format!(
             "Found key in flat storage with length < 8: {key:?}"
@@ -167,7 +165,7 @@ pub fn iter_flat_state_entries<'a>(
 
 /// Currently all the data in flat storage is 'together' - so we have to parse the key,
 /// to see if this element belongs to this shard.
-pub fn key_belongs_to_shard(key: &Box<[u8]>, shard_uid: &ShardUId) -> Result<bool, StorageError> {
+pub fn key_belongs_to_shard(key: &[u8], shard_uid: &ShardUId) -> Result<bool, StorageError> {
     let (key_shard_uid, _) = decode_flat_state_db_key(key)?;
     Ok(key_shard_uid == *shard_uid)
 }

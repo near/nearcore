@@ -107,7 +107,7 @@ impl FlatStorageManager {
             match flat_storages.get(&shard_uid) {
                 Some(flat_storage) => flat_storage.clone(),
                 None => {
-                    debug!(target: "chain", "FlatStorage is not ready");
+                    debug!(target: "store", "FlatStorage is not ready");
                     return None;
                 }
             }
