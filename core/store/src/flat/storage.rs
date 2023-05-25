@@ -307,24 +307,20 @@ impl FlatStorage {
         // TODO (#7327): call it just after we stopped tracking a shard.
         // TODO (#7327): remove FlatStateChanges. Consider custom serialization of keys to remove them by
         // prefix.
-        // TODO (#7327): support range deletions which are much faster than naive deletions. For that, we
-        // can delete ranges of keys like
-        // [ [0]+boundary_accounts(shard_id) .. [0]+boundary_accounts(shard_id+1) ), etc.
-        // We should also take fixed accounts into account.
         let mut store_update = guard.store.store_update();
-        let mut removed_items = 0;
-        for item in guard.store.iter(DBCol::FlatState) {
-            let (key, _) =
-                item.map_err(|e| StorageError::StorageInconsistentState(e.to_string()))?;
-
-            if store_helper::key_belongs_to_shard(&key, &shard_layout, shard_id)? {
-                removed_items += 1;
-                store_update.delete(DBCol::FlatState, &key);
-            }
-        }
+        store_helper::remove_range_by_shard_uid(
+            &mut store_update,
+            guard.shard_uid,
+            &[DBCol::FlatState],
+        );
+        let removed_items = guard.store.iter(DBCol::FlatState).count();
         info!(target: "store", %shard_id, %removed_items, "Removing old items from flat storage");
 
-        store_helper::remove_all_deltas(&mut store_update, guard.shard_uid);
+        store_helper::remove_range_by_shard_uid(
+            &mut store_update,
+            guard.shard_uid,
+            &[DBCol::FlatStateChanges, DBCol::FlatStateDeltaMetadata],
+        );
         store_helper::set_flat_storage_status(
             &mut store_update,
             guard.shard_uid,

@@ -57,11 +57,16 @@ pub fn remove_delta(store_update: &mut StoreUpdate, shard_uid: ShardUId, block_h
     store_update.delete(DBCol::FlatStateDeltaMetadata, &key);
 }
 
-pub fn remove_all_deltas(store_update: &mut StoreUpdate, shard_uid: ShardUId) {
+pub fn remove_range_by_shard_uid(
+    store_update: &mut StoreUpdate,
+    shard_uid: ShardUId,
+    cols: &[DBCol],
+) {
     let key_from = shard_uid.to_bytes();
     let key_to = ShardUId::next_shard_prefix(&key_from);
-    store_update.delete_range(DBCol::FlatStateChanges, &key_from, &key_to);
-    store_update.delete_range(DBCol::FlatStateDeltaMetadata, &key_from, &key_to);
+    for col in cols {
+        store_update.delete_range(*col, &key_from, &key_to);
+    }
 }
 
 pub(crate) fn encode_flat_state_db_key(shard_uid: ShardUId, key: &[u8]) -> Vec<u8> {
