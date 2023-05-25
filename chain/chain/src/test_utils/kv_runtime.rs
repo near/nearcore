@@ -960,6 +960,10 @@ impl RuntimeAdapter for KeyValueRuntime {
             .get_trie_for_shard(ShardUId { version: 0, shard_id: shard_id as u32 }, state_root))
     }
 
+    fn get_flat_storage_manager(&self) -> Option<near_store::flat::FlatStorageManager> {
+        None
+    }
+
     fn get_view_trie_for_shard(
         &self,
         shard_id: ShardId,

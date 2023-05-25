@@ -1,0 +1,24 @@
+---
+source: integration-tests/src/tests/runtime/sanity_checks.rs
+expression: receipts_gas_profile
+---
+[
+    [
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "CONTRACT_LOADING_BASE",
+            gas_used: 35445963,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "CONTRACT_LOADING_BYTES",
+            gas_used: 8236500,
+        },
+        CostGasUsed {
+            cost_category: "WASM_HOST_COST",
+            cost: "WASM_INSTRUCTION",
+            gas_used: 8227560,
+        },
+    ],
+    [],
+]

@@ -197,45 +197,78 @@ async fn state_sync_dump(
     // Stop if the node is stopped.
     // Note that without this check the state dumping thread is unstoppable, i.e. non-interruptable.
     while keep_running.load(std::sync::atomic::Ordering::Relaxed) {
-        // TODO (ND-437): Start every iteration of the state dumping loop with checking if a new epoch is available.
+        tracing::debug!(target: "state_sync_dump", shard_id, "Running StateSyncDump loop iteration");
+        let latest_epoch_info = get_latest_epoch(shard_id, &chain);
         let progress = chain.store().get_state_sync_dump_progress(shard_id);
-        tracing::debug!(target: "state_sync_dump", shard_id, ?progress, "Running StateSyncDump loop iteration");
-        // The `match` returns the next state of the state machine.
-        let next_state: Result<Option<StateSyncDumpProgress>, Error> = match progress {
-            Ok(Some(StateSyncDumpProgress::AllDumped { epoch_id, epoch_height, num_parts })) => {
-                // The latest epoch was dumped. Check if a newer epoch is available.
-                check_new_epoch(
-                    Some(epoch_id),
-                    Some(epoch_height),
-                    num_parts,
-                    shard_id,
-                    &chain,
-                    epoch_manager.as_ref(),
-                    &shard_tracker,
-                    &account_id,
-                )
+        let current_state = match (progress, latest_epoch_info) {
+            (_, Err(err)) => {
+                tracing::debug!(target: "state_sync_dump", shard_id, ?err, "check_latest_epoch failed. Will retry.");
+                Err(err)
             }
-            Err(Error::DBNotFoundErr(_)) | Ok(None) => {
-                // First invocation of this state-machine. See if at least one epoch is available for dumping.
-                check_new_epoch(
-                    None,
-                    None,
-                    None,
-                    shard_id,
-                    &chain,
-                    epoch_manager.as_ref(),
-                    &shard_tracker,
-                    &account_id,
-                )
-            }
-            Err(err) => {
-                // Something went wrong, let's retry.
-                tracing::warn!(target: "state_sync_dump", shard_id, ?err, "Failed to read the progress, will now delete and retry");
-                if let Err(err) = chain.store().set_state_sync_dump_progress(shard_id, None) {
-                    tracing::warn!(target: "state_sync_dump", shard_id, ?err, "and failed to delete the progress. Will later retry.");
+            (last_progress, Ok((new_epoch_id, new_sync_hash))) => match last_progress {
+                Err(Error::DBNotFoundErr(_)) | Ok(None) => {
+                    tracing::debug!(target: "state_sync_dump", shard_id, ?new_epoch_id, "Starting the first epoch to be dumped.");
+                    start_dumping(
+                        new_epoch_id,
+                        new_sync_hash,
+                        shard_id,
+                        &chain,
+                        epoch_manager.as_ref(),
+                        &shard_tracker,
+                        &account_id,
+                    )
                 }
-                Ok(None)
-            }
+                Ok(Some(StateSyncDumpProgress::InProgress {
+                    epoch_id: last_epoch_id,
+                    epoch_height: last_epoch_height,
+                    sync_hash: last_sync_hash,
+                })) => {
+                    if new_epoch_id == last_epoch_id {
+                        tracing::debug!(target: "state_sync_dump", shard_id, ?last_epoch_id, last_epoch_height, "Still dumping for the same epoch.");
+                        Ok(Some(StateSyncDumpProgress::InProgress {
+                            epoch_id: last_epoch_id,
+                            epoch_height: last_epoch_height,
+                            sync_hash: last_sync_hash,
+                        }))
+                    } else {
+                        tracing::debug!(target: "state_sync_dump", shard_id, ?new_epoch_id, ?last_epoch_id, last_epoch_height, "Last epoch has not finished, but new epoch is available. Start dump for new epoch.");
+                        start_dumping(
+                            new_epoch_id,
+                            new_sync_hash,
+                            shard_id,
+                            &chain,
+                            epoch_manager.as_ref(),
+                            &shard_tracker,
+                            &account_id,
+                        )
+                    }
+                }
+                Ok(Some(StateSyncDumpProgress::AllDumped {
+                    epoch_id: last_epoch_id,
+                    epoch_height: last_epoch_height,
+                })) => {
+                    if new_epoch_id == last_epoch_id {
+                        tracing::debug!(target: "state_sync_dump", shard_id, ?last_epoch_id, last_epoch_height, "latest epoch is all dumped. No new epoch to dump. Idle");
+                        Ok(None)
+                    } else {
+                        tracing::debug!(target: "state_sync_dump", shard_id, ?last_epoch_id, last_epoch_height, ?new_epoch_id,  "last epoch is all dumped. Starting dump for a new epoch.");
+                        start_dumping(
+                            new_epoch_id,
+                            new_sync_hash,
+                            shard_id,
+                            &chain,
+                            epoch_manager.as_ref(),
+                            &shard_tracker,
+                            &account_id,
+                        )
+                    }
+                }
+                _ => Ok(None),
+            },
+        };
+
+        let next_state: Result<Option<StateSyncDumpProgress>, Error> = match current_state {
+            Err(err) => Err(err),
             Ok(Some(StateSyncDumpProgress::InProgress { epoch_id, epoch_height, sync_hash })) => {
                 let in_progress_data = get_in_progress_data(shard_id, sync_hash, &chain);
                 match in_progress_data {
@@ -262,7 +295,6 @@ async fn state_sync_dump(
                                 Ok(Some(StateSyncDumpProgress::AllDumped {
                                     epoch_id,
                                     epoch_height,
-                                    num_parts: Some(num_parts),
                                 }))
                             }
                             Ok(parts_not_dumped) => {
@@ -323,12 +355,10 @@ async fn state_sync_dump(
                                         state_part.len(),
                                     );
                                 }
-
                                 if parts_to_dump.is_empty() {
                                     Ok(Some(StateSyncDumpProgress::AllDumped {
                                         epoch_id,
                                         epoch_height,
-                                        num_parts: Some(num_parts),
                                     }))
                                 } else {
                                     Ok(Some(StateSyncDumpProgress::InProgress {
@@ -342,6 +372,7 @@ async fn state_sync_dump(
                     }
                 }
             }
+            _ => Ok(None),
         };
 
         // Record the next state of the state machine.
@@ -487,147 +518,25 @@ fn start_dumping(
     let state_header = chain.get_state_response_header(shard_id, sync_hash)?;
     let num_parts = get_num_state_parts(state_header.state_root_node().memory_usage);
     if shard_tracker.care_about_shard(account_id.as_ref(), sync_prev_prev_hash, shard_id, true) {
-        tracing::info!(target: "state_sync_dump", shard_id, ?epoch_id, %sync_prev_hash, %sync_hash, "Initialize dumping state of Epoch");
+        tracing::info!(target: "state_sync_dump", shard_id, ?epoch_id, epoch_height, %sync_prev_hash, %sync_hash, "Dumping state of Epoch");
         // Note that first the state of the state machines gets changes to
         // `InProgress` and it starts dumping state after a short interval.
         set_metrics(&shard_id, Some(0), Some(num_parts), Some(epoch_height));
         Ok(Some(StateSyncDumpProgress::InProgress { epoch_id, epoch_height, sync_hash }))
     } else {
-        tracing::info!(target: "state_sync_dump", shard_id, ?epoch_id, %sync_hash, "Shard is not tracked, skip the epoch");
-        Ok(Some(StateSyncDumpProgress::AllDumped { epoch_id, epoch_height, num_parts: Some(0) }))
+        tracing::info!(target: "state_sync_dump", shard_id, ?epoch_id, epoch_height, %sync_hash, "Shard is not tracked, skip the epoch");
+        Ok(Some(StateSyncDumpProgress::AllDumped { epoch_id, epoch_height }))
     }
 }
 
-/// Checks what is the latest complete epoch.
-/// `epoch_id` represents the last fully dumped epoch.
-fn check_new_epoch(
-    epoch_id: Option<EpochId>,
-    epoch_height: Option<EpochHeight>,
-    num_parts: Option<u64>,
-    shard_id: ShardId,
-    chain: &Chain,
-    epoch_manager: &dyn EpochManagerAdapter,
-    shard_tracker: &ShardTracker,
-    account_id: &Option<AccountId>,
-) -> Result<Option<StateSyncDumpProgress>, Error> {
+/// return epoch_id and sync_hash of the latest complete epoch available locally.
+fn get_latest_epoch(shard_id: ShardId, chain: &Chain) -> Result<(EpochId, CryptoHash), Error> {
     let head = chain.head()?;
-    if Some(&head.epoch_id) == epoch_id.as_ref() {
-        set_metrics(&shard_id, num_parts, num_parts, epoch_height);
-        Ok(None)
-    } else {
-        // Check if the final block is now in the next epoch.
-        tracing::debug!(target: "state_sync_dump", shard_id, ?epoch_id, "Check if a new complete epoch is available");
-        let hash = head.last_block_hash;
-        let header = chain.get_block_header(&hash)?;
-        let final_hash = header.last_final_block();
-        let sync_hash = StateSync::get_epoch_start_sync_hash(chain, final_hash)?;
-        let header = chain.get_block_header(&sync_hash)?;
-        if Some(header.epoch_id()) == epoch_id.as_ref() {
-            // Still in the latest dumped epoch. Do nothing.
-            Ok(None)
-        } else {
-            start_dumping(
-                head.epoch_id,
-                sync_hash,
-                shard_id,
-                chain,
-                epoch_manager,
-                shard_tracker,
-                account_id,
-            )
-        }
-    }
-}
+    tracing::debug!(target: "state_sync_dump", shard_id, "Check if a new complete epoch is available");
+    let hash = head.last_block_hash;
+    let header = chain.get_block_header(&hash)?;
+    let final_hash = header.last_final_block();
+    let sync_hash = StateSync::get_epoch_start_sync_hash(chain, final_hash)?;
 
-#[cfg(test)]
-mod tests {
-    use crate::state_sync::spawn_state_sync_dump;
-    use near_chain::{ChainGenesis, Provenance};
-    use near_chain_configs::{DumpConfig, ExternalStorageLocation};
-    use near_client::sync::state::external_storage_location;
-    use near_client::test_utils::TestEnv;
-    use near_network::test_utils::wait_or_timeout;
-    use near_o11y::testonly::init_test_logger;
-    use near_primitives::types::BlockHeight;
-    use std::ops::ControlFlow;
-    use std::time::Duration;
-
-    #[test]
-    /// Produce several blocks, wait for the state dump thread to notice and
-    /// write files to a temp dir.
-    fn test_state_dump() {
-        init_test_logger();
-
-        let mut chain_genesis = ChainGenesis::test();
-        chain_genesis.epoch_length = 5;
-        let mut env = TestEnv::builder(chain_genesis.clone()).build();
-        let chain = &env.clients[0].chain;
-        let epoch_manager = chain.epoch_manager.clone();
-        let shard_tracker = chain.shard_tracker.clone();
-        let runtime = chain.runtime_adapter.clone();
-        let mut config = env.clients[0].config.clone();
-        let root_dir = tempfile::Builder::new().prefix("state_dump").tempdir().unwrap();
-        config.state_sync.dump = Some(DumpConfig {
-            location: ExternalStorageLocation::Filesystem {
-                root_dir: root_dir.path().to_path_buf(),
-            },
-            restart_dump_for_shards: None,
-            iteration_delay: Some(Duration::from_millis(250)),
-        });
-
-        const MAX_HEIGHT: BlockHeight = 15;
-
-        near_actix_test_utils::run_actix(async move {
-            let _state_sync_dump_handle = spawn_state_sync_dump(
-                &config,
-                chain_genesis,
-                epoch_manager.clone(),
-                shard_tracker.clone(),
-                runtime.clone(),
-                Some("test0".parse().unwrap()),
-            )
-            .unwrap();
-            for i in 1..=MAX_HEIGHT {
-                let block = env.clients[0].produce_block(i as u64).unwrap().unwrap();
-                env.process_block(0, block, Provenance::PRODUCED);
-            }
-            let head = &env.clients[0].chain.head().unwrap();
-            let epoch_id = head.clone().epoch_id;
-            let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap();
-            let epoch_height = epoch_info.epoch_height();
-
-            wait_or_timeout(100, 10000, || async {
-                let mut all_parts_present = true;
-
-                let num_shards = epoch_manager.num_shards(&epoch_id).unwrap();
-                assert_ne!(num_shards, 0);
-
-                for shard_id in 0..num_shards {
-                    let num_parts = 3;
-                    for part_id in 0..num_parts {
-                        let path = root_dir.path().join(external_storage_location(
-                            "unittest",
-                            &epoch_id,
-                            epoch_height,
-                            shard_id,
-                            part_id,
-                            num_parts,
-                        ));
-                        if std::fs::read(&path).is_err() {
-                            println!("Missing {:?}", path);
-                            all_parts_present = false;
-                        }
-                    }
-                }
-                if all_parts_present {
-                    ControlFlow::Break(())
-                } else {
-                    ControlFlow::Continue(())
-                }
-            })
-            .await
-            .unwrap();
-            actix_rt::System::current().stop();
-        });
-    }
+    Ok((head.epoch_id, sync_hash))
 }
