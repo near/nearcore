@@ -1686,8 +1686,8 @@ fn get_state_snapshot_base_dir(
     // * RocksDB checkpoints are taken instantly and for free, because the filesystem supports hard links.
     // * Assumes that the best place for the checkpoints is withing the `~/.near/data` directory, because that directory is often a separate disk.
     home_dir
-        .join(hot_store_path.clone())
-        .join(state_snapshot_subdir.clone())
+        .join(hot_store_path)
+        .join(state_snapshot_subdir)
         .join(format!("{}", prev_block_hash))
 }
 
