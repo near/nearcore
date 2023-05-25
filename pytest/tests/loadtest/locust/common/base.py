@@ -19,7 +19,7 @@ import key
 import mocknet_helpers
 import utils
 
-from locust import HttpUser, events
+from locust import HttpUser, events, runners
 from configured_logger import new_logger
 
 DEFAULT_TRANSACTION_TTL_SECONDS = 20
@@ -110,8 +110,7 @@ class CreateSubAccount(Transaction):
 class NearUser(HttpUser):
     abstract = True
     id_counter = 0
-    # initialized in `on_locust_init`
-    funding_account = None
+    INIT_BALANCE = 100.0
 
     @classmethod
     def get_next_id(cls):
@@ -139,10 +138,23 @@ class NearUser(HttpUser):
         self.send_tx_retry(
             CreateSubAccount(NearUser.funding_account,
                              self.account.key,
-                             balance=5000.0))
-        self.account.refresh_nonce(self.node)
+                             balance=NearUser.INIT_BALANCE))
 
-    def send_tx(self, tx: Transaction):
+        # Race condition: maybe the account was created but the RPC interface doesn't display it yet
+        # (not quite sure how this happens but it did happen to me on localnet)
+        attempts = 10
+        while attempts > 0:
+            try:
+                self.account.refresh_nonce(self.node)
+            except KeyError:
+                attempts -= 1
+                if attempts == 0:
+                    raise  # Reraise the exception if max attempts reached
+                time.sleep(1)
+            else:
+                break
+
+    def send_tx(self, tx: Transaction, locust_name="generic send_tx"):
         """
         Send a transaction and return the result, no retry attempted.
         """
@@ -160,14 +172,12 @@ class NearUser(HttpUser):
             "jsonrpc": "2.0"
         }
 
-        # with self.node.session.post(
         # This is tracked by locust
-        with self.client.post(
-                url="http://%s:%s" % self.node.rpc_addr(),
-                json=j,
-                timeout=DEFAULT_TRANSACTION_TTL_SECONDS,
-                catch_response=True,
-        ) as response:
+        with self.client.post(url="http://%s:%s" % self.node.rpc_addr(),
+                              json=j,
+                              timeout=DEFAULT_TRANSACTION_TTL_SECONDS,
+                              catch_response=True,
+                              name=locust_name) as response:
             try:
                 rpc_result = json.loads(response.content)
                 tx_result = evaluate_rpc_result(rpc_result)
@@ -180,7 +190,9 @@ class NearUser(HttpUser):
                 response.failure(err.message)
         return response
 
-    def send_tx_retry(self, tx: Transaction):
+    def send_tx_retry(self,
+                      tx: Transaction,
+                      locust_name="generic send_tx_retry"):
         """
         Send a transaction and retry until it succeeds
         """
@@ -190,7 +202,7 @@ class NearUser(HttpUser):
         # error, as long as it is one defined by us (inherits from NearError)
         while True:
             try:
-                result = self.send_tx(tx)
+                result = self.send_tx(tx, locust_name=locust_name)
                 return result
             except NearError as error:
                 logger.warn(
@@ -293,14 +305,55 @@ def evaluate_rpc_result(rpc_result):
 # called once per process before user initialization
 @events.init.add_listener
 def on_locust_init(environment, **kwargs):
-    funding_key = key.Key.from_json_file(environment.parsed_options.funding_key)
-    NearUser.funding_account = Account(funding_key)
+    # Note: These setup requests are not tracked by locust because we use our own http session
+    host, port = environment.host.split(":")
+    node = cluster.RpcNode(host, port)
+
+    master_funding_key = key.Key.from_json_file(
+        environment.parsed_options.funding_key)
+    master_funding_account = Account(master_funding_key)
+
+    funding_account = None
+    # every worker needs a funding account to create its users, eagerly create them in the master
+    if isinstance(environment.runner, runners.MasterRunner):
+        num_funding_accounts = environment.parsed_options.max_workers
+        funding_balance = 10000 * NearUser.INIT_BALANCE
+        # TODO: Create accounts in parallel
+        for id in range(num_funding_accounts):
+            account_id = f"funds_worker_{id}.{master_funding_account.key.account_id}"
+            worker_key = key.Key.from_seed_testonly(account_id, account_id)
+            logger.info(f"Creating {account_id}")
+            send_transaction(
+                node,
+                CreateSubAccount(master_funding_account,
+                                 worker_key,
+                                 balance=funding_balance))
+        funding_account = master_funding_account
+    elif isinstance(environment.runner, runners.WorkerRunner):
+        worker_id = environment.runner.worker_index
+        worker_account_id = f"funds_worker_{worker_id}.{master_funding_account.key.account_id}"
+        worker_key = key.Key.from_seed_testonly(worker_account_id,
+                                                worker_account_id)
+        funding_account = Account(worker_key)
+    elif isinstance(environment.runner, runners.LocalRunner):
+        funding_account = master_funding_account
+    else:
+        raise SystemExit(
+            f"unexpected runner class {environment.runner.__class__.__name__}")
+
+    NearUser.funding_account = funding_account
 
 
-# CLI args
+# Add custom CLI args here, will be available in `environment.parsed_options`
 @events.init_command_line_parser.add_listener
 def _(parser):
     parser.add_argument(
         "--funding-key",
         required=True,
         help="account to use as source of NEAR for account creation")
+    parser.add_argument(
+        "--max-workers",
+        type=int,
+        required=False,
+        default=16,
+        help="How many funding accounts to generate for workers")

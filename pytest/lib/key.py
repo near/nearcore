@@ -41,6 +41,19 @@ class Key:
         with open(filename) as rd:
             return cls.from_json(json.load(rd))
 
+    @classmethod
+    def from_seed_testonly(cls, account_id: str, seed: str) -> 'Key':
+        """
+        Deterministically produce a **insecure** signer pair from a seed.
+        """
+        # use the repeated seed string as secret key by injecting fake entropy
+        fake_entropy = lambda length: (seed *
+                                       (1 + int(length / 32))).encode()[:length]
+        keys = ed25519.create_keypair(entropy=fake_entropy)
+        sk = 'ed25519:' + base58.b58encode(keys[0].to_bytes()).decode('ascii')
+        pk = 'ed25519:' + base58.b58encode(keys[1].to_bytes()).decode('ascii')
+        return cls(account_id, pk, sk)
+
     def decoded_pk(self) -> bytes:
         key = self.pk.split(':')[1] if ':' in self.pk else self.pk
         return base58.b58decode(key.encode('ascii'))
