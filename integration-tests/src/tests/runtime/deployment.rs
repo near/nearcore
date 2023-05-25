@@ -56,8 +56,8 @@ fn test_deploy_max_size_contract() {
 
     // Deploy contract
     let wasm_binary = near_test_contracts::sized_contract(contract_size as usize);
-    // Rune code through preparation for validation. (Deploying will succeed either way).
-    near_vm_runner::prepare::prepare_contract(&wasm_binary, &config.wasm_config, VMKind::NearVm)
+    // Run code through preparation for validation. (Deploying will succeed either way).
+    near_vm_runner::prepare::prepare_contract(&wasm_binary, &config.wasm_config, VMKind::Wasmer2)
         .unwrap();
     let transaction_result =
         node_user.deploy_contract(test_contract_id, wasm_binary.to_vec()).unwrap();
