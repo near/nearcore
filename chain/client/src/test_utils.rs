@@ -26,6 +26,7 @@ use tracing::info;
 use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
 use chrono::Utc;
 use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, StateSplitRequest};
+use near_chain::state_snapshot_actor::MakeSnapshotCallback;
 use near_chain::test_utils::{
     wait_for_all_blocks_in_processing, wait_for_block_in_processing, KeyValueRuntime,
     MockEpochManager, ValidatorSchedule,
@@ -198,6 +199,7 @@ pub fn setup(
     enable_doomslug: bool,
     archive: bool,
     epoch_sync_enabled: bool,
+    state_sync_enabled: bool,
     network_adapter: PeerManagerAdapter,
     transaction_validity_period: NumBlocks,
     genesis_time: DateTime<Utc>,
@@ -237,7 +239,6 @@ pub fn setup(
             state_snapshot_every_n_blocks: None,
         },
         None,
-        None,
     )
     .unwrap();
     let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap();
@@ -252,6 +253,7 @@ pub fn setup(
         archive,
         true,
         epoch_sync_enabled,
+        state_sync_enabled,
     );
 
     let adv = crate::adversarial::Controls::default();
@@ -290,7 +292,6 @@ pub fn setup(
         enable_doomslug,
         TEST_SEED,
         None,
-        None,
     )
     .unwrap();
     let client_actor = ClientActor::new(
@@ -320,6 +321,7 @@ pub fn setup_only_view(
     enable_doomslug: bool,
     archive: bool,
     epoch_sync_enabled: bool,
+    state_sync_enabled: bool,
     network_adapter: PeerManagerAdapter,
     transaction_validity_period: NumBlocks,
     genesis_time: DateTime<Utc>,
@@ -359,7 +361,6 @@ pub fn setup_only_view(
             state_snapshot_every_n_blocks: None,
         },
         None,
-        None,
     )
     .unwrap();
 
@@ -373,6 +374,7 @@ pub fn setup_only_view(
         archive,
         true,
         epoch_sync_enabled,
+        state_sync_enabled,
     );
 
     let adv = crate::adversarial::Controls::default();
@@ -430,7 +432,7 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
     let network_adapter = Arc::new(LateBoundSender::default());
     let mut vca: Option<Addr<ViewClientActor>> = None;
     let mut sma: Option<ShardsManagerAdapterForTest> = None;
-    let client_addr = ClientActor::create(|ctx: &mut actix::Context<ClientActor>| {
+    let client_addr = ClientActor::create(|ctx: &mut Context<ClientActor>| {
         let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![validators]);
         let (_, client, view_client_addr, shards_manager_adapter) = setup(
             vs,
@@ -442,6 +444,7 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
             enable_doomslug,
             false,
             false,
+            true,
             network_adapter.clone().into(),
             transaction_validity_period,
             StaticClock::utc(),
@@ -1081,6 +1084,7 @@ pub fn setup_mock_all_validators(
                 enable_doomslug,
                 archive1[index],
                 epoch_sync_enabled1[index],
+                true,
                 Arc::new(pm).into(),
                 10000,
                 genesis_time,
@@ -1155,11 +1159,20 @@ pub fn setup_client_with_runtime(
     rng_seed: RngSeed,
     archive: bool,
     save_trie_changes: bool,
+    make_state_snapshot_callback: Option<MakeSnapshotCallback>,
 ) -> Client {
     let validator_signer =
         account_id.map(|x| Arc::new(create_test_signer(x.as_str())) as Arc<dyn ValidatorSigner>);
-    let mut config =
-        ClientConfig::test(true, 10, 20, num_validator_seats, archive, save_trie_changes, true);
+    let mut config = ClientConfig::test(
+        true,
+        10,
+        20,
+        num_validator_seats,
+        archive,
+        save_trie_changes,
+        true,
+        true,
+    );
     config.epoch_length = chain_genesis.epoch_length;
     let mut client = Client::new(
         config,
@@ -1172,8 +1185,7 @@ pub fn setup_client_with_runtime(
         validator_signer,
         enable_doomslug,
         rng_seed,
-        None,
-        None,
+        make_state_snapshot_callback,
     )
     .unwrap();
     client.sync_status = SyncStatus::NoSync;
@@ -1210,6 +1222,7 @@ pub fn setup_client(
         rng_seed,
         archive,
         save_trie_changes,
+        None,
     )
 }
 
@@ -1238,7 +1251,6 @@ pub fn setup_synchronous_shards_manager(
             background_migration_threads: 1,
             state_snapshot_every_n_blocks: None,
         }, // irrelevant
-        None,
         None,
     )
     .unwrap();
@@ -1297,6 +1309,7 @@ pub fn setup_client_with_synchronous_shards_manager(
         rng_seed,
         archive,
         save_trie_changes,
+        None,
     )
 }
 
@@ -1364,6 +1377,7 @@ pub struct TestEnvBuilder {
     seeds: HashMap<AccountId, RngSeed>,
     archive: bool,
     save_trie_changes: bool,
+    make_state_snapshot_callback: Option<MakeSnapshotCallback>,
 }
 
 /// Builder for the [`TestEnv`] structure.
@@ -1386,6 +1400,7 @@ impl TestEnvBuilder {
             seeds,
             archive: false,
             save_trie_changes: true,
+            make_state_snapshot_callback: None,
         }
     }
 
@@ -1759,6 +1774,7 @@ impl TestEnvBuilder {
                     rng_seed,
                     self.archive,
                     self.save_trie_changes,
+                    self.make_state_snapshot_callback.clone(),
                 )
             })
             .collect();
@@ -1785,6 +1801,11 @@ impl TestEnvBuilder {
 
     fn make_accounts(count: usize) -> Vec<AccountId> {
         (0..count).map(|i| format!("test{}", i).parse().unwrap()).collect()
+    }
+
+    pub fn set_make_state_snapshot_callback(mut self, callback: MakeSnapshotCallback) -> Self {
+        self.make_state_snapshot_callback = Some(callback);
+        self
     }
 }
 
@@ -2092,6 +2113,7 @@ impl TestEnv {
             rng_seed,
             self.archive,
             self.save_trie_changes,
+            None,
         )
     }
 

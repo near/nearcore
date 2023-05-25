@@ -264,6 +264,7 @@ impl ClientConfig {
         archive: bool,
         save_trie_changes: bool,
         epoch_sync_enabled: bool,
+        state_sync_enabled: bool,
     ) -> Self {
         assert!(
             archive || save_trie_changes,
@@ -323,7 +324,7 @@ impl ClientConfig {
             client_background_migration_threads: 1,
             flat_storage_creation_enabled: true,
             flat_storage_creation_period: Duration::from_secs(1),
-            state_sync_enabled: false,
+            state_sync_enabled,
             state_sync: StateSyncConfig::default(),
             state_snapshot_every_n_blocks: None,
         }

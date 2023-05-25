@@ -16,7 +16,7 @@ use near_chain::chain::{
     OrphanMissingChunks, StateSplitRequest, TX_ROUTING_HEIGHT_HORIZON,
 };
 use near_chain::flat_storage_creator::FlatStorageCreator;
-use near_chain::state_snapshot_actor::StartSnapshotCallback;
+use near_chain::state_snapshot_actor::MakeSnapshotCallback;
 use near_chain::test_utils::format_hash;
 use near_chain::types::RuntimeAdapter;
 use near_chain::types::{ChainConfig, LatestKnown};
@@ -66,7 +66,6 @@ use near_primitives::views::{CatchupStatusView, DroppedReason};
 use near_store::metadata::DbKind;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, trace, warn};
@@ -200,8 +199,7 @@ impl Client {
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
         enable_doomslug: bool,
         rng_seed: RngSeed,
-        state_snapshot_in_progress: Option<Arc<AtomicBool>>,
-        start_state_snapshot_callback: Option<StartSnapshotCallback>,
+        make_state_snapshot_callback: Option<MakeSnapshotCallback>,
     ) -> Result<Self, Error> {
         let doomslug_threshold_mode = if enable_doomslug {
             DoomslugThresholdMode::TwoThirds
@@ -220,8 +218,7 @@ impl Client {
             &chain_genesis,
             doomslug_threshold_mode,
             chain_config.clone(),
-            state_snapshot_in_progress,
-            start_state_snapshot_callback,
+            make_state_snapshot_callback,
         )?;
         let me = validator_signer.as_ref().map(|x| x.validator_id().clone());
         // Create flat storage or initiate migration to flat storage.
