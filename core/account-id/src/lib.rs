@@ -393,13 +393,9 @@ impl<'a> arbitrary::Arbitrary<'a> for AccountId {
     }
 
     fn arbitrary_take_rest(u: arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
-        let bytes = u.take_rest();
-        if let Ok(s) = std::str::from_utf8(bytes) {
-            if let Ok(a) = s.parse::<AccountId>() {
-                return Ok(a);
-            }
-        }
-        Err(arbitrary::Error::IncorrectFormat)
+        <&str as arbitrary::Arbitrary>::arbitrary_take_rest(u)?
+            .parse()
+            .map_err(|_| arbitrary::Error::IncorrectFormat)
     }
 }
 
