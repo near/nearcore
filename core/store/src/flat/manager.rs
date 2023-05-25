@@ -3,7 +3,7 @@ use crate::flat::{
 };
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::{ShardLayout, ShardUId};
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::BlockHeight;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -143,14 +143,13 @@ impl FlatStorageManager {
     pub fn remove_flat_storage_for_shard(
         &self,
         shard_uid: ShardUId,
-        shard_layout: ShardLayout,
     ) -> Result<(), StorageError> {
         let mut flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
 
         match flat_storages.remove(&shard_uid) {
             None => {}
             Some(flat_storage) => {
-                flat_storage.clear_state(shard_layout)?;
+                flat_storage.clear_state()?;
             }
         }
 

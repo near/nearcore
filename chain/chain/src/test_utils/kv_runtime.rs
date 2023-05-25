@@ -987,7 +987,6 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn remove_flat_storage_for_shard(
         &self,
         _shard_uid: ShardUId,
-        _epoch_id: &EpochId,
     ) -> Result<(), Error> {
         Ok(())
     }

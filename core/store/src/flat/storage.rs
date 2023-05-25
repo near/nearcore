@@ -3,7 +3,7 @@ use std::sync::{Arc, RwLock};
 
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::{ShardLayout, ShardUId};
+use near_primitives::shard_layout::ShardUId;
 use tracing::{debug, info, warn};
 
 use crate::flat::delta::CachedFlatStateChanges;
@@ -298,7 +298,7 @@ impl FlatStorage {
     }
 
     /// Clears all State key-value pairs from flat storage.
-    pub fn clear_state(&self, shard_layout: ShardLayout) -> Result<(), StorageError> {
+    pub fn clear_state(&self) -> Result<(), StorageError> {
         let guard = self.0.write().expect(super::POISONED_LOCK_ERR);
         let shard_id = guard.shard_uid.shard_id();
 

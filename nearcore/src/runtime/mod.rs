@@ -749,12 +749,10 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn remove_flat_storage_for_shard(
         &self,
-        shard_uid: ShardUId,
-        epoch_id: &EpochId,
+        shard_uid: ShardUId
     ) -> Result<(), Error> {
-        let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
         self.flat_storage_manager
-            .remove_flat_storage_for_shard(shard_uid, shard_layout)
+            .remove_flat_storage_for_shard(shard_uid)
             .map_err(Error::StorageError)?;
         Ok(())
     }

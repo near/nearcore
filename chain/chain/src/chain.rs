@@ -3203,7 +3203,7 @@ impl Chain {
         // Before working with state parts, remove existing flat storage data.
         let epoch_id = self.get_block_header(&sync_hash)?.epoch_id().clone();
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
-        self.runtime_adapter.remove_flat_storage_for_shard(shard_uid, &epoch_id)?;
+        self.runtime_adapter.remove_flat_storage_for_shard(shard_uid)?;
 
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let state_root = shard_state_header.chunk_prev_state_root();
