@@ -399,7 +399,7 @@ impl<'a> arbitrary::Arbitrary<'a> for AccountId {
                 return Ok(a);
             }
         }
-        return Err(arbitrary::Error::IncorrectFormat);
+        Err(arbitrary::Error::IncorrectFormat)
     }
 }
 
