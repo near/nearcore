@@ -1,14 +1,12 @@
-use borsh::BorshDeserialize;
 /// Tools for modifying flat storage - should be used only for experimentation & debugging.
+use borsh::BorshDeserialize;
 use clap::Parser;
-use near_chain::{
-    flat_storage_creator::FlatStorageShardCreator, types::RuntimeAdapter, ChainStore,
-    ChainStoreAccess,
-};
+use near_chain::flat_storage_creator::FlatStorageShardCreator;
+use near_chain::types::RuntimeAdapter;
+use near_chain::{ChainStore, ChainStoreAccess};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
-use near_primitives::{state::ValueRef, trie_key::trie_key_parsers::parse_account_id_from_raw_key};
 use near_store::flat::{
-    inline_flat_state_values, store_helper, FlatStateDelta, FlatStateDeltaMetadata,
+    inline_flat_state_values, store_helper, FlatStateDelta, FlatStateDeltaMetadata, FlatStateValue,
     FlatStorageManager, FlatStorageStatus,
 };
 use near_store::{DBCol, Mode, NodeStorage, ShardUId, Store, StoreOpener};
@@ -261,19 +259,14 @@ impl FlatStorageCommand {
                 let flat_state_entries_iter =
                     store_helper::iter_flat_state_entries(shard_uid, &hot_store, None, None);
 
-                // Trie iterator which skips all the 'delayed' keys - that don't contain the account_id as string.
-                let trie_iter = trie.iter().unwrap().filter(|entry| {
-                    let result_copy = &entry.clone().unwrap().0;
-                    let result = &result_copy[..];
-                    parse_account_id_from_raw_key(result).unwrap().is_some()
-                });
-
+                let trie_iter = trie.iter().unwrap();
                 let mut verified = 0;
                 let mut success = true;
                 for (item_trie, item_flat) in
                     tqdm(std::iter::zip(trie_iter, flat_state_entries_iter))
                 {
-                    let value_ref = ValueRef::decode((*item_flat.1).try_into().unwrap());
+                    let value_ref =
+                        FlatStateValue::try_from_slice(&item_flat.1).unwrap().to_value_ref();
                     verified += 1;
 
                     let item_trie = item_trie.unwrap();
