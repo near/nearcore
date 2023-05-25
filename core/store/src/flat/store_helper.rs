@@ -178,56 +178,30 @@ pub fn key_belongs_to_shard(
 #[cfg(test)]
 mod tests {
     use super::iter_flat_state_entries;
-    use crate::flat::store_helper::{set_delta, set_flat_state_value};
-    use crate::flat::{
-        BlockInfo, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStateValue,
-        FlatStorageManager,
-    };
+    use crate::flat::store_helper::set_flat_state_value;
+    use crate::flat::FlatStateValue;
     use crate::test_utils::create_test_store;
-    use crate::CryptoHash;
     use near_primitives::shard_layout::ShardUId;
 
     #[test]
     fn test_iter_flat_state_entries() {
         // Setup shards and store
         let store = create_test_store();
-        let shard_uids = Vec::from([
-            ShardUId { shard_id: 0, version: 0 },
-            ShardUId { shard_id: 1, version: 0 },
-            ShardUId { shard_id: 2, version: 0 },
-        ]);
-        let root = CryptoHash::default();
-        let flat_storage_manager = FlatStorageManager::test(store.clone(), &shard_uids, root);
+        let shard_uids = [0, 1, 2].map(|id| ShardUId { version: 0, shard_id: id });
 
         for (i, shard_uid) in shard_uids.iter().enumerate() {
             let mut store_update = store.store_update();
             let key: Vec<u8> = vec![0, 1, i as u8];
             let val: Vec<u8> = vec![0, 1, 2, i as u8];
 
-            // Add value to flat store
+            // Add value to store state
             assert!(set_flat_state_value(
                 &mut store_update,
                 *shard_uid,
                 key.clone(),
-                Some(FlatStateValue::Inlined(val.clone())),
+                Some(FlatStateValue::inlined(&val)),
             )
             .is_ok());
-
-            let new_root = CryptoHash::default();
-            let block_info = BlockInfo { hash: new_root, height: 1, prev_hash: root };
-            let delta = FlatStateDelta {
-                changes: FlatStateChanges::from([(
-                    key.clone(),
-                    Some(FlatStateValue::value_ref(val.as_slice())),
-                )]),
-                metadata: FlatStateDeltaMetadata { block: block_info },
-            };
-            assert!(set_delta(&mut store_update, *shard_uid, &delta).is_ok());
-            assert!(flat_storage_manager
-                .get_flat_storage_for_shard(*shard_uid)
-                .unwrap()
-                .add_delta(delta)
-                .is_ok());
 
             assert!(store_update.commit().is_ok());
         }
