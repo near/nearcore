@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -eou
+set -euo pipefail
 
 # Should be started in detached mode
 # to ensure an ssh disconnect will not interrupt the process:
