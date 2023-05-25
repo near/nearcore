@@ -8,6 +8,7 @@ use crossbeam::channel;
 use itertools::Itertools;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
+use near_primitives::state::FlatStateValue;
 use tracing::{debug, info};
 
 use crate::flat::store_helper::set_flat_state_values_inlining_migration_status;
@@ -21,7 +22,7 @@ use super::store_helper::{
     decode_flat_state_db_key, get_flat_state_values_inlining_migration_status,
 };
 use super::types::{FlatStateValuesInliningMigrationStatus, INLINE_DISK_VALUE_THRESHOLD};
-use super::{FlatStateValue, FlatStorageManager};
+use super::FlatStorageManager;
 
 pub struct FlatStateValuesInliningMigrationHandle {
     handle: JoinHandle<()>,
@@ -284,10 +285,11 @@ mod tests {
     use borsh::{BorshDeserialize, BorshSerialize};
     use near_primitives::hash::hash;
     use near_primitives::shard_layout::ShardLayout;
+    use near_primitives::state::FlatStateValue;
 
     use crate::flat::store_helper::encode_flat_state_db_key;
     use crate::flat::types::INLINE_DISK_VALUE_THRESHOLD;
-    use crate::flat::{FlatStateValue, FlatStorageManager};
+    use crate::flat::FlatStorageManager;
     use crate::{DBCol, NodeStorage, TrieCachingStorage};
 
     use super::inline_flat_state_values;

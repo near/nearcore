@@ -3,7 +3,7 @@ use crate::flat::{
 };
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::ShardUId;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::types::BlockHeight;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -57,8 +57,8 @@ impl FlatStorageManager {
 
     /// When a node starts from an empty database, this function must be called to ensure
     /// information such as flat head is set up correctly in the database.
-    /// Note that this function is different from `create_flat_storage_for_shard`,
-    /// it must be called before `create_flat_storage_for_shard` if the node starts from
+    /// Note that this function is different from `add_flat_storage_for_shard`,
+    /// it must be called before `add_flat_storage_for_shard` if the node starts from
     /// an empty database.
     pub fn set_flat_storage_for_genesis(
         &self,
@@ -78,23 +78,17 @@ impl FlatStorageManager {
         );
     }
 
-    /// Creates flat storage instance for shard `shard_id`. The function also checks that
+    /// Add a flat storage state for shard `shard_id`. The function also checks that
     /// the shard's flat storage state hasn't been set before, otherwise it panics.
     /// TODO (#7327): this behavior may change when we implement support for state sync
     /// and resharding.
-    pub fn create_flat_storage_for_shard(&self, shard_uid: ShardUId) {
+    pub fn add_flat_storage_for_shard(&self, shard_uid: ShardUId, flat_storage: FlatStorage) {
         let mut flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
-        let original_value =
-            flat_storages.insert(shard_uid, FlatStorage::new(self.0.store.clone(), shard_uid));
+        let original_value = flat_storages.insert(shard_uid, flat_storage);
         // TODO (#7327): maybe we should propagate the error instead of assert here
         // assert is fine now because this function is only called at construction time, but we
         // will need to be more careful when we want to implement flat storage for resharding
         assert!(original_value.is_none());
-    }
-
-    pub fn get_flat_storage_status(&self, shard_uid: ShardUId) -> FlatStorageStatus {
-        store_helper::get_flat_storage_status(&self.0.store, shard_uid)
-            .expect("failed to read flat storage status")
     }
 
     /// Creates `FlatStorageChunkView` to access state for `shard_uid` and block `block_hash`.
@@ -127,11 +121,18 @@ impl FlatStorageManager {
         flat_storages.get(&shard_uid).cloned()
     }
 
-    pub fn remove_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Result<(), StorageError> {
+    pub fn remove_flat_storage_for_shard(
+        &self,
+        shard_uid: ShardUId,
+        shard_layout: ShardLayout,
+    ) -> Result<(), StorageError> {
         let mut flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
 
-        if let Some(flat_store) = flat_storages.remove(&shard_uid) {
-            flat_store.clear_state()?;
+        match flat_storages.remove(&shard_uid) {
+            None => {}
+            Some(flat_storage) => {
+                flat_storage.clear_state(shard_layout)?;
+            }
         }
 
         Ok(())

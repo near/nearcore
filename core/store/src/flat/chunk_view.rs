@@ -1,11 +1,9 @@
 use crate::flat::store_helper;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::FlatStateValue;
 
 use crate::Store;
 
-use super::types::FlatStateIterator;
 use super::FlatStorage;
 
 /// Struct for getting value references from the flat storage, corresponding
@@ -50,15 +48,11 @@ impl FlatStorageChunkView {
         &'a self,
         from: Option<&[u8]>,
         to: Option<&[u8]>,
-    ) -> FlatStateIterator<'a> {
+    ) -> impl Iterator<Item = (Vec<u8>, Box<[u8]>)> + 'a {
         store_helper::iter_flat_state_entries(self.flat_storage.shard_uid(), &self.store, from, to)
     }
 
     pub fn get_head_hash(&self) -> CryptoHash {
         self.flat_storage.get_head_hash()
-    }
-
-    pub fn shard_uid(&self) -> ShardUId {
-        self.flat_storage.shard_uid()
     }
 }

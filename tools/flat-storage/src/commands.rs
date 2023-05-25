@@ -5,8 +5,9 @@ use near_chain::flat_storage_creator::FlatStorageShardCreator;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
+use near_primitives::state::FlatStateValue;
 use near_store::flat::{
-    inline_flat_state_values, store_helper, FlatStateDelta, FlatStateDeltaMetadata, FlatStateValue,
+    inline_flat_state_values, store_helper, FlatStateDelta, FlatStateDeltaMetadata,
     FlatStorageManager, FlatStorageStatus,
 };
 use near_store::{DBCol, Mode, NodeStorage, ShardUId, Store, StoreOpener};

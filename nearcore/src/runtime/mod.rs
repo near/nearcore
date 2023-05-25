@@ -51,10 +51,9 @@ use near_store::flat::{store_helper, FlatStorage, FlatStorageManager, FlatStorag
 use near_store::metadata::DbKind;
 use near_store::split_state::get_delayed_receipts;
 use near_store::{
-    checkpoint_hot_storage_and_cleanup_columns, get_genesis_hash, get_genesis_state_roots,
-    set_genesis_hash, set_genesis_state_roots, ApplyStatePartResult, DBCol, NodeStorage,
-    PartialStorage, ShardTries, Store, StoreCompiledContractCache, StoreConfig, StoreUpdate, Trie,
-    TrieConfig, WrappedTrieChanges, COLD_HEAD_KEY,
+    get_genesis_hash, get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots,
+    ApplyStatePartResult, DBCol, PartialStorage, ShardTries, Store, StoreCompiledContractCache,
+    StoreUpdate, Trie, TrieConfig, WrappedTrieChanges, COLD_HEAD_KEY,
 };
 use near_vm_runner::precompile_contract;
 use node_runtime::adapter::ViewRuntimeAdapter;
@@ -67,9 +66,8 @@ use node_runtime::{
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::{Path, PathBuf};
-use std::str::FromStr;
-use std::sync::{Arc, RwLock};
+use std::path::Path;
+use std::sync::Arc;
 use std::time::Instant;
 use tracing::{debug, error, info, warn};
 
@@ -93,11 +91,6 @@ pub struct NightshadeRuntime {
     genesis_state_roots: Vec<StateRoot>,
     migration_data: Arc<MigrationData>,
     gc_num_epochs_to_keep: u64,
-    // Needs a synchronization primitive because it can be concurrently accessed:
-    // * writes by StateSnapshotActor
-    // * reads by ViewClientActor
-    state_snapshot: Arc<RwLock<Option<StateSnapshot>>>,
-    state_snapshot_config: StateSnapshotConfig,
 }
 
 impl NightshadeRuntime {
@@ -107,17 +100,6 @@ impl NightshadeRuntime {
         config: &NearConfig,
         epoch_manager: Arc<EpochManagerHandle>,
     ) -> Arc<Self> {
-        let state_snapshot_config = if config.config.store.state_snapshot_enabled {
-            StateSnapshotConfig::Enabled {
-                home_dir: home_dir.to_path_buf(),
-                hot_store_path: config.config.store.path.clone().unwrap_or(PathBuf::from("data")),
-                state_snapshot_subdir: PathBuf::from("state_snapshot"),
-            }
-        } else {
-            StateSnapshotConfig::Disabled
-        };
-        let state_snapshot = maybe_open_state_snapshot(&state_snapshot_config, config).unwrap();
-
         Self::new(
             home_dir,
             store,
@@ -128,8 +110,6 @@ impl NightshadeRuntime {
             None,
             config.config.gc.gc_num_epochs_to_keep(),
             TrieConfig::from_store_config(&config.config.store),
-            state_snapshot_config,
-            state_snapshot,
         )
     }
 
@@ -143,8 +123,6 @@ impl NightshadeRuntime {
         runtime_config_store: Option<RuntimeConfigStore>,
         gc_num_epochs_to_keep: u64,
         trie_config: TrieConfig,
-        state_snapshot_config: StateSnapshotConfig,
-        state_snapshot: Option<StateSnapshot>,
     ) -> Arc<Self> {
         let runtime_config_store = match runtime_config_store {
             Some(store) => store,
@@ -182,8 +160,6 @@ impl NightshadeRuntime {
             genesis_state_roots: state_roots,
             migration_data: Arc::new(load_migration_data(&genesis.config.chain_id)),
             gc_num_epochs_to_keep: gc_num_epochs_to_keep.max(MIN_GC_NUM_EPOCHS_TO_KEEP),
-            state_snapshot: Arc::new(RwLock::new(state_snapshot)),
-            state_snapshot_config,
         })
     }
 
@@ -204,12 +180,6 @@ impl NightshadeRuntime {
             Some(runtime_config_store),
             DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
             Default::default(),
-            StateSnapshotConfig::Enabled {
-                home_dir: home_dir.to_path_buf(),
-                hot_store_path: PathBuf::from("data"),
-                state_snapshot_subdir: PathBuf::from("state_snapshot"),
-            },
-            None,
         )
     }
 
@@ -686,107 +656,6 @@ impl NightshadeRuntime {
         }
         Ok(epoch_start_height)
     }
-
-    /// Deletes a previously open state snapshot.
-    /// Drops the Store and deletes the files.
-    fn delete_state_snapshot(
-        &self,
-        prev_block_hash: &CryptoHash,
-        home_dir: &Path,
-        hot_store_path: &Path,
-        state_snapshot_subdir: &Path,
-    ) {
-        let _timer = metrics::DELETE_STATE_SNAPSHOT_ELAPSED.start_timer();
-        let _span =
-            tracing::info_span!(target: "state_snapshot", "delete_state_snapshot").entered();
-        let path = get_state_snapshot_base_dir(
-            prev_block_hash,
-            home_dir,
-            hot_store_path,
-            state_snapshot_subdir,
-        );
-        match std::fs::remove_dir_all(&path) {
-            Ok(_) => {
-                tracing::info!(target: "state_snapshot", ?path, ?prev_block_hash, "Deleted a state snapshot");
-            }
-            Err(err) => {
-                tracing::warn!(target: "state_snapshot", ?err, ?path, ?prev_block_hash, "Failed to delete a state snapshot");
-            }
-        }
-    }
-}
-
-/// Looks for directories on disk with names that look like `prev_block_hash`.
-/// Checks that there is at most one such directory. Opens it as a Store.
-fn maybe_open_state_snapshot(
-    state_snapshot_config: &StateSnapshotConfig,
-    config: &NearConfig,
-) -> Result<Option<StateSnapshot>, anyhow::Error> {
-    let _span =
-        tracing::info_span!(target: "state_snapshot", "maybe_open_state_snapshot").entered();
-    match state_snapshot_config {
-        StateSnapshotConfig::Disabled => {
-            tracing::debug!(target: "state_snapshot", "Disabled");
-            return Ok(None);
-        }
-        StateSnapshotConfig::Enabled { home_dir, hot_store_path, state_snapshot_subdir } => {
-            let path = get_state_snapshot_base_dir(
-                &CryptoHash::new(),
-                home_dir,
-                hot_store_path,
-                state_snapshot_subdir,
-            );
-            let parent_path =
-                path.parent().ok_or(anyhow::anyhow!("{path:?} needs to have a parent dir"))?;
-            tracing::debug!(target: "state_snapshot", ?path, ?parent_path);
-
-            let snapshots = match std::fs::read_dir(parent_path) {
-                Err(err) => {
-                    if err.kind() == std::io::ErrorKind::NotFound {
-                        tracing::debug!(target: "state_snapshot", ?parent_path, "State Snapshot base directory doesn't exist.");
-                        return Ok(None);
-                    } else {
-                        return Err(err.into());
-                    }
-                }
-                Ok(entries) => {
-                    let mut snapshots = vec![];
-                    for entry in entries.filter_map(Result::ok) {
-                        let file_name = entry
-                            .file_name()
-                            .into_string()
-                            .map_err(|err| anyhow::anyhow!("Can't display file_name: {err:?}"))?;
-                        if let Ok(prev_block_hash) = CryptoHash::from_str(&file_name) {
-                            snapshots.push((prev_block_hash, entry.path()));
-                        }
-                    }
-                    snapshots
-                }
-            };
-
-            if snapshots.is_empty() {
-                Ok(None)
-            } else if snapshots.len() == 1 {
-                let (prev_block_hash, snapshot_dir) = &snapshots[0];
-
-                let mut store_config = StoreConfig::default();
-                store_config.path = config.config.store.path.clone(); // Default is "data"
-
-                let opener = NodeStorage::opener(&snapshot_dir, false, &store_config, None);
-                let storage = opener.open()?;
-                let store = storage.get_hot_store();
-                let flat_storage_manager = FlatStorageManager::new(store.clone());
-                Ok(Some(StateSnapshot {
-                    store,
-                    prev_block_hash: *prev_block_hash,
-                    flat_storage_manager,
-                }))
-            } else {
-                tracing::error!(target: "runtime", ?snapshots, "Detected multiple state snapshots. Please keep at most one snapshot and delete others.");
-                Err(anyhow::anyhow!("More than one state snapshot detected {:?}", snapshots))
-            }
-        }
-    }
 }
 
 fn format_total_gas_burnt(gas: Gas) -> String {
@@ -848,7 +717,9 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<Trie, Error> {
         let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_hash)?;
         if use_flat_storage {
-            Ok(self.tries.get_trie_with_block_hash_for_shard(shard_uid, state_root, prev_hash))
+            Ok(self
+                .tries
+                .get_trie_with_block_hash_for_shard(shard_uid, state_root, prev_hash, false))
         } else {
             Ok(self.tries.get_trie_for_shard(shard_uid, state_root))
         }
@@ -1338,12 +1209,11 @@ impl RuntimeAdapter for NightshadeRuntime {
         part_id: PartId,
     ) -> Result<Vec<u8>, Error> {
         let _span = tracing::debug_span!(
-            target: "state_snapshot",
+            target: "runtime",
             "obtain_state_part",
             part_id = part_id.idx,
             shard_id,
             %prev_hash,
-            ?state_root,
             num_parts = part_id.total)
         .entered();
         let _timer = metrics::STATE_SYNC_OBTAIN_PART_DELAY
@@ -1352,43 +1222,21 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
-
-        let (store, flat_storage_manager, prev_block_hash) = {
-            let lock = self.state_snapshot.read().unwrap();
-            if lock.is_none() {
-                tracing::warn!(target: "state_snapshot", "No state snapshot in obtain_state_part()");
-                return Err(Error::Other("No state snapshot available".to_string()));
-            }
-            let data = lock.as_ref().unwrap();
-            tracing::debug!(
-                target: "state_snapshot",
-                snapshot_prev_block_hash = ?data.prev_block_hash,
-                requested_prev_hash = ?prev_hash,
-                ?state_root,
-                "obtain_state_part");
-            (data.store.clone(), data.flat_storage_manager.clone(), data.prev_block_hash)
-        };
-
-        let trie = self.tries.get_view_trie_for_shard_uid_with_custom_store(
-            shard_uid,
-            *state_root,
-            Some(prev_block_hash),
-            store,
-            flat_storage_manager,
-        );
-
-        let result = match trie.get_trie_nodes_for_part(part_id) {
+        let trie =
+            self.tries.get_trie_with_block_hash_for_shard(shard_uid, *state_root, &prev_hash, true);
+        let result = match trie.get_trie_nodes_for_part(prev_hash, part_id) {
             Ok(partial_state) => partial_state,
             Err(e) => {
-                tracing::error!(target: "state_snapshot",
-                       "Can't get_trie_nodes_for_part for block {:?} state root {:?}, part_id {:?}, num_parts {:?}, {:?}",
-                       prev_hash, state_root, part_id.idx, part_id.total, e
+                error!(target: "runtime",
+                    "Can't get trie nodes for state part {}/{} for prev hash \
+                    {prev_hash} and state root {state_root}: {:?}",
+                    part_id.idx, part_id.total, e
                 );
                 return Err(e.into());
             }
         }
-            .try_to_vec()
-            .expect("serializer should not fail");
+        .try_to_vec()
+        .expect("serializer should not fail");
         Ok(result)
     }
 
@@ -1577,130 +1425,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         let epoch_manager = self.epoch_manager.read();
         Ok(epoch_manager.will_shard_layout_change(parent_hash)?)
     }
-
-    fn make_state_snapshot(&self, prev_block_hash: &CryptoHash) -> Result<(), Error> {
-        let _span =
-            tracing::info_span!(target: "state_snapshot", "make_state_snapshot", ?prev_block_hash)
-                .entered();
-        tracing::info!(target: "state_snapshot", ?prev_block_hash, "make_state_snapshot");
-        match &self.state_snapshot_config {
-            StateSnapshotConfig::Disabled => {
-                tracing::info!(target: "state_snapshot", "State Snapshots are disabled");
-                Ok(())
-            }
-            StateSnapshotConfig::Enabled { home_dir, hot_store_path, state_snapshot_subdir } => {
-                let _timer = metrics::MAKE_STATE_SNAPSHOT_ELAPSED.start_timer();
-                let mut state_snapshot_lock = self.state_snapshot.write().unwrap();
-                if let Some(state_snapshot) = &*state_snapshot_lock {
-                    if &state_snapshot.prev_block_hash == prev_block_hash {
-                        tracing::warn!(target: "state_snapshot", ?prev_block_hash, "Requested a state snapshot but that is already available");
-                        return Ok(());
-                    } else {
-                        let prev_block_hash = state_snapshot.prev_block_hash;
-                        // Drop Store before deleting the underlying data.
-                        *state_snapshot_lock = None;
-                        self.delete_state_snapshot(
-                            &prev_block_hash,
-                            home_dir,
-                            hot_store_path,
-                            state_snapshot_subdir,
-                        );
-                    }
-                }
-
-                let storage = checkpoint_hot_storage_and_cleanup_columns(
-                    &self.store,
-                    &get_state_snapshot_base_dir(
-                        prev_block_hash,
-                        home_dir,
-                        hot_store_path,
-                        state_snapshot_subdir,
-                    ),
-                    Some(vec![
-                        // Keep DbVersion and BlockMisc, otherwise you'll not be able to open the state snapshot as a Store.
-                        DBCol::DbVersion,
-                        DBCol::BlockMisc,
-                        // Flat storage columns.
-                        DBCol::FlatState,
-                        DBCol::FlatStateChanges,
-                        DBCol::FlatStateDeltaMetadata,
-                        DBCol::FlatStorageStatus,
-                        // TODO: Remove after merging with FS
-                        DBCol::State,
-                    ]),
-                )
-                .map_err(|err| Error::Other(err.to_string()))?;
-                let store = storage.get_hot_store();
-                let flat_storage_manager = FlatStorageManager::new(store.clone());
-                *state_snapshot_lock = Some(StateSnapshot {
-                    store,
-                    prev_block_hash: *prev_block_hash,
-                    flat_storage_manager,
-                });
-
-                tracing::info!(target: "state_snapshot", ?prev_block_hash, "Made a checkpoint");
-                Ok(())
-            }
-        }
-    }
-
-    fn compact_state_snapshot(&self, prev_block_hash: &CryptoHash) -> Result<(), Error> {
-        let _span =
-            tracing::info_span!(target: "state_snapshot", "compact_state_snapshot", ?prev_block_hash)
-                .entered();
-        tracing::info!(target: "state_snapshot", ?prev_block_hash, "compact_state_snapshot");
-
-        let state_snapshot_lock = self.state_snapshot.write().unwrap();
-        if let Some(state_snapshot) = &*state_snapshot_lock {
-            if &state_snapshot.prev_block_hash != prev_block_hash {
-                tracing::warn!(target: "state_snapshot", ?prev_block_hash, "Requested compaction of a state snapshot with a different prev_hash. Ignoring.");
-                Ok(())
-            } else {
-                let _timer = metrics::COMPACT_STATE_SNAPSHOT_ELAPSED.start_timer();
-                Ok(state_snapshot.store.compact()?)
-            }
-        } else {
-            tracing::warn!(target: "state_snapshot", ?prev_block_hash, "Requested compaction but no state snapshot is available.");
-            Ok(())
-        }
-    }
-}
-
-/// Snapshot of the state at the epoch boundary.
-struct StateSnapshot {
-    /// The state snapshot represents the state including changes of the next block of this block.
-    prev_block_hash: CryptoHash,
-    /// Read-only store.
-    store: Store,
-    /// Access to flat storage in that store.
-    flat_storage_manager: FlatStorageManager,
-}
-
-/// Information needed to make a state snapshot.
-#[derive(Debug)]
-enum StateSnapshotConfig {
-    /// Don't make any state snapshots.
-    Disabled,
-    Enabled {
-        home_dir: PathBuf,
-        hot_store_path: PathBuf,
-        state_snapshot_subdir: PathBuf,
-    },
-}
-
-fn get_state_snapshot_base_dir(
-    prev_block_hash: &CryptoHash,
-    home_dir: &Path,
-    hot_store_path: &Path,
-    state_snapshot_subdir: &Path,
-) -> PathBuf {
-    // Assumptions:
-    // * RocksDB checkpoints are taken instantly and for free, because the filesystem supports hard links.
-    // * Assumes that the best place for the checkpoints is withing the `~/.near/data` directory, because that directory is often a separate disk.
-    home_dir
-        .join(hot_store_path)
-        .join(state_snapshot_subdir)
-        .join(format!("{}", prev_block_hash))
 }
 
 impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
@@ -1979,8 +1703,6 @@ mod test {
                 Some(RuntimeConfigStore::free()),
                 DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
                 Default::default(),
-                StateSnapshotConfig::Disabled,
-                None,
             );
             let (_store, state_roots) = runtime.genesis_state();
             let genesis_hash = hash(&[0]);
