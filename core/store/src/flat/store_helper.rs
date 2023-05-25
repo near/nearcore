@@ -181,6 +181,7 @@ mod tests {
     use crate::flat::store_helper::set_flat_state_value;
     use crate::flat::FlatStateValue;
     use crate::test_utils::create_test_store;
+    use borsh::BorshDeserialize;
     use near_primitives::shard_layout::ShardUId;
 
     #[test]
@@ -214,7 +215,10 @@ mod tests {
 
             assert_eq!(entries.get(0).unwrap().0, key);
             let actual_val = &entries.get(0).unwrap().1;
-            assert_eq!(actual_val[actual_val.len() - 4..].to_vec(), val);
+            assert_eq!(
+                FlatStateValue::try_from_slice(actual_val).unwrap(),
+                FlatStateValue::inlined(&val)
+            );
         }
     }
 }
