@@ -17,7 +17,6 @@
 //! necessary to prove its position in the list of prefix sums.
 
 use std::collections::{HashMap, HashSet};
-use std::iter::Empty;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
