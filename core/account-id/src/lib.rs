@@ -377,7 +377,7 @@ impl<'a> arbitrary::Arbitrary<'a> for AccountId {
     }
 
     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
-        let s = u.arbitrary::<String>()?;
+        let s = u.arbitrary::<&str>()?;
         match s.parse::<AccountId>() {
             Ok(account_id) => return Ok(account_id),
             Err(e) => {
