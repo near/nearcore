@@ -381,7 +381,7 @@ impl<'a> arbitrary::Arbitrary<'a> for AccountId {
         match s.parse::<AccountId>() {
             Ok(account_id) => return Ok(account_id),
             Err(e) => {
-                if let Some(valid_up_to) = e.char.map(|(i, _)| i) {
+                if let Some((valid_up_to, _)) = e.char {
                     let valid = &s[..valid_up_to];
                     debug_assert!(AccountId::validate(valid).is_ok());
                     #[allow(deprecated)]
