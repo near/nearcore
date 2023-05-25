@@ -112,16 +112,6 @@ impl NightshadeRuntime {
                 home_dir: home_dir.to_path_buf(),
                 hot_store_path: config.config.store.path.clone().unwrap_or(PathBuf::from("data")),
                 state_snapshot_subdir: PathBuf::from("state_snapshot"),
-                columns_to_keep: Some(vec![
-                    // Keep DbVersion and BlockMisc, otherwise you'll not be able to open the state snapshot as a Store.
-                    DBCol::DbVersion,
-                    DBCol::BlockMisc,
-                    // Flat storage columns.
-                    DBCol::FlatState,
-                    DBCol::FlatStateChanges,
-                    DBCol::FlatStateDeltaMetadata,
-                    DBCol::FlatStorageStatus,
-                ]),
             }
         } else {
             StateSnapshotConfig::Disabled
@@ -214,7 +204,11 @@ impl NightshadeRuntime {
             Some(runtime_config_store),
             DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
             Default::default(),
-            StateSnapshotConfig::Disabled,
+            StateSnapshotConfig::Enabled {
+                home_dir: home_dir.to_path_buf(),
+                hot_store_path: PathBuf::from("data"),
+                state_snapshot_subdir: PathBuf::from("state_snapshot"),
+            },
             None,
         )
     }
@@ -735,12 +729,7 @@ fn maybe_open_state_snapshot(
             tracing::debug!(target: "state_snapshot", "Disabled");
             return Ok(None);
         }
-        StateSnapshotConfig::Enabled {
-            home_dir,
-            hot_store_path,
-            state_snapshot_subdir,
-            columns_to_keep: _,
-        } => {
+        StateSnapshotConfig::Enabled { home_dir, hot_store_path, state_snapshot_subdir } => {
             let path = get_state_snapshot_base_dir(
                 &CryptoHash::new(),
                 home_dir,
@@ -1366,20 +1355,9 @@ impl RuntimeAdapter for NightshadeRuntime {
                 return Err(Error::Other("No state snapshot available".to_string()));
             }
             let data = lock.as_ref().unwrap();
-            tracing::debug!(target: "state_snapshot", snapshot_prev_block_hash = ?data.prev_block_hash, snapshot_prev_block_hash = ?data.prev_block_hash, "obtain_state_part_from_snapshot");
+            tracing::debug!(target: "state_snapshot", snapshot_prev_block_hash = ?data.prev_block_hash, requested_prev_hash = ?prev_hash, "obtain_state_part");
             (data.store.clone(), data.flat_storage_manager.clone(), data.prev_block_hash)
         };
-
-        if prev_hash != &prev_block_hash {
-            tracing::warn!(target: "state_snapshot", snapshot_prev_hash = %prev_block_hash, %prev_hash, "State Snapshot is for a different block");
-            return Err(Error::Other(
-                format!(
-                    "Mismatch prev_hash. Snapshot: {}, Requested: {}",
-                    prev_block_hash, prev_hash
-                )
-                .to_string(),
-            ));
-        }
 
         let trie = self.tries.get_view_trie_for_shard_uid_with_custom_store(
             shard_uid,
@@ -1600,12 +1578,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 tracing::info!(target: "state_snapshot", "State Snapshots are disabled");
                 Ok(())
             }
-            StateSnapshotConfig::Enabled {
-                home_dir,
-                hot_store_path,
-                state_snapshot_subdir,
-                columns_to_keep,
-            } => {
+            StateSnapshotConfig::Enabled { home_dir, hot_store_path, state_snapshot_subdir } => {
                 let _timer = metrics::MAKE_STATE_SNAPSHOT_ELAPSED.start_timer();
                 let mut state_snapshot_lock = self.state_snapshot.write().unwrap();
                 if let Some(state_snapshot) = &*state_snapshot_lock {
@@ -1633,13 +1606,22 @@ impl RuntimeAdapter for NightshadeRuntime {
                         hot_store_path,
                         state_snapshot_subdir,
                     ),
-                    columns_to_keep.clone(),
+                    Some(vec![
+                        // Keep DbVersion and BlockMisc, otherwise you'll not be able to open the state snapshot as a Store.
+                        DBCol::DbVersion,
+                        DBCol::BlockMisc,
+                        // Flat storage columns.
+                        DBCol::FlatState,
+                        DBCol::FlatStateChanges,
+                        DBCol::FlatStateDeltaMetadata,
+                        DBCol::FlatStorageStatus,
+                    ]),
                 )
                 .map_err(|err| Error::Other(err.to_string()))?;
                 let store = storage.get_hot_store();
                 let flat_storage_manager = FlatStorageManager::new(store.clone());
                 *state_snapshot_lock = Some(StateSnapshot {
-                    store: store.clone(),
+                    store,
                     prev_block_hash: *prev_block_hash,
                     flat_storage_manager,
                 });
@@ -1691,7 +1673,6 @@ enum StateSnapshotConfig {
         home_dir: PathBuf,
         hot_store_path: PathBuf,
         state_snapshot_subdir: PathBuf,
-        columns_to_keep: Option<Vec<DBCol>>,
     },
 }
 
@@ -1701,7 +1682,7 @@ fn get_state_snapshot_base_dir(
     hot_store_path: &Path,
     state_snapshot_subdir: &Path,
 ) -> PathBuf {
-    // This makes an assumption that:
+    // Assumptions:
     // * RocksDB checkpoints are taken instantly and for free, because the filesystem supports hard links.
     // * Assumes that the best place for the checkpoints is withing the `~/.near/data` directory, because that directory is often a separate disk.
     home_dir

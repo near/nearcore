@@ -859,7 +859,7 @@ mod tests {
 
     #[test]
     fn telemetry_info() {
-        let config = ClientConfig::test(false, 1230, 2340, 50, false, true, true);
+        let config = ClientConfig::test(false, 1230, 2340, 50, false, true, true, true);
         let info_helper = InfoHelper::new(None, &config, None);
 
         let store = near_store::test_utils::create_test_store();
