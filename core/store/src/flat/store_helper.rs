@@ -195,16 +195,16 @@ mod tests {
             let key: Vec<u8> = vec![0, 1, i as u8];
             let val: Vec<u8> = vec![0, 1, 2, i as u8];
 
-            // Add value to store state
-            assert!(set_flat_state_value(
+            // Add value to FlatState
+            set_flat_state_value(
                 &mut store_update,
                 *shard_uid,
                 key.clone(),
                 Some(FlatStateValue::inlined(&val)),
             )
-            .is_ok());
+            .unwrap();
 
-            assert!(store_update.commit().is_ok());
+            store_update.commit().unwrap();
         }
 
         for (i, shard_uid) in shard_uids.iter().enumerate() {
