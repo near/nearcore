@@ -84,6 +84,8 @@ impl actix::Handler<WithSpanContext<CompactSnapshotRequest>> for StateSnapshotAc
 
         if let Err(err) = self.runtime_adapter.compact_state_snapshot(&prev_block_hash) {
             tracing::error!(target: "state_snapshot", ?prev_block_hash, ?err, "State snapshot compaction failed");
+        } else {
+            tracing::info!(target: "state_snapshot", ?prev_block_hash, "State snapshot compaction succeeded");
         }
     }
 }

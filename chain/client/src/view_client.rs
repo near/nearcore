@@ -1312,6 +1312,7 @@ impl Handler<WithSpanContext<StateRequestPart>> for ViewClientActor {
                     Ok(part) => Some((part_id, part)),
                     Err(e) => {
                         error!(target: "sync", "Cannot build sync part #{:?} (get_state_response_part): {}", part_id, e);
+                        std::process::exit(-1);
                         None
                     }
                 };

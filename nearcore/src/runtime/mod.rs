@@ -1339,6 +1339,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             part_id = part_id.idx,
             shard_id,
             %prev_hash,
+            ?state_root,
             num_parts = part_id.total)
         .entered();
         let _timer = metrics::STATE_SYNC_OBTAIN_PART_DELAY
@@ -1355,7 +1356,12 @@ impl RuntimeAdapter for NightshadeRuntime {
                 return Err(Error::Other("No state snapshot available".to_string()));
             }
             let data = lock.as_ref().unwrap();
-            tracing::debug!(target: "state_snapshot", snapshot_prev_block_hash = ?data.prev_block_hash, requested_prev_hash = ?prev_hash, "obtain_state_part");
+            tracing::debug!(
+                target: "state_snapshot",
+                snapshot_prev_block_hash = ?data.prev_block_hash,
+                requested_prev_hash = ?prev_hash,
+                ?state_root,
+                "obtain_state_part");
             (data.store.clone(), data.flat_storage_manager.clone(), data.prev_block_hash)
         };
 
@@ -1606,16 +1612,20 @@ impl RuntimeAdapter for NightshadeRuntime {
                         hot_store_path,
                         state_snapshot_subdir,
                     ),
-                    Some(vec![
-                        // Keep DbVersion and BlockMisc, otherwise you'll not be able to open the state snapshot as a Store.
-                        DBCol::DbVersion,
-                        DBCol::BlockMisc,
-                        // Flat storage columns.
-                        DBCol::FlatState,
-                        DBCol::FlatStateChanges,
-                        DBCol::FlatStateDeltaMetadata,
-                        DBCol::FlatStorageStatus,
-                    ]),
+                    if false {
+                        None
+                    } else {
+                        Some(vec![
+                            // Keep DbVersion and BlockMisc, otherwise you'll not be able to open the state snapshot as a Store.
+                            DBCol::DbVersion,
+                            DBCol::BlockMisc,
+                            // Flat storage columns.
+                            DBCol::FlatState,
+                            DBCol::FlatStateChanges,
+                            DBCol::FlatStateDeltaMetadata,
+                            DBCol::FlatStorageStatus,
+                        ])
+                    }
                 )
                 .map_err(|err| Error::Other(err.to_string()))?;
                 let store = storage.get_hot_store();
