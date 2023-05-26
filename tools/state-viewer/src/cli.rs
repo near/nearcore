@@ -644,6 +644,7 @@ impl TrieIterationBenchmarkCmd {
 
         for (i, chunk_header) in block.chunks().iter().enumerate() {
             if chunk_header.height_included() != block.header().height() {
+                println!("chunk {i} is missing");
                 continue;
             }
             let shard_uid = ShardUId::from_shard_id_and_layout(i as ShardId, &shard_layout);
@@ -667,7 +668,15 @@ impl TrieIterationBenchmarkCmd {
             let start = Instant::now();
             let mut node_count = 0;
             let mut error_count = 0;
-            for item in trie.iter().unwrap() {
+            let iter = trie.iter();
+            let iter = match iter {
+                Ok(iter) => iter,
+                Err(err) => {
+                    println!("iter error {err:#?}");
+                    continue;
+                }
+            };
+            for item in iter {
                 node_count += 1;
                 if let Some(limit) = self.limit {
                     if limit < node_count {
