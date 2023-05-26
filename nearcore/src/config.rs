@@ -334,9 +334,10 @@ pub struct Config {
     /// Options for syncing state.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state_sync: Option<StateSyncConfig>,
-    /// Test-only option to make state snapshots every N blocks.
+    /// Limit of the size of per-shard transaction pool measured in bytes. If not set, the size
+    /// will be unbounded.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub state_snapshot_every_n_blocks: Option<u64>,
+    pub transaction_pool_size_limit: Option<u64>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -374,7 +375,7 @@ impl Default for Config {
             expected_shutdown: None,
             state_sync: None,
             state_sync_enabled: None,
-            state_snapshot_every_n_blocks: None,
+            transaction_pool_size_limit: None,
         }
     }
 }
@@ -684,8 +685,7 @@ impl NearConfig {
                 flat_storage_creation_period: config.store.flat_storage_creation_period,
                 state_sync_enabled: config.state_sync_enabled.unwrap_or(false),
                 state_sync: config.state_sync.unwrap_or_default(),
-                transaction_pool_size_limit: None,
-                state_snapshot_every_n_blocks: config.state_snapshot_every_n_blocks,
+                transaction_pool_size_limit: config.transaction_pool_size_limit,
             },
             network_config: NetworkConfig::new(
                 config.network,
@@ -1495,7 +1495,6 @@ pub fn load_test_config(seed: &str, addr: tcp::ListenerAddr, genesis: Genesis) -
         Duration::from_millis(FAST_MIN_BLOCK_PRODUCTION_DELAY);
     config.consensus.max_block_production_delay =
         Duration::from_millis(FAST_MAX_BLOCK_PRODUCTION_DELAY);
-    config.store.state_snapshot_enabled = true;
     let (signer, validator_signer) = if seed.is_empty() {
         let signer =
             Arc::new(InMemorySigner::from_random("node".parse().unwrap(), KeyType::ED25519));
