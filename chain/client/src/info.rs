@@ -197,6 +197,7 @@ impl InfoHelper {
         if let Ok(epoch_info) = epoch_info {
             metrics::VALIDATORS_CHUNKS_EXPECTED_IN_EPOCH.reset();
             metrics::VALIDATORS_BLOCKS_EXPECTED_IN_EPOCH.reset();
+            metrics::BLOCK_PRODUCER_STAKE.reset();
 
             let epoch_height = epoch_info.epoch_height().to_string();
 
@@ -218,6 +219,12 @@ impl InfoHelper {
             }
 
             stake_per_bp.iter().for_each(|(&id, &stake)| {
+                metrics::BLOCK_PRODUCER_STAKE
+                    .with_label_values(&[
+                        epoch_info.get_validator(id).account_id().as_str(),
+                        &epoch_height,
+                    ])
+                    .set((stake / 1e24 as u128) as i64);
                 metrics::VALIDATORS_BLOCKS_EXPECTED_IN_EPOCH
                     .with_label_values(&[
                         epoch_info.get_validator(id).account_id().as_str(),
