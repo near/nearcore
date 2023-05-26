@@ -94,6 +94,7 @@ impl RuntimeUser {
                     ShardUId::single_shard(),
                     client.state_root,
                     &CryptoHash::default(),
+                    false,
                 )
             } else {
                 client.tries.get_trie_for_shard(ShardUId::single_shard(), client.state_root)
