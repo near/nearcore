@@ -109,10 +109,7 @@ impl OwnedIpAddress {
     /// Sign with a given SecretKey, but must not store it.
     pub fn sign(self, secret_key: &near_crypto::SecretKey) -> SignedOwnedIpAddress {
         let signature = secret_key.sign(&self.ip_bytes());
-        SignedOwnedIpAddress {
-            owned_ip_address: self,
-            signature_ip_address: signature,
-        }
+        SignedOwnedIpAddress { owned_ip_address: self, signature_ip_address: signature }
     }
 }
 

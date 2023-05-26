@@ -3,7 +3,9 @@ use super::*;
 
 use crate::network_protocol::proto;
 use crate::network_protocol::PeerAddr;
-use crate::network_protocol::{Edge, PartialEdgeInfo, PeerInfo, OwnedIpAddress, SignedOwnedIpAddress};
+use crate::network_protocol::{
+    Edge, OwnedIpAddress, PartialEdgeInfo, PeerInfo, SignedOwnedIpAddress,
+};
 use borsh::{BorshDeserialize as _, BorshSerialize as _};
 use near_primitives::network::AnnounceAccount;
 use protobuf::MessageField as MF;
@@ -17,7 +19,7 @@ pub enum ParseIpAddrError {
     InvalidIP,
 }
 
-impl From<&std::net::IpAddr> for proto::IpAddr{
+impl From<&std::net::IpAddr> for proto::IpAddr {
     fn from(x: &std::net::IpAddr) -> Self {
         Self {
             ip: match x {
@@ -51,19 +53,14 @@ pub enum ParseOwnedIpAddrError {
 
 impl From<&OwnedIpAddress> for proto::OwnedIpAddr {
     fn from(x: &OwnedIpAddress) -> Self {
-        Self {
-            ip_addr: MF::some((&x.ip_address).into()),
-            ..Self::default()
-        }
+        Self { ip_addr: MF::some((&x.ip_address).into()), ..Self::default() }
     }
 }
 
 impl TryFrom<&proto::OwnedIpAddr> for OwnedIpAddress {
     type Error = ParseOwnedIpAddrError;
     fn try_from(p: &proto::OwnedIpAddr) -> Result<Self, Self::Error> {
-        Ok(Self {
-            ip_address: try_from_required(&p.ip_addr).map_err(Self::Error::IpAddr)?,
-        })
+        Ok(Self { ip_address: try_from_required(&p.ip_addr).map_err(Self::Error::IpAddr)? })
     }
 }
 
@@ -91,8 +88,10 @@ impl TryFrom<&proto::SignedOwnedIpAddr> for SignedOwnedIpAddress {
     type Error = ParseSignedOwnedIpAddrError;
     fn try_from(p: &proto::SignedOwnedIpAddr) -> Result<Self, Self::Error> {
         Ok(Self {
-            owned_ip_address: try_from_required(&p.owned_ip_addr).map_err(Self::Error::OwnedIpAddr)?,
-            signature_ip_address: try_from_required(&p.signature_ip_addr).map_err(Self::Error::Signature)?,
+            owned_ip_address: try_from_required(&p.owned_ip_addr)
+                .map_err(Self::Error::OwnedIpAddr)?,
+            signature_ip_address: try_from_required(&p.signature_ip_addr)
+                .map_err(Self::Error::Signature)?,
         })
     }
 }

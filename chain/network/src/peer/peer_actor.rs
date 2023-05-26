@@ -424,10 +424,9 @@ impl PeerActor {
             } else {
                 (0, vec![])
             };
-            let owned_ip_address = OwnedIpAddress {
-                ip_address: self.my_node_info.addr.unwrap().ip()
-            };
-            let my_signed_owned_ip_address: SignedOwnedIpAddress = owned_ip_address.sign(&self.network_state.config.node_key);
+        let owned_ip_address = OwnedIpAddress { ip_address: self.my_node_info.addr.unwrap().ip() };
+        let my_signed_owned_ip_address: SignedOwnedIpAddress =
+            owned_ip_address.sign(&self.network_state.config.node_key);
         let handshake = Handshake {
             protocol_version: spec.protocol_version,
             oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION,
@@ -586,7 +585,7 @@ impl PeerActor {
                 return;
             }
         } // else do nothing as temporary leniency for backward compatibility purposes
-        // TODO(soon): Fail the handshake if its doesn't include the required signed_owned_ip_address after all production nodes have upgraded to latest handshake protocol
+          // TODO(soon): Fail the handshake if its doesn't include the required signed_owned_ip_address after all production nodes have upgraded to latest handshake protocol
 
         // Verify that handshake.owned_account is valid.
         if let Some(owned_account) = &handshake.owned_account {

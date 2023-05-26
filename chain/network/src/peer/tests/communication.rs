@@ -200,7 +200,8 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
     let outbound_port = outbound_stream.local_addr.port();
     let mut outbound = Stream::new(outbound_encoding, outbound_stream);
     let ip_addr = outbound.stream.local_addr.ip();
-    let signed_owned_ip_address = make_signed_owned_ip_addr(&ip_addr, &outbound_cfg.network.node_key);
+    let signed_owned_ip_address =
+        make_signed_owned_ip_addr(&ip_addr, &outbound_cfg.network.node_key);
 
     // Send too old PROTOCOL_VERSION, expect ProtocolVersionMismatch
     let mut handshake = Handshake {
@@ -251,7 +252,10 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
     assert_matches!(resp, PeerMessage::Tier2Handshake(_));
 }
 
-async fn test_backward_compatible_handshake_without_signed_ip_address(outbound_encoding: Option<Encoding>, inbound_encoding: Option<Encoding>) {
+async fn test_backward_compatible_handshake_without_signed_ip_address(
+    outbound_encoding: Option<Encoding>,
+    inbound_encoding: Option<Encoding>,
+) {
     let mut rng = make_rng(89028037453);
     let mut clock = time::FakeClock::default();
 

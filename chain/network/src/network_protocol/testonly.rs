@@ -332,15 +332,20 @@ impl Chain {
     }
 }
 
-pub fn make_signed_owned_ip_addr(ip_addr: &std::net::IpAddr, secret_key: &near_crypto::SecretKey) -> SignedOwnedIpAddress {
-    let owned_ip_address = OwnedIpAddress {
-        ip_address: ip_addr.clone()
-    };
+pub fn make_signed_owned_ip_addr(
+    ip_addr: &std::net::IpAddr,
+    secret_key: &near_crypto::SecretKey,
+) -> SignedOwnedIpAddress {
+    let owned_ip_address = OwnedIpAddress { ip_address: ip_addr.clone() };
     let signed_owned_ip_address: SignedOwnedIpAddress = owned_ip_address.sign(secret_key);
     return signed_owned_ip_address;
 }
 
-pub fn make_handshake_with_ip<R: Rng>(rng: &mut R, chain: &Chain, ip_addr: Option<std::net::IpAddr>) -> Handshake {
+pub fn make_handshake_with_ip<R: Rng>(
+    rng: &mut R,
+    chain: &Chain,
+    ip_addr: Option<std::net::IpAddr>,
+) -> Handshake {
     let sender = make_signer(rng);
     let target = make_signer(rng);
     let sender_id = PeerId::new(sender.public_key);

@@ -452,18 +452,17 @@ impl NetworkConfig {
         if !(self.node_addr.is_some()) {
             anyhow::bail!("no node address given that is necessary for near network handshake");
         }
-        let owned_ip_address = OwnedIpAddress {
-            ip_address: self.node_addr.unwrap().ip(),
-        };
+        let owned_ip_address = OwnedIpAddress { ip_address: self.node_addr.unwrap().ip() };
         let my_node_id = self.node_id();
-        let my_signed_owned_ip_address: SignedOwnedIpAddress = owned_ip_address.sign(&self.node_key);
+        let my_signed_owned_ip_address: SignedOwnedIpAddress =
+            owned_ip_address.sign(&self.node_key);
         if !(my_signed_owned_ip_address.verify(my_node_id.public_key())) {
             anyhow::bail!("Unable to sign and verify ip address with given node_key");
         }
         Ok(VerifiedConfig {
             node_id: my_node_id,
             inner: self,
-            signed_owned_ip_address: my_signed_owned_ip_address
+            signed_owned_ip_address: my_signed_owned_ip_address,
         })
     }
 }

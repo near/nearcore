@@ -183,13 +183,15 @@ fn serialize_deserialize_ip_addr() {
 
     // Convert IpAddr to proto::IpAddr for protocol buffer serialization
     let ip_addr_before_serialize: net::IpAddr = data::make_ipv4(&mut rng);
-    let proto_ip_addr_before_serialize: proto::IpAddr = proto::IpAddr::from(&ip_addr_before_serialize);
+    let proto_ip_addr_before_serialize: proto::IpAddr =
+        proto::IpAddr::from(&ip_addr_before_serialize);
     // Serialize and deserialize for transporting over the network
     let ip_addr_bytes: Vec<u8> = proto_ip_addr_before_serialize.write_to_bytes().unwrap();
     let proto_ip_addr_after_deserialize = proto::IpAddr::parse_from_bytes(&ip_addr_bytes).unwrap();
-    assert_eq!(proto_ip_addr_before_serialize,  proto_ip_addr_after_deserialize);
+    assert_eq!(proto_ip_addr_before_serialize, proto_ip_addr_after_deserialize);
     // Convert proto::IpAddr back to IpAddr to be independent of protocol buffer in near network
-    let result_deserialized_actual_ip_addr = net::IpAddr::try_from(&proto_ip_addr_after_deserialize);
+    let result_deserialized_actual_ip_addr =
+        net::IpAddr::try_from(&proto_ip_addr_after_deserialize);
     assert!(result_deserialized_actual_ip_addr.is_ok());
     let deserialized_actual_ip_addr = result_deserialized_actual_ip_addr.unwrap();
     assert_eq!(ip_addr_before_serialize, deserialized_actual_ip_addr);
@@ -212,9 +214,7 @@ fn sign_and_verify_ip_addr_with_peer_id() {
     assert!(signature.verify(&ip_bytes, peer_id.public_key()));
 
     // Wrap ip address sign and verify algorithm with interfaces: OwnedIpAddress and SignedOwnedIpAddress
-    let owned_ip_address = OwnedIpAddress {
-        ip_address: ip_addr.clone(),
-    };
+    let owned_ip_address = OwnedIpAddress { ip_address: ip_addr.clone() };
     let signed_owned_ip_address: SignedOwnedIpAddress = owned_ip_address.sign(&node_key);
     assert!(signed_owned_ip_address.verify(&node_key.public_key()));
     assert!(signed_owned_ip_address.verify(peer_id.public_key()));
@@ -224,18 +224,20 @@ fn sign_and_verify_ip_addr_with_peer_id() {
 fn serialize_deserialize_owned_ip_address() {
     let mut rng = make_rng(89028037453);
     let ip_addr: net::IpAddr = data::make_ipv4(&mut rng);
-    let owned_ip_addr_before_serialize = OwnedIpAddress {
-        ip_address: ip_addr.clone(),
-    };
+    let owned_ip_addr_before_serialize = OwnedIpAddress { ip_address: ip_addr.clone() };
 
     // Convert OwnedIpAddress to proto::OwnedIpAddr for protocol buffer serialization
-    let proto_owned_ip_addr_before_serialize: proto::OwnedIpAddr = proto::OwnedIpAddr::from(&owned_ip_addr_before_serialize);
+    let proto_owned_ip_addr_before_serialize: proto::OwnedIpAddr =
+        proto::OwnedIpAddr::from(&owned_ip_addr_before_serialize);
     // Serialize and deserialize for transporting over the network
-    let owned_ip_addr_bytes: Vec<u8> = proto_owned_ip_addr_before_serialize.write_to_bytes().unwrap();
-    let proto_owned_ip_addr_after_deserialize: proto::OwnedIpAddr = proto::OwnedIpAddr::parse_from_bytes(&owned_ip_addr_bytes).unwrap();
-    assert_eq!(proto_owned_ip_addr_before_serialize,  proto_owned_ip_addr_after_deserialize);
+    let owned_ip_addr_bytes: Vec<u8> =
+        proto_owned_ip_addr_before_serialize.write_to_bytes().unwrap();
+    let proto_owned_ip_addr_after_deserialize: proto::OwnedIpAddr =
+        proto::OwnedIpAddr::parse_from_bytes(&owned_ip_addr_bytes).unwrap();
+    assert_eq!(proto_owned_ip_addr_before_serialize, proto_owned_ip_addr_after_deserialize);
     // Convert proto::OwnedIpAddr back to OwnedIpAddress to be independent of protocol buffer in near network
-    let result_deserialized_actual_owned_ip_addr = OwnedIpAddress::try_from(&proto_owned_ip_addr_after_deserialize);
+    let result_deserialized_actual_owned_ip_addr =
+        OwnedIpAddress::try_from(&proto_owned_ip_addr_after_deserialize);
     assert!(result_deserialized_actual_owned_ip_addr.is_ok());
     let deserialized_actual_owned_ip_addr = result_deserialized_actual_owned_ip_addr.unwrap();
     assert_eq!(owned_ip_addr_before_serialize, deserialized_actual_owned_ip_addr);
@@ -245,23 +247,30 @@ fn serialize_deserialize_owned_ip_address() {
 fn serialize_deserialize_signed_owned_ip_address() {
     let mut rng = make_rng(89028037453);
     let ip_addr: net::IpAddr = data::make_ipv4(&mut rng);
-    let owned_ip_addr_before_serialize = OwnedIpAddress {
-        ip_address: ip_addr.clone(),
-    };
+    let owned_ip_addr_before_serialize = OwnedIpAddress { ip_address: ip_addr.clone() };
     let seed = "123";
     let node_key = SecretKey::from_seed(KeyType::ED25519, seed);
-    let signed_owned_ip_addr_before_serialize: SignedOwnedIpAddress = owned_ip_addr_before_serialize.sign(&node_key);
+    let signed_owned_ip_addr_before_serialize: SignedOwnedIpAddress =
+        owned_ip_addr_before_serialize.sign(&node_key);
     // Convert SignedOwnedIpAddress to proto::SignedOwnedIpAddr for protocol buffer serialization
-    let proto_signed_owned_ip_addr_before_serialize: proto::SignedOwnedIpAddr = proto::SignedOwnedIpAddr::from(&signed_owned_ip_addr_before_serialize);
+    let proto_signed_owned_ip_addr_before_serialize: proto::SignedOwnedIpAddr =
+        proto::SignedOwnedIpAddr::from(&signed_owned_ip_addr_before_serialize);
 
     // Serialize and deserialize for transporting over the network
-    let signed_owned_ip_addr_bytes: Vec<u8> = proto_signed_owned_ip_addr_before_serialize.write_to_bytes().unwrap();
-    let proto_signed_owned_ip_addr_after_deserialize: proto::SignedOwnedIpAddr = proto::SignedOwnedIpAddr::parse_from_bytes(&signed_owned_ip_addr_bytes).unwrap();
-    assert_eq!(proto_signed_owned_ip_addr_before_serialize,  proto_signed_owned_ip_addr_after_deserialize);
+    let signed_owned_ip_addr_bytes: Vec<u8> =
+        proto_signed_owned_ip_addr_before_serialize.write_to_bytes().unwrap();
+    let proto_signed_owned_ip_addr_after_deserialize: proto::SignedOwnedIpAddr =
+        proto::SignedOwnedIpAddr::parse_from_bytes(&signed_owned_ip_addr_bytes).unwrap();
+    assert_eq!(
+        proto_signed_owned_ip_addr_before_serialize,
+        proto_signed_owned_ip_addr_after_deserialize
+    );
     // Convert proto::SignedOwnedIpAddr back to SignedOwnedIpAddress to be independent of protocol buffer in near network
-    let result_deserialized_actual_signed_owned_ip_addr = SignedOwnedIpAddress::try_from(&proto_signed_owned_ip_addr_after_deserialize);
+    let result_deserialized_actual_signed_owned_ip_addr =
+        SignedOwnedIpAddress::try_from(&proto_signed_owned_ip_addr_after_deserialize);
     assert!(result_deserialized_actual_signed_owned_ip_addr.is_ok());
-    let deserialized_actual_signed_owned_ip_addr = result_deserialized_actual_signed_owned_ip_addr.unwrap();
+    let deserialized_actual_signed_owned_ip_addr =
+        result_deserialized_actual_signed_owned_ip_addr.unwrap();
     assert_eq!(signed_owned_ip_addr_before_serialize, deserialized_actual_signed_owned_ip_addr);
 
     // Verify the deserialized works with verification via peer_id

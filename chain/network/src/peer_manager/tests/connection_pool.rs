@@ -11,11 +11,11 @@ use crate::private_actix::RegisterPeerError;
 use crate::tcp;
 use crate::testonly::make_rng;
 use crate::testonly::stream::Stream;
+use crate::types::ReasonForBan;
 use near_async::time;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::version::PROTOCOL_VERSION;
 use std::sync::Arc;
-use crate::types::ReasonForBan;
 
 #[tokio::test]
 async fn connection_spam_security_test() {
@@ -321,7 +321,11 @@ async fn invalid_edge() {
     }
 }
 
-async fn test_signed_owned_ip_address(expected_closing_reason: ClosingReason, wrong_ip_address: &Option<std::net::IpAddr>, wrong_node_key: &Option<near_crypto::SecretKey>) {
+async fn test_signed_owned_ip_address(
+    expected_closing_reason: ClosingReason,
+    wrong_ip_address: &Option<std::net::IpAddr>,
+    wrong_node_key: &Option<near_crypto::SecretKey>,
+) {
     init_test_logger();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
@@ -386,10 +390,9 @@ async fn test_signed_owned_ip_address(expected_closing_reason: ClosingReason, wr
                 Event::PeerManager(PME::ConnectionClosed(ev)) if ev.stream_id == stream_id => {
                     Some(ev.reason)
                 }
-                Event::PeerManager(PME::HandshakeCompleted(ev))
-                    if ev.stream_id == stream_id => {
-                        panic!("PeerManager accepted the handshake")
-                    }
+                Event::PeerManager(PME::HandshakeCompleted(ev)) if ev.stream_id == stream_id => {
+                    panic!("PeerManager accepted the handshake")
+                }
                 _ => None,
             })
             .await;
