@@ -6,6 +6,7 @@ use near_client::ConfigUpdater;
 use near_cold_store_tool::ColdStoreCommand;
 use near_dyn_configs::{UpdateableConfigLoader, UpdateableConfigLoaderError, UpdateableConfigs};
 use near_flat_storage::commands::FlatStorageCommand;
+use near_fork_network::cli::ForkNetworkCommand;
 use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse;
 use near_mirror::MirrorCommand;
 use near_network::tcp;
@@ -246,6 +247,9 @@ pub(super) enum NeardSubCommand {
 
     /// reset the head of the chain locally to the prev block of current head
     UndoBlock(UndoBlockCommand),
+
+    /// Resets the network into a forked network at the given block height and state.
+    ForkNetwork(ForkNetworkCommand),
 }
 
 #[derive(clap::Parser)]
