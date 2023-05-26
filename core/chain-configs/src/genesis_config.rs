@@ -454,14 +454,14 @@ pub enum GenesisValidationMode {
 
 impl Genesis {
     pub fn new(config: GenesisConfig, records: GenesisRecords) -> Result<Self, ValidationError> {
-        Self::new_validated(config, records, GenesisValidationMode::Full)
+        Self::new_validated(config, records, None, GenesisValidationMode::Full)
     }
 
     pub fn new_with_path<P: AsRef<Path>>(
         config: GenesisConfig,
         records_file: P,
     ) -> Result<Self, ValidationError> {
-        Self::new_with_path_validated(config, records_file, GenesisValidationMode::Full)
+        Self::new_with_path_validated(config, records_file, None, GenesisValidationMode::Full)
     }
 
     /// Reads Genesis from a single JSON file, the file can be JSON with comments
@@ -494,7 +494,12 @@ impl Genesis {
                 }
             })?;
 
-        Self::new_validated(genesis.config, genesis.records, genesis_validation)
+        Self::new_validated(
+            genesis.config,
+            genesis.records,
+            genesis.state_roots,
+            genesis_validation,
+        )
     }
 
     /// Reads Genesis from config and records files.
@@ -511,12 +516,13 @@ impl Genesis {
             let error_message = error.to_string();
             ValidationError::GenesisFileError { error_message: error_message }
         })?;
-        Self::new_with_path_validated(genesis_config, records_path, genesis_validation)
+        Self::new_with_path_validated(genesis_config, records_path, None, genesis_validation)
     }
 
     pub fn new_validated(
         config: GenesisConfig,
         records: GenesisRecords,
+        state_roots: Option<Vec<StateRoot>>,
         genesis_validation: GenesisValidationMode,
     ) -> Result<Self, ValidationError> {
         let genesis = Self { config, records, records_file: PathBuf::new(), state_roots: None };
@@ -527,13 +533,14 @@ impl Genesis {
     fn new_with_path_validated<P: AsRef<Path>>(
         config: GenesisConfig,
         records_file: P,
+        state_roots: Option<Vec<StateRoot>>,
         genesis_validation: GenesisValidationMode,
     ) -> Result<Self, ValidationError> {
         let genesis = Self {
             config,
             records: GenesisRecords(vec![]),
             records_file: records_file.as_ref().to_path_buf(),
-            state_roots: None,
+            state_roots,
         };
         genesis.validate(genesis_validation)?;
         Ok(genesis)
