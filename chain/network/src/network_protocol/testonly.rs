@@ -336,7 +336,7 @@ pub fn make_signed_owned_ip_addr(
     ip_addr: &std::net::IpAddr,
     secret_key: &near_crypto::SecretKey,
 ) -> SignedOwnedIpAddress {
-    let owned_ip_address = OwnedIpAddress { ip_address: ip_addr.clone() };
+    let owned_ip_address = OwnedIpAddress { ip_address: *ip_addr };
     let signed_owned_ip_address: SignedOwnedIpAddress = owned_ip_address.sign(secret_key);
     return signed_owned_ip_address;
 }

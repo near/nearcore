@@ -214,7 +214,7 @@ fn sign_and_verify_ip_addr_with_peer_id() {
     assert!(signature.verify(&ip_bytes, peer_id.public_key()));
 
     // Wrap ip address sign and verify algorithm with interfaces: OwnedIpAddress and SignedOwnedIpAddress
-    let owned_ip_address = OwnedIpAddress { ip_address: ip_addr.clone() };
+    let owned_ip_address = OwnedIpAddress { ip_address: ip_addr };
     let signed_owned_ip_address: SignedOwnedIpAddress = owned_ip_address.sign(&node_key);
     assert!(signed_owned_ip_address.verify(&node_key.public_key()));
     assert!(signed_owned_ip_address.verify(peer_id.public_key()));
@@ -224,7 +224,7 @@ fn sign_and_verify_ip_addr_with_peer_id() {
 fn serialize_deserialize_owned_ip_address() {
     let mut rng = make_rng(89028037453);
     let ip_addr: net::IpAddr = data::make_ipv4(&mut rng);
-    let owned_ip_addr_before_serialize = OwnedIpAddress { ip_address: ip_addr.clone() };
+    let owned_ip_addr_before_serialize = OwnedIpAddress { ip_address: ip_addr };
 
     // Convert OwnedIpAddress to proto::OwnedIpAddr for protocol buffer serialization
     let proto_owned_ip_addr_before_serialize: proto::OwnedIpAddr =
@@ -247,7 +247,7 @@ fn serialize_deserialize_owned_ip_address() {
 fn serialize_deserialize_signed_owned_ip_address() {
     let mut rng = make_rng(89028037453);
     let ip_addr: net::IpAddr = data::make_ipv4(&mut rng);
-    let owned_ip_addr_before_serialize = OwnedIpAddress { ip_address: ip_addr.clone() };
+    let owned_ip_addr_before_serialize = OwnedIpAddress { ip_address: ip_addr };
     let seed = "123";
     let node_key = SecretKey::from_seed(KeyType::ED25519, seed);
     let signed_owned_ip_addr_before_serialize: SignedOwnedIpAddress =
