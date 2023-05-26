@@ -153,7 +153,7 @@ pub fn set_flat_storage_status(
 /// Returns iterator over flat storage entries for a given shard and range of
 /// state keys. `None` means that there is no bound in respective direction.
 /// It reads data only from `FlatState` column which represents the state at
-/// flat storage head.
+/// flat storage head. Reads only commited changes.
 pub fn iter_flat_state_entries<'a>(
     shard_uid: ShardUId,
     store: &'a Store,
@@ -189,4 +189,52 @@ pub fn iter_flat_state_entries<'a>(
 pub fn key_belongs_to_shard(key: &[u8], shard_uid: &ShardUId) -> Result<bool, StorageError> {
     let (key_shard_uid, _) = decode_flat_state_db_key(key)?;
     Ok(key_shard_uid == *shard_uid)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::iter_flat_state_entries;
+    use crate::flat::store_helper::set_flat_state_value;
+    use crate::test_utils::create_test_store;
+    use borsh::BorshDeserialize;
+    use near_primitives::shard_layout::ShardUId;
+    use near_primitives::state::FlatStateValue;
+
+    #[test]
+    fn test_iter_flat_state_entries() {
+        // Setup shards and store
+        let store = create_test_store();
+        let shard_uids = [0, 1, 2].map(|id| ShardUId { version: 0, shard_id: id });
+
+        for (i, shard_uid) in shard_uids.iter().enumerate() {
+            let mut store_update = store.store_update();
+            let key: Vec<u8> = vec![0, 1, i as u8];
+            let val: Vec<u8> = vec![0, 1, 2, i as u8];
+
+            // Add value to FlatState
+            set_flat_state_value(
+                &mut store_update,
+                *shard_uid,
+                key.clone(),
+                Some(FlatStateValue::inlined(&val)),
+            )
+            .unwrap();
+
+            store_update.commit().unwrap();
+        }
+
+        for (i, shard_uid) in shard_uids.iter().enumerate() {
+            let entries: Vec<_> = iter_flat_state_entries(*shard_uid, &store, None, None).collect();
+            assert_eq!(entries.len(), 1);
+            let key: Vec<u8> = vec![0, 1, i as u8];
+            let val: Vec<u8> = vec![0, 1, 2, i as u8];
+
+            assert_eq!(entries.get(0).unwrap().0, key);
+            let actual_val = &entries.get(0).unwrap().1;
+            assert_eq!(
+                FlatStateValue::try_from_slice(actual_val).unwrap(),
+                FlatStateValue::inlined(&val)
+            );
+        }
+    }
 }
