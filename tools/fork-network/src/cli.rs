@@ -52,7 +52,7 @@ impl ForkNetworkCommand {
             let flat_storage_status = store
                 .get_ser::<FlatStorageStatus>(DBCol::FlatStorageStatus, &shard_uid.to_bytes())?
                 .unwrap();
-            if let FlatStorageStatus::Ready(ready) = flat_storage_status {
+            if let FlatStorageStatus::Ready(ready) = &flat_storage_status {
                 let flat_head_for_this_shard = ready.flat_head.hash;
                 if let Some(hash) = flat_head {
                     if hash != flat_head_for_this_shard {
@@ -60,6 +60,11 @@ impl ForkNetworkCommand {
                     }
                 }
                 flat_head = Some(flat_head_for_this_shard);
+            } else {
+                panic!(
+                    "Flat storage is not ready for shard {}: {:?}",
+                    shard_uid, flat_storage_status
+                );
             }
         }
 
