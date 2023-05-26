@@ -200,11 +200,7 @@ fn assert_view_state(
 
     let values = want_values
         .iter()
-        .map(|(key, value)| StateItem {
-            key: key.to_vec().into(),
-            value: value.to_vec().into(),
-            proof: vec![],
-        })
+        .map(|(key, value)| StateItem { key: key.to_vec().into(), value: value.to_vec().into() })
         .collect::<Vec<_>>();
 
     let view_state =

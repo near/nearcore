@@ -1,15 +1,17 @@
 //! This file contains helper functions for accessing flat storage data in DB
 //! TODO(#8577): remove this file and move functions to the corresponding structs
 
+use crate::db::FLAT_STATE_VALUES_INLINING_MIGRATION_STATUS_KEY;
 use crate::flat::delta::{FlatStateChanges, KeyForFlatStateDelta};
 use crate::flat::types::FlatStorageError;
 use crate::{DBCol, Store, StoreUpdate};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::{ShardLayout, ShardUId};
+use near_primitives::shard_layout::ShardUId;
+use near_primitives::state::FlatStateValue;
 
 use super::delta::{FlatStateDelta, FlatStateDeltaMetadata};
-use super::types::{FlatStateValue, FlatStorageStatus};
+use super::types::{FlatStateValuesInliningMigrationStatus, FlatStorageStatus};
 
 /// Prefixes for keys in `FlatStateMisc` DB column.
 pub const FLAT_STATE_HEAD_KEY_PREFIX: &[u8; 4] = b"HEAD";
@@ -71,9 +73,7 @@ pub(crate) fn encode_flat_state_db_key(shard_uid: ShardUId, key: &[u8]) -> Vec<u
     buffer
 }
 
-pub(crate) fn decode_flat_state_db_key(
-    key: &Box<[u8]>,
-) -> Result<(ShardUId, Vec<u8>), StorageError> {
+pub(crate) fn decode_flat_state_db_key(key: &[u8]) -> Result<(ShardUId, Vec<u8>), StorageError> {
     if key.len() < 8 {
         return Err(StorageError::StorageInconsistentState(format!(
             "Found key in flat storage with length < 8: {key:?}"
@@ -86,6 +86,26 @@ pub(crate) fn decode_flat_state_db_key(
         ))
     })?;
     Ok((shard_uid, trie_key.to_vec()))
+}
+
+pub fn get_flat_state_values_inlining_migration_status(
+    store: &Store,
+) -> Result<FlatStateValuesInliningMigrationStatus, FlatStorageError> {
+    store
+        .get_ser(DBCol::Misc, FLAT_STATE_VALUES_INLINING_MIGRATION_STATUS_KEY)
+        .map(|status| status.unwrap_or(FlatStateValuesInliningMigrationStatus::Empty))
+        .map_err(|_| FlatStorageError::StorageInternalError)
+}
+
+pub fn set_flat_state_values_inlining_migration_status(
+    store: &Store,
+    status: FlatStateValuesInliningMigrationStatus,
+) -> Result<(), FlatStorageError> {
+    let mut store_update = store.store_update();
+    store_update
+        .set_ser(DBCol::Misc, FLAT_STATE_VALUES_INLINING_MIGRATION_STATUS_KEY, &status)
+        .map_err(|_| FlatStorageError::StorageInternalError)?;
+    store_update.commit().map_err(|_| FlatStorageError::StorageInternalError)
 }
 
 pub(crate) fn get_flat_state_value(
@@ -166,11 +186,7 @@ pub fn iter_flat_state_entries<'a>(
 
 /// Currently all the data in flat storage is 'together' - so we have to parse the key,
 /// to see if this element belongs to this shard.
-pub fn key_belongs_to_shard(
-    key: &Box<[u8]>,
-    shard_layout: &ShardLayout,
-    shard_id: u64,
-) -> Result<bool, StorageError> {
+pub fn key_belongs_to_shard(key: &[u8], shard_uid: &ShardUId) -> Result<bool, StorageError> {
     let (key_shard_uid, _) = decode_flat_state_db_key(key)?;
-    Ok(key_shard_uid.version == shard_layout.version() && key_shard_uid.shard_id as u64 == shard_id)
+    Ok(key_shard_uid == *shard_uid)
 }

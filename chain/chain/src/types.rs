@@ -5,6 +5,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
 use chrono::Utc;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
+use near_store::flat::FlatStorageManager;
 use num_rational::Rational32;
 
 use crate::metrics;
@@ -298,6 +299,8 @@ pub trait RuntimeAdapter: Send + Sync {
         prev_hash: &CryptoHash,
         state_root: StateRoot,
     ) -> Result<Trie, Error>;
+
+    fn get_flat_storage_manager(&self) -> Option<FlatStorageManager>;
 
     fn get_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Option<FlatStorage>;
 
