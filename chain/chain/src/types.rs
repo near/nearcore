@@ -32,7 +32,6 @@ use near_primitives::version::{
     MIN_PROTOCOL_VERSION_NEP_92_FIX,
 };
 use near_primitives::views::{QueryRequest, QueryResponse};
-use near_store::flat::{FlatStorage, FlatStorageStatus};
 use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTrieChanges};
 
 pub use near_epoch_manager::EpochManagerAdapter;
@@ -301,26 +300,6 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> Result<Trie, Error>;
 
     fn get_flat_storage_manager(&self) -> Option<FlatStorageManager>;
-
-    fn get_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Option<FlatStorage>;
-
-    fn get_flat_storage_status(&self, shard_uid: ShardUId) -> FlatStorageStatus;
-
-    /// Creates flat storage state for given shard, assuming that all flat storage data
-    /// is already stored in DB.
-    /// TODO (#7327): consider returning flat storage creation errors here
-    fn create_flat_storage_for_shard(&self, shard_uid: ShardUId);
-
-    /// Removes flat storage state for shard, if it exists.
-    /// Used to clear old flat storage data from disk and memory before syncing to newer state.
-    fn remove_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Result<(), Error>;
-
-    fn set_flat_storage_for_genesis(
-        &self,
-        genesis_block: &CryptoHash,
-        genesis_block_height: BlockHeight,
-        genesis_epoch_id: &EpochId,
-    ) -> Result<StoreUpdate, Error>;
 
     /// Validates a given signed transaction.
     /// If the state root is given, then the verification will use the account. Otherwise it will

@@ -189,7 +189,7 @@ It holds all FlatStorages which NightshadeRuntime knows about and:
 
 * provides views for flat storage for some fixed block - supported by new_flat_state_for_shard
 * sets initial flat storage state for genesis block - set_flat_storage_for_genesis
-* adds/removes/gets flat storage if we started/stopped tracking a shard or need to create a view - add_flat_storage_for_shard, etc.
+* adds/removes/gets flat storage if we started/stopped tracking a shard or need to create a view - create_flat_storage_for_shard, etc.
 
 ## FlatStorageChunkView
 

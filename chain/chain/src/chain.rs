@@ -645,12 +645,21 @@ impl Chain {
                 // Set the root block of flat state to be the genesis block. Later, when we
                 // init FlatStorages, we will read the from this column in storage, so it
                 // must be set here.
-                let tmp_store_update = runtime_adapter.set_flat_storage_for_genesis(
-                    genesis.hash(),
-                    genesis.header().height(),
-                    genesis.header().epoch_id(),
-                )?;
-                store_update.merge(tmp_store_update);
+                if let Some(flat_storage_manager) = runtime_adapter.get_flat_storage_manager() {
+                    let genesis_epoch_id = genesis.header().epoch_id();
+                    let mut tmp_store_update = store_update.store().store_update();
+                    for shard_uid in
+                        epoch_manager.get_shard_layout(genesis_epoch_id)?.get_shard_uids()
+                    {
+                        flat_storage_manager.set_flat_storage_for_genesis(
+                            &mut tmp_store_update,
+                            shard_uid,
+                            genesis.hash(),
+                            genesis.header().height(),
+                        )
+                    }
+                    store_update.merge(tmp_store_update);
+                }
 
                 info!(target: "chain", "Init: saved genesis: #{} {} / {:?}", block_head.height, block_head.last_block_hash, state_roots);
 
@@ -2136,7 +2145,11 @@ impl Chain {
         block: &Block,
         shard_uid: ShardUId,
     ) -> Result<(), Error> {
-        if let Some(flat_storage) = self.runtime_adapter.get_flat_storage_for_shard(shard_uid) {
+        if let Some(flat_storage) = self
+            .runtime_adapter
+            .get_flat_storage_manager()
+            .and_then(|manager| manager.get_flat_storage_for_shard(shard_uid))
+        {
             let mut new_flat_head = *block.header().last_final_block();
             if new_flat_head == CryptoHash::default() {
                 new_flat_head = *self.genesis.hash();
@@ -3200,14 +3213,16 @@ impl Chain {
         num_parts: u64,
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
     ) -> Result<(), Error> {
-        // Before working with state parts, remove existing flat storage data.
         let epoch_id = self.get_block_header(&sync_hash)?.epoch_id().clone();
-        let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
-        self.runtime_adapter.remove_flat_storage_for_shard(shard_uid)?;
+
+        // Before working with state parts, remove existing flat storage data.
+        if let Some(flat_storage_manager) = self.runtime_adapter.get_flat_storage_manager() {
+            let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
+            flat_storage_manager.remove_flat_storage_for_shard(shard_uid)?;
+        }
 
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let state_root = shard_state_header.chunk_prev_state_root();
-        let epoch_id = self.get_block_header(&sync_hash)?.epoch_id().clone();
 
         state_parts_task_scheduler(ApplyStatePartsRequest {
             runtime_adapter: self.runtime_adapter.clone(),
@@ -3245,14 +3260,9 @@ impl Chain {
             let epoch_id = block_header.epoch_id();
             let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
 
-            // Check if flat storage is disabled, which may be the case when runtime is implemented with
-            // `KeyValueRuntime`.
-            if !matches!(
-                self.runtime_adapter.get_flat_storage_status(shard_uid),
-                FlatStorageStatus::Disabled
-            ) {
+            if let Some(flat_storage_manager) = self.runtime_adapter.get_flat_storage_manager() {
                 // Flat storage must not exist at this point because leftover keys corrupt its state.
-                assert!(self.runtime_adapter.get_flat_storage_for_shard(shard_uid).is_none());
+                assert!(flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_none());
 
                 let mut store_update = self.runtime_adapter.store().store_update();
                 store_helper::set_flat_storage_status(
@@ -3267,7 +3277,7 @@ impl Chain {
                     }),
                 );
                 store_update.commit()?;
-                self.runtime_adapter.create_flat_storage_for_shard(shard_uid);
+                flat_storage_manager.create_flat_storage_for_shard(shard_uid);
             }
         }
 
@@ -4995,7 +5005,10 @@ impl<'a> ChainUpdate<'a> {
             },
         };
 
-        if let Some(chain_flat_storage) = self.runtime_adapter.get_flat_storage_for_shard(shard_uid)
+        if let Some(chain_flat_storage) = self
+            .runtime_adapter
+            .get_flat_storage_manager()
+            .and_then(|manager| manager.get_flat_storage_for_shard(shard_uid))
         {
             // If flat storage exists, we add a block to it.
             let store_update =
