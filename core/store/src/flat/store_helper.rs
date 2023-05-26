@@ -195,10 +195,10 @@ pub fn key_belongs_to_shard(key: &[u8], shard_uid: &ShardUId) -> Result<bool, St
 mod tests {
     use super::iter_flat_state_entries;
     use crate::flat::store_helper::set_flat_state_value;
-    use crate::flat::FlatStateValue;
     use crate::test_utils::create_test_store;
     use borsh::BorshDeserialize;
     use near_primitives::shard_layout::ShardUId;
+    use near_primitives::state::FlatStateValue;
 
     #[test]
     fn test_iter_flat_state_entries() {
