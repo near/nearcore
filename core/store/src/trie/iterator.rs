@@ -65,6 +65,7 @@ pub struct TrieIterator<'a> {
 pub type TrieItem = (Vec<u8>, Vec<u8>);
 
 /// Item extracted from Trie during depth first traversal, corresponding to some Trie node.
+#[derive(Debug)]
 pub struct TrieTraversalItem {
     /// Hash of the node.
     pub hash: CryptoHash,

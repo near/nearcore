@@ -91,47 +91,28 @@ impl FlatStorageManager {
         assert!(original_value.is_none());
     }
 
-    /// Creates `FlatStorageChunkView` to access state for `shard_id` and block `block_hash`. Note that
-    /// the state includes changes by the block `block_hash`.
-    /// `block_hash`: only create FlatStorageChunkView if it is not None. This is a hack we have temporarily
-    ///               to not introduce too many changes in the trie interface.
-    /// `is_view`: whether this flat state is used for view client. We use a separate set of caches
-    ///            for flat state for client vs view client. For now, we don't support flat state
-    ///            for view client, so we simply return None if `is_view` is True.
-    /// TODO (#7327): take block_hash as CryptoHash instead of Option<CryptoHash>
-    /// TODO (#7327): implement support for view_client
+    /// Creates `FlatStorageChunkView` to access state for `shard_uid` and block `block_hash`.
+    /// Note that:
+    /// * the state includes changes by the block `block_hash`;
+    /// * request to get value locks shared `FlatStorage` struct which may cause write slowdowns.
     pub fn chunk_view(
         &self,
         shard_uid: ShardUId,
-        block_hash: Option<CryptoHash>,
-        is_view: bool,
+        block_hash: CryptoHash,
     ) -> Option<FlatStorageChunkView> {
-        let block_hash = match block_hash {
-            Some(block_hash) => block_hash,
-            None => {
-                return None;
+        let flat_storage = {
+            let flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
+            // It is possible that flat storage state does not exist yet because it is being created in
+            // background.
+            match flat_storages.get(&shard_uid) {
+                Some(flat_storage) => flat_storage.clone(),
+                None => {
+                    debug!(target: "store", "FlatStorage is not ready");
+                    return None;
+                }
             }
         };
-
-        if is_view {
-            // TODO (#7327): Technically, like TrieCache, we should have a separate set of caches for Client and
-            // ViewClient. Right now, we can get by by not enabling flat state for view trie
-            None
-        } else {
-            let flat_storage = {
-                let flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
-                // It is possible that flat storage state does not exist yet because it is being created in
-                // background.
-                match flat_storages.get(&shard_uid) {
-                    Some(flat_storage) => flat_storage.clone(),
-                    None => {
-                        debug!(target: "chain", "FlatStorage is not ready");
-                        return None;
-                    }
-                }
-            };
-            Some(FlatStorageChunkView::new(self.0.store.clone(), block_hash, flat_storage))
-        }
+        Some(FlatStorageChunkView::new(self.0.store.clone(), block_hash, flat_storage))
     }
 
     // TODO (#7327): consider returning Result<FlatStorage, Error> when we expect flat storage to exist

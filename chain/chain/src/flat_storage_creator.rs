@@ -17,12 +17,13 @@ use near_chain_primitives::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::shard_layout::ShardUId;
+use near_primitives::state::FlatStateValue;
 use near_primitives::state_part::PartId;
 use near_primitives::types::{AccountId, BlockHeight, StateRoot};
 use near_store::flat::{
-    store_helper, BlockInfo, FetchingStateStatus, FlatStateChanges, FlatStateValue,
-    FlatStorageCreationMetrics, FlatStorageCreationStatus, FlatStorageReadyStatus,
-    FlatStorageStatus, NUM_PARTS_IN_ONE_STEP, STATE_PART_MEMORY_LIMIT,
+    store_helper, BlockInfo, FetchingStateStatus, FlatStateChanges, FlatStorageCreationMetrics,
+    FlatStorageCreationStatus, FlatStorageReadyStatus, FlatStorageStatus, NUM_PARTS_IN_ONE_STEP,
+    STATE_PART_MEMORY_LIMIT,
 };
 use near_store::Store;
 use near_store::{Trie, TrieDBStorage, TrieTraversalItem};
