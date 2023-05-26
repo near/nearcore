@@ -14,6 +14,7 @@ use nearcore::{load_config, NearConfig};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::str::FromStr;
+use std::time::Instant;
 
 #[derive(clap::Subcommand)]
 #[clap(subcommand_required = true, arg_required_else_help = true)]
@@ -617,7 +618,15 @@ impl ViewTrieCmd {
 }
 
 #[derive(clap::Parser)]
-pub struct TrieIterationBenchmarkCmd {}
+pub struct TrieIterationBenchmarkCmd {
+    /// Limit the number of trie nodes to be iterated.
+    #[clap(long)]
+    limit: Option<u32>,
+
+    /// Print the trie nodes to stdout.
+    #[clap(long, default_value = "false")]
+    print: bool,
+}
 
 impl TrieIterationBenchmarkCmd {
     pub fn run(self, _home_dir: &Path, near_config: NearConfig, store: Store) {
@@ -638,7 +647,7 @@ impl TrieIterationBenchmarkCmd {
                 continue;
             }
             let shard_uid = ShardUId::from_shard_id_and_layout(i as ShardId, &shard_layout);
-            println!("shard uid {shard_uid:#?}");
+            println!("shard uid {shard_uid:#?} benchmark starting");
             // Question for reviewer - there are different TrieStorage
             // implementation, which would be best suited here? I picked this
             // one since it looked simplest and I don't think there is much
@@ -655,19 +664,36 @@ impl TrieIterationBenchmarkCmd {
             let state_root = chunk_header.prev_state_root();
             let trie = Trie::new(Rc::new(storage), state_root, flat_storage_chunk_view);
 
+            let start = Instant::now();
+            let mut node_count = 0;
+            let mut error_count = 0;
             for item in trie.iter().unwrap() {
+                node_count += 1;
+                if let Some(limit) = self.limit {
+                    if limit < node_count {
+                        break;
+                    }
+                }
+
                 let (key, value) = match item {
                     Ok((key, value)) => (key, value),
                     Err(err) => {
                         println!("Failed to iterate node with error: {err}");
+                        error_count += 1;
                         continue;
                     }
                 };
 
-                // TODO remove the printing before actually trying to measure anything.
-                let state_record = StateRecord::from_raw_key_value(key.clone(), value);
-                Self::print_state_record(&state_record);
+                if self.print {
+                    let state_record = StateRecord::from_raw_key_value(key.clone(), value);
+                    Self::print_state_record(&state_record);
+                }
             }
+            let duration = start.elapsed();
+            println!("shard uid {shard_uid:#?} benchmark finished");
+            println!("node count  {node_count}");
+            println!("error count {error_count}");
+            println!("time        {duration:?}");
         }
     }
 
