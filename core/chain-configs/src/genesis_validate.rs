@@ -152,13 +152,15 @@ impl<'a> GenesisValidator<'a> {
 
         if *self.genesis_config.online_max_threshold.denom() >= 10_000_000 {
             let error_message =
-                "online_max_threshold's denominator is too large, may lead to overflow.".to_string();
+                "online_max_threshold's denominator is too large, may lead to overflow."
+                    .to_string();
             self.validation_errors.push_genesis_semantics_error(error_message)
         }
 
         if *self.genesis_config.online_min_threshold.denom() >= 10_000_000 {
             let error_message =
-                "online_min_threshold's denominator is too large, may lead to overflow.".to_string();
+                "online_min_threshold's denominator is too large, may lead to overflow."
+                    .to_string();
             self.validation_errors.push_genesis_semantics_error(error_message)
         }
 
