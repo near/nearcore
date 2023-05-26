@@ -156,9 +156,9 @@ impl ForkNetworkCommand {
         let mut genesis = Genesis::new_validated(
             genesis_config,
             GenesisRecords::default(),
+            Some(state_roots),
             GenesisValidationMode::UnsafeFast,
         )?;
-        genesis.state_roots = Some(state_roots);
         // let epoch_manager = EpochManager::new_arc_handle(store, &genesis_config);
         // let runtime = NightshadeRuntime::from_config(home_dir, store, new_config, epoch_manager)?;
 
