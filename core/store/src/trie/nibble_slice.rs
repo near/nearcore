@@ -194,6 +194,15 @@ impl<'a> NibbleSlice<'a> {
         }
         r
     }
+
+    // Helper to convert nibbles to bytes.
+    pub fn nibbles_to_bytes(nibbles: &[u8]) -> Vec<u8> {
+        assert_eq!(nibbles.len() % 2, 0);
+        let encoded = NibbleSlice::encode_nibbles(&nibbles, false);
+        // Ignore first element returned by `encode_nibbles` because it contains only
+        // `is_leaf` info for even length.
+        encoded[1..].to_vec()
+    }
 }
 
 impl PartialEq for NibbleSlice<'_> {

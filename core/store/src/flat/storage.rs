@@ -3,16 +3,17 @@ use std::sync::{Arc, RwLock};
 
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::{ShardLayout, ShardUId};
-use tracing::{debug, info, warn};
+use near_primitives::shard_layout::ShardUId;
+use near_primitives::state::FlatStateValue;
+use tracing::{debug, warn};
 
 use crate::flat::delta::CachedFlatStateChanges;
 use crate::flat::{FlatStorageReadyStatus, FlatStorageStatus};
-use crate::{DBCol, Store, StoreUpdate};
+use crate::{Store, StoreUpdate};
 
 use super::delta::{CachedFlatStateDelta, FlatStateDelta};
 use super::metrics::FlatStorageMetrics;
-use super::types::{FlatStateValue, FlatStorageError};
+use super::types::FlatStorageError;
 use super::{store_helper, BlockInfo};
 
 /// FlatStorage stores information on which blocks flat storage current supports key lookups on.
@@ -298,33 +299,13 @@ impl FlatStorage {
     }
 
     /// Clears all State key-value pairs from flat storage.
-    pub fn clear_state(&self, shard_layout: ShardLayout) -> Result<(), StorageError> {
+    pub fn clear_state(&self) -> Result<(), StorageError> {
         let guard = self.0.write().expect(super::POISONED_LOCK_ERR);
-        let shard_id = guard.shard_uid.shard_id();
 
-        // Removes all items belonging to the shard one by one.
-        // Note that it does not work for resharding.
-        // TODO (#7327): call it just after we stopped tracking a shard.
-        // TODO (#7327): remove FlatStateChanges. Consider custom serialization of keys to remove them by
-        // prefix.
-        // TODO (#7327): support range deletions which are much faster than naive deletions. For that, we
-        // can delete ranges of keys like
-        // [ [0]+boundary_accounts(shard_id) .. [0]+boundary_accounts(shard_id+1) ), etc.
-        // We should also take fixed accounts into account.
         let mut store_update = guard.store.store_update();
-        let mut removed_items = 0;
-        for item in guard.store.iter(DBCol::FlatState) {
-            let (key, _) =
-                item.map_err(|e| StorageError::StorageInconsistentState(e.to_string()))?;
-
-            if store_helper::key_belongs_to_shard(&key, &shard_layout, shard_id)? {
-                removed_items += 1;
-                store_update.delete(DBCol::FlatState, &key);
-            }
-        }
-        info!(target: "store", %shard_id, %removed_items, "Removing old items from flat storage");
-
+        store_helper::remove_all_flat_state_values(&mut store_update, guard.shard_uid);
         store_helper::remove_all_deltas(&mut store_update, guard.shard_uid);
+
         store_helper::set_flat_storage_status(
             &mut store_update,
             guard.shard_uid,
@@ -334,6 +315,16 @@ impl FlatStorage {
         guard.update_delta_metrics();
 
         Ok(())
+    }
+
+    pub(crate) fn get_head_hash(&self) -> CryptoHash {
+        let guard = self.0.read().expect(super::POISONED_LOCK_ERR);
+        guard.flat_head.hash
+    }
+
+    pub(crate) fn shard_uid(&self) -> ShardUId {
+        let guard = self.0.read().expect(super::POISONED_LOCK_ERR);
+        guard.shard_uid
     }
 
     pub(crate) fn set_flat_head_update_mode(&self, enabled: bool) {
@@ -347,7 +338,7 @@ mod tests {
     use crate::flat::delta::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
     use crate::flat::manager::FlatStorageManager;
     use crate::flat::storage::FlatStorage;
-    use crate::flat::types::{BlockInfo, FlatStateValue, FlatStorageError};
+    use crate::flat::types::{BlockInfo, FlatStorageError};
     use crate::flat::{store_helper, FlatStorageReadyStatus, FlatStorageStatus};
     use crate::test_utils::create_test_store;
     use crate::StorageError;
@@ -357,6 +348,7 @@ mod tests {
 
     use assert_matches::assert_matches;
     use near_primitives::shard_layout::ShardUId;
+    use near_primitives::state::FlatStateValue;
     use std::collections::HashMap;
 
     struct MockChain {
@@ -595,8 +587,7 @@ mod tests {
             let block_hash = chain.get_block_hash(i);
             let blocks = flat_storage.get_blocks_to_head(&block_hash).unwrap();
             assert_eq!(blocks.len(), i as usize);
-            let chunk_view =
-                flat_storage_manager.chunk_view(shard_uid, Some(block_hash), false).unwrap();
+            let chunk_view = flat_storage_manager.chunk_view(shard_uid, block_hash).unwrap();
             assert_eq!(
                 chunk_view.get_value(&[1]).unwrap(),
                 Some(FlatStateValue::value_ref(&[i as u8]))
@@ -621,12 +612,10 @@ mod tests {
         //    Verify that they return the correct values
         let blocks = flat_storage.get_blocks_to_head(&chain.get_block_hash(10)).unwrap();
         assert_eq!(blocks.len(), 10);
-        let chunk_view0 = flat_storage_manager
-            .chunk_view(shard_uid, Some(chain.get_block_hash(10)), false)
-            .unwrap();
-        let chunk_view1 = flat_storage_manager
-            .chunk_view(shard_uid, Some(chain.get_block_hash(4)), false)
-            .unwrap();
+        let chunk_view0 =
+            flat_storage_manager.chunk_view(shard_uid, chain.get_block_hash(10)).unwrap();
+        let chunk_view1 =
+            flat_storage_manager.chunk_view(shard_uid, chain.get_block_hash(4)).unwrap();
         assert_eq!(chunk_view0.get_value(&[1]).unwrap(), None);
         assert_eq!(chunk_view0.get_value(&[2]).unwrap(), Some(FlatStateValue::value_ref(&[1])));
         assert_eq!(chunk_view1.get_value(&[1]).unwrap(), Some(FlatStateValue::value_ref(&[4])));

@@ -5,6 +5,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
 use chrono::Utc;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
+use near_store::flat::FlatStorageManager;
 use num_rational::Rational32;
 
 use crate::metrics;
@@ -299,6 +300,8 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: StateRoot,
     ) -> Result<Trie, Error>;
 
+    fn get_flat_storage_manager(&self) -> Option<FlatStorageManager>;
+
     fn get_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Option<FlatStorage>;
 
     fn get_flat_storage_status(&self, shard_uid: ShardUId) -> FlatStorageStatus;
@@ -310,11 +313,7 @@ pub trait RuntimeAdapter: Send + Sync {
 
     /// Removes flat storage state for shard, if it exists.
     /// Used to clear old flat storage data from disk and memory before syncing to newer state.
-    fn remove_flat_storage_for_shard(
-        &self,
-        shard_uid: ShardUId,
-        epoch_id: &EpochId,
-    ) -> Result<(), Error>;
+    fn remove_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Result<(), Error>;
 
     fn set_flat_storage_for_genesis(
         &self,

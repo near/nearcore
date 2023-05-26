@@ -6421,6 +6421,7 @@ dependencies = [
  "near-crypto",
  "near-epoch-manager",
  "near-network",
+ "near-o11y",
  "near-primitives",
  "near-primitives-core",
  "near-store",
