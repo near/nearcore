@@ -434,7 +434,7 @@ fn test_flat_storage_iter() {
                         account_id: "test0".parse().unwrap()
                     }
                     .to_vec(),
-                    items.get(0).unwrap().0
+                    items[0].as_ref().unwrap().0.to_vec()
                 );
             }
             1 => {
@@ -449,7 +449,7 @@ fn test_flat_storage_iter() {
                         account_id: "near".parse().unwrap()
                     }
                     .to_vec(),
-                    items.get(0).unwrap().0
+                    items[0].as_ref().unwrap().0.to_vec()
                 );
             }
             _ => {

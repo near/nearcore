@@ -5,7 +5,6 @@ use near_chain::flat_storage_creator::FlatStorageShardCreator;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
-use near_primitives::state::FlatStateValue;
 use near_store::flat::{
     inline_flat_state_values, store_helper, FlatStateDelta, FlatStateDeltaMetadata,
     FlatStorageManager, FlatStorageStatus,
@@ -270,8 +269,8 @@ impl FlatStorageCommand {
                 for (item_trie, item_flat) in
                     tqdm(std::iter::zip(trie_iter, flat_state_entries_iter))
                 {
-                    let value_ref =
-                        FlatStateValue::try_from_slice(&item_flat.1).unwrap().to_value_ref();
+                    let item_flat = item_flat.unwrap();
+                    let value_ref = item_flat.1.to_value_ref();
                     verified += 1;
 
                     let item_trie = item_trie.unwrap();
