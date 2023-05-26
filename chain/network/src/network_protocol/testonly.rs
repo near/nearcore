@@ -332,13 +332,13 @@ impl Chain {
     }
 }
 
-pub fn make_signed_owned_ip_addr(
+pub fn make_signed_ip_addr(
     ip_addr: &std::net::IpAddr,
     secret_key: &near_crypto::SecretKey,
-) -> SignedOwnedIpAddress {
+) -> SignedIpAddress {
     let owned_ip_address = OwnedIpAddress { ip_address: *ip_addr };
-    let signed_owned_ip_address: SignedOwnedIpAddress = owned_ip_address.sign(secret_key);
-    return signed_owned_ip_address;
+    let signed_ip_address: SignedIpAddress = owned_ip_address.sign(secret_key);
+    return signed_ip_address;
 }
 
 pub fn make_handshake_with_ip<R: Rng>(
@@ -350,8 +350,8 @@ pub fn make_handshake_with_ip<R: Rng>(
     let target = make_signer(rng);
     let sender_id = PeerId::new(sender.public_key);
     let target_id = PeerId::new(target.public_key);
-    let signed_owned_ip_address = match ip_addr {
-        Some(ip) => Some(make_signed_owned_ip_addr(&ip, &sender.secret_key)),
+    let signed_ip_address = match ip_addr {
+        Some(ip) => Some(make_signed_ip_addr(&ip, &sender.secret_key)),
         _ => None,
     };
     Handshake {
@@ -363,7 +363,7 @@ pub fn make_handshake_with_ip<R: Rng>(
         sender_chain_info: chain.get_peer_chain_info(),
         partial_edge_info: make_partial_edge(rng),
         owned_account: None,
-        signed_owned_ip_address: signed_owned_ip_address,
+        signed_ip_address: signed_ip_address,
     }
 }
 

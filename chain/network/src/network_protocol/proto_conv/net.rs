@@ -3,9 +3,7 @@ use super::*;
 
 use crate::network_protocol::proto;
 use crate::network_protocol::PeerAddr;
-use crate::network_protocol::{
-    Edge, OwnedIpAddress, PartialEdgeInfo, PeerInfo, SignedOwnedIpAddress,
-};
+use crate::network_protocol::{Edge, OwnedIpAddress, PartialEdgeInfo, PeerInfo, SignedIpAddress};
 use borsh::{BorshDeserialize as _, BorshSerialize as _};
 use near_primitives::network::AnnounceAccount;
 use protobuf::MessageField as MF;
@@ -65,33 +63,32 @@ impl TryFrom<&proto::OwnedIpAddr> for OwnedIpAddress {
 }
 
 ////////////////////////////////////////
-// Parse SignedOwnedIpAddr to Protocol Buffer and back
+// Parse SignedIpAddr to Protocol Buffer and back
 #[derive(thiserror::Error, Debug)]
-pub enum ParseSignedOwnedIpAddrError {
+pub enum ParseSignedIpAddrError {
     #[error("owned_ip_addr: {0}")]
     OwnedIpAddr(ParseRequiredError<ParseOwnedIpAddrError>),
     #[error("signed_owned_ip_address: {0}")]
     Signature(ParseRequiredError<ParseSignatureError>),
 }
 
-impl From<&SignedOwnedIpAddress> for proto::SignedOwnedIpAddr {
-    fn from(x: &SignedOwnedIpAddress) -> Self {
+impl From<&SignedIpAddress> for proto::SignedIpAddr {
+    fn from(x: &SignedIpAddress) -> Self {
         Self {
             owned_ip_addr: MF::some((&x.owned_ip_address).into()),
-            signature_ip_addr: MF::some((&x.signature_ip_address).into()),
+            signature: MF::some((&x.signature).into()),
             ..Self::default()
         }
     }
 }
 
-impl TryFrom<&proto::SignedOwnedIpAddr> for SignedOwnedIpAddress {
-    type Error = ParseSignedOwnedIpAddrError;
-    fn try_from(p: &proto::SignedOwnedIpAddr) -> Result<Self, Self::Error> {
+impl TryFrom<&proto::SignedIpAddr> for SignedIpAddress {
+    type Error = ParseSignedIpAddrError;
+    fn try_from(p: &proto::SignedIpAddr) -> Result<Self, Self::Error> {
         Ok(Self {
             owned_ip_address: try_from_required(&p.owned_ip_addr)
                 .map_err(Self::Error::OwnedIpAddr)?,
-            signature_ip_address: try_from_required(&p.signature_ip_addr)
-                .map_err(Self::Error::Signature)?,
+            signature: try_from_required(&p.signature).map_err(Self::Error::Signature)?,
         })
     }
 }

@@ -90,7 +90,7 @@ impl std::str::FromStr for PeerAddr {
     }
 }
 
-// Wrapper around std::net::IpAddr, which constructs a SignedOwnedIpAddress
+// Wrapper around std::net::IpAddr, which constructs a SignedIpAddress
 #[derive(Clone, PartialEq, Eq, Debug, Hash)]
 pub struct OwnedIpAddress {
     pub(crate) ip_address: std::net::IpAddr,
@@ -107,22 +107,22 @@ impl OwnedIpAddress {
     }
 
     /// Sign with a given SecretKey, but must not store it.
-    pub fn sign(self, secret_key: &near_crypto::SecretKey) -> SignedOwnedIpAddress {
+    pub fn sign(self, secret_key: &near_crypto::SecretKey) -> SignedIpAddress {
         let signature = secret_key.sign(&self.ip_bytes());
-        SignedOwnedIpAddress { owned_ip_address: self, signature_ip_address: signature }
+        SignedIpAddress { owned_ip_address: self, signature: signature }
     }
 }
 
 /// Proof that a given peer_id owns an ip address, included in Handshake message
 #[derive(Clone, PartialEq, Eq, Debug, Hash)]
-pub struct SignedOwnedIpAddress {
+pub struct SignedIpAddress {
     pub(crate) owned_ip_address: OwnedIpAddress,
-    pub(crate) signature_ip_address: near_crypto::Signature, // signature for signed ip_address
+    pub(crate) signature: near_crypto::Signature, // signature for signed ip_address
 }
 
-impl SignedOwnedIpAddress {
+impl SignedIpAddress {
     pub fn verify(&self, public_key: &PublicKey) -> bool {
-        self.signature_ip_address.verify(&self.owned_ip_address.ip_bytes(), &public_key)
+        self.signature.verify(&self.owned_ip_address.ip_bytes(), &public_key)
     }
 }
 
@@ -344,7 +344,7 @@ pub struct Handshake {
     /// Account owned by the sender.
     pub(crate) owned_account: Option<SignedOwnedAccount>,
     /// Signed Ip Address of the sender
-    pub(crate) signed_owned_ip_address: Option<SignedOwnedIpAddress>,
+    pub(crate) signed_ip_address: Option<SignedIpAddress>,
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, strum::IntoStaticStr)]

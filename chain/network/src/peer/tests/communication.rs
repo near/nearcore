@@ -1,4 +1,4 @@
-use crate::network_protocol::testonly::{self as data, make_signed_owned_ip_addr};
+use crate::network_protocol::testonly::{self as data, make_signed_ip_addr};
 use crate::network_protocol::{
     Encoding, Handshake, HandshakeFailureReason, PartialEdgeInfo, PeerMessage, PeersRequest,
     PeersResponse, RoutedMessageBody,
@@ -200,8 +200,7 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
     let outbound_port = outbound_stream.local_addr.port();
     let mut outbound = Stream::new(outbound_encoding, outbound_stream);
     let ip_addr = outbound.stream.local_addr.ip();
-    let signed_owned_ip_address =
-        make_signed_owned_ip_addr(&ip_addr, &outbound_cfg.network.node_key);
+    let signed_ip_address = make_signed_ip_addr(&ip_addr, &outbound_cfg.network.node_key);
 
     // Send too old PROTOCOL_VERSION, expect ProtocolVersionMismatch
     let mut handshake = Handshake {
@@ -213,7 +212,7 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
         sender_chain_info: outbound_cfg.chain.get_peer_chain_info(),
         partial_edge_info: outbound_cfg.partial_edge_info(&inbound.cfg.id(), 1),
         owned_account: None,
-        signed_owned_ip_address: Some(signed_owned_ip_address),
+        signed_ip_address: Some(signed_ip_address),
     };
     // We will also introduce chain_id mismatch, but ProtocolVersionMismatch is expected to take priority.
     handshake.sender_chain_info.genesis_id.chain_id = "unknown_chain".to_string();
@@ -284,11 +283,11 @@ async fn test_backward_compatible_handshake_without_signed_ip_address(
         sender_chain_info: outbound_cfg.chain.get_peer_chain_info(),
         partial_edge_info: outbound_cfg.partial_edge_info(&inbound.cfg.id(), 1),
         owned_account: None,
-        // Send an outdated Handshake, which doesn't contain a signed ip address and verify handshake still succeeds
-        // TODO(soon): In future, this needs to fail after all production nodes have included mandatory signed ip address
-        signed_owned_ip_address: None,
+        signed_ip_address: None,
     };
     handshake.sender_chain_info = chain.get_peer_chain_info();
+    // Send an outdated Handshake, which doesn't contain a signed ip address and verify handshake still succeeds
+    // TODO(soon): In future, this needs to fail after all production nodes have included mandatory signed ip address
     outbound.write(&PeerMessage::Tier2Handshake(handshake.clone())).await;
     let resp = outbound.read().await.unwrap();
     assert_matches!(resp, PeerMessage::Tier2Handshake(_));
