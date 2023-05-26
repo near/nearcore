@@ -100,8 +100,8 @@ impl OwnedIpAddress {
     // Serialization of ip address for signing and verification
     fn ip_bytes(&self) -> Vec<u8> {
         let ip_bytes: Vec<u8> = match self.ip_address {
-            std::net::IpAddr::V4(ip) => ip.octets().to_vec().clone(),
-            std::net::IpAddr::V6(ip) => ip.octets().to_vec().clone(),
+            std::net::IpAddr::V4(ip) => ip.octets().to_vec(),
+            std::net::IpAddr::V6(ip) => ip.octets().to_vec(),
         };
         return ip_bytes;
     }
