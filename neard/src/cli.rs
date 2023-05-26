@@ -128,6 +128,9 @@ impl NeardCmd {
             NeardSubCommand::UndoBlock(cmd) => {
                 cmd.run(&home_dir, genesis_validation)?;
             }
+            NeardSubCommand::ForkNetwork(cmd) => {
+                cmd.run(&home_dir, genesis_validation)?;
+            }
         };
         Ok(())
     }
