@@ -927,7 +927,7 @@ fn load_trie_stop_at_height(
                     &ShardUId::from_shard_id_and_layout(chunk.shard_id(), &shard_layout),
                 )
                 .unwrap();
-            chunk_extra.state_root().clone()
+            *chunk_extra.state_root()
         })
         .collect();
 
