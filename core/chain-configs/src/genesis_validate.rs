@@ -8,6 +8,9 @@ use std::collections::{HashMap, HashSet};
 
 /// Validate genesis config and records. Returns ValidationError if semantic checks of genesis failed.
 pub fn validate_genesis(genesis: &Genesis) -> Result<(), ValidationError> {
+    if genesis.state_roots.is_some() {
+        return Ok(());
+    }
     let mut validation_errors = ValidationErrors::new();
     let mut genesis_validator = GenesisValidator::new(&genesis.config, &mut validation_errors);
     tracing::info!(target: "config", "Validating Genesis config and records. This could take a few minutes...");
