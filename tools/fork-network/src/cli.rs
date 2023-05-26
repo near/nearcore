@@ -2,8 +2,9 @@ use std::path::Path;
 
 use near_chain::types::Tip;
 use near_chain_configs::{Genesis, GenesisRecords, GenesisValidationMode};
-use near_primitives::{borsh::BorshSerialize, types::AccountInfo};
-use near_store::{DBCol, Mode, NodeStorage, HEAD_KEY};
+use near_epoch_manager::{EpochManager, EpochManagerAdapter};
+use near_primitives::{borsh::BorshSerialize, hash::CryptoHash, types::AccountInfo};
+use near_store::{flat::FlatStorageStatus, DBCol, Mode, NodeStorage, HEAD_KEY};
 use nearcore::load_config;
 
 #[derive(clap::Parser)]
@@ -18,8 +19,8 @@ impl ForkNetworkCommand {
         let near_config = load_config(home_dir, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
-        if near_config.config.store.flat_storage_creation_enabled {
-            panic!("Flat storage is not supported yet");
+        if !near_config.config.store.flat_storage_creation_enabled {
+            panic!("Flat storage is required");
         }
 
         if near_config.validator_signer.is_none() {
@@ -39,22 +40,47 @@ impl ForkNetworkCommand {
         let storage = store_opener.open_in_mode(Mode::ReadWrite).unwrap();
         let store = storage.get_hot_store();
 
+        let epoch_manager =
+            EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
         let head = store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)?.unwrap();
-        let head_block = store
+        let shard_layout = epoch_manager.get_shard_layout(&head.epoch_id)?;
+        drop(epoch_manager);
+        let all_shard_uids = shard_layout.get_shard_uids();
+
+        let mut flat_head: Option<CryptoHash> = None;
+        for shard_uid in all_shard_uids {
+            let flat_storage_status = store
+                .get_ser::<FlatStorageStatus>(DBCol::FlatStorageStatus, &shard_uid.to_bytes())?
+                .unwrap();
+            if let FlatStorageStatus::Ready(ready) = flat_storage_status {
+                let flat_head_for_this_shard = ready.flat_head.hash;
+                if let Some(hash) = flat_head {
+                    if hash != flat_head_for_this_shard {
+                        panic!("Not all shards have the same flat head");
+                    }
+                }
+                flat_head = Some(flat_head_for_this_shard);
+            }
+        }
+
+        let flat_head_block = store
             .get_ser::<near_primitives::block::Block>(
                 DBCol::Block,
-                &head.last_block_hash.try_to_vec().unwrap(),
+                &flat_head.unwrap().try_to_vec().unwrap(),
             )?
             .unwrap();
 
-        let state_roots =
-            head_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect::<Vec<_>>();
+        let state_roots = flat_head_block
+            .chunks()
+            .iter()
+            .map(|chunk| chunk.prev_state_root())
+            .collect::<Vec<_>>();
 
         println!("Creating a new genesis");
         let mut genesis_config = near_config.genesis.config.clone();
         genesis_config.chain_id += "-fork";
-        genesis_config.genesis_height = head_block.header().height();
-        genesis_config.genesis_time = head_block.header().timestamp();
+        genesis_config.genesis_height = flat_head_block.header().height();
+        genesis_config.genesis_time = flat_head_block.header().timestamp();
         genesis_config.epoch_length = 1000;
         let self_validator = near_config.validator_signer.as_ref().unwrap();
         let self_account = AccountInfo {
@@ -117,8 +143,7 @@ impl ForkNetworkCommand {
         update.delete_all(DBCol::HeaderHashesByHeight);
         update.delete_all(DBCol::StateChangesForSplitStates);
         update.delete_all(DBCol::TransactionResultForBlock);
-        // TODO: don't delete these.
-        update.delete_all(DBCol::FlatState);
+        // update.delete_all(DBCol::FlatState);
         update.delete_all(DBCol::FlatStateChanges);
         update.delete_all(DBCol::FlatStateDeltaMetadata);
         update.delete_all(DBCol::FlatStorageStatus);
