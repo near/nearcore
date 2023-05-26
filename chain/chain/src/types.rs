@@ -313,11 +313,7 @@ pub trait RuntimeAdapter: Send + Sync {
 
     /// Removes flat storage state for shard, if it exists.
     /// Used to clear old flat storage data from disk and memory before syncing to newer state.
-    fn remove_flat_storage_for_shard(
-        &self,
-        shard_uid: ShardUId,
-        epoch_id: &EpochId,
-    ) -> Result<(), Error>;
+    fn remove_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Result<(), Error>;
 
     fn set_flat_storage_for_genesis(
         &self,
