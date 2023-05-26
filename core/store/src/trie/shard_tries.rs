@@ -146,8 +146,8 @@ impl ShardTries {
             is_view,
             prefetch_api,
         ));
-        let flat_storage_chunk_view =
-            self.0.flat_storage_manager.chunk_view(shard_uid, block_hash, is_view);
+        let flat_storage_chunk_view = block_hash
+            .and_then(|block_hash| self.0.flat_storage_manager.chunk_view(shard_uid, block_hash));
 
         Trie::new(storage, state_root, flat_storage_chunk_view)
     }
@@ -161,8 +161,9 @@ impl ShardTries {
         shard_uid: ShardUId,
         state_root: StateRoot,
         block_hash: &CryptoHash,
+        is_view: bool,
     ) -> Trie {
-        self.get_trie_for_shard_internal(shard_uid, state_root, false, Some(*block_hash))
+        self.get_trie_for_shard_internal(shard_uid, state_root, is_view, Some(*block_hash))
     }
 
     pub fn get_view_trie_for_shard(&self, shard_uid: ShardUId, state_root: StateRoot) -> Trie {

@@ -2568,7 +2568,8 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::FlatState
             | DBCol::FlatStateChanges
             | DBCol::FlatStateDeltaMetadata
-            | DBCol::FlatStorageStatus => {
+            | DBCol::FlatStorageStatus
+            | DBCol::Misc => {
                 unreachable!();
             }
         }

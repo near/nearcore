@@ -7,13 +7,14 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
+use near_primitives::state::FlatStateValue;
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Gas, MerkleHash};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::flat::{
-    BlockInfo, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStateValue,
-    FlatStorage, FlatStorageManager,
+    BlockInfo, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorage,
+    FlatStorageManager,
 };
 use near_store::{ShardTries, ShardUId, Store, StoreCompiledContractCache, TrieUpdate};
 use near_store::{TrieCache, TrieCachingStorage, TrieConfig};
@@ -404,7 +405,12 @@ impl Testbed<'_> {
         // will be at the same number.
         let tip_height = self.config.finality_lag;
         let tip = fs_fake_block_height_to_hash(tip_height as u64);
-        self.tries.get_trie_with_block_hash_for_shard(ShardUId::single_shard(), self.root, &tip)
+        self.tries.get_trie_with_block_hash_for_shard(
+            ShardUId::single_shard(),
+            self.root,
+            &tip,
+            false,
+        )
     }
 }
 

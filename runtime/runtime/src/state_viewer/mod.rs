@@ -148,11 +148,7 @@ impl TrieViewer {
         iter.seek_prefix(&query)?;
         for item in &mut iter {
             let (key, value) = item?;
-            values.push(StateItem {
-                key: key[acc_sep_len..].to_vec().into(),
-                value: value.into(),
-                proof: vec![],
-            });
+            values.push(StateItem { key: key[acc_sep_len..].to_vec().into(), value: value.into() });
         }
         let proof = iter.into_visited_nodes();
         Ok(ViewStateResult { values, proof })

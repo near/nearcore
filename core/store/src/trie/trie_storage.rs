@@ -6,6 +6,7 @@ use lru::LruCache;
 use near_o11y::log_assert;
 use near_o11y::metrics::prometheus;
 use near_o11y::metrics::prometheus::core::{GenericCounter, GenericGauge};
+use near_primitives::challenge::PartialState;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{ShardId, TrieCacheMode, TrieNodesCount};
@@ -332,6 +333,7 @@ impl TrieStorage for TrieRecordingStorage {
 
 /// Storage for validating recorded partial storage.
 /// visited_nodes are to validate that partial storage doesn't contain unnecessary nodes.
+#[derive(Default)]
 pub struct TrieMemoryPartialStorage {
     pub(crate) recorded_storage: HashMap<CryptoHash, Arc<[u8]>>,
     pub(crate) visited_nodes: RefCell<HashSet<CryptoHash>>,
@@ -352,6 +354,30 @@ impl TrieStorage for TrieMemoryPartialStorage {
 
     fn get_trie_nodes_count(&self) -> TrieNodesCount {
         unimplemented!();
+    }
+}
+
+impl TrieMemoryPartialStorage {
+    pub fn new(recorded_storage: HashMap<CryptoHash, Arc<[u8]>>) -> Self {
+        Self { recorded_storage, visited_nodes: Default::default() }
+    }
+
+    pub fn partial_state(&self) -> PartialState {
+        let touched_nodes = self.visited_nodes.borrow();
+        let mut nodes: Vec<_> =
+            self.recorded_storage
+                .iter()
+                .filter_map(|(node_hash, value)| {
+                    if touched_nodes.contains(node_hash) {
+                        Some(value.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+        nodes.sort();
+        PartialState::TrieValues(nodes)
     }
 }
 
@@ -613,7 +639,7 @@ fn read_node_from_db(
     let val = store
         .get(DBCol::State, key.as_ref())
         .map_err(|_| StorageError::StorageInternalError)?
-        .ok_or_else(|| StorageError::StorageInconsistentState("Trie node missing".to_string()))?;
+        .ok_or_else(|| StorageError::TrieNodeMissing)?;
     Ok(val.into())
 }
 
