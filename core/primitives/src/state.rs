@@ -61,3 +61,26 @@ mod tests {
         assert_eq!(value_ref.hash, hash(&value));
     }
 }
+
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+pub enum FlatStateValue {
+    Ref(ValueRef),
+    Inlined(Vec<u8>),
+}
+
+impl FlatStateValue {
+    pub fn value_ref(value: &[u8]) -> Self {
+        Self::Ref(ValueRef::new(value))
+    }
+
+    pub fn inlined(value: &[u8]) -> Self {
+        Self::Inlined(value.to_vec())
+    }
+
+    pub fn to_value_ref(&self) -> ValueRef {
+        match self {
+            Self::Ref(value_ref) => value_ref.clone(),
+            Self::Inlined(value) => ValueRef::new(value),
+        }
+    }
+}

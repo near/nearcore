@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
+# Should be started in detached mode
+# to ensure an ssh disconnect will not interrupt the process:
+# /split_storage_migration.sh (testnet|mainnnet)  >> ./split_storage_migration.log &
 # Takes one argument -- chain_id (mainnet or testnet)
 # Prerequisites:
 # - systemd neard service
@@ -116,13 +120,10 @@ function init_cold_storage {
   # Wait for the migration to complete
   while true; do
     # Get data from the metrics page of a localhost node that is assumed to listen on port 3030.
-    head=$(curl "$metrics_url" --silent | grep 'block_height_head' | tail -n1 | awk '{print $2}')
     cold_head=$(curl "$metrics_url" --silent | grep 'cold_head_height' | tail -n1 | awk '{print $2}')
+    echo "Checking if cold storage cold head is ready. Cold head: '$cold_head'"
 
-    echo "Head of hot storage: '$head'"
-    echo "Head of cold storage: '$cold_head'"
-
-    if [[ -n "$head" && -n "$cold_head" ]]; then
+    if [[ -n "$cold_head" ]]; then
       break
     else
       echo "Cold storage isn't initialised yet. Will check again in 2 minutes. Please don't interrupt."

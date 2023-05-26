@@ -1,4 +1,6 @@
 use serde_json::Value;
+use serde_with::base64::Base64;
+use serde_with::serde_as;
 
 use near_client_primitives::types::TxStatusError;
 use near_jsonrpc_primitives::errors::RpcParseError;
@@ -7,7 +9,6 @@ use near_jsonrpc_primitives::types::transactions::{
     RpcTransactionStatusCommonRequest, TransactionInfo,
 };
 use near_primitives::borsh::BorshDeserialize;
-use near_primitives::serialize::Base64Bytes;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::views::FinalExecutionOutcomeViewEnum;
 
@@ -59,7 +60,11 @@ impl RpcFrom<FinalExecutionOutcomeViewEnum> for RpcTransactionResponse {
 }
 
 fn decode_signed_transaction(value: Value) -> Result<SignedTransaction, RpcParseError> {
-    let (bytes,) = Params::<(Base64Bytes,)>::parse(value)?;
-    SignedTransaction::try_from_slice(&bytes.0)
+    #[serde_as]
+    #[derive(serde::Deserialize)]
+    struct Payload(#[serde_as(as = "(Base64,)")] (Vec<u8>,));
+
+    let Payload((bytes,)) = Params::<Payload>::parse(value)?;
+    SignedTransaction::try_from_slice(&bytes)
         .map_err(|err| RpcParseError(format!("Failed to decode transaction: {}", err)))
 }

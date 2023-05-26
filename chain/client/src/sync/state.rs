@@ -28,11 +28,12 @@ use futures::{future, FutureExt};
 use near_async::messaging::CanSendAsync;
 use near_chain::chain::{ApplyStatePartsRequest, StateSplitRequest};
 use near_chain::near_chain_primitives;
-use near_chain::{Chain, RuntimeWithEpochManagerAdapter};
+use near_chain::Chain;
 use near_chain_configs::{ExternalStorageConfig, ExternalStorageLocation, SyncConfig};
 use near_client_primitives::types::{
     DownloadStatus, ShardSyncDownload, ShardSyncStatus, StateSplitApplyingStatus,
 };
+use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::AccountOrPeerIdOrHash;
 use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{
@@ -43,7 +44,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_part::PartId;
 use near_primitives::static_clock::StaticClock;
 use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponse};
-use near_primitives::types::{AccountId, EpochHeight, ShardId, StateRoot};
+use near_primitives::types::{AccountId, EpochHeight, EpochId, ShardId, StateRoot};
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use std::collections::HashMap;
@@ -59,6 +60,9 @@ pub const MAX_STATE_PART_REQUEST: u64 = 16;
 /// Number of state parts already requested stored as pending.
 /// This number should not exceed MAX_STATE_PART_REQUEST times (number of peers in the network).
 pub const MAX_PENDING_PART: u64 = MAX_STATE_PART_REQUEST * 10000;
+/// Time limit per state dump iteration.
+/// A node must check external storage for parts to dump again once time is up.
+pub const STATE_DUMP_ITERATION_TIME_LIMIT_SECS: u64 = 300;
 
 pub enum StateSyncResult {
     /// No shard has changed its status
@@ -178,6 +182,50 @@ impl ExternalConnection {
             }
         }
     }
+
+    fn extract_file_name_from_full_path(full_path: String) -> String {
+        return Self::extract_file_name_from_path_buf(PathBuf::from(full_path));
+    }
+
+    fn extract_file_name_from_path_buf(path_buf: PathBuf) -> String {
+        return path_buf.file_name().unwrap().to_str().unwrap().to_string();
+    }
+
+    pub async fn list_state_parts(
+        &self,
+        shard_id: ShardId,
+        directory_path: &str,
+    ) -> Result<Vec<String>, anyhow::Error> {
+        let _timer = metrics::STATE_SYNC_DUMP_LIST_OBJECT_ELAPSED
+            .with_label_values(&[&shard_id.to_string()])
+            .start_timer();
+        match self {
+            ExternalConnection::S3 { bucket } => {
+                let prefix = format!("{}/", directory_path);
+                let list_results = bucket.list(prefix.clone(), Some("/".to_string())).await?;
+                tracing::debug!(target: "state_sync_dump", shard_id, ?directory_path, "List state parts in s3");
+                let mut file_names = vec![];
+                for res in list_results {
+                    for obj in res.contents {
+                        file_names.push(Self::extract_file_name_from_full_path(obj.key))
+                    }
+                }
+                Ok(file_names)
+            }
+            ExternalConnection::Filesystem { root_dir } => {
+                let path = root_dir.join(directory_path);
+                tracing::debug!(target: "state_sync_dump", shard_id, ?path, "List state parts in local directory");
+                std::fs::create_dir_all(&path)?;
+                let mut file_names = vec![];
+                let files = std::fs::read_dir(&path)?;
+                for file in files {
+                    let file_name = Self::extract_file_name_from_path_buf(file?.path());
+                    file_names.push(file_name);
+                }
+                Ok(file_names)
+            }
+        }
+    }
 }
 
 /// Helper to track state sync.
@@ -292,7 +340,7 @@ impl StateSync {
         sync_hash: CryptoHash,
         new_shard_sync: &mut HashMap<u64, ShardSyncDownload>,
         chain: &mut Chain,
-        runtime_adapter: &Arc<dyn RuntimeWithEpochManagerAdapter>,
+        epoch_manager: &dyn EpochManagerAdapter,
         highest_height_peers: &[HighestHeightPeerInfo],
         tracking_shards: Vec<ShardId>,
         now: DateTime<Utc>,
@@ -306,12 +354,12 @@ impl StateSync {
         let prev_hash = *chain.get_block_header(&sync_hash)?.prev_hash();
         let prev_epoch_id = chain.get_block_header(&prev_hash)?.epoch_id().clone();
         let epoch_id = chain.get_block_header(&sync_hash)?.epoch_id().clone();
-        if runtime_adapter.get_shard_layout(&prev_epoch_id)?
-            != runtime_adapter.get_shard_layout(&epoch_id)?
+        if epoch_manager.get_shard_layout(&prev_epoch_id)?
+            != epoch_manager.get_shard_layout(&epoch_id)?
         {
             panic!("cannot sync to the first epoch after sharding upgrade. Please wait for the next epoch or find peers that are more up to date");
         }
-        let split_states = runtime_adapter.will_shard_layout_change_next_epoch(&prev_hash)?;
+        let split_states = epoch_manager.will_shard_layout_change(&prev_hash)?;
 
         for shard_id in tracking_shards {
             let mut download_timeout = false;
@@ -426,7 +474,7 @@ impl StateSync {
                     me,
                     shard_id,
                     chain,
-                    runtime_adapter,
+                    epoch_manager,
                     sync_hash,
                     shard_sync_download,
                     highest_height_peers,
@@ -516,25 +564,23 @@ impl StateSync {
         me: &Option<AccountId>,
         shard_id: ShardId,
         chain: &Chain,
-        runtime_adapter: &Arc<dyn RuntimeWithEpochManagerAdapter>,
+        epoch_manager: &dyn EpochManagerAdapter,
         sync_hash: CryptoHash,
         highest_height_peers: &[HighestHeightPeerInfo],
     ) -> Result<Vec<AccountOrPeerIdOrHash>, near_chain::Error> {
         let prev_block_hash = *chain.get_block_header(&sync_hash)?.prev_hash();
-        let epoch_hash = runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash)?;
+        let epoch_hash = epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
 
         let block_producers =
-            runtime_adapter.get_epoch_block_producers_ordered(&epoch_hash, &sync_hash)?;
+            epoch_manager.get_epoch_block_producers_ordered(&epoch_hash, &sync_hash)?;
         let peers = block_producers
             .iter()
             .filter_map(|(validator_stake, _slashed)| {
                 let account_id = validator_stake.account_id();
-                if runtime_adapter.cares_about_shard(
-                    Some(account_id),
-                    &prev_block_hash,
-                    shard_id,
-                    false,
-                ) {
+                if epoch_manager
+                    .cares_about_shard_from_prev_block(&prev_block_hash, account_id, shard_id)
+                    .unwrap_or(false)
+                {
                     // If we are one of the validators (me is not None) - then make sure that we don't try to send request to ourselves.
                     if me.as_ref().map(|me| me != account_id).unwrap_or(true) {
                         Some(AccountOrPeerIdOrHash::AccountId(account_id.clone()))
@@ -590,7 +636,7 @@ impl StateSync {
         me: &Option<AccountId>,
         shard_id: ShardId,
         chain: &Chain,
-        runtime_adapter: &Arc<dyn RuntimeWithEpochManagerAdapter>,
+        epoch_manager: &dyn EpochManagerAdapter,
         sync_hash: CryptoHash,
         shard_sync_download: &mut ShardSyncDownload,
         highest_height_peers: &[HighestHeightPeerInfo],
@@ -599,7 +645,7 @@ impl StateSync {
             me,
             shard_id,
             chain,
-            runtime_adapter,
+            epoch_manager,
             sync_hash,
             highest_height_peers,
         )?;
@@ -715,7 +761,7 @@ impl StateSync {
             StateSyncInner::PartsFromExternal { chain_id, requests_remaining, external } => {
                 let sync_block_header = chain.get_block_header(&sync_hash).unwrap();
                 let epoch_id = sync_block_header.epoch_id();
-                let epoch_info = chain.runtime_adapter.get_epoch_info(epoch_id).unwrap();
+                let epoch_info = chain.epoch_manager.get_epoch_info(epoch_id).unwrap();
                 let epoch_height = epoch_info.epoch_height();
 
                 let shard_state_header = chain.get_state_header(shard_id, sync_hash).unwrap();
@@ -727,6 +773,7 @@ impl StateSync {
                         part_id,
                         download,
                         shard_id,
+                        epoch_id,
                         epoch_height,
                         state_num_parts,
                         &chain_id.clone(),
@@ -748,7 +795,7 @@ impl StateSync {
         sync_hash: CryptoHash,
         new_shard_sync: &mut HashMap<u64, ShardSyncDownload>,
         chain: &mut Chain,
-        runtime_adapter: &Arc<dyn RuntimeWithEpochManagerAdapter>,
+        epoch_manager: &dyn EpochManagerAdapter,
         highest_height_peers: &[HighestHeightPeerInfo],
         // Shards to sync.
         tracking_shards: Vec<ShardId>,
@@ -782,7 +829,7 @@ impl StateSync {
             sync_hash,
             new_shard_sync,
             chain,
-            runtime_adapter,
+            epoch_manager,
             highest_height_peers,
             tracking_shards,
             now,
@@ -1173,6 +1220,7 @@ fn request_part_from_external_storage(
     part_id: u64,
     download: &mut DownloadStatus,
     shard_id: ShardId,
+    epoch_id: &EpochId,
     epoch_height: EpochHeight,
     num_parts: u64,
     chain_id: &str,
@@ -1190,7 +1238,8 @@ fn request_part_from_external_storage(
     download.state_requests_count += 1;
     download.last_target = None;
 
-    let location = external_storage_location(chain_id, epoch_height, shard_id, part_id, num_parts);
+    let location =
+        external_storage_location(chain_id, epoch_id, epoch_height, shard_id, part_id, num_parts);
     let download_response = download.response.clone();
     near_performance_metrics::actix::spawn("StateSync", {
         async move {
@@ -1455,6 +1504,7 @@ impl<T: Clone> Iterator for SamplerLimited<T> {
 /// Construct a location on the external storage.
 pub fn external_storage_location(
     chain_id: &str,
+    epoch_id: &EpochId,
     epoch_height: u64,
     shard_id: u64,
     part_id: u64,
@@ -1462,13 +1512,30 @@ pub fn external_storage_location(
 ) -> String {
     format!(
         "{}/{}",
-        location_prefix(chain_id, epoch_height, shard_id),
+        location_prefix(chain_id, epoch_height, epoch_id, shard_id),
         part_filename(part_id, num_parts)
     )
 }
 
-pub fn location_prefix(chain_id: &str, epoch_height: u64, shard_id: u64) -> String {
-    format!("chain_id={}/epoch_height={}/shard_id={}", chain_id, epoch_height, shard_id)
+pub fn external_storage_location_directory(
+    chain_id: &str,
+    epoch_id: &EpochId,
+    epoch_height: u64,
+    shard_id: u64,
+) -> String {
+    location_prefix(chain_id, epoch_height, epoch_id, shard_id)
+}
+
+pub fn location_prefix(
+    chain_id: &str,
+    epoch_height: u64,
+    epoch_id: &EpochId,
+    shard_id: u64,
+) -> String {
+    format!(
+        "chain_id={}/epoch_height={}/epoch_id={}/shard_id={}",
+        chain_id, epoch_height, epoch_id.0, shard_id
+    )
 }
 
 pub fn part_filename(part_id: u64, num_parts: u64) -> String {
@@ -1489,6 +1556,17 @@ pub fn get_num_parts_from_filename(s: &str) -> Option<u64> {
         if let Some(num_parts) = captures.get(2) {
             if let Ok(num_parts) = num_parts.as_str().parse::<u64>() {
                 return Some(num_parts);
+            }
+        }
+    }
+    None
+}
+
+pub fn get_part_id_from_filename(s: &str) -> Option<u64> {
+    if let Some(captures) = match_filename(s) {
+        if let Some(part_id) = captures.get(1) {
+            if let Ok(part_id) = part_id.as_str().parse::<u64>() {
+                return Some(part_id);
             }
         }
     }
@@ -1522,7 +1600,7 @@ mod test {
         );
         let mut new_shard_sync = HashMap::new();
 
-        let (mut chain, kv, signer) = test_utils::setup();
+        let (mut chain, kv, _, signer) = test_utils::setup();
 
         // TODO: lower the epoch length
         for _ in 0..(chain.epoch_length + 1) {
@@ -1564,7 +1642,7 @@ mod test {
                     *request_hash,
                     &mut new_shard_sync,
                     &mut chain,
-                    &(kv as Arc<dyn RuntimeWithEpochManagerAdapter>),
+                    kv.as_ref(),
                     &[],
                     vec![0],
                     &apply_parts_fn,
@@ -1638,5 +1716,8 @@ mod test {
 
         assert_eq!(get_num_parts_from_filename(&filename), Some(15));
         assert_eq!(get_num_parts_from_filename("123123"), None);
+
+        assert_eq!(get_part_id_from_filename(&filename), Some(5));
+        assert_eq!(get_part_id_from_filename("123123"), None);
     }
 }

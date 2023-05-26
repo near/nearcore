@@ -1,6 +1,8 @@
 use crate::flat::{FlatStateChanges, FlatStorageChunkView};
 pub use crate::trie::config::TrieConfig;
-pub(crate) use crate::trie::config::DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT;
+pub(crate) use crate::trie::config::{
+    DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY, DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
+};
 use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
 pub use crate::trie::nibble_slice::NibbleSlice;
@@ -23,6 +25,7 @@ pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::Write;
+use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 use std::str;
 
@@ -219,6 +222,13 @@ impl TrieNode {
         Ok(())
     }
 
+    pub fn has_value(&self) -> bool {
+        match self {
+            Self::Branch(_, Some(_)) | Self::Leaf(_, _) => true,
+            _ => false,
+        }
+    }
+
     #[cfg(test)]
     fn deep_to_string(&self, memory: &NodesStorage) -> String {
         let mut buf = String::new();
@@ -346,6 +356,12 @@ impl TrieRefcountChange {
     }
 }
 
+impl Hash for TrieRefcountChange {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write(&self.trie_node_or_value_hash.0);
+        state.write_u32(self.rc.into());
+    }
+}
 ///
 /// TrieChanges stores delta for refcount.
 /// Multiple versions of the state work the following way:
@@ -426,16 +442,13 @@ impl Trie {
         let mut nodes: Vec<_> =
             storage.recorded.borrow_mut().drain().map(|(_key, value)| value).collect();
         nodes.sort();
-        Some(PartialStorage { nodes: PartialState(nodes) })
+        Some(PartialStorage { nodes: PartialState::TrieValues(nodes) })
     }
 
     pub fn from_recorded_storage(partial_storage: PartialStorage, root: StateRoot) -> Self {
-        let recorded_storage =
-            partial_storage.nodes.0.into_iter().map(|value| (hash(&value), value)).collect();
-        let storage = Rc::new(TrieMemoryPartialStorage {
-            recorded_storage,
-            visited_nodes: Default::default(),
-        });
+        let PartialState::TrieValues(nodes) = partial_storage.nodes;
+        let recorded_storage = nodes.into_iter().map(|value| (hash(&value), value)).collect();
+        let storage = Rc::new(TrieMemoryPartialStorage::new(recorded_storage));
         Self::new(storage, root, None)
     }
 
@@ -1173,6 +1186,7 @@ mod tests {
         for _test_run in 0..10 {
             let num_iterations = rng.gen_range(1..20);
             let tries = create_tries();
+            let store = tries.get_store();
             let mut state_root = Trie::EMPTY_ROOT;
             for _ in 0..num_iterations {
                 let trie_changes = gen_changes(&mut rng, 20);
@@ -1198,17 +1212,7 @@ mod tests {
             state_root =
                 test_populate_trie(&tries, &state_root, ShardUId::single_shard(), trie_changes);
             assert_eq!(state_root, Trie::EMPTY_ROOT, "Trie must be empty");
-            assert!(
-                trie.storage
-                    .as_caching_storage()
-                    .unwrap()
-                    .store
-                    .iter(DBCol::State)
-                    .peekable()
-                    .peek()
-                    .is_none(),
-                "Storage must be empty"
-            );
+            assert!(store.iter(DBCol::State).peekable().peek().is_none(), "Storage must be empty");
         }
     }
 
@@ -1275,7 +1279,7 @@ mod tests {
             let trie2 = tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads();
             trie2.get(b"doge").unwrap();
             // record extension, branch and one leaf with value, but not the other
-            assert_eq!(trie2.recorded_storage().unwrap().nodes.0.len(), 4);
+            assert_eq!(trie2.recorded_storage().unwrap().nodes.len(), 4);
         }
 
         {
@@ -1283,7 +1287,7 @@ mod tests {
             let updates = vec![(b"doge".to_vec(), None)];
             trie2.update(updates).unwrap();
             // record extension, branch and both leaves (one with value)
-            assert_eq!(trie2.recorded_storage().unwrap().nodes.0.len(), 5);
+            assert_eq!(trie2.recorded_storage().unwrap().nodes.len(), 5);
         }
 
         {
@@ -1291,7 +1295,7 @@ mod tests {
             let updates = vec![(b"dodo".to_vec(), Some(b"asdf".to_vec()))];
             trie2.update(updates).unwrap();
             // record extension and branch, but not leaves
-            assert_eq!(trie2.recorded_storage().unwrap().nodes.0.len(), 2);
+            assert_eq!(trie2.recorded_storage().unwrap().nodes.len(), 2);
         }
     }
 

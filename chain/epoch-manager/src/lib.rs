@@ -29,7 +29,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use tracing::{debug, warn};
 
-pub use crate::adapter::{EpochManagerAdapter, HasEpochMangerHandle};
+pub use crate::adapter::EpochManagerAdapter;
 pub use crate::reward_calculator::RewardCalculator;
 pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
 pub use crate::types::RngSeed;
@@ -160,6 +160,10 @@ impl EpochManager {
             reward_calculator,
             genesis_config.validators(),
         )
+    }
+
+    pub fn new_arc_handle(store: Store, genesis_config: &GenesisConfig) -> Arc<EpochManagerHandle> {
+        Arc::new(Self::new_from_genesis_config(store, genesis_config).unwrap().into_handle())
     }
 
     pub fn new(

@@ -1,9 +1,12 @@
 [package]
 name = "near-jsonrpc-client"
-version = "0.0.0"
+version.workspace = true
 authors.workspace = true
-publish = false
 edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
 
 [dependencies]
 actix-http.workspace = true

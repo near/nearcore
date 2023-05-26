@@ -62,7 +62,7 @@ impl<'a> Bytes<'a> {
             Ok(s[1..s.len().checked_sub(1).expect("s.len() >= 2 ")].as_bytes().to_vec())
         } else {
             // encoded with base64
-            from_base64(s)
+            from_base64(s).map_err(|err| err.into())
         }
     }
 }

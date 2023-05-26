@@ -1,9 +1,12 @@
 [package]
 name = "near-undo-block"
-version = "0.0.0"
+version.workspace = true
 authors.workspace = true
-publish = false
 edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
 
 [dependencies]
 anyhow.workspace = true
@@ -13,6 +16,7 @@ chrono.workspace = true
 
 near-chain.workspace = true
 near-chain-configs.workspace = true
+near-epoch-manager.workspace = true
 near-store.workspace = true
 nearcore.workspace = true
 near-primitives.workspace = true

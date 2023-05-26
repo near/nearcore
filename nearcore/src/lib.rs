@@ -10,11 +10,15 @@ use cold_storage::ColdStoreLoopHandle;
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::messaging::{IntoSender, LateBoundSender};
 use near_async::time;
+use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis};
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::{start_client, start_view_client, ClientActor, ConfigUpdater, ViewClientActor};
+use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
+use near_epoch_manager::EpochManager;
 use near_network::PeerManagerActor;
 use near_primitives::block::GenesisId;
+use near_store::flat::FlatStateValuesInliningMigrationHandle;
 use near_store::metadata::DbKind;
 use near_store::metrics::spawn_db_metrics_loop;
 use near_store::{DBCol, Mode, NodeStorage, Store, StoreOpenerError};
@@ -191,6 +195,9 @@ pub struct NearNode {
     pub cold_store_loop_handle: Option<ColdStoreLoopHandle>,
     /// Contains handles to background threads that may be dumping state to S3.
     pub state_sync_dump_handle: Option<StateSyncDumpHandle>,
+    /// A handle to control background flat state values inlining migration.
+    /// Needed temporarily, will be removed after the migration is completed.
+    pub flat_state_migration_handle: Option<FlatStateValuesInliningMigrationHandle>,
 }
 
 pub fn start_with_config(home_dir: &Path, config: NearConfig) -> anyhow::Result<NearNode> {
@@ -214,22 +221,45 @@ pub fn start_with_config_and_synchronization(
         None
     };
 
-    let runtime = NightshadeRuntime::from_config(home_dir, storage.get_hot_store(), &config);
+    let epoch_manager =
+        EpochManager::new_arc_handle(storage.get_hot_store(), &config.genesis.config);
+    let shard_tracker =
+        ShardTracker::new(TrackedConfig::from_config(&config.client_config), epoch_manager.clone());
+    let runtime = NightshadeRuntime::from_config(
+        home_dir,
+        storage.get_hot_store(),
+        &config,
+        epoch_manager.clone(),
+    );
 
-    // Get the split store. If split store is some then create a new runtime for
-    // the view client. Otherwise just re-use the existing runtime.
+    // Get the split store. If split store is some then create a new set of structures for
+    // the view client. Otherwise just re-use the existing ones.
     let split_store = get_split_store(&config, &storage)?;
-    let view_runtime = if let Some(split_store) = &split_store {
-        NightshadeRuntime::from_config(home_dir, split_store.clone(), &config)
-    } else {
-        runtime.clone()
-    };
+    let (view_epoch_manager, view_shard_tracker, view_runtime) =
+        if let Some(split_store) = &split_store {
+            let view_epoch_manager =
+                EpochManager::new_arc_handle(split_store.clone(), &config.genesis.config);
+            let view_shard_tracker = ShardTracker::new(
+                TrackedConfig::from_config(&config.client_config),
+                epoch_manager.clone(),
+            );
+            let view_runtime = NightshadeRuntime::from_config(
+                home_dir,
+                split_store.clone(),
+                &config,
+                view_epoch_manager.clone(),
+            );
+            (view_epoch_manager, view_shard_tracker, view_runtime)
+        } else {
+            (epoch_manager.clone(), shard_tracker.clone(), runtime.clone())
+        };
 
-    let cold_store_loop_handle = spawn_cold_store_loop(&config, &storage, runtime.clone())?;
+    let cold_store_loop_handle = spawn_cold_store_loop(&config, &storage, epoch_manager.clone())?;
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
     let chain_genesis = ChainGenesis::new(&config.genesis);
-    let genesis_block = Chain::make_genesis_block(&*runtime, &chain_genesis)?;
+    let genesis_block =
+        Chain::make_genesis_block(epoch_manager.as_ref(), runtime.as_ref(), &chain_genesis)?;
     let genesis_id = GenesisId {
         chain_id: config.client_config.chain_id.clone(),
         hash: *genesis_block.header().hash(),
@@ -244,6 +274,8 @@ pub fn start_with_config_and_synchronization(
     let view_client = start_view_client(
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
         chain_genesis.clone(),
+        view_epoch_manager,
+        view_shard_tracker,
         view_runtime,
         network_adapter.clone().into(),
         config.client_config.clone(),
@@ -252,6 +284,8 @@ pub fn start_with_config_and_synchronization(
     let (client_actor, client_arbiter_handle) = start_client(
         config.client_config.clone(),
         chain_genesis.clone(),
+        epoch_manager.clone(),
+        shard_tracker.clone(),
         runtime.clone(),
         node_id,
         network_adapter.clone().into(),
@@ -264,7 +298,8 @@ pub fn start_with_config_and_synchronization(
     );
     client_adapter_for_shards_manager.bind(client_actor.clone().with_auto_span_context());
     let (shards_manager_actor, shards_manager_arbiter_handle) = start_shards_manager(
-        runtime.clone(),
+        epoch_manager.clone(),
+        shard_tracker.clone(),
         network_adapter.as_sender(),
         client_adapter_for_shards_manager.as_sender(),
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
@@ -273,9 +308,23 @@ pub fn start_with_config_and_synchronization(
     );
     shards_manager_adapter.bind(shards_manager_actor);
 
+    let flat_state_migration_handle =
+        if let Some(flat_storage_manager) = runtime.get_flat_storage_manager() {
+            let handle = FlatStateValuesInliningMigrationHandle::start_background_migration(
+                storage.get_hot_store(),
+                flat_storage_manager,
+                config.client_config.client_background_migration_threads,
+            );
+            Some(handle)
+        } else {
+            None
+        };
+
     let state_sync_dump_handle = spawn_state_sync_dump(
         &config.client_config,
         chain_genesis,
+        epoch_manager,
+        shard_tracker,
         runtime,
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
     )?;
@@ -334,6 +383,7 @@ pub fn start_with_config_and_synchronization(
         arbiters,
         cold_store_loop_handle,
         state_sync_dump_handle,
+        flat_state_migration_handle,
     })
 }
 

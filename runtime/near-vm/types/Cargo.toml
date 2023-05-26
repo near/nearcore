@@ -1,0 +1,26 @@
+[package]
+name = "near-vm-types"
+version.workspace = true
+description = "Near VM Common Types"
+categories = ["wasm", "data-structures"]
+keywords = ["wasm", "webassembly", "types"]
+authors = ["Wasmer Engineering Team <engineering@wasmer.io>", "Near Inc <hello@nearprotocol.com>"]
+repository.workspace = true
+license = "MIT OR Apache-2.0 WITH LLVM-exception"
+readme = "README.md"
+edition = "2021"
+publish = true
+rust-version.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+indexmap.workspace = true
+num-traits.workspace = true
+rkyv.workspace = true
+
+[dev-dependencies]
+bolero.workspace = true
+
+[[test]]
+name = "partial-sum-map"
+harness = false

@@ -3,7 +3,6 @@ use crate::challenge::ChallengesResult;
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
 use crate::receipt::Receipt;
-use crate::serialize::base64_format;
 use crate::serialize::dec_format;
 use crate::trie_key::TrieKey;
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -11,6 +10,8 @@ use near_crypto::PublicKey;
 /// Reexport primitive types
 pub use near_primitives_core::types::*;
 use once_cell::sync::Lazy;
+use serde_with::base64::Base64;
+use serde_with::serde_as;
 use std::sync::Arc;
 
 /// Hash used by to store state root.
@@ -49,6 +50,7 @@ pub struct AccountInfo {
 ///
 /// NOTE: Currently, this type is only used in the view_client and RPC to be able to transparently
 /// pretty-serialize the bytes arrays as base64-encoded strings (see `serialize.rs`).
+#[serde_as]
 #[derive(
     serde::Serialize,
     serde::Deserialize,
@@ -63,12 +65,13 @@ pub struct AccountInfo {
     BorshDeserialize,
 )]
 #[serde(transparent)]
-pub struct StoreKey(#[serde(with = "base64_format")] Vec<u8>);
+pub struct StoreKey(#[serde_as(as = "Base64")] Vec<u8>);
 
 /// This type is used to mark values returned from store (arrays of bytes).
 ///
 /// NOTE: Currently, this type is only used in the view_client and RPC to be able to transparently
 /// pretty-serialize the bytes arrays as base64-encoded strings (see `serialize.rs`).
+#[serde_as]
 #[derive(
     serde::Serialize,
     serde::Deserialize,
@@ -83,13 +86,14 @@ pub struct StoreKey(#[serde(with = "base64_format")] Vec<u8>);
     BorshDeserialize,
 )]
 #[serde(transparent)]
-pub struct StoreValue(#[serde(with = "base64_format")] Vec<u8>);
+pub struct StoreValue(#[serde_as(as = "Base64")] Vec<u8>);
 
 /// This type is used to mark function arguments.
 ///
 /// NOTE: The main reason for this to exist (except the type-safety) is that the value is
 /// transparently serialized and deserialized as a base64-encoded string when serde is used
 /// (serde_json).
+#[serde_as]
 #[derive(
     serde::Serialize,
     serde::Deserialize,
@@ -104,7 +108,7 @@ pub struct StoreValue(#[serde(with = "base64_format")] Vec<u8>);
     BorshDeserialize,
 )]
 #[serde(transparent)]
-pub struct FunctionArgs(#[serde(with = "base64_format")] Vec<u8>);
+pub struct FunctionArgs(#[serde_as(as = "Base64")] Vec<u8>);
 
 /// A structure used to indicate the kind of state changes due to transaction/receipt processing, etc.
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]

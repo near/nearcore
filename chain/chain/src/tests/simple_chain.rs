@@ -13,16 +13,21 @@ use num_rational::Ratio;
 use std::sync::Arc;
 use std::time::Instant;
 
+fn timestamp(hour: u32, min: u32, sec: u32, millis: u32) -> chrono::DateTime<chrono::Utc> {
+    chrono::Utc.with_ymd_and_hms(2020, 10, 1, hour, min, sec).single().unwrap()
+        + chrono::Duration::milliseconds(i64::from(millis))
+}
+
 #[test]
 fn build_chain() {
     init_test_logger();
     let mock_clock_guard = MockClockGuard::default();
 
-    mock_clock_guard.add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444));
-    mock_clock_guard.add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 0, 0)); // Client startup timestamp.
+    mock_clock_guard.add_utc(timestamp(0, 0, 3, 444));
+    mock_clock_guard.add_utc(timestamp(0, 0, 0, 0)); // Client startup timestamp.
     mock_clock_guard.add_instant(Instant::now());
 
-    let (mut chain, _, signer) = setup();
+    let (mut chain, _, _, signer) = setup();
 
     assert_eq!(mock_clock_guard.utc_call_count(), 2);
     assert_eq!(mock_clock_guard.instant_call_count(), 1);
@@ -52,8 +57,8 @@ fn build_chain() {
         // two entries, because the clock is called 2 times per block
         // - one time for creation of the block
         // - one time for validating block header
-        mock_clock_guard.add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444 + i));
-        mock_clock_guard.add_utc(chrono::Utc.ymd(2020, 10, 1).and_hms_milli(0, 0, 3, 444 + i));
+        mock_clock_guard.add_utc(timestamp(0, 0, 3, 444 + i));
+        mock_clock_guard.add_utc(timestamp(0, 0, 3, 444 + i));
         // Instant calls for CryptoHashTimer.
         mock_clock_guard.add_instant(Instant::now());
         mock_clock_guard.add_instant(Instant::now());
@@ -82,7 +87,7 @@ fn build_chain() {
 #[test]
 fn build_chain_with_orphans() {
     init_test_logger();
-    let (mut chain, _, signer) = setup();
+    let (mut chain, _, _, signer) = setup();
     let mut blocks = vec![chain.get_block(&chain.genesis().hash().clone()).unwrap()];
     for i in 1..4 {
         let block = TestBlockBuilder::new(&blocks[i - 1], signer.clone()).build();
@@ -140,7 +145,7 @@ fn build_chain_with_orphans() {
 #[test]
 fn build_chain_with_skips_and_forks() {
     init_test_logger();
-    let (mut chain, _, signer) = setup();
+    let (mut chain, _, _, signer) = setup();
     let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
     let b1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
     let b2 = TestBlockBuilder::new(&genesis, signer.clone()).height(2).build();
@@ -180,7 +185,7 @@ fn build_chain_with_skips_and_forks() {
 #[test]
 fn blocks_at_height() {
     init_test_logger();
-    let (mut chain, _, signer) = setup();
+    let (mut chain, _, _, signer) = setup();
     let genesis = chain.get_block_by_height(0).unwrap();
     let b_1 = TestBlockBuilder::new(&genesis, signer.clone()).height(1).build();
 
@@ -253,7 +258,7 @@ fn blocks_at_height() {
 #[test]
 fn next_blocks() {
     init_test_logger();
-    let (mut chain, _, signer) = setup();
+    let (mut chain, _, _, signer) = setup();
     let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
     let b1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
     let b2 = TestBlockBuilder::new(&b1, signer.clone()).height(2).build();

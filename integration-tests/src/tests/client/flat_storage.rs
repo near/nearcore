@@ -1,6 +1,6 @@
 /// Tests which check correctness of background flat storage creation.
 use assert_matches::assert_matches;
-use near_chain::{ChainGenesis, Provenance, RuntimeWithEpochManagerAdapter};
+use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_o11y::testonly::init_test_logger;
@@ -15,11 +15,11 @@ use near_store::flat::{
 use near_store::test_utils::create_test_store;
 use near_store::{KeyLookupMode, Store, TrieTraversalItem};
 use nearcore::config::GenesisExt;
-use std::path::Path;
 use std::str::FromStr;
-use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
+
+use super::utils::TestEnvNightshadeSetupExt;
 
 /// Height on which we start flat storage background creation.
 const START_HEIGHT: BlockHeight = 4;
@@ -30,9 +30,11 @@ const CREATION_TIMEOUT: BlockHeight = 30;
 /// Setup environment with one Near client for testing.
 fn setup_env(genesis: &Genesis, store: Store) -> TestEnv {
     let chain_genesis = ChainGenesis::new(genesis);
-    let runtimes: Vec<Arc<dyn RuntimeWithEpochManagerAdapter>> =
-        vec![nearcore::NightshadeRuntime::test(Path::new("../../../.."), store, genesis)];
-    TestEnv::builder(chain_genesis).runtime_adapters(runtimes).build()
+    TestEnv::builder(chain_genesis)
+        .stores(vec![store])
+        .real_epoch_managers(&genesis.config)
+        .nightshade_runtimes(genesis)
+        .build()
 }
 
 /// Waits for flat storage creation on given shard for `CREATION_TIMEOUT` blocks.
@@ -157,13 +159,7 @@ fn test_flat_storage_creation_sanity() {
             );
         }
 
-        let block_hash = env.clients[0].chain.get_block_hash_by_height(START_HEIGHT - 1).unwrap();
-        let epoch_id = env.clients[0].chain.runtime_adapter.get_epoch_id(&block_hash).unwrap();
-        env.clients[0]
-            .chain
-            .runtime_adapter
-            .remove_flat_storage_for_shard(shard_uid, &epoch_id)
-            .unwrap();
+        env.clients[0].chain.runtime_adapter.remove_flat_storage_for_shard(shard_uid).unwrap();
     }
 
     // Create new chain and runtime using the same store. It should produce next blocks normally, but now it should
@@ -245,13 +241,7 @@ fn test_flat_storage_creation_two_shards() {
             );
         }
 
-        let block_hash = env.clients[0].chain.get_block_hash_by_height(START_HEIGHT - 1).unwrap();
-        let epoch_id = env.clients[0].chain.runtime_adapter.get_epoch_id(&block_hash).unwrap();
-        env.clients[0]
-            .chain
-            .runtime_adapter
-            .remove_flat_storage_for_shard(shard_uids[0], &epoch_id)
-            .unwrap();
+        env.clients[0].chain.runtime_adapter.remove_flat_storage_for_shard(shard_uids[0]).unwrap();
     }
 
     // Check that flat storage is not ready for shard 0 but ready for shard 1.
@@ -306,8 +296,8 @@ fn test_flat_storage_creation_start_from_state_part() {
             .unwrap();
         (0..NUM_PARTS)
             .map(|part_id| {
-                let path_begin = trie.find_path_for_part_boundary(part_id, NUM_PARTS).unwrap();
-                let path_end = trie.find_path_for_part_boundary(part_id + 1, NUM_PARTS).unwrap();
+                let path_begin = trie.find_state_part_boundary(part_id, NUM_PARTS).unwrap();
+                let path_end = trie.find_state_part_boundary(part_id + 1, NUM_PARTS).unwrap();
                 let mut trie_iter = trie.iter().unwrap();
                 let mut keys = vec![];
                 for item in trie_iter.visit_nodes_interval(&path_begin, &path_end).unwrap() {
@@ -391,13 +381,7 @@ fn test_catchup_succeeds_even_if_no_new_blocks() {
             env.produce_block(0, height);
         }
         // Remove flat storage.
-        let block_hash = env.clients[0].chain.get_block_hash_by_height(START_HEIGHT - 1).unwrap();
-        let epoch_id = env.clients[0].chain.runtime_adapter.get_epoch_id(&block_hash).unwrap();
-        env.clients[0]
-            .chain
-            .runtime_adapter
-            .remove_flat_storage_for_shard(shard_uid, &epoch_id)
-            .unwrap();
+        env.clients[0].chain.runtime_adapter.remove_flat_storage_for_shard(shard_uid).unwrap();
     }
     let mut env = setup_env(&genesis, store.clone());
     assert!(env.clients[0].runtime_adapter.get_flat_storage_for_shard(shard_uid).is_none());
@@ -436,14 +420,9 @@ fn test_flat_storage_iter() {
     }
 
     for shard_id in 0..3 {
-        let items: Vec<_> = store_helper::iter_flat_state_entries(
-            shard_layout.clone(),
-            shard_id,
-            &store,
-            None,
-            None,
-        )
-        .collect();
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+        let items: Vec<_> =
+            store_helper::iter_flat_state_entries(shard_uid, &store, None, None).collect();
 
         match shard_id {
             0 => {
