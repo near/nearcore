@@ -7,6 +7,7 @@ use crate::network_protocol::{
     PeerChainInfoV2, PeerIdOrHash, PeerInfo, PeersRequest, PeersResponse, RawRoutedMessage,
     RoutedMessageBody, RoutedMessageV2, RoutingTableUpdate, StateResponseInfo, SyncAccountsData,
 };
+use crate::network_protocol::{OwnedIpAddress, SignedOwnedIpAddress};
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
 use crate::peer_manager::connection;
@@ -289,7 +290,7 @@ impl PeerActor {
         };
         let my_node_info = PeerInfo {
             id: network_state.config.node_id(),
-            addr: network_state.config.node_addr.as_ref().map(|a| **a),
+            addr: Some(stream.local_addr), // update own local address based on required stream
             account_id: network_state.config.validator.as_ref().map(|v| v.account_id()),
         };
         // recv is the HandshakeSignal returned by this spawn_inner() call.
@@ -423,6 +424,10 @@ impl PeerActor {
             } else {
                 (0, vec![])
             };
+            let owned_ip_address = OwnedIpAddress {
+                ip_address: self.my_node_info.addr.unwrap().ip()
+            };
+            let my_signed_owned_ip_address: SignedOwnedIpAddress = owned_ip_address.sign(&self.network_state.config.node_key);
         let handshake = Handshake {
             protocol_version: spec.protocol_version,
             oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION,
@@ -445,7 +450,7 @@ impl PeerActor {
                 }
                 .sign(vc.signer.as_ref())
             }),
-            signed_owned_ip_address: Some(self.network_state.config.signed_owned_ip_address()),
+            signed_owned_ip_address: Some(my_signed_owned_ip_address),
         };
         let msg = match spec.tier {
             tcp::Tier::T1 => PeerMessage::Tier1Handshake(handshake),
