@@ -1495,6 +1495,7 @@ pub fn load_test_config(seed: &str, addr: tcp::ListenerAddr, genesis: Genesis) -
         Duration::from_millis(FAST_MIN_BLOCK_PRODUCTION_DELAY);
     config.consensus.max_block_production_delay =
         Duration::from_millis(FAST_MAX_BLOCK_PRODUCTION_DELAY);
+    config.store.state_snapshot_enabled = true;
     let (signer, validator_signer) = if seed.is_empty() {
         let signer =
             Arc::new(InMemorySigner::from_random("node".parse().unwrap(), KeyType::ED25519));

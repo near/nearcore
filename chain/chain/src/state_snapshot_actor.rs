@@ -52,12 +52,6 @@ impl actix::Handler<WithSpanContext<MakeSnapshotRequest>> for StateSnapshotActor
         let (_span, msg) = handler_debug_span!(target: "state_snapshot", msg);
         let MakeSnapshotRequest { prev_block_hash } = msg;
 
-        // TODO(nikurt): Add `set_flat_state_updates_mode()` to the trait `RuntimeAdapter`.
-        assert_ne!(
-            self.flat_storage_manager.set_flat_state_updates_mode(false),
-            Some(false),
-            "Failed to lock flat state updates"
-        );
         let run_compaction =
             if let Err(err) = self.runtime_adapter.make_state_snapshot(&prev_block_hash) {
                 tracing::error!(target: "state_snapshot", ?err, "State snapshot creation failed");
@@ -99,9 +93,16 @@ pub type MakeSnapshotCallback = Arc<dyn Fn(CryptoHash) -> () + Send + Sync + 'st
 /// Sends a request to make a state snapshot.
 pub fn get_make_snapshot_callback(
     state_snapshot_addr: Arc<actix::Addr<StateSnapshotActor>>,
+    flat_storage_manager: FlatStorageManager,
 ) -> MakeSnapshotCallback {
     Arc::new(move |prev_block_hash| {
         tracing::info!(target: "state_snapshot", ?prev_block_hash, "start_snapshot_callback sends `MakeSnapshotCallback` to state_snapshot_addr");
+        // TODO(nikurt): Add `set_flat_state_updates_mode()` to the trait `RuntimeAdapter`.
+        assert_ne!(
+            flat_storage_manager.set_flat_state_updates_mode(false),
+            Some(false),
+            "Failed to lock flat state updates"
+        );
         state_snapshot_addr.do_send(MakeSnapshotRequest { prev_block_hash }.with_span_context());
     })
 }
