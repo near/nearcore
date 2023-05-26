@@ -3,13 +3,13 @@ use std::sync::{Arc, RwLock};
 
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::{ShardLayout, ShardUId};
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::FlatStateValue;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 use crate::flat::delta::CachedFlatStateChanges;
 use crate::flat::{FlatStorageReadyStatus, FlatStorageStatus};
-use crate::{DBCol, Store, StoreUpdate};
+use crate::{Store, StoreUpdate};
 
 use super::delta::{CachedFlatStateDelta, FlatStateDelta};
 use super::metrics::FlatStorageMetrics;
@@ -299,33 +299,13 @@ impl FlatStorage {
     }
 
     /// Clears all State key-value pairs from flat storage.
-    pub fn clear_state(&self, _shard_layout: ShardLayout) -> Result<(), StorageError> {
+    pub fn clear_state(&self) -> Result<(), StorageError> {
         let guard = self.0.write().expect(super::POISONED_LOCK_ERR);
-        let shard_id = guard.shard_uid.shard_id();
 
-        // Removes all items belonging to the shard one by one.
-        // Note that it does not work for resharding.
-        // TODO (#7327): call it just after we stopped tracking a shard.
-        // TODO (#7327): remove FlatStateChanges. Consider custom serialization of keys to remove them by
-        // prefix.
-        // TODO (#7327): support range deletions which are much faster than naive deletions. For that, we
-        // can delete ranges of keys like
-        // [ [0]+boundary_accounts(shard_id) .. [0]+boundary_accounts(shard_id+1) ), etc.
-        // We should also take fixed accounts into account.
         let mut store_update = guard.store.store_update();
-        let mut removed_items = 0;
-        for item in guard.store.iter(DBCol::FlatState) {
-            let (key, _) =
-                item.map_err(|e| StorageError::StorageInconsistentState(e.to_string()))?;
-
-            if store_helper::key_belongs_to_shard(&key, &guard.shard_uid)? {
-                removed_items += 1;
-                store_update.delete(DBCol::FlatState, &key);
-            }
-        }
-        info!(target: "store", %shard_id, %removed_items, "Removing old items from flat storage");
-
+        store_helper::remove_all_flat_state_values(&mut store_update, guard.shard_uid);
         store_helper::remove_all_deltas(&mut store_update, guard.shard_uid);
+
         store_helper::set_flat_storage_status(
             &mut store_update,
             guard.shard_uid,
