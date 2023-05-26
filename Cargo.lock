@@ -3604,6 +3604,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-fork-network"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap 4.2.4",
+ "near-chain",
+ "near-chain-configs",
+ "near-epoch-manager",
+ "near-primitives",
+ "near-store",
+ "nearcore",
+ "tracing",
+]
+
+[[package]]
 name = "near-indexer"
 version = "0.0.0"
 dependencies = [
@@ -4515,6 +4531,7 @@ dependencies = [
  "near-crypto",
  "near-dyn-configs",
  "near-flat-storage",
+ "near-fork-network",
  "near-jsonrpc-primitives",
  "near-mirror",
  "near-network",

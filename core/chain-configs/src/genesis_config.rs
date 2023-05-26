@@ -10,6 +10,7 @@ use near_config_utils::ValidationError;
 use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::validator_stake::ValidatorStake;
+use near_primitives::types::StateRoot;
 use near_primitives::views::RuntimeConfigView;
 use near_primitives::{
     hash::CryptoHash,
@@ -248,6 +249,8 @@ pub struct Genesis {
     /// so they should be processed in streaming fashion with for_each_record.
     #[serde(skip)]
     records_file: PathBuf,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state_roots: Option<Vec<StateRoot>>,
 }
 
 impl GenesisConfig {
@@ -516,7 +519,7 @@ impl Genesis {
         records: GenesisRecords,
         genesis_validation: GenesisValidationMode,
     ) -> Result<Self, ValidationError> {
-        let genesis = Self { config, records, records_file: PathBuf::new() };
+        let genesis = Self { config, records, records_file: PathBuf::new(), state_roots: None };
         genesis.validate(genesis_validation)?;
         Ok(genesis)
     }
@@ -530,6 +533,7 @@ impl Genesis {
             config,
             records: GenesisRecords(vec![]),
             records_file: records_file.as_ref().to_path_buf(),
+            state_roots: None,
         };
         genesis.validate(genesis_validation)?;
         Ok(genesis)

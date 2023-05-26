@@ -346,6 +346,8 @@ impl NightshadeRuntime {
                 warn!(target: "runtime", "Found both records in genesis config and the state dump file. Will ignore the records.");
             }
             Self::genesis_state_from_dump(store, home_dir)
+        } else if let Some(state_roots) = &genesis.state_roots {
+            state_roots.clone()
         } else {
             Self::genesis_state_from_records(store, genesis)
         }
