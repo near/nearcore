@@ -4,11 +4,11 @@ use std::sync::{Arc, RwLock};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 use crate::flat::delta::CachedFlatStateChanges;
 use crate::flat::{FlatStorageReadyStatus, FlatStorageStatus};
-use crate::{DBCol, Store, StoreUpdate};
+use crate::{Store, StoreUpdate};
 
 use super::delta::{CachedFlatStateDelta, FlatStateDelta};
 use super::metrics::FlatStorageMetrics;
@@ -300,27 +300,11 @@ impl FlatStorage {
     /// Clears all State key-value pairs from flat storage.
     pub fn clear_state(&self) -> Result<(), StorageError> {
         let guard = self.0.write().expect(super::POISONED_LOCK_ERR);
-        let shard_id = guard.shard_uid.shard_id();
 
-        // Removes all items belonging to the shard one by one.
-        // Note that it does not work for resharding.
-        // TODO (#7327): call it just after we stopped tracking a shard.
-        // TODO (#7327): remove FlatStateChanges. Consider custom serialization of keys to remove them by
-        // prefix.
         let mut store_update = guard.store.store_update();
-        store_helper::remove_range_by_shard_uid(
-            &mut store_update,
-            guard.shard_uid,
-            &[DBCol::FlatState],
-        );
-        let removed_items = guard.store.iter(DBCol::FlatState).count();
-        info!(target: "store", %shard_id, %removed_items, "Removing old items from flat storage");
+        store_helper::remove_all_flat_state_values(&mut store_update, guard.shard_uid);
 
-        store_helper::remove_range_by_shard_uid(
-            &mut store_update,
-            guard.shard_uid,
-            &[DBCol::FlatStateChanges, DBCol::FlatStateDeltaMetadata],
-        );
+        store_helper::remove_all_deltas(&mut store_update, guard.shard_uid);
         store_helper::set_flat_storage_status(
             &mut store_update,
             guard.shard_uid,
