@@ -334,6 +334,9 @@ pub struct Config {
     /// Options for syncing state.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state_sync: Option<StateSyncConfig>,
+    /// Update key file when `SIGHUP` signal to the `neard` process
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub update_key_file: Option<bool>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -371,6 +374,7 @@ impl Default for Config {
             expected_shutdown: None,
             state_sync: None,
             state_sync_enabled: None,
+            update_key_file: None,
         }
     }
 }
