@@ -32,3 +32,29 @@ fn memory_size_alignment_issue() {
             "#]],
         ]);
 }
+
+#[test]
+fn finite_wasm_gas_was_being_traced_and_thus_slow() {
+    test_builder()
+        .wat(
+            r#"(module
+              (type (func))
+              (func (type 0)
+                loop (result i64)
+                  loop
+                    br 0
+                  end
+                  i64.const 0
+                end
+                drop)
+              (export "foo" (func 0)))
+            "#,
+        )
+        .method("foo")
+        .expects(&[
+            expect![[r#"
+              VMOutcome: balance 4 storage_usage 12 return data None burnt gas 100000000000000 used gas 100000000000000
+              Err: Exceeded the prepaid gas.
+            "#]],
+        ]);
+}
