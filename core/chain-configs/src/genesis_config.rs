@@ -514,7 +514,7 @@ impl Genesis {
         Self::new_with_path_validated(genesis_config, records_path, genesis_validation)
     }
 
-    fn new_validated(
+    pub fn new_validated(
         config: GenesisConfig,
         records: GenesisRecords,
         genesis_validation: GenesisValidationMode,

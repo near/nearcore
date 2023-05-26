@@ -153,7 +153,11 @@ impl ForkNetworkCommand {
         update.delete_all(DBCol::FlatStateDeltaMetadata);
         update.delete_all(DBCol::FlatStorageStatus);
 
-        let mut genesis = Genesis::new(genesis_config, GenesisRecords::default())?;
+        let mut genesis = Genesis::new_validated(
+            genesis_config,
+            GenesisRecords::default(),
+            GenesisValidationMode::UnsafeFast,
+        )?;
         genesis.state_roots = Some(state_roots);
         // let epoch_manager = EpochManager::new_arc_handle(store, &genesis_config);
         // let runtime = NightshadeRuntime::from_config(home_dir, store, new_config, epoch_manager)?;
