@@ -149,9 +149,22 @@ def_test_ext!(ext_prepaid_gas, "ext_prepaid_gas", &(10_u64.pow(14)).to_le_bytes(
 def_test_ext!(ext_block_index, "ext_block_index", &10u64.to_le_bytes());
 def_test_ext!(ext_block_timestamp, "ext_block_timestamp", &42u64.to_le_bytes());
 def_test_ext!(ext_storage_usage, "ext_storage_usage", &12u64.to_le_bytes());
-// Note, the used_gas is not a global used_gas at the beginning of method, but instead a diff
-// in used_gas for computing fib(30) in a loop
-def_test_ext!(ext_used_gas, "ext_used_gas", &[111, 10, 200, 15, 0, 0, 0, 0]);
+
+#[test]
+pub fn ext_used_gas() {
+    let config = VMConfig::test();
+    with_vm_variants(&config, |vm_kind: VMKind| {
+        // Note, the used_gas is not a global used_gas at the beginning of method, but instead a
+        // diff in used_gas for computing fib(30) in a loop
+        let expected = match config.limit_config.contract_prepare_version {
+            near_vm_logic::ContractPrepareVersion::V0 => [111, 10, 200, 15, 0, 0, 0, 0],
+            near_vm_logic::ContractPrepareVersion::V1 => [111, 10, 200, 15, 0, 0, 0, 0],
+            near_vm_logic::ContractPrepareVersion::V2 => [72, 146, 120, 16, 0, 0, 0, 0],
+        };
+        run_test_ext(&config, "ext_used_gas", &expected, &[], vec![], vm_kind)
+    })
+}
+
 def_test_ext!(
     ext_sha256,
     "ext_sha256",

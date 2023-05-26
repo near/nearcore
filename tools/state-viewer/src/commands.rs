@@ -915,7 +915,22 @@ fn load_trie_stop_at_height(
         }
         LoadTrieMode::Latest => chain_store.get_block(&head.last_block_hash).unwrap(),
     };
-    let state_roots = last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+    let shard_layout = epoch_manager.get_shard_layout(&last_block.header().epoch_id()).unwrap();
+    let state_roots = last_block
+        .chunks()
+        .iter()
+        .map(|chunk| {
+            // ChunkExtra contains StateRoot after applying actions in the block.
+            let chunk_extra = chain_store
+                .get_chunk_extra(
+                    &head.last_block_hash,
+                    &ShardUId::from_shard_id_and_layout(chunk.shard_id(), &shard_layout),
+                )
+                .unwrap();
+            *chunk_extra.state_root()
+        })
+        .collect();
+
     (epoch_manager, runtime, state_roots, last_block.header().clone())
 }
 
@@ -983,4 +998,80 @@ pub(crate) fn clear_cache(store: Store) {
     let mut store_update = store.store_update();
     store_update.delete_all(DBCol::CachedContractCode);
     store_update.commit().unwrap();
+}
+
+#[cfg(test)]
+mod tests {
+    use near_chain::types::RuntimeAdapter;
+    use near_chain::ChainGenesis;
+    use near_chain_configs::Genesis;
+    use near_client::test_utils::TestEnv;
+    use near_crypto::{InMemorySigner, KeyFile, KeyType};
+    use near_epoch_manager::EpochManager;
+    use near_primitives::shard_layout::ShardUId;
+    use near_primitives::types::chunk_extra::ChunkExtra;
+    use near_primitives::types::AccountId;
+    use nearcore::config::Config;
+    use nearcore::config::GenesisExt;
+    use nearcore::{NearConfig, NightshadeRuntime};
+    use std::sync::Arc;
+
+    #[test]
+    /// Tests that getting the latest trie state actually gets the latest state.
+    /// Adds a transaction and waits for it to be included in a block.
+    /// Checks that the change of state caused by that transaction is visible to `load_trie()`.
+    fn test_latest_trie_state() {
+        near_o11y::testonly::init_test_logger();
+        let validators = vec!["test0".parse::<AccountId>().unwrap()];
+        let genesis = Genesis::test_sharded_new_version(validators, 1, vec![1]);
+        let chain_genesis = ChainGenesis::test();
+
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let home_dir = tmp_dir.path();
+
+        let store = near_store::test_utils::create_test_store();
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let runtime =
+            NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis, epoch_manager.clone())
+                as Arc<dyn RuntimeAdapter>;
+
+        let stores = vec![store.clone()];
+        let epoch_managers = vec![epoch_manager];
+        let runtimes = vec![runtime];
+
+        let mut env = TestEnv::builder(chain_genesis)
+            .stores(stores)
+            .epoch_managers(epoch_managers)
+            .runtimes(runtimes)
+            .build();
+
+        let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+        assert_eq!(env.send_money(0), near_client::ProcessTxResponse::ValidTx);
+
+        // It takes 2 blocks to record a transaction on chain and apply the receipts.
+        env.produce_block(0, 1);
+        env.produce_block(0, 2);
+
+        let chunk_extras: Vec<Arc<ChunkExtra>> = (1..=2)
+            .map(|height| {
+                let block = env.clients[0].chain.get_block_by_height(height).unwrap();
+                let hash = *block.hash();
+                let chunk_extra = env.clients[0]
+                    .chain
+                    .get_chunk_extra(&hash, &ShardUId { version: 1, shard_id: 0 })
+                    .unwrap();
+                chunk_extra
+            })
+            .collect();
+
+        // Check that `send_money()` actually changed state.
+        assert_ne!(chunk_extras[0].state_root(), chunk_extras[1].state_root());
+
+        let near_config =
+            NearConfig::new(Config::default(), genesis, KeyFile::from(&signer), None).unwrap();
+        let (_epoch_manager, _runtime, state_roots, block_header) =
+            crate::commands::load_trie(store, home_dir, &near_config);
+        assert_eq!(&state_roots[0], chunk_extras[1].state_root());
+        assert_eq!(block_header.height(), 2);
+    }
 }
