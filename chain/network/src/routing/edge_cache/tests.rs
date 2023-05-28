@@ -1,13 +1,11 @@
-use crate::network_protocol::testonly as data;
 use crate::routing::edge_cache::*;
 use crate::test_utils::random_peer_id;
 use crate::testonly::make_rng;
-use rand::seq::SliceRandom;
 use rand::Rng;
 use std::collections::HashSet;
-use std::sync::Arc;
+
 #[test]
-fn test_has_verified_nonce() {
+fn test_has_edge_nonce_or_newer() {
     let node0 = random_peer_id();
     let node1 = random_peer_id();
 
@@ -17,18 +15,18 @@ fn test_has_verified_nonce() {
     let mut ec = EdgeCache::new();
 
     // Initially empty
-    assert!(!ec.has_verified_nonce(&edge0));
-    assert!(!ec.has_verified_nonce(&edge1));
+    assert!(!ec.has_edge_nonce_or_newer(&edge0));
+    assert!(!ec.has_edge_nonce_or_newer(&edge1));
 
     // Write the older nonce
     ec.write_verified_nonce(&edge0);
-    assert!(ec.has_verified_nonce(&edge0));
-    assert!(!ec.has_verified_nonce(&edge1));
+    assert!(ec.has_edge_nonce_or_newer(&edge0));
+    assert!(!ec.has_edge_nonce_or_newer(&edge1));
 
     // Write the newer nonce
     ec.write_verified_nonce(&edge1);
-    assert!(ec.has_verified_nonce(&edge0));
-    assert!(ec.has_verified_nonce(&edge1));
+    assert!(ec.has_edge_nonce_or_newer(&edge0));
+    assert!(ec.has_edge_nonce_or_newer(&edge1));
 }
 
 #[test]
