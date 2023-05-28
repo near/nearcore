@@ -1,3 +1,5 @@
+extern crate core;
+
 use std::fs::File;
 use std::path::Path;
 use std::str::FromStr;

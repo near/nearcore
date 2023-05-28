@@ -36,12 +36,12 @@ mod types;
 
 pub use chunk_view::FlatStorageChunkView;
 pub use delta::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
-pub use inlining_migration::inline_flat_state_values;
+pub use inlining_migration::{inline_flat_state_values, FlatStateValuesInliningMigrationHandle};
 pub use manager::FlatStorageManager;
 pub use metrics::FlatStorageCreationMetrics;
 pub use storage::FlatStorage;
 pub use types::{
-    BlockInfo, FetchingStateStatus, FlatStateValue, FlatStorageCreationStatus, FlatStorageError,
+    BlockInfo, FetchingStateStatus, FlatStorageCreationStatus, FlatStorageError,
     FlatStorageReadyStatus, FlatStorageStatus,
 };
 

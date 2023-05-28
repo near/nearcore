@@ -46,9 +46,21 @@ static SIMPLE_CONTRACT: &str = r#"(module (func (export "main")))"#;
 
 #[test]
 fn test_simple_contract() {
-    test_builder().wat(SIMPLE_CONTRACT).expect(expect![[r#"
-        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 42815463 used gas 42815463
-    "#]]);
+    test_builder()
+        .wat(SIMPLE_CONTRACT)
+        .protocol_features(&[
+            #[cfg(feature = "nightly")]
+            ProtocolFeature::PreparationV2,
+        ])
+        .expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 42815463 used gas 42815463
+            "#]],
+            #[cfg(feature = "nightly")]
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 49397511 used gas 49397511
+            "#]],
+        ]);
 }
 
 #[test]
@@ -132,10 +144,21 @@ fn test_trap_contract() {
     test_builder()
         .wat(r#"(module (func (export "main") (unreachable)) )"#)
         .skip_wasmtime()
-        .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 43854969 used gas 43854969
-            Err: WebAssembly trap: An `unreachable` opcode was executed.
-        "#]]);
+        .protocol_features(&[
+            #[cfg(feature = "nightly")]
+            ProtocolFeature::PreparationV2,
+        ])
+        .expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 43854969 used gas 43854969
+                Err: WebAssembly trap: An `unreachable` opcode was executed.
+            "#]],
+            #[cfg(feature = "nightly")]
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 50437017 used gas 50437017
+                Err: WebAssembly trap: An `unreachable` opcode was executed.
+            "#]],
+        ]);
 }
 
 #[test]
@@ -143,16 +166,28 @@ fn test_trap_initializer() {
     test_builder()
         .wat(
             r#"
-(module
-  (func $f (export "main") (unreachable))
-  (start $f)
-)"#,
+                (module
+                  (func $f (export "main") (unreachable))
+                  (start $f)
+                )
+            "#,
         )
         .skip_wasmtime()
-        .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47322969 used gas 47322969
-            Err: WebAssembly trap: An `unreachable` opcode was executed.
-        "#]]);
+        .protocol_features(&[
+            #[cfg(feature = "nightly")]
+            ProtocolFeature::PreparationV2,
+        ])
+        .expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47322969 used gas 47322969
+                Err: WebAssembly trap: An `unreachable` opcode was executed.
+            "#]],
+            #[cfg(feature = "nightly")]
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 53905017 used gas 53905017
+                Err: WebAssembly trap: An `unreachable` opcode was executed.
+            "#]],
+        ]);
 }
 
 #[test]
@@ -160,20 +195,32 @@ fn test_div_by_zero_contract() {
     test_builder()
         .wat(
             r#"
-(module
-  (func (export "main")
-    i32.const 1
-    i32.const 0
-    i32.div_s
-    return
-  )
-)"#,
+                (module
+                  (func (export "main")
+                    i32.const 1
+                    i32.const 0
+                    i32.div_s
+                    return
+                  )
+                )
+            "#,
         )
         .skip_wasmtime()
-        .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47406987 used gas 47406987
-            Err: WebAssembly trap: An arithmetic exception, e.g. divided by zero.
-        "#]]);
+        .protocol_features(&[
+            #[cfg(feature = "nightly")]
+            ProtocolFeature::PreparationV2,
+        ])
+        .expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47406987 used gas 47406987
+                Err: WebAssembly trap: An arithmetic exception, e.g. divided by zero.
+            "#]],
+            #[cfg(feature = "nightly")]
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 53166279 used gas 53166279
+                Err: WebAssembly trap: An arithmetic exception, e.g. divided by zero.
+            "#]],
+        ]);
 }
 
 #[test]
@@ -182,19 +229,31 @@ fn test_float_to_int_contract() {
         test_builder()
             .wat(&format!(
                 r#"
-(module
-  (func (export "main")
-    f64.const 0x1p+1023
-    {op}
-    return
-  )
-)"#,
+                    (module
+                      (func (export "main")
+                        f64.const 0x1p+1023
+                        {op}
+                        return
+                      )
+                    )
+                "#,
             ))
             .skip_wasmtime()
-            .expect(expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47667981 used gas 47667981
-                Err: WebAssembly trap: An arithmetic exception, e.g. divided by zero.
-            "#]]);
+            .protocol_features(&[
+                #[cfg(feature = "nightly")]
+                ProtocolFeature::PreparationV2,
+            ])
+            .expects(&[
+                expect![[r#"
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47667981 used gas 47667981
+                    Err: WebAssembly trap: An arithmetic exception, e.g. divided by zero.
+                "#]],
+                #[cfg(feature = "nightly")]
+                expect![[r#"
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 53427273 used gas 53427273
+                    Err: WebAssembly trap: An arithmetic exception, e.g. divided by zero.
+                "#]],
+            ]);
     }
 }
 
@@ -203,22 +262,34 @@ fn test_indirect_call_to_null_contract() {
     test_builder()
         .wat(
             r#"
-(module
-  (type $ty (func))
-  (table 1 funcref)
-  (func (export "main")
-    i32.const 0
-    call_indirect (type $ty)
-    return
-  )
-)"#,
+                (module
+                  (type $ty (func))
+                  (table 1 funcref)
+                  (func (export "main")
+                    i32.const 0
+                    call_indirect (type $ty)
+                    return
+                  )
+                )
+            "#,
         )
         .opaque_error()
         .skip_wasmtime()
-        .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 50919231 used gas 50919231
-            Err: ...
-        "#]])
+        .protocol_features(&[
+            #[cfg(feature = "nightly")]
+            ProtocolFeature::PreparationV2,
+        ])
+        .expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 50919231 used gas 50919231
+                Err: ...
+            "#]],
+            #[cfg(feature = "nightly")]
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 56678523 used gas 56678523
+                Err: ...
+            "#]],
+        ])
 }
 
 #[test]
@@ -226,25 +297,37 @@ fn test_indirect_call_to_wrong_signature_contract() {
     test_builder()
         .wat(
             r#"
-(module
-  (type $ty (func (result i32)))
-  (func $f)
+                (module
+                  (type $ty (func (result i32)))
+                  (func $f)
 
-  (table 1 funcref)
-  (elem (i32.const 0) $f)
+                  (table 1 funcref)
+                  (elem (i32.const 0) $f)
 
-  (func (export "main")
-    i32.const 0
-    call_indirect (type $ty)
-    return
-  )
-)"#,
+                  (func (export "main")
+                    i32.const 0
+                    call_indirect (type $ty)
+                    return
+                  )
+                )
+            "#,
         )
         .skip_wasmtime()
-        .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 55904481 used gas 55904481
-            Err: WebAssembly trap: Call indirect incorrect signature trap.
-        "#]])
+        .protocol_features(&[
+            #[cfg(feature = "nightly")]
+            ProtocolFeature::PreparationV2,
+        ])
+        .expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 55904481 used gas 55904481
+                Err: WebAssembly trap: Call indirect incorrect signature trap.
+            "#]],
+            #[cfg(feature = "nightly")]
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 61663773 used gas 61663773
+                Err: WebAssembly trap: Call indirect incorrect signature trap.
+            "#]]
+        ])
 }
 
 #[test]
@@ -294,15 +377,27 @@ fn test_guest_panic() {
     test_builder()
         .wat(
             r#"
-(module
-  (import "env" "panic" (func $panic))
-  (func (export "main") (call $panic))
-)"#,
+                (module
+                  (import "env" "panic" (func $panic))
+                  (func (export "main") (call $panic))
+                )
+            "#,
         )
-        .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 315775830 used gas 315775830
-            Err: Smart contract panicked: explicit guest panic
-        "#]]);
+        .protocol_features(&[
+            #[cfg(feature = "nightly")]
+            ProtocolFeature::PreparationV2,
+        ])
+        .expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 315775830 used gas 315775830
+                Err: Smart contract panicked: explicit guest panic
+            "#]],
+            #[cfg(feature = "nightly")]
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 322357878 used gas 322357878
+                Err: Smart contract panicked: explicit guest panic
+            "#]],
+        ]);
 }
 
 #[test]
@@ -326,10 +421,22 @@ fn test_stack_overflow() {
     test_builder()
         .wat(r#"(module (func $f (export "main") (call $f)))"#)
         .skip_wasmtime()
-        .expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13526101017 used gas 13526101017
-            Err: WebAssembly trap: An `unreachable` opcode was executed.
-        "#]]);
+        .opaque_error()
+        .protocol_features(&[
+            #[cfg(feature = "nightly")]
+            ProtocolFeature::PreparationV2,
+        ])
+        .expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13526101017 used gas 13526101017
+                Err: ...
+            "#]],
+            #[cfg(feature = "nightly")]
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 30376143897 used gas 30376143897
+                Err: ...
+            "#]],
+        ]);
 }
 
 #[test]
@@ -337,52 +444,74 @@ fn test_stack_instrumentation_protocol_upgrade() {
     test_builder()
         .wat(
             r#"
-(module
-  (func $f1 (export "f1")
-    (local i32)
-    (call $f1))
-  (func $f2 (export "f2")
-    (local i32 i32 i32 i32)
-    (call $f2))
-)"#,
+                (module
+                  (func $f1 (export "f1")
+                    (local i32)
+                    (call $f1))
+                  (func $f2 (export "f2")
+                    (local i32 i32 i32 i32)
+                    (call $f2))
+                )
+            "#,
         )
         .method("f1")
-        .protocol_features(&[ProtocolFeature::CorrectStackLimit])
+        .protocol_features(&[
+            ProtocolFeature::CorrectStackLimit,
+            #[cfg(feature = "nightly")]
+            ProtocolFeature::PreparationV2,
+        ])
         .skip_wasmtime()
+        .opaque_error()
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 6789985365 used gas 6789985365
-                Err: WebAssembly trap: An `unreachable` opcode was executed.
+                Err: ...
             "#]],
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 6789985365 used gas 6789985365
-                Err: WebAssembly trap: An `unreachable` opcode was executed.
+                Err: ...
+            "#]],
+            #[cfg(feature = "nightly")]
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 31767212013 used gas 31767212013
+                Err: ...
             "#]],
         ]);
 
     test_builder()
         .wat(
             r#"
-(module
-  (func $f1 (export "f1")
-    (local i32)
-    (call $f1))
-  (func $f2 (export "f2")
-    (local i32 i32 i32 i32)
-    (call $f2))
-)"#,
+                (module
+                  (func $f1 (export "f1")
+                    (local i32)
+                    (call $f1))
+                  (func $f2 (export "f2")
+                    (local i32 i32 i32 i32)
+                    (call $f2))
+                )
+            "#,
         )
         .method("f2")
-        .protocol_features(&[ProtocolFeature::CorrectStackLimit])
+        .opaque_error()
+        .protocol_features(&[
+            ProtocolFeature::CorrectStackLimit,
+            #[cfg(feature = "nightly")]
+            ProtocolFeature::PreparationV2,
+        ])
         .skip_wasmtime()
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 6789985365 used gas 6789985365
-                Err: WebAssembly trap: An `unreachable` opcode was executed.
+                Err: ...
             "#]],
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 2745316869 used gas 2745316869
-                Err: WebAssembly trap: An `unreachable` opcode was executed.
+                Err: ...
+            "#]],
+            #[cfg(feature = "nightly")]
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 29698803429 used gas 29698803429
+                Err: ...
             "#]],
         ]);
 }
@@ -541,9 +670,21 @@ static EXTERNAL_CALL_CONTRACT: &str = r#"
 
 #[test]
 fn test_external_call_ok() {
-    test_builder().wat(EXTERNAL_CALL_CONTRACT).expect(expect![[r#"
-        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 320283336 used gas 320283336
-    "#]]);
+    test_builder()
+        .wat(EXTERNAL_CALL_CONTRACT)
+        .protocol_features(&[
+            #[cfg(feature = "nightly")]
+            ProtocolFeature::PreparationV2,
+        ])
+        .expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 320283336 used gas 320283336
+            "#]],
+            #[cfg(feature = "nightly")]
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 326865384 used gas 326865384
+            "#]],
+        ]);
 }
 
 #[test]
@@ -557,46 +698,88 @@ fn test_external_call_error() {
 #[test]
 fn test_external_call_indirect() {
     test_builder()
-        .wat(r#"
-(module
-  (import "env" "prepaid_gas" (func $prepaid_gas (result i64)))
-  (type $prepaid_gas_t (func (result i64)))
+        .wat(
+            r#"
+            (module
+              (import "env" "prepaid_gas" (func $prepaid_gas (result i64)))
+              (type $prepaid_gas_t (func (result i64)))
 
-  (table 1 funcref)
-  (elem (i32.const 0) $prepaid_gas)
+              (table 1 funcref)
+              (elem (i32.const 0) $prepaid_gas)
 
-  (func (export "main")
-    (call_indirect (type $prepaid_gas_t) (i32.const 0))
-    drop
-  )
-)"#
-        ).expect(expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 328909092 used gas 328909092
-        "#]]);
+              (func (export "main")
+                (call_indirect (type $prepaid_gas_t) (i32.const 0))
+                drop
+              )
+            )
+            "#
+        )
+        .protocol_features(&[
+            #[cfg(feature = "nightly")]
+            ProtocolFeature::PreparationV2,
+        ])
+        .expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 328909092 used gas 328909092
+            "#]],
+            #[cfg(feature = "nightly")]
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 335491140 used gas 335491140
+            "#]],
+        ]);
 }
 
 /// Load from address so far out of bounds that it causes integer overflow.
 #[test]
 fn test_address_overflow() {
     let code = r#"
-(module
-  (memory 1)
-  (func (export "main")
-    i32.const 1
-    i64.load32_u offset=4294967295 (;2^32 - 1;) align=1
-    drop
-  )
-)"#;
+        (module
+          (memory 1)
+          (func (export "main")
+            i32.const 1
+            i64.load32_u offset=4294967295 (;2^32 - 1;) align=1
+            drop
+          )
+        )
+    "#;
 
-    test_builder().wat(code).skip_wasmtime().skip_wasmer0().expect(expect![[r#"
-        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 48534981 used gas 48534981
-        Err: WebAssembly trap: Memory out of bounds trap.
-    "#]]);
+    test_builder()
+        .wat(code)
+        .skip_wasmtime()
+        .skip_wasmer0()
+        .protocol_features(&[
+            #[cfg(feature = "nightly")]
+            ProtocolFeature::PreparationV2,
+        ])
+        .expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 48534981 used gas 48534981
+                Err: WebAssembly trap: Memory out of bounds trap.
+            "#]],
+            #[cfg(feature = "nightly")]
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 54294273 used gas 54294273
+                Err: WebAssembly trap: Memory out of bounds trap.
+            "#]],
+        ]);
 
     // wasmer0 incorrectly doesn't catch overflow during address calculation
-    test_builder().wat(code).skip_wasmtime().skip_wasmer2().expect(expect![[r#"
-        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 48534981 used gas 48534981
-    "#]]);
+    test_builder()
+        .wat(code)
+        .only_wasmer0()
+        .protocol_features(&[
+            #[cfg(feature = "nightly")]
+            ProtocolFeature::PreparationV2,
+        ])
+        .expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 48534981 used gas 48534981
+            "#]],
+            #[cfg(feature = "nightly")]
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 55117029 used gas 55117029
+            "#]],
+        ]);
 }
 
 /// Uses `f32.copysign` to observe a sign of `NaN`.
@@ -622,15 +805,43 @@ fn test_nan_sign() {
   )
 )"#;
 
-    test_builder().wat(code).skip_wasmtime().skip_wasmer0().expect(expect![[r#"
-        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 54988767 used gas 54988767
-    "#]]);
+    test_builder()
+        .wat(code)
+        .skip_wasmtime()
+        .skip_wasmer0()
+        .protocol_features(&[
+            #[cfg(feature = "nightly")]
+            ProtocolFeature::PreparationV2,
+        ])
+        .expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 54988767 used gas 54988767
+            "#]],
+            #[cfg(feature = "nightly")]
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 61570815 used gas 61570815
+            "#]],
+        ]);
 
     // wasmer0 doesn't canonicalize NaNs
-    test_builder().wat(code).skip_wasmtime().skip_wasmer2().expect(expect![[r#"
-        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 54988767 used gas 54988767
-        Err: WebAssembly trap: An arithmetic exception, e.g. divided by zero.
-    "#]]);
+    test_builder()
+        .wat(code)
+        .only_wasmer0()
+        .protocol_features(&[
+            #[cfg(feature = "nightly")]
+            ProtocolFeature::PreparationV2,
+        ])
+        .expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 54988767 used gas 54988767
+                Err: WebAssembly trap: An arithmetic exception, e.g. divided by zero.
+            "#]],
+            #[cfg(feature = "nightly")]
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 60748059 used gas 60748059
+                Err: WebAssembly trap: An arithmetic exception, e.g. divided by zero.
+            "#]],
+        ]);
 }
 
 // Check that a `GasExceeded` error is returned when there is not enough gas to
@@ -711,13 +922,21 @@ mod fix_contract_loading_cost_protocol_upgrade {
     fn test_fn_loading_gas_protocol_upgrade() {
         test_builder()
             .wat(ALMOST_TRIVIAL_CONTRACT)
-            .protocol_features(&[ProtocolFeature::FixContractLoadingCost])
+            .protocol_features(&[
+                ProtocolFeature::FixContractLoadingCost,
+                #[cfg(feature = "nightly")]
+                ProtocolFeature::PreparationV2
+            ])
             .expects(&[
                 expect![[r#"
                     VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47406987 used gas 47406987
                 "#]],
                 expect![[r#"
                     VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47406987 used gas 47406987
+                "#]],
+                #[cfg(feature = "nightly")]
+                expect![[r#"
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 53989035 used gas 53989035
                 "#]],
             ]);
     }
