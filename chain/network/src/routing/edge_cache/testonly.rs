@@ -8,8 +8,9 @@ impl EdgeCache {
 
     pub(crate) fn check_mapping(&self, active_nodes: Vec<PeerId>) {
         // Check the mapping itself for externally visible properties
+        assert_eq!(active_nodes.len(), self.active_nodes_ct());
         let mut assigned_ids: Vec<u32> =
-            active_nodes.iter().map(|peer_id| self._get_id(peer_id)).collect();
+            active_nodes.iter().map(|peer_id| self.get_id(peer_id)).collect();
         assigned_ids.sort();
         assigned_ids.dedup();
         assert_eq!(active_nodes.len(), assigned_ids.len());

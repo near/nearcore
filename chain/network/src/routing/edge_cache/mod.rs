@@ -1,5 +1,7 @@
 use crate::network_protocol::Edge;
+use near_async::time;
 use near_primitives::network::PeerId;
+use std::cmp::max;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 
@@ -111,13 +113,13 @@ impl EdgeCache {
 
     /// Returns the u32 id associated with the given PeerId.
     /// Expects that such a mapping already exists; will error otherwise.
-    pub fn _get_id(&self, peer: &PeerId) -> u32 {
+    pub fn get_id(&self, peer: &PeerId) -> u32 {
         *self.p2id.get(peer).unwrap()
     }
 
     /// Returns true iff we already verified a nonce for this key
     /// which is at least as new as the given one
-    pub fn has_edge_nonce_or_newer(&self, edge: &Edge) -> bool {
+    pub fn has_verified_nonce(&self, edge: &Edge) -> bool {
         self.verified_nonces
             .get(&edge.key())
             .map_or(false, |cached_nonce| cached_nonce >= &edge.nonce())
@@ -164,11 +166,16 @@ impl EdgeCache {
                     false
                 }
             }
-            im::hashmap::Entry::Vacant(_) => false,
+            im::hashmap::Entry::Vacant(vacant) => false,
         };
         if is_newly_inactive {
             self.decrement_degrees_for_key(key);
         }
+    }
+
+    /// Number of distinct PeerIds among the active edges
+    pub fn active_nodes_ct(&self) -> usize {
+        self.p2id.len()
     }
 
     /// Upper bound on mapped u32 ids; not inclusive
