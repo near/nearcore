@@ -10,7 +10,7 @@ fn test_has_edge_nonce_or_newer() {
     let node1 = random_peer_id();
 
     let edge0 = Edge::make_fake_edge(node0.clone(), node1.clone(), 123);
-    let edge1 = Edge::make_fake_edge(node0.clone(), node1.clone(), 456);
+    let edge1 = Edge::make_fake_edge(node0, node1, 456);
 
     let mut ec = EdgeCache::new();
 
@@ -35,7 +35,7 @@ fn test_update_active_edge_nonce() {
     let node1 = random_peer_id();
 
     let edge0 = Edge::make_fake_edge(node0.clone(), node1.clone(), 123);
-    let edge1 = Edge::make_fake_edge(node0.clone(), node1.clone(), 456);
+    let edge1 = Edge::make_fake_edge(node0, node1, 456);
 
     assert_eq!(edge0.key(), edge1.key());
     let key = edge0.key();
@@ -95,7 +95,7 @@ fn test_p2id_mapping() {
 
     // Remove edge1; all nodes still active
     ec.remove_active_edge(edge1.key());
-    ec.check_mapping(vec![node0.clone(), node1.clone(), node2.clone(), node3.clone()]);
+    ec.check_mapping(vec![node0, node1.clone(), node2.clone(), node3.clone()]);
 
     // Remove edge0; node0 and node1 will no longer be active
     ec.remove_active_edge(edge0.key());
@@ -103,11 +103,11 @@ fn test_p2id_mapping() {
 
     // Insert edge1; reactivates only node1
     ec.insert_active_edge(&edge1);
-    ec.check_mapping(vec![node1.clone(), node2.clone(), node3.clone()]);
+    ec.check_mapping(vec![node1.clone(), node2.clone(), node3]);
 
     // Remove edge2; deactivates only node2
     ec.remove_active_edge(edge2.key());
-    ec.check_mapping(vec![node1.clone(), node2.clone()]);
+    ec.check_mapping(vec![node1, node2]);
 
     // Remove edge1; no nodes active
     ec.remove_active_edge(edge1.key());
