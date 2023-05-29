@@ -213,7 +213,8 @@ impl NetworkState {
                 oks.iter()
                     .map(|ok| match ok {
                         true => Ok(()),
-                        false => Err(ReasonForBan::InvalidEdge), // TODO: replace it
+                        // TODO: if processing of an SPT fails, ban the peer
+                        false => Ok(()),
                     })
                     .collect()
             })
