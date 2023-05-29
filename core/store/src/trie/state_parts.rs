@@ -994,7 +994,7 @@ mod tests {
         assert!(num_trie_values > 0);
 
         // Remove middle element from state part, check that validation fails.
-        let mut trie_values_missing = trie_values;
+        let mut trie_values_missing = trie_values.clone();
         trie_values_missing.remove(num_trie_values / 2);
         let wrong_state_part = PartialState::TrieValues(trie_values_missing);
         assert_eq!(
