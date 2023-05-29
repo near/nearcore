@@ -994,7 +994,7 @@ mod tests {
         assert!(num_trie_values > 0);
 
         // Remove middle element from state part, check that validation fails.
-        let mut trie_values_missing = trie_values.clone();
+        let mut trie_values_missing = trie_values;
         trie_values_missing.remove(num_trie_values / 2);
         let wrong_state_part = PartialState::TrieValues(trie_values_missing);
         assert_eq!(
@@ -1003,7 +1003,7 @@ mod tests {
         );
 
         // Add extra value to the state part, check that validation fails.
-        let mut trie_values_extra = trie_values.clone();
+        let mut trie_values_extra = trie_values;
         trie_values_extra.push(vec![11].into());
         let wrong_state_part = PartialState::TrieValues(trie_values_extra);
         assert_eq!(
