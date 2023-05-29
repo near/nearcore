@@ -370,7 +370,7 @@ impl Trie {
         if storage.visited_nodes.borrow().len() != num_nodes {
             // TODO #1603 not actually TrieNodeMissing.
             // The error is that the proof has more nodes than needed.
-            return Err(StorageError::TrieNodeMissing);
+            return Err(StorageError::MissingTrieValue);
         }
         Ok(())
     }
@@ -965,6 +965,54 @@ mod tests {
         trie_changes
     }
 
+    #[test]
+    fn invalid_state_parts() {
+        let tries = create_tries();
+        let shard_uid = ShardUId::single_shard();
+        let block_hash = CryptoHash::default();
+        let part_id = PartId::new(1, 2);
+        let trie = tries.get_trie_for_shard(shard_uid, Trie::EMPTY_ROOT);
+
+        // Corner case when trie is a single path from empty string to "aaaa".
+        let state_items = vec![
+            (b"a".to_vec(), vec![1]),
+            (b"aa".to_vec(), vec![2]),
+            (b"ab".to_vec(), vec![3]),
+            (b"b".to_vec(), vec![4]),
+            (b"ba".to_vec(), vec![5]),
+        ];
+
+        let changes_for_trie = state_items.iter().cloned().map(|(k, v)| (k, Some(v)));
+        let trie_changes = trie.update(changes_for_trie).unwrap();
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
+        store_update.commit().unwrap();
+
+        let trie = tries.get_view_trie_for_shard(shard_uid, root);
+        let PartialState::TrieValues(trie_values) = trie
+            .get_trie_nodes_for_part(&block_hash, part_id)
+            .expect("State part generation using Trie must work");
+        let num_trie_values = trie_values.len();
+        assert!(num_trie_values > 0);
+
+        // Remove middle element from state part.
+        let mut trie_values_missing = trie_values.clone();
+        trie_values_missing.remove(num_trie_values / 2);
+        let wrong_state_part = PartialState::TrieValues(trie_values_missing);
+        assert_eq!(
+            Trie::validate_trie_nodes_for_part(&root, part_id, wrong_state_part),
+            Err(StorageError::MissingTrieValue)
+        );
+
+        let mut trie_values_extra = trie_values.clone();
+        trie_values_extra.push(vec![11].into());
+        let wrong_state_part = PartialState::TrieValues(trie_values_extra);
+        assert_eq!(
+            Trie::validate_trie_nodes_for_part(&root, part_id, wrong_state_part),
+            Err(StorageError::UnexpectedTrieValue)
+        );
+    }
+
     /// Check on random samples that state parts can be validated independently
     /// from the entire trie.
     /// TODO (#8997): add custom tests where incorrect parts don't pass validation.
@@ -1051,7 +1099,7 @@ mod tests {
         let trie = tries.get_trie_with_block_hash_for_shard(shard_uid, root, &block_hash, true);
         assert_eq!(
             trie.get_trie_nodes_for_part(&block_hash, part_id),
-            Err(StorageError::TrieNodeMissing)
+            Err(StorageError::MissingTrieValue)
         );
 
         // Fill flat storage and check that state part creation succeeds.
@@ -1080,7 +1128,7 @@ mod tests {
 
         assert_eq!(
             trie_without_flat.get_trie_nodes_for_part(&block_hash, part_id),
-            Err(StorageError::TrieNodeMissing)
+            Err(StorageError::MissingTrieValue)
         );
         assert_eq!(trie_with_flat.get_trie_nodes_for_part(&block_hash, part_id), Ok(state_part));
 
@@ -1094,7 +1142,7 @@ mod tests {
 
         assert_eq!(
             trie_with_flat.get_trie_nodes_for_part(&block_hash, part_id),
-            Err(StorageError::TrieNodeMissing)
+            Err(StorageError::MissingTrieValue)
         );
     }
 }
