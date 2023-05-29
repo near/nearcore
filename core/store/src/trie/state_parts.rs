@@ -349,7 +349,7 @@ impl Trie {
 
     /// Validates state part for given state root.
     /// Returns error if state part is invalid and Ok otherwise.
-    pub fn validate_trie_nodes_for_part(
+    pub fn validate_state_part(
         state_root: &StateRoot,
         part_id: PartId,
         partial_state: PartialState,
@@ -655,7 +655,7 @@ mod tests {
     fn test_combine_empty_trie_parts() {
         let state_root = Trie::EMPTY_ROOT;
         let _ = Trie::combine_state_parts_naive(&state_root, &[]).unwrap();
-        let _ = Trie::validate_trie_nodes_for_part(
+        let _ = Trie::validate_state_part(
             &state_root,
             PartId::new(0, 1),
             PartialState::TrieValues(vec![]),
@@ -883,12 +883,14 @@ mod tests {
                 assert_eq!(all_nodes.len(), trie_changes.insertions.len());
                 let size_of_all = all_nodes.iter().map(|node| node.len()).sum::<usize>();
                 let num_nodes = all_nodes.len();
-                Trie::validate_trie_nodes_for_part(
-                    trie.get_root(),
-                    PartId::new(0, 1),
-                    PartialState::TrieValues(all_nodes),
-                )
-                .expect("validate ok");
+                assert_eq!(
+                    Trie::validate_state_part(
+                        trie.get_root(),
+                        PartId::new(0, 1),
+                        PartialState::TrieValues(all_nodes),
+                    ),
+                    Ok(())
+                );
 
                 let sum_of_sizes = sizes_vec.iter().sum::<usize>();
                 // Manually check that sizes are reasonable
@@ -970,7 +972,6 @@ mod tests {
         let part_id = PartId::new(1, 2);
         let trie = tries.get_trie_for_shard(shard_uid, Trie::EMPTY_ROOT);
 
-        // Corner case when trie is a single path from empty string to "aaaa".
         let state_items = vec![
             (b"a".to_vec(), vec![1]),
             (b"aa".to_vec(), vec![2]),
@@ -992,20 +993,21 @@ mod tests {
         let num_trie_values = trie_values.len();
         assert!(num_trie_values > 0);
 
-        // Remove middle element from state part.
+        // Remove middle element from state part, check that validation fails.
         let mut trie_values_missing = trie_values.clone();
         trie_values_missing.remove(num_trie_values / 2);
         let wrong_state_part = PartialState::TrieValues(trie_values_missing);
         assert_eq!(
-            Trie::validate_trie_nodes_for_part(&root, part_id, wrong_state_part),
+            Trie::validate_state_part(&root, part_id, wrong_state_part),
             Err(StorageError::MissingTrieValue)
         );
 
+        // Add extra value to the state part, check that validation fails.
         let mut trie_values_extra = trie_values.clone();
         trie_values_extra.push(vec![11].into());
         let wrong_state_part = PartialState::TrieValues(trie_values_extra);
         assert_eq!(
-            Trie::validate_trie_nodes_for_part(&root, part_id, wrong_state_part),
+            Trie::validate_state_part(&root, part_id, wrong_state_part),
             Err(StorageError::UnexpectedTrieValue)
         );
     }
@@ -1037,16 +1039,19 @@ mod tests {
                         PartId::new(part_id, num_parts),
                     )
                     .unwrap();
-                Trie::validate_trie_nodes_for_part(
-                    trie.get_root(),
-                    PartId::new(part_id, num_parts),
-                    trie_nodes,
-                )
-                .expect("validate ok");
+                assert_eq!(
+                    Trie::validate_state_part(
+                        trie.get_root(),
+                        PartId::new(part_id, num_parts),
+                        trie_nodes,
+                    ),
+                    Ok(())
+                );
             }
         }
     }
 
+    /// Checks sanity of generating state part using flat storage.
     #[test]
     fn get_trie_nodes_for_part_with_flat_storage() {
         let value_len = 1000usize;
@@ -1057,7 +1062,7 @@ mod tests {
         let part_id = PartId::new(1, 3);
         let trie = tries.get_trie_for_shard(shard_uid, Trie::EMPTY_ROOT);
 
-        // Corner case when trie is a single path from empty string to "aaaa".
+        // Trie with three big independent children.
         let state_items = vec![
             (b"a".to_vec(), vec![1; value_len]),
             (b"aa".to_vec(), vec![2; value_len]),
@@ -1087,7 +1092,7 @@ mod tests {
         let state_part = trie_without_flat
             .get_trie_nodes_for_part(&block_hash, part_id)
             .expect("State part generation using Trie must work");
-        assert_eq!(Trie::validate_trie_nodes_for_part(&root, part_id, state_part.clone()), Ok(()));
+        assert_eq!(Trie::validate_state_part(&root, part_id, state_part.clone()), Ok(()));
         assert!(state_part.len() > 0);
 
         // Check that if we try to use flat storage but it is empty, state part
