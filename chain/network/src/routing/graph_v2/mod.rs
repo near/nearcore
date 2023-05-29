@@ -11,8 +11,12 @@ use near_primitives::network::PeerId;
 use parking_lot::Mutex;
 use rayon::iter::ParallelBridge;
 use std::collections::hash_map::Entry;
+use std::collections::VecDeque;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+
+#[cfg(test)]
+mod tests;
 
 // TODO: make it opaque, so that the key.0 < key.1 invariant is protected.
 type EdgeKey = (PeerId, PeerId);
@@ -30,7 +34,7 @@ struct ShortestPathTree {
     /// For simplicity, used to expire the entire SPT at once.
     pub min_nonce: u64,
     /// Distances within this tree from the root to all other nodes in the network
-    pub distance: Vec<u32>,
+    pub distance: Vec<i32>,
 }
 
 struct Inner {
@@ -89,15 +93,57 @@ impl Inner {
     /// Accepts a list of edges specifying a ShortestPathTree. If the edges form a
     /// valid tree containing the specified `root`, returns a vector of distances from
     /// the root to all other nodes in the tree. The distance vector is indexed
-    /// according to the p2id mapping in the edge_cache.
-    fn calculate_distances(&self, _root: PeerId, _spt: &Vec<Edge>) -> Option<Vec<u32>> {
-        // TODO
-        None
+    /// according to the p2id mapping in the edge_cache. Unreachable nodes have distance -1.
+    pub(crate) fn calculate_distances(&self, root: &PeerId, spt: &Vec<Edge>) -> Option<Vec<i32>> {
+        // Build adjacency-list representation of the edges
+        let mut adjacency = vec![Vec::<u32>::new(); self.edge_cache.max_id()];
+        for edge in spt {
+            let (peer0, peer1) = edge.key();
+            let id0 = self.edge_cache.get_id(peer0);
+            let id1 = self.edge_cache.get_id(peer1);
+            adjacency[id0 as usize].push(id1);
+            adjacency[id1 as usize].push(id0);
+        }
+
+        // Compute distances from the root by breadth-first search
+        let mut distance: Vec<i32> = vec![-1; self.edge_cache.max_id()];
+        {
+            let root_id = self.edge_cache.get_id(root);
+
+            let mut queue = VecDeque::new();
+            queue.push_back(root_id);
+            distance[root_id as usize] = 0;
+
+            while let Some(cur_peer) = queue.pop_front() {
+                let cur_distance = distance[cur_peer as usize];
+
+                for &neighbor in &adjacency[cur_peer as usize] {
+                    if distance[neighbor as usize] == -1 {
+                        distance[neighbor as usize] = cur_distance + 1;
+                        queue.push_back(neighbor);
+                    }
+                }
+            }
+        }
+
+        // Check that the edges in `spt` actually form a tree containing `root`
+        let mut num_reachable_nodes = 0;
+        for &dist in &distance {
+            if dist != -1 {
+                num_reachable_nodes += 1;
+            }
+        }
+
+        if num_reachable_nodes == spt.len() + 1 {
+            Some(distance)
+        } else {
+            None
+        }
     }
 
     /// Verifies the given ShortestPathTree. If valid, stores it in `self.spts`.
     /// Returns a boolean indicating whether the given SPT was valid.
-    pub fn update_shortest_path_tree(
+    pub(crate) fn update_shortest_path_tree(
         &mut self,
         _clock: &time::Clock, // TODO: decide what we want to do with too-old trees
         spt: &network_protocol::ShortestPathTree,
@@ -114,7 +160,7 @@ impl Inner {
             self.edge_cache.insert_active_edge(e);
         }
 
-        if let Some(distance) = self.calculate_distances(spt.root.clone(), &edges) {
+        if let Some(distance) = self.calculate_distances(&spt.root, &edges) {
             // If the edges form a valid tree, store the updated SPT
             let val = ShortestPathTree {
                 edges: edges.iter().map(|e| e.key()).cloned().collect(),
@@ -146,7 +192,7 @@ impl Inner {
 
     /// Handles disconnection of a peer.
     /// Drops the stored SPT, if there is one, for the specified peer_id.
-    pub fn remove_direct_peer(&mut self, peer_id: PeerId) {
+    pub(crate) fn remove_direct_peer(&mut self, peer_id: PeerId) {
         if let Some(spt) = self.spts.remove(&peer_id) {
             for e in &spt.edges {
                 self.edge_cache.remove_active_edge(e);
@@ -157,7 +203,12 @@ impl Inner {
     /// Handles connection of a new peer or nonce refresh for an existing one.
     /// Adds or updates the nonce for the given edge. If we don't already have an
     /// SPT for this peer_id, initializes one with just the given edge.
-    pub fn add_or_update_direct_peer(&mut self, clock: &time::Clock, peer_id: PeerId, edge: Edge) {
+    pub(crate) fn add_or_update_direct_peer(
+        &mut self,
+        clock: &time::Clock,
+        peer_id: PeerId,
+        edge: Edge,
+    ) {
         match self.spts.entry(peer_id.clone()) {
             Entry::Occupied(_occupied) => {
                 if !self.edge_cache.has_edge_nonce_or_newer(&edge) {
@@ -175,7 +226,7 @@ impl Inner {
 
     /// General case for all updates, which may really be an SPT message sent by a peer
     /// but may also be events submitted by the local node.
-    pub fn handle_shortest_path_tree_message(
+    pub(crate) fn handle_shortest_path_tree_message(
         &mut self,
         clock: &time::Clock,
         spt: &network_protocol::ShortestPathTree,
@@ -209,7 +260,7 @@ impl Inner {
 
     /// 1. Prunes expired edges.
     /// 2. Recomputes the NextHopTable.
-    pub fn update(
+    pub(crate) fn update(
         &mut self,
         clock: &time::Clock,
         unreliable_peers: &HashSet<PeerId>,
@@ -259,13 +310,10 @@ pub(crate) struct GraphV2 {
 
 impl GraphV2 {
     pub fn new(config: GraphConfigV2) -> Self {
+        let edge_cache = EdgeCache::new(config.node_id.clone());
         Self {
             routing_table: RoutingTableView::new(),
-            inner: Arc::new(Mutex::new(Inner {
-                config,
-                edge_cache: EdgeCache::new(),
-                spts: HashMap::new(),
-            })),
+            inner: Arc::new(Mutex::new(Inner { config, edge_cache, spts: HashMap::new() })),
             unreliable_peers: ArcSwap::default(),
             runtime: Runtime::new(),
         }

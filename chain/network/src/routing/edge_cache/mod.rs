@@ -56,12 +56,13 @@ pub struct EdgeCache {
 }
 
 impl EdgeCache {
-    pub fn new() -> Self {
+    pub fn new(local_node_id: PeerId) -> Self {
+        // Initializes the EdgeCache assigning id 0 to the local node
         Self {
             verified_nonces: Default::default(),
             active_edges: Default::default(),
-            p2id: HashMap::new(),
-            degree: vec![],
+            p2id: HashMap::from([(local_node_id, 0)]),
+            degree: vec![0],
             unused: vec![],
         }
     }
@@ -89,7 +90,10 @@ impl EdgeCache {
     fn decrement_degree(&mut self, peer_id: &PeerId) {
         let id = self.get_or_create_id(peer_id);
         self.degree[id as usize] -= 1;
-        if self.degree[id as usize] == 0 {
+
+        // If this id is no longer incident with any active edges, free it
+        // The local node should always have id 0, so it's never freed
+        if self.degree[id as usize] == 0 && id != 0 {
             self.p2id.remove(peer_id);
             self.unused.push(id);
         }
@@ -111,7 +115,7 @@ impl EdgeCache {
 
     /// Returns the u32 id associated with the given PeerId.
     /// Expects that such a mapping already exists; will error otherwise.
-    pub fn _get_id(&self, peer: &PeerId) -> u32 {
+    pub fn get_id(&self, peer: &PeerId) -> u32 {
         *self.p2id.get(peer).unwrap()
     }
 

@@ -5,14 +5,14 @@ use rand::Rng;
 use std::collections::HashSet;
 
 #[test]
-fn test_has_edge_nonce_or_newer() {
+fn has_edge_nonce_or_newer() {
     let node0 = random_peer_id();
     let node1 = random_peer_id();
 
     let edge0 = Edge::make_fake_edge(node0.clone(), node1.clone(), 123);
-    let edge1 = Edge::make_fake_edge(node0, node1, 456);
+    let edge1 = Edge::make_fake_edge(node0.clone(), node1, 456);
 
-    let mut ec = EdgeCache::new();
+    let mut ec = EdgeCache::new(node0);
 
     // Initially empty
     assert!(!ec.has_edge_nonce_or_newer(&edge0));
@@ -30,17 +30,17 @@ fn test_has_edge_nonce_or_newer() {
 }
 
 #[test]
-fn test_update_active_edge_nonce() {
+fn update_active_edge_nonce() {
     let node0 = random_peer_id();
     let node1 = random_peer_id();
 
     let edge0 = Edge::make_fake_edge(node0.clone(), node1.clone(), 123);
-    let edge1 = Edge::make_fake_edge(node0, node1, 456);
+    let edge1 = Edge::make_fake_edge(node0.clone(), node1, 456);
 
     assert_eq!(edge0.key(), edge1.key());
     let key = edge0.key();
 
-    let mut ec = EdgeCache::new();
+    let mut ec = EdgeCache::new(node0);
 
     // First insert with the older nonce
     ec.insert_active_edge(&edge0);
@@ -79,55 +79,59 @@ fn test_p2id_mapping() {
     let edge1 = Edge::make_fake_edge(node1.clone(), node2.clone(), 456);
     let edge2 = Edge::make_fake_edge(node2.clone(), node3.clone(), 789);
 
-    let mut ec = EdgeCache::new();
+    // Set up the EdgeCache with node0 as the local node
+    let mut ec = EdgeCache::new(node0.clone());
+    ec.check_mapping(vec![node0.clone()]);
 
     // Insert and remove a single edge
     ec.insert_active_edge(&edge0);
     ec.check_mapping(vec![node0.clone(), node1.clone()]);
     ec.remove_active_edge(&edge0.key());
-    ec.check_mapping(vec![]);
+    ec.check_mapping(vec![node0.clone()]);
 
-    // Insert all edges
+    // Insert all edges (0--1--2--3)
     ec.insert_active_edge(&edge0);
     ec.insert_active_edge(&edge1);
     ec.insert_active_edge(&edge2);
     ec.check_mapping(vec![node0.clone(), node1.clone(), node2.clone(), node3.clone()]);
 
-    // Remove edge1; all nodes still active
+    // Remove edge1; all nodes are still active (0--1  2--3)
     ec.remove_active_edge(edge1.key());
-    ec.check_mapping(vec![node0, node1.clone(), node2.clone(), node3.clone()]);
+    ec.check_mapping(vec![node0.clone(), node1.clone(), node2.clone(), node3.clone()]);
 
-    // Remove edge0; node0 and node1 will no longer be active
+    // Remove edge0; node1 will no longer be active (0  1  2--3)
     ec.remove_active_edge(edge0.key());
-    ec.check_mapping(vec![node2.clone(), node3.clone()]);
+    ec.check_mapping(vec![node0.clone(), node2.clone(), node3.clone()]);
 
-    // Insert edge1; reactivates only node1
+    // Insert edge1; reactivates node1 (0  1--2--3)
     ec.insert_active_edge(&edge1);
-    ec.check_mapping(vec![node1.clone(), node2.clone(), node3]);
+    ec.check_mapping(vec![node0.clone(), node1.clone(), node2.clone(), node3]);
 
-    // Remove edge2; deactivates only node2
+    // Remove edge2; deactivates only node2 (0  1--2  3)
     ec.remove_active_edge(edge2.key());
-    ec.check_mapping(vec![node1, node2]);
+    ec.check_mapping(vec![node0.clone(), node1, node2]);
 
-    // Remove edge1; no nodes active
+    // Remove edge1; only the local node should remain mapped (0  1  2  3)
     ec.remove_active_edge(edge1.key());
-    ec.check_mapping(vec![]);
+    ec.check_mapping(vec![node0]);
 }
 
 #[test]
-fn test_reuse_ids() {
+fn reuse_ids() {
     let max_node_ct = 5;
 
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
 
-    let mut ec = EdgeCache::new();
+    let local_node_id = random_peer_id();
+    let mut ec = EdgeCache::new(local_node_id.clone());
 
-    // Run multiple iterations of inserting and deleting sets of edges to the same cache
+    // Run multiple iterations of inserting and deleting sets of edges
     for _ in 0..25 {
         // Generate some random PeerIds; should have at least 2 so we can make some edges
         let node_ct = rng.gen::<usize>() % (max_node_ct - 2) + 2;
-        let peer_ids: Vec<PeerId> = (0..node_ct).map(|_| random_peer_id()).collect();
+        let mut peer_ids: Vec<PeerId> = (1..node_ct).map(|_| random_peer_id()).collect();
+        peer_ids.push(local_node_id.clone());
 
         // Generate some random edges
         let edge_ct = rng.gen::<usize>() % 10 + 0;
@@ -146,7 +150,7 @@ fn test_reuse_ids() {
             })
             .collect();
 
-        let mut active = HashSet::<PeerId>::new();
+        let mut active = HashSet::<PeerId>::from([local_node_id.clone()]);
         for e in &edges {
             // Insert the edge to the EdgeCache
             ec.insert_active_edge(e);
