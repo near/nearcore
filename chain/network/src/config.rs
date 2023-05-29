@@ -446,8 +446,7 @@ impl NetworkConfig {
         self.routing_table_update_rate_limit
             .validate()
             .context("routing_table_update_rate_limit")?;
-        let my_node_id = self.node_id();
-        Ok(VerifiedConfig { node_id: my_node_id, inner: self })
+        Ok(VerifiedConfig { node_id: self.node_id(), inner: self })
     }
 }
 
