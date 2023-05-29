@@ -347,13 +347,8 @@ impl Trie {
         Ok(key_nibbles)
     }
 
-    /// Validate state part
-    ///
-    /// # Panics
-    /// part_id must be in [0..num_parts)
-    ///
-    /// # Errors
-    /// StorageError::TrieNodeWithMissing if some nodes are missing
+    /// Validates state part for given state root.
+    /// Returns error if state part is invalid and Ok otherwise.
     pub fn validate_trie_nodes_for_part(
         state_root: &StateRoot,
         part_id: PartId,
@@ -368,9 +363,9 @@ impl Trie {
         let storage = trie.storage.as_partial_storage().unwrap();
 
         if storage.visited_nodes.borrow().len() != num_nodes {
-            // TODO #1603 not actually TrieNodeMissing.
-            // The error is that the proof has more nodes than needed.
-            return Err(StorageError::MissingTrieValue);
+            // As all nodes belonging to state part were visited, there is some
+            // unexpected data in downloaded state part.
+            return Err(StorageError::UnexpectedTrieValue);
         }
         Ok(())
     }
@@ -965,6 +960,8 @@ mod tests {
         trie_changes
     }
 
+    /// Checks that state part with unexpected data or not enough data doesn't
+    /// pass validation.
     #[test]
     fn invalid_state_parts() {
         let tries = create_tries();
@@ -1015,7 +1012,6 @@ mod tests {
 
     /// Check on random samples that state parts can be validated independently
     /// from the entire trie.
-    /// TODO (#8997): add custom tests where incorrect parts don't pass validation.
     #[test]
     fn test_get_trie_nodes_for_part() {
         let mut rng = rand::thread_rng();
