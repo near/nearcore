@@ -77,6 +77,8 @@ pub enum ParseHandshakeError {
     PartialEdgeInfo(ParseRequiredError<ParsePartialEdgeInfoError>),
     #[error("owned_account {0}")]
     OwnedAccount(ParseSignedOwnedAccountError),
+    #[error("signed_ip_address {0}")]
+    SignedIpAddress(ParseSignedIpAddrError),
 }
 
 impl From<&Handshake> for proto::Handshake {
@@ -90,6 +92,7 @@ impl From<&Handshake> for proto::Handshake {
             sender_chain_info: MF::some((&x.sender_chain_info).into()),
             partial_edge_info: MF::some((&x.partial_edge_info).into()),
             owned_account: x.owned_account.as_ref().map(Into::into).into(),
+            signed_ip_addr: x.signed_ip_address.as_ref().map(Into::into).into(),
             ..Self::default()
         }
     }
@@ -120,6 +123,8 @@ impl TryFrom<&proto::Handshake> for Handshake {
                 .map_err(Self::Error::PartialEdgeInfo)?,
             owned_account: try_from_optional(&p.owned_account)
                 .map_err(Self::Error::OwnedAccount)?,
+            signed_ip_address: try_from_optional(&p.signed_ip_addr)
+                .map_err(Self::Error::SignedIpAddress)?,
         })
     }
 }
