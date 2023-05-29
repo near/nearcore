@@ -381,13 +381,11 @@ impl<'a> arbitrary::Arbitrary<'a> for AccountId {
         loop {
             match s.parse::<AccountId>() {
                 Ok(account_id) => break Ok(account_id),
-                Err(e) => {
-                    if let Some((idx, _)) = e.char {
-                        s = &s[..idx];
-                        continue;
-                    }
-                    break Err(arbitrary::Error::IncorrectFormat);
+                Err(ParseAccountError { char: Some((idx, _)), .. }) => {
+                    s = &s[..idx];
+                    continue;
                 }
+                _ => break Err(arbitrary::Error::IncorrectFormat),
             }
         }
     }
