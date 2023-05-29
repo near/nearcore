@@ -221,19 +221,14 @@ impl From<AccessKeyView> for AccessKey {
 pub struct StateItem {
     pub key: StoreKey,
     pub value: StoreValue,
-    /// Deprecated, always empty, eventually will be deleted.
-    // TODO(mina86): This was deprecated in 1.30.  Get rid of the field
-    // altogether at 1.33 or something.
-    #[serde(default)]
-    pub proof: Vec<()>,
 }
 
+#[serde_as]
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ViewStateResult {
     pub values: Vec<StateItem>,
-    // TODO(mina86): Empty proof (i.e. sending proof when include_proof is not
-    // set in the request) was deprecated in 1.30.  Add
-    // `#[serde(skip(Vec::if_empty))` at 1.33 or something.
+    #[serde_as(as = "Vec<Base64>")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub proof: Vec<Arc<[u8]>>,
 }
 
