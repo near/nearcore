@@ -90,39 +90,33 @@ impl std::str::FromStr for PeerAddr {
     }
 }
 
-// Wrapper around std::net::IpAddr, which constructs a SignedIpAddress
+/// Proof that a given peer_id owns an ip address, included in Handshake message
 #[derive(Clone, PartialEq, Eq, Debug, Hash)]
-pub struct OwnedIpAddress {
-    pub(crate) ip_address: std::net::IpAddr,
+pub struct SignedIpAddress {
+    pub ip_address: std::net::IpAddr,
+    pub(crate) signature: near_crypto::Signature, // signature for signed ip_address
 }
 
-impl OwnedIpAddress {
-    // Serialization of ip address for signing and verification
-    fn ip_bytes(&self) -> Vec<u8> {
-        let ip_bytes: Vec<u8> = match self.ip_address {
+impl SignedIpAddress {
+    pub fn new(ip_address: std::net::IpAddr, secret_key: &near_crypto::SecretKey) -> Self {
+        let signature = secret_key.sign(&SignedIpAddress::ip_bytes_helper(&ip_address));
+        Self { ip_address: ip_address, signature: signature }
+    }
+
+    pub fn verify(&self, public_key: &PublicKey) -> bool {
+        self.signature.verify(&self.ip_bytes(), &public_key)
+    }
+
+    fn ip_bytes_helper(ip_address: &std::net::IpAddr) -> Vec<u8> {
+        let ip_bytes: Vec<u8> = match ip_address {
             std::net::IpAddr::V4(ip) => ip.octets().to_vec(),
             std::net::IpAddr::V6(ip) => ip.octets().to_vec(),
         };
         return ip_bytes;
     }
 
-    /// Sign with a given SecretKey, but must not store it.
-    pub fn sign(self, secret_key: &near_crypto::SecretKey) -> SignedIpAddress {
-        let signature = secret_key.sign(&self.ip_bytes());
-        SignedIpAddress { owned_ip_address: self, signature: signature }
-    }
-}
-
-/// Proof that a given peer_id owns an ip address, included in Handshake message
-#[derive(Clone, PartialEq, Eq, Debug, Hash)]
-pub struct SignedIpAddress {
-    pub(crate) owned_ip_address: OwnedIpAddress,
-    pub(crate) signature: near_crypto::Signature, // signature for signed ip_address
-}
-
-impl SignedIpAddress {
-    pub fn verify(&self, public_key: &PublicKey) -> bool {
-        self.signature.verify(&self.owned_ip_address.ip_bytes(), &public_key)
+    fn ip_bytes(&self) -> Vec<u8> {
+        return SignedIpAddress::ip_bytes_helper(&self.ip_address);
     }
 }
 

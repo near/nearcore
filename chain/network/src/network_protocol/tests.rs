@@ -183,9 +183,8 @@ fn sign_and_verify_with_signed_ip_address_interface() {
     let peer_id = PeerId::new(node_key.public_key());
     let mut rng = make_rng(89028037453);
     let ip_addr: net::IpAddr = data::make_ipv4(&mut rng);
-    // Wrap ip address sign and verify algorithm with interfaces: OwnedIpAddress and SignedIpAddress
-    let owned_ip_address = OwnedIpAddress { ip_address: ip_addr };
-    let signed_ip_address: SignedIpAddress = owned_ip_address.sign(&node_key);
+    // Wrap ip address sign and verify algorithm with interfaces SignedIpAddress
+    let signed_ip_address: SignedIpAddress = SignedIpAddress::new(ip_addr, &node_key);
     assert!(signed_ip_address.verify(&node_key.public_key()));
     assert!(signed_ip_address.verify(peer_id.public_key()));
 }

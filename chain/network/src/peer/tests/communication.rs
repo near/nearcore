@@ -257,21 +257,27 @@ async fn test_backward_compatible_handshake_without_signed_ip_address(
 ) {
     let mut rng = make_rng(89028037453);
     let mut clock = time::FakeClock::default();
-
     let chain = Arc::new(data::Chain::make(&mut clock, &mut rng, 12));
+
     let inbound_cfg = PeerConfig {
         network: chain.make_config(&mut rng),
         chain: chain.clone(),
         force_encoding: inbound_encoding,
     };
+
     let outbound_cfg = PeerConfig {
         network: chain.make_config(&mut rng),
         chain: chain.clone(),
         force_encoding: outbound_encoding,
     };
+
     let (outbound_stream, inbound_stream) =
         tcp::Stream::loopback(inbound_cfg.id(), tcp::Tier::T2).await;
+
+    // Set up both inbound stream and PeerActor process for it
     let inbound = PeerHandle::start_endpoint(clock.clock(), inbound_cfg, inbound_stream).await;
+
+    // Initialize the handshake from this unit test's thread to act as the outbound peer
     let outbound_port = outbound_stream.local_addr.port();
     let mut outbound = Stream::new(outbound_encoding, outbound_stream);
     let mut handshake = Handshake {
@@ -286,9 +292,12 @@ async fn test_backward_compatible_handshake_without_signed_ip_address(
         signed_ip_address: None,
     };
     handshake.sender_chain_info = chain.get_peer_chain_info();
+
     // Send an outdated Handshake, which doesn't contain a signed ip address and verify handshake still succeeds
     // TODO(soon): In future, this needs to fail after all production nodes have included mandatory signed ip address
     outbound.write(&PeerMessage::Tier2Handshake(handshake.clone())).await;
+
+    // Verify the handshake is successful from receiving a Tier2Handshake response from the inbound
     let resp = outbound.read().await.unwrap();
     assert_matches!(resp, PeerMessage::Tier2Handshake(_));
 }

@@ -2,12 +2,12 @@ use crate::accounts_data;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::config::PEERS_RESPONSE_MAX_PEERS;
+use crate::network_protocol::SignedIpAddress;
 use crate::network_protocol::{
     Edge, EdgeState, Encoding, OwnedAccount, ParsePeerMessageError, PartialEdgeInfo,
     PeerChainInfoV2, PeerIdOrHash, PeerInfo, PeersRequest, PeersResponse, RawRoutedMessage,
     RoutedMessageBody, RoutedMessageV2, RoutingTableUpdate, StateResponseInfo, SyncAccountsData,
 };
-use crate::network_protocol::{OwnedIpAddress, SignedIpAddress};
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
 use crate::peer_manager::connection;
@@ -290,7 +290,7 @@ impl PeerActor {
         };
         let my_node_info = PeerInfo {
             id: network_state.config.node_id(),
-            addr: Some(stream.local_addr), // update own local address based on required stream
+            addr: Some(stream.local_addr),
             account_id: network_state.config.validator.as_ref().map(|v| v.account_id()),
         };
         // recv is the HandshakeSignal returned by this spawn_inner() call.
@@ -424,9 +424,10 @@ impl PeerActor {
             } else {
                 (0, vec![])
             };
-        let owned_ip_address = OwnedIpAddress { ip_address: self.my_node_info.addr.unwrap().ip() };
-        let my_signed_ip_address: SignedIpAddress =
-            owned_ip_address.sign(&self.network_state.config.node_key);
+        let my_signed_ip_address = SignedIpAddress::new(
+            self.my_node_info.addr.unwrap().ip(),
+            &self.network_state.config.node_key,
+        );
         let handshake = Handshake {
             protocol_version: spec.protocol_version,
             oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION,
@@ -575,7 +576,7 @@ impl PeerActor {
 
         // Verify the signed IP address is valid.
         if let Some(signed_ip_address) = &handshake.signed_ip_address {
-            if self.peer_addr.ip() != signed_ip_address.owned_ip_address.ip_address {
+            if self.peer_addr.ip() != signed_ip_address.ip_address {
                 self.stop(ctx, ClosingReason::IpAddressMismatch);
                 return;
             }

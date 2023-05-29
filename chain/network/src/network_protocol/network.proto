@@ -206,12 +206,8 @@ message IpAddr {
   bytes ip = 1;
 }
 
-message OwnedIpAddr {
-  IpAddr ip_addr = 1;
-}
-
 message SignedIpAddr {
-  OwnedIpAddr owned_ip_addr = 1;
+  IpAddr ip_addr = 1;
   Signature signature = 2;
 }
 

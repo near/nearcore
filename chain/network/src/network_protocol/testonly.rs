@@ -336,8 +336,7 @@ pub fn make_signed_ip_addr(
     ip_addr: &std::net::IpAddr,
     secret_key: &near_crypto::SecretKey,
 ) -> SignedIpAddress {
-    let owned_ip_address = OwnedIpAddress { ip_address: *ip_addr };
-    let signed_ip_address: SignedIpAddress = owned_ip_address.sign(secret_key);
+    let signed_ip_address: SignedIpAddress = SignedIpAddress::new(*ip_addr, secret_key);
     return signed_ip_address;
 }
 
