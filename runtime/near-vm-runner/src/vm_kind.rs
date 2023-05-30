@@ -46,6 +46,7 @@ impl VMKind {
         if cfg!(not(target_arch = "x86_64")) {
             return VMKind::Wasmtime;
         }
+        #[cfg(feature = "nightly")]
         if checked_feature!("stable", NearVmRuntime, protocol_version) {
             return VMKind::NearVm;
         }

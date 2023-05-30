@@ -170,6 +170,8 @@ pub enum ProtocolFeature {
     RejectBlocksWithOutdatedProtocolVersions,
     #[cfg(feature = "protocol_feature_preparation_v2")]
     PreparationV2,
+    #[cfg(feature = "protocol_feature_near_vm_runtime")]
+    NearVmRuntime,
 }
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
@@ -266,6 +268,8 @@ impl ProtocolFeature {
             ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 132,
             #[cfg(feature = "protocol_feature_preparation_v2")]
             ProtocolFeature::PreparationV2 => 133,
+            #[cfg(feature = "protocol_feature_near_vm_runtime")]
+            ProtocolFeature::NearVmRuntime => 133,
         }
     }
 }
