@@ -525,7 +525,7 @@ impl Genesis {
         state_roots: Option<Vec<StateRoot>>,
         genesis_validation: GenesisValidationMode,
     ) -> Result<Self, ValidationError> {
-        let genesis = Self { config, records, records_file: PathBuf::new(), state_roots: None };
+        let genesis = Self { config, records, records_file: PathBuf::new(), state_roots };
         genesis.validate(genesis_validation)?;
         Ok(genesis)
     }
