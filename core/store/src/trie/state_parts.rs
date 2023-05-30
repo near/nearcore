@@ -116,7 +116,10 @@ impl Trie {
         &'a self,
         nibbles_begin: Vec<u8>,
         nibbles_end: Vec<u8>,
-    ) -> Result<impl Iterator<Item = (Vec<u8>, Box<[u8]>)> + 'a, StorageError> {
+    ) -> Result<
+        impl Iterator<Item = Result<(Vec<u8>, FlatStateValue), StorageError>> + 'a,
+        StorageError,
+    > {
         let flat_storage_chunk_view = match &self.flat_storage_chunk_view {
             None => {
                 return Err(StorageError::StorageInconsistentState(
@@ -173,8 +176,9 @@ impl Trie {
         let mut values_ref = 0;
         let mut values_inlined = 0;
         let all_state_part_items: Vec<_> = flat_state_iter
-            .map(|(k, v)| {
-                let value = match FlatStateValue::try_from_slice(&v).expect("Borsh cannot fail") {
+            .map(|result| {
+                let (k, v) = result.expect("failed to read FlatState entry");
+                let value = match v {
                     FlatStateValue::Ref(value_ref) => {
                         values_ref += 1;
                         self.storage.retrieve_raw_bytes(&value_ref.hash).map(|bytes| bytes.to_vec())
