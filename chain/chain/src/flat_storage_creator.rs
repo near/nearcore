@@ -402,7 +402,9 @@ impl FlatStorageShardCreator {
                         );
                         store_update.commit()?;
                         info!(target: "chain", %shard_id, %flat_head, %height, "Garbage collected {gc_count} deltas");
-                        self.runtime.create_flat_storage_for_shard(shard_uid);
+                        if let Some(manager) = self.runtime.get_flat_storage_manager() {
+                            manager.create_flat_storage_for_shard(shard_uid);
+                        }
                         info!(target: "chain", %shard_id, %flat_head, %height, "Flat storage creation done");
                     }
                 }
@@ -438,14 +440,19 @@ impl FlatStorageCreator {
         let num_shards = epoch_manager.num_shards(&chain_head.epoch_id)?;
         let mut shard_creators: HashMap<ShardUId, FlatStorageShardCreator> = HashMap::new();
         let mut creation_needed = false;
+        let flat_storage_manager = if let Some(manager) = runtime.get_flat_storage_manager() {
+            manager
+        } else {
+            return Ok(None);
+        };
         for shard_id in 0..num_shards {
             if shard_tracker.care_about_shard(me, &chain_head.prev_block_hash, shard_id, true) {
                 let shard_uid = epoch_manager.shard_id_to_uid(shard_id, &chain_head.epoch_id)?;
-                let status = runtime.get_flat_storage_status(shard_uid);
+                let status = flat_storage_manager.get_flat_storage_status(shard_uid);
 
                 match status {
                     FlatStorageStatus::Ready(_) => {
-                        runtime.create_flat_storage_for_shard(shard_uid);
+                        flat_storage_manager.create_flat_storage_for_shard(shard_uid);
                     }
                     FlatStorageStatus::Empty | FlatStorageStatus::Creation(_) => {
                         creation_needed = true;

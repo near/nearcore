@@ -47,7 +47,7 @@ use near_primitives::views::{
     AccessKeyInfoView, CallResult, QueryRequest, QueryResponse, QueryResponseKind, ViewApplyState,
     ViewStateResult,
 };
-use near_store::flat::{store_helper, FlatStorage, FlatStorageManager, FlatStorageStatus};
+use near_store::flat::FlatStorageManager;
 use near_store::metadata::DbKind;
 use near_store::split_state::get_delayed_receipts;
 use near_store::{
@@ -737,46 +737,6 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn get_flat_storage_manager(&self) -> Option<FlatStorageManager> {
         Some(self.flat_storage_manager.clone())
-    }
-
-    fn get_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Option<FlatStorage> {
-        self.flat_storage_manager.get_flat_storage_for_shard(shard_uid)
-    }
-
-    fn get_flat_storage_status(&self, shard_uid: ShardUId) -> FlatStorageStatus {
-        store_helper::get_flat_storage_status(&self.store, shard_uid)
-    }
-
-    // TODO (#7327): consider passing flat storage errors here to handle them gracefully
-    fn create_flat_storage_for_shard(&self, shard_uid: ShardUId) {
-        let flat_storage = FlatStorage::new(self.store.clone(), shard_uid);
-        self.flat_storage_manager.add_flat_storage_for_shard(shard_uid, flat_storage);
-    }
-
-    fn remove_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Result<(), Error> {
-        self.flat_storage_manager
-            .remove_flat_storage_for_shard(shard_uid)
-            .map_err(Error::StorageError)?;
-        Ok(())
-    }
-
-    fn set_flat_storage_for_genesis(
-        &self,
-        genesis_block: &CryptoHash,
-        genesis_block_height: BlockHeight,
-        genesis_epoch_id: &EpochId,
-    ) -> Result<StoreUpdate, Error> {
-        let mut store_update = self.store.store_update();
-        for shard_id in 0..self.epoch_manager.num_shards(genesis_epoch_id)? {
-            let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, genesis_epoch_id)?;
-            self.flat_storage_manager.set_flat_storage_for_genesis(
-                &mut store_update,
-                shard_uid,
-                genesis_block,
-                genesis_block_height,
-            );
-        }
-        Ok(store_update)
     }
 
     fn validate_tx(
@@ -1612,22 +1572,22 @@ mod test {
 
             let shard_uid =
                 self.epoch_manager.shard_id_to_uid(shard_id, &EpochId::default()).unwrap();
-            match self.get_flat_storage_for_shard(shard_uid) {
-                Some(flat_storage) => {
-                    let delta = FlatStateDelta {
-                        changes: flat_state_changes,
-                        metadata: FlatStateDeltaMetadata {
-                            block: near_store::flat::BlockInfo {
-                                hash: *block_hash,
-                                height,
-                                prev_hash: *prev_block_hash,
-                            },
+            if let Some(flat_storage) = self
+                .get_flat_storage_manager()
+                .and_then(|manager| manager.get_flat_storage_for_shard(shard_uid))
+            {
+                let delta = FlatStateDelta {
+                    changes: flat_state_changes,
+                    metadata: FlatStateDeltaMetadata {
+                        block: near_store::flat::BlockInfo {
+                            hash: *block_hash,
+                            height,
+                            prev_hash: *prev_block_hash,
                         },
-                    };
-                    let new_store_update = flat_storage.add_delta(delta).unwrap();
-                    store_update.merge(new_store_update);
-                }
-                None => {}
+                    },
+                };
+                let new_store_update = flat_storage.add_delta(delta).unwrap();
+                store_update.merge(new_store_update);
             }
             store_update.commit().unwrap();
 
@@ -1699,24 +1659,28 @@ mod test {
                 DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
                 Default::default(),
             );
-            let (_store, state_roots) = runtime.genesis_state();
+            let (store, state_roots) = runtime.genesis_state();
             let genesis_hash = hash(&[0]);
 
             // Create flat storage. Naturally it happens on Chain creation, but here we test only Runtime behaviour
             // and use a mock chain, so we need to initialize flat storage manually.
-            {
-                let store_update = runtime
-                    .set_flat_storage_for_genesis(&genesis_hash, 0, &EpochId::default())
-                    .unwrap();
-                store_update.commit().unwrap();
-                for shard_id in 0..epoch_manager.num_shards(&EpochId::default()).unwrap() {
-                    let shard_uid =
-                        epoch_manager.shard_id_to_uid(shard_id, &EpochId::default()).unwrap();
+            if let Some(flat_storage_manager) = runtime.get_flat_storage_manager() {
+                for shard_uid in
+                    epoch_manager.get_shard_layout(&EpochId::default()).unwrap().get_shard_uids()
+                {
+                    let mut store_update = store.store_update();
+                    flat_storage_manager.set_flat_storage_for_genesis(
+                        &mut store_update,
+                        shard_uid,
+                        &genesis_hash,
+                        0,
+                    );
+                    store_update.commit().unwrap();
                     assert!(matches!(
-                        runtime.get_flat_storage_status(shard_uid),
-                        FlatStorageStatus::Ready(_)
+                        flat_storage_manager.get_flat_storage_status(shard_uid),
+                        near_store::flat::FlatStorageStatus::Ready(_)
                     ));
-                    runtime.create_flat_storage_for_shard(shard_uid);
+                    flat_storage_manager.create_flat_storage_for_shard(shard_uid);
                 }
             }
 
