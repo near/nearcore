@@ -1,9 +1,8 @@
-use crate::network_protocol;
 use crate::routing::{GraphConfigV2, GraphV2};
+use crate::test_utils::expected_routing_tables;
 use crate::test_utils::random_peer_id;
 use crate::testonly::make_rng;
 use crate::types::Edge;
-use near_async::time;
 use near_primitives::network::PeerId;
 use rand::seq::SliceRandom;
 use rand::Rng;
@@ -111,26 +110,59 @@ fn calculate_distances() {
 
 #[test]
 fn calculate_next_hops() {
-    let clock = time::FakeClock::default();
-
     let node0 = random_peer_id();
     let graph = GraphV2::new(GraphConfigV2 { node_id: node0.clone(), prune_edges_after: None });
 
     // Test behavior on a node with no peers
     assert_eq!((HashMap::new(), HashMap::from([(node0.clone(), 0)])), graph.compute_next_hops());
 
-    // Add a peer
+    // Add a peer node1
     let node1 = random_peer_id();
     let edge01 = Edge::make_fake_edge(node0.clone(), node1.clone(), 123);
-    assert!(graph.inner.lock().handle_shortest_path_tree_message(
-        &clock.clock(),
-        &network_protocol::ShortestPathTree { root: node1.clone(), edges: { vec![edge01] } },
+    assert!(graph.update_shortest_path_tree(node1.clone(), vec![edge01.clone()]));
+
+    let (next_hops, distance) = graph.compute_next_hops();
+    assert!(expected_routing_tables(&next_hops, &[(node1.clone(), vec![node1.clone()])]));
+    assert_eq!(distance, HashMap::from([(node0.clone(), 0), (node1.clone(), 1)]));
+
+    // Add another peer node2 advertising a node3 behind it
+    let node2 = random_peer_id();
+    let node3 = random_peer_id();
+    let edge02 = Edge::make_fake_edge(node0.clone(), node2.clone(), 123);
+    let edge23 = Edge::make_fake_edge(node2.clone(), node3.clone(), 123);
+    assert!(graph.update_shortest_path_tree(node2.clone(), vec![edge02, edge23]));
+
+    let (next_hops, distance) = graph.compute_next_hops();
+    assert!(expected_routing_tables(
+        &next_hops,
+        &[
+            (node1.clone(), vec![node1.clone()]),
+            (node2.clone(), vec![node2.clone()]),
+            (node3.clone(), vec![node2.clone()]),
+        ]
     ));
     assert_eq!(
-        (
-            HashMap::from([(node1.clone(), vec![node1.clone()])]),
-            HashMap::from([(node0, 0), (node1, 1)])
-        ),
-        graph.compute_next_hops()
+        distance,
+        HashMap::from([
+            (node0.clone(), 0),
+            (node1.clone(), 1),
+            (node2.clone(), 1),
+            (node3.clone(), 2)
+        ])
     );
+
+    // Update the SPT for node1, also advertising node3 behind it
+    let edge13 = Edge::make_fake_edge(node1.clone(), node3.clone(), 123);
+    assert!(graph.update_shortest_path_tree(node1.clone(), vec![edge01, edge13]));
+
+    let (next_hops, distance) = graph.compute_next_hops();
+    assert!(expected_routing_tables(
+        &next_hops,
+        &[
+            (node1.clone(), vec![node1.clone()]),
+            (node2.clone(), vec![node2.clone()]),
+            (node3.clone(), vec![node1.clone(), node2.clone()]),
+        ]
+    ));
+    assert_eq!(distance, HashMap::from([(node0, 0), (node1, 1), (node2, 1), (node3, 2)]));
 }
