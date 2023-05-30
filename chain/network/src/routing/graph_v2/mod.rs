@@ -43,6 +43,10 @@ struct Inner {
 
     /// Mapping from neighbor to the most recent SPT received from that neighbor
     spts: HashMap<PeerId, ShortestPathTree>,
+    /// Shortest known distances from the local node to other nodes
+    distance: HashMap<PeerId, u32>,
+    /// The ShortestPathTree rooted at the local node
+    local_spt: network_protocol::ShortestPathTree,
 }
 
 impl Inner {
@@ -252,19 +256,69 @@ impl Inner {
 
     /// Computes and returns "next hops" for all reachable destinations in the network.
     /// Accepts a set of "unreliable peers" to avoid routing through.
-    fn compute_next_hops(&mut self, _unreliable_peers: &HashSet<PeerId>) -> NextHopTable {
-        let next_hops = HashMap::<PeerId, Vec<PeerId>>::new();
-        let _ = self.edge_cache.max_id();
-        next_hops
+    /// TODO: Actually avoid the unreliable peers
+    ///
+    /// Returns the NextHopTable along with a mapping from the reachable nodes in the
+    /// network to their shortest-path distances.
+    fn compute_next_hops(
+        &mut self,
+        _unreliable_peers: &HashSet<PeerId>,
+    ) -> (NextHopTable, HashMap<PeerId, u32>) {
+        let max_id = self.edge_cache.max_id();
+        let local_node_id = self.edge_cache.get_id(&self.config.node_id);
+
+        // Calculate the min distance to each routable node
+        let mut distance_by_id: Vec<i32> = vec![-1; max_id];
+        distance_by_id[local_node_id as usize] = 0;
+        for (_, spt) in &self.spts {
+            for id in 0..max_id {
+                if spt.distance[id] != -1 {
+                    if distance_by_id[id] == -1 || distance_by_id[id] > (spt.distance[id] + 1) {
+                        distance_by_id[id] = spt.distance[id] + 1;
+                    }
+                }
+            }
+        }
+
+        // Compute the next hop table
+        let mut next_hops_by_id: Vec<Vec<PeerId>> = vec![vec![]; self.edge_cache.max_id()];
+        for id in 0..max_id {
+            if distance_by_id[id] != -1 {
+                for (peer_id, spt) in &self.spts {
+                    if spt.distance[id] + 1 == distance_by_id[id] {
+                        next_hops_by_id[id].push(peer_id.clone());
+                    }
+                }
+            }
+        }
+        let mut next_hops = HashMap::<PeerId, Vec<PeerId>>::new();
+        for (peer_id, id) in &self.edge_cache.p2id {
+            if !next_hops_by_id[*id as usize].is_empty() {
+                next_hops.insert(peer_id.clone(), next_hops_by_id[*id as usize].clone());
+            }
+        }
+
+        // Build a PeerId-keyed map of distances
+        let mut distance: HashMap<PeerId, u32> = HashMap::new();
+        for (peer_id, id) in &self.edge_cache.p2id {
+            if distance_by_id[*id as usize] != -1 {
+                distance.insert(peer_id.clone(), distance_by_id[*id as usize] as u32);
+            }
+        }
+
+        (next_hops, distance)
     }
 
     /// 1. Prunes expired edges.
     /// 2. Recomputes the NextHopTable.
+    ///
+    /// Returns the recomputed NextHopTable.
+    /// If distances have changed, returns an updated ShortestPathTree to be broadcast.
     pub(crate) fn update(
         &mut self,
         clock: &time::Clock,
         unreliable_peers: &HashSet<PeerId>,
-    ) -> NextHopTable {
+    ) -> (NextHopTable, Option<network_protocol::ShortestPathTree>) {
         let _update_time = metrics::ROUTING_TABLE_RECALCULATION_HISTOGRAM.start_timer();
 
         // Prune expired edges
@@ -289,14 +343,22 @@ impl Inner {
         }
 
         // Recompute the NextHopTable
-        let next_hops = self.compute_next_hops(unreliable_peers);
+        let (next_hops, distance) = self.compute_next_hops(unreliable_peers);
+
+        // If distances in the network have changed, return a message to be broadcasted to peers
+        let to_broadcast = if distance != self.distance {
+            self.distance = distance;
+            Some(self.local_spt.clone())
+        } else {
+            None
+        };
 
         // Update metrics after update
         metrics::ROUTING_TABLE_RECALCULATIONS.inc();
         metrics::PEER_REACHABLE.set(next_hops.len() as i64);
         metrics::EDGE_TOTAL.set(self.edge_cache.known_edges_ct() as i64);
 
-        return next_hops;
+        (next_hops, to_broadcast)
     }
 }
 
@@ -310,10 +372,17 @@ pub(crate) struct GraphV2 {
 
 impl GraphV2 {
     pub fn new(config: GraphConfigV2) -> Self {
-        let edge_cache = EdgeCache::new(config.node_id.clone());
+        let local_node = config.node_id.clone();
+        let edge_cache = EdgeCache::new(local_node.clone());
         Self {
             routing_table: RoutingTableView::new(),
-            inner: Arc::new(Mutex::new(Inner { config, edge_cache, spts: HashMap::new() })),
+            inner: Arc::new(Mutex::new(Inner {
+                config,
+                edge_cache,
+                spts: HashMap::new(),
+                distance: HashMap::new(),
+                local_spt: network_protocol::ShortestPathTree { root: local_node, edges: vec![] },
+            })),
             unreliable_peers: ArcSwap::default(),
             runtime: Runtime::new(),
         }
@@ -353,18 +422,11 @@ impl GraphV2 {
                     .map(|spt| inner.handle_shortest_path_tree_message(&clock, spt))
                     .collect();
 
-                let next_hops = inner.update(&clock, &this.unreliable_peers.load());
+                let (next_hops, to_broadcast) = inner.update(&clock, &this.unreliable_peers.load());
 
                 this.routing_table.update(next_hops.into());
 
-                (
-                    // TODO: fix this
-                    Some(network_protocol::ShortestPathTree {
-                        root: inner.config.node_id.clone(),
-                        edges: vec![],
-                    }),
-                    oks,
-                )
+                (to_broadcast, oks)
             })
             .await
             .unwrap()
