@@ -16,6 +16,10 @@
 * Node can sync State from local filesystem. [#8913](https://github.com/near/nearcore/pull/8913)
 * Add per shard granularity for chunks in validator info metric. [#8934](https://github.com/near/nearcore/pull/8934)
 
+### Fixes
+
+* Extra validation for `DeleteAction`.
+
 ## 1.33.0
 
 ### Protocol Changes
