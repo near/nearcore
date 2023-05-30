@@ -47,6 +47,10 @@ struct Inner {
     edge_cache: EdgeCache,
 
     /// Mapping from neighbor to the most recent SPT received from that neighbor
+    /// TODO: the state of this map is tied closely to the state within edge_cache.
+    /// in particular we maintain that the set of "active edges" in the cache is the
+    /// union of the edges appearing in these SPTs. the edge lists here should probably
+    /// be moved inside EdgeCache to better protect consistency of the cache
     spts: HashMap<PeerId, ShortestPathTree>,
     /// Shortest known distances from the local node to other nodes
     distance: HashMap<PeerId, u32>,

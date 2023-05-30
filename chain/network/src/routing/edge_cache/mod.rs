@@ -18,33 +18,37 @@ struct ActiveEdge {
 }
 
 /// Cache of all known edges in the network.
+/// It maintains multiple representations of the network, each serving different purposes.
 ///
-/// For each known EdgeKey, we store within `verified_nonces` the most recent nonce which was
-/// already verified locally. Verification of signatures is computationally expensive;
-/// the `verified_nonces` cache is used to avoid unnecessary re-verification. Storing only
-/// the verified nonce (and not the actual signatures) is a memory optimization. We can trust
-/// existence of these edges as we have seen the signatures at some point, but we cannot
-/// provide proof to a peer that they exist.
+/// 1) `verified_nonces`:
+/// A mapping from (PeerId, PeerId) to the latest locally verified nonce for that pair of
+/// nodes. It allows the local node to avoid repeating computationally expensive
+/// cryptographic verification of signatures on signed edges.
 ///
-/// Within `active_edges`, we maintain a subset of edges which the local node wishes to keep
-/// fully in memory. The entire Edge object is kept so that we may subsequently re-broadcast
-/// it to peers in the network.
+/// Storing only the verified nonce (and not the actual Edge object with signatures)
+/// is a memory optimization. We can trust existence of these edges as we have seen and
+/// verified the signatures locally at some point, but we cannot provide proof to a peer
+/// that they exist.
 ///
-/// Within `p2id`, we maintain a mapping from PeerIds in the network to u32 ids 0,1,2,...
+/// 2) `active_edges`
+/// A mapping from (PeerId, PeerId) to complete Edge objects. It does not contain all known
+/// edges, but rather a subset which the local node may wish to subsequently re-broadcast
+/// to peers in the network.
+///
+/// In particular, for each direct peer of the local node, the set of edges appearing in the
+/// most recent ShortestPathTree advertised by the peer are kept in memory. These objects
+/// are deduplicated across all peers of the local node.
+///
+/// 3) `p2id`
+/// A mapping from known PeerIds to distinct integer (u32) ids 0,1,2,...
 /// The set of mapped PeerIds is precisely those which appear at least once among the
-/// set of active edges. This mapping of PeerIds to u32s is used to allow routing computations
-/// to be performed over Vecs rather than HashMaps, improving performance and reducing memory
-/// usage of the routing protocol implementation.
+/// `active_edges`.
 ///
-/// In total, EdgeCache serves three purposes:
-/// 1) It is used to avoid repeating verification of signatures on edges.
-/// 2) It stores Edge objects which the local node may re-broadcast to peers.
-/// 3) It maintains a mapping from PeerIds of interest to u32 ids 0,1,2,...
+/// The `p2id` mapping is used to allow routing computations to be performed over Vecs
+/// rather than over HashMaps, improving performance and reducing memory usage of the
+/// routing protocol implementation.
 pub struct EdgeCache {
-    /// Mapping from EdgeKey to the most recent verified nonce
     verified_nonces: im::HashMap<EdgeKey, u64>,
-
-    /// Mapping from EdgeKey to Edge object
     active_edges: im::HashMap<EdgeKey, ActiveEdge>,
 
     /// Mapping from PeerId to assigned u32 id
