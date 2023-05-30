@@ -435,11 +435,20 @@ impl GenesisJsonHasher {
         record.serialize(&mut ser).expect("Error serializing the genesis record.");
     }
 
+    pub fn process_state_roots(&mut self, state_roots: &[StateRoot]) {
+        let mut ser = Serializer::pretty(&mut self.digest);
+        state_roots.serialize(&mut ser).expect("Error serializing the genesis state roots.");
+    }
+
     pub fn process_genesis(&mut self, genesis: &Genesis) {
         self.process_config(&genesis.config);
-        genesis.for_each_record(|record: &StateRecord| {
-            self.process_record(record);
-        });
+        if let Some(state_roots) = &genesis.state_roots {
+            self.process_state_roots(state_roots);
+        } else {
+            genesis.for_each_record(|record: &StateRecord| {
+                self.process_record(record);
+            });
+        }
     }
 
     pub fn finalize(self) -> CryptoHash {

@@ -8,7 +8,6 @@ use std::collections::{HashMap, HashSet};
 
 /// Validate genesis config and records. Returns ValidationError if semantic checks of genesis failed.
 pub fn validate_genesis(genesis: &Genesis) -> Result<(), ValidationError> {
-    println!("{:?}", genesis);
     if genesis.state_roots.is_some() {
         return Ok(());
     }
