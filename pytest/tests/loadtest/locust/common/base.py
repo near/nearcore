@@ -315,31 +315,32 @@ def on_locust_init(environment, **kwargs):
 
     funding_account = None
     # every worker needs a funding account to create its users, eagerly create them in the master
-    if isinstance(environment.runner, runners.MasterRunner):
-        num_funding_accounts = environment.parsed_options.max_workers
-        funding_balance = 10000 * NearUser.INIT_BALANCE
-        # TODO: Create accounts in parallel
-        for id in range(num_funding_accounts):
-            account_id = f"funds_worker_{id}.{master_funding_account.key.account_id}"
-            worker_key = key.Key.from_seed_testonly(account_id, account_id)
-            logger.info(f"Creating {account_id}")
-            send_transaction(
-                node,
-                CreateSubAccount(master_funding_account,
-                                 worker_key,
-                                 balance=funding_balance))
-        funding_account = master_funding_account
-    elif isinstance(environment.runner, runners.WorkerRunner):
-        worker_id = environment.runner.worker_index
-        worker_account_id = f"funds_worker_{worker_id}.{master_funding_account.key.account_id}"
-        worker_key = key.Key.from_seed_testonly(worker_account_id,
+    match environment.runner.__class__:
+        case runners.MasterRunner:
+            num_funding_accounts = environment.parsed_options.max_workers
+            funding_balance = 10000 * NearUser.INIT_BALANCE
+            # TODO: Create accounts in parallel
+            for id in range(num_funding_accounts):
+                account_id = f"funds_worker_{id}.{master_funding_account.key.account_id}"
+                worker_key = key.Key.from_seed_testonly(account_id, account_id)
+                logger.info(f"Creating {account_id}")
+                send_transaction(
+                    node,
+                    CreateSubAccount(master_funding_account,
+                                    worker_key,
+                                    balance=funding_balance))
+            funding_account = master_funding_account
+        case runners.WorkerRunner:
+            worker_id = environment.runner.worker_index
+            worker_account_id = f"funds_worker_{worker_id}.{master_funding_account.key.account_id}"
+            worker_key = key.Key.from_seed_testonly(worker_account_id,
                                                 worker_account_id)
-        funding_account = Account(worker_key)
-    elif isinstance(environment.runner, runners.LocalRunner):
-        funding_account = master_funding_account
-    else:
-        raise SystemExit(
-            f"unexpected runner class {environment.runner.__class__.__name__}")
+            funding_account = Account(worker_key)
+        case runners.LocalRunner:
+            funding_account = master_funding_account
+        case other_runner:
+            raise SystemExit(
+                f"unexpected runner class {other_runner.__name__}")
 
     NearUser.funding_account = funding_account
 

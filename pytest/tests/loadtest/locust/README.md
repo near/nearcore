@@ -9,6 +9,9 @@ TLDR: Use [locust](https://locust.io/) to generate transactions against a Near c
 pip3 install locust
 ```
 
+Note: Make sure you have at least python 3.10 or you will face syntax errors due
+to usage of the `match` keyword.
+
 ## Run a first load test
 
 The load generator needs access to a FT contract WASM and it needs access to an account key with plenty of tokens.
