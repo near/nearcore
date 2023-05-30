@@ -297,7 +297,10 @@ pub fn start_with_config_and_synchronization(
         shards_manager_adapter.as_sender(),
         config.validator_signer.clone(),
         telemetry,
-        Some(get_make_snapshot_callback(state_snapshot_actor, FlatStorageManager::new(storage.get_hot_store()))),
+        Some(get_make_snapshot_callback(
+            state_snapshot_actor,
+            FlatStorageManager::new(storage.get_hot_store()),
+        )),
         shutdown_signal,
         adv,
         config_updater,

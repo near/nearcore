@@ -1612,20 +1612,18 @@ impl RuntimeAdapter for NightshadeRuntime {
                         hot_store_path,
                         state_snapshot_subdir,
                     ),
-                    if false {
-                        None
-                    } else {
-                        Some(vec![
-                            // Keep DbVersion and BlockMisc, otherwise you'll not be able to open the state snapshot as a Store.
-                            DBCol::DbVersion,
-                            DBCol::BlockMisc,
-                            // Flat storage columns.
-                            DBCol::FlatState,
-                            DBCol::FlatStateChanges,
-                            DBCol::FlatStateDeltaMetadata,
-                            DBCol::FlatStorageStatus,
-                        ])
-                    }
+                    Some(vec![
+                        // Keep DbVersion and BlockMisc, otherwise you'll not be able to open the state snapshot as a Store.
+                        DBCol::DbVersion,
+                        DBCol::BlockMisc,
+                        // Flat storage columns.
+                        DBCol::FlatState,
+                        DBCol::FlatStateChanges,
+                        DBCol::FlatStateDeltaMetadata,
+                        DBCol::FlatStorageStatus,
+                        // TODO: Remove after merging with FS
+                        DBCol::State,
+                    ]),
                 )
                 .map_err(|err| Error::Other(err.to_string()))?;
                 let store = storage.get_hot_store();
