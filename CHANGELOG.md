@@ -18,7 +18,7 @@
 
 ### Fixes
 
-* Extra validation for `DeleteAction`.
+* Extra validation for `DeleteAccountAction`.
 
 ## 1.33.0
 
