@@ -57,8 +57,8 @@ impl FlatStorageManager {
 
     /// When a node starts from an empty database, this function must be called to ensure
     /// information such as flat head is set up correctly in the database.
-    /// Note that this function is different from `add_flat_storage_for_shard`,
-    /// it must be called before `add_flat_storage_for_shard` if the node starts from
+    /// Note that this function is different from `create_flat_storage_for_shard`,
+    /// it must be called before `create_flat_storage_for_shard` if the node starts from
     /// an empty database.
     pub fn set_flat_storage_for_genesis(
         &self,
@@ -78,17 +78,22 @@ impl FlatStorageManager {
         );
     }
 
-    /// Add a flat storage state for shard `shard_id`. The function also checks that
+    /// Creates flat storage instance for shard `shard_id`. The function also checks that
     /// the shard's flat storage state hasn't been set before, otherwise it panics.
     /// TODO (#7327): this behavior may change when we implement support for state sync
     /// and resharding.
-    pub fn add_flat_storage_for_shard(&self, shard_uid: ShardUId, flat_storage: FlatStorage) {
+    pub fn create_flat_storage_for_shard(&self, shard_uid: ShardUId) {
         let mut flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
-        let original_value = flat_storages.insert(shard_uid, flat_storage);
+        let original_value =
+            flat_storages.insert(shard_uid, FlatStorage::new(self.0.store.clone(), shard_uid));
         // TODO (#7327): maybe we should propagate the error instead of assert here
         // assert is fine now because this function is only called at construction time, but we
         // will need to be more careful when we want to implement flat storage for resharding
         assert!(original_value.is_none());
+    }
+
+    pub fn get_flat_storage_status(&self, shard_uid: ShardUId) -> FlatStorageStatus {
+        store_helper::get_flat_storage_status(&self.0.store, shard_uid)
     }
 
     /// Creates `FlatStorageChunkView` to access state for `shard_uid` and block `block_hash`.
