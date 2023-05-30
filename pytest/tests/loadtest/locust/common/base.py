@@ -1,3 +1,10 @@
+from configured_logger import new_logger
+from locust import HttpUser, events, runners
+import utils
+import mocknet_helpers
+import key
+import transaction
+import cluster
 import base64
 import json
 import base58
@@ -10,20 +17,16 @@ import random
 import requests
 import sys
 import time
+import retry
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[4] / 'lib'))
 
-import cluster
-import transaction
-import key
-import mocknet_helpers
-import utils
-
-from locust import HttpUser, events, runners
-from configured_logger import new_logger
-
 DEFAULT_TRANSACTION_TTL_SECONDS = 20
 logger = new_logger(level=logging.WARN)
+
+
+def is_key_error(exception):
+    return isinstance(exception, KeyError)
 
 
 class Account:
@@ -32,6 +35,14 @@ class Account:
         self.key = key
         self.current_nonce = multiprocessing.Value(ctypes.c_ulong, 0)
 
+    # Race condition: maybe the account was created but the RPC interface
+    # doesn't display it yet, which returns an empty result and raises a
+    # `KeyError`.
+    # (not quite sure how this happens but it did happen to me on localnet)
+    @retry(wait_exponential_multiplier=500,
+           wait_exponential_max=10000,
+           stop_max_attempt_number=5,
+           retry_on_exception=is_key_error)
     def refresh_nonce(self, node):
         with self.current_nonce.get_lock():
             self.current_nonce.value = mocknet_helpers.get_nonce_for_key(
@@ -120,6 +131,7 @@ class NearUser(HttpUser):
     @classmethod
     def account_id(cls, id):
         # Pseudo-random 6-digit prefix to spread the users in the state tree
+        # TODO: Also make sure these are spread evenly across shards
         prefix = str(hash(str(id)))[-6:]
         return f"{prefix}_user{id}.{cls.funding_account.key.account_id}"
 
@@ -140,19 +152,7 @@ class NearUser(HttpUser):
                              self.account.key,
                              balance=NearUser.INIT_BALANCE))
 
-        # Race condition: maybe the account was created but the RPC interface doesn't display it yet
-        # (not quite sure how this happens but it did happen to me on localnet)
-        attempts = 10
-        while attempts > 0:
-            try:
-                self.account.refresh_nonce(self.node)
-            except KeyError:
-                attempts -= 1
-                if attempts == 0:
-                    raise  # Reraise the exception if max attempts reached
-                time.sleep(1)
-            else:
-                break
+        self.account.refresh_nonce(self.node)
 
     def send_tx(self, tx: Transaction, locust_name="generic send_tx"):
         """

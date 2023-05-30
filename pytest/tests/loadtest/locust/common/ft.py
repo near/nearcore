@@ -36,13 +36,12 @@ class FTContract:
     def register_user(self, user: NearUser):
         user.send_tx(InitFTAccount(self.account, user.account),
                      locust_name="Init FT Account")
-        user_account_id = user.account_id
         user.send_tx(TransferFT(self.account,
                                 self.account,
-                                user_account_id,
+                                user.account_id,
                                 how_much=1E8),
                      locust_name="FT Funding")
-        self.registered_users.append(user_account_id)
+        self.registered_users.append(user.account_id)
 
     def random_receiver(self, sender: str) -> str:
         rng = random.Random()
@@ -136,10 +135,7 @@ def on_locust_init(environment, **kwargs):
     num_ft_contracts = environment.parsed_options.num_ft_contracts
     funding_account = NearUser.funding_account
     parent_id = funding_account.key.account_id
-    worker_id = "local_id"
-    if hasattr(environment.runner, "worker_id"):
-        # we are running a multi-node setup
-        worker_id = environment.runner.worker_id
+    worker_id = getattr(environment.runner, "worker_id", "local_id")
 
     funding_account.refresh_nonce(node)
 
@@ -147,6 +143,8 @@ def on_locust_init(environment, **kwargs):
     # TODO: Create accounts in parallel
     for i in range(num_ft_contracts):
         # Prefix that makes accounts unique across workers
+        # Shuffling with a hash avoids locality in the state trie.
+        # TODO: Also make sure these are spread evenly across shards
         prefix = str(hash(str(worker_id) + str(i)))[-6:]
         contract_key = key.Key.from_random(f"{prefix}_ft.{parent_id}")
         ft_account = Account(contract_key)
