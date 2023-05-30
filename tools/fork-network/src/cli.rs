@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use near_chain::types::Tip;
 use near_chain_configs::{Genesis, GenesisRecords, GenesisValidationMode};
@@ -8,7 +8,10 @@ use near_store::{flat::FlatStorageStatus, DBCol, Mode, NodeStorage, HEAD_KEY};
 use nearcore::load_config;
 
 #[derive(clap::Parser)]
-pub struct ForkNetworkCommand {}
+pub struct ForkNetworkCommand {
+    #[arg(short, long)]
+    pub reset: bool,
+}
 
 impl ForkNetworkCommand {
     pub fn run(
@@ -16,6 +19,36 @@ impl ForkNetworkCommand {
         home_dir: &Path,
         genesis_validation: GenesisValidationMode,
     ) -> anyhow::Result<()> {
+        if self.reset {
+            let near_config = load_config(home_dir, GenesisValidationMode::UnsafeFast)
+                .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
+
+            let store_path = home_dir
+                .join(near_config.config.store.path.clone().unwrap_or(PathBuf::from("data")));
+            let fork_snapshot_path = store_path.join("fork-snapshot");
+            if !Path::new(&fork_snapshot_path).exists() {
+                panic!("Fork snapshot does not exist");
+            }
+            println!("Removing all current data");
+            for entry in std::fs::read_dir(&store_path)? {
+                let entry = entry?;
+                if entry.file_type()?.is_file() {
+                    std::fs::remove_file(&entry.path())?;
+                }
+            }
+            println!("Restoring fork snapshot");
+            for entry in std::fs::read_dir(&fork_snapshot_path)? {
+                let entry = entry?;
+                std::fs::rename(&entry.path(), &store_path.join(entry.file_name()))?;
+            }
+            std::fs::remove_dir(&fork_snapshot_path)?;
+
+            println!("Restoring genesis file");
+            let genesis_path = home_dir.join(near_config.config.genesis_file.clone() + ".backup");
+            let original_genesis_path = home_dir.join(&near_config.config.genesis_file);
+            std::fs::rename(&genesis_path, &original_genesis_path)?;
+            return Ok(());
+        }
         let near_config = load_config(home_dir, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
@@ -36,6 +69,19 @@ impl ForkNetworkCommand {
 
         println!("Creating snapshot");
         store_opener.create_snapshots(Mode::ReadWrite)?;
+
+        let store_path =
+            home_dir.join(near_config.config.store.path.clone().unwrap_or(PathBuf::from("data")));
+        let migration_snapshot_path = store_path.join(
+            near_config
+                .config
+                .store
+                .migration_snapshot
+                .get_path(&store_path)
+                .expect("Migration snapshot must be enabled"),
+        );
+        let fork_snapshot_path = store_path.join("fork-snapshot");
+        std::fs::rename(&migration_snapshot_path, &fork_snapshot_path)?;
 
         let storage = store_opener.open_in_mode(Mode::ReadWrite).unwrap();
         let store = storage.get_hot_store();
@@ -152,8 +198,9 @@ impl ForkNetworkCommand {
         update.delete_all(DBCol::FlatStateChanges);
         update.delete_all(DBCol::FlatStateDeltaMetadata);
         update.delete_all(DBCol::FlatStorageStatus);
+        update.commit()?;
 
-        let mut genesis = Genesis::new_validated(
+        let genesis = Genesis::new_validated(
             genesis_config,
             GenesisRecords::default(),
             Some(state_roots),
