@@ -35,14 +35,14 @@ impl IncompletePartialStorage {
 
 impl TrieStorage for IncompletePartialStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
-        let result = self.recorded_storage.get(hash).cloned().ok_or(StorageError::TrieNodeMissing);
+        let result = self.recorded_storage.get(hash).cloned().ok_or(StorageError::MissingTrieValue);
 
         if result.is_ok() {
             self.visited_nodes.borrow_mut().insert(*hash);
         }
 
         if self.visited_nodes.borrow().len() > self.node_count_to_fail_after {
-            Err(StorageError::TrieNodeMissing)
+            Err(StorageError::MissingTrieValue)
         } else {
             result
         }
@@ -84,7 +84,7 @@ where
             flat_storage_chunk_view: None,
         };
         let expected_result =
-            if i < size { Err(&StorageError::TrieNodeMissing) } else { Ok(&expected) };
+            if i < size { Err(&StorageError::MissingTrieValue) } else { Ok(&expected) };
         assert_eq!(test(new_trie).map(|v| v.1).as_ref(), expected_result);
     }
     println!("Success");
@@ -278,7 +278,7 @@ mod trie_storage_tests {
         let key = hash(&value);
 
         let result = trie_caching_storage.retrieve_raw_bytes(&key);
-        assert_matches!(result, Err(StorageError::TrieNodeMissing));
+        assert_matches!(result, Err(StorageError::MissingTrieValue));
     }
 
     /// Check that large values does not fall into shard cache, but fall into chunk cache.
