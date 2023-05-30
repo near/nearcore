@@ -442,6 +442,7 @@ mod tests {
     use std::sync::Arc;
 
     use rand::prelude::ThreadRng;
+    use rand::seq::SliceRandom;
     use rand::Rng;
 
     use near_primitives::hash::{hash, CryptoHash};
@@ -991,7 +992,16 @@ mod tests {
             .get_trie_nodes_for_part(&block_hash, part_id)
             .expect("State part generation using Trie must work");
         let num_trie_values = trie_values.len();
-        assert!(num_trie_values > 0);
+        assert!(num_trie_values >= 2);
+
+        // Check that shuffled state part also passes validation.
+        let mut rng = rand::thread_rng();
+        for _ in 0..5 {
+            let mut trie_values_shuffled = trie_values.clone();
+            trie_values_shuffled.shuffle(&mut rng);
+            let state_part = PartialState::TrieValues(trie_values_shuffled);
+            assert_eq!(Trie::validate_state_part(&root, part_id, state_part), Ok(()));
+        }
 
         // Remove middle element from state part, check that validation fails.
         let mut trie_values_missing = trie_values.clone();
@@ -1003,9 +1013,20 @@ mod tests {
         );
 
         // Add extra value to the state part, check that validation fails.
-        let mut trie_values_extra = trie_values;
+        let mut trie_values_extra = trie_values.clone();
         trie_values_extra.push(vec![11].into());
         let wrong_state_part = PartialState::TrieValues(trie_values_extra);
+        assert_eq!(
+            Trie::validate_state_part(&root, part_id, wrong_state_part),
+            Err(StorageError::UnexpectedTrieValue)
+        );
+
+        // Duplicate a value in the state part, check that validation fails, because
+        // values in state part must be deduplicated.
+        let mut trie_values_extra_same = trie_values;
+        trie_values_extra_same
+            .push(trie_values_extra_same[trie_values_extra_same.len() / 2].clone());
+        let wrong_state_part = PartialState::TrieValues(trie_values_extra_same);
         assert_eq!(
             Trie::validate_state_part(&root, part_id, wrong_state_part),
             Err(StorageError::UnexpectedTrieValue)
