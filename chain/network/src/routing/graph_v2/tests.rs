@@ -1,7 +1,9 @@
+use crate::network_protocol;
 use crate::routing::{GraphConfigV2, GraphV2};
 use crate::test_utils::random_peer_id;
 use crate::testonly::make_rng;
 use crate::types::Edge;
+use near_async::time;
 use near_primitives::network::PeerId;
 use rand::seq::SliceRandom;
 use rand::Rng;
@@ -105,4 +107,30 @@ fn calculate_distances() {
 
     // Distance calculation rejects non-trees
     verify_calculate_distances(None, node0, vec![edge0, edge1, edge2]);
+}
+
+#[test]
+fn calculate_next_hops() {
+    let clock = time::FakeClock::default();
+
+    let node0 = random_peer_id();
+    let graph = GraphV2::new(GraphConfigV2 { node_id: node0.clone(), prune_edges_after: None });
+
+    // Test behavior on a node with no peers
+    assert_eq!((HashMap::new(), HashMap::from([(node0.clone(), 0)])), graph.compute_next_hops());
+
+    // Add a peer
+    let node1 = random_peer_id();
+    let edge01 = Edge::make_fake_edge(node0.clone(), node1.clone(), 123);
+    assert!(graph.inner.lock().handle_shortest_path_tree_message(
+        &clock.clock(),
+        &network_protocol::ShortestPathTree { root: node1.clone(), edges: { vec![edge01] } },
+    ));
+    assert_eq!(
+        (
+            HashMap::from([(node1.clone(), vec![node1.clone()])]),
+            HashMap::from([(node0, 0), (node1, 1)])
+        ),
+        graph.compute_next_hops()
+    );
 }

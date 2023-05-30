@@ -1,4 +1,3 @@
-use crate::concurrency;
 use crate::concurrency::runtime::Runtime;
 use crate::network_protocol;
 use crate::network_protocol::Edge;
@@ -9,12 +8,18 @@ use arc_swap::ArcSwap;
 use near_async::time;
 use near_primitives::network::PeerId;
 use parking_lot::Mutex;
-use rayon::iter::ParallelBridge;
 use std::collections::hash_map::Entry;
 use std::collections::VecDeque;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+#[cfg(not(test))]
+use crate::concurrency;
+#[cfg(not(test))]
+use rayon::iter::ParallelBridge;
+
+#[cfg(test)]
+mod testonly;
 #[cfg(test)]
 mod tests;
 
@@ -65,6 +70,7 @@ impl Inner {
     /// node. The node would then validate all the edges every time, then reject the whole set
     /// because just the last edge was invalid. Instead, we cache all the edges verified so
     /// far and return an error only afterwards.
+    #[cfg(not(test))]
     fn verify_edges(&mut self, edges: &Vec<Edge>) -> bool {
         metrics::EDGE_UPDATES.inc_by(edges.len() as u64);
 
@@ -260,7 +266,7 @@ impl Inner {
     ///
     /// Returns the NextHopTable along with a mapping from the reachable nodes in the
     /// network to their shortest-path distances.
-    fn compute_next_hops(
+    pub(crate) fn compute_next_hops(
         &mut self,
         _unreliable_peers: &HashSet<PeerId>,
     ) -> (NextHopTable, HashMap<PeerId, u32>) {
@@ -270,7 +276,12 @@ impl Inner {
         // Calculate the min distance to each routable node
         let mut distance_by_id: Vec<i32> = vec![-1; max_id];
         distance_by_id[local_node_id as usize] = 0;
-        for (_, spt) in &self.spts {
+        for (_, spt) in &mut self.spts {
+            // The p2id mapping in the edge_cache is dynamic. We can still use previous distance
+            // calculations because a node incident to an active edge won't be relabelled. However,
+            // we may need to resize the distance vector.
+            spt.distance.resize(max_id, -1);
+
             for id in 0..max_id {
                 if spt.distance[id] != -1 {
                     if distance_by_id[id] == -1 || distance_by_id[id] > (spt.distance[id] + 1) {
