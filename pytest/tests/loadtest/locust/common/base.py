@@ -1,5 +1,6 @@
 from configured_logger import new_logger
 from locust import HttpUser, events, runners
+from retrying import retry
 import utils
 import mocknet_helpers
 import key
@@ -17,7 +18,6 @@ import random
 import requests
 import sys
 import time
-import retry
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[4] / 'lib'))
 
