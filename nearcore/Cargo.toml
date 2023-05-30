@@ -120,6 +120,7 @@ nightly = [
   "near-epoch-manager/nightly",
   "near-store/nightly",
   "near-rosetta-rpc/nightly",
+  "near-vm-runner/nightly",
   "protocol_feature_fix_staking_threshold",
   "protocol_feature_fix_contract_loading_cost",
   "serialize_all_state_changes",
