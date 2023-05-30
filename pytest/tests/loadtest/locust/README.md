@@ -17,7 +17,7 @@ For a local test setup, this works just fine.
 # This assumes your shell is are in nearcore directory
 CONTRACT="${PWD}/runtime/near-test-contracts/res/fungible_token.wasm"
 # This assumes you are running against localnet
-KEY=KEY=~/.near/test0/validator_key.json
+KEY=~/.near/localnet/node0/validator_key.json
 ```
 
 For a quick demo, you can also run a localnet using [nearup](https://github.com/near/nearup).
