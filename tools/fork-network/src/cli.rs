@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use near_chain::types::Tip;
-use near_chain_configs::{Genesis, GenesisRecords, GenesisValidationMode};
+use near_chain_configs::{Genesis, GenesisConfig, GenesisRecords, GenesisValidationMode};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::{borsh::BorshSerialize, hash::CryptoHash, types::AccountInfo};
 use near_store::{flat::FlatStorageStatus, DBCol, Mode, NodeStorage, HEAD_KEY};
@@ -11,6 +11,8 @@ use nearcore::load_config;
 pub struct ForkNetworkCommand {
     #[arg(short, long)]
     pub reset: bool,
+    #[arg(short, long, default_value = "1000")]
+    pub epoch_length: u64,
 }
 
 impl ForkNetworkCommand {
@@ -90,7 +92,6 @@ impl ForkNetworkCommand {
             EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
         let head = store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)?.unwrap();
         let shard_layout = epoch_manager.get_shard_layout(&head.epoch_id)?;
-        drop(epoch_manager);
         let all_shard_uids = shard_layout.get_shard_uids();
 
         let mut flat_head: Option<CryptoHash> = None;
@@ -128,18 +129,57 @@ impl ForkNetworkCommand {
             .collect::<Vec<_>>();
 
         println!("Creating a new genesis");
-        let mut genesis_config = near_config.genesis.config.clone();
-        genesis_config.chain_id += "-fork";
-        genesis_config.genesis_height = flat_head_block.header().height();
-        genesis_config.genesis_time = flat_head_block.header().timestamp();
-        genesis_config.epoch_length = 1000;
+        let epoch_config = epoch_manager.get_epoch_config(&flat_head_block.header().epoch_id())?;
+        let epoch_info = epoch_manager.get_epoch_info(&flat_head_block.header().epoch_id())?;
+        let original_config = near_config.genesis.config.clone();
+
         let self_validator = near_config.validator_signer.as_ref().unwrap();
         let self_account = AccountInfo {
             account_id: self_validator.validator_id().clone(),
             amount: 50000000000000000000000000000_u128,
             public_key: self_validator.public_key().clone(),
         };
-        genesis_config.validators = vec![self_account];
+
+        let new_config = GenesisConfig {
+            chain_id: original_config.chain_id.clone() + "-fork",
+            genesis_height: flat_head_block.header().height(),
+            genesis_time: flat_head_block.header().timestamp(),
+            epoch_length: self.epoch_length,
+            num_block_producer_seats: epoch_config.num_block_producer_seats,
+            num_block_producer_seats_per_shard: epoch_config.num_block_producer_seats_per_shard,
+            avg_hidden_validator_seats_per_shard: epoch_config.avg_hidden_validator_seats_per_shard,
+            block_producer_kickout_threshold: 0,
+            chunk_producer_kickout_threshold: 0,
+            max_kickout_stake_perc: 0,
+            online_min_threshold: epoch_config.online_min_threshold,
+            online_max_threshold: epoch_config.online_max_threshold,
+            fishermen_threshold: epoch_config.fishermen_threshold,
+            minimum_stake_divisor: epoch_config.minimum_stake_divisor,
+            protocol_upgrade_stake_threshold: epoch_config.protocol_upgrade_stake_threshold,
+            shard_layout: epoch_config.shard_layout.clone(),
+            num_chunk_only_producer_seats: epoch_config
+                .validator_selection_config
+                .num_chunk_only_producer_seats,
+            minimum_validators_per_shard: epoch_config
+                .validator_selection_config
+                .minimum_validators_per_shard,
+            minimum_stake_ratio: epoch_config.validator_selection_config.minimum_stake_ratio,
+            dynamic_resharding: false,
+            protocol_version: epoch_info.protocol_version(),
+            validators: vec![self_account],
+            gas_price_adjustment_rate: original_config.gas_price_adjustment_rate,
+            gas_limit: original_config.gas_limit,
+            max_gas_price: original_config.max_gas_price,
+            max_inflation_rate: original_config.max_inflation_rate,
+            min_gas_price: original_config.min_gas_price,
+            num_blocks_per_year: original_config.num_blocks_per_year,
+            protocol_reward_rate: original_config.protocol_reward_rate,
+            protocol_treasury_account: original_config.protocol_treasury_account.clone(),
+            total_supply: original_config.total_supply,
+            transaction_validity_period: original_config.transaction_validity_period,
+            use_production_config: original_config.use_production_config,
+        };
+        drop(epoch_manager);
 
         let mut update = store.store_update();
         // update.delete_all(DBCol::DbVersion);
@@ -201,7 +241,7 @@ impl ForkNetworkCommand {
         update.commit()?;
 
         let genesis = Genesis::new_validated(
-            genesis_config,
+            new_config,
             GenesisRecords::default(),
             Some(state_roots),
             GenesisValidationMode::UnsafeFast,
