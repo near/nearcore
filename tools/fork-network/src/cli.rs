@@ -3,9 +3,13 @@ use std::path::{Path, PathBuf};
 use near_chain::types::Tip;
 use near_chain_configs::{Genesis, GenesisConfig, GenesisRecords, GenesisValidationMode};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
-use near_primitives::{borsh::BorshSerialize, hash::CryptoHash, types::AccountInfo};
+use near_primitives::{
+    account::Account, borsh::BorshSerialize, hash::CryptoHash, types::AccountInfo,
+};
 use near_store::{flat::FlatStorageStatus, DBCol, Mode, NodeStorage, HEAD_KEY};
-use nearcore::load_config;
+use nearcore::{load_config, NightshadeRuntime};
+
+use crate::storage_mutator::{self, StorageMutator};
 
 #[derive(clap::Parser)]
 pub struct ForkNetworkCommand {
@@ -90,6 +94,12 @@ impl ForkNetworkCommand {
 
         let epoch_manager =
             EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+        let runtime = NightshadeRuntime::from_config(
+            home_dir,
+            store.clone(),
+            &near_config,
+            epoch_manager.clone(),
+        );
         let head = store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)?.unwrap();
         let shard_layout = epoch_manager.get_shard_layout(&head.epoch_id)?;
         let all_shard_uids = shard_layout.get_shard_uids();
@@ -122,16 +132,11 @@ impl ForkNetworkCommand {
             )?
             .unwrap();
 
-        let state_roots = flat_head_block
+        let prev_state_roots = flat_head_block
             .chunks()
             .iter()
             .map(|chunk| chunk.prev_state_root())
             .collect::<Vec<_>>();
-
-        println!("Creating a new genesis");
-        let epoch_config = epoch_manager.get_epoch_config(&flat_head_block.header().epoch_id())?;
-        let epoch_info = epoch_manager.get_epoch_info(&flat_head_block.header().epoch_id())?;
-        let original_config = near_config.genesis.config.clone();
 
         let self_validator = near_config.validator_signer.as_ref().unwrap();
         let self_account = AccountInfo {
@@ -139,6 +144,26 @@ impl ForkNetworkCommand {
             amount: 50000000000000000000000000000_u128,
             public_key: self_validator.public_key().clone(),
         };
+
+        let mut storage_mutator = StorageMutator::new(
+            epoch_manager.clone(),
+            &*runtime,
+            flat_head_block.header().epoch_id(),
+            *flat_head_block.header().prev_hash(),
+            &prev_state_roots,
+        )?;
+
+        storage_mutator.set_account(
+            self_validator.validator_id().clone(),
+            Account::new(0, self_account.amount, CryptoHash::default(), 0),
+        )?;
+
+        let new_state_roots = storage_mutator.commit()?;
+
+        println!("Creating a new genesis");
+        let epoch_config = epoch_manager.get_epoch_config(&flat_head_block.header().epoch_id())?;
+        let epoch_info = epoch_manager.get_epoch_info(&flat_head_block.header().epoch_id())?;
+        let original_config = near_config.genesis.config.clone();
 
         let new_config = GenesisConfig {
             chain_id: original_config.chain_id.clone() + "-fork",
@@ -243,7 +268,7 @@ impl ForkNetworkCommand {
         let genesis = Genesis::new_validated(
             new_config,
             GenesisRecords::default(),
-            Some(state_roots),
+            Some(new_state_roots),
             GenesisValidationMode::UnsafeFast,
         )?;
         // let epoch_manager = EpochManager::new_arc_handle(store, &genesis_config);

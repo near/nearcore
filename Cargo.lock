@@ -3612,6 +3612,7 @@ dependencies = [
  "clap 4.2.4",
  "near-chain",
  "near-chain-configs",
+ "near-crypto",
  "near-epoch-manager",
  "near-primitives",
  "near-store",
