@@ -8,8 +8,11 @@ use near_primitives::network::PeerId;
 use std::collections::{HashMap, HashSet};
 
 impl Inner {
-    pub(crate) fn verify_edges(&self, _edges: &Vec<Edge>) -> bool {
+    pub(crate) fn verify_edges(&mut self, edges: &Vec<Edge>) -> bool {
         // In tests we make fake edges and don't bother to sign them
+        for edge in edges {
+            self.edge_cache.write_verified_nonce(edge);
+        }
         true
     }
 }

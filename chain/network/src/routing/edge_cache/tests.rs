@@ -171,3 +171,29 @@ fn reuse_ids() {
         }
     }
 }
+
+#[test]
+fn overwrite_shortest_path_tree() {
+    let node0 = random_peer_id();
+    let node1 = random_peer_id();
+    let node2 = random_peer_id();
+
+    let mut ec = EdgeCache::new(node0.clone());
+
+    let edge0 = Edge::make_fake_edge(node0, node1.clone(), 123);
+    let edge1 = Edge::make_fake_edge(node1.clone(), node2.clone(), 123);
+
+    // Write an SPT for node1 advertising node2 behind it; 0--1--2
+    ec.update_shortest_path_tree(&node1, &vec![edge0.clone(), edge1.clone()]);
+
+    assert!(ec.is_active(edge1.key()));
+    assert!(ec.p2id.contains_key(&node2));
+
+    // Now write an SPT for node1 without the connection to node2; 0--1  2
+    ec.update_shortest_path_tree(&node1, &vec![edge0]);
+
+    // edge1 should have been pruned from node0's `active_edges` map
+    assert!(!ec.is_active(edge1.key()));
+    // node2 should have been pruned from node0's `p2id` mapping
+    assert!(!ec.p2id.contains_key(&node2));
+}
