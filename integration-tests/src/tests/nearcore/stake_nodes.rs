@@ -103,7 +103,7 @@ fn test_stake_nodes() {
                 tempfile::Builder::new().prefix(&format!("stake_node_{}", i)).tempdir().unwrap()
             })
             .collect::<Vec<_>>();
-        run_actix(async move {
+        run_actix(async {
             let test_nodes = init_test_staking(
                 dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
                 num_nodes,
@@ -187,7 +187,7 @@ fn test_validator_kickout() {
                     .unwrap()
             })
             .collect::<Vec<_>>();
-        run_actix(async move {
+        run_actix(async {
             let test_nodes = init_test_staking(
                 dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
                 num_nodes,
@@ -335,7 +335,7 @@ fn test_validator_join() {
                 tempfile::Builder::new().prefix(&format!("validator_join_{}", i)).tempdir().unwrap()
             })
             .collect::<Vec<_>>();
-        run_actix(async move {
+        run_actix(async {
             let test_nodes = init_test_staking(
                 dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
                 num_nodes,
@@ -493,7 +493,7 @@ fn test_inflation() {
             })
             .collect::<Vec<_>>();
         let epoch_length = 10;
-        run_actix(async move {
+        run_actix(async {
             let test_nodes = init_test_staking(
                 dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
                 num_nodes,
