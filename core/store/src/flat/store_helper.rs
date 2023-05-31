@@ -5,6 +5,7 @@ use crate::db::FLAT_STATE_VALUES_INLINING_MIGRATION_STATUS_KEY;
 use crate::flat::delta::{FlatStateChanges, KeyForFlatStateDelta};
 use crate::flat::types::FlatStorageError;
 use crate::{DBCol, Store, StoreUpdate};
+use borsh::BorshDeserialize;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
@@ -167,7 +168,7 @@ pub fn iter_flat_state_entries<'a>(
     store: &'a Store,
     from: Option<&[u8]>,
     to: Option<&[u8]>,
-) -> impl Iterator<Item = (Vec<u8>, Box<[u8]>)> + 'a {
+) -> impl Iterator<Item = Result<(Vec<u8>, FlatStateValue), StorageError>> + 'a {
     // If left direction is unbounded, encoded `shard_uid` serves as the
     // smallest possible key in DB for the shard.
     let db_key_from = match from {
@@ -181,15 +182,19 @@ pub fn iter_flat_state_entries<'a>(
         Some(to) => encode_flat_state_db_key(shard_uid, to),
         None => ShardUId::next_shard_prefix(&shard_uid.to_bytes()).to_vec(),
     };
-    store.iter_range(DBCol::FlatState, Some(&db_key_from), Some(&db_key_to)).filter_map(
-        move |result| {
-            if let Ok((key, value)) = result {
-                let (_, trie_key) = decode_flat_state_db_key(&key).unwrap();
-                return Some((trie_key, value));
-            }
-            return None;
-        },
-    )
+    store.iter_range(DBCol::FlatState, Some(&db_key_from), Some(&db_key_to)).map(|result| {
+        match result {
+            Ok((key, value)) => Ok((
+                decode_flat_state_db_key(&key)?.1,
+                FlatStateValue::try_from_slice(&value).map_err(|err| {
+                    StorageError::StorageInconsistentState(format!(
+                        "invalid FlatState value format: {err}"
+                    ))
+                })?,
+            )),
+            Err(_) => Err(StorageError::StorageInternalError),
+        }
+    })
 }
 
 /// Currently all the data in flat storage is 'together' - so we have to parse the key,
@@ -201,15 +206,13 @@ pub fn key_belongs_to_shard(key: &[u8], shard_uid: &ShardUId) -> Result<bool, St
 
 #[cfg(test)]
 mod tests {
-    use super::iter_flat_state_entries;
     use crate::flat::store_helper::set_flat_state_value;
     use crate::test_utils::create_test_store;
-    use borsh::BorshDeserialize;
     use near_primitives::shard_layout::ShardUId;
     use near_primitives::state::FlatStateValue;
 
     #[test]
-    fn test_iter_flat_state_entries() {
+    fn iter_flat_state_entries() {
         // Setup shards and store
         let store = create_test_store();
         let shard_uids = [0, 1, 2].map(|id| ShardUId { version: 0, shard_id: id });
@@ -232,17 +235,13 @@ mod tests {
         }
 
         for (i, shard_uid) in shard_uids.iter().enumerate() {
-            let entries: Vec<_> = iter_flat_state_entries(*shard_uid, &store, None, None).collect();
+            let entries: Vec<_> =
+                super::iter_flat_state_entries(*shard_uid, &store, None, None).collect();
             assert_eq!(entries.len(), 1);
             let key: Vec<u8> = vec![0, 1, i as u8];
             let val: Vec<u8> = vec![0, 1, 2, i as u8];
 
-            assert_eq!(entries.get(0).unwrap().0, key);
-            let actual_val = &entries.get(0).unwrap().1;
-            assert_eq!(
-                FlatStateValue::try_from_slice(actual_val).unwrap(),
-                FlatStateValue::inlined(&val)
-            );
+            assert_eq!(entries, vec![Ok((key, FlatStateValue::inlined(&val)))]);
         }
     }
 }

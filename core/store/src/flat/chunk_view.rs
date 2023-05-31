@@ -1,4 +1,5 @@
 use crate::flat::store_helper;
+use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state::FlatStateValue;
 
@@ -48,7 +49,7 @@ impl FlatStorageChunkView {
         &'a self,
         from: Option<&[u8]>,
         to: Option<&[u8]>,
-    ) -> impl Iterator<Item = (Vec<u8>, Box<[u8]>)> + 'a {
+    ) -> impl Iterator<Item = Result<(Vec<u8>, FlatStateValue), StorageError>> + 'a {
         store_helper::iter_flat_state_entries(self.flat_storage.shard_uid(), &self.store, from, to)
     }
 

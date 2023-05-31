@@ -337,7 +337,6 @@ impl FlatStorage {
 mod tests {
     use crate::flat::delta::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
     use crate::flat::manager::FlatStorageManager;
-    use crate::flat::storage::FlatStorage;
     use crate::flat::types::{BlockInfo, FlatStorageError};
     use crate::flat::{store_helper, FlatStorageReadyStatus, FlatStorageStatus};
     use crate::test_utils::create_test_store;
@@ -471,9 +470,8 @@ mod tests {
         }
         store_update.commit().unwrap();
 
-        let flat_storage = FlatStorage::new(store.clone(), shard_uid);
         let flat_storage_manager = FlatStorageManager::new(store.clone());
-        flat_storage_manager.add_flat_storage_for_shard(shard_uid, flat_storage);
+        flat_storage_manager.create_flat_storage_for_shard(shard_uid);
         let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
 
         // Check `BlockNotSupported` errors which are fine to occur during regular block processing.
@@ -531,9 +529,8 @@ mod tests {
         store_update.commit().unwrap();
 
         // Check that flat storage state is created correctly for chain which has skipped heights.
-        let flat_storage = FlatStorage::new(store.clone(), shard_uid);
         let flat_storage_manager = FlatStorageManager::new(store);
-        flat_storage_manager.add_flat_storage_for_shard(shard_uid, flat_storage);
+        flat_storage_manager.create_flat_storage_for_shard(shard_uid);
         let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
 
         // Check that flat head can be moved to block 8.
@@ -578,8 +575,7 @@ mod tests {
         store_update.commit().unwrap();
 
         let flat_storage_manager = FlatStorageManager::new(store.clone());
-        flat_storage_manager
-            .add_flat_storage_for_shard(shard_uid, FlatStorage::new(store.clone(), shard_uid));
+        flat_storage_manager.create_flat_storage_for_shard(shard_uid);
         let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
 
         // 2. Check that the chunk_view at block i reads the value of key &[1] as &[i]
