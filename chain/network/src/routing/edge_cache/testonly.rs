@@ -2,6 +2,10 @@ use crate::routing::edge_cache::{EdgeCache, EdgeKey};
 use near_primitives::network::PeerId;
 
 impl EdgeCache {
+    pub(crate) fn is_active(&self, key: &EdgeKey) -> bool {
+        self.active_edges.contains_key(key)
+    }
+
     pub(crate) fn get_nonce_for_active_edge(&self, key: &EdgeKey) -> Option<u64> {
         self.active_edges.get(key).map(|val| val.edge.nonce())
     }

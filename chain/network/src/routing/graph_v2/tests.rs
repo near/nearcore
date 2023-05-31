@@ -157,3 +157,29 @@ fn calculate_next_hops() {
     ));
     assert_eq!(distance, HashMap::from([(node0, 0), (node1, 1), (node2, 1), (node3, 2)]));
 }
+
+#[test]
+fn overwrite_shortest_path_tree() {
+    let node0 = random_peer_id();
+    let node1 = random_peer_id();
+    let node2 = random_peer_id();
+
+    let graph = GraphV2::new(GraphConfigV2 { node_id: node0.clone(), prune_edges_after: None });
+
+    let edge0 = Edge::make_fake_edge(node0, node1.clone(), 123);
+    let edge1 = Edge::make_fake_edge(node1.clone(), node2.clone(), 123);
+
+    // Write an SPT for node1 advertising node2 behind it; 0--1--2
+    assert!(graph.update_shortest_path_tree(node1.clone(), vec![edge0.clone(), edge1.clone()]));
+
+    assert!(graph.inner.lock().edge_cache.is_active(edge1.key()));
+    assert!(graph.inner.lock().edge_cache.p2id.contains_key(&node2));
+
+    // Now write an SPT for node1 without the connection to node2; 0--1  2
+    assert!(graph.update_shortest_path_tree(node1, vec![edge0]));
+
+    // edge12 should have been pruned from node0's `active_edges` map
+    // node2 should have been pruned from node0's `p2id` mapping
+    assert!(!graph.inner.lock().edge_cache.is_active(edge1.key()));
+    assert!(!graph.inner.lock().edge_cache.p2id.contains_key(&node2));
+}
