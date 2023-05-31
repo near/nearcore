@@ -403,8 +403,6 @@ impl<'a> Iterator for TrieIterator<'a> {
                 None => true,
             };
 
-            // println!("iter step {iter_step:?} can_process {can_process}");
-
             match (iter_step, can_process) {
                 (IterStep::Continue, _) => {}
                 (IterStep::PopTrail, _) => {
@@ -447,46 +445,6 @@ mod tests {
 
     fn value() -> Option<Vec<u8>> {
         Some(vec![0])
-    }
-
-    // Utility function for testing trie iteration with the prune condition set.
-    // * `keys` is a list of keys to be inserted into the trie
-    // * `pruned_keys` is the expected list of keys that should be the result of iteration
-    fn test_prune_impl(keys: Vec<Vec<u8>>, pruned_keys: Vec<Vec<u8>>, max_depth: usize) {
-        let shard_uid = ShardUId::single_shard();
-        let tries = create_tries();
-        let trie_changes = keys.into_iter().map(|key| (key, value())).collect();
-        let state_root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, trie_changes);
-        let trie = tries.get_trie_for_shard(shard_uid, state_root);
-        let iter = trie.iter_with_max_depth(max_depth).unwrap();
-        let keys: Vec<_> = iter.map(|item| item.unwrap().0).collect();
-
-        assert_eq!(keys, pruned_keys);
-    }
-
-    #[test]
-    fn test_prune_max_depth() {
-        // simple trie with an extension
-        //     extension(11111)
-        //      branch(5, 6)
-        //    leaf(5)  leaf(6)
-        let extension_keys = vec![vec![0x11, 0x11, 0x15], vec![0x11, 0x11, 0x16]];
-        test_prune_impl(extension_keys.clone(), vec![], 5);
-        test_prune_impl(extension_keys.clone(), extension_keys.clone(), 6);
-
-        // long chain of branches
-        let chain_keys = vec![
-            vec![0x11],
-            vec![0x11, 0x11],
-            vec![0x11, 0x11, 0x11],
-            vec![0x11, 0x11, 0x11, 0x11],
-            vec![0x11, 0x11, 0x11, 0x11, 0x11],
-        ];
-        test_prune_impl(chain_keys.clone(), vec![], 1);
-        test_prune_impl(chain_keys.clone(), vec![vec![0x11]], 2);
-        test_prune_impl(chain_keys.clone(), vec![vec![0x11]], 3);
-        test_prune_impl(chain_keys.clone(), vec![vec![0x11], vec![0x11, 0x11]], 4);
-        test_prune_impl(chain_keys.clone(), vec![vec![0x11], vec![0x11, 0x11]], 5);
     }
 
     /// Checks that for visiting interval of trie nodes first state key is
@@ -545,12 +503,6 @@ mod tests {
         }
     }
 
-    fn print_vec(vec: &Vec<(Vec<u8>, Vec<u8>)>) {
-        for (key, _) in vec {
-            println!("key {key:?}");
-        }
-    }
-
     #[test]
     fn test_iterator_with_prune_condition_base() {
         let mut rng = rand::thread_rng();
@@ -564,10 +516,11 @@ mod tests {
                 let prune_condition =
                     move |key_nibbles: &Vec<u8>| key_nibbles.starts_with(&prune_key_nibbles);
 
-                let iter = trie
+                let result1 = trie
                     .iter_with_prune_condition(Some(Box::new(prune_condition.clone())))
-                    .unwrap();
-                let result1 = iter.map(Result::unwrap).collect_vec();
+                    .unwrap()
+                    .map(Result::unwrap)
+                    .collect_vec();
 
                 let result2 = map
                     .iter()
@@ -582,7 +535,7 @@ mod tests {
         }
     }
 
-    // Check that pruning a subtree doesn't descend into that tree.
+    // Check that pruning a node doesn't descend into it's subtree.
     // A buggy pruning implementation could still iterate over all the
     // nodes but simply not return them. This test makes sure this is
     // not the case.
@@ -592,6 +545,7 @@ mod tests {
         for _ in 0..100 {
             let (trie_changes, map, trie) = gen_random_trie(&mut rng);
 
+            // Test pruning by all keys that are present in the trie.
             for (prune_key, _) in &trie_changes {
                 // This prune condition is not valid in a sense that it only
                 // prunes a single node but not it's subtree. This is
@@ -605,10 +559,11 @@ mod tests {
                 let proper_prune_condition =
                     move |key_nibbles: &Vec<u8>| key_nibbles.starts_with(&prune_key_nibbles);
 
-                let iter = trie
+                let result1 = trie
                     .iter_with_prune_condition(Some(Box::new(prune_condition.clone())))
-                    .unwrap();
-                let result1 = iter.map(Result::unwrap).collect_vec();
+                    .unwrap()
+                    .map(Result::unwrap)
+                    .collect_vec();
                 let result2 = map
                     .iter()
                     .filter(|(key, _)| {
@@ -622,29 +577,49 @@ mod tests {
         }
     }
 
-    // Check that seeking into a pruned subtree correctly exits the
-    // subtree and continues iteration.
+    // Utility function for testing trie iteration with the prune condition set.
+    // * `keys` is a list of keys to be inserted into the trie
+    // * `pruned_keys` is the expected list of keys that should be the result of iteration
+    fn test_prune_max_depth_impl(keys: Vec<Vec<u8>>, pruned_keys: Vec<Vec<u8>>, max_depth: usize) {
+        let shard_uid = ShardUId::single_shard();
+        let tries = create_tries();
+        let trie_changes = keys.into_iter().map(|key| (key, value())).collect();
+        let state_root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, trie_changes);
+        let trie = tries.get_trie_for_shard(shard_uid, state_root);
+        let iter = trie.iter_with_max_depth(max_depth).unwrap();
+        let keys: Vec<_> = iter.map(|item| item.unwrap().0).collect();
+
+        assert_eq!(keys, pruned_keys);
+    }
+
     #[test]
-    fn test_seek_continuation() {
-        let mut rng = rand::thread_rng();
-        for _ in 0..100 {
-            let (trie_changes, _, trie) = gen_random_trie(&mut rng);
+    fn test_prune_max_depth() {
+        // simple trie with an extension
+        //     extension(11111)
+        //      branch(5, 6)
+        //    leaf(5)  leaf(6)
+        let extension_keys = vec![vec![0x11, 0x11, 0x15], vec![0x11, 0x11, 0x16]];
+        // max_depth is expressed in nibbles
+        // both leaf nodes are at depth 6 (11 11 15) and (11 11 16)
 
-            for (seek_key, _) in &trie_changes {
-                println!("seek key {seek_key:?}");
-                println!("---------------");
+        // pruning by max depth 5 should return an empty result
+        test_prune_max_depth_impl(extension_keys.clone(), vec![], 5);
+        // pruning by max depth 6 should return both leaves
+        test_prune_max_depth_impl(extension_keys.clone(), extension_keys.clone(), 6);
 
-                println!("full trie");
-                let iter = trie.iter().unwrap().map(Result::unwrap);
-                print_vec(&iter.collect_vec());
-
-                println!("seek trie");
-                let mut iter = trie.iter().unwrap();
-                iter.seek_prefix(seek_key).unwrap();
-                let iter = iter.map(Result::unwrap);
-                print_vec(&iter.collect_vec());
-            }
-        }
+        // long chain of branches
+        let chain_keys = vec![
+            vec![0x11],
+            vec![0x11, 0x11],
+            vec![0x11, 0x11, 0x11],
+            vec![0x11, 0x11, 0x11, 0x11],
+            vec![0x11, 0x11, 0x11, 0x11, 0x11],
+        ];
+        test_prune_max_depth_impl(chain_keys.clone(), vec![], 1);
+        test_prune_max_depth_impl(chain_keys.clone(), vec![vec![0x11]], 2);
+        test_prune_max_depth_impl(chain_keys.clone(), vec![vec![0x11]], 3);
+        test_prune_max_depth_impl(chain_keys.clone(), vec![vec![0x11], vec![0x11, 0x11]], 4);
+        test_prune_max_depth_impl(chain_keys.clone(), vec![vec![0x11], vec![0x11, 0x11]], 5);
     }
 
     fn gen_random_trie(
