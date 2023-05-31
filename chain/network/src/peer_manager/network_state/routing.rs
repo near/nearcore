@@ -126,7 +126,7 @@ impl NetworkState {
             .unwrap_or(Ok(()))
     }
 
-    pub(crate) fn find_route(
+    pub(crate) fn tier2_find_route(
         &self,
         clock: &time::Clock,
         target: &PeerIdOrHash,
@@ -143,7 +143,7 @@ impl NetworkState {
         }
     }
 
-    pub(crate) fn add_route_back(
+    pub(crate) fn tier2_add_route_back(
         &self,
         clock: &time::Clock,
         conn: &connection::Connection,

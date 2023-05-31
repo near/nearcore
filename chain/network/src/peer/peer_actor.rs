@@ -1307,7 +1307,7 @@ impl PeerActor {
                     return;
                 }
 
-                self.network_state.add_route_back(&self.clock, &conn, msg.as_ref());
+                self.network_state.tier2_add_route_back(&self.clock, &conn, msg.as_ref());
                 if for_me {
                     // Handle Ping and Pong message if they are for us without sending to client.
                     // i.e. Return false in case of Ping and Pong

@@ -494,7 +494,7 @@ impl NetworkState {
                 };
                 return self.tier1.send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
             }
-            tcp::Tier::T2 => match self.find_route(&clock, &msg.target) {
+            tcp::Tier::T2 => match self.tier2_find_route(&clock, &msg.target) {
                 Ok(peer_id) => {
                     // Remember if we expect a response for this message.
                     if msg.author == my_peer_id && msg.expect_response() {
