@@ -1,5 +1,5 @@
 use crate::accounts_data;
-use crate::announce_accounts;
+use crate::announce_accounts::AnnounceAccountCache;
 use crate::client;
 use crate::concurrency::demux;
 use crate::concurrency::runtime::Runtime;
@@ -104,7 +104,7 @@ pub(crate) struct NetworkState {
     /// AccountsData for TIER1 accounts.
     pub accounts_data: Arc<accounts_data::Cache>,
     /// AnnounceAccounts mapping TIER1 account ids to peer ids.
-    pub account_announcements: Arc<announce_accounts::Cache>,
+    pub account_announcements: Arc<AnnounceAccountCache>,
     /// Connected peers (inbound and outbound) with their full peer information.
     pub tier2: connection::Pool,
     pub tier1: connection::Pool,
@@ -181,7 +181,7 @@ impl NetworkState {
             connection_store: connection_store::ConnectionStore::new(store.clone()).unwrap(),
             pending_reconnect: Mutex::new(Vec::<PeerInfo>::new()),
             accounts_data: Arc::new(accounts_data::Cache::new()),
-            account_announcements: Arc::new(announce_accounts::Cache::new(store)),
+            account_announcements: Arc::new(AnnounceAccountCache::new(store)),
             tier2_route_back: Mutex::new(RouteBackCache::default()),
             tier1_route_back: Mutex::new(RouteBackCache::default()),
             recent_routed_messages: Mutex::new(lru::LruCache::new(

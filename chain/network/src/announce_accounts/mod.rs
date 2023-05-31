@@ -42,9 +42,9 @@ impl Inner {
     }
 }
 
-pub(crate) struct Cache(Mutex<Inner>);
+pub(crate) struct AnnounceAccountCache(Mutex<Inner>);
 
-impl Cache {
+impl AnnounceAccountCache {
     pub fn new(store: store::Store) -> Self {
         Self(Mutex::new(Inner {
             account_peers: LruCache::new(ANNOUNCE_ACCOUNT_CACHE_SIZE),
