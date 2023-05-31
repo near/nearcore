@@ -23,8 +23,6 @@ mod testonly;
 #[cfg(test)]
 mod tests;
 
-// TODO: make it opaque, so that the key.0 < key.1 invariant is protected.
-type EdgeKey = (PeerId, PeerId);
 pub type NextHopTable = HashMap<PeerId, Vec<PeerId>>;
 
 #[derive(Clone)]
@@ -33,8 +31,8 @@ pub struct GraphConfigV2 {
     pub prune_edges_after: Option<time::Duration>,
 }
 
-struct ShortestPathTree {
-    pub edges: Vec<EdgeKey>,
+// Locally computed properties of a ShortestPathTree
+struct ShortestPathTreeInfo {
     /// The lowest nonce among all edges.
     /// For simplicity, used to expire the entire SPT at once.
     pub min_nonce: u64,
@@ -46,12 +44,8 @@ struct Inner {
     config: GraphConfigV2,
     edge_cache: EdgeCache,
 
-    /// Mapping from neighbor to the most recent SPT received from that neighbor
-    /// TODO: the state of this map is tied closely to the state within edge_cache.
-    /// in particular we maintain that the set of "active edges" in the cache is the
-    /// union of the edges appearing in these SPTs. the edge lists here should probably
-    /// be moved inside EdgeCache to better protect consistency of the cache
-    spts: HashMap<PeerId, ShortestPathTree>,
+    /// Mapping from peer to information about the latest ShortestPathTree shared by the peer
+    spts: HashMap<PeerId, ShortestPathTreeInfo>,
     /// Shortest known distances from the local node to other nodes
     distance: HashMap<PeerId, u32>,
     /// The ShortestPathTree rooted at the local node
@@ -59,7 +53,6 @@ struct Inner {
 }
 
 impl Inner {
-    /// Verifies edges, then adds them to the graph.
     /// Returns true iff all the edges provided were valid.
     ///
     /// This method implements a security measure against an adversary sending invalid edges.
@@ -105,10 +98,17 @@ impl Inner {
     }
 
     /// Accepts a list of edges specifying a ShortestPathTree. If the edges form a
-    /// valid tree containing the specified `root`, returns a vector of distances from
+    /// valid tree containing the specified peer `root`, returns a vector of distances from
     /// the root to all other nodes in the tree. The distance vector is indexed
     /// according to the p2id mapping in the edge_cache. Unreachable nodes have distance -1.
-    pub(crate) fn calculate_distances(&self, root: &PeerId, spt: &Vec<Edge>) -> Option<Vec<i32>> {
+    pub(crate) fn calculate_distances(
+        &mut self,
+        root: &PeerId,
+        spt: &Vec<Edge>,
+    ) -> Option<Vec<i32>> {
+        // Prepare for graph traversal by ensuring all PeerIds in the tree have a u32 label
+        self.edge_cache.create_ids_for_unmapped_peers(spt);
+
         // Build adjacency-list representation of the edges
         let mut adjacency = vec![Vec::<u32>::new(); self.edge_cache.max_id()];
         for edge in spt {
@@ -147,7 +147,6 @@ impl Inner {
                 num_reachable_nodes += 1;
             }
         }
-
         if num_reachable_nodes == spt.len() + 1 {
             Some(distance)
         } else {
@@ -169,37 +168,21 @@ impl Inner {
             return false;
         }
 
-        // Write the edges to the edge_cache to generate ids and prepare for graph traversal
-        for e in &edges {
-            self.edge_cache.insert_active_edge(e);
-        }
-
         if let Some(distance) = self.calculate_distances(&spt.root, &edges) {
             // If the edges form a valid tree, store the updated SPT
-            let val = ShortestPathTree {
-                edges: edges.iter().map(|e| e.key()).cloned().collect(),
-                min_nonce: edges.iter().map(|e| e.nonce()).min().unwrap(),
-                distance,
-            };
-
-            match self.spts.entry(spt.root.clone()) {
-                Entry::Occupied(mut occupied) => {
-                    // Drop refcounts for edges in the SPT which is being overwritten
-                    for e in &occupied.get().edges {
-                        self.edge_cache.remove_active_edge(e);
-                    }
-                    occupied.insert(val);
-                }
-                Entry::Vacant(vacant) => {
-                    vacant.insert(val);
-                }
-            };
+            self.edge_cache.update_shortest_path_tree(&spt.root, &edges);
+            self.spts.insert(
+                spt.root.clone(),
+                ShortestPathTreeInfo {
+                    min_nonce: edges.iter().map(|e| e.nonce()).min().unwrap(),
+                    distance,
+                },
+            );
             return true;
         } else {
-            // If the SPT was invalid, clear the edges from the edge_cache
-            for e in &edges {
-                self.edge_cache.remove_active_edge(e.key());
-            }
+            // If the SPT was invalid, clean up any u32 labels which may have been assigned
+            // during the distance calculation
+            self.edge_cache.free_unused_ids();
             return false;
         }
     }
@@ -207,11 +190,8 @@ impl Inner {
     /// Handles disconnection of a peer.
     /// Drops the stored SPT, if there is one, for the specified peer_id.
     pub(crate) fn remove_direct_peer(&mut self, peer_id: PeerId) {
-        if let Some(spt) = self.spts.remove(&peer_id) {
-            for e in &spt.edges {
-                self.edge_cache.remove_active_edge(e);
-            }
-        }
+        self.edge_cache.remove_shortest_path_tree(&peer_id);
+        self.spts.remove(&peer_id);
     }
 
     /// Handles connection of a new peer or nonce refresh for an existing one.
@@ -342,16 +322,22 @@ impl Inner {
                 (clock.now_utc() - prune_edges_after).unix_timestamp() as u64;
 
             // Drop the entirety of any expired SPTs
-            self.spts.retain(|_, spt| {
-                let _ = spt.distance;
-                if spt.min_nonce < prune_nounces_older_than {
-                    for e in &spt.edges {
-                        self.edge_cache.remove_active_edge(e);
+            let peers_to_remove: Vec<PeerId> = self
+                .spts
+                .iter()
+                .filter_map(|(peer, spt)| {
+                    if spt.min_nonce < prune_nounces_older_than {
+                        Some(peer.clone())
+                    } else {
+                        None
                     }
-                    return false;
-                }
-                true
-            });
+                })
+                .collect();
+
+            for peer_id in &peers_to_remove {
+                self.edge_cache.remove_shortest_path_tree(peer_id);
+                self.spts.remove(peer_id);
+            }
 
             // Prune expired edges from the edge cache
             self.edge_cache.prune_old_edges(prune_nounces_older_than);

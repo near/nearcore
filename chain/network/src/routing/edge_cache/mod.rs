@@ -47,14 +47,16 @@ struct ActiveEdge {
 ///
 /// 3) `p2id`
 /// A mapping from known PeerIds to distinct integer (u32) ids 0,1,2,...
-/// The set of mapped PeerIds is precisely those which appear at least once among the
-/// `active_edges`.
-///
 /// The `p2id` mapping is used to allow indexing nodes into Vecs rather than HashMaps,
 /// improving performance and reducing memory usage of the routing protocol implementation.
 pub struct EdgeCache {
     verified_nonces: im::HashMap<EdgeKey, u64>,
     active_edges: im::HashMap<EdgeKey, ActiveEdge>,
+
+    // Mapping from neighbor PeerId to the latest shortest path tree advertised by the peer,
+    // used to decide which edges are active. The key set of `active_edges` is the union of the
+    // value set of `active_spts`.
+    active_spts: HashMap<PeerId, Vec<EdgeKey>>,
 
     /// Mapping from PeerId to assigned u32 id
     pub(crate) p2id: HashMap<PeerId, u32>,
@@ -70,6 +72,7 @@ impl EdgeCache {
         Self {
             verified_nonces: Default::default(),
             active_edges: Default::default(),
+            active_spts: HashMap::new(),
             p2id: HashMap::from([(local_node_id, 0)]),
             degree: vec![0],
             unused: vec![],
@@ -104,6 +107,16 @@ impl EdgeCache {
         // The local node should always have id 0, so it's never freed
         if self.degree[id as usize] == 0 && id != 0 {
             self.p2id.remove(peer_id);
+
+            // TODO(saketh): Unused ids are simply kept in a list for reuse; `max_id` only ever
+            // increases. It it is not a completely trivial concern because `max_id` influences
+            // the amount of storage used by downstream consumers of the mapping (they are typically
+            // allocating Vecs of length `max_id`).
+            //
+            // We should consider doing something like rebuilding the mapping from scratch if more
+            // than half the allocated ids are freed. The downstream consumers would also need to
+            // modify their data structures in such a situation, so we would need to think carefully
+            // about how to implement it.
             self.unused.push(id);
         }
     }
@@ -124,8 +137,26 @@ impl EdgeCache {
 
     /// Returns the u32 id associated with the given PeerId.
     /// Expects that such a mapping already exists; will error otherwise.
-    pub fn get_id(&self, peer: &PeerId) -> u32 {
+    pub(crate) fn get_id(&self, peer: &PeerId) -> u32 {
         *self.p2id.get(peer).unwrap()
+    }
+
+    /// Populates entries in the `p2id` mapping, if necessary, for the peers appearing among the
+    /// given list of edges.
+    pub(crate) fn create_ids_for_unmapped_peers(&mut self, edges: &Vec<Edge>) {
+        edges.iter().for_each(|edge| {
+            let (peer0, peer1) = edge.key();
+            self.get_or_create_id(peer0);
+            self.get_or_create_id(peer1);
+        });
+    }
+
+    pub(crate) fn free_unused_ids(&mut self) {
+        for id in 0..self.max_id() {
+            if self.degree[id] == 0 {
+                self.unused.push(id as u32);
+            }
+        }
     }
 
     /// Returns true iff we already verified a nonce for this key
@@ -142,7 +173,7 @@ impl EdgeCache {
 
     /// Inserts a copy of the given edge to the active edge cache.
     /// If it's the first copy, increments degrees for the incident nodes.
-    pub fn insert_active_edge(&mut self, edge: &Edge) {
+    fn insert_active_edge(&mut self, edge: &Edge) {
         let key = edge.key();
         let is_newly_active = match self.active_edges.entry(key.clone()) {
             im::hashmap::Entry::Occupied(mut occupied) => {
@@ -165,7 +196,7 @@ impl EdgeCache {
 
     /// Removes an edge with the given EdgeKey from the active edge cache.
     /// If the last such edge is removed, decrements degrees for the incident nodes.
-    pub fn remove_active_edge(&mut self, key: &EdgeKey) {
+    fn remove_active_edge(&mut self, key: &EdgeKey) {
         let is_newly_inactive = match self.active_edges.entry(key.clone()) {
             im::hashmap::Entry::Occupied(mut occupied) => {
                 let val: &mut ActiveEdge = occupied.get_mut();
@@ -181,6 +212,36 @@ impl EdgeCache {
         };
         if is_newly_inactive {
             self.decrement_degrees_for_key(key);
+        }
+    }
+
+    /// Stores the key-value pair (peer_id, edges) in the EdgeCache's `active_spt` map, overwriting
+    /// any previous entry for the same peer. Updates `active_edges` accordingly.
+    pub fn update_shortest_path_tree(&mut self, peer_id: &PeerId, edges: &Vec<Edge>) {
+        // Insert the new edges before removing any old ones.
+        // Nodes are pruned from the `p2id` mapping as soon as all edges incident with them are
+        // removed. If we removed the edges in the old SPT first, we might unlabel and relabel a
+        // node unnecessarily. Inserting the new edges first minimizes churn on `p2id`.
+        for edge in edges {
+            self.insert_active_edge(edge);
+        }
+
+        let edge_keys: Vec<EdgeKey> = edges.iter().map(|edge| edge.key()).cloned().collect();
+
+        // If we over-write an entry, process removal of the old edges
+        if let Some(old_edge_keys) = self.active_spts.insert(peer_id.clone(), edge_keys) {
+            for key in &old_edge_keys {
+                self.remove_active_edge(key);
+            }
+        }
+    }
+
+    /// Removes the shortest path tree for the given peer, if there is one.
+    pub fn remove_shortest_path_tree(&mut self, peer_id: &PeerId) {
+        if let Some(edges) = self.active_spts.remove(peer_id) {
+            for e in &edges {
+                self.remove_active_edge(e);
+            }
         }
     }
 
