@@ -133,7 +133,7 @@ impl NetworkState {
     ) -> Result<PeerId, FindRouteError> {
         match target {
             PeerIdOrHash::PeerId(peer_id) => {
-                self.graph.routing_table.find_route_from_peer_id(peer_id)
+                self.graph.routing_table.find_next_hop_for_target(peer_id)
             }
             PeerIdOrHash::Hash(hash) => self
                 .tier2_route_back

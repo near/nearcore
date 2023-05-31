@@ -93,7 +93,7 @@ impl AnnounceAccountCache {
     /// Public interface for `account_peers`.
     /// Get keys currently on cache.
     pub(crate) fn get_accounts_keys(&self) -> Vec<AccountId> {
-        self.0.lock().account_peers.iter().map(|(k, _v)| k).cloned().collect()
+        self.0.lock().account_peers.iter().map(|(k, _)| k).cloned().collect()
     }
 
     /// Get announce accounts on cache.
