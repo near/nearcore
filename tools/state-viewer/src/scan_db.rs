@@ -15,7 +15,8 @@ use near_primitives::types::EpochId;
 use near_primitives::utils::{get_block_shard_id_rev, get_outcome_id_block_hash_rev};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::BlockHeight;
-use near_store::flat::FlatStateDeltaMetadata;
+use near_store::flat::delta::KeyForFlatStateDelta;
+use near_store::flat::{FlatStateChanges, FlatStateDeltaMetadata};
 use near_store::{DBCol, RawTrieNodeWithSize, Store, TrieChanges};
 use std::collections::HashSet;
 use std::fmt::Debug;
@@ -92,11 +93,18 @@ pub(crate) fn scan_db_column(col: &str, store: Store) {
                         Box::new(BlockHeight::try_from_slice(value_ref).unwrap()),
                     ),
                     DBCol::FlatState => (
+                        // TODO: Fix
                         Box::new(key.to_vec()),
                         Box::new(ValueRef::try_from_slice(value_ref).unwrap()),
                     ),
                     DBCol::FlatStateChanges => (
-                        Box::new(key.to_vec()),
+                        // TODO: Format keys as nibbles.
+                        Box::new(KeyForFlatStateDelta::try_from_slice(key_ref).unwrap()),
+                        Box::new(FlatStateChanges::try_from_slice(value_ref).unwrap()),
+                    ),
+                    DBCol::FlatStateDeltaMetadata => (
+                        // TODO: Format keys as nibbles.
+                        Box::new(KeyForFlatStateDelta::try_from_slice(key_ref).unwrap()),
                         Box::new(FlatStateDeltaMetadata::try_from_slice(value_ref).unwrap()),
                     ),
                     DBCol::HeaderHashesByHeight => (

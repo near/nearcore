@@ -1,5 +1,4 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-
 use near_primitives::hash::hash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::{FlatStateValue, ValueRef};
@@ -22,6 +21,7 @@ pub struct FlatStateDeltaMetadata {
     pub block: BlockInfo,
 }
 
+#[derive(BorshSerialize, BorshDeserialize, Debug)]
 pub struct KeyForFlatStateDelta {
     pub shard_uid: ShardUId,
     pub block_hash: CryptoHash,
