@@ -57,8 +57,17 @@ pub struct TrieIterator<'a> {
     /// If not `None`, a list of all nodes that the iterator has visited.
     visited_nodes: Option<Vec<std::sync::Arc<[u8]>>>,
 
-    /// Max depth of iteration.
-    max_depth: Option<usize>,
+    /// Prune condition is an optional closure that given the key nibbles
+    /// decides if the given trie node should be pruned.
+    ///
+    /// If the prune conditions returns true for a given node, this node and the
+    /// whole sub-tree rooted at this node will be pruned and skipped in iteration.
+    ///
+    /// Please note that since the iterator supports seeking the prune condition
+    /// should have the property that if a prefix of a key should be pruned then
+    /// the key also should be pruned. Otherwise it would be possible to bypass
+    /// the pruning by seeking inside of the pruned sub-tree.
+    prune_condition: Option<Box<dyn Fn(&Vec<u8>) -> bool>>,
 }
 
 /// The TrieTiem is a tuple of (key, value) of the node.
@@ -75,19 +84,22 @@ pub struct TrieTraversalItem {
 impl<'a> TrieIterator<'a> {
     #![allow(clippy::new_ret_no_self)]
     /// Create a new iterator.
-    pub(super) fn new(trie: &'a Trie, max_depth: Option<usize>) -> Result<Self, StorageError> {
+    pub(super) fn new(
+        trie: &'a Trie,
+        prune_condition: Option<Box<dyn Fn(&Vec<u8>) -> bool>>,
+    ) -> Result<Self, StorageError> {
         let mut r = TrieIterator {
             trie,
             trail: Vec::with_capacity(8),
             key_nibbles: Vec::with_capacity(64),
             visited_nodes: None,
-            max_depth,
+            prune_condition,
         };
         r.descend_into_node(&trie.root)?;
         Ok(r)
     }
 
-    /// Position the iterator on the first element with key => `key`.
+    /// Position the iterator on the first element with key >= `key`.
     pub fn seek_prefix<K: AsRef<[u8]>>(&mut self, key: K) -> Result<(), StorageError> {
         self.seek_nibble_slice(NibbleSlice::new(key.as_ref()), true).map(drop)
     }
@@ -386,10 +398,12 @@ impl<'a> Iterator for TrieIterator<'a> {
         loop {
             let iter_step = self.iter_step()?;
 
-            let can_process = match self.max_depth {
-                Some(max_depth) => self.key_nibbles.len() <= max_depth,
+            let can_process = match &self.prune_condition {
+                Some(prune_condition) => !prune_condition(&self.key_nibbles),
                 None => true,
             };
+
+            // println!("iter step {iter_step:?} can_process {can_process}");
 
             match (iter_step, can_process) {
                 (IterStep::Continue, _) => {}
@@ -419,6 +433,7 @@ impl<'a> Iterator for TrieIterator<'a> {
 mod tests {
     use std::collections::BTreeMap;
 
+    use itertools::Itertools;
     use rand::seq::SliceRandom;
     use rand::Rng;
 
@@ -429,6 +444,50 @@ mod tests {
     use crate::trie::nibble_slice::NibbleSlice;
     use crate::Trie;
     use near_primitives::shard_layout::ShardUId;
+
+    fn value() -> Option<Vec<u8>> {
+        Some(vec![0])
+    }
+
+    // Utility function for testing trie iteration with the prune condition set.
+    // * `keys` is a list of keys to be inserted into the trie
+    // * `pruned_keys` is the expected list of keys that should be the result of iteration
+    fn test_prune_impl(keys: Vec<Vec<u8>>, pruned_keys: Vec<Vec<u8>>, max_depth: usize) {
+        let shard_uid = ShardUId::single_shard();
+        let tries = create_tries();
+        let trie_changes = keys.into_iter().map(|key| (key, value())).collect();
+        let state_root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, trie_changes);
+        let trie = tries.get_trie_for_shard(shard_uid, state_root);
+        let iter = trie.iter_with_max_depth(max_depth).unwrap();
+        let keys: Vec<_> = iter.map(|item| item.unwrap().0).collect();
+
+        assert_eq!(keys, pruned_keys);
+    }
+
+    #[test]
+    fn test_prune_max_depth() {
+        // simple trie with an extension
+        //     extension(11111)
+        //      branch(5, 6)
+        //    leaf(5)  leaf(6)
+        let extension_keys = vec![vec![0x11, 0x11, 0x15], vec![0x11, 0x11, 0x16]];
+        test_prune_impl(extension_keys.clone(), vec![], 5);
+        test_prune_impl(extension_keys.clone(), extension_keys.clone(), 6);
+
+        // long chain of branches
+        let chain_keys = vec![
+            vec![0x11],
+            vec![0x11, 0x11],
+            vec![0x11, 0x11, 0x11],
+            vec![0x11, 0x11, 0x11, 0x11],
+            vec![0x11, 0x11, 0x11, 0x11, 0x11],
+        ];
+        test_prune_impl(chain_keys.clone(), vec![], 1);
+        test_prune_impl(chain_keys.clone(), vec![vec![0x11]], 2);
+        test_prune_impl(chain_keys.clone(), vec![vec![0x11]], 3);
+        test_prune_impl(chain_keys.clone(), vec![vec![0x11], vec![0x11, 0x11]], 4);
+        test_prune_impl(chain_keys.clone(), vec![vec![0x11], vec![0x11, 0x11]], 5);
+    }
 
     /// Checks that for visiting interval of trie nodes first state key is
     /// included and the last one is excluded.
@@ -451,20 +510,7 @@ mod tests {
     fn test_iterator() {
         let mut rng = rand::thread_rng();
         for _ in 0..100 {
-            let tries = create_tries_complex(1, 2);
-            let shard_uid = ShardUId { version: 1, shard_id: 0 };
-            let trie_changes = gen_changes(&mut rng, 10);
-            let trie_changes = simplify_changes(&trie_changes);
-
-            let mut map = BTreeMap::new();
-            for (key, value) in trie_changes.iter() {
-                if let Some(value) = value {
-                    map.insert(key.clone(), value.clone());
-                }
-            }
-            let state_root =
-                test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, trie_changes.clone());
-            let trie = tries.get_trie_for_shard(shard_uid, state_root);
+            let (trie_changes, map, trie) = gen_random_trie(&mut rng);
 
             {
                 let result1: Vec<_> = trie.iter().unwrap().map(Result::unwrap).collect();
@@ -497,6 +543,128 @@ mod tests {
                 test_get_trie_items(&trie, &map, &path_begin, &path_end);
             }
         }
+    }
+
+    fn print_vec(vec: &Vec<(Vec<u8>, Vec<u8>)>) {
+        for (key, _) in vec {
+            println!("key {key:?}");
+        }
+    }
+
+    #[test]
+    fn test_iterator_with_prune_condition_base() {
+        let mut rng = rand::thread_rng();
+        for _ in 0..100 {
+            let (trie_changes, map, trie) = gen_random_trie(&mut rng);
+
+            // Check that pruning just one key (and it's subtree) works as expected.
+            for (prune_key, _) in &trie_changes {
+                let prune_key = prune_key.clone();
+                let prune_key_nibbles = NibbleSlice::new(prune_key.as_slice()).iter().collect_vec();
+                let prune_condition =
+                    move |key_nibbles: &Vec<u8>| key_nibbles.starts_with(&prune_key_nibbles);
+
+                let iter = trie
+                    .iter_with_prune_condition(Some(Box::new(prune_condition.clone())))
+                    .unwrap();
+                let result1 = iter.map(Result::unwrap).collect_vec();
+
+                let result2 = map
+                    .iter()
+                    .filter(|(key, _)| {
+                        !prune_condition(&NibbleSlice::new(key).iter().collect_vec())
+                    })
+                    .map(|(key, value)| (key.clone(), value.clone()))
+                    .collect_vec();
+
+                assert_eq!(result1, result2);
+            }
+        }
+    }
+
+    // Check that pruning a subtree doesn't descend into that tree.
+    // A buggy pruning implementation could still iterate over all the
+    // nodes but simply not return them. This test makes sure this is
+    // not the case.
+    #[test]
+    fn test_iterator_with_prune_condition_subtree() {
+        let mut rng = rand::thread_rng();
+        for _ in 0..100 {
+            let (trie_changes, map, trie) = gen_random_trie(&mut rng);
+
+            for (prune_key, _) in &trie_changes {
+                // This prune condition is not valid in a sense that it only
+                // prunes a single node but not it's subtree. This is
+                // intentional to test that iterator won't descend into the
+                // subtree.
+                let prune_key_nibbles = NibbleSlice::new(prune_key.as_slice()).iter().collect_vec();
+                let prune_condition =
+                    move |key_nibbles: &Vec<u8>| key_nibbles == &prune_key_nibbles;
+                // This is how the prune condition should work.
+                let prune_key_nibbles = NibbleSlice::new(prune_key.as_slice()).iter().collect_vec();
+                let proper_prune_condition =
+                    move |key_nibbles: &Vec<u8>| key_nibbles.starts_with(&prune_key_nibbles);
+
+                let iter = trie
+                    .iter_with_prune_condition(Some(Box::new(prune_condition.clone())))
+                    .unwrap();
+                let result1 = iter.map(Result::unwrap).collect_vec();
+                let result2 = map
+                    .iter()
+                    .filter(|(key, _)| {
+                        !proper_prune_condition(&NibbleSlice::new(key).iter().collect_vec())
+                    })
+                    .map(|(key, value)| (key.clone(), value.clone()))
+                    .collect_vec();
+
+                assert_eq!(result1, result2);
+            }
+        }
+    }
+
+    // Check that seeking into a pruned subtree correctly exits the
+    // subtree and continues iteration.
+    #[test]
+    fn test_seek_continuation() {
+        let mut rng = rand::thread_rng();
+        for _ in 0..100 {
+            let (trie_changes, _, trie) = gen_random_trie(&mut rng);
+
+            for (seek_key, _) in &trie_changes {
+                println!("seek key {seek_key:?}");
+                println!("---------------");
+
+                println!("full trie");
+                let iter = trie.iter().unwrap().map(Result::unwrap);
+                print_vec(&iter.collect_vec());
+
+                println!("seek trie");
+                let mut iter = trie.iter().unwrap();
+                iter.seek_prefix(seek_key).unwrap();
+                let iter = iter.map(Result::unwrap);
+                print_vec(&iter.collect_vec());
+            }
+        }
+    }
+
+    fn gen_random_trie(
+        rng: &mut rand::rngs::ThreadRng,
+    ) -> (Vec<(Vec<u8>, Option<Vec<u8>>)>, BTreeMap<Vec<u8>, Vec<u8>>, Trie) {
+        let tries = create_tries_complex(1, 2);
+        let shard_uid = ShardUId { version: 1, shard_id: 0 };
+        let trie_changes = gen_changes(rng, 10);
+        let trie_changes = simplify_changes(&trie_changes);
+
+        let mut map = BTreeMap::new();
+        for (key, value) in trie_changes.iter() {
+            if let Some(value) = value {
+                map.insert(key.clone(), value.clone());
+            }
+        }
+        let state_root =
+            test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, trie_changes.clone());
+        let trie = tries.get_trie_for_shard(shard_uid, state_root);
+        (trie_changes, map, trie)
     }
 
     fn test_get_trie_items(
