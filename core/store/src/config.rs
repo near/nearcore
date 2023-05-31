@@ -236,7 +236,7 @@ impl Default for StoreConfig {
             // flat storage head quickly. State read work is much more expensive.
             flat_storage_creation_period: Duration::from_secs(1),
 
-            state_snapshot_enabled: false,
+            state_snapshot_enabled: true,
         }
     }
 }
