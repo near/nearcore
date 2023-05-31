@@ -580,16 +580,20 @@ mod tests {
     // Utility function for testing trie iteration with the prune condition set.
     // * `keys` is a list of keys to be inserted into the trie
     // * `pruned_keys` is the expected list of keys that should be the result of iteration
-    fn test_prune_max_depth_impl(keys: Vec<Vec<u8>>, pruned_keys: Vec<Vec<u8>>, max_depth: usize) {
+    fn test_prune_max_depth_impl(
+        keys: &Vec<Vec<u8>>,
+        pruned_keys: &Vec<Vec<u8>>,
+        max_depth: usize,
+    ) {
         let shard_uid = ShardUId::single_shard();
         let tries = create_tries();
-        let trie_changes = keys.into_iter().map(|key| (key, value())).collect();
+        let trie_changes = keys.iter().map(|key| (key.clone(), value())).collect();
         let state_root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, trie_changes);
         let trie = tries.get_trie_for_shard(shard_uid, state_root);
         let iter = trie.iter_with_max_depth(max_depth).unwrap();
         let keys: Vec<_> = iter.map(|item| item.unwrap().0).collect();
 
-        assert_eq!(keys, pruned_keys);
+        assert_eq!(&keys, pruned_keys);
     }
 
     #[test]
@@ -603,9 +607,9 @@ mod tests {
         // both leaf nodes are at depth 6 (11 11 15) and (11 11 16)
 
         // pruning by max depth 5 should return an empty result
-        test_prune_max_depth_impl(extension_keys.clone(), vec![], 5);
+        test_prune_max_depth_impl(&extension_keys, &vec![], 5);
         // pruning by max depth 6 should return both leaves
-        test_prune_max_depth_impl(extension_keys.clone(), extension_keys.clone(), 6);
+        test_prune_max_depth_impl(&extension_keys, &extension_keys, 6);
 
         // long chain of branches
         let chain_keys = vec![
@@ -615,11 +619,11 @@ mod tests {
             vec![0x11, 0x11, 0x11, 0x11],
             vec![0x11, 0x11, 0x11, 0x11, 0x11],
         ];
-        test_prune_max_depth_impl(chain_keys.clone(), vec![], 1);
-        test_prune_max_depth_impl(chain_keys.clone(), vec![vec![0x11]], 2);
-        test_prune_max_depth_impl(chain_keys.clone(), vec![vec![0x11]], 3);
-        test_prune_max_depth_impl(chain_keys.clone(), vec![vec![0x11], vec![0x11, 0x11]], 4);
-        test_prune_max_depth_impl(chain_keys.clone(), vec![vec![0x11], vec![0x11, 0x11]], 5);
+        test_prune_max_depth_impl(&chain_keys, &vec![], 1);
+        test_prune_max_depth_impl(&chain_keys, &vec![vec![0x11]], 2);
+        test_prune_max_depth_impl(&chain_keys, &vec![vec![0x11]], 3);
+        test_prune_max_depth_impl(&chain_keys, &vec![vec![0x11], vec![0x11, 0x11]], 4);
+        test_prune_max_depth_impl(&chain_keys, &vec![vec![0x11], vec![0x11, 0x11]], 5);
     }
 
     fn gen_random_trie(

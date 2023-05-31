@@ -642,68 +642,82 @@ impl TrieIterationBenchmarkCmd {
             EpochManager::new_from_genesis_config(store.clone(), &genesis_config).unwrap();
         let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
 
-        for (i, chunk_header) in block.chunks().iter().enumerate() {
+        for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
+            let shard_id = shard_id as ShardId;
             if chunk_header.height_included() != block.header().height() {
-                println!("chunk {i} is missing");
-                continue;
+                println!("chunk for shard {shard_id} is missing");
+                return;
             }
-            let shard_uid = ShardUId::from_shard_id_and_layout(i as ShardId, &shard_layout);
-            println!("shard uid {shard_uid:#?} benchmark starting");
-            // Question for reviewer - there are different TrieStorage
-            // implementation, which would be best suited here? I picked this
-            // one since it looked simplest and I don't think there is much
-            // point in using caches.
-            let storage = TrieDBStorage::new(store.clone(), shard_uid);
-            // Question for reviewer - my assumption is that flat storgage
-            // should be disabled or is irrelevant for this task, can you
-            // confirm please?
-            let flat_storage_chunk_view = None;
+            let trie = self.get_trie(shard_id, &shard_layout, &chunk_header, &store);
+            self.iter_trie(&trie, shard_id)
+        }
+    }
 
-            // Note: here we get the previous state root but the shard layout
-            // corresponds to the current epoch id. In practice shouldn't
-            // matter as the shard layout doesn't change.
-            let state_root = chunk_header.prev_state_root();
-            let trie = Trie::new(Rc::new(storage), state_root, flat_storage_chunk_view);
+    fn get_trie(
+        &self,
+        shard_id: ShardId,
+        shard_layout: &near_primitives::shard_layout::ShardLayout,
+        chunk_header: &near_primitives::sharding::ShardChunkHeader,
+        store: &Store,
+    ) -> Trie {
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, shard_layout);
+        // Note: here we get the previous state root but the shard layout
+        // corresponds to the current epoch id. In practice shouldn't
+        // matter as the shard layout doesn't change.
+        let state_root = chunk_header.prev_state_root();
+        // Question for reviewer - there are different TrieStorage
+        // implementation, which would be best suited here? I picked this
+        // one since it looked simplest and I don't think there is much
+        // point in using caches.
+        let storage = TrieDBStorage::new(store.clone(), shard_uid);
+        // Question for reviewer - my assumption is that flat storgage
+        // should be disabled or is irrelevant for this task, can you
+        // confirm please?
+        let flat_storage_chunk_view = None;
+        Trie::new(Rc::new(storage), state_root, flat_storage_chunk_view)
+    }
 
-            let start = Instant::now();
-            let mut node_count = 0;
-            let mut error_count = 0;
-            let iter = trie.iter();
-            let iter = match iter {
-                Ok(iter) => iter,
+    fn iter_trie(&self, trie: &Trie, shard_id: ShardId) {
+        println!("shard id {shard_id:#?} benchmark starting");
+
+        let start = Instant::now();
+        let mut node_count = 0;
+        let mut error_count = 0;
+        let iter = trie.iter();
+        let iter = match iter {
+            Ok(iter) => iter,
+            Err(err) => {
+                println!("iter error {err:#?}");
+                return;
+            }
+        };
+        for item in iter {
+            node_count += 1;
+            if let Some(limit) = self.limit {
+                if limit < node_count {
+                    break;
+                }
+            }
+
+            let (key, value) = match item {
+                Ok((key, value)) => (key, value),
                 Err(err) => {
-                    println!("iter error {err:#?}");
+                    println!("Failed to iterate node with error: {err}");
+                    error_count += 1;
                     continue;
                 }
             };
-            for item in iter {
-                node_count += 1;
-                if let Some(limit) = self.limit {
-                    if limit < node_count {
-                        break;
-                    }
-                }
 
-                let (key, value) = match item {
-                    Ok((key, value)) => (key, value),
-                    Err(err) => {
-                        println!("Failed to iterate node with error: {err}");
-                        error_count += 1;
-                        continue;
-                    }
-                };
-
-                if self.print {
-                    let state_record = StateRecord::from_raw_key_value(key.clone(), value);
-                    Self::print_state_record(&state_record);
-                }
+            if self.print {
+                let state_record = StateRecord::from_raw_key_value(key.clone(), value);
+                Self::print_state_record(&state_record);
             }
-            let duration = start.elapsed();
-            println!("shard uid {shard_uid:#?} benchmark finished");
-            println!("node count  {node_count}");
-            println!("error count {error_count}");
-            println!("time        {duration:?}");
         }
+        let duration = start.elapsed();
+        println!("shard id    {shard_id:#?} benchmark finished");
+        println!("node count  {node_count}");
+        println!("error count {error_count}");
+        println!("time        {duration:?}");
     }
 
     fn print_state_record(state_record: &Option<StateRecord>) {
