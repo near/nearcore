@@ -37,6 +37,9 @@ pub enum StateViewerSubCommand {
     CheckBlock,
     /// Looks up a certain chunk.
     Chunks(ChunksCmd),
+    /// Clear recoverable data in CachedContractCode column.
+    #[clap(alias = "clear_cache")]
+    ClearCache,
     /// List account names with contracts deployed.
     #[clap(alias = "contract_accounts")]
     ContractAccounts(ContractAccountsCmd),
@@ -68,6 +71,8 @@ pub enum StateViewerSubCommand {
     /// Dump stats for the RocksDB storage.
     #[clap(name = "rocksdb-stats", alias = "rocksdb_stats")]
     RocksDBStats(RocksDBStatsCmd),
+    /// Reads all rows of a DB column and deserializes keys and values and prints them.
+    ScanDbColumn(ScanDbColumnCmd),
     /// Iterates over a trie and prints the StateRecords.
     State,
     /// Dumps or applies StateChanges.
@@ -81,9 +86,6 @@ pub enum StateViewerSubCommand {
     /// View trie structure.
     #[clap(alias = "view_trie")]
     ViewTrie(ViewTrieCmd),
-    /// Clear recoverable data in CachedContractCode column.
-    #[clap(alias = "clear_cache")]
-    ClearCache,
 }
 
 impl StateViewerSubCommand {
@@ -133,6 +135,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::Receipts(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::Replay(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::RocksDBStats(cmd) => cmd.run(store_opener.path()),
+            StateViewerSubCommand::ScanDbColumn(cmd) => cmd.run(store),
             StateViewerSubCommand::State => state(home_dir, near_config, store),
             StateViewerSubCommand::StateChanges(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::StateParts(cmd) => cmd.run(home_dir, near_config, store),
@@ -479,6 +482,19 @@ pub struct RocksDBStatsCmd {
 impl RocksDBStatsCmd {
     pub fn run(self, store_dir: &Path) {
         get_rocksdb_stats(store_dir, self.file).expect("Couldn't get RocksDB stats");
+    }
+}
+
+#[derive(clap::Parser)]
+pub struct ScanDbColumnCmd {
+    /// Column name, e.g. 'Block' or 'BlockHeader'.
+    #[clap(long)]
+    column: String,
+}
+
+impl ScanDbColumnCmd {
+    pub fn run(self, store: Store) {
+        crate::scan_db::scan_db_column(&self.column, store)
     }
 }
 

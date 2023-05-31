@@ -285,6 +285,7 @@ impl StoreValidator {
                         let epoch_info = EpochInfo::try_from_slice(value_ref)?;
                         // Epoch should exist
                         self.check(&validate::epoch_validity, &epoch_id, &epoch_info, col);
+                    } else {
                     }
                 }
                 DBCol::Transactions => {
