@@ -12,7 +12,7 @@ use crate::{metrics, SyncStatus};
 use lru::LruCache;
 use near_async::messaging::{CanSend, Sender};
 use near_chain::chain::{
-    ApplyStatePartsRequest, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
+    ApplyStatePartRequest, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
     OrphanMissingChunks, StateSplitRequest, TX_ROUTING_HEIGHT_HORIZON,
 };
 use near_chain::flat_storage_creator::FlatStorageCreator;
@@ -2107,7 +2107,7 @@ impl Client {
     pub fn run_catchup(
         &mut self,
         highest_height_peers: &[HighestHeightPeerInfo],
-        state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
+        state_parts_task_scheduler: &dyn Fn(ApplyStatePartRequest),
         block_catch_up_task_scheduler: &dyn Fn(BlockCatchUpRequest),
         state_split_scheduler: &dyn Fn(StateSplitRequest),
         apply_chunks_done_callback: DoneApplyChunkCallback,

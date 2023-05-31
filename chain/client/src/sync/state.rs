@@ -26,7 +26,7 @@ use ansi_term::Style;
 use chrono::{DateTime, Duration, Utc};
 use futures::{future, FutureExt};
 use near_async::messaging::CanSendAsync;
-use near_chain::chain::{ApplyStatePartsRequest, StateSplitRequest};
+use near_chain::chain::{ApplyStatePartRequest, StateSplitRequest};
 use near_chain::near_chain_primitives;
 use near_chain::Chain;
 use near_chain_configs::{ExternalStorageConfig, ExternalStorageLocation, SyncConfig};
@@ -344,7 +344,7 @@ impl StateSync {
         highest_height_peers: &[HighestHeightPeerInfo],
         tracking_shards: Vec<ShardId>,
         now: DateTime<Utc>,
-        state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
+        state_parts_task_scheduler: &dyn Fn(ApplyStatePartRequest),
         state_split_scheduler: &dyn Fn(StateSplitRequest),
         use_colour: bool,
     ) -> Result<(bool, bool), near_chain::Error> {
@@ -393,7 +393,8 @@ impl StateSync {
                         sync_hash,
                         chain,
                         now,
-                    );
+                        state_parts_task_scheduler
+                    )?;
                     download_timeout = res.0;
                     run_shard_state_download = res.1;
                     update_sync_status |= res.2;
@@ -799,7 +800,7 @@ impl StateSync {
         highest_height_peers: &[HighestHeightPeerInfo],
         // Shards to sync.
         tracking_shards: Vec<ShardId>,
-        state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
+        state_parts_task_scheduler: &dyn Fn(ApplyStatePartRequest),
         state_split_scheduler: &dyn Fn(StateSplitRequest),
         use_colour: bool,
     ) -> Result<StateSyncResult, near_chain::Error> {
@@ -970,7 +971,8 @@ impl StateSync {
         sync_hash: CryptoHash,
         chain: &mut Chain,
         now: DateTime<Utc>,
-    ) -> (bool, bool, bool) {
+        state_parts_task_scheduler: &dyn Fn(ApplyStatePartRequest)
+    ) -> Result<(bool, bool, bool), near_chain::Error> {
         // Step 2 - download all the parts (each part is usually around 1MB).
         let mut download_timeout = false;
         let mut run_shard_state_download = false;
@@ -979,6 +981,7 @@ impl StateSync {
         let mut parts_done = true;
         let num_parts = shard_sync_download.downloads.len();
         let mut num_parts_done = 0;
+        let mut result: Result<(), near_chain::Error> = Ok(());
         for (part_id, part_download) in shard_sync_download.downloads.iter_mut().enumerate() {
             if !part_download.done {
                 // Check if a download from an external storage is finished.
@@ -1016,7 +1019,26 @@ impl StateSync {
                 }
             }
             if part_download.done {
-                num_parts_done += 1;
+                match chain.schedule_apply_state_parts(
+                    shard_id,
+                    sync_hash,
+                    part_id as u64,
+                    parts_done as u64,
+                    num_parts as u64,
+                    state_parts_task_scheduler,
+                ) {
+                    Ok(()) => {
+                        num_parts_done += 1;
+                    }
+                    Err(err) => {
+                        // This means somehow the state cannot be verified or inserted,
+                        // so something's wrong with the state constructed so far.
+                        // The reasonable behavior here is to start from the very beginning.
+                        tracing::error!(target: "sync", %shard_id, %sync_hash, ?err, "State sync finalizing error");
+                        result = Err(err);
+                        break;
+                    }
+                }
             }
         }
         tracing::debug!(target: "sync", %shard_id, %sync_hash, num_parts_done, parts_done);
@@ -1026,6 +1048,14 @@ impl StateSync {
         metrics::STATE_SYNC_PARTS_TOTAL
             .with_label_values(&[&shard_id.to_string()])
             .set(num_parts as i64);
+
+        if let Err(err) = result {
+            tracing::error!(target: "sync", %shard_id, %sync_hash, ?err, "State sync finalizing error");
+            *shard_sync_download = ShardSyncDownload::new_download_state_header(now);
+            chain.clear_downloaded_parts(shard_id, sync_hash, num_parts as u64)?;
+            return Err(err);
+
+        }
         // If all parts are done - we can move towards scheduling.
         if parts_done {
             *shard_sync_download = ShardSyncDownload {
@@ -1034,7 +1064,7 @@ impl StateSync {
             };
             update_sync_status = true;
         }
-        (download_timeout, run_shard_state_download, update_sync_status)
+        Ok((download_timeout, run_shard_state_download, update_sync_status))
     }
 
     fn sync_shards_download_scheduling_status(
@@ -1044,35 +1074,35 @@ impl StateSync {
         sync_hash: CryptoHash,
         chain: &mut Chain,
         now: DateTime<Utc>,
-        state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
+        state_parts_task_scheduler: &dyn Fn(ApplyStatePartRequest),
     ) -> Result<(), near_chain::Error> {
-        let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
-        let state_num_parts =
-            get_num_state_parts(shard_state_header.state_root_node().memory_usage);
-        // Now apply all the parts to the chain / runtime.
-        // TODO: not sure why this has to happen only after all the parts were downloaded -
-        //       as we could have done this in parallel after getting each part.
-        match chain.schedule_apply_state_parts(
-            shard_id,
-            sync_hash,
-            state_num_parts,
-            state_parts_task_scheduler,
-        ) {
-            Ok(()) => {
-                *shard_sync_download = ShardSyncDownload {
-                    downloads: vec![],
-                    status: ShardSyncStatus::StateDownloadApplying,
-                }
-            }
-            Err(err) => {
-                // Cannot finalize the downloaded state.
-                // The reasonable behavior here is to start from the very beginning.
-                metrics::STATE_SYNC_DISCARD_PARTS.with_label_values(&[&shard_id.to_string()]).inc();
-                tracing::error!(target: "sync", %shard_id, %sync_hash, ?err, "State sync finalizing error");
-                *shard_sync_download = ShardSyncDownload::new_download_state_header(now);
-                chain.clear_downloaded_parts(shard_id, sync_hash, state_num_parts)?;
-            }
-        }
+        // let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
+        // let state_num_parts =
+        //     get_num_state_parts(shard_state_header.state_root_node().memory_usage);
+        // // Now apply all the parts to the chain / runtime.
+        // // TODO: not sure why this has to happen only after all the parts were downloaded -
+        // //       as we could have done this in parallel after getting each part.
+        // match chain.schedule_apply_state_parts(
+        //     shard_id,
+        //     sync_hash,
+        //     state_num_parts,
+        //     state_parts_task_scheduler,
+        // ) {
+        //     Ok(()) => {
+        //         *shard_sync_download = ShardSyncDownload {
+        //             downloads: vec![],
+        //             status: ShardSyncStatus::StateDownloadApplying,
+        //         }
+        //     }
+        //     Err(err) => {
+        //         // Cannot finalize the downloaded state.
+        //         // The reasonable behavior here is to start from the very beginning.
+        //         metrics::STATE_SYNC_DISCARD_PARTS.with_label_values(&[&shard_id.to_string()]).inc();
+        //         tracing::error!(target: "sync", %shard_id, %sync_hash, ?err, "State sync finalizing error");
+        //         *shard_sync_download = ShardSyncDownload::new_download_state_header(now);
+        //         chain.clear_downloaded_parts(shard_id, sync_hash, state_num_parts)?;
+        //     }
+        // }
         Ok(())
     }
 
@@ -1632,7 +1662,7 @@ mod test {
             ShardStateSyncResponseHeader::V2(internal) => internal,
         };
 
-        let apply_parts_fn = move |_: ApplyStatePartsRequest| {};
+        let apply_parts_fn = move |_: ApplyStatePartRequest| {};
         let state_split_fn = move |_: StateSplitRequest| {};
 
         run_actix(async {

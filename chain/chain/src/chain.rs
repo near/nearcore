@@ -3210,8 +3210,10 @@ impl Chain {
         &self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
+        part_id: u64,
+        parts_done: u64,
         num_parts: u64,
-        state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
+        state_parts_task_scheduler: &dyn Fn(ApplyStatePartRequest),
     ) -> Result<(), Error> {
         let epoch_id = self.get_block_header(&sync_hash)?.epoch_id().clone();
 
@@ -3224,10 +3226,12 @@ impl Chain {
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let state_root = shard_state_header.chunk_prev_state_root();
 
-        state_parts_task_scheduler(ApplyStatePartsRequest {
+        state_parts_task_scheduler(ApplyStatePartRequest {
             runtime_adapter: self.runtime_adapter.clone(),
             shard_id,
             state_root,
+            part_id,
+            parts_done,
             num_parts,
             epoch_id,
             sync_hash,
@@ -5604,10 +5608,12 @@ pub fn collect_receipts_from_response(
 
 #[derive(actix::Message)]
 #[rtype(result = "()")]
-pub struct ApplyStatePartsRequest {
+pub struct ApplyStatePartRequest {
     pub runtime_adapter: Arc<dyn RuntimeAdapter>,
     pub shard_id: ShardId,
     pub state_root: StateRoot,
+    pub part_id: u64,
+    pub parts_done: u64,
     pub num_parts: u64,
     pub epoch_id: EpochId,
     pub sync_hash: CryptoHash,

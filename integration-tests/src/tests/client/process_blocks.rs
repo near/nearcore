@@ -17,7 +17,7 @@ use near_primitives::config::{ActionCosts, ExtCosts};
 use near_primitives::num_rational::{Ratio, Rational32};
 
 use near_actix_test_utils::run_actix;
-use near_chain::chain::ApplyStatePartsRequest;
+use near_chain::chain::ApplyStatePartRequest;
 use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{
@@ -2612,25 +2612,25 @@ fn test_catchup_gas_price_change() {
             .unwrap();
     }
     let rt = Arc::clone(&env.clients[1].runtime_adapter);
-    let f = move |msg: ApplyStatePartsRequest| {
+    let f = move |msg: ApplyStatePartRequest| {
         use borsh::BorshSerialize;
         let store = rt.store();
 
-        for part_id in 0..msg.num_parts {
-            let key = StatePartKey(msg.sync_hash, msg.shard_id, part_id).try_to_vec().unwrap();
-            let part = store.get(DBCol::StateParts, &key).unwrap().unwrap();
+        let key = StatePartKey(msg.sync_hash, msg.shard_id, msg.part_id).try_to_vec().unwrap();
+        let part = store.get(DBCol::StateParts, &key).unwrap().unwrap();
 
-            rt.apply_state_part(
-                msg.shard_id,
-                &msg.state_root,
-                PartId::new(part_id, msg.num_parts),
-                &part,
-                &msg.epoch_id,
-            )
-            .unwrap();
-        }
+        rt.apply_state_part(
+            msg.shard_id,
+            &msg.state_root,
+            PartId::new(msg.part_id, msg.num_parts),
+            &part,
+            &msg.epoch_id,
+        )
+        .unwrap();
     };
-    env.clients[1].chain.schedule_apply_state_parts(0, sync_hash, num_parts, &f).unwrap();
+    for part_id in 0..num_parts {
+        env.clients[1].chain.schedule_apply_state_parts(0, sync_hash, part_id, part_id + 1, num_parts, &f).unwrap();
+    }
     env.clients[1].chain.set_state_finalize(0, sync_hash, Ok(())).unwrap();
     let chunk_extra_after_sync =
         env.clients[1].chain.get_chunk_extra(blocks[4].hash(), &ShardUId::single_shard()).unwrap();

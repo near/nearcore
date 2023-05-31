@@ -22,7 +22,7 @@ use borsh::BorshSerialize;
 use chrono::{DateTime, Utc};
 use near_async::messaging::{CanSend, Sender};
 use near_chain::chain::{
-    do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
+    do_apply_chunks, ApplyStatePartRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
     BlockCatchUpResponse, StateSplitRequest, StateSplitResponse,
 };
 use near_chain::test_utils::format_hash;
@@ -110,7 +110,7 @@ pub struct ClientActor {
     doomslug_timer_next_attempt: DateTime<Utc>,
     sync_timer_next_attempt: DateTime<Utc>,
     sync_started: bool,
-    state_parts_task_scheduler: Box<dyn Fn(ApplyStatePartsRequest)>,
+    state_parts_task_scheduler: Box<dyn Fn(ApplyStatePartRequest)>,
     block_catch_up_scheduler: Box<dyn Fn(BlockCatchUpRequest)>,
     state_split_scheduler: Box<dyn Fn(StateSplitRequest)>,
     state_parts_client_arbiter: Arbiter,
@@ -202,7 +202,7 @@ impl ClientActor {
             doomslug_timer_next_attempt: now,
             sync_timer_next_attempt: now,
             sync_started: false,
-            state_parts_task_scheduler: create_sync_job_scheduler::<ApplyStatePartsRequest>(
+            state_parts_task_scheduler: create_sync_job_scheduler::<ApplyStatePartRequest>(
                 sync_jobs_actor_addr.clone(),
             ),
             block_catch_up_scheduler: create_sync_job_scheduler::<BlockCatchUpRequest>(
@@ -1768,25 +1768,22 @@ struct SyncJobsActor {
 impl SyncJobsActor {
     const MAILBOX_CAPACITY: usize = 100;
 
-    fn apply_parts(
+    fn apply_part(
         &mut self,
-        msg: &ApplyStatePartsRequest,
+        msg: &ApplyStatePartRequest,
     ) -> Result<(), near_chain_primitives::error::Error> {
         let _span = tracing::debug_span!(target: "client", "apply_parts").entered();
         let store = msg.runtime_adapter.store();
+        let key = StatePartKey(msg.sync_hash, msg.shard_id, msg.part_id).try_to_vec()?;
+        let part = store.get(DBCol::StateParts, &key)?.unwrap();
 
-        for part_id in 0..msg.num_parts {
-            let key = StatePartKey(msg.sync_hash, msg.shard_id, part_id).try_to_vec()?;
-            let part = store.get(DBCol::StateParts, &key)?.unwrap();
-
-            msg.runtime_adapter.apply_state_part(
-                msg.shard_id,
-                &msg.state_root,
-                PartId::new(part_id, msg.num_parts),
-                &part,
-                &msg.epoch_id,
-            )?;
-        }
+        msg.runtime_adapter.apply_state_part(
+            msg.shard_id,
+            &msg.state_root,
+            PartId::new(msg.part_id, msg.num_parts),
+            &part,
+            &msg.epoch_id,
+        )?;
 
         Ok(())
     }
@@ -1796,25 +1793,28 @@ impl Actor for SyncJobsActor {
     type Context = Context<Self>;
 }
 
-impl Handler<WithSpanContext<ApplyStatePartsRequest>> for SyncJobsActor {
+impl Handler<WithSpanContext<ApplyStatePartRequest>> for SyncJobsActor {
     type Result = ();
 
     fn handle(
         &mut self,
-        msg: WithSpanContext<ApplyStatePartsRequest>,
+        msg: WithSpanContext<ApplyStatePartRequest>,
         _: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
-        let result = self.apply_parts(&msg);
+        let result = self.apply_part(&msg);
 
-        self.client_addr.do_send(
-            ApplyStatePartsResponse {
-                apply_result: result,
-                shard_id: msg.shard_id,
-                sync_hash: msg.sync_hash,
-            }
-            .with_span_context(),
-        );
+        // if this is the last part to get applied then send the ApplyStatePartsResponse that indicates all parts are applied and runs set_apply_result
+        if msg.parts_done + 1 == msg.num_parts {
+            self.client_addr.do_send(
+                ApplyStatePartsResponse {
+                    apply_result: result,
+                    shard_id: msg.shard_id,
+                    sync_hash: msg.sync_hash,
+                }
+                .with_span_context(),
+            );
+        }
     }
 }
 
