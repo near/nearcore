@@ -377,18 +377,15 @@ impl<'a> arbitrary::Arbitrary<'a> for AccountId {
     }
 
     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
-        let s = u.arbitrary::<&str>()?;
-        match s.parse::<AccountId>() {
-            Ok(account_id) => Ok(account_id),
-            Err(e) => {
-                if let Some((valid_up_to, _)) = e.char {
-                    let valid = &s[..valid_up_to];
-                    debug_assert!(AccountId::validate(valid).is_ok());
-                    #[allow(deprecated)]
-                    Ok(AccountId::new_unvalidated(valid.to_string()))
-                } else {
-                    Err(arbitrary::Error::IncorrectFormat)
+        let mut s = u.arbitrary::<&str>()?;
+        loop {
+            match s.parse::<AccountId>() {
+                Ok(account_id) => break Ok(account_id),
+                Err(ParseAccountError { char: Some((idx, _)), .. }) => {
+                    s = &s[..idx];
+                    continue;
                 }
+                _ => break Err(arbitrary::Error::IncorrectFormat),
             }
         }
     }
@@ -720,6 +717,28 @@ mod tests {
                 "Account ID {} is not an implicit account",
                 invalid_account_id
             );
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "arbitrary")]
+    fn test_arbitrary() {
+        let corpus = [
+            ("a|bcd", None),
+            ("ab|cde", Some("ab")),
+            ("a_-b", None),
+            ("ab_-c", Some("ab")),
+            ("a", None),
+            ("miraclx.near", Some("miraclx.near")),
+            ("01234567890123456789012345678901234567890123456789012345678901234", None),
+        ];
+
+        for (input, expected_output) in corpus {
+            assert!(input.len() <= u8::MAX as usize);
+            let data = [input.as_bytes(), &[input.len() as _]].concat();
+            let mut u = arbitrary::Unstructured::new(&data);
+
+            assert_eq!(u.arbitrary::<AccountId>().as_deref().ok(), expected_output);
         }
     }
 }
