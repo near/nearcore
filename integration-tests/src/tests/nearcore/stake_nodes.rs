@@ -97,13 +97,13 @@ fn init_test_staking(
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_stake_nodes() {
     heavy_test(|| {
+        let num_nodes = 2;
+        let dirs = (0..num_nodes)
+            .map(|i| {
+                tempfile::Builder::new().prefix(&format!("stake_node_{}", i)).tempdir().unwrap()
+            })
+            .collect::<Vec<_>>();
         run_actix(async move {
-            let num_nodes = 2;
-            let dirs = (0..num_nodes)
-                .map(|i| {
-                    tempfile::Builder::new().prefix(&format!("stake_node_{}", i)).tempdir().unwrap()
-                })
-                .collect::<Vec<_>>();
             let test_nodes = init_test_staking(
                 dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
                 num_nodes,
@@ -178,16 +178,16 @@ fn test_stake_nodes() {
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_validator_kickout() {
     heavy_test(|| {
+        let num_nodes = 4;
+        let dirs = (0..num_nodes)
+            .map(|i| {
+                tempfile::Builder::new()
+                    .prefix(&format!("validator_kickout_{}", i))
+                    .tempdir()
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
         run_actix(async move {
-            let num_nodes = 4;
-            let dirs = (0..num_nodes)
-                .map(|i| {
-                    tempfile::Builder::new()
-                        .prefix(&format!("validator_kickout_{}", i))
-                        .tempdir()
-                        .unwrap()
-                })
-                .collect::<Vec<_>>();
             let test_nodes = init_test_staking(
                 dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
                 num_nodes,
@@ -329,16 +329,13 @@ fn test_validator_kickout() {
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_validator_join() {
     heavy_test(|| {
+        let num_nodes = 4;
+        let dirs = (0..num_nodes)
+            .map(|i| {
+                tempfile::Builder::new().prefix(&format!("validator_join_{}", i)).tempdir().unwrap()
+            })
+            .collect::<Vec<_>>();
         run_actix(async move {
-            let num_nodes = 4;
-            let dirs = (0..num_nodes)
-                .map(|i| {
-                    tempfile::Builder::new()
-                        .prefix(&format!("validator_join_{}", i))
-                        .tempdir()
-                        .unwrap()
-                })
-                .collect::<Vec<_>>();
             let test_nodes = init_test_staking(
                 dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
                 num_nodes,
@@ -489,14 +486,14 @@ fn test_validator_join() {
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
 fn test_inflation() {
     heavy_test(|| {
+        let num_nodes = 1;
+        let dirs = (0..num_nodes)
+            .map(|i| {
+                tempfile::Builder::new().prefix(&format!("stake_node_{}", i)).tempdir().unwrap()
+            })
+            .collect::<Vec<_>>();
+        let epoch_length = 10;
         run_actix(async move {
-            let num_nodes = 1;
-            let dirs = (0..num_nodes)
-                .map(|i| {
-                    tempfile::Builder::new().prefix(&format!("stake_node_{}", i)).tempdir().unwrap()
-                })
-                .collect::<Vec<_>>();
-            let epoch_length = 10;
             let test_nodes = init_test_staking(
                 dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
                 num_nodes,
