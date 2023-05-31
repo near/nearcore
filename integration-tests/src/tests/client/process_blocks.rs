@@ -2629,7 +2629,10 @@ fn test_catchup_gas_price_change() {
         .unwrap();
     };
     for part_id in 0..num_parts {
-        env.clients[1].chain.schedule_apply_state_parts(0, sync_hash, part_id, part_id + 1, num_parts, &f).unwrap();
+        env.clients[1]
+            .chain
+            .schedule_apply_state_parts(0, sync_hash, part_id, part_id + 1, num_parts, &f)
+            .unwrap();
     }
     env.clients[1].chain.set_state_finalize(0, sync_hash, Ok(())).unwrap();
     let chunk_extra_after_sync =

@@ -393,21 +393,14 @@ impl StateSync {
                         sync_hash,
                         chain,
                         now,
-                        state_parts_task_scheduler
+                        state_parts_task_scheduler,
                     )?;
                     download_timeout = res.0;
                     run_shard_state_download = res.1;
                     update_sync_status |= res.2;
                 }
                 ShardSyncStatus::StateDownloadScheduling => {
-                    self.sync_shards_download_scheduling_status(
-                        shard_id,
-                        shard_sync_download,
-                        sync_hash,
-                        chain,
-                        now,
-                        state_parts_task_scheduler,
-                    )?;
+                    self.sync_shards_download_scheduling_status()?;
                 }
                 ShardSyncStatus::StateDownloadApplying => {
                     self.sync_shards_download_applying_status(
@@ -971,7 +964,7 @@ impl StateSync {
         sync_hash: CryptoHash,
         chain: &mut Chain,
         now: DateTime<Utc>,
-        state_parts_task_scheduler: &dyn Fn(ApplyStatePartRequest)
+        state_parts_task_scheduler: &dyn Fn(ApplyStatePartRequest),
     ) -> Result<(bool, bool, bool), near_chain::Error> {
         // Step 2 - download all the parts (each part is usually around 1MB).
         let mut download_timeout = false;
@@ -1054,7 +1047,6 @@ impl StateSync {
             *shard_sync_download = ShardSyncDownload::new_download_state_header(now);
             chain.clear_downloaded_parts(shard_id, sync_hash, num_parts as u64)?;
             return Err(err);
-
         }
         // If all parts are done - we can move towards scheduling.
         if parts_done {
@@ -1067,15 +1059,7 @@ impl StateSync {
         Ok((download_timeout, run_shard_state_download, update_sync_status))
     }
 
-    fn sync_shards_download_scheduling_status(
-        &mut self,
-        shard_id: ShardId,
-        shard_sync_download: &mut ShardSyncDownload,
-        sync_hash: CryptoHash,
-        chain: &mut Chain,
-        now: DateTime<Utc>,
-        state_parts_task_scheduler: &dyn Fn(ApplyStatePartRequest),
-    ) -> Result<(), near_chain::Error> {
+    fn sync_shards_download_scheduling_status(&mut self) -> Result<(), near_chain::Error> {
         // let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
         // let state_num_parts =
         //     get_num_state_parts(shard_state_header.state_root_node().memory_usage);
