@@ -395,7 +395,7 @@ impl StateSync {
                         now,
                         state_parts_task_scheduler,
                     )?;
-                    download_timeout = res.0;
+                    download_timeout = false;
                     run_shard_state_download = res.1;
                     update_sync_status |= res.2;
                 }
@@ -1052,7 +1052,7 @@ impl StateSync {
         if parts_done {
             *shard_sync_download = ShardSyncDownload {
                 downloads: vec![],
-                status: ShardSyncStatus::StateDownloadScheduling,
+                status: ShardSyncStatus::StateDownloadApplying,
             };
             update_sync_status = true;
         }

@@ -1766,7 +1766,7 @@ struct SyncJobsActor {
 }
 
 impl SyncJobsActor {
-    const MAILBOX_CAPACITY: usize = 100;
+    const MAILBOX_CAPACITY: usize = 1000000;
 
     fn apply_part(
         &mut self,
