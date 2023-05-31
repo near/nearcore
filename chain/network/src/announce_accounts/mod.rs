@@ -56,23 +56,31 @@ impl AnnounceAccountCache {
     /// Adds accounts to the cache.
     /// Returns the diff: new values that should be broadcasted.
     /// Note: There is at most one peer id per account id.
-    pub(crate) fn add_accounts(&self, aas: Vec<AnnounceAccount>) -> Vec<AnnounceAccount> {
+    pub(crate) fn add_accounts(
+        &self,
+        account_announcements: Vec<AnnounceAccount>,
+    ) -> Vec<AnnounceAccount> {
         let mut inner = self.0.lock();
         let mut res = vec![];
-        for aa in aas {
+        for announcement in account_announcements {
+            let account_id = &announcement.account_id;
+            let epoch_id = &announcement.epoch_id;
+
             // We skip broadcasting stuff that is already broadcasted.
-            if inner.account_peers_broadcasted.get(&aa.account_id).map(|x| &x.epoch_id)
-                == Some(&aa.epoch_id)
+            if inner.account_peers_broadcasted.get(account_id).map(|x| &x.epoch_id)
+                == Some(epoch_id)
             {
                 continue;
             }
-            inner.account_peers.put(aa.account_id.clone(), aa.clone());
-            inner.account_peers_broadcasted.put(aa.account_id.clone(), aa.clone());
+
+            inner.account_peers.put(account_id.clone(), announcement.clone());
+            inner.account_peers_broadcasted.put(account_id.clone(), announcement.clone());
+
             // Add account to store. Best effort
-            if let Err(e) = inner.store.set_account_announcement(&aa.account_id, &aa) {
+            if let Err(e) = inner.store.set_account_announcement(account_id, &announcement) {
                 tracing::warn!(target: "network", "Error saving announce account to store: {:?}", e);
             }
-            res.push(aa);
+            res.push(announcement);
         }
         res
     }
