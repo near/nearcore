@@ -96,6 +96,7 @@ pub(crate) fn scan_db_column(col: &str, store: Store) {
                         Box::new(BlockHeight::try_from_slice(value_ref).unwrap()),
                     ),
                     DBCol::FlatState => (
+                        // TODO: Fix
                         Box::new(key.to_vec()),
                         Box::new(FlatStateValue::try_from_slice(value_ref).unwrap()),
                     ),
