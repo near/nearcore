@@ -721,20 +721,12 @@ impl Chain {
             last_time_head_updated: StaticClock::instant(),
             pending_state_patch: Default::default(),
             requested_state_parts: StateRequestTracker::new(),
-            state_snapshot_helper: if let Some(callback) = make_snapshot_callback {
-                let test_snapshot_countdown_and_frequency =
-                    if let Some(n) = chain_config.state_snapshot_every_n_blocks {
-                        Some((0, n))
-                    } else {
-                        None
-                    };
-                Some(StateSnapshotHelper {
-                    make_snapshot_callback: callback,
-                    test_snapshot_countdown_and_frequency,
-                })
-            } else {
-                None
-            },
+            state_snapshot_helper: make_snapshot_callback.map(|callback| StateSnapshotHelper {
+                make_snapshot_callback: callback,
+                test_snapshot_countdown_and_frequency: chain_config
+                    .state_snapshot_every_n_blocks
+                    .map(|n| (0, n)),
+            }),
         })
     }
 

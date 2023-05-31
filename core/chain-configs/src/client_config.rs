@@ -253,6 +253,9 @@ pub struct ClientConfig {
     pub state_sync: StateSyncConfig,
     /// Testing only. Makes a state snapshot after every epoch, but also every N blocks. The first snapshot is done after processng the first block.
     pub state_snapshot_every_n_blocks: Option<u64>,
+    /// Limit of the size of per-shard transaction pool measured in bytes. If not set, the size
+    /// will be unbounded.
+    pub transaction_pool_size_limit: Option<u64>,
 }
 
 impl ClientConfig {
@@ -327,6 +330,7 @@ impl ClientConfig {
             state_sync_enabled,
             state_sync: StateSyncConfig::default(),
             state_snapshot_every_n_blocks: None,
+            transaction_pool_size_limit: None,
         }
     }
 }

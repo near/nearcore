@@ -300,8 +300,10 @@ pub fn start_with_config_and_synchronization(
         shards_manager_adapter.as_sender(),
         config.validator_signer.clone(),
         telemetry,
-        if let (Some(flat_storage_manager), Some(state_snapshot_actor)) = (runtime.get_flat_storage_manager(), state_snapshot_actor) {
-            get_make_snapshot_callback(state_snapshot_actor, flat_storage_manager)
+        if let (Some(flat_storage_manager), Some(state_snapshot_actor)) =
+            (runtime.get_flat_storage_manager(), state_snapshot_actor)
+        {
+            Some(get_make_snapshot_callback(state_snapshot_actor, flat_storage_manager))
         } else {
             None
         },

@@ -1408,22 +1408,11 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(HashMap::new())
     }
 
-    fn make_state_snapshot(
-        &self,
-        _last_block_height: BlockHeight,
-        _last_block_hash: &CryptoHash,
-        _prev_block_hash: &CryptoHash,
-    ) -> Result<(), Error> {
+    fn make_state_snapshot(&self, _prev_block_hash: &CryptoHash) -> Result<(), Error> {
         unreachable!("make_state_snapshot() isn't supported");
     }
 
-    fn obtain_state_part_from_snapshot(
-        &self,
-        _shard_id: ShardId,
-        _block_hash: &CryptoHash,
-        _state_root: &StateRoot,
-        _part_id: PartId,
-    ) -> Result<Vec<u8>, Error> {
+    fn compact_state_snapshot(&self, _prev_block_hash: &CryptoHash) -> Result<(), Error> {
         todo!()
     }
 }

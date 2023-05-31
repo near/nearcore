@@ -80,12 +80,8 @@ impl Trie {
 
     fn is_flat_storage_head_at(&self, block_hash: &CryptoHash) -> bool {
         match &self.flat_storage_chunk_view {
-            Some(chunk_view) => {
-                chunk_view.get_head_hash() == *block_hash
-            }
-            None => {
-                false
-            }
+            Some(chunk_view) => chunk_view.get_head_hash() == *block_hash,
+            None => false,
         }
     }
 
@@ -101,6 +97,7 @@ impl Trie {
         prev_hash: &CryptoHash,
         part_id: PartId,
     ) -> Result<PartialState, StorageError> {
+        // TODO: Revert to using Trie if needed.
         assert!(self.is_flat_storage_head_at(prev_hash));
         let trie_values = self.get_trie_nodes_for_part_with_flat_storage(part_id)?;
         Ok(trie_values)

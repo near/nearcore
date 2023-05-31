@@ -612,10 +612,7 @@ pub fn checkpoint_hot_storage_and_cleanup_columns(
 
         for col in DBCol::iter() {
             if !columns_to_keep_set.contains(&col) {
-                tracing::info!(target: "state_snapshot", ?col, "Delete column");
                 transaction.delete_all(col);
-            } else {
-                tracing::info!(target: "state_snapshot", ?col, "Keep column");
             }
         }
 
