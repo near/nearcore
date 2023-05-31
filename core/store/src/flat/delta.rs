@@ -116,8 +116,10 @@ impl FlatStateChanges {
 
 /// `FlatStateChanges` which uses hash of raw `TrieKey`s instead of keys themselves.
 /// Used to reduce memory used by deltas and serves read queries.
+#[derive(Debug)]
 pub struct CachedFlatStateChanges(HashMap<CryptoHash, Option<ValueRef>>);
 
+#[derive(Debug)]
 pub struct CachedFlatStateDelta {
     pub metadata: FlatStateDeltaMetadata,
     pub changes: Arc<CachedFlatStateChanges>,

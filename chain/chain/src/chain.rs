@@ -7,12 +7,12 @@ use crate::lightclient::get_epoch_block_producers_view;
 use crate::migrations::check_if_block_is_first_with_chunk_of_version;
 use crate::missing_chunks::{BlockLike, MissingChunksPool};
 use crate::state_request_tracker::StateRequestTracker;
-use crate::state_snapshot_actor::StartSnapshotCallback;
+use crate::state_snapshot_actor::MakeSnapshotCallback;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode};
 use crate::types::{
     AcceptedBlock, ApplySplitStateResult, ApplySplitStateResultOrStateChanges,
     ApplyTransactionResult, Block, BlockEconomicsConfig, BlockHeader, BlockHeaderInfo, BlockStatus,
-    ChainConfig, ChainGenesis, Provenance, RuntimeWithEpochManagerAdapter,
+    ChainConfig, ChainGenesis, Provenance, RuntimeAdapter,
 };
 use crate::validate::{
     validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra,
@@ -28,6 +28,8 @@ use itertools::Itertools;
 use lru::LruCache;
 use near_chain_primitives::error::{BlockKnownError, Error, LogTransientStorageError};
 use near_client_primitives::types::StateSplitApplyingStatus;
+use near_epoch_manager::shard_tracker::ShardTracker;
+use near_epoch_manager::EpochManagerAdapter;
 use near_o11y::log_assert;
 use near_primitives::block::{genesis_chunks, Tip};
 use near_primitives::challenge::{
@@ -82,7 +84,6 @@ use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration as TimeDuration, Instant};
 use tracing::{debug, error, info, warn, Span};
@@ -426,7 +427,9 @@ type BlockApplyChunksResult = (CryptoHash, Vec<Result<ApplyChunkResult, Error>>)
 /// Provides current view on the state according to the chain state.
 pub struct Chain {
     store: ChainStore,
-    pub runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
+    pub epoch_manager: Arc<dyn EpochManagerAdapter>,
+    pub shard_tracker: ShardTracker,
+    pub runtime_adapter: Arc<dyn RuntimeAdapter>,
     orphans: OrphanBlockPool,
     pub blocks_with_missing_chunks: MissingChunksPool<Orphan>,
     genesis: Block,
@@ -468,15 +471,18 @@ pub struct Chain {
     /// to create the parts. This information is used for debugging
     pub(crate) requested_state_parts: StateRequestTracker,
 
-    /// Data to initiate and check progress of state snapshots.
-    state_snapshot_info: Option<SnapshotInfo>,
+    /// Lets trigger new state snapshots.
+    state_snapshot_helper: Option<StateSnapshotHelper>,
 }
 
-struct SnapshotInfo {
-    blocks_until_snapshot: Option<u64>,
-    snapshot_every_n_blocks: Option<u64>,
-    in_progress: Arc<AtomicBool>,
-    start_snapshot_callback: StartSnapshotCallback,
+/// Lets trigger new state snapshots.
+struct StateSnapshotHelper {
+    /// A callback to initiate state snapshot.
+    make_snapshot_callback: MakeSnapshotCallback,
+
+    /// Test-only. Artificially triggers state snapshots every N blocks.
+    /// The value is (countdown, N).
+    test_snapshot_countdown_and_frequency: Option<(u64, u64)>,
 }
 
 impl Drop for Chain {
@@ -486,13 +492,14 @@ impl Drop for Chain {
 }
 impl Chain {
     pub fn make_genesis_block(
-        runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
+        epoch_manager: &dyn EpochManagerAdapter,
+        runtime_adapter: &dyn RuntimeAdapter,
         chain_genesis: &ChainGenesis,
     ) -> Result<Block, Error> {
         let (_, state_roots) = runtime_adapter.genesis_state();
         let genesis_chunks = genesis_chunks(
             state_roots,
-            runtime_adapter.num_shards(&EpochId::default())?,
+            epoch_manager.num_shards(&EpochId::default())?,
             chain_genesis.gas_limit,
             chain_genesis.height,
             chain_genesis.protocol_version,
@@ -505,7 +512,7 @@ impl Chain {
             chain_genesis.min_gas_price,
             chain_genesis.total_supply,
             Chain::compute_bp_hash(
-                runtime_adapter,
+                epoch_manager,
                 EpochId::default(),
                 EpochId::default(),
                 &CryptoHash::default(),
@@ -514,17 +521,25 @@ impl Chain {
     }
 
     pub fn new_for_view_client(
-        runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
+        epoch_manager: Arc<dyn EpochManagerAdapter>,
+        shard_tracker: ShardTracker,
+        runtime_adapter: Arc<dyn RuntimeAdapter>,
         chain_genesis: &ChainGenesis,
         doomslug_threshold_mode: DoomslugThresholdMode,
         save_trie_changes: bool,
     ) -> Result<Chain, Error> {
         let (store, _) = runtime_adapter.genesis_state();
         let store = ChainStore::new(store, chain_genesis.height, save_trie_changes);
-        let genesis = Self::make_genesis_block(&*runtime_adapter, chain_genesis)?;
+        let genesis = Self::make_genesis_block(
+            epoch_manager.as_ref(),
+            runtime_adapter.as_ref(),
+            chain_genesis,
+        )?;
         let (sc, rc) = unbounded();
         Ok(Chain {
             store,
+            epoch_manager,
+            shard_tracker,
             runtime_adapter,
             orphans: OrphanBlockPool::new(),
             blocks_with_missing_chunks: MissingChunksPool::new(),
@@ -541,17 +556,18 @@ impl Chain {
             invalid_blocks: LruCache::new(INVALID_CHUNKS_POOL_SIZE),
             pending_state_patch: Default::default(),
             requested_state_parts: StateRequestTracker::new(),
-            state_snapshot_info: None,
+            state_snapshot_helper: None,
         })
     }
 
     pub fn new(
-        runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
+        epoch_manager: Arc<dyn EpochManagerAdapter>,
+        shard_tracker: ShardTracker,
+        runtime_adapter: Arc<dyn RuntimeAdapter>,
         chain_genesis: &ChainGenesis,
         doomslug_threshold_mode: DoomslugThresholdMode,
         chain_config: ChainConfig,
-        state_snapshot_in_progress: Option<Arc<AtomicBool>>,
-        start_snapshot_callback: Option<StartSnapshotCallback>,
+        make_snapshot_callback: Option<MakeSnapshotCallback>,
     ) -> Result<Chain, Error> {
         // Get runtime initial state and create genesis block out of it.
         let (store, state_roots) = runtime_adapter.genesis_state();
@@ -559,7 +575,7 @@ impl Chain {
             ChainStore::new(store, chain_genesis.height, chain_config.save_trie_changes);
         let genesis_chunks = genesis_chunks(
             state_roots.clone(),
-            runtime_adapter.num_shards(&EpochId::default())?,
+            epoch_manager.num_shards(&EpochId::default())?,
             chain_genesis.gas_limit,
             chain_genesis.height,
             chain_genesis.protocol_version,
@@ -572,7 +588,7 @@ impl Chain {
             chain_genesis.min_gas_price,
             chain_genesis.total_supply,
             Chain::compute_bp_hash(
-                &*runtime_adapter,
+                epoch_manager.as_ref(),
                 EpochId::default(),
                 EpochId::default(),
                 &CryptoHash::default(),
@@ -624,7 +640,7 @@ impl Chain {
                 for (chunk_header, state_root) in genesis.chunks().iter().zip(state_roots.iter()) {
                     store_update.save_chunk_extra(
                         genesis.hash(),
-                        &runtime_adapter
+                        &epoch_manager
                             .shard_id_to_uid(chunk_header.shard_id(), &EpochId::default())?,
                         ChunkExtra::new(
                             state_root,
@@ -645,12 +661,21 @@ impl Chain {
                 // Set the root block of flat state to be the genesis block. Later, when we
                 // init FlatStorages, we will read the from this column in storage, so it
                 // must be set here.
-                let tmp_store_update = runtime_adapter.set_flat_storage_for_genesis(
-                    genesis.hash(),
-                    genesis.header().height(),
-                    genesis.header().epoch_id(),
-                )?;
-                store_update.merge(tmp_store_update);
+                if let Some(flat_storage_manager) = runtime_adapter.get_flat_storage_manager() {
+                    let genesis_epoch_id = genesis.header().epoch_id();
+                    let mut tmp_store_update = store_update.store().store_update();
+                    for shard_uid in
+                        epoch_manager.get_shard_layout(genesis_epoch_id)?.get_shard_uids()
+                    {
+                        flat_storage_manager.set_flat_storage_for_genesis(
+                            &mut tmp_store_update,
+                            shard_uid,
+                            genesis.hash(),
+                            genesis.header().height(),
+                        )
+                    }
+                    store_update.merge(tmp_store_update);
+                }
 
                 info!(target: "chain", "Init: saved genesis: #{} {} / {:?}", block_head.height, block_head.last_block_hash, state_roots);
 
@@ -678,6 +703,8 @@ impl Chain {
         let (sc, rc) = unbounded();
         Ok(Chain {
             store,
+            epoch_manager,
+            shard_tracker,
             runtime_adapter,
             orphans: OrphanBlockPool::new(),
             blocks_with_missing_chunks: MissingChunksPool::new(),
@@ -694,18 +721,16 @@ impl Chain {
             last_time_head_updated: StaticClock::instant(),
             pending_state_patch: Default::default(),
             requested_state_parts: StateRequestTracker::new(),
-            state_snapshot_info: if let Some(in_progress) = state_snapshot_in_progress {
-                let (blocks_until_snapshot, snapshot_every_n_blocks) =
+            state_snapshot_helper: if let Some(callback) = make_snapshot_callback {
+                let test_snapshot_countdown_and_frequency =
                     if let Some(n) = chain_config.state_snapshot_every_n_blocks {
-                        (Some(0), Some(n))
+                        Some((0, n))
                     } else {
-                        (None, None)
+                        None
                     };
-                Some(SnapshotInfo {
-                    blocks_until_snapshot,
-                    snapshot_every_n_blocks,
-                    in_progress,
-                    start_snapshot_callback: start_snapshot_callback.unwrap(),
+                Some(StateSnapshotHelper {
+                    make_snapshot_callback: callback,
+                    test_snapshot_countdown_and_frequency,
                 })
             } else {
                 None
@@ -719,13 +744,13 @@ impl Chain {
     }
 
     pub fn compute_bp_hash(
-        runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
+        epoch_manager: &dyn EpochManagerAdapter,
         epoch_id: EpochId,
         prev_epoch_id: EpochId,
         last_known_hash: &CryptoHash,
     ) -> Result<CryptoHash, Error> {
-        let bps = runtime_adapter.get_epoch_block_producers_ordered(&epoch_id, last_known_hash)?;
-        let protocol_version = runtime_adapter.get_epoch_protocol_version(&prev_epoch_id)?;
+        let bps = epoch_manager.get_epoch_block_producers_ordered(&epoch_id, last_known_hash)?;
+        let protocol_version = epoch_manager.get_epoch_protocol_version(&prev_epoch_id)?;
         if checked_feature!("stable", BlockHeaderV3, protocol_version) {
             let validator_stakes = bps.into_iter().map(|(bp, _)| bp);
             Ok(CryptoHash::hash_borsh_iter(validator_stakes))
@@ -746,7 +771,7 @@ impl Chain {
     ///               compute the light client block
     pub fn create_light_client_block(
         header: &BlockHeader,
-        runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
+        epoch_manager: &dyn EpochManagerAdapter,
         chain_store: &dyn ChainStoreAccess,
     ) -> Result<LightClientBlockView, Error> {
         let final_block_header = {
@@ -769,7 +794,7 @@ impl Chain {
         let next_block_producers = get_epoch_block_producers_view(
             final_block_header.next_epoch_id(),
             header.prev_hash(),
-            runtime_adapter,
+            epoch_manager,
         )?;
 
         create_light_client_block_view(&final_block_header, chain_store, Some(next_block_producers))
@@ -946,30 +971,32 @@ impl Chain {
             if gc_blocks_remaining == 0 {
                 return Ok(());
             }
-            let blocks_current_height = self.store.get_all_block_hashes_by_height(height);
+            let blocks_current_height = self
+                .store
+                .get_all_block_hashes_by_height(height)?
+                .values()
+                .flatten()
+                .cloned()
+                .collect::<Vec<_>>();
             let mut chain_store_update = self.store.store_update();
-            if let Ok(blocks_current_height) = blocks_current_height {
-                let blocks_current_height =
-                    blocks_current_height.values().flatten().cloned().collect::<Vec<_>>();
-                if let Some(block_hash) = blocks_current_height.first() {
-                    let prev_hash = *chain_store_update.get_block_header(block_hash)?.prev_hash();
-                    let prev_block_refcount = chain_store_update.get_block_refcount(&prev_hash)?;
-                    if prev_block_refcount > 1 {
-                        // Block of `prev_hash` starts a Fork, stopping
-                        break;
-                    } else if prev_block_refcount == 1 {
-                        debug_assert_eq!(blocks_current_height.len(), 1);
-                        chain_store_update.clear_block_data(
-                            &*self.runtime_adapter,
-                            *block_hash,
-                            GCMode::Canonical(tries.clone()),
-                        )?;
-                        gc_blocks_remaining -= 1;
-                    } else {
-                        return Err(Error::GCError(
-                            "block on canonical chain shouldn't have refcount 0".into(),
-                        ));
-                    }
+            if let Some(block_hash) = blocks_current_height.first() {
+                let prev_hash = *chain_store_update.get_block_header(block_hash)?.prev_hash();
+                let prev_block_refcount = chain_store_update.get_block_refcount(&prev_hash)?;
+                if prev_block_refcount > 1 {
+                    // Block of `prev_hash` starts a Fork, stopping
+                    break;
+                } else if prev_block_refcount == 1 {
+                    debug_assert_eq!(blocks_current_height.len(), 1);
+                    chain_store_update.clear_block_data(
+                        self.epoch_manager.as_ref(),
+                        *block_hash,
+                        GCMode::Canonical(tries.clone()),
+                    )?;
+                    gc_blocks_remaining -= 1;
+                } else {
+                    return Err(Error::GCError(
+                        "block on canonical chain shouldn't have refcount 0".into(),
+                    ));
                 }
             }
             chain_store_update.update_tail(height)?;
@@ -1009,38 +1036,41 @@ impl Chain {
         height: BlockHeight,
         gc_blocks_remaining: &mut NumBlocks,
     ) -> Result<(), Error> {
-        if let Ok(blocks_current_height) = self.store.get_all_block_hashes_by_height(height) {
-            let blocks_current_height =
-                blocks_current_height.values().flatten().cloned().collect::<Vec<_>>();
-            for block_hash in blocks_current_height.iter() {
-                let mut current_hash = *block_hash;
-                loop {
-                    if *gc_blocks_remaining == 0 {
-                        return Ok(());
-                    }
-                    // Block `block_hash` is not on the Canonical Chain
-                    // because shorter chain cannot be Canonical one
-                    // and it may be safely deleted
-                    // and all its ancestors while there are no other sibling blocks rely on it.
-                    let mut chain_store_update = self.store.store_update();
-                    if chain_store_update.get_block_refcount(&current_hash)? == 0 {
-                        let prev_hash =
-                            *chain_store_update.get_block_header(&current_hash)?.prev_hash();
+        let blocks_current_height = self
+            .store
+            .get_all_block_hashes_by_height(height)?
+            .values()
+            .flatten()
+            .cloned()
+            .collect::<Vec<_>>();
+        for block_hash in blocks_current_height.iter() {
+            let mut current_hash = *block_hash;
+            loop {
+                if *gc_blocks_remaining == 0 {
+                    return Ok(());
+                }
+                // Block `block_hash` is not on the Canonical Chain
+                // because shorter chain cannot be Canonical one
+                // and it may be safely deleted
+                // and all its ancestors while there are no other sibling blocks rely on it.
+                let mut chain_store_update = self.store.store_update();
+                if chain_store_update.get_block_refcount(&current_hash)? == 0 {
+                    let prev_hash =
+                        *chain_store_update.get_block_header(&current_hash)?.prev_hash();
 
-                        // It's safe to call `clear_block_data` for prev data because it clears fork only here
-                        chain_store_update.clear_block_data(
-                            &*self.runtime_adapter,
-                            current_hash,
-                            GCMode::Fork(tries.clone()),
-                        )?;
-                        chain_store_update.commit()?;
-                        *gc_blocks_remaining -= 1;
+                    // It's safe to call `clear_block_data` for prev data because it clears fork only here
+                    chain_store_update.clear_block_data(
+                        self.epoch_manager.as_ref(),
+                        current_hash,
+                        GCMode::Fork(tries.clone()),
+                    )?;
+                    chain_store_update.commit()?;
+                    *gc_blocks_remaining -= 1;
 
-                        current_hash = prev_hash;
-                    } else {
-                        // Block of `current_hash` is an ancestor for some other blocks, stopping
-                        break;
-                    }
+                    current_hash = prev_hash;
+                } else {
+                    // Block of `current_hash` is an ancestor for some other blocks, stopping
+                    break;
                 }
             }
         }
@@ -1056,8 +1086,12 @@ impl Chain {
         block: &Block,
     ) -> Result<Option<StateSyncInfo>, Error> {
         let prev_hash = *block.header().prev_hash();
-        let shards_to_dl =
-            Chain::get_shards_to_dl_state(self.runtime_adapter.clone(), me, &prev_hash)?;
+        let shards_to_dl = Chain::get_shards_to_dl_state(
+            self.epoch_manager.as_ref(),
+            &self.shard_tracker,
+            me,
+            &prev_hash,
+        )?;
         let prev_block = self.get_block(&prev_hash)?;
 
         if prev_block.chunks().len() != block.chunks().len() && !shards_to_dl.is_empty() {
@@ -1102,18 +1136,14 @@ impl Chain {
     pub fn validate_block(&self, block: &MaybeValidated<Block>) -> Result<(), Error> {
         block
             .validate_with(|block| {
-                Chain::validate_block_impl(
-                    self.runtime_adapter.as_ref(),
-                    self.genesis_block(),
-                    block,
-                )
-                .map(|_| true)
+                Chain::validate_block_impl(self.epoch_manager.as_ref(), self.genesis_block(), block)
+                    .map(|_| true)
             })
             .map(|_| ())
     }
 
     fn validate_block_impl(
-        runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
+        epoch_manager: &dyn EpochManagerAdapter,
         genesis_block: &Block,
         block: &Block,
     ) -> Result<(), Error> {
@@ -1130,7 +1160,7 @@ impl Chain {
                     return Err(Error::InvalidChunk);
                 }
             } else if chunk_header.height_created() == block.header().height() {
-                if !runtime_adapter.verify_chunk_header_signature(
+                if !epoch_manager.verify_chunk_header_signature(
                     &chunk_header.clone(),
                     block.header().epoch_id(),
                     block.header().prev_hash(),
@@ -1150,11 +1180,11 @@ impl Chain {
     /// Same as verify_header_signature except it does not verify that block producer hasn't been slashed
     fn partial_verify_orphan_header_signature(&self, header: &BlockHeader) -> Result<bool, Error> {
         let block_producer =
-            self.runtime_adapter.get_block_producer(header.epoch_id(), header.height())?;
+            self.epoch_manager.get_block_producer(header.epoch_id(), header.height())?;
         // DEVNOTE: we pass head which is not necessarily on block's chain, but it's only used for
         // slashing info which we will ignore
         let head = self.head()?;
-        let (block_producer, _slashed) = self.runtime_adapter.get_validator_by_account_id(
+        let (block_producer, _slashed) = self.epoch_manager.get_validator_by_account_id(
             header.epoch_id(),
             &head.last_block_hash,
             &block_producer,
@@ -1210,31 +1240,30 @@ impl Chain {
         }
 
         // First I/O cost, delay as much as possible.
-        if !self.runtime_adapter.verify_header_signature(header)? {
+        if !self.epoch_manager.verify_header_signature(header)? {
             return Err(Error::InvalidSignature);
         }
 
         // Check we don't know a block with given height already.
         // If we do - send out double sign challenge and keep going as double signed blocks are valid blocks.
-        if let Ok(epoch_id_to_blocks) = self.store.get_all_block_hashes_by_height(header.height()) {
-            // Check if there is already known block of the same height that has the same epoch id
-            if let Some(block_hashes) = epoch_id_to_blocks.get(header.epoch_id()) {
-                // This should be guaranteed but it doesn't hurt to check again
-                if !block_hashes.contains(header.hash()) {
-                    let other_header =
-                        self.get_block_header(block_hashes.iter().next().unwrap())?;
+        // Check if there is already known block of the same height that has the same epoch id
+        if let Some(block_hashes) =
+            self.store.get_all_block_hashes_by_height(header.height())?.get(header.epoch_id())
+        {
+            // This should be guaranteed but it doesn't hurt to check again
+            if !block_hashes.contains(header.hash()) {
+                let other_header = self.get_block_header(block_hashes.iter().next().unwrap())?;
 
-                    challenges.push(ChallengeBody::BlockDoubleSign(BlockDoubleSign {
-                        left_block_header: header.try_to_vec().expect("Failed to serialize"),
-                        right_block_header: other_header.try_to_vec().expect("Failed to serialize"),
-                    }));
-                }
+                challenges.push(ChallengeBody::BlockDoubleSign(BlockDoubleSign {
+                    left_block_header: header.try_to_vec().expect("Failed to serialize"),
+                    right_block_header: other_header.try_to_vec().expect("Failed to serialize"),
+                }));
             }
         }
 
         #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
         if let Ok(epoch_protocol_version) =
-            self.runtime_adapter.get_epoch_protocol_version(header.epoch_id())
+            self.epoch_manager.get_epoch_protocol_version(header.epoch_id())
         {
             if checked_feature!(
                 "protocol_feature_reject_blocks_with_outdated_protocol_version",
@@ -1256,14 +1285,14 @@ impl Chain {
 
         // Check that epoch_id in the header does match epoch given previous header (only if previous header is present).
         let epoch_id_from_prev_block =
-            &self.runtime_adapter.get_epoch_id_from_prev_block(header.prev_hash())?;
+            &self.epoch_manager.get_epoch_id_from_prev_block(header.prev_hash())?;
         let epoch_id_from_header = header.epoch_id();
         if epoch_id_from_prev_block != epoch_id_from_header {
             return Err(Error::InvalidEpochHash);
         }
 
         // Check that epoch_id in the header does match epoch given previous header (only if previous header is present).
-        if &self.runtime_adapter.get_next_epoch_id_from_prev_block(header.prev_hash())?
+        if &self.epoch_manager.get_next_epoch_id_from_prev_block(header.prev_hash())?
             != header.next_epoch_id()
         {
             return Err(Error::InvalidEpochHash);
@@ -1276,7 +1305,7 @@ impl Chain {
         } else {
             if header.next_bp_hash()
                 != &Chain::compute_bp_hash(
-                    &*self.runtime_adapter,
+                    self.epoch_manager.as_ref(),
                     header.next_epoch_id().clone(),
                     header.epoch_id().clone(),
                     header.prev_hash(),
@@ -1286,7 +1315,7 @@ impl Chain {
             }
         }
 
-        if header.chunk_mask().len() as u64 != self.runtime_adapter.num_shards(header.epoch_id())? {
+        if header.chunk_mask().len() as u64 != self.epoch_manager.num_shards(header.epoch_id())? {
             return Err(Error::InvalidChunkMask);
         }
 
@@ -1309,7 +1338,7 @@ impl Chain {
         // producer, confirmation signatures and finality info.
         if *provenance != Provenance::PRODUCED {
             // first verify aggregated signature
-            if !self.runtime_adapter.verify_approval(
+            if !self.epoch_manager.verify_approval(
                 prev_header.hash(),
                 prev_header.height(),
                 header.height(),
@@ -1319,7 +1348,7 @@ impl Chain {
             };
 
             let stakes = self
-                .runtime_adapter
+                .epoch_manager
                 .get_epoch_block_approvers_ordered(header.prev_hash())?
                 .iter()
                 .map(|(x, is_slashed)| (x.stake_this_epoch, x.stake_next_epoch, *is_slashed))
@@ -1409,7 +1438,13 @@ impl Chain {
         let mut result = vec![];
         let mut challenged_blocks = vec![];
         for challenge in challenges.iter() {
-            match validate_challenge(&*self.runtime_adapter, epoch_id, prev_block_hash, challenge) {
+            match validate_challenge(
+                self.epoch_manager.as_ref(),
+                self.runtime_adapter.as_ref(),
+                epoch_id,
+                prev_block_hash,
+                challenge,
+            ) {
                 Ok((hash, account_ids)) => {
                     let is_double_sign = match challenge.body {
                         // If it's double signed block, we don't invalidate blocks just slash.
@@ -1436,7 +1471,8 @@ impl Chain {
 
     /// Do basic validation of the information that we can get from the chunk headers in `block`
     fn validate_chunk_headers(&self, block: &Block, prev_block: &Block) -> Result<(), Error> {
-        let prev_chunk_headers = Chain::get_prev_chunk_headers(&*self.runtime_adapter, prev_block)?;
+        let prev_chunk_headers =
+            Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), prev_block)?;
         for (chunk_header, prev_chunk_header) in
             block.chunks().iter().zip(prev_chunk_headers.iter())
         {
@@ -1533,12 +1569,12 @@ impl Chain {
 
                 if let Err(_) = self.store.get_partial_chunk(&chunk_header.chunk_hash()) {
                     missing.push(chunk_header.clone());
-                } else if self.runtime_adapter.cares_about_shard(
+                } else if self.shard_tracker.care_about_shard(
                     me.as_ref(),
                     &parent_hash,
                     shard_id,
                     true,
-                ) || self.runtime_adapter.will_care_about_shard(
+                ) || self.shard_tracker.will_care_about_shard(
                     me.as_ref(),
                     &parent_hash,
                     shard_id,
@@ -1561,10 +1597,10 @@ impl Chain {
         me: &Option<AccountId>,
         parent_hash: CryptoHash,
     ) -> Result<bool, Error> {
-        let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&parent_hash)?;
-        for shard_id in 0..self.runtime_adapter.num_shards(&epoch_id)? {
-            if self.runtime_adapter.cares_about_shard(me.as_ref(), &parent_hash, shard_id, true)
-                || self.runtime_adapter.will_care_about_shard(
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&parent_hash)?;
+        for shard_id in 0..self.epoch_manager.num_shards(&epoch_id)? {
+            if self.shard_tracker.care_about_shard(me.as_ref(), &parent_hash, shard_id, true)
+                || self.shard_tracker.will_care_about_shard(
                     me.as_ref(),
                     &parent_hash,
                     shard_id,
@@ -1574,8 +1610,8 @@ impl Chain {
                 return Ok(true);
             }
         }
-        for part_id in 0..self.runtime_adapter.num_total_parts() {
-            if &Some(self.runtime_adapter.get_part_owner(&epoch_id, part_id as u64)?) == me {
+        for part_id in 0..self.epoch_manager.num_total_parts() {
+            if &Some(self.epoch_manager.get_part_owner(&epoch_id, part_id as u64)?) == me {
                 return Ok(true);
             }
         }
@@ -1862,31 +1898,34 @@ impl Chain {
         let tail = self.store.tail()?;
         let mut tail_prev_block_cleaned = false;
         for height in tail..gc_height {
-            if let Ok(blocks_current_height) = self.store.get_all_block_hashes_by_height(height) {
-                let blocks_current_height =
-                    blocks_current_height.values().flatten().cloned().collect::<Vec<_>>();
-                for block_hash in blocks_current_height {
-                    let runtime_adapter = self.runtime_adapter();
-                    let mut chain_store_update = self.mut_store().store_update();
-                    if !tail_prev_block_cleaned {
-                        let prev_block_hash =
-                            *chain_store_update.get_block_header(&block_hash)?.prev_hash();
-                        if chain_store_update.get_block(&prev_block_hash).is_ok() {
-                            chain_store_update.clear_block_data(
-                                &*runtime_adapter,
-                                prev_block_hash,
-                                GCMode::StateSync { clear_block_info: true },
-                            )?;
-                        }
-                        tail_prev_block_cleaned = true;
+            let blocks_current_height = self
+                .store
+                .get_all_block_hashes_by_height(height)?
+                .values()
+                .flatten()
+                .cloned()
+                .collect::<Vec<_>>();
+            for block_hash in blocks_current_height {
+                let epoch_manager = self.epoch_manager.clone();
+                let mut chain_store_update = self.mut_store().store_update();
+                if !tail_prev_block_cleaned {
+                    let prev_block_hash =
+                        *chain_store_update.get_block_header(&block_hash)?.prev_hash();
+                    if chain_store_update.get_block(&prev_block_hash).is_ok() {
+                        chain_store_update.clear_block_data(
+                            epoch_manager.as_ref(),
+                            prev_block_hash,
+                            GCMode::StateSync { clear_block_info: true },
+                        )?;
                     }
-                    chain_store_update.clear_block_data(
-                        &*runtime_adapter,
-                        block_hash,
-                        GCMode::StateSync { clear_block_info: block_hash != prev_hash },
-                    )?;
-                    chain_store_update.commit()?;
+                    tail_prev_block_cleaned = true;
                 }
+                chain_store_update.clear_block_data(
+                    epoch_manager.as_ref(),
+                    block_hash,
+                    GCMode::StateSync { clear_block_info: block_hash != prev_hash },
+                )?;
+                chain_store_update.commit()?;
             }
         }
 
@@ -2063,22 +2102,9 @@ impl Chain {
         };
         let (apply_chunk_work, block_preprocess_info) = preprocess_res;
 
-        let mut need_state_snapshot = block_preprocess_info.need_state_snapshot;
-        if let Some(snapshot_info) = &mut self.state_snapshot_info {
-            if snapshot_info.blocks_until_snapshot == Some(0) {
-                need_state_snapshot = true;
-            }
-            snapshot_info.blocks_until_snapshot = snapshot_info.blocks_until_snapshot.map(|x| {
-                if x == 0 {
-                    snapshot_info.snapshot_every_n_blocks.unwrap()
-                } else {
-                    x - 1
-                }
-            });
-        }
-        if need_state_snapshot {
-            self.start_state_snapshot();
-        }
+        let need_state_snapshot = block_preprocess_info.need_state_snapshot
+            | self.need_test_state_snapshot(block_preprocess_info.need_state_snapshot);
+        self.maybe_start_state_snapshot(need_state_snapshot);
 
         let block = block.into_inner();
         let block_hash = *block.hash();
@@ -2154,19 +2180,11 @@ impl Chain {
         block: &Block,
         shard_uid: ShardUId,
     ) -> Result<(), Error> {
-        let _span = tracing::debug_span!(
-            target: "chain",
-            "update_flat_storage_for_block",
-            block_height = block.header().height(),
-            shard_id = shard_uid.shard_id
-        )
-        .entered();
-        if let Some(flat_storage) = self.runtime_adapter.get_flat_storage_for_shard(shard_uid) {
-            if self.state_snapshot_is_in_progress() {
-                tracing::warn!(target: "state_snapshot", "Ignore update_flat_storage_for_block() because state snapshot is in progress");
-                return Ok(());
-            }
-
+        if let Some(flat_storage) = self
+            .runtime_adapter
+            .get_flat_storage_manager()
+            .and_then(|manager| manager.get_flat_storage_for_shard(shard_uid))
+        {
             let mut new_flat_head = *block.header().last_final_block();
             if new_flat_head == CryptoHash::default() {
                 new_flat_head = *self.genesis.hash();
@@ -2260,16 +2278,16 @@ impl Chain {
         // the last final block on chain, which is OK, because in the flat storage implementation
         // we don't assume that.
         let epoch_id = block.header().epoch_id();
-        for shard_id in 0..self.runtime_adapter.num_shards(epoch_id)? {
+        for shard_id in 0..self.epoch_manager.num_shards(epoch_id)? {
             let need_flat_storage_update = if is_caught_up {
                 // If we already caught up this epoch, then flat storage exists for both shards which we already track
                 // and shards which will be tracked in next epoch, so we can update them.
-                self.runtime_adapter.cares_about_shard(
+                self.shard_tracker.care_about_shard(
                     me.as_ref(),
                     block.header().prev_hash(),
                     shard_id,
                     true,
-                ) || self.runtime_adapter.will_care_about_shard(
+                ) || self.shard_tracker.will_care_about_shard(
                     me.as_ref(),
                     block.header().prev_hash(),
                     shard_id,
@@ -2278,7 +2296,7 @@ impl Chain {
             } else {
                 // If we didn't catch up, we can update only shards tracked right now. Remaining shards will be updated
                 // during catchup of this block.
-                self.runtime_adapter.cares_about_shard(
+                self.shard_tracker.care_about_shard(
                     me.as_ref(),
                     block.header().prev_hash(),
                     shard_id,
@@ -2287,7 +2305,7 @@ impl Chain {
             };
 
             if need_flat_storage_update {
-                let shard_uid = self.runtime_adapter.shard_id_to_uid(shard_id, epoch_id)?;
+                let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
                 self.update_flat_storage_for_block(&block, shard_uid)?;
             }
         }
@@ -2298,7 +2316,7 @@ impl Chain {
             // TODO: move this logic of tracking validators metrics to EpochManager
             let mut count = 0;
             let mut stake = 0;
-            if let Ok(producers) = self.runtime_adapter.get_epoch_chunk_producers(&tip.epoch_id) {
+            if let Ok(producers) = self.epoch_manager.get_epoch_chunk_producers(&tip.epoch_id) {
                 stake += producers.iter().map(|info| info.stake()).sum::<Balance>();
                 count += producers.len();
             }
@@ -2361,12 +2379,12 @@ impl Chain {
 
         // Check that we know the epoch of the block before we try to get the header
         // (so that a block from unknown epoch doesn't get marked as an orphan)
-        if !self.runtime_adapter.epoch_exists(block.header().epoch_id()) {
+        if !self.epoch_manager.epoch_exists(block.header().epoch_id()) {
             return Err(Error::EpochOutOfBounds(block.header().epoch_id().clone()));
         }
 
         if block.chunks().len()
-            != self.runtime_adapter.num_shards(block.header().epoch_id())? as usize
+            != self.epoch_manager.num_shards(block.header().epoch_id())? as usize
         {
             return Err(Error::IncorrectNumberOfChunkHeaders);
         }
@@ -2407,7 +2425,7 @@ impl Chain {
         }
 
         let epoch_protocol_version =
-            self.runtime_adapter.get_epoch_protocol_version(block.header().epoch_id())?;
+            self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
         if epoch_protocol_version > PROTOCOL_VERSION {
             panic!("The client protocol version is older than the protocol version of the network. Please update nearcore. Client protocol version:{}, network protocol version {}", PROTOCOL_VERSION, epoch_protocol_version);
         }
@@ -2426,7 +2444,7 @@ impl Chain {
         }
 
         let (is_caught_up, state_dl_info, need_state_snapshot) =
-            if self.runtime_adapter.is_next_block_epoch_start(&prev_hash)? {
+            if self.epoch_manager.is_next_block_epoch_start(&prev_hash)? {
                 if !self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)? {
                     // The previous block is not caught up for the next epoch relative to the previous
                     // block, which is the current epoch for this block, so this block cannot be applied
@@ -2452,7 +2470,7 @@ impl Chain {
         // Check the header is valid before we proceed with the full block.
         self.validate_header(block.header(), provenance, challenges)?;
 
-        self.runtime_adapter.verify_block_vrf(
+        self.epoch_manager.verify_block_vrf(
             block.header().epoch_id(),
             block.header().height(),
             &prev_random_value,
@@ -2465,7 +2483,7 @@ impl Chain {
         }
 
         let res = block.validate_with(|block| {
-            Chain::validate_block_impl(self.runtime_adapter.as_ref(), &self.genesis, block)
+            Chain::validate_block_impl(self.epoch_manager.as_ref(), &self.genesis, block)
                 .map(|_| true)
         });
         if let Err(e) = res {
@@ -2474,7 +2492,7 @@ impl Chain {
         }
 
         let protocol_version =
-            self.runtime_adapter.get_epoch_protocol_version(block.header().epoch_id())?;
+            self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
         if !block.verify_gas_price(
             prev_gas_price,
             self.block_economics_config.min_gas_price(protocol_version),
@@ -2484,8 +2502,8 @@ impl Chain {
             byzantine_assert!(false);
             return Err(Error::InvalidGasPrice);
         }
-        let minted_amount = if self.runtime_adapter.is_next_block_epoch_start(&prev_hash)? {
-            Some(self.runtime_adapter.get_epoch_minted_amount(block.header().next_epoch_id())?)
+        let minted_amount = if self.epoch_manager.is_next_block_epoch_start(&prev_hash)? {
+            Some(self.epoch_manager.get_epoch_minted_amount(block.header().next_epoch_id())?)
         } else {
             None
         };
@@ -2576,8 +2594,7 @@ impl Chain {
             // 4) Among the `NUM_ORPHAN_ANCESTORS_CHECK` immediate parents of the block at least one is
             //    accepted(is in store), call it `ancestor`
             if self.get_block(&block_hash).is_ok() {
-                if let Ok(epoch_id) = self.runtime_adapter.get_epoch_id_from_prev_block(&block_hash)
-                {
+                if let Ok(epoch_id) = self.epoch_manager.get_epoch_id_from_prev_block(&block_hash) {
                     // 5) The next block of `ancestor` has the same epoch_id as the orphan block
                     if &epoch_id == orphan.header().epoch_id() {
                         // 6) The orphan has missing chunks
@@ -2629,32 +2646,40 @@ impl Chain {
     /// 2) Shard layout will be the same. In this case, the method returns all shards that `me` will
     ///    track in the next epoch but not this epoch
     fn get_shards_to_dl_state(
-        runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
+        epoch_manager: &dyn EpochManagerAdapter,
+        shard_tracker: &ShardTracker,
         me: &Option<AccountId>,
         parent_hash: &CryptoHash,
     ) -> Result<Vec<ShardId>, Error> {
-        let epoch_id = runtime_adapter.get_epoch_id_from_prev_block(parent_hash)?;
-        Ok((0..runtime_adapter.num_shards(&epoch_id)?)
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
+        Ok((0..epoch_manager.num_shards(&epoch_id)?)
             .filter(|shard_id| {
-                Self::should_catch_up_shard(runtime_adapter.clone(), me, parent_hash, *shard_id)
+                Self::should_catch_up_shard(
+                    epoch_manager,
+                    shard_tracker,
+                    me,
+                    parent_hash,
+                    *shard_id,
+                )
             })
             .collect())
     }
 
     fn should_catch_up_shard(
-        runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
+        epoch_manager: &dyn EpochManagerAdapter,
+        shard_tracker: &ShardTracker,
         me: &Option<AccountId>,
         parent_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> bool {
         let will_shard_layout_change =
-            runtime_adapter.will_shard_layout_change_next_epoch(parent_hash).unwrap_or(false);
+            epoch_manager.will_shard_layout_change(parent_hash).unwrap_or(false);
         // if shard layout will change the next epoch, we should catch up the shard regardless
         // whether we already have the shard's state this epoch, because we need to generate
         // new states for shards split from the current shard for the next epoch
-        runtime_adapter.will_care_about_shard(me.as_ref(), parent_hash, shard_id, true)
+        shard_tracker.will_care_about_shard(me.as_ref(), parent_hash, shard_id, true)
             && (will_shard_layout_change
-                || !runtime_adapter.cares_about_shard(me.as_ref(), parent_hash, shard_id, true))
+                || !shard_tracker.care_about_shard(me.as_ref(), parent_hash, shard_id, true))
     }
 
     /// Check if any block with missing chunk is ready to be processed and start processing these blocks
@@ -2751,7 +2776,7 @@ impl Chain {
         last_height_included: BlockHeight,
     ) -> Result<Vec<Receipt>, Error> {
         self.store.get_outgoing_receipts_for_shard(
-            &*self.runtime_adapter,
+            self.epoch_manager.as_ref(),
             prev_block_hash,
             shard_id,
             last_height_included,
@@ -2994,6 +3019,7 @@ impl Chain {
         }
         let state_root = sync_prev_block.chunks()[shard_id as usize].prev_state_root();
         let sync_prev_hash = *sync_prev_block.hash();
+        let sync_prev_prev_hash = *sync_prev_block.header().prev_hash();
         let state_root_node = self
             .runtime_adapter
             .get_state_root_node(shard_id, &sync_prev_hash, &state_root)
@@ -3006,9 +3032,9 @@ impl Chain {
         let current_time = Instant::now();
         let state_part = self
             .runtime_adapter
-            .obtain_state_part_from_snapshot(
+            .obtain_state_part(
                 shard_id,
-                &sync_prev_hash,
+                &sync_prev_prev_hash,
                 &state_root,
                 PartId::new(part_id, num_parts),
             )
@@ -3041,7 +3067,7 @@ impl Chain {
         let prev_chunk_header = shard_state_header.cloned_prev_chunk_header();
 
         // 1-2. Checking chunk validity
-        if !validate_chunk_proofs(&chunk, self.runtime_adapter.epoch_manager_adapter())? {
+        if !validate_chunk_proofs(&chunk, self.epoch_manager.as_ref())? {
             byzantine_assert!(false);
             return Err(Error::Other(
                 "set_shard_state failed: chunk header proofs are invalid".into(),
@@ -3225,17 +3251,19 @@ impl Chain {
         num_parts: u64,
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
     ) -> Result<(), Error> {
-        // Before working with state parts, remove existing flat storage data.
         let epoch_id = self.get_block_header(&sync_hash)?.epoch_id().clone();
-        let shard_uid = self.runtime_adapter.shard_id_to_uid(shard_id, &epoch_id)?;
-        self.runtime_adapter.remove_flat_storage_for_shard(shard_uid, &epoch_id)?;
+
+        // Before working with state parts, remove existing flat storage data.
+        if let Some(flat_storage_manager) = self.runtime_adapter.get_flat_storage_manager() {
+            let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
+            flat_storage_manager.remove_flat_storage_for_shard(shard_uid)?;
+        }
 
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let state_root = shard_state_header.chunk_prev_state_root();
-        let epoch_id = self.get_block_header(&sync_hash)?.epoch_id().clone();
 
         state_parts_task_scheduler(ApplyStatePartsRequest {
-            runtime: Arc::clone(&self.runtime_adapter),
+            runtime_adapter: self.runtime_adapter.clone(),
             shard_id,
             state_root,
             num_parts,
@@ -3268,16 +3296,11 @@ impl Chain {
         if *block_hash != CryptoHash::default() {
             let block_header = self.get_block_header(block_hash)?;
             let epoch_id = block_header.epoch_id();
-            let shard_uid = self.runtime_adapter.shard_id_to_uid(shard_id, epoch_id)?;
+            let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
 
-            // Check if flat storage is disabled, which may be the case when runtime is implemented with
-            // `KeyValueRuntime`.
-            if !matches!(
-                self.runtime_adapter.get_flat_storage_status(shard_uid),
-                FlatStorageStatus::Disabled
-            ) {
+            if let Some(flat_storage_manager) = self.runtime_adapter.get_flat_storage_manager() {
                 // Flat storage must not exist at this point because leftover keys corrupt its state.
-                assert!(self.runtime_adapter.get_flat_storage_for_shard(shard_uid).is_none());
+                assert!(flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_none());
 
                 let mut store_update = self.runtime_adapter.store().store_update();
                 store_helper::set_flat_storage_status(
@@ -3292,7 +3315,7 @@ impl Chain {
                     }),
                 );
                 store_update.commit()?;
-                self.runtime_adapter.create_flat_storage_for_shard(shard_uid);
+                flat_storage_manager.create_flat_storage_for_shard(shard_uid);
             }
         }
 
@@ -3329,15 +3352,15 @@ impl Chain {
             let block_header = self.get_block_header(sync_hash)?;
             (block_header.epoch_id().clone(), block_header.next_epoch_id().clone())
         };
-        let shard_layout = self.runtime_adapter.get_shard_layout(&epoch_id)?;
-        let next_epoch_shard_layout = self.runtime_adapter.get_shard_layout(&next_epoch_id)?;
+        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+        let next_epoch_shard_layout = self.epoch_manager.get_shard_layout(&next_epoch_id)?;
         let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
         let prev_hash = *self.get_block_header(sync_hash)?.prev_hash();
         let state_root = *self.get_chunk_extra(&prev_hash, &shard_uid)?.state_root();
         assert_ne!(shard_layout, next_epoch_shard_layout);
 
         state_split_scheduler(StateSplitRequest {
-            runtime: Arc::clone(&self.runtime_adapter),
+            runtime_adapter: self.runtime_adapter.clone(),
             sync_hash: *sync_hash,
             shard_id,
             shard_uid,
@@ -3407,7 +3430,7 @@ impl Chain {
                         }
                         if saw_one {
                             assert_eq!(
-                                self.runtime_adapter.get_epoch_id_from_prev_block(&queued_block)?,
+                                self.epoch_manager.get_epoch_id_from_prev_block(&queued_block)?,
                                 blocks_catch_up_state.epoch_id
                             );
                         }
@@ -3465,21 +3488,21 @@ impl Chain {
         chain_update.commit()?;
 
         let epoch_id = block.header().epoch_id();
-        for shard_id in 0..self.runtime_adapter.num_shards(epoch_id)? {
+        for shard_id in 0..self.epoch_manager.num_shards(epoch_id)? {
             // Update flat storage for each shard being caught up. We catch up a shard if it is tracked in the next
             // epoch. If it is tracked in this epoch as well, it was updated during regular block processing.
-            if !self.runtime_adapter.cares_about_shard(
+            if !self.shard_tracker.care_about_shard(
                 me.as_ref(),
                 block.header().prev_hash(),
                 shard_id,
                 true,
-            ) && self.runtime_adapter.will_care_about_shard(
+            ) && self.shard_tracker.will_care_about_shard(
                 me.as_ref(),
                 block.header().prev_hash(),
                 shard_id,
                 true,
             ) {
-                let shard_uid = self.runtime_adapter.shard_id_to_uid(shard_id, epoch_id)?;
+                let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
                 self.update_flat_storage_for_block(&block, shard_uid)?;
             }
         }
@@ -3632,13 +3655,13 @@ impl Chain {
     ) -> Result<AccountId, Error> {
         let head = self.head()?;
         let target_height = head.height + horizon - 1;
-        Ok(self.runtime_adapter.get_chunk_producer(epoch_id, target_height, shard_id)?)
+        Ok(self.epoch_manager.get_chunk_producer(epoch_id, target_height, shard_id)?)
     }
 
     /// Find a validator that is responsible for a given shard to forward requests to
     pub fn find_validator_for_forwarding(&self, shard_id: ShardId) -> Result<AccountId, Error> {
         let head = self.head()?;
-        let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash)?;
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&head.last_block_hash)?;
         self.find_chunk_producer_for_forwarding(&epoch_id, shard_id, TX_ROUTING_HEIGHT_HORIZON)
     }
 
@@ -3755,7 +3778,7 @@ impl Chain {
             merkle_proof: merkle_proofs[chunk_shard_id as usize].clone(),
             prev_chunk,
             chunk_header: chunk_header.clone(),
-            partial_state: PartialState(vec![]),
+            partial_state: PartialState::TrieValues(vec![]),
         })
     }
 
@@ -3765,7 +3788,7 @@ impl Chain {
         shard_id: ShardId,
     ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
         let next_shard_layout =
-            self.runtime_adapter.get_shard_layout(block.header().next_epoch_id())?;
+            self.epoch_manager.get_shard_layout(block.header().next_epoch_id())?;
         let new_shards = next_shard_layout.get_split_shard_uids(shard_id).unwrap_or_else(|| {
             panic!("shard layout must contain maps of all shards to its split shards {}", shard_id)
         });
@@ -3795,12 +3818,12 @@ impl Chain {
         let _span = tracing::debug_span!(target: "chain", "apply_chunks_preprocessing").entered();
         #[cfg(not(feature = "mock_node"))]
         let protocol_version =
-            self.runtime_adapter.get_epoch_protocol_version(block.header().epoch_id())?;
+            self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
 
         let prev_hash = block.header().prev_hash();
-        let will_shard_layout_change =
-            self.runtime_adapter.will_shard_layout_change_next_epoch(prev_hash)?;
-        let prev_chunk_headers = Chain::get_prev_chunk_headers(&*self.runtime_adapter, prev_block)?;
+        let will_shard_layout_change = self.epoch_manager.will_shard_layout_change(prev_hash)?;
+        let prev_chunk_headers =
+            Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), prev_block)?;
         let mut process_one_chunk = |shard_id: usize,
                                      chunk_header: &ShardChunkHeader,
                                      prev_chunk_header: &ShardChunkHeader|
@@ -3814,9 +3837,9 @@ impl Chain {
 
             let shard_id = shard_id as ShardId;
             let cares_about_shard_this_epoch =
-                self.runtime_adapter.cares_about_shard(me.as_ref(), prev_hash, shard_id, true);
+                self.shard_tracker.care_about_shard(me.as_ref(), prev_hash, shard_id, true);
             let cares_about_shard_next_epoch =
-                self.runtime_adapter.will_care_about_shard(me.as_ref(), prev_hash, shard_id, true);
+                self.shard_tracker.will_care_about_shard(me.as_ref(), prev_hash, shard_id, true);
             // We want to guarantee that transactions are only applied once for each shard, even
             // though apply_chunks may be called twice, once with ApplyChunksMode::NotCaughtUp
             // once with ApplyChunksMode::CatchingUp
@@ -3862,8 +3885,10 @@ impl Chain {
                 None
             };
             let shard_uid =
-                self.runtime_adapter.shard_id_to_uid(shard_id, block.header().epoch_id())?;
+                self.epoch_manager.shard_id_to_uid(shard_id, block.header().epoch_id())?;
             let is_new_chunk = chunk_header.height_included() == block.header().height();
+            let epoch_manager = self.epoch_manager.clone();
+            let runtime = self.runtime_adapter.clone();
             if should_apply_transactions {
                 if is_new_chunk {
                     let prev_chunk_height_included = prev_chunk_header.height_included();
@@ -3875,7 +3900,7 @@ impl Chain {
                         // It's safe here to use ChainStore instead of ChainStoreUpdate
                         // because we're asking prev_chunk_header for already committed block
                         self.store(),
-                        &*self.runtime_adapter,
+                        self.epoch_manager.as_ref(),
                         block.header().prev_hash(),
                         &prev_chunk_extra,
                         prev_chunk_height_included,
@@ -3951,12 +3976,11 @@ impl Chain {
                     let is_first_block_with_chunk_of_version =
                         check_if_block_is_first_with_chunk_of_version(
                             self.store(),
-                            self.runtime_adapter.epoch_manager_adapter(),
+                            epoch_manager.as_ref(),
                             prev_block.hash(),
                             shard_id,
                         )?;
 
-                    let runtime_adapter = self.runtime_adapter.clone();
                     let block_hash = *block.hash();
                     let challenges_result = block.header().challenges_result().clone();
                     let block_timestamp = block.header().raw_timestamp();
@@ -3973,7 +3997,7 @@ impl Chain {
                             shard_id)
                         .entered();
                         let _timer = CryptoHashTimer::new(chunk.chunk_hash().0);
-                        match runtime_adapter.apply_transactions(
+                        match runtime.apply_transactions(
                             shard_id,
                             chunk_inner.prev_state_root(),
                             height,
@@ -3996,7 +4020,8 @@ impl Chain {
                                 let apply_split_result_or_state_changes =
                                     if will_shard_layout_change {
                                         Some(ChainUpdate::apply_split_state_changes(
-                                            &*runtime_adapter,
+                                            epoch_manager.as_ref(),
+                                            runtime.as_ref(),
                                             &block_hash,
                                             &prev_block_hash,
                                             &apply_result,
@@ -4018,7 +4043,6 @@ impl Chain {
                 } else {
                     let new_extra = self.get_chunk_extra(prev_block.hash(), &shard_uid)?;
 
-                    let runtime_adapter = self.runtime_adapter.clone();
                     let block_hash = *block.hash();
                     let challenges_result = block.header().challenges_result().clone();
                     let block_timestamp = block.header().raw_timestamp();
@@ -4034,7 +4058,7 @@ impl Chain {
                             "existing_chunk",
                             shard_id)
                         .entered();
-                        match runtime_adapter.apply_transactions(
+                        match runtime.apply_transactions(
                             shard_id,
                             new_extra.state_root(),
                             height,
@@ -4057,7 +4081,8 @@ impl Chain {
                                 let apply_split_result_or_state_changes =
                                     if will_shard_layout_change {
                                         Some(ChainUpdate::apply_split_state_changes(
-                                            &*runtime_adapter,
+                                            epoch_manager.as_ref(),
+                                            runtime.as_ref(),
                                             &block_hash,
                                             &prev_block_hash,
                                             &apply_result,
@@ -4082,10 +4107,9 @@ impl Chain {
                 // Split state are ready. Read the state changes from the database and apply them
                 // to the split states.
                 let next_epoch_shard_layout =
-                    self.runtime_adapter.get_shard_layout(block.header().next_epoch_id())?;
+                    epoch_manager.get_shard_layout(block.header().next_epoch_id())?;
                 let state_changes =
                     self.store().get_state_changes_for_split_states(block.hash(), shard_id)?;
-                let runtime_adapter = self.runtime_adapter.clone();
                 let block_hash = *block.hash();
                 Ok(Some(Box::new(move |parent_span| -> Result<ApplyChunkResult, Error> {
                     let _span = tracing::debug_span!(
@@ -4097,7 +4121,7 @@ impl Chain {
                     .entered();
                     Ok(ApplyChunkResult::SplitState(SplitStateResult {
                         shard_uid,
-                        results: runtime_adapter.apply_update_to_split_states(
+                        results: runtime.apply_update_to_split_states(
                             &block_hash,
                             split_state_roots,
                             &next_epoch_shard_layout,
@@ -4129,31 +4153,38 @@ impl Chain {
             .collect()
     }
 
-    /// Makes a state snapshot.
-    /// If there was already a state snapshot, deletes that first.
-    fn start_state_snapshot(&self) {
-        let _span =
-            tracing::debug_span!(target: "state_snapshot", "start_state_snapshot").entered();
-        match self.head() {
-            Ok(head) => {
-                let last_block_hash = head.last_block_hash;
-                let prev_block_hash = head.prev_block_hash;
-                (self.state_snapshot_info.as_ref().unwrap().start_snapshot_callback)(
-                    head.height,
-                    last_block_hash,
-                    prev_block_hash,
-                );
-            }
-            Err(err) => {
-                tracing::error!(target: "state_snapshot", ?err, "Didn't start state snapshot because head() failed");
+    /// Checks if the time has come to make a state snapshot for testing purposes.
+    /// If a state snapshot was requested for another reason, then resets the countdown.
+    fn need_test_state_snapshot(&mut self, need_state_snapshot: bool) -> bool {
+        let mut res = false;
+        if let Some(helper) = &mut self.state_snapshot_helper {
+            if let Some((countdown, frequency)) = helper.test_snapshot_countdown_and_frequency {
+                helper.test_snapshot_countdown_and_frequency = if need_state_snapshot {
+                    Some((frequency, frequency))
+                } else if countdown == 0 {
+                    res = true;
+                    Some((frequency, frequency))
+                } else {
+                    Some((countdown - 1, frequency))
+                };
             }
         }
+        res
     }
 
-    fn state_snapshot_is_in_progress(&self) -> bool {
-        self.state_snapshot_info
-            .as_ref()
-            .map_or(false, |info| info.in_progress.load(Ordering::Relaxed))
+    /// Makes a state snapshot.
+    /// If there was already a state snapshot, deletes that first.
+    fn maybe_start_state_snapshot(&self, need_state_snapshot: bool) {
+        if need_state_snapshot {
+            if let Some(helper) = &self.state_snapshot_helper {
+                match self.head() {
+                    Ok(head) => (helper.make_snapshot_callback)(head.prev_block_hash),
+                    Err(err) => {
+                        tracing::error!(target: "state_snapshot", ?err, "Didn't start state snapshot because head() failed")
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -4177,6 +4208,8 @@ impl Chain {
     fn chain_update(&mut self) -> ChainUpdate {
         ChainUpdate::new(
             &mut self.store,
+            self.epoch_manager.clone(),
+            self.shard_tracker.clone(),
             self.runtime_adapter.clone(),
             self.doomslug_threshold_mode,
             self.transaction_validity_period,
@@ -4486,14 +4519,14 @@ impl Chain {
     ) -> Result<Option<(CryptoHash, ShardId)>, Error> {
         let mut block_hash = *block_hash;
         let mut epoch_id = self.get_block_header(&block_hash)?.epoch_id().clone();
-        let mut shard_layout = self.runtime_adapter.get_shard_layout(&epoch_id)?;
+        let mut shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         // this corrects all the shard where the original shard will split to if sharding changes
         let mut shard_ids = vec![shard_id];
 
         while let Ok(next_block_hash) = self.store.get_next_block_hash(&block_hash) {
             let next_epoch_id = self.get_block_header(&next_block_hash)?.epoch_id().clone();
             if next_epoch_id != epoch_id {
-                let next_shard_layout = self.runtime_adapter.get_shard_layout(&next_epoch_id)?;
+                let next_shard_layout = self.epoch_manager.get_shard_layout(&next_epoch_id)?;
                 if next_shard_layout != shard_layout {
                     shard_ids = shard_ids
                         .into_iter()
@@ -4532,12 +4565,6 @@ impl Chain {
     #[inline]
     pub fn mut_store(&mut self) -> &mut ChainStore {
         &mut self.store
-    }
-
-    /// Returns underlying RuntimeWithEpochManagerAdapter.
-    #[inline]
-    pub fn runtime_adapter(&self) -> Arc<dyn RuntimeWithEpochManagerAdapter> {
-        self.runtime_adapter.clone()
     }
 
     /// Returns genesis block.
@@ -4615,7 +4642,7 @@ impl Chain {
         {
             let prev_hash = *sync_block.header().prev_hash();
             // If sync_hash is not on the Epoch boundary, it's malicious behavior
-            Ok(self.runtime_adapter.is_next_block_epoch_start(&prev_hash)?)
+            Ok(self.epoch_manager.is_next_block_epoch_start(&prev_hash)?)
         } else {
             Ok(false) // invalid Epoch of sync_hash, possible malicious behavior
         }
@@ -4679,13 +4706,13 @@ impl Chain {
     /// `get_prev_chunks(runtime_adapter, prev_block)` will return
     /// `[prev_block.chunks()[0], prev_block.chunks()[0], prev_block.chunks()[1], prev_block.chunks()[1]]`
     pub fn get_prev_chunk_headers(
-        runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
+        epoch_manager: &dyn EpochManagerAdapter,
         prev_block: &Block,
     ) -> Result<Vec<ShardChunkHeader>, Error> {
-        let epoch_id = runtime_adapter.get_epoch_id_from_prev_block(prev_block.hash())?;
-        let num_shards = runtime_adapter.num_shards(&epoch_id)?;
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block.hash())?;
+        let num_shards = epoch_manager.num_shards(&epoch_id)?;
         let prev_shard_ids =
-            runtime_adapter.get_prev_shard_ids(prev_block.hash(), (0..num_shards).collect())?;
+            epoch_manager.get_prev_shard_ids(prev_block.hash(), (0..num_shards).collect())?;
         let chunks = prev_block.chunks();
         Ok(prev_shard_ids
             .into_iter()
@@ -4694,12 +4721,11 @@ impl Chain {
     }
 
     pub fn get_prev_chunk_header(
-        runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
+        epoch_manager: &dyn EpochManagerAdapter,
         prev_block: &Block,
         shard_id: ShardId,
     ) -> Result<ShardChunkHeader, Error> {
-        let prev_shard_id =
-            runtime_adapter.get_prev_shard_ids(prev_block.hash(), vec![shard_id])?[0];
+        let prev_shard_id = epoch_manager.get_prev_shard_ids(prev_block.hash(), vec![shard_id])?[0];
         Ok(prev_block.chunks().get(prev_shard_id as usize).unwrap().clone())
     }
 
@@ -4765,7 +4791,9 @@ impl Chain {
 /// If rejected nothing will be updated in underlying storage.
 /// Safe to stop process mid way (Ctrl+C or crash).
 pub struct ChainUpdate<'a> {
-    runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
+    epoch_manager: Arc<dyn EpochManagerAdapter>,
+    shard_tracker: ShardTracker,
+    runtime_adapter: Arc<dyn RuntimeAdapter>,
     chain_store_update: ChainStoreUpdate<'a>,
     doomslug_threshold_mode: DoomslugThresholdMode,
     #[allow(unused)]
@@ -4800,12 +4828,16 @@ pub enum ApplyChunkResult {
 impl<'a> ChainUpdate<'a> {
     pub fn new(
         store: &'a mut ChainStore,
-        runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
+        epoch_manager: Arc<dyn EpochManagerAdapter>,
+        shard_tracker: ShardTracker,
+        runtime_adapter: Arc<dyn RuntimeAdapter>,
         doomslug_threshold_mode: DoomslugThresholdMode,
         transaction_validity_period: BlockHeightDelta,
     ) -> Self {
         let chain_store_update: ChainStoreUpdate<'_> = store.store_update();
         Self::new_impl(
+            epoch_manager,
+            shard_tracker,
             runtime_adapter,
             doomslug_threshold_mode,
             transaction_validity_period,
@@ -4814,12 +4846,16 @@ impl<'a> ChainUpdate<'a> {
     }
 
     fn new_impl(
-        runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter>,
+        epoch_manager: Arc<dyn EpochManagerAdapter>,
+        shard_tracker: ShardTracker,
+        runtime_adapter: Arc<dyn RuntimeAdapter>,
         doomslug_threshold_mode: DoomslugThresholdMode,
         transaction_validity_period: BlockHeightDelta,
         chain_store_update: ChainStoreUpdate<'a>,
     ) -> Self {
         ChainUpdate {
+            epoch_manager,
+            shard_tracker,
             runtime_adapter,
             chain_store_update,
             doomslug_threshold_mode,
@@ -4847,7 +4883,7 @@ impl<'a> ChainUpdate<'a> {
         num_shards: NumShards,
     ) -> Result<(), Error> {
         for shard_id in 0..num_shards {
-            if self.runtime_adapter.cares_about_shard(
+            if self.shard_tracker.care_about_shard(
                 me.as_ref(),
                 &prev_hash,
                 shard_id as ShardId,
@@ -4859,7 +4895,7 @@ impl<'a> ChainUpdate<'a> {
                         self.chain_store_update.get_outgoing_receipts(hash, shard_id)
                     {
                         let shard_layout =
-                            self.runtime_adapter.get_shard_layout_from_prev_block(hash)?;
+                            self.epoch_manager.get_shard_layout_from_prev_block(hash)?;
                         outgoing_receipts
                             .iter()
                             .map(|receipt| {
@@ -4907,7 +4943,8 @@ impl<'a> ChainUpdate<'a> {
     ///    otherwise, this function returns state changes needed to be applied to split
     ///    states. These state changes will be stored in the database by `process_split_state`
     fn apply_split_state_changes(
-        runtime_adapter: &dyn RuntimeWithEpochManagerAdapter,
+        epoch_manager: &dyn EpochManagerAdapter,
+        runtime_adapter: &dyn RuntimeAdapter,
         block_hash: &CryptoHash,
         prev_block_hash: &CryptoHash,
         apply_result: &ApplyTransactionResult,
@@ -4918,9 +4955,8 @@ impl<'a> ChainUpdate<'a> {
             apply_result.processed_delayed_receipts.clone(),
         );
         let next_epoch_shard_layout = {
-            let next_epoch_id =
-                runtime_adapter.get_next_epoch_id_from_prev_block(prev_block_hash)?;
-            runtime_adapter.get_shard_layout(&next_epoch_id)?
+            let next_epoch_id = epoch_manager.get_next_epoch_id_from_prev_block(prev_block_hash)?;
+            epoch_manager.get_shard_layout(&next_epoch_id)?
         };
         // split states are ready, apply update to them now
         if let Some(state_roots) = split_state_roots {
@@ -4959,8 +4995,8 @@ impl<'a> ChainUpdate<'a> {
                 let chunk_extra = self.chain_store_update.get_chunk_extra(block_hash, shard_uid)?;
                 let next_epoch_shard_layout = {
                     let epoch_id =
-                        self.runtime_adapter.get_next_epoch_id_from_prev_block(prev_block_hash)?;
-                    self.runtime_adapter.get_shard_layout(&epoch_id)?
+                        self.epoch_manager.get_next_epoch_id_from_prev_block(prev_block_hash)?;
+                    self.epoch_manager.get_shard_layout(&epoch_id)?
                 };
 
                 let mut validator_proposals_by_shard: HashMap<_, Vec<_>> = HashMap::new();
@@ -5041,7 +5077,10 @@ impl<'a> ChainUpdate<'a> {
             },
         };
 
-        if let Some(chain_flat_storage) = self.runtime_adapter.get_flat_storage_for_shard(shard_uid)
+        if let Some(chain_flat_storage) = self
+            .runtime_adapter
+            .get_flat_storage_manager()
+            .and_then(|manager| manager.get_flat_storage_for_shard(shard_uid))
         {
             // If flat storage exists, we add a block to it.
             let store_update =
@@ -5277,7 +5316,7 @@ impl<'a> ChainUpdate<'a> {
 
         Chain::create_light_client_block(
             header,
-            &*self.runtime_adapter,
+            self.epoch_manager.as_ref(),
             &mut self.chain_store_update,
         )
     }
@@ -5296,7 +5335,7 @@ impl<'a> ChainUpdate<'a> {
         let height = header.height();
         let epoch_id = header.epoch_id();
         let approvals = header.approvals();
-        self.runtime_adapter.verify_approvals_and_threshold_orphan(
+        self.epoch_manager.verify_approvals_and_threshold_orphan(
             epoch_id,
             &|approvals, stakes| {
                 Doomslug::can_approved_block_be_produced(
@@ -5470,7 +5509,7 @@ impl<'a> ChainUpdate<'a> {
         let gas_limit = chunk_header.gas_limit();
         let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
             &mut self.chain_store_update,
-            self.runtime_adapter.epoch_manager_adapter(),
+            self.epoch_manager.as_ref(),
             &chunk_header.prev_block_hash(),
             shard_id,
         )?;
@@ -5500,7 +5539,7 @@ impl<'a> ChainUpdate<'a> {
 
         self.chain_store_update.save_chunk(chunk);
 
-        let shard_uid = self.runtime_adapter.shard_id_to_uid(shard_id, block_header.epoch_id())?;
+        let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, block_header.epoch_id())?;
         self.save_flat_state_changes(
             *block_header.hash(),
             *chunk_header.prev_block_hash(),
@@ -5563,7 +5602,7 @@ impl<'a> ChainUpdate<'a> {
         let prev_block_header =
             self.chain_store_update.get_block_header(block_header.prev_hash())?;
 
-        let shard_uid = self.runtime_adapter.shard_id_to_uid(shard_id, block_header.epoch_id())?;
+        let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, block_header.epoch_id())?;
         let chunk_extra =
             self.chain_store_update.get_chunk_extra(prev_block_header.hash(), &shard_uid)?;
 
@@ -5638,7 +5677,7 @@ pub fn collect_receipts_from_response(
 #[derive(actix::Message)]
 #[rtype(result = "()")]
 pub struct ApplyStatePartsRequest {
-    pub runtime: Arc<dyn RuntimeWithEpochManagerAdapter>,
+    pub runtime_adapter: Arc<dyn RuntimeAdapter>,
     pub shard_id: ShardId,
     pub state_root: StateRoot,
     pub num_parts: u64,
@@ -5674,7 +5713,7 @@ pub struct BlockCatchUpResponse {
 #[derive(actix::Message)]
 #[rtype(result = "()")]
 pub struct StateSplitRequest {
-    pub runtime: Arc<dyn RuntimeWithEpochManagerAdapter>,
+    pub runtime_adapter: Arc<dyn RuntimeAdapter>,
     pub sync_hash: CryptoHash,
     pub shard_id: ShardId,
     pub shard_uid: ShardUId,

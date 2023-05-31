@@ -62,7 +62,6 @@ impl NeardCmd {
             latest_protocol = near_primitives::version::PROTOCOL_VERSION
         );
 
-        /*
         #[cfg(feature = "test_features")]
         {
             error!("THIS IS A NODE COMPILED WITH ADVERSARIAL BEHAVIORS. DO NOT USE IN PRODUCTION.");
@@ -75,7 +74,6 @@ impl NeardCmd {
                 std::process::exit(1);
             }
         }
-         */
 
         let home_dir = neard_cmd.opts.home.clone();
         let genesis_validation = if neard_cmd.opts.unsafe_fast_startup {

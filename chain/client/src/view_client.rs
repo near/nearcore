@@ -1294,14 +1294,13 @@ impl Handler<WithSpanContext<StateRequestPart>> for ViewClientActor {
         if !self.check_state_sync_request() {
             return None;
         }
-        trace!(target: "sync", "Computing state request part {} {} {}", shard_id, sync_hash, part_id);
+        tracing::debug!(target: "sync", ?shard_id, ?sync_hash, ?part_id, "Computing state request part");
         let state_response = match self.chain.check_sync_hash_validity(&sync_hash) {
             Ok(true) => {
                 let part = match self.chain.get_state_response_part(shard_id, part_id, sync_hash) {
                     Ok(part) => Some((part_id, part)),
                     Err(e) => {
                         error!(target: "sync", "Cannot build sync part #{:?} (get_state_response_part): {}", part_id, e);
-                        std::process::exit(-1);
                         None
                     }
                 };

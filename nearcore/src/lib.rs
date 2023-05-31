@@ -11,6 +11,7 @@ use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::messaging::{IntoSender, LateBoundSender};
 use near_async::time;
 use near_chain::state_snapshot_actor::{get_make_snapshot_callback, StateSnapshotActor};
+use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis};
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::{start_client, start_view_client, ClientActor, ConfigUpdater, ViewClientActor};
@@ -18,7 +19,7 @@ use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
 use near_network::PeerManagerActor;
 use near_primitives::block::GenesisId;
-use near_store::flat::FlatStorageManager;
+use near_store::flat::FlatStateValuesInliningMigrationHandle;
 use near_store::metadata::DbKind;
 use near_store::metrics::spawn_db_metrics_loop;
 use near_store::{DBCol, Mode, NodeStorage, Store, StoreOpenerError};
@@ -198,6 +199,9 @@ pub struct NearNode {
     pub cold_store_loop_handle: Option<ColdStoreLoopHandle>,
     /// Contains handles to background threads that may be dumping state to S3.
     pub state_sync_dump_handle: Option<StateSyncDumpHandle>,
+    /// A handle to control background flat state values inlining migration.
+    /// Needed temporarily, will be removed after the migration is completed.
+    pub flat_state_migration_handle: Option<FlatStateValuesInliningMigrationHandle>,
 }
 
 pub fn start_with_config(home_dir: &Path, config: NearConfig) -> anyhow::Result<NearNode> {
@@ -271,10 +275,9 @@ pub fn start_with_config_and_synchronization(
     let client_adapter_for_shards_manager = Arc::new(LateBoundSender::default());
     let adv = near_client::adversarial::Controls::new(config.client_config.archive);
 
-    let state_snapshot_actor = Arc::new(
-        StateSnapshotActor::new(FlatStorageManager::new(storage.get_hot_store()), runtime.clone())
-            .start(),
-    );
+    let state_snapshot_actor = runtime.get_flat_storage_manager().map(|flat_storage_manager| {
+        Arc::new(StateSnapshotActor::new(flat_storage_manager, runtime.clone()).start())
+    });
 
     let view_client = start_view_client(
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
@@ -297,7 +300,11 @@ pub fn start_with_config_and_synchronization(
         shards_manager_adapter.as_sender(),
         config.validator_signer.clone(),
         telemetry,
-        Some(get_make_snapshot_callback(state_snapshot_actor)),
+        if let (Some(flat_storage_manager), Some(state_snapshot_actor)) = (runtime.get_flat_storage_manager(), state_snapshot_actor) {
+            get_make_snapshot_callback(state_snapshot_actor, flat_storage_manager)
+        } else {
+            None
+        },
         shutdown_signal,
         adv,
         config_updater,
@@ -313,6 +320,18 @@ pub fn start_with_config_and_synchronization(
         config.client_config.chunk_request_retry_period,
     );
     shards_manager_adapter.bind(shards_manager_actor);
+
+    let flat_state_migration_handle =
+        if let Some(flat_storage_manager) = runtime.get_flat_storage_manager() {
+            let handle = FlatStateValuesInliningMigrationHandle::start_background_migration(
+                storage.get_hot_store(),
+                flat_storage_manager,
+                config.client_config.client_background_migration_threads,
+            );
+            Some(handle)
+        } else {
+            None
+        };
 
     let state_sync_dump_handle = spawn_state_sync_dump(
         &config.client_config,
@@ -377,6 +396,7 @@ pub fn start_with_config_and_synchronization(
         arbiters,
         cold_store_loop_handle,
         state_sync_dump_handle,
+        flat_state_migration_handle,
     })
 }
 

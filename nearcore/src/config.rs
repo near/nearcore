@@ -337,6 +337,10 @@ pub struct Config {
     /// Test-only option to make state snapshots every N blocks.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state_snapshot_every_n_blocks: Option<u64>,
+    /// Limit of the size of per-shard transaction pool measured in bytes. If not set, the size
+    /// will be unbounded.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transaction_pool_size_limit: Option<u64>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -375,6 +379,7 @@ impl Default for Config {
             state_sync: None,
             state_sync_enabled: None,
             state_snapshot_every_n_blocks: None,
+            transaction_pool_size_limit: None,
         }
     }
 }
@@ -685,6 +690,7 @@ impl NearConfig {
                 state_sync_enabled: config.state_sync_enabled.unwrap_or(false),
                 state_sync: config.state_sync.unwrap_or_default(),
                 state_snapshot_every_n_blocks: config.state_snapshot_every_n_blocks,
+                transaction_pool_size_limit: config.transaction_pool_size_limit,
             },
             network_config: NetworkConfig::new(
                 config.network,
