@@ -10,10 +10,10 @@ import sys
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[3] / 'lib'))
 
 from configured_logger import new_logger
-from locust import between, task, events
-from common.base import Account, CreateSubAccount, Deploy, NearUser, send_transaction
-from common.ft import InitFT, InitFTAccount, TransferFT
-from common.social import Follow, InitSocialDB, InitSocialDbAccount
+from locust import between, task
+from common.base import NearUser
+from common.ft import TransferFT
+from common.social import Follow, InitSocialDbAccount, SubmitPost
 
 logger = new_logger(level=logging.WARN)
 
@@ -51,30 +51,41 @@ class SocialDbUser(NearUser):
 
     @task
     def follow(self):
-        rng = random.Random()
-        users_to_follow = [rng.choice(SocialDbUser.registered_users)]
-        self.send_tx(
-            Follow(self.contract_account_id, self.account, users_to_follow))
+        users_to_follow = [random.choice(SocialDbUser.registered_users)]
+        self.send_tx(Follow(self.contract_account_id, self.account,
+                            users_to_follow),
+                     locust_name="Social Follow")
 
-    # @task
-    # def post(self):
-    #     #TODO:
-    #     post = lorem_ipsum()
-    #     send(tryx(post))
-
-    # @task
-    # def like(self):
-    #     #TODO:
-    #     post_id = posts_pool.random_with_pareto_ditro()
-    #     send(tx(post))
+    @task
+    def post(self):
+        seed = random.randrange(2**32)
+        len = random.randrange(100, 1000)
+        post = self.generate_post(len, seed)
+        self.send_tx(SubmitPost(self.contract_account_id, self.account, post),
+                     locust_name="Social Post")
 
     def on_start(self):
         super().on_start()
         self.contract_account_id = self.environment.social_account_id
 
-        self.send_tx(InitSocialDbAccount(self.contract_account, self.account))
+        self.send_tx(InitSocialDbAccount(self.contract_account_id,
+                                         self.account),
+                     locust_name="Init Social Account")
         logger.debug(
-            f"user {self.account_id} ready to use SocialDB on {self.contract_account.key.account_id}"
+            f"user {self.account_id} ready to use SocialDB on {self.contract_account_id}"
         )
 
         SocialDbUser.registered_users.append(self.account_id)
+
+    def generate_post(self, length: int, seed: int) -> str:
+        sample_quotes = [
+            "Despite the constant negative press covfefe",
+            "Sorry losers and haters, but my I.Q. is one of the highest - and you all know it! Please don't feel so stupid or insecure, it's not your fault",
+            "Windmills are the greatest threat in the US to both bald and golden eagles. Media claims fictional 'global warming' is worse.",
+        ]
+        quote = sample_quotes[seed % len(sample_quotes)]
+        post = f"I, {self.account.key.account_id} cannot resists to declare with pride: \n_{quote}_"
+        while length > len(post):
+            post = f"{post}\nI'll say it again: \n**{quote}**"
+
+        return post[:length]
