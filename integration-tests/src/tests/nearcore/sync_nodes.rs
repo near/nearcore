@@ -305,7 +305,8 @@ fn sync_state_stake_change() {
                     let actor = actor.then(move |res| {
                         let latest_height =
                             if let Ok(Ok(block)) = res { block.header.height } else { 0 };
-                        if !started_copy.load(Ordering::SeqCst) && latest_height > 2*epoch_length {
+                        if !started_copy.load(Ordering::SeqCst) && latest_height > 2 * epoch_length
+                        {
                             started_copy.store(true, Ordering::SeqCst);
                             let nearcore::NearNode { view_client: view_client2, arbiters, .. } =
                                 start_with_config(&dir2_path_copy, near2_copy)

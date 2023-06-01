@@ -57,9 +57,8 @@ impl actix::Handler<WithSpanContext<MakeSnapshotRequest>> for StateSnapshotActor
             } else {
                 true
             };
-        assert_ne!(
+        assert!(
             self.flat_storage_manager.set_flat_state_updates_mode(true),
-            Some(true),
             "Failed to unlock flat state updates"
         );
         if run_compaction {
@@ -98,12 +97,9 @@ pub fn get_make_snapshot_callback(
 ) -> MakeSnapshotCallback {
     Arc::new(move |prev_block_hash, shard_uids| {
         tracing::info!(target: "state_snapshot", ?prev_block_hash, ?shard_uids, "start_snapshot_callback sends `MakeSnapshotCallback` to state_snapshot_addr");
-        assert_ne!(
-            flat_storage_manager.set_flat_state_updates_mode(false),
-            Some(false),
-            "Failed to lock flat state updates"
-        );
-        state_snapshot_addr
-            .do_send(MakeSnapshotRequest { prev_block_hash, shard_uids }.with_span_context());
+        if flat_storage_manager.set_flat_state_updates_mode(false) {
+            state_snapshot_addr
+                .do_send(MakeSnapshotRequest { prev_block_hash, shard_uids }.with_span_context());
+        }
     })
 }

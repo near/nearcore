@@ -36,11 +36,12 @@ if not config['local']:
     TIMEOUT = 600
 
 client_config_changes['archive'] = True
+client_config_changes['store.state_snapshot_enabled'] = False
 
 nodes = start_cluster(
     4, 0, 4, None,
     [["epoch_length", 6], ["block_producer_kickout_threshold", 40],
-     ["chunk_producer_kickout_threshold", 40]], client_config_changes)
+     ["chunk_producer_kickout_threshold", 40]], {0:client_config_changes,1:client_config_changes,2:client_config_changes,3:client_config_changes})
 
 for node in nodes:
     node.stop_checking_store()

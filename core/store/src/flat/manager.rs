@@ -136,21 +136,35 @@ impl FlatStorageManager {
         Ok(())
     }
 
-    /// Updates `move_head_enabled` for all shards and returns the previous value
-    /// assuming that all shards had the same `move_head_enabled` value.
-    pub fn set_flat_state_updates_mode(&self, enabled: bool) -> Option<bool> {
+    /// Updates `move_head_enabled` for all shards and returns whether it succeeded.
+    /// If at least one of the shards fails to update move_head_enabled, then that operation is reverted for all shards.
+    pub fn set_flat_state_updates_mode(&self, enabled: bool) -> bool {
         let flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
-        let mut prev_seen_value = None;
-        for flat_storage in flat_storages.values() {
-            let prev_shard_value = flat_storage.set_flat_head_update_mode(enabled);
-            match prev_seen_value {
-                None => prev_seen_value = Some(prev_shard_value),
-                Some(v) => assert_eq!(
-                    prev_shard_value, v,
-                    "All FlatStorage are expected to have the same value of `move_head_enabled`"
-                ),
+        let mut all_good = true;
+        let mut updated_flat_storages = vec![];
+        let mut updated_shard_uids = vec![];
+        for (shard_uid, flat_storage) in flat_storages.iter() {
+            if flat_storage.set_flat_head_update_mode(enabled) {
+                updated_flat_storages.push(flat_storage);
+                updated_shard_uids.push(shard_uid);
+            } else {
+                all_good = false;
+                tracing::error!(target: "store", rolling_back_shards = ?updated_shard_uids, enabled, ?shard_uid, "Locking/Unlocking of flat head failed for shard. Reverting.");
+                break;
             }
         }
-        prev_seen_value
+        if all_good {
+            tracing::debug!(target: "store", enabled, "Locking/Unlocking of flat head succeeded");
+            true
+        } else {
+            // Do rollback.
+            // It does allow for a data race if somebody updates move_head_enabled on individual shards.
+            // Production code is expected to lock all shards at the same time.
+            for flat_storage in updated_flat_storages {
+                flat_storage.set_flat_head_update_mode(!enabled);
+            }
+            tracing::error!(target: "store", enabled, "Locking/Unlocking of flat head failed");
+            false
+        }
     }
 }

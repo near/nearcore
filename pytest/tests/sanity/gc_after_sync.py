@@ -12,7 +12,7 @@ from cluster import start_cluster
 from configured_logger import logger
 import utils
 
-TARGET_HEIGHT = 30
+TARGET_HEIGHT = 35
 AFTER_SYNC_HEIGHT = 150
 TIMEOUT = 300
 

@@ -43,6 +43,8 @@ pub(crate) struct FlatStorageInner {
     deltas: HashMap<CryptoHash, CachedFlatStateDelta>,
     /// This flag enables skipping flat head moves, needed temporarily for FlatState
     /// values inlining migration.
+    /// The flag has a numerical value and not a bool, to let us detect attempts
+    /// to disable move head multiple times.
     move_head_enabled: bool,
     metrics: FlatStorageMetrics,
 }
@@ -327,12 +329,15 @@ impl FlatStorage {
         guard.shard_uid
     }
 
-    /// Updates `move_head_enabled` and returns the previous value.
+    /// Updates `move_head_enabled` and returns whether the change was done.
     pub(crate) fn set_flat_head_update_mode(&self, enabled: bool) -> bool {
         let mut guard = self.0.write().expect(crate::flat::POISONED_LOCK_ERR);
-        let prev_value = guard.move_head_enabled;
-        guard.move_head_enabled = enabled;
-        prev_value
+        if enabled != guard.move_head_enabled {
+            guard.move_head_enabled = enabled;
+            true
+        } else {
+            false
+        }
     }
 }
 
