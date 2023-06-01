@@ -3,7 +3,7 @@ use crate::trie::config::TrieConfig;
 use crate::trie::prefetching_trie_storage::PrefetchingThreadsHandle;
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::trie::{TrieRefcountChange, POISONED_LOCK_ERR};
-use crate::{metrics, DBCol, PrefetchApi};
+use crate::{checkpoint_hot_storage_and_cleanup_columns, metrics, DBCol, PrefetchApi};
 use crate::{Store, StoreUpdate, Trie, TrieChanges, TrieUpdate};
 use borsh::BorshSerialize;
 use near_primitives::borsh::maybestd::collections::HashMap;
@@ -13,6 +13,7 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     NumShards, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
 };
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, RwLock};
 
@@ -26,17 +27,61 @@ struct ShardTriesInner {
     flat_storage_manager: FlatStorageManager,
     /// Prefetcher state, such as IO threads, per shard.
     prefetchers: RwLock<HashMap<ShardUId, (PrefetchApi, PrefetchingThreadsHandle)>>,
+    // Needs a synchronization primitive because it can be concurrently accessed:
+    // * writes by StateSnapshotActor
+    // * reads by ViewClientActor
+    state_snapshot: Arc<RwLock<Option<StateSnapshot>>>,
+    state_snapshot_config: StateSnapshotConfig,
 }
 
 #[derive(Clone)]
 pub struct ShardTries(Arc<ShardTriesInner>);
 
-impl ShardTries {
+/// Snapshot of the state at the epoch boundary.
+pub struct StateSnapshot {
+    /// The state snapshot represents the state including changes of the next block of this block.
+    prev_block_hash: CryptoHash,
+    /// Read-only store.
+    store: Store,
+    /// Access to flat storage in that store.
+    flat_storage_manager: FlatStorageManager,
+}
+
+impl StateSnapshot {
+    /// Creates an object and also creates flat storage for the given shards.
     pub fn new(
+        store: Store,
+        prev_block_hash: CryptoHash,
+        flat_storage_manager: FlatStorageManager,
+        shard_uids: &[ShardUId],
+    ) -> Self {
+        for shard_uid in shard_uids {
+            flat_storage_manager.create_flat_storage_for_shard(*shard_uid);
+        }
+        Self { prev_block_hash, store, flat_storage_manager }
+    }
+}
+
+/// Information needed to make a state snapshot.
+#[derive(Debug)]
+pub enum StateSnapshotConfig {
+    /// Don't make any state snapshots.
+    Disabled,
+    Enabled {
+        home_dir: PathBuf,
+        hot_store_path: PathBuf,
+        state_snapshot_subdir: PathBuf,
+    },
+}
+
+impl ShardTries {
+    pub fn new_with_state_snapshot(
         store: Store,
         trie_config: TrieConfig,
         shard_uids: &[ShardUId],
         flat_storage_manager: FlatStorageManager,
+        state_snapshot: Option<StateSnapshot>,
+        state_snapshot_config: StateSnapshotConfig,
     ) -> Self {
         let caches = Self::create_initial_caches(&trie_config, &shard_uids, false);
         let view_caches = Self::create_initial_caches(&trie_config, &shard_uids, true);
@@ -47,7 +92,25 @@ impl ShardTries {
             view_caches: RwLock::new(view_caches),
             flat_storage_manager,
             prefetchers: Default::default(),
+            state_snapshot: Arc::new(RwLock::new(state_snapshot)),
+            state_snapshot_config,
         }))
+    }
+
+    pub fn new(
+        store: Store,
+        trie_config: TrieConfig,
+        shard_uids: &[ShardUId],
+        flat_storage_manager: FlatStorageManager,
+    ) -> Self {
+        Self::new_with_state_snapshot(
+            store,
+            trie_config,
+            shard_uids,
+            flat_storage_manager,
+            None,
+            StateSnapshotConfig::Disabled,
+        )
     }
 
     /// Create `ShardTries` with a fixed number of shards with shard version 0.
@@ -156,31 +219,26 @@ impl ShardTries {
         self.get_trie_for_shard_internal(shard_uid, state_root, false, None)
     }
 
-    /// Gets a read-only trie for the given store.
-    pub fn get_trie_with_block_hash_for_shard_with_custom_store(
+    pub fn get_trie_with_block_hash_for_shard_from_snapshot(
         &self,
         shard_uid: ShardUId,
         state_root: StateRoot,
         block_hash: &CryptoHash,
-        store: Store,
-        flat_storage_manager: FlatStorageManager,
-    ) -> Trie {
-        let is_view = true;
-        let prefetch_api = None;
-        let caches_to_use = &self.0.view_caches;
-        let cache = {
-            let mut caches = caches_to_use.write().expect(POISONED_LOCK_ERR);
-            caches
-                .entry(shard_uid)
-                .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, is_view))
-                .clone()
+    ) -> Result<Trie, anyhow::Error> {
+        let (store, flat_storage_manager, _prev_block_hash) = {
+            let lock = self.0.state_snapshot.read().unwrap();
+            if lock.is_none() {
+                return Err(anyhow::anyhow!("No state snapshot available"));
+            }
+            let data = lock.as_ref().unwrap();
+            (data.store.clone(), data.flat_storage_manager.clone(), data.prev_block_hash)
         };
 
-        let storage =
-            Rc::new(TrieCachingStorage::new(store, cache, shard_uid, is_view, prefetch_api));
+        let cache = TrieCache::new(&self.0.trie_config, shard_uid, true);
+        let storage = Rc::new(TrieCachingStorage::new(store, cache, shard_uid, true, None));
         let flat_storage_chunk_view = flat_storage_manager.chunk_view(shard_uid, *block_hash);
 
-        Trie::new(storage, state_root, flat_storage_chunk_view)
+        Ok(Trie::new(storage, state_root, flat_storage_chunk_view))
     }
 
     pub fn get_trie_with_block_hash_for_shard(
@@ -328,6 +386,148 @@ impl ShardTries {
         store_update: &mut StoreUpdate,
     ) -> StateRoot {
         self.apply_all_inner(trie_changes, shard_uid, true, store_update)
+    }
+
+    pub fn make_state_snapshot(
+        &self,
+        prev_block_hash: &CryptoHash,
+        shard_uids: &[ShardUId],
+    ) -> Result<(), anyhow::Error> {
+        let _span =
+            tracing::info_span!(target: "state_snapshot", "make_state_snapshot", ?prev_block_hash)
+                .entered();
+        tracing::info!(target: "state_snapshot", ?prev_block_hash, "make_state_snapshot");
+        match &self.0.state_snapshot_config {
+            StateSnapshotConfig::Disabled => {
+                tracing::info!(target: "state_snapshot", "State Snapshots are disabled");
+                Ok(())
+            }
+            StateSnapshotConfig::Enabled { home_dir, hot_store_path, state_snapshot_subdir } => {
+                let _timer = metrics::MAKE_STATE_SNAPSHOT_ELAPSED.start_timer();
+                let mut state_snapshot_lock = self.0.state_snapshot.write().unwrap();
+                if let Some(state_snapshot) = &*state_snapshot_lock {
+                    if &state_snapshot.prev_block_hash == prev_block_hash {
+                        tracing::warn!(target: "state_snapshot", ?prev_block_hash, "Requested a state snapshot but that is already available");
+                        return Ok(());
+                    } else {
+                        let prev_block_hash = state_snapshot.prev_block_hash;
+                        // Drop Store before deleting the underlying data.
+                        *state_snapshot_lock = None;
+                        self.delete_state_snapshot(
+                            &prev_block_hash,
+                            home_dir,
+                            hot_store_path,
+                            state_snapshot_subdir,
+                        );
+                    }
+                }
+
+                let storage = checkpoint_hot_storage_and_cleanup_columns(
+                    &self.0.store,
+                    &Self::get_state_snapshot_base_dir(
+                        prev_block_hash,
+                        home_dir,
+                        hot_store_path,
+                        state_snapshot_subdir,
+                    ),
+                    Some(vec![
+                        // Keep DbVersion and BlockMisc, otherwise you'll not be able to open the state snapshot as a Store.
+                        DBCol::DbVersion,
+                        DBCol::BlockMisc,
+                        // Flat storage columns.
+                        DBCol::FlatState,
+                        DBCol::FlatStateChanges,
+                        DBCol::FlatStateDeltaMetadata,
+                        DBCol::FlatStorageStatus,
+                    ]),
+                )?;
+                let store = storage.get_hot_store();
+                let flat_storage_manager = FlatStorageManager::new(store.clone());
+
+                /*
+                let epoch_id = epoch_manager.get_epoch_id(prev_block_hash)?;
+                let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
+                // TODO: Should FS be created only for the tracked shards?
+                let shard_uids = shard_layout.get_shard_uids();
+                 */
+
+                *state_snapshot_lock = Some(StateSnapshot::new(
+                    store,
+                    *prev_block_hash,
+                    flat_storage_manager,
+                    shard_uids,
+                ));
+                tracing::info!(target: "state_snapshot", ?prev_block_hash, "Made a checkpoint");
+                Ok(())
+            }
+        }
+    }
+
+    pub fn compact_state_snapshot(
+        &self,
+        prev_block_hash: &CryptoHash,
+    ) -> Result<(), anyhow::Error> {
+        let _span =
+            tracing::info_span!(target: "state_snapshot", "compact_state_snapshot", ?prev_block_hash)
+                .entered();
+        tracing::info!(target: "state_snapshot", ?prev_block_hash, "compact_state_snapshot");
+
+        let state_snapshot_lock = self.0.state_snapshot.write().unwrap();
+        if let Some(state_snapshot) = &*state_snapshot_lock {
+            if &state_snapshot.prev_block_hash != prev_block_hash {
+                tracing::warn!(target: "state_snapshot", ?prev_block_hash, "Requested compaction of a state snapshot with a different prev_hash. Ignoring.");
+                Ok(())
+            } else {
+                let _timer = metrics::COMPACT_STATE_SNAPSHOT_ELAPSED.start_timer();
+                Ok(state_snapshot.store.compact()?)
+            }
+        } else {
+            tracing::warn!(target: "state_snapshot", ?prev_block_hash, "Requested compaction but no state snapshot is available.");
+            Ok(())
+        }
+    }
+
+    /// Deletes a previously open state snapshot.
+    /// Drops the Store and deletes the files.
+    fn delete_state_snapshot(
+        &self,
+        prev_block_hash: &CryptoHash,
+        home_dir: &Path,
+        hot_store_path: &Path,
+        state_snapshot_subdir: &Path,
+    ) {
+        let _timer = metrics::DELETE_STATE_SNAPSHOT_ELAPSED.start_timer();
+        let _span =
+            tracing::info_span!(target: "state_snapshot", "delete_state_snapshot").entered();
+        let path = Self::get_state_snapshot_base_dir(
+            prev_block_hash,
+            home_dir,
+            hot_store_path,
+            state_snapshot_subdir,
+        );
+        match std::fs::remove_dir_all(&path) {
+            Ok(_) => {
+                tracing::info!(target: "state_snapshot", ?path, ?prev_block_hash, "Deleted a state snapshot");
+            }
+            Err(err) => {
+                tracing::warn!(target: "state_snapshot", ?err, ?path, ?prev_block_hash, "Failed to delete a state snapshot");
+            }
+        }
+    }
+
+    pub fn get_state_snapshot_base_dir(
+        prev_block_hash: &CryptoHash,
+        home_dir: &Path,
+        hot_store_path: &Path,
+        state_snapshot_subdir: &Path,
+    ) -> PathBuf {
+        // Assumptions:
+        // * RocksDB checkpoints are taken instantly and for free, because the filesystem supports hard links.
+        // * Assumes that the best place for the checkpoints is withing the `~/.near/data` directory, because that directory is often a separate disk.
+        home_dir
+            .join(hot_store_path)
+            .join(state_snapshot_subdir)
+            .join(format!("{}", prev_block_hash))
     }
 }
 

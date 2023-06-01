@@ -1,7 +1,7 @@
 use near_o11y::metrics::{
-    exponential_buckets, linear_buckets, try_create_histogram_vec,
-    try_create_histogram_with_buckets, try_create_int_counter_vec, try_create_int_gauge,
-    try_create_int_gauge_vec, Histogram, HistogramVec, IntCounterVec, IntGauge, IntGaugeVec,
+    exponential_buckets, linear_buckets, try_create_histogram_vec, try_create_int_counter_vec,
+    try_create_int_gauge, try_create_int_gauge_vec, HistogramVec, IntCounterVec, IntGauge,
+    IntGaugeVec,
 };
 use once_cell::sync::Lazy;
 
@@ -94,33 +94,6 @@ pub(crate) static STATE_SYNC_OBTAIN_PART_DELAY: Lazy<HistogramVec> = Lazy::new(|
         "Latency of applying a state part",
         &["shard_id"],
         Some(exponential_buckets(0.001, 2.0, 20).unwrap()),
-    )
-    .unwrap()
-});
-
-pub(crate) static MAKE_STATE_SNAPSHOT_ELAPSED: Lazy<Histogram> = Lazy::new(|| {
-    try_create_histogram_with_buckets(
-        "near_make_state_snapshot_elapsed_sec",
-        "Latency of making a state snapshot in seconds",
-        exponential_buckets(0.01, 1.3, 30).unwrap(),
-    )
-    .unwrap()
-});
-
-pub(crate) static DELETE_STATE_SNAPSHOT_ELAPSED: Lazy<Histogram> = Lazy::new(|| {
-    try_create_histogram_with_buckets(
-        "near_delete_state_snapshot_elapsed_sec",
-        "Latency of deleting a state snapshot in seconds",
-        exponential_buckets(0.001, 1.6, 25).unwrap(),
-    )
-    .unwrap()
-});
-
-pub(crate) static COMPACT_STATE_SNAPSHOT_ELAPSED: Lazy<Histogram> = Lazy::new(|| {
-    try_create_histogram_with_buckets(
-        "near_compact_state_snapshot_elapsed_sec",
-        "Latency of compaction of a state snapshot in seconds",
-        exponential_buckets(0.001, 1.6, 25).unwrap(),
     )
     .unwrap()
 });

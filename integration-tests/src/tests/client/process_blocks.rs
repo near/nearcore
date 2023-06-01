@@ -1841,9 +1841,9 @@ fn test_process_block_after_state_sync() {
         .stores(stores)
         .epoch_managers(epoch_managers)
         .runtimes(runtimes)
-        .set_make_state_snapshot_callback(Arc::new(move |prev_block_hash| {
+        .set_make_state_snapshot_callback(Arc::new(move |prev_block_hash, shard_uids| {
             tracing::warn!(target: "state_snapshot", ?prev_block_hash, "make_snapshot_callback");
-            runtime.make_state_snapshot(&prev_block_hash).unwrap();
+            runtime.get_tries().make_state_snapshot(&prev_block_hash, &shard_uids).unwrap();
         }))
         .build();
     let sync_height = epoch_length * 4 + 1;

@@ -4170,7 +4170,21 @@ impl Chain {
         if need_state_snapshot {
             if let Some(helper) = &self.state_snapshot_helper {
                 match self.head() {
-                    Ok(head) => (helper.make_snapshot_callback)(head.prev_block_hash),
+                    Ok(head) => {
+                        match self
+                            .epoch_manager
+                            .get_epoch_id(&head.prev_block_hash)
+                            .and_then(|epoch_id| self.epoch_manager.get_shard_layout(&epoch_id))
+                            .and_then(|shard_layout| Ok(shard_layout.get_shard_uids()))
+                        {
+                            Ok(shard_uids) => {
+                                (helper.make_snapshot_callback)(head.prev_block_hash, shard_uids)
+                            }
+                            Err(err) => {
+                                tracing::error!(target: "state_snapshot", ?err, "Can't determine Shard UIds for a snapshot")
+                            }
+                        };
+                    }
                     Err(err) => {
                         tracing::error!(target: "state_snapshot", ?err, "Didn't start state snapshot because head() failed")
                     }

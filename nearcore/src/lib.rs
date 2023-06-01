@@ -276,7 +276,7 @@ pub fn start_with_config_and_synchronization(
     let adv = near_client::adversarial::Controls::new(config.client_config.archive);
 
     let state_snapshot_actor = runtime.get_flat_storage_manager().map(|flat_storage_manager| {
-        Arc::new(StateSnapshotActor::new(flat_storage_manager, runtime.clone()).start())
+        Arc::new(StateSnapshotActor::new(flat_storage_manager, runtime.get_tries()).start())
     });
 
     let view_client = start_view_client(
