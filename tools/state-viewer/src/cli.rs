@@ -8,6 +8,10 @@ use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::state_record::{state_record_to_account_id, StateRecord};
+use near_primitives::trie_key::col;
+use near_primitives::trie_key::trie_key_parsers::{
+    parse_account_id_from_access_key_key, parse_account_id_from_trie_key_with_separator,
+};
 use near_primitives::types::{BlockHeight, ShardId};
 use near_store::{Mode, NodeStorage, ShardUId, Store, Temperature, Trie, TrieDBStorage};
 use nearcore::{load_config, NearConfig};
@@ -617,8 +621,35 @@ impl ViewTrieCmd {
     }
 }
 
+#[derive(Clone)]
+pub enum TrieIterationType {
+    Full,
+    Shallow,
+}
+
+impl clap::ValueEnum for TrieIterationType {
+    fn value_variants<'a>() -> &'a [Self] {
+        &[Self::Full, Self::Shallow]
+    }
+
+    fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
+        match self {
+            Self::Full => Some(clap::builder::PossibleValue::new("full")),
+            Self::Shallow => Some(clap::builder::PossibleValue::new("shallow")),
+        }
+    }
+}
+
 #[derive(clap::Parser)]
 pub struct TrieIterationBenchmarkCmd {
+    /// The type of trie iteration.
+    /// - Full will iterate over all trie keys.
+    /// - Shallow will only iterate until full account id prefix can be parsed
+    ///   in the trie key. Most notably this will skip any keys or data
+    ///   belonging to accounts.
+    #[clap(long, default_value = "full")]
+    iteration_type: TrieIterationType,
+
     /// Limit the number of trie nodes to be iterated.
     #[clap(long)]
     limit: Option<u32>,
@@ -649,7 +680,15 @@ impl TrieIterationBenchmarkCmd {
                 return;
             }
             let trie = self.get_trie(shard_id, &shard_layout, &chunk_header, &store);
-            self.iter_trie(&trie, shard_id)
+
+            println!("shard id    {shard_id:#?} benchmark starting");
+            let prune_condition: Option<Box<dyn Fn(&Vec<u8>) -> bool>> =
+                Some(Box::new(Self::shallow_iter_prune_condition));
+            match &self.iteration_type {
+                TrieIterationType::Full => self.iter_trie(&trie, None),
+                TrieIterationType::Shallow => self.iter_trie(&trie, prune_condition),
+            };
+            println!("shard id    {shard_id:#?} benchmark finished");
         }
     }
 
@@ -677,13 +716,11 @@ impl TrieIterationBenchmarkCmd {
         Trie::new(Rc::new(storage), state_root, flat_storage_chunk_view)
     }
 
-    fn iter_trie(&self, trie: &Trie, shard_id: ShardId) {
-        println!("shard id {shard_id:#?} benchmark starting");
-
+    fn iter_trie(&self, trie: &Trie, prune_condition: Option<Box<dyn Fn(&Vec<u8>) -> bool>>) {
         let start = Instant::now();
         let mut node_count = 0;
         let mut error_count = 0;
-        let iter = trie.iter();
+        let iter = trie.iter_with_prune_condition(prune_condition);
         let iter = match iter {
             Ok(iter) => iter,
             Err(err) => {
@@ -714,10 +751,70 @@ impl TrieIterationBenchmarkCmd {
             }
         }
         let duration = start.elapsed();
-        println!("shard id    {shard_id:#?} benchmark finished");
         println!("node count  {node_count}");
         println!("error count {error_count}");
         println!("time        {duration:?}");
+    }
+
+    fn shallow_iter_prune_condition(key_nibbles: &Vec<u8>) -> bool {
+        // Need at least 2 nibbles for the column type byte.
+        if key_nibbles.len() < 2 {
+            return false;
+        }
+        // Keys for interesting nodes have even length
+        if key_nibbles.len() % 2 != 0 {
+            return false;
+        }
+
+        let col: u8 = key_nibbles[0] * 16 + key_nibbles[1];
+        match col {
+            // key for account only contains account id, nothing to prune
+            col::ACCOUNT => return false,
+            // key for contract code only contains account id, nothing to prune
+            col::CONTRACT_CODE => return false,
+            // key for delayed receipt only contains account id, nothing to prune
+            col::DELAYED_RECEIPT => return false,
+            // key for delayed receipt indices is a shard singleton, nothing to prune
+            col::DELAYED_RECEIPT_INDICES => return false,
+
+            // Most columns use the ACCOUNT_DATA_SEPARATOR to indicate the end
+            // of the accound id in the trie key. For those columns the
+            // partial_parse_account_id method should be used.
+            // The only exception is the ACCESS_KEY and dedicated method
+            // partial_parse_account_id_from_access_key should be used.
+            col::ACCESS_KEY => return Self::partial_parse_account_id_from_access_key(key_nibbles),
+            col::CONTRACT_DATA => return Self::partial_parse_account_id(col, key_nibbles),
+            col::RECEIVED_DATA => return Self::partial_parse_account_id(col, key_nibbles),
+            col::POSTPONED_RECEIPT_ID => return Self::partial_parse_account_id(col, key_nibbles),
+            col::PENDING_DATA_COUNT => return Self::partial_parse_account_id(col, key_nibbles),
+            col::POSTPONED_RECEIPT => return Self::partial_parse_account_id(col, key_nibbles),
+            _ => unreachable!(),
+        };
+
+        // TODO - this can be optimized, we really only need to look at the last
+        // byte of the key and check if it is the separator. This only works
+        // when doing full iteration as seeking inside of the trie would break
+        // the invariant that parent node key was already checked.
+    }
+
+    // TODO(wacban) copy pasta from iterator.rs
+    fn key(key_nibbles: &Vec<u8>) -> Vec<u8> {
+        let mut result = <Vec<u8>>::with_capacity(key_nibbles.len() / 2);
+        for i in (1..key_nibbles.len()).step_by(2) {
+            result.push(key_nibbles[i - 1] * 16 + key_nibbles[i]);
+        }
+        result
+    }
+
+    fn partial_parse_account_id(col: u8, key_nibbles: &Vec<u8>) -> bool {
+        let key = Self::key(key_nibbles);
+        parse_account_id_from_trie_key_with_separator(col, &key, "").is_ok()
+    }
+
+    // returns true if the partial key contains full account id
+    fn partial_parse_account_id_from_access_key(key_nibbles: &Vec<u8>) -> bool {
+        let key = Self::key(key_nibbles);
+        parse_account_id_from_access_key_key(&key).is_ok()
     }
 
     fn print_state_record(state_record: &Option<StateRecord>) {
