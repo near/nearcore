@@ -1,3 +1,5 @@
+extern crate core;
+
 use std::fs::File;
 use std::path::Path;
 use std::str::FromStr;
@@ -319,8 +321,8 @@ impl Store {
     pub fn iter_range<'a>(
         &'a self,
         col: DBCol,
-        lower_bound: Option<&'a [u8]>,
-        upper_bound: Option<&'a [u8]>,
+        lower_bound: Option<&[u8]>,
+        upper_bound: Option<&[u8]>,
     ) -> DBIterator<'a> {
         self.storage.iter_range(col, lower_bound, upper_bound)
     }
@@ -603,14 +605,6 @@ impl StoreUpdate {
         }
     }
 
-    pub fn update_cache(&self) -> io::Result<()> {
-        if let StoreUpdateStorage::Tries(tries) = &self.storage {
-            tries.update_cache(&self.transaction)
-        } else {
-            Ok(())
-        }
-    }
-
     pub fn commit(self) -> io::Result<()> {
         debug_assert!(
             {
@@ -657,10 +651,7 @@ impl StoreUpdate {
             }
         }
         let storage = match &self.storage {
-            StoreUpdateStorage::Tries(tries) => {
-                tries.update_cache(&self.transaction)?;
-                tries.get_db()
-            }
+            StoreUpdateStorage::Tries(tries) => tries.get_db(),
             StoreUpdateStorage::DB(db) => &db,
         };
         storage.write(self.transaction)

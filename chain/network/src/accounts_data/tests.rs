@@ -44,7 +44,7 @@ async fn happy_path() {
     let e0 = Arc::new(data::make_account_keys(&signers[0..5]));
     let e1 = Arc::new(data::make_account_keys(&signers[2..7]));
 
-    let cache = Arc::new(Cache::new());
+    let cache = Arc::new(AccountDataCache::new());
     assert_eq!(cache.load().data.values().count(), 0); // initially empty
     assert!(cache.set_keys(e0.clone()));
     assert_eq!(cache.load().data.values().count(), 0); // empty after initial set_keys.
@@ -108,7 +108,7 @@ async fn data_too_large() {
     let signers = make_signers(rng, 3);
     let e = Arc::new(data::make_account_keys(&signers));
 
-    let cache = Arc::new(Cache::new());
+    let cache = Arc::new(AccountDataCache::new());
     cache.set_keys(e);
     let a0 = Arc::new(make_account_data(rng, &clock.clock(), 1, &signers[0]));
     let a1 = Arc::new(make_account_data(rng, &clock.clock(), 1, &signers[1]));
@@ -130,7 +130,7 @@ async fn data_too_large() {
             ],
         )
         .await;
-    assert_eq!(Some(Error::DataTooLarge), res.1);
+    assert_eq!(Some(AccountDataError::DataTooLarge), res.1);
     // Partial update is allowed, in case an error is encountered.
     assert_is_superset(&[&a0, &a1].as_set(), &res.0.as_set());
     // Partial update should match the state.
@@ -147,7 +147,7 @@ async fn invalid_signature() {
     let signers = make_signers(rng, 3);
     let e = Arc::new(data::make_account_keys(&signers));
 
-    let cache = Arc::new(Cache::new());
+    let cache = Arc::new(AccountDataCache::new());
     cache.set_keys(e);
     let a0 = Arc::new(make_account_data(rng, &clock.clock(), 1, &signers[0]));
     let mut a1 = make_account_data(rng, &clock.clock(), 1, &signers[1]);
@@ -168,7 +168,7 @@ async fn invalid_signature() {
             ],
         )
         .await;
-    assert_eq!(Some(Error::InvalidSignature), res.1);
+    assert_eq!(Some(AccountDataError::InvalidSignature), res.1);
     // Partial update is allowed, in case an error is encountered.
     assert_is_superset(&[&a0, &a1].as_set(), &res.0.as_set());
     // Partial update should match the state.
@@ -185,7 +185,7 @@ async fn single_account_multiple_data() {
     let signers = make_signers(rng, 3);
     let e = Arc::new(data::make_account_keys(&signers));
 
-    let cache = Arc::new(Cache::new());
+    let cache = Arc::new(AccountDataCache::new());
     cache.set_keys(e);
     let a0 = Arc::new(make_account_data(rng, &clock.clock(), 1, &signers[0]));
     let a1 = Arc::new(make_account_data(rng, &clock.clock(), 1, &signers[1]));
@@ -197,7 +197,7 @@ async fn single_account_multiple_data() {
         .clone()
         .insert(&clock.clock(), vec![a0.clone(), a1.clone(), a2old.clone(), a2new.clone()])
         .await;
-    assert_eq!(Some(Error::SingleAccountMultipleData), res.1);
+    assert_eq!(Some(AccountDataError::SingleAccountMultipleData), res.1);
     // Partial update is allowed, in case an error is encountered.
     assert_is_superset(&[&a0, &a1, &a2old, &a2new].as_set(), &res.0.as_set());
     // Partial update should match the state, this also verifies that only 1 of the competing
@@ -218,12 +218,12 @@ async fn set_local() {
     let e0 = Arc::new(data::make_account_keys(&signers[0..2]));
     let e1 = Arc::new(data::make_account_keys(&signers[1..3]));
 
-    let cache = Arc::new(Cache::new());
+    let cache = Arc::new(AccountDataCache::new());
     assert!(cache.set_keys(e0.clone()));
 
     // Set local while local.signer is in cache.keys.
     // A new AccountData should be signed.
-    let local = LocalData {
+    let local = LocalAccountData {
         signer: Arc::new(signers[0].clone()),
         data: Arc::new(make_account_data(rng, &clock.clock(), 1, &signers[0]).data.clone()),
     };
@@ -233,7 +233,7 @@ async fn set_local() {
     clock.advance(time::Duration::hours(1));
 
     // Insert new version while local data is set and local.signer is in cache.keys.
-    // Cache should immediately emit AccountData for local.signer which overrides
+    // AccountDataCache should immediately emit AccountData for local.signer which overrides
     // the new version received.
     let a0 = Arc::new(make_account_data(rng, &clock.clock(), 7, &signers[0]));
     // Regular entry for a signer in cache.keys. The new version should be accepted.
@@ -264,7 +264,7 @@ async fn set_local() {
     assert_eq!([&a1, &a2].as_set(), unwrap(&res).as_set());
 
     // Update local data to a signer in cache.keys.
-    let local = LocalData {
+    let local = LocalAccountData {
         signer: Arc::new(signers[2].clone()),
         data: Arc::new(make_account_data(rng, &clock.clock(), 1, &signers[2]).data.clone()),
     };
@@ -274,7 +274,7 @@ async fn set_local() {
     assert_eq!([&a1, &got].as_set(), cache.load().data.values().collect());
 
     // Update local data to a signer outside of cache.keys.
-    let local = LocalData {
+    let local = LocalAccountData {
         signer: Arc::new(signers[0].clone()),
         data: Arc::new(make_account_data(rng, &clock.clock(), 1, &signers[0]).data.clone()),
     };

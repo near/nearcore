@@ -332,21 +332,42 @@ impl Chain {
     }
 }
 
-pub fn make_handshake<R: Rng>(rng: &mut R, chain: &Chain) -> Handshake {
-    let a = make_signer(rng);
-    let b = make_signer(rng);
-    let a_id = PeerId::new(a.public_key);
-    let b_id = PeerId::new(b.public_key);
+pub fn make_signed_ip_addr(
+    ip_addr: &std::net::IpAddr,
+    secret_key: &near_crypto::SecretKey,
+) -> SignedIpAddress {
+    let signed_ip_address: SignedIpAddress = SignedIpAddress::new(*ip_addr, secret_key);
+    return signed_ip_address;
+}
+
+pub fn make_handshake_with_ip<R: Rng>(
+    rng: &mut R,
+    chain: &Chain,
+    ip_addr: Option<std::net::IpAddr>,
+) -> Handshake {
+    let sender = make_signer(rng);
+    let target = make_signer(rng);
+    let sender_id = PeerId::new(sender.public_key);
+    let target_id = PeerId::new(target.public_key);
+    let signed_ip_address = match ip_addr {
+        Some(ip) => Some(make_signed_ip_addr(&ip, &sender.secret_key)),
+        _ => None,
+    };
     Handshake {
         protocol_version: version::PROTOCOL_VERSION,
         oldest_supported_version: version::PEER_MIN_ALLOWED_PROTOCOL_VERSION,
-        sender_peer_id: a_id,
-        target_peer_id: b_id,
+        sender_peer_id: sender_id,
+        target_peer_id: target_id,
         sender_listen_port: Some(rng.gen()),
         sender_chain_info: chain.get_peer_chain_info(),
         partial_edge_info: make_partial_edge(rng),
         owned_account: None,
+        signed_ip_address: signed_ip_address,
     }
+}
+
+pub fn make_handshake<R: Rng>(rng: &mut R, chain: &Chain) -> Handshake {
+    make_handshake_with_ip(rng, chain, None)
 }
 
 pub fn make_routed_message<R: Rng>(rng: &mut R, body: RoutedMessageBody) -> RoutedMessageV2 {

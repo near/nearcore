@@ -1,4 +1,4 @@
-use crate::accounts_data;
+use crate::accounts_data::AccountDataCacheSnapshot;
 use crate::broadcast;
 use crate::config;
 use crate::network_protocol::testonly as data;
@@ -387,7 +387,7 @@ impl ActorHandler {
     // Awaits until the accounts_data state satisfies predicate `pred`.
     pub async fn wait_for_accounts_data_pred(
         &self,
-        pred: impl Fn(Arc<accounts_data::CacheSnapshot>) -> bool,
+        pred: impl Fn(Arc<AccountDataCacheSnapshot>) -> bool,
     ) {
         let mut events = self.events.from_now();
         loop {

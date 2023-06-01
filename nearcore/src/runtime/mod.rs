@@ -47,7 +47,7 @@ use near_primitives::views::{
     AccessKeyInfoView, CallResult, QueryRequest, QueryResponse, QueryResponseKind, ViewApplyState,
     ViewStateResult,
 };
-use near_store::flat::{store_helper, FlatStorage, FlatStorageManager, FlatStorageStatus};
+use near_store::flat::FlatStorageManager;
 use near_store::metadata::DbKind;
 use near_store::split_state::get_delayed_receipts;
 use near_store::{
@@ -717,7 +717,9 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<Trie, Error> {
         let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_hash)?;
         if use_flat_storage {
-            Ok(self.tries.get_trie_with_block_hash_for_shard(shard_uid, state_root, prev_hash))
+            Ok(self
+                .tries
+                .get_trie_with_block_hash_for_shard(shard_uid, state_root, prev_hash, false))
         } else {
             Ok(self.tries.get_trie_for_shard(shard_uid, state_root))
         }
@@ -733,49 +735,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(self.tries.get_view_trie_for_shard(shard_uid, state_root))
     }
 
-    fn get_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Option<FlatStorage> {
-        self.flat_storage_manager.get_flat_storage_for_shard(shard_uid)
-    }
-
-    fn get_flat_storage_status(&self, shard_uid: ShardUId) -> FlatStorageStatus {
-        store_helper::get_flat_storage_status(&self.store, shard_uid)
-    }
-
-    // TODO (#7327): consider passing flat storage errors here to handle them gracefully
-    fn create_flat_storage_for_shard(&self, shard_uid: ShardUId) {
-        let flat_storage = FlatStorage::new(self.store.clone(), shard_uid);
-        self.flat_storage_manager.add_flat_storage_for_shard(shard_uid, flat_storage);
-    }
-
-    fn remove_flat_storage_for_shard(
-        &self,
-        shard_uid: ShardUId,
-        epoch_id: &EpochId,
-    ) -> Result<(), Error> {
-        let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
-        self.flat_storage_manager
-            .remove_flat_storage_for_shard(shard_uid, shard_layout)
-            .map_err(Error::StorageError)?;
-        Ok(())
-    }
-
-    fn set_flat_storage_for_genesis(
-        &self,
-        genesis_block: &CryptoHash,
-        genesis_block_height: BlockHeight,
-        genesis_epoch_id: &EpochId,
-    ) -> Result<StoreUpdate, Error> {
-        let mut store_update = self.store.store_update();
-        for shard_id in 0..self.epoch_manager.num_shards(genesis_epoch_id)? {
-            let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, genesis_epoch_id)?;
-            self.flat_storage_manager.set_flat_storage_for_genesis(
-                &mut store_update,
-                shard_uid,
-                genesis_block,
-                genesis_block_height,
-            );
-        }
-        Ok(store_update)
+    fn get_flat_storage_manager(&self) -> Option<FlatStorageManager> {
+        Some(self.flat_storage_manager.clone())
     }
 
     fn validate_tx(
@@ -915,7 +876,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         match result {
             Ok(gc_stop_height) => gc_stop_height,
             Err(error) => {
-                error!(target: "runtime", "Error when getting the gc stop height. Error: {}", error);
+                error!(target: "runtime", "Error when getting the gc stop height. This error may naturally occur after the gc_num_epochs_to_keep config is increased. It should disappear as soon as the node builds up all epochs it wants. Error: {}", error);
                 self.genesis_config.genesis_height
             }
         }
@@ -1195,13 +1156,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    /// Returns StorageError when storage is inconsistent.
-    /// This is possible with the used isolation level + running ViewClient in a separate thread
-    /// `block_hash` is a block whose `prev_state_root` is `state_root`
     fn obtain_state_part(
         &self,
         shard_id: ShardId,
-        block_hash: &CryptoHash,
+        prev_hash: &CryptoHash,
         state_root: &StateRoot,
         part_id: PartId,
     ) -> Result<Vec<u8>, Error> {
@@ -1210,22 +1168,24 @@ impl RuntimeAdapter for NightshadeRuntime {
             "obtain_state_part",
             part_id = part_id.idx,
             shard_id,
-            %block_hash,
+            %prev_hash,
             num_parts = part_id.total)
         .entered();
         let _timer = metrics::STATE_SYNC_OBTAIN_PART_DELAY
             .with_label_values(&[&shard_id.to_string()])
             .start_timer();
 
-        let epoch_id = self.epoch_manager.get_epoch_id(block_hash)?;
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
-        let trie = self.tries.get_view_trie_for_shard(shard_uid, *state_root);
-        let result = match trie.get_trie_nodes_for_part(part_id) {
+        let trie =
+            self.tries.get_trie_with_block_hash_for_shard(shard_uid, *state_root, &prev_hash, true);
+        let result = match trie.get_trie_nodes_for_part(prev_hash, part_id) {
             Ok(partial_state) => partial_state,
             Err(e) => {
                 error!(target: "runtime",
-                       "Can't get_trie_nodes_for_part for block {:?} state root {:?}, part_id {:?}, num_parts {:?}, {:?}",
-                       block_hash, state_root, part_id.idx, part_id.total, e
+                    "Can't get trie nodes for state part {}/{} for prev hash \
+                    {prev_hash} and state root {state_root}: {:?}",
+                    part_id.idx, part_id.total, e
                 );
                 return Err(e.into());
             }
@@ -1238,7 +1198,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn validate_state_part(&self, state_root: &StateRoot, part_id: PartId, data: &[u8]) -> bool {
         match BorshDeserialize::try_from_slice(data) {
             Ok(trie_nodes) => {
-                match Trie::validate_trie_nodes_for_part(state_root, part_id, trie_nodes) {
+                match Trie::validate_state_part(state_root, part_id, trie_nodes) {
                     Ok(_) => true,
                     // Storage error should not happen
                     Err(err) => {
@@ -1612,22 +1572,22 @@ mod test {
 
             let shard_uid =
                 self.epoch_manager.shard_id_to_uid(shard_id, &EpochId::default()).unwrap();
-            match self.get_flat_storage_for_shard(shard_uid) {
-                Some(flat_storage) => {
-                    let delta = FlatStateDelta {
-                        changes: flat_state_changes,
-                        metadata: FlatStateDeltaMetadata {
-                            block: near_store::flat::BlockInfo {
-                                hash: *block_hash,
-                                height,
-                                prev_hash: *prev_block_hash,
-                            },
+            if let Some(flat_storage) = self
+                .get_flat_storage_manager()
+                .and_then(|manager| manager.get_flat_storage_for_shard(shard_uid))
+            {
+                let delta = FlatStateDelta {
+                    changes: flat_state_changes,
+                    metadata: FlatStateDeltaMetadata {
+                        block: near_store::flat::BlockInfo {
+                            hash: *block_hash,
+                            height,
+                            prev_hash: *prev_block_hash,
                         },
-                    };
-                    let new_store_update = flat_storage.add_delta(delta).unwrap();
-                    store_update.merge(new_store_update);
-                }
-                None => {}
+                    },
+                };
+                let new_store_update = flat_storage.add_delta(delta).unwrap();
+                store_update.merge(new_store_update);
             }
             store_update.commit().unwrap();
 
@@ -1699,24 +1659,28 @@ mod test {
                 DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
                 Default::default(),
             );
-            let (_store, state_roots) = runtime.genesis_state();
+            let (store, state_roots) = runtime.genesis_state();
             let genesis_hash = hash(&[0]);
 
             // Create flat storage. Naturally it happens on Chain creation, but here we test only Runtime behaviour
             // and use a mock chain, so we need to initialize flat storage manually.
-            {
-                let store_update = runtime
-                    .set_flat_storage_for_genesis(&genesis_hash, 0, &EpochId::default())
-                    .unwrap();
-                store_update.commit().unwrap();
-                for shard_id in 0..epoch_manager.num_shards(&EpochId::default()).unwrap() {
-                    let shard_uid =
-                        epoch_manager.shard_id_to_uid(shard_id, &EpochId::default()).unwrap();
+            if let Some(flat_storage_manager) = runtime.get_flat_storage_manager() {
+                for shard_uid in
+                    epoch_manager.get_shard_layout(&EpochId::default()).unwrap().get_shard_uids()
+                {
+                    let mut store_update = store.store_update();
+                    flat_storage_manager.set_flat_storage_for_genesis(
+                        &mut store_update,
+                        shard_uid,
+                        &genesis_hash,
+                        0,
+                    );
+                    store_update.commit().unwrap();
                     assert!(matches!(
-                        runtime.get_flat_storage_status(shard_uid),
-                        FlatStorageStatus::Ready(_)
+                        flat_storage_manager.get_flat_storage_status(shard_uid),
+                        near_store::flat::FlatStorageStatus::Ready(_)
                     ));
-                    runtime.create_flat_storage_for_shard(shard_uid);
+                    flat_storage_manager.create_flat_storage_for_shard(shard_uid);
                 }
             }
 

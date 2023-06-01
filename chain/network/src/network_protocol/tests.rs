@@ -7,7 +7,10 @@ use crate::types::{PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg
 use anyhow::{bail, Context as _};
 use itertools::Itertools as _;
 use near_async::time;
+use near_crypto::{KeyType, SecretKey};
+use near_primitives::network::PeerId;
 use rand::Rng as _;
+use std::net;
 
 #[test]
 fn deduplicate_edges() {
@@ -61,8 +64,11 @@ fn serialize_deserialize_protobuf_only() {
     let mut rng = make_rng(39521947542);
     let mut clock = time::FakeClock::default();
     let chain = data::Chain::make(&mut clock, &mut rng, 12);
+    let ip_addr: net::IpAddr = data::make_ipv4(&mut rng);
     let msgs = [
-        PeerMessage::Tier1Handshake(data::make_handshake(&mut rng, &chain)),
+        PeerMessage::Tier1Handshake(data::make_handshake_with_ip(&mut rng, &chain, Some(ip_addr))), // with ip address
+        PeerMessage::Tier1Handshake(data::make_handshake(&mut rng, &chain)), // without ip address, temporarily supported for backwards compatibility migration
+        PeerMessage::Tier2Handshake(data::make_handshake_with_ip(&mut rng, &chain, Some(ip_addr))), // Tier2 Handshake does not maintain ip address with borsh serialization
         PeerMessage::SyncAccountsData(SyncAccountsData {
             accounts_data: (0..4)
                 .map(|_| Arc::new(data::make_signed_account_data(&mut rng, &clock.clock())))
@@ -107,7 +113,7 @@ fn serialize_deserialize() -> anyhow::Result<()> {
         }),
     ));
     let msgs = [
-        PeerMessage::Tier2Handshake(data::make_handshake(&mut rng, &chain)),
+        PeerMessage::Tier2Handshake(data::make_handshake(&mut rng, &chain)), // without ip address, temporarily supported for backwards compatibility migration
         PeerMessage::HandshakeFailure(
             data::make_peer_info(&mut rng),
             HandshakeFailureReason::InvalidTarget,
@@ -169,4 +175,16 @@ fn serialize_deserialize() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+#[test]
+fn sign_and_verify_with_signed_ip_address_interface() {
+    let node_key = SecretKey::from_seed(KeyType::ED25519, "123");
+    let peer_id = PeerId::new(node_key.public_key());
+    let mut rng = make_rng(89028037453);
+    let ip_addr: net::IpAddr = data::make_ipv4(&mut rng);
+    // Wrap ip address sign and verify algorithm with interfaces SignedIpAddress
+    let signed_ip_address: SignedIpAddress = SignedIpAddress::new(ip_addr, &node_key);
+    assert!(signed_ip_address.verify(&node_key.public_key()));
+    assert!(signed_ip_address.verify(peer_id.public_key()));
 }

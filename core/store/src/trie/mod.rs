@@ -1,6 +1,8 @@
 use crate::flat::{FlatStateChanges, FlatStorageChunkView};
 pub use crate::trie::config::TrieConfig;
-pub(crate) use crate::trie::config::DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT;
+pub(crate) use crate::trie::config::{
+    DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY, DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
+};
 use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
 pub use crate::trie::nibble_slice::NibbleSlice;
@@ -446,10 +448,7 @@ impl Trie {
     pub fn from_recorded_storage(partial_storage: PartialStorage, root: StateRoot) -> Self {
         let PartialState::TrieValues(nodes) = partial_storage.nodes;
         let recorded_storage = nodes.into_iter().map(|value| (hash(&value), value)).collect();
-        let storage = Rc::new(TrieMemoryPartialStorage {
-            recorded_storage,
-            visited_nodes: Default::default(),
-        });
+        let storage = Rc::new(TrieMemoryPartialStorage::new(recorded_storage));
         Self::new(storage, root, None)
     }
 
@@ -1262,7 +1261,7 @@ mod tests {
 
         assert_eq!(trie3.get(b"dog"), Ok(Some(b"puppy".to_vec())));
         assert_eq!(trie3.get(b"horse"), Ok(Some(b"stallion".to_vec())));
-        assert_eq!(trie3.get(b"doge"), Err(StorageError::TrieNodeMissing));
+        assert_eq!(trie3.get(b"doge"), Err(StorageError::MissingTrieValue));
     }
 
     #[test]
