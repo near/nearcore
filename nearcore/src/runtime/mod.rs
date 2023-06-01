@@ -1336,24 +1336,36 @@ impl RuntimeAdapter for NightshadeRuntime {
             (data.store.clone(), data.flat_storage_manager.clone(), data.prev_block_hash)
         };
 
-        let trie = self.tries.get_trie_with_block_hash_for_shard_with_custom_store(
+        let realtime_trie =
+            self.tries.get_trie_with_block_hash_for_shard(shard_uid, *state_root, &prev_hash, true);
+        let (partial_state, nibbles_begin, nibbles_end) = match realtime_trie
+            .get_state_part_boundaries(part_id)
+        {
+            Ok(res) => res,
+            Err(err) => {
+                error!(target: "runtime", ?err, part_id.idx, part_id.total, %prev_hash, %state_root, %shard_id, "Can't get trie nodes for state part boundaries");
+                return Err(err.into());
+            }
+        };
+
+        let snapshot_trie = self.tries.get_trie_with_block_hash_for_shard_with_custom_store(
             shard_uid,
             *state_root,
             &prev_hash,
             store,
             flat_storage_manager,
         );
-
-        let result = match trie.get_trie_nodes_for_part(prev_hash, part_id) {
+        let state_part = match snapshot_trie.get_trie_nodes_for_part_with_flat_storage(part_id, partial_state, nibbles_begin, nibbles_end) {
             Ok(partial_state) => partial_state,
-            Err(e) => {
-                error!(target: "runtime", error = ?e, part_id.idx, part_id.total, %prev_hash, %state_root, "Can't get trie nodes for state part");
-                return Err(e.into());
+            Err(err) => {
+                error!(target: "runtime", ?err, part_id.idx, part_id.total, %prev_hash, %state_root, %shard_id, "Can't get trie nodes for state part");
+                return Err(err.into());
             }
         }
         .try_to_vec()
         .expect("serializer should not fail");
-        Ok(result)
+
+        Ok(state_part)
     }
 
     fn validate_state_part(&self, state_root: &StateRoot, part_id: PartId, data: &[u8]) -> bool {
@@ -1589,8 +1601,6 @@ impl RuntimeAdapter for NightshadeRuntime {
                         DBCol::FlatStateChanges,
                         DBCol::FlatStateDeltaMetadata,
                         DBCol::FlatStorageStatus,
-                        // Needed to find state part boundaries.
-                        DBCol::State,
                     ]),
                 )
                 .map_err(|err| Error::Other(err.to_string()))?;

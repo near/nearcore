@@ -88,24 +88,6 @@ impl Trie {
         }
     }
 
-    /// Computes the set of trie nodes for a state part.
-    ///
-    /// # Panics
-    /// part_id must be in [0..num_parts)
-    ///
-    /// # Errors
-    /// StorageError if the storage is corrupted
-    pub fn get_trie_nodes_for_part(
-        &self,
-        prev_hash: &CryptoHash,
-        part_id: PartId,
-    ) -> Result<PartialState, StorageError> {
-        // TODO: Revert to using Trie if needed.
-        self.is_flat_storage_head_at(prev_hash);
-        let trie_values = self.get_trie_nodes_for_part_with_flat_storage(part_id)?;
-        Ok(trie_values)
-    }
-
     /// Helper to create iterator over flat storage entries corresponding to
     /// its head, shard for which trie was created and the range of keys given
     /// in nibbles.
@@ -147,14 +129,11 @@ impl Trie {
             .iter_flat_state_entries(key_begin.as_deref(), key_end.as_deref()))
     }
 
-    /// Helper to create `PartialState` for given state part using flat storage
-    /// entries for the range of state part keys.
-    /// Assumes that underlying flat storage doesn't change and corresponds to
-    /// `Trie::root`.
-    fn get_trie_nodes_for_part_with_flat_storage(
+    /// Helper to create find part boundaries `PartialState`.
+    pub fn get_state_part_boundaries(
         &self,
         part_id: PartId,
-    ) -> Result<PartialState, StorageError> {
+    ) -> Result<(PartialState, Vec<u8>, Vec<u8>), StorageError> {
         let PartId { idx, total } = part_id;
 
         // 1. Extract nodes corresponding to state part boundaries.
@@ -165,7 +144,29 @@ impl Trie {
             recording_trie.find_state_part_boundary(part_id.idx + 1, part_id.total)?;
         let boundaries_read_duration = boundaries_read_start.elapsed();
         let recorded_trie = recording_trie.recorded_storage().unwrap();
-        let PartialState::TrieValues(path_boundary_nodes) = recorded_trie.nodes;
+
+        tracing::info!(
+            target: "state-parts",
+            idx,
+            total,
+            ?boundaries_read_duration,
+            "Found state part boundaries",
+        );
+        Ok((recorded_trie.nodes, nibbles_begin, nibbles_end))
+    }
+
+    /// Helper to create `PartialState` for given state part using flat storage
+    /// entries for the range of state part keys.
+    /// Assumes that underlying flat storage doesn't change and corresponds to
+    /// `Trie::root`.
+    pub fn get_trie_nodes_for_part_with_flat_storage(
+        &self,
+        part_id: PartId,
+        partial_state: PartialState,
+        nibbles_begin: Vec<u8>,
+        nibbles_end: Vec<u8>,
+    ) -> Result<PartialState, StorageError> {
+        let PartialState::TrieValues(path_boundary_nodes) = partial_state;
 
         // 2. Extract all key-value pairs in state part from flat storage.
         let values_read_start = Instant::now();
@@ -225,13 +226,11 @@ impl Trie {
             trie_values.iter().filter(|entry| !disk_read_hashes.contains(&hash(*entry))).count();
         tracing::info!(
             target: "state-parts",
-            %idx,
-            %total,
+            ?part_id,
             %values_ref,
             %values_inlined,
             %in_memory_created_nodes,
             %state_part_num_nodes,
-            ?boundaries_read_duration,
             ?values_read_duration,
             ?local_trie_creation_duration,
             ?final_part_creation_duration,
