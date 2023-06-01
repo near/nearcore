@@ -1,6 +1,6 @@
 use crate::network_protocol::Edge;
 use near_primitives::network::PeerId;
-use std::collections::hash_map::Entry;
+use std::collections::hash_map::{Entry, Iter};
 use std::collections::HashMap;
 
 #[cfg(test)]
@@ -59,8 +59,7 @@ pub struct EdgeCache {
     active_spts: HashMap<PeerId, Vec<EdgeKey>>,
 
     /// Mapping from PeerId to assigned u32 id
-    /// TODO: make this private?
-    pub(crate) p2id: HashMap<PeerId, u32>,
+    p2id: HashMap<PeerId, u32>,
     /// Mapping from u32 id to the number of distinct active edges for the node
     degree: Vec<u32>,
     /// List of unused u32 ids
@@ -229,7 +228,7 @@ impl EdgeCache {
 
         let edge_keys: Vec<EdgeKey> = edges.iter().map(|edge| edge.key()).cloned().collect();
 
-        // If we over-write an entry, process removal of the old edges
+        // If we overwrite an entry, process removal of the old edges
         if let Some(old_edge_keys) = self.active_spts.insert(peer_id.clone(), edge_keys) {
             for key in &old_edge_keys {
                 self.remove_active_edge(key);
@@ -249,6 +248,11 @@ impl EdgeCache {
     /// Upper bound on mapped u32 ids; not inclusive
     pub fn max_id(&self) -> usize {
         self.degree.len()
+    }
+
+    /// Iterator over the (PeerId, u32) mapping
+    pub fn iter_peers(&self) -> Iter<'_, PeerId, u32> {
+        self.p2id.iter()
     }
 
     /// Number of known edges in the network

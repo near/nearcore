@@ -287,7 +287,7 @@ impl Inner {
             }
         }
         let mut next_hops = HashMap::<PeerId, Vec<PeerId>>::new();
-        for (peer_id, id) in &self.edge_cache.p2id {
+        for (peer_id, id) in self.edge_cache.iter_peers() {
             if !next_hops_by_id[*id as usize].is_empty() {
                 next_hops.insert(peer_id.clone(), next_hops_by_id[*id as usize].clone());
             }
@@ -295,7 +295,7 @@ impl Inner {
 
         // Build a PeerId-keyed map of distances
         let mut distance: HashMap<PeerId, u32> = HashMap::new();
-        for (peer_id, id) in &self.edge_cache.p2id {
+        for (peer_id, id) in self.edge_cache.iter_peers() {
             if distance_by_id[*id as usize] != -1 {
                 distance.insert(peer_id.clone(), distance_by_id[*id as usize] as u32);
             }
