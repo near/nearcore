@@ -55,10 +55,10 @@ utils.wait_for_blocks(nodes[0], target=TARGET_HEIGHT3)
 
 nodes[0].kill()
 
-for i in range(1, EPOCH_LENGTH*6):
+for i in range(1, EPOCH_LENGTH * 6):
     res = nodes[1].json_rpc('block', [i], timeout=10)
     assert 'error' in res, f'height {i}, {res}'
 
-for i in range(EPOCH_LENGTH*6, EPOCH_LENGTH*10 + 1):
+for i in range(EPOCH_LENGTH * 6, EPOCH_LENGTH * 10 + 1):
     res = nodes[1].json_rpc('block', [i], timeout=10)
     assert 'result' in res, f'height {i}, {res}'

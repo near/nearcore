@@ -828,7 +828,9 @@ def apply_config_changes(node_dir, client_config_change):
             current = config_json
             for part in parts[:-1]:
                 if part not in current:
-                    raise ValueError(f'{part} is not found in config.json. Key={k}, Value={v}')
+                    raise ValueError(
+                        f'{part} is not found in config.json. Key={k}, Value={v}'
+                    )
                 current = current[part]
             current[parts[-1]] = v
 
