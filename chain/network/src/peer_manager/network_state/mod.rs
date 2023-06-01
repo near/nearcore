@@ -1,4 +1,5 @@
 use crate::accounts_data::{AccountDataCache, AccountDataError};
+use crate::announce_accounts::AnnounceAccountCache;
 use crate::client;
 use crate::concurrency::demux;
 use crate::concurrency::runtime::Runtime;
@@ -102,6 +103,8 @@ pub(crate) struct NetworkState {
     pub chain_info: ArcSwap<Option<ChainInfo>>,
     /// AccountsData for TIER1 accounts.
     pub accounts_data: Arc<AccountDataCache>,
+    /// AnnounceAccounts mapping TIER1 account ids to peer ids.
+    pub account_announcements: Arc<AnnounceAccountCache>,
     /// Connected peers (inbound and outbound) with their full peer information.
     pub tier2: connection::Pool,
     pub tier1: connection::Pool,
@@ -121,12 +124,11 @@ pub(crate) struct NetworkState {
     pub recent_routed_messages: Mutex<lru::LruCache<CryptoHash, ()>>,
 
     /// Hash of messages that requires routing back to respective previous hop.
+    pub tier2_route_back: Mutex<RouteBackCache>,
     /// Currently unused, as TIER1 messages do not require a response.
     /// Also TIER1 connections are direct by design (except for proxies),
     /// so routing shouldn't really be needed.
     /// TODO(gprusak): consider removing it altogether.
-    ///
-    /// Note that the route_back table for TIER2 is stored in graph.routing_table_view.
     pub tier1_route_back: Mutex<RouteBackCache>,
 
     /// Shared counter across all PeerActors, which counts number of `RoutedMessageBody::ForwardTx`
@@ -176,9 +178,11 @@ impl NetworkState {
             tier1: connection::Pool::new(config.node_id()),
             inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
             peer_store,
-            connection_store: connection_store::ConnectionStore::new(store).unwrap(),
+            connection_store: connection_store::ConnectionStore::new(store.clone()).unwrap(),
             pending_reconnect: Mutex::new(Vec::<PeerInfo>::new()),
             accounts_data: Arc::new(AccountDataCache::new()),
+            account_announcements: Arc::new(AnnounceAccountCache::new(store)),
+            tier2_route_back: Mutex::new(RouteBackCache::default()),
             tier1_route_back: Mutex::new(RouteBackCache::default()),
             recent_routed_messages: Mutex::new(lru::LruCache::new(
                 RECENT_ROUTED_MESSAGES_CACHE_SIZE,
@@ -426,9 +430,7 @@ impl NetworkState {
         let my_peer_id = self.config.node_id();
         match target {
             PeerIdOrHash::PeerId(peer_id) => &my_peer_id == peer_id,
-            PeerIdOrHash::Hash(hash) => {
-                self.graph.routing_table.compare_route_back(*hash, &my_peer_id)
-            }
+            PeerIdOrHash::Hash(hash) => self.compare_route_back(*hash, &my_peer_id),
         }
     }
 
@@ -492,12 +494,12 @@ impl NetworkState {
                 };
                 return self.tier1.send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
             }
-            tcp::Tier::T2 => match self.graph.routing_table.find_route(&clock, &msg.target) {
+            tcp::Tier::T2 => match self.tier2_find_route(&clock, &msg.target) {
                 Ok(peer_id) => {
                     // Remember if we expect a response for this message.
                     if msg.author == my_peer_id && msg.expect_response() {
                         tracing::trace!(target: "network", ?msg, "initiate route back");
-                        self.graph.routing_table.add_route_back(&clock, msg.hash(), my_peer_id);
+                        self.tier2_route_back.lock().insert(clock, msg.hash(), my_peer_id);
                     }
                     return self.tier2.send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
                 }
@@ -573,7 +575,7 @@ impl NetworkState {
         let target = if let Some(peer_id) = peer_id_from_account_data {
             metrics::ACCOUNT_TO_PEER_LOOKUPS.with_label_values(&["AccountData"]).inc();
             peer_id
-        } else if let Some(peer_id) = self.graph.routing_table.account_owner(account_id) {
+        } else if let Some(peer_id) = self.account_announcements.get_account_owner(account_id) {
             metrics::ACCOUNT_TO_PEER_LOOKUPS.with_label_values(&["AnnounceAccount"]).inc();
             peer_id
         } else {
@@ -584,7 +586,7 @@ impl NetworkState {
                    to = ?account_id,
                    ?msg,"Drop message: unknown account",
             );
-            tracing::trace!(target: "network", known_peers = ?self.graph.routing_table.get_accounts_keys(), "Known peers");
+            tracing::trace!(target: "network", known_peers = ?self.account_announcements.get_accounts_keys(), "Known peers");
             return false;
         };
 
