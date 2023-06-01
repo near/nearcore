@@ -116,8 +116,7 @@ impl FlatStorageShardCreator {
                     shard_uid,
                     key,
                     Some(FlatStateValue::value_ref(&value)),
-                )
-                .expect("Failed to put value in FlatState");
+                );
                 num_items += 1;
             }
         }
@@ -153,7 +152,8 @@ impl FlatStorageShardCreator {
     ) -> Result<bool, Error> {
         let shard_id = self.shard_uid.shard_id();
         let current_status =
-            store_helper::get_flat_storage_status(chain_store.store(), self.shard_uid);
+            store_helper::get_flat_storage_status(chain_store.store(), self.shard_uid)
+                .expect("failed to read flat storage status");
         self.metrics.set_status(&current_status);
         match &current_status {
             FlatStorageStatus::Empty => {
