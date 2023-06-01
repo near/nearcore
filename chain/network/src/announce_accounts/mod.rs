@@ -25,18 +25,19 @@ struct Inner {
 impl Inner {
     /// Get AnnounceAccount for the given AccountId.
     fn get_announce(&mut self, account_id: &AccountId) -> Option<AnnounceAccount> {
-        if let Some(aa) = self.account_peers.get(account_id) {
-            return Some(aa.clone());
+        if let Some(announce_account) = self.account_peers.get(account_id) {
+            return Some(announce_account.clone());
         }
+
         match self.store.get_account_announcement(&account_id) {
-            Err(e) => {
-                tracing::warn!(target: "network", "Error loading announce account from store: {:?}", e);
+            Err(err) => {
+                tracing::warn!(target: "network", "Error loading announce account from store: {:?}", err);
                 None
             }
             Ok(None) => None,
-            Ok(Some(a)) => {
-                self.account_peers.put(account_id.clone(), a.clone());
-                Some(a)
+            Ok(Some(stored_announce_account)) => {
+                self.account_peers.put(account_id.clone(), stored_announce_account.clone());
+                Some(stored_announce_account)
             }
         }
     }
