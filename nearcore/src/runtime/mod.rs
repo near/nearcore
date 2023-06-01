@@ -102,19 +102,20 @@ impl NightshadeRuntime {
         config: &NearConfig,
         epoch_manager: Arc<EpochManagerHandle>,
     ) -> Arc<Self> {
-        let state_snapshot_config = if config.config.store.state_snapshot_enabled {
-            StateSnapshotConfig::Enabled {
+        let (state_snapshot, state_snapshot_config) = if config.config.store.state_snapshot_enabled
+        {
+            let state_snapshot_config = StateSnapshotConfig::Enabled {
                 home_dir: home_dir.to_path_buf(),
                 hot_store_path: config.config.store.path.clone().unwrap_or(PathBuf::from("data")),
                 state_snapshot_subdir: PathBuf::from("state_snapshot"),
-            }
+            };
+            let state_snapshot =
+                maybe_open_state_snapshot(&state_snapshot_config, config, epoch_manager.clone())
+                    .unwrap();
+            (state_snapshot, state_snapshot_config)
         } else {
-            StateSnapshotConfig::Disabled
+            (None, StateSnapshotConfig::Disabled)
         };
-        let state_snapshot =
-            maybe_open_state_snapshot(&state_snapshot_config, config, epoch_manager.clone())
-                .unwrap();
-
         Self::new(
             home_dir,
             store,

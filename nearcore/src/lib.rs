@@ -275,9 +275,13 @@ pub fn start_with_config_and_synchronization(
     let client_adapter_for_shards_manager = Arc::new(LateBoundSender::default());
     let adv = near_client::adversarial::Controls::new(config.client_config.archive);
 
-    let state_snapshot_actor = runtime.get_flat_storage_manager().map(|flat_storage_manager| {
-        Arc::new(StateSnapshotActor::new(flat_storage_manager, runtime.get_tries()).start())
-    });
+    let state_snapshot_actor = if config.config.store.state_snapshot_enabled {
+        runtime.get_flat_storage_manager().map(|flat_storage_manager| {
+            Arc::new(StateSnapshotActor::new(flat_storage_manager, runtime.get_tries()).start())
+        })
+    } else {
+        None
+    };
 
     let view_client = start_view_client(
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
