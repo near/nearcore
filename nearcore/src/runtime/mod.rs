@@ -1963,7 +1963,7 @@ mod test {
             let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
             let runtime = NightshadeRuntime::new(
                 dir.path(),
-                store.clone(),
+                store,
                 &genesis,
                 epoch_manager.clone(),
                 None,
