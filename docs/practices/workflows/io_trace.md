@@ -265,7 +265,7 @@ above 1GB in uncompressed size. You might be able to sample a few receipts and
 eyeball them to get a feeling for what's going on. But you can't understand the
 whole trace without additional tooling.
 
-The parameter estimator command `replay`can help with that. (See also [this
+The parameter estimator command `replay` can help with that. (See also [this
 readme](https://github.com/near/nearcore/tree/master/runtime/runtime-params-estimator/README.md))
 Run the following command to see an overview of available commands.
 
@@ -320,5 +320,5 @@ See the `top-level` output at the end? These are all the DB requests that could
 not be assigned to specific chunks. The way we currently count write operations
 (SET, UPDATE_RC) they are never assigned to a specific chunk and instead only
 show up in the top-level list. Clearly, there is some room for improvement here.
-So far we simply did not worried about RocksDB write performance so the tooling
+So far we simply haven't worried about RocksDB write performance so the tooling
 to debug write performance is naturally lacking.
