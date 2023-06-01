@@ -346,9 +346,14 @@ impl Inner {
         // Recompute the NextHopTable
         let (next_hops, distance) = self.compute_next_hops(unreliable_peers);
 
-        // If distances in the network have changed, return a message to be broadcasted to peers
+        // If distances in the network have changed,
+        // construct and return a message to be broadcasted to peers
         let to_broadcast = if distance != self.distance {
             self.distance = distance;
+            self.local_spt = network_protocol::ShortestPathTree {
+                root: self.config.node_id.clone(),
+                edges: self.edge_cache.construct_shortest_path_tree(&self.distance),
+            };
             Some(self.local_spt.clone())
         } else {
             None
@@ -390,8 +395,6 @@ impl GraphV2 {
     }
 
     pub fn set_unreliable_peers(&self, unreliable_peers: HashSet<PeerId>) {
-        // TODO: unreliable peers are used in computation of next hops;
-        // consider whether setting them should trigger immediate re-computation
         self.unreliable_peers.store(Arc::new(unreliable_peers));
     }
 

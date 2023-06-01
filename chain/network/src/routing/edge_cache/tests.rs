@@ -197,3 +197,63 @@ fn overwrite_shortest_path_tree() {
     // node2 should have been pruned from node0's `p2id` mapping
     assert!(!ec.p2id.contains_key(&node2));
 }
+
+fn assert_eq_unordered(a: Vec<Edge>, b: Vec<Edge>) {
+    for x in &a {
+        assert!(b.contains(x));
+    }
+    for x in &b {
+        assert!(a.contains(x));
+    }
+}
+
+#[test]
+fn test_construct_shortest_path_tree() {
+    let node0 = random_peer_id();
+    let node1 = random_peer_id();
+    let node2 = random_peer_id();
+    let node3 = random_peer_id();
+
+    // Set up a simple line graph 0--1--2--3
+    let edge0 = Edge::make_fake_edge(node0.clone(), node1.clone(), 123);
+    let edge1 = Edge::make_fake_edge(node1.clone(), node2.clone(), 456);
+    let edge2 = Edge::make_fake_edge(node2.clone(), node3.clone(), 789);
+
+    // Set up the EdgeCache with node0 as the local node
+    let mut ec = EdgeCache::new(node0.clone());
+    ec.check_mapping(vec![node0.clone()]);
+
+    // Insert the edges to the cache
+    ec.insert_active_edge(&edge0);
+    ec.insert_active_edge(&edge1);
+    ec.insert_active_edge(&edge2);
+
+    // Construct tree 0--1--2--3
+    assert_eq_unordered(
+        ec.construct_shortest_path_tree(&HashMap::from([
+            (node0.clone(), 0),
+            (node1.clone(), 1),
+            (node2.clone(), 2),
+            (node3.clone(), 3),
+        ])),
+        vec![edge0.clone(), edge1.clone(), edge2.clone()],
+    );
+
+    // Add direct edges to node2 and node3
+    let edge02 = Edge::make_fake_edge(node0.clone(), node2.clone(), 123);
+    let edge03 = Edge::make_fake_edge(node0.clone(), node3.clone(), 456);
+
+    ec.insert_active_edge(&edge02);
+    ec.insert_active_edge(&edge03);
+
+    // Construct tree 0--{1,2,3]
+    assert_eq_unordered(
+        ec.construct_shortest_path_tree(&HashMap::from([
+            (node0, 0),
+            (node1, 1),
+            (node2, 1),
+            (node3, 1),
+        ])),
+        vec![edge0, edge02, edge03],
+    );
+}

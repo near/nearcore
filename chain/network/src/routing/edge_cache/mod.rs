@@ -1,7 +1,7 @@
 use crate::network_protocol::Edge;
 use near_primitives::network::PeerId;
 use std::collections::hash_map::{Entry, Iter};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[cfg(test)]
 mod testonly;
@@ -279,5 +279,38 @@ impl EdgeCache {
         for key in pruned_keys {
             self.decrement_degrees_for_key(&key);
         }
+    }
+
+    /// Accepts a mapping from the set of reachable PeerIds in the network to the shortest path
+    /// lengths to those peers.
+    ///
+    /// Constructs a tree from among the `active_edges` which has the same reachability and distances.
+    ///
+    /// May error if the input is incorrect (reachability or distances are not consistent with
+    /// the `active_edge` set stored in the cache).
+    pub fn construct_shortest_path_tree(&self, distance: &HashMap<PeerId, u32>) -> Vec<Edge> {
+        let mut edges = Vec::<Edge>::new();
+        let mut has_edge = HashSet::<PeerId>::new();
+
+        for (edge_key, active_edge) in &self.active_edges {
+            let (peer0, peer1) = edge_key;
+            if let Some(dist0) = distance.get(peer0) {
+                // Because this edge exists, if either peer is reachable then both are
+                let dist1 = distance.get(peer1).unwrap();
+
+                if dist0 + 1 == *dist1 && !has_edge.contains(peer1) {
+                    has_edge.insert(peer1.clone());
+                    edges.push(active_edge.edge.clone());
+                }
+
+                if dist1 + 1 == *dist0 && !has_edge.contains(peer0) {
+                    has_edge.insert(peer0.clone());
+                    edges.push(active_edge.edge.clone());
+                }
+            }
+        }
+
+        assert!(has_edge.len() + 1 == distance.len());
+        edges
     }
 }
