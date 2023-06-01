@@ -23,7 +23,7 @@ pub enum DBCol {
     /// - *Rows*: single row `"VERSION"`
     /// - *Content type*: The version of the database (u32), serialized as JSON.
     DbVersion,
-    /// Column that store Misc cells.
+    /// Column that stores miscellaneous block-related cells.
     /// - *Rows*: multiple, for example `"GENESIS_JSON_HASH"`, `"HEAD_KEY"`, `"LATEST_KNOWN_KEY"` etc.
     /// - *Content type*: cell specific.
     BlockMisc,
@@ -260,23 +260,24 @@ pub enum DBCol {
     /// Flat state contents. Used to get `ValueRef` by trie key faster than doing a trie lookup.
     /// - *Rows*: `shard_uid` + trie key (Vec<u8>)
     /// - *Column type*: ValueRef
-    #[cfg(feature = "protocol_feature_flat_state")]
     FlatState,
     /// Changes for flat state delta. Stores how flat state should be updated for the given shard and block.
     /// - *Rows*: `KeyForFlatStateDelta { shard_uid, block_hash }`
     /// - *Column type*: `FlatStateChanges`
-    #[cfg(feature = "protocol_feature_flat_state")]
     FlatStateChanges,
     /// Metadata for flat state delta.
     /// - *Rows*: `KeyForFlatStateDelta { shard_uid, block_hash }`
     /// - *Column type*: `FlatStateDeltaMetadata`
-    #[cfg(feature = "protocol_feature_flat_state")]
     FlatStateDeltaMetadata,
     /// Flat storage status for the corresponding shard.
     /// - *Rows*: `shard_uid`
     /// - *Column type*: `FlatStorageStatus`
-    #[cfg(feature = "protocol_feature_flat_state")]
     FlatStorageStatus,
+    /// Column to persist pieces of miscellaneous small data. Should only be used to store
+    /// constant or small (for example per-shard) amount of data.
+    /// - *Rows*: arbitrary string, see `crate::db::FLAT_STATE_VALUES_INLINING_MIGRATION_STATUS_KEY` for example
+    /// - *Column type*: arbitrary bytes
+    Misc,
 }
 
 /// Defines different logical parts of a db key.
@@ -389,28 +390,88 @@ impl DBCol {
     /// Whether this column should be copied to the cold storage.
     ///
     /// This doesn’t include DbVersion and BlockMisc columns which are present
-    /// int cold database but rather than being copied from hot database are
+    /// in the cold database but rather than being copied from hot database are
     /// maintained separately.
     pub const fn is_cold(&self) -> bool {
+        // Explicitly list all columns so that if new one is added it'll need to
+        // be added here as well.
         match self {
+            // DBVersion and BlockMisc are maintained separately in the cold
+            // storage, they should not be copied from hot.
+            DBCol::DbVersion | DBCol::BlockMisc => false,
+            // Most of the GC-ed columns should be copied to the cold storage.
             DBCol::Block
             | DBCol::BlockExtra
             | DBCol::BlockInfo
+            // TODO can be reconstruction from BlockHeight instead of saving to cold storage.
+            | DBCol::BlockPerHeight
             | DBCol::ChunkExtra
+            // TODO can be changed to reconstruction from Block instead of saving to cold storage.
+            | DBCol::ChunkHashesByHeight
             | DBCol::Chunks
             | DBCol::IncomingReceipts
             | DBCol::NextBlockHashes
             | DBCol::OutcomeIds
             | DBCol::OutgoingReceipts
+            // TODO can be changed to reconstruction on request instead of saving in cold storage.
+            | DBCol::PartialChunks
             | DBCol::ReceiptIdToShardId
             | DBCol::Receipts
             | DBCol::State
             | DBCol::StateChanges
+            // TODO StateChangesForSplitStates is not GC-ed, why is it here?
             | DBCol::StateChangesForSplitStates
             | DBCol::StateHeaders
             | DBCol::TransactionResultForBlock
             | DBCol::Transactions => true,
-            _ => false,
+
+            // TODO
+            DBCol::ChallengedBlocks => false,
+            DBCol::Misc => false,
+            // BlockToCatchup is only needed while syncing and it is not immutable.
+            DBCol::BlocksToCatchup => false,
+            // BlockRefCount is only needed when handling forks and it is not immutable.
+            DBCol::BlockRefCount => false,
+            // InvalidChunks is only needed at head when accepting new chunks.
+            DBCol::InvalidChunks => false,
+            // StateParts is only needed while syncing.
+            DBCol::StateParts => false,
+            // TrieChanges is only needed for GC.
+            DBCol::TrieChanges => false,
+            // StateDlInfos is only needed when syncing and it is not immutable.
+            DBCol::StateDlInfos => false,
+            // TODO
+            DBCol::ProcessedBlockHeights => false,
+            // HeaderHashesByHeight is only needed for GC.
+            DBCol::HeaderHashesByHeight => false,
+
+            // Columns that are not GC-ed need not be copied to the cold storage.
+            DBCol::BlockHeader
+            | DBCol::_GCCount
+            | DBCol::BlockHeight
+            | DBCol::_Peers
+            | DBCol::RecentOutboundConnections
+            | DBCol::BlockMerkleTree
+            | DBCol::AccountAnnouncements
+            | DBCol::EpochLightClientBlocks
+            | DBCol::PeerComponent
+            | DBCol::LastComponentNonce
+            | DBCol::ComponentEdges
+            | DBCol::EpochInfo
+            | DBCol::EpochStart
+            | DBCol::EpochValidatorInfo
+            | DBCol::BlockOrdinal
+            | DBCol::_ChunkPerHeightShard
+            | DBCol::_NextBlockWithNewChunk
+            | DBCol::_LastBlockWithNewChunk
+            | DBCol::_TransactionRefCount
+            | DBCol::_TransactionResult
+            // | DBCol::StateChangesForSplitStates
+            | DBCol::CachedContractCode
+            | DBCol::FlatState
+            | DBCol::FlatStateChanges
+            | DBCol::FlatStateDeltaMetadata
+            | DBCol::FlatStorageStatus => false,
         }
     }
 
@@ -424,6 +485,7 @@ impl DBCol {
         match self {
             DBCol::DbVersion => &[DBKeyType::StringLiteral],
             DBCol::BlockMisc => &[DBKeyType::StringLiteral],
+            DBCol::Misc => &[DBKeyType::StringLiteral],
             DBCol::Block => &[DBKeyType::BlockHash],
             DBCol::BlockHeader => &[DBKeyType::BlockHash],
             DBCol::BlockHeight => &[DBKeyType::BlockHeight],
@@ -474,13 +536,9 @@ impl DBCol {
             DBCol::HeaderHashesByHeight => &[DBKeyType::BlockHeight],
             DBCol::StateChangesForSplitStates => &[DBKeyType::BlockHash, DBKeyType::ShardId],
             DBCol::TransactionResultForBlock => &[DBKeyType::OutcomeId, DBKeyType::BlockHash],
-            #[cfg(feature = "protocol_feature_flat_state")]
             DBCol::FlatState => &[DBKeyType::ShardUId, DBKeyType::TrieKey],
-            #[cfg(feature = "protocol_feature_flat_state")]
-            DBCol::FlatStateChanges => &[DBKeyType::ShardId, DBKeyType::BlockHash],
-            #[cfg(feature = "protocol_feature_flat_state")]
-            DBCol::FlatStateDeltaMetadata => &[DBKeyType::ShardId, DBKeyType::BlockHash],
-            #[cfg(feature = "protocol_feature_flat_state")]
+            DBCol::FlatStateChanges => &[DBKeyType::ShardUId, DBKeyType::BlockHash],
+            DBCol::FlatStateDeltaMetadata => &[DBKeyType::ShardUId, DBKeyType::BlockHash],
             DBCol::FlatStorageStatus => &[DBKeyType::ShardUId],
         }
     }

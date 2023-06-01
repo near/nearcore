@@ -7,7 +7,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
-use near_primitives::state::ValueRef;
+use near_primitives::state::FlatStateValue;
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Gas, MerkleHash};
@@ -77,11 +77,8 @@ impl<'c> EstimatorContext<'c> {
 
         let flat_head = CryptoHash::hash_borsh(0usize);
         let flat_storage_manager = FlatStorageManager::test(store.clone(), &shard_uids, flat_head);
-        if cfg!(feature = "protocol_feature_flat_state") {
-            let flat_storage =
-                flat_storage_manager.get_flat_storage_for_shard(shard_uids[0]).unwrap();
-            self.generate_deltas(&flat_storage);
-        }
+        let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uids[0]).unwrap();
+        self.generate_deltas(&flat_storage);
 
         let tries = ShardTries::new(store.clone(), trie_config, &shard_uids, flat_storage_manager);
 
@@ -168,7 +165,7 @@ impl<'c> EstimatorContext<'c> {
             let random_data = iter::repeat_with(|| {
                 (
                     crate::utils::random_vec(delta_key_len),
-                    Some(ValueRef::new(b"this is never stored or accessed, we only need it to blow up in-memory deltas")),
+                    Some(FlatStateValue::value_ref(b"this is never stored or accessed, we only need it to blow up in-memory deltas")),
                 )
             })
             .take(num_changes_per_delta);
@@ -311,10 +308,8 @@ impl Testbed<'_> {
         let mut store_update = self.tries.store_update();
         let shard_uid = ShardUId::single_shard();
         self.root = self.tries.apply_all(&apply_result.trie_changes, shard_uid, &mut store_update);
-        if cfg!(feature = "protocol_feature_flat_state") {
-            near_store::flat::FlatStateChanges::from_state_changes(&apply_result.state_changes)
-                .apply_to_flat_state(&mut store_update, shard_uid);
-        }
+        near_store::flat::FlatStateChanges::from_state_changes(&apply_result.state_changes)
+            .apply_to_flat_state(&mut store_update, shard_uid);
         store_update.commit().unwrap();
         self.apply_state.block_height += 1;
 
@@ -410,7 +405,12 @@ impl Testbed<'_> {
         // will be at the same number.
         let tip_height = self.config.finality_lag;
         let tip = fs_fake_block_height_to_hash(tip_height as u64);
-        self.tries.get_trie_with_block_hash_for_shard(ShardUId::single_shard(), self.root, &tip)
+        self.tries.get_trie_with_block_hash_for_shard(
+            ShardUId::single_shard(),
+            self.root,
+            &tip,
+            false,
+        )
     }
 }
 

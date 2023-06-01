@@ -1,5 +1,7 @@
+use crate::flat::store_helper;
+use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::state::ValueRef;
+use near_primitives::state::FlatStateValue;
 
 use crate::Store;
 
@@ -39,7 +41,19 @@ impl FlatStorageChunkView {
     /// they are stored in `DBCol::State`. Also the separation is done so we
     /// could charge users for the value length before loading the value.
     // TODO (#7327): consider inlining small values, so we could use only one db access.
-    pub fn get_ref(&self, key: &[u8]) -> Result<Option<ValueRef>, crate::StorageError> {
-        self.flat_storage.get_ref(&self.block_hash, key)
+    pub fn get_value(&self, key: &[u8]) -> Result<Option<FlatStateValue>, crate::StorageError> {
+        self.flat_storage.get_value(&self.block_hash, key)
+    }
+
+    pub fn iter_flat_state_entries<'a>(
+        &'a self,
+        from: Option<&[u8]>,
+        to: Option<&[u8]>,
+    ) -> impl Iterator<Item = Result<(Vec<u8>, FlatStateValue), StorageError>> + 'a {
+        store_helper::iter_flat_state_entries(self.flat_storage.shard_uid(), &self.store, from, to)
+    }
+
+    pub fn get_head_hash(&self) -> CryptoHash {
+        self.flat_storage.get_head_hash()
     }
 }

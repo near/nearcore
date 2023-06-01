@@ -23,6 +23,7 @@ use crate::network_protocol::proto_conv::trace_context::{
     extract_span_context, inject_trace_context,
 };
 use borsh::{BorshDeserialize as _, BorshSerialize as _};
+use near_async::time;
 use near_crypto::PublicKey;
 use near_crypto::Signature;
 use near_o11y::OpenTelemetrySpanExt;
@@ -35,7 +36,6 @@ use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptProof, ShardChunkHeader,
 };
 use near_primitives::syncing::{ShardStateSyncResponse, ShardStateSyncResponseV1};
-use near_primitives::time;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::types::{BlockHeight, ShardId};
@@ -87,6 +87,36 @@ impl std::str::FromStr for PeerAddr {
             peer_id: PeerId::new(parts[0].parse().map_err(Self::Err::PeerId)?),
             addr: parts[1].parse().map_err(Self::Err::SocketAddr)?,
         })
+    }
+}
+
+/// Proof that a given peer_id owns an ip address, included in Handshake message
+#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+pub struct SignedIpAddress {
+    pub ip_address: std::net::IpAddr,
+    pub(crate) signature: near_crypto::Signature, // signature for signed ip_address
+}
+
+impl SignedIpAddress {
+    pub fn new(ip_address: std::net::IpAddr, secret_key: &near_crypto::SecretKey) -> Self {
+        let signature = secret_key.sign(&SignedIpAddress::ip_bytes_helper(&ip_address));
+        Self { ip_address: ip_address, signature: signature }
+    }
+
+    pub fn verify(&self, public_key: &PublicKey) -> bool {
+        self.signature.verify(&self.ip_bytes(), &public_key)
+    }
+
+    fn ip_bytes_helper(ip_address: &std::net::IpAddr) -> Vec<u8> {
+        let ip_bytes: Vec<u8> = match ip_address {
+            std::net::IpAddr::V4(ip) => ip.octets().to_vec(),
+            std::net::IpAddr::V6(ip) => ip.octets().to_vec(),
+        };
+        return ip_bytes;
+    }
+
+    fn ip_bytes(&self) -> Vec<u8> {
+        return SignedIpAddress::ip_bytes_helper(&self.ip_address);
     }
 }
 
@@ -307,6 +337,8 @@ pub struct Handshake {
     pub(crate) partial_edge_info: PartialEdgeInfo,
     /// Account owned by the sender.
     pub(crate) owned_account: Option<SignedOwnedAccount>,
+    /// Signed Ip Address of the sender
+    pub(crate) signed_ip_address: Option<SignedIpAddress>,
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, strum::IntoStaticStr)]

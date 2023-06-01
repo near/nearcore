@@ -1,8 +1,9 @@
 use crate::tests::client::process_blocks::deploy_test_contract_with_protocol_version;
-use crate::tests::client::runtimes::create_nightshade_runtimes;
+use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
+use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::test_utils::encode;
 use near_primitives::transaction::{Action, ExecutionMetadata, FunctionCallAction, Transaction};
@@ -17,6 +18,10 @@ use nearcore::config::GenesisExt;
 /// - touching trie node cost for read decreases to zero.
 #[test]
 fn test_flat_storage_upgrade() {
+    // The immediate protocol upgrade needs to be set for this test to pass in
+    // the release branch where the protocol upgrade date is set.
+    std::env::set_var("NEAR_TESTS_IMMEDIATE_PROTOCOL_UPGRADE", "1");
+
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let epoch_length = 12;
     let new_protocol_version = ProtocolFeature::FlatStorageReads.protocol_version();
@@ -25,7 +30,8 @@ fn test_flat_storage_upgrade() {
     genesis.config.protocol_version = old_protocol_version;
     let chain_genesis = ChainGenesis::new(&genesis);
     let mut env = TestEnv::builder(chain_genesis)
-        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+        .real_epoch_managers(&genesis.config)
+        .nightshade_runtimes(&genesis)
         .build();
 
     // We assume that it is enough to process 4 blocks to get a single txn included and processed.
@@ -74,7 +80,10 @@ fn test_flat_storage_upgrade() {
         }
         .sign(&signer);
         let tx_hash = signed_transaction.get_hash();
-        env.clients[0].process_tx(signed_transaction, false, false);
+        assert_eq!(
+            env.clients[0].process_tx(signed_transaction, false, false),
+            ProcessTxResponse::ValidTx
+        );
         for i in 0..blocks_to_process_txn {
             env.produce_block(0, tip.height + i + 1);
         }
@@ -99,7 +108,10 @@ fn test_flat_storage_upgrade() {
             }
             .sign(&signer);
             let tx_hash = signed_transaction.get_hash();
-            env.clients[0].process_tx(signed_transaction, false, false);
+            assert_eq!(
+                env.clients[0].process_tx(signed_transaction, false, false),
+                ProcessTxResponse::ValidTx
+            );
             for i in 0..blocks_to_process_txn {
                 env.produce_block(0, tip.height + i + 1);
             }

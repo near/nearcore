@@ -18,7 +18,7 @@ use crate::merkle::{combine_hash, MerklePath};
 use crate::network::PeerId;
 use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum};
 use crate::runtime::config::RuntimeConfig;
-use crate::serialize::{base64_format, dec_format, option_base64_format};
+use crate::serialize::dec_format;
 use crate::sharding::{
     ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderInnerV2,
     ShardChunkHeaderV3,
@@ -39,10 +39,12 @@ use crate::version::{ProtocolVersion, Version};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
 use near_crypto::{PublicKey, Signature};
-use near_o11y::pretty;
+use near_fmt::{AbbrBytes, Slice};
 use near_primitives_core::config::{ActionCosts, ExtCosts, ParameterCost, VMConfig};
 use near_primitives_core::runtime::fees::Fee;
 use num_rational::Rational32;
+use serde_with::base64::Base64;
+use serde_with::serde_as;
 use std::collections::HashMap;
 use std::fmt;
 use std::ops::Range;
@@ -65,9 +67,11 @@ pub struct AccountView {
 }
 
 /// A view of the contract code.
+#[serde_as]
 #[derive(serde::Serialize, serde::Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct ContractCodeView {
-    #[serde(rename = "code_base64", with = "base64_format")]
+    #[serde(rename = "code_base64")]
+    #[serde_as(as = "Base64")]
     pub code: Vec<u8>,
     pub hash: CryptoHash,
 }
@@ -215,23 +219,16 @@ impl From<AccessKeyView> for AccessKey {
 /// Item of the state, key and value are serialized in base64 and proof for inclusion of given state item.
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct StateItem {
-    #[serde(with = "base64_format")]
-    pub key: Vec<u8>,
-    #[serde(with = "base64_format")]
-    pub value: Vec<u8>,
-    /// Deprecated, always empty, eventually will be deleted.
-    // TODO(mina86): This was deprecated in 1.30.  Get rid of the field
-    // altogether at 1.33 or something.
-    #[serde(default)]
-    pub proof: Vec<()>,
+    pub key: StoreKey,
+    pub value: StoreValue,
 }
 
+#[serde_as]
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ViewStateResult {
     pub values: Vec<StateItem>,
-    // TODO(mina86): Empty proof (i.e. sending proof when include_proof is not
-    // set in the request) was deprecated in 1.30.  Add
-    // `#[serde(skip(Vec::if_empty))` at 1.33 or something.
+    #[serde_as(as = "Vec<Base64>")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub proof: Vec<Arc<[u8]>>,
 }
 
@@ -306,7 +303,7 @@ pub enum QueryRequest {
     },
     ViewState {
         account_id: AccountId,
-        #[serde(rename = "prefix_base64", with = "base64_format")]
+        #[serde(rename = "prefix_base64")]
         prefix: StoreKey,
         #[serde(default, skip_serializing_if = "is_false")]
         include_proof: bool,
@@ -321,7 +318,7 @@ pub enum QueryRequest {
     CallFunction {
         account_id: AccountId,
         method_name: String,
-        #[serde(rename = "args_base64", with = "base64_format")]
+        #[serde(rename = "args_base64")]
         args: FunctionArgs,
     },
 }
@@ -913,40 +910,21 @@ pub struct BlockHeaderInnerLiteView {
 
 impl From<BlockHeader> for BlockHeaderInnerLiteView {
     fn from(header: BlockHeader) -> Self {
-        match header {
-            BlockHeader::BlockHeaderV1(header) => BlockHeaderInnerLiteView {
-                height: header.inner_lite.height,
-                epoch_id: header.inner_lite.epoch_id.0,
-                next_epoch_id: header.inner_lite.next_epoch_id.0,
-                prev_state_root: header.inner_lite.prev_state_root,
-                outcome_root: header.inner_lite.outcome_root,
-                timestamp: header.inner_lite.timestamp,
-                timestamp_nanosec: header.inner_lite.timestamp,
-                next_bp_hash: header.inner_lite.next_bp_hash,
-                block_merkle_root: header.inner_lite.block_merkle_root,
-            },
-            BlockHeader::BlockHeaderV2(header) => BlockHeaderInnerLiteView {
-                height: header.inner_lite.height,
-                epoch_id: header.inner_lite.epoch_id.0,
-                next_epoch_id: header.inner_lite.next_epoch_id.0,
-                prev_state_root: header.inner_lite.prev_state_root,
-                outcome_root: header.inner_lite.outcome_root,
-                timestamp: header.inner_lite.timestamp,
-                timestamp_nanosec: header.inner_lite.timestamp,
-                next_bp_hash: header.inner_lite.next_bp_hash,
-                block_merkle_root: header.inner_lite.block_merkle_root,
-            },
-            BlockHeader::BlockHeaderV3(header) => BlockHeaderInnerLiteView {
-                height: header.inner_lite.height,
-                epoch_id: header.inner_lite.epoch_id.0,
-                next_epoch_id: header.inner_lite.next_epoch_id.0,
-                prev_state_root: header.inner_lite.prev_state_root,
-                outcome_root: header.inner_lite.outcome_root,
-                timestamp: header.inner_lite.timestamp,
-                timestamp_nanosec: header.inner_lite.timestamp,
-                next_bp_hash: header.inner_lite.next_bp_hash,
-                block_merkle_root: header.inner_lite.block_merkle_root,
-            },
+        let inner_lite = match &header {
+            BlockHeader::BlockHeaderV1(header) => &header.inner_lite,
+            BlockHeader::BlockHeaderV2(header) => &header.inner_lite,
+            BlockHeader::BlockHeaderV3(header) => &header.inner_lite,
+        };
+        BlockHeaderInnerLiteView {
+            height: inner_lite.height,
+            epoch_id: inner_lite.epoch_id.0,
+            next_epoch_id: inner_lite.next_epoch_id.0,
+            prev_state_root: inner_lite.prev_state_root,
+            outcome_root: inner_lite.outcome_root,
+            timestamp: inner_lite.timestamp,
+            timestamp_nanosec: inner_lite.timestamp,
+            next_bp_hash: inner_lite.next_bp_hash,
+            block_merkle_root: inner_lite.block_merkle_root,
         }
     }
 }
@@ -1093,6 +1071,7 @@ impl ChunkView {
     }
 }
 
+#[serde_as]
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -1106,13 +1085,12 @@ impl ChunkView {
 pub enum ActionView {
     CreateAccount,
     DeployContract {
-        #[serde(with = "base64_format")]
+        #[serde_as(as = "Base64")]
         code: Vec<u8>,
     },
     FunctionCall {
         method_name: String,
-        #[serde(with = "base64_format")]
-        args: Vec<u8>,
+        args: FunctionArgs,
         gas: Gas,
         #[serde(with = "dec_format")]
         deposit: Balance,
@@ -1152,7 +1130,7 @@ impl From<Action> for ActionView {
             }
             Action::FunctionCall(action) => ActionView::FunctionCall {
                 method_name: action.method_name,
-                args: action.args,
+                args: action.args.into(),
                 gas: action.gas,
                 deposit: action.deposit,
             },
@@ -1186,7 +1164,12 @@ impl TryFrom<ActionView> for Action {
                 Action::DeployContract(DeployContractAction { code })
             }
             ActionView::FunctionCall { method_name, args, gas, deposit } => {
-                Action::FunctionCall(FunctionCallAction { method_name, args, gas, deposit })
+                Action::FunctionCall(FunctionCallAction {
+                    method_name,
+                    args: args.into(),
+                    gas,
+                    deposit,
+                })
             }
             ActionView::Transfer { deposit } => Action::Transfer(TransferAction { deposit }),
             ActionView::Stake { stake, public_key } => {
@@ -1251,18 +1234,27 @@ impl From<SignedTransaction> for SignedTransactionView {
     }
 }
 
+#[serde_as]
 #[derive(
-    BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone,
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    Default,
 )]
 pub enum FinalExecutionStatus {
     /// The execution has not yet started.
+    #[default]
     NotStarted,
     /// The execution has started and still going.
     Started,
     /// The execution has failed with the given error.
     Failure(TxExecutionError),
     /// The execution has succeeded and returned some value or an empty vec encoded in base64.
-    SuccessValue(#[serde(with = "base64_format")] Vec<u8>),
+    SuccessValue(#[serde_as(as = "Base64")] Vec<u8>),
 }
 
 impl fmt::Debug for FinalExecutionStatus {
@@ -1272,15 +1264,9 @@ impl fmt::Debug for FinalExecutionStatus {
             FinalExecutionStatus::Started => f.write_str("Started"),
             FinalExecutionStatus::Failure(e) => f.write_fmt(format_args!("Failure({:?})", e)),
             FinalExecutionStatus::SuccessValue(v) => {
-                f.write_fmt(format_args!("SuccessValue({})", pretty::AbbrBytes(v)))
+                f.write_fmt(format_args!("SuccessValue({})", AbbrBytes(v)))
             }
         }
-    }
-}
-
-impl Default for FinalExecutionStatus {
-    fn default() -> Self {
-        FinalExecutionStatus::NotStarted
     }
 }
 
@@ -1300,6 +1286,7 @@ pub enum ServerError {
     Closed,
 }
 
+#[serde_as]
 #[derive(
     BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone,
 )]
@@ -1309,7 +1296,7 @@ pub enum ExecutionStatusView {
     /// The execution has failed.
     Failure(TxExecutionError),
     /// The final action succeeded and returned some value or an empty vec encoded in base64.
-    SuccessValue(#[serde(with = "base64_format")] Vec<u8>),
+    SuccessValue(#[serde_as(as = "Base64")] Vec<u8>),
     /// The final action of the receipt returned a promise or the signed transaction was converted
     /// to a receipt. Contains the receipt_id of the generated receipt.
     SuccessReceiptId(CryptoHash),
@@ -1321,7 +1308,7 @@ impl fmt::Debug for ExecutionStatusView {
             ExecutionStatusView::Unknown => f.write_str("Unknown"),
             ExecutionStatusView::Failure(e) => f.write_fmt(format_args!("Failure({:?})", e)),
             ExecutionStatusView::SuccessValue(v) => {
-                f.write_fmt(format_args!("SuccessValue({})", pretty::AbbrBytes(v)))
+                f.write_fmt(format_args!("SuccessValue({})", AbbrBytes(v)))
             }
             ExecutionStatusView::SuccessReceiptId(receipt_id) => {
                 f.write_fmt(format_args!("SuccessReceiptId({})", receipt_id))
@@ -1635,7 +1622,7 @@ impl fmt::Debug for FinalExecutionOutcomeView {
             .field("status", &self.status)
             .field("transaction", &self.transaction)
             .field("transaction_outcome", &self.transaction_outcome)
-            .field("receipts_outcome", &pretty::Slice(&self.receipts_outcome))
+            .field("receipts_outcome", &Slice(&self.receipts_outcome))
             .finish()
     }
 }
@@ -1661,16 +1648,11 @@ pub struct FinalExecutionOutcomeWithReceiptView {
 }
 
 pub mod validator_stake_view {
+    pub use super::ValidatorStakeViewV1;
     use crate::types::validator_stake::ValidatorStake;
     use borsh::{BorshDeserialize, BorshSerialize};
     use near_primitives_core::types::AccountId;
-    use serde::{Deserialize, Serialize};
-
-    use crate::serialize::dec_format;
-    use near_crypto::PublicKey;
-    use near_primitives_core::types::Balance;
-
-    pub use super::ValidatorStakeViewV1;
+    use serde::Deserialize;
 
     #[derive(
         BorshSerialize, BorshDeserialize, serde::Serialize, Deserialize, Debug, Clone, Eq, PartialEq,
@@ -1698,17 +1680,6 @@ pub mod validator_stake_view {
                 Self::V1(v1) => &v1.account_id,
             }
         }
-    }
-
-    #[derive(
-        BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Eq, PartialEq,
-    )]
-    pub struct ValidatorStakeViewV2 {
-        pub account_id: AccountId,
-        pub public_key: PublicKey,
-        #[serde(with = "dec_format")]
-        pub stake: Balance,
-        pub is_chunk_only: bool,
     }
 
     impl From<ValidatorStake> for ValidatorStakeView {
@@ -1782,6 +1753,7 @@ pub struct DataReceiverView {
     pub receiver_id: AccountId,
 }
 
+#[serde_as]
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -1804,7 +1776,7 @@ pub enum ReceiptEnumView {
     },
     Data {
         data_id: CryptoHash,
-        #[serde(with = "option_base64_format")]
+        #[serde_as(as = "Option<Base64>")]
         data: Option<Vec<u8>>,
     },
 }
@@ -1934,6 +1906,11 @@ pub struct CurrentEpochValidatorInfo {
     pub num_produced_chunks: NumBlocks,
     #[serde(default)]
     pub num_expected_chunks: NumBlocks,
+    // The following two fields correspond to the shards in the shard array.
+    #[serde(default)]
+    pub num_produced_chunks_per_shard: Vec<NumBlocks>,
+    #[serde(default)]
+    pub num_expected_chunks_per_shard: Vec<NumBlocks>,
 }
 
 #[derive(
@@ -2029,7 +2006,7 @@ pub enum StateChangesRequestView {
     },
     DataChanges {
         account_ids: Vec<AccountId>,
-        #[serde(rename = "key_prefix_base64", with = "base64_format")]
+        #[serde(rename = "key_prefix_base64")]
         key_prefix: StoreKey,
     },
 }
@@ -2131,6 +2108,7 @@ impl From<StateChangeCause> for StateChangeCauseView {
     }
 }
 
+#[serde_as]
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case", tag = "type", content = "change")]
 pub enum StateChangeValueView {
@@ -2153,19 +2131,20 @@ pub enum StateChangeValueView {
     },
     DataUpdate {
         account_id: AccountId,
-        #[serde(rename = "key_base64", with = "base64_format")]
+        #[serde(rename = "key_base64")]
         key: StoreKey,
-        #[serde(rename = "value_base64", with = "base64_format")]
+        #[serde(rename = "value_base64")]
         value: StoreValue,
     },
     DataDeletion {
         account_id: AccountId,
-        #[serde(rename = "key_base64", with = "base64_format")]
+        #[serde(rename = "key_base64")]
         key: StoreKey,
     },
     ContractCodeUpdate {
         account_id: AccountId,
-        #[serde(rename = "code_base64", with = "base64_format")]
+        #[serde(rename = "code_base64")]
+        #[serde_as(as = "Base64")]
         code: Vec<u8>,
     },
     ContractCodeDeletion {
@@ -2411,57 +2390,6 @@ impl From<RuntimeConfig> for RuntimeConfigView {
             },
             wasm_config: VMConfigView::from(config.wasm_config),
             account_creation_config: AccountCreationConfigView {
-                min_allowed_top_level_account_length: config
-                    .account_creation_config
-                    .min_allowed_top_level_account_length,
-                registrar_account_id: config.account_creation_config.registrar_account_id,
-            },
-        }
-    }
-}
-
-// reverse direction: rosetta adapter uses this, also we use to test that all fields are present in view
-impl From<RuntimeConfigView> for RuntimeConfig {
-    fn from(config: RuntimeConfigView) -> Self {
-        Self {
-            fees: near_primitives_core::runtime::fees::RuntimeFeesConfig {
-                storage_usage_config: near_primitives_core::runtime::fees::StorageUsageConfig {
-                    storage_amount_per_byte: config.storage_amount_per_byte,
-                    num_bytes_account: config
-                        .transaction_costs
-                        .storage_usage_config
-                        .num_bytes_account,
-                    num_extra_bytes_record: config
-                        .transaction_costs
-                        .storage_usage_config
-                        .num_extra_bytes_record,
-                },
-                burnt_gas_reward: config.transaction_costs.burnt_gas_reward,
-                pessimistic_gas_price_inflation_ratio: config
-                    .transaction_costs
-                    .pessimistic_gas_price_inflation_ratio,
-                action_fees: enum_map::enum_map! {
-                    ActionCosts::create_account => config.transaction_costs.action_creation_config.create_account_cost.clone(),
-                    ActionCosts::delete_account => config.transaction_costs.action_creation_config.delete_account_cost.clone(),
-                    ActionCosts::delegate => config.transaction_costs.action_creation_config.delegate_cost.clone(),
-                    ActionCosts::deploy_contract_base => config.transaction_costs.action_creation_config.deploy_contract_cost.clone(),
-                    ActionCosts::deploy_contract_byte => config.transaction_costs.action_creation_config.deploy_contract_cost_per_byte.clone(),
-                    ActionCosts::function_call_base => config.transaction_costs.action_creation_config.function_call_cost.clone(),
-                    ActionCosts::function_call_byte => config.transaction_costs.action_creation_config.function_call_cost_per_byte.clone(),
-                    ActionCosts::transfer => config.transaction_costs.action_creation_config.transfer_cost.clone(),
-                    ActionCosts::stake => config.transaction_costs.action_creation_config.stake_cost.clone(),
-                    ActionCosts::add_full_access_key => config.transaction_costs.action_creation_config.add_key_cost.full_access_cost.clone(),
-                    ActionCosts::add_function_call_key_base => config.transaction_costs.action_creation_config.add_key_cost.function_call_cost.clone(),
-                    ActionCosts::add_function_call_key_byte => config.transaction_costs.action_creation_config.add_key_cost.function_call_cost_per_byte.clone(),
-                    ActionCosts::delete_key => config.transaction_costs.action_creation_config.delete_key_cost.clone(),
-                    ActionCosts::new_action_receipt => config.transaction_costs.action_receipt_creation_config.clone(),
-                    ActionCosts::new_data_receipt_base => config.transaction_costs.data_receipt_creation_config.base_cost.clone(),
-                    ActionCosts::new_data_receipt_byte => config.transaction_costs.data_receipt_creation_config.cost_per_byte.clone(),
-
-                },
-            },
-            wasm_config: VMConfig::from(config.wasm_config),
-            account_creation_config: crate::runtime::config::AccountCreationConfig {
                 min_allowed_top_level_account_length: config
                     .account_creation_config
                     .min_allowed_top_level_account_length,
@@ -2828,8 +2756,6 @@ impl From<ExtCostsConfigView> for near_primitives_core::config::ExtCostsConfig {
 mod tests {
     #[cfg(not(feature = "nightly"))]
     use super::ExecutionMetadataView;
-    use super::RuntimeConfigView;
-    use crate::runtime::config::RuntimeConfig;
     #[cfg(not(feature = "nightly"))]
     use crate::transaction::ExecutionMetadata;
     #[cfg(not(feature = "nightly"))]
@@ -2840,19 +2766,14 @@ mod tests {
     #[test]
     #[cfg(not(feature = "nightly"))]
     fn test_runtime_config_view() {
+        use crate::runtime::config::RuntimeConfig;
+        use crate::views::RuntimeConfigView;
+
+        // FIXME(#8202): This is snapshotting a config used for *tests*, rather than proper
+        // production configurations. That seems… subpar?
         let config = RuntimeConfig::test();
         let view = RuntimeConfigView::from(config);
         insta::assert_json_snapshot!(&view);
-    }
-
-    /// A `RuntimeConfigView` must contain all info to reconstruct a `RuntimeConfig`.
-    #[test]
-    fn test_runtime_config_view_is_complete() {
-        let config = RuntimeConfig::test();
-        let view = RuntimeConfigView::from(config.clone());
-        let reconstructed_config = RuntimeConfig::from(view);
-
-        assert_eq!(config, reconstructed_config);
     }
 
     /// `ExecutionMetadataView` with profile V1 displayed on the RPC should not change.

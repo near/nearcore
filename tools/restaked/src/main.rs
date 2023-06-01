@@ -4,7 +4,7 @@ use near_o11y::tracing::{error, info};
 use near_primitives::views::CurrentEpochValidatorInfo;
 use nearcore::config::{Config, BLOCK_PRODUCER_KICKOUT_THRESHOLD, CONFIG_FILENAME};
 use nearcore::get_default_home;
-use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 // TODO(1905): Move out RPC interface for transacting into separate production crate.
@@ -23,7 +23,6 @@ fn main() {
     let env_filter = near_o11y::EnvFilterBuilder::from_env().verbose(Some("")).finish().unwrap();
     let _subscriber = near_o11y::default_subscriber(env_filter, &Default::default()).global();
 
-    let default_home = get_default_home();
     let matches = Command::new("Key-pairs generator")
         .about(
             "Continuously checking the node and executes staking transaction if node is kicked out",
@@ -31,41 +30,42 @@ fn main() {
         .arg(
             Arg::new("home")
                 .long("home")
-                .default_value_os(default_home.as_os_str())
+                .default_value(get_default_home().into_os_string())
+                .value_parser(clap::value_parser!(PathBuf))
                 .help("Directory for config and data (default \"~/.near\")")
-                .takes_value(true),
+                .action(clap::ArgAction::Set),
         )
         .arg(
             Arg::new("wait-period")
                 .long("wait-period")
                 .default_value(DEFAULT_WAIT_PERIOD_SEC)
                 .help("Waiting period between checking if node is kicked out (in seconds)")
-                .takes_value(true),
+                .action(clap::ArgAction::Set),
         )
         .arg(
             Arg::new("rpc-url")
                 .long("rpc-url")
                 .default_value(DEFAULT_RPC_URL)
                 .help("Url of RPC for the node to monitor")
-                .takes_value(true),
+                .action(clap::ArgAction::Set),
         )
         .arg(
             Arg::new("stake-amount")
                 .long("stake-amount")
                 .default_value("0")
                 .help("Stake amount in NEAR, if 0 is used it restakes last seen staked amount")
-                .takes_value(true),
+                .action(clap::ArgAction::Set),
         )
         .get_matches();
 
-    let home_dir = matches.value_of("home").map(Path::new).unwrap();
+    let home_dir = matches.get_one::<PathBuf>("home").unwrap();
     let wait_period = matches
-        .value_of("wait-period")
+        .get_one::<String>("wait-period")
         .map(|s| s.parse().expect("Wait period must be a number"))
         .unwrap();
-    let rpc_url = matches.value_of("rpc-url").unwrap();
+    let rpc_url = matches.get_one::<String>("rpc-url").unwrap();
     let stake_amount = matches
-        .value_of("stake-amount")
+        .get_one::<String>("stake-amount")
         .map(|s| s.parse().expect("Stake amount must be a number"))
         .unwrap();
 

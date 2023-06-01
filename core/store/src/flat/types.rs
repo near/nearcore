@@ -1,16 +1,17 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::state::ValueRef;
 use near_primitives::types::BlockHeight;
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
-pub enum FlatStateValue {
-    Ref(ValueRef),
-    // TODO(8243): add variant here for the inlined value
-}
+/// Defines value size threshold for flat state inlining.
+/// It means that values having size greater than the threshold will be stored
+/// in FlatState as `FlatStateValue::Ref`, otherwise the whole value will be
+/// stored as `FlatStateValue::Inlined`.
+/// See the following comment for reasoning behind the threshold value:
+/// https://github.com/near/nearcore/issues/8243#issuecomment-1523049994
+pub const INLINE_DISK_VALUE_THRESHOLD: usize = 4000;
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Copy, Clone, PartialEq, Eq)]
 pub struct BlockInfo {
     pub hash: CryptoHash,
     pub height: BlockHeight,
@@ -47,6 +48,13 @@ impl From<FlatStorageError> for StorageError {
             FlatStorageError::StorageInternalError => StorageError::StorageInternalError,
         }
     }
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Debug, PartialEq, Eq)]
+pub enum FlatStateValuesInliningMigrationStatus {
+    Empty,
+    InProgress,
+    Finished,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, PartialEq, Eq)]

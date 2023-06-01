@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use rand::seq::SliceRandom;
 use rand::Rng;
@@ -35,15 +36,20 @@ pub fn create_test_node_storage_default() -> NodeStorage {
 }
 
 /// Creates an in-memory node storage with ColdDB
-pub fn create_test_node_storage_with_cold(version: DbVersion, hot_kind: DbKind) -> NodeStorage {
-    let storage = NodeStorage::new_with_cold(TestDB::new(), TestDB::new());
+pub fn create_test_node_storage_with_cold(
+    version: DbVersion,
+    hot_kind: DbKind,
+) -> (NodeStorage, Arc<TestDB>, Arc<TestDB>) {
+    let hot = TestDB::new();
+    let cold = TestDB::new();
+    let storage = NodeStorage::new_with_cold(hot.clone(), cold.clone());
 
     storage.get_hot_store().set_db_version(version).unwrap();
     storage.get_hot_store().set_db_kind(hot_kind).unwrap();
     storage.get_cold_store().unwrap().set_db_version(version).unwrap();
     storage.get_cold_store().unwrap().set_db_kind(DbKind::Cold).unwrap();
 
-    storage
+    (storage, hot, cold)
 }
 
 /// Creates an in-memory database.
@@ -68,7 +74,6 @@ pub fn test_populate_trie(
     changes: Vec<(Vec<u8>, Option<Vec<u8>>)>,
 ) -> CryptoHash {
     let trie = tries.get_trie_for_shard(shard_uid, *root);
-    assert_eq!(trie.storage.as_caching_storage().unwrap().shard_uid.shard_id, 0);
     let trie_changes = trie.update(changes.iter().cloned()).unwrap();
     let mut store_update = tries.store_update();
     let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
@@ -101,10 +106,11 @@ pub fn test_populate_store_rc(store: &Store, data: &[(DBCol, Vec<u8>, Vec<u8>)])
 
 fn gen_accounts_from_alphabet(
     rng: &mut impl Rng,
+    min_size: usize,
     max_size: usize,
     alphabet: &[u8],
 ) -> Vec<AccountId> {
-    let size = rng.gen_range(0..max_size) + 1;
+    let size = rng.gen_range(min_size..=max_size);
     std::iter::repeat_with(|| gen_account(rng, alphabet)).take(size).collect()
 }
 
@@ -114,15 +120,15 @@ pub fn gen_account(rng: &mut impl Rng, alphabet: &[u8]) -> AccountId {
     from_utf8(&s).unwrap().parse().unwrap()
 }
 
-pub fn gen_unique_accounts(rng: &mut impl Rng, max_size: usize) -> Vec<AccountId> {
+pub fn gen_unique_accounts(rng: &mut impl Rng, min_size: usize, max_size: usize) -> Vec<AccountId> {
     let alphabet = b"abcdefghijklmn";
-    let accounts = gen_accounts_from_alphabet(rng, max_size, alphabet);
+    let accounts = gen_accounts_from_alphabet(rng, min_size, max_size, alphabet);
     accounts.into_iter().collect::<HashSet<_>>().into_iter().collect()
 }
 
 pub fn gen_receipts(rng: &mut impl Rng, max_size: usize) -> Vec<Receipt> {
     let alphabet = &b"abcdefgh"[0..rng.gen_range(4..8)];
-    let accounts = gen_accounts_from_alphabet(rng, max_size, alphabet);
+    let accounts = gen_accounts_from_alphabet(rng, 1, max_size, alphabet);
     accounts
         .iter()
         .map(|account_id| Receipt {

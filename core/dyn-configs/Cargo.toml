@@ -1,14 +1,13 @@
 [package]
 name = "near-dyn-configs"
-version = "0.0.0"
+version.workspace = true
 authors.workspace = true
-publish = true
-rust-version.workspace = true
 edition.workspace = true
-readme = "README.md"
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/near/nearcore"
+rust-version.workspace = true
 description = "Dynamic configure helpers for the near codebase"
+repository.workspace = true
+license.workspace = true
+publish = true
 
 [dependencies]
 anyhow.workspace = true
@@ -20,6 +19,6 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
-near-chain-configs = { path = "../chain-configs" }
-near-o11y = { path = "../o11y" }
-near-primitives = { path = "../primitives" }
+near-chain-configs.workspace = true
+near-o11y.workspace = true
+near-primitives.workspace = true

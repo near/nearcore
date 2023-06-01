@@ -1,17 +1,18 @@
 /// Test economic edge cases.
 use std::path::Path;
-use std::sync::Arc;
 
+use near_client::ProcessTxResponse;
+use near_epoch_manager::EpochManager;
 use num_rational::Ratio;
 
-use near_chain::{ChainGenesis, RuntimeWithEpochManagerAdapter};
+use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType};
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::transaction::SignedTransaction;
 use near_store::test_utils::create_test_store;
-use nearcore::config::GenesisExt;
+use nearcore::{config::GenesisExt, NightshadeRuntime};
 use testlib::fees_utils::FeeHelper;
 
 use near_primitives::types::EpochId;
@@ -31,10 +32,14 @@ fn build_genesis() -> Genesis {
 
 fn setup_env(genesis: &Genesis) -> TestEnv {
     init_integration_logger();
-    let store1 = create_test_store();
+    let store = create_test_store();
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+    let runtime =
+        NightshadeRuntime::test(Path::new("."), store.clone(), genesis, epoch_manager.clone());
     TestEnv::builder(ChainGenesis::new(&genesis))
-        .runtime_adapters(vec![nearcore::NightshadeRuntime::test(Path::new("."), store1, genesis)
-            as Arc<dyn RuntimeWithEpochManagerAdapter>])
+        .stores(vec![store])
+        .epoch_managers(vec![epoch_manager])
+        .runtimes(vec![runtime])
         .build()
 }
 
@@ -64,17 +69,20 @@ fn test_burn_mint() {
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let initial_total_supply = env.chain_genesis.total_supply;
     let genesis_hash = *env.clients[0].chain.genesis().hash();
-    env.clients[0].process_tx(
-        SignedTransaction::send_money(
-            1,
-            "test0".parse().unwrap(),
-            "test1".parse().unwrap(),
-            &signer,
-            1000,
-            genesis_hash,
+    assert_eq!(
+        env.clients[0].process_tx(
+            SignedTransaction::send_money(
+                1,
+                "test0".parse().unwrap(),
+                "test1".parse().unwrap(),
+                &signer,
+                1000,
+                genesis_hash,
+            ),
+            false,
+            false,
         ),
-        false,
-        false,
+        ProcessTxResponse::ValidTx
     );
     let near_balance = env.query_balance("near".parse().unwrap());
     assert_eq!(calc_total_supply(&mut env), initial_total_supply);

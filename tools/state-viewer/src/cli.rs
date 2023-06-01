@@ -81,6 +81,9 @@ pub enum StateViewerSubCommand {
     /// View trie structure.
     #[clap(alias = "view_trie")]
     ViewTrie(ViewTrieCmd),
+    /// Clear recoverable data in CachedContractCode column.
+    #[clap(alias = "clear_cache")]
+    ClearCache,
 }
 
 impl StateViewerSubCommand {
@@ -115,16 +118,17 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::ApplyRange(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ApplyReceipt(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ApplyTx(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::Chain(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::Chain(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::CheckBlock => check_block_chunk_existence(near_config, store),
             StateViewerSubCommand::Chunks(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::ClearCache => clear_cache(store),
             StateViewerSubCommand::ContractAccounts(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::DumpAccountStorage(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::DumpCode(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::DumpState(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::DumpStateRedis(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::DumpTx(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::EpochInfo(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::EpochInfo(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::PartialChunks(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::Receipts(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::Replay(cmd) => cmd.run(home_dir, near_config, store),
@@ -177,7 +181,7 @@ pub struct ApplyRangeCmd {
     shard_id: ShardId,
     #[clap(long)]
     verbose_output: bool,
-    #[clap(long, parse(from_os_str))]
+    #[clap(long, value_parser)]
     csv_file: Option<PathBuf>,
     #[clap(long)]
     only_contracts: bool,
@@ -241,15 +245,8 @@ pub struct ChainCmd {
 }
 
 impl ChainCmd {
-    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
-        print_chain(
-            self.start_index,
-            self.end_index,
-            home_dir,
-            near_config,
-            store,
-            self.show_full_hashes,
-        );
+    pub fn run(self, near_config: NearConfig, store: Store) {
+        print_chain(self.start_index, self.end_index, near_config, store, self.show_full_hashes);
     }
 }
 
@@ -284,7 +281,7 @@ pub struct DumpAccountStorageCmd {
     account_id: String,
     #[clap(long)]
     storage_key: String,
-    #[clap(long, parse(from_os_str))]
+    #[clap(long, value_parser)]
     output: PathBuf,
     #[clap(long)]
     block_height: String,
@@ -308,7 +305,7 @@ impl DumpAccountStorageCmd {
 pub struct DumpCodeCmd {
     #[clap(long)]
     account_id: String,
-    #[clap(long, parse(from_os_str))]
+    #[clap(long, value_parser)]
     output: PathBuf,
 }
 
@@ -332,7 +329,7 @@ pub struct DumpStateCmd {
     stream: bool,
     /// Location of the dumped state.
     /// This is a directory if --stream is set, and a file otherwise.
-    #[clap(long, parse(from_os_str))]
+    #[clap(long, value_parser)]
     file: Option<PathBuf>,
     /// List of account IDs to dump.
     /// Note: validators will always be dumped.
@@ -409,19 +406,23 @@ impl DumpTxCmd {
 
 #[derive(clap::Args)]
 pub struct EpochInfoCmd {
+    /// Which EpochInfos to process.
     #[clap(subcommand)]
     epoch_selection: crate::epoch_info::EpochSelection,
     /// Displays kickouts of the given validator and expected and missed blocks and chunks produced.
     #[clap(long)]
     validator_account_id: Option<String>,
+    /// Show only information about kickouts.
+    #[clap(long)]
+    kickouts_summary: bool,
 }
 
 impl EpochInfoCmd {
-    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+    pub fn run(self, near_config: NearConfig, store: Store) {
         print_epoch_info(
             self.epoch_selection,
             self.validator_account_id.map(|s| AccountId::from_str(&s).unwrap()),
-            home_dir,
+            self.kickouts_summary,
             near_config,
             store,
         );
@@ -471,7 +472,7 @@ impl ReplayCmd {
 #[derive(clap::Parser)]
 pub struct RocksDBStatsCmd {
     /// Location of the dumped Rocks DB stats.
-    #[clap(long, parse(from_os_str))]
+    #[clap(long, value_parser)]
     file: Option<PathBuf>,
 }
 
@@ -494,6 +495,38 @@ impl StateChangesCmd {
 }
 
 #[derive(clap::Parser)]
+pub struct StatePartsCmd {
+    /// Shard id.
+    #[clap(long)]
+    shard_id: ShardId,
+    /// Location of serialized state parts.
+    #[clap(long)]
+    root_dir: Option<PathBuf>,
+    /// Store state parts in an S3 bucket.
+    #[clap(long)]
+    s3_bucket: Option<String>,
+    /// Store state parts in an S3 bucket.
+    #[clap(long)]
+    s3_region: Option<String>,
+    /// Dump or Apply state parts.
+    #[clap(subcommand)]
+    command: crate::state_parts::StatePartsSubCommand,
+}
+
+impl StatePartsCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        self.command.run(
+            self.shard_id,
+            self.root_dir,
+            self.s3_bucket,
+            self.s3_region,
+            home_dir,
+            near_config,
+            store,
+        );
+    }
+}
+#[derive(clap::Parser)]
 pub struct ViewChainCmd {
     #[clap(long)]
     height: Option<BlockHeight>,
@@ -509,20 +542,21 @@ impl ViewChainCmd {
     }
 }
 
+#[derive(Clone)]
 pub enum ViewTrieFormat {
     Full,
     Pretty,
 }
 
-impl std::str::FromStr for ViewTrieFormat {
-    type Err = String;
+impl clap::ValueEnum for ViewTrieFormat {
+    fn value_variants<'a>() -> &'a [Self] {
+        &[Self::Full, Self::Pretty]
+    }
 
-    fn from_str(s: &str) -> Result<Self, String> {
-        let s = s.to_lowercase();
-        match s.as_str() {
-            "full" => Ok(ViewTrieFormat::Full),
-            "pretty" => Ok(ViewTrieFormat::Pretty),
-            _ => Err(String::from(format!("invalid view trie format string {s}"))),
+    fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
+        match self {
+            Self::Full => Some(clap::builder::PossibleValue::new("full")),
+            Self::Pretty => Some(clap::builder::PossibleValue::new("pretty")),
         }
     }
 }
@@ -570,38 +604,5 @@ impl ViewTrieCmd {
                     .unwrap();
             }
         }
-    }
-}
-
-#[derive(clap::Parser)]
-pub struct StatePartsCmd {
-    /// Shard id.
-    #[clap(long)]
-    shard_id: ShardId,
-    /// Location of serialized state parts.
-    #[clap(long)]
-    root_dir: Option<PathBuf>,
-    /// Store state parts in an S3 bucket.
-    #[clap(long)]
-    s3_bucket: Option<String>,
-    /// Store state parts in an S3 bucket.
-    #[clap(long)]
-    s3_region: Option<String>,
-    /// Dump or Apply state parts.
-    #[clap(subcommand)]
-    command: crate::state_parts::StatePartsSubCommand,
-}
-
-impl StatePartsCmd {
-    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
-        self.command.run(
-            self.shard_id,
-            self.root_dir,
-            self.s3_bucket,
-            self.s3_region,
-            home_dir,
-            near_config,
-            store,
-        );
     }
 }

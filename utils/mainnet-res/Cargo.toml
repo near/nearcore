@@ -1,15 +1,16 @@
 [package]
 name = "near-mainnet-res"
-version = "0.0.0"
+version.workspace = true
 authors.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
 publish = false
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 serde_json.workspace = true
 
-near-account-id = { path = "../../core/account-id" }
-near-chain-configs = { path = "../../core/chain-configs" }
-near-primitives = { path = "../../core/primitives" }
+near-account-id.workspace = true
+near-chain-configs.workspace = true
+near-primitives.workspace = true

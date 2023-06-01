@@ -1,9 +1,12 @@
 [package]
 name = "genesis-populate"
-version = "0.0.0"
+version.workspace = true
 authors.workspace = true
-publish = false
 edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
 
 [dependencies]
 borsh.workspace = true
@@ -11,19 +14,16 @@ clap.workspace = true
 indicatif.workspace = true
 tempfile.workspace = true
 
-nearcore = { path = "../../nearcore" }
-near-chain-configs = { path = "../../core/chain-configs" }
-near-crypto = { path = "../../core/crypto" }
-near-primitives = { path = "../../core/primitives" }
-near-store = { path = "../../core/store" }
-near-chain = { path = "../../chain/chain" }
-near-test-contracts = { path = "../../runtime/near-test-contracts" }
+nearcore.workspace = true
+near-chain-configs.workspace = true
+near-crypto.workspace = true
+near-epoch-manager.workspace = true
+near-primitives.workspace = true
+near-store.workspace = true
+near-chain.workspace = true
+near-test-contracts.workspace = true
 
 [features]
-protocol_feature_flat_state = [
-  "nearcore/protocol_feature_flat_state",
-]
 nightly = [
-  "protocol_feature_flat_state",
   "nearcore/nightly",
 ]

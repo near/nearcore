@@ -48,9 +48,23 @@
 //! `for_each_available_import` takes care to invoke `M!` only for currently
 //! available imports.
 
+macro_rules! call_with_name {
+    ( $M:ident => @in $mod:ident : $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] > ) => {
+        $M!($mod / $func : $func < [ $( $arg_name : $arg_type ),* ] -> [ $( $returns ),* ] >)
+    };
+    ( $M:ident => @as $name:ident : $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] > ) => {
+        $M!(env / $name : $func < [ $( $arg_name : $arg_type ),* ] -> [ $( $returns ),* ] >)
+    };
+    ( $M:ident => $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] > ) => {
+        $M!(env / $func : $func < [ $( $arg_name : $arg_type ),* ] -> [ $( $returns ),* ] >)
+    };
+}
+
 macro_rules! imports {
     (
       $($(#[$stable_feature:ident])? $(#[$feature_name:literal, $feature:ident])* $(##[$feature_name2:literal])?
+        $( @in $mod:ident : )?
+        $( @as $name:ident : )?
         $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >,)*
     ) => {
         macro_rules! for_each_available_import {
@@ -61,7 +75,7 @@ macro_rules! imports {
                     $(&& near_primitives::checked_feature!($feature_name, $feature, $protocol_version))*
                     $(&& near_primitives::checked_feature!("stable", $stable_feature, $protocol_version))?
                 {
-                    $M!($func < [ $( $arg_name : $arg_type ),* ] -> [ $( $returns ),* ] >);
+                    call_with_name!($M => $( @in $mod : )? $( @as $name : )? $func < [ $( $arg_name : $arg_type ),* ] -> [ $( $returns ),* ] >);
                 }
             )*}
         }
@@ -69,6 +83,12 @@ macro_rules! imports {
 }
 
 imports! {
+    // #########################
+    // # Finite-wasm internals #
+    // #########################
+    @in internal: finite_wasm_gas<[gas: u64] -> []>,
+    @in internal: finite_wasm_stack<[operand_size: u64, frame_size: u64] -> []>,
+    @in internal: finite_wasm_unstack<[operand_size: u64, frame_size: u64] -> []>,
     // #############
     // # Registers #
     // #############
@@ -222,7 +242,7 @@ imports! {
     storage_iter_range<[start_len: u64, start_ptr: u64, end_len: u64, end_ptr: u64] -> [u64]>,
     storage_iter_next<[iterator_id: u64, key_register_id: u64, value_register_id: u64] -> [u64]>,
     // Function for the injected gas counter. Automatically called by the gas meter.
-    gas<[gas_amount: u32] -> []>,
+    @as gas: gas_seen_from_wasm<[gas_amount: u32] -> []>,
     // ###############
     // # Validator API #
     // ###############
@@ -264,31 +284,37 @@ pub(crate) mod wasmer {
             (import_reference.0, dtor)
         });
 
-        let mut ns = wasmer_runtime_core::import::Namespace::new();
-        ns.insert("memory", memory);
+        let mut ns_internal = wasmer_runtime_core::import::Namespace::new();
+        let mut ns_env = wasmer_runtime_core::import::Namespace::new();
+        ns_env.insert("memory", memory);
 
         macro_rules! add_import {
             (
-              $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >
+              $mod:ident / $name:ident : $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >
             ) => {
                 #[allow(unused_parens)]
-                fn $func( ctx: &mut wasmer_runtime::Ctx, $( $arg_name: $arg_type ),* ) -> Result<($( $returns ),*), VMLogicError> {
-                    const IS_GAS: bool = str_eq(stringify!($func), "gas");
+                fn $name( ctx: &mut wasmer_runtime::Ctx, $( $arg_name: $arg_type ),* ) -> Result<($( $returns ),*), VMLogicError> {
+                    const IS_GAS: bool = str_eq(stringify!($name), "gas") || str_eq(stringify!($name), "finite_wasm_gas");
                     let _span = if IS_GAS {
                         None
                     } else {
-                        Some(tracing::trace_span!(target: "host-function", stringify!($func)).entered())
+                        Some(tracing::trace_span!(target: "host-function", stringify!($name)).entered())
                     };
                     let logic: &mut VMLogic<'_> = unsafe { &mut *(ctx.data as *mut VMLogic<'_>) };
                     logic.$func( $( $arg_name, )* )
                 }
 
-                ns.insert(stringify!($func), wasmer_runtime::func!($func));
+                match stringify!($mod) {
+                    "env" => ns_env.insert(stringify!($name), wasmer_runtime::func!($name)),
+                    "internal" => ns_internal.insert(stringify!($name), wasmer_runtime::func!($name)),
+                    _ => unimplemented!(),
+                }
             };
         }
         for_each_available_import!(protocol_version, add_import);
 
-        import_object.register("env", ns);
+        import_object.register("env", ns_env);
+        import_object.register("internal", ns_internal);
         import_object
     }
 }
@@ -351,32 +377,29 @@ pub(crate) mod wasmer2 {
 
     impl<'e, 'l, 'lr> Resolver for Wasmer2Imports<'e, 'l, 'lr> {
         fn resolve(&self, _index: u32, module: &str, field: &str) -> Option<wasmer_vm::Export> {
-            if module != "env" {
-                return None;
-            }
-            if field == "memory" {
+            if module == "env" && field == "memory" {
                 return Some(wasmer_vm::Export::Memory(self.memory.clone()));
             }
 
             macro_rules! add_import {
                 (
-                  $func:ident <
+                  $mod:ident / $name:ident : $func:ident <
                     [ $( $arg_name:ident : $arg_type:ident ),* ]
                     -> [ $( $returns:ident ),* ]
                   >
                 ) => {
                     return_ty!(Ret = [ $($returns),* ]);
 
-                    extern "C" fn $func(env: *mut VMLogic<'_>, $( $arg_name: $arg_type ),* )
+                    extern "C" fn $name(env: *mut VMLogic<'_>, $( $arg_name: $arg_type ),* )
                     -> Ret {
                         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            const IS_GAS: bool = str_eq(stringify!($func), "gas");
+                            const IS_GAS: bool = str_eq(stringify!($name), "gas") || str_eq(stringify!($name), "finite_wasm_gas");
                             let _span = if IS_GAS {
                                 None
                             } else {
                                 Some(tracing::trace_span!(
                                     target: "host-function",
-                                    stringify!($func)
+                                    stringify!($name)
                                 ).entered())
                             };
 
@@ -406,14 +429,14 @@ pub(crate) mod wasmer2 {
                         }
                     }
                     // TODO: a phf hashmap would probably work better here.
-                    if field == stringify!($func) {
+                    if module == stringify!($mod) && field == stringify!($name) {
                         let args = [$(<$arg_type as Wasmer2Type>::ty()),*];
                         let rets = [$(<$returns as Wasmer2Type>::ty()),*];
                         let signature = wasmer_types::FunctionTypeRef::new(&args[..], &rets[..]);
                         let signature = self.engine.register_signature(signature);
                         return Some(wasmer_vm::Export::Function(ExportFunction {
                             vm_function: VMFunction {
-                                address: $func as *const _,
+                                address: $name as *const _,
                                 // SAFETY: here we erase the lifetime of the `vmlogic` reference,
                                 // but we believe that the lifetimes on `Wasmer2Imports` enforce
                                 // sufficiently that it isn't possible to call this exported
@@ -449,6 +472,168 @@ pub(crate) mod wasmer2 {
             ExportFunctionMetadata::new(logic as *mut _ as *mut _, None, |ptr| ptr, |_| {})
         };
         Wasmer2Imports {
+            memory,
+            vmlogic: logic,
+            metadata: Arc::new(metadata),
+            protocol_version,
+            engine,
+        }
+    }
+}
+
+#[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
+pub(crate) mod near_vm {
+    use std::sync::Arc;
+
+    use super::str_eq;
+    use near_vm_engine::Engine;
+    use near_vm_engine_universal::UniversalEngine;
+    use near_vm_logic::{ProtocolVersion, VMLogic};
+    use near_vm_vm::{
+        ExportFunction, ExportFunctionMetadata, Resolver, VMFunction, VMFunctionKind, VMMemory,
+    };
+
+    pub(crate) struct NearVmImports<'engine, 'vmlogic, 'vmlogic_refs> {
+        pub(crate) memory: VMMemory,
+        // Note: this same object is also referenced by the `metadata` field!
+        pub(crate) vmlogic: &'vmlogic mut VMLogic<'vmlogic_refs>,
+        pub(crate) metadata: Arc<ExportFunctionMetadata>,
+        pub(crate) protocol_version: ProtocolVersion,
+        pub(crate) engine: &'engine UniversalEngine,
+    }
+
+    trait NearVmType {
+        type NearVm;
+        fn to_near_vm(self) -> Self::NearVm;
+        fn ty() -> near_vm_types::Type;
+    }
+    macro_rules! near_vm_types {
+        ($($native:ty as $near_vm:ty => $type_expr:expr;)*) => {
+            $(impl NearVmType for $native {
+                type NearVm = $near_vm;
+                fn to_near_vm(self) -> $near_vm {
+                    self as _
+                }
+                fn ty() -> near_vm_types::Type {
+                    $type_expr
+                }
+            })*
+        }
+    }
+    near_vm_types! {
+        u32 as i32 => near_vm_types::Type::I32;
+        u64 as i64 => near_vm_types::Type::I64;
+    }
+
+    macro_rules! return_ty {
+        ($return_type: ident = [ ]) => {
+            type $return_type = ();
+            fn make_ret() -> () {}
+        };
+        ($return_type: ident = [ $($returns: ident),* ]) => {
+            #[repr(C)]
+            struct $return_type($(<$returns as NearVmType>::NearVm),*);
+            fn make_ret($($returns: $returns),*) -> Ret { Ret($($returns.to_near_vm()),*) }
+        }
+    }
+
+    impl<'e, 'l, 'lr> Resolver for NearVmImports<'e, 'l, 'lr> {
+        fn resolve(&self, _index: u32, module: &str, field: &str) -> Option<near_vm_vm::Export> {
+            if module == "env" && field == "memory" {
+                return Some(near_vm_vm::Export::Memory(self.memory.clone()));
+            }
+
+            macro_rules! add_import {
+                (
+                  $mod:ident / $name:ident : $func:ident <
+                    [ $( $arg_name:ident : $arg_type:ident ),* ]
+                    -> [ $( $returns:ident ),* ]
+                  >
+                ) => {
+                    return_ty!(Ret = [ $($returns),* ]);
+
+                    extern "C" fn $name(env: *mut VMLogic<'_>, $( $arg_name: $arg_type ),* )
+                    -> Ret {
+                        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            const IS_GAS: bool = str_eq(stringify!($name), "gas") || str_eq(stringify!($name), "finite_wasm_gas");
+                            let _span = if IS_GAS {
+                                None
+                            } else {
+                                Some(tracing::trace_span!(
+                                    target: "host-function",
+                                    stringify!($name)
+                                ).entered())
+                            };
+
+                            // SAFETY: This code should only be executable within `'vmlogic`
+                            // lifetime and so it is safe to dereference the `env` pointer which is
+                            // known to be derived from a valid `&'vmlogic mut VMLogic<'_>` in the
+                            // first place.
+                            unsafe { (*env).$func( $( $arg_name, )* ) }
+                        }));
+                        // We want to ensure that the only kind of error that host function calls
+                        // return are VMLogicError. This is important because we later attempt to
+                        // downcast the `RuntimeError`s into `VMLogicError`.
+                        let result: Result<Result<_, near_vm_errors::VMLogicError>, _>  = result;
+                        #[allow(unused_parens)]
+                        match result {
+                            Ok(Ok(($($returns),*))) => make_ret($($returns),*),
+                            Ok(Err(trap)) => unsafe {
+                                // SAFETY: this can only be called by a WASM contract, so all the
+                                // necessary hooks are known to be in place.
+                                near_vm_vm::raise_user_trap(Box::new(trap))
+                            },
+                            Err(e) => unsafe {
+                                // SAFETY: this can only be called by a WASM contract, so all the
+                                // necessary hooks are known to be in place.
+                                near_vm_vm::resume_panic(e)
+                            },
+                        }
+                    }
+                    // TODO: a phf hashmap would probably work better here.
+                    if module == stringify!($mod) && field == stringify!($name) {
+                        let args = [$(<$arg_type as NearVmType>::ty()),*];
+                        let rets = [$(<$returns as NearVmType>::ty()),*];
+                        let signature = near_vm_types::FunctionType::new(&args[..], &rets[..]);
+                        let signature = self.engine.register_signature(signature);
+                        return Some(near_vm_vm::Export::Function(ExportFunction {
+                            vm_function: VMFunction {
+                                address: $name as *const _,
+                                // SAFETY: here we erase the lifetime of the `vmlogic` reference,
+                                // but we believe that the lifetimes on `NearVmImports` enforce
+                                // sufficiently that it isn't possible to call this exported
+                                // function when vmlogic is no loger live.
+                                vmctx: near_vm_vm::VMFunctionEnvironment {
+                                    host_env: self.vmlogic as *const _ as *mut _
+                                },
+                                signature,
+                                kind: VMFunctionKind::Static,
+                                call_trampoline: None,
+                                instance_ref: None,
+                            },
+                            metadata: Some(Arc::clone(&self.metadata)),
+                        }));
+                    }
+                };
+            }
+            for_each_available_import!(self.protocol_version, add_import);
+            return None;
+        }
+    }
+
+    pub(crate) fn build<'e, 'a, 'b>(
+        memory: VMMemory,
+        logic: &'a mut VMLogic<'b>,
+        protocol_version: ProtocolVersion,
+        engine: &'e UniversalEngine,
+    ) -> NearVmImports<'e, 'a, 'b> {
+        let metadata = unsafe {
+            // SAFETY: the functions here are thread-safe. We ensure that the lifetime of `VMLogic`
+            // is sufficiently long by tying the lifetime of VMLogic to the return type which
+            // contains this metadata.
+            ExportFunctionMetadata::new(logic as *mut _ as *mut _, None, |ptr| ptr, |_| {})
+        };
+        NearVmImports {
             memory,
             vmlogic: logic,
             metadata: Arc::new(metadata),
@@ -498,15 +683,15 @@ pub(crate) mod wasmtime {
 
         macro_rules! add_import {
             (
-              $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >
+              $mod:ident / $name:ident : $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >
             ) => {
                 #[allow(unused_parens)]
-                fn $func(caller: wasmtime::Caller<'_, ()>, $( $arg_name: $arg_type ),* ) -> anyhow::Result<($( $returns ),*)> {
-                    const IS_GAS: bool = str_eq(stringify!($func), "gas");
+                fn $name(caller: wasmtime::Caller<'_, ()>, $( $arg_name: $arg_type ),* ) -> anyhow::Result<($( $returns ),*)> {
+                    const IS_GAS: bool = str_eq(stringify!($name), "gas") || str_eq(stringify!($name), "finite_wasm_gas");
                     let _span = if IS_GAS {
                         None
                     } else {
-                        Some(tracing::trace_span!(target: "host-function", stringify!($func)).entered())
+                        Some(tracing::trace_span!(target: "host-function", stringify!($name)).entered())
                     };
                     // the below is bad. don't do this at home. it probably works thanks to the exact way the system is setup.
                     // Thanksfully, this doesn't run in production, and hopefully should be possible to remove before we even
@@ -529,7 +714,7 @@ pub(crate) mod wasmtime {
                     }
                 }
 
-                linker.func_wrap("env", stringify!($func), $func).expect("cannot link external");
+                linker.func_wrap(stringify!($mod), stringify!($name), $name).expect("cannot link external");
             };
         }
         for_each_available_import!(protocol_version, add_import);

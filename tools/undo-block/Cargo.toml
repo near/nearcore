@@ -1,0 +1,22 @@
+[package]
+name = "near-undo-block"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+
+near-chain.workspace = true
+near-chain-configs.workspace = true
+near-epoch-manager.workspace = true
+near-store.workspace = true
+nearcore.workspace = true
+near-primitives.workspace = true

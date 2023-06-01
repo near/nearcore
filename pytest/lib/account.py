@@ -13,6 +13,7 @@ from configured_logger import logger
 
 # Constant for 1 NEAR
 NEAR_BASE = 10**24
+TGAS = 10**12
 
 
 class Account:
@@ -39,7 +40,7 @@ class Account:
         self.rpc_infos = rpc_infos
         assert key.account_id
         self.tx_timestamps = []
-        logger.info(
+        logger.debug(
             f'Creating Account {key.account_id} {init_nonce} {self.rpc_infos[0]} {key.pk} {key.sk}'
         )
 
@@ -60,6 +61,10 @@ class Account:
 
     def send_tx(self, signed_tx):
         return self.json_rpc('broadcast_tx_async',
+                             [base64.b64encode(signed_tx).decode('utf-8')])
+
+    def send_tx_sync(self, signed_tx):
+        return self.json_rpc('broadcast_tx_commit',
                              [base64.b64encode(signed_tx).decode('utf-8')])
 
     def prep_tx(self):
@@ -98,9 +103,21 @@ class Account:
                                   base_block_hash=None):
         self.prep_tx()
         tx = sign_function_call_tx(self.key, contract_id, method_name, args,
-                                   3 * 10**14, deposit, self.nonce,
+                                   300 * TGAS, deposit, self.nonce,
                                    base_block_hash or self.base_block_hash)
         return self.send_tx(tx)
+
+    def send_call_contract_raw_tx_sync(self,
+                                       contract_id,
+                                       method_name,
+                                       args,
+                                       deposit,
+                                       base_block_hash=None):
+        self.prep_tx()
+        tx = sign_function_call_tx(self.key, contract_id, method_name, args,
+                                   300 * TGAS, deposit, self.nonce,
+                                   base_block_hash or self.base_block_hash)
+        return self.send_tx_sync(tx)
 
     def send_create_account_tx(self, new_account_id, base_block_hash=None):
         self.prep_tx()

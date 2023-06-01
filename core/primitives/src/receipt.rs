@@ -1,11 +1,13 @@
 use crate::borsh::maybestd::collections::HashMap;
 use crate::hash::CryptoHash;
-use crate::serialize::{dec_format, option_base64_format};
+use crate::serialize::dec_format;
 use crate::transaction::{Action, TransferAction};
 use crate::types::{AccountId, Balance, ShardId};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{KeyType, PublicKey};
-use near_o11y::pretty;
+use near_fmt::AbbrBytes;
+use serde_with::base64::Base64;
+use serde_with::serde_as;
 use std::borrow::Borrow;
 use std::fmt;
 
@@ -142,6 +144,7 @@ pub struct ActionReceipt {
 
 /// An incoming (ingress) `DataReceipt` which is going to a Receipt's `receiver` input_data_ids
 /// Which will be converted to `PromiseResult::Successful(value)` or `PromiseResult::Failed`
+#[serde_as]
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -154,7 +157,7 @@ pub struct ActionReceipt {
 )]
 pub struct DataReceipt {
     pub data_id: CryptoHash,
-    #[serde(with = "option_base64_format")]
+    #[serde_as(as = "Option<Base64>")]
     pub data: Option<Vec<u8>>,
 }
 
@@ -162,7 +165,7 @@ impl fmt::Debug for DataReceipt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DataReceipt")
             .field("data_id", &self.data_id)
-            .field("data", &format_args!("{}", pretty::AbbrBytes(self.data.as_deref())))
+            .field("data", &format_args!("{}", AbbrBytes(self.data.as_deref())))
             .finish()
     }
 }
@@ -197,7 +200,7 @@ pub struct ReceivedData {
 impl fmt::Debug for ReceivedData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ReceivedData")
-            .field("data", &format_args!("{}", pretty::AbbrBytes(self.data.as_deref())))
+            .field("data", &format_args!("{}", AbbrBytes(self.data.as_deref())))
             .finish()
     }
 }

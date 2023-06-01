@@ -4,7 +4,7 @@
 //! This is the module for its integration tests.
 
 use crate::node::{Node, RuntimeNode};
-use crate::tests::client::process_blocks::create_nightshade_runtimes;
+use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 use crate::tests::standard_cases::fee_helper;
 use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
@@ -54,7 +54,8 @@ fn exec_meta_transaction(
     genesis.config.epoch_length = 1000;
     genesis.config.protocol_version = protocol_version;
     let mut env = TestEnv::builder(ChainGenesis::test())
-        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+        .real_epoch_managers(&genesis.config)
+        .nightshade_runtimes(&genesis)
         .build();
 
     let tx = env.meta_tx_from_actions(actions, user, relayer, receiver);
@@ -139,9 +140,8 @@ fn check_meta_tx_execution(
     };
     let user_nonce_before = node_user.get_access_key(&sender, &user_pubk).unwrap().nonce;
 
-    let tx_result = node_user
-        .meta_tx(sender.clone(), receiver.clone(), relayer.clone(), actions.clone())
-        .unwrap();
+    let tx_result =
+        node_user.meta_tx(sender.clone(), receiver.clone(), relayer.clone(), actions).unwrap();
 
     // Execution of the transaction and all receipts should succeed
     tx_result.assert_success();
@@ -449,15 +449,7 @@ fn meta_tx_stake() {
     let tx_cost = fee_helper.stake_cost();
     let public_key = create_user_test_signer(&sender).public_key;
     let actions = vec![Action::Stake(StakeAction { public_key, stake: 0 })];
-    check_meta_tx_no_fn_call(
-        &node,
-        actions,
-        tx_cost,
-        0,
-        sender.clone(),
-        relayer.clone(),
-        receiver.clone(),
-    );
+    check_meta_tx_no_fn_call(&node, actions, tx_cost, 0, sender, relayer, receiver);
 }
 
 #[test]
@@ -793,10 +785,7 @@ fn meta_tx_create_implicit_account_fails() {
     let node = RuntimeNode::new(&relayer);
 
     let actions = vec![Action::CreateAccount(CreateAccountAction {})];
-    let tx_result = node
-        .user()
-        .meta_tx(sender.clone(), new_account.clone(), relayer.clone(), actions.clone())
-        .unwrap();
+    let tx_result = node.user().meta_tx(sender, new_account, relayer, actions).unwrap();
 
     let account_creation_result = &tx_result.receipts_outcome[1].outcome.status;
     assert!(matches!(
@@ -831,8 +820,7 @@ fn meta_tx_create_and_use_implicit_account() {
 
     // Execute and expect `AccountDoesNotExist`, as we try to call a meta
     // transaction on a user that doesn't exist yet.
-    let tx_result =
-        node.user().meta_tx(sender.clone(), new_account.clone(), relayer.clone(), actions).unwrap();
+    let tx_result = node.user().meta_tx(sender, new_account.clone(), relayer, actions).unwrap();
     let status = &tx_result.receipts_outcome[1].outcome.status;
     assert!(matches!(
         status,

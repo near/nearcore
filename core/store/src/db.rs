@@ -1,8 +1,6 @@
-use std::io;
-
-use near_o11y::pretty;
-
 use crate::DBCol;
+use near_fmt::{AbbrBytes, StorageKey};
+use std::io;
 
 pub(crate) mod rocksdb;
 
@@ -22,6 +20,7 @@ pub use self::splitdb::SplitDB;
 pub use self::slice::DBSlice;
 pub use self::testdb::TestDB;
 
+// `DBCol::BlockMisc` keys
 pub const HEAD_KEY: &[u8; 4] = b"HEAD";
 pub const TAIL_KEY: &[u8; 4] = b"TAIL";
 pub const CHUNK_TAIL_KEY: &[u8; 10] = b"CHUNK_TAIL";
@@ -33,6 +32,10 @@ pub const LARGEST_TARGET_HEIGHT_KEY: &[u8; 21] = b"LARGEST_TARGET_HEIGHT";
 pub const GENESIS_JSON_HASH_KEY: &[u8; 17] = b"GENESIS_JSON_HASH";
 pub const GENESIS_STATE_ROOTS_KEY: &[u8; 19] = b"GENESIS_STATE_ROOTS";
 pub const COLD_HEAD_KEY: &[u8; 9] = b"COLD_HEAD";
+
+// `DBCol::Misc` keys
+pub const FLAT_STATE_VALUES_INLINING_MIGRATION_STATUS_KEY: &[u8] =
+    b"FLAT_STATE_VALUES_INLINING_MIGRATION_STATUS";
 
 #[derive(Default, Debug)]
 pub struct DBTransaction {
@@ -76,26 +79,24 @@ impl std::fmt::Debug for DBOp {
             Self::Set { col, key, value } => f
                 .debug_struct("Set")
                 .field("col", col)
-                .field("key", &pretty::StorageKey(key))
-                .field("value", &pretty::AbbrBytes(value))
+                .field("key", &StorageKey(key))
+                .field("value", &AbbrBytes(value))
                 .finish(),
             Self::Insert { col, key, value } => f
                 .debug_struct("Insert")
                 .field("col", col)
-                .field("key", &pretty::StorageKey(key))
-                .field("value", &pretty::AbbrBytes(value))
+                .field("key", &StorageKey(key))
+                .field("value", &AbbrBytes(value))
                 .finish(),
             Self::UpdateRefcount { col, key, value } => f
                 .debug_struct("UpdateRefcount")
                 .field("col", col)
-                .field("key", &pretty::StorageKey(key))
-                .field("value", &pretty::AbbrBytes(value))
+                .field("key", &StorageKey(key))
+                .field("value", &AbbrBytes(value))
                 .finish(),
-            Self::Delete { col, key } => f
-                .debug_struct("Delete")
-                .field("col", col)
-                .field("key", &pretty::StorageKey(key))
-                .finish(),
+            Self::Delete { col, key } => {
+                f.debug_struct("Delete").field("col", col).field("key", &StorageKey(key)).finish()
+            }
             Self::DeleteAll { col } => f.debug_struct("DeleteAll").field("col", col).finish(),
             Self::DeleteRange { col, from, to } => f
                 .debug_struct("DeleteRange")
@@ -191,8 +192,8 @@ pub trait Database: Sync + Send {
     fn iter_range<'a>(
         &'a self,
         col: DBCol,
-        lower_bound: Option<&'a [u8]>,
-        upper_bound: Option<&'a [u8]>,
+        lower_bound: Option<&[u8]>,
+        upper_bound: Option<&[u8]>,
     ) -> DBIterator<'a>;
 
     /// Iterate over items in given column bypassing reference count decoding if
@@ -224,6 +225,9 @@ pub trait Database: Sync + Send {
 
     /// Returns statistics about the database if available.
     fn get_store_statistics(&self) -> Option<StoreStatistics>;
+
+    /// Create checkpoint in provided path
+    fn create_checkpoint(&self, path: &std::path::Path) -> anyhow::Result<()>;
 }
 
 fn assert_no_overwrite(col: DBCol, key: &[u8], value: &[u8], old_value: &[u8]) {
@@ -245,7 +249,7 @@ pub enum StatsValue {
     ColumnValue(DBCol, i64),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct StoreStatistics {
     pub data: Vec<(String, Vec<StatsValue>)>,
 }

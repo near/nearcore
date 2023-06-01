@@ -3,11 +3,75 @@ use super::*;
 
 use crate::network_protocol::proto;
 use crate::network_protocol::PeerAddr;
-use crate::network_protocol::{Edge, PartialEdgeInfo, PeerInfo};
+use crate::network_protocol::{Edge, PartialEdgeInfo, PeerInfo, SignedIpAddress};
 use borsh::{BorshDeserialize as _, BorshSerialize as _};
 use near_primitives::network::AnnounceAccount;
 use protobuf::MessageField as MF;
 use std::net::{IpAddr, SocketAddr};
+
+////////////////////////////////////////
+// Parse std::net::IpAddr to Protocol Buffer and back
+#[derive(thiserror::Error, Debug)]
+pub enum ParseIpAddrError {
+    #[error("invalid IP")]
+    InvalidIP,
+}
+
+impl From<&std::net::IpAddr> for proto::IpAddr {
+    fn from(x: &std::net::IpAddr) -> Self {
+        Self {
+            ip: match x {
+                std::net::IpAddr::V4(ip) => ip.octets().to_vec(),
+                std::net::IpAddr::V6(ip) => ip.octets().to_vec(),
+            },
+            ..Self::default()
+        }
+    }
+}
+
+impl TryFrom<&proto::IpAddr> for std::net::IpAddr {
+    type Error = ParseIpAddrError;
+    fn try_from(x: &proto::IpAddr) -> Result<Self, Self::Error> {
+        let ip = match x.ip.len() {
+            4 => IpAddr::from(<[u8; 4]>::try_from(&x.ip[..]).unwrap()),
+            16 => IpAddr::from(<[u8; 16]>::try_from(&x.ip[..]).unwrap()),
+            _ => return Err(Self::Error::InvalidIP),
+        };
+        Ok(ip)
+    }
+}
+
+////////////////////////////////////////
+// Parse SignedIpAddr to Protocol Buffer and back
+#[derive(thiserror::Error, Debug)]
+pub enum ParseSignedIpAddrError {
+    #[error("ip_addr: {0}")]
+    IpAddr(ParseRequiredError<ParseIpAddrError>),
+    #[error("signed_owned_ip_address: {0}")]
+    Signature(ParseRequiredError<ParseSignatureError>),
+}
+
+impl From<&SignedIpAddress> for proto::SignedIpAddr {
+    fn from(x: &SignedIpAddress) -> Self {
+        Self {
+            ip_addr: MF::some((&x.ip_address).into()),
+            signature: MF::some((&x.signature).into()),
+            ..Self::default()
+        }
+    }
+}
+
+impl TryFrom<&proto::SignedIpAddr> for SignedIpAddress {
+    type Error = ParseSignedIpAddrError;
+    fn try_from(p: &proto::SignedIpAddr) -> Result<Self, Self::Error> {
+        Ok(Self {
+            ip_address: try_from_required(&p.ip_addr).map_err(Self::Error::IpAddr)?,
+            signature: try_from_required(&p.signature).map_err(Self::Error::Signature)?,
+        })
+    }
+}
+
+////////////////////////////////////////
 
 #[derive(thiserror::Error, Debug)]
 pub enum ParseSocketAddrError {

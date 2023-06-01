@@ -1,9 +1,12 @@
 [package]
 name = "near-jsonrpc-client"
-version = "0.0.0"
+version.workspace = true
 authors.workspace = true
-publish = false
 edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
 
 [dependencies]
 actix-http.workspace = true
@@ -12,5 +15,5 @@ futures.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
-near-jsonrpc-primitives = { path = "../../jsonrpc-primitives" }
-near-primitives = { path = "../../../core/primitives" }
+near-jsonrpc-primitives.workspace = true
+near-primitives.workspace = true

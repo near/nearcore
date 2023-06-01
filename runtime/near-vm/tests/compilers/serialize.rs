@@ -1,5 +1,5 @@
 use anyhow::Result;
-use wasmer::*;
+use near_vm::*;
 
 #[compiler_test(serialize)]
 fn test_serialize(config: crate::Config) -> Result<()> {
@@ -64,8 +64,9 @@ fn test_serialize(config: crate::Config) -> Result<()> {
 //         vec![Type::I32, Type::I64, Type::I32, Type::F32, Type::F64],
 //         vec![Type::I64],
 //     );
-//     let instance = Instance::new(
+//     let instance = Instance::new_with_config(
 //         &module,
+//         InstanceConfig::with_stack_limit(1000000),
 //         &imports! {
 //             "host" => {
 //                 "sum_part" => Function::new(&store, &func_type, |params| {

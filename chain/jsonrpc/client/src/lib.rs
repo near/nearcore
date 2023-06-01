@@ -85,10 +85,8 @@ where
         .map_err(|err| err.to_string())
         .and_then(|mut response| {
             response.body().map(|body| match body {
-                Ok(bytes) => String::from_utf8(bytes.to_vec())
-                    .map_err(|err| format!("Error {:?} in {:?}", err, bytes))
-                    .and_then(|s| serde_json::from_str(&s).map_err(|err| err.to_string())),
-                Err(_) => Err("Payload error: {:?}".to_string()),
+                Ok(bytes) => serde_json::from_slice(&bytes).map_err(|err| err.to_string()),
+                Err(err) => Err(format!("Payload error: {err}")),
             })
         })
         .boxed_local()
@@ -131,7 +129,7 @@ macro_rules! http_client {
                 pub fn $method(&$selff $(, $arg_name: $arg_ty)*)
                     -> HttpRequest<$return_ty>
                 {
-                    let method = String::from(stringify!($method));
+                    let method = stringify!($method);
                     let params = expand_params!($($arg_name,)*);
                     call_http_get(&$selff.client, &$selff.server_addr, &method, params)
                 }
@@ -168,7 +166,7 @@ macro_rules! jsonrpc_client {
                 pub fn $method(&$selff $(, $arg_name: $arg_ty)*)
                     -> RpcRequest<$return_ty>
                 {
-                    let method = String::from(stringify!($method));
+                    let method = stringify!($method);
                     let params = expand_params!($($arg_name,)*);
                     call_method(&$selff.client, &$selff.server_addr, &method, params)
                 }

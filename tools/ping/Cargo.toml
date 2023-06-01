@@ -1,9 +1,12 @@
 [package]
 name = "near-ping"
-version = "0.0.0"
+version.workspace = true
 authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
 publish = false
-edition = "2021"
 
 [dependencies]
 actix-web.workspace = true
@@ -15,7 +18,8 @@ prometheus.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
-near-jsonrpc = { path = "../../chain/jsonrpc" }
-near-network = { path = "../../chain/network" }
-near-o11y = { path = "../../core/o11y" }
-near-primitives = { path = "../../core/primitives" }
+near-async.workspace = true
+near-jsonrpc.workspace = true
+near-network.workspace = true
+near-o11y.workspace = true
+near-primitives.workspace = true

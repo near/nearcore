@@ -1,13 +1,16 @@
 [package]
 name = "near-actix-test-utils"
-version = "0.0.0"
+version.workspace = true
 authors.workspace = true
-publish = false
 edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
 
 [dependencies]
 actix-rt.workspace = true
 futures.workspace = true
 once_cell.workspace = true
 
-near-store = { path = "../../core/store" }
+near-store.workspace = true

@@ -35,19 +35,18 @@ pub struct VMLimitConfig {
 
     /// How tall the stack is allowed to grow?
     ///
-    /// See <https://wiki.parity.io/WebAssembly-StackHeight> to find out
-    /// how the stack frame cost is calculated.
+    /// See <https://wiki.parity.io/WebAssembly-StackHeight> to find out how the stack frame cost
+    /// is calculated.
     pub max_stack_height: u32,
     /// Whether a legacy version of stack limiting should be used, see
-    /// [`StackLimiterVersion`].
-    #[serde(default = "StackLimiterVersion::v0")]
-    pub stack_limiter_version: StackLimiterVersion,
+    /// [`ContractPrepareVersion`].
+    #[serde(default = "ContractPrepareVersion::v0")]
+    pub contract_prepare_version: ContractPrepareVersion,
 
     /// The initial number of memory pages.
     /// NOTE: It's not a limiter itself, but it's a value we use for initial_memory_pages.
     pub initial_memory_pages: u32,
-    /// What is the maximal memory pages amount is allowed to have for
-    /// a contract.
+    /// What is the maximal memory pages amount is allowed to have for a contract.
     pub max_memory_pages: u32,
 
     /// Limit of memory used by registers.
@@ -131,16 +130,22 @@ fn wasmer2_stack_limit_default() -> i32 {
     serde_repr::Deserialize_repr,
 )]
 #[repr(u8)]
-pub enum StackLimiterVersion {
-    /// Old, buggy version, don't use it unless specifically to support old protocol version.
+pub enum ContractPrepareVersion {
+    /// Oldest, buggiest version.
+    ///
+    /// Don't use it unless specifically to support old protocol version.
     V0,
-    /// What we use in today's protocol.
+    /// Old, slow and buggy version.
+    ///
+    /// Better than V0, but don’t use this nevertheless.
     V1,
+    /// finite-wasm 0.3.0 based contract preparation code.
+    V2,
 }
 
-impl StackLimiterVersion {
-    pub fn v0() -> StackLimiterVersion {
-        StackLimiterVersion::V0
+impl ContractPrepareVersion {
+    pub fn v0() -> ContractPrepareVersion {
+        ContractPrepareVersion::V0
     }
 }
 
@@ -199,14 +204,12 @@ impl VMConfig {
 
 impl VMLimitConfig {
     pub fn test() -> Self {
+        const KB: u32 = 1024;
         let max_contract_size = 4 * 2u64.pow(20);
         Self {
             max_gas_burnt: 2 * 10u64.pow(14), // with 10**15 block gas limit this will allow 5 calls.
-
-            // NOTE: Stack height has to be 16K, otherwise Wasmer produces non-deterministic results.
-            // For experimentation try `test_stack_overflow`.
-            max_stack_height: 16 * 1024, // 16Kib of stack.
-            stack_limiter_version: StackLimiterVersion::V1,
+            max_stack_height: 256 * KB,
+            contract_prepare_version: ContractPrepareVersion::V2,
             initial_memory_pages: 2u32.pow(10), // 64Mib of memory.
             max_memory_pages: 2u32.pow(11),     // 128Mib of memory.
 

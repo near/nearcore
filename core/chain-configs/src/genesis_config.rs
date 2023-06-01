@@ -17,8 +17,7 @@ use near_primitives::{
     serialize::dec_format,
     state_record::StateRecord,
     types::{
-        AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, EpochHeight, Gas,
-        NumBlocks, NumSeats,
+        AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats,
     },
     version::ProtocolVersion,
 };
@@ -103,8 +102,6 @@ pub struct GenesisConfig {
     #[serde(default = "default_protocol_upgrade_stake_threshold")]
     #[default(Rational32::new(8, 10))]
     pub protocol_upgrade_stake_threshold: Rational32,
-    /// Number of epochs after stake threshold was achieved to start next prtocol version.
-    pub protocol_upgrade_num_epochs: EpochHeight,
     /// Epoch length counted in block heights.
     pub epoch_length: BlockHeightDelta,
     /// Initial gas limit.
@@ -203,7 +200,6 @@ impl From<&GenesisConfig> for EpochConfig {
             fishermen_threshold: config.fishermen_threshold,
             online_min_threshold: config.online_min_threshold,
             online_max_threshold: config.online_max_threshold,
-            protocol_upgrade_num_epochs: config.protocol_upgrade_num_epochs,
             protocol_upgrade_stake_threshold: config.protocol_upgrade_stake_threshold,
             minimum_stake_divisor: config.minimum_stake_divisor,
             shard_layout: config.shard_layout.clone(),
@@ -480,18 +476,18 @@ impl Genesis {
 
         let mut json_str = String::new();
         file.read_to_string(&mut json_str).map_err(|_| ValidationError::GenesisFileError {
-            error_message: format!("Failed to read genesis config file to string. "),
+            error_message: "Failed to read genesis config file to string. ".to_string(),
         })?;
 
         let json_str_without_comments = near_config_utils::strip_comments_from_json_str(&json_str)
             .map_err(|_| ValidationError::GenesisFileError {
-                error_message: format!("Failed to strip comments from genesis config file"),
+                error_message: "Failed to strip comments from genesis config file".to_string(),
             })?;
 
         let genesis =
             serde_json::from_str::<Genesis>(&json_str_without_comments).map_err(|_| {
                 ValidationError::GenesisFileError {
-                    error_message: format!("Failed to deserialize the genesis records."),
+                    error_message: "Failed to deserialize the genesis records.".to_string(),
                 }
             })?;
 

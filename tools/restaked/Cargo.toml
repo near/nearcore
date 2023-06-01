@@ -1,21 +1,24 @@
 [package]
 name = "restaked"
-version = "0.0.0"
+version.workspace = true
 authors.workspace = true
-publish = false
 edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
 
 [dependencies]
 clap.workspace = true
 tokio.workspace = true
 
-near-crypto = { path = "../../core/crypto" }
-near-primitives = { path = "../../core/primitives" }
-near-jsonrpc-client = { path = "../../chain/jsonrpc/client" }
-nearcore = { path = "../../nearcore" }
-near-o11y = { path = "../../core/o11y" }
+near-crypto.workspace = true
+near-primitives.workspace = true
+near-jsonrpc-client.workspace = true
+nearcore.workspace = true
+near-o11y.workspace = true
 
-integration-tests = { path = "../../integration-tests" }
+integration-tests.workspace = true
 
 [features]
 test_features = ["integration-tests/test_features"]

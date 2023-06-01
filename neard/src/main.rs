@@ -10,9 +10,9 @@ use std::env;
 use std::path::PathBuf;
 use std::time::Duration;
 
-static NEARD_VERSION: &'static str = env!("NEARD_VERSION");
-static NEARD_BUILD: &'static str = env!("NEARD_BUILD");
-static RUSTC_VERSION: &'static str = env!("NEARD_RUSTC_VERSION");
+static NEARD_VERSION: &str = env!("NEARD_VERSION");
+static NEARD_BUILD: &str = env!("NEARD_BUILD");
+static RUSTC_VERSION: &str = env!("NEARD_RUSTC_VERSION");
 
 static NEARD_VERSION_STRING: Lazy<String> = Lazy::new(|| {
     format!(

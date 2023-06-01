@@ -65,6 +65,7 @@ pub struct TrieIterator<'a> {
 pub type TrieItem = (Vec<u8>, Vec<u8>);
 
 /// Item extracted from Trie during depth first traversal, corresponding to some Trie node.
+#[derive(Debug)]
 pub struct TrieTraversalItem {
     /// Hash of the node.
     pub hash: CryptoHash,
@@ -193,7 +194,7 @@ impl<'a> TrieIterator<'a> {
     fn descend_into_node(&mut self, hash: &CryptoHash) -> Result<(), StorageError> {
         let (bytes, node) = self.trie.retrieve_node(hash)?;
         if let Some(ref mut visited) = self.visited_nodes {
-            visited.push(bytes.ok_or(StorageError::TrieNodeMissing)?);
+            visited.push(bytes.ok_or(StorageError::MissingTrieValue)?);
         }
         self.trail.push(Crumb { status: CrumbStatus::Entering, node, prefix_boundary: false });
         Ok(())
@@ -209,9 +210,8 @@ impl<'a> TrieIterator<'a> {
 
     fn has_value(&self) -> bool {
         match self.trail.last() {
-            Some(b) => match (&b.status, &b.node.node) {
-                (CrumbStatus::At, TrieNode::Branch(_, Some(_))) => true,
-                (CrumbStatus::At, TrieNode::Leaf(_, _)) => true,
+            Some(b) => match &b.status {
+                CrumbStatus::At => b.node.node.has_value(),
                 _ => false,
             },
             None => false, // Trail finished
@@ -357,6 +357,9 @@ impl<'a> TrieIterator<'a> {
                 }
                 IterStep::Continue => {}
                 IterStep::Value(hash) => {
+                    if self.key_nibbles[prefix..] >= path_end[prefix..] {
+                        break;
+                    }
                     self.trie.storage.retrieve_raw_bytes(&hash)?;
                     nodes_list.push(TrieTraversalItem {
                         hash,
@@ -369,6 +372,7 @@ impl<'a> TrieIterator<'a> {
     }
 }
 
+#[derive(Debug)]
 enum IterStep {
     Continue,
     PopTrail,
@@ -426,6 +430,23 @@ mod tests {
     use crate::trie::nibble_slice::NibbleSlice;
     use crate::Trie;
     use near_primitives::shard_layout::ShardUId;
+
+    /// Checks that for visiting interval of trie nodes first state key is
+    /// included and the last one is excluded.
+    #[test]
+    fn test_visit_interval() {
+        let trie_changes = vec![(b"aa".to_vec(), Some(vec![1])), (b"abb".to_vec(), Some(vec![2]))];
+        let tries = create_tries();
+        let state_root =
+            test_populate_trie(&tries, &Trie::EMPTY_ROOT, ShardUId::single_shard(), trie_changes);
+        let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
+        let path_begin: Vec<_> = NibbleSlice::new(b"aa").iter().collect();
+        let path_end: Vec<_> = NibbleSlice::new(b"abb").iter().collect();
+        let mut trie_iter = trie.iter().unwrap();
+        let items = trie_iter.visit_nodes_interval(&path_begin, &path_end).unwrap();
+        let trie_items: Vec<_> = items.into_iter().map(|item| item.key).flatten().collect();
+        assert_eq!(trie_items, vec![b"aa"]);
+    }
 
     #[test]
     fn test_iterator() {

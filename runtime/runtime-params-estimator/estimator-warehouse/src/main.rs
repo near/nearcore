@@ -61,7 +61,7 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, clap::ArgEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, clap::ValueEnum)]
 enum Metric {
     #[clap(name = "icount")]
     ICount,

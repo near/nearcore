@@ -144,6 +144,7 @@
                 row.append($('<td>').append(chunk.chunk_hash));
                 row.append($('<td>').append(chunk.created_by));
                 row.append($('<td>').append(chunk.status));
+                $('.js-floating-chunks-tbody').append(row);
             })
             generateBlocksTableHeader(num_shards);
         }

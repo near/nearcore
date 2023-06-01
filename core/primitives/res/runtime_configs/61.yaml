@@ -1,0 +1,7 @@
+# Compute costs to allow for flat storage read-only MVP.
+# See https://github.com/near/nearcore/issues/8006
+wasm_touching_trie_node:    { old: 16_101_955_926, new: { gas: 16_101_955_926, compute: 110_000_000_000 } }
+wasm_storage_write_base:    { old: 64_196_736_000, new: { gas: 64_196_736_000, compute: 200_000_000_000 } }
+wasm_storage_remove_base:   { old: 53_473_030_500, new: { gas: 53_473_030_500, compute: 200_000_000_000 } }
+wasm_storage_read_base:     { old: 56_356_845_750, new: { gas: 56_356_845_750, compute: 200_000_000_000 } }
+wasm_storage_has_key_base:  { old: 54_039_896_625, new: { gas: 54_039_896_625, compute: 200_000_000_000 } }

@@ -1,4 +1,4 @@
-use crate::accounts_data;
+use crate::accounts_data::{AccountDataCacheSnapshot, LocalAccountData};
 use crate::config;
 use crate::network_protocol::{
     AccountData, PeerAddr, PeerInfo, PeerMessage, SignedAccountData, SyncAccountsData,
@@ -8,10 +8,10 @@ use crate::peer_manager::connection;
 use crate::stun;
 use crate::tcp;
 use crate::types::PeerType;
+use near_async::time;
 use near_crypto::PublicKey;
 use near_o11y::log_assert;
 use near_primitives::network::PeerId;
-use near_primitives::time;
 use rand::seq::IteratorRandom as _;
 use rand::seq::SliceRandom as _;
 use std::collections::{HashMap, HashSet};
@@ -21,7 +21,7 @@ impl super::NetworkState {
     // Returns ValidatorConfig of this node iff it belongs to TIER1 according to `accounts_data`.
     pub fn tier1_validator_config(
         &self,
-        accounts_data: &accounts_data::CacheSnapshot,
+        accounts_data: &AccountDataCacheSnapshot,
     ) -> Option<&config::ValidatorConfig> {
         if self.config.tier1.is_none() {
             return None;
@@ -122,7 +122,7 @@ impl super::NetworkState {
                     node_ips.extend(q.await.unwrap());
                 }
                 // Check that we have received non-zero responses and that they are consistent.
-                if node_ips.len() == 0 {
+                if node_ips.is_empty() {
                     vec![]
                 } else if !node_ips.iter().all(|ip| ip == &node_ips[0]) {
                     tracing::warn!(target:"network", "received inconsistent responses from the STUN servers");
@@ -187,7 +187,7 @@ impl super::NetworkState {
         tracing::info!(target:"network","connected to proxies {my_proxies:?}");
         let new_data = self.accounts_data.set_local(
             clock,
-            accounts_data::LocalData {
+            LocalAccountData {
                 signer: vc.signer.clone(),
                 data: Arc::new(AccountData { peer_id: self.config.node_id(), proxies: my_proxies }),
             },

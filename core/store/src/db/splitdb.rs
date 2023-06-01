@@ -144,8 +144,8 @@ impl Database for SplitDB {
     fn iter_range<'a>(
         &'a self,
         col: DBCol,
-        lower_bound: Option<&'a [u8]>,
-        upper_bound: Option<&'a [u8]>,
+        lower_bound: Option<&[u8]>,
+        upper_bound: Option<&[u8]>,
     ) -> DBIterator<'a> {
         if !col.is_cold() {
             return self.hot.iter_range(col, lower_bound, upper_bound);
@@ -196,6 +196,11 @@ impl Database for SplitDB {
     fn get_store_statistics(&self) -> Option<StoreStatistics> {
         log_assert_fail!("get_store_statistics is not allowed - the split storage has two stores");
         None
+    }
+
+    fn create_checkpoint(&self, _path: &std::path::Path) -> anyhow::Result<()> {
+        log_assert_fail!("create_checkpoint is not allowed - the split storage has two stores");
+        Ok(())
     }
 }
 

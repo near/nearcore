@@ -1,9 +1,12 @@
 [package]
 name = "genesis-csv-to-json"
-version = "0.0.0"
+version.workspace = true
 authors.workspace = true
-publish = false
 edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
 
 [dependencies]
 chrono.workspace = true
@@ -11,11 +14,11 @@ clap.workspace = true
 csv.workspace = true
 serde.workspace = true
 
-nearcore = { path = "../../nearcore" }
-near-chain-configs = { path = "../../core/chain-configs" }
-near-crypto = { path = "../../core/crypto" }
-near-primitives = { path = "../../core/primitives" }
-near-network = { path = "../../chain/network" }
+nearcore.workspace = true
+near-chain-configs.workspace = true
+near-crypto.workspace = true
+near-primitives.workspace = true
+near-network.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

@@ -11,7 +11,7 @@ use near_store::{DBCol, Store};
 // This migration takes at least 3 hours to complete on mainnet
 pub fn migrate_30_to_31(store: &Store, near_config: &crate::NearConfig) -> anyhow::Result<()> {
     if near_config.client_config.archive && &near_config.genesis.config.chain_id == "mainnet" {
-        do_migrate_30_to_31(&store, &near_config.genesis.config)?;
+        do_migrate_30_to_31(store, &near_config.genesis.config)?;
     }
     Ok(())
 }
@@ -26,7 +26,7 @@ pub fn do_migrate_30_to_31(
     let genesis_height = genesis_config.genesis_height;
     let chain_store = ChainStore::new(store.clone(), genesis_height, false);
     let head = chain_store.head()?;
-    let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
+    let mut store_update = BatchedStoreUpdate::new(store, 10_000_000);
     let mut count = 0;
     // we manually checked mainnet archival data and the first block where the discrepancy happened is `47443088`.
     for height in 47443088..=head.height {
@@ -86,42 +86,8 @@ impl<'a> Migrator<'a> {
     }
 }
 
-/// Asserts that node’s configuration does not use deprecated snapshot config
-/// options.
-///
-/// The `use_db_migration_snapshot` and `db_migration_snapshot_path`
-/// configuration options have been deprecated in favour of
-/// `store.migration_snapshot`.
-///
-/// This function panics if the old options are set and shows instruction how to
-/// migrate to the new options.
-///
-/// This is a hack which stops `StoreOpener` before it attempts migration.
-/// Ideally we would propagate errors nicely but that would complicate the API
-/// a wee bit so instead we’re panicking.  This shouldn’t be a big deal since
-/// the deprecated options are going away ‘soon’.
-fn assert_no_deprecated_config(config: &crate::config::NearConfig) {
-    use near_store::config::MigrationSnapshot;
-
-    let example = match (
-        config.config.use_db_migration_snapshot,
-        config.config.db_migration_snapshot_path.as_ref(),
-    ) {
-        (None, None) => return,
-        (Some(false), _) => MigrationSnapshot::Enabled(false),
-        (_, None) => MigrationSnapshot::Enabled(true),
-        (_, Some(path)) => MigrationSnapshot::Path(path.join("migration-snapshot")),
-    };
-    panic!(
-        "‘use_db_migration_snapshot’ and ‘db_migration_snapshot_path’ options \
-         are deprecated.\nSet ‘store.migration_snapshot’ to instead, e.g.:\n{}",
-        example.format_example()
-    )
-}
-
 impl<'a> near_store::StoreMigrator for Migrator<'a> {
     fn check_support(&self, version: DbVersion) -> Result<(), &'static str> {
-        assert_no_deprecated_config(self.config);
         // TODO(mina86): Once open ranges in match are stabilised, get rid of
         // this constant and change the match to be 27..DB_VERSION.
         const LAST_SUPPORTED: DbVersion = DB_VERSION - 1;
@@ -134,32 +100,18 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
 
     fn migrate(&self, store: &Store, version: DbVersion) -> anyhow::Result<()> {
         match version {
-            0..=26 => unreachable!(),
-            27 => {
-                // version 27 => 28: add DBCol::StateChangesForSplitStates
-                //
-                // Does not need to do anything since open db with option
-                // `create_missing_column_families`.  Nevertheless need to bump
-                // db version, because db_version 27 binary can't open
-                // db_version 28 db.  Combine it with migration from 28 to 29;
-                // don’t do anything here.
-                Ok(())
-            }
-            28 => near_store::migrations::migrate_28_to_29(store),
-            29 => near_store::migrations::migrate_29_to_30(store),
-            30 => migrate_30_to_31(store, &self.config),
-            31 => near_store::migrations::migrate_31_to_32(store),
+            0..=31 => unreachable!(),
             32 => near_store::migrations::migrate_32_to_33(store),
             33 => {
                 near_store::migrations::migrate_33_to_34(store, self.config.client_config.archive)
             }
             34 => near_store::migrations::migrate_34_to_35(store),
-            #[cfg(feature = "protocol_feature_flat_state")]
             35 => {
                 tracing::info!(target: "migrations", "Migrating DB version from 35 to 36. Flat storage data will be created on disk.");
-                tracing::info!(target: "migrations", "It will happen in parallel with regular block processing. ETA is 5h for RPC node and 10h for archival node.");
+                tracing::info!(target: "migrations", "It will happen in parallel with regular block processing. ETA is 15h for RPC node and 2d for archival node.");
                 Ok(())
             }
+            36 => near_store::migrations::migrate_36_to_37(store),
             DB_VERSION.. => unreachable!(),
         }
     }

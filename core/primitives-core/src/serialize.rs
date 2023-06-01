@@ -1,89 +1,18 @@
-pub fn to_base64<T: AsRef<[u8]>>(input: T) -> String {
-    base64::encode(&input)
+use base64::display::Base64Display;
+use base64::engine::general_purpose::GeneralPurpose;
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use base64::Engine;
+
+pub fn to_base64(input: &[u8]) -> String {
+    BASE64_STANDARD.encode(input)
 }
 
-pub fn base64_display(input: &[u8]) -> base64::display::Base64Display<'_> {
-    base64::display::Base64Display::with_config(input, base64::STANDARD)
+pub fn base64_display(input: &[u8]) -> Base64Display<'_, 'static, GeneralPurpose> {
+    Base64Display::new(input, &BASE64_STANDARD)
 }
 
-pub fn from_base64(s: &str) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
-    base64::decode(s).map_err(|err| err.into())
-}
-
-pub mod base64_format {
-    use serde::de;
-    use serde::{Deserialize, Deserializer, Serializer};
-
-    use super::{from_base64, to_base64};
-
-    pub fn serialize<S, T>(data: T, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-        T: AsRef<[u8]>,
-    {
-        serializer.serialize_str(&to_base64(data))
-    }
-
-    pub fn deserialize<'de, D, T>(deserializer: D) -> Result<T, D::Error>
-    where
-        D: Deserializer<'de>,
-        T: From<Vec<u8>>,
-    {
-        let s = String::deserialize(deserializer)?;
-        from_base64(&s).map_err(|err| de::Error::custom(err.to_string())).map(Into::into)
-    }
-}
-
-#[derive(PartialEq, Eq, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(transparent)]
-pub struct Base64Bytes(#[serde(with = "base64_format")] pub Vec<u8>);
-
-#[test]
-fn test_base64_format() {
-    assert_round_trip("\"Zm9v\"", Base64Bytes(b"foo".to_vec()));
-    assert_de_error::<Base64Bytes>("null");
-}
-
-pub mod option_base64_format {
-    use serde::de;
-    use serde::{Deserialize, Deserializer, Serializer};
-
-    use super::{from_base64, to_base64};
-
-    pub fn serialize<S>(data: &Option<Vec<u8>>, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        if let Some(ref bytes) = data {
-            serializer.serialize_str(&to_base64(bytes))
-        } else {
-            serializer.serialize_none()
-        }
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<Vec<u8>>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s: Option<String> = Option::deserialize(deserializer)?;
-        if let Some(s) = s {
-            Ok(Some(from_base64(&s).map_err(|err| de::Error::custom(err.to_string()))?))
-        } else {
-            Ok(None)
-        }
-    }
-}
-
-#[test]
-fn test_option_base64_format() {
-    #[derive(PartialEq, Debug, serde::Deserialize, serde::Serialize)]
-    struct Test {
-        #[serde(with = "option_base64_format")]
-        field: Option<Vec<u8>>,
-    }
-
-    assert_round_trip("{\"field\":\"Zm9v\"}", Test { field: Some(b"foo".to_vec()) });
-    assert_round_trip("{\"field\":null}", Test { field: None });
+pub fn from_base64(encoded: &str) -> Result<Vec<u8>, base64::DecodeError> {
+    BASE64_STANDARD.decode(encoded)
 }
 
 /// Serialises number as a string; deserialises either as a string or number.

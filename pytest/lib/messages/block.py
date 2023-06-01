@@ -605,14 +605,6 @@ block_schema = [
         }
     ],
     [
-        ValidatorStakeV2, {
-            'kind':
-                'struct',
-            'fields': [['account_id', 'string'], ['public_key', PublicKey],
-                       ['stake', 'u128'], ['is_chunk_only', 'u8']]
-        }
-    ],
-    [
         Approval, {
             'kind':
                 'struct',

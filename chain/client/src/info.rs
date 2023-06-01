@@ -1,8 +1,8 @@
 use crate::config_updater::ConfigUpdater;
-use crate::{metrics, rocksdb_metrics, SyncStatus};
+use crate::{metrics, SyncStatus};
 use actix::Addr;
 use itertools::Itertools;
-use near_chain_configs::{ClientConfig, LogSummaryStyle};
+use near_chain_configs::{ClientConfig, LogSummaryStyle, SyncConfig};
 use near_network::types::NetworkInfo;
 use near_primitives::block::Tip;
 use near_primitives::network::PeerId;
@@ -11,7 +11,7 @@ use near_primitives::telemetry::{
     TelemetryAgentInfo, TelemetryChainInfo, TelemetryInfo, TelemetrySystemInfo,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochHeight, EpochId, Gas, NumBlocks, ShardId,
+    AccountId, Balance, BlockHeight, EpochHeight, EpochId, Gas, NumBlocks, ShardId, ValidatorId,
     ValidatorInfoIdentifier,
 };
 use near_primitives::unwrap_or_return;
@@ -21,9 +21,9 @@ use near_primitives::views::{
     CatchupStatusView, ChunkProcessingStatus, CurrentEpochValidatorInfo, EpochValidatorInfo,
     ValidatorKickoutView,
 };
-use near_store::db::StoreStatistics;
 use near_telemetry::{telemetry, TelemetryActor};
 use std::cmp::min;
+use std::collections::HashMap;
 use std::fmt::Write;
 use std::sync::Arc;
 use std::time::Instant;
@@ -58,8 +58,10 @@ pub struct InfoHelper {
     /// Telemetry actor.
     // The field can be None for testing. This allows avoiding running actix in tests.
     telemetry_actor: Option<Addr<TelemetryActor>>,
-    /// Log coloring enabled
+    /// Log coloring enabled.
     log_summary_style: LogSummaryStyle,
+    /// Epoch id.
+    epoch_id: Option<EpochId>,
     /// Timestamp of starting the client.
     pub boot_time_seconds: i64,
 }
@@ -84,6 +86,7 @@ impl InfoHelper {
             validator_signer,
             log_summary_style: client_config.log_summary_style,
             boot_time_seconds: StaticClock::utc().timestamp(),
+            epoch_id: None,
         }
     }
 
@@ -129,14 +132,16 @@ impl InfoHelper {
 
     /// Count which shards are tracked by the node in the epoch indicated by head parameter.
     fn record_tracked_shards(head: &Tip, client: &crate::client::Client) {
-        if let Ok(num_shards) = client.runtime_adapter.num_shards(&head.epoch_id) {
+        let me = client.validator_signer.as_ref().map(|x| x.validator_id());
+        if let Ok(num_shards) = client.epoch_manager.num_shards(&head.epoch_id) {
             for shard_id in 0..num_shards {
-                let tracked = client.runtime_adapter.cares_about_shard(
-                    None,
-                    &head.last_block_hash,
-                    shard_id,
-                    false,
-                );
+                let tracked = match me {
+                    None => false,
+                    Some(me) => client
+                        .epoch_manager
+                        .cares_about_shard_from_prev_block(&head.last_block_hash, me, shard_id)
+                        .unwrap_or(false),
+                };
                 metrics::TRACKED_SHARDS
                     .with_label_values(&[&shard_id.to_string()])
                     .set(if tracked { 1 } else { 0 });
@@ -150,7 +155,7 @@ impl InfoHelper {
             // In rare cases block producer information isn't available.
             // Don't set the metric in this case.
             client
-                .runtime_adapter
+                .epoch_manager
                 .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash)
                 .map_or(None, |bp| Some(bp.iter().any(|bp| bp.0.account_id() == &account_id)))
         }) {
@@ -161,10 +166,9 @@ impl InfoHelper {
     fn record_chunk_producers(head: &Tip, client: &crate::client::Client) {
         if let (Some(account_id), Ok(epoch_info)) = (
             client.validator_signer.as_ref().map(|x| x.validator_id().clone()),
-            client.runtime_adapter.get_epoch_info(&head.epoch_id),
+            client.epoch_manager.get_epoch_info(&head.epoch_id),
         ) {
-            for (shard_id, validators) in
-                epoch_info.chunk_producers_settlement().into_iter().enumerate()
+            for (shard_id, validators) in epoch_info.chunk_producers_settlement().iter().enumerate()
             {
                 let is_chunk_producer_for_shard = validators.iter().any(|&validator_id| {
                     *epoch_info.validator_account_id(validator_id) == account_id
@@ -173,12 +177,88 @@ impl InfoHelper {
                     .with_label_values(&[&shard_id.to_string()])
                     .set(if is_chunk_producer_for_shard { 1 } else { 0 });
             }
-        } else if let Ok(num_shards) = client.runtime_adapter.num_shards(&head.epoch_id) {
+        } else if let Ok(num_shards) = client.epoch_manager.num_shards(&head.epoch_id) {
             for shard_id in 0..num_shards {
                 metrics::IS_CHUNK_PRODUCER_FOR_SHARD
                     .with_label_values(&[&shard_id.to_string()])
                     .set(0);
             }
+        }
+    }
+
+    /// The value obtained by multiplying the stake fraction with the expected number of blocks in an epoch
+    /// is an estimation, and not an exact value. To obtain a more precise result, it is necessary to examine
+    /// all the blocks in the epoch. However, even this method may not be completely accurate because additional
+    /// blocks could potentially be added at the end of the epoch.
+    fn record_epoch_settlement_info(head: &Tip, client: &crate::client::Client) {
+        let epoch_info = client.epoch_manager.get_epoch_info(&head.epoch_id);
+        let blocks_in_epoch = client.config.epoch_length;
+        let number_of_shards = client.epoch_manager.num_shards(&head.epoch_id).unwrap_or_default();
+        if let Ok(epoch_info) = epoch_info {
+            metrics::VALIDATORS_CHUNKS_EXPECTED_IN_EPOCH.reset();
+            metrics::VALIDATORS_BLOCKS_EXPECTED_IN_EPOCH.reset();
+            metrics::BLOCK_PRODUCER_STAKE.reset();
+
+            let epoch_height = epoch_info.epoch_height().to_string();
+
+            let mut stake_per_bp = HashMap::<ValidatorId, Balance>::new();
+
+            let stake_to_blocks = |stake: Balance, stake_sum: Balance| -> i64 {
+                if stake == 0 {
+                    0
+                } else {
+                    (((stake as f64) / (stake_sum as f64)) * (blocks_in_epoch as f64)) as i64
+                }
+            };
+
+            let mut stake_sum = 0;
+            for &id in epoch_info.block_producers_settlement() {
+                let stake = epoch_info.validator_stake(id);
+                stake_per_bp.insert(id, stake);
+                stake_sum += stake;
+            }
+
+            stake_per_bp.iter().for_each(|(&id, &stake)| {
+                metrics::BLOCK_PRODUCER_STAKE
+                    .with_label_values(&[
+                        epoch_info.get_validator(id).account_id().as_str(),
+                        &epoch_height,
+                    ])
+                    .set((stake / 1e24 as u128) as i64);
+                metrics::VALIDATORS_BLOCKS_EXPECTED_IN_EPOCH
+                    .with_label_values(&[
+                        epoch_info.get_validator(id).account_id().as_str(),
+                        &epoch_height,
+                    ])
+                    .set(stake_to_blocks(stake, stake_sum))
+            });
+
+            for shard_id in 0..number_of_shards {
+                let mut stake_per_cp = HashMap::<ValidatorId, Balance>::new();
+                stake_sum = 0;
+                for &id in &epoch_info.chunk_producers_settlement()[shard_id as usize] {
+                    let stake = epoch_info.validator_stake(id);
+                    stake_per_cp.insert(id, stake);
+                    stake_sum += stake;
+                }
+
+                stake_per_cp.iter().for_each(|(&id, &stake)| {
+                    metrics::VALIDATORS_CHUNKS_EXPECTED_IN_EPOCH
+                        .with_label_values(&[
+                            epoch_info.get_validator(id).account_id().as_str(),
+                            &shard_id.to_string(),
+                            &epoch_height,
+                        ])
+                        .set(stake_to_blocks(stake, stake_sum))
+                });
+            }
+        }
+    }
+
+    /// Records protocol version of the current epoch.
+    fn record_protocol_version(head: &Tip, client: &crate::client::Client) {
+        if let Ok(version) = client.epoch_manager.get_epoch_protocol_version(&head.epoch_id) {
+            metrics::CURRENT_PROTOCOL_VERSION.set(version as i64);
         }
     }
 
@@ -194,12 +274,12 @@ impl InfoHelper {
         let head = unwrap_or_return!(client.chain.head());
         let validator_info = if !is_syncing {
             let validators = unwrap_or_return!(client
-                .runtime_adapter
+                .epoch_manager
                 .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash));
             let num_validators = validators.len();
             let account_id = client.validator_signer.as_ref().map(|x| x.validator_id());
             let is_validator = if let Some(account_id) = account_id {
-                match client.runtime_adapter.get_validator_by_account_id(
+                match client.epoch_manager.get_validator_by_account_id(
                     &head.epoch_id,
                     &head.last_block_hash,
                     account_id,
@@ -229,20 +309,24 @@ impl InfoHelper {
         } else {
             let epoch_identifier = ValidatorInfoIdentifier::BlockHash(header_head.last_block_hash);
             client
-                .runtime_adapter
+                .epoch_manager
                 .get_validator_info(epoch_identifier)
                 .map(get_validator_epoch_stats)
                 .unwrap_or_default()
-        };
-        let statistics = if client.config.enable_statistics_export {
-            client.chain.store().get_store_statistics()
-        } else {
-            None
         };
 
         InfoHelper::record_tracked_shards(&head, &client);
         InfoHelper::record_block_producers(&head, &client);
         InfoHelper::record_chunk_producers(&head, &client);
+        let next_epoch_id = Some(head.epoch_id.clone());
+        if self.epoch_id.ne(&next_epoch_id) {
+            // We only want to compute this once per epoch to avoid heavy computational work, that can last up to 100ms.
+            InfoHelper::record_epoch_settlement_info(&head, &client);
+            // This isn't heavy computationally.
+            InfoHelper::record_protocol_version(&head, &client);
+
+            self.epoch_id = next_epoch_id;
+        }
 
         self.info(
             &head,
@@ -253,11 +337,10 @@ impl InfoHelper {
             validator_info,
             validator_epoch_stats,
             client
-                .runtime_adapter
+                .epoch_manager
                 .get_estimated_protocol_upgrade_block_height(head.last_block_hash)
                 .unwrap_or(None)
                 .unwrap_or(0),
-            statistics,
             &client.config,
             config_updater,
         );
@@ -274,7 +357,6 @@ impl InfoHelper {
         validator_info: Option<ValidatorInfoHelper>,
         validator_epoch_stats: Vec<ValidatorProductionStats>,
         protocol_upgrade_block_height: BlockHeight,
-        statistics: Option<StoreStatistics>,
         client_config: &ClientConfig,
         config_updater: &Option<ConfigUpdater>,
     ) {
@@ -287,10 +369,9 @@ impl InfoHelper {
 
         let s = |num| if num == 1 { "" } else { "s" };
 
-        let sync_status_log = Some(display_sync_status(sync_status, head));
-
+        let sync_status_log =
+            Some(display_sync_status(sync_status, head, &client_config.state_sync.sync));
         let catchup_status_log = display_catchup_status(catchup_status);
-
         let validator_info_log = validator_info.as_ref().map(|info| {
             format!(
                 " {}{} validator{}",
@@ -333,11 +414,8 @@ impl InfoHelper {
             paint(ansi_term::Colour::Green, blocks_info_log),
             paint(ansi_term::Colour::Blue, machine_info_log),
         );
-        if catchup_status_log != "" {
+        if !catchup_status_log.is_empty() {
             info!(target: "stats", "Catchups\n{}", catchup_status_log);
-        }
-        if let Some(statistics) = statistics {
-            rocksdb_metrics::export_stats_as_metrics(statistics);
         }
         if let Some(config_updater) = &config_updater {
             config_updater.report_status();
@@ -368,6 +446,19 @@ impl InfoHelper {
             (metrics::VALIDATORS_CHUNKS_EXPECTED
                 .with_label_values(&[stats.account_id.as_str()])
                 .set(stats.num_expected_chunks as i64));
+            for ((shard, expected), produced) in stats
+                .shards
+                .iter()
+                .zip(stats.num_expected_chunks_per_shard.iter())
+                .zip(stats.num_produced_chunks_per_shard.iter())
+            {
+                (metrics::VALIDATORS_CHUNKS_EXPECTED_BY_SHARD
+                    .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
+                    .set(*expected as i64));
+                (metrics::VALIDATORS_CHUNKS_PRODUCED_BY_SHARD
+                    .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
+                    .set(*produced as i64));
+            }
         }
 
         self.started = StaticClock::instant();
@@ -478,7 +569,7 @@ pub fn display_catchup_status(catchup_status: Vec<CatchupStatusView>) -> String 
                 .sorted_by_key(|x| x.0)
                 .map(|(shard_id, status_string)| format!("Shard {} {}", shard_id, status_string))
                 .join(", ");
-            let block_catchup_string = if catchup_status.blocks_to_catchup.len() == 0 {
+            let block_catchup_string = if !catchup_status.blocks_to_catchup.is_empty() {
                 "done".to_string()
             } else {
                 catchup_status
@@ -498,7 +589,11 @@ pub fn display_catchup_status(catchup_status: Vec<CatchupStatusView>) -> String 
         .join("\n")
 }
 
-pub fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
+pub fn display_sync_status(
+    sync_status: &SyncStatus,
+    head: &Tip,
+    state_sync_config: &SyncConfig,
+) -> String {
     metrics::SYNC_STATUS.set(sync_status.repr() as i64);
     match sync_status {
         SyncStatus::AwaitingPeers => format!("#{:>8} Waiting for peers", head.height),
@@ -543,14 +638,17 @@ pub fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
             for (shard_id, shard_status) in shard_statuses {
                 write!(res, "[{}: {}]", shard_id, shard_status.status.to_string(),).unwrap();
             }
-            // TODO #8719
-            tracing::warn!(target: "stats",
-                "The node is syncing its State. The current implementation of this mechanism is known to be unreliable. It may never complete, or fail randomly and corrupt the DB.\n\
-                 Suggestions:\n\
-                 * Download a recent data snapshot and restart the node.\n\
-                 * Disable state sync in the config. Add `\"state_sync_enabled\": false` to `config.json`.\n\
-                 \n\
-                 A better implementation of State Sync is work in progress.");
+            if matches!(state_sync_config, SyncConfig::Peers) {
+                // TODO #8719
+                tracing::warn!(
+                    target: "stats",
+                    "The node is syncing its State. The current implementation of this mechanism is known to be unreliable. It may never complete, or fail randomly and corrupt the DB.\n\
+                     Suggestions:\n\
+                     * Download a recent data snapshot and restart the node.\n\
+                     * Disable state sync in the config. Add `\"state_sync_enabled\": false` to `config.json`.\n\
+                     \n\
+                     A better implementation of State Sync is work in progress.");
+            }
             res
         }
         SyncStatus::StateSyncDone => "State sync done".to_string(),
@@ -680,6 +778,9 @@ pub struct ValidatorProductionStats {
     pub num_expected_blocks: NumBlocks,
     pub num_produced_chunks: NumBlocks,
     pub num_expected_chunks: NumBlocks,
+    pub shards: Vec<ShardId>,
+    pub num_produced_chunks_per_shard: Vec<NumBlocks>,
+    pub num_expected_chunks_per_shard: Vec<NumBlocks>,
 }
 
 impl ValidatorProductionStats {
@@ -690,6 +791,9 @@ impl ValidatorProductionStats {
             num_expected_blocks: 0,
             num_produced_chunks: 0,
             num_expected_chunks: 0,
+            shards: vec![],
+            num_produced_chunks_per_shard: vec![],
+            num_expected_chunks_per_shard: vec![],
         }
     }
     pub fn validator(info: CurrentEpochValidatorInfo) -> Self {
@@ -699,6 +803,9 @@ impl ValidatorProductionStats {
             num_expected_blocks: info.num_expected_blocks,
             num_produced_chunks: info.num_produced_chunks,
             num_expected_chunks: info.num_expected_chunks,
+            shards: info.shards,
+            num_produced_chunks_per_shard: info.num_produced_chunks_per_shard,
+            num_expected_chunks_per_shard: info.num_expected_chunks_per_shard,
         }
     }
 }
@@ -722,9 +829,10 @@ fn get_validator_epoch_stats(
 mod tests {
     use super::*;
     use assert_matches::assert_matches;
-    use near_chain::test_utils::{KeyValueRuntime, ValidatorSchedule};
+    use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
     use near_chain::types::ChainConfig;
     use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
+    use near_epoch_manager::shard_tracker::ShardTracker;
     use near_network::test_utils::peer_id_from_seed;
     use near_primitives::version::PROTOCOL_VERSION;
     use num_rational::Ratio;
@@ -757,7 +865,9 @@ mod tests {
         let store = near_store::test_utils::create_test_store();
         let vs =
             ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test".parse().unwrap()]]);
-        let runtime = KeyValueRuntime::new_with_validators_and_no_gc(store, vs, 123, false);
+        let epoch_manager = MockEpochManager::new_with_validators(store.clone(), vs, 123);
+        let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
+        let runtime = KeyValueRuntime::new(store, epoch_manager.as_ref());
         let chain_genesis = ChainGenesis {
             time: StaticClock::utc(),
             height: 0,
@@ -771,9 +881,15 @@ mod tests {
             protocol_version: PROTOCOL_VERSION,
         };
         let doomslug_threshold_mode = DoomslugThresholdMode::TwoThirds;
-        let chain =
-            Chain::new(runtime, &chain_genesis, doomslug_threshold_mode, ChainConfig::test())
-                .unwrap();
+        let chain = Chain::new(
+            epoch_manager,
+            shard_tracker,
+            runtime,
+            &chain_genesis,
+            doomslug_threshold_mode,
+            ChainConfig::test(),
+        )
+        .unwrap();
 
         let telemetry = info_helper.telemetry_info(
             &chain.head().unwrap(),

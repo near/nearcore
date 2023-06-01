@@ -48,17 +48,18 @@ Use the in-memory test store in tests:
 let store = create_test_store();
 ```
 
+## EpochManager
+
+See usages of MockEpochManager. Note that this is deprecated. Try to use
+EpochManager itself wherever possible.
+
 ## Runtime
 
 You can use the KeyValueRuntime (instead of the Nightshade one):
 
 ```rust
-KeyValueRuntime::new(store, epoch_length);
+KeyValueRuntime::new(store, &epoch_manager);
 ```
-
-## EpochManager
-
-Currently still embedded into Runtime - see above to use the KeyValueRuntime
 
 ## Chain
 
@@ -77,7 +78,7 @@ ChainGenesis::test();
 TestEnv - for testing multiple clients (without network):
 
 ```rust
-TestEnvBuilder::new(genesis).client(vec!["aa"]).validators(..).runtime_adapters(..).build();
+TestEnvBuilder::new(genesis).client(vec!["aa"]).validators(..).epoch_managers(..).build();
 ```
 
 ## Network
