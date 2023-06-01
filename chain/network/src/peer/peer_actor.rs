@@ -1,4 +1,4 @@
-use crate::accounts_data;
+use crate::accounts_data::AccountDataError;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::config::PEERS_RESPONSE_MAX_PEERS;
@@ -1284,13 +1284,9 @@ impl PeerActor {
                         network_state.add_accounts_data(&clock, msg.accounts_data).await
                     {
                         conn.stop(Some(match err {
-                            accounts_data::Error::InvalidSignature => {
-                                ReasonForBan::InvalidSignature
-                            }
-                            accounts_data::Error::DataTooLarge => ReasonForBan::Abusive,
-                            accounts_data::Error::SingleAccountMultipleData => {
-                                ReasonForBan::Abusive
-                            }
+                            AccountDataError::InvalidSignature => ReasonForBan::InvalidSignature,
+                            AccountDataError::DataTooLarge => ReasonForBan::Abusive,
+                            AccountDataError::SingleAccountMultipleData => ReasonForBan::Abusive,
                         }));
                     }
                     network_state
