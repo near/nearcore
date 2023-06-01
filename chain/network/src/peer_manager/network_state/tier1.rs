@@ -1,4 +1,4 @@
-use crate::accounts_data;
+use crate::accounts_data::{AccountDataCacheSnapshot, LocalAccountData};
 use crate::config;
 use crate::network_protocol::{
     AccountData, PeerAddr, PeerInfo, PeerMessage, SignedAccountData, SyncAccountsData,
@@ -21,7 +21,7 @@ impl super::NetworkState {
     // Returns ValidatorConfig of this node iff it belongs to TIER1 according to `accounts_data`.
     pub fn tier1_validator_config(
         &self,
-        accounts_data: &accounts_data::CacheSnapshot,
+        accounts_data: &AccountDataCacheSnapshot,
     ) -> Option<&config::ValidatorConfig> {
         if self.config.tier1.is_none() {
             return None;
@@ -187,7 +187,7 @@ impl super::NetworkState {
         tracing::info!(target:"network","connected to proxies {my_proxies:?}");
         let new_data = self.accounts_data.set_local(
             clock,
-            accounts_data::LocalData {
+            LocalAccountData {
                 signer: vc.signer.clone(),
                 data: Arc::new(AccountData { peer_id: self.config.node_id(), proxies: my_proxies }),
             },

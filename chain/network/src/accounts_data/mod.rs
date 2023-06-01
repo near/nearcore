@@ -40,7 +40,7 @@ use std::sync::Arc;
 mod tests;
 
 #[derive(thiserror::Error, Debug, PartialEq, Eq)]
-pub(crate) enum Error {
+pub(crate) enum AccountDataError {
     #[error("found an invalid signature")]
     InvalidSignature,
     #[error("found too large payload")]
@@ -51,17 +51,17 @@ pub(crate) enum Error {
 
 /// Most up-to-date AccountData of this node and a signer
 /// to sign it with when there is a need to override some
-/// already signed data received from the network. See `Cache::set_local`
+/// already signed data received from the network. See `AccountDataCache::set_local`
 /// for more details.
 #[derive(Clone)]
-pub struct LocalData {
+pub struct LocalAccountData {
     pub signer: Arc<dyn ValidatorSigner>,
     pub data: Arc<AccountData>,
 }
 
 /// See module-level documentation.
 #[derive(Clone)]
-pub struct CacheSnapshot {
+pub struct AccountDataCacheSnapshot {
     /// Map from account ID to account key.
     /// Used only for selecting target when routing a message to a TIER1 peer.
     /// TODO(gprusak): In fact, since the account key assigned to a given account ID can change
@@ -76,15 +76,16 @@ pub struct CacheSnapshot {
     /// and data about the particular account might be not known at the given moment.
     pub data: im::HashMap<PublicKey, Arc<SignedAccountData>>,
 
-    pub local: Option<LocalData>,
+    pub local: Option<LocalAccountData>,
 }
 
-impl CacheSnapshot {
+impl AccountDataCacheSnapshot {
     /// Checks if `(d.version,d.timestamp)` is newer (greater) than
     /// `(old.version,old.timestamp)`, where `old` is the AccountData for
-    /// `d.account_key` already stored in the Cache.
+    /// `d.account_key` already stored in the AccountDataCache.
+    ///
     /// It returns `false` in case `d.account_key` is not in `d.keys`,
-    /// because it means that `Cache` is not interested in these data at all.
+    /// because it means that `AccountDataCache` is not interested in these data at all.
     ///
     /// Note that when the node is restarted, it forgets
     /// which version it has signed last, so it will again start from version
@@ -165,7 +166,7 @@ impl CacheSnapshot {
     fn set_local(
         &mut self,
         clock: &time::Clock,
-        local: LocalData,
+        local: LocalAccountData,
     ) -> Option<Arc<SignedAccountData>> {
         let account_key = local.signer.public_key();
         let result = match self.keys.contains(&account_key) {
@@ -190,11 +191,11 @@ impl CacheSnapshot {
     }
 }
 
-pub(crate) struct Cache(ArcMutex<CacheSnapshot>);
+pub(crate) struct AccountDataCache(ArcMutex<AccountDataCacheSnapshot>);
 
-impl Cache {
+impl AccountDataCache {
     pub fn new() -> Self {
-        Self(ArcMutex::new(CacheSnapshot {
+        Self(ArcMutex::new(AccountDataCacheSnapshot {
             keys_by_id: Arc::new(AccountKeys::default()),
             keys: im::HashSet::new(),
             data: im::HashMap::new(),
@@ -208,7 +209,7 @@ impl Cache {
     /// TODO(gprusak): note that local data won't be generated, even if it could be
     ///   (i.e. in case self.local.signer was not present in the old key set, but is in the new)
     ///   so a call to set_local afterwards is required to do that. For now it is fine because
-    ///   the Cache owner is expected to call set_local periodically anyway.
+    ///   the AccountDataCache owner is expected to call set_local periodically anyway.
     pub fn set_keys(&self, keys_by_id: Arc<AccountKeys>) -> bool {
         self.0
             .try_update(|mut inner| {
@@ -232,7 +233,7 @@ impl Cache {
     async fn verify(
         &self,
         data: Vec<Arc<SignedAccountData>>,
-    ) -> (Vec<Arc<SignedAccountData>>, Option<Error>) {
+    ) -> (Vec<Arc<SignedAccountData>>, Option<AccountDataError>) {
         // Filter out non-interesting data, so that we never check signatures for valid non-interesting data.
         // Bad peers may force us to check signatures for fake data anyway, but we will ban them after first invalid signature.
         let mut new_data = HashMap::new();
@@ -241,13 +242,13 @@ impl Cache {
             // There is a limit on the amount of RAM occupied by per-account datasets.
             // Broadcasting larger datasets is considered malicious behavior.
             if d.payload().len() > network_protocol::MAX_ACCOUNT_DATA_SIZE_BYTES {
-                return (vec![], Some(Error::DataTooLarge));
+                return (vec![], Some(AccountDataError::DataTooLarge));
             }
             // We want the communication needed for broadcasting per-account data to be minimal.
             // Therefore broadcasting multiple datasets per account is considered malicious
             // behavior, since all but one are obviously outdated.
             if new_data.contains_key(&d.account_key) {
-                return (vec![], Some(Error::SingleAccountMultipleData));
+                return (vec![], Some(AccountDataError::SingleAccountMultipleData));
             }
             // It is fine to broadcast data we already know about.
             // It is fine to broadcast account data that we don't care about.
@@ -268,7 +269,7 @@ impl Cache {
         })
         .await;
         if !ok {
-            return (data, Some(Error::InvalidSignature));
+            return (data, Some(AccountDataError::InvalidSignature));
         }
         (data, None)
     }
@@ -276,7 +277,7 @@ impl Cache {
     pub fn set_local(
         self: &Arc<Self>,
         clock: &time::Clock,
-        local: LocalData,
+        local: LocalAccountData,
     ) -> Option<Arc<SignedAccountData>> {
         self.0.update(|mut inner| {
             let data = inner.set_local(clock, local);
@@ -291,7 +292,7 @@ impl Cache {
         self: &Arc<Self>,
         clock: &time::Clock,
         data: Vec<Arc<SignedAccountData>>,
-    ) -> (Vec<Arc<SignedAccountData>>, Option<Error>) {
+    ) -> (Vec<Arc<SignedAccountData>>, Option<AccountDataError>) {
         let this = self.clone();
         // Execute verification on the rayon threadpool.
         let (data, err) = this.verify(data).await;
@@ -305,7 +306,7 @@ impl Cache {
     }
 
     /// Loads the current cache snapshot.
-    pub fn load(&self) -> Arc<CacheSnapshot> {
+    pub fn load(&self) -> Arc<AccountDataCacheSnapshot> {
         self.0.load()
     }
 }
