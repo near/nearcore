@@ -11,7 +11,7 @@ import transaction
 from account import TGAS, NEAR_BASE
 import cluster
 import key
-from common.base import Account, CreateSubAccount, Deploy, NearUser, Transaction, send_transaction
+from common.base import Account, CreateSubAccount, Deploy, NearUser, Transaction, is_tag_active, send_transaction
 from locust import events, runners
 from transaction import create_function_call_action
 
@@ -85,7 +85,7 @@ class InitSocialDB(Transaction):
 class InitSocialDbAccount(Transaction):
     """
     Send initial storage balance to ensure the account can use social DB.
-    
+
     Technically, we could also rely on lazy initialization and just send enough
     balance with each request. But a typical user sends balance ahead of time.
     """
@@ -109,7 +109,7 @@ class InitSocialDbAccount(Transaction):
 def social_db_build_index_obj(key_list_pairs: dict) -> dict:
     """
     JSON serializes the key - value-list pairs to be included in a SocialDB set message.
-    
+
     To elaborate a bit more, SocialDB expects for example
     ```json
     "index": { "graph": value_string } 
@@ -232,6 +232,9 @@ class TestSocialDbSetMsg(unittest.TestCase):
 
 @events.init.add_listener
 def on_locust_init(environment, **kwargs):
+    if not is_tag_active(environment, "social"):
+        return
+
     # `master_funding_account` is the same on all runners, allowing to share a
     # single instance of SocialDB in its `social` sub account
     funding_account = environment.master_funding_account
@@ -239,6 +242,12 @@ def on_locust_init(environment, **kwargs):
 
     # Create SocialDB account, unless we are a worker, in which case the master already did it
     if not isinstance(environment.runner, runners.WorkerRunner):
+        if environment.parsed_options.social_db_wasm is None:
+            raise SystemExit(
+                f"Running SocialDB workload requires `--social_db_wasm $SOCIAL_CONTRACT`. "
+                "Either provide the WASM (can be downloaded from https://github.com/NearSocial/social-db/tree/aa7fafaac92a7dd267993d6c210246420a561370/res) "
+                "or run with `--exclude-tag social`")
+
         social_contract_code = environment.parsed_options.social_db_wasm
         contract_key = key.Key.from_random(environment.social_account_id)
         social_account = Account(contract_key)
@@ -264,7 +273,7 @@ def _(parser):
     parser.add_argument(
         "--social-db-wasm",
         type=str,
-        required=True,
+        required=False,
         help=
         "Path to the compiled SocialDB contract, get it from https://github.com/NearSocial/social-db/tree/aa7fafaac92a7dd267993d6c210246420a561370/res"
     )
