@@ -31,6 +31,7 @@ cd pytest/tests/loadtest/locust/
 locust -H 127.0.0.1:3030 \
   --fungible-token-wasm=$CONTRACT \
   --funding-key=$KEY
+  --tags ft
 ```
 
 This will print a link to a web UI where the loadtest can be started and statistics & graphs can be observed.
@@ -54,6 +55,7 @@ Start the master
 locust -H 127.0.0.1:3030 \
   --fungible-token-wasm=$CONTRACT \
   --funding-key=$KEY \
+  --tags ft
   --master
 ```
 
@@ -66,6 +68,7 @@ ulimit -S -n 100000
 locust -H 127.0.0.1:3030 \
   --fungible-token-wasm=$CONTRACT \
   --funding-key=$KEY \
+  --tags ft
   --worker
 ```
 
@@ -76,8 +79,21 @@ do
    locust -H 127.0.0.1:3030 \
     --fungible-token-wasm=$CONTRACT \
     --funding-key=$KEY \
+    --tags ft
     --worker &
 done
 ```
 
 Use `pkill -P $$` to stop all workers.
+Stopping the master will also terminate all workers.
+
+# Available load types
+
+Select different input load types with locust tags. (`--tags a b c` or `--exclude-tags a b`)
+
+Currently supported load types:
+
+|   | tag | required args | description |
+|---|---|---|---|
+| Fungible Token | `ft` | `--fungible-token-wasm $WASM_PATH` <br> `--num-ft-contracts $N` |  Creates `$N` FT contracts per worker, registers each user in one of them. Users transfer FTs between each other. |
+| Social DB  | `social` | `--social-db-wasm $WASM_PATH` | Creates a single instance of SocialDB and registers users to it. Users post messages and follow other users. (More workload TBD) |

@@ -10,7 +10,7 @@ import sys
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[3] / 'lib'))
 
 from configured_logger import new_logger
-from locust import between, task
+from locust import between, tag, task
 from common.base import NearUser
 from common.ft import TransferFT
 from common.social import Follow, InitSocialDbAccount, SubmitPost
@@ -25,6 +25,7 @@ class FTTransferUser(NearUser):
     """
     wait_time = between(1, 3)  # random pause between transactions
 
+    @tag("ft")
     @task
     def ft_transfer(self):
         receiver = self.ft.random_receiver(self.account_id)
@@ -49,6 +50,7 @@ class SocialDbUser(NearUser):
     wait_time = between(1, 3)  # random pause between transactions
     registered_users = []
 
+    @tag("social")
     @task
     def follow(self):
         users_to_follow = [random.choice(SocialDbUser.registered_users)]
@@ -56,6 +58,7 @@ class SocialDbUser(NearUser):
                             users_to_follow),
                      locust_name="Social Follow")
 
+    @tag("social")
     @task
     def post(self):
         seed = random.randrange(2**32)
