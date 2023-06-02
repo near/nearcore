@@ -18,6 +18,7 @@ use near_primitives::num_rational::{Ratio, Rational32};
 
 use near_actix_test_utils::run_actix;
 use near_chain::chain::ApplyStatePartsRequest;
+use near_chain::state_snapshot_actor::MakeSnapshotCallback;
 use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{
@@ -59,7 +60,7 @@ use near_primitives::sharding::{
     ShardChunkHeaderV3,
 };
 use near_primitives::state_part::PartId;
-use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponseHeader, StatePartKey};
+use near_primitives::syncing::{get_num_state_parts, StatePartKey};
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::test_utils::TestBlockBuilder;
 use near_primitives::transaction::{
@@ -1836,15 +1837,17 @@ fn test_process_block_after_state_sync() {
     let stores = vec![store];
     let epoch_managers = vec![epoch_manager];
     let runtimes = vec![runtime.clone()];
+    let callbacks: Vec<MakeSnapshotCallback> =
+        vec![Arc::new(move |prev_block_hash, shard_uids| {
+            tracing::info!(target: "state_snapshot", ?prev_block_hash, "make_snapshot_callback");
+            runtime.get_tries().make_state_snapshot(&prev_block_hash, &shard_uids).unwrap();
+        })];
 
     let mut env = TestEnv::builder(chain_genesis)
         .stores(stores)
         .epoch_managers(epoch_managers)
         .runtimes(runtimes)
-        .set_make_state_snapshot_callback(Arc::new(move |prev_block_hash, shard_uids| {
-            tracing::warn!(target: "state_snapshot", ?prev_block_hash, "make_snapshot_callback");
-            runtime.get_tries().make_state_snapshot(&prev_block_hash, &shard_uids).unwrap();
-        }))
+        .set_make_state_snapshot_callbacks(callbacks)
         .build();
     let sync_height = epoch_length * 4 + 1;
     for i in 1..=sync_height {
@@ -2103,6 +2106,7 @@ fn test_gas_price_change() {
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
         .build();
+
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let genesis_hash = *genesis_block.hash();
     let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
@@ -2571,11 +2575,48 @@ fn test_catchup_gas_price_change() {
     genesis.config.min_gas_price = min_gas_price;
     genesis.config.gas_limit = 1000000000000;
     let chain_genesis = ChainGenesis::new(&genesis);
+
+    let tmp_dir1 = tempfile::tempdir().unwrap();
+    let tmp_dir2 = tempfile::tempdir().unwrap();
+    // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
+    // same configuration as in production.
+    let store1 = NodeStorage::opener(&tmp_dir1.path(), false, &Default::default(), None)
+        .open()
+        .unwrap()
+        .get_hot_store();
+    let store2 = NodeStorage::opener(&tmp_dir2.path(), false, &Default::default(), None)
+        .open()
+        .unwrap()
+        .get_hot_store();
+    let epoch_manager1 = EpochManager::new_arc_handle(store1.clone(), &genesis.config);
+    let epoch_manager2 = EpochManager::new_arc_handle(store2.clone(), &genesis.config);
+    let runtime1 =
+        NightshadeRuntime::test(tmp_dir1.path(), store1.clone(), &genesis, epoch_manager1.clone())
+            as Arc<dyn RuntimeAdapter>;
+    let runtime2 =
+        NightshadeRuntime::test(tmp_dir2.path(), store2.clone(), &genesis, epoch_manager2.clone())
+            as Arc<dyn RuntimeAdapter>;
+
+    let stores = vec![store1, store2];
+    let epoch_managers = vec![epoch_manager1, epoch_manager2];
+    let runtimes = vec![runtime1.clone(), runtime2.clone()];
+
+    let callbacks: Vec<MakeSnapshotCallback> = vec![
+        Arc::new(move |prev_block_hash, shard_uids| {
+            tracing::info!(target: "state_snapshot", ?prev_block_hash, "make_snapshot_callback");
+            runtime1.get_tries().make_state_snapshot(&prev_block_hash, &shard_uids).unwrap();
+        }),
+        Arc::new(move |_, _| {}),
+    ];
+
     let mut env = TestEnv::builder(chain_genesis)
         .clients_count(2)
-        .real_epoch_managers(&genesis.config)
-        .nightshade_runtimes(&genesis)
+        .stores(stores)
+        .epoch_managers(epoch_managers)
+        .runtimes(runtimes)
+        .set_make_state_snapshot_callbacks(callbacks)
         .build();
+
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let mut blocks = vec![];
     for i in 1..3 {
@@ -2612,15 +2653,10 @@ fn test_catchup_gas_price_change() {
 
     // Simulate state sync
     let sync_hash = *blocks[5].hash();
+    assert_ne!(blocks[4].header().epoch_id(), blocks[5].header().epoch_id());
     assert!(env.clients[0].chain.check_sync_hash_validity(&sync_hash).unwrap());
     let state_sync_header = env.clients[0].chain.get_state_response_header(0, sync_hash).unwrap();
-    let state_root = match &state_sync_header {
-        ShardStateSyncResponseHeader::V1(header) => header.chunk.header.inner.prev_state_root,
-        ShardStateSyncResponseHeader::V2(header) => {
-            *header.chunk.cloned_header().take_inner().prev_state_root()
-        }
-    };
-    //let state_root = state_sync_header.chunk.header.inner.prev_state_root;
+    let state_root = state_sync_header.chunk_prev_state_root();
     let state_root_node =
         env.clients[0].runtime_adapter.get_state_root_node(0, &sync_hash, &state_root).unwrap();
     let num_parts = get_num_state_parts(state_root_node.memory_usage);
@@ -3573,7 +3609,7 @@ mod contract_precompilation_tests {
     use near_vm_runner::internal::VMKind;
     use node_runtime::state_viewer::TrieViewer;
 
-    const EPOCH_LENGTH: u64 = 5;
+    const EPOCH_LENGTH: u64 = 25;
 
     fn state_sync_on_height(env: &mut TestEnv, height: BlockHeight) {
         let sync_block = env.clients[0].chain.get_block_by_height(height).unwrap();

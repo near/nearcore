@@ -1377,7 +1377,7 @@ pub struct TestEnvBuilder {
     seeds: HashMap<AccountId, RngSeed>,
     archive: bool,
     save_trie_changes: bool,
-    make_state_snapshot_callback: Option<MakeSnapshotCallback>,
+    make_state_snapshot_callbacks: Option<Vec<MakeSnapshotCallback>>,
 }
 
 /// Builder for the [`TestEnv`] structure.
@@ -1400,7 +1400,7 @@ impl TestEnvBuilder {
             seeds,
             archive: false,
             save_trie_changes: true,
-            make_state_snapshot_callback: None,
+            make_state_snapshot_callbacks: None,
         }
     }
 
@@ -1450,7 +1450,7 @@ impl TestEnvBuilder {
 
     /// Overrides the stores that are used to create epoch managers and runtimes.
     pub fn stores(mut self, stores: Vec<Store>) -> Self {
-        assert!(stores.len() == self.clients.len());
+        assert_eq!(stores.len(), self.clients.len());
         assert!(self.stores.is_none(), "Cannot override twice");
         assert!(self.epoch_managers.is_none(), "Cannot override store after epoch_managers");
         assert!(self.runtimes.is_none(), "Cannot override store after runtimes");
@@ -1475,7 +1475,7 @@ impl TestEnvBuilder {
     /// (one by default).  If that does not hold, [`Self::build`] method will
     /// panic.
     pub fn mock_epoch_managers(mut self, epoch_managers: Vec<Arc<MockEpochManager>>) -> Self {
-        assert!(epoch_managers.len() == self.clients.len());
+        assert_eq!(epoch_managers.len(), self.clients.len());
         assert!(self.epoch_managers.is_none(), "Cannot override twice");
         assert!(
             self.num_shards.is_none(),
@@ -1498,7 +1498,7 @@ impl TestEnvBuilder {
     /// (one by default).  If that does not hold, [`Self::build`] method will
     /// panic.
     pub fn epoch_managers(mut self, epoch_managers: Vec<Arc<EpochManagerHandle>>) -> Self {
-        assert!(epoch_managers.len() == self.clients.len());
+        assert_eq!(epoch_managers.len(), self.clients.len());
         assert!(self.epoch_managers.is_none(), "Cannot override twice");
         assert!(
             self.num_shards.is_none(),
@@ -1587,7 +1587,7 @@ impl TestEnvBuilder {
     /// Specifies custom ShardTracker for each client.  This allows us to
     /// construct [`TestEnv`] with a custom implementation.
     pub fn shard_trackers(mut self, shard_trackers: Vec<ShardTracker>) -> Self {
-        assert!(shard_trackers.len() == self.clients.len());
+        assert_eq!(shard_trackers.len(), self.clients.len());
         assert!(self.shard_trackers.is_none(), "Cannot override twice");
         self.shard_trackers = Some(shard_trackers);
         self
@@ -1635,7 +1635,7 @@ impl TestEnvBuilder {
     /// Specifies custom RuntimeAdapter for each client.  This allows us to
     /// construct [`TestEnv`] with a custom implementation.
     pub fn runtimes(mut self, runtimes: Vec<Arc<dyn RuntimeAdapter>>) -> Self {
-        assert!(runtimes.len() == self.clients.len());
+        assert_eq!(runtimes.len(), self.clients.len());
         assert!(self.runtimes.is_none(), "Cannot override twice");
         self.runtimes = Some(runtimes);
         self
@@ -1774,7 +1774,9 @@ impl TestEnvBuilder {
                     rng_seed,
                     self.archive,
                     self.save_trie_changes,
-                    self.make_state_snapshot_callback.clone(),
+                    self.make_state_snapshot_callbacks
+                        .as_ref()
+                        .map(|callbacks| callbacks.get(i).unwrap().clone()),
                 )
             })
             .collect();
@@ -1803,8 +1805,12 @@ impl TestEnvBuilder {
         (0..count).map(|i| format!("test{}", i).parse().unwrap()).collect()
     }
 
-    pub fn set_make_state_snapshot_callback(mut self, callback: MakeSnapshotCallback) -> Self {
-        self.make_state_snapshot_callback = Some(callback);
+    pub fn set_make_state_snapshot_callbacks(
+        mut self,
+        callbacks: Vec<MakeSnapshotCallback>,
+    ) -> Self {
+        assert_eq!(callbacks.len(), self.clients.len());
+        self.make_state_snapshot_callbacks = Some(callbacks);
         self
     }
 }
