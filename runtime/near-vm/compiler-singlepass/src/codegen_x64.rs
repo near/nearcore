@@ -313,11 +313,6 @@ impl<'a> FuncGen<'a> {
             }
         }
 
-        if self.try_intrinsic(function, &params) {
-            // This was genereated as an intrinsic, we're done.
-            return Ok(());
-        }
-
         let reloc_at = self.assembler.get_offset().0 + self.assembler.arch_mov64_imm_offset();
         // Imported functions are called through trampolines placed as custom sections.
         let reloc_target = match self.module.import_counts.local_function_index(function) {
@@ -356,25 +351,6 @@ impl<'a> FuncGen<'a> {
             }
         }
         Ok(())
-    }
-
-    /// Try emitting an intrinsic for a function call of function at index.
-    fn try_intrinsic(&mut self, function: FunctionIndex, params: &SmallVec<[Location; 8]>) -> bool {
-        let signature_index = self.module.functions[function];
-        let signature = &self.module.signatures[signature_index];
-        let import_name = self.module_translation_state.import_map.get(&function);
-        let intrinsic = import_name.and_then(|import_name| {
-            self.config.intrinsics.iter().find(|intrinsic| {
-                intrinsic.name == *import_name
-                    && intrinsic.signature == *signature
-                    && intrinsic.is_params_ok(params)
-            })
-        });
-        match intrinsic.map(|i| &i.kind) {
-            Some(IntrinsicKind::Gas) => self.emit_gas(params[0]),
-            None => return false,
-        }
-        return true;
     }
 
     fn emit_gas_const(&mut self, cost: u64) {
