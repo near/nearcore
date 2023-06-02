@@ -22,10 +22,10 @@ impl GraphV2 {
         self.inner.lock().compute_next_hops(&HashSet::new())
     }
 
-    pub(crate) fn update_shortest_path_tree(&self, root: PeerId, edges: Vec<Edge>) -> bool {
-        self.inner.lock().handle_shortest_path_tree_message(
+    pub(crate) fn update_distance_vector(&self, root: PeerId, edges: Vec<Edge>) -> bool {
+        self.inner.lock().handle_message(
             &FakeClock::default().clock(),
-            &network_protocol::ShortestPathTree { root, edges },
+            &network_protocol::DistanceVector { root, routes: vec![], edges },
         )
     }
 }

@@ -43,7 +43,7 @@ struct ActiveEdge {
 /// to peers in the network.
 ///
 /// In particular, for each direct peer of the local node, the set of edges appearing in the
-/// most recent ShortestPathTree advertised by the peer are kept in memory.
+/// most recent spanning tree advertised by the peer are kept in memory.
 ///
 /// 3) `p2id`
 /// A mapping from known PeerIds to distinct integer (u32) ids 0,1,2,...
@@ -53,10 +53,10 @@ pub struct EdgeCache {
     verified_nonces: im::HashMap<EdgeKey, u64>,
     active_edges: im::HashMap<EdgeKey, ActiveEdge>,
 
-    // Mapping from neighbor PeerId to the latest shortest path tree advertised by the peer,
-    // used to decide which edges are active. The key set of `active_edges` is the union of the
-    // value set of `active_spts`.
-    active_spts: HashMap<PeerId, Vec<EdgeKey>>,
+    // Mapping from neighbor PeerId to the latest spanning tree advertised by the peer,
+    // used to decide which edges are active. The key set of `active_edges` is the
+    // union of the value set of `active_trees`.
+    active_trees: HashMap<PeerId, Vec<EdgeKey>>,
 
     /// Mapping from PeerId to assigned u32 id
     p2id: HashMap<PeerId, u32>,
@@ -72,7 +72,7 @@ impl EdgeCache {
         Self {
             verified_nonces: Default::default(),
             active_edges: Default::default(),
-            active_spts: HashMap::new(),
+            active_trees: HashMap::new(),
             p2id: HashMap::from([(local_node_id, 0)]),
             degree: vec![0],
             unused: vec![],
@@ -215,30 +215,30 @@ impl EdgeCache {
         }
     }
 
-    /// Stores the key-value pair (peer_id, edges) in the EdgeCache's `active_spt` map, overwriting
+    /// Stores the key-value pair (peer_id, edges) in the EdgeCache's `active_trees` map, overwriting
     /// any previous entry for the same peer. Updates `active_edges` accordingly.
-    pub fn update_shortest_path_tree(&mut self, peer_id: &PeerId, edges: &Vec<Edge>) {
+    pub fn update_tree(&mut self, peer_id: &PeerId, tree: &Vec<Edge>) {
         // Insert the new edges before removing any old ones.
         // Nodes are pruned from the `p2id` mapping as soon as all edges incident with them are
-        // removed. If we removed the edges in the old SPT first, we might unlabel and relabel a
+        // removed. If we removed the edges in the old tree first, we might unlabel and relabel a
         // node unnecessarily. Inserting the new edges first minimizes churn on `p2id`.
-        for edge in edges {
+        for edge in tree {
             self.insert_active_edge(edge);
         }
 
-        let edge_keys: Vec<EdgeKey> = edges.iter().map(|edge| edge.key()).cloned().collect();
+        let edge_keys: Vec<EdgeKey> = tree.iter().map(|edge| edge.key()).cloned().collect();
 
-        // If we overwrite an entry, process removal of the old edges
-        if let Some(old_edge_keys) = self.active_spts.insert(peer_id.clone(), edge_keys) {
+        // If a previous tree was present, process removal of its edges
+        if let Some(old_edge_keys) = self.active_trees.insert(peer_id.clone(), edge_keys) {
             for key in &old_edge_keys {
                 self.remove_active_edge(key);
             }
         }
     }
 
-    /// Removes the shortest path tree for the given peer, if there is one.
-    pub fn remove_shortest_path_tree(&mut self, peer_id: &PeerId) {
-        if let Some(edges) = self.active_spts.remove(peer_id) {
+    /// Removes the tree stored for the given peer, if there is one.
+    pub fn remove_tree(&mut self, peer_id: &PeerId) {
+        if let Some(edges) = self.active_trees.remove(peer_id) {
             for e in &edges {
                 self.remove_active_edge(e);
             }
@@ -281,14 +281,15 @@ impl EdgeCache {
         }
     }
 
-    /// Accepts a mapping from the set of reachable PeerIds in the network to the shortest path
-    /// lengths to those peers.
+    /// Accepts a mapping from the set of reachable PeerIds in the network
+    /// to the shortest path lengths to those peers.
     ///
-    /// Constructs a tree from among the `active_edges` which has the same reachability and distances.
+    /// Constructs a tree from among the `active_edges` which has the same
+    /// reachability and distances.
     ///
-    /// May error if the input is incorrect (reachability or distances are not consistent with
-    /// the `active_edge` set stored in the cache).
-    pub fn construct_shortest_path_tree(&self, distance: &HashMap<PeerId, u32>) -> Vec<Edge> {
+    /// May error if the input is incorrect (reachability or distances are
+    /// not consistent with the `active_edge` set stored in the cache).
+    pub fn construct_spanning_tree(&self, distance: &HashMap<PeerId, u32>) -> Vec<Edge> {
         let mut edges = Vec::<Edge>::new();
         let mut has_edge = HashSet::<PeerId>::new();
 

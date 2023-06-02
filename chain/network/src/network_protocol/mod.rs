@@ -320,8 +320,15 @@ impl RoutingTableUpdate {
 }
 
 #[derive(PartialEq, Eq, Clone, Debug)]
-pub struct ShortestPathTree {
+pub struct AdvertisedRoute {
+    pub destination: PeerId,
+    pub length: u32,
+}
+
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct DistanceVector {
     pub root: PeerId,
+    pub routes: Vec<AdvertisedRoute>,
     pub edges: Vec<Edge>,
 }
 
@@ -400,7 +407,7 @@ pub enum PeerMessage {
     LastEdge(Edge),
     /// Contains accounts and edge information.
     SyncRoutingTable(RoutingTableUpdate),
-    ShortestPathTree(ShortestPathTree),
+    DistanceVector(DistanceVector),
     RequestUpdateNonce(PartialEdgeInfo),
 
     SyncAccountsData(SyncAccountsData),

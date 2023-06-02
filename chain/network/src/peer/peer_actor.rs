@@ -4,9 +4,9 @@ use crate::concurrency::demux;
 use crate::config::PEERS_RESPONSE_MAX_PEERS;
 use crate::network_protocol::SignedIpAddress;
 use crate::network_protocol::{
-    Edge, EdgeState, Encoding, OwnedAccount, ParsePeerMessageError, PartialEdgeInfo,
-    PeerChainInfoV2, PeerIdOrHash, PeerInfo, PeersRequest, PeersResponse, RawRoutedMessage,
-    RoutedMessageBody, RoutingTableUpdate, ShortestPathTree, StateResponseInfo, SyncAccountsData,
+    DistanceVector, Edge, EdgeState, Encoding, OwnedAccount, ParsePeerMessageError,
+    PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash, PeerInfo, PeersRequest, PeersResponse,
+    RawRoutedMessage, RoutedMessageBody, RoutingTableUpdate, StateResponseInfo, SyncAccountsData,
 };
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
@@ -1226,13 +1226,12 @@ impl PeerActor {
                         .push(Event::MessageProcessed(conn.tier, peer_msg));
                 }));
             }
-            PeerMessage::ShortestPathTree(spt) => {
+            PeerMessage::DistanceVector(dv) => {
                 let clock = self.clock.clone();
                 let conn = conn.clone();
                 let network_state = self.network_state.clone();
                 ctx.spawn(wrap_future(async move {
-                    Self::handle_shortest_path_tree(&clock, &network_state, conn.clone(), spt)
-                        .await;
+                    Self::handle_distance_vector(&clock, &network_state, conn.clone(), dv).await;
                     network_state
                         .config
                         .event_sink
@@ -1416,15 +1415,17 @@ impl PeerActor {
         }
     }
 
-    async fn handle_shortest_path_tree(
+    async fn handle_distance_vector(
         clock: &time::Clock,
         network_state: &Arc<NetworkState>,
         conn: Arc<connection::Connection>,
-        spt: ShortestPathTree,
+        distance_vector: DistanceVector,
     ) {
-        // TODO: Check that spt.root matches peer_id and ban otherwise
-        let _span = tracing::trace_span!(target: "network", "handle_shortest_path_tree").entered();
-        if let Err(ban_reason) = network_state.update_shortest_path_tree(&clock, spt).await {
+        // TODO(saketh): check if distance_vector.root matches the peer_id on the connection
+        let _span = tracing::trace_span!(target: "network", "handle_distance_vector").entered();
+        if let Err(ban_reason) =
+            network_state.process_distance_vector(&clock, distance_vector).await
+        {
             conn.stop(Some(ban_reason));
         }
     }

@@ -120,7 +120,7 @@ fn calculate_next_hops() {
     // Add a peer node1
     let node1 = random_peer_id();
     let edge01 = Edge::make_fake_edge(node0.clone(), node1.clone(), 123);
-    assert!(graph.update_shortest_path_tree(node1.clone(), vec![edge01.clone()]));
+    assert!(graph.update_distance_vector(node1.clone(), vec![edge01.clone()]));
 
     let (next_hops, distance) = graph.compute_next_hops();
     assert!(expected_routing_tables(&next_hops, &[(node1.clone(), vec![node1.clone()])]));
@@ -131,7 +131,7 @@ fn calculate_next_hops() {
     let node3 = random_peer_id();
     let edge02 = Edge::make_fake_edge(node0.clone(), node2.clone(), 123);
     let edge23 = Edge::make_fake_edge(node2.clone(), node3.clone(), 123);
-    assert!(graph.update_shortest_path_tree(node2.clone(), vec![edge02.clone(), edge23]));
+    assert!(graph.update_distance_vector(node2.clone(), vec![edge02.clone(), edge23]));
 
     let (next_hops, distance) = graph.compute_next_hops();
     assert!(expected_routing_tables(
@@ -154,7 +154,7 @@ fn calculate_next_hops() {
 
     // Update the SPT for node1, also advertising node3 behind it
     let edge13 = Edge::make_fake_edge(node1.clone(), node3.clone(), 123);
-    assert!(graph.update_shortest_path_tree(node1.clone(), vec![edge01, edge13]));
+    assert!(graph.update_distance_vector(node1.clone(), vec![edge01, edge13]));
 
     let (next_hops, distance) = graph.compute_next_hops();
     assert!(expected_routing_tables(
@@ -176,7 +176,7 @@ fn calculate_next_hops() {
     );
 
     // Update the SPT for node2, removing the route to node3
-    assert!(graph.update_shortest_path_tree(node2.clone(), vec![edge02]));
+    assert!(graph.update_distance_vector(node2.clone(), vec![edge02]));
 
     let (next_hops, distance) = graph.compute_next_hops();
     assert!(expected_routing_tables(
@@ -191,6 +191,24 @@ fn calculate_next_hops() {
 }
 
 #[test]
+fn calculate_next_hops_discard_loop() {
+    let node0 = random_peer_id();
+    let graph = GraphV2::new(GraphConfigV2 { node_id: node0.clone(), prune_edges_after: None });
+
+    // Add a peer node1 which advertises node2 via node0; 2--0--1
+    let node1 = random_peer_id();
+    let node2 = random_peer_id();
+    let edge01 = Edge::make_fake_edge(node0.clone(), node1.clone(), 123);
+    let edge02 = Edge::make_fake_edge(node0.clone(), node2, 123);
+    assert!(graph.update_distance_vector(node1.clone(), vec![edge01, edge02]));
+
+    // node2 should be ignored because the advertised route to it goes back through the local node
+    let (next_hops, distance) = graph.compute_next_hops();
+    assert!(expected_routing_tables(&next_hops, &[(node1.clone(), vec![node1.clone()])]));
+    assert_eq!(distance, HashMap::from([(node0, 0), (node1, 1)]));
+}
+
+#[test]
 fn overwrite_shortest_path_tree() {
     let node0 = random_peer_id();
     let node1 = random_peer_id();
@@ -202,10 +220,10 @@ fn overwrite_shortest_path_tree() {
     let edge1 = Edge::make_fake_edge(node1.clone(), node2, 123);
 
     // Write an SPT for node1 advertising node2 behind it; 0--1--2
-    assert!(graph.update_shortest_path_tree(node1.clone(), vec![edge0.clone(), edge1.clone()]));
+    assert!(graph.update_distance_vector(node1.clone(), vec![edge0.clone(), edge1.clone()]));
 
     // Now write an SPT for node1 without the connection to node2; 0--1  2
-    assert!(graph.update_shortest_path_tree(node1, vec![edge0]));
+    assert!(graph.update_distance_vector(node1, vec![edge0]));
 
     // The verified nonce for edge1 should still be in the edge cache
     assert!(graph.inner.lock().edge_cache.has_edge_nonce_or_newer(&edge1));

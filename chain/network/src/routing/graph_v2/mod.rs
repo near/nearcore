@@ -1,6 +1,6 @@
 use crate::concurrency::runtime::Runtime;
 use crate::network_protocol;
-use crate::network_protocol::Edge;
+use crate::network_protocol::{AdvertisedRoute, Edge};
 use crate::routing::edge_cache::EdgeCache;
 use crate::routing::routing_table_view::RoutingTableView;
 use crate::stats::metrics;
@@ -31,12 +31,12 @@ pub struct GraphConfigV2 {
     pub prune_edges_after: Option<time::Duration>,
 }
 
-// Locally computed properties of a ShortestPathTree
-struct ShortestPathTreeInfo {
-    /// The lowest nonce among all edges.
-    /// For simplicity, used to expire the entire SPT at once.
+// Locally stored properties of a received DistanceVector message
+struct PeerRoutes {
+    /// The lowest nonce among all edges used in the advertised routes.
+    /// For simplicity, used to expire the entire vector at once.
     pub min_nonce: u64,
-    /// Distances within this tree from the root to all other nodes in the network
+    /// Advertised route lengths indexed by the local EdgeCache's mapping
     pub distance: Vec<i32>,
 }
 
@@ -44,12 +44,12 @@ struct Inner {
     config: GraphConfigV2,
     edge_cache: EdgeCache,
 
-    /// Mapping from peer to information about the latest ShortestPathTree shared by the peer
-    spts: HashMap<PeerId, ShortestPathTreeInfo>,
-    /// Shortest known distances from the local node to other nodes
+    /// Mapping from peer to the routes advertised by the peer
+    peer_routes: HashMap<PeerId, PeerRoutes>,
+    /// Lengths of the shortest known routes from the local node to other nodes
     distance: HashMap<PeerId, u32>,
-    /// The ShortestPathTree rooted at the local node
-    local_spt: network_protocol::ShortestPathTree,
+    /// The latest DistanceVector advertised by the local node
+    my_distance_vector: network_protocol::DistanceVector,
 }
 
 impl Inner {
@@ -62,9 +62,9 @@ impl Inner {
     /// size is.
     ///
     /// Edge verification is expensive, and it would be an attack vector if we dropped on the
-    /// floor valid edges verified so far: an attacker could prepare a ShortestPathTree
-    /// containing a lot of valid edges, except for the last one, and send it repeatedly to a
-    /// node. The node would then validate all the edges every time, then reject the whole set
+    /// floor valid edges verified so far: an attacker could prepare a message containing
+    /// a lot of valid edges, except for the last one, and send it repeatedly to a node.
+    /// The node would then validate all the edges every time, then reject the whole set
     /// because just the last edge was invalid. Instead, we cache all the edges verified so
     /// far and return an error only afterwards.
     #[cfg(not(test))]
@@ -104,22 +104,22 @@ impl Inner {
     /// For each node in the tree, `distance` indicates the length of the path
     /// from the root to the node. Nodes outside the tree have distance -1.
     ///
-    /// For each node in the tree, `first_step` indicates the direct neighbor of
-    /// the root on the path to the node. The root of the tree, as well as any nodes
-    /// outside the tree, have a first_step of -1.
+    /// For each node in the tree, `first_step` indicates the root's neighbor on the path
+    /// from the root to the node. The root of the tree, as well as any nodes outside
+    /// the tree, have a first_step of -1.
     ///
     /// Nodes are indexed into the vectors according to the `p2id` mapping in the EdgeCache.
     pub(crate) fn calculate_tree_distances(
         &mut self,
         root: &PeerId,
-        spt: &Vec<Edge>,
+        tree_edges: &Vec<Edge>,
     ) -> Option<(Vec<i32>, Vec<i32>)> {
         // Prepare for graph traversal by ensuring all PeerIds in the tree have a u32 label
-        self.edge_cache.create_ids_for_unmapped_peers(spt);
+        self.edge_cache.create_ids_for_unmapped_peers(tree_edges);
 
         // Build adjacency-list representation of the edges
         let mut adjacency = vec![Vec::<u32>::new(); self.edge_cache.max_id()];
-        for edge in spt {
+        for edge in tree_edges {
             let (peer0, peer1) = edge.key();
             let id0 = self.edge_cache.get_id(peer0);
             let id1 = self.edge_cache.get_id(peer1);
@@ -155,43 +155,52 @@ impl Inner {
             }
         }
 
-        // Check that the edges in `spt` actually form a tree containing `root`
+        // Check that the edges in `tree_edges` actually form a tree containing `root`
         let mut num_reachable_nodes = 0;
         for &dist in &distance {
             if dist != -1 {
                 num_reachable_nodes += 1;
             }
         }
-        if num_reachable_nodes != spt.len() + 1 {
+        if num_reachable_nodes != tree_edges.len() + 1 {
             return None;
         }
 
         Some((distance, first_step))
     }
 
-    /// Verifies the given ShortestPathTree. If valid, stores it in `self.spts`.
-    /// Returns a boolean indicating whether the given SPT was valid.
-    pub(crate) fn update_shortest_path_tree(
+    /// Verifies the given DistanceVector. If valid, stores the advertised routes.
+    /// Returns a boolean indicating whether the DistanceVector was valid.
+    pub(crate) fn handle_distance_vector(
         &mut self,
-        _clock: &time::Clock, // TODO: decide what we want to do with too-old trees
-        spt: &network_protocol::ShortestPathTree,
+        _clock: &time::Clock, // TODO: decide what we want to do with too-old messages
+        distance_vector: &network_protocol::DistanceVector,
     ) -> bool {
-        // A valid SPT must contain distinct, correctly signed edges
-        let original_len = spt.edges.len();
-        let edges = Edge::deduplicate(spt.edges.clone());
+        // A valid DistanceVector must contain distinct, correctly signed edges
+        let original_len = distance_vector.edges.len();
+        let edges = Edge::deduplicate(distance_vector.edges.clone());
         if edges.len() != original_len || !self.verify_edges(&edges) {
             return false;
         }
 
-        if let Some((distance, _first_step)) = self.calculate_tree_distances(&spt.root, &edges) {
-            // If the edges form a valid tree, store the updated SPT
-            self.edge_cache.update_shortest_path_tree(&spt.root, &edges);
-            self.spts.insert(
-                spt.root.clone(),
-                ShortestPathTreeInfo {
-                    min_nonce: edges.iter().map(|e| e.nonce()).min().unwrap(),
-                    distance,
-                },
+        if let Some((mut distance, first_step)) =
+            self.calculate_tree_distances(&distance_vector.root, &edges)
+        {
+            // If the edges form a valid tree, store the advertised routes
+            self.edge_cache.update_tree(&distance_vector.root, &edges);
+
+            // Prune any advertised routes which go through the local node; it doesn't make
+            // sense to forward a message to a neighbor who will send it back to us
+            let local_node_id = self.edge_cache.get_id(&self.config.node_id) as i32;
+            for id in 0..self.edge_cache.max_id() {
+                if first_step[id] == local_node_id {
+                    distance[id] = -1;
+                }
+            }
+
+            self.peer_routes.insert(
+                distance_vector.root.clone(),
+                PeerRoutes { min_nonce: edges.iter().map(|e| e.nonce()).min().unwrap(), distance },
             );
             return true;
         } else {
@@ -204,30 +213,36 @@ impl Inner {
 
     /// Handles disconnection of a peer.
     /// Drops the stored SPT, if there is one, for the specified peer_id.
-    pub(crate) fn remove_direct_peer(&mut self, peer_id: PeerId) {
-        self.edge_cache.remove_shortest_path_tree(&peer_id);
-        self.spts.remove(&peer_id);
+    pub(crate) fn remove_direct_peer(&mut self, peer_id: &PeerId) {
+        self.edge_cache.remove_tree(peer_id);
+        self.peer_routes.remove(peer_id);
     }
 
     /// Handles connection of a new peer or nonce refresh for an existing one.
     /// Adds or updates the nonce for the given edge. If we don't already have an
-    /// SPT for this peer_id, initializes one with just the given edge.
+    /// DistanceVector for this peer_id, initializes one with just the given edge.
     pub(crate) fn add_or_update_direct_peer(
         &mut self,
         clock: &time::Clock,
         peer_id: PeerId,
         edge: Edge,
     ) {
-        match self.spts.entry(peer_id.clone()) {
+        match self.peer_routes.entry(peer_id.clone()) {
             Entry::Occupied(_occupied) => {
+                // Refresh the nonce in the cache for the direct edge
                 if !self.edge_cache.has_edge_nonce_or_newer(&edge) {
                     self.edge_cache.write_verified_nonce(&edge);
                 }
             }
             Entry::Vacant(_) => {
-                assert!(self.update_shortest_path_tree(
+                // We have no advertised routes for this peer; initialize
+                assert!(self.handle_distance_vector(
                     &clock,
-                    &network_protocol::ShortestPathTree { root: peer_id, edges: vec![edge] }
+                    &network_protocol::DistanceVector {
+                        root: peer_id.clone(),
+                        routes: vec![AdvertisedRoute { destination: peer_id, length: 0 }],
+                        edges: vec![edge]
+                    }
                 ));
             }
         };
@@ -235,27 +250,28 @@ impl Inner {
 
     /// General case for all updates, which may really be an SPT message sent by a peer
     /// but may also be events submitted by the local node.
-    pub(crate) fn handle_shortest_path_tree_message(
+    /// TODO(saketh): refactor this, it is needlessly clever
+    pub(crate) fn handle_message(
         &mut self,
         clock: &time::Clock,
-        spt: &network_protocol::ShortestPathTree,
+        distance_vector: &network_protocol::DistanceVector,
     ) -> bool {
-        if spt.edges.is_empty() {
+        if distance_vector.edges.is_empty() {
             // Handle peer disconnection submitted by the local node
-            self.remove_direct_peer(spt.root.clone());
+            self.remove_direct_peer(&distance_vector.root);
             true
-        } else if spt.root == self.config.node_id {
+        } else if distance_vector.root == self.config.node_id {
             // Handle new peer connection or refreshed edge submitted by the local node
-            assert!(spt.edges.len() == 1);
+            assert!(distance_vector.edges.len() == 1);
             self.add_or_update_direct_peer(
                 &clock,
-                spt.edges[0].other(&self.config.node_id).unwrap().clone(),
-                spt.edges[0].clone(),
+                distance_vector.edges[0].other(&self.config.node_id).unwrap().clone(),
+                distance_vector.edges[0].clone(),
             );
             true
         } else {
-            // Handle a ShortestPathTree message sent by a neighbor
-            self.update_shortest_path_tree(&clock, spt)
+            // Handle a DistanceVector message sent by a neighbor
+            self.handle_distance_vector(&clock, distance_vector)
         }
     }
 
@@ -273,18 +289,19 @@ impl Inner {
         let local_node_id = self.edge_cache.get_id(&self.config.node_id);
 
         // Calculate the min distance to each routable node
-        let mut distance_by_id: Vec<i32> = vec![-1; max_id];
-        distance_by_id[local_node_id as usize] = 0;
-        for (_, spt) in &mut self.spts {
+        let mut min_distance: Vec<i32> = vec![-1; max_id];
+        min_distance[local_node_id as usize] = 0;
+        for (_, routes) in &mut self.peer_routes {
             // The p2id mapping in the edge_cache is dynamic. We can still use previous distance
             // calculations because a node incident to an active edge won't be relabelled. However,
             // we may need to resize the distance vector.
-            spt.distance.resize(max_id, -1);
+            routes.distance.resize(max_id, -1);
 
             for id in 0..max_id {
-                if spt.distance[id] != -1 {
-                    if distance_by_id[id] == -1 || distance_by_id[id] > (spt.distance[id] + 1) {
-                        distance_by_id[id] = spt.distance[id] + 1;
+                if routes.distance[id] != -1 {
+                    let available_distance = routes.distance[id] + 1;
+                    if min_distance[id] == -1 || available_distance < min_distance[id] {
+                        min_distance[id] = available_distance;
                     }
                 }
             }
@@ -293,9 +310,9 @@ impl Inner {
         // Compute the next hop table
         let mut next_hops_by_id: Vec<Vec<PeerId>> = vec![vec![]; self.edge_cache.max_id()];
         for id in 0..max_id {
-            if distance_by_id[id] != -1 {
-                for (peer_id, spt) in &self.spts {
-                    if spt.distance[id] + 1 == distance_by_id[id] {
+            if min_distance[id] != -1 {
+                for (peer_id, routes) in &self.peer_routes {
+                    if routes.distance[id] != -1 && routes.distance[id] + 1 == min_distance[id] {
                         next_hops_by_id[id].push(peer_id.clone());
                     }
                 }
@@ -311,8 +328,8 @@ impl Inner {
         // Build a PeerId-keyed map of distances
         let mut distance: HashMap<PeerId, u32> = HashMap::new();
         for (peer_id, id) in self.edge_cache.iter_peers() {
-            if distance_by_id[*id as usize] != -1 {
-                distance.insert(peer_id.clone(), distance_by_id[*id as usize] as u32);
+            if min_distance[*id as usize] != -1 {
+                distance.insert(peer_id.clone(), min_distance[*id as usize] as u32);
             }
         }
 
@@ -323,12 +340,12 @@ impl Inner {
     /// 2. Recomputes the NextHopTable.
     ///
     /// Returns the recomputed NextHopTable.
-    /// If distances have changed, returns an updated ShortestPathTree to be broadcast.
+    /// If distances have changed, returns an updated DistanceVector to be broadcast.
     pub(crate) fn update(
         &mut self,
         clock: &time::Clock,
         unreliable_peers: &HashSet<PeerId>,
-    ) -> (NextHopTable, Option<network_protocol::ShortestPathTree>) {
+    ) -> (NextHopTable, Option<network_protocol::DistanceVector>) {
         let _update_time = metrics::ROUTING_TABLE_RECALCULATION_HISTOGRAM.start_timer();
 
         // Prune expired edges
@@ -336,12 +353,12 @@ impl Inner {
             let prune_nounces_older_than =
                 (clock.now_utc() - prune_edges_after).unix_timestamp() as u64;
 
-            // Drop the entirety of any expired SPTs
+            // Drop the entirety of any expired distance vectors
             let peers_to_remove: Vec<PeerId> = self
-                .spts
+                .peer_routes
                 .iter()
-                .filter_map(|(peer, spt)| {
-                    if spt.min_nonce < prune_nounces_older_than {
+                .filter_map(|(peer, routes)| {
+                    if routes.min_nonce < prune_nounces_older_than {
                         Some(peer.clone())
                     } else {
                         None
@@ -350,8 +367,7 @@ impl Inner {
                 .collect();
 
             for peer_id in &peers_to_remove {
-                self.edge_cache.remove_shortest_path_tree(peer_id);
-                self.spts.remove(peer_id);
+                self.remove_direct_peer(peer_id);
             }
 
             // Prune expired edges from the edge cache
@@ -365,9 +381,10 @@ impl Inner {
         // construct and return a message to be broadcasted to peers
         let to_broadcast = if distance != self.distance {
             self.distance = distance;
-            self.local_spt = network_protocol::ShortestPathTree {
+            self.my_distance_vector = network_protocol::DistanceVector {
                 root: self.config.node_id.clone(),
-                edges: self.edge_cache.construct_shortest_path_tree(&self.distance),
+                routes: vec![], // TODO: fill me in
+                edges: self.edge_cache.construct_spanning_tree(&self.distance),
             };
             //Some(self.local_spt.clone())
             None
@@ -396,14 +413,21 @@ impl GraphV2 {
     pub fn new(config: GraphConfigV2) -> Self {
         let local_node = config.node_id.clone();
         let edge_cache = EdgeCache::new(local_node.clone());
+
+        let my_distance_vector = network_protocol::DistanceVector {
+            root: local_node.clone(),
+            routes: vec![AdvertisedRoute { destination: local_node, length: 0 }],
+            edges: vec![],
+        };
+
         Self {
             routing_table: RoutingTableView::new(),
             inner: Arc::new(Mutex::new(Inner {
                 config,
                 edge_cache,
-                spts: HashMap::new(),
+                peer_routes: HashMap::new(),
                 distance: HashMap::new(),
-                local_spt: network_protocol::ShortestPathTree { root: local_node, edges: vec![] },
+                my_distance_vector,
             })),
             unreliable_peers: ArcSwap::default(),
             runtime: Runtime::new(),
@@ -414,21 +438,21 @@ impl GraphV2 {
         self.unreliable_peers.store(Arc::new(unreliable_peers));
     }
 
-    /// Accepts and processes a batch of ShortestPathTree messages.
-    /// Each ShortestPathTree is verified and, if valid, stored. After all updates are
-    /// processed, recomputes the local node's routing table.
+    /// Accepts and processes a batch of network_protocol::DistanceVector messages.
+    /// Each DistanceVector is verified and, if valid, the advertised routes are stored.
+    /// After all updates are processed, recomputes the local node's next hop table.
     ///
-    /// May return a new ShortestPathTree for the local node, to be broadcasted to peers.
-    /// Does so iff routing distances have changed due to the processed messages.
+    /// May return a new DistanceVector for the local node, to be broadcasted to peers.
+    /// Does so iff routing distances have changed due to the processed updates.
     ///
-    /// Returns (spt,oks) where
-    /// * spt may contain an updated ShortestPathTree for the local node
-    /// * oks.len() == spts.len() and oks[i] is true iff spts[i] was valid
+    /// Returns (distance_vector, oks) where
+    /// * distance_vector is an Option<DistanceVector> to be broadcasted
+    /// * oks.len() == distance_vectors.len() and oks[i] is true iff distance_vectors[i] was valid
     pub async fn update(
         self: &Arc<Self>,
         clock: &time::Clock,
-        spts: Vec<network_protocol::ShortestPathTree>,
-    ) -> (Option<network_protocol::ShortestPathTree>, Vec<bool>) {
+        distance_vectors: Vec<network_protocol::DistanceVector>,
+    ) -> (Option<network_protocol::DistanceVector>, Vec<bool>) {
         // TODO(saketh): Consider whether we can move this to rayon.
         let this = self.clone();
         let clock = clock.clone();
@@ -437,10 +461,8 @@ impl GraphV2 {
             .spawn_blocking(move || {
                 let mut inner = this.inner.lock();
 
-                let oks = spts
-                    .iter()
-                    .map(|spt| inner.handle_shortest_path_tree_message(&clock, spt))
-                    .collect();
+                let oks =
+                    distance_vectors.iter().map(|dv| inner.handle_message(&clock, dv)).collect();
 
                 let (next_hops, to_broadcast) = inner.update(&clock, &this.unreliable_peers.load());
 

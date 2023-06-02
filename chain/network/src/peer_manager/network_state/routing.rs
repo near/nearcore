@@ -1,7 +1,7 @@
 use super::NetworkState;
 use crate::network_protocol::{
-    Edge, EdgeState, PartialEdgeInfo, PeerMessage, RoutedMessageV2, RoutingTableUpdate,
-    ShortestPathTree,
+    DistanceVector, Edge, EdgeState, PartialEdgeInfo, PeerMessage, RoutedMessageV2,
+    RoutingTableUpdate,
 };
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::PeerIdOrHash;
@@ -31,8 +31,8 @@ impl NetworkState {
 
     // TODO(gprusak): eventually, this should be blocking, as it should be up to the caller
     // whether to wait for the broadcast to finish, or run it in parallel with sth else.
-    fn broadcast_shortest_path_tree_update(&self, spt: ShortestPathTree) {
-        let msg = Arc::new(PeerMessage::ShortestPathTree(spt));
+    fn broadcast_distance_vector(&self, distance_vector: DistanceVector) {
+        let msg = Arc::new(PeerMessage::DistanceVector(distance_vector));
         for conn in self.tier2.load().ready.values() {
             conn.send_message(msg.clone());
         }
@@ -191,30 +191,29 @@ impl NetworkState {
     /// The following special cases are supported:
     ///     * Insertion or update of a local edge, represented by passing an SPT with a single edge
     ///     * Removal of a local edge, representing by passing an SPT with no edges
-    pub async fn update_shortest_path_tree(
+    pub async fn process_distance_vector(
         self: &Arc<Self>,
         clock: &time::Clock,
-        spt: ShortestPathTree,
+        distance_vector: DistanceVector,
     ) -> Result<(), ReasonForBan> {
         let this = self.clone();
         let clock = clock.clone();
-        self.update_spt_demux
-            .call(spt, |spts: Vec<ShortestPathTree>| async move {
-                let (updated_local_spt, oks) = this.graph_v2.update(&clock, spts).await;
-                match updated_local_spt {
-                    Some(spt) => {
-                        // TODO: change this event type
-                        this.config.event_sink.push(Event::EdgesAdded(spt.edges.clone()));
-                        // Broadcast updated SPT to all other peers
-                        this.broadcast_shortest_path_tree_update(spt);
+        self.distance_vector_demux
+            .call(distance_vector, |distance_vectors: Vec<DistanceVector>| async move {
+                let (to_broadcast, oks) = this.graph_v2.update(&clock, distance_vectors).await;
+                match to_broadcast {
+                    Some(my_distance_vector) => {
+                        // TODO: should we put some event type here?
+                        // this.config.event_sink.push(Event::EdgesAdded(spt.edges.clone()));
+                        this.broadcast_distance_vector(my_distance_vector);
                     }
                     None => {}
                 }
-                // Retu
+
                 oks.iter()
                     .map(|ok| match ok {
                         true => Ok(()),
-                        // TODO: if processing of an SPT fails, ban the peer
+                        // TODO: if processing fails, ban the peer
                         false => Ok(()),
                     })
                     .collect()
@@ -229,8 +228,11 @@ impl NetworkState {
         peer_id: PeerId,
         edge: Edge,
     ) -> Result<(), ReasonForBan> {
-        self.update_shortest_path_tree(clock, ShortestPathTree { root: peer_id, edges: vec![edge] })
-            .await
+        self.process_distance_vector(
+            clock,
+            DistanceVector { root: peer_id, routes: vec![], edges: vec![edge] },
+        )
+        .await
     }
 
     pub async fn remove_local_edge(
@@ -238,7 +240,10 @@ impl NetworkState {
         clock: &time::Clock,
         peer_id: PeerId,
     ) -> Result<(), ReasonForBan> {
-        self.update_shortest_path_tree(clock, ShortestPathTree { root: peer_id, edges: vec![] })
-            .await
+        self.process_distance_vector(
+            clock,
+            DistanceVector { root: peer_id, routes: vec![], edges: vec![] },
+        )
+        .await
     }
 }
