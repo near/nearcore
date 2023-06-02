@@ -5,32 +5,49 @@ use crate::types::Edge;
 use near_primitives::network::PeerId;
 use std::collections::HashMap;
 
-// Verifies that the calculated distances match those in `expected`.
+// Verifies that the calculated distances and first steps
+// match those in `expected`.
 fn verify_calculate_distances(
-    expected: Option<HashMap<PeerId, i32>>,
+    expected: Option<HashMap<PeerId, (i32, Option<PeerId>)>>,
     root: PeerId,
     spt: Vec<Edge>,
 ) {
     let graph = GraphV2::new(GraphConfigV2 { node_id: root.clone(), prune_edges_after: None });
     let mut inner = graph.inner.lock();
 
-    let calculated = inner.calculate_distances(&root, &spt);
+    let calculated = inner.calculate_tree_distances(&root, &spt);
     match expected {
         Some(ref expected) => {
-            let calculated = calculated.unwrap();
+            let (distance, first_step) = calculated.unwrap();
 
-            // Check that expected distances match the calculated ones
-            for (node, expected_distance) in expected {
-                let id = inner.edge_cache.get_id(node);
-                assert_eq!(*expected_distance, calculated[id as usize]);
+            // Check for the expected entries
+            for (node, (expected_distance, expected_first_step)) in expected {
+                let id = inner.edge_cache.get_id(node) as usize;
+
+                // Expected distance should match the calculated one
+                assert_eq!(*expected_distance, distance[id]);
+
+                // Expected first step should match the calculated one
+                match expected_first_step {
+                    Some(expected_first_step) => {
+                        assert!(
+                            first_step[id] == inner.edge_cache.get_id(&expected_first_step) as i32
+                        );
+                    }
+                    None => {
+                        assert!(first_step[id] == -1);
+                    }
+                }
             }
 
-            // Make sure there are no unexpected entries in `calculated_distances`
-            assert_eq!(
-                calculated.len(),
-                expected.len()
-                    + calculated.iter().map(|d| if *d == -1 { 1 } else { 0 }).sum::<usize>()
-            );
+            // Make sure there are no unexpected entries
+            let mut calculated_reachable_nodes = 0;
+            for id in 0..inner.edge_cache.max_id() {
+                if distance[id] != -1 || first_step[id] != -1 {
+                    calculated_reachable_nodes += 1;
+                }
+            }
+            assert_eq!(calculated_reachable_nodes, expected.len());
         }
         None => {
             assert_eq!(None, calculated);
@@ -49,11 +66,18 @@ fn calculate_distances() {
     let edge2 = Edge::make_fake_edge(node0.clone(), node2.clone(), 123);
 
     // Test behavior of distance calculation on an empty tree
-    verify_calculate_distances(Some(HashMap::from([(node0.clone(), 0)])), node0.clone(), vec![]);
+    verify_calculate_distances(
+        Some(HashMap::from([(node0.clone(), (0, None))])),
+        node0.clone(),
+        vec![],
+    );
 
     // Test behavior of distance calculation on a simple tree 0--1
     verify_calculate_distances(
-        Some(HashMap::from([(node0.clone(), 0), (node1.clone(), 1)])),
+        Some(HashMap::from([
+            (node0.clone(), (0, None)),
+            (node1.clone(), (1, Some(node1.clone()))),
+        ])),
         node0.clone(),
         vec![edge0.clone()],
     );
@@ -63,12 +87,20 @@ fn calculate_distances() {
 
     // Test behavior of distance calculation on a line graph 0--1--2
     verify_calculate_distances(
-        Some(HashMap::from([(node0.clone(), 0), (node1.clone(), 1), (node2.clone(), 2)])),
+        Some(HashMap::from([
+            (node0.clone(), (0, None)),
+            (node1.clone(), (1, Some(node1.clone()))),
+            (node2.clone(), (2, Some(node1.clone()))),
+        ])),
         node0.clone(),
         vec![edge0.clone(), edge1.clone()],
     );
     verify_calculate_distances(
-        Some(HashMap::from([(node0.clone(), 1), (node1.clone(), 0), (node2, 1)])),
+        Some(HashMap::from([
+            (node0.clone(), (1, Some(node0.clone()))),
+            (node1.clone(), (0, None)),
+            (node2.clone(), (1, Some(node2))),
+        ])),
         node1,
         vec![edge0.clone(), edge1.clone()],
     );

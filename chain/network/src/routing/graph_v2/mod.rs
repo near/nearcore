@@ -97,15 +97,23 @@ impl Inner {
         ok
     }
 
-    /// Accepts a list of edges specifying a ShortestPathTree. If the edges form a
-    /// valid tree containing the specified peer `root`, returns a vector of distances from
-    /// the root to all other nodes in the tree. The distance vector is indexed
-    /// according to the p2id mapping in the edge_cache. Unreachable nodes have distance -1.
-    pub(crate) fn calculate_distances(
+    /// Accepts a root node and a list of edges specifying a tree. If the edges form
+    /// a valid tree containing the specified `root`, returns a pair of vectors
+    /// (distance, first_step). Otherwise, returns None.
+    ///
+    /// For each node in the tree, `distance` indicates the length of the path
+    /// from the root to the node. Nodes outside the tree have distance -1.
+    ///
+    /// For each node in the tree, `first_step` indicates the direct neighbor of
+    /// the root on the path to the node. The root of the tree, as well as any nodes
+    /// outside the tree, have a first_step of -1.
+    ///
+    /// Nodes are indexed into the vectors according to the `p2id` mapping in the EdgeCache.
+    pub(crate) fn calculate_tree_distances(
         &mut self,
         root: &PeerId,
         spt: &Vec<Edge>,
-    ) -> Option<Vec<i32>> {
+    ) -> Option<(Vec<i32>, Vec<i32>)> {
         // Prepare for graph traversal by ensuring all PeerIds in the tree have a u32 label
         self.edge_cache.create_ids_for_unmapped_peers(spt);
 
@@ -121,20 +129,27 @@ impl Inner {
 
         // Compute distances from the root by breadth-first search
         let mut distance: Vec<i32> = vec![-1; self.edge_cache.max_id()];
+        let mut first_step: Vec<i32> = vec![-1; self.edge_cache.max_id()];
         {
             let root_id = self.edge_cache.get_id(root);
-
             let mut queue = VecDeque::new();
             queue.push_back(root_id);
             distance[root_id as usize] = 0;
 
             while let Some(cur_peer) = queue.pop_front() {
-                let cur_distance = distance[cur_peer as usize];
+                let cur_peer = cur_peer as usize;
+                let cur_distance = distance[cur_peer];
 
-                for &neighbor in &adjacency[cur_peer as usize] {
-                    if distance[neighbor as usize] == -1 {
-                        distance[neighbor as usize] = cur_distance + 1;
-                        queue.push_back(neighbor);
+                for &neighbor in &adjacency[cur_peer] {
+                    let neighbor = neighbor as usize;
+                    if distance[neighbor] == -1 {
+                        distance[neighbor] = cur_distance + 1;
+                        first_step[neighbor] = if (cur_peer as u32) == root_id {
+                            neighbor as i32
+                        } else {
+                            first_step[cur_peer]
+                        };
+                        queue.push_back(neighbor as u32);
                     }
                 }
             }
@@ -147,11 +162,11 @@ impl Inner {
                 num_reachable_nodes += 1;
             }
         }
-        if num_reachable_nodes == spt.len() + 1 {
-            Some(distance)
-        } else {
-            None
+        if num_reachable_nodes != spt.len() + 1 {
+            return None;
         }
+
+        Some((distance, first_step))
     }
 
     /// Verifies the given ShortestPathTree. If valid, stores it in `self.spts`.
@@ -168,7 +183,7 @@ impl Inner {
             return false;
         }
 
-        if let Some(distance) = self.calculate_distances(&spt.root, &edges) {
+        if let Some((distance, _first_step)) = self.calculate_tree_distances(&spt.root, &edges) {
             // If the edges form a valid tree, store the updated SPT
             self.edge_cache.update_shortest_path_tree(&spt.root, &edges);
             self.spts.insert(
