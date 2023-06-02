@@ -22,8 +22,8 @@ use borsh::BorshSerialize;
 use chrono::{DateTime, Utc};
 use near_async::messaging::{CanSend, Sender};
 use near_chain::chain::{
-    do_apply_chunks, ApplyStatePartRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
-    BlockCatchUpResponse, StateSplitRequest, StateSplitResponse,
+    do_apply_chunks, ApplyStatePartRequest, ApplyStatePartResponse, ApplyStatePartsResponse,
+    BlockCatchUpRequest, BlockCatchUpResponse, StateSplitRequest, StateSplitResponse,
 };
 use near_chain::test_utils::format_hash;
 use near_chain::types::RuntimeAdapter;
@@ -1802,19 +1802,25 @@ impl Handler<WithSpanContext<ApplyStatePartRequest>> for SyncJobsActor {
         _: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
-        let result = self.apply_part(&msg);
 
-        // if this is the last part to get applied then send the ApplyStatePartsResponse that indicates all parts are applied and runs set_apply_result
-        if msg.parts_done + 1 == msg.num_parts {
-            self.client_addr.do_send(
-                ApplyStatePartsResponse {
-                    apply_result: result,
-                    shard_id: msg.shard_id,
-                    sync_hash: msg.sync_hash,
-                }
-                .with_span_context(),
-            );
-        }
+        let _result = self.apply_part(&msg);
+
+        let parts_done = msg.parts_done;
+        let num_parts = msg.num_parts;
+        let shard_id = msg.shard_id;
+        let sync_hash = msg.sync_hash;
+        let part_id = msg.part_id;
+
+        tracing::debug!(target: "ApplyStatePartRequest",%shard_id, %sync_hash, %part_id, %parts_done, %num_parts, "Handler of ApplyStatePartRequest");
+
+        self.client_addr.do_send(
+            ApplyStatePartResponse {
+                shard_id: msg.shard_id,
+                part_id: msg.part_id,
+                sync_hash: msg.sync_hash,
+            }
+            .with_span_context(),
+        );
     }
 }
 
@@ -1832,6 +1838,31 @@ impl Handler<WithSpanContext<ApplyStatePartsResponse>> for ClientActor {
             sync.set_apply_result(msg.shard_id, msg.apply_result);
         } else {
             self.client.state_sync.set_apply_result(msg.shard_id, msg.apply_result);
+        }
+    }
+}
+
+impl Handler<WithSpanContext<ApplyStatePartResponse>> for ClientActor {
+    type Result = ();
+
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<ApplyStatePartResponse>,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
+        let shard_id = msg.shard_id;
+        let part_id = msg.part_id;
+        tracing::debug!(target: "ApplyStatePartResponse",%shard_id, %part_id, "Handler of ApplyStatePartResponse");
+        if let Some((sync, _, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
+            // We are doing catchup
+            sync.set_applied_part(msg.shard_id, msg.part_id);
+            let applied_parts_cnt = sync.get_applied_part_cnt(msg.shard_id);
+            tracing::debug!(target: "ApplyStatePartResponse",%shard_id, %applied_parts_cnt, "There's already applied parts");
+        } else {
+            self.client.state_sync.set_applied_part(msg.shard_id, msg.part_id);
+            let applied_parts_cnt = self.client.state_sync.get_applied_part_cnt(msg.shard_id);
+            tracing::debug!(target: "ApplyStatePartResponse",%shard_id, %applied_parts_cnt, "No applied part yet");
         }
     }
 }

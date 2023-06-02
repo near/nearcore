@@ -47,7 +47,7 @@ use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponse};
 use near_primitives::types::{AccountId, EpochHeight, EpochId, ShardId, StateRoot};
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::ops::Add;
 use std::path::PathBuf;
@@ -247,6 +247,8 @@ pub struct StateSync {
     /// Maps shard_id to result of applying downloaded state.
     state_parts_apply_results: HashMap<ShardId, Result<(), near_chain_primitives::error::Error>>,
 
+    state_parts_applied: HashMap<ShardId, HashSet<u64>>,
+
     /// Maps shard_id to result of splitting state for resharding.
     split_state_roots: HashMap<ShardId, Result<HashMap<ShardUId, StateRoot>, near_chain::Error>>,
 }
@@ -293,6 +295,7 @@ impl StateSync {
             last_time_block_requested: None,
             timeout,
             state_parts_apply_results: HashMap::new(),
+            state_parts_applied: HashMap::new(),
             split_state_roots: HashMap::new(),
         }
     }
@@ -371,6 +374,8 @@ impl StateSync {
             });
 
             let old_status = shard_sync_download.status.clone();
+            let old_status_str = old_status.to_string();
+            tracing::debug!(target: "sync", %shard_id, %sync_hash, %old_status_str, "current shard sync download status: ");
             let mut shard_sync_done = false;
             metrics::STATE_SYNC_STAGE
                 .with_label_values(&[&shard_id.to_string()])
@@ -395,7 +400,7 @@ impl StateSync {
                         now,
                         state_parts_task_scheduler,
                     )?;
-                    download_timeout = false;
+                    download_timeout = res.0;
                     run_shard_state_download = res.1;
                     update_sync_status |= res.2;
                 }
@@ -487,6 +492,25 @@ impl StateSync {
         apply_result: Result<(), near_chain::Error>,
     ) {
         self.state_parts_apply_results.insert(shard_id, apply_result);
+    }
+
+    // Called by the client actor, when it finished applying one downloaded parts.
+    pub fn set_applied_part(&mut self, shard_id: ShardId, part_id: u64) {
+        if let Some(applied_parts) = self.state_parts_applied.get_mut(&shard_id) {
+            applied_parts.insert(part_id);
+        } else {
+            let hashset: HashSet<_> = vec![part_id].into_iter().collect();
+            self.state_parts_applied.insert(shard_id, hashset);
+        }
+    }
+
+    // Called by the client actor, when it finished applying one downloaded parts.
+    pub fn get_applied_part_cnt(&mut self, shard_id: ShardId) -> u64 {
+        if let Some(applied_parts) = self.state_parts_applied.get_mut(&shard_id) {
+            applied_parts.len() as u64
+        } else {
+            0
+        }
     }
 
     // Called by the client actor, when it finished splitting the state.
@@ -1100,9 +1124,11 @@ impl StateSync {
     ) -> Result<(), near_chain::Error> {
         // Keep waiting until our shard is on the list of results
         // (these are set via callback from ClientActor - both for sync and catchup).
-        let result = self.state_parts_apply_results.remove(&shard_id);
-        if let Some(result) = result {
-            match chain.set_state_finalize(shard_id, sync_hash, result) {
+        let result = self.state_parts_applied.get(&shard_id).unwrap().len() as u64;
+        let state_header = chain.get_state_response_header(shard_id, sync_hash)?;
+        let num_parts = get_num_state_parts(state_header.state_root_node().memory_usage);
+        if result == num_parts {
+            match chain.set_state_finalize(shard_id, sync_hash, Ok(())) {
                 Ok(()) => {
                     *shard_sync_download = ShardSyncDownload {
                         downloads: vec![],

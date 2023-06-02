@@ -5621,6 +5621,14 @@ pub struct ApplyStatePartRequest {
 
 #[derive(actix::Message)]
 #[rtype(result = "()")]
+pub struct ApplyStatePartResponse {
+    pub part_id: u64,
+    pub shard_id: ShardId,
+    pub sync_hash: CryptoHash,
+}
+
+#[derive(actix::Message)]
+#[rtype(result = "()")]
 pub struct ApplyStatePartsResponse {
     pub apply_result: Result<(), near_chain_primitives::error::Error>,
     pub shard_id: ShardId,
