@@ -9,8 +9,8 @@ use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::types::AccountId;
 use near_primitives_core::types::BlockHeight;
 use near_store::flat::{
-    store_helper, FetchingStateStatus, FlatStorageCreationStatus, FlatStorageReadyStatus,
-    FlatStorageStatus, NUM_PARTS_IN_ONE_STEP,
+    store_helper, FetchingStateStatus, FlatStorageCreationStatus, FlatStorageManager,
+    FlatStorageReadyStatus, FlatStorageStatus, NUM_PARTS_IN_ONE_STEP,
 };
 use near_store::test_utils::create_test_store;
 use near_store::{KeyLookupMode, Store, TrieTraversalItem};
@@ -98,13 +98,14 @@ fn wait_for_flat_storage_creation(
 
         thread::sleep(Duration::from_secs(1));
     }
-    let status = store_helper::get_flat_storage_status(&store, shard_uid);
+    let flat_storage_manager = get_flat_storage_manager(&env);
+    let status = flat_storage_manager.get_flat_storage_status(shard_uid);
     assert_matches!(
         status,
         FlatStorageStatus::Ready(_),
         "Client couldn't create flat storage until block {next_height}, status: {status:?}"
     );
-    assert!(env.clients[0].runtime_adapter.get_flat_storage_for_shard(shard_uid).is_some());
+    assert!(flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_some());
 
     // We don't expect any forks in the chain after flat storage head, so the number of
     // deltas stored on DB should be exactly 2, as there are only 2 blocks after
@@ -159,13 +160,7 @@ fn test_flat_storage_creation_sanity() {
             );
         }
 
-        let block_hash = env.clients[0].chain.get_block_hash_by_height(START_HEIGHT - 1).unwrap();
-        let epoch_id = env.clients[0].chain.epoch_manager.get_epoch_id(&block_hash).unwrap();
-        env.clients[0]
-            .chain
-            .runtime_adapter
-            .remove_flat_storage_for_shard(shard_uid, &epoch_id)
-            .unwrap();
+        get_flat_storage_manager(&env).remove_flat_storage_for_shard(shard_uid).unwrap();
     }
 
     // Create new chain and runtime using the same store. It should produce next blocks normally, but now it should
@@ -174,7 +169,7 @@ fn test_flat_storage_creation_sanity() {
     for height in START_HEIGHT..START_HEIGHT + 2 {
         env.produce_block(0, height);
     }
-    assert!(env.clients[0].runtime_adapter.get_flat_storage_for_shard(shard_uid).is_none());
+    assert!(get_flat_storage_manager(&env).get_flat_storage_for_shard(shard_uid).is_none());
 
     assert_eq!(store_helper::get_flat_storage_status(&store, shard_uid), FlatStorageStatus::Empty);
     assert!(!env.clients[0].run_flat_storage_creation_step().unwrap());
@@ -247,23 +242,17 @@ fn test_flat_storage_creation_two_shards() {
             );
         }
 
-        let block_hash = env.clients[0].chain.get_block_hash_by_height(START_HEIGHT - 1).unwrap();
-        let epoch_id = env.clients[0].chain.epoch_manager.get_epoch_id(&block_hash).unwrap();
-        env.clients[0]
-            .chain
-            .runtime_adapter
-            .remove_flat_storage_for_shard(shard_uids[0], &epoch_id)
-            .unwrap();
+        get_flat_storage_manager(&env).remove_flat_storage_for_shard(shard_uids[0]).unwrap();
     }
 
     // Check that flat storage is not ready for shard 0 but ready for shard 1.
     let mut env = setup_env(&genesis, store.clone());
-    assert!(env.clients[0].runtime_adapter.get_flat_storage_for_shard(shard_uids[0]).is_none());
+    assert!(get_flat_storage_manager(&env).get_flat_storage_for_shard(shard_uids[0]).is_none());
     assert_matches!(
         store_helper::get_flat_storage_status(&store, shard_uids[0]),
         FlatStorageStatus::Empty
     );
-    assert!(env.clients[0].runtime_adapter.get_flat_storage_for_shard(shard_uids[1]).is_some());
+    assert!(get_flat_storage_manager(&env).get_flat_storage_for_shard(shard_uids[1]).is_some());
     assert_matches!(
         store_helper::get_flat_storage_status(&store, shard_uids[1]),
         FlatStorageStatus::Ready(_)
@@ -354,7 +343,7 @@ fn test_flat_storage_creation_start_from_state_part() {
 
         // Re-create runtime, check that flat storage is not created yet.
         let mut env = setup_env(&genesis, store);
-        assert!(env.clients[0].runtime_adapter.get_flat_storage_for_shard(shard_uid).is_none());
+        assert!(get_flat_storage_manager(&env).get_flat_storage_for_shard(shard_uid).is_none());
 
         // Run chain for a couple of blocks and check that flat storage for shard 0 is eventually created.
         let next_height = wait_for_flat_storage_creation(&mut env, START_HEIGHT, shard_uid, true);
@@ -393,16 +382,10 @@ fn test_catchup_succeeds_even_if_no_new_blocks() {
             env.produce_block(0, height);
         }
         // Remove flat storage.
-        let block_hash = env.clients[0].chain.get_block_hash_by_height(START_HEIGHT - 1).unwrap();
-        let epoch_id = env.clients[0].chain.epoch_manager.get_epoch_id(&block_hash).unwrap();
-        env.clients[0]
-            .chain
-            .runtime_adapter
-            .remove_flat_storage_for_shard(shard_uid, &epoch_id)
-            .unwrap();
+        get_flat_storage_manager(&env).remove_flat_storage_for_shard(shard_uid).unwrap();
     }
     let mut env = setup_env(&genesis, store.clone());
-    assert!(env.clients[0].runtime_adapter.get_flat_storage_for_shard(shard_uid).is_none());
+    assert!(get_flat_storage_manager(&env).get_flat_storage_for_shard(shard_uid).is_none());
     assert_eq!(store_helper::get_flat_storage_status(&store, shard_uid), FlatStorageStatus::Empty);
     // Create 3 more blocks (so that the deltas are generated) - and assume that no new blocks are received.
     // In the future, we should also support the scenario where no new blocks are created.
@@ -438,14 +421,9 @@ fn test_flat_storage_iter() {
     }
 
     for shard_id in 0..3 {
-        let items: Vec<_> = store_helper::iter_flat_state_entries(
-            shard_layout.clone(),
-            shard_id,
-            &store,
-            None,
-            None,
-        )
-        .collect();
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+        let items: Vec<_> =
+            store_helper::iter_flat_state_entries(shard_uid, &store, None, None).collect();
 
         match shard_id {
             0 => {
@@ -456,7 +434,7 @@ fn test_flat_storage_iter() {
                         account_id: "test0".parse().unwrap()
                     }
                     .to_vec(),
-                    items.get(0).unwrap().0
+                    items[0].as_ref().unwrap().0.to_vec()
                 );
             }
             1 => {
@@ -471,7 +449,7 @@ fn test_flat_storage_iter() {
                         account_id: "near".parse().unwrap()
                     }
                     .to_vec(),
-                    items.get(0).unwrap().0
+                    items[0].as_ref().unwrap().0.to_vec()
                 );
             }
             _ => {
@@ -529,4 +507,8 @@ fn test_not_supported_block() {
     assert_matches!(get_ref_results[0], Err(StorageError::FlatStorageBlockNotSupported(_)));
     // For the second result chunk view is valid, so result is Ok.
     assert_matches!(get_ref_results[1], Ok(Some(_)));
+}
+
+fn get_flat_storage_manager(env: &TestEnv) -> FlatStorageManager {
+    env.clients[0].chain.runtime_adapter.get_flat_storage_manager().unwrap()
 }

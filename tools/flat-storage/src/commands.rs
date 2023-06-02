@@ -1,15 +1,17 @@
-use borsh::BorshDeserialize;
 /// Tools for modifying flat storage - should be used only for experimentation & debugging.
+use borsh::BorshDeserialize;
 use clap::Parser;
-use near_chain::{
-    flat_storage_creator::FlatStorageShardCreator, types::RuntimeAdapter, ChainStore,
-    ChainStoreAccess,
-};
+use near_chain::flat_storage_creator::FlatStorageShardCreator;
+use near_chain::types::RuntimeAdapter;
+use near_chain::{ChainStore, ChainStoreAccess};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
-use near_primitives::{state::ValueRef, trie_key::trie_key_parsers::parse_account_id_from_raw_key};
-use near_store::flat::{store_helper, FlatStateDelta, FlatStateDeltaMetadata, FlatStorageStatus};
+use near_store::flat::{
+    inline_flat_state_values, store_helper, FlatStateDelta, FlatStateDeltaMetadata,
+    FlatStorageManager, FlatStorageStatus,
+};
 use near_store::{DBCol, Mode, NodeStorage, ShardUId, Store, StoreOpener};
 use nearcore::{load_config, NearConfig, NightshadeRuntime};
+use std::sync::atomic::AtomicBool;
 use std::{path::PathBuf, sync::Arc, time::Duration};
 use tqdm::tqdm;
 
@@ -37,6 +39,9 @@ enum SubCommand {
     /// Temporary command to set the store version (useful as long flat
     /// storage is enabled only during nightly with separate DB version).
     SetStoreVersion(SetStoreVersionCmd),
+
+    /// Run FlatState value inininig migration
+    MigrateValueInlining(MigrateValueInliningCmd),
 }
 
 #[derive(Parser)]
@@ -61,6 +66,15 @@ pub struct InitCmd {
 #[derive(Parser)]
 pub struct VerifyCmd {
     shard_id: u64,
+}
+
+#[derive(Parser)]
+pub struct MigrateValueInliningCmd {
+    #[clap(default_value = "16")]
+    num_threads: usize,
+
+    #[clap(default_value = "50000")]
+    batch_size: usize,
 }
 
 fn print_delta(store: &Store, shard_uid: ShardUId, metadata: FlatStateDeltaMetadata) {
@@ -158,9 +172,9 @@ impl FlatStorageCommand {
 
                 // TODO: there should be a method that 'loads' the current flat storage state based on Storage.
                 let shard_uid = epoch_manager.shard_id_to_uid(reset_cmd.shard_id, &tip.epoch_id)?;
-                rw_hot_runtime.create_flat_storage_for_shard(shard_uid);
-
-                rw_hot_runtime.remove_flat_storage_for_shard(shard_uid, &tip.epoch_id)?;
+                let flat_storage_manager = rw_hot_runtime.get_flat_storage_manager().unwrap();
+                flat_storage_manager.create_flat_storage_for_shard(shard_uid);
+                flat_storage_manager.remove_flat_storage_for_shard(shard_uid)?;
             }
             SubCommand::Init(init_cmd) => {
                 let (_, epoch_manager, rw_hot_runtime, rw_chain_store, rw_hot_store) = Self::get_db(
@@ -237,33 +251,26 @@ impl FlatStorageCommand {
 
                 let shard_uid =
                     epoch_manager.shard_id_to_uid(verify_cmd.shard_id, &tip.epoch_id)?;
-                hot_runtime.create_flat_storage_for_shard(shard_uid);
+                hot_runtime
+                    .get_flat_storage_manager()
+                    .unwrap()
+                    .create_flat_storage_for_shard(shard_uid);
 
                 let trie = hot_runtime
                     .get_view_trie_for_shard(verify_cmd.shard_id, &head_hash, *state_root)
                     .unwrap();
 
-                let flat_state_entries_iter = store_helper::iter_flat_state_entries(
-                    shard_layout,
-                    verify_cmd.shard_id,
-                    &hot_store,
-                    None,
-                    None,
-                );
+                let flat_state_entries_iter =
+                    store_helper::iter_flat_state_entries(shard_uid, &hot_store, None, None);
 
-                // Trie iterator which skips all the 'delayed' keys - that don't contain the account_id as string.
-                let trie_iter = trie.iter().unwrap().filter(|entry| {
-                    let result_copy = &entry.clone().unwrap().0;
-                    let result = &result_copy[..];
-                    parse_account_id_from_raw_key(result).unwrap().is_some()
-                });
-
+                let trie_iter = trie.iter().unwrap();
                 let mut verified = 0;
                 let mut success = true;
                 for (item_trie, item_flat) in
                     tqdm(std::iter::zip(trie_iter, flat_state_entries_iter))
                 {
-                    let value_ref = ValueRef::decode((*item_flat.1).try_into().unwrap());
+                    let item_flat = item_flat.unwrap();
+                    let value_ref = item_flat.1.to_value_ref();
                     verified += 1;
 
                     let item_trie = item_trie.unwrap();
@@ -302,6 +309,23 @@ impl FlatStorageCommand {
                 } else {
                     println!("FAILED - on node {:?}", verified);
                 }
+            }
+            SubCommand::MigrateValueInlining(cmd) => {
+                let store = Self::get_db(
+                    &opener,
+                    home_dir,
+                    &near_config,
+                    near_store::Mode::ReadWriteExisting,
+                )
+                .4;
+                let flat_storage_manager = FlatStorageManager::new(store.clone());
+                inline_flat_state_values(
+                    store,
+                    &flat_storage_manager,
+                    &AtomicBool::new(true),
+                    cmd.num_threads,
+                    cmd.batch_size,
+                );
             }
         }
 

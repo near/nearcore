@@ -23,7 +23,7 @@ fn find_route() {
     rtv.update(next_hops.clone());
     for _ in 0..1000 {
         let p = peers.choose(rng).unwrap();
-        let got = rtv.find_route_from_peer_id(&p).unwrap();
+        let got = rtv.find_next_hop_for_target(&p).unwrap();
         assert!(next_hops.get(p).unwrap().contains(&got));
     }
 }

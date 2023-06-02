@@ -1,9 +1,10 @@
 use super::NetworkState;
 use crate::network_protocol::{
-    Edge, EdgeState, PartialEdgeInfo, PeerMessage, RoutingTableUpdate, ShortestPathTree,
+    Edge, EdgeState, PartialEdgeInfo, PeerMessage, RoutedMessageV2, RoutingTableUpdate,
+    ShortestPathTree,
 };
 use crate::peer_manager::connection;
-use crate::peer_manager::network_state::{PeerIdOrHash, RoutedMessageV2};
+use crate::peer_manager::network_state::PeerIdOrHash;
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::routing::routing_table_view::FindRouteError;
 use crate::stats::metrics;
@@ -136,14 +137,14 @@ impl NetworkState {
             .unwrap_or(Ok(()))
     }
 
-    pub(crate) fn find_route(
+    pub(crate) fn tier2_find_route(
         &self,
         clock: &time::Clock,
         target: &PeerIdOrHash,
     ) -> Result<PeerId, FindRouteError> {
         match target {
             PeerIdOrHash::PeerId(peer_id) => {
-                self.graph.routing_table.find_route_from_peer_id(peer_id)
+                self.graph.routing_table.find_next_hop_for_target(peer_id)
             }
             PeerIdOrHash::Hash(hash) => self
                 .tier2_route_back

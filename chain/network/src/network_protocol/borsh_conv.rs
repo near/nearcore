@@ -14,6 +14,7 @@ impl From<&net::Handshake> for mem::Handshake {
             sender_chain_info: x.sender_chain_info.clone(),
             partial_edge_info: x.partial_edge_info.clone(),
             owned_account: None,
+            signed_ip_address: None, // borsh isn't backwards compatible. Hence, no support for signing ip address
         }
     }
 }

@@ -1,4 +1,4 @@
-use crate::announce_accounts;
+use crate::announce_accounts::*;
 use crate::test_utils::{random_epoch_id, random_peer_id};
 use near_crypto::Signature;
 use near_primitives::network::AnnounceAccount;
@@ -11,7 +11,7 @@ fn announcement_same_epoch() {
     let peer_id1 = random_peer_id();
     let epoch_id0 = random_epoch_id();
 
-    let announcements_cache = announce_accounts::Cache::new(store);
+    let announcements_cache = AnnounceAccountCache::new(store);
 
     let announce0 = AnnounceAccount {
         account_id: "near0".parse().unwrap(),
@@ -52,7 +52,7 @@ fn dont_load_on_build() {
     let epoch_id0 = random_epoch_id();
     let epoch_id1 = random_epoch_id();
 
-    let announcements_cache = announce_accounts::Cache::new(store.clone());
+    let announcements_cache = AnnounceAccountCache::new(store.clone());
 
     let announce0 = AnnounceAccount {
         account_id: "near0".parse().unwrap(),
@@ -75,7 +75,7 @@ fn dont_load_on_build() {
     assert!(vec![announce0, announce1].iter().all(|announce| { accounts.contains(&announce) }));
     assert_eq!(accounts.len(), 2);
 
-    let announcements_cache1 = announce_accounts::Cache::new(store);
+    let announcements_cache1 = AnnounceAccountCache::new(store);
     assert_eq!(announcements_cache1.get_announcements().len(), 0);
 }
 
@@ -86,8 +86,8 @@ fn load_from_disk() {
     let peer_id0 = random_peer_id();
     let epoch_id0 = random_epoch_id();
 
-    let announcements_cache = announce_accounts::Cache::new(store.clone());
-    let announcements_cache1 = announce_accounts::Cache::new(store);
+    let announcements_cache = AnnounceAccountCache::new(store.clone());
+    let announcements_cache1 = AnnounceAccountCache::new(store);
 
     let announce0 = AnnounceAccount {
         account_id: "near0".parse().unwrap(),

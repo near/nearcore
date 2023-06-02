@@ -75,8 +75,8 @@ impl Database for ColdDB {
     fn iter_range<'a>(
         &'a self,
         col: DBCol,
-        lower_bound: Option<&'a [u8]>,
-        upper_bound: Option<&'a [u8]>,
+        lower_bound: Option<&[u8]>,
+        upper_bound: Option<&[u8]>,
     ) -> DBIterator<'a> {
         Self::log_assert_is_in_colddb(col);
         self.cold.iter_range(col, lower_bound, upper_bound)

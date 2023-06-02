@@ -1,5 +1,5 @@
-use crate::accounts_data;
-use crate::announce_accounts;
+use crate::accounts_data::{AccountDataCache, AccountDataError};
+use crate::announce_accounts::AnnounceAccountCache;
 use crate::client;
 use crate::concurrency::demux;
 use crate::concurrency::runtime::Runtime;
@@ -102,9 +102,9 @@ pub(crate) struct NetworkState {
     /// Network-related info about the chain.
     pub chain_info: ArcSwap<Option<ChainInfo>>,
     /// AccountsData for TIER1 accounts.
-    pub accounts_data: Arc<accounts_data::Cache>,
+    pub accounts_data: Arc<AccountDataCache>,
     /// AnnounceAccounts mapping TIER1 account ids to peer ids.
-    pub account_announcements: Arc<announce_accounts::Cache>,
+    pub account_announcements: Arc<AnnounceAccountCache>,
     /// Connected peers (inbound and outbound) with their full peer information.
     pub tier2: connection::Pool,
     pub tier1: connection::Pool,
@@ -188,8 +188,8 @@ impl NetworkState {
             peer_store,
             connection_store: connection_store::ConnectionStore::new(store.clone()).unwrap(),
             pending_reconnect: Mutex::new(Vec::<PeerInfo>::new()),
-            accounts_data: Arc::new(accounts_data::Cache::new()),
-            account_announcements: Arc::new(announce_accounts::Cache::new(store)),
+            accounts_data: Arc::new(AccountDataCache::new()),
+            account_announcements: Arc::new(AnnounceAccountCache::new(store)),
             tier2_route_back: Mutex::new(RouteBackCache::default()),
             tier1_route_back: Mutex::new(RouteBackCache::default()),
             recent_routed_messages: Mutex::new(lru::LruCache::new(
@@ -528,7 +528,7 @@ impl NetworkState {
                     _default => {}
                 }
 
-                match self.find_route(&clock, &msg.target) {
+                match self.tier2_find_route(&clock, &msg.target) {
                     Ok(peer_id) => {
                         // Remember if we expect a response for this message.
                         if msg.author == my_peer_id && msg.expect_response() {
@@ -643,7 +643,7 @@ impl NetworkState {
         self: &Arc<Self>,
         clock: &time::Clock,
         accounts_data: Vec<Arc<SignedAccountData>>,
-    ) -> Option<accounts_data::Error> {
+    ) -> Option<AccountDataError> {
         let this = self.clone();
         let clock = clock.clone();
         self.spawn(async move {

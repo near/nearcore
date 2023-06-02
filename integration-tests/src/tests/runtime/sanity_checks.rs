@@ -188,7 +188,15 @@ fn test_cost_sanity_nondeterministic() {
         .iter()
         .map(|outcome| outcome.outcome.metadata.gas_profile.as_ref().unwrap())
         .collect::<Vec<_>>();
-    insta::assert_debug_snapshot!("receipts_gas_profile_nondeterministic", receipts_gas_profile);
+
+    insta::assert_debug_snapshot!(
+        if cfg!(feature = "nightly") {
+            "receipts_gas_profile_nondeterministic_nightly"
+        } else {
+            "receipts_gas_profile_nondeterministic"
+        },
+        receipts_gas_profile
+    );
 
     // Verify that all nondeterministic costs are covered.
     let all_costs = {
@@ -231,22 +239,33 @@ fn test_sanity_used_gas() {
         .map(|bytes| u64::from_le_bytes(*bytes))
         .collect::<Vec<_>>();
 
-    // Executing `used_gas` costs `base_cost`. When executing `used_gas` twice
-    // within a metered block, the returned values should differ by that amount.
-    let base_cost =
-        node.client.read().unwrap().runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::base);
-    assert_eq!(used_gas[1] - used_gas[0], base_cost);
+    let runtime_config = node.client.read().unwrap().runtime_config.clone();
+    let base_cost = runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::base);
+    let op_cost = match runtime_config.wasm_config.limit_config.contract_prepare_version {
+        // In old implementations of preparation, all of the contained instructions are paid
+        // for upfront when entering a new metered block,
+        //
+        // It fails to be precise in that it does not consider calls to `used_gas` as
+        // breaking up a metered block and so none of the gas cost to execute instructions between
+        // calls to this function will be observable from within wasm code.
+        //
+        // In this test we account for this by setting `op_cost` to zero, but if future tests
+        // change test WASM in significant ways, this approach may become incorrect.
+        near_primitives::config::ContractPrepareVersion::V0
+        | near_primitives::config::ContractPrepareVersion::V1 => 0,
+        // Gas accounting is precise and instructions executed between calls to the side-effectful
+        // `used_gas` host function calls will be observbable.
+        near_primitives::config::ContractPrepareVersion::V2 => {
+            u64::from(runtime_config.wasm_config.regular_op_cost)
+        }
+    };
 
-    // The fees for executing a metered block's WASM code should be paid before
-    // any of the call instructions within that block are executed. Hence, even
-    // after arithmetics, the next call of `used_gas` should still return a
-    // value that differs only by `base_cost`.
-    assert_eq!(used_gas[2] - used_gas[1], base_cost);
-
-    // Entering a new metered block, all of its instructions are paid upfront.
-    // Therefore, the difference across blocks must be larger than `base_cost`,
-    // given that the block contains other instructions besides the call of
-    // `used_gas`.
+    // Executing `used_gas` costs `base_cost` plus an instruction to execute the `call` itself.
+    // When executing `used_gas` twice within a metered block, the returned values should differ by
+    // that amount.
+    assert_eq!(used_gas[1] - used_gas[0], base_cost + op_cost);
+    // Between these two observations additional arithmetics have been executed.
+    assert_eq!(used_gas[2] - used_gas[1], base_cost + 8 * op_cost);
     assert!(used_gas[3] - used_gas[2] > base_cost);
 }
 
@@ -276,10 +295,10 @@ fn contract_sanity_check_used_gas() -> Vec<u8> {
               (local $used_0 i64) (local $used_1 i64) (local $used_2 i64) (local $used_3 i64)
 
               ;; Call used_gas twice in metered block, without instructions in between.
-              (local.set $used_0
-                (call $env.used_gas))
-              (local.set $used_1
-                (call $env.used_gas))
+              (call $env.used_gas)
+              (call $env.used_gas)
+              (local.set $used_1)
+              (local.set $used_0)
 
               ;; In the same metered block, call used_gas again after executing other
               ;; instructions.
@@ -288,8 +307,9 @@ fn contract_sanity_check_used_gas() -> Vec<u8> {
                 (i64.const 1))
               drop
               nop
-              (local.set $used_2
-                (call $env.used_gas))
+
+              (call $env.used_gas)
+              (local.set $used_2)
 
               ;; Push a new metered block on the stack via br_if. The condition is false,
               ;; so we will _not_ branch out of the block.

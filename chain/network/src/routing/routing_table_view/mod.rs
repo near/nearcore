@@ -33,7 +33,7 @@ impl Inner {
 
     /// Select a connected peer on some shortest path to `peer_id`.
     /// If there are several such peers, pick the least recently used one.
-    fn find_route_from_peer_id(&mut self, peer_id: &PeerId) -> Result<PeerId, FindRouteError> {
+    fn find_next_hop(&mut self, peer_id: &PeerId) -> Result<PeerId, FindRouteError> {
         let peers = self.next_hops.get(peer_id).ok_or(FindRouteError::PeerUnreachable)?;
         let next_hop = peers
             .iter()
@@ -75,11 +75,13 @@ impl RoutingTableView {
         self.0.lock().count_next_hops_for_peer_id(peer_id)
     }
 
-    pub(crate) fn find_route_from_peer_id(
+    // Given a PeerId to which we wish to route a message, returns the first hop on a
+    // route to the target. If no route is known, produces FindRouteError.
+    pub(crate) fn find_next_hop_for_target(
         &self,
         target: &PeerId,
     ) -> Result<PeerId, FindRouteError> {
-        self.0.lock().find_route_from_peer_id(target)
+        self.0.lock().find_next_hop(target)
     }
 
     pub(crate) fn view_route(&self, peer_id: &PeerId) -> Option<Vec<PeerId>> {

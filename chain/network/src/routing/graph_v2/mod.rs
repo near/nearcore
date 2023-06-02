@@ -354,7 +354,8 @@ impl Inner {
                 root: self.config.node_id.clone(),
                 edges: self.edge_cache.construct_shortest_path_tree(&self.distance),
             };
-            Some(self.local_spt.clone())
+            //Some(self.local_spt.clone())
+            None
         } else {
             None
         };
