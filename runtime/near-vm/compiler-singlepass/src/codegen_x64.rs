@@ -1,5 +1,4 @@
 use crate::address_map::get_function_address_map;
-use crate::config::IntrinsicKind;
 use crate::{config::Singlepass, emitter_x64::*, machine::Machine, x64_decl::*};
 use dynasmrt::{x64::X64Relocation, DynamicLabel, VecAssembler};
 use finite_wasm::gas::InstrumentationKind;
@@ -7,9 +6,8 @@ use memoffset::offset_of;
 use near_vm_compiler::wasmparser::{BlockType as WpBlockType, MemArg, Operator, ValType as WpType};
 use near_vm_compiler::{
     CallingConvention, CompiledFunction, CompiledFunctionFrameInfo, CustomSection,
-    CustomSectionProtection, FunctionBody, FunctionBodyData, InstructionAddressMap,
-    ModuleTranslationState, Relocation, RelocationKind, RelocationTarget, SectionBody,
-    SectionIndex, SourceLoc, Target,
+    CustomSectionProtection, FunctionBody, FunctionBodyData, InstructionAddressMap, Relocation,
+    RelocationKind, RelocationTarget, SectionBody, SectionIndex, SourceLoc, Target,
 };
 use near_vm_types::{
     entity::{EntityRef, PrimaryMap, SecondaryMap},
@@ -32,9 +30,6 @@ pub(crate) struct FuncGen<'a> {
     // Immutable properties assigned at creation time.
     /// Static module information.
     module: &'a ModuleInfo,
-
-    /// State of module translation.
-    module_translation_state: &'a ModuleTranslationState,
 
     /// ModuleInfo compilation config.
     config: &'a Singlepass,
@@ -1686,7 +1681,6 @@ impl<'a> FuncGen<'a> {
     #[tracing::instrument(skip_all)]
     pub(crate) fn new(
         module: &'a ModuleInfo,
-        module_translation_state: &'a ModuleTranslationState,
         config: &'a Singlepass,
         target: &'a Target,
         vmoffsets: &'a VMOffsets,
@@ -1718,7 +1712,6 @@ impl<'a> FuncGen<'a> {
 
         let mut fg = FuncGen {
             module,
-            module_translation_state,
             config,
             target,
             vmoffsets,
