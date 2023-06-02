@@ -11,7 +11,7 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[3] / 'lib'))
 
 from configured_logger import new_logger
 from locust import between, tag, task
-from common.base import NearUser
+from common.base import NearUser, is_tag_active
 from common.ft import TransferFT
 from common.social import Follow, InitSocialDbAccount, SubmitPost
 
@@ -34,6 +34,8 @@ class FTTransferUser(NearUser):
 
     def on_start(self):
         super().on_start()
+        if not is_tag_active(self.environment, "ft"):
+            raise SystemExit("FTTransferUser requires --tag ft")
 
         self.ft = random.choice(self.environment.ft_contracts)
         self.ft.register_user(self)
@@ -69,6 +71,9 @@ class SocialDbUser(NearUser):
 
     def on_start(self):
         super().on_start()
+        if not is_tag_active(self.environment, "social"):
+            raise SystemExit("SocialDbUser requires --tag social")
+
         self.contract_account_id = self.environment.social_account_id
 
         self.send_tx(InitSocialDbAccount(self.contract_account_id,
@@ -87,7 +92,7 @@ class SocialDbUser(NearUser):
             "Windmills are the greatest threat in the US to both bald and golden eagles. Media claims fictional 'global warming' is worse.",
         ]
         quote = sample_quotes[seed % len(sample_quotes)]
-        post = f"I, {self.account.key.account_id} cannot resists to declare with pride: \n_{quote}_"
+        post = f"I, {self.account.key.account_id}, cannot resists to declare with pride: \n_{quote}_"
         while length > len(post):
             post = f"{post}\nI'll say it again: \n**{quote}**"
 
