@@ -1,3 +1,4 @@
+from abc import abstractmethod
 import json
 import sys
 import pathlib
@@ -23,8 +24,9 @@ class SocialDbSet(Transaction):
         self.contract_id = contract_id
         self.sender = sender
 
+    @abstractmethod
     def build_args(self):
-        return json.dumps({})
+        ...
 
     def sign_and_serialize(self, block_hash):
         args = self.build_args()
@@ -49,7 +51,7 @@ class SubmitPost(SocialDbSet):
 class Follow(SocialDbSet):
 
     def __init__(self, contract_id: str, sender: Account,
-                 follow_list: "list[str]"):
+                 follow_list: list[str]):
         super().__init__(contract_id, sender)
         self.follow_list = follow_list
 
@@ -120,14 +122,17 @@ def social_db_build_index_obj(key_list_pairs: dict) -> dict:
     ```
     So it's really JSON nested inside a JSON string.
     And worse, the nested JSON is always a list of objects with "key" and "value" fields.
-    This method unfolds this format from a leaner definition, using a dict to
+    This method unfolds this format from a leaner definition, using a list of pairs to
     define each `value_string`.
+    A dict instead of a list of tuples doesn't work because keys can be duplicated.
     """
-    obj = {}
-    for index_key, values in key_list_pairs.items():
-        unfolded_list = [{"key": k, "value": v} for k, v in values.items()]
-        obj[index_key] = json.dumps(unfolded_list)
-    return obj
+
+    def serialize_values(values: list[(str, dict)]):
+        return json.dumps([{"key": k, "value": v} for k, v in values])
+
+    return {
+        key: serialize_values(values) for key, values in key_list_pairs.items()
+    }
 
 
 def social_db_set_msg(sender: str, values: dict, index: dict) -> str:
@@ -149,33 +154,33 @@ def social_db_set_msg(sender: str, values: dict, index: dict) -> str:
     }
     ```
     """
-    updates = values
+    updates = values.copy()
     updates["index"] = social_db_build_index_obj(index)
     msg = {"data": {sender: updates}}
     return json.dumps(msg)
 
 
-def social_follow_args(sender: str, follow_list: "list[str]"):
+def social_follow_args(sender: str, follow_list: list[str]):
     follow_map = {}
-    graph_map = {"follow": {}}
-    notify_map = {}
+    graph = []
+    notify = []
     for user in follow_list:
         follow_map[user] = ""
-        graph_map["follow"] = {"type": "follow", "accountId": user}
-        notify_map[user] = {"type": "follow"}
+        graph.append(("follow", {"type": "follow", "accountId": user}))
+        notify.append((user, {"type": "follow"}))
 
     values = {
         "graph": {
             "follow": follow_map
         },
     }
-    index = {"graph": graph_map, "notify": notify_map}
+    index = {"graph": graph, "notify": notify}
     return social_db_set_msg(sender, values, index)
 
 
 def social_post_args(sender: str, text: str):
     values = {"post": {"main": json.dumps({"type": "md", "text": text})}}
-    index = {"post": {"main": {"type": "md"}}}
+    index = {"post": [("main", {"type": "md"})]}
     msg = social_db_set_msg(sender, values, index)
     return msg
 
@@ -200,6 +205,37 @@ class TestSocialDbSetMsg(unittest.TestCase):
                             "[{\"key\": \"follow\", \"value\": {\"type\": \"follow\", \"accountId\": \"bob.near\"}}]",
                         "notify":
                             "[{\"key\": \"bob.near\", \"value\": {\"type\": \"follow\"}}]"
+                    }
+                }
+            }
+        }
+        self.maxDiff = 2000  # print large diffs
+        self.assertEqual(parsed_msg, expected_msg)
+
+    def test_mass_follow(self):
+        sender = "alice.near"
+        follow_list = ["bob.near", "caroline.near", "david.near"]
+        msg = social_follow_args(sender, follow_list)
+        parsed_msg = json.loads(msg)
+        expected_msg = {
+            "data": {
+                "alice.near": {
+                    "graph": {
+                        "follow": {
+                            "bob.near": "",
+                            "caroline.near": "",
+                            "david.near": "",
+                        }
+                    },
+                    "index": {
+                        "graph":
+                            "[{\"key\": \"follow\", \"value\": {\"type\": \"follow\", \"accountId\": \"bob.near\"}},"
+                            " {\"key\": \"follow\", \"value\": {\"type\": \"follow\", \"accountId\": \"caroline.near\"}},"
+                            " {\"key\": \"follow\", \"value\": {\"type\": \"follow\", \"accountId\": \"david.near\"}}]",
+                        "notify":
+                            "[{\"key\": \"bob.near\", \"value\": {\"type\": \"follow\"}},"
+                            " {\"key\": \"caroline.near\", \"value\": {\"type\": \"follow\"}},"
+                            " {\"key\": \"david.near\", \"value\": {\"type\": \"follow\"}}]"
                     }
                 }
             }

@@ -99,7 +99,8 @@ specifically `FTTransferUser`.
 
 
 When selecting user classes, it is also necessary to select the right tags that
-control initialization code. For example, when running with 
+control initialization code. For example, running with `locustFTTransferUser`
+requires `--tags ft`.
 
 Currently supported load types:
 
