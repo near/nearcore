@@ -1,4 +1,5 @@
 use crate::network_protocol;
+use crate::routing::graph_v2::AdvertisedRoute;
 use crate::routing::graph_v2::Inner;
 use crate::routing::GraphV2;
 use crate::routing::NextHopTable;
@@ -22,10 +23,15 @@ impl GraphV2 {
         self.inner.lock().compute_next_hops(&HashSet::new())
     }
 
-    pub(crate) fn update_distance_vector(&self, root: PeerId, edges: Vec<Edge>) -> bool {
+    pub(crate) fn update_distance_vector(
+        &self,
+        root: PeerId,
+        routes: Vec<AdvertisedRoute>,
+        edges: Vec<Edge>,
+    ) -> bool {
         self.inner.lock().handle_message(
             &FakeClock::default().clock(),
-            &network_protocol::DistanceVector { root, routes: vec![], edges },
+            &network_protocol::DistanceVector { root, routes, edges },
         )
     }
 }

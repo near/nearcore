@@ -47,7 +47,7 @@ struct Inner {
     /// Mapping from peer to the routes advertised by the peer
     peer_routes: HashMap<PeerId, PeerRoutes>,
     /// Lengths of the shortest known routes from the local node to other nodes
-    distance: HashMap<PeerId, u32>,
+    my_distances: HashMap<PeerId, u32>,
     /// The latest DistanceVector advertised by the local node
     my_distance_vector: network_protocol::DistanceVector,
 }
@@ -169,45 +169,81 @@ impl Inner {
         Some((distance, first_step))
     }
 
-    /// Verifies the given DistanceVector. If valid, stores the advertised routes.
-    /// Returns a boolean indicating whether the DistanceVector was valid.
-    pub(crate) fn handle_distance_vector(
+    /// Given a DistanceVector message, validates the advertised routes against the accompanying
+    /// tree. If valid, returns a mapping from destination to validated route length. Removes any
+    /// advertised routes which go through the local node; it doesn't make sense to forward to
+    /// a neighbor who will just sent the message right back to us.
+    fn get_validated_routes(
         &mut self,
-        _clock: &time::Clock, // TODO: decide what we want to do with too-old messages
         distance_vector: &network_protocol::DistanceVector,
-    ) -> bool {
+    ) -> Option<PeerRoutes> {
         // A valid DistanceVector must contain distinct, correctly signed edges
         let original_len = distance_vector.edges.len();
         let edges = Edge::deduplicate(distance_vector.edges.clone());
         if edges.len() != original_len || !self.verify_edges(&edges) {
-            return false;
+            return None;
         }
 
-        if let Some((mut distance, first_step)) =
-            self.calculate_tree_distances(&distance_vector.root, &edges)
-        {
-            // If the edges form a valid tree, store the advertised routes
-            self.edge_cache.update_tree(&distance_vector.root, &edges);
+        // Check validity of the spanning tree and compute its basic properties
+        let tree_traversal = self.calculate_tree_distances(&distance_vector.root, &edges);
+        if tree_traversal.is_none() {
+            return None;
+        }
+        let (tree_distance, first_step) = tree_traversal.unwrap();
 
-            // Prune any advertised routes which go through the local node; it doesn't make
-            // sense to forward a message to a neighbor who will send it back to us
-            let local_node_id = self.edge_cache.get_id(&self.config.node_id) as i32;
-            for id in 0..self.edge_cache.max_id() {
-                if first_step[id] == local_node_id {
-                    distance[id] = -1;
-                }
+        // Collect the advertised routes and verify that they are consistent with the tree
+        let mut advertised_distances: Vec<i32> = vec![-1; self.edge_cache.max_id()];
+        for route in &distance_vector.routes {
+            let destination_id = self.edge_cache.get_id(&route.destination) as usize;
+            advertised_distances[destination_id] = route.length as i32;
+        }
+        let mut consistent = true;
+        for id in 0..self.edge_cache.max_id() {
+            if advertised_distances[id] == -1 {
+                consistent &= tree_distance[id] == -1;
+            } else {
+                // Note that it's OK for the tree to "prove" a shorter distance than advertised
+                consistent &= tree_distance[id] <= advertised_distances[id];
             }
+        }
+        if !consistent {
+            return None;
+        }
 
-            self.peer_routes.insert(
-                distance_vector.root.clone(),
-                PeerRoutes { min_nonce: edges.iter().map(|e| e.nonce()).min().unwrap(), distance },
-            );
-            return true;
+        // At this point, we know that the DistanceVector message is valid.
+        // Now, prune any advertised routes which go through the local node; it doesn't make
+        // sense to forward a message to a neighbor who will send it back to us
+        let local_node_id = self.edge_cache.get_id(&self.config.node_id) as i32;
+        for id in 0..self.edge_cache.max_id() {
+            if first_step[id] == local_node_id {
+                advertised_distances[id] = -1;
+            }
+        }
+
+        Some(PeerRoutes {
+            min_nonce: edges.iter().map(|e| e.nonce()).min().unwrap(),
+            distance: advertised_distances,
+        })
+    }
+
+    /// Verifies the given DistanceVector. If valid, stores the advertised routes.
+    /// Returns a boolean indicating whether the DistanceVector was valid.
+    fn handle_distance_vector(
+        &mut self,
+        _clock: &time::Clock, // TODO: decide what we want to do with too-old messages
+        distance_vector: &network_protocol::DistanceVector,
+    ) -> bool {
+        if let Some(routes) = self.get_validated_routes(distance_vector) {
+            // Store the tree used to validate the routes.
+            self.edge_cache.update_tree(&distance_vector.root, &distance_vector.edges);
+            // Store the validated routes
+            self.peer_routes.insert(distance_vector.root.clone(), routes);
+            true
         } else {
-            // If the SPT was invalid, clean up any u32 labels which may have been assigned
-            // during the distance calculation
+            // In case the update was rejected, clean up any ids which may have allocated
+            // to perform the tree traversal
             self.edge_cache.free_unused_ids();
-            return false;
+            false
         }
     }
 
@@ -375,16 +411,23 @@ impl Inner {
         }
 
         // Recompute the NextHopTable
-        let (next_hops, distance) = self.compute_next_hops(unreliable_peers);
+        let (next_hops, distances) = self.compute_next_hops(unreliable_peers);
 
         // If distances in the network have changed,
         // construct and return a message to be broadcasted to peers
-        let to_broadcast = if distance != self.distance {
-            self.distance = distance;
+        let to_broadcast = if distances != self.my_distances {
+            self.my_distances = distances;
             self.my_distance_vector = network_protocol::DistanceVector {
                 root: self.config.node_id.clone(),
-                routes: vec![], // TODO: fill me in
-                edges: self.edge_cache.construct_spanning_tree(&self.distance),
+                routes: self
+                    .my_distances
+                    .iter()
+                    .map(|(destination, length)| AdvertisedRoute {
+                        destination: destination.clone(),
+                        length: *length,
+                    })
+                    .collect(),
+                edges: self.edge_cache.construct_spanning_tree(&self.my_distances),
             };
             //Some(self.local_spt.clone())
             None
@@ -426,7 +469,7 @@ impl GraphV2 {
                 config,
                 edge_cache,
                 peer_routes: HashMap::new(),
-                distance: HashMap::new(),
+                my_distances: HashMap::new(),
                 my_distance_vector,
             })),
             unreliable_peers: ArcSwap::default(),
