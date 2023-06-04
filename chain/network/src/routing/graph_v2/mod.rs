@@ -230,7 +230,6 @@ impl Inner {
     /// Returns a boolean indicating whether the DistanceVector was valid.
     fn handle_distance_vector(
         &mut self,
-        _clock: &time::Clock, // TODO: decide what we want to do with too-old messages
         distance_vector: &network_protocol::DistanceVector,
     ) -> bool {
         if let Some(routes) = self.get_validated_routes(distance_vector) {
@@ -257,12 +256,7 @@ impl Inner {
     /// Handles connection of a new peer or nonce refresh for an existing one.
     /// Adds or updates the nonce for the given edge. If we don't already have an
     /// DistanceVector for this peer_id, initializes one with just the given edge.
-    pub(crate) fn add_or_update_direct_peer(
-        &mut self,
-        clock: &time::Clock,
-        peer_id: PeerId,
-        edge: Edge,
-    ) {
+    pub(crate) fn add_or_update_direct_peer(&mut self, peer_id: PeerId, edge: Edge) {
         match self.peer_routes.entry(peer_id.clone()) {
             Entry::Occupied(_occupied) => {
                 // Refresh the nonce in the cache for the direct edge
@@ -272,14 +266,14 @@ impl Inner {
             }
             Entry::Vacant(_) => {
                 // We have no advertised routes for this peer; initialize
-                assert!(self.handle_distance_vector(
-                    &clock,
-                    &network_protocol::DistanceVector {
-                        root: peer_id.clone(),
-                        routes: vec![AdvertisedRoute { destination: peer_id, length: 0 }],
-                        edges: vec![edge]
-                    }
-                ));
+                assert!(self.handle_distance_vector(&network_protocol::DistanceVector {
+                    root: peer_id.clone(),
+                    routes: vec![
+                        AdvertisedRoute { destination: peer_id, length: 0 },
+                        AdvertisedRoute { destination: self.config.node_id.clone(), length: 1 }
+                    ],
+                    edges: vec![edge]
+                }));
             }
         };
     }
@@ -289,7 +283,7 @@ impl Inner {
     /// TODO(saketh): refactor this, it is needlessly clever
     pub(crate) fn handle_message(
         &mut self,
-        clock: &time::Clock,
+        _clock: &time::Clock,
         distance_vector: &network_protocol::DistanceVector,
     ) -> bool {
         if distance_vector.edges.is_empty() {
@@ -300,14 +294,13 @@ impl Inner {
             // Handle new peer connection or refreshed edge submitted by the local node
             assert!(distance_vector.edges.len() == 1);
             self.add_or_update_direct_peer(
-                &clock,
                 distance_vector.edges[0].other(&self.config.node_id).unwrap().clone(),
                 distance_vector.edges[0].clone(),
             );
             true
         } else {
             // Handle a DistanceVector message sent by a neighbor
-            self.handle_distance_vector(&clock, distance_vector)
+            self.handle_distance_vector(distance_vector)
         }
     }
 

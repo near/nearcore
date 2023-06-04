@@ -282,3 +282,19 @@ fn overwrite_shortest_path_tree() {
     // The verified nonce for edge1 should still be in the edge cache
     assert!(graph.inner.lock().edge_cache.has_edge_nonce_or_newer(&edge1));
 }
+
+#[test]
+fn add_or_update_direct_peer() {
+    let node0 = random_peer_id();
+    let node1 = random_peer_id();
+
+    let graph = GraphV2::new(GraphConfigV2 { node_id: node0.clone(), prune_edges_after: None });
+
+    let edge0 = Edge::make_fake_edge(node0, node1.clone(), 123);
+
+    // Process a new connection 0--1
+    // TODO: fix this, don't touch inner
+    graph.inner.lock().add_or_update_direct_peer(node1, edge0);
+
+    // TODO: how do we check outcome
+}
