@@ -202,7 +202,7 @@ impl Inner {
             if advertised_distances[id] == -1 {
                 consistent &= tree_distance[id] == -1;
             } else {
-                // Note that it's OK for the tree to "prove" a shorter distance than advertised
+                // It's OK for the tree to "prove" a shorter distance than advertised
                 consistent &= tree_distance[id] <= advertised_distances[id];
             }
         }
@@ -429,8 +429,7 @@ impl Inner {
                     .collect(),
                 edges: self.edge_cache.construct_spanning_tree(&self.my_distances),
             };
-            //Some(self.local_spt.clone())
-            None
+            Some(self.my_distance_vector.clone())
         } else {
             None
         };
