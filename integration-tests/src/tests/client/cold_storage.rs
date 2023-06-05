@@ -3,7 +3,7 @@ use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
-use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey};
+use near_crypto::{InMemorySigner, KeyType};
 use near_epoch_manager::EpochManager;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
@@ -503,7 +503,7 @@ fn test_cold_loop_on_gc_boundary() {
         .nightshade_runtimes(&genesis)
         .build();
 
-    let height_delta = env.clients[0].config.gc.gc_num_epochs_to_keep * epoch_length * 3;
+    let height_delta = env.clients[0].config.gc.gc_num_epochs_to_keep * epoch_length * 2;
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
 
@@ -555,17 +555,26 @@ fn test_cold_loop_on_gc_boundary() {
     let start_cold_head =
         cold_store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY).unwrap().unwrap().height;
 
-    let mut near_config = NearConfig::new(nearcore::config::Config::default(), genesis.clone(), near_crypto::KeyFile {
-        account_id: AccountId::from_str("example").unwrap(),
-        public_key: PublicKey::from_str("ed25519:6DSjZ8mvsRZDvFqFxo8tCKePG96omXW7eVYVSySmDk8e").unwrap(),
-        secret_key: SecretKey::from_str("ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr").unwrap(),
-    }, None).unwrap();
+    let signer =
+        InMemorySigner::from_random(AccountId::from_str("test").unwrap(), KeyType::ED25519);
+
+    let mut near_config = NearConfig::new(
+        nearcore::config::Config::default(),
+        genesis.clone(),
+        near_crypto::KeyFile {
+            account_id: signer.account_id,
+            public_key: signer.public_key,
+            secret_key: signer.secret_key,
+        },
+        None,
+    )
+    .unwrap();
     near_config.client_config = env.clients[0].config.clone();
     near_config.config.save_trie_changes = Some(true);
 
     let epoch_manager = EpochManager::new_arc_handle(store.get_hot_store(), &genesis.config);
     spawn_cold_store_loop(&near_config, &store, epoch_manager).unwrap();
-    std::thread::sleep(std::time::Duration::from_secs(10));
+    std::thread::sleep(std::time::Duration::from_secs(1));
 
     let end_cold_head =
         cold_store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY).unwrap().unwrap().height;
