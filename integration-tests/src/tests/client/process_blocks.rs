@@ -18,7 +18,6 @@ use near_primitives::num_rational::{Ratio, Rational32};
 
 use near_actix_test_utils::run_actix;
 use near_chain::chain::ApplyStatePartsRequest;
-use near_chain::state_snapshot_actor::MakeSnapshotCallback;
 use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{
@@ -1837,17 +1836,12 @@ fn test_process_block_after_state_sync() {
     let stores = vec![store];
     let epoch_managers = vec![epoch_manager];
     let runtimes = vec![runtime.clone()];
-    let callbacks: Vec<MakeSnapshotCallback> =
-        vec![Arc::new(move |prev_block_hash, shard_uids| {
-            tracing::info!(target: "state_snapshot", ?prev_block_hash, "make_snapshot_callback");
-            runtime.get_tries().make_state_snapshot(&prev_block_hash, &shard_uids).unwrap();
-        })];
 
     let mut env = TestEnv::builder(chain_genesis)
         .stores(stores)
         .epoch_managers(epoch_managers)
         .runtimes(runtimes)
-        .set_make_state_snapshot_callbacks(callbacks)
+        .use_state_snapshots()
         .build();
     let sync_height = epoch_length * 4 + 1;
     for i in 1..=sync_height {
@@ -2601,20 +2595,12 @@ fn test_catchup_gas_price_change() {
     let epoch_managers = vec![epoch_manager1, epoch_manager2];
     let runtimes = vec![runtime1.clone(), runtime2.clone()];
 
-    let callbacks: Vec<MakeSnapshotCallback> = vec![
-        Arc::new(move |prev_block_hash, shard_uids| {
-            tracing::info!(target: "state_snapshot", ?prev_block_hash, "make_snapshot_callback");
-            runtime1.get_tries().make_state_snapshot(&prev_block_hash, &shard_uids).unwrap();
-        }),
-        Arc::new(move |_, _| {}),
-    ];
-
     let mut env = TestEnv::builder(chain_genesis)
         .clients_count(2)
         .stores(stores)
         .epoch_managers(epoch_managers)
         .runtimes(runtimes)
-        .set_make_state_snapshot_callbacks(callbacks)
+        .use_state_snapshots()
         .build();
 
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();

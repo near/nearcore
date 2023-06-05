@@ -1377,7 +1377,7 @@ pub struct TestEnvBuilder {
     seeds: HashMap<AccountId, RngSeed>,
     archive: bool,
     save_trie_changes: bool,
-    make_state_snapshot_callbacks: Option<Vec<MakeSnapshotCallback>>,
+    add_state_snapshots: bool,
 }
 
 /// Builder for the [`TestEnv`] structure.
@@ -1400,7 +1400,7 @@ impl TestEnvBuilder {
             seeds,
             archive: false,
             save_trie_changes: true,
-            make_state_snapshot_callbacks: None,
+            add_state_snapshots: false,
         }
     }
 
@@ -1761,6 +1761,16 @@ impl TestEnvBuilder {
                     Some(seed) => *seed,
                     None => TEST_SEED,
                 };
+                let make_state_snapshot_callback : Option<MakeSnapshotCallback> = if self.add_state_snapshots {
+                    let runtime = runtime.clone();
+                    let snapshot : MakeSnapshotCallback = Arc::new(move |prev_block_hash, shard_uids| {
+                        tracing::info!(target: "state_snapshot", ?prev_block_hash, "make_snapshot_callback");
+                        runtime.get_tries().make_state_snapshot(&prev_block_hash, &shard_uids).unwrap();
+                    });
+                    Some(snapshot)
+                } else {
+                    None
+                };
                 setup_client_with_runtime(
                     u64::try_from(num_validators).unwrap(),
                     Some(account_id),
@@ -1774,9 +1784,7 @@ impl TestEnvBuilder {
                     rng_seed,
                     self.archive,
                     self.save_trie_changes,
-                    self.make_state_snapshot_callbacks
-                        .as_ref()
-                        .map(|callbacks| callbacks.get(i).unwrap().clone()),
+                    make_state_snapshot_callback,
                 )
             })
             .collect();
@@ -1805,12 +1813,8 @@ impl TestEnvBuilder {
         (0..count).map(|i| format!("test{}", i).parse().unwrap()).collect()
     }
 
-    pub fn set_make_state_snapshot_callbacks(
-        mut self,
-        callbacks: Vec<MakeSnapshotCallback>,
-    ) -> Self {
-        assert_eq!(callbacks.len(), self.clients.len());
-        self.make_state_snapshot_callbacks = Some(callbacks);
+    pub fn use_state_snapshots(mut self) -> Self {
+        self.add_state_snapshots = true;
         self
     }
 }
