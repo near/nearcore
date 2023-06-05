@@ -78,6 +78,16 @@ impl Trie {
         self.find_node_in_dfs_order(&root_node, size_start)
     }
 
+    pub fn get_trie_nodes_for_part_without_flat_storage(
+        &self,
+        part_id: PartId,
+    ) -> Result<PartialState, StorageError> {
+        let with_recording = self.recording_reads();
+        with_recording.visit_nodes_for_state_part(part_id)?;
+        let recorded = with_recording.recorded_storage().unwrap();
+        Ok(recorded.nodes)
+    }
+
     /// Helper to create iterator over flat storage entries corresponding to
     /// its head, shard for which trie was created and the range of keys given
     /// in nibbles.
@@ -442,6 +452,7 @@ mod tests {
     use crate::trie::{TrieRefcountChange, ValueHandle};
 
     use super::*;
+    use crate::flat::{store_helper, BlockInfo, FlatStorageReadyStatus, FlatStorageStatus};
     use near_primitives::shard_layout::ShardUId;
 
     /// Checks that sampling state boundaries always gives valid state keys
@@ -765,15 +776,8 @@ mod tests {
                     max_proof_overhead
                 );
 
-                let (partial_state, nibbles_begin, nibbles_end) =
-                    trie.get_state_part_boundaries(PartId::new(part_id, num_parts)).unwrap();
                 let PartialState::TrieValues(part_nodes) = trie
-                    .get_trie_nodes_for_part_with_flat_storage(
-                        PartId::new(part_id, num_parts),
-                        partial_state,
-                        nibbles_begin,
-                        nibbles_end,
-                    )
+                    .get_trie_nodes_for_part_without_flat_storage(PartId::new(part_id, num_parts))
                     .unwrap();
                 // TODO (#8997): it's a bit weird that raw lengths are compared to
                 // config values. Consider better defined assertion.
@@ -842,21 +846,14 @@ mod tests {
             );
             let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
             let root_memory_usage = trie.retrieve_root_node().unwrap().memory_usage;
-
             {
                 // Test that combining all parts gets all nodes
                 let num_parts = rng.gen_range(2..10);
                 let parts = (0..num_parts)
                     .map(|part_id| {
-                        let (partial_state, nibbles_begin, nibbles_end) = trie
-                            .get_state_part_boundaries(PartId::new(part_id, num_parts))
-                            .unwrap();
-                        trie.get_trie_nodes_for_part_with_flat_storage(
-                            PartId::new(part_id, num_parts),
-                            partial_state,
-                            nibbles_begin,
-                            nibbles_end,
-                        )
+                        trie.get_trie_nodes_for_part_without_flat_storage(PartId::new(
+                            part_id, num_parts,
+                        ))
                         .unwrap()
                     })
                     .collect::<Vec<_>>();
@@ -962,6 +959,7 @@ mod tests {
 
     /// Checks that state part with unexpected data or not enough data doesn't
     /// pass validation.
+    /// Doesn't use FlatStorage.
     #[test]
     fn invalid_state_parts() {
         let tries = create_tries();
@@ -984,15 +982,8 @@ mod tests {
         store_update.commit().unwrap();
 
         let trie = tries.get_view_trie_for_shard(shard_uid, root);
-        let (partial_state, nibbles_begin, nibbles_end) =
-            trie.get_state_part_boundaries(part_id).unwrap();
         let PartialState::TrieValues(trie_values) = trie
-            .get_trie_nodes_for_part_with_flat_storage(
-                part_id,
-                partial_state,
-                nibbles_begin,
-                nibbles_end,
-            )
+            .get_trie_nodes_for_part_without_flat_storage(part_id)
             .expect("State part generation using Trie must work");
         let num_trie_values = trie_values.len();
         assert!(num_trie_values >= 2);
@@ -1057,15 +1048,8 @@ mod tests {
                 // Test that creating and validating are consistent
                 let num_parts: u64 = rng.gen_range(1..10);
                 let part_id = rng.gen_range(0..num_parts);
-                let (partial_state, nibbles_begin, nibbles_end) =
-                    trie.get_state_part_boundaries(PartId::new(part_id, num_parts)).unwrap();
                 let trie_nodes = trie
-                    .get_trie_nodes_for_part_with_flat_storage(
-                        PartId::new(part_id, num_parts),
-                        partial_state,
-                        nibbles_begin,
-                        nibbles_end,
-                    )
+                    .get_trie_nodes_for_part_without_flat_storage(PartId::new(part_id, num_parts))
                     .unwrap();
                 assert_eq!(
                     Trie::validate_state_part(
@@ -1079,8 +1063,6 @@ mod tests {
         }
     }
 
-    /*
-    TODO: Fix this test
     /// Checks sanity of generating state part using flat storage.
     #[test]
     fn get_trie_nodes_for_part_with_flat_storage() {
@@ -1120,16 +1102,25 @@ mod tests {
         // Get correct state part using trie without flat storage.
         let trie_without_flat = tries.get_view_trie_for_shard(shard_uid, root);
         let state_part = trie_without_flat
-            .get_trie_nodes_for_part(&block_hash, part_id)
+            .get_trie_nodes_for_part_without_flat_storage(part_id)
             .expect("State part generation using Trie must work");
         assert_eq!(Trie::validate_state_part(&root, part_id, state_part.clone()), Ok(()));
         assert!(state_part.len() > 0);
 
         // Check that if we try to use flat storage but it is empty, state part
         // creation fails.
-        let trie = tries.get_trie_with_block_hash_for_shard(shard_uid, root, &block_hash, true);
+        let (partial_state, nibbles_begin, nibbles_end) =
+            trie_without_flat.get_state_part_boundaries(part_id).unwrap();
+
+        let view_chunk_trie =
+            tries.get_trie_with_block_hash_for_shard(shard_uid, root, &block_hash, true);
         assert_eq!(
-            trie.get_trie_nodes_for_part(&block_hash, part_id),
+            view_chunk_trie.get_trie_nodes_for_part_with_flat_storage(
+                part_id,
+                partial_state,
+                nibbles_begin,
+                nibbles_end
+            ),
             Err(StorageError::MissingTrieValue)
         );
 
@@ -1141,40 +1132,17 @@ mod tests {
         delta.apply_to_flat_state(&mut store_update, shard_uid);
         store_update.commit().unwrap();
 
-        let trie_with_flat =
+        let (partial_state, nibbles_begin, nibbles_end) =
+            trie_without_flat.get_state_part_boundaries(part_id).unwrap();
+
+        let view_chunk_trie =
             tries.get_trie_with_block_hash_for_shard(shard_uid, root, &block_hash, true);
-        let state_part_with_flat =
-            trie_with_flat.get_trie_nodes_for_part(&block_hash, PartId::new(1, 3));
+        let state_part_with_flat = view_chunk_trie.get_trie_nodes_for_part_with_flat_storage(
+            PartId::new(1, 3),
+            partial_state,
+            nibbles_begin,
+            nibbles_end,
+        );
         assert_eq!(state_part_with_flat, Ok(state_part.clone()));
-
-        // Remove some key from state part from trie storage.
-        // Check that trie-only state part generation fails but trie & flat
-        // storage generation succeeds, as it doesn't access intermediate nodes.
-        let mut store_update = tries.store_update();
-        let store_value = vec![5; value_len];
-        let value_hash = hash(&store_value);
-        let store_key = TrieCachingStorage::get_key_from_shard_uid_and_hash(shard_uid, &value_hash);
-        store_update.decrement_refcount(DBCol::State, &store_key);
-        store_update.commit().unwrap();
-
-        assert_eq!(
-            trie_without_flat.get_trie_nodes_for_part(&block_hash, part_id),
-            Err(StorageError::MissingTrieValue)
-        );
-        assert_eq!(trie_with_flat.get_trie_nodes_for_part(&block_hash, part_id), Ok(state_part));
-
-        // Remove some key from state part from flat storage.
-        // Check that state part creation succeeds but generated state part
-        // is invalid.
-        let mut store_update = tries.store_update();
-        let delta = FlatStateChanges::from(vec![(b"ba".to_vec(), None)]);
-        delta.apply_to_flat_state(&mut store_update, shard_uid);
-        store_update.commit().unwrap();
-
-        assert_eq!(
-            trie_with_flat.get_trie_nodes_for_part(&block_hash, part_id),
-            Err(StorageError::MissingTrieValue)
-        );
     }
-     */
 }
