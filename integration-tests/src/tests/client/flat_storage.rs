@@ -49,14 +49,14 @@ fn wait_for_flat_storage_creation(
 ) -> BlockHeight {
     let store = env.clients[0].runtime_adapter.store().clone();
     let mut next_height = start_height;
-    let mut prev_status = store_helper::get_flat_storage_status(&store, shard_uid);
+    let mut prev_status = store_helper::get_flat_storage_status(&store, shard_uid).unwrap();
     while next_height < start_height + CREATION_TIMEOUT {
         if produce_blocks {
             env.produce_block(0, next_height);
         }
         env.clients[0].run_flat_storage_creation_step().unwrap();
 
-        let status = store_helper::get_flat_storage_status(&store, shard_uid);
+        let status = store_helper::get_flat_storage_status(&store, shard_uid).unwrap();
         // Check validity of state transition for flat storage creation.
         match &prev_status {
             FlatStorageStatus::Empty => assert_matches!(
@@ -138,7 +138,7 @@ fn test_flat_storage_creation_sanity() {
         let expected_flat_storage_head =
             env.clients[0].chain.get_block_hash_by_height(flat_head_height).unwrap();
         let status = store_helper::get_flat_storage_status(&store, shard_uid);
-        if let FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head }) = status {
+        if let Ok(FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head })) = status {
             assert_eq!(flat_head.hash, expected_flat_storage_head);
             assert_eq!(flat_head.height, flat_head_height);
         } else {
@@ -171,13 +171,16 @@ fn test_flat_storage_creation_sanity() {
     }
     assert!(get_flat_storage_manager(&env).get_flat_storage_for_shard(shard_uid).is_none());
 
-    assert_eq!(store_helper::get_flat_storage_status(&store, shard_uid), FlatStorageStatus::Empty);
+    assert_eq!(
+        store_helper::get_flat_storage_status(&store, shard_uid),
+        Ok(FlatStorageStatus::Empty)
+    );
     assert!(!env.clients[0].run_flat_storage_creation_step().unwrap());
     // At first, flat storage state should start saving deltas. Deltas for all newly processed blocks should be saved to
     // disk.
     assert_eq!(
         store_helper::get_flat_storage_status(&store, shard_uid),
-        FlatStorageStatus::Creation(FlatStorageCreationStatus::SavingDeltas)
+        Ok(FlatStorageStatus::Creation(FlatStorageCreationStatus::SavingDeltas))
     );
     // Introduce fork block to check that deltas for it will be GC-d later.
     let fork_block = env.clients[0].produce_block(START_HEIGHT + 2).unwrap().unwrap();
@@ -205,14 +208,14 @@ fn test_flat_storage_creation_sanity() {
     let final_block_hash = env.clients[0].chain.get_block_hash_by_height(START_HEIGHT).unwrap();
     assert_eq!(
         store_helper::get_flat_storage_status(&store, shard_uid),
-        FlatStorageStatus::Creation(FlatStorageCreationStatus::FetchingState(
+        Ok(FlatStorageStatus::Creation(FlatStorageCreationStatus::FetchingState(
             FetchingStateStatus {
                 block_hash: final_block_hash,
                 part_id: 0,
                 num_parts_in_step: NUM_PARTS_IN_ONE_STEP,
                 num_parts: 1,
             }
-        ))
+        )))
     );
 
     wait_for_flat_storage_creation(&mut env, START_HEIGHT + 5, shard_uid, true);
@@ -238,7 +241,7 @@ fn test_flat_storage_creation_two_shards() {
         for &shard_uid in &shard_uids {
             assert_matches!(
                 store_helper::get_flat_storage_status(&store, shard_uid),
-                FlatStorageStatus::Ready(_)
+                Ok(FlatStorageStatus::Ready(_))
             );
         }
 
@@ -250,12 +253,12 @@ fn test_flat_storage_creation_two_shards() {
     assert!(get_flat_storage_manager(&env).get_flat_storage_for_shard(shard_uids[0]).is_none());
     assert_matches!(
         store_helper::get_flat_storage_status(&store, shard_uids[0]),
-        FlatStorageStatus::Empty
+        Ok(FlatStorageStatus::Empty)
     );
     assert!(get_flat_storage_manager(&env).get_flat_storage_for_shard(shard_uids[1]).is_some());
     assert_matches!(
         store_helper::get_flat_storage_status(&store, shard_uids[1]),
-        FlatStorageStatus::Ready(_)
+        Ok(FlatStorageStatus::Ready(_))
     );
 
     wait_for_flat_storage_creation(&mut env, START_HEIGHT, shard_uids[0], true);
@@ -284,7 +287,7 @@ fn test_flat_storage_creation_start_from_state_part() {
 
         assert_matches!(
             store_helper::get_flat_storage_status(&store, shard_uid),
-            FlatStorageStatus::Ready(_)
+            Ok(FlatStorageStatus::Ready(_))
         );
 
         let block_hash = env.clients[0].chain.get_block_hash_by_height(START_HEIGHT - 1).unwrap();
@@ -317,15 +320,14 @@ fn test_flat_storage_creation_start_from_state_part() {
         // Remove keys of part 1 from the flat state.
         // Manually set flat storage creation status to the step when it should start from fetching part 1.
         let status = store_helper::get_flat_storage_status(&store, shard_uid);
-        let flat_head = if let FlatStorageStatus::Ready(ready_status) = status {
+        let flat_head = if let Ok(FlatStorageStatus::Ready(ready_status)) = status {
             ready_status.flat_head.hash
         } else {
             panic!("expected FlatStorageStatus::Ready, got: {status:?}");
         };
         let mut store_update = store.store_update();
         for key in trie_keys[1].iter() {
-            store_helper::set_flat_state_value(&mut store_update, shard_uid, key.clone(), None)
-                .unwrap();
+            store_helper::set_flat_state_value(&mut store_update, shard_uid, key.clone(), None);
         }
         store_helper::set_flat_storage_status(
             &mut store_update,
@@ -386,7 +388,10 @@ fn test_catchup_succeeds_even_if_no_new_blocks() {
     }
     let mut env = setup_env(&genesis, store.clone());
     assert!(get_flat_storage_manager(&env).get_flat_storage_for_shard(shard_uid).is_none());
-    assert_eq!(store_helper::get_flat_storage_status(&store, shard_uid), FlatStorageStatus::Empty);
+    assert_eq!(
+        store_helper::get_flat_storage_status(&store, shard_uid),
+        Ok(FlatStorageStatus::Empty)
+    );
     // Create 3 more blocks (so that the deltas are generated) - and assume that no new blocks are received.
     // In the future, we should also support the scenario where no new blocks are created.
 

@@ -218,7 +218,9 @@ impl FlatStorageCommand {
                 let shard_uid =
                     epoch_manager.shard_id_to_uid(verify_cmd.shard_id, &tip.epoch_id)?;
 
-                let head_hash = match store_helper::get_flat_storage_status(&hot_store, shard_uid) {
+                let head_hash = match store_helper::get_flat_storage_status(&hot_store, shard_uid)
+                    .expect("falied to read flat storage status")
+                {
                     FlatStorageStatus::Ready(ready_status) => ready_status.flat_head.hash,
                     status => {
                         panic!(

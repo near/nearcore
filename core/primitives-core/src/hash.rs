@@ -23,8 +23,10 @@ use std::io::Write;
 pub struct CryptoHash(pub [u8; 32]);
 
 impl CryptoHash {
+    pub const LENGTH: usize = 32;
+
     pub const fn new() -> Self {
-        Self([0; 32])
+        Self([0; Self::LENGTH])
     }
 
     /// Calculates hash of given bytes.
@@ -67,7 +69,7 @@ impl CryptoHash {
         CryptoHash(hasher.finalize().into())
     }
 
-    pub const fn as_bytes(&self) -> &[u8; 32] {
+    pub const fn as_bytes(&self) -> &[u8; Self::LENGTH] {
         &self.0
     }
 
@@ -191,8 +193,8 @@ impl From<&CryptoHash> for Vec<u8> {
     }
 }
 
-impl From<CryptoHash> for [u8; 32] {
-    fn from(hash: CryptoHash) -> [u8; 32] {
+impl From<CryptoHash> for [u8; CryptoHash::LENGTH] {
+    fn from(hash: CryptoHash) -> [u8; CryptoHash::LENGTH] {
         hash.0
     }
 }
