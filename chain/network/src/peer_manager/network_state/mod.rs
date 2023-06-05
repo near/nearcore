@@ -5,8 +5,8 @@ use crate::concurrency::demux;
 use crate::concurrency::runtime::Runtime;
 use crate::config;
 use crate::network_protocol::{
-    DistanceVector, Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerInfo, PeerMessage,
-    RawRoutedMessage, RoutedMessageBody, RoutedMessageV2, SignedAccountData,
+    Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerInfo, PeerMessage, RawRoutedMessage,
+    RoutedMessageBody, RoutedMessageV2, SignedAccountData,
 };
 use crate::peer::peer_actor::PeerActor;
 use crate::peer::peer_actor::{ClosingReason, ConnectionClosedEvent};
@@ -16,6 +16,7 @@ use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_store;
 use crate::private_actix::RegisterPeerError;
 use crate::routing::route_back_cache::RouteBackCache;
+use crate::routing::NetworkTopologyChange;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::stats::metrics;
 use crate::store;
@@ -119,6 +120,7 @@ pub(crate) struct NetworkState {
     /// A graph of the whole NEAR network.
     pub graph: Arc<crate::routing::Graph>,
     /// A sparsified graph of the whole NEAR network.
+    /// TODO(saketh): deprecate graph above, rename this to RoutingTable
     pub graph_v2: Arc<crate::routing::GraphV2>,
 
     /// Hashes of the body of recently received routed messages.
@@ -145,8 +147,9 @@ pub(crate) struct NetworkState {
     tier1_advertise_proxies_mutex: tokio::sync::Mutex<()>,
     /// Demultiplexer aggregating calls to add_edges().
     add_edges_demux: demux::Demux<Vec<Edge>, Result<(), ReasonForBan>>,
-    /// Demultiplexer aggregating calls to handle_distance_vector().
-    distance_vector_demux: demux::Demux<DistanceVector, Result<(), ReasonForBan>>,
+    /// Demultiplexer aggregating calls to update_routes()
+    update_routes_demux:
+        demux::Demux<crate::routing::NetworkTopologyChange, Result<(), ReasonForBan>>,
 
     /// Mutex serializing calls to set_chain_info(), which mutates a bunch of stuff non-atomically.
     /// TODO(gprusak): make it use synchronization primitives in some more canonical way.
@@ -198,7 +201,7 @@ impl NetworkState {
             txns_since_last_block: AtomicUsize::new(0),
             whitelist_nodes,
             add_edges_demux: demux::Demux::new(config.routing_table_update_rate_limit),
-            distance_vector_demux: demux::Demux::new(config.routing_table_update_rate_limit),
+            update_routes_demux: demux::Demux::new(config.routing_table_update_rate_limit),
             set_chain_info_mutex: Mutex::new(()),
             config,
             created_at: clock.now(),
@@ -331,7 +334,7 @@ impl NetworkState {
                         .await
                         .map_err(|_: ReasonForBan| RegisterPeerError::InvalidEdge)?;
                     // Update the V2 routing table
-                    this.add_or_update_local_edge(&clock, peer_info.id.clone(), edge.clone())
+                    this.update_routes(&clock, NetworkTopologyChange::PeerConnected(peer_info.id.clone(), edge.clone()))
                         .await.map_err(|_: ReasonForBan| RegisterPeerError::InvalidEdge)?;
                     // Insert to the local connection pool
                     this.tier2.insert_ready(conn.clone()).map_err(RegisterPeerError::PoolError)?;
@@ -378,7 +381,9 @@ impl NetworkState {
             }
 
             // Update the V2 routing table
-            this.remove_local_edge(&clock, peer_id).await.unwrap();
+            this.update_routes(&clock, NetworkTopologyChange::PeerDisconnected(peer_id.clone()))
+                .await
+                .unwrap();
 
             // Save the fact that we are disconnecting to the PeerStore.
             let res = match reason {

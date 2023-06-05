@@ -4,7 +4,6 @@ use crate::routing::graph_v2::Inner;
 use crate::routing::GraphV2;
 use crate::routing::NextHopTable;
 use crate::types::Edge;
-use near_async::time::FakeClock;
 use near_primitives::network::PeerId;
 use std::collections::{HashMap, HashSet};
 
@@ -29,9 +28,10 @@ impl GraphV2 {
         routes: Vec<AdvertisedRoute>,
         edges: Vec<Edge>,
     ) -> bool {
-        self.inner.lock().handle_message(
-            &FakeClock::default().clock(),
-            &network_protocol::DistanceVector { root, routes, edges },
-        )
+        self.inner.lock().handle_distance_vector(&network_protocol::DistanceVector {
+            root,
+            routes,
+            edges,
+        })
     }
 }

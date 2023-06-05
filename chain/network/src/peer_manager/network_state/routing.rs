@@ -7,6 +7,7 @@ use crate::peer_manager::connection;
 use crate::peer_manager::network_state::PeerIdOrHash;
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::routing::routing_table_view::FindRouteError;
+use crate::routing::NetworkTopologyChange;
 use crate::stats::metrics;
 use crate::tcp;
 use crate::types::ReasonForBan;
@@ -92,7 +93,12 @@ impl NetworkState {
             edge_info.signature,
         );
         self.add_edges(&clock, vec![edge.clone()]).await?;
-        self.add_or_update_local_edge(&clock, peer_id.clone(), edge.clone()).await?;
+        self.update_routes(
+            &clock,
+            NetworkTopologyChange::PeerConnected(peer_id.clone(), edge.clone()),
+        )
+        .await?;
+
         Ok(edge)
     }
 
@@ -176,31 +182,21 @@ impl NetworkState {
         self.tier2_route_back.lock().get(&hash).map_or(false, |value| value == peer_id)
     }
 
-    /// Validates the given ShortestPathTree, including
-    ///     * Validation of signatures on all included edges
-    ///     * Validation that the provided edges form a tree
-    ///     * Validation that the specified tree includes the indicated root
-    ///
-    /// Returns an error iff the ShortestPathTree is invalid.
-    /// Even if an error is returned, any valid input edges may be cached.
-    ///
-    /// If the given ShortestPathTree is valid, the V2 routing table is updated.
-    /// If the local node's ShortestPathTree changes as a result, it is broadcasted.
-    ///
-    /// Calls to this function are demultiplexed using the update_spt_demux.
-    /// The following special cases are supported:
-    ///     * Insertion or update of a local edge, represented by passing an SPT with a single edge
-    ///     * Removal of a local edge, representing by passing an SPT with no edges
-    pub async fn process_distance_vector(
+    /// Processes the given NetworkTopologyChange.
+    /// If an updated DistanceVector is returned, broadcasts it.
+    /// If an error occurs while processing a DistanceVector advertised by a peer, bans the peer.
+    pub async fn update_routes(
         self: &Arc<Self>,
         clock: &time::Clock,
-        distance_vector: DistanceVector,
+        event: NetworkTopologyChange,
     ) -> Result<(), ReasonForBan> {
         let this = self.clone();
         let clock = clock.clone();
-        self.distance_vector_demux
-            .call(distance_vector, |distance_vectors: Vec<DistanceVector>| async move {
-                let (to_broadcast, oks) = this.graph_v2.update(&clock, distance_vectors).await;
+        self.update_routes_demux
+            .call(event, |events: Vec<NetworkTopologyChange>| async move {
+                let (to_broadcast, oks) =
+                    this.graph_v2.batch_process_network_changes(&clock, events).await;
+
                 match to_broadcast {
                     Some(my_distance_vector) => {
                         // TODO: should we put some event type here?
@@ -220,30 +216,5 @@ impl NetworkState {
             })
             .await
             .unwrap_or(Ok(()))
-    }
-
-    pub async fn add_or_update_local_edge(
-        self: &Arc<Self>,
-        clock: &time::Clock,
-        peer_id: PeerId,
-        edge: Edge,
-    ) -> Result<(), ReasonForBan> {
-        self.process_distance_vector(
-            clock,
-            DistanceVector { root: peer_id, routes: vec![], edges: vec![edge] },
-        )
-        .await
-    }
-
-    pub async fn remove_local_edge(
-        self: &Arc<Self>,
-        clock: &time::Clock,
-        peer_id: PeerId,
-    ) -> Result<(), ReasonForBan> {
-        self.process_distance_vector(
-            clock,
-            DistanceVector { root: peer_id, routes: vec![], edges: vec![] },
-        )
-        .await
     }
 }

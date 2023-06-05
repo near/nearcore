@@ -16,6 +16,7 @@ use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_manager_actor::MAX_TIER2_PEERS;
 use crate::private_actix::{RegisterPeerError, SendMessage};
 use crate::routing::edge::verify_nonce;
+use crate::routing::NetworkTopologyChange;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::stats::metrics;
 use crate::tcp;
@@ -1423,8 +1424,9 @@ impl PeerActor {
     ) {
         // TODO(saketh): check if distance_vector.root matches the peer_id on the connection
         let _span = tracing::trace_span!(target: "network", "handle_distance_vector").entered();
-        if let Err(ban_reason) =
-            network_state.process_distance_vector(&clock, distance_vector).await
+        if let Err(ban_reason) = network_state
+            .update_routes(&clock, NetworkTopologyChange::PeerAdvertisedRoutes(distance_vector))
+            .await
         {
             conn.stop(Some(ban_reason));
         }

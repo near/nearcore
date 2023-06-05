@@ -31,6 +31,12 @@ pub struct GraphConfigV2 {
     pub prune_edges_after: Option<time::Duration>,
 }
 
+pub enum NetworkTopologyChange {
+    PeerConnected(PeerId, Edge),
+    PeerDisconnected(PeerId),
+    PeerAdvertisedRoutes(network_protocol::DistanceVector),
+}
+
 // Locally stored properties of a received DistanceVector message
 struct PeerRoutes {
     /// The lowest nonce among all edges used in the advertised routes.
@@ -247,60 +253,59 @@ impl Inner {
     }
 
     /// Handles disconnection of a peer.
-    /// Drops the stored SPT, if there is one, for the specified peer_id.
+    /// Erases the stored tree, if there is one, for the specified peer_id.
     pub(crate) fn remove_direct_peer(&mut self, peer_id: &PeerId) {
         self.edge_cache.remove_tree(peer_id);
         self.peer_routes.remove(peer_id);
     }
 
     /// Handles connection of a new peer or nonce refresh for an existing one.
-    /// Adds or updates the nonce for the given edge. If we don't already have an
+    /// Adds or updates the nonce for the given edge. If we don't already have a
     /// DistanceVector for this peer_id, initializes one with just the given edge.
-    pub(crate) fn add_or_update_direct_peer(&mut self, peer_id: PeerId, edge: Edge) {
+    pub(crate) fn add_or_update_direct_peer(&mut self, peer_id: PeerId, edge: Edge) -> bool {
         match self.peer_routes.entry(peer_id.clone()) {
             Entry::Occupied(_occupied) => {
-                // Refresh the nonce in the cache for the direct edge
+                if !self.verify_edges(&vec![edge.clone()]) {
+                    return false;
+                }
+
+                // We have a tree already for this peer;
+                // Simply refresh the nonce in the cache for the direct edge
                 if !self.edge_cache.has_edge_nonce_or_newer(&edge) {
                     self.edge_cache.write_verified_nonce(&edge);
                 }
+                true
             }
             Entry::Vacant(_) => {
                 // We have no advertised routes for this peer; initialize
-                assert!(self.handle_distance_vector(&network_protocol::DistanceVector {
+                self.handle_distance_vector(&network_protocol::DistanceVector {
                     root: peer_id.clone(),
                     routes: vec![
                         AdvertisedRoute { destination: peer_id, length: 0 },
-                        AdvertisedRoute { destination: self.config.node_id.clone(), length: 1 }
+                        AdvertisedRoute { destination: self.config.node_id.clone(), length: 1 },
                     ],
-                    edges: vec![edge]
-                }));
+                    edges: vec![edge],
+                })
             }
-        };
+        }
     }
 
-    /// General case for all updates, which may really be an SPT message sent by a peer
-    /// but may also be events submitted by the local node.
-    /// TODO(saketh): refactor this, it is needlessly clever
-    pub(crate) fn handle_message(
+    pub(crate) fn handle_network_change(
         &mut self,
         _clock: &time::Clock,
-        distance_vector: &network_protocol::DistanceVector,
+        update: &NetworkTopologyChange,
     ) -> bool {
-        if distance_vector.edges.is_empty() {
-            // Handle peer disconnection submitted by the local node
-            self.remove_direct_peer(&distance_vector.root);
-            true
-        } else if distance_vector.root == self.config.node_id {
-            // Handle new peer connection or refreshed edge submitted by the local node
-            assert!(distance_vector.edges.len() == 1);
-            self.add_or_update_direct_peer(
-                distance_vector.edges[0].other(&self.config.node_id).unwrap().clone(),
-                distance_vector.edges[0].clone(),
-            );
-            true
-        } else {
-            // Handle a DistanceVector message sent by a neighbor
-            self.handle_distance_vector(distance_vector)
+        match update {
+            NetworkTopologyChange::PeerConnected(peer_id, edge) => {
+                self.add_or_update_direct_peer(peer_id.clone(), edge.clone())
+            }
+            NetworkTopologyChange::PeerDisconnected(peer_id) => {
+                self.remove_direct_peer(peer_id);
+                true
+            }
+            NetworkTopologyChange::PeerAdvertisedRoutes(routes) => {
+                self.handle_distance_vector(routes)
+            }
         }
     }
 
@@ -473,8 +478,8 @@ impl GraphV2 {
         self.unreliable_peers.store(Arc::new(unreliable_peers));
     }
 
-    /// Accepts and processes a batch of network_protocol::DistanceVector messages.
-    /// Each DistanceVector is verified and, if valid, the advertised routes are stored.
+    /// Accepts and processes a batch of NetworkTopologyChanges.
+    /// Each update is verified and, if valid, the advertised routes are stored.
     /// After all updates are processed, recomputes the local node's next hop table.
     ///
     /// May return a new DistanceVector for the local node, to be broadcasted to peers.
@@ -483,10 +488,10 @@ impl GraphV2 {
     /// Returns (distance_vector, oks) where
     /// * distance_vector is an Option<DistanceVector> to be broadcasted
     /// * oks.len() == distance_vectors.len() and oks[i] is true iff distance_vectors[i] was valid
-    pub async fn update(
+    pub async fn batch_process_network_changes(
         self: &Arc<Self>,
         clock: &time::Clock,
-        distance_vectors: Vec<network_protocol::DistanceVector>,
+        updates: Vec<NetworkTopologyChange>,
     ) -> (Option<network_protocol::DistanceVector>, Vec<bool>) {
         // TODO(saketh): Consider whether we can move this to rayon.
         let this = self.clone();
@@ -496,8 +501,10 @@ impl GraphV2 {
             .spawn_blocking(move || {
                 let mut inner = this.inner.lock();
 
-                let oks =
-                    distance_vectors.iter().map(|dv| inner.handle_message(&clock, dv)).collect();
+                let oks = updates
+                    .iter()
+                    .map(|update| inner.handle_network_change(&clock, update))
+                    .collect();
 
                 let (next_hops, to_broadcast) = inner.update(&clock, &this.unreliable_peers.load());
 
