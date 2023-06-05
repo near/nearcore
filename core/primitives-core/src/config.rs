@@ -204,14 +204,12 @@ impl VMConfig {
 
 impl VMLimitConfig {
     pub fn test() -> Self {
+        const KB: u32 = 1024;
         let max_contract_size = 4 * 2u64.pow(20);
         Self {
             max_gas_burnt: 2 * 10u64.pow(14), // with 10**15 block gas limit this will allow 5 calls.
-
-            // NOTE: Stack height has to be 16K, otherwise Wasmer produces non-deterministic results.
-            // For experimentation try `test_stack_overflow`.
-            max_stack_height: 16 * 1024, // 16Kib of stack.
-            contract_prepare_version: ContractPrepareVersion::V1,
+            max_stack_height: 256 * KB,
+            contract_prepare_version: ContractPrepareVersion::V2,
             initial_memory_pages: 2u32.pow(10), // 64Mib of memory.
             max_memory_pages: 2u32.pow(11),     // 128Mib of memory.
 

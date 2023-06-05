@@ -703,9 +703,8 @@ impl PeerManagerActor {
                 .sum(),
             known_producers: self
                 .state
-                .graph
-                .routing_table
-                .get_announce_accounts()
+                .account_announcements
+                .get_announcements()
                 .into_iter()
                 .map(|announce_account| KnownProducer {
                     account_id: announce_account.account_id,

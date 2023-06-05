@@ -334,6 +334,10 @@ pub struct Config {
     /// Options for syncing state.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state_sync: Option<StateSyncConfig>,
+    /// Limit of the size of per-shard transaction pool measured in bytes. If not set, the size
+    /// will be unbounded.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transaction_pool_size_limit: Option<u64>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -371,6 +375,7 @@ impl Default for Config {
             expected_shutdown: None,
             state_sync: None,
             state_sync_enabled: None,
+            transaction_pool_size_limit: None,
         }
     }
 }
@@ -680,7 +685,7 @@ impl NearConfig {
                 flat_storage_creation_period: config.store.flat_storage_creation_period,
                 state_sync_enabled: config.state_sync_enabled.unwrap_or(false),
                 state_sync: config.state_sync.unwrap_or_default(),
-                transaction_pool_size_limit: None,
+                transaction_pool_size_limit: config.transaction_pool_size_limit,
             },
             network_config: NetworkConfig::new(
                 config.network,

@@ -23,7 +23,7 @@ pub enum DBCol {
     /// - *Rows*: single row `"VERSION"`
     /// - *Content type*: The version of the database (u32), serialized as JSON.
     DbVersion,
-    /// Column that store Misc cells.
+    /// Column that stores miscellaneous block-related cells.
     /// - *Rows*: multiple, for example `"GENESIS_JSON_HASH"`, `"HEAD_KEY"`, `"LATEST_KNOWN_KEY"` etc.
     /// - *Content type*: cell specific.
     BlockMisc,
@@ -273,6 +273,11 @@ pub enum DBCol {
     /// - *Rows*: `shard_uid`
     /// - *Column type*: `FlatStorageStatus`
     FlatStorageStatus,
+    /// Column to persist pieces of miscellaneous small data. Should only be used to store
+    /// constant or small (for example per-shard) amount of data.
+    /// - *Rows*: arbitrary string, see `crate::db::FLAT_STATE_VALUES_INLINING_MIGRATION_STATUS_KEY` for example
+    /// - *Column type*: arbitrary bytes
+    Misc,
 }
 
 /// Defines different logical parts of a db key.
@@ -422,6 +427,7 @@ impl DBCol {
 
             // TODO
             DBCol::ChallengedBlocks => false,
+            DBCol::Misc => false,
             // BlockToCatchup is only needed while syncing and it is not immutable.
             DBCol::BlocksToCatchup => false,
             // BlockRefCount is only needed when handling forks and it is not immutable.
@@ -479,6 +485,7 @@ impl DBCol {
         match self {
             DBCol::DbVersion => &[DBKeyType::StringLiteral],
             DBCol::BlockMisc => &[DBKeyType::StringLiteral],
+            DBCol::Misc => &[DBKeyType::StringLiteral],
             DBCol::Block => &[DBKeyType::BlockHash],
             DBCol::BlockHeader => &[DBKeyType::BlockHash],
             DBCol::BlockHeight => &[DBKeyType::BlockHeight],

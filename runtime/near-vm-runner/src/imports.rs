@@ -294,7 +294,7 @@ pub(crate) mod wasmer {
             ) => {
                 #[allow(unused_parens)]
                 fn $name( ctx: &mut wasmer_runtime::Ctx, $( $arg_name: $arg_type ),* ) -> Result<($( $returns ),*), VMLogicError> {
-                    const IS_GAS: bool = str_eq(stringify!($name), "gas");
+                    const IS_GAS: bool = str_eq(stringify!($name), "gas") || str_eq(stringify!($name), "finite_wasm_gas");
                     let _span = if IS_GAS {
                         None
                     } else {
@@ -393,7 +393,7 @@ pub(crate) mod wasmer2 {
                     extern "C" fn $name(env: *mut VMLogic<'_>, $( $arg_name: $arg_type ),* )
                     -> Ret {
                         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            const IS_GAS: bool = str_eq(stringify!($name), "gas");
+                            const IS_GAS: bool = str_eq(stringify!($name), "gas") || str_eq(stringify!($name), "finite_wasm_gas");
                             let _span = if IS_GAS {
                                 None
                             } else {
@@ -555,7 +555,7 @@ pub(crate) mod near_vm {
                     extern "C" fn $name(env: *mut VMLogic<'_>, $( $arg_name: $arg_type ),* )
                     -> Ret {
                         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            const IS_GAS: bool = str_eq(stringify!($name), "gas");
+                            const IS_GAS: bool = str_eq(stringify!($name), "gas") || str_eq(stringify!($name), "finite_wasm_gas");
                             let _span = if IS_GAS {
                                 None
                             } else {
@@ -687,7 +687,7 @@ pub(crate) mod wasmtime {
             ) => {
                 #[allow(unused_parens)]
                 fn $name(caller: wasmtime::Caller<'_, ()>, $( $arg_name: $arg_type ),* ) -> anyhow::Result<($( $returns ),*)> {
-                    const IS_GAS: bool = str_eq(stringify!($name), "gas");
+                    const IS_GAS: bool = str_eq(stringify!($name), "gas") || str_eq(stringify!($name), "finite_wasm_gas");
                     let _span = if IS_GAS {
                         None
                     } else {

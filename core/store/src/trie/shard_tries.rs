@@ -146,8 +146,8 @@ impl ShardTries {
             is_view,
             prefetch_api,
         ));
-        let flat_storage_chunk_view =
-            self.0.flat_storage_manager.chunk_view(shard_uid, block_hash, is_view);
+        let flat_storage_chunk_view = block_hash
+            .and_then(|block_hash| self.0.flat_storage_manager.chunk_view(shard_uid, block_hash));
 
         Trie::new(storage, state_root, flat_storage_chunk_view)
     }
@@ -161,8 +161,9 @@ impl ShardTries {
         shard_uid: ShardUId,
         state_root: StateRoot,
         block_hash: &CryptoHash,
+        is_view: bool,
     ) -> Trie {
-        self.get_trie_for_shard_internal(shard_uid, state_root, false, Some(*block_hash))
+        self.get_trie_for_shard_internal(shard_uid, state_root, is_view, Some(*block_hash))
     }
 
     pub fn get_view_trie_for_shard(&self, shard_uid: ShardUId, state_root: StateRoot) -> Trie {
@@ -420,14 +421,11 @@ pub enum KeyForStateChangesError {
 pub struct KeyForStateChanges(Vec<u8>);
 
 impl KeyForStateChanges {
-    fn estimate_prefix_len() -> usize {
-        std::mem::size_of::<CryptoHash>()
-    }
+    const PREFIX_LEN: usize = CryptoHash::LENGTH;
 
     fn new(block_hash: &CryptoHash, reserve_capacity: usize) -> Self {
-        let mut key_prefix = Vec::with_capacity(Self::estimate_prefix_len() + reserve_capacity);
-        key_prefix.extend(block_hash.as_ref());
-        debug_assert_eq!(key_prefix.len(), Self::estimate_prefix_len());
+        let mut key_prefix = Vec::with_capacity(block_hash.as_bytes().len() + reserve_capacity);
+        key_prefix.extend(block_hash.as_bytes());
         Self(key_prefix)
     }
 
@@ -490,22 +488,15 @@ impl KeyForStateChanges {
     pub fn find_exact_iter<'a>(
         &'a self,
         store: &'a Store,
-    ) -> impl Iterator<Item = Result<RawStateChangesWithTrieKey, std::io::Error>> + 'a {
-        let prefix_len = Self::estimate_prefix_len();
-        let trie_key_len = self.0.len() - prefix_len;
-        self.find_iter(store).filter_map(move |change| {
-            let state_changes = match change {
-                Ok(change) => change,
-                error => {
-                    return Some(error);
-                }
-            };
-            if state_changes.trie_key.len() != trie_key_len {
-                None
-            } else {
-                debug_assert_eq!(&state_changes.trie_key.to_vec()[..], &self.0[prefix_len..]);
-                Some(Ok(state_changes))
+    ) -> impl Iterator<Item = std::io::Result<RawStateChangesWithTrieKey>> + 'a {
+        let trie_key_len = self.0.len() - Self::PREFIX_LEN;
+        self.find_iter(store).filter_map(move |result| match result {
+            Ok(changes) if changes.trie_key.len() == trie_key_len => {
+                debug_assert_eq!(changes.trie_key.to_vec(), &self.0[Self::PREFIX_LEN..]);
+                Some(Ok(changes))
             }
+            Ok(_) => None,
+            Err(err) => Some(Err(err)),
         })
     }
 
@@ -515,12 +506,11 @@ impl KeyForStateChanges {
         store: &'a Store,
     ) -> impl Iterator<Item = Result<(Box<[u8]>, RawStateChangesWithTrieKey), std::io::Error>> + 'a
     {
-        let prefix_len = Self::estimate_prefix_len();
         debug_assert!(
-            self.0.len() >= prefix_len,
+            self.0.len() >= Self::PREFIX_LEN,
             "Key length: {}, prefix length: {}, key: {:?}",
             self.0.len(),
-            prefix_len,
+            Self::PREFIX_LEN,
             self.0
         );
         store.iter_prefix_ser::<RawStateChangesWithTrieKey>(DBCol::StateChanges, &self.0).map(

@@ -81,7 +81,7 @@ impl<'a> GenesisValidator<'a> {
             .into_iter()
             .map(|account_info| {
                 if !is_valid_staking_key(&account_info.public_key) {
-                    let error_message = format!("validator staking key is not valid");
+                    let error_message = "validator staking key is not valid".to_string();
                     self.validation_errors.push_genesis_semantics_error(error_message);
                 }
                 (account_info.account_id, account_info.amount)
@@ -94,7 +94,7 @@ impl<'a> GenesisValidator<'a> {
         }
 
         if validators.is_empty() {
-            let error_message = format!("No validators in genesis");
+            let error_message = "No validators in genesis".to_string();
             self.validation_errors.push_genesis_semantics_error(error_message)
         }
 
@@ -104,7 +104,7 @@ impl<'a> GenesisValidator<'a> {
         }
 
         if validators != self.staked_accounts {
-            let error_message = format!("Validator accounts do not match staked accounts.");
+            let error_message = "Validator accounts do not match staked accounts.".to_string();
             self.validation_errors.push_genesis_semantics_error(error_message)
         }
 
@@ -140,25 +140,27 @@ impl<'a> GenesisValidator<'a> {
 
         if *self.genesis_config.online_max_threshold.numer() >= 10_000_000 {
             let error_message =
-                format!("online_max_threshold's numerator is too large, may lead to overflow.");
+                "online_max_threshold's numerator is too large, may lead to overflow.".to_string();
             self.validation_errors.push_genesis_semantics_error(error_message)
         }
 
         if *self.genesis_config.online_min_threshold.numer() >= 10_000_000 {
             let error_message =
-                format!("online_min_threshold's numerator is too large, may lead to overflow.");
+                "online_min_threshold's numerator is too large, may lead to overflow.".to_string();
             self.validation_errors.push_genesis_semantics_error(error_message)
         }
 
         if *self.genesis_config.online_max_threshold.denom() >= 10_000_000 {
             let error_message =
-                format!("online_max_threshold's denominator is too large, may lead to overflow.");
+                "online_max_threshold's denominator is too large, may lead to overflow."
+                    .to_string();
             self.validation_errors.push_genesis_semantics_error(error_message)
         }
 
         if *self.genesis_config.online_min_threshold.denom() >= 10_000_000 {
             let error_message =
-                format!("online_min_threshold's denominator is too large, may lead to overflow.");
+                "online_min_threshold's denominator is too large, may lead to overflow."
+                    .to_string();
             self.validation_errors.push_genesis_semantics_error(error_message)
         }
 
@@ -171,7 +173,7 @@ impl<'a> GenesisValidator<'a> {
         }
 
         if self.genesis_config.epoch_length == 0 {
-            let error_message = format!("Epoch Length must be greater than 0");
+            let error_message = "Epoch Length must be greater than 0".to_string();
             self.validation_errors.push_genesis_semantics_error(error_message)
         }
     }

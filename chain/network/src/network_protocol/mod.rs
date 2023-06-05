@@ -90,6 +90,36 @@ impl std::str::FromStr for PeerAddr {
     }
 }
 
+/// Proof that a given peer_id owns an ip address, included in Handshake message
+#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+pub struct SignedIpAddress {
+    pub ip_address: std::net::IpAddr,
+    pub(crate) signature: near_crypto::Signature, // signature for signed ip_address
+}
+
+impl SignedIpAddress {
+    pub fn new(ip_address: std::net::IpAddr, secret_key: &near_crypto::SecretKey) -> Self {
+        let signature = secret_key.sign(&SignedIpAddress::ip_bytes_helper(&ip_address));
+        Self { ip_address: ip_address, signature: signature }
+    }
+
+    pub fn verify(&self, public_key: &PublicKey) -> bool {
+        self.signature.verify(&self.ip_bytes(), &public_key)
+    }
+
+    fn ip_bytes_helper(ip_address: &std::net::IpAddr) -> Vec<u8> {
+        let ip_bytes: Vec<u8> = match ip_address {
+            std::net::IpAddr::V4(ip) => ip.octets().to_vec(),
+            std::net::IpAddr::V6(ip) => ip.octets().to_vec(),
+        };
+        return ip_bytes;
+    }
+
+    fn ip_bytes(&self) -> Vec<u8> {
+        return SignedIpAddress::ip_bytes_helper(&self.ip_address);
+    }
+}
+
 /// AccountData is a piece of global state that a validator
 /// signs and broadcasts to the network. It is essentially
 /// the data that a validator wants to share with the network.
@@ -307,6 +337,8 @@ pub struct Handshake {
     pub(crate) partial_edge_info: PartialEdgeInfo,
     /// Account owned by the sender.
     pub(crate) owned_account: Option<SignedOwnedAccount>,
+    /// Signed Ip Address of the sender
+    pub(crate) signed_ip_address: Option<SignedIpAddress>,
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, strum::IntoStaticStr)]
