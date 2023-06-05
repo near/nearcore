@@ -876,7 +876,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         match result {
             Ok(gc_stop_height) => gc_stop_height,
             Err(error) => {
-                error!(target: "runtime", "Error when getting the gc stop height. Error: {}", error);
+                error!(target: "runtime", "Error when getting the gc stop height. This error may naturally occur after the gc_num_epochs_to_keep config is increased. It should disappear as soon as the node builds up all epochs it wants. Error: {}", error);
                 self.genesis_config.genesis_height
             }
         }

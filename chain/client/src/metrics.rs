@@ -159,6 +159,15 @@ pub(crate) static VALIDATORS_BLOCKS_EXPECTED_IN_EPOCH: Lazy<IntGaugeVec> = Lazy:
     .unwrap()
 });
 
+pub(crate) static BLOCK_PRODUCER_STAKE: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_block_producer_stake",
+        "Stake of each block producer in the network",
+        &["account_id", "epoch_height"],
+    )
+    .unwrap()
+});
+
 pub(crate) static TRACKED_SHARDS: Lazy<IntGaugeVec> = Lazy::new(|| {
     try_create_int_gauge_vec("near_client_tracked_shards", "Tracked shards", &["shard_id"]).unwrap()
 });
