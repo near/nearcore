@@ -1143,6 +1143,6 @@ mod tests {
             nibbles_begin,
             nibbles_end,
         );
-        assert_eq!(state_part_with_flat, Ok(state_part.clone()));
+        assert_eq!(state_part_with_flat, Ok(state_part));
     }
 }
