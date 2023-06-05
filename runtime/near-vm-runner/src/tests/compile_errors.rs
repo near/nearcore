@@ -179,7 +179,7 @@ fn test_limit_contract_functions_number() {
         "#]],
         #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13048032213 used gas 13048032213
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13054614261 used gas 13054614261
         "#]],
     ]);
 
@@ -205,7 +205,7 @@ fn test_limit_contract_functions_number() {
             Err: PrepareError: Too many functions in contract.
         "#]],
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13049332713 used gas 13049332713
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
             Err: PrepareError: Too many functions in contract.
         "#]],
         #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
@@ -235,7 +235,7 @@ fn test_limit_contract_functions_number() {
                 Err: PrepareError: Too many functions in contract.
             "#]],
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 19554433713 used gas 19554433713
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
                 Err: PrepareError: Too many functions in contract.
             "#]],
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
@@ -265,7 +265,7 @@ fn test_limit_contract_functions_number() {
                 Err: PrepareError: Too many functions in contract.
             "#]],
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13051283463 used gas 13051283463
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
                 Err: PrepareError: Too many functions in contract.
             "#]],
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
@@ -298,7 +298,7 @@ fn test_limit_locals() {
                 Err: PrepareError: Error happened while deserializing the module.
             "#]],
             expect![[r#"
-                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 43682463 used gas 43682463
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
                 Err: PrepareError: Error happened while deserializing the module.
             "#]],
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
@@ -357,7 +357,7 @@ fn test_limit_locals_global() {
             Err: PrepareError: Too many locals declared in the contract.
         "#]],
         expect![[r#"
-            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 195407463 used gas 195407463
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
             Err: PrepareError: Too many locals declared in the contract.
         "#]],
         #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]

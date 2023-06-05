@@ -894,7 +894,7 @@ mod fix_contract_loading_cost_protocol_upgrade {
             ])
             .expects(&[
                 expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47406987 used gas 47406987
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 53989035 used gas 53989035
                 "#]],
                 expect![[r#"
                     VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47406987 used gas 47406987
