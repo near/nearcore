@@ -1,10 +1,10 @@
 use crate::flat::store_helper;
-use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state::FlatStateValue;
 
 use crate::Store;
 
+use super::types::FlatStateIterator;
 use super::FlatStorage;
 
 /// Struct for getting value references from the flat storage, corresponding
@@ -49,7 +49,7 @@ impl FlatStorageChunkView {
         &'a self,
         from: Option<&[u8]>,
         to: Option<&[u8]>,
-    ) -> impl Iterator<Item = Result<(Vec<u8>, FlatStateValue), StorageError>> + 'a {
+    ) -> FlatStateIterator<'a> {
         store_helper::iter_flat_state_entries(self.flat_storage.shard_uid(), &self.store, from, to)
     }
 
