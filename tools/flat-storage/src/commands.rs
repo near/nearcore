@@ -6,11 +6,12 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_store::flat::{
-    inline_flat_state_values, store_helper, FlatStateDelta, FlatStateDeltaMetadata, FlatStateValue,
+    inline_flat_state_values, store_helper, FlatStateDelta, FlatStateDeltaMetadata,
     FlatStorageManager, FlatStorageStatus,
 };
 use near_store::{DBCol, Mode, NodeStorage, ShardUId, Store, StoreOpener};
 use nearcore::{load_config, NearConfig, NightshadeRuntime};
+use std::sync::atomic::AtomicBool;
 use std::{path::PathBuf, sync::Arc, time::Duration};
 use tqdm::tqdm;
 
@@ -171,9 +172,9 @@ impl FlatStorageCommand {
 
                 // TODO: there should be a method that 'loads' the current flat storage state based on Storage.
                 let shard_uid = epoch_manager.shard_id_to_uid(reset_cmd.shard_id, &tip.epoch_id)?;
-                rw_hot_runtime.create_flat_storage_for_shard(shard_uid);
-
-                rw_hot_runtime.remove_flat_storage_for_shard(shard_uid, &tip.epoch_id)?;
+                let flat_storage_manager = rw_hot_runtime.get_flat_storage_manager().unwrap();
+                flat_storage_manager.create_flat_storage_for_shard(shard_uid);
+                flat_storage_manager.remove_flat_storage_for_shard(shard_uid)?;
             }
             SubCommand::Init(init_cmd) => {
                 let (_, epoch_manager, rw_hot_runtime, rw_chain_store, rw_hot_store) = Self::get_db(
@@ -217,7 +218,9 @@ impl FlatStorageCommand {
                 let shard_uid =
                     epoch_manager.shard_id_to_uid(verify_cmd.shard_id, &tip.epoch_id)?;
 
-                let head_hash = match store_helper::get_flat_storage_status(&hot_store, shard_uid) {
+                let head_hash = match store_helper::get_flat_storage_status(&hot_store, shard_uid)
+                    .expect("falied to read flat storage status")
+                {
                     FlatStorageStatus::Ready(ready_status) => ready_status.flat_head.hash,
                     status => {
                         panic!(
@@ -250,7 +253,10 @@ impl FlatStorageCommand {
 
                 let shard_uid =
                     epoch_manager.shard_id_to_uid(verify_cmd.shard_id, &tip.epoch_id)?;
-                hot_runtime.create_flat_storage_for_shard(shard_uid);
+                hot_runtime
+                    .get_flat_storage_manager()
+                    .unwrap()
+                    .create_flat_storage_for_shard(shard_uid);
 
                 let trie = hot_runtime
                     .get_view_trie_for_shard(verify_cmd.shard_id, &head_hash, *state_root)
@@ -265,8 +271,8 @@ impl FlatStorageCommand {
                 for (item_trie, item_flat) in
                     tqdm(std::iter::zip(trie_iter, flat_state_entries_iter))
                 {
-                    let value_ref =
-                        FlatStateValue::try_from_slice(&item_flat.1).unwrap().to_value_ref();
+                    let item_flat = item_flat.unwrap();
+                    let value_ref = item_flat.1.to_value_ref();
                     verified += 1;
 
                     let item_trie = item_trie.unwrap();
@@ -318,6 +324,7 @@ impl FlatStorageCommand {
                 inline_flat_state_values(
                     store,
                     &flat_storage_manager,
+                    &AtomicBool::new(true),
                     cmd.num_threads,
                     cmd.batch_size,
                 );

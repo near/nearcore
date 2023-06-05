@@ -74,6 +74,7 @@ pub struct TrieIterator<'a> {
 pub type TrieItem = (Vec<u8>, Vec<u8>);
 
 /// Item extracted from Trie during depth first traversal, corresponding to some Trie node.
+#[derive(Debug)]
 pub struct TrieTraversalItem {
     /// Hash of the node.
     pub hash: CryptoHash,
@@ -205,7 +206,7 @@ impl<'a> TrieIterator<'a> {
     fn descend_into_node(&mut self, hash: &CryptoHash) -> Result<(), StorageError> {
         let (bytes, node) = self.trie.retrieve_node(hash)?;
         if let Some(ref mut visited) = self.visited_nodes {
-            visited.push(bytes.ok_or(StorageError::TrieNodeMissing)?);
+            visited.push(bytes.ok_or(StorageError::MissingTrieValue)?);
         }
         self.trail.push(Crumb { status: CrumbStatus::Entering, node, prefix_boundary: false });
         Ok(())

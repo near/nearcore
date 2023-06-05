@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
+# Should be started in detached mode
+# to ensure an ssh disconnect will not interrupt the process:
+# /split_storage_migration.sh (testnet|mainnnet)  >> ./split_storage_migration.log &
 # Takes one argument -- chain_id (mainnet or testnet)
 # Prerequisites:
 # - systemd neard service
@@ -28,7 +32,7 @@ fi
 # Prepare all configs
 function prepare_configs {
   sudo apt update
-  sudo apt install jq -y
+  sudo apt install jq awscli -y
 
   # make archival config
   jq '.archive = true | .save_trie_changes=true' < $NEAR_HOME/config.json > $NEAR_HOME/config.json.archival
@@ -60,18 +64,13 @@ function init_cold_storage {
   # Wait for migration success status
   while true
   do
-    head=$(curl 0.0.0.0:3030/metrics | grep 'block_height_head' | tail -n1 | awk '{print $2}')
     cold_head=$(curl 0.0.0.0:3030/metrics | grep 'cold_head_height' | tail -n1 | awk '{print $2}')
 
-    echo "$head"
-    echo "$cold_head"
+    echo "Checking if cold storage cold head is ready. Cold head: $cold_head"
 
-    if [[ -n "$head" && -n "$cold_head" ]]
-    then
-      if ((head - cold_head < 1000))
+    if [[ ! -z "$cold_head" ]]
       then
         break
-      fi
     fi
 
     sleep 120
