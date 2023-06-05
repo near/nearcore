@@ -1,5 +1,4 @@
 use crate::address_map::get_function_address_map;
-use crate::config::IntrinsicKind;
 use crate::{config::Singlepass, emitter_x64::*, machine::Machine, x64_decl::*};
 use dynasmrt::{x64::X64Relocation, DynamicLabel, VecAssembler};
 use finite_wasm::gas::InstrumentationKind;
@@ -7,9 +6,8 @@ use memoffset::offset_of;
 use near_vm_compiler::wasmparser::{BlockType as WpBlockType, MemArg, Operator, ValType as WpType};
 use near_vm_compiler::{
     CallingConvention, CompiledFunction, CompiledFunctionFrameInfo, CustomSection,
-    CustomSectionProtection, FunctionBody, FunctionBodyData, InstructionAddressMap,
-    ModuleTranslationState, Relocation, RelocationKind, RelocationTarget, SectionBody,
-    SectionIndex, SourceLoc, Target,
+    CustomSectionProtection, FunctionBody, FunctionBodyData, InstructionAddressMap, Relocation,
+    RelocationKind, RelocationTarget, SectionBody, SectionIndex, SourceLoc, Target,
 };
 use near_vm_types::{
     entity::{EntityRef, PrimaryMap, SecondaryMap},
@@ -32,9 +30,6 @@ pub(crate) struct FuncGen<'a> {
     // Immutable properties assigned at creation time.
     /// Static module information.
     module: &'a ModuleInfo,
-
-    /// State of module translation.
-    module_translation_state: &'a ModuleTranslationState,
 
     /// ModuleInfo compilation config.
     config: &'a Singlepass,
@@ -313,11 +308,6 @@ impl<'a> FuncGen<'a> {
             }
         }
 
-        if self.try_intrinsic(function, &params) {
-            // This was genereated as an intrinsic, we're done.
-            return Ok(());
-        }
-
         let reloc_at = self.assembler.get_offset().0 + self.assembler.arch_mov64_imm_offset();
         // Imported functions are called through trampolines placed as custom sections.
         let reloc_target = match self.module.import_counts.local_function_index(function) {
@@ -356,25 +346,6 @@ impl<'a> FuncGen<'a> {
             }
         }
         Ok(())
-    }
-
-    /// Try emitting an intrinsic for a function call of function at index.
-    fn try_intrinsic(&mut self, function: FunctionIndex, params: &SmallVec<[Location; 8]>) -> bool {
-        let signature_index = self.module.functions[function];
-        let signature = &self.module.signatures[signature_index];
-        let import_name = self.module_translation_state.import_map.get(&function);
-        let intrinsic = import_name.and_then(|import_name| {
-            self.config.intrinsics.iter().find(|intrinsic| {
-                intrinsic.name == *import_name
-                    && intrinsic.signature == *signature
-                    && intrinsic.is_params_ok(params)
-            })
-        });
-        match intrinsic.map(|i| &i.kind) {
-            Some(IntrinsicKind::Gas) => self.emit_gas(params[0]),
-            None => return false,
-        }
-        return true;
     }
 
     fn emit_gas_const(&mut self, cost: u64) {
@@ -1710,7 +1681,6 @@ impl<'a> FuncGen<'a> {
     #[tracing::instrument(skip_all)]
     pub(crate) fn new(
         module: &'a ModuleInfo,
-        module_translation_state: &'a ModuleTranslationState,
         config: &'a Singlepass,
         target: &'a Target,
         vmoffsets: &'a VMOffsets,
@@ -1742,7 +1712,6 @@ impl<'a> FuncGen<'a> {
 
         let mut fg = FuncGen {
             module,
-            module_translation_state,
             config,
             target,
             vmoffsets,
