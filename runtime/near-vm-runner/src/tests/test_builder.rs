@@ -159,10 +159,12 @@ impl TestBuilder {
         self
     }
 
+    #[track_caller]
     pub(crate) fn expect(self, want: expect_test::Expect) {
         self.expects(&[want])
     }
 
+    #[track_caller]
     pub(crate) fn expects(self, wants: &[expect_test::Expect]) {
         let runtime_config_store = RuntimeConfigStore::new(None);
 

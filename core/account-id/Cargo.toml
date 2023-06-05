@@ -5,7 +5,7 @@ authors.workspace = true
 edition.workspace = true
 # This crate is published to crates.io with a semver API. Care must be taken
 # when updaing its rust-version.
-rust-version = "1.64.0"
+rust-version = "1.63.0"
 description = "This crate contains the Account ID primitive and its validation facilities"
 repository.workspace = true
 license.workspace = true

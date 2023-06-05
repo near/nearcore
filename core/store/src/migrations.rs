@@ -1,6 +1,7 @@
 use crate::metadata::DbKind;
 use crate::{DBCol, Store, StoreUpdate};
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_primitives::state::FlatStateValue;
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof};
 use near_primitives::utils::get_outcome_id_block_hash;
 use std::collections::HashMap;
@@ -196,9 +197,7 @@ pub fn migrate_36_to_37(store: &Store) -> anyhow::Result<()> {
             LegacyFlatStateChanges::try_from_slice(&old_value)?
                 .0
                 .into_iter()
-                .map(|(key, value_ref)| {
-                    (key, value_ref.map(|v| crate::flat::FlatStateValue::Ref(v)))
-                })
+                .map(|(key, value_ref)| (key, value_ref.map(|v| FlatStateValue::Ref(v))))
                 .collect(),
         )
         .try_to_vec()?;

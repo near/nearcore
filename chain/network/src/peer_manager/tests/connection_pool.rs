@@ -1,4 +1,4 @@
-use crate::network_protocol::testonly as data;
+use crate::network_protocol::testonly::{self as data, make_signed_ip_addr};
 use crate::network_protocol::PeerMessage;
 use crate::network_protocol::{Encoding, Handshake, OwnedAccount, PartialEdgeInfo};
 use crate::peer::peer_actor::ClosingReason;
@@ -11,6 +11,7 @@ use crate::private_actix::RegisterPeerError;
 use crate::tcp;
 use crate::testonly::make_rng;
 use crate::testonly::stream::Stream;
+use crate::types::ReasonForBan;
 use near_async::time;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -76,7 +77,7 @@ async fn loop_connection() {
     cfg.node_key = pm.cfg.node_key.clone();
 
     // Starting an outbound loop connection on TIER2 should be stopped without sending the handshake.
-    let conn = pm.start_outbound(chain.clone(), cfg, tcp::Tier::T2).await;
+    let conn = pm.start_outbound(chain.clone(), cfg.clone(), tcp::Tier::T2).await;
     assert_eq!(
         ClosingReason::OutboundNotAllowed(connection::PoolError::UnexpectedLoopConnection),
         conn.manager_fail_handshake(&clock.clock()).await
@@ -88,6 +89,8 @@ async fn loop_connection() {
     let port = stream.local_addr.port();
     let mut events = pm.events.from_now();
     let mut stream = Stream::new(Some(Encoding::Proto), stream);
+    let ip_addr = stream.stream.local_addr.ip();
+    let signed_ip_address = make_signed_ip_addr(&ip_addr, &cfg.node_key);
     stream
         .write(&PeerMessage::Tier2Handshake(Handshake {
             protocol_version: PROTOCOL_VERSION,
@@ -103,6 +106,7 @@ async fn loop_connection() {
                 &pm.cfg.node_key,
             ),
             owned_account: None,
+            signed_ip_address: Some(signed_ip_address),
         }))
         .await;
     let reason = events
@@ -148,6 +152,8 @@ async fn owned_account_mismatch() {
     let mut stream = Stream::new(Some(Encoding::Proto), stream);
     let cfg = chain.make_config(rng);
     let vc = cfg.validator.clone().unwrap();
+    let ip_addr = stream.stream.local_addr.ip();
+    let signed_ip_address = make_signed_ip_addr(&ip_addr, &cfg.node_key);
     stream
         .write(&PeerMessage::Tier2Handshake(Handshake {
             protocol_version: PROTOCOL_VERSION,
@@ -171,6 +177,7 @@ async fn owned_account_mismatch() {
                 }
                 .sign(vc.signer.as_ref()),
             ),
+            signed_ip_address: Some(signed_ip_address),
         }))
         .await;
     let reason = events
@@ -267,6 +274,8 @@ async fn invalid_edge() {
             let port = stream.local_addr.port();
             let mut events = pm.events.from_now();
             let mut stream = Stream::new(Some(Encoding::Proto), stream);
+            let ip_addr = stream.stream.local_addr.ip();
+            let signed_ip_address = make_signed_ip_addr(&ip_addr, &cfg.node_key);
             let vc = cfg.validator.clone().unwrap();
             let handshake = Handshake {
                 protocol_version: PROTOCOL_VERSION,
@@ -284,6 +293,7 @@ async fn invalid_edge() {
                     }
                     .sign(vc.signer.as_ref()),
                 ),
+                signed_ip_address: Some(signed_ip_address),
             };
             let handshake = match tier {
                 tcp::Tier::T1 => PeerMessage::Tier1Handshake(handshake),
@@ -309,4 +319,104 @@ async fn invalid_edge() {
             );
         }
     }
+}
+
+async fn test_signed_ip_address(
+    expected_closing_reason: ClosingReason,
+    wrong_ip_address: &Option<std::net::IpAddr>,
+    wrong_node_key: &Option<near_crypto::SecretKey>,
+) {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    let pm = peer_manager::testonly::start(
+        clock.clock(),
+        near_store::db::TestDB::new(),
+        chain.make_config(rng),
+        chain.clone(),
+    )
+    .await;
+    let cfg = chain.make_config(rng);
+
+    for tier in [tcp::Tier::T1, tcp::Tier::T2] {
+        let stream = tcp::Stream::connect(&pm.peer_info(), tier).await.unwrap();
+        let stream_id = stream.id();
+        let port = stream.local_addr.port();
+        let mut events = pm.events.from_now();
+        let mut stream = Stream::new(Some(Encoding::Proto), stream);
+
+        let ip_addr = match *wrong_ip_address {
+            Some(wrong_ip_address) => wrong_ip_address,
+            None => stream.stream.local_addr.ip(),
+        };
+
+        let wrong_node_key = wrong_node_key.clone();
+        let node_key = match wrong_node_key {
+            Some(wrong_node_key) => wrong_node_key,
+            None => cfg.node_key.clone(),
+        };
+        let signed_ip_address = make_signed_ip_addr(&ip_addr, &node_key);
+        let vc = cfg.validator.clone().unwrap();
+
+        let handshake = Handshake {
+            protocol_version: PROTOCOL_VERSION,
+            oldest_supported_version: PROTOCOL_VERSION,
+            sender_peer_id: cfg.node_id(),
+            target_peer_id: pm.cfg.node_id(),
+            sender_listen_port: Some(port),
+            sender_chain_info: chain.get_peer_chain_info(),
+            partial_edge_info: PartialEdgeInfo::new(
+                &cfg.node_id(),
+                &pm.cfg.node_id(),
+                1,
+                &cfg.node_key,
+            ),
+            owned_account: Some(
+                OwnedAccount {
+                    account_key: vc.signer.public_key().clone(),
+                    peer_id: cfg.node_id(),
+                    timestamp: clock.now_utc(),
+                }
+                .sign(vc.signer.as_ref()),
+            ),
+            signed_ip_address: Some(signed_ip_address),
+        };
+
+        let handshake = match tier {
+            tcp::Tier::T1 => PeerMessage::Tier1Handshake(handshake),
+            tcp::Tier::T2 => PeerMessage::Tier2Handshake(handshake),
+        };
+
+        stream.write(&handshake).await;
+
+        let reason: ClosingReason = events
+            .recv_until(|ev| match ev {
+                Event::PeerManager(PME::ConnectionClosed(ev)) if ev.stream_id == stream_id => {
+                    Some(ev.reason)
+                }
+                Event::PeerManager(PME::HandshakeCompleted(ev)) if ev.stream_id == stream_id => {
+                    panic!("PeerManager accepted the handshake")
+                }
+                _ => None,
+            })
+            .await;
+        assert_eq!(expected_closing_reason, reason);
+    }
+}
+
+#[tokio::test]
+async fn signed_with_wrong_ip_address() {
+    let wrong_ip_address: std::net::IpAddr = data::make_ipv4(&mut make_rng(89028037453));
+    let expected_closing_reason = ClosingReason::IpAddressMismatch;
+    test_signed_ip_address(expected_closing_reason, &Some(wrong_ip_address), &None).await;
+}
+
+#[tokio::test]
+async fn signed_with_wrong_key() {
+    let wrong_node_key = near_crypto::SecretKey::from_seed(near_crypto::KeyType::ED25519, "123");
+    let expected_closing_reason = ClosingReason::Ban(ReasonForBan::InvalidSignature);
+    test_signed_ip_address(expected_closing_reason, &None, &Some(wrong_node_key)).await;
 }

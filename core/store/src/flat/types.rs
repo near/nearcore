@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::state::ValueRef;
+use near_primitives::state::FlatStateValue;
 use near_primitives::types::BlockHeight;
 
 /// Defines value size threshold for flat state inlining.
@@ -11,29 +11,6 @@ use near_primitives::types::BlockHeight;
 /// See the following comment for reasoning behind the threshold value:
 /// https://github.com/near/nearcore/issues/8243#issuecomment-1523049994
 pub const INLINE_DISK_VALUE_THRESHOLD: usize = 4000;
-
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
-pub enum FlatStateValue {
-    Ref(ValueRef),
-    Inlined(Vec<u8>),
-}
-
-impl FlatStateValue {
-    pub fn value_ref(value: &[u8]) -> Self {
-        Self::Ref(ValueRef::new(value))
-    }
-
-    pub fn inlined(value: &[u8]) -> Self {
-        Self::Inlined(value.to_vec())
-    }
-
-    pub fn to_value_ref(&self) -> ValueRef {
-        match self {
-            Self::Ref(value_ref) => value_ref.clone(),
-            Self::Inlined(value) => ValueRef::new(value),
-        }
-    }
-}
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Copy, Clone, PartialEq, Eq)]
 pub struct BlockInfo {
@@ -57,7 +34,7 @@ pub enum FlatStorageError {
     BlockNotSupported((CryptoHash, CryptoHash)),
     /// Internal error, caused by DB or in-memory data corruption. Should result
     /// in panic, because correctness of flat storage is not guaranteed afterwards.
-    StorageInternalError,
+    StorageInternalError(String),
 }
 
 impl From<FlatStorageError> for StorageError {
@@ -69,9 +46,18 @@ impl From<FlatStorageError> for StorageError {
                     head_hash, block_hash
                 ))
             }
-            FlatStorageError::StorageInternalError => StorageError::StorageInternalError,
+            FlatStorageError::StorageInternalError(_) => StorageError::StorageInternalError,
         }
     }
+}
+
+pub type FlatStorageResult<T> = Result<T, FlatStorageError>;
+
+#[derive(BorshSerialize, BorshDeserialize, Debug, PartialEq, Eq)]
+pub enum FlatStateValuesInliningMigrationStatus {
+    Empty,
+    InProgress,
+    Finished,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, PartialEq, Eq)]
@@ -145,3 +131,6 @@ pub struct FetchingStateStatus {
     /// Total number of state parts.
     pub num_parts: u64,
 }
+
+pub type FlatStateIterator<'a> =
+    Box<dyn Iterator<Item = FlatStorageResult<(Vec<u8>, FlatStateValue)>> + 'a>;

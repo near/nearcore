@@ -2568,7 +2568,8 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::FlatState
             | DBCol::FlatStateChanges
             | DBCol::FlatStateDeltaMetadata
-            | DBCol::FlatStorageStatus => {
+            | DBCol::FlatStorageStatus
+            | DBCol::Misc => {
                 unreachable!();
             }
         }
@@ -2914,7 +2915,6 @@ impl<'a> ChainStoreUpdate<'a> {
                     .map_err(|err| Error::Other(err.to_string()))?;
             }
         }
-        deletions_store_update.update_cache()?;
 
         for ((block_hash, shard_id), state_changes) in
             self.add_state_changes_for_split_states.drain()

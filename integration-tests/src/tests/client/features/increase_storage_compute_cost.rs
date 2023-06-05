@@ -42,7 +42,15 @@ fn test_storage_write() {
     let num_transactions = 200;
     let uses_storage = true;
     let fails = false;
-    assert_compute_limit_reached(method_name, method_args, num_transactions, uses_storage, fails);
+    let gas_divider = 1;
+    assert_compute_limit_reached(
+        method_name,
+        method_args,
+        num_transactions,
+        uses_storage,
+        gas_divider,
+        fails,
+    );
 }
 
 /// Test that `storage_remove` compute limit is respected in new version.
@@ -53,10 +61,18 @@ fn test_storage_remove() {
     let num_deletes = 1000u64;
     let method_args: Vec<u8> =
         0u64.to_le_bytes().into_iter().chain(num_deletes.to_le_bytes()).collect();
-    let num_transactions = 100;
+    let num_transactions = 10;
     let uses_storage = true;
     let fails = false;
-    assert_compute_limit_reached(method_name, method_args, num_transactions, uses_storage, fails);
+    let gas_divider = 10;
+    assert_compute_limit_reached(
+        method_name,
+        method_args,
+        num_transactions,
+        uses_storage,
+        gas_divider,
+        fails,
+    );
 }
 
 /// Test that `storage_write` compute limit is respected in new version,
@@ -72,7 +88,15 @@ fn test_storage_write_gas_exceeded() {
     let num_transactions = 10;
     let uses_storage = true;
     let fails = true;
-    assert_compute_limit_reached(method_name, method_args, num_transactions, uses_storage, fails);
+    let gas_divider = 1;
+    assert_compute_limit_reached(
+        method_name,
+        method_args,
+        num_transactions,
+        uses_storage,
+        gas_divider,
+        fails,
+    );
 }
 
 /// Check receipts that don't touch storage are unaffected by the new compute costs.
@@ -91,10 +115,18 @@ fn test_non_storage() {
     // because it is very close at the border between 7 or 8 receipts fitting
     // (7 receipts with finite wasm require 999 Tgas, 8 receipts require 1142 Tgas).
     let method_args: Vec<u8> = 10_030_000u64.to_le_bytes().to_vec();
-    let num_transactions = 20;
+    let num_transactions = 2;
     let uses_storage = false;
     let fails: bool = false;
-    assert_compute_limit_reached(method_name, method_args, num_transactions, uses_storage, fails);
+    let gas_divider = 10;
+    assert_compute_limit_reached(
+        method_name,
+        method_args,
+        num_transactions,
+        uses_storage,
+        gas_divider,
+        fails,
+    );
 }
 
 /// Test the case where a function call fails and the limit is unaffected by compute costs.
@@ -104,10 +136,18 @@ fn test_non_storage_gas_exceeded() {
     // It should not be affected by compute costs, as it doesn't access storage.
     let method_name = "loop_forever".to_owned();
     let method_args: Vec<u8> = vec![];
-    let num_transactions = 20;
+    let num_transactions = 2;
     let uses_storage = false;
+    let gas_divider = 10;
     let fails = true;
-    assert_compute_limit_reached(method_name, method_args, num_transactions, uses_storage, fails);
+    assert_compute_limit_reached(
+        method_name,
+        method_args,
+        num_transactions,
+        uses_storage,
+        gas_divider,
+        fails,
+    );
 }
 
 /// Checks that a specific function call reaches the expected limits.
@@ -130,6 +170,7 @@ fn assert_compute_limit_reached(
     method_args: Vec<u8>,
     num_transactions: u64,
     uses_storage: bool,
+    gas_divider: u64,
     should_fail: bool,
 ) {
     // The immediate protocol upgrade needs to be set for this test to pass in
@@ -155,6 +196,7 @@ fn assert_compute_limit_reached(
         let mut genesis = Genesis::test(vec![contract_account.clone(), user_account.clone()], 1);
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = old_protocol_version;
+        genesis.config.gas_limit = genesis.config.gas_limit / gas_divider;
         let chain_genesis = ChainGenesis::new(&genesis);
         TestEnv::builder(chain_genesis)
             .real_epoch_managers(&genesis.config)
