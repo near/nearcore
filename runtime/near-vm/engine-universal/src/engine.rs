@@ -138,10 +138,6 @@ impl UniversalEngine {
         } = compiler.compile_module(
             &self.target(),
             &compile_info,
-            // SAFETY: Calling `unwrap` is correct since
-            // `environ.translate()` above will write some data into
-            // `module_translation_state`.
-            translation.module_translation_state.as_ref().unwrap(),
             translation.function_body_inputs,
             tunables,
             &instrumentation,

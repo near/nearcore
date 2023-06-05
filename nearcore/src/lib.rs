@@ -29,7 +29,7 @@ use tokio::sync::broadcast;
 use tracing::info;
 
 pub mod append_only_map;
-mod cold_storage;
+pub mod cold_storage;
 pub mod config;
 mod config_validate;
 mod download_file;

@@ -58,3 +58,27 @@ fn finite_wasm_gas_was_being_traced_and_thus_slow() {
             "#]],
         ]);
 }
+
+#[test]
+fn gas_intrinsic_did_not_multiply_by_opcode_cost() {
+    test_builder()
+        .wat(
+            r#"
+              (module
+                (type (func (param i32)))
+                (type (func))
+                (import "env" "gas" (func (type 0)))
+                (func (type 1)
+                  i32.const 500000000
+                  call 0)
+                (export "foo" (func 1)))
+            "#,
+        )
+        .method("foo")
+        .expects(&[
+            expect![[r#"
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 100000000000000 used gas 100000000000000
+            Err: Exceeded the maximum amount of gas allowed to burn per contract.
+            "#]],
+        ]);
+}
