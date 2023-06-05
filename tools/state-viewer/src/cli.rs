@@ -15,6 +15,8 @@ use near_primitives::trie_key::trie_key_parsers::{
 use near_primitives::types::{BlockHeight, ShardId};
 use near_store::{Mode, NodeStorage, ShardUId, Store, Temperature, Trie, TrieDBStorage};
 use nearcore::{load_config, NearConfig};
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::str::FromStr;
@@ -640,6 +642,59 @@ impl clap::ValueEnum for TrieIterationType {
     }
 }
 
+#[derive(Default)]
+struct ColumnCountMap(HashMap<u8, usize>);
+
+impl ColumnCountMap {
+    fn col_to_string(col: u8) -> &'static str {
+        match col {
+            col::ACCOUNT => "ACCOUNT",
+            col::CONTRACT_CODE => "CONTRACT_CODE",
+            col::DELAYED_RECEIPT => "DELAYED_RECEIPT",
+            col::DELAYED_RECEIPT_INDICES => "DELAYED_RECEIPT_INDICES",
+            col::ACCESS_KEY => "ACCESS KEY",
+            col::CONTRACT_DATA => "CONTRACT DATA",
+            col::RECEIVED_DATA => "RECEIVED DATA",
+            col::POSTPONED_RECEIPT_ID => "POSTPONED RECEIPT ID",
+            col::PENDING_DATA_COUNT => "PENDING DATA COUNT",
+            col::POSTPONED_RECEIPT => "POSTPONED RECEIPT",
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl std::fmt::Debug for ColumnCountMap {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut map = f.debug_map();
+        for (col, count) in &self.0 {
+            map.entry(&Self::col_to_string(*col), &count);
+        }
+        map.finish()
+    }
+}
+
+#[derive(Debug)]
+pub struct TrieIterationBenchmarkStats {
+    visited_map: ColumnCountMap,
+    pruned_map: ColumnCountMap,
+}
+
+impl TrieIterationBenchmarkStats {
+    pub fn new() -> Self {
+        Self { visited_map: ColumnCountMap::default(), pruned_map: ColumnCountMap::default() }
+    }
+
+    pub fn bump_visited(&mut self, col: u8) {
+        let entry = self.visited_map.0.entry(col).or_insert(0);
+        *entry += 1;
+    }
+
+    pub fn bump_pruned(&mut self, col: u8) {
+        let entry = self.pruned_map.0.entry(col).or_insert(0);
+        *entry += 1;
+    }
+}
+
 #[derive(clap::Parser)]
 pub struct TrieIterationBenchmarkCmd {
     /// The type of trie iteration.
@@ -674,20 +729,21 @@ impl TrieIterationBenchmarkCmd {
         let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
 
         for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
+            if chunk_header.height_included() != block.header().height() {
+                println!("chunk for shard {shard_id} is missing and will be skipped");
+            }
+        }
+
+        for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
             let shard_id = shard_id as ShardId;
             if chunk_header.height_included() != block.header().height() {
-                println!("chunk for shard {shard_id} is missing");
-                return;
+                println!("chunk for shard {shard_id} is missing, skipping it");
+                continue;
             }
             let trie = self.get_trie(shard_id, &shard_layout, &chunk_header, &store);
 
             println!("shard id    {shard_id:#?} benchmark starting");
-            let prune_condition: Option<Box<dyn Fn(&Vec<u8>) -> bool>> =
-                Some(Box::new(Self::shallow_iter_prune_condition));
-            match &self.iteration_type {
-                TrieIterationType::Full => self.iter_trie(&trie, None),
-                TrieIterationType::Shallow => self.iter_trie(&trie, prune_condition),
-            };
+            self.iter_trie(&trie);
             println!("shard id    {shard_id:#?} benchmark finished");
         }
     }
@@ -704,19 +760,22 @@ impl TrieIterationBenchmarkCmd {
         // corresponds to the current epoch id. In practice shouldn't
         // matter as the shard layout doesn't change.
         let state_root = chunk_header.prev_state_root();
-        // Question for reviewer - there are different TrieStorage
-        // implementation, which would be best suited here? I picked this
-        // one since it looked simplest and I don't think there is much
-        // point in using caches.
         let storage = TrieDBStorage::new(store.clone(), shard_uid);
-        // Question for reviewer - my assumption is that flat storgage
-        // should be disabled or is irrelevant for this task, can you
-        // confirm please?
         let flat_storage_chunk_view = None;
         Trie::new(Rc::new(storage), state_root, flat_storage_chunk_view)
     }
 
-    fn iter_trie(&self, trie: &Trie, prune_condition: Option<Box<dyn Fn(&Vec<u8>) -> bool>>) {
+    fn iter_trie(&self, trie: &Trie) {
+        let stats = Rc::new(RefCell::new(TrieIterationBenchmarkStats::new()));
+        let stats_clone = Rc::clone(&stats);
+
+        let prune_condition: Option<Box<dyn Fn(&Vec<u8>) -> bool>> = match &self.iteration_type {
+            TrieIterationType::Full => None,
+            TrieIterationType::Shallow => Some(Box::new(move |key_nibbles| -> bool {
+                Self::shallow_iter_prune_condition(key_nibbles, &stats_clone)
+            })),
+        };
+
         let start = Instant::now();
         let mut node_count = 0;
         let mut error_count = 0;
@@ -730,11 +789,6 @@ impl TrieIterationBenchmarkCmd {
         };
         for item in iter {
             node_count += 1;
-            if let Some(limit) = self.limit {
-                if limit < node_count {
-                    break;
-                }
-            }
 
             let (key, value) = match item {
                 Ok((key, value)) => (key, value),
@@ -745,51 +799,74 @@ impl TrieIterationBenchmarkCmd {
                 }
             };
 
+            stats.borrow_mut().bump_visited(key[0]);
+
             if self.print {
                 let state_record = StateRecord::from_raw_key_value(key.clone(), value);
                 Self::print_state_record(&state_record);
+            }
+
+            if let Some(limit) = self.limit {
+                if limit < node_count {
+                    break;
+                }
             }
         }
         let duration = start.elapsed();
         println!("node count  {node_count}");
         println!("error count {error_count}");
         println!("time        {duration:?}");
+        println!("stats\n{:#?}", stats.borrow());
     }
 
-    fn shallow_iter_prune_condition(key_nibbles: &Vec<u8>) -> bool {
+    fn shallow_iter_prune_condition(
+        key_nibbles: &Vec<u8>,
+        stats: &Rc<RefCell<TrieIterationBenchmarkStats>>,
+    ) -> bool {
         // Need at least 2 nibbles for the column type byte.
         if key_nibbles.len() < 2 {
             return false;
         }
-        // Keys for interesting nodes have even length
-        if key_nibbles.len() % 2 != 0 {
-            return false;
-        }
 
-        let col: u8 = key_nibbles[0] * 16 + key_nibbles[1];
-        match col {
+        // The key method will drop the last nibble if there is an odd number of
+        // them. This is on purpose because the interesting keys have even length.
+        let key = Self::key(key_nibbles);
+        let col: u8 = key[0];
+        let result = match col {
             // key for account only contains account id, nothing to prune
-            col::ACCOUNT => return false,
+            col::ACCOUNT => false,
             // key for contract code only contains account id, nothing to prune
-            col::CONTRACT_CODE => return false,
+            col::CONTRACT_CODE => false,
             // key for delayed receipt only contains account id, nothing to prune
-            col::DELAYED_RECEIPT => return false,
+            col::DELAYED_RECEIPT => false,
             // key for delayed receipt indices is a shard singleton, nothing to prune
-            col::DELAYED_RECEIPT_INDICES => return false,
+            col::DELAYED_RECEIPT_INDICES => false,
 
             // Most columns use the ACCOUNT_DATA_SEPARATOR to indicate the end
             // of the accound id in the trie key. For those columns the
             // partial_parse_account_id method should be used.
             // The only exception is the ACCESS_KEY and dedicated method
             // partial_parse_account_id_from_access_key should be used.
-            col::ACCESS_KEY => return Self::partial_parse_account_id_from_access_key(key_nibbles),
-            col::CONTRACT_DATA => return Self::partial_parse_account_id(col, key_nibbles),
-            col::RECEIVED_DATA => return Self::partial_parse_account_id(col, key_nibbles),
-            col::POSTPONED_RECEIPT_ID => return Self::partial_parse_account_id(col, key_nibbles),
-            col::PENDING_DATA_COUNT => return Self::partial_parse_account_id(col, key_nibbles),
-            col::POSTPONED_RECEIPT => return Self::partial_parse_account_id(col, key_nibbles),
+            col::ACCESS_KEY => Self::partial_parse_account_id_from_access_key(&key, "ACCESS KEY"),
+            col::CONTRACT_DATA => Self::partial_parse_account_id(col, &key, "CONTRACT DATA"),
+            col::RECEIVED_DATA => Self::partial_parse_account_id(col, &key, "RECEIVED DATA"),
+            col::POSTPONED_RECEIPT_ID => {
+                Self::partial_parse_account_id(col, &key, "POSTPONED RECEIPT ID")
+            }
+            col::PENDING_DATA_COUNT => {
+                Self::partial_parse_account_id(col, &key, "PENDING DATA COUNT")
+            }
+            col::POSTPONED_RECEIPT => {
+                Self::partial_parse_account_id(col, &key, "POSTPONED RECEIPT")
+            }
             _ => unreachable!(),
         };
+
+        if result {
+            stats.borrow_mut().bump_pruned(col);
+        }
+
+        result
 
         // TODO - this can be optimized, we really only need to look at the last
         // byte of the key and check if it is the separator. This only works
@@ -797,8 +874,8 @@ impl TrieIterationBenchmarkCmd {
         // the invariant that parent node key was already checked.
     }
 
-    // TODO(wacban) copy pasta from iterator.rs
     fn key(key_nibbles: &Vec<u8>) -> Vec<u8> {
+        // Intentionally ignoring the odd nibble at the end.
         let mut result = <Vec<u8>>::with_capacity(key_nibbles.len() / 2);
         for i in (1..key_nibbles.len()).step_by(2) {
             result.push(key_nibbles[i - 1] * 16 + key_nibbles[i]);
@@ -806,15 +883,25 @@ impl TrieIterationBenchmarkCmd {
         result
     }
 
-    fn partial_parse_account_id(col: u8, key_nibbles: &Vec<u8>) -> bool {
-        let key = Self::key(key_nibbles);
-        parse_account_id_from_trie_key_with_separator(col, &key, "").is_ok()
+    fn partial_parse_account_id(col: u8, key: &Vec<u8>, col_name: &str) -> bool {
+        match parse_account_id_from_trie_key_with_separator(col, &key, "") {
+            Ok(account_id) => {
+                tracing::trace!(target: "trie-iteration-benchmark", "pruning column {col_name} account id {account_id:?}");
+                true
+            }
+            Err(_) => false,
+        }
     }
 
     // returns true if the partial key contains full account id
-    fn partial_parse_account_id_from_access_key(key_nibbles: &Vec<u8>) -> bool {
-        let key = Self::key(key_nibbles);
-        parse_account_id_from_access_key_key(&key).is_ok()
+    fn partial_parse_account_id_from_access_key(key: &Vec<u8>, col_name: &str) -> bool {
+        match parse_account_id_from_access_key_key(&key) {
+            Ok(account_id) => {
+                tracing::trace!(target: "trie-iteration-benchmark", "pruning column {col_name} account id {account_id:?}");
+                true
+            }
+            Err(_) => false,
+        }
     }
 
     fn print_state_record(state_record: &Option<StateRecord>) {
