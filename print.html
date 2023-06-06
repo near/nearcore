@@ -1081,8 +1081,14 @@ how the current code works.</p>
 <span class="boring">}
 </span></code></pre></pre>
 <p>Yes, it is a little bit confusing, that receipts here are NOT the ‘incoming’
-ones for this chunk, but instead the ‘outgoing’ ones from the previous block.  Why?!?!</p>
+ones for this chunk, but instead the ‘outgoing’ ones from the previous block, i.e. all receipts from shard 0, block B are actually found in shard 0, block B+1.  Why?!?!</p>
 <p>This has to do with performance.</p>
+<p>The steps usually followed for producing a block are as follows</p>
+<ol>
+<li>Chunk producer executes the receipts and creates a chunk. It sends the chunk to other validators. Note that it's the execution/processing of the receipts that usually takes the most time.</li>
+<li>Validators receive the chunk and validate it before signing the chunk. Validation involves executing/processing of the receipts in the chunk.</li>
+<li>Once the next block chunk producer receives the validation (signature), only then can it start producing the next chunk.</li>
+</ol>
 <h4 id="simple-approach"><a class="header" href="#simple-approach">Simple approach</a></h4>
 <p>First, let’s imagine how the system would look like, if chunks contained things
 that we’d expect:</p>
@@ -1735,7 +1741,7 @@ message Second {
 could lead to some programmatic bugs.</p>
 <h2 id="advanced-section---rawtrienode"><a class="header" href="#advanced-section---rawtrienode">Advanced section - RawTrieNode</a></h2>
 <p>There is one more place in the code where we use a ‘custom’ encoding:
-RawTrieNodeWithSize defined in store/src/trie/raw_nodes.rs.  While the format
+RawTrieNodeWithSize defined in store/src/trie/raw_node.rs.  While the format
 uses Borsh derives and API, there is a difference in how branch children
 (<code>[Option&lt;CryptoHash&gt;; 16]</code>) are encoded.  Standard Borsh encoding would
 encode <code>Option&lt;CryptoHash&gt;</code> sixteen times.  Instead, RawTrieNodeWithSize uses
@@ -1746,10 +1752,11 @@ a bitmap to indicate which elements are set resulting in a different layout.</p>
 </span>[Some(0x11), None, Some(0x12), None, None, …]
 <span class="boring">}
 </span></code></pre></pre>
+<p>Here, we have children at index 0 and 2 which has a bitmap of <code>101</code></p>
 <p>Custom encoder:</p>
 <pre><code>// Number of children detetermined by the bitmask
 [16 bits bitmask][32 bytes child][32 bytes child]
-[3][0x11][0x12]
+[5][0x11][0x12]
 // Total size: 2 + 32 + 32 = 68 bytes
 </code></pre>
 <p>Borsh:</p>
@@ -1759,7 +1766,7 @@ a bitmap to indicate which elements are set resulting in a different layout.</p>
 </code></pre>
 <p>Code for encoding children is given in BorshSerialize implementation for
 ChildrenRef type and code for decoding in BorshDeserialize implementation for
-Children.  All of that is in aforementioned store/src/trie/raw_nodes.rs file.</p>
+Children.  All of that is in aforementioned store/src/trie/raw_node.rs file.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="proofs"><a class="header" href="#proofs">Proofs</a></h1>
 <p>“Don’t trust, but verify” - let’s talk about proofs</p>
 <h2 id="was-your-transaction-included"><a class="header" href="#was-your-transaction-included">Was your transaction included?</a></h2>
@@ -1984,7 +1991,7 @@ be needed in next epoch (X+2).</p>
 <p>This is the moment, when node can request new shards that it didn't track before (using StateSync) - and if it detects that the shard layout would change in the next epoch, it also involves the StateSync - but skips the download part (as it already has the data) - and starts from state splitting.</p>
 <p>StateSync in this phase would send the <code>StateSplitRequest</code> to the <code>SyncJobActor</code> (you can think about the SyncJobActor as a background thread).</p>
 <p>We'd use the background thread to do the state splitting: the goal is to change the one trie (that represents the state of the current shard) - to multiple tries (one for each of the new shards).</p>
-<p>Currently we re-use some of the code that we have for state sync (for example to figure out the number of parts) - and the we take alll the items for a given part, which a list of trie <strong>items</strong> (key-value pairs that are stored in the trie - NOT trie nodes) - and for each one, we try to extract the account id that this key belongs to.</p>
+<p>Currently we re-use some of the code that we have for state sync (for example to figure out the number of parts) - and the we take all the items for a given part, which a list of trie <strong>items</strong> (key-value pairs that are stored in the trie - NOT trie nodes) - and for each one, we try to extract the account id that this key belongs to.</p>
 <p><strong>TODO</strong>: It seems that the code was written with the idea of persisting the &quot;progress&quot; (that's why have parts etc) - but AFAIK currently we never persist the progress of the resharding - so if the node restarts, we're starting from scratch.</p>
 <p>Extracting of the account from the key happens in <code>parse_account_id_from_raw_key</code> - and we do it for all types of data that we store in the trie (contract code, keys, account info etc) EXCEPT for Delayed receipts. Then, we figure out the shard that this account is going to belong to, and we add this key/value to that new trie.</p>
 <p>This way, after going over all the key/values from the original trie, we end up with X new tries (one for each new shard).</p>
@@ -1992,7 +1999,7 @@ be needed in next epoch (X+2).</p>
 <p><strong>Discussion point</strong>: When should we start supporting the 'merge' operation ? And when the combination (split &amp; merge)?</p>
 <h3 id="why-delayed-receipts-are-special"><a class="header" href="#why-delayed-receipts-are-special">Why delayed receipts are special?</a></h3>
 <p>For all the other columns, there is no dependency between entries, but in case of delayed receipts - we are forming a 'queue'. We store the information about the first index and the last index (in DelayedReceiptIndices struct).</p>
-<p>Then, we receipt arrives, we add it as the 'DELATED_RECEIPT + last_index' key (and increment last_index by 1).</p>
+<p>Then, we receipt arrives, we add it as the 'DELAYED_RECEIPT + last_index' key (and increment last_index by 1).</p>
 <p>That's why we cannot move it column 'in trie parts' (like we did for others), but we do it by 'iterating' over this queue.</p>
 <h2 id="what-should-we-improve-to-achieve-stressless-resharding"><a class="header" href="#what-should-we-improve-to-achieve-stressless-resharding">What should we improve to achieve 'stressless' resharding?</a></h2>
 <p>Currently trie is split sequencially (shard by shard), and also sequancially within a shard - by iterating over all the elements. </p>
@@ -2006,7 +2013,7 @@ be needed in next epoch (X+2).</p>
 <h4 id="should-we-remove-the-sharduid-prefix"><a class="header" href="#should-we-remove-the-sharduid-prefix">should we remove the sharduid prefix?</a></h4>
 <p>one advantage of sharduid, is that it allows us to quickly remove the contents of the shard (which we do when we're about to do statesync - as we want to start with a clear slate).</p>
 <h4 id="or-should-we-replace-it-with-account-sharduid"><a class="header" href="#or-should-we-replace-it-with-account-sharduid">Or should we replace it with 'account' sharduid?</a></h4>
-<p>Another alternative, is to use the account hash as a prefix for the trie nodes instead. This allow relatively quick shard-level data removal (assuming couple million accounts per shard), and it means that we could od the resharding a lot more efficiently.</p>
+<p>Another alternative, is to use the account hash as a prefix for the trie nodes instead. This allow relatively quick shard-level data removal (assuming couple million accounts per shard), and it means that we could do the resharding a lot more efficiently.</p>
 <p>We could also do something special for the 'simple' (zero-cost) accounts - the ones that just have a few keys added and don't have any other state (if we assume that we're going to get a lot of them).</p>
 <h3 id="add-support-for-somehow-allowing-to-change-resharding-on-each-epoch-boundary"><a class="header" href="#add-support-for-somehow-allowing-to-change-resharding-on-each-epoch-boundary">Add support for (somehow) allowing to change resharding on each epoch boundary</a></h3>
 <p>Add an option in the config (maybe + some simple voting??) - so that we can easily change the shard layout.</p>

@@ -201,8 +201,14 @@ how the current code works.</p>
 <span class="boring">}
 </span></code></pre></pre>
 <p>Yes, it is a little bit confusing, that receipts here are NOT the ‘incoming’
-ones for this chunk, but instead the ‘outgoing’ ones from the previous block.  Why?!?!</p>
+ones for this chunk, but instead the ‘outgoing’ ones from the previous block, i.e. all receipts from shard 0, block B are actually found in shard 0, block B+1.  Why?!?!</p>
 <p>This has to do with performance.</p>
+<p>The steps usually followed for producing a block are as follows</p>
+<ol>
+<li>Chunk producer executes the receipts and creates a chunk. It sends the chunk to other validators. Note that it's the execution/processing of the receipts that usually takes the most time.</li>
+<li>Validators receive the chunk and validate it before signing the chunk. Validation involves executing/processing of the receipts in the chunk.</li>
+<li>Once the next block chunk producer receives the validation (signature), only then can it start producing the next chunk.</li>
+</ol>
 <h4 id="simple-approach"><a class="header" href="#simple-approach">Simple approach</a></h4>
 <p>First, let’s imagine how the system would look like, if chunks contained things
 that we’d expect:</p>
