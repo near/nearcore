@@ -88,9 +88,14 @@ pub struct ShardChunkV2 {
 ```
 
 Yes, it is a little bit confusing, that receipts here are NOT the ‘incoming’
-ones for this chunk, but instead the ‘outgoing’ ones from the previous block.  Why?!?!
+ones for this chunk, but instead the ‘outgoing’ ones from the previous block, i.e. all receipts from shard 0, block B are actually found in shard 0, block B+1.  Why?!?!
 
 This has to do with performance.
+
+The steps usually followed for producing a block are as follows
+1. Chunk producer executes the receipts and creates a chunk. It sends the chunk to other validators. Note that it's the execution/processing of the receipts that usually takes the most time.
+2. Validators receive the chunk and validate it before signing the chunk. Validation involves executing/processing of the receipts in the chunk.
+3. Once the next block chunk producer receives the validation (signature), only then can it start producing the next chunk.
 
 #### Simple approach
 
