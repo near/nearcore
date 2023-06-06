@@ -114,8 +114,6 @@ pub struct EpochManager {
     /// Current epoch config.
     config: AllEpochConfig,
     reward_calculator: RewardCalculator,
-    /// Genesis protocol version. Useful when there are protocol upgrades.
-    genesis_protocol_version: ProtocolVersion,
     genesis_num_block_producer_seats: NumSeats,
 
     /// Cache of epoch information.
@@ -185,7 +183,6 @@ impl EpochManager {
             store,
             config,
             reward_calculator,
-            genesis_protocol_version,
             genesis_num_block_producer_seats,
             epochs_info: SyncLruCache::new(EPOCH_CACHE_SIZE),
             blocks_info: SyncLruCache::new(BLOCK_CACHE_SIZE),
