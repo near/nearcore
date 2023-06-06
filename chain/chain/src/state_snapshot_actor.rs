@@ -33,10 +33,7 @@ struct MakeSnapshotRequest {
 
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
-struct CompactSnapshotRequest {
-    /// Identifies the snapshot.
-    prev_block_hash: CryptoHash,
-}
+struct CompactSnapshotRequest {}
 
 /// Makes a state snapshot in the background.
 impl actix::Handler<WithSpanContext<MakeSnapshotRequest>> for StateSnapshotActor {
@@ -62,7 +59,7 @@ impl actix::Handler<WithSpanContext<MakeSnapshotRequest>> for StateSnapshotActor
             "Failed to unlock flat state updates"
         );
         if run_compaction {
-            _ctx.address().do_send(CompactSnapshotRequest { prev_block_hash }.with_span_context());
+            _ctx.address().do_send(CompactSnapshotRequest {}.with_span_context());
         }
     }
 }
@@ -76,13 +73,12 @@ impl actix::Handler<WithSpanContext<CompactSnapshotRequest>> for StateSnapshotAc
         msg: WithSpanContext<CompactSnapshotRequest>,
         _ctx: &mut actix::Context<Self>,
     ) -> Self::Result {
-        let (_span, msg) = handler_debug_span!(target: "state_snapshot", msg);
-        let CompactSnapshotRequest { prev_block_hash } = msg;
+        let (_span, _msg) = handler_debug_span!(target: "state_snapshot", msg);
 
-        if let Err(err) = self.tries.compact_state_snapshot(&prev_block_hash) {
-            tracing::error!(target: "state_snapshot", ?prev_block_hash, ?err, "State snapshot compaction failed");
+        if let Err(err) = self.tries.compact_state_snapshot() {
+            tracing::error!(target: "state_snapshot", ?err, "State snapshot compaction failed");
         } else {
-            tracing::info!(target: "state_snapshot", ?prev_block_hash, "State snapshot compaction succeeded");
+            tracing::info!(target: "state_snapshot", "State snapshot compaction succeeded");
         }
     }
 }
