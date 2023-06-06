@@ -47,7 +47,7 @@ StateSync in this phase would send the ``StateSplitRequest`` to the ``SyncJobAct
 
 We'd use the background thread to do the state splitting: the goal is to change the one trie (that represents the state of the current shard) - to multiple tries (one for each of the new shards).
 
-Currently we re-use some of the code that we have for state sync (for example to figure out the number of parts) - and the we take alll the items for a given part, which a list of trie **items** (key-value pairs that are stored in the trie - NOT trie nodes) - and for each one, we try to extract the account id that this key belongs to.
+Currently we re-use some of the code that we have for state sync (for example to figure out the number of parts) - and the we take all the items for a given part, which a list of trie **items** (key-value pairs that are stored in the trie - NOT trie nodes) - and for each one, we try to extract the account id that this key belongs to.
 
 **TODO**: It seems that the code was written with the idea of persisting the "progress" (that's why have parts etc) - but AFAIK currently we never persist the progress of the resharding - so if the node restarts, we're starting from scratch.
 
@@ -65,7 +65,7 @@ IMPORTANT: in the current code, we only support such 'splitting' (so a new shard
 ### Why delayed receipts are special?
 For all the other columns, there is no dependency between entries, but in case of delayed receipts - we are forming a 'queue'. We store the information about the first index and the last index (in DelayedReceiptIndices struct).
 
-Then, we receipt arrives, we add it as the 'DELATED_RECEIPT + last_index' key (and increment last_index by 1).
+Then, we receipt arrives, we add it as the 'DELAYED_RECEIPT + last_index' key (and increment last_index by 1).
 
 That's why we cannot move it column 'in trie parts' (like we did for others), but we do it by 'iterating' over this queue.
 
@@ -95,7 +95,7 @@ one advantage of sharduid, is that it allows us to quickly remove the contents o
 
 #### Or should we replace it with 'account' sharduid? 
 
-Another alternative, is to use the account hash as a prefix for the trie nodes instead. This allow relatively quick shard-level data removal (assuming couple million accounts per shard), and it means that we could od the resharding a lot more efficiently.
+Another alternative, is to use the account hash as a prefix for the trie nodes instead. This allow relatively quick shard-level data removal (assuming couple million accounts per shard), and it means that we could do the resharding a lot more efficiently.
 
 We could also do something special for the 'simple' (zero-cost) accounts - the ones that just have a few keys added and don't have any other state (if we assume that we're going to get a lot of them).
 
