@@ -3,9 +3,8 @@ use crate::{NodeStorage, Store, Temperature};
 use actix_rt::ArbiterHandle;
 use near_o11y::metrics::{
     exponential_buckets, try_create_histogram, try_create_histogram_vec,
-    try_create_histogram_with_buckets, try_create_int_counter, try_create_int_counter_vec,
-    try_create_int_gauge, try_create_int_gauge_vec, Histogram, HistogramVec, IntCounter,
-    IntCounterVec, IntGauge, IntGaugeVec,
+    try_create_int_counter_vec, try_create_int_gauge, try_create_int_gauge_vec, Histogram,
+    HistogramVec, IntCounterVec, IntGauge, IntGaugeVec,
 };
 use once_cell::sync::Lazy;
 
@@ -237,87 +236,97 @@ pub static COLD_COPY_DURATION: Lazy<Histogram> = Lazy::new(|| {
     .unwrap()
 });
 
-pub(crate) static GET_STATE_PART_WITH_FS_ELAPSED: Lazy<Histogram> = Lazy::new(|| {
-    try_create_histogram_with_buckets(
+pub(crate) static GET_STATE_PART_WITH_FS_ELAPSED: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
         "near_get_state_part_with_fs_elapsed_sec",
         "Latency of creating a state part using flat storage, in seconds",
-        exponential_buckets(0.001, 1.6, 25).unwrap(),
+        &["shard_id"],
+        Some(exponential_buckets(0.001, 1.6, 25).unwrap()),
     )
     .unwrap()
 });
 
-pub(crate) static GET_STATE_PART_BOUNDARIES_ELAPSED: Lazy<Histogram> = Lazy::new(|| {
-    try_create_histogram_with_buckets(
+pub(crate) static GET_STATE_PART_BOUNDARIES_ELAPSED: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
         "near_get_state_part_boundaries_elapsed_sec",
         "Latency of finding state part boundaries, in seconds",
-        exponential_buckets(0.001, 1.6, 25).unwrap(),
+        &["shard_id"],
+        Some(exponential_buckets(0.001, 1.6, 25).unwrap()),
     )
     .unwrap()
 });
 
-pub(crate) static GET_STATE_PART_READ_FS_ELAPSED: Lazy<Histogram> = Lazy::new(|| {
-    try_create_histogram_with_buckets(
+pub(crate) static GET_STATE_PART_READ_FS_ELAPSED: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
         "near_get_state_part_with_fs_read_fs_elapsed_sec",
         "Latency of reading FS columns, in seconds",
-        exponential_buckets(0.001, 1.6, 25).unwrap(),
+        &["shard_id"],
+        Some(exponential_buckets(0.001, 1.6, 25).unwrap()),
     )
     .unwrap()
 });
 
-pub(crate) static GET_STATE_PART_CREATE_TRIE_ELAPSED: Lazy<Histogram> = Lazy::new(|| {
-    try_create_histogram_with_buckets(
+pub(crate) static GET_STATE_PART_CREATE_TRIE_ELAPSED: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
         "near_get_state_part_with_fs_create_trie_elapsed_sec",
         "Latency of creation of trie from the data read from FS, in seconds",
-        exponential_buckets(0.001, 1.6, 25).unwrap(),
+        &["shard_id"],
+        Some(exponential_buckets(0.001, 1.6, 25).unwrap()),
     )
     .unwrap()
 });
 
-pub(crate) static GET_STATE_PART_COMBINE_ELAPSED: Lazy<Histogram> = Lazy::new(|| {
-    try_create_histogram_with_buckets(
+pub(crate) static GET_STATE_PART_COMBINE_ELAPSED: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
         "near_get_state_part_with_fs_combine_elapsed_sec",
         "Latency of combining part boundaries and in-memory created nodes, in seconds",
-        exponential_buckets(0.001, 1.6, 25).unwrap(),
+        &["shard_id"],
+        Some(exponential_buckets(0.001, 1.6, 25).unwrap()),
     )
     .unwrap()
 });
 
-pub(crate) static GET_STATE_PART_WITH_FS_VALUES_INLINED: Lazy<IntCounter> = Lazy::new(|| {
-    try_create_int_counter(
+pub(crate) static GET_STATE_PART_WITH_FS_VALUES_INLINED: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
         "near_get_state_part_with_fs_values_inlined_count",
         "Number of FS values that were inlined",
+        &["shard_id"],
     )
     .unwrap()
 });
 
-pub(crate) static GET_STATE_PART_WITH_FS_VALUES_REF: Lazy<IntCounter> = Lazy::new(|| {
-    try_create_int_counter(
+pub(crate) static GET_STATE_PART_WITH_FS_VALUES_REF: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
         "near_get_state_part_with_fs_values_ref_count",
         "Number of FS values that were references",
+        &["shard_id"],
     )
     .unwrap()
 });
 
-pub(crate) static GET_STATE_PART_WITH_FS_NODES_FROM_DISK: Lazy<IntCounter> = Lazy::new(|| {
-    try_create_int_counter(
+pub(crate) static GET_STATE_PART_WITH_FS_NODES_FROM_DISK: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
         "near_get_state_part_with_fs_nodes_from_disk_count",
         "Number of nodes in state part that are state part boundaries",
+        &["shard_id"],
     )
     .unwrap()
 });
 
-pub(crate) static GET_STATE_PART_WITH_FS_NODES_IN_MEMORY: Lazy<IntCounter> = Lazy::new(|| {
-    try_create_int_counter(
+pub(crate) static GET_STATE_PART_WITH_FS_NODES_IN_MEMORY: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
         "near_get_state_part_with_fs_nodes_from_disk_count",
         "Number of nodes in state part that created based on FS values",
+        &["shard_id"],
     )
     .unwrap()
 });
 
-pub(crate) static GET_STATE_PART_WITH_FS_NODES: Lazy<IntCounter> = Lazy::new(|| {
-    try_create_int_counter(
+pub(crate) static GET_STATE_PART_WITH_FS_NODES: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
         "near_get_state_part_with_fs_nodes_count",
         "Total number of nodes in state parts created",
+        &["shard_id"],
     )
     .unwrap()
 });
