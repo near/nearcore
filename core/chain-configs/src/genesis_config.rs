@@ -23,7 +23,7 @@ use near_primitives::{
 };
 use num_rational::Rational32;
 use serde::de::{self, DeserializeSeed, IgnoredAny, MapAccess, SeqAccess, Visitor};
-use serde::{Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Serializer;
 use sha2::digest::Digest;
 use smart_default::SmartDefault;
@@ -234,18 +234,38 @@ impl From<&GenesisConfig> for AllEpochConfig {
 )]
 pub struct GenesisRecords(pub Vec<StateRecord>);
 
+/// custom deserializer that does the same thing that #[serde(default)] would do --
+/// if no value is provided in json, returns default value.
+fn no_value_as_default<'de, D, T>(de: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de> + Default,
+{
+    let opt = Option::<T>::deserialize(de)?;
+    match opt {
+        None => Ok(T::default()),
+        Some(value) => Ok(value),
+    }
+}
+
 #[derive(Debug, Clone, SmartDefault, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
 pub enum GenesisContents {
     /// Records in storage at genesis (get split into shards at genesis creation).
     #[default]
-    #[serde(rename(serialize = "records", deserialize = "records"))]
-    Records(GenesisRecords),
+    Records { records: GenesisRecords },
     /// Genesis object may not contain records.
     /// In this case records can be found in records_file.
     /// The idea is that all records consume too much memory,
     /// so they should be processed in streaming fashion with for_each_record.
-    #[serde(skip)]
-    RecordsFile(PathBuf),
+    RecordsFile { records_file: PathBuf },
+}
+
+fn contents_are_not_records(contents: &GenesisContents) -> bool {
+    match contents {
+        GenesisContents::Records { .. } => false,
+        _ => true,
+    }
 }
 
 /// `Genesis` has an invariant that `total_supply` is equal to the supply seen in the records.
@@ -255,7 +275,12 @@ pub enum GenesisContents {
 pub struct Genesis {
     #[serde(flatten)]
     pub config: GenesisConfig,
+    /// Custom deserializer used instead of serde(default),
+    /// because serde(flatten) doesn't work with default for some reason
+    /// The corresponding issue has been open since 2019, so any day now.
+    #[serde(skip_serializing_if = "contents_are_not_records")]
     #[serde(flatten)]
+    #[serde(deserialize_with = "no_value_as_default")]
     pub contents: GenesisContents,
 }
 
@@ -526,7 +551,7 @@ impl Genesis {
         records: GenesisRecords,
         genesis_validation: GenesisValidationMode,
     ) -> Result<Self, ValidationError> {
-        let genesis = Self { config, contents: GenesisContents::Records(records) };
+        let genesis = Self { config, contents: GenesisContents::Records { records } };
         genesis.validate(genesis_validation)?;
         Ok(genesis)
     }
@@ -538,7 +563,9 @@ impl Genesis {
     ) -> Result<Self, ValidationError> {
         let genesis = Self {
             config,
-            contents: GenesisContents::RecordsFile(records_file.as_ref().to_path_buf()),
+            contents: GenesisContents::RecordsFile {
+                records_file: records_file.as_ref().to_path_buf(),
+            },
         };
         genesis.validate(genesis_validation)?;
         Ok(genesis)
@@ -577,8 +604,8 @@ impl Genesis {
     /// Returns number of records in the genesis or path to records file.
     pub fn records_len(&self) -> Result<usize, &Path> {
         match &self.contents {
-            GenesisContents::Records(records) => Ok(records.0.len()),
-            GenesisContents::RecordsFile(records_file) => Err(&records_file),
+            GenesisContents::Records { records } => Ok(records.0.len()),
+            GenesisContents::RecordsFile { records_file } => Err(&records_file),
         }
     }
 
@@ -586,12 +613,12 @@ impl Genesis {
     /// May panic if records_file is removed or is in wrong format.
     pub fn for_each_record(&self, mut callback: impl FnMut(&StateRecord)) {
         match &self.contents {
-            GenesisContents::Records(records) => {
+            GenesisContents::Records { records } => {
                 for record in &records.0 {
                     callback(record);
                 }
             }
-            GenesisContents::RecordsFile(records_file) => {
+            GenesisContents::RecordsFile { records_file } => {
                 let callback_move = |record: StateRecord| {
                     callback(&record);
                 };
@@ -614,13 +641,14 @@ impl Genesis {
     /// and then returns mutable reference to them.
     pub fn force_read_records(&mut self) -> &mut GenesisRecords {
         match &self.contents {
-            GenesisContents::RecordsFile(records_file) => {
-                self.contents = GenesisContents::Records(GenesisRecords::from_file(records_file));
+            GenesisContents::RecordsFile { records_file } => {
+                self.contents =
+                    GenesisContents::Records { records: GenesisRecords::from_file(records_file) };
             }
-            GenesisContents::Records(_) => {}
+            GenesisContents::Records { .. } => {}
         }
         match &mut self.contents {
-            GenesisContents::Records(records) => records,
+            GenesisContents::Records { records } => records,
             _ => {
                 unreachable!("Records should have been set previously");
             }
@@ -1045,5 +1073,83 @@ mod test {
         let genesis =
             serde_json::from_str::<Genesis>(&genesis_str).expect("Failed to deserialize Genesis");
         genesis.validate(GenesisValidationMode::Full).expect("Failed to validate Genesis");
+    }
+
+    #[test]
+    fn test_loading_localnet_genesis_without_records() {
+        let genesis_str = r#"{
+              "protocol_version": 57,
+              "genesis_time": "2022-11-15T05:17:59.578706Z",
+              "chain_id": "localnet",
+              "genesis_height": 0,
+              "num_block_producer_seats": 50,
+              "num_block_producer_seats_per_shard": [
+                50
+              ],
+              "avg_hidden_validator_seats_per_shard": [
+                0
+              ],
+              "dynamic_resharding": false,
+              "protocol_upgrade_stake_threshold": [
+                4,
+                5
+              ],
+              "protocol_upgrade_num_epochs": 2,
+              "epoch_length": 60,
+              "gas_limit": 1000000000000000,
+              "min_gas_price": "100000000",
+              "max_gas_price": "10000000000000000000000",
+              "block_producer_kickout_threshold": 90,
+              "chunk_producer_kickout_threshold": 90,
+              "online_min_threshold": [
+                9,
+                10
+              ],
+              "online_max_threshold": [
+                99,
+                100
+              ],
+              "gas_price_adjustment_rate": [
+                1,
+                100
+              ],
+              "validators": [
+                {
+                  "account_id": "test.near",
+                  "public_key": "ed25519:Gc4yTakj3QVm5T9XpsFNooVKBxXcYnhnuQdGMXf5Hjcf",
+                  "amount": "50000000000000000000000000000000"
+                }
+              ],
+              "transaction_validity_period": 100,
+              "protocol_reward_rate": [
+                1,
+                10
+              ],
+              "max_inflation_rate": [
+                1,
+                20
+              ],
+              "total_supply": "2050000000000000000000000000000000",
+              "num_blocks_per_year": 31536000,
+              "protocol_treasury_account": "test.near",
+              "fishermen_threshold": "10000000000000000000000000",
+              "minimum_stake_divisor": 10,
+              "shard_layout": {
+                "V0": {
+                  "num_shards": 1,
+                  "version": 0
+                }
+              },
+              "num_chunk_only_producer_seats": 300,
+              "minimum_validators_per_shard": 1,
+              "max_kickout_stake_perc": 100,
+              "minimum_stake_ratio": [
+                1,
+                6250
+              ],
+              "use_production_config": false
+        }"#;
+        let _genesis =
+            serde_json::from_str::<Genesis>(&genesis_str).expect("Failed to deserialize Genesis");
     }
 }
