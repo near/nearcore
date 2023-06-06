@@ -1,6 +1,3 @@
-use crate::metrics;
-use chrono::{DateTime, Utc};
-use near_primitives::static_clock::StaticClock;
 use near_primitives::types::BlockHeight;
 use serde::{Deserialize, Serialize, Serializer};
 use std::fmt::Debug;
@@ -16,9 +13,10 @@ pub struct MutableConfigValue<T> {
     // For metrics.
     // Mutable config values are exported to prometheus with labels [field_name][last_update][value].
     field_name: String,
+    #[cfg(feature = "metrics")]
     // For metrics.
     // Mutable config values are exported to prometheus with labels [field_name][last_update][value].
-    last_update: DateTime<Utc>,
+    last_update: chrono::DateTime<chrono::Utc>,
 }
 
 impl<T: Serialize> Serialize for MutableConfigValue<T> {
@@ -41,7 +39,8 @@ impl<T: Copy + PartialEq + Debug> MutableConfigValue<T> {
         let res = Self {
             value: Arc::new(Mutex::new(val)),
             field_name: field_name.to_string(),
-            last_update: StaticClock::utc(),
+            #[cfg(feature = "metrics")]
+            last_update: near_primitives::static_clock::StaticClock::utc(),
         };
         res.set_metric_value(val, 1);
         res
@@ -63,6 +62,7 @@ impl<T: Copy + PartialEq + Debug> MutableConfigValue<T> {
         }
     }
 
+    #[cfg(feature = "metrics")]
     fn set_metric_value(&self, value: T, metric_value: i64) {
         // Use field_name as a label to tell different mutable config values apart.
         // Use timestamp as a label to give some idea to the node operator (or
@@ -70,7 +70,7 @@ impl<T: Copy + PartialEq + Debug> MutableConfigValue<T> {
         // exactly were part of the config.
         // Use the config value as a label to make this work with config values
         // of any type: int, float, string or even a composite object.
-        metrics::CONFIG_MUTABLE_FIELD
+        crate::metrics::CONFIG_MUTABLE_FIELD
             .with_label_values(&[
                 &self.field_name,
                 &self.last_update.timestamp().to_string(),
@@ -78,6 +78,9 @@ impl<T: Copy + PartialEq + Debug> MutableConfigValue<T> {
             ])
             .set(metric_value);
     }
+
+    #[cfg(not(feature = "metrics"))]
+    fn set_metric_value(&self, _value: T, _metric_value: i64) {}
 }
 
 #[derive(Default, Clone, Serialize, Deserialize)]

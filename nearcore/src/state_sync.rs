@@ -287,9 +287,9 @@ async fn state_sync_dump(
                         match missing_parts {
                             Err(err) => {
                                 tracing::debug!(target: "state_sync_dump", shard_id, ?err, "get_missing_state_parts_for_epoch error");
-                                Err(Error::Other(format!(
-                                    "get_missing_state_parts_for_epoch failed"
-                                )))
+                                Err(Error::Other(
+                                    "get_missing_state_parts_for_epoch failed".to_string(),
+                                ))
                             }
                             Ok(parts_not_dumped) if parts_not_dumped.is_empty() => {
                                 Ok(Some(StateSyncDumpProgress::AllDumped {
