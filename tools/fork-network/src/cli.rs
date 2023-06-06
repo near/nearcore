@@ -144,7 +144,7 @@ impl ForkNetworkCommand {
         let self_validator = near_config.validator_signer.as_ref().unwrap();
         let self_account = AccountInfo {
             account_id: self_validator.validator_id().clone(),
-            amount: 50000 * NEAR_BASE,
+            amount: 50_000 * NEAR_BASE,
             public_key: self_validator.public_key().clone(),
         };
 
@@ -159,7 +159,7 @@ impl ForkNetworkCommand {
         let runtime_config_store = RuntimeConfigStore::new(None);
         let runtime_config = runtime_config_store.get_config(PROTOCOL_VERSION);
         let storage_bytes = runtime_config.fees.storage_usage_config.num_bytes_account;
-        let liquid_balance = 1_000_000 * NEAR_BASE;
+        let liquid_balance = 100_000_000 * NEAR_BASE;
         storage_mutator.set_account(
             self_validator.validator_id().clone(),
             Account::new(liquid_balance, self_account.amount, CryptoHash::default(), storage_bytes),
