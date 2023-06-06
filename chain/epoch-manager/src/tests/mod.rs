@@ -730,7 +730,6 @@ fn test_validator_reward_one_validator() {
         &validator_stakes,
         total_supply,
         PROTOCOL_VERSION,
-        PROTOCOL_VERSION,
         epoch_length * NUM_NS_IN_SECOND,
     );
     let test2_reward = *validator_reward.get("test2").unwrap();
@@ -827,7 +826,6 @@ fn test_validator_reward_weight_by_stake() {
         validator_online_ratio,
         &validators_stakes,
         total_supply,
-        PROTOCOL_VERSION,
         PROTOCOL_VERSION,
         epoch_length * NUM_NS_IN_SECOND,
     );
@@ -945,7 +943,6 @@ fn test_reward_multiple_shards() {
         validator_online_ratio,
         &validators_stakes,
         total_supply,
-        PROTOCOL_VERSION,
         PROTOCOL_VERSION,
         epoch_length * NUM_NS_IN_SECOND,
     );

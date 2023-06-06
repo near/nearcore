@@ -654,7 +654,6 @@ impl EpochManager {
                 &validator_stake,
                 *block_info.total_supply(),
                 epoch_protocol_version,
-                self.genesis_protocol_version,
                 epoch_duration,
             )
         };

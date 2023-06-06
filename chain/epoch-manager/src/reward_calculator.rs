@@ -45,7 +45,6 @@ impl RewardCalculator {
         validator_stake: &HashMap<AccountId, Balance>,
         total_supply: Balance,
         protocol_version: ProtocolVersion,
-        genesis_protocol_version: ProtocolVersion,
         epoch_duration: u64,
     ) -> (HashMap<AccountId, Balance>, Balance) {
         let mut res = HashMap::new();
@@ -186,7 +185,6 @@ mod tests {
             &validator_stake,
             total_supply,
             PROTOCOL_VERSION,
-            PROTOCOL_VERSION,
             epoch_length * NUM_NS_IN_SECOND,
         );
         assert_eq!(
@@ -246,7 +244,6 @@ mod tests {
             validator_block_chunk_stats,
             &validator_stake,
             total_supply,
-            PROTOCOL_VERSION,
             PROTOCOL_VERSION,
             epoch_length * NUM_NS_IN_SECOND,
         );
@@ -324,7 +321,6 @@ mod tests {
             &validator_stake,
             total_supply,
             PROTOCOL_VERSION,
-            PROTOCOL_VERSION,
             epoch_length * NUM_NS_IN_SECOND,
         );
         // Total reward is 10_000_000. Divided by 4 equal stake validators - each gets 2_500_000.
@@ -374,7 +370,6 @@ mod tests {
             validator_block_chunk_stats,
             &validator_stake,
             total_supply,
-            PROTOCOL_VERSION,
             PROTOCOL_VERSION,
             epoch_length * NUM_NS_IN_SECOND,
         );
