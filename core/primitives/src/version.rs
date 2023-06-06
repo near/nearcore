@@ -27,9 +27,6 @@ pub const CORRECT_RANDOM_VALUE_PROTOCOL_VERSION: ProtocolVersion = 33;
 /// See [NEP 71](https://github.com/nearprotocol/NEPs/pull/71)
 pub const IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION: ProtocolVersion = 35;
 
-/// The protocol version that enables reward on mainnet.
-pub const ENABLE_INFLATION_PROTOCOL_VERSION: ProtocolVersion = 36;
-
 /// Fix upgrade to use the latest voted protocol version instead of the current epoch protocol
 /// version when there is no new change in protocol version.
 pub const UPGRADABILITY_FIX_PROTOCOL_VERSION: ProtocolVersion = 37;

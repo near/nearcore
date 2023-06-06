@@ -6,7 +6,7 @@ use primitive_types::U256;
 use near_chain_configs::GenesisConfig;
 use near_primitives::checked_feature;
 use near_primitives::types::{AccountId, Balance, BlockChunkValidatorStats};
-use near_primitives::version::{ProtocolVersion, ENABLE_INFLATION_PROTOCOL_VERSION};
+use near_primitives::version::ProtocolVersion;
 
 pub(crate) const NUM_NS_IN_SECOND: u64 = 1_000_000_000;
 pub const NUM_SECONDS_IN_A_YEAR: u64 = 24 * 60 * 60 * 365;
@@ -50,35 +50,26 @@ impl RewardCalculator {
     ) -> (HashMap<AccountId, Balance>, Balance) {
         let mut res = HashMap::new();
         let num_validators = validator_block_chunk_stats.len();
-        let use_hardcoded_value = genesis_protocol_version < protocol_version
-            && protocol_version >= ENABLE_INFLATION_PROTOCOL_VERSION;
-        let max_inflation_rate =
-            if use_hardcoded_value { Rational32::new_raw(1, 20) } else { self.max_inflation_rate };
-        let protocol_reward_rate = if use_hardcoded_value {
-            Rational32::new_raw(1, 10)
-        } else {
-            self.protocol_reward_rate
-        };
         let epoch_total_reward: u128 =
             if checked_feature!("stable", RectifyInflation, protocol_version) {
-                (U256::from(*max_inflation_rate.numer() as u64)
+                (U256::from(*self.max_inflation_rate.numer() as u64)
                     * U256::from(total_supply)
                     * U256::from(epoch_duration)
                     / (U256::from(self.num_seconds_per_year)
-                        * U256::from(*max_inflation_rate.denom() as u64)
+                        * U256::from(*self.max_inflation_rate.denom() as u64)
                         * U256::from(NUM_NS_IN_SECOND)))
                 .as_u128()
             } else {
-                (U256::from(*max_inflation_rate.numer() as u64)
+                (U256::from(*self.max_inflation_rate.numer() as u64)
                     * U256::from(total_supply)
                     * U256::from(self.epoch_length)
                     / (U256::from(self.num_blocks_per_year)
-                        * U256::from(*max_inflation_rate.denom() as u64)))
+                        * U256::from(*self.max_inflation_rate.denom() as u64)))
                 .as_u128()
             };
         let epoch_protocol_treasury = (U256::from(epoch_total_reward)
-            * U256::from(*protocol_reward_rate.numer() as u64)
-            / U256::from(*protocol_reward_rate.denom() as u64))
+            * U256::from(*self.protocol_reward_rate.numer() as u64)
+            / U256::from(*self.protocol_reward_rate.denom() as u64))
         .as_u128();
         res.insert(self.protocol_treasury_account.clone(), epoch_protocol_treasury);
         if num_validators == 0 {
