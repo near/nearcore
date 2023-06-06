@@ -150,6 +150,14 @@ pub enum ProtocolFeature {
     /// Flat Storage NEP-399: https://github.com/near/NEPs/blob/master/neps/nep-0399.md
     FlatStorageReads,
 
+    /// Enables preparation V2. Note that this setting is not supported in production settings
+    /// without NearVmRuntime enabled alongside it, as the VM runner would be too slow.
+    PreparationV2,
+
+    /// Enables Near-Vm. Note that this setting is not at all supported without PreparationV2,
+    /// as it hardcodes preparation v2 code into the generated assembly.
+    NearVmRuntime,
+
     /// In case not all validator seats are occupied our algorithm provide incorrect minimal seat
     /// price - it reports as alpha * sum_stake instead of alpha * sum_stake / (1 - alpha), where
     /// alpha is min stake ratio
@@ -160,10 +168,6 @@ pub enum ProtocolFeature {
     FixContractLoadingCost,
     #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
     RejectBlocksWithOutdatedProtocolVersions,
-    #[cfg(feature = "protocol_feature_preparation_v2")]
-    PreparationV2,
-    #[cfg(feature = "protocol_feature_near_vm_runtime")]
-    NearVmRuntime,
 }
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
@@ -173,7 +177,7 @@ pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_V
 /// Current protocol version used on the mainnet.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 61;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 62;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {
@@ -249,6 +253,7 @@ impl ProtocolFeature {
             | ProtocolFeature::ZeroBalanceAccount
             | ProtocolFeature::DelegateAction => 59,
             ProtocolFeature::ComputeCosts | ProtocolFeature::FlatStorageReads => 61,
+            ProtocolFeature::PreparationV2 | ProtocolFeature::NearVmRuntime => 62,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
@@ -257,10 +262,6 @@ impl ProtocolFeature {
             ProtocolFeature::FixContractLoadingCost => 129,
             #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
             ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 132,
-            #[cfg(feature = "protocol_feature_preparation_v2")]
-            ProtocolFeature::PreparationV2 => 133,
-            #[cfg(feature = "protocol_feature_near_vm_runtime")]
-            ProtocolFeature::NearVmRuntime => 133,
         }
     }
 }

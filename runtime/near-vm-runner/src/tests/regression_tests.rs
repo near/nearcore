@@ -19,14 +19,12 @@ fn memory_size_alignment_issue() {
         )
         .method("foo")
         .protocol_features(&[
-            #[cfg(feature = "nightly")]
             near_primitives::version::ProtocolFeature::PreparationV2,
         ])
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 46411725 used gas 46411725
             "#]],
-            #[cfg(feature = "nightly")]
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 52993773 used gas 52993773
             "#]],
