@@ -319,7 +319,7 @@ impl RoutingTableUpdate {
     }
 }
 
-#[derive(PartialEq, Eq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug, Ord, PartialOrd)]
 pub struct AdvertisedRoute {
     pub destination: PeerId,
     pub length: u32,

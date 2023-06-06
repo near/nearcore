@@ -1,22 +1,24 @@
+use crate::network_protocol;
 use crate::network_protocol::AdvertisedRoute;
-use crate::routing::{GraphConfigV2, GraphV2};
+use crate::routing::{GraphConfigV2, GraphV2, NetworkTopologyChange};
 use crate::test_utils::expected_routing_tables;
 use crate::test_utils::random_peer_id;
 use crate::types::Edge;
 use near_primitives::network::PeerId;
 use std::collections::HashMap;
+use std::sync::Arc;
 
-// Verifies that the calculated distances and first steps
-// match those in `expected`.
-fn verify_calculate_distances(
+// Calls `calculate_tree_distances` on the given `root` and `edges`.
+// Verifies that the calculated distances and first steps match those in `expected`.
+fn verify_calculate_tree_distances(
     expected: Option<HashMap<PeerId, (i32, Option<PeerId>)>>,
     root: PeerId,
-    spt: Vec<Edge>,
+    edges: Vec<Edge>,
 ) {
     let graph = GraphV2::new(GraphConfigV2 { node_id: root.clone(), prune_edges_after: None });
     let mut inner = graph.inner.lock();
 
-    let calculated = inner.calculate_tree_distances(&root, &spt);
+    let calculated = inner.calculate_tree_distances(&root, &edges);
     match expected {
         Some(ref expected) => {
             let (distance, first_step) = calculated.unwrap();
@@ -57,7 +59,7 @@ fn verify_calculate_distances(
 }
 
 #[test]
-fn calculate_distances() {
+fn calculate_tree_distances() {
     let node0 = random_peer_id();
     let node1 = random_peer_id();
     let node2 = random_peer_id();
@@ -67,14 +69,14 @@ fn calculate_distances() {
     let edge2 = Edge::make_fake_edge(node0.clone(), node2.clone(), 123);
 
     // Test behavior of distance calculation on an empty tree
-    verify_calculate_distances(
+    verify_calculate_tree_distances(
         Some(HashMap::from([(node0.clone(), (0, None))])),
         node0.clone(),
         vec![],
     );
 
     // Test behavior of distance calculation on a simple tree 0--1
-    verify_calculate_distances(
+    verify_calculate_tree_distances(
         Some(HashMap::from([
             (node0.clone(), (0, None)),
             (node1.clone(), (1, Some(node1.clone()))),
@@ -84,10 +86,10 @@ fn calculate_distances() {
     );
 
     // Distance calculation should reject a tree which doesn't contain the root
-    verify_calculate_distances(None, node0.clone(), vec![edge1.clone()]);
+    verify_calculate_tree_distances(None, node0.clone(), vec![edge1.clone()]);
 
     // Test behavior of distance calculation on a line graph 0--1--2
-    verify_calculate_distances(
+    verify_calculate_tree_distances(
         Some(HashMap::from([
             (node0.clone(), (0, None)),
             (node1.clone(), (1, Some(node1.clone()))),
@@ -96,7 +98,7 @@ fn calculate_distances() {
         node0.clone(),
         vec![edge0.clone(), edge1.clone()],
     );
-    verify_calculate_distances(
+    verify_calculate_tree_distances(
         Some(HashMap::from([
             (node0.clone(), (1, Some(node0.clone()))),
             (node1.clone(), (0, None)),
@@ -107,11 +109,11 @@ fn calculate_distances() {
     );
 
     // Distance calculation rejects non-trees
-    verify_calculate_distances(None, node0, vec![edge0, edge1, edge2]);
+    verify_calculate_tree_distances(None, node0, vec![edge0, edge1, edge2]);
 }
 
 #[test]
-fn calculate_next_hops() {
+fn compute_next_hops() {
     let node0 = random_peer_id();
     let graph = GraphV2::new(GraphConfigV2 { node_id: node0.clone(), prune_edges_after: None });
 
@@ -222,7 +224,7 @@ fn calculate_next_hops() {
 }
 
 #[test]
-fn calculate_next_hops_discard_loop() {
+fn compute_next_hops_discard_loop() {
     let node0 = random_peer_id();
     let graph = GraphV2::new(GraphConfigV2 { node_id: node0.clone(), prune_edges_after: None });
 
@@ -247,54 +249,60 @@ fn calculate_next_hops_discard_loop() {
     assert_eq!(distance, HashMap::from([(node0, 0), (node1, 1)]));
 }
 
-#[test]
-fn overwrite_shortest_path_tree() {
+#[tokio::test]
+async fn add_or_update_direct_peer() {
     let node0 = random_peer_id();
     let node1 = random_peer_id();
     let node2 = random_peer_id();
 
-    let graph = GraphV2::new(GraphConfigV2 { node_id: node0.clone(), prune_edges_after: None });
+    let graph =
+        Arc::new(GraphV2::new(GraphConfigV2 { node_id: node0.clone(), prune_edges_after: None }));
 
     let edge0 = Edge::make_fake_edge(node0.clone(), node1.clone(), 123);
-    let edge1 = Edge::make_fake_edge(node1.clone(), node2.clone(), 123);
-
-    // Write an SPT for node1 advertising node2 behind it; 0--1--2
-    assert!(graph.update_distance_vector(
-        node1.clone(),
-        vec![
-            AdvertisedRoute { destination: node1.clone(), length: 0 },
-            AdvertisedRoute { destination: node0.clone(), length: 1 },
-            AdvertisedRoute { destination: node2, length: 1 },
-        ],
-        vec![edge0.clone(), edge1.clone()]
-    ));
-
-    // Now write an SPT for node1 without the connection to node2; 0--1  2
-    assert!(graph.update_distance_vector(
-        node1.clone(),
-        vec![
-            AdvertisedRoute { destination: node1, length: 0 },
-            AdvertisedRoute { destination: node0, length: 1 },
-        ],
-        vec![edge0]
-    ));
-
-    // The verified nonce for edge1 should still be in the edge cache
-    assert!(graph.inner.lock().edge_cache.has_edge_nonce_or_newer(&edge1));
-}
-
-#[test]
-fn add_or_update_direct_peer() {
-    let node0 = random_peer_id();
-    let node1 = random_peer_id();
-
-    let graph = GraphV2::new(GraphConfigV2 { node_id: node0.clone(), prune_edges_after: None });
-
-    let edge0 = Edge::make_fake_edge(node0, node1.clone(), 123);
+    let edge1 = Edge::make_fake_edge(node1.clone(), node2.clone(), 456);
 
     // Process a new connection 0--1
-    // TODO: fix this, don't touch inner
-    graph.inner.lock().add_or_update_direct_peer(node1, edge0);
+    let distance_vector = graph
+        .process_network_event(NetworkTopologyChange::PeerConnected(node1.clone(), edge0.clone()))
+        .await
+        .unwrap();
+    graph.verify_own_distance_vector(
+        HashMap::from([(node0.clone(), 0), (node1.clone(), 1)]),
+        &distance_vector,
+    );
 
-    // TODO: how do we check outcome
+    // Receive a DistanceVector from node1 with node2 behind it; 0--1--2
+    let distance_vector = graph
+        .process_network_event(NetworkTopologyChange::PeerAdvertisedRoutes(
+            network_protocol::DistanceVector {
+                root: node1.clone(),
+                routes: vec![
+                    AdvertisedRoute { destination: node1.clone(), length: 0 },
+                    AdvertisedRoute { destination: node0.clone(), length: 1 },
+                    AdvertisedRoute { destination: node2.clone(), length: 1 },
+                ],
+                edges: vec![edge0.clone(), edge1.clone()],
+            },
+        ))
+        .await
+        .unwrap();
+    graph.verify_own_distance_vector(
+        HashMap::from([(node0.clone(), 0), (node1.clone(), 1), (node2.clone(), 2)]),
+        &distance_vector,
+    );
+
+    // Process a local update (nonce refresh) to the connection 0--1
+    let edge0_refreshed = Edge::make_fake_edge(node0.clone(), node1.clone(), 789);
+    let distance_vector = graph
+        .process_network_event(NetworkTopologyChange::PeerConnected(node1.clone(), edge0_refreshed))
+        .await;
+    // This update doesn't trigger a broadcast because node0's available routes haven't changed
+    assert_eq!(None, distance_vector);
+
+    // node0's locally stored DistanceVector should have the route to node2
+    let distance_vector = graph.inner.lock().my_distance_vector.clone();
+    graph.verify_own_distance_vector(
+        HashMap::from([(node0.clone(), 0), (node1.clone(), 1), (node2.clone(), 2)]),
+        &distance_vector,
+    );
 }

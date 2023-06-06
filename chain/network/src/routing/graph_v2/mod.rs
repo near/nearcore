@@ -179,7 +179,7 @@ impl Inner {
     /// tree. If valid, returns a mapping from destination to validated route length. Removes any
     /// advertised routes which go through the local node; it doesn't make sense to forward to
     /// a neighbor who will just sent the message right back to us.
-    fn get_validated_routes(
+    pub(crate) fn validate_routes(
         &mut self,
         distance_vector: &network_protocol::DistanceVector,
     ) -> Option<PeerRoutes> {
@@ -238,7 +238,7 @@ impl Inner {
         &mut self,
         distance_vector: &network_protocol::DistanceVector,
     ) -> bool {
-        if let Some(routes) = self.get_validated_routes(distance_vector) {
+        if let Some(routes) = self.validate_routes(distance_vector) {
             // Store the tree used to validate the routes.
             self.edge_cache.update_tree(&distance_vector.root, &distance_vector.edges);
             // Store the validated routes
@@ -370,29 +370,24 @@ impl Inner {
         (next_hops, distance)
     }
 
-    /// 1. Prunes expired edges.
-    /// 2. Recomputes the NextHopTable.
+    /// Each DistanceVector advertised by a peer includes a collection of edges
+    /// used to validate the lengths of the advertised routes.
     ///
-    /// Returns the recomputed NextHopTable.
-    /// If distances have changed, returns an updated DistanceVector to be broadcast.
-    pub(crate) fn update(
-        &mut self,
-        clock: &time::Clock,
-        unreliable_peers: &HashSet<PeerId>,
-    ) -> (NextHopTable, Option<network_protocol::DistanceVector>) {
-        let _update_time = metrics::ROUTING_TABLE_RECALCULATION_HISTOGRAM.start_timer();
-
-        // Prune expired edges
+    /// Edges are timestamped when signed and we consider them to be expired
+    /// once a duration of `self.config.prune_edges_after` has passed.
+    ///
+    /// This function checks `peer_routes` for any DistanceVectors containing
+    /// expired edges. Any such DistanceVectors are removed in their entirety.
+    fn prune_expired_peer_routes(&mut self, clock: &time::Clock) {
         if let Some(prune_edges_after) = self.config.prune_edges_after {
-            let prune_nounces_older_than =
+            let prune_nonces_older_than =
                 (clock.now_utc() - prune_edges_after).unix_timestamp() as u64;
 
-            // Drop the entirety of any expired distance vectors
             let peers_to_remove: Vec<PeerId> = self
                 .peer_routes
                 .iter()
                 .filter_map(|(peer, routes)| {
-                    if routes.min_nonce < prune_nounces_older_than {
+                    if routes.min_nonce < prune_nonces_older_than {
                         Some(peer.clone())
                     } else {
                         None
@@ -404,9 +399,41 @@ impl Inner {
                 self.remove_direct_peer(peer_id);
             }
 
-            // Prune expired edges from the edge cache
-            self.edge_cache.prune_old_edges(prune_nounces_older_than);
+            self.edge_cache.prune_old_edges(prune_nonces_older_than);
         }
+    }
+
+    /// Constructs a instance of network_protocol::DistanceVector
+    /// advertising the local node's available routes.
+    fn construct_distance_vector_message(&self) -> network_protocol::DistanceVector {
+        network_protocol::DistanceVector {
+            root: self.config.node_id.clone(),
+            // Collect distances for all known reachable nodes
+            routes: self
+                .my_distances
+                .iter()
+                .map(|(destination, length)| AdvertisedRoute {
+                    destination: destination.clone(),
+                    length: *length,
+                })
+                .collect(),
+            // Construct a spanning tree of signed edges achieving the claimed distances
+            edges: self.edge_cache.construct_spanning_tree(&self.my_distances),
+        }
+    }
+
+    /// Prunes expired routes, then recomputes the routes for the local node.
+    /// Returns the recomputed NextHopTable.
+    /// If distances have changed, returns an updated DistanceVector to be broadcast.
+    pub(crate) fn compute_routes(
+        &mut self,
+        clock: &time::Clock,
+        unreliable_peers: &HashSet<PeerId>,
+    ) -> (NextHopTable, Option<network_protocol::DistanceVector>) {
+        let _update_time = metrics::ROUTING_TABLE_RECALCULATION_HISTOGRAM.start_timer();
+
+        // First prune any peer routes which have expired
+        self.prune_expired_peer_routes(&clock);
 
         // Recompute the NextHopTable
         let (next_hops, distances) = self.compute_next_hops(unreliable_peers);
@@ -415,18 +442,7 @@ impl Inner {
         // construct and return a message to be broadcasted to peers
         let to_broadcast = if distances != self.my_distances {
             self.my_distances = distances;
-            self.my_distance_vector = network_protocol::DistanceVector {
-                root: self.config.node_id.clone(),
-                routes: self
-                    .my_distances
-                    .iter()
-                    .map(|(destination, length)| AdvertisedRoute {
-                        destination: destination.clone(),
-                        length: *length,
-                    })
-                    .collect(),
-                edges: self.edge_cache.construct_spanning_tree(&self.my_distances),
-            };
+            self.my_distance_vector = self.construct_distance_vector_message();
             Some(self.my_distance_vector.clone())
         } else {
             None
@@ -506,7 +522,8 @@ impl GraphV2 {
                     .map(|update| inner.handle_network_change(&clock, update))
                     .collect();
 
-                let (next_hops, to_broadcast) = inner.update(&clock, &this.unreliable_peers.load());
+                let (next_hops, to_broadcast) =
+                    inner.compute_routes(&clock, &this.unreliable_peers.load());
 
                 this.routing_table.update(next_hops.into());
 
