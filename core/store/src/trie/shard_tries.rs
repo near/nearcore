@@ -413,6 +413,7 @@ impl ShardTries {
     pub fn make_state_snapshot(
         &self,
         prev_block_hash: &CryptoHash,
+        desired_flat_head: &CryptoHash,
         shard_uids: &[ShardUId],
     ) -> Result<(), anyhow::Error> {
         // The function returns an `anyhow::Error`, because no special handling of errors is done yet. The errors are logged and ignored.
@@ -468,6 +469,15 @@ impl ShardTries {
                 )?;
                 let store = storage.get_hot_store();
                 let flat_storage_manager = FlatStorageManager::new(store.clone());
+
+                tracing::error!(target: "state_snapshot", "Moving flat head");
+                for shard_uid in shard_uids {
+                    let flat_storage =
+                        flat_storage_manager.get_flat_storage_for_shard(shard_uid.clone()).unwrap();
+                    tracing::error!(target: "state_snapshot", ?shard_uid, current_flat_head = ?flat_storage.get_head_hash(), ?desired_flat_head, "Moving FlatStorage head of the snapshot");
+                    flat_storage.update_flat_head(&desired_flat_head).unwrap();
+                }
+                tracing::error!(target: "state_snapshot", "Moved flat head");
 
                 *state_snapshot_lock = Some(StateSnapshot::new(
                     store,

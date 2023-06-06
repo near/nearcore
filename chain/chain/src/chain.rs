@@ -2096,7 +2096,9 @@ impl Chain {
 
         let need_state_snapshot = block_preprocess_info.need_state_snapshot
             | self.need_test_state_snapshot(block_preprocess_info.need_state_snapshot);
-        self.maybe_start_state_snapshot(need_state_snapshot);
+        if let Err(err) = self.maybe_start_state_snapshot(need_state_snapshot) {
+            tracing::error!(target: "state_snapshot", ?err, "Failed to make a state snapshot");
+        }
 
         let block = block.into_inner();
         let block_hash = *block.hash();
@@ -4166,31 +4168,23 @@ impl Chain {
 
     /// Makes a state snapshot.
     /// If there was already a state snapshot, deletes that first.
-    fn maybe_start_state_snapshot(&self, need_state_snapshot: bool) {
+    fn maybe_start_state_snapshot(&self, need_state_snapshot: bool) -> Result<(), Error> {
         if need_state_snapshot {
             if let Some(helper) = &self.state_snapshot_helper {
-                match self.head() {
-                    Ok(head) => {
-                        match self
-                            .epoch_manager
-                            .get_epoch_id(&head.prev_block_hash)
-                            .and_then(|epoch_id| self.epoch_manager.get_shard_layout(&epoch_id))
-                            .and_then(|shard_layout| Ok(shard_layout.get_shard_uids()))
-                        {
-                            Ok(shard_uids) => {
-                                (helper.make_snapshot_callback)(head.prev_block_hash, shard_uids)
-                            }
-                            Err(err) => {
-                                tracing::error!(target: "state_snapshot", ?err, "Can't determine Shard UIds for a snapshot")
-                            }
-                        };
-                    }
-                    Err(err) => {
-                        tracing::error!(target: "state_snapshot", ?err, "Didn't start state snapshot because head() failed")
-                    }
-                }
+                let head = self.head()?;
+                let epoch_id = self.epoch_manager.get_epoch_id(&head.prev_block_hash)?;
+                let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+                let shard_uids = shard_layout.get_shard_uids();
+                let prev_header = self.get_block_header(&head.prev_block_hash)?;
+                let desired_flat_head = prev_header.prev_hash();
+                (helper.make_snapshot_callback)(
+                    head.prev_block_hash,
+                    *desired_flat_head,
+                    shard_uids,
+                )
             }
         }
+        Ok(())
     }
 }
 
