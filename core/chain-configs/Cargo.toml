@@ -22,9 +22,10 @@ smart-default.workspace = true
 tracing.workspace = true
 
 near-crypto.workspace = true
-near-o11y.workspace = true
+near-o11y = { workspace = true, optional = true }
 near-primitives.workspace = true
 near-config-utils.workspace = true
 
 [features]
 default = []
+metrics = ["near-o11y"]
