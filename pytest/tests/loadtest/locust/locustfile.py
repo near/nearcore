@@ -14,6 +14,7 @@ from locust import between, tag, task
 from common.base import NearUser, is_tag_active
 from common.ft import TransferFT
 from common.social import Follow, InitSocialDbAccount, SubmitPost
+from common.congestion import LargeTransaction, LongTransaction
 
 logger = new_logger(level=logging.WARN)
 
@@ -97,3 +98,40 @@ class SocialDbUser(NearUser):
             post = f"{post}\nI'll say it again: \n**{quote}**"
 
         return post[:length]
+
+
+class CongestionUser(NearUser):
+    """
+    Registers itself on near.social in the setup phase, then starts posting,
+    following, and liking posts.
+    """
+    wait_time = between(1, 3)  # random pause between transactions
+
+    @tag("congestion")
+    @task
+    def large_transaction(self):
+        self.send_tx(LargeTransaction(self.contract_account_id, self.account,
+                                      100000),
+                     locust_name="Congestion Large")
+
+    @tag("congestion")
+    @task
+    def long_transaction(self):
+        self.send_tx(LongTransaction(self.contract_account_id, self.account),
+                     locust_name="Congestion Long")
+
+    def on_start(self):
+        super().on_start()
+        if not is_tag_active(self.environment, "congestion"):
+            raise SystemExit("SocialDbUser requires --tag social")
+
+        self.contract_account_id = self.environment.congestion_account_id
+
+        # self.send_tx(InitSocialDbAccount(self.contract_account_id,
+        #                                  self.account),
+        #              locust_name="Init Social Account")
+        logger.debug(
+            f"user {self.account_id} ready to use SocialDB on {self.contract_account_id}"
+        )
+
+        # SocialDbUser.registered_users.append(self.account_id)
