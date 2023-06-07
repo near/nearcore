@@ -92,10 +92,9 @@ impl Trie {
         &self,
         prev_hash: &CryptoHash,
         part_id: PartId,
-        shard_id: ShardId,
     ) -> Result<PartialState, StorageError> {
         let trie_values = if self.is_flat_storage_head_at(prev_hash) {
-            self.get_trie_nodes_for_part_with_flat_storage(part_id, shard_id)?
+            self.get_trie_nodes_for_part_with_flat_storage(part_id)?
         } else {
             let with_recording = self.recording_reads();
             with_recording.visit_nodes_for_state_part(part_id)?;
@@ -149,8 +148,11 @@ impl Trie {
     fn get_trie_nodes_for_part_with_flat_storage(
         &self,
         part_id: PartId,
-        shard_id: ShardId,
     ) -> Result<PartialState, StorageError> {
+        let shard_id: ShardId = self.flat_storage_chunk_view.as_ref().map_or(
+            ShardId::MAX, // Fake value for metrics.
+            |chunk_view| chunk_view.shard_uid().shard_id as ShardId,
+        );
         let _span = tracing::debug_span!(
             target: "state-parts",
             "get_trie_nodes_for_part_with_flat_storage",
@@ -813,7 +815,6 @@ mod tests {
                     .get_trie_nodes_for_part(
                         &CryptoHash::default(),
                         PartId::new(part_id, num_parts),
-                        0,
                     )
                     .unwrap();
                 // TODO (#8997): it's a bit weird that raw lengths are compared to
@@ -892,7 +893,6 @@ mod tests {
                         trie.get_trie_nodes_for_part(
                             &CryptoHash::default(),
                             PartId::new(part_id, num_parts),
-                            0,
                         )
                         .unwrap()
                     })
@@ -1023,7 +1023,7 @@ mod tests {
 
         let trie = tries.get_view_trie_for_shard(shard_uid, root);
         let PartialState::TrieValues(trie_values) = trie
-            .get_trie_nodes_for_part(&block_hash, part_id, 0)
+            .get_trie_nodes_for_part(&block_hash, part_id)
             .expect("State part generation using Trie must work");
         let num_trie_values = trie_values.len();
         assert!(num_trie_values >= 2);
@@ -1092,7 +1092,6 @@ mod tests {
                     .get_trie_nodes_for_part(
                         &CryptoHash::default(),
                         PartId::new(part_id, num_parts),
-                        0,
                     )
                     .unwrap();
                 assert_eq!(
@@ -1146,7 +1145,7 @@ mod tests {
         // Get correct state part using trie without flat storage.
         let trie_without_flat = tries.get_view_trie_for_shard(shard_uid, root);
         let state_part = trie_without_flat
-            .get_trie_nodes_for_part(&block_hash, part_id, 0)
+            .get_trie_nodes_for_part(&block_hash, part_id)
             .expect("State part generation using Trie must work");
         assert_eq!(Trie::validate_state_part(&root, part_id, state_part.clone()), Ok(()));
         assert!(state_part.len() > 0);
@@ -1155,7 +1154,7 @@ mod tests {
         // creation fails.
         let trie = tries.get_trie_with_block_hash_for_shard(shard_uid, root, &block_hash, true);
         assert_eq!(
-            trie.get_trie_nodes_for_part(&block_hash, part_id, 0),
+            trie.get_trie_nodes_for_part(&block_hash, part_id),
             Err(StorageError::MissingTrieValue)
         );
 
@@ -1170,7 +1169,7 @@ mod tests {
         let trie_with_flat =
             tries.get_trie_with_block_hash_for_shard(shard_uid, root, &block_hash, true);
         let state_part_with_flat =
-            trie_with_flat.get_trie_nodes_for_part(&block_hash, PartId::new(1, 3), 0);
+            trie_with_flat.get_trie_nodes_for_part(&block_hash, PartId::new(1, 3));
         assert_eq!(state_part_with_flat, Ok(state_part.clone()));
 
         // Remove some key from state part from trie storage.
@@ -1184,10 +1183,10 @@ mod tests {
         store_update.commit().unwrap();
 
         assert_eq!(
-            trie_without_flat.get_trie_nodes_for_part(&block_hash, part_id, 0),
+            trie_without_flat.get_trie_nodes_for_part(&block_hash, part_id),
             Err(StorageError::MissingTrieValue)
         );
-        assert_eq!(trie_with_flat.get_trie_nodes_for_part(&block_hash, part_id, 0), Ok(state_part));
+        assert_eq!(trie_with_flat.get_trie_nodes_for_part(&block_hash, part_id), Ok(state_part));
 
         // Remove some key from state part from flat storage.
         // Check that state part creation succeeds but generated state part
@@ -1198,7 +1197,7 @@ mod tests {
         store_update.commit().unwrap();
 
         assert_eq!(
-            trie_with_flat.get_trie_nodes_for_part(&block_hash, part_id, 0),
+            trie_with_flat.get_trie_nodes_for_part(&block_hash, part_id),
             Err(StorageError::MissingTrieValue)
         );
     }

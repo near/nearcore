@@ -315,7 +315,7 @@ pub(crate) static GET_STATE_PART_WITH_FS_NODES_FROM_DISK: Lazy<IntCounterVec> = 
 
 pub(crate) static GET_STATE_PART_WITH_FS_NODES_IN_MEMORY: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
-        "near_get_state_part_with_fs_nodes_from_disk_count",
+        "near_get_state_part_with_fs_nodes_in_memory_count",
         "Number of nodes in state part that created based on FS values",
         &["shard_id"],
     )

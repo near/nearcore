@@ -1183,7 +1183,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
         let trie =
             self.tries.get_trie_with_block_hash_for_shard(shard_uid, *state_root, &prev_hash, true);
-        let result = match trie.get_trie_nodes_for_part(prev_hash, part_id, shard_id) {
+        let result = match trie.get_trie_nodes_for_part(prev_hash, part_id) {
             Ok(partial_state) => partial_state,
             Err(e) => {
                 error!(target: "runtime",
