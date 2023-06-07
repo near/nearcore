@@ -6,8 +6,6 @@ use wasm_encoder::{Encode, Section, SectionId};
 
 pub const WASM_FEATURES: wp::WasmFeatures = wp::WasmFeatures {
     mutable_global: true,
-    saturating_float_to_int: false,
-    sign_extension: true,
     reference_types: super::WASM_FEATURES.reference_types,
     multi_value: super::WASM_FEATURES.multi_value,
     bulk_memory: super::WASM_FEATURES.bulk_memory,
@@ -19,6 +17,8 @@ pub const WASM_FEATURES: wp::WasmFeatures = wp::WasmFeatures {
     multi_memory: super::WASM_FEATURES.multi_memory,
     exceptions: super::WASM_FEATURES.exceptions,
     memory64: super::WASM_FEATURES.memory64,
+    saturating_float_to_int: false,
+    sign_extension: false,
     extended_const: false,
     component_model: false,
     function_references: false,
