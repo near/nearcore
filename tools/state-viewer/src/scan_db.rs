@@ -5,9 +5,9 @@ use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::receipt::Receipt;
-use near_primitives::shard_layout::get_block_shard_uid_rev;
+use near_primitives::shard_layout::{get_block_shard_uid_rev, ShardUId};
 use near_primitives::sharding::{ChunkHash, ShardChunk, StateSyncInfo};
-use near_primitives::state::ValueRef;
+use near_primitives::state::{FlatStateValue, ValueRef};
 use near_primitives::syncing::{ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey};
 use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -95,7 +95,7 @@ pub(crate) fn scan_db_column(col: &str, store: Store) {
                     DBCol::FlatState => (
                         // TODO: Fix
                         Box::new(key.to_vec()),
-                        Box::new(ValueRef::try_from_slice(value_ref).unwrap()),
+                        Box::new(FlatStateValue::try_from_slice(value_ref).unwrap()),
                     ),
                     DBCol::FlatStateChanges => (
                         // TODO: Format keys as nibbles.
@@ -124,6 +124,8 @@ pub(crate) fn scan_db_column(col: &str, store: Store) {
                         )
                     }
                     DBCol::State => {
+                        let s: ShardUId = ShardUId::try_from(&key_ref[..8]).unwrap();
+                        let h: CryptoHash = CryptoHash::try_from_slice(&key_ref[8..]).unwrap();
                         // TODO: Fix
                         // Handle refcounting by querying the value.
                         let value = store.get(db_col, key_ref).unwrap().unwrap();
