@@ -25,10 +25,10 @@ class SocialDbSet(Transaction):
         self.sender = sender
 
     @abstractmethod
-    def build_args(self):
-        ...
+    def build_args(self) -> str:
+        """Returns arguments for the transaction function call."""
 
-    def sign_and_serialize(self, block_hash):
+    def sign_and_serialize(self, block_hash) -> bytes:
         args = self.build_args()
         return transaction.sign_function_call_tx(self.sender.key,
                                                  self.contract_id, "set",
@@ -44,7 +44,7 @@ class SubmitPost(SocialDbSet):
         super().__init__(contract_id, sender)
         self.content = content
 
-    def build_args(self):
+    def build_args(self) -> str:
         return social_post_args(self.sender.key.account_id, self.content)
 
 
@@ -55,7 +55,7 @@ class Follow(SocialDbSet):
         super().__init__(contract_id, sender)
         self.follow_list = follow_list
 
-    def build_args(self):
+    def build_args(self) -> str:
         follow_list = self.follow_list
         sender = self.sender.key.account_id
         return social_follow_args(sender, follow_list)
@@ -67,7 +67,7 @@ class InitSocialDB(Transaction):
         super().__init__()
         self.contract = contract
 
-    def sign_and_serialize(self, block_hash):
+    def sign_and_serialize(self, block_hash) -> bytes:
         # Call the #[init] function, no arguments
         call_new_action = create_function_call_action("new", "", 100 * TGAS, 0)
 
@@ -97,7 +97,7 @@ class InitSocialDbAccount(Transaction):
         self.contract_id = contract_id
         self.account = account
 
-    def sign_and_serialize(self, block_hash):
+    def sign_and_serialize(self, block_hash) -> bytes:
         args = json.dumps({"account_id": self.account.key.account_id})
         return transaction.sign_function_call_tx(self.account.key,
                                                  self.contract_id,
@@ -127,7 +127,7 @@ def social_db_build_index_obj(key_list_pairs: dict) -> dict:
     A dict instead of a list of tuples doesn't work because keys can be duplicated.
     """
 
-    def serialize_values(values: list[(str, dict)]):
+    def serialize_values(values: list[tuple[str, dict]]):
         return json.dumps([{"key": k, "value": v} for k, v in values])
 
     return {
@@ -160,7 +160,7 @@ def social_db_set_msg(sender: str, values: dict, index: dict) -> str:
     return json.dumps(msg)
 
 
-def social_follow_args(sender: str, follow_list: list[str]):
+def social_follow_args(sender: str, follow_list: list[str]) -> str:
     follow_map = {}
     graph = []
     notify = []
