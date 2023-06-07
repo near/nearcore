@@ -464,4 +464,20 @@ async fn test_receive_distance_vector_without_local_node() {
         HashMap::from([(node0.clone(), 0), (node1.clone(), 1), (node2.clone(), 2)]),
         &distance_vector_update,
     );
+
+    // node0 should also be able to handle node1's default DistanceVector with no edges
+    let distance_vector_update = graph
+        .process_network_event(NetworkTopologyChange::PeerAdvertisedRoutes(
+            network_protocol::DistanceVector {
+                root: node1.clone(),
+                routes: vec![AdvertisedRoute { destination: node1.clone(), length: 0 }],
+                edges: vec![],
+            },
+        ))
+        .await
+        .unwrap();
+    graph.verify_own_distance_vector(
+        HashMap::from([(node0.clone(), 0), (node1.clone(), 1)]),
+        &distance_vector_update,
+    );
 }

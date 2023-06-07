@@ -278,7 +278,7 @@ impl Inner {
                 self.peer_routes.insert(
                     distance_vector.root.clone(),
                     PeerRoutes {
-                        min_nonce: distance_vector.edges.iter().map(|e| e.nonce()).min().unwrap(),
+                        min_nonce: spanning_tree.iter().map(|e| e.nonce()).min().unwrap(),
                         distance: advertised_distances,
                     },
                 );
