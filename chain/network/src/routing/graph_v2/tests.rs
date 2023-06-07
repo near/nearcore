@@ -250,7 +250,7 @@ fn compute_next_hops_discard_loop() {
 }
 
 #[tokio::test]
-async fn add_or_update_direct_peer() {
+async fn test_process_network_event() {
     let node0 = random_peer_id();
     let node1 = random_peer_id();
     let node2 = random_peer_id();
@@ -298,11 +298,17 @@ async fn add_or_update_direct_peer() {
         .await;
     // This update doesn't trigger a broadcast because node0's available routes haven't changed
     assert_eq!(None, distance_vector);
-
     // node0's locally stored DistanceVector should have the route to node2
     let distance_vector = graph.inner.lock().my_distance_vector.clone();
     graph.verify_own_distance_vector(
         HashMap::from([(node0.clone(), 0), (node1.clone(), 1), (node2.clone(), 2)]),
         &distance_vector,
     );
+
+    // Process disconnection of node1
+    let distance_vector = graph
+        .process_network_event(NetworkTopologyChange::PeerDisconnected(node1.clone()))
+        .await
+        .unwrap();
+    graph.verify_own_distance_vector(HashMap::from([(node0.clone(), 0)]), &distance_vector);
 }

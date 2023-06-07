@@ -66,7 +66,7 @@ impl GraphV2 {
 
         assert_eq!(
             expected_distances_by_id,
-            inner.validate_routes(distance_vector).unwrap().distance
+            inner.validate_routing_distances(distance_vector).unwrap()
         );
     }
 }

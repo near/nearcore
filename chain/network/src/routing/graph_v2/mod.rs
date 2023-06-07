@@ -114,7 +114,7 @@ impl Inner {
     /// from the root to the node. The root of the tree, as well as any nodes outside
     /// the tree, have a first_step of -1.
     ///
-    /// Nodes are indexed into the vectors according to the `p2id` mapping in the EdgeCache.
+    /// Nodes are indexed into the vectors according to the peer to id mapping in the EdgeCache.
     pub(crate) fn calculate_tree_distances(
         &mut self,
         root: &PeerId,
@@ -176,13 +176,15 @@ impl Inner {
     }
 
     /// Given a DistanceVector message, validates the advertised routes against the accompanying
-    /// tree. If valid, returns a mapping from destination to validated route length. Removes any
-    /// advertised routes which go through the local node; it doesn't make sense to forward to
-    /// a neighbor who will just sent the message right back to us.
-    pub(crate) fn validate_routes(
+    /// tree. If valid, returns a vector of distances indexed according to the EdgeCache's
+    /// peer to id mapping.
+    ///
+    /// Removes any advertised routes which go through the local node; it doesn't make sense
+    /// to forward to a neighbor who will just sent the message right back to us.
+    pub(crate) fn validate_routing_distances(
         &mut self,
         distance_vector: &network_protocol::DistanceVector,
-    ) -> Option<PeerRoutes> {
+    ) -> Option<Vec<i32>> {
         // A valid DistanceVector must contain distinct, correctly signed edges
         let original_len = distance_vector.edges.len();
         let edges = Edge::deduplicate(distance_vector.edges.clone());
@@ -226,10 +228,7 @@ impl Inner {
             }
         }
 
-        Some(PeerRoutes {
-            min_nonce: edges.iter().map(|e| e.nonce()).min().unwrap(),
-            distance: advertised_distances,
-        })
+        Some(advertised_distances)
     }
 
     /// Verifies the given DistanceVector. If valid, stores the advertised routes.
@@ -238,11 +237,17 @@ impl Inner {
         &mut self,
         distance_vector: &network_protocol::DistanceVector,
     ) -> bool {
-        if let Some(routes) = self.validate_routes(distance_vector) {
+        if let Some(distance) = self.validate_routing_distances(distance_vector) {
             // Store the tree used to validate the routes.
             self.edge_cache.update_tree(&distance_vector.root, &distance_vector.edges);
             // Store the validated routes
-            self.peer_routes.insert(distance_vector.root.clone(), routes);
+            self.peer_routes.insert(
+                distance_vector.root.clone(),
+                PeerRoutes {
+                    min_nonce: distance_vector.edges.iter().map(|e| e.nonce()).min().unwrap(),
+                    distance,
+                },
+            );
             true
         } else {
             // In case the update was rejected, clean up any ids which may have allocated
@@ -326,7 +331,7 @@ impl Inner {
         let mut min_distance: Vec<i32> = vec![-1; max_id];
         min_distance[local_node_id as usize] = 0;
         for (_, routes) in &mut self.peer_routes {
-            // The p2id mapping in the edge_cache is dynamic. We can still use previous distance
+            // The peer to id mapping in the edge_cache is dynamic. We can still use previous distance
             // calculations because a node incident to an active edge won't be relabelled. However,
             // we may need to resize the distance vector.
             routes.distance.resize(max_id, -1);
@@ -441,10 +446,12 @@ impl Inner {
         // If distances in the network have changed,
         // construct and return a message to be broadcasted to peers
         let to_broadcast = if distances != self.my_distances {
+            println!("Distances changed: {:?}", distances);
             self.my_distances = distances;
             self.my_distance_vector = self.construct_distance_vector_message();
             Some(self.my_distance_vector.clone())
         } else {
+            println!("Distances didn't change: {:?}", distances);
             None
         };
 
