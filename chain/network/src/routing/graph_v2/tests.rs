@@ -262,17 +262,17 @@ async fn test_process_network_event() {
     let edge1 = Edge::make_fake_edge(node1.clone(), node2.clone(), 456);
 
     // Process a new connection 0--1
-    let distance_vector = graph
+    let distance_vector_update = graph
         .process_network_event(NetworkTopologyChange::PeerConnected(node1.clone(), edge0.clone()))
         .await
         .unwrap();
     graph.verify_own_distance_vector(
         HashMap::from([(node0.clone(), 0), (node1.clone(), 1)]),
-        &distance_vector,
+        &distance_vector_update,
     );
 
     // Receive a DistanceVector from node1 with node2 behind it; 0--1--2
-    let distance_vector = graph
+    let distance_vector_update = graph
         .process_network_event(NetworkTopologyChange::PeerAdvertisedRoutes(
             network_protocol::DistanceVector {
                 root: node1.clone(),
@@ -288,29 +288,29 @@ async fn test_process_network_event() {
         .unwrap();
     graph.verify_own_distance_vector(
         HashMap::from([(node0.clone(), 0), (node1.clone(), 1), (node2.clone(), 2)]),
-        &distance_vector,
+        &distance_vector_update,
     );
 
     // Process a local update (nonce refresh) to the connection 0--1
     let edge0_refreshed = Edge::make_fake_edge(node0.clone(), node1.clone(), 789);
-    let distance_vector = graph
+    let distance_vector_update = graph
         .process_network_event(NetworkTopologyChange::PeerConnected(node1.clone(), edge0_refreshed))
         .await;
     // This update doesn't trigger a broadcast because node0's available routes haven't changed
-    assert_eq!(None, distance_vector);
+    assert_eq!(None, distance_vector_update);
     // node0's locally stored DistanceVector should have the route to node2
-    let distance_vector = graph.inner.lock().my_distance_vector.clone();
+    let distance_vector_update = graph.inner.lock().my_distance_vector.clone();
     graph.verify_own_distance_vector(
         HashMap::from([(node0.clone(), 0), (node1.clone(), 1), (node2.clone(), 2)]),
-        &distance_vector,
+        &distance_vector_update,
     );
 
     // Process disconnection of node1
-    let distance_vector = graph
+    let distance_vector_update = graph
         .process_network_event(NetworkTopologyChange::PeerDisconnected(node1.clone()))
         .await
         .unwrap();
-    graph.verify_own_distance_vector(HashMap::from([(node0.clone(), 0)]), &distance_vector);
+    graph.verify_own_distance_vector(HashMap::from([(node0.clone(), 0)]), &distance_vector_update);
 }
 
 #[tokio::test]
@@ -328,7 +328,7 @@ async fn test_receive_distance_vector_before_processing_local_connection() {
     // Receive a DistanceVector from node1 with node2 behind it; 0--1--2
     // The local node has not processed a NetworkTopologyChange::PeerConnected event
     // for node1, but it should handle this DistanceVector correctly anyway.
-    let distance_vector = graph
+    let distance_vector_update = graph
         .process_network_event(NetworkTopologyChange::PeerAdvertisedRoutes(
             network_protocol::DistanceVector {
                 root: node1.clone(),
@@ -344,7 +344,7 @@ async fn test_receive_distance_vector_before_processing_local_connection() {
         .unwrap();
     graph.verify_own_distance_vector(
         HashMap::from([(node0.clone(), 0), (node1.clone(), 1), (node2.clone(), 2)]),
-        &distance_vector,
+        &distance_vector_update,
     );
 }
 
@@ -403,18 +403,65 @@ async fn test_receive_invalid_distance_vector() {
             },
         ))
         .await;
+}
 
-    graph
-        .process_invalid_network_event(NetworkTopologyChange::PeerAdvertisedRoutes(
+#[tokio::test]
+async fn test_receive_distance_vector_without_local_node() {
+    let node0 = random_peer_id();
+    let node1 = random_peer_id();
+    let node2 = random_peer_id();
+
+    let graph =
+        Arc::new(GraphV2::new(GraphConfigV2 { node_id: node0.clone(), prune_edges_after: None }));
+
+    let edge0 = Edge::make_fake_edge(node0.clone(), node1.clone(), 123);
+    let edge1 = Edge::make_fake_edge(node1.clone(), node2.clone(), 456);
+
+    // Broadcasting a distance vector which doesn't have a route to the receiving node
+    // is valid behavior, but it doesn't provide the receiving node any routes.
+    let distance_vector_update = graph
+        .process_network_event(NetworkTopologyChange::PeerAdvertisedRoutes(
             network_protocol::DistanceVector {
                 root: node1.clone(),
-                // No route to the receiving node node0
                 routes: vec![
+                    // No route to the receiving node node0
                     AdvertisedRoute { destination: node1.clone(), length: 0 },
-                    AdvertisedRoute { destination: node2.clone(), length: 0 },
+                    AdvertisedRoute { destination: node2.clone(), length: 1 },
                 ],
                 edges: vec![edge1.clone()],
             },
         ))
         .await;
+    assert_eq!(None, distance_vector_update);
+
+    // Let node0 realize it has a direct connection to node1
+    let distance_vector_update = graph
+        .process_network_event(NetworkTopologyChange::PeerConnected(node1.clone(), edge0))
+        .await
+        .unwrap();
+    graph.verify_own_distance_vector(
+        HashMap::from([(node0.clone(), 0), (node1.clone(), 1)]),
+        &distance_vector_update,
+    );
+
+    // Now the same advertised routes from the tree tree 1--2 can be handled by node0,
+    // which will combine it with the direct edge 0--1 to produce 0--1--2.
+    let distance_vector_update = graph
+        .process_network_event(NetworkTopologyChange::PeerAdvertisedRoutes(
+            network_protocol::DistanceVector {
+                root: node1.clone(),
+                routes: vec![
+                    // No route to the receiving node node0
+                    AdvertisedRoute { destination: node1.clone(), length: 0 },
+                    AdvertisedRoute { destination: node2.clone(), length: 1 },
+                ],
+                edges: vec![edge1.clone()],
+            },
+        ))
+        .await
+        .unwrap();
+    graph.verify_own_distance_vector(
+        HashMap::from([(node0.clone(), 0), (node1.clone(), 1), (node2.clone(), 2)]),
+        &distance_vector_update,
+    );
 }
