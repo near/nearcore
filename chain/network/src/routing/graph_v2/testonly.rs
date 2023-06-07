@@ -47,6 +47,15 @@ impl GraphV2 {
         to_broadcast
     }
 
+    pub(crate) async fn process_invalid_network_event(
+        self: &Arc<Self>,
+        event: NetworkTopologyChange,
+    ) {
+        let clock = time::FakeClock::default();
+        let (_, oks) = self.batch_process_network_changes(&clock.clock(), vec![event]).await;
+        assert!(!oks[0]);
+    }
+
     // Checks that the DistanceVector message for the local node is valid
     // and correctly advertises the node's available routes.
     pub(crate) fn verify_own_distance_vector(

@@ -312,3 +312,109 @@ async fn test_process_network_event() {
         .unwrap();
     graph.verify_own_distance_vector(HashMap::from([(node0.clone(), 0)]), &distance_vector);
 }
+
+#[tokio::test]
+async fn test_receive_distance_vector_before_processing_local_connection() {
+    let node0 = random_peer_id();
+    let node1 = random_peer_id();
+    let node2 = random_peer_id();
+
+    let graph =
+        Arc::new(GraphV2::new(GraphConfigV2 { node_id: node0.clone(), prune_edges_after: None }));
+
+    let edge0 = Edge::make_fake_edge(node0.clone(), node1.clone(), 123);
+    let edge1 = Edge::make_fake_edge(node1.clone(), node2.clone(), 456);
+
+    // Receive a DistanceVector from node1 with node2 behind it; 0--1--2
+    // The local node has not processed a NetworkTopologyChange::PeerConnected event
+    // for node1, but it should handle this DistanceVector correctly anyway.
+    let distance_vector = graph
+        .process_network_event(NetworkTopologyChange::PeerAdvertisedRoutes(
+            network_protocol::DistanceVector {
+                root: node1.clone(),
+                routes: vec![
+                    AdvertisedRoute { destination: node1.clone(), length: 0 },
+                    AdvertisedRoute { destination: node0.clone(), length: 1 },
+                    AdvertisedRoute { destination: node2.clone(), length: 1 },
+                ],
+                edges: vec![edge0.clone(), edge1.clone()],
+            },
+        ))
+        .await
+        .unwrap();
+    graph.verify_own_distance_vector(
+        HashMap::from([(node0.clone(), 0), (node1.clone(), 1), (node2.clone(), 2)]),
+        &distance_vector,
+    );
+}
+
+#[tokio::test]
+async fn test_receive_invalid_distance_vector() {
+    let node0 = random_peer_id();
+    let node1 = random_peer_id();
+    let node2 = random_peer_id();
+
+    let graph =
+        Arc::new(GraphV2::new(GraphConfigV2 { node_id: node0.clone(), prune_edges_after: None }));
+
+    let edge0 = Edge::make_fake_edge(node0.clone(), node1.clone(), 123);
+    let edge1 = Edge::make_fake_edge(node1.clone(), node2.clone(), 456);
+
+    graph
+        .process_invalid_network_event(NetworkTopologyChange::PeerAdvertisedRoutes(
+            network_protocol::DistanceVector {
+                root: node1.clone(),
+                routes: vec![
+                    AdvertisedRoute { destination: node1.clone(), length: 0 },
+                    AdvertisedRoute { destination: node0.clone(), length: 1 },
+                    AdvertisedRoute { destination: node2.clone(), length: 1 },
+                ],
+                // Missing edge
+                edges: vec![edge1.clone()],
+            },
+        ))
+        .await;
+
+    graph
+        .process_invalid_network_event(NetworkTopologyChange::PeerAdvertisedRoutes(
+            network_protocol::DistanceVector {
+                root: node1.clone(),
+                // Missing route shown by edges
+                routes: vec![
+                    AdvertisedRoute { destination: node1.clone(), length: 0 },
+                    AdvertisedRoute { destination: node0.clone(), length: 1 },
+                ],
+                edges: vec![edge0.clone(), edge1.clone()],
+            },
+        ))
+        .await;
+
+    graph
+        .process_invalid_network_event(NetworkTopologyChange::PeerAdvertisedRoutes(
+            network_protocol::DistanceVector {
+                root: node1.clone(),
+                routes: vec![
+                    AdvertisedRoute { destination: node1.clone(), length: 0 },
+                    AdvertisedRoute { destination: node0.clone(), length: 1 },
+                    // Route length is shorter than shown by edges
+                    AdvertisedRoute { destination: node2.clone(), length: 0 },
+                ],
+                edges: vec![edge0.clone(), edge1.clone()],
+            },
+        ))
+        .await;
+
+    graph
+        .process_invalid_network_event(NetworkTopologyChange::PeerAdvertisedRoutes(
+            network_protocol::DistanceVector {
+                root: node1.clone(),
+                // No route to the receiving node node0
+                routes: vec![
+                    AdvertisedRoute { destination: node1.clone(), length: 0 },
+                    AdvertisedRoute { destination: node2.clone(), length: 0 },
+                ],
+                edges: vec![edge1.clone()],
+            },
+        ))
+        .await;
+}
