@@ -27,7 +27,7 @@ use near_primitives::challenge::PartialState;
 use near_primitives::state_part::PartId;
 use near_primitives::types::StateRoot;
 
-use crate::flat::FlatStateChanges;
+use crate::flat::{FlatStateChanges, FlatStateIterator};
 use crate::trie::iterator::TrieTraversalItem;
 use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::trie_storage::TrieMemoryPartialStorage;
@@ -116,10 +116,7 @@ impl Trie {
         &'a self,
         nibbles_begin: Vec<u8>,
         nibbles_end: Vec<u8>,
-    ) -> Result<
-        impl Iterator<Item = Result<(Vec<u8>, FlatStateValue), StorageError>> + 'a,
-        StorageError,
-    > {
+    ) -> Result<FlatStateIterator<'a>, StorageError> {
         let flat_storage_chunk_view = match &self.flat_storage_chunk_view {
             None => {
                 return Err(StorageError::StorageInconsistentState(
@@ -132,9 +129,7 @@ impl Trie {
         // If left key in nibbles is already the largest, return empty
         // iterator. Otherwise convert it to key in bytes.
         let key_begin = if nibbles_begin == LAST_STATE_PART_BOUNDARY {
-            // TODO (#8997): use std::iter::empty here. Currently doesn't work
-            // because it doesn't match impl Iterator type.
-            return Ok(flat_storage_chunk_view.iter_flat_state_entries(Some(&[]), Some(&[])));
+            return Ok(Box::new(std::iter::empty()));
         } else {
             Some(NibbleSlice::nibbles_to_bytes(&nibbles_begin))
         };

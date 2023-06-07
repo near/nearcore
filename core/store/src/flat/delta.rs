@@ -22,6 +22,7 @@ pub struct FlatStateDeltaMetadata {
     pub block: BlockInfo,
 }
 
+#[derive(Debug)]
 pub struct KeyForFlatStateDelta {
     pub shard_uid: ShardUId,
     pub block_hash: CryptoHash,
@@ -108,8 +109,7 @@ impl FlatStateChanges {
     /// Applies delta to the flat state.
     pub fn apply_to_flat_state(self, store_update: &mut StoreUpdate, shard_uid: ShardUId) {
         for (key, value) in self.0.into_iter() {
-            store_helper::set_flat_state_value(store_update, shard_uid, key, value)
-                .expect("Borsh cannot fail");
+            store_helper::set_flat_state_value(store_update, shard_uid, key, value);
         }
     }
 }

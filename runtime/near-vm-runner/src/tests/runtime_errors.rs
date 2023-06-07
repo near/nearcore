@@ -49,14 +49,12 @@ fn test_simple_contract() {
     test_builder()
         .wat(SIMPLE_CONTRACT)
         .protocol_features(&[
-            #[cfg(feature = "nightly")]
             ProtocolFeature::PreparationV2,
         ])
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 42815463 used gas 42815463
             "#]],
-            #[cfg(feature = "nightly")]
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 49397511 used gas 49397511
             "#]],
@@ -145,7 +143,6 @@ fn test_trap_contract() {
         .wat(r#"(module (func (export "main") (unreachable)) )"#)
         .skip_wasmtime()
         .protocol_features(&[
-            #[cfg(feature = "nightly")]
             ProtocolFeature::PreparationV2,
         ])
         .expects(&[
@@ -153,7 +150,6 @@ fn test_trap_contract() {
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 43854969 used gas 43854969
                 Err: WebAssembly trap: An `unreachable` opcode was executed.
             "#]],
-            #[cfg(feature = "nightly")]
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 50437017 used gas 50437017
                 Err: WebAssembly trap: An `unreachable` opcode was executed.
@@ -174,7 +170,6 @@ fn test_trap_initializer() {
         )
         .skip_wasmtime()
         .protocol_features(&[
-            #[cfg(feature = "nightly")]
             ProtocolFeature::PreparationV2,
         ])
         .expects(&[
@@ -182,7 +177,6 @@ fn test_trap_initializer() {
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47322969 used gas 47322969
                 Err: WebAssembly trap: An `unreachable` opcode was executed.
             "#]],
-            #[cfg(feature = "nightly")]
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 53905017 used gas 53905017
                 Err: WebAssembly trap: An `unreachable` opcode was executed.
@@ -207,7 +201,6 @@ fn test_div_by_zero_contract() {
         )
         .skip_wasmtime()
         .protocol_features(&[
-            #[cfg(feature = "nightly")]
             ProtocolFeature::PreparationV2,
         ])
         .expects(&[
@@ -215,7 +208,6 @@ fn test_div_by_zero_contract() {
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47406987 used gas 47406987
                 Err: WebAssembly trap: An arithmetic exception, e.g. divided by zero.
             "#]],
-            #[cfg(feature = "nightly")]
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 53166279 used gas 53166279
                 Err: WebAssembly trap: An arithmetic exception, e.g. divided by zero.
@@ -240,7 +232,6 @@ fn test_float_to_int_contract() {
             ))
             .skip_wasmtime()
             .protocol_features(&[
-                #[cfg(feature = "nightly")]
                 ProtocolFeature::PreparationV2,
             ])
             .expects(&[
@@ -248,7 +239,6 @@ fn test_float_to_int_contract() {
                     VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47667981 used gas 47667981
                     Err: WebAssembly trap: An arithmetic exception, e.g. divided by zero.
                 "#]],
-                #[cfg(feature = "nightly")]
                 expect![[r#"
                     VMOutcome: balance 4 storage_usage 12 return data None burnt gas 53427273 used gas 53427273
                     Err: WebAssembly trap: An arithmetic exception, e.g. divided by zero.
@@ -276,7 +266,6 @@ fn test_indirect_call_to_null_contract() {
         .opaque_error()
         .skip_wasmtime()
         .protocol_features(&[
-            #[cfg(feature = "nightly")]
             ProtocolFeature::PreparationV2,
         ])
         .expects(&[
@@ -284,7 +273,6 @@ fn test_indirect_call_to_null_contract() {
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 50919231 used gas 50919231
                 Err: ...
             "#]],
-            #[cfg(feature = "nightly")]
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 56678523 used gas 56678523
                 Err: ...
@@ -314,7 +302,6 @@ fn test_indirect_call_to_wrong_signature_contract() {
         )
         .skip_wasmtime()
         .protocol_features(&[
-            #[cfg(feature = "nightly")]
             ProtocolFeature::PreparationV2,
         ])
         .expects(&[
@@ -322,7 +309,6 @@ fn test_indirect_call_to_wrong_signature_contract() {
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 55904481 used gas 55904481
                 Err: WebAssembly trap: Call indirect incorrect signature trap.
             "#]],
-            #[cfg(feature = "nightly")]
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 61663773 used gas 61663773
                 Err: WebAssembly trap: Call indirect incorrect signature trap.
@@ -384,7 +370,6 @@ fn test_guest_panic() {
             "#,
         )
         .protocol_features(&[
-            #[cfg(feature = "nightly")]
             ProtocolFeature::PreparationV2,
         ])
         .expects(&[
@@ -392,7 +377,6 @@ fn test_guest_panic() {
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 315775830 used gas 315775830
                 Err: Smart contract panicked: explicit guest panic
             "#]],
-            #[cfg(feature = "nightly")]
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 322357878 used gas 322357878
                 Err: Smart contract panicked: explicit guest panic
@@ -423,7 +407,6 @@ fn test_stack_overflow() {
         .skip_wasmtime()
         .opaque_error()
         .protocol_features(&[
-            #[cfg(feature = "nightly")]
             ProtocolFeature::PreparationV2,
         ])
         .expects(&[
@@ -431,7 +414,6 @@ fn test_stack_overflow() {
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 13526101017 used gas 13526101017
                 Err: ...
             "#]],
-            #[cfg(feature = "nightly")]
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 30376143897 used gas 30376143897
                 Err: ...
@@ -457,7 +439,6 @@ fn test_stack_instrumentation_protocol_upgrade() {
         .method("f1")
         .protocol_features(&[
             ProtocolFeature::CorrectStackLimit,
-            #[cfg(feature = "nightly")]
             ProtocolFeature::PreparationV2,
         ])
         .skip_wasmtime()
@@ -471,7 +452,6 @@ fn test_stack_instrumentation_protocol_upgrade() {
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 6789985365 used gas 6789985365
                 Err: ...
             "#]],
-            #[cfg(feature = "nightly")]
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 31767212013 used gas 31767212013
                 Err: ...
@@ -495,7 +475,6 @@ fn test_stack_instrumentation_protocol_upgrade() {
         .opaque_error()
         .protocol_features(&[
             ProtocolFeature::CorrectStackLimit,
-            #[cfg(feature = "nightly")]
             ProtocolFeature::PreparationV2,
         ])
         .skip_wasmtime()
@@ -508,7 +487,6 @@ fn test_stack_instrumentation_protocol_upgrade() {
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 2745316869 used gas 2745316869
                 Err: ...
             "#]],
-            #[cfg(feature = "nightly")]
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 29698803429 used gas 29698803429
                 Err: ...
@@ -673,14 +651,12 @@ fn test_external_call_ok() {
     test_builder()
         .wat(EXTERNAL_CALL_CONTRACT)
         .protocol_features(&[
-            #[cfg(feature = "nightly")]
             ProtocolFeature::PreparationV2,
         ])
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 320283336 used gas 320283336
             "#]],
-            #[cfg(feature = "nightly")]
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 326865384 used gas 326865384
             "#]],
@@ -715,14 +691,12 @@ fn test_external_call_indirect() {
             "#
         )
         .protocol_features(&[
-            #[cfg(feature = "nightly")]
             ProtocolFeature::PreparationV2,
         ])
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 328909092 used gas 328909092
             "#]],
-            #[cfg(feature = "nightly")]
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 335491140 used gas 335491140
             "#]],
@@ -748,7 +722,6 @@ fn test_address_overflow() {
         .skip_wasmtime()
         .skip_wasmer0()
         .protocol_features(&[
-            #[cfg(feature = "nightly")]
             ProtocolFeature::PreparationV2,
         ])
         .expects(&[
@@ -756,7 +729,6 @@ fn test_address_overflow() {
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 48534981 used gas 48534981
                 Err: WebAssembly trap: Memory out of bounds trap.
             "#]],
-            #[cfg(feature = "nightly")]
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 54294273 used gas 54294273
                 Err: WebAssembly trap: Memory out of bounds trap.
@@ -768,14 +740,12 @@ fn test_address_overflow() {
         .wat(code)
         .only_wasmer0()
         .protocol_features(&[
-            #[cfg(feature = "nightly")]
             ProtocolFeature::PreparationV2,
         ])
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 48534981 used gas 48534981
             "#]],
-            #[cfg(feature = "nightly")]
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 55117029 used gas 55117029
             "#]],
@@ -810,14 +780,12 @@ fn test_nan_sign() {
         .skip_wasmtime()
         .skip_wasmer0()
         .protocol_features(&[
-            #[cfg(feature = "nightly")]
             ProtocolFeature::PreparationV2,
         ])
         .expects(&[
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 54988767 used gas 54988767
             "#]],
-            #[cfg(feature = "nightly")]
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 61570815 used gas 61570815
             "#]],
@@ -828,7 +796,6 @@ fn test_nan_sign() {
         .wat(code)
         .only_wasmer0()
         .protocol_features(&[
-            #[cfg(feature = "nightly")]
             ProtocolFeature::PreparationV2,
         ])
         .expects(&[
@@ -836,7 +803,6 @@ fn test_nan_sign() {
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 54988767 used gas 54988767
                 Err: WebAssembly trap: An arithmetic exception, e.g. divided by zero.
             "#]],
-            #[cfg(feature = "nightly")]
             expect![[r#"
                 VMOutcome: balance 4 storage_usage 12 return data None burnt gas 60748059 used gas 60748059
                 Err: WebAssembly trap: An arithmetic exception, e.g. divided by zero.
@@ -924,17 +890,15 @@ mod fix_contract_loading_cost_protocol_upgrade {
             .wat(ALMOST_TRIVIAL_CONTRACT)
             .protocol_features(&[
                 ProtocolFeature::FixContractLoadingCost,
-                #[cfg(feature = "nightly")]
                 ProtocolFeature::PreparationV2
             ])
             .expects(&[
                 expect![[r#"
-                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47406987 used gas 47406987
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 53989035 used gas 53989035
                 "#]],
                 expect![[r#"
                     VMOutcome: balance 4 storage_usage 12 return data None burnt gas 47406987 used gas 47406987
                 "#]],
-                #[cfg(feature = "nightly")]
                 expect![[r#"
                     VMOutcome: balance 4 storage_usage 12 return data None burnt gas 53989035 used gas 53989035
                 "#]],
