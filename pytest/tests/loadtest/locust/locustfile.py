@@ -102,8 +102,7 @@ class SocialDbUser(NearUser):
 
 class CongestionUser(NearUser):
     """
-    Registers itself on near.social in the setup phase, then starts posting,
-    following, and liking posts.
+    Runs transactions that cause congestion.
     """
     wait_time = between(1, 3)  # random pause between transactions
 
@@ -123,15 +122,6 @@ class CongestionUser(NearUser):
     def on_start(self):
         super().on_start()
         if not is_tag_active(self.environment, "congestion"):
-            raise SystemExit("SocialDbUser requires --tag social")
+            raise SystemExit("Congestion requires --tag social")
 
         self.contract_account_id = self.environment.congestion_account_id
-
-        # self.send_tx(InitSocialDbAccount(self.contract_account_id,
-        #                                  self.account),
-        #              locust_name="Init Social Account")
-        logger.debug(
-            f"user {self.account_id} ready to use SocialDB on {self.contract_account_id}"
-        )
-
-        # SocialDbUser.registered_users.append(self.account_id)
