@@ -9,6 +9,7 @@ use near_store::flat::{
     inline_flat_state_values, store_helper, FlatStateDelta, FlatStateDeltaMetadata,
     FlatStorageManager, FlatStorageStatus,
 };
+use near_store::trie::construct_trie_from_flat;
 use near_store::{DBCol, Mode, NodeStorage, ShardUId, Store, StoreOpener};
 use nearcore::{load_config, NearConfig, NightshadeRuntime};
 use std::sync::atomic::AtomicBool;
@@ -42,6 +43,13 @@ enum SubCommand {
 
     /// Run FlatState value inininig migration
     MigrateValueInlining(MigrateValueInliningCmd),
+
+    ConstructTrieFromFlat(ConstructTriedFromFlatCmd),
+}
+
+#[derive(Parser)]
+pub struct ConstructTriedFromFlatCmd {
+    shard_id: u64,
 }
 
 #[derive(Parser)]
@@ -328,6 +336,19 @@ impl FlatStorageCommand {
                     cmd.num_threads,
                     cmd.batch_size,
                 );
+            }
+            SubCommand::ConstructTrieFromFlat(cmd) => {
+                let (_, epoch_manager, _, chain_store, store) = Self::get_db(
+                    &opener,
+                    home_dir,
+                    &near_config,
+                    near_store::Mode::ReadWriteExisting,
+                );
+
+                let tip = chain_store.final_head().unwrap();
+                let shard_uid = epoch_manager.shard_id_to_uid(cmd.shard_id, &tip.epoch_id)?;
+
+                construct_trie_from_flat(store, shard_uid);
             }
         }
 
