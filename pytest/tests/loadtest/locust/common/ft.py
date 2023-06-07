@@ -39,7 +39,7 @@ class FTContract:
         user.send_tx(TransferFT(self.account,
                                 self.account,
                                 user.account_id,
-                                how_much=1E8),
+                                how_much=10**8),
                      locust_name="FT Funding")
         self.registered_users.append(user.account_id)
 
@@ -67,7 +67,7 @@ class TransferFT(Transaction):
         self.recipient_id = recipient_id
         self.how_much = how_much
 
-    def sign_and_serialize(self, block_hash):
+    def sign_and_serialize(self, block_hash) -> bytes:
         (ft, sender, recipient_id) = self.ft, self.sender, self.recipient_id
         args = {
             "receiver_id": recipient_id,
@@ -91,7 +91,7 @@ class InitFT(Transaction):
         super().__init__()
         self.contract = contract
 
-    def sign_and_serialize(self, block_hash):
+    def sign_and_serialize(self, block_hash) -> bytes:
         contract = self.contract
         args = json.dumps({
             "owner_id": contract.key.account_id,
@@ -113,7 +113,7 @@ class InitFTAccount(Transaction):
         self.contract = contract
         self.account = account
 
-    def sign_and_serialize(self, block_hash):
+    def sign_and_serialize(self, block_hash) -> bytes:
         contract, account = self.contract, self.account
         args = json.dumps({"account_id": account.key.account_id})
         return transaction.sign_function_call_tx(account.key,
