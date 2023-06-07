@@ -758,7 +758,6 @@ fn maybe_open_state_snapshot(
                     *prev_block_hash,
                     flat_storage_manager,
                     &shard_uids,
-                    None,
                 )))
             } else {
                 tracing::error!(target: "runtime", ?snapshots, "Detected multiple state snapshots. Please keep at most one snapshot and delete others.");

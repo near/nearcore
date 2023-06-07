@@ -12,7 +12,7 @@ use near_chain::test_utils::ValidatorSchedule;
 use near_chunks::test_utils::MockClientAdapterForShardsManager;
 
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
-use near_epoch_manager::EpochManager;
+use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_primitives::config::{ActionCosts, ExtCosts};
 use near_primitives::num_rational::{Ratio, Rational32};
 
@@ -80,7 +80,7 @@ use near_store::metadata::DbKind;
 use near_store::metadata::DB_VERSION;
 use near_store::test_utils::create_test_node_storage_with_cold;
 use near_store::test_utils::create_test_store;
-use near_store::NodeStorage;
+use near_store::{NodeStorage, Store};
 use near_store::{get, DBCol, TrieChanges};
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use nearcore::{NightshadeRuntime, NEAR_BASE};
@@ -2570,30 +2570,24 @@ fn test_catchup_gas_price_change() {
     genesis.config.gas_limit = 1000000000000;
     let chain_genesis = ChainGenesis::new(&genesis);
 
-    let tmp_dir1 = tempfile::tempdir().unwrap();
-    let tmp_dir2 = tempfile::tempdir().unwrap();
-    // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
-    // same configuration as in production.
-    let store1 = NodeStorage::opener(&tmp_dir1.path(), false, &Default::default(), None)
-        .open()
-        .unwrap()
-        .get_hot_store();
-    let store2 = NodeStorage::opener(&tmp_dir2.path(), false, &Default::default(), None)
-        .open()
-        .unwrap()
-        .get_hot_store();
-    let epoch_manager1 = EpochManager::new_arc_handle(store1.clone(), &genesis.config);
-    let epoch_manager2 = EpochManager::new_arc_handle(store2.clone(), &genesis.config);
-    let runtime1 =
-        NightshadeRuntime::test(tmp_dir1.path(), store1.clone(), &genesis, epoch_manager1.clone())
-            as Arc<dyn RuntimeAdapter>;
-    let runtime2 =
-        NightshadeRuntime::test(tmp_dir2.path(), store2.clone(), &genesis, epoch_manager2.clone())
-            as Arc<dyn RuntimeAdapter>;
+    let env_objects = (0..2).map(|_|{
+        let tmp_dir = tempfile::tempdir().unwrap();
+        // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
+        // same configuration as in production.
+        let store= NodeStorage::opener(&tmp_dir.path(), false, &Default::default(), None)
+            .open()
+            .unwrap()
+            .get_hot_store();
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let runtime =
+            NightshadeRuntime::test(tmp_dir.path(), store.clone(), &genesis, epoch_manager.clone())
+                as Arc<dyn RuntimeAdapter>;
+        (tmp_dir,store,epoch_manager,runtime)
+    }).collect::<Vec<(tempfile::TempDir,Store,Arc<EpochManagerHandle>,Arc<dyn RuntimeAdapter>)>>();
 
-    let stores = vec![store1, store2];
-    let epoch_managers = vec![epoch_manager1, epoch_manager2];
-    let runtimes = vec![runtime1.clone(), runtime2.clone()];
+    let stores = vec![env_objects[0].1.clone(), env_objects[1].1.clone()];
+    let epoch_managers = vec![env_objects[0].2.clone(), env_objects[1].2.clone()];
+    let runtimes = vec![env_objects[0].3.clone(), env_objects[1].3.clone()];
 
     let mut env = TestEnv::builder(chain_genesis)
         .clients_count(2)
@@ -2628,7 +2622,9 @@ fn test_catchup_gas_price_change() {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         blocks.push(block.clone());
         env.process_block(0, block.clone(), Provenance::PRODUCED);
+        tracing::error!("process_block:{i}:0");
         env.process_block(1, block, Provenance::NONE);
+        tracing::error!("process_block:{i}:1");
     }
 
     assert_ne!(blocks[3].header().gas_price(), blocks[4].header().gas_price());

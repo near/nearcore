@@ -4175,11 +4175,8 @@ impl Chain {
                 let epoch_id = self.epoch_manager.get_epoch_id(&head.prev_block_hash)?;
                 let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
                 let shard_uids = shard_layout.get_shard_uids();
-                let prev_header = self.get_block_header(&head.prev_block_hash)?;
-                let desired_flat_head = prev_header.prev_hash();
                 (helper.make_snapshot_callback)(
                     head.prev_block_hash,
-                    *desired_flat_head,
                     shard_uids,
                 )
             }

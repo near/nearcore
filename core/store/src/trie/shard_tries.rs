@@ -58,15 +58,14 @@ impl StateSnapshot {
         prev_block_hash: CryptoHash,
         flat_storage_manager: FlatStorageManager,
         shard_uids: &[ShardUId],
-        desired_flat_head: Option<CryptoHash>,
     ) -> Self {
         for shard_uid in shard_uids {
             flat_storage_manager.create_flat_storage_for_shard(*shard_uid);
-            if let Some(desired_flat_head) = desired_flat_head {
-                let flat_storage =
-                    flat_storage_manager.get_flat_storage_for_shard(*shard_uid).unwrap();
-                tracing::error!(target: "state_snapshot", ?shard_uid, current_flat_head = ?flat_storage.get_head_hash(), ?desired_flat_head, "Moving FlatStorage head of the snapshot");
-                flat_storage.update_flat_head(&desired_flat_head).unwrap();
+            let flat_storage =
+                flat_storage_manager.get_flat_storage_for_shard(*shard_uid).unwrap();
+            tracing::debug!(target: "state_snapshot", ?shard_uid, current_flat_head = ?flat_storage.get_head_hash(), desired_flat_head = ?prev_block_hash, "Moving FlatStorage head of the snapshot");
+            if let Err(err) = flat_storage.update_flat_head(&prev_block_hash) {
+                tracing::debug!(target: "state_snapshot", ?err, ?shard_uid, current_flat_head = ?flat_storage.get_head_hash(), ?prev_block_hash, "Failed to Move FlatStorage head of the snapshot");
             }
         }
         Self { prev_block_hash, store, flat_storage_manager }
@@ -420,7 +419,6 @@ impl ShardTries {
     pub fn make_state_snapshot(
         &self,
         prev_block_hash: &CryptoHash,
-        desired_flat_head: &CryptoHash,
         shard_uids: &[ShardUId],
     ) -> Result<(), anyhow::Error> {
         // The function returns an `anyhow::Error`, because no special handling of errors is done yet. The errors are logged and ignored.
@@ -481,7 +479,6 @@ impl ShardTries {
                     *prev_block_hash,
                     flat_storage_manager,
                     shard_uids,
-                    Some(*desired_flat_head),
                 ));
                 tracing::info!(target: "state_snapshot", ?prev_block_hash, "Made a checkpoint");
                 Ok(())
