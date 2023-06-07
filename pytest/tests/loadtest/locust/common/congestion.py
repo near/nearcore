@@ -78,13 +78,13 @@ def on_locust_init(environment, **kwargs):
         return
 
     # `master_funding_account` is the same on all runners, allowing to share a
-    # single instance of Congestion contract.
+    # single instance of congestion contract.
     funding_account = environment.master_funding_account
     environment.congestion_account_id = (
         f"congestion.{funding_account.key.account_id}"
     )
 
-    # Create SocialDB account, unless we are a worker, in which case the master already did it
+    # Only create congestion contract on master.
     if isinstance(environment.runner, runners.WorkerRunner):
         return
 
