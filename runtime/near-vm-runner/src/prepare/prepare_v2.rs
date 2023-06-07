@@ -61,6 +61,7 @@ impl<'a> PrepareContext<'a> {
     ///
     /// This will validate the module, normalize the memories within, apply limits.
     fn run(&mut self) -> Result<Vec<u8>, PrepareError> {
+        self.before_import_section = true;
         let parser = wp::Parser::new(0);
         for payload in parser.parse_all(self.code) {
             let payload = payload.map_err(|err| {
