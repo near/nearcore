@@ -182,8 +182,9 @@ impl NetworkState {
         self.tier2_route_back.lock().get(&hash).map_or(false, |value| value == peer_id)
     }
 
-    /// Processes the given NetworkTopologyChange.
-    /// If an updated DistanceVector is returned, broadcasts it.
+    /// Accepts NetworkTopologyChange events.
+    /// Changes are batched via the `update_routes_demux`, then passed to the V2 routing table.
+    /// If an updated DistanceVector is returned by the routing table, broadcasts it to peers.
     /// If an error occurs while processing a DistanceVector advertised by a peer, bans the peer.
     pub async fn update_routes(
         self: &Arc<Self>,
@@ -209,8 +210,7 @@ impl NetworkState {
                 oks.iter()
                     .map(|ok| match ok {
                         true => Ok(()),
-                        // TODO: if processing fails, ban the peer
-                        false => Ok(()),
+                        false => Err(ReasonForBan::InvalidDistanceVector),
                     })
                     .collect()
             })
