@@ -1,3 +1,21 @@
+const REFERENCE_TYPES: bool = false;
+const MULTI_VALUE: bool = false;
+const BULK_MEMORY: bool = false;
+const SIMD: bool = false;
+const THREADS: bool = false;
+const TAIL_CALL: bool = false;
+const MULTI_MEMORY: bool = false;
+const MEMORY64: bool = false;
+const SATURATING_FLOAT_TO_INT: bool = false;
+const EXCEPTIONS: bool = false;
+const RELAXED_SIMD: bool = false;
+const EXTENDED_COST: bool = false;
+const COMPONENT_MODEL: bool = false;
+const GC: bool = false;
+const FUNCTION_REFERENCES: bool = false;
+const MEMORY_CONTROL: bool = false;
+
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) struct WasmFeatures {
     sign_extension: bool,
@@ -21,29 +39,29 @@ impl From<WasmFeatures> for finite_wasm::wasmparser::WasmFeatures {
             mutable_global: true,
             sign_extension: f.sign_extension,
 
-            reference_types: false,
+            reference_types: REFERENCE_TYPES,
             // wasmer singlepass compiler requires multi_value return values to be disabled.
-            multi_value: false,
-            bulk_memory: false,
-            simd: false,
-            threads: false,
-            tail_call: false,
-            multi_memory: false,
-            exceptions: false,
-            memory64: false,
-            saturating_float_to_int: false,
-            relaxed_simd: false,
-            extended_const: false,
-            component_model: false,
-            function_references: false,
-            memory_control: false,
-            gc: false,
+            multi_value: MULTI_VALUE,
+            bulk_memory: BULK_MEMORY,
+            simd: SIMD,
+            threads: THREADS,
+            tail_call: TAIL_CALL,
+            multi_memory: MULTI_MEMORY,
+            exceptions: EXCEPTIONS,
+            memory64: MEMORY64,
+            saturating_float_to_int: SATURATING_FLOAT_TO_INT,
+            relaxed_simd: RELAXED_SIMD,
+            extended_const: EXTENDED_COST,
+            component_model: COMPONENT_MODEL,
+            function_references: FUNCTION_REFERENCES,
+            memory_control: MEMORY_CONTROL,
+            gc: GC,
         }
     }
 }
 
 impl From<WasmFeatures> for wasmparser::WasmFeatures {
-    fn from(f: WasmFeatures) -> Self {
+    fn from(_: WasmFeatures) -> Self {
         // /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\
         //
         // There are features that this version of wasmparser enables by default, but pwasm
@@ -58,17 +76,18 @@ impl From<WasmFeatures> for wasmparser::WasmFeatures {
         //
         // /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\
         wasmparser::WasmFeatures {
-            reference_types: false,
-            multi_value: false,
-            bulk_memory: false,
-            module_linking: false,
-            simd: false,
-            threads: false,
-            tail_call: false,
             deterministic_only: false,
-            multi_memory: false,
-            exceptions: false,
-            memory64: false,
+
+            module_linking: false, // old version of component model
+            reference_types: REFERENCE_TYPES,
+            multi_value: MULTI_VALUE,
+            bulk_memory: BULK_MEMORY,
+            simd: SIMD,
+            threads: THREADS,
+            tail_call: TAIL_CALL,
+            multi_memory: MULTI_MEMORY,
+            exceptions: EXCEPTIONS,
+            memory64: MEMORY64,
         }
     }
 }
@@ -80,23 +99,23 @@ impl From<WasmFeatures> for near_vm_types::Features {
             mutable_global: true,
             sign_extension: f.sign_extension,
 
-            threads: false,
-            reference_types: false,
-            simd: false,
-            bulk_memory: false,
-            multi_value: false,
-            tail_call: false,
-            multi_memory: false,
-            memory64: false,
-            exceptions: false,
-            saturating_float_to_int: false,
+            threads: THREADS,
+            reference_types: REFERENCE_TYPES,
+            simd: SIMD,
+            bulk_memory: BULK_MEMORY,
+            multi_value: MULTI_VALUE,
+            tail_call: TAIL_CALL,
+            multi_memory: MULTI_MEMORY,
+            memory64: MEMORY64,
+            exceptions: EXCEPTIONS,
+            saturating_float_to_int: SATURATING_FLOAT_TO_INT,
         }
     }
 }
 
 #[cfg(all(feature = "wasmer2_vm", target_arch = "x86_64"))]
 impl From<WasmFeatures> for wasmer_types::Features {
-    fn from(f: crate::features::WasmFeatures) -> Self {
+    fn from(_: crate::features::WasmFeatures) -> Self {
         // /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\
         //
         // There are features that this version of wasmparser enables by default, but pwasm
@@ -111,31 +130,31 @@ impl From<WasmFeatures> for wasmer_types::Features {
         //
         // /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\
         Self {
-            threads: false,
-            reference_types: false,
-            simd: false,
-            bulk_memory: false,
-            multi_value: false,
-            tail_call: false,
-            multi_memory: false,
-            memory64: false,
-            exceptions: false,
-            module_linking: false,
+            module_linking: false, // old version of component model
+            threads: THREADS,
+            reference_types: REFERENCE_TYPES,
+            simd: SIMD,
+            bulk_memory: BULK_MEMORY,
+            multi_value: MULTI_VALUE,
+            tail_call: TAIL_CALL,
+            multi_memory: MULTI_MEMORY,
+            memory64: MEMORY64,
+            exceptions: EXCEPTIONS,
         }
     }
 }
 
 #[cfg(feature = "wasmtime_vm")]
 impl From<WasmFeatures> for wasmtime::Config {
-    fn from(value: WasmFeatures) -> Self {
+    fn from(_: WasmFeatures) -> Self {
         let mut config = wasmtime::Config::default();
-        config.wasm_threads(false);
-        config.wasm_reference_types(false);
-        config.wasm_simd(false);
-        config.wasm_bulk_memory(false);
-        config.wasm_multi_value(false);
-        config.wasm_multi_memory(false);
-        config.wasm_memory64(false);
+        config.wasm_threads(THREADS);
+        config.wasm_reference_types(REFERENCE_TYPES);
+        config.wasm_simd(SIMD);
+        config.wasm_bulk_memory(BULK_MEMORY);
+        config.wasm_multi_value(MULTI_VALUE);
+        config.wasm_multi_memory(MULTI_MEMORY);
+        config.wasm_memory64(MEMORY64);
         config
     }
 }
