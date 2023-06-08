@@ -2096,7 +2096,7 @@ impl Chain {
 
         let need_state_snapshot = block_preprocess_info.need_state_snapshot
             | self.need_test_state_snapshot(block_preprocess_info.need_state_snapshot);
-        if let Err(err) = self.maybe_start_state_snapshot(need_state_snapshot) {
+        if let Err(err) = self.maybe_start_state_snapshot(need_state_snapshot, me) {
             tracing::error!(target: "state_snapshot", ?err, "Failed to make a state snapshot");
         }
 
@@ -4168,13 +4168,29 @@ impl Chain {
 
     /// Makes a state snapshot.
     /// If there was already a state snapshot, deletes that first.
-    fn maybe_start_state_snapshot(&self, need_state_snapshot: bool) -> Result<(), Error> {
+    fn maybe_start_state_snapshot(
+        &self,
+        need_state_snapshot: bool,
+        me: &Option<AccountId>,
+    ) -> Result<(), Error> {
         if need_state_snapshot {
             if let Some(helper) = &self.state_snapshot_helper {
                 let head = self.head()?;
                 let epoch_id = self.epoch_manager.get_epoch_id(&head.prev_block_hash)?;
                 let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
-                let shard_uids = shard_layout.get_shard_uids();
+                let shard_uids = shard_layout
+                    .get_shard_uids()
+                    .iter()
+                    .filter(|shard_uid| {
+                        self.shard_tracker.care_about_shard(
+                            me.as_ref(),
+                            &head.prev_block_hash,
+                            shard_uid.shard_id as ShardId,
+                            true,
+                        )
+                    })
+                    .cloned()
+                    .collect::<Vec<ShardUId>>();
                 (helper.make_snapshot_callback)(head.prev_block_hash, shard_uids)
             }
         }

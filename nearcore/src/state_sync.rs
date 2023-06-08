@@ -284,12 +284,14 @@ async fn state_sync_dump(
                                 let mut parts_to_dump = missing_parts.clone();
                                 let timer = Instant::now();
                                 let mut dumped_any_state_part = false;
+                                let mut failures_cnt = 0;
                                 // Stop if the node is stopped.
                                 // Note that without this check the state dumping thread is unstoppable, i.e. non-interruptable.
                                 while keep_running.load(std::sync::atomic::Ordering::Relaxed)
                                     && timer.elapsed().as_secs()
                                         <= STATE_DUMP_ITERATION_TIME_LIMIT_SECS
                                     && !parts_to_dump.is_empty()
+                                    && failures_cnt < 1
                                 {
                                     let _timer = metrics::STATE_SYNC_DUMP_ITERATION_ELAPSED
                                         .with_label_values(&[&shard_id.to_string()])
@@ -312,6 +314,7 @@ async fn state_sync_dump(
                                         Ok(state_part) => state_part,
                                         Err(err) => {
                                             tracing::warn!(target: "state_sync_dump", shard_id, epoch_height, part_id, ?err, "Failed to obtain and store part. Will skip this part.");
+                                            failures_cnt += 1;
                                             continue;
                                         }
                                     };
@@ -331,6 +334,7 @@ async fn state_sync_dump(
                                         // no need to break if there's an error, we should keep dumping other parts.
                                         // reason is we are dumping random selected parts, so it's fine if we are not able to finish all of them
                                         tracing::warn!(target: "state_sync_dump", shard_id, epoch_height, part_id, ?err, "Failed to put a store part into external storage. Will skip this part.");
+                                        failures_cnt += 1;
                                         continue;
                                     }
 
