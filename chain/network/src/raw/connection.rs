@@ -210,6 +210,7 @@ fn new_handshake(
         },
         partial_edge_info: PartialEdgeInfo::new(my_peer_id, target_peer_id, nonce, secret_key),
         owned_account: None,
+        signed_ip_address: None,
     })
 }
 

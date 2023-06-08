@@ -1,11 +1,12 @@
-use crate::accounts_data;
+use crate::accounts_data::AccountDataError;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::config::PEERS_RESPONSE_MAX_PEERS;
+use crate::network_protocol::SignedIpAddress;
 use crate::network_protocol::{
     Edge, EdgeState, Encoding, OwnedAccount, ParsePeerMessageError, PartialEdgeInfo,
     PeerChainInfoV2, PeerIdOrHash, PeerInfo, PeersRequest, PeersResponse, RawRoutedMessage,
-    RoutedMessageBody, RoutedMessageV2, RoutingTableUpdate, StateResponseInfo, SyncAccountsData,
+    RoutedMessageBody, RoutingTableUpdate, StateResponseInfo, SyncAccountsData,
 };
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
@@ -110,6 +111,8 @@ pub(crate) enum ClosingReason {
     TooLargeClockSkew,
     #[error("owned_account.peer_id doesn't match handshake.sender_peer_id")]
     OwnedAccountMismatch,
+    #[error("signed_ip_address's peer address doesn't match tcp stream's peer_addr")]
+    IpAddressMismatch,
     #[error("PeerActor stopped NOT via PeerActor::stop()")]
     Unknown,
 }
@@ -132,6 +135,7 @@ impl ClosingReason {
             ClosingReason::TooLargeClockSkew => true, // reconnect will fail for the same reason
             ClosingReason::OwnedAccountMismatch => true, // misbehaving peer
             ClosingReason::Unknown => false,        // only happens in tests
+            ClosingReason::IpAddressMismatch => true, // invalid ip address or signature must be banned
         }
     }
 }
@@ -286,7 +290,7 @@ impl PeerActor {
         };
         let my_node_info = PeerInfo {
             id: network_state.config.node_id(),
-            addr: network_state.config.node_addr.as_ref().map(|a| **a),
+            addr: Some(stream.local_addr),
             account_id: network_state.config.validator.as_ref().map(|v| v.account_id()),
         };
         // recv is the HandshakeSignal returned by this spawn_inner() call.
@@ -420,6 +424,10 @@ impl PeerActor {
             } else {
                 (0, vec![])
             };
+        let my_signed_ip_address = SignedIpAddress::new(
+            self.my_node_info.addr.unwrap().ip(),
+            &self.network_state.config.node_key,
+        );
         let handshake = Handshake {
             protocol_version: spec.protocol_version,
             oldest_supported_version: PEER_MIN_ALLOWED_PROTOCOL_VERSION,
@@ -442,6 +450,7 @@ impl PeerActor {
                 }
                 .sign(vc.signer.as_ref())
             }),
+            signed_ip_address: Some(my_signed_ip_address),
         };
         let msg = match spec.tier {
             tcp::Tier::T1 => PeerMessage::Tier1Handshake(handshake),
@@ -564,6 +573,20 @@ impl PeerActor {
                 }
             }
         }
+
+        // Verify the signed IP address is valid.
+        if let Some(signed_ip_address) = &handshake.signed_ip_address {
+            if self.peer_addr.ip() != signed_ip_address.ip_address {
+                self.stop(ctx, ClosingReason::IpAddressMismatch);
+                return;
+            }
+            // Verify signature of the sender on its ip address
+            if !(signed_ip_address.verify(handshake.sender_peer_id.public_key())) {
+                self.stop(ctx, ClosingReason::Ban(ReasonForBan::InvalidSignature));
+                return;
+            }
+        } // else do nothing as temporary leniency for backward compatibility purposes
+          // TODO(soon): Fail the handshake if its doesn't include the required signed_ip_address after all production nodes have upgraded to latest handshake protocol
 
         // Verify that handshake.owned_account is valid.
         if let Some(owned_account) = &handshake.owned_account {
@@ -802,7 +825,7 @@ impl PeerActor {
             known_edges.retain(|edge| edge.removal_info().is_none());
             metrics::EDGE_TOMBSTONE_SENDING_SKIPPED.inc();
         }
-        let known_accounts = self.network_state.graph.routing_table.get_announce_accounts();
+        let known_accounts = self.network_state.account_announcements.get_announcements();
         self.send_message_or_log(&PeerMessage::SyncRoutingTable(RoutingTableUpdate::new(
             known_edges,
             known_accounts,
@@ -1073,26 +1096,6 @@ impl PeerActor {
         );
     }
 
-    fn add_route_back(&self, conn: &connection::Connection, msg: &RoutedMessageV2) {
-        if !msg.expect_response() {
-            return;
-        }
-        tracing::trace!(target: "network", route_back = ?msg.clone(), "Received peer message that requires response");
-        let from = &conn.peer_info.id;
-        match conn.tier {
-            tcp::Tier::T1 => self.network_state.tier1_route_back.lock().insert(
-                &self.clock,
-                msg.hash(),
-                from.clone(),
-            ),
-            tcp::Tier::T2 => self.network_state.graph.routing_table.add_route_back(
-                &self.clock,
-                msg.hash(),
-                from.clone(),
-            ),
-        }
-    }
-
     fn handle_msg_ready(
         &mut self,
         ctx: &mut actix::Context<Self>,
@@ -1261,13 +1264,9 @@ impl PeerActor {
                         network_state.add_accounts_data(&clock, msg.accounts_data).await
                     {
                         conn.stop(Some(match err {
-                            accounts_data::Error::InvalidSignature => {
-                                ReasonForBan::InvalidSignature
-                            }
-                            accounts_data::Error::DataTooLarge => ReasonForBan::Abusive,
-                            accounts_data::Error::SingleAccountMultipleData => {
-                                ReasonForBan::Abusive
-                            }
+                            AccountDataError::InvalidSignature => ReasonForBan::InvalidSignature,
+                            AccountDataError::DataTooLarge => ReasonForBan::Abusive,
+                            AccountDataError::SingleAccountMultipleData => ReasonForBan::Abusive,
                         }));
                     }
                     network_state
@@ -1327,7 +1326,7 @@ impl PeerActor {
                     return;
                 }
 
-                self.add_route_back(&conn, msg.as_ref());
+                self.network_state.tier2_add_route_back(&self.clock, &conn, msg.as_ref());
                 if for_me {
                     // Handle Ping and Pong message if they are for us without sending to client.
                     // i.e. Return false in case of Ping and Pong
@@ -1387,9 +1386,8 @@ impl PeerActor {
         // as well as filter out those which are older than the fetched ones (to avoid overriding
         // a newer announce with an older one).
         let old = network_state
-            .graph
-            .routing_table
-            .get_broadcasted_announces(rtu.accounts.iter().map(|a| &a.account_id));
+            .account_announcements
+            .get_broadcasted_announcements(rtu.accounts.iter().map(|a| &a.account_id));
         let accounts: Vec<(AnnounceAccount, Option<EpochId>)> = rtu
             .accounts
             .into_iter()

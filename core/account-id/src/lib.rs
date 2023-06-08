@@ -61,7 +61,6 @@ pub use errors::{ParseAccountError, ParseErrorKind};
 ///
 /// assert!("ƒelicia.near".parse::<AccountId>().is_err()); // (ƒ is not f)
 /// ```
-#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(Eq, Ord, Hash, Clone, Debug, PartialEq, PartialOrd)]
 pub struct AccountId(Box<str>);
 
@@ -368,6 +367,33 @@ impl From<AccountId> for String {
 impl From<AccountId> for Box<str> {
     fn from(value: AccountId) -> Box<str> {
         value.0
+    }
+}
+
+#[cfg(feature = "arbitrary")]
+impl<'a> arbitrary::Arbitrary<'a> for AccountId {
+    fn size_hint(_depth: usize) -> (usize, Option<usize>) {
+        (AccountId::MIN_LEN, Some(AccountId::MAX_LEN))
+    }
+
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        let mut s = u.arbitrary::<&str>()?;
+        loop {
+            match s.parse::<AccountId>() {
+                Ok(account_id) => break Ok(account_id),
+                Err(ParseAccountError { char: Some((idx, _)), .. }) => {
+                    s = &s[..idx];
+                    continue;
+                }
+                _ => break Err(arbitrary::Error::IncorrectFormat),
+            }
+        }
+    }
+
+    fn arbitrary_take_rest(u: arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        <&str as arbitrary::Arbitrary>::arbitrary_take_rest(u)?
+            .parse()
+            .map_err(|_| arbitrary::Error::IncorrectFormat)
     }
 }
 
@@ -691,6 +717,28 @@ mod tests {
                 "Account ID {} is not an implicit account",
                 invalid_account_id
             );
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "arbitrary")]
+    fn test_arbitrary() {
+        let corpus = [
+            ("a|bcd", None),
+            ("ab|cde", Some("ab")),
+            ("a_-b", None),
+            ("ab_-c", Some("ab")),
+            ("a", None),
+            ("miraclx.near", Some("miraclx.near")),
+            ("01234567890123456789012345678901234567890123456789012345678901234", None),
+        ];
+
+        for (input, expected_output) in corpus {
+            assert!(input.len() <= u8::MAX as usize);
+            let data = [input.as_bytes(), &[input.len() as _]].concat();
+            let mut u = arbitrary::Unstructured::new(&data);
+
+            assert_eq!(u.arbitrary::<AccountId>().as_deref().ok(), expected_output);
         }
     }
 }

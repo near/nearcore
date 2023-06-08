@@ -9,86 +9,91 @@ import sys
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[3] / 'lib'))
 
-import account
-import cluster
-import common
-import key
 from configured_logger import new_logger
-from locust import between, task, events
-from common.base import Account, CreateSubAccount, Deploy, NearUser, send_transaction
-from common.ft import InitFT, InitFTAccount, TransferFT
+from locust import between, tag, task
+from common.base import NearUser, is_tag_active
+from common.ft import TransferFT
+from common.social import Follow, InitSocialDbAccount, SubmitPost
 
 logger = new_logger(level=logging.WARN)
 
-FT_ACCOUNT = None
 
-
-class FtTransferUser(NearUser):
+class FTTransferUser(NearUser):
+    """
+    Registers itself on an FT contract in the setup phase, then just sends FTs to
+    random users.
+    """
     wait_time = between(1, 3)  # random pause between transactions
-    registered_users = []
 
+    @tag("ft")
     @task
     def ft_transfer(self):
-        rng = random.Random()
-        receiver = rng.choice(FtTransferUser.registered_users)
-        # Sender must be != receiver but maybe there is no other registered user
-        # yet, so we just send to the contract account which is registered
-        # implicitly from the start
-        if receiver == self.account_id:
-            receiver = self.contract_account.key.account_id
-
-        self.send_tx(
-            TransferFT(self.contract_account,
-                       self.account,
-                       receiver,
-                       how_much=1))
+        receiver = self.ft.random_receiver(self.account_id)
+        tx = TransferFT(self.ft.account, self.account, receiver, how_much=1)
+        self.send_tx(tx, locust_name="FT transfer")
 
     def on_start(self):
         super().on_start()
+        if not is_tag_active(self.environment, "ft"):
+            raise SystemExit("FTTransferUser requires --tag ft")
 
-        self.contract_account = FT_ACCOUNT
-
-        self.send_tx(InitFTAccount(self.contract_account, self.account))
-        self.send_tx(
-            TransferFT(self.contract_account,
-                       self.contract_account,
-                       self.account_id,
-                       how_much=1E8))
+        self.ft = random.choice(self.environment.ft_contracts)
+        self.ft.register_user(self)
         logger.debug(
-            f"{self.account_id} ready to use FT contract {self.contract_account.key.account_id}"
+            f"{self.account_id} ready to use FT contract {self.ft.account.key.account_id}"
         )
 
-        FtTransferUser.registered_users.append(self.account_id)
 
+class SocialDbUser(NearUser):
+    """
+    Registers itself on near.social in the setup phase, then starts posting,
+    following, and liking posts.
+    """
+    wait_time = between(1, 3)  # random pause between transactions
+    registered_users = []
 
-# called once per process before user initialization
-@events.init.add_listener
-def on_locust_init(environment, **kwargs):
-    funding_account = NearUser.funding_account
-    contract_code = environment.parsed_options.fungible_token_wasm
+    @tag("social")
+    @task
+    def follow(self):
+        users_to_follow = [random.choice(SocialDbUser.registered_users)]
+        self.send_tx(Follow(self.contract_account_id, self.account,
+                            users_to_follow),
+                     locust_name="Social Follow")
 
-    # TODO: more than one FT contract
-    contract_key = key.Key.from_random(f"ft.{funding_account.key.account_id}")
-    ft_account = Account(contract_key)
+    @tag("social")
+    @task
+    def post(self):
+        seed = random.randrange(2**32)
+        len = random.randrange(100, 1000)
+        post = self.generate_post(len, seed)
+        self.send_tx(SubmitPost(self.contract_account_id, self.account, post),
+                     locust_name="Social Post")
 
-    global FT_ACCOUNT
-    FT_ACCOUNT = ft_account
+    def on_start(self):
+        super().on_start()
+        if not is_tag_active(self.environment, "social"):
+            raise SystemExit("SocialDbUser requires --tag social")
 
-    # Note: These setup requests are not tracked by locust because we use our own http session
-    host, port = environment.host.split(":")
-    node = cluster.RpcNode(host, port)
-    send_transaction(
-        node, CreateSubAccount(funding_account, ft_account.key,
-                               balance=50000.0))
-    ft_account.refresh_nonce(node)
-    send_transaction(node, Deploy(ft_account, contract_code, "FT"))
-    send_transaction(node, InitFT(ft_account))
+        self.contract_account_id = self.environment.social_account_id
 
+        self.send_tx(InitSocialDbAccount(self.contract_account_id,
+                                         self.account),
+                     locust_name="Init Social Account")
+        logger.debug(
+            f"user {self.account_id} ready to use SocialDB on {self.contract_account_id}"
+        )
 
-# Add custom CLI args here, will be available in `environment.parsed_options`
-@events.init_command_line_parser.add_listener
-def _(parser):
-    parser.add_argument("--fungible-token-wasm",
-                        type=str,
-                        required=True,
-                        help="Path to the compiled Fungible Token contract")
+        SocialDbUser.registered_users.append(self.account_id)
+
+    def generate_post(self, length: int, seed: int) -> str:
+        sample_quotes = [
+            "Despite the constant negative press covfefe",
+            "Sorry losers and haters, but my I.Q. is one of the highest - and you all know it! Please don't feel so stupid or insecure, it's not your fault",
+            "Windmills are the greatest threat in the US to both bald and golden eagles. Media claims fictional 'global warming' is worse.",
+        ]
+        quote = sample_quotes[seed % len(sample_quotes)]
+        post = f"I, {self.account.key.account_id}, cannot resists to declare with pride: \n_{quote}_"
+        while length > len(post):
+            post = f"{post}\nI'll say it again: \n**{quote}**"
+
+        return post[:length]
