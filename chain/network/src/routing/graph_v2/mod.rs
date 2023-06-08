@@ -37,7 +37,7 @@ pub enum NetworkTopologyChange {
     PeerAdvertisedRoutes(network_protocol::DistanceVector),
 }
 
-// Locally stored properties of a received DistanceVector message
+/// Locally stored properties of a received network_protocol::DistanceVector message
 struct PeerRoutes {
     /// The lowest nonce among all edges used in the advertised routes.
     /// For simplicity, used to expire the entire vector at once.
@@ -48,10 +48,13 @@ struct PeerRoutes {
 
 struct Inner {
     config: GraphConfigV2,
+
+    /// Data structure maintaing information about the entire known network
     edge_cache: EdgeCache,
 
-    /// Mapping from peer to the routes advertised by the peer
+    /// Routes advertised by the local node's direct peers
     peer_routes: HashMap<PeerId, PeerRoutes>,
+
     /// Lengths of the shortest known routes from the local node to other nodes
     my_distances: HashMap<PeerId, u32>,
     /// The latest DistanceVector advertised by the local node
@@ -59,6 +62,7 @@ struct Inner {
 }
 
 impl Inner {
+    /// Function which verifies signed edges.
     /// Returns true iff all the edges provided were valid.
     ///
     /// This method implements a security measure against an adversary sending invalid edges.
@@ -103,9 +107,14 @@ impl Inner {
         ok
     }
 
+    /// Function computing basic properties of a tree.
+    ///
     /// Accepts a root node and a list of edges specifying a tree. If the edges form
     /// a valid tree containing the specified `root`, returns a pair of vectors
     /// (distance, first_step). Otherwise, returns None.
+    ///
+    /// Nodes are indexed into the vectors according to the peer to id mapping in the EdgeCache.
+    /// If `tree_edges` contain some previously unseen peers, new ids are allocated for them.
     ///
     /// For each node in the tree, `distance` indicates the length of the path
     /// from the root to the node. Nodes outside the tree have distance -1.
@@ -113,8 +122,6 @@ impl Inner {
     /// For each node in the tree, `first_step` indicates the root's neighbor on the path
     /// from the root to the node. The root of the tree, as well as any nodes outside
     /// the tree, have a first_step of -1.
-    ///
-    /// Nodes are indexed into the vectors according to the peer to id mapping in the EdgeCache.
     pub(crate) fn calculate_tree_distances(
         &mut self,
         root: &PeerId,
@@ -175,9 +182,10 @@ impl Inner {
         Some((distance, first_step))
     }
 
-    /// Given a DistanceVector message, validates the advertised routes against the accompanying
-    /// tree. If valid, returns a vector of distances indexed according to the EdgeCache's
-    /// peer to id mapping.
+    /// Given a DistanceVector message, validates the advertised routes against the spanning tree.
+    ///
+    /// If valid, returns a vector of distances indexed according to the local node's EdgeCache's
+    /// peer to id mapping. Otherwise, returns None.
     ///
     /// Removes any advertised routes which go through the local node; it doesn't make sense
     /// to forward to a neighbor who will just sent the message right back to us.
@@ -199,7 +207,7 @@ impl Inner {
         }
         let (tree_distance, first_step) = tree_traversal.unwrap();
 
-        // Collect the advertised routes and verify that they are consistent with the tree
+        // Verify that the advertised routes are corroborated by the spanning tree distances
         let mut advertised_distances: Vec<i32> = vec![-1; self.edge_cache.max_id()];
         for route in &distance_vector.routes {
             let destination_id = self.edge_cache.get_id(&route.destination) as usize;
@@ -219,7 +227,7 @@ impl Inner {
             return None;
         }
 
-        // After this point, we know that the DistanceVector message is valid.
+        // After this point, we know that the DistanceVector message is valid
         let local_node_id = self.edge_cache.get_id(&self.config.node_id) as i32;
 
         // Now, prune any advertised routes which go through the local node; it doesn't make
