@@ -69,8 +69,9 @@ impl StateSnapshot {
                 .start_timer();
             if let Err(err) = flat_storage.update_flat_head(&prev_block_hash) {
                 tracing::debug!(target: "state_snapshot", ?err, ?shard_uid, current_flat_head = ?flat_storage.get_head_hash(), ?prev_block_hash, "Failed to Move FlatStorage head of the snapshot");
+            } else {
+                tracing::debug!(target: "state_snapshot", ?shard_uid, new_flat_head = ?flat_storage.get_head_hash(), desired_flat_head = ?prev_block_hash, "Successfully moved FlatStorage head of the snapshot");
             }
-            tracing::debug!(target: "state_snapshot", ?shard_uid, new_flat_head = ?flat_storage.get_head_hash(), desired_flat_head = ?prev_block_hash, "Successfully moved FlatStorage head of the snapshot");
         }
         Self { prev_block_hash, store, flat_storage_manager }
     }
