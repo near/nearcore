@@ -246,6 +246,12 @@ impl ShardTries {
             match self.0.state_snapshot.try_read() {
                 Ok(guard) => {
                     if let Some(data) = guard.as_ref() {
+                        if &data.prev_block_hash != block_hash {
+                            return Err(StorageInconsistentState(format!(
+                                "Wrong state snapshot. Requested: {:?}, Available: {:?}",
+                                block_hash, data.prev_block_hash
+                            )));
+                        }
                         (data.store.clone(), data.flat_storage_manager.clone())
                     } else {
                         return Err(StorageInconsistentState(

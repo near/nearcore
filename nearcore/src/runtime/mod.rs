@@ -1281,6 +1281,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             ?state_root,
             num_parts = part_id.total)
         .entered();
+        tracing::debug!(target: "state-parts", ?shard_id, ?prev_hash, ?state_root, ?part_id, "obtain_state_part");
         let _timer = metrics::STATE_SYNC_OBTAIN_PART_DELAY
             .with_label_values(&[&shard_id.to_string()])
             .start_timer();

@@ -259,7 +259,7 @@ pub enum DBCol {
     TransactionResultForBlock,
     /// Flat state contents. Used to get `ValueRef` by trie key faster than doing a trie lookup.
     /// - *Rows*: `shard_uid` + trie key (Vec<u8>)
-    /// - *Column type*: ValueRef
+    /// - *Column type*: FlatStateValue
     FlatState,
     /// Changes for flat state delta. Stores how flat state should be updated for the given shard and block.
     /// - *Rows*: `KeyForFlatStateDelta { shard_uid, block_hash }`
