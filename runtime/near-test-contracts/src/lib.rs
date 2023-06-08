@@ -30,7 +30,7 @@ pub fn sized_contract(size: usize) -> Vec<u8> {
     let adjusted_size = size as i64 - (base_size as i64 - size as i64);
     let payload = "x".repeat(adjusted_size as usize);
     let code = format!(
-        r#"(module 
+        r#"(module
             (memory 1)
             (func (export "main"))
             (data (i32.const 0) "{payload}")
@@ -170,7 +170,7 @@ impl LargeContract {
     /// Exports a function called `main` that does nothing.
     pub fn make(&self) -> Vec<u8> {
         use wasm_encoder::{
-            CodeSection, EntityType, Export, ExportSection, Function, FunctionSection,
+            CodeSection, EntityType, ExportKind, ExportSection, Function, FunctionSection,
             ImportSection, Instruction, Module, TypeSection, ValType,
         };
 
@@ -196,7 +196,7 @@ impl LargeContract {
         module.section(&functions_section);
 
         let mut exports_section = ExportSection::new();
-        exports_section.export("main", Export::Function(0));
+        exports_section.export("main", ExportKind::Func, 0);
         module.section(&exports_section);
 
         let mut code_section = CodeSection::new();
