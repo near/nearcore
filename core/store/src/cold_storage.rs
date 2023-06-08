@@ -205,6 +205,7 @@ pub fn copy_all_data_to_cold(
 ) -> io::Result<CopyAllDataToColdStatus> {
     for col in DBCol::iter() {
         if col.is_cold() {
+            tracing::info!(target: "cold_store", ?col, "Started column migration");
             let mut transaction = BatchTransaction::new(cold_db.clone(), batch_size);
             for result in hot_store.iter(col) {
                 if !keep_going.load(std::sync::atomic::Ordering::Relaxed) {
@@ -215,6 +216,7 @@ pub fn copy_all_data_to_cold(
                 transaction.set_and_write_if_full(col, key.to_vec(), value.to_vec())?;
             }
             transaction.write()?;
+            tracing::info!(target: "cold_store", ?col, "Finished column migration");
         }
     }
     Ok(CopyAllDataToColdStatus::EverythingCopied)
@@ -526,6 +528,12 @@ impl BatchTransaction {
         let _timer = crate::metrics::COLD_STORE_MIGRATION_BATCH_WRITE_TIME
             .with_label_values(&column_label)
             .start_timer();
+
+        tracing::info!(
+                target: "cold_store",
+                ?column_label,
+                tx_size_in_megabytes = self.transaction_size as f64 / 1e6,
+                "Writing a Cold Store transaction");
 
         let transaction = std::mem::take(&mut self.transaction);
         self.cold_db.write(transaction)?;
