@@ -45,16 +45,15 @@ impl actix::Handler<WithSpanContext<MakeSnapshotRequest>> for StateSnapshotActor
         _ctx: &mut actix::Context<Self>,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "state_snapshot", msg);
-        let MakeSnapshotRequest { prev_block_hash, shard_uids} = msg;
+        let MakeSnapshotRequest { prev_block_hash, shard_uids } = msg;
 
-        let run_compaction = if let Err(err) =
-            self.tries.make_state_snapshot(&prev_block_hash, &shard_uids)
-        {
-            tracing::error!(target: "state_snapshot", ?err, "State snapshot creation failed");
-            false
-        } else {
-            true
-        };
+        let run_compaction =
+            if let Err(err) = self.tries.make_state_snapshot(&prev_block_hash, &shard_uids) {
+                tracing::error!(target: "state_snapshot", ?err, "State snapshot creation failed");
+                false
+            } else {
+                true
+            };
         assert!(
             self.flat_storage_manager.set_flat_state_updates_mode(true),
             "Failed to unlock flat state updates"
@@ -95,10 +94,8 @@ pub fn get_make_snapshot_callback(
     Arc::new(move |prev_block_hash, shard_uids| {
         tracing::info!(target: "state_snapshot", ?prev_block_hash, ?shard_uids, "start_snapshot_callback sends `MakeSnapshotCallback` to state_snapshot_addr");
         if flat_storage_manager.set_flat_state_updates_mode(false) {
-            state_snapshot_addr.do_send(
-                MakeSnapshotRequest { prev_block_hash, shard_uids }
-                    .with_span_context(),
-            );
+            state_snapshot_addr
+                .do_send(MakeSnapshotRequest { prev_block_hash, shard_uids }.with_span_context());
         }
     })
 }

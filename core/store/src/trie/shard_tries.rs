@@ -59,10 +59,10 @@ impl StateSnapshot {
         flat_storage_manager: FlatStorageManager,
         shard_uids: &[ShardUId],
     ) -> Self {
+        tracing::debug!(target: "state_snapshot", ?shard_uids, ?prev_block_hash, "StateSnapshot::new()");
         for shard_uid in shard_uids {
             flat_storage_manager.create_flat_storage_for_shard(*shard_uid);
-            let flat_storage =
-                flat_storage_manager.get_flat_storage_for_shard(*shard_uid).unwrap();
+            let flat_storage = flat_storage_manager.get_flat_storage_for_shard(*shard_uid).unwrap();
             tracing::debug!(target: "state_snapshot", ?shard_uid, current_flat_head = ?flat_storage.get_head_hash(), desired_flat_head = ?prev_block_hash, "Moving FlatStorage head of the snapshot");
             if let Err(err) = flat_storage.update_flat_head(&prev_block_hash) {
                 tracing::debug!(target: "state_snapshot", ?err, ?shard_uid, current_flat_head = ?flat_storage.get_head_hash(), ?prev_block_hash, "Failed to Move FlatStorage head of the snapshot");

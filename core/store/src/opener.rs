@@ -616,9 +616,9 @@ pub fn checkpoint_hot_storage_and_cleanup_columns(
             }
         }
 
-        tracing::info!(target: "state_snapshot", ?transaction, "Transaction ready");
+        tracing::debug!(target: "state_snapshot", ?transaction, "Transaction ready");
         node_storage.hot_storage.write(transaction)?;
-        tracing::info!(target: "state_snapshot", "Transaction written");
+        tracing::debug!(target: "state_snapshot", "Transaction written");
     }
 
     Ok(node_storage)
