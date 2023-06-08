@@ -15,7 +15,6 @@ const GC: bool = false;
 const FUNCTION_REFERENCES: bool = false;
 const MEMORY_CONTROL: bool = false;
 
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) struct WasmFeatures {
     sign_extension: bool,
