@@ -586,10 +586,29 @@ fn test_bad_import_2() {
 
 #[test]
 fn test_bad_import_3() {
-    test_builder().wasm(&bad_import_global("env")).opaque_error().expect(expect![[r#"
-        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 48234213 used gas 48234213
-        Err: ...
-    "#]]);
+    test_builder()
+        .wasm(&bad_import_global("env"))
+        .opaque_error()
+        .protocol_features(&[
+            ProtocolFeature::PreparationV2,
+            #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
+            ProtocolFeature::FixContractLoadingCost,
+        ])
+        .expects(&[
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 48234213 used gas 48234213
+                Err: ...
+            "#]],
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
+                Err: ...
+            "#]],
+            #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
+            expect![[r#"
+                VMOutcome: balance 4 storage_usage 12 return data None burnt gas 48234213 used gas 48234213
+                Err: ...
+            "#]],
+        ]);
 }
 
 #[test]

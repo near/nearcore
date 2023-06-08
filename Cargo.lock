@@ -4140,7 +4140,7 @@ dependencies = [
  "arbitrary",
  "once_cell",
  "rand 0.8.5",
- "wasm-encoder 0.11.0",
+ "wasm-encoder 0.27.0",
  "wasm-smith",
  "wat",
 ]
@@ -4353,6 +4353,7 @@ dependencies = [
  "rand 0.8.5",
  "serde",
  "tracing",
+ "wasm-encoder 0.27.0",
  "wasm-smith",
  "wasmer-compiler-near",
  "wasmer-compiler-singlepass-near",
