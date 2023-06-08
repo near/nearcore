@@ -767,6 +767,87 @@ fn maybe_open_state_snapshot(
     }
 }
 
+/// Looks for directories on disk with names that look like `prev_block_hash`.
+/// Checks that there is at most one such directory. Opens it as a Store.
+fn maybe_open_state_snapshot(
+    state_snapshot_config: &StateSnapshotConfig,
+    config: &NearConfig,
+    epoch_manager: Arc<EpochManagerHandle>,
+) -> Result<Option<StateSnapshot>, anyhow::Error> {
+    let _span =
+        tracing::info_span!(target: "state_snapshot", "maybe_open_state_snapshot").entered();
+    match state_snapshot_config {
+        StateSnapshotConfig::Disabled => {
+            tracing::debug!(target: "state_snapshot", "Disabled");
+            return Ok(None);
+        }
+        StateSnapshotConfig::Enabled { home_dir, hot_store_path, state_snapshot_subdir } => {
+            let path = ShardTries::get_state_snapshot_base_dir(
+                &CryptoHash::new(),
+                home_dir,
+                hot_store_path,
+                state_snapshot_subdir,
+            );
+            let parent_path =
+                path.parent().ok_or(anyhow::anyhow!("{path:?} needs to have a parent dir"))?;
+            tracing::debug!(target: "state_snapshot", ?path, ?parent_path);
+
+            let snapshots = match std::fs::read_dir(parent_path) {
+                Err(err) => {
+                    if err.kind() == std::io::ErrorKind::NotFound {
+                        tracing::debug!(target: "state_snapshot", ?parent_path, "State Snapshot base directory doesn't exist.");
+                        return Ok(None);
+                    } else {
+                        return Err(err.into());
+                    }
+                }
+                Ok(entries) => {
+                    let mut snapshots = vec![];
+                    for entry in entries.filter_map(Result::ok) {
+                        let file_name = entry
+                            .file_name()
+                            .into_string()
+                            .map_err(|err| anyhow::anyhow!("Can't display file_name: {err:?}"))?;
+                        if let Ok(prev_block_hash) = CryptoHash::from_str(&file_name) {
+                            snapshots.push((prev_block_hash, entry.path()));
+                        }
+                    }
+                    snapshots
+                }
+            };
+
+            if snapshots.is_empty() {
+                Ok(None)
+            } else if snapshots.len() == 1 {
+                let (prev_block_hash, snapshot_dir) = &snapshots[0];
+
+                let mut store_config = StoreConfig::default();
+                store_config.path = config.config.store.path.clone(); // Default is "data"
+
+                let opener = NodeStorage::opener(&snapshot_dir, false, &store_config, None);
+                let storage = opener.open()?;
+                let store = storage.get_hot_store();
+                let flat_storage_manager = FlatStorageManager::new(store.clone());
+
+                let epoch_id = epoch_manager.get_epoch_id(prev_block_hash)?;
+                let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
+                // TODO: Should FS be created only for the tracked shards?
+                let shard_uids = shard_layout.get_shard_uids();
+
+                Ok(Some(StateSnapshot::new(
+                    store,
+                    *prev_block_hash,
+                    flat_storage_manager,
+                    &shard_uids,
+                )))
+            } else {
+                tracing::error!(target: "runtime", ?snapshots, "Detected multiple state snapshots. Please keep at most one snapshot and delete others.");
+                Err(anyhow::anyhow!("More than one state snapshot detected {:?}", snapshots))
+            }
+        }
+    }
+}
+
 fn format_total_gas_burnt(gas: Gas) -> String {
     // Rounds up the amount of teragas to hundreds of Tgas.
     // For example 123 Tgas gets rounded up to "200".

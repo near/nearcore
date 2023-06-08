@@ -70,6 +70,7 @@ impl StateSnapshot {
             if let Err(err) = flat_storage.update_flat_head(&prev_block_hash) {
                 tracing::debug!(target: "state_snapshot", ?err, ?shard_uid, current_flat_head = ?flat_storage.get_head_hash(), ?prev_block_hash, "Failed to Move FlatStorage head of the snapshot");
             }
+            tracing::debug!(target: "state_snapshot", ?shard_uid, new_flat_head = ?flat_storage.get_head_hash(), desired_flat_head = ?prev_block_hash, "Successfully moved FlatStorage head of the snapshot");
         }
         Self { prev_block_hash, store, flat_storage_manager }
     }
@@ -98,6 +99,7 @@ impl ShardTries {
     ) -> Self {
         let caches = Self::create_initial_caches(&trie_config, &shard_uids, false);
         let view_caches = Self::create_initial_caches(&trie_config, &shard_uids, true);
+        metrics::HAS_STATE_SNAPSHOT.set(if state_snapshot.is_some() { 1 } else { 0 });
         ShardTries(Arc::new(ShardTriesInner {
             store,
             trie_config,
@@ -424,6 +426,7 @@ impl ShardTries {
         prev_block_hash: &CryptoHash,
         shard_uids: &[ShardUId],
     ) -> Result<(), anyhow::Error> {
+        metrics::HAS_STATE_SNAPSHOT.set(0);
         // The function returns an `anyhow::Error`, because no special handling of errors is done yet. The errors are logged and ignored.
         let _span =
             tracing::info_span!(target: "state_snapshot", "make_state_snapshot", ?prev_block_hash)
@@ -483,6 +486,7 @@ impl ShardTries {
                     flat_storage_manager,
                     shard_uids,
                 ));
+                metrics::HAS_STATE_SNAPSHOT.set(1);
                 tracing::info!(target: "state_snapshot", ?prev_block_hash, "Made a checkpoint");
                 Ok(())
             }
