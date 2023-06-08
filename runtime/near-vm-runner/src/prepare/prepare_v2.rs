@@ -160,8 +160,9 @@ impl<'a> PrepareContext<'a> {
                 }
                 wp::Payload::CodeSectionStart { size: _, count, range } => {
                     self.ensure_import_section();
-                    self.function_limit =
-                        self.function_limit.checked_sub(u64::from(count))
+                    self.function_limit = self
+                        .function_limit
+                        .checked_sub(u64::from(count))
                         .ok_or(PrepareError::TooManyFunctions)?;
                     self.validator
                         .code_section_start(count, &range)
