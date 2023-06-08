@@ -1,5 +1,6 @@
 use crate::flat::store_helper;
 use near_primitives::hash::CryptoHash;
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::FlatStateValue;
 
 use crate::Store;
@@ -55,5 +56,9 @@ impl FlatStorageChunkView {
 
     pub fn get_head_hash(&self) -> CryptoHash {
         self.flat_storage.get_head_hash()
+    }
+
+    pub fn shard_uid(&self) -> ShardUId {
+        self.flat_storage.shard_uid()
     }
 }

@@ -136,7 +136,7 @@ could lead to some programmatic bugs.
 ## Advanced section - RawTrieNode
 
 There is one more place in the code where we use a ‘custom’ encoding:
-RawTrieNodeWithSize defined in store/src/trie/raw_nodes.rs.  While the format
+RawTrieNodeWithSize defined in store/src/trie/raw_node.rs.  While the format
 uses Borsh derives and API, there is a difference in how branch children
 (`[Option<CryptoHash>; 16]`) are encoded.  Standard Borsh encoding would
 encode `Option<CryptoHash>` sixteen times.  Instead, RawTrieNodeWithSize uses
@@ -148,12 +148,14 @@ Imagine a children vector like this:
 [Some(0x11), None, Some(0x12), None, None, …]
 ```
 
+Here, we have children at index 0 and 2 which has a bitmap of `101`
+
 Custom encoder:
 
 ```
 // Number of children detetermined by the bitmask
 [16 bits bitmask][32 bytes child][32 bytes child]
-[3][0x11][0x12]
+[5][0x11][0x12]
 // Total size: 2 + 32 + 32 = 68 bytes
 ```
 
@@ -167,4 +169,4 @@ Borsh:
 
 Code for encoding children is given in BorshSerialize implementation for
 ChildrenRef type and code for decoding in BorshDeserialize implementation for
-Children.  All of that is in aforementioned store/src/trie/raw_nodes.rs file.
+Children.  All of that is in aforementioned store/src/trie/raw_node.rs file.

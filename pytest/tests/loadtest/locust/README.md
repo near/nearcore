@@ -7,6 +7,8 @@ TLDR: Use [locust](https://locust.io/) to generate transactions against a Near c
 ## Install
 ```sh
 pip3 install locust
+# Run in nearcore directory.
+pip3 install -r pytest/requirements.txt
 ```
 
 ## Run a first load test
