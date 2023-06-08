@@ -9,35 +9,6 @@ mod prepare_v0;
 mod prepare_v1;
 mod prepare_v2;
 
-pub(crate) const WASM_FEATURES: wasmparser::WasmFeatures = wasmparser::WasmFeatures {
-    reference_types: false,
-    // wasmer singlepass compiler requires multi_value return values to be disabled.
-    multi_value: false,
-    bulk_memory: false,
-    module_linking: false,
-    simd: false,
-    threads: false,
-    tail_call: false,
-    deterministic_only: false,
-    multi_memory: false,
-    exceptions: false,
-    memory64: false,
-    //
-    // /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\
-    //
-    // FIXME: there are features that this version of wasmparser enables by default, but pwasm
-    // currently does not and the compilers' support for these features is therefore largely
-    // untested if it exists at all. Non exhaustive list of examples:
-    //
-    // * saturating_float_to_int
-    // * sign_extension
-    //
-    // This should be accounted for when pwasm code is removed!
-    //
-    // /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\
-    //
-};
-
 /// Loads the given module given in `original_code`, performs some checks on it and
 /// does some preprocessing.
 ///
@@ -60,18 +31,19 @@ pub fn prepare_contract(
         (kind != VMKind::NearVm) || (prepare == near_vm_logic::ContractPrepareVersion::V2),
         "NearVM only works with contract prepare version V2",
     );
+    let features = crate::features::WasmFeatures::from(prepare);
     match prepare {
         near_vm_logic::ContractPrepareVersion::V0 => {
             // NB: v1 here is not a bug, we are reusing the code.
-            prepare_v1::validate_contract(original_code, config)?;
+            prepare_v1::validate_contract(original_code, features, config)?;
             prepare_v0::prepare_contract(original_code, config)
         }
         near_vm_logic::ContractPrepareVersion::V1 => {
-            prepare_v1::validate_contract(original_code, config)?;
+            prepare_v1::validate_contract(original_code, features, config)?;
             prepare_v1::prepare_contract(original_code, config)
         }
         near_vm_logic::ContractPrepareVersion::V2 => {
-            prepare_v2::prepare_contract(original_code, config, kind)
+            prepare_v2::prepare_contract(original_code, features, config, kind)
         }
     }
 }

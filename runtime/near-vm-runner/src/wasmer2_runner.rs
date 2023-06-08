@@ -1,7 +1,7 @@
 use crate::errors::ContractPrecompilatonResult;
 use crate::imports::wasmer2::Wasmer2Imports;
 use crate::internal::VMKind;
-use crate::prepare::{self, WASM_FEATURES};
+use crate::prepare;
 use crate::runner::VMResult;
 use crate::{get_contract_cache_key, imports};
 use memoffset::offset_of;
@@ -24,22 +24,9 @@ use wasmer_engine::{Engine, Executable};
 use wasmer_engine_universal::{
     Universal, UniversalEngine, UniversalExecutable, UniversalExecutableRef,
 };
-use wasmer_types::{Features, FunctionIndex, InstanceConfig, MemoryType, Pages, WASM_PAGE_SIZE};
+use wasmer_types::{FunctionIndex, InstanceConfig, MemoryType, Pages, WASM_PAGE_SIZE};
 use wasmer_vm::{
     Artifact, Instantiatable, LinearMemory, LinearTable, Memory, MemoryStyle, TrapCode, VMMemory,
-};
-
-const WASMER_FEATURES: Features = Features {
-    threads: WASM_FEATURES.threads,
-    reference_types: WASM_FEATURES.reference_types,
-    simd: WASM_FEATURES.simd,
-    bulk_memory: WASM_FEATURES.bulk_memory,
-    multi_value: WASM_FEATURES.multi_value,
-    tail_call: WASM_FEATURES.tail_call,
-    module_linking: WASM_FEATURES.module_linking,
-    multi_memory: WASM_FEATURES.multi_memory,
-    memory64: WASM_FEATURES.memory64,
-    exceptions: WASM_FEATURES.exceptions,
 };
 
 #[derive(Clone)]
@@ -256,9 +243,11 @@ impl Wasmer2VM {
         let compiler = Singlepass::new();
         // We only support universal engine at the moment.
         assert_eq!(WASMER2_CONFIG.engine, WasmerEngine::Universal);
+        let features =
+            crate::features::WasmFeatures::from(config.limit_config.contract_prepare_version);
         Self {
             config,
-            engine: Universal::new(compiler).target(target).features(WASMER_FEATURES).engine(),
+            engine: Universal::new(compiler).target(target).features(features.into()).engine(),
         }
     }
 

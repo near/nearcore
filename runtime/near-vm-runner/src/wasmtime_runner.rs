@@ -1,6 +1,5 @@
 use crate::errors::{ContractPrecompilatonResult, IntoVMError};
 use crate::internal::VMKind;
-use crate::prepare::WASM_FEATURES;
 use crate::{imports, prepare};
 use near_primitives::config::VMConfig;
 use near_primitives::contract::ContractCode;
@@ -130,22 +129,6 @@ pub fn get_engine(config: &mut wasmtime::Config) -> Engine {
     Engine::new(config.strategy(wasmtime::Strategy::Lightbeam).unwrap()).unwrap()
 }
 
-pub(super) fn default_config() -> wasmtime::Config {
-    let mut config = wasmtime::Config::default();
-    config.max_wasm_stack(1024 * 1024 * 1024); // wasm stack metering is implemented by instrumentation, we don't want wasmtime to trap before that
-    config.wasm_threads(WASM_FEATURES.threads);
-    config.wasm_reference_types(WASM_FEATURES.reference_types);
-    config.wasm_simd(WASM_FEATURES.simd);
-    config.wasm_bulk_memory(WASM_FEATURES.bulk_memory);
-    config.wasm_multi_value(WASM_FEATURES.multi_value);
-    config.wasm_multi_memory(WASM_FEATURES.multi_memory);
-    assert_eq!(
-        WASM_FEATURES.module_linking, false,
-        "wasmtime currently does not support the module-linking feature"
-    );
-    config
-}
-
 pub(crate) fn wasmtime_vm_hash() -> u64 {
     // TODO: take into account compiler and engine used to compile the contract.
     64
@@ -158,6 +141,14 @@ pub(crate) struct WasmtimeVM {
 impl WasmtimeVM {
     pub(crate) fn new(config: VMConfig) -> Self {
         Self { config }
+    }
+
+    pub(crate) fn default_wasmtime_config(&self) -> wasmtime::Config {
+        let features =
+            crate::features::WasmFeatures::from(self.config.limit_config.contract_prepare_version);
+        let mut config = wasmtime::Config::from(features);
+        config.max_wasm_stack(1024 * 1024 * 1024); // wasm stack metering is implemented by instrumentation, we don't want wasmtime to trap before that
+        config
     }
 }
 
@@ -173,7 +164,7 @@ impl crate::runner::VM for WasmtimeVM {
         current_protocol_version: ProtocolVersion,
         _cache: Option<&dyn CompiledContractCache>,
     ) -> Result<VMOutcome, VMRunnerError> {
-        let mut config = default_config();
+        let mut config = self.default_wasmtime_config();
         let engine = get_engine(&mut config);
         let mut store = Store::new(&engine, ());
         let mut memory = WasmtimeMemory::new(
