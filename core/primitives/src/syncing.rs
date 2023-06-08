@@ -218,14 +218,10 @@ pub enum EpochSyncResponse {
     Advance { light_client_block_view: LightClientBlockView },
 }
 
-pub const STATE_PART_MEMORY_LIMIT: bytesize::ByteSize = bytesize::ByteSize(bytesize::MIB);
+pub const STATE_PART_MEMORY_LIMIT: bytesize::ByteSize = bytesize::ByteSize(30 * bytesize::MIB);
 
 pub fn get_num_state_parts(memory_usage: u64) -> u64 {
-    // We assume that 1 Mb is a good limit for state part size.
-    // On the other side, it's important to divide any state into
-    // several parts to make sure that partitioning always works.
-    // TODO #1708
-    memory_usage / STATE_PART_MEMORY_LIMIT.as_u64() + 3
+    (memory_usage + STATE_PART_MEMORY_LIMIT.as_u64() - 1) / STATE_PART_MEMORY_LIMIT.as_u64()
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
