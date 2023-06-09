@@ -1422,8 +1422,13 @@ impl PeerActor {
         conn: Arc<connection::Connection>,
         distance_vector: DistanceVector,
     ) {
-        // TODO(saketh): check if distance_vector.root matches the peer_id on the connection
         let _span = tracing::trace_span!(target: "network", "handle_distance_vector").entered();
+
+        if conn.peer_info.id != distance_vector.root {
+            conn.stop(Some(ReasonForBan::InvalidDistanceVector));
+            return;
+        }
+
         if let Err(ban_reason) = network_state
             .update_routes(&clock, NetworkTopologyChange::PeerAdvertisedRoutes(distance_vector))
             .await
