@@ -119,7 +119,7 @@ pub struct ApplyResult {
     pub stats: ApplyStats,
     pub processed_delayed_receipts: Vec<Receipt>,
     pub proof: Option<PartialStorage>,
-    pub delayed_receiptes_queue_length: u64,
+    pub delayed_receipts_count: u64,
 }
 
 #[derive(Debug)]
@@ -1257,7 +1257,7 @@ impl Runtime {
                 stats,
                 processed_delayed_receipts: vec![],
                 proof,
-                delayed_receiptes_queue_length: delayed_receipts_indices.len(),
+                delayed_receipts_count: delayed_receipts_indices.len(),
             });
         }
 
@@ -1495,7 +1495,7 @@ impl Runtime {
             stats,
             processed_delayed_receipts,
             proof,
-            delayed_receiptes_queue_length: delayed_receipts_indices.len(),
+            delayed_receipts_count: delayed_receipts_indices.len(),
         })
     }
 
@@ -1975,14 +1975,14 @@ mod tests {
             );
             let expected_queue_length = num_receipts_given - num_receipts_processed;
             println!(
-                "{} processed out of {} given. With limit {} receipts per block. The expected delayed_receiptes_queue_length is {}. The delayed_receiptes_queue_length is {}.",
+                "{} processed out of {} given. With limit {} receipts per block. The expected delayed_receipts_count is {}. The delayed_receipts_count is {}.",
                 num_receipts_processed,
                 num_receipts_given,
                 num_receipts_per_block,
                 expected_queue_length,
-                apply_result.delayed_receiptes_queue_length,
+                apply_result.delayed_receipts_count,
             );
-            assert_eq!(apply_result.delayed_receiptes_queue_length, expected_queue_length);
+            assert_eq!(apply_result.delayed_receipts_count, expected_queue_length);
         }
     }
 

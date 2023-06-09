@@ -550,9 +550,9 @@ impl NightshadeRuntime {
         metrics::APPLY_CHUNK_DELAY
             .with_label_values(&[&format_total_gas_burnt(total_gas_burnt)])
             .observe(elapsed.as_secs_f64());
-        metrics::DELAYED_RECEIPTS_QUEUE_LENGTH
+        metrics::DELAYED_RECEIPTS_COUNT
             .with_label_values(&[&shard_id.to_string()])
-            .set(apply_result.delayed_receiptes_queue_length as i64);
+            .set(apply_result.delayed_receipts_count as i64);
 
         let total_balance_burnt = apply_result
             .stats
