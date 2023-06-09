@@ -1289,9 +1289,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
 
-        let realtime_trie =
+        let trie_with_state =
             self.tries.get_trie_with_block_hash_for_shard(shard_uid, *state_root, &prev_hash, true);
-        let (partial_state, nibbles_begin, nibbles_end) = match realtime_trie
+        let (partial_state, nibbles_begin, nibbles_end) = match trie_with_state
             .get_state_part_boundaries(part_id)
         {
             Ok(res) => res,
@@ -1306,7 +1306,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             .tries
             .get_trie_with_block_hash_for_shard_from_snapshot(shard_uid, *state_root, &prev_hash)
             .map_err(|err| Error::Other(err.to_string()))?;
-        let state_part = match snapshot_trie.get_trie_nodes_for_part_with_flat_storage(part_id, partial_state, nibbles_begin, nibbles_end) {
+        let state_part = match snapshot_trie.get_trie_nodes_for_part_with_flat_storage(part_id, partial_state, nibbles_begin, nibbles_end, trie_with_state.storage.clone()) {
             Ok(partial_state) => partial_state,
             Err(err) => {
                 error!(target: "runtime", ?err, part_id.idx, part_id.total, %prev_hash, %state_root, %shard_id, "Can't get trie nodes for state part");

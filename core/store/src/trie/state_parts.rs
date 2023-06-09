@@ -23,7 +23,7 @@ use crate::trie::trie_storage::TrieMemoryPartialStorage;
 use crate::trie::{
     ApplyStatePartResult, NodeHandle, RawTrieNodeWithSize, TrieNode, TrieNodeWithSize,
 };
-use crate::{metrics, PartialStorage, StorageError, Trie, TrieChanges};
+use crate::{metrics, PartialStorage, StorageError, Trie, TrieChanges, TrieStorage};
 use borsh::BorshDeserialize;
 use near_primitives::challenge::PartialState;
 use near_primitives::contract::ContractCode;
@@ -169,12 +169,18 @@ impl Trie {
     /// Creates state part using only the flat storage (i.e. FlatState).
     /// The boundaries of the state part must already be known.
     /// The nodes representing the boundaries must already be provided.
+    ///
+    /// * part_id - number of the state part, mainly for metrics.
+    /// * partial_state - nodes needed to generate and proof state part boundaries.
+    /// * nibbles_begin and nibbles_end specify the range of flat storage to be read.
+    /// * state_storage - provides access to State for random lookups of values by hash.
     pub fn get_trie_nodes_for_part_with_flat_storage(
         &self,
         part_id: PartId,
         partial_state: PartialState,
         nibbles_begin: Vec<u8>,
         nibbles_end: Vec<u8>,
+        state_storage: Rc<dyn TrieStorage>,
     ) -> Result<PartialState, StorageError> {
         let shard_id: ShardId = self.flat_storage_chunk_view.as_ref().map_or(
             ShardId::MAX, // Fake value for metrics.
@@ -194,30 +200,43 @@ impl Trie {
 
         let PartialState::TrieValues(path_boundary_nodes) = partial_state;
 
-        // 2. Extract all key-value pairs in state part from flat storage.
+        // 1. Extract all key-value pairs in state part from flat storage.
         let values_read_timer = metrics::GET_STATE_PART_READ_FS_ELAPSED
             .with_label_values(&[&shard_id.to_string()])
             .start_timer();
         let flat_state_iter = self.iter_flat_state_entries(nibbles_begin, nibbles_end)?;
-        let mut values_ref = 0;
+        let mut value_refs = vec![];
         let mut values_inlined = 0;
-        let all_state_part_items: Vec<_> = flat_state_iter
-            .map(|result| {
+        let mut all_state_part_items: Vec<_> = flat_state_iter
+            .filter_map(|result| {
                 let (k, v) = result.expect("failed to read FlatState entry");
-                let value = match v {
+                match v {
                     FlatStateValue::Ref(value_ref) => {
-                        values_ref += 1;
-                        self.storage.retrieve_raw_bytes(&value_ref.hash).map(|bytes| bytes.to_vec())
+                        value_refs.push((k, value_ref.hash));
+                        None
                     }
                     FlatStateValue::Inlined(value) => {
                         values_inlined += 1;
-                        Ok(value)
+                        Some((k, Some(value)))
                     }
-                };
-                value.map(|v| (k, Some(v)))
+                }
             })
-            .collect::<Result<_, _>>()?;
+            .collect::<Vec<_>>();
         let values_read_duration = values_read_timer.stop_and_record();
+
+        // 2. Lookup Referenced values in State. Note that FlatStorage snapshots don't have State.
+        let lookup_values_timer = metrics::GET_STATE_PART_LOOKUP_REF_VALUES_ELAPSED
+            .with_label_values(&[&shard_id.to_string()])
+            .start_timer();
+        let looked_up_value_refs: Vec<_> = value_refs
+            .iter()
+            .map(|(k, hash)| {
+                Ok((k.clone(), Some(state_storage.retrieve_raw_bytes(hash)?.to_vec())))
+            })
+            .collect::<Result<_, StorageError>>()
+            .unwrap();
+        all_state_part_items.extend(looked_up_value_refs.iter().cloned());
+        let lookup_values_duration = lookup_values_timer.stop_and_record();
 
         // 3. Create trie out of all key-value pairs.
         let local_trie_creation_timer = metrics::GET_STATE_PART_CREATE_TRIE_ELAPSED
@@ -235,7 +254,8 @@ impl Trie {
             .start_timer();
         let boundary_nodes_storage: HashMap<_, _> =
             path_boundary_nodes.iter().map(|entry| (hash(entry), entry.clone())).collect();
-        let disk_read_hashes: HashSet<_> = boundary_nodes_storage.keys().cloned().collect();
+        let mut disk_read_hashes: HashSet<_> = boundary_nodes_storage.keys().cloned().collect();
+        disk_read_hashes.extend(value_refs.iter().map(|(_, hash)| hash));
         let mut all_nodes: HashMap<CryptoHash, Arc<[u8]>> = HashMap::new();
         all_nodes.extend(boundary_nodes_storage);
         all_nodes.extend(
@@ -259,11 +279,12 @@ impl Trie {
         tracing::info!(
             target: "state-parts",
             ?part_id,
-            %values_ref,
+            values_ref = value_refs.len(),
             %values_inlined,
             %in_memory_created_nodes,
             %state_part_num_nodes,
             ?values_read_duration,
+            ?lookup_values_duration,
             ?local_trie_creation_duration,
             ?final_part_creation_duration,
             "Created state part",
@@ -274,7 +295,7 @@ impl Trie {
             .inc_by(values_inlined);
         metrics::GET_STATE_PART_WITH_FS_VALUES_REF
             .with_label_values(&[&shard_id.to_string()])
-            .inc_by(values_ref);
+            .inc_by(value_refs.len() as u64);
         metrics::GET_STATE_PART_WITH_FS_NODES_FROM_DISK
             .with_label_values(&[&shard_id.to_string()])
             .inc_by(disk_read_hashes.len() as u64);
@@ -1168,7 +1189,8 @@ mod tests {
                 part_id,
                 partial_state,
                 nibbles_begin,
-                nibbles_end
+                nibbles_end,
+                trie_without_flat.storage.clone(),
             ),
             Err(StorageError::MissingTrieValue)
         );
@@ -1191,6 +1213,7 @@ mod tests {
             partial_state.clone(),
             nibbles_begin.clone(),
             nibbles_end.clone(),
+            trie_without_flat.storage.clone(),
         );
         assert_eq!(state_part_with_flat, Ok(state_part.clone()));
 
@@ -1213,7 +1236,8 @@ mod tests {
                 part_id,
                 partial_state.clone(),
                 nibbles_begin.clone(),
-                nibbles_end.clone()
+                nibbles_end.clone(),
+                trie_without_flat.storage.clone(),
             ),
             Ok(state_part)
         );
@@ -1231,7 +1255,8 @@ mod tests {
                 part_id,
                 partial_state,
                 nibbles_begin,
-                nibbles_end
+                nibbles_end,
+                trie_without_flat.storage.clone(),
             ),
             Err(StorageError::MissingTrieValue)
         );

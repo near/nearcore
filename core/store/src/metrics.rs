@@ -308,6 +308,16 @@ pub(crate) static GET_STATE_PART_READ_FS_ELAPSED: Lazy<HistogramVec> = Lazy::new
     .unwrap()
 });
 
+pub(crate) static GET_STATE_PART_LOOKUP_REF_VALUES_ELAPSED: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_get_state_part_with_fs_lookup_value_refs_elapsed_sec",
+        "Latency of looking references values, in seconds",
+        &["shard_id"],
+        Some(exponential_buckets(0.001, 1.6, 25).unwrap()),
+    )
+    .unwrap()
+});
+
 pub(crate) static GET_STATE_PART_CREATE_TRIE_ELAPSED: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
         "near_get_state_part_with_fs_create_trie_elapsed_sec",
