@@ -271,6 +271,7 @@ fn contents_are_not_records(contents: &GenesisContents) -> bool {
 /// `Genesis` has an invariant that `total_supply` is equal to the supply seen in the records.
 /// However, we can't enforce that invariant. All fields are public, but the clients are expected to
 /// use the provided methods for instantiation, serialization and deserialization.
+/// Refer to `test_loading_localnet_genesis` to see an example of serialized Genesis JSON.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct Genesis {
     #[serde(flatten)]
@@ -278,9 +279,11 @@ pub struct Genesis {
     /// Custom deserializer used instead of serde(default),
     /// because serde(flatten) doesn't work with default for some reason
     /// The corresponding issue has been open since 2019, so any day now.
-    #[serde(skip_serializing_if = "contents_are_not_records")]
-    #[serde(flatten)]
-    #[serde(deserialize_with = "no_value_as_default")]
+    #[serde(
+        flatten,
+        deserialize_with = "no_value_as_default",
+        skip_serializing_if = "contents_are_not_records"
+    )]
     pub contents: GenesisContents,
 }
 
