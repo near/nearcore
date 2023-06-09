@@ -22,6 +22,9 @@ use std::collections::HashSet;
 use std::fmt::Debug;
 use strum::IntoEnumIterator;
 
+/// Scans a DB column, deserializes keys and values and prints them.
+/// Note that this implementation doesn't support all columns, and formatting is the best it can be.
+/// Refcounting is hard, and is handled by lookup by keys during a scan.
 pub(crate) fn scan_db_column(col: &str, store: Store) {
     for db_col in DBCol::iter() {
         if format!("{}", db_col) == col {
@@ -132,7 +135,6 @@ pub(crate) fn scan_db_column(col: &str, store: Store) {
                     DBCol::State => {
                         let s: ShardUId = ShardUId::try_from(&key_ref[..8]).unwrap();
                         let h: CryptoHash = CryptoHash::try_from_slice(&key_ref[8..]).unwrap();
-                        // TODO: Fix
                         // Handle refcounting by querying the value.
                         let value = store.get(db_col, key_ref).unwrap().unwrap();
                         let res = if let Ok(node) = RawTrieNodeWithSize::try_from_slice(&value) {
