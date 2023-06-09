@@ -4,28 +4,6 @@ use near_vm_errors::PrepareError;
 use near_vm_logic::VMConfig;
 use wasm_encoder::{Encode, Section, SectionId};
 
-pub const WASM_FEATURES: wp::WasmFeatures = wp::WasmFeatures {
-    mutable_global: true,
-    reference_types: super::WASM_FEATURES.reference_types,
-    multi_value: super::WASM_FEATURES.multi_value,
-    bulk_memory: super::WASM_FEATURES.bulk_memory,
-    simd: super::WASM_FEATURES.simd,
-    threads: super::WASM_FEATURES.threads,
-    tail_call: super::WASM_FEATURES.tail_call,
-    floats: !super::WASM_FEATURES.deterministic_only,
-    multi_memory: super::WASM_FEATURES.multi_memory,
-    exceptions: super::WASM_FEATURES.exceptions,
-    memory64: super::WASM_FEATURES.memory64,
-    saturating_float_to_int: false,
-    relaxed_simd: false,
-    sign_extension: false,
-    extended_const: false,
-    component_model: false,
-    function_references: false,
-    memory_control: false,
-    gc: false,
-};
-
 struct PrepareContext<'a> {
     code: &'a [u8],
     config: &'a VMConfig,
@@ -38,7 +16,7 @@ struct PrepareContext<'a> {
 }
 
 impl<'a> PrepareContext<'a> {
-    fn new(code: &'a [u8], config: &'a VMConfig) -> Self {
+    fn new(code: &'a [u8], features: crate::features::WasmFeatures, config: &'a VMConfig) -> Self {
         let limits = &config.limit_config;
         Self {
             code,
@@ -48,7 +26,7 @@ impl<'a> PrepareContext<'a> {
             // specified, use that as a limit.
             function_limit: limits.max_functions_number_per_contract.unwrap_or(u64::MAX),
             local_limit: limits.max_locals_per_contract.unwrap_or(u64::MAX),
-            validator: wp::Validator::new_with_features(WASM_FEATURES),
+            validator: wp::Validator::new_with_features(features.into()),
             func_validator_allocations: wp::FuncValidatorAllocations::default(),
             before_import_section: true,
         }
@@ -289,10 +267,11 @@ impl<'a> PrepareContext<'a> {
 
 pub(crate) fn prepare_contract(
     original_code: &[u8],
+    features: crate::features::WasmFeatures,
     config: &VMConfig,
     kind: VMKind,
 ) -> Result<Vec<u8>, PrepareError> {
-    let lightly_steamed = PrepareContext::new(original_code, config).run()?;
+    let lightly_steamed = PrepareContext::new(original_code, features, config).run()?;
 
     if kind == VMKind::NearVm {
         // Built-in near-vm code instruments code for itself.
@@ -389,15 +368,17 @@ mod test {
     #[test]
     fn v2_preparation_wasmtime_generates_valid_contract() {
         let mut config = VMConfig::test();
-        config.limit_config.contract_prepare_version = ContractPrepareVersion::V2;
+        let prepare_version = ContractPrepareVersion::V2;
+        config.limit_config.contract_prepare_version = prepare_version;
+        let features = crate::features::WasmFeatures::from(prepare_version);
         bolero::check!().for_each(|input: &[u8]| {
             // DO NOT use ArbitraryModule. We do want modules that may be invalid here, if they pass our validation step!
-            if let Ok(_) = crate::prepare::prepare_v1::validate_contract(input, &config) {
-                match super::prepare_contract(input, &config, VMKind::Wasmtime) {
+            if let Ok(_) = crate::prepare::prepare_v1::validate_contract(input, features, &config) {
+                match super::prepare_contract(input, features, &config, VMKind::Wasmtime) {
                     Err(_e) => (), // TODO: this should be a panic, but for now it’d actually trigger
                     Ok(code) => {
                         let mut validator = wasmparser::Validator::new();
-                        validator.wasm_features(crate::prepare::WASM_FEATURES);
+                        validator.wasm_features(features.into());
                         match validator.validate_all(&code) {
                             Ok(_) => (),
                             Err(e) => panic!(
@@ -414,15 +395,18 @@ mod test {
     #[test]
     fn v2_preparation_near_vm_generates_valid_contract() {
         let mut config = VMConfig::test();
-        config.limit_config.contract_prepare_version = ContractPrepareVersion::V2;
+        let prepare_version = ContractPrepareVersion::V2;
+        config.limit_config.contract_prepare_version = prepare_version;
+        let features = crate::features::WasmFeatures::from(prepare_version);
+
         bolero::check!().for_each(|input: &[u8]| {
             // DO NOT use ArbitraryModule. We do want modules that may be invalid here, if they pass our validation step!
-            if let Ok(_) = crate::prepare::prepare_v1::validate_contract(input, &config) {
-                match super::prepare_contract(input, &config, VMKind::NearVm) {
+            if let Ok(_) = crate::prepare::prepare_v1::validate_contract(input, features, &config) {
+                match super::prepare_contract(input, features, &config, VMKind::NearVm) {
                     Err(_e) => (), // TODO: this should be a panic, but for now it’d actually trigger
                     Ok(code) => {
                         let mut validator = wasmparser::Validator::new();
-                        validator.wasm_features(crate::prepare::WASM_FEATURES);
+                        validator.wasm_features(features.into());
                         match validator.validate_all(&code) {
                             Ok(_) => (),
                             Err(e) => panic!(
