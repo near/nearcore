@@ -109,7 +109,8 @@ class CongestionUser(NearUser):
     @tag("congestion")
     @task
     def compute_sha256(self):
-        self.send_tx(ComputeSha256(self.contract_account_id, self.account, 100000),
+        self.send_tx(ComputeSha256(self.contract_account_id, self.account,
+                                   100000),
                      locust_name="SHA256, 100 KiB")
 
     @tag("congestion")
