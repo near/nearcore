@@ -51,49 +51,68 @@ impl StateRecord {
     /// Most `unwrap()` here are because the implementation of columns and data are internal and
     /// can't be influenced by external calls.
     pub fn from_raw_key_value(key: Vec<u8>, value: Vec<u8>) -> Option<StateRecord> {
-        match key[0] {
-            col::ACCOUNT => Some(StateRecord::Account {
-                account_id: parse_account_id_from_account_key(&key).unwrap(),
-                account: Account::try_from_slice(&value).unwrap(),
-            }),
-            col::CONTRACT_DATA => {
-                let account_id = parse_account_id_from_contract_data_key(&key).unwrap();
-                let data_key = parse_data_key_from_contract_data_key(&key, &account_id).unwrap();
-                Some(StateRecord::Data {
-                    account_id,
-                    data_key: data_key.to_vec().into(),
-                    value: value.into(),
-                })
-            }
-            col::CONTRACT_CODE => Some(StateRecord::Contract {
-                account_id: parse_account_id_from_contract_code_key(&key).unwrap(),
-                code: value,
-            }),
-            col::ACCESS_KEY => {
-                let access_key = AccessKey::try_from_slice(&value).unwrap();
-                let account_id = parse_account_id_from_access_key_key(&key).unwrap();
-                let public_key = parse_public_key_from_access_key_key(&key, &account_id).unwrap();
-                Some(StateRecord::AccessKey { account_id, public_key, access_key })
-            }
-            col::RECEIVED_DATA => {
-                let data = ReceivedData::try_from_slice(&value).unwrap().data;
-                let account_id = parse_account_id_from_received_data_key(&key).unwrap();
-                let data_id = parse_data_id_from_received_data_key(&key, &account_id).unwrap();
-                Some(StateRecord::ReceivedData { account_id, data_id, data })
-            }
-            col::POSTPONED_RECEIPT_ID => None,
-            col::PENDING_DATA_COUNT => None,
-            col::POSTPONED_RECEIPT => {
-                let receipt = Receipt::try_from_slice(&value).unwrap();
-                Some(StateRecord::PostponedReceipt(Box::new(receipt)))
-            }
-            col::DELAYED_RECEIPT => {
-                let receipt = Receipt::try_from_slice(&value).unwrap();
-                Some(StateRecord::DelayedReceipt(Box::new(receipt)))
-            }
-            col::DELAYED_RECEIPT_INDICES => None,
-            _ => unreachable!(),
+        // Allow the use of '?' in the function without actually handling the errors.
+        let func = || {
+            let res = match key[0] {
+                col::ACCOUNT => Some(StateRecord::Account {
+                    account_id: parse_account_id_from_account_key(&key)?,
+                    account: Account::try_from_slice(&value)?,
+                }),
+                col::CONTRACT_DATA => {
+                    let account_id = parse_account_id_from_contract_data_key(&key)?;
+                    let data_key = parse_data_key_from_contract_data_key(&key, &account_id)?;
+                    Some(StateRecord::Data {
+                        account_id,
+                        data_key: data_key.to_vec().into(),
+                        value: value.into(),
+                    })
+                }
+                col::CONTRACT_CODE => Some(StateRecord::Contract {
+                    account_id: parse_account_id_from_contract_code_key(&key)?,
+                    code: value,
+                }),
+                col::ACCESS_KEY => {
+                    let access_key = AccessKey::try_from_slice(&value)?;
+                    let account_id = parse_account_id_from_access_key_key(&key)?;
+                    let public_key = parse_public_key_from_access_key_key(&key, &account_id)?;
+                    Some(StateRecord::AccessKey { account_id, public_key, access_key })
+                }
+                col::RECEIVED_DATA => {
+                    let data = ReceivedData::try_from_slice(&value)?.data;
+                    let account_id = parse_account_id_from_received_data_key(&key)?;
+                    let data_id = parse_data_id_from_received_data_key(&key, &account_id)?;
+                    Some(StateRecord::ReceivedData { account_id, data_id, data })
+                }
+                col::POSTPONED_RECEIPT_ID => None,
+                col::PENDING_DATA_COUNT => None,
+                col::POSTPONED_RECEIPT => {
+                    let receipt = Receipt::try_from_slice(&value)?;
+                    Some(StateRecord::PostponedReceipt(Box::new(receipt)))
+                }
+                col::DELAYED_RECEIPT => {
+                    let receipt = Receipt::try_from_slice(&value)?;
+                    Some(StateRecord::DelayedReceipt(Box::new(receipt)))
+                }
+                col::DELAYED_RECEIPT_INDICES => None,
+                _ => unreachable!(),
+            };
+            Ok(res)
+        };
+        let res: Result<Option<StateRecord>, std::io::Error> = func();
+        res.unwrap_or(None)
+    }
+
+    pub fn get_type_string(&self) -> String {
+        match self {
+            StateRecord::Account { .. } => "Account",
+            StateRecord::Data { .. } => "Data",
+            StateRecord::Contract { .. } => "Contract",
+            StateRecord::AccessKey { .. } => "AccessKey",
+            StateRecord::PostponedReceipt { .. } => "PostponedReceipt",
+            StateRecord::ReceivedData { .. } => "ReceivedData",
+            StateRecord::DelayedReceipt { .. } => "DelayedReceipt",
         }
+        .to_string()
     }
 }
 

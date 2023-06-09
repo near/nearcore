@@ -7,7 +7,7 @@ use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::{get_block_shard_uid_rev, ShardUId};
 use near_primitives::sharding::{ChunkHash, ShardChunk, StateSyncInfo};
-use near_primitives::state::{FlatStateValue, ValueRef};
+use near_primitives::state::FlatStateValue;
 use near_primitives::syncing::{ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey};
 use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -106,6 +106,13 @@ pub(crate) fn scan_db_column(col: &str, store: Store) {
                         Box::new(KeyForFlatStateDelta::try_from_slice(key_ref).unwrap()),
                         Box::new(FlatStateDeltaMetadata::try_from_slice(value_ref).unwrap()),
                     ),
+                    DBCol::FlatStorageStatus => (
+                        // TODO: Format keys as nibbles.
+                        Box::new(ShardUId::try_from_slice(key_ref).unwrap()),
+                        Box::new(
+                            near_store::flat::FlatStorageStatus::try_from_slice(value_ref).unwrap(),
+                        ),
+                    ),
                     DBCol::HeaderHashesByHeight => (
                         Box::new(BlockHeight::try_from_slice(key_ref).unwrap()),
                         Box::new(HashSet::<CryptoHash>::try_from_slice(value_ref).unwrap()),
@@ -128,10 +135,12 @@ pub(crate) fn scan_db_column(col: &str, store: Store) {
                         // TODO: Fix
                         // Handle refcounting by querying the value.
                         let value = store.get(db_col, key_ref).unwrap().unwrap();
-                        (
-                            Box::new(CryptoHash::try_from(key_ref).unwrap()),
-                            Box::new(RawTrieNodeWithSize::try_from_slice(&value).unwrap()),
-                        )
+                        let res = if let Ok(node) = RawTrieNodeWithSize::try_from_slice(&value) {
+                            format!("Node: {node:?}")
+                        } else {
+                            format!("Value: {value:?}")
+                        };
+                        (Box::new((s, h)), Box::new(res))
                     }
                     DBCol::StateDlInfos => (
                         Box::new(CryptoHash::try_from(key_ref).unwrap()),
