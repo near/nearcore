@@ -1,12 +1,18 @@
 use clap::Parser;
 use plotters::prelude::*;
-use rocksdb::{Cache, Env, Options, DB, ColumnFamilyDescriptor};
+use rocksdb::{Cache, Env, Options, DB};
 use std::{collections::HashMap, panic};
 
 #[derive(Parser)]
 struct Cli {
     db_path: String,
-    options_file: Option<String>,
+
+    #[arg(short, long)]
+    options_file_path: Option<String>,
+
+    #[arg(short, long)]
+    column: Option<String>,
+
     #[arg(short, long)]
     draw_histogram: bool,
 }
@@ -43,22 +49,28 @@ fn main() {
     // Set db options
     let env = Env::new().unwrap();
     let cache = Cache::new_lru_cache(536900000); // 512 MiB
-    let mut opts = match args.options_file {
+    let mut opts = match args.options_file_path {
         Some(opts_file) => {
             let opts_res = Options::load_latest(opts_file, env, true, cache);
             match opts_res {
                 Ok(opts) => opts.0,
                 Err(err) => {
                     panic!("Error occured on loading options: {}", err);
-                },
+                }
             }
         }
         None => Options::default(),
     };
     opts.create_if_missing(true);
+
     // Open the RocksDB database
-    let cf = vec!["state"];
-    let db = DB::open_cf_for_read_only(&opts, args.db_path, cf, false).unwrap();
+    let db = match args.column {
+        Some(col) => {
+            let cf = vec![col];
+            DB::open_cf_for_read_only(&opts, args.db_path, cf, false).unwrap()
+        }
+        None => DB::open_for_read_only(&opts, args.db_path, false).unwrap(),
+    };
 
     // Initialize counters
     let mut key_sizes: HashMap<usize, usize> = HashMap::new();
@@ -94,18 +106,35 @@ fn main() {
     }
 
     // Draw histograms
-    if key_sizes.is_empty() {
-        println!("Keys have not been read!");
-    } else {
-        if args.draw_histogram {
-            draw_histogram(&key_sizes, "Key Size Distribution", "key_sizes.svg").unwrap();
+    let check_for_draw = |sizes_map: HashMap<usize, usize>, size_type: &str| {
+        if sizes_map.is_empty() {
+            println!("{} have not been read!", size_type);
+        } else {
+            if args.draw_histogram {
+                draw_histogram(
+                    &sizes_map,
+                    &format!("{} Size Distribution", size_type),
+                    &format!("{}_sizes.svg", size_type),
+                )
+                .unwrap();
+            }
         }
-    }
-    if value_sizes.is_empty() {
-        println!("Keys have not been read!");
-    } else {
-        if args.draw_histogram {
-            draw_histogram(&value_sizes, "Value Size Distribution", "value_sizes.svg").unwrap();
-        }
-    }
+    };
+    check_for_draw(key_sizes, "key");
+    check_for_draw(value_sizes, "value");
+    /*    if key_sizes.is_empty() {*/
+    /*println!("Keys have not been read!");*/
+    /*} else {*/
+    /*if args.draw_histogram {*/
+    /*draw_histogram(&key_sizes, "Key Size Distribution", "key_sizes.svg").unwrap();*/
+    /*}*/
+    /*}*/
+
+    /*if value_sizes.is_empty() {*/
+    /*println!("Values have not been read!");*/
+    /*} else {*/
+    /*if args.draw_histogram {*/
+    /*draw_histogram(&value_sizes, "Value Size Distribution", "value_sizes.svg").unwrap();*/
+    /*}*/
+    /*}*/
 }
