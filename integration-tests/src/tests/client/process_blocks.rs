@@ -1627,7 +1627,8 @@ fn test_archival_gc_common(
     if !legacy {
         max_gc_height = std::cmp::min(
             max_height - epoch_length * DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
-            max_cold_head_height,
+            // Nice little way to round down to latest epoch start
+            max_cold_head_height / epoch_length * epoch_length,
         );
     };
 

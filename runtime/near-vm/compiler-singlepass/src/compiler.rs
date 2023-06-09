@@ -47,7 +47,6 @@ impl Compiler for SinglepassCompiler {
         &self,
         target: &Target,
         compile_info: &CompileModuleInfo,
-        module_translation: &ModuleTranslationState,
         function_body_inputs: PrimaryMap<LocalFunctionIndex, FunctionBodyData<'_>>,
         tunables: &dyn near_vm_vm::Tunables,
         instrumentation: &finite_wasm::AnalysisOutcome,
@@ -122,7 +121,6 @@ impl Compiler for SinglepassCompiler {
                         })?;
                     let mut generator = FuncGen::new(
                         module,
-                        module_translation,
                         &self.config,
                         &target,
                         &vmoffsets,
@@ -251,7 +249,6 @@ mod tests {
 
     fn dummy_compilation_ingredients<'a>() -> (
         CompileModuleInfo,
-        ModuleTranslationState,
         PrimaryMap<LocalFunctionIndex, FunctionBodyData<'a>>,
         finite_wasm::AnalysisOutcome,
     ) {
@@ -261,7 +258,6 @@ mod tests {
             memory_styles: PrimaryMap::<MemoryIndex, MemoryStyle>::new(),
             table_styles: PrimaryMap::<TableIndex, TableStyle>::new(),
         };
-        let module_translation = ModuleTranslationState::new();
         let function_body_inputs = PrimaryMap::<LocalFunctionIndex, FunctionBodyData<'_>>::new();
         let analysis = finite_wasm::AnalysisOutcome {
             function_frame_sizes: Vec::new(),
@@ -270,29 +266,19 @@ mod tests {
             gas_costs: Vec::new(),
             gas_kinds: Vec::new(),
         };
-        (compile_info, module_translation, function_body_inputs, analysis)
+        (compile_info, function_body_inputs, analysis)
     }
 
     #[test]
     fn errors_for_unsupported_targets() {
         let compiler = SinglepassCompiler::new(Singlepass::default());
 
-        // Compile for win64
-        /*let win64 = Target::new(triple!("x86_64-pc-windows-msvc"), CpuFeature::for_host());
-        let (mut info, translation, inputs) = dummy_compilation_ingredients();
-        let result = compiler.compile_module(&win64, &mut info, &translation, inputs);
-        match result.unwrap_err() {
-            CompileError::UnsupportedTarget(name) => assert_eq!(name, "windows"),
-            error => panic!("Unexpected error: {:?}", error),
-        };*/
-
         // Compile for 32bit Linux
         let linux32 = Target::new(triple!("i686-unknown-linux-gnu"), CpuFeature::for_host());
-        let (mut info, translation, inputs, analysis) = dummy_compilation_ingredients();
+        let (mut info, inputs, analysis) = dummy_compilation_ingredients();
         let result = compiler.compile_module(
             &linux32,
             &mut info,
-            &translation,
             inputs,
             &near_vm_vm::TestTunables,
             &analysis,
@@ -304,11 +290,10 @@ mod tests {
 
         // Compile for win32
         let win32 = Target::new(triple!("i686-pc-windows-gnu"), CpuFeature::for_host());
-        let (mut info, translation, inputs, analysis) = dummy_compilation_ingredients();
+        let (mut info, inputs, analysis) = dummy_compilation_ingredients();
         let result = compiler.compile_module(
             &win32,
             &mut info,
-            &translation,
             inputs,
             &near_vm_vm::TestTunables,
             &analysis,

@@ -11,7 +11,7 @@ import key
 import transaction
 
 from account import TGAS
-from common.base import Account, CreateSubAccount, Deploy, NearUser, send_transaction, Transaction
+from common.base import Account, CreateSubAccount, Deploy, NearUser, is_tag_active, send_transaction, Transaction
 
 
 class FTContract:
@@ -39,7 +39,7 @@ class FTContract:
         user.send_tx(TransferFT(self.account,
                                 self.account,
                                 user.account_id,
-                                how_much=1E8),
+                                how_much=10**8),
                      locust_name="FT Funding")
         self.registered_users.append(user.account_id)
 
@@ -67,7 +67,7 @@ class TransferFT(Transaction):
         self.recipient_id = recipient_id
         self.how_much = how_much
 
-    def sign_and_serialize(self, block_hash):
+    def sign_and_serialize(self, block_hash) -> bytes:
         (ft, sender, recipient_id) = self.ft, self.sender, self.recipient_id
         args = {
             "receiver_id": recipient_id,
@@ -91,7 +91,7 @@ class InitFT(Transaction):
         super().__init__()
         self.contract = contract
 
-    def sign_and_serialize(self, block_hash):
+    def sign_and_serialize(self, block_hash) -> bytes:
         contract = self.contract
         args = json.dumps({
             "owner_id": contract.key.account_id,
@@ -113,7 +113,7 @@ class InitFTAccount(Transaction):
         self.contract = contract
         self.account = account
 
-    def sign_and_serialize(self, block_hash):
+    def sign_and_serialize(self, block_hash) -> bytes:
         contract, account = self.contract, self.account
         args = json.dumps({"account_id": account.key.account_id})
         return transaction.sign_function_call_tx(account.key,
@@ -127,6 +127,15 @@ class InitFTAccount(Transaction):
 
 @events.init.add_listener
 def on_locust_init(environment, **kwargs):
+    if not is_tag_active(environment, "ft"):
+        return
+
+    if environment.parsed_options.fungible_token_wasm is None:
+        raise SystemExit(
+            f"Running FT workload requires `--fungible_token_wasm $FT_CONTRACT`. "
+            "Either provide the WASM (e.g. nearcore/runtime/near-test-contracts/res/fungible_token.wasm) "
+            "or run with `--exclude-tag ft`")
+
     # Note: These setup requests are not tracked by locust because we use our own http session
     host, port = environment.host.split(":")
     node = cluster.RpcNode(host, port)
@@ -164,7 +173,7 @@ def on_locust_init(environment, **kwargs):
 def _(parser):
     parser.add_argument("--fungible-token-wasm",
                         type=str,
-                        required=True,
+                        required=False,
                         help="Path to the compiled Fungible Token contract")
     parser.add_argument(
         "--num-ft-contracts",

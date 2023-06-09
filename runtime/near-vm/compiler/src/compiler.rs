@@ -112,7 +112,6 @@ pub trait Compiler: Send {
         &self,
         target: &Target,
         module: &'module CompileModuleInfo,
-        module_translation: &ModuleTranslationState,
         // The list of function bodies
         function_body_inputs: PrimaryMap<LocalFunctionIndex, FunctionBodyData<'data>>,
         tunables: &dyn near_vm_vm::Tunables,

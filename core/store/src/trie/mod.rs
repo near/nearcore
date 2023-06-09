@@ -879,7 +879,17 @@ impl Trie {
         &'a self,
         max_depth: usize,
     ) -> Result<TrieIterator<'a>, StorageError> {
-        TrieIterator::new(self, Some(max_depth))
+        TrieIterator::new(
+            self,
+            Some(Box::new(move |key_nibbles: &Vec<u8>| key_nibbles.len() > max_depth)),
+        )
+    }
+
+    pub fn iter_with_prune_condition<'a>(
+        &'a self,
+        prune_condition: Option<Box<dyn Fn(&Vec<u8>) -> bool>>,
+    ) -> Result<TrieIterator<'a>, StorageError> {
+        TrieIterator::new(self, prune_condition)
     }
 
     pub fn get_trie_nodes_count(&self) -> TrieNodesCount {
