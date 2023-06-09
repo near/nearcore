@@ -15,6 +15,15 @@ pub(crate) static APPLY_CHUNK_DELAY: Lazy<HistogramVec> = Lazy::new(|| {
         .unwrap()
 });
 
+pub(crate) static DELAYED_RECEIPTS_QUEUE_LENGTH: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_delayed_receipts_queue_length",
+        "The length of the delayed receipts queue. Indicator of congestion.",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
 pub(crate) static CONFIG_CORRECT: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge(
         "near_config_correct",
