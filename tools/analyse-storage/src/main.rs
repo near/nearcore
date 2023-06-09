@@ -1,6 +1,6 @@
 use clap::Parser;
 use plotters::prelude::*;
-use rocksdb::{Cache, Env, Options, DB};
+use rocksdb::{Cache, Env, Options, DB, ColumnFamilyDescriptor};
 use std::{collections::HashMap, panic};
 
 #[derive(Parser)]
@@ -57,7 +57,8 @@ fn main() {
     };
     opts.create_if_missing(true);
     // Open the RocksDB database
-    let db = DB::open(&opts, args.db_path).unwrap();
+    let cf = vec!["state"];
+    let db = DB::open_cf_for_read_only(&opts, args.db_path, cf, false).unwrap();
 
     // Initialize counters
     let mut key_sizes: HashMap<usize, usize> = HashMap::new();
@@ -93,9 +94,18 @@ fn main() {
     }
 
     // Draw histograms
-    if args.draw_histogram {
-        // Draw histograms
-        draw_histogram(&key_sizes, "Key Size Distribution", "key_sizes.svg").unwrap();
-        draw_histogram(&value_sizes, "Value Size Distribution", "value_sizes.svg").unwrap();
+    if key_sizes.is_empty() {
+        println!("Keys have not been read!");
+    } else {
+        if args.draw_histogram {
+            draw_histogram(&key_sizes, "Key Size Distribution", "key_sizes.svg").unwrap();
+        }
+    }
+    if value_sizes.is_empty() {
+        println!("Keys have not been read!");
+    } else {
+        if args.draw_histogram {
+            draw_histogram(&value_sizes, "Value Size Distribution", "value_sizes.svg").unwrap();
+        }
     }
 }
