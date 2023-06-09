@@ -55,7 +55,7 @@ nightly = [
   "near-primitives-core/nightly",
 ]
 
-nightly_protocol = []
+nightly_protocol = ["near-primitives-core/nightly_protocol"]
 
 
 calimero_zero_storage = []
