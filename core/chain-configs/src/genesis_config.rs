@@ -234,9 +234,11 @@ impl From<&GenesisConfig> for AllEpochConfig {
 )]
 pub struct GenesisRecords(pub Vec<StateRecord>);
 
-/// custom deserializer that does the same thing that #[serde(default)] would do --
+/// custom deserializer that does *almost the same thing that #[serde(default)] would do --
 /// if no value is provided in json, returns default value.
-fn no_value_as_default<'de, D, T>(de: D) -> Result<T, D::Error>
+/// * Here if `null` is provided as value in JSON, default value will be returned,
+/// while in serde default implementation that scenario wouldn't parse.
+fn no_value_and_null_as_default<'de, D, T>(de: D) -> Result<T, D::Error>
 where
     D: Deserializer<'de>,
     T: Deserialize<'de> + Default,
@@ -281,7 +283,7 @@ pub struct Genesis {
     /// The corresponding issue has been open since 2019, so any day now.
     #[serde(
         flatten,
-        deserialize_with = "no_value_as_default",
+        deserialize_with = "no_value_and_null_as_default",
         skip_serializing_if = "contents_are_not_records"
     )]
     pub contents: GenesisContents,
