@@ -1,6 +1,7 @@
 from configured_logger import new_logger
 from locust import HttpUser, events, runners
 from retrying import retry
+import abc
 import utils
 import mocknet_helpers
 import key
@@ -73,12 +74,12 @@ class Transaction:
         # FIXME: this is currently not set in some cases
         self.transaction_id = None
 
-    def sign_and_serialize(self, block_hash):
+    @abc.abstractmethod
+    def sign_and_serialize(self, block_hash) -> bytes:
         """
         Each transaction class is supposed to define this method to serialize and
         sign the transaction and return the raw message to be sent.
         """
-        return None
 
 
 class Deploy(Transaction):
@@ -89,7 +90,7 @@ class Deploy(Transaction):
         self.contract = contract
         self.name = name
 
-    def sign_and_serialize(self, block_hash):
+    def sign_and_serialize(self, block_hash) -> bytes:
         account = self.account
         logger.info(f"deploying {self.name} to {account.key.account_id}")
         wasm_binary = utils.load_binary_file(self.contract)
@@ -106,7 +107,7 @@ class CreateSubAccount(Transaction):
         self.sub_key = sub_key
         self.balance = balance
 
-    def sign_and_serialize(self, block_hash):
+    def sign_and_serialize(self, block_hash) -> bytes:
         sender = self.sender
         sub = self.sub_key
         logger.debug(f"creating {sub.account_id}")
@@ -119,6 +120,7 @@ class NearUser(HttpUser):
     abstract = True
     id_counter = 0
     INIT_BALANCE = 100.0
+    funding_account: Account
 
     @classmethod
     def get_next_id(cls):
@@ -126,7 +128,7 @@ class NearUser(HttpUser):
         return cls.id_counter
 
     @classmethod
-    def account_id(cls, id):
+    def generate_account_id(cls, id) -> str:
         # Pseudo-random 6-digit prefix to spread the users in the state tree
         # TODO: Also make sure these are spread evenly across shards
         prefix = str(hash(str(id)))[-6:]
@@ -134,10 +136,11 @@ class NearUser(HttpUser):
 
     def __init__(self, environment):
         super().__init__(environment)
+        assert self.host is not None, "Near user requires the RPC node address"
         host, port = self.host.split(":")
         self.node = cluster.RpcNode(host, port)
         self.id = NearUser.get_next_id()
-        self.account_id = NearUser.account_id(self.id)
+        self.account_id = NearUser.generate_account_id(self.id)
 
     def on_start(self):
         """
