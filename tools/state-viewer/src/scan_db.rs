@@ -95,11 +95,13 @@ pub(crate) fn scan_db_column(col: &str, store: Store) {
                         Box::new(EpochId::try_from_slice(key_ref).unwrap()),
                         Box::new(BlockHeight::try_from_slice(value_ref).unwrap()),
                     ),
-                    DBCol::FlatState => (
-                        // TODO: Fix
-                        Box::new(key.to_vec()),
-                        Box::new(FlatStateValue::try_from_slice(value_ref).unwrap()),
-                    ),
+                    DBCol::FlatState => {
+                        let (shard_uid, key) = near_store::flat::store_helper::decode_flat_state_db_key(key_ref).unwrap();
+                        (
+                            Box::new((shard_uid, key)),
+                            Box::new(FlatStateValue::try_from_slice(value_ref).unwrap()),
+                        )
+                    }
                     DBCol::FlatStateChanges => (
                         // TODO: Format keys as nibbles.
                         Box::new(KeyForFlatStateDelta::try_from_slice(key_ref).unwrap()),
