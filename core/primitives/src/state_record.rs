@@ -94,7 +94,10 @@ impl StateRecord {
                     Some(StateRecord::DelayedReceipt(Box::new(receipt)))
                 }
                 col::DELAYED_RECEIPT_INDICES => None,
-                _ => unreachable!(),
+                _ => {
+                    println!("key[0]: {} is unreachable", key[0]);
+                    None
+                },
             };
             Ok(res)
         };
