@@ -108,7 +108,7 @@ def on_locust_init(environment, **kwargs):
         base.Deploy(
             account,
             environment.parsed_options.congestion_wasm,
-            "Congestion Contract",
+            "Congestion",
         ),
     )
 

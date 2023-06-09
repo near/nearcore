@@ -112,7 +112,7 @@ Currently supported load types:
 | Social DB  | `SocialDbUser` | `social` | `--social-db-wasm $WASM_PATH` | Creates a single instance of SocialDB and registers users to it. Users post messages and follow other users. (More workload TBD) |
 | Congestion | `CongestionUser` | `congestion` | `--congestion-wasm $WASM_PATH` | Creates a single instance of Congestion contract. Users run large and long transactions. |
 
-For congestion workload you will need to use the following contract
+For the congestion workload you will need to use the following contract:
 
 ```sh
 # This assumes your shell is are in nearcore directory
