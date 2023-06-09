@@ -13,8 +13,8 @@ import key
 import transaction
 
 
-class LargeTransaction(base.Transaction):
-    """Transaction with a large size in bytes."""
+class ComputeSha256(base.Transaction):
+    """Transaction with a large input size."""
 
     def __init__(
         self,
@@ -28,14 +28,11 @@ class LargeTransaction(base.Transaction):
         self.size_bytes = size_bytes
 
     def sign_and_serialize(self, block_hash) -> bytes:
-        args = {
-            "key": "a" * self.size_bytes,
-        }
         return transaction.sign_function_call_tx(
             self.sender.key,
             self.contract_account_id,
             "ext_sha256",
-            json.dumps(args).encode("utf-8"),
+            json.dumps(["a" * self.size_bytes]).encode("utf-8"),
             300 * account.TGAS,
             # Attach exactly 1 yoctoNEAR according to NEP-141 to avoid
             # calls from restricted access keys.
@@ -45,24 +42,27 @@ class LargeTransaction(base.Transaction):
         )
 
 
-class LongTransaction(base.Transaction):
-    """Transaction with a large size in bytes."""
+class ComputeSum(base.Transaction):
+    """Large computation that consumes a specified amount of gas."""
 
     def __init__(
         self,
         contract_account_id: str,
         sender: base.Account,
+        usage_tgas: int,
     ):
         super().__init__()
         self.contract_account_id = contract_account_id
         self.sender = sender
+        self.usage_tgas = usage_tgas
 
     def sign_and_serialize(self, block_hash) -> bytes:
         return transaction.sign_function_call_tx(
             self.sender.key,
             self.contract_account_id,
-            "fibonacci",
-            [33],
+            "sum_n",
+            # 1000000 is around 12 TGas.
+            ((1000000 * self.usage_tgas) // 12).to_bytes(8, byteorder="little"),
             300 * account.TGAS,
             # Attach exactly 1 yoctoNEAR according to NEP-141 to avoid
             # calls from restricted access keys.
@@ -88,23 +88,28 @@ def on_locust_init(environment, **kwargs):
     if isinstance(environment.runner, runners.WorkerRunner):
         return
 
-    contract_key = key.Key.from_random(environment.congestion_account_id)
-    account = base.Account(contract_key)
-
-    # Note: These setup requests are not tracked by locust because we use our own http session
+    # Note: These setup requests are not tracked by locust because we use our own http session.
     host, port = environment.host.split(":")
     node = cluster.RpcNode(host, port)
 
     funding_account = base.NearUser.funding_account
     funding_account.refresh_nonce(node)
+
+    account = base.Account(
+        key.Key.from_random(environment.congestion_account_id)
+    )
     base.send_transaction(
         node,
         base.CreateSubAccount(funding_account, account.key, balance=50000.0),
     )
     account.refresh_nonce(node)
-    contract_code = environment.parsed_options.congestion_wasm
     base.send_transaction(
-        node, base.Deploy(account, contract_code, "Congestion Contract")
+        node,
+        base.Deploy(
+            account,
+            environment.parsed_options.congestion_wasm,
+            "Congestion Contract",
+        ),
     )
 
 

@@ -14,7 +14,7 @@ from locust import between, tag, task
 from common.base import NearUser, is_tag_active
 from common.ft import TransferFT
 from common.social import Follow, InitSocialDbAccount, SubmitPost
-from common.congestion import LargeTransaction, LongTransaction
+from common.congestion import ComputeSha256, ComputeSum
 
 logger = new_logger(level=logging.WARN)
 
@@ -102,26 +102,25 @@ class SocialDbUser(NearUser):
 
 class CongestionUser(NearUser):
     """
-    Runs transactions that cause congestion.
+    Runs a resource-heavy workload that is likely to cause congestion.
     """
     wait_time = between(1, 3)  # random pause between transactions
 
     @tag("congestion")
     @task
-    def large_transaction(self):
-        self.send_tx(LargeTransaction(self.contract_account_id, self.account,
-                                      100000),
-                     locust_name="Congestion Large")
+    def compute_sha256(self):
+        self.send_tx(ComputeSha256(self.contract_account_id, self.account, 100000),
+                     locust_name="SHA256, 100 KiB")
 
     @tag("congestion")
     @task
-    def long_transaction(self):
-        self.send_tx(LongTransaction(self.contract_account_id, self.account),
-                     locust_name="Congestion Long")
+    def compute_sum(self):
+        self.send_tx(ComputeSum(self.contract_account_id, self.account, 250),
+                     locust_name="Sum, 250 TGas")
 
     def on_start(self):
         super().on_start()
         if not is_tag_active(self.environment, "congestion"):
-            raise SystemExit("Congestion requires --tag social")
+            raise SystemExit("Congestion requires --tag congestion")
 
         self.contract_account_id = self.environment.congestion_account_id
