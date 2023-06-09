@@ -134,6 +134,7 @@ pub(crate) fn scan_db_column(col: &str, store: Store) {
                         )
                     }
                     DBCol::State => {
+                        // This logic is exactly the same as KeyForFlatStateDelta.
                         let s: ShardUId = ShardUId::try_from(&key_ref[..8]).unwrap();
                         let h: CryptoHash = CryptoHash::try_from_slice(&key_ref[8..]).unwrap();
                         // Handle refcounting by querying the value.
