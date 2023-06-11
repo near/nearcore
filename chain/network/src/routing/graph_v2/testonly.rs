@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 impl Inner {
-    pub(crate) fn verify_edges(&mut self, edges: &Vec<Edge>) -> bool {
+    pub(crate) fn verify_and_cache_edge_nonces(&mut self, edges: &Vec<Edge>) -> bool {
         // In tests we make fake edges and don't bother to sign them
         for edge in edges {
             self.edge_cache.write_verified_nonce(edge);

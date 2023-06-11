@@ -8,7 +8,6 @@ use arc_swap::ArcSwap;
 use near_async::time;
 use near_primitives::network::PeerId;
 use parking_lot::Mutex;
-use std::collections::hash_map::Entry;
 use std::collections::VecDeque;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -52,6 +51,8 @@ struct Inner {
     /// Data structure maintaing information about the entire known network
     edge_cache: EdgeCache,
 
+    /// State of the local node's direct connections
+    local_edges: HashMap<PeerId, Edge>,
     /// Routes advertised by the local node's direct peers
     peer_routes: HashMap<PeerId, PeerRoutes>,
 
@@ -78,7 +79,7 @@ impl Inner {
     /// because just the last edge was invalid. Instead, we cache all the edges verified so
     /// far and return an error only afterwards.
     #[cfg(not(test))]
-    fn verify_edges(&mut self, edges: &Vec<Edge>) -> bool {
+    fn verify_and_cache_edge_nonces(&mut self, edges: &Vec<Edge>) -> bool {
         metrics::EDGE_UPDATES.inc_by(edges.len() as u64);
 
         // Collect only those edges which are new to us for verification.
@@ -196,7 +197,7 @@ impl Inner {
         // A valid DistanceVector must contain distinct, correctly signed edges
         let original_len = distance_vector.edges.len();
         let edges = Edge::deduplicate(distance_vector.edges.clone());
-        if edges.len() != original_len || !self.verify_edges(&edges) {
+        if edges.len() != original_len || !self.verify_and_cache_edge_nonces(&edges) {
             return None;
         }
 
@@ -312,36 +313,38 @@ impl Inner {
     }
 
     /// Handles connection of a new peer or nonce refresh for an existing one.
-    /// Adds or updates the nonce for the given edge. If we don't already have a
-    /// DistanceVector for this peer_id, initializes one with just the given edge.
+    /// - Updates the state of `local_edges`.
+    /// - Adds or updates the nonce in the `edge_cache`.
+    /// - If we don't already have a DistanceVector for this peer, initializes one.
     pub(crate) fn add_or_update_direct_peer(&mut self, peer_id: PeerId, edge: Edge) -> bool {
-        // TODO: figure out if an invalid edge can even make it here
-        if !self.verify_edges(&vec![edge.clone()]) {
+        // We have this nonce or a newer one already; ignore the update entirely
+        if self.edge_cache.has_edge_nonce_or_newer(&edge) {
+            return true;
+        }
+
+        // Reject invalid edge
+        if !self.verify_and_cache_edge_nonces(&vec![edge.clone()]) {
             return false;
         }
 
-        match self.peer_routes.entry(peer_id.clone()) {
-            Entry::Occupied(_) => {
-                // We have a tree already for this peer; just refresh the nonce on the edge
-                if !self.edge_cache.has_edge_nonce_or_newer(&edge) {
-                    self.edge_cache.write_verified_nonce(&edge);
-                }
-            }
-            Entry::Vacant(vacant) => {
-                // We have no advertised routes for this peer; initialize
-                self.edge_cache.update_tree(&peer_id, &vec![edge.clone()]);
+        // Update the state of `local_edges`
+        self.local_edges.insert(peer_id.clone(), edge.clone());
 
-                let local_node_id = self.edge_cache.get_id(&self.config.node_id) as usize;
-                let peer_node_id =
-                    self.edge_cache.get_id(&edge.other(&self.config.node_id).unwrap()) as usize;
+        // If we don't already have a DistanceVector received from this peer,
+        // create one for it and process it as if we received it
+        if !self.peer_routes.contains_key(&peer_id) {
+            self.handle_distance_vector(&network_protocol::DistanceVector {
+                root: peer_id.clone(),
+                routes: vec![
+                    // The peer has a route of length 0 to itself
+                    AdvertisedRoute { destination: peer_id, length: 0 },
+                    // And a route of length 1 to this node
+                    AdvertisedRoute { destination: self.config.node_id.clone(), length: 1 },
+                ],
+                edges: vec![edge],
+            });
+        }
 
-                let mut distance: Vec<i32> = vec![-1; self.edge_cache.max_id()];
-                distance[peer_node_id] = 0;
-                distance[local_node_id] = 1;
-
-                vacant.insert(PeerRoutes { distance, min_nonce: edge.nonce() });
-            }
-        };
         true
     }
 
@@ -538,6 +541,7 @@ impl GraphV2 {
             inner: Arc::new(Mutex::new(Inner {
                 config,
                 edge_cache,
+                local_edges: HashMap::new(),
                 peer_routes: HashMap::new(),
                 my_distances: HashMap::from([(local_node, 0)]),
                 my_distance_vector,
