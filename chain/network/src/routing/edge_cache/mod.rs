@@ -215,12 +215,6 @@ impl EdgeCache {
         }
     }
 
-    /// Returns the active edge for the given node pair, if there is one.
-    pub fn get_active_edge(&mut self, peer0: PeerId, peer1: PeerId) -> Option<Edge> {
-        let key = if peer0 < peer1 { (peer0, peer1) } else { (peer1, peer0) };
-        self.active_edges.get(&key).map(|active_edge| active_edge.edge.clone())
-    }
-
     /// Stores the key-value pair (peer_id, edges) in the EdgeCache's `active_trees` map, overwriting
     /// any previous entry for the same peer. Updates `active_edges` accordingly.
     pub fn update_tree(&mut self, peer_id: &PeerId, tree: &Vec<Edge>) {

@@ -51,8 +51,8 @@ struct Inner {
     /// Data structure maintaing information about the entire known network
     edge_cache: EdgeCache,
 
-    /// State of the local node's direct connections
-    local_edges: HashMap<PeerId, (u64, EdgeState)>,
+    /// Edges of the local node's direct connections
+    local_edges: HashMap<PeerId, Edge>,
     /// Routes advertised by the local node's direct peers
     peer_routes: HashMap<PeerId, PeerRoutes>,
 
@@ -85,6 +85,12 @@ impl Inner {
         // Collect only those edges which are new to us for verification.
         let mut unverified_edges = Vec::<Edge>::new();
         for e in edges {
+            // V2 routing protocol only shares Active edges
+            // TODO(saketh): deprecate tombstones entirely
+            if e.edge_type() != EdgeState::Active {
+                return false;
+            }
+
             if !self.edge_cache.has_edge_nonce_or_newer(e) {
                 unverified_edges.push(e.clone());
             }
@@ -242,67 +248,97 @@ impl Inner {
         Some(advertised_distances)
     }
 
-    /// Verifies the given DistanceVector. If valid, stores the advertised routes.
+    /// Accepts a validated DistanceVector and its `advertised_distances`.
+    /// Updates the status of the direct connection between the local node and the direct peer.
+    /// If the peer can be used for forwarding, stores the advertised routes.
+    /// Returns true iff the routes are stored.
+    fn store_validated_peer_routes(
+        &mut self,
+        distance_vector: &network_protocol::DistanceVector,
+        mut advertised_distances: Vec<i32>,
+    ) -> bool {
+        let local_node_id = self.edge_cache.get_id(&self.config.node_id) as usize;
+
+        // A direct peer's distance vector which advertises an indirect path to the local node
+        // is outdated and can be ignored.
+        if advertised_distances[local_node_id] > 1 {
+            // TODO(saketh): We could try to be more clever here and do some surgery on the tree
+            // to replace the indirect path and speed up convergence of the routing protocol.
+            return false;
+        }
+
+        // Look in the spanning tree for the direct edge between the local node and the root
+        let tree_edge = distance_vector.edges.iter().find(|edge| {
+            edge.contains_peer(&self.config.node_id) && edge.contains_peer(&distance_vector.root)
+        });
+
+        // If the tree has more recent state for the direct edge, replace the local state
+        if let Some(tree_edge) = tree_edge {
+            self.local_edges
+                .entry(distance_vector.root.clone())
+                .and_modify(|local_edge| {
+                    if tree_edge.nonce() > local_edge.nonce() {
+                        *local_edge = tree_edge.clone();
+                    }
+                })
+                .or_insert(tree_edge.clone());
+        }
+
+        let local_edge = self.local_edges.get(&distance_vector.root);
+        if local_edge.map_or(true, |edge| edge.edge_type() == EdgeState::Removed) {
+            // Without a direct edge, we cannot use the routes advertised by the peer
+            return false;
+        }
+        let local_edge = local_edge.unwrap();
+
+        // If the spanning tree doesn't already include the direct edge, add it
+        let mut spanning_tree = distance_vector.edges.clone();
+        if tree_edge.is_none() {
+            assert!(advertised_distances[local_node_id] == -1);
+            spanning_tree.push(local_edge.clone());
+            advertised_distances[local_node_id] = 1;
+        }
+
+        // Store the tree used to validate the routes.
+        self.edge_cache.update_tree(&distance_vector.root, &spanning_tree);
+        // Store the validated routes
+        self.peer_routes.insert(
+            distance_vector.root.clone(),
+            PeerRoutes {
+                distance: advertised_distances,
+                min_nonce: spanning_tree.iter().map(|e| e.nonce()).min().unwrap(),
+            },
+        );
+
+        true
+    }
+
+    /// Verifies the given DistanceVector.
     /// Returns a boolean indicating whether the DistanceVector was valid.
+    /// If applicable, stores the advertised routes for forwarding.
     fn handle_distance_vector(
         &mut self,
         distance_vector: &network_protocol::DistanceVector,
     ) -> bool {
-        if let Some(mut advertised_distances) = self.validate_routing_distances(distance_vector) {
-            let local_node_id = self.edge_cache.get_id(&self.config.node_id) as usize;
-            let mut spanning_tree = distance_vector.edges.clone();
+        // Basic sanity check; `distance_vector` should come from some other peer
+        assert!(self.config.node_id != distance_vector.root);
 
-            // A distance vector advertised by a direct peer may not include the direct edge
-            // between the local node and the peer (because the peer has not updated its
-            // routing table in response to creation of the edge yet).
-            let has_direct_edge = match advertised_distances[local_node_id] {
-                1 => true,
-                -1 => {
-                    // In the simple case that the local node is not included at all, we can extend the
-                    // advertised spanning tree by adding the direct edge.
-                    if let Some(local_edge_to_peer) = self
-                        .edge_cache
-                        .get_active_edge(self.config.node_id.clone(), distance_vector.root.clone())
-                    {
-                        spanning_tree.push(local_edge_to_peer);
-                        advertised_distances[local_node_id] = 1;
-                        true
-                    } else {
-                        false
-                    }
-                }
-                _default => {
-                    // If some indirect path from the peer to the local node exists, we could
-                    // perform some non-trivial surgery on the spanning tree to incorporate the
-                    // direct edge. However, it's simpler to just wait for the peer to realize
-                    // that the direct edge exists, at which point it'll send an updated DistanceVector.
-                    false
-                }
-            };
+        // Validate the advertised distances against the accompanying spanning tree
+        let validated_distances = self.validate_routing_distances(distance_vector);
 
-            if has_direct_edge {
-                // Store the tree used to validate the routes.
-                self.edge_cache.update_tree(&distance_vector.root, &spanning_tree);
-                // Store the validated routes
-                self.peer_routes.insert(
-                    distance_vector.root.clone(),
-                    PeerRoutes {
-                        distance: advertised_distances,
-                        min_nonce: spanning_tree.iter().map(|e| e.nonce()).min().unwrap(),
-                    },
-                );
-            } else {
-                // In case the DistanceVector is not being stored,
-                // clean up any ids which may have been allocated to perform the tree traversal
-                self.edge_cache.free_unused_ids();
-            }
-            true
-        } else {
-            // In case the DistanceVector was entirely invalid,
-            // clean up any ids which may have been allocated to perform the tree traversal
+        let is_valid = validated_distances.is_some();
+
+        let stored = match validated_distances {
+            Some(distances) => self.store_validated_peer_routes(&distance_vector, distances),
+            None => false,
+        };
+
+        if !stored {
+            // Free ids which may have been allocated to perform validation
             self.edge_cache.free_unused_ids();
-            false
         }
+
+        return is_valid;
     }
 
     /// Handles disconnection of a peer.
@@ -310,9 +346,14 @@ impl Inner {
     /// - Erases the peer's latest spanning tree, if there is one, from `edge_cache`.
     /// - Erases the advertised routes for the peer.
     pub(crate) fn remove_direct_peer(&mut self, peer_id: &PeerId) {
-        if let Some((_, edge_type)) = self.local_edges.get_mut(peer_id) {
-            assert_eq!(*edge_type, EdgeState::Active);
-            *edge_type = EdgeState::Removed;
+        if let Some(edge) = self.local_edges.get_mut(peer_id) {
+            // TODO(saketh): refactor Edge once the old routing protocol is deprecated
+            if edge.edge_type() != EdgeState::Removed {
+                let (peer0, peer1) = edge.key().clone();
+                // V2 routing protocol doesn't broadcast tombstones; don't bother to sign them
+                *edge = Edge::make_fake_edge(peer0, peer1, edge.nonce() + 1);
+            }
+            assert!(edge.edge_type() == EdgeState::Removed);
         }
 
         self.edge_cache.remove_tree(peer_id);
@@ -337,7 +378,7 @@ impl Inner {
         }
 
         // Update the state of `local_edges`
-        self.local_edges.insert(peer_id.clone(), (edge.nonce(), edge.edge_type()));
+        self.local_edges.insert(peer_id.clone(), edge.clone());
 
         // If we don't already have a DistanceVector received from this peer,
         // create one for it and process it as if we received it
