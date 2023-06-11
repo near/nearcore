@@ -39,11 +39,11 @@ pub enum NetworkTopologyChange {
 
 /// Locally stored properties of a received network_protocol::DistanceVector message
 struct PeerRoutes {
+    /// Advertised route lengths indexed by the local EdgeCache's peer to id mapping.
+    pub distance: Vec<i32>,
     /// The lowest nonce among all edges used in the advertised routes.
     /// For simplicity, used to expire the entire vector at once.
     pub min_nonce: u64,
-    /// Advertised route lengths indexed by the local EdgeCache's mapping
-    pub distance: Vec<i32>,
 }
 
 struct Inner {
@@ -286,8 +286,8 @@ impl Inner {
                 self.peer_routes.insert(
                     distance_vector.root.clone(),
                     PeerRoutes {
-                        min_nonce: spanning_tree.iter().map(|e| e.nonce()).min().unwrap(),
                         distance: advertised_distances,
+                        min_nonce: spanning_tree.iter().map(|e| e.nonce()).min().unwrap(),
                     },
                 );
             } else {
@@ -339,7 +339,7 @@ impl Inner {
                 distance[peer_node_id] = 0;
                 distance[local_node_id] = 1;
 
-                vacant.insert(PeerRoutes { min_nonce: edge.nonce(), distance });
+                vacant.insert(PeerRoutes { distance, min_nonce: edge.nonce() });
             }
         };
         true
