@@ -1,6 +1,6 @@
 use crate::concurrency::runtime::Runtime;
 use crate::network_protocol;
-use crate::network_protocol::{AdvertisedRoute, Edge};
+use crate::network_protocol::{AdvertisedRoute, Edge, EdgeState};
 use crate::routing::edge_cache::EdgeCache;
 use crate::routing::routing_table_view::RoutingTableView;
 use crate::stats::metrics;
@@ -52,7 +52,7 @@ struct Inner {
     edge_cache: EdgeCache,
 
     /// State of the local node's direct connections
-    local_edges: HashMap<PeerId, Edge>,
+    local_edges: HashMap<PeerId, (u64, EdgeState)>,
     /// Routes advertised by the local node's direct peers
     peer_routes: HashMap<PeerId, PeerRoutes>,
 
@@ -306,8 +306,15 @@ impl Inner {
     }
 
     /// Handles disconnection of a peer.
-    /// Erases the stored tree, if there is one, for the specified peer_id.
+    /// - Updates the state of `local_edges`.
+    /// - Erases the peer's latest spanning tree, if there is one, from `edge_cache`.
+    /// - Erases the advertised routes for the peer.
     pub(crate) fn remove_direct_peer(&mut self, peer_id: &PeerId) {
+        if let Some((_, edge_type)) = self.local_edges.get_mut(peer_id) {
+            assert_eq!(*edge_type, EdgeState::Active);
+            *edge_type = EdgeState::Removed;
+        }
+
         self.edge_cache.remove_tree(peer_id);
         self.peer_routes.remove(peer_id);
     }
@@ -317,6 +324,8 @@ impl Inner {
     /// - Adds or updates the nonce in the `edge_cache`.
     /// - If we don't already have a DistanceVector for this peer, initializes one.
     pub(crate) fn add_or_update_direct_peer(&mut self, peer_id: PeerId, edge: Edge) -> bool {
+        assert_eq!(edge.edge_type(), EdgeState::Active);
+
         // We have this nonce or a newer one already; ignore the update entirely
         if self.edge_cache.has_edge_nonce_or_newer(&edge) {
             return true;
@@ -328,7 +337,7 @@ impl Inner {
         }
 
         // Update the state of `local_edges`
-        self.local_edges.insert(peer_id.clone(), edge.clone());
+        self.local_edges.insert(peer_id.clone(), (edge.nonce(), edge.edge_type()));
 
         // If we don't already have a DistanceVector received from this peer,
         // create one for it and process it as if we received it
