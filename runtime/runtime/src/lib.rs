@@ -108,6 +108,7 @@ pub struct ApplyStats {
     pub gas_deficit_amount: Balance,
 }
 
+#[derive(Debug)]
 pub struct ApplyResult {
     pub state_root: StateRoot,
     pub trie_changes: TrieChanges,
@@ -118,6 +119,7 @@ pub struct ApplyResult {
     pub stats: ApplyStats,
     pub processed_delayed_receipts: Vec<Receipt>,
     pub proof: Option<PartialStorage>,
+    pub delayed_receipts_count: u64,
 }
 
 #[derive(Debug)]
@@ -1235,6 +1237,10 @@ impl Runtime {
             receipts_to_restore.as_slice()
         };
 
+        let mut delayed_receipts_indices: DelayedReceiptIndices =
+            get(&state_update, &TrieKey::DelayedReceiptIndices)?.unwrap_or_default();
+        let initial_delayed_receipt_indices = delayed_receipts_indices.clone();
+
         if !apply_state.is_new_chunk
             && apply_state.current_protocol_version
                 >= ProtocolFeature::FixApplyChunks.protocol_version()
@@ -1251,6 +1257,7 @@ impl Runtime {
                 stats,
                 processed_delayed_receipts: vec![],
                 proof,
+                delayed_receipts_count: delayed_receipts_indices.len(),
             });
         }
 
@@ -1296,10 +1303,6 @@ impl Runtime {
 
             outcomes.push(outcome_with_id);
         }
-
-        let mut delayed_receipts_indices: DelayedReceiptIndices =
-            get(&state_update, &TrieKey::DelayedReceiptIndices)?.unwrap_or_default();
-        let initial_delayed_receipt_indices = delayed_receipts_indices.clone();
 
         let mut process_receipt = |receipt: &Receipt,
                                    state_update: &mut TrieUpdate,
@@ -1492,6 +1495,7 @@ impl Runtime {
             stats,
             processed_delayed_receipts,
             proof,
+            delayed_receipts_count: delayed_receipts_indices.len(),
         })
     }
 
@@ -1969,10 +1973,16 @@ mod tests {
                     + small_transfer * Balance::from(num_receipts_processed)
                     + Balance::from(num_receipts_processed * (num_receipts_processed - 1) / 2)
             );
+            let expected_queue_length = num_receipts_given - num_receipts_processed;
             println!(
-                "{} processed out of {} given. With limit {} receipts per block",
-                num_receipts_processed, num_receipts_given, num_receipts_per_block
+                "{} processed out of {} given. With limit {} receipts per block. The expected delayed_receipts_count is {}. The delayed_receipts_count is {}.",
+                num_receipts_processed,
+                num_receipts_given,
+                num_receipts_per_block,
+                expected_queue_length,
+                apply_result.delayed_receipts_count,
             );
+            assert_eq!(apply_result.delayed_receipts_count, expected_queue_length);
         }
     }
 

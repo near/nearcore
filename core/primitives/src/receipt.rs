@@ -214,5 +214,11 @@ pub struct DelayedReceiptIndices {
     pub next_available_index: u64,
 }
 
+impl DelayedReceiptIndices {
+    pub fn len(&self) -> u64 {
+        self.next_available_index - self.first_index
+    }
+}
+
 /// Map of shard to list of receipts to send to it.
 pub type ReceiptResult = HashMap<ShardId, Vec<Receipt>>;

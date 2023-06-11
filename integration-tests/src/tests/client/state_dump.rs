@@ -82,7 +82,7 @@ fn test_state_dump() {
             assert_ne!(num_shards, 0);
 
             for shard_id in 0..num_shards {
-                let num_parts = 3;
+                let num_parts = 1;
                 for part_id in 0..num_parts {
                     let path = root_dir.path().join(external_storage_location(
                         "unittest",

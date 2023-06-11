@@ -158,10 +158,11 @@ impl<'a> ContractModule<'a> {
 /// `None` is returned in its place.
 fn wasmparser_decode(
     code: &[u8],
+    features: crate::features::WasmFeatures,
 ) -> Result<(Option<u64>, Option<u64>), wasmparser::BinaryReaderError> {
     use wasmparser::{ImportSectionEntryType, ValidPayload};
     let mut validator = wasmparser::Validator::new();
-    validator.wasm_features(crate::prepare::WASM_FEATURES);
+    validator.wasm_features(features.into());
     let mut function_count = Some(0u64);
     let mut local_count = Some(0u64);
     for payload in wasmparser::Parser::new(0).parse_all(code) {
@@ -203,8 +204,12 @@ fn wasmparser_decode(
     Ok((function_count, local_count))
 }
 
-pub(crate) fn validate_contract(code: &[u8], config: &VMConfig) -> Result<(), PrepareError> {
-    let (function_count, local_count) = wasmparser_decode(code).map_err(|e| {
+pub(crate) fn validate_contract(
+    code: &[u8],
+    features: crate::features::WasmFeatures,
+    config: &VMConfig,
+) -> Result<(), PrepareError> {
+    let (function_count, local_count) = wasmparser_decode(code, features).map_err(|e| {
         tracing::debug!(err=?e, "wasmparser failed decoding a contract");
         PrepareError::Deserialization
     })?;
@@ -234,15 +239,17 @@ mod test {
     #[test]
     fn v1_preparation_generates_valid_contract() {
         let mut config = VMConfig::test();
-        config.limit_config.contract_prepare_version = ContractPrepareVersion::V1;
+        let prepare_version = ContractPrepareVersion::V1;
+        config.limit_config.contract_prepare_version = prepare_version;
+        let features = crate::features::WasmFeatures::from(prepare_version);
         bolero::check!().for_each(|input: &[u8]| {
             // DO NOT use ArbitraryModule. We do want modules that may be invalid here, if they pass our validation step!
-            if let Ok(_) = super::validate_contract(input, &config) {
+            if let Ok(_) = super::validate_contract(input, features, &config) {
                 match super::prepare_contract(input, &config) {
                     Err(_e) => (), // TODO: this should be a panic, but for now it’d actually trigger
                     Ok(code) => {
                         let mut validator = wasmparser::Validator::new();
-                        validator.wasm_features(crate::prepare::WASM_FEATURES);
+                        validator.wasm_features(features.into());
                         match validator.validate_all(&code) {
                             Ok(_) => (),
                             Err(e) => panic!(
