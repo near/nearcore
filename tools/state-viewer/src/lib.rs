@@ -10,6 +10,7 @@ mod rocksdb_stats;
 mod state_changes;
 mod state_dump;
 mod state_parts;
+mod trie_iteration_benchmark;
 mod tx_dump;
 
 pub use cli::StateViewerSubCommand;
