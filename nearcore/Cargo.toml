@@ -42,7 +42,7 @@ xz2.workspace = true
 
 near-async.workspace = true
 near-chain.workspace = true
-near-chain-configs.workspace = true
+near-chain-configs = { workspace = true, features = ["metrics"] }
 near-chunks.workspace = true
 near-client.workspace = true
 near-client-primitives.workspace = true
