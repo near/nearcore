@@ -42,7 +42,7 @@ For mainnet releases, the release on github typically happens on a Monday or Tue
 typically happens a week later and the protocol version upgrade happens 1-2 epochs after the voting. This 
 gives the node maintainers enough time to upgrade their neard nodes. The node maintainers can upgrade
 their nodes at any time between the release and the voting but it is recommended to upgrade soon after the
-release. This is to accomodate for any database migrations or miscellaneous delays. 
+release. This is to accommodate for any database migrations or miscellaneous delays. 
 
 Starting a neard node with protocol version voting in the future in a network that is already operating 
 at that protocol version is supported as well. This is useful in the scenario where there is a mainnet 
