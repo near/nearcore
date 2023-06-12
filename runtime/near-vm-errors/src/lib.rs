@@ -7,6 +7,8 @@ use std::any::Any;
 use std::fmt::{self, Error, Formatter};
 use std::io;
 
+// TODO: this does not belong in near-vm-errors but near-vm-runner.
+// See #9176 and #9180 for more context.
 #[derive(Debug, Clone, PartialEq, BorshDeserialize, BorshSerialize)]
 pub enum CompiledContract {
     CompileModuleError(crate::CompilationError),
