@@ -15,7 +15,7 @@ fn verify_calculate_tree_distances(
     root: PeerId,
     edges: Vec<Edge>,
 ) {
-    let graph = GraphV2::new(GraphConfigV2 { node_id: root.clone(), prune_edges_after: None });
+    let graph = GraphV2::new(GraphConfigV2 { node_id: random_peer_id(), prune_edges_after: None });
     let mut inner = graph.inner.lock();
 
     let calculated = inner.calculate_tree_distances(&root, &edges);

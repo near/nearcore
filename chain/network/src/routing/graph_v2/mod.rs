@@ -135,7 +135,7 @@ impl Inner {
         tree_edges: &Vec<Edge>,
     ) -> Option<(Vec<i32>, Vec<i32>)> {
         // Prepare for graph traversal by ensuring all PeerIds in the tree have a u32 label
-        self.edge_cache.create_ids_for_unmapped_peers(tree_edges);
+        self.edge_cache.create_ids_for_tree(root, tree_edges);
 
         // Build adjacency-list representation of the edges
         let mut adjacency = vec![Vec::<u32>::new(); self.edge_cache.max_id()];

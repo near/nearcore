@@ -141,9 +141,11 @@ impl EdgeCache {
         *self.p2id.get(peer).unwrap()
     }
 
-    /// Populates entries in the `p2id` mapping, if necessary, for the peers appearing among the
-    /// given list of edges.
-    pub(crate) fn create_ids_for_unmapped_peers(&mut self, edges: &Vec<Edge>) {
+    /// Iterates over all peers appearing in the given spanning tree,
+    /// assigning ids to those which don't have one already.
+    pub(crate) fn create_ids_for_tree(&mut self, root: &PeerId, edges: &Vec<Edge>) {
+        self.get_or_create_id(root);
+
         edges.iter().for_each(|edge| {
             let (peer0, peer1) = edge.key();
             self.get_or_create_id(peer0);
