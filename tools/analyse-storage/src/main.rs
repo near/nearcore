@@ -48,7 +48,7 @@ fn main() {
     opts.create_if_missing(true);
 
     // Open the RocksDB database
-    let db = match args.column {
+    let db = match &args.column {
         Some(col) => {
             let cf = vec![col];
             DB::open_cf_for_read_only(&opts, args.db_path, cf, false).unwrap()
@@ -61,7 +61,8 @@ fn main() {
     let mut value_sizes: HashMap<usize, usize> = HashMap::new();
 
     // Iterate over all key-value pairs
-    for res in db.iterator(rocksdb::IteratorMode::Start) {
+    let cf_handle = db.cf_handle(&args.column.unwrap()).unwrap();
+    for res in db.iterator_cf(&cf_handle, rocksdb::IteratorMode::Start) {
         match res {
             Ok(tuple) => {
                 // Count key sizes
