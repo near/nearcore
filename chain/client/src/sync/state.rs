@@ -54,6 +54,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Arc;
 use std::time::Duration as TimeDuration;
+use std::time::Instant;
 
 /// Maximum number of state parts to request per peer on each round when node is trying to download the state.
 pub const MAX_STATE_PART_REQUEST: u64 = 16;
@@ -155,15 +156,31 @@ impl ExternalConnection {
         }
     }
 
+    /// Uploads the given state part to external storage.
+    // Wrapper for adding is_ok to the metric labels.
     pub async fn put_state_part(
         &self,
         state_part: &[u8],
         shard_id: ShardId,
         location: &str,
     ) -> Result<(), anyhow::Error> {
-        let _timer = metrics::STATE_SYNC_DUMP_PUT_OBJECT_ELAPSED
-            .with_label_values(&[&shard_id.to_string()])
-            .start_timer();
+        let instant = Instant::now();
+        let res = self.put_state_part_impl(state_part, shard_id, location).await;
+        let is_ok = if res.is_ok() { "ok" } else { "error" };
+        let elapsed = instant.elapsed();
+        metrics::STATE_SYNC_DUMP_PUT_OBJECT_ELAPSED
+            .with_label_values(&[&shard_id.to_string(), is_ok])
+            .observe(elapsed.as_secs_f64());
+        res
+    }
+
+    // Actual implementation.
+    async fn put_state_part_impl(
+        &self,
+        state_part: &[u8],
+        shard_id: ShardId,
+        location: &str,
+    ) -> Result<(), anyhow::Error> {
         match self {
             ExternalConnection::S3 { bucket } => {
                 bucket.put_object(&location, state_part).await?;

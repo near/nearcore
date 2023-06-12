@@ -35,7 +35,7 @@ use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use tokio::time::{sleep, timeout};
-use tracing::info;
+use tracing::{error, info};
 
 mod api;
 mod metrics;
@@ -1531,7 +1531,7 @@ pub fn start_http(
     let cors_allowed_origins_clone = cors_allowed_origins.clone();
     info!(target:"network", "Starting http server at {}", addr);
     let mut servers = Vec::new();
-    let server = HttpServer::new(move || {
+    let listener = HttpServer::new(move || {
         App::new()
             .wrap(get_cors(&cors_allowed_origins))
             .app_data(web::Data::new(JsonRpcHandler {
@@ -1572,38 +1572,46 @@ pub fn start_http(
             )
             .service(debug_html)
             .service(display_debug_html)
-    })
-    .listen(addr.std_listener().unwrap())
-    .unwrap()
-    .workers(4)
-    .shutdown_timeout(5)
-    .disable_signals()
-    .run();
+    });
 
-    servers.push(("JSON RPC", server.handle()));
-
-    tokio::spawn(server);
+    match listener.listen(addr.std_listener().unwrap()) {
+        std::result::Result::Ok(s) => {
+            let server = s.workers(4).shutdown_timeout(5).disable_signals().run();
+            servers.push(("JSON RPC", server.handle()));
+            tokio::spawn(server);
+        }
+        std::result::Result::Err(e) => {
+            error!(
+                target:"network",
+                "Could not start http server at {} due to {:?}", &addr, e,
+            )
+        }
+    };
 
     if let Some(prometheus_addr) = prometheus_addr {
         info!(target:"network", "Starting http monitoring server at {}", prometheus_addr);
         // Export only the /metrics service. It's a read-only service and can have very relaxed
         // access restrictions.
-        let server = HttpServer::new(move || {
+        let listener = HttpServer::new(move || {
             App::new()
                 .wrap(get_cors(&cors_allowed_origins_clone))
                 .wrap(middleware::Logger::default())
                 .service(web::resource("/metrics").route(web::get().to(prometheus_handler)))
-        })
-        .bind(prometheus_addr)
-        .unwrap()
-        .workers(2)
-        .shutdown_timeout(5)
-        .disable_signals()
-        .run();
+        });
 
-        servers.push(("Prometheus Metrics", server.handle()));
-
-        tokio::spawn(server);
+        match listener.bind(&prometheus_addr) {
+            std::result::Result::Ok(s) => {
+                let server = s.workers(2).shutdown_timeout(5).disable_signals().run();
+                servers.push(("Prometheus Metrics", server.handle()));
+                tokio::spawn(server);
+            }
+            std::result::Result::Err(e) => {
+                error!(
+                    target:"network",
+                    "Can't export Prometheus metrics at {} due to {:?}", &prometheus_addr, e,
+                )
+            }
+        };
     }
 
     servers
