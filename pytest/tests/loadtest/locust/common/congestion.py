@@ -76,8 +76,7 @@ def on_locust_init(environment, **kwargs):
     # `master_funding_account` is the same on all runners, allowing to share a
     # single instance of congestion contract.
     funding_account = environment.master_funding_account
-    environment.congestion_account_id = (
-        f"congestion.{funding_account.key.account_id}")
+    environment.congestion_account_id = f"congestion.{funding_account.key.account_id}"
 
     # Only create congestion contract on master.
     if isinstance(environment.runner, runners.WorkerRunner):
@@ -91,7 +90,10 @@ def on_locust_init(environment, **kwargs):
     funding_account.refresh_nonce(node)
 
     account = base.Account(
-        key.Key.from_random(environment.congestion_account_id))
+        key.Key.from_seed_testonly(
+            environment.congestion_account_id, environment.congestion_account_id
+        )
+    )
     base.send_transaction(
         node,
         base.CreateSubAccount(funding_account, account.key, balance=50000.0),
