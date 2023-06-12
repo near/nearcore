@@ -103,7 +103,7 @@ pub(crate) static STATE_SYNC_OBTAIN_PART_DELAY: Lazy<near_o11y::metrics::Histogr
         try_create_histogram_vec(
             "near_state_sync_obtain_part_delay_sec",
             "Latency of applying a state part",
-            &["shard_id"],
+            &["shard_id", "result"],
             Some(exponential_buckets(0.001, 2.0, 20).unwrap()),
         )
         .unwrap()
