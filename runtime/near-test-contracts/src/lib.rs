@@ -45,7 +45,7 @@ pub fn sized_contract(size: usize) -> Vec<u8> {
 ///
 /// Note: the contract relies on the latest stable protocol version, and might
 /// not work for tests using an older version. In particular, if a test depends
-/// on a specific protocol version, it should use [`base_rs_contract`].
+/// on a specific protocol version, it should use [`backwards_compatible_rs_contract`].
 pub fn rs_contract() -> &'static [u8] {
     include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/res/", "test_contract_rs.wasm"))
 }
@@ -65,9 +65,9 @@ pub fn rs_contract() -> &'static [u8] {
 /// enabled. So we have to build it with Rustc <= 1.69. If we need to update the
 /// contracts content, we can build it manually with an older compiler and check
 /// in the new WASM.
-pub fn base_rs_contract() -> &'static [u8] {
+pub fn backwards_compatible_rs_contract() -> &'static [u8] {
     static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
-    CONTRACT.get_or_init(|| read_contract("base_test_contract_rs.wasm")).as_slice()
+    CONTRACT.get_or_init(|| read_contract("backwards_compatible_rs_contract.wasm")).as_slice()
 }
 
 /// Standard test contract which additionally includes all host functions from
@@ -154,7 +154,7 @@ fn smoke_test() {
     assert!(!ts_contract().is_empty());
     assert!(!trivial_contract().is_empty());
     assert!(!fuzzing_contract().is_empty());
-    assert!(!base_rs_contract().is_empty());
+    assert!(!backwards_compatible_rs_contract().is_empty());
     assert!(!ft_contract().is_empty());
 }
 
@@ -238,7 +238,7 @@ pub fn arbitrary_contract(seed: u64) -> Vec<u8> {
     config.exceptions_enabled = false;
     config.saturating_float_to_int_enabled = false;
     config.sign_extension_enabled = false;
-    config.available_imports = Some(base_rs_contract().to_vec());
+    config.available_imports = Some(backwards_compatible_rs_contract().to_vec());
     let module = wasm_smith::Module::new(config, &mut arbitrary).expect("generate module");
     module.to_bytes()
 }
