@@ -61,7 +61,7 @@ fn main() {
     let mut key_sizes: HashMap<usize, usize> = HashMap::new();
     let mut value_sizes: HashMap<usize, usize> = HashMap::new();
 
-    // Iterate over key-value pairs
+    // Get iterator
     let iter = match &args.column {
         Some(col) => {
             let cf_handle = db.cf_handle(col).unwrap();
@@ -71,6 +71,7 @@ fn main() {
             db.iterator(rocksdb::IteratorMode::Start)
         }
     };
+    // Iterate over key-value pairs
     for res in iter {
         match res {
             Ok(tuple) => {
@@ -88,6 +89,7 @@ fn main() {
         }
     }
 
+    println!("Total number of pairs read {}", key_sizes.values().sum::<usize>());
     // Print out distributions
     println!("Key Size Distribution:");
     for (size, count) in key_sizes.iter() {
