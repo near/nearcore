@@ -30,10 +30,10 @@ use crate::transaction::{
     SignedTransaction, StakeAction, TransferAction,
 };
 use crate::types::{
-    AccountId, AccountWithPublicKey, Balance, BlockHeight, CompiledContractCache, EpochHeight,
-    EpochId, FunctionArgs, Gas, Nonce, NumBlocks, ShardId, StateChangeCause, StateChangeKind,
-    StateChangeValue, StateChangeWithCause, StateChangesRequest, StateRoot, StorageUsage, StoreKey,
-    StoreValue, ValidatorKickoutReason,
+    AccountId, AccountWithPublicKey, Balance, BlockHeight, EpochHeight, EpochId, FunctionArgs, Gas,
+    Nonce, NumBlocks, ShardId, StateChangeCause, StateChangeKind, StateChangeValue,
+    StateChangeWithCause, StateChangesRequest, StateRoot, StorageUsage, StoreKey, StoreValue,
+    ValidatorKickoutReason,
 };
 use crate::version::{ProtocolVersion, Version};
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -42,6 +42,7 @@ use near_crypto::{PublicKey, Signature};
 use near_fmt::{AbbrBytes, Slice};
 use near_primitives_core::config::{ActionCosts, ExtCosts, ParameterCost, VMConfig};
 use near_primitives_core::runtime::fees::Fee;
+use near_vm_errors::CompiledContractCache;
 use num_rational::Rational32;
 use serde_with::base64::Base64;
 use serde_with::serde_as;

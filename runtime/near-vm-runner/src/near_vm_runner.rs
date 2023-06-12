@@ -7,7 +7,6 @@ use crate::{get_contract_cache_key, imports};
 use memoffset::offset_of;
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_primitives::types::{CompiledContract, CompiledContractCache};
 use near_stable_hasher::StableHasher;
 use near_vm_compiler_singlepass::Singlepass;
 use near_vm_engine::{Engine, Executable};
@@ -15,7 +14,8 @@ use near_vm_engine_universal::{
     Universal, UniversalEngine, UniversalExecutable, UniversalExecutableRef,
 };
 use near_vm_errors::{
-    CacheError, CompilationError, FunctionCallError, MethodResolveError, VMRunnerError, WasmTrap,
+    CacheError, CompilationError, CompiledContract, CompiledContractCache, FunctionCallError,
+    MethodResolveError, VMRunnerError, WasmTrap,
 };
 use near_vm_logic::gas_counter::FastGasCounter;
 use near_vm_logic::types::{PromiseResult, ProtocolVersion};
