@@ -27,44 +27,40 @@ pub fn construct_trie_from_flat(store: Store, write_store: Store, shard_uid: Sha
     );
     let mut trie_root = Trie::EMPTY_ROOT;
 
-    println!("{:.2?} : Starting processing batches at time ", timer.elapsed());
     while let Some(batch) = get_batch(&mut entries) {
-        let inner_timer = Instant::now();
-
         // Apply and commit changes
-        let count = batch.len();
         let new_trie = tries.get_trie_for_shard(shard_uid, trie_root);
         let trie_changes = new_trie.update(batch).unwrap();
-
-        println!("{:.2?} : {} trie update {:.2?}", timer.elapsed(), count, inner_timer.elapsed());
-
         let mut store_update = tries.store_update();
         tries.apply_all(&trie_changes, shard_uid, &mut store_update);
         store_update.commit().unwrap();
         trie_root = trie_changes.new_root;
 
-        println!("{:.2?} : store update {:.2?}", timer.elapsed(), inner_timer.elapsed());
+        println!("{:.2?} : Processed batch", timer.elapsed());
     }
 
     println!("{:.2?} : Completed with root {}", timer.elapsed(), trie_root);
 }
 
 fn get_batch(
-    entries: &mut impl Iterator<Item = (Vec<u8>, Option<Vec<u8>>)>,
+    entry_itr: &mut impl Iterator<Item = (Vec<u8>, Option<Vec<u8>>)>,
 ) -> Option<Vec<(Vec<u8>, Option<Vec<u8>>)>> {
-    let size_limit = 250 * 1000_000; // 250 MB
+    let timer = Instant::now();
+    let size_limit = 500 * 1000_000; // 500 MB
     let mut size = 0;
-    let mut partial_entries = Vec::new();
-    while let Some(entry) = entries.next() {
+    let mut entries = Vec::new();
+    while let Some(entry) = entry_itr.next() {
         size += entry.0.len() + entry.1.as_ref().unwrap().len();
-        partial_entries.push(entry);
+        entries.push(entry);
         if size > size_limit {
             break;
         }
     }
-    if partial_entries.is_empty() {
+    println!("\tBatch len {}, count {}, time {:.2?}", size, entries.len(), timer.elapsed());
+
+    if entries.is_empty() {
         None
     } else {
-        Some(partial_entries)
+        Some(entries)
     }
 }
