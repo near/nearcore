@@ -8,9 +8,6 @@ struct Cli {
     db_path: String,
 
     #[arg(short, long)]
-    options_file_path: Option<String>,
-
-    #[arg(short, long)]
     column: Option<String>,
 
     #[arg(short, long)]
@@ -109,19 +106,4 @@ fn main() {
     };
     check_for_draw(key_sizes, "key");
     check_for_draw(value_sizes, "value");
-    /*    if key_sizes.is_empty() {*/
-    /*println!("Keys have not been read!");*/
-    /*} else {*/
-    /*if args.draw_histogram {*/
-    /*draw_histogram(&key_sizes, "Key Size Distribution", "key_sizes.svg").unwrap();*/
-    /*}*/
-    /*}*/
-
-    /*if value_sizes.is_empty() {*/
-    /*println!("Values have not been read!");*/
-    /*} else {*/
-    /*if args.draw_histogram {*/
-    /*draw_histogram(&value_sizes, "Value Size Distribution", "value_sizes.svg").unwrap();*/
-    /*}*/
-    /*}*/
 }
