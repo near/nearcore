@@ -115,7 +115,7 @@ Currently supported load types:
 For the congestion workload you will need to use the following contract:
 
 ```sh
-# This assumes your shell is are in nearcore directory
+# This assumes your shell is in nearcore directory
 CONTRACT="${PWD}/runtime/near-test-contracts/res/test_contract_rs.wasm"
 ```
 
