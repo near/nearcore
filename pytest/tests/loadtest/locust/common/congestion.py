@@ -34,9 +34,7 @@ class ComputeSha256(base.Transaction):
             "ext_sha256",
             json.dumps(["a" * self.size_bytes]).encode("utf-8"),
             300 * account.TGAS,
-            # Attach exactly 1 yoctoNEAR according to NEP-141 to avoid
-            # calls from restricted access keys.
-            1,
+            0,
             self.sender.use_nonce(),
             block_hash,
         )
@@ -64,9 +62,7 @@ class ComputeSum(base.Transaction):
             # 1000000 is around 12 TGas.
             ((1000000 * self.usage_tgas) // 12).to_bytes(8, byteorder="little"),
             300 * account.TGAS,
-            # Attach exactly 1 yoctoNEAR according to NEP-141 to avoid
-            # calls from restricted access keys.
-            1,
+            0,
             self.sender.use_nonce(),
             block_hash,
         )
