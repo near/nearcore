@@ -46,6 +46,7 @@ fn main() {
     // Set db options
     let mut opts = Options::default();
     opts.create_if_missing(true);
+    opts.set_max_open_files(10_000);
 
     // Open the RocksDB database
     let db = match &args.column {
@@ -60,9 +61,17 @@ fn main() {
     let mut key_sizes: HashMap<usize, usize> = HashMap::new();
     let mut value_sizes: HashMap<usize, usize> = HashMap::new();
 
-    // Iterate over all key-value pairs
-    let cf_handle = db.cf_handle(&args.column.unwrap()).unwrap();
-    for res in db.iterator_cf(&cf_handle, rocksdb::IteratorMode::Start) {
+    // Iterate over key-value pairs
+    let iter = match &args.column {
+        Some(col) => {
+            let cf_handle = db.cf_handle(col).unwrap();
+            db.iterator_cf(&cf_handle, rocksdb::IteratorMode::Start)
+        },
+        None => {
+            db.iterator(rocksdb::IteratorMode::Start)
+        }
+    };
+    for res in iter {
         match res {
             Ok(tuple) => {
                 // Count key sizes
