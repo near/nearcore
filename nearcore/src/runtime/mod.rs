@@ -52,8 +52,8 @@ use near_store::metadata::DbKind;
 use near_store::split_state::get_delayed_receipts;
 use near_store::{
     get_genesis_hash, get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots,
-    ApplyStatePartResult, DBCol, PartialStorage, ShardTries, StateSnapshotConfig, Store,
-    StoreCompiledContractCache, StoreUpdate, Trie, TrieConfig, WrappedTrieChanges, COLD_HEAD_KEY,
+    ApplyStatePartResult, DBCol, PartialStorage, ShardTries, Store, StoreCompiledContractCache,
+    StoreUpdate, Trie, TrieConfig, WrappedTrieChanges, COLD_HEAD_KEY,
 };
 use near_vm_runner::precompile_contract;
 use node_runtime::adapter::ViewRuntimeAdapter;
@@ -66,7 +66,7 @@ use node_runtime::{
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 use tracing::{debug, error, info, warn};
@@ -100,15 +100,6 @@ impl NightshadeRuntime {
         config: &NearConfig,
         epoch_manager: Arc<EpochManagerHandle>,
     ) -> Arc<Self> {
-        let state_snapshot_config = if config.config.store.state_snapshot_enabled {
-            StateSnapshotConfig::Enabled {
-                home_dir: home_dir.to_path_buf(),
-                hot_store_path: config.config.store.path.clone().unwrap_or(PathBuf::from("data")),
-                state_snapshot_subdir: PathBuf::from("state_snapshot"),
-            }
-        } else {
-            StateSnapshotConfig::Disabled
-        };
         Self::new(
             home_dir,
             store,
@@ -119,7 +110,6 @@ impl NightshadeRuntime {
             None,
             config.config.gc.gc_num_epochs_to_keep(),
             TrieConfig::from_store_config(&config.config.store),
-            state_snapshot_config,
         )
     }
 
@@ -133,7 +123,6 @@ impl NightshadeRuntime {
         runtime_config_store: Option<RuntimeConfigStore>,
         gc_num_epochs_to_keep: u64,
         trie_config: TrieConfig,
-        state_snapshot_config: StateSnapshotConfig,
     ) -> Arc<Self> {
         let runtime_config_store = match runtime_config_store {
             Some(store) => store,
@@ -153,12 +142,11 @@ impl NightshadeRuntime {
         let state_roots =
             Self::initialize_genesis_state_if_needed(store.clone(), home_dir, genesis);
         let flat_storage_manager = FlatStorageManager::new(store.clone());
-        let tries = ShardTries::new_with_state_snapshot(
+        let tries = ShardTries::new(
             store.clone(),
             trie_config,
             &genesis_config.shard_layout.get_shard_uids(),
             flat_storage_manager.clone(),
-            state_snapshot_config,
         );
         Arc::new(NightshadeRuntime {
             genesis_config,
@@ -192,11 +180,6 @@ impl NightshadeRuntime {
             Some(runtime_config_store),
             DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
             Default::default(),
-            StateSnapshotConfig::Enabled {
-                home_dir: home_dir.to_path_buf(),
-                hot_store_path: PathBuf::from("data"),
-                state_snapshot_subdir: PathBuf::from("state_snapshot"),
-            },
         )
     }
 
@@ -672,10 +655,49 @@ impl NightshadeRuntime {
         let cold_head = self.store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY)?;
 
         if let (Some(DbKind::Hot), Some(cold_head)) = (kind, cold_head) {
-            let cold_head_height = cold_head.height;
-            return Ok(std::cmp::min(epoch_start_height, cold_head_height + 1));
+            let cold_head_hash = cold_head.last_block_hash;
+            let cold_epoch_first_block =
+                *epoch_manager.get_block_info(&cold_head_hash)?.epoch_first_block();
+            let cold_epoch_first_block_info =
+                epoch_manager.get_block_info(&cold_epoch_first_block)?;
+            return Ok(std::cmp::min(epoch_start_height, cold_epoch_first_block_info.height()));
         }
         Ok(epoch_start_height)
+    }
+
+    fn obtain_state_part_impl(
+        &self,
+        shard_id: ShardId,
+        prev_hash: &CryptoHash,
+        state_root: &StateRoot,
+        part_id: PartId,
+    ) -> Result<Vec<u8>, Error> {
+        let _span = tracing::debug_span!(
+            target: "runtime",
+            "obtain_state_part",
+            part_id = part_id.idx,
+            shard_id,
+            %prev_hash,
+            num_parts = part_id.total)
+        .entered();
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
+        let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
+        let trie =
+            self.tries.get_trie_with_block_hash_for_shard(shard_uid, *state_root, &prev_hash, true);
+        let result = match trie.get_trie_nodes_for_part(prev_hash, part_id) {
+            Ok(partial_state) => partial_state,
+            Err(e) => {
+                error!(target: "runtime",
+                    "Can't get trie nodes for state part {}/{} for prev hash \
+                    {prev_hash} and state root {state_root}: {:?}",
+                    part_id.idx, part_id.total, e
+                );
+                return Err(e.into());
+            }
+        }
+        .try_to_vec()
+        .expect("serializer should not fail");
+        Ok(result)
     }
 }
 
@@ -897,7 +919,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         match result {
             Ok(gc_stop_height) => gc_stop_height,
             Err(error) => {
-                error!(target: "runtime", "Error when getting the gc stop height. Error: {}", error);
+                error!(target: "runtime", "Error when getting the gc stop height. This error may naturally occur after the gc_num_epochs_to_keep config is increased. It should disappear as soon as the node builds up all epochs it wants. Error: {}", error);
                 self.genesis_config.genesis_height
             }
         }
@@ -1177,6 +1199,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
+    // Wrapper to get the metrics.
     fn obtain_state_part(
         &self,
         shard_id: ShardId,
@@ -1190,45 +1213,16 @@ impl RuntimeAdapter for NightshadeRuntime {
             part_id = part_id.idx,
             shard_id,
             %prev_hash,
-            ?state_root,
             num_parts = part_id.total)
         .entered();
-        tracing::debug!(target: "state-parts", ?shard_id, ?prev_hash, ?state_root, ?part_id, "obtain_state_part");
-        let _timer = metrics::STATE_SYNC_OBTAIN_PART_DELAY
-            .with_label_values(&[&shard_id.to_string()])
-            .start_timer();
-
-        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
-        let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
-
-        let trie_with_state =
-            self.tries.get_trie_with_block_hash_for_shard(shard_uid, *state_root, &prev_hash, true);
-        let (partial_state, nibbles_begin, nibbles_end) = match trie_with_state
-            .get_state_part_boundaries(part_id)
-        {
-            Ok(res) => res,
-            Err(err) => {
-                error!(target: "runtime", ?err, part_id.idx, part_id.total, %prev_hash, %state_root, %shard_id, "Can't get trie nodes for state part boundaries");
-                return Err(err.into());
-            }
-        };
-
-        // TODO: Make it impossible for the snapshot data to be deleted while the snapshot is in use.
-        let snapshot_trie = self
-            .tries
-            .get_trie_with_block_hash_for_shard_from_snapshot(shard_uid, *state_root, &prev_hash)
-            .map_err(|err| Error::Other(err.to_string()))?;
-        let state_part = match snapshot_trie.get_trie_nodes_for_part_with_flat_storage(part_id, partial_state, nibbles_begin, nibbles_end, trie_with_state.storage.clone()) {
-            Ok(partial_state) => partial_state,
-            Err(err) => {
-                error!(target: "runtime", ?err, part_id.idx, part_id.total, %prev_hash, %state_root, %shard_id, "Can't get trie nodes for state part");
-                return Err(err.into());
-            }
-        }
-        .try_to_vec()
-        .expect("serializer should not fail");
-
-        Ok(state_part)
+        let instant = Instant::now();
+        let res = self.obtain_state_part_impl(shard_id, prev_hash, state_root, part_id);
+        let elapsed = instant.elapsed();
+        let is_ok = if res.is_ok() { "ok" } else { "error" };
+        metrics::STATE_SYNC_OBTAIN_PART_DELAY
+            .with_label_values(&[&shard_id.to_string(), is_ok])
+            .observe(elapsed.as_secs_f64());
+        res
     }
 
     fn validate_state_part(&self, state_root: &StateRoot, part_id: PartId, data: &[u8]) -> bool {
@@ -1694,13 +1688,8 @@ mod test {
                 Some(RuntimeConfigStore::free()),
                 DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
                 Default::default(),
-                StateSnapshotConfig::Enabled {
-                    home_dir: PathBuf::from(dir.path()),
-                    hot_store_path: PathBuf::from("data"),
-                    state_snapshot_subdir: PathBuf::from("state_snapshot"),
-                },
             );
-            let (_store, state_roots) = runtime.genesis_state();
+            let (store, state_roots) = runtime.genesis_state();
             let genesis_hash = hash(&[0]);
 
             // Create flat storage. Naturally it happens on Chain creation, but here we test only Runtime behaviour

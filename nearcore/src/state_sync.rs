@@ -182,7 +182,7 @@ fn get_current_state(
     epoch_manager: Arc<dyn EpochManagerAdapter>,
 ) -> Result<Option<(EpochId, EpochHeight, CryptoHash)>, Error> {
     let was_last_epoch_dumped = match chain.store().get_state_sync_dump_progress(*shard_id) {
-        Ok(Some(StateSyncDumpProgress::AllDumped { epoch_id, epoch_height: _ })) => Some(epoch_id),
+        Ok(Some(StateSyncDumpProgress::AllDumped { epoch_id, .. })) => Some(epoch_id),
         _ => None,
     };
 
@@ -210,6 +210,8 @@ fn get_current_state(
         }
     }
 }
+
+const FAILURES_ALLOWED_PER_ITERATION: u32 = 10;
 
 async fn state_sync_dump(
     shard_id: ShardId,
@@ -291,7 +293,7 @@ async fn state_sync_dump(
                                     && timer.elapsed().as_secs()
                                         <= STATE_DUMP_ITERATION_TIME_LIMIT_SECS
                                     && !parts_to_dump.is_empty()
-                                    && failures_cnt < 1
+                                    && failures_cnt < FAILURES_ALLOWED_PER_ITERATION
                                 {
                                     let _timer = metrics::STATE_SYNC_DUMP_ITERATION_ELAPSED
                                         .with_label_values(&[&shard_id.to_string()])
@@ -344,7 +346,11 @@ async fn state_sync_dump(
                                         &shard_id,
                                         epoch_height,
                                         Some(state_part.len()),
-                                        num_parts.checked_sub(parts_to_dump.len() as u64).unwrap(),
+                                        num_parts
+                                            .checked_sub(
+                                                parts_to_dump.len().checked_add(1).unwrap() as u64,
+                                            )
+                                            .unwrap(),
                                         num_parts,
                                     );
                                     dumped_any_state_part = true;
