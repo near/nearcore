@@ -1,7 +1,7 @@
 use clap::Parser;
 use plotters::prelude::*;
-use rocksdb::{Cache, Env, Options, DB};
-use std::{collections::HashMap, panic};
+use rocksdb::{Options, DB};
+use std::collections::HashMap;
 
 #[derive(Parser)]
 struct Cli {
@@ -47,20 +47,7 @@ fn main() {
     let args = Cli::parse();
 
     // Set db options
-    let env = Env::new().unwrap();
-    let cache = Cache::new_lru_cache(536900000); // 512 MiB
-    let mut opts = match args.options_file_path {
-        Some(opts_file) => {
-            let opts_res = Options::load_latest(opts_file, env, true, cache);
-            match opts_res {
-                Ok(opts) => opts.0,
-                Err(err) => {
-                    panic!("Error occured on loading options: {}", err);
-                }
-            }
-        }
-        None => Options::default(),
-    };
+    let mut opts = Options::default();
     opts.create_if_missing(true);
 
     // Open the RocksDB database
