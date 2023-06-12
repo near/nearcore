@@ -501,16 +501,52 @@ impl RocksDBStatsCmd {
     }
 }
 
-#[derive(clap::Parser)]
+#[derive(clap::Parser, Debug)]
 pub struct ScanDbColumnCmd {
     /// Column name, e.g. 'Block' or 'BlockHeader'.
     #[clap(long)]
     column: String,
+    #[clap(long)]
+    from: Option<String>,
+    // List of comma-separated u8-values.
+    #[clap(long)]
+    from_bytes: Option<String>,
+    #[clap(long)]
+    to: Option<String>,
+    // List of comma-separated u8-values.
+    #[clap(long)]
+    to_bytes: Option<String>,
+    #[clap(long)]
+    max_keys: Option<usize>,
+    #[clap(long, default_value = "false")]
+    no_value: bool,
 }
 
 impl ScanDbColumnCmd {
     pub fn run(self, store: Store) {
-        crate::scan_db::scan_db_column(&self.column, store)
+        let lower_bound = Self::prefix(self.from, self.from_bytes);
+        let upper_bound = Self::prefix(self.to, self.to_bytes);
+        crate::scan_db::scan_db_column(
+            &self.column,
+            lower_bound.as_deref().map(|v| v.as_ref()),
+            upper_bound.as_deref().map(|v| v.as_ref()),
+            self.max_keys,
+            self.no_value,
+            store,
+        )
+    }
+
+    fn prefix(s: Option<String>, bytes: Option<String>) -> Option<Vec<u8>> {
+        match (s, bytes) {
+            (None, None) => None,
+            (Some(s), None) => Some(s.into_bytes()),
+            (None, Some(bytes)) => {
+                Some(bytes.split(",").map(|s| s.parse::<u8>().unwrap()).collect::<Vec<u8>>())
+            }
+            (Some(_), Some(_)) => {
+                panic!("Provided both a Vec and a String as a prefix")
+            }
+        }
     }
 }
 
