@@ -486,6 +486,8 @@ impl Inner {
     ///
     /// This function checks `peer_routes` for any DistanceVectors containing
     /// expired edges. Any such DistanceVectors are removed in their entirety.
+    ///
+    /// Also removes old edges from `local_edges` and from the EdgeCache.
     fn prune_expired_peer_routes(&mut self, clock: &time::Clock) {
         if let Some(prune_edges_after) = self.config.prune_edges_after {
             let prune_nonces_older_than =
@@ -506,6 +508,8 @@ impl Inner {
             for peer_id in &peers_to_remove {
                 self.remove_direct_peer(peer_id);
             }
+
+            self.local_edges.retain(|_, edge| edge.nonce() >= prune_nonces_older_than);
 
             self.edge_cache.prune_old_edges(prune_nonces_older_than);
         }

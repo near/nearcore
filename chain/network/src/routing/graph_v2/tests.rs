@@ -314,6 +314,45 @@ async fn test_process_network_event() {
 }
 
 #[tokio::test]
+async fn test_process_network_event_idempotent() {
+    let node0 = random_peer_id();
+    let node1 = random_peer_id();
+
+    let graph =
+        Arc::new(GraphV2::new(GraphConfigV2 { node_id: node0.clone(), prune_edges_after: None }));
+
+    let edge0 = Edge::make_fake_edge(node0.clone(), node1.clone(), 123);
+
+    // Process a new connection 0--1
+    let distance_vector_update = graph
+        .process_network_event(NetworkTopologyChange::PeerConnected(node1.clone(), edge0.clone()))
+        .await
+        .unwrap();
+    graph.verify_own_distance_vector(
+        HashMap::from([(node0.clone(), 0), (node1.clone(), 1)]),
+        &distance_vector_update,
+    );
+    // Process the same event without error
+    let distance_vector_update = graph
+        .process_network_event(NetworkTopologyChange::PeerConnected(node1.clone(), edge0.clone()))
+        .await;
+    // This update doesn't trigger a broadcast because node0's available routes haven't changed
+    assert_eq!(None, distance_vector_update);
+
+    // Process disconnection of node1
+    let distance_vector_update = graph
+        .process_network_event(NetworkTopologyChange::PeerDisconnected(node1.clone()))
+        .await
+        .unwrap();
+    graph.verify_own_distance_vector(HashMap::from([(node0.clone(), 0)]), &distance_vector_update);
+    // Process the same event without error
+    let distance_vector_update =
+        graph.process_network_event(NetworkTopologyChange::PeerDisconnected(node1.clone())).await;
+    // This update doesn't trigger a broadcast because node0's available routes haven't changed
+    assert_eq!(None, distance_vector_update);
+}
+
+#[tokio::test]
 async fn test_receive_distance_vector_before_processing_local_connection() {
     let node0 = random_peer_id();
     let node1 = random_peer_id();
@@ -406,7 +445,7 @@ async fn test_receive_invalid_distance_vector() {
 }
 
 #[tokio::test]
-async fn test_receive_distance_vector_without_local_node() {
+async fn receive_distance_vector_without_route_to_local_node() {
     let node0 = random_peer_id();
     let node1 = random_peer_id();
     let node2 = random_peer_id();

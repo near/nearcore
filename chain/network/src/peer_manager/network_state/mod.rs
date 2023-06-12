@@ -679,7 +679,6 @@ impl NetworkState {
     /// Try to resolve the inconsistency.
     /// We call this function every FIX_LOCAL_EDGES_INTERVAL from peer_manager_actor.rs.
     pub async fn fix_local_edges(self: &Arc<Self>, clock: &time::Clock, timeout: time::Duration) {
-        // TODO: This just operates on graph. Do something similar for graph_v2.
         let this = self.clone();
         let clock = clock.clone();
         self.spawn(async move {
@@ -739,6 +738,27 @@ impl NetworkState {
                     // OK
                     _ => {}
                 }
+            }
+            for t in tasks {
+                let _ = t.await;
+            }
+
+            // Now that `graph` has been synchronized with the state of the local connections,
+            // use it as the source of truth to fix the local state in `graph_v2`
+            let mut tasks = vec![];
+            let node_id = this.config.node_id();
+            for edge in graph.local_edges.values() {
+                let other_peer = edge.other(&node_id).unwrap();
+                tasks.push(match edge.edge_type() {
+                    EdgeState::Active => this.update_routes(
+                        &clock,
+                        NetworkTopologyChange::PeerConnected(other_peer.clone(), edge.clone()),
+                    ),
+                    EdgeState::Removed => this.update_routes(
+                        &clock,
+                        NetworkTopologyChange::PeerDisconnected(other_peer.clone()),
+                    ),
+                });
             }
             for t in tasks {
                 let _ = t.await;
