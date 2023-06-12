@@ -449,7 +449,7 @@ mod test {
             "test0".parse().unwrap(),
             &signer0,
             vec![Action::DeployContract(DeployContractAction {
-                code: near_test_contracts::base_rs_contract().to_vec(),
+                code: near_test_contracts::backwards_compatible_rs_contract().to_vec(),
             })],
             genesis_hash,
         );

@@ -17,6 +17,7 @@ strum.workspace = true
 thiserror.workspace = true
 
 near-account-id.workspace = true
+near-primitives-core.workspace = true
 near-rpc-error-macro.workspace = true
 
 [features]
