@@ -23,15 +23,15 @@ use near_primitives::{
 };
 use num_rational::Rational32;
 use serde::de::{self, DeserializeSeed, IgnoredAny, MapAccess, SeqAccess, Visitor};
-use serde::{Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Serializer;
 use sha2::digest::Digest;
 use smart_default::SmartDefault;
 use std::collections::HashSet;
+use std::fmt;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
-use std::{fmt, io};
 use tracing::warn;
 
 const MAX_GAS_PRICE: Balance = 10_000_000_000_000_000_000_000;
@@ -234,20 +234,59 @@ impl From<&GenesisConfig> for AllEpochConfig {
 )]
 pub struct GenesisRecords(pub Vec<StateRecord>);
 
-/// `Genesis` has an invariant that `total_supply` is equal to the supply seen in the records.
-/// However, we can't enfore that invariant. All fields are public, but the clients are expected to
-/// use the provided methods for instantiation, serialization and deserialization.
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
-pub struct Genesis {
-    #[serde(flatten)]
-    pub config: GenesisConfig,
-    records: GenesisRecords,
+/// custom deserializer that does *almost the same thing that #[serde(default)] would do --
+/// if no value is provided in json, returns default value.
+/// * Here if `null` is provided as value in JSON, default value will be returned,
+/// while in serde default implementation that scenario wouldn't parse.
+fn no_value_and_null_as_default<'de, D, T>(de: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de> + Default,
+{
+    let opt = Option::<T>::deserialize(de)?;
+    match opt {
+        None => Ok(T::default()),
+        Some(value) => Ok(value),
+    }
+}
+
+#[derive(Debug, Clone, SmartDefault, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum GenesisContents {
+    /// Records in storage at genesis (get split into shards at genesis creation).
+    #[default]
+    Records { records: GenesisRecords },
     /// Genesis object may not contain records.
     /// In this case records can be found in records_file.
     /// The idea is that all records consume too much memory,
     /// so they should be processed in streaming fashion with for_each_record.
-    #[serde(skip)]
-    records_file: PathBuf,
+    RecordsFile { records_file: PathBuf },
+}
+
+fn contents_are_not_records(contents: &GenesisContents) -> bool {
+    match contents {
+        GenesisContents::Records { .. } => false,
+        _ => true,
+    }
+}
+
+/// `Genesis` has an invariant that `total_supply` is equal to the supply seen in the records.
+/// However, we can't enforce that invariant. All fields are public, but the clients are expected to
+/// use the provided methods for instantiation, serialization and deserialization.
+/// Refer to `test_loading_localnet_genesis` to see an example of serialized Genesis JSON.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct Genesis {
+    #[serde(flatten)]
+    pub config: GenesisConfig,
+    /// Custom deserializer used instead of serde(default),
+    /// because serde(flatten) doesn't work with default for some reason
+    /// The corresponding issue has been open since 2019, so any day now.
+    #[serde(
+        flatten,
+        deserialize_with = "no_value_and_null_as_default",
+        skip_serializing_if = "contents_are_not_records"
+    )]
+    pub contents: GenesisContents,
 }
 
 impl GenesisConfig {
@@ -491,7 +530,8 @@ impl Genesis {
                 }
             })?;
 
-        Self::new_validated(genesis.config, genesis.records, genesis_validation)
+        genesis.validate(genesis_validation)?;
+        Ok(genesis)
     }
 
     /// Reads Genesis from config and records files.
@@ -516,7 +556,7 @@ impl Genesis {
         records: GenesisRecords,
         genesis_validation: GenesisValidationMode,
     ) -> Result<Self, ValidationError> {
-        let genesis = Self { config, records, records_file: PathBuf::new() };
+        let genesis = Self { config, contents: GenesisContents::Records { records } };
         genesis.validate(genesis_validation)?;
         Ok(genesis)
     }
@@ -528,8 +568,9 @@ impl Genesis {
     ) -> Result<Self, ValidationError> {
         let genesis = Self {
             config,
-            records: GenesisRecords(vec![]),
-            records_file: records_file.as_ref().to_path_buf(),
+            contents: GenesisContents::RecordsFile {
+                records_file: records_file.as_ref().to_path_buf(),
+            },
         };
         genesis.validate(genesis_validation)?;
         Ok(genesis)
@@ -565,31 +606,32 @@ impl Genesis {
         hasher.finalize()
     }
 
-    fn stream_records_with_callback(&self, callback: impl FnMut(StateRecord)) -> io::Result<()> {
-        let reader = BufReader::new(File::open(&self.records_file)?);
-        stream_records_from_file(reader, callback).map_err(io::Error::from)
-    }
-
     /// Returns number of records in the genesis or path to records file.
     pub fn records_len(&self) -> Result<usize, &Path> {
-        match self.records.0.len() {
-            0 => Err(&self.records_file),
-            n => Ok(n),
+        match &self.contents {
+            GenesisContents::Records { records } => Ok(records.0.len()),
+            GenesisContents::RecordsFile { records_file } => Err(&records_file),
         }
     }
 
     /// If records vector is empty processes records stream from records_file.
     /// May panic if records_file is removed or is in wrong format.
     pub fn for_each_record(&self, mut callback: impl FnMut(&StateRecord)) {
-        if self.records.as_ref().is_empty() {
-            let callback_move = |record: StateRecord| {
-                callback(&record);
-            };
-            self.stream_records_with_callback(callback_move)
-                .expect("error while streaming records");
-        } else {
-            for record in self.records.as_ref() {
-                callback(record);
+        match &self.contents {
+            GenesisContents::Records { records } => {
+                for record in &records.0 {
+                    callback(record);
+                }
+            }
+            GenesisContents::RecordsFile { records_file } => {
+                let callback_move = |record: StateRecord| {
+                    callback(&record);
+                };
+                let reader = BufReader::new(
+                    File::open(&records_file).expect("error while opening records file"),
+                );
+                stream_records_from_file(reader, callback_move)
+                    .expect("error while streaming records");
             }
         }
     }
@@ -603,10 +645,19 @@ impl Genesis {
     /// them.  Otherwise, reads them from `records_file`, stores them in memory
     /// and then returns mutable reference to them.
     pub fn force_read_records(&mut self) -> &mut GenesisRecords {
-        if self.records.as_ref().is_empty() {
-            self.records = GenesisRecords::from_file(&self.records_file);
+        match &self.contents {
+            GenesisContents::RecordsFile { records_file } => {
+                self.contents =
+                    GenesisContents::Records { records: GenesisRecords::from_file(records_file) };
+            }
+            GenesisContents::Records { .. } => {}
         }
-        &mut self.records
+        match &mut self.contents {
+            GenesisContents::Records { records } => records,
+            _ => {
+                unreachable!("Records should have been set previously");
+            }
+        }
     }
 }
 
@@ -753,6 +804,7 @@ pub fn get_initial_supply(records: &[StateRecord]) -> Balance {
 #[cfg(test)]
 mod test {
     use crate::genesis_config::RecordsProcessor;
+    use crate::{Genesis, GenesisValidationMode};
     use near_primitives::state_record::StateRecord;
     use serde::Deserializer;
 
@@ -901,5 +953,208 @@ mod test {
             ]
         }"#;
         stream_records_from_json_str(genesis).expect("error reading records from genesis");
+    }
+
+    #[test]
+    fn test_loading_localnet_genesis() {
+        let genesis_str = r#"{
+              "protocol_version": 57,
+              "genesis_time": "2022-11-15T05:17:59.578706Z",
+              "chain_id": "localnet",
+              "genesis_height": 0,
+              "num_block_producer_seats": 50,
+              "num_block_producer_seats_per_shard": [
+                50
+              ],
+              "avg_hidden_validator_seats_per_shard": [
+                0
+              ],
+              "dynamic_resharding": false,
+              "protocol_upgrade_stake_threshold": [
+                4,
+                5
+              ],
+              "protocol_upgrade_num_epochs": 2,
+              "epoch_length": 60,
+              "gas_limit": 1000000000000000,
+              "min_gas_price": "100000000",
+              "max_gas_price": "10000000000000000000000",
+              "block_producer_kickout_threshold": 90,
+              "chunk_producer_kickout_threshold": 90,
+              "online_min_threshold": [
+                9,
+                10
+              ],
+              "online_max_threshold": [
+                99,
+                100
+              ],
+              "gas_price_adjustment_rate": [
+                1,
+                100
+              ],
+              "validators": [
+                {
+                  "account_id": "test.near",
+                  "public_key": "ed25519:Gc4yTakj3QVm5T9XpsFNooVKBxXcYnhnuQdGMXf5Hjcf",
+                  "amount": "50000000000000000000000000000000"
+                }
+              ],
+              "transaction_validity_period": 100,
+              "protocol_reward_rate": [
+                1,
+                10
+              ],
+              "max_inflation_rate": [
+                1,
+                20
+              ],
+              "total_supply": "2050000000000000000000000000000000",
+              "num_blocks_per_year": 31536000,
+              "protocol_treasury_account": "test.near",
+              "fishermen_threshold": "10000000000000000000000000",
+              "minimum_stake_divisor": 10,
+              "shard_layout": {
+                "V0": {
+                  "num_shards": 1,
+                  "version": 0
+                }
+              },
+              "num_chunk_only_producer_seats": 300,
+              "minimum_validators_per_shard": 1,
+              "max_kickout_stake_perc": 100,
+              "minimum_stake_ratio": [
+                1,
+                6250
+              ],
+              "use_production_config": false,
+              "records": [
+                {
+                  "Account": {
+                    "account_id": "test.near",
+                    "account": {
+                      "amount": "1000000000000000000000000000000000",
+                      "locked": "50000000000000000000000000000000",
+                      "code_hash": "11111111111111111111111111111111",
+                      "storage_usage": 0,
+                      "version": "V1"
+                    }
+                  }
+                },
+                {
+                  "AccessKey": {
+                    "account_id": "test.near",
+                    "public_key": "ed25519:Gc4yTakj3QVm5T9XpsFNooVKBxXcYnhnuQdGMXf5Hjcf",
+                    "access_key": {
+                      "nonce": 0,
+                      "permission": "FullAccess"
+                    }
+                  }
+                },
+                {
+                  "Account": {
+                    "account_id": "near",
+                    "account": {
+                      "amount": "1000000000000000000000000000000000",
+                      "locked": "0",
+                      "code_hash": "11111111111111111111111111111111",
+                      "storage_usage": 0,
+                      "version": "V1"
+                    }
+                  }
+                },
+                {
+                  "AccessKey": {
+                    "account_id": "near",
+                    "public_key": "ed25519:546XB2oHhj7PzUKHiH9Xve3Ze5q1JiW2WTh6abXFED3c",
+                    "access_key": {
+                      "nonce": 0,
+                      "permission": "FullAccess"
+                    }
+                  }
+                }
+              ]
+        }"#;
+        let genesis =
+            serde_json::from_str::<Genesis>(&genesis_str).expect("Failed to deserialize Genesis");
+        genesis.validate(GenesisValidationMode::Full).expect("Failed to validate Genesis");
+    }
+
+    #[test]
+    fn test_loading_localnet_genesis_without_records() {
+        let genesis_str = r#"{
+              "protocol_version": 57,
+              "genesis_time": "2022-11-15T05:17:59.578706Z",
+              "chain_id": "localnet",
+              "genesis_height": 0,
+              "num_block_producer_seats": 50,
+              "num_block_producer_seats_per_shard": [
+                50
+              ],
+              "avg_hidden_validator_seats_per_shard": [
+                0
+              ],
+              "dynamic_resharding": false,
+              "protocol_upgrade_stake_threshold": [
+                4,
+                5
+              ],
+              "protocol_upgrade_num_epochs": 2,
+              "epoch_length": 60,
+              "gas_limit": 1000000000000000,
+              "min_gas_price": "100000000",
+              "max_gas_price": "10000000000000000000000",
+              "block_producer_kickout_threshold": 90,
+              "chunk_producer_kickout_threshold": 90,
+              "online_min_threshold": [
+                9,
+                10
+              ],
+              "online_max_threshold": [
+                99,
+                100
+              ],
+              "gas_price_adjustment_rate": [
+                1,
+                100
+              ],
+              "validators": [
+                {
+                  "account_id": "test.near",
+                  "public_key": "ed25519:Gc4yTakj3QVm5T9XpsFNooVKBxXcYnhnuQdGMXf5Hjcf",
+                  "amount": "50000000000000000000000000000000"
+                }
+              ],
+              "transaction_validity_period": 100,
+              "protocol_reward_rate": [
+                1,
+                10
+              ],
+              "max_inflation_rate": [
+                1,
+                20
+              ],
+              "total_supply": "2050000000000000000000000000000000",
+              "num_blocks_per_year": 31536000,
+              "protocol_treasury_account": "test.near",
+              "fishermen_threshold": "10000000000000000000000000",
+              "minimum_stake_divisor": 10,
+              "shard_layout": {
+                "V0": {
+                  "num_shards": 1,
+                  "version": 0
+                }
+              },
+              "num_chunk_only_producer_seats": 300,
+              "minimum_validators_per_shard": 1,
+              "max_kickout_stake_perc": 100,
+              "minimum_stake_ratio": [
+                1,
+                6250
+              ],
+              "use_production_config": false
+        }"#;
+        let _genesis =
+            serde_json::from_str::<Genesis>(&genesis_str).expect("Failed to deserialize Genesis");
     }
 }
