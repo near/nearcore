@@ -56,6 +56,15 @@ pub fn rs_contract() -> &'static [u8] {
 /// This is useful for tests that use a specific protocol version rather then
 /// just the latest one. In particular, protocol upgrade tests should use this
 /// function rather than [`rs_contract`].
+///
+/// Note: Unlike other contracts, this is not automatically build from source
+/// but instead a WASM in checked into source control. To serve the oldest
+/// protocol version, we need a WASM that does not contain instructions beyond
+/// the WASM MVP. Rustc >=1.70 uses LLVM with the [sign
+/// extension](https://github.com/WebAssembly/spec/blob/main/proposals/sign-extension-ops/Overview.md)
+/// enabled. So we have to build it with Rustc <= 1.69. If we need to update the
+/// contracts content, we can build it manually with an older compiler and check
+/// in the new WASM.
 pub fn base_rs_contract() -> &'static [u8] {
     static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
     CONTRACT.get_or_init(|| read_contract("base_test_contract_rs.wasm")).as_slice()
