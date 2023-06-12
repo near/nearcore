@@ -218,19 +218,12 @@ impl<'a> PoolIterator for PoolIteratorWrapper<'a> {
             self.pool.last_used_key = key;
             let mut transactions =
                 self.pool.transactions.remove(&key).expect("just checked existence");
-            // See the comment in `insert_transaction` above where we increase the size for
-            // reasoning why panicing here catches a logic error.
-            self.pool.total_transaction_size = self
-                .pool
-                .total_transaction_size
-                .checked_sub(transactions.iter().map(|tx| tx.get_size()).sum())
-                .expect("Total transaction size dropped below zero");
-            metrics::TRANSACTION_POOL_SIZE.set(self.pool.transaction_size() as i64);
             transactions.sort_by_key(|st| std::cmp::Reverse(st.transaction.nonce));
             self.sorted_groups.push_back(TransactionGroup {
                 key,
                 transactions,
                 removed_transaction_hashes: vec![],
+                removed_transaction_size: 0,
             });
             Some(self.sorted_groups.back_mut().expect("just pushed"))
         } else {
@@ -260,14 +253,15 @@ impl<'a> Drop for PoolIteratorWrapper<'a> {
             for hash in group.removed_transaction_hashes {
                 self.pool.unique_transactions.remove(&hash);
             }
+            // See the comment in `insert_transaction` where we increase the size for reasoning
+            // why panicing here catches a logic error.
+            self.pool.total_transaction_size = self
+                .pool
+                .total_transaction_size
+                .checked_sub(group.removed_transaction_size)
+                .expect("Total transaction size dropped below zero");
+
             if !group.transactions.is_empty() {
-                // See the comment in `insert_transaction` where we increase the size for reasoning
-                // why panicing here catches a logic error.
-                self.pool.total_transaction_size = self
-                    .pool
-                    .total_transaction_size
-                    .checked_add(group.transactions.iter().map(|tx| tx.get_size()).sum())
-                    .expect("Total transaction size is too large");
                 self.pool.transactions.insert(group.key, group.transactions);
             }
         }
