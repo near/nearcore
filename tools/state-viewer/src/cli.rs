@@ -149,9 +149,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::StateParts(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ViewChain(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::ViewTrie(cmd) => cmd.run(store),
-            StateViewerSubCommand::TrieIterationBenchmark(cmd) => {
-                cmd.run(home_dir, near_config, store)
-            }
+            StateViewerSubCommand::TrieIterationBenchmark(cmd) => cmd.run(near_config, store),
         }
     }
 }
