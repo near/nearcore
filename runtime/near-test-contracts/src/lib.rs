@@ -56,7 +56,7 @@ pub fn rs_contract() -> &'static [u8] {
 /// This is useful for tests that use a specific protocol version rather then
 /// just the latest one. In particular, protocol upgrade tests should use this
 /// function rather than [`rs_contract`].
-/// 
+///
 /// Note: Unlike other contracts, this is not automatically build from source
 /// but instead a WASM in checked into source control. To serve the oldest
 /// protocol version, we need a WASM that does not contain instructions beyond
