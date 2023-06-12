@@ -73,7 +73,7 @@ That's why we cannot move it column 'in trie parts' (like we did for others), bu
 
 ## What should we improve to achieve 'stressless' resharding?
 
-Currently trie is split sequencially (shard by shard), and also sequancially within a shard - by iterating over all the elements. 
+Currently trie is split sequentially (shard by shard), and also sequentially within a shard - by iterating over all the elements. 
 
 This process must finish within a single epoch - which is might be challenging (especially for larger archival nodes).
 
