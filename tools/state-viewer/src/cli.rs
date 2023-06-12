@@ -509,7 +509,8 @@ pub struct ScanDbColumnCmd {
     #[clap(long)]
     to: Option<String>,
     // List of comma-separated u8-values.
-    // For example to scan starting from ShardUId s2.v1 use `--from-bytes 1,0,0,0,2,0,0,0`
+    // For example, if a column key starts wth ShardUId and you want to scan starting from s2.v1 use `--from-bytes 1,0,0,0,2,0,0,0`.
+    // Note that the numbers are generally saved as low-endan.
     #[clap(long)]
     to_bytes: Option<String>,
     #[clap(long)]
