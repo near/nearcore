@@ -10,3 +10,4 @@ pub mod profile;
 pub mod runtime;
 pub mod serialize;
 pub mod types;
+pub mod version;
