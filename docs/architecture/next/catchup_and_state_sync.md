@@ -18,7 +18,7 @@ As we progress towards phase 2 and keep increasing number of shards - the catchu
 This means that we have to do some larger changes to the state sync design, as requirements start to differ a lot:
 * catchups are high priority (the validator MUST catchup within 1 epoch - otherwise it will not be able to produce blocks for the new shards in the next epoch - and therefore it will not earn rewards).
 * a lot more catchups in progress (with lots of shards basically every validator would have to catchup at least one shard at each epoch boundary) - this leads to a lot more potential traffic on the network
-* malicious attacks & incentives - the state data can be large and can cause a lot of network traffic. At the same time it is quite critical (see point above), so we'll have to make sure that the nodes are incetivised to provide the state parts upon request.
+* malicious attacks & incentives - the state data can be large and can cause a lot of network traffic. At the same time it is quite critical (see point above), so we'll have to make sure that the nodes are incentivised to provide the state parts upon request.
 * only a subset of peers will be available to request the state sync from (as not everyone from our peers will be tracking the shard that we're interested in).
 
 
@@ -34,7 +34,7 @@ We're looking at the performance of state sync:
 
 ### Better performance on the requestor side
 
-Currently the parts are applied only once all them are downloaded - instead we should try to apply them in parallel - after each part is received.
+Currently the parts are applied only once all of them are downloaded - instead we should try to apply them in parallel - after each part is received.
 
 When we receive a part, we should announce this information to our peers - so that they know that they can request it from us if they need it.
 
