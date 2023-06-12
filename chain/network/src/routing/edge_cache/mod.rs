@@ -8,8 +8,24 @@ mod testonly;
 #[cfg(test)]
 mod tests;
 
-// TODO: make it opaque, so that the key.0 < key.1 invariant is protected.
-type EdgeKey = (PeerId, PeerId);
+// Connections in the network are bi-directional between a pair of peers (peer0, peer1).
+// For keys in the EdgeCache, we maintain the invariant that peer0 < peer1
+#[derive(Clone, Eq, Hash, PartialEq)]
+pub(crate) struct EdgeKey {
+    peer0: PeerId,
+    peer1: PeerId,
+}
+
+impl From<&(PeerId, PeerId)> for EdgeKey {
+    fn from(peers: &(PeerId, PeerId)) -> EdgeKey {
+        let (peer0, peer1) = peers.clone();
+        if peer0 < peer1 {
+            Self { peer0, peer1 }
+        } else {
+            Self { peer1, peer0 }
+        }
+    }
+}
 
 #[derive(Clone)]
 struct ActiveEdge {
@@ -122,15 +138,13 @@ impl EdgeCache {
     }
 
     fn decrement_degrees_for_key(&mut self, key: &EdgeKey) {
-        let (peer0, peer1) = key;
-        self.decrement_degree(peer0);
-        self.decrement_degree(peer1);
+        self.decrement_degree(&key.peer0);
+        self.decrement_degree(&key.peer1);
     }
 
     fn increment_degrees_for_key(&mut self, key: &EdgeKey) {
-        let (peer0, peer1) = key;
-        let id0 = self.get_or_create_id(peer0) as usize;
-        let id1 = self.get_or_create_id(peer1) as usize;
+        let id0 = self.get_or_create_id(&key.peer0) as usize;
+        let id1 = self.get_or_create_id(&key.peer1) as usize;
         self.degree[id0] += 1;
         self.degree[id1] += 1;
     }
@@ -165,19 +179,18 @@ impl EdgeCache {
     /// which is at least as new as the given one
     pub fn has_edge_nonce_or_newer(&self, edge: &Edge) -> bool {
         self.verified_nonces
-            .get(&edge.key())
+            .get(&edge.key().into())
             .map_or(false, |cached_nonce| cached_nonce >= &edge.nonce())
     }
 
     pub fn write_verified_nonce(&mut self, edge: &Edge) {
-        self.verified_nonces.insert(edge.key().clone(), edge.nonce());
+        self.verified_nonces.insert(edge.key().into(), edge.nonce());
     }
 
     /// Inserts a copy of the given edge to the active edge cache.
     /// If it's the first copy, increments degrees for the incident nodes.
     fn insert_active_edge(&mut self, edge: &Edge) {
-        let key = edge.key();
-        let is_newly_active = match self.active_edges.entry(key.clone()) {
+        let is_newly_active = match self.active_edges.entry(edge.key().into()) {
             im::hashmap::Entry::Occupied(mut occupied) => {
                 let val: &mut ActiveEdge = occupied.get_mut();
                 if edge.nonce() > val.edge.nonce() {
@@ -192,7 +205,7 @@ impl EdgeCache {
             }
         };
         if is_newly_active {
-            self.increment_degrees_for_key(key);
+            self.increment_degrees_for_key(&edge.key().into());
         }
     }
 
@@ -228,7 +241,7 @@ impl EdgeCache {
             self.insert_active_edge(edge);
         }
 
-        let edge_keys: Vec<EdgeKey> = tree.iter().map(|edge| edge.key()).cloned().collect();
+        let edge_keys: Vec<EdgeKey> = tree.iter().map(|edge| edge.key().into()).collect();
 
         // If a previous tree was present, process removal of its edges
         if let Some(old_edge_keys) = self.active_trees.insert(peer_id.clone(), edge_keys) {
@@ -299,15 +312,16 @@ impl EdgeCache {
         // We want to find for each node in the tree some edge
         // which connects it to another node with smaller distance.
         for (edge_key, active_edge) in &self.active_edges {
-            let (peer0, peer1) = edge_key;
-            if let (Some(dist0), Some(dist1)) = (distance.get(peer0), distance.get(peer1)) {
-                if dist0 < dist1 && !has_edge.contains(peer1) {
-                    has_edge.insert(peer1.clone());
+            if let (Some(dist0), Some(dist1)) =
+                (distance.get(&edge_key.peer0), distance.get(&edge_key.peer1))
+            {
+                if dist0 < dist1 && !has_edge.contains(&edge_key.peer1) {
+                    has_edge.insert(edge_key.peer1.clone());
                     edges.push(active_edge.edge.clone());
                 }
 
-                if dist1 < dist0 && !has_edge.contains(peer0) {
-                    has_edge.insert(peer0.clone());
+                if dist1 < dist0 && !has_edge.contains(&edge_key.peer0) {
+                    has_edge.insert(edge_key.peer0.clone());
                     edges.push(active_edge.edge.clone());
                 }
             }

@@ -38,33 +38,33 @@ fn update_active_edge_nonce() {
     let edge1 = Edge::make_fake_edge(node0.clone(), node1, 456);
 
     assert_eq!(edge0.key(), edge1.key());
-    let key = edge0.key();
+    let key: EdgeKey = edge0.key().into();
 
     let mut ec = EdgeCache::new(node0);
 
     // First insert with the older nonce
     ec.insert_active_edge(&edge0);
-    assert_eq!(Some(123), ec.get_nonce_for_active_edge(key));
+    assert_eq!(Some(123), ec.get_nonce_for_active_edge(&key));
 
     // Insert another copy of the same edge with a newer nonce
     ec.insert_active_edge(&edge1);
-    assert_eq!(Some(456), ec.get_nonce_for_active_edge(key));
+    assert_eq!(Some(456), ec.get_nonce_for_active_edge(&key));
 
     // Insert with the older nonce again; should not overwrite
     ec.insert_active_edge(&edge0);
-    assert_eq!(Some(456), ec.get_nonce_for_active_edge(key));
+    assert_eq!(Some(456), ec.get_nonce_for_active_edge(&key));
 
     // Remove a copy; should still remember it
-    ec.remove_active_edge(key);
-    assert_eq!(Some(456), ec.get_nonce_for_active_edge(key));
+    ec.remove_active_edge(&key);
+    assert_eq!(Some(456), ec.get_nonce_for_active_edge(&key));
 
     // Remove another copy; should still remember it
-    ec.remove_active_edge(key);
-    assert_eq!(Some(456), ec.get_nonce_for_active_edge(key));
+    ec.remove_active_edge(&key);
+    assert_eq!(Some(456), ec.get_nonce_for_active_edge(&key));
 
     // Remove final copy
-    ec.remove_active_edge(key);
-    assert_eq!(None, ec.get_nonce_for_active_edge(key));
+    ec.remove_active_edge(&key);
+    assert_eq!(None, ec.get_nonce_for_active_edge(&key));
 }
 
 #[test]
@@ -86,7 +86,7 @@ fn test_p2id_mapping() {
     // Insert and remove a single edge
     ec.insert_active_edge(&edge0);
     ec.check_mapping(vec![node0.clone(), node1.clone()]);
-    ec.remove_active_edge(&edge0.key());
+    ec.remove_active_edge(&edge0.key().into());
     ec.check_mapping(vec![node0.clone()]);
 
     // Insert all edges (0--1--2--3)
@@ -96,11 +96,11 @@ fn test_p2id_mapping() {
     ec.check_mapping(vec![node0.clone(), node1.clone(), node2.clone(), node3.clone()]);
 
     // Remove edge1; all nodes are still active (0--1  2--3)
-    ec.remove_active_edge(edge1.key());
+    ec.remove_active_edge(&edge1.key().into());
     ec.check_mapping(vec![node0.clone(), node1.clone(), node2.clone(), node3.clone()]);
 
     // Remove edge0; node1 will no longer be active (0  1  2--3)
-    ec.remove_active_edge(edge0.key());
+    ec.remove_active_edge(&edge0.key().into());
     ec.check_mapping(vec![node0.clone(), node2.clone(), node3.clone()]);
 
     // Insert edge1; reactivates node1 (0  1--2--3)
@@ -108,11 +108,11 @@ fn test_p2id_mapping() {
     ec.check_mapping(vec![node0.clone(), node1.clone(), node2.clone(), node3]);
 
     // Remove edge2; deactivates only node2 (0  1--2  3)
-    ec.remove_active_edge(edge2.key());
+    ec.remove_active_edge(&edge2.key().into());
     ec.check_mapping(vec![node0.clone(), node1, node2]);
 
     // Remove edge1; only the local node should remain mapped (0  1  2  3)
-    ec.remove_active_edge(edge1.key());
+    ec.remove_active_edge(&edge1.key().into());
     ec.check_mapping(vec![node0]);
 }
 
@@ -167,7 +167,7 @@ fn reuse_ids() {
         }
 
         for e in &edges {
-            ec.remove_active_edge(e.key());
+            ec.remove_active_edge(&e.key().into());
         }
     }
 }
@@ -186,14 +186,14 @@ fn overwrite_shortest_path_tree() {
     // Write an SPT for node1 advertising node2 behind it; 0--1--2
     ec.update_tree(&node1, &vec![edge0.clone(), edge1.clone()]);
 
-    assert!(ec.is_active(edge1.key()));
+    assert!(ec.is_active(&edge1));
     assert!(ec.p2id.contains_key(&node2));
 
     // Now write an SPT for node1 without the connection to node2; 0--1  2
     ec.update_tree(&node1, &vec![edge0]);
 
     // edge1 should have been pruned from node0's `active_edges` map
-    assert!(!ec.is_active(edge1.key()));
+    assert!(!ec.is_active(&edge1));
     // node2 should have been pruned from node0's `p2id` mapping
     assert!(!ec.p2id.contains_key(&node2));
 }
