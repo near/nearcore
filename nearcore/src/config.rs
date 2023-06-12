@@ -192,7 +192,7 @@ fn default_trie_viewer_state_size_limit() -> Option<u64> {
 }
 
 fn default_transaction_pool_size_limit() -> Option<u64> {
-    Some(100_000_000)  // 100 MB.
+    Some(100_000_000) // 100 MB.
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
