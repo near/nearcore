@@ -550,6 +550,7 @@ pub(crate) fn print_chain(
     let epoch_manager = EpochManager::new_arc_handle(store, &near_config.genesis.config);
     let mut account_id_to_blocks = HashMap::new();
     let mut cur_epoch_id = None;
+    // TODO: Split into smaller functions.
     for height in start_height..=end_height {
         if let Ok(block_hash) = chain_store.get_block_hash_by_height(height) {
             let header = chain_store.get_block_header(&block_hash).unwrap().clone();
