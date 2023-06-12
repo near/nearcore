@@ -191,6 +191,10 @@ fn default_trie_viewer_state_size_limit() -> Option<u64> {
     Some(50_000)
 }
 
+fn default_transaction_pool_size_limit() -> Option<u64> {
+    Some(100_000_000) // 100 MB.
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct Consensus {
     /// Minimum number of peers to start syncing.
@@ -334,12 +338,13 @@ pub struct Config {
     /// Options for syncing state.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state_sync: Option<StateSyncConfig>,
-    /// Test-only option to make state snapshots every N blocks.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub state_snapshot_every_n_blocks: Option<u64>,
     /// Limit of the size of per-shard transaction pool measured in bytes. If not set, the size
     /// will be unbounded.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// New transactions that bring the size of the pool over this limit will be rejected. This
+    /// guarantees that the node will use bounded resources to store incoming transactinos.
+    /// Setting this value too low (<1MB) on the validator might lead to production of smaller
+    /// chunks and underutilizing the capacity of the network.
+    #[serde(default = "default_transaction_pool_size_limit")]
     pub transaction_pool_size_limit: Option<u64>,
 }
 
@@ -378,8 +383,7 @@ impl Default for Config {
             expected_shutdown: None,
             state_sync: None,
             state_sync_enabled: None,
-            state_snapshot_every_n_blocks: None,
-            transaction_pool_size_limit: None,
+            transaction_pool_size_limit: default_transaction_pool_size_limit(),
         }
     }
 }
@@ -689,7 +693,6 @@ impl NearConfig {
                 flat_storage_creation_period: config.store.flat_storage_creation_period,
                 state_sync_enabled: config.state_sync_enabled.unwrap_or(false),
                 state_sync: config.state_sync.unwrap_or_default(),
-                state_snapshot_every_n_blocks: config.state_snapshot_every_n_blocks,
                 transaction_pool_size_limit: config.transaction_pool_size_limit,
             },
             network_config: NetworkConfig::new(
