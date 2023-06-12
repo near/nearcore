@@ -19,6 +19,7 @@ use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
 use near_network::PeerManagerActor;
 use near_primitives::block::GenesisId;
+use near_primitives::hash::CryptoHash;
 use near_store::flat::FlatStateValuesInliningMigrationHandle;
 use near_store::metadata::DbKind;
 use near_store::metrics::spawn_db_metrics_loop;
@@ -276,6 +277,17 @@ pub fn start_with_config_and_synchronization(
     let adv = near_client::adversarial::Controls::new(config.client_config.archive);
 
     let state_snapshot_actor = if config.config.store.state_snapshot_enabled {
+        let epoch_manager = epoch_manager.clone();
+        runtime
+            .get_tries()
+            .maybe_open_state_snapshot(move |prev_block_hash: CryptoHash| {
+                let epoch_manager = epoch_manager.read();
+                let epoch_id = epoch_manager.get_epoch_id(&prev_block_hash)?;
+                let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
+                Ok(shard_layout.get_shard_uids())
+            })
+            .unwrap();
+
         runtime.get_flat_storage_manager().map(|flat_storage_manager| {
             Arc::new(StateSnapshotActor::new(flat_storage_manager, runtime.get_tries()).start())
         })

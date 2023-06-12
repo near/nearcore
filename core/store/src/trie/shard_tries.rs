@@ -3,10 +3,11 @@ use crate::trie::config::TrieConfig;
 use crate::trie::prefetching_trie_storage::PrefetchingThreadsHandle;
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::trie::{TrieRefcountChange, POISONED_LOCK_ERR};
-use crate::{checkpoint_hot_storage_and_cleanup_columns, metrics, DBCol, PrefetchApi};
-use crate::{Store, StoreUpdate, Trie, TrieChanges, TrieUpdate};
+use crate::{checkpoint_hot_storage_and_cleanup_columns, metrics, DBCol, NodeStorage, PrefetchApi};
+use crate::{Store, StoreConfig, StoreUpdate, Trie, TrieChanges, TrieUpdate};
 use borsh::BorshSerialize;
 use near_primitives::borsh::maybestd::collections::HashMap;
+use near_primitives::errors::EpochError;
 use near_primitives::errors::StorageError;
 use near_primitives::errors::StorageError::StorageInconsistentState;
 use near_primitives::hash::CryptoHash;
@@ -17,6 +18,7 @@ use near_primitives::types::{
 };
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::str::FromStr;
 use std::sync::{Arc, RwLock, TryLockError};
 
 struct ShardTriesInner {
@@ -95,12 +97,11 @@ impl ShardTries {
         trie_config: TrieConfig,
         shard_uids: &[ShardUId],
         flat_storage_manager: FlatStorageManager,
-        state_snapshot: Option<StateSnapshot>,
         state_snapshot_config: StateSnapshotConfig,
     ) -> Self {
         let caches = Self::create_initial_caches(&trie_config, &shard_uids, false);
         let view_caches = Self::create_initial_caches(&trie_config, &shard_uids, true);
-        metrics::HAS_STATE_SNAPSHOT.set(if state_snapshot.is_some() { 1 } else { 0 });
+        metrics::HAS_STATE_SNAPSHOT.set(0);
         ShardTries(Arc::new(ShardTriesInner {
             store,
             trie_config,
@@ -108,7 +109,7 @@ impl ShardTries {
             view_caches: RwLock::new(view_caches),
             flat_storage_manager,
             prefetchers: Default::default(),
-            state_snapshot: Arc::new(RwLock::new(state_snapshot)),
+            state_snapshot: Arc::new(RwLock::new(None)),
             state_snapshot_config,
         }))
     }
@@ -124,7 +125,6 @@ impl ShardTries {
             trie_config,
             shard_uids,
             flat_storage_manager,
-            None,
             StateSnapshotConfig::Disabled,
         )
     }
@@ -553,6 +553,80 @@ impl ShardTries {
         // * RocksDB checkpoints are taken instantly and for free, because the filesystem supports hard links.
         // * The best place for checkpoints is withing the `hot_store_path`, because that directory is often a separate disk.
         home_dir.join(hot_store_path).join(state_snapshot_subdir).join(format!("{prev_block_hash}"))
+    }
+
+    /// Looks for directories on disk with names that look like `prev_block_hash`.
+    /// Checks that there is at most one such directory. Opens it as a Store.
+    pub fn maybe_open_state_snapshot(
+        &self,
+        get_shard_uids_fn: impl Fn(CryptoHash) -> Result<Vec<ShardUId>, EpochError>,
+    ) -> Result<Option<StateSnapshot>, anyhow::Error> {
+        let _span =
+            tracing::info_span!(target: "state_snapshot", "maybe_open_state_snapshot").entered();
+        match &self.0.state_snapshot_config {
+            StateSnapshotConfig::Disabled => {
+                tracing::debug!(target: "state_snapshot", "Disabled");
+                return Ok(None);
+            }
+            StateSnapshotConfig::Enabled { home_dir, hot_store_path, state_snapshot_subdir } => {
+                let path = Self::get_state_snapshot_base_dir(
+                    &CryptoHash::new(),
+                    &home_dir,
+                    &hot_store_path,
+                    &state_snapshot_subdir,
+                );
+                let parent_path =
+                    path.parent().ok_or(anyhow::anyhow!("{path:?} needs to have a parent dir"))?;
+                tracing::debug!(target: "state_snapshot", ?path, ?parent_path);
+
+                let snapshots = match std::fs::read_dir(parent_path) {
+                    Err(err) => {
+                        if err.kind() == std::io::ErrorKind::NotFound {
+                            tracing::debug!(target: "state_snapshot", ?parent_path, "State Snapshot base directory doesn't exist.");
+                            return Ok(None);
+                        } else {
+                            return Err(err.into());
+                        }
+                    }
+                    Ok(entries) => {
+                        let mut snapshots = vec![];
+                        for entry in entries.filter_map(Result::ok) {
+                            let file_name = entry.file_name().into_string().map_err(|err| {
+                                anyhow::anyhow!("Can't display file_name: {err:?}")
+                            })?;
+                            if let Ok(prev_block_hash) = CryptoHash::from_str(&file_name) {
+                                snapshots.push((prev_block_hash, entry.path()));
+                            }
+                        }
+                        snapshots
+                    }
+                };
+
+                if snapshots.is_empty() {
+                    Ok(None)
+                } else if snapshots.len() == 1 {
+                    let (prev_block_hash, snapshot_dir) = &snapshots[0];
+
+                    let store_config = StoreConfig::default();
+
+                    let opener = NodeStorage::opener(&snapshot_dir, false, &store_config, None);
+                    let storage = opener.open()?;
+                    let store = storage.get_hot_store();
+                    let flat_storage_manager = FlatStorageManager::new(store.clone());
+
+                    let shard_uids = get_shard_uids_fn(*prev_block_hash)?;
+                    Ok(Some(StateSnapshot::new(
+                        store,
+                        *prev_block_hash,
+                        flat_storage_manager,
+                        &shard_uids,
+                    )))
+                } else {
+                    tracing::error!(target: "runtime", ?snapshots, "Detected multiple state snapshots. Please keep at most one snapshot and delete others.");
+                    Err(anyhow::anyhow!("More than one state snapshot detected {:?}", snapshots))
+                }
+            }
+        }
     }
 }
 

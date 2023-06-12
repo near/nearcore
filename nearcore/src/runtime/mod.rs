@@ -52,9 +52,8 @@ use near_store::metadata::DbKind;
 use near_store::split_state::get_delayed_receipts;
 use near_store::{
     get_genesis_hash, get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots,
-    ApplyStatePartResult, DBCol, NodeStorage, PartialStorage, ShardTries, StateSnapshot,
-    StateSnapshotConfig, Store, StoreCompiledContractCache, StoreConfig, StoreUpdate, Trie,
-    TrieConfig, WrappedTrieChanges, COLD_HEAD_KEY,
+    ApplyStatePartResult, DBCol, PartialStorage, ShardTries, StateSnapshotConfig, Store,
+    StoreCompiledContractCache, StoreUpdate, Trie, TrieConfig, WrappedTrieChanges, COLD_HEAD_KEY,
 };
 use near_vm_runner::precompile_contract;
 use node_runtime::adapter::ViewRuntimeAdapter;
@@ -68,7 +67,6 @@ use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
 use tracing::{debug, error, info, warn};
@@ -102,19 +100,14 @@ impl NightshadeRuntime {
         config: &NearConfig,
         epoch_manager: Arc<EpochManagerHandle>,
     ) -> Arc<Self> {
-        let (state_snapshot, state_snapshot_config) = if config.config.store.state_snapshot_enabled
-        {
-            let state_snapshot_config = StateSnapshotConfig::Enabled {
+        let state_snapshot_config = if config.config.store.state_snapshot_enabled {
+            StateSnapshotConfig::Enabled {
                 home_dir: home_dir.to_path_buf(),
                 hot_store_path: config.config.store.path.clone().unwrap_or(PathBuf::from("data")),
                 state_snapshot_subdir: PathBuf::from("state_snapshot"),
-            };
-            let state_snapshot =
-                maybe_open_state_snapshot(&state_snapshot_config, config, epoch_manager.clone())
-                    .unwrap();
-            (state_snapshot, state_snapshot_config)
+            }
         } else {
-            (None, StateSnapshotConfig::Disabled)
+            StateSnapshotConfig::Disabled
         };
         Self::new(
             home_dir,
@@ -127,7 +120,6 @@ impl NightshadeRuntime {
             config.config.gc.gc_num_epochs_to_keep(),
             TrieConfig::from_store_config(&config.config.store),
             state_snapshot_config,
-            state_snapshot,
         )
     }
 
@@ -142,7 +134,6 @@ impl NightshadeRuntime {
         gc_num_epochs_to_keep: u64,
         trie_config: TrieConfig,
         state_snapshot_config: StateSnapshotConfig,
-        state_snapshot: Option<StateSnapshot>,
     ) -> Arc<Self> {
         let runtime_config_store = match runtime_config_store {
             Some(store) => store,
@@ -167,7 +158,6 @@ impl NightshadeRuntime {
             trie_config,
             &genesis_config.shard_layout.get_shard_uids(),
             flat_storage_manager.clone(),
-            state_snapshot,
             state_snapshot_config,
         );
         Arc::new(NightshadeRuntime {
@@ -207,7 +197,6 @@ impl NightshadeRuntime {
                 hot_store_path: PathBuf::from("data"),
                 state_snapshot_subdir: PathBuf::from("state_snapshot"),
             },
-            None,
         )
     }
 
@@ -683,87 +672,6 @@ impl NightshadeRuntime {
             return Ok(std::cmp::min(epoch_start_height, cold_head_height + 1));
         }
         Ok(epoch_start_height)
-    }
-}
-
-/// Looks for directories on disk with names that look like `prev_block_hash`.
-/// Checks that there is at most one such directory. Opens it as a Store.
-fn maybe_open_state_snapshot(
-    state_snapshot_config: &StateSnapshotConfig,
-    config: &NearConfig,
-    epoch_manager: Arc<EpochManagerHandle>,
-) -> Result<Option<StateSnapshot>, anyhow::Error> {
-    let _span =
-        tracing::info_span!(target: "state_snapshot", "maybe_open_state_snapshot").entered();
-    match state_snapshot_config {
-        StateSnapshotConfig::Disabled => {
-            tracing::debug!(target: "state_snapshot", "Disabled");
-            return Ok(None);
-        }
-        StateSnapshotConfig::Enabled { home_dir, hot_store_path, state_snapshot_subdir } => {
-            let path = ShardTries::get_state_snapshot_base_dir(
-                &CryptoHash::new(),
-                home_dir,
-                hot_store_path,
-                state_snapshot_subdir,
-            );
-            let parent_path =
-                path.parent().ok_or(anyhow::anyhow!("{path:?} needs to have a parent dir"))?;
-            tracing::debug!(target: "state_snapshot", ?path, ?parent_path);
-
-            let snapshots = match std::fs::read_dir(parent_path) {
-                Err(err) => {
-                    if err.kind() == std::io::ErrorKind::NotFound {
-                        tracing::debug!(target: "state_snapshot", ?parent_path, "State Snapshot base directory doesn't exist.");
-                        return Ok(None);
-                    } else {
-                        return Err(err.into());
-                    }
-                }
-                Ok(entries) => {
-                    let mut snapshots = vec![];
-                    for entry in entries.filter_map(Result::ok) {
-                        let file_name = entry
-                            .file_name()
-                            .into_string()
-                            .map_err(|err| anyhow::anyhow!("Can't display file_name: {err:?}"))?;
-                        if let Ok(prev_block_hash) = CryptoHash::from_str(&file_name) {
-                            snapshots.push((prev_block_hash, entry.path()));
-                        }
-                    }
-                    snapshots
-                }
-            };
-
-            if snapshots.is_empty() {
-                Ok(None)
-            } else if snapshots.len() == 1 {
-                let (prev_block_hash, snapshot_dir) = &snapshots[0];
-
-                let mut store_config = StoreConfig::default();
-                store_config.path = config.config.store.path.clone(); // Default is "data"
-
-                let opener = NodeStorage::opener(&snapshot_dir, false, &store_config, None);
-                let storage = opener.open()?;
-                let store = storage.get_hot_store();
-                let flat_storage_manager = FlatStorageManager::new(store.clone());
-
-                let epoch_id = epoch_manager.get_epoch_id(prev_block_hash)?;
-                let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-                // TODO: Should FS be created only for the tracked shards?
-                let shard_uids = shard_layout.get_shard_uids();
-
-                Ok(Some(StateSnapshot::new(
-                    store,
-                    *prev_block_hash,
-                    flat_storage_manager,
-                    &shard_uids,
-                )))
-            } else {
-                tracing::error!(target: "runtime", ?snapshots, "Detected multiple state snapshots. Please keep at most one snapshot and delete others.");
-                Err(anyhow::anyhow!("More than one state snapshot detected {:?}", snapshots))
-            }
-        }
     }
 }
 
@@ -1787,7 +1695,6 @@ mod test {
                     hot_store_path: PathBuf::from("data"),
                     state_snapshot_subdir: PathBuf::from("state_snapshot"),
                 },
-                None,
             );
             let (_store, state_roots) = runtime.genesis_state();
             let genesis_hash = hash(&[0]);
