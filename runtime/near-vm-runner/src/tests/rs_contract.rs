@@ -19,7 +19,9 @@ use crate::vm_kind::VMKind;
 fn test_contract(vm_kind: VMKind) -> ContractCode {
     let code = match vm_kind {
         // testing backwards-compatibility, use an old WASM
-        VMKind::Wasmer0 | VMKind::Wasmer2 => near_test_contracts::backwards_compatible_rs_contract(),
+        VMKind::Wasmer0 | VMKind::Wasmer2 => {
+            near_test_contracts::backwards_compatible_rs_contract()
+        }
         // production and developer environment, use a cutting-edge WASM
         VMKind::Wasmtime | VMKind::NearVm => near_test_contracts::rs_contract(),
     };
