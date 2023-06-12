@@ -169,7 +169,7 @@ impl TrieIterationBenchmarkCmd {
         let iter = match iter {
             Ok(iter) => iter,
             Err(err) => {
-                println!("iter error {err:#?}");
+                tracing::error!("iter error {err:#?}");
                 return;
             }
         };
@@ -179,7 +179,7 @@ impl TrieIterationBenchmarkCmd {
             let (key, value) = match item {
                 Ok((key, value)) => (key, value),
                 Err(err) => {
-                    println!("Failed to iterate node with error: {err}.");
+                    tracing::error!("Failed to iterate node with error: {err}.");
                     error_count += 1;
                     continue;
                 }
