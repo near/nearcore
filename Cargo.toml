@@ -167,7 +167,7 @@ log = "0.4"
 loupe = "0.1"
 lru = "0.7.2"
 memmap2 = "0.5"
-memoffset = "0.6"
+memoffset = "0.8"
 more-asserts = "0.2"
 near-account-id = { path = "core/account-id", features = ["internal_unstable"] }
 near-actix-test-utils = { path = "test-utils/actix-test-utils" }
