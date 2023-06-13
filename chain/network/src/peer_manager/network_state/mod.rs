@@ -516,23 +516,6 @@ impl NetworkState {
                 return self.tier1.send_message(peer_id, Arc::new(PeerMessage::Routed(msg)));
             }
             tcp::Tier::T2 => {
-                // TODO: Think about what we really want to check and make this more robust,
-                // also log it to metrics rather than printing
-                match &msg.target {
-                    PeerIdOrHash::PeerId(peer_id) => {
-                        let hop_ct_v1 =
-                            self.graph.routing_table.count_next_hops_for_peer_id(peer_id);
-                        let hop_ct_v2 =
-                            self.graph_v2.routing_table.count_next_hops_for_peer_id(peer_id);
-                        tracing::info!(target: "stats", "num next hops for {} are {} vs {}", &peer_id, hop_ct_v1, hop_ct_v2);
-
-                        if hop_ct_v1 != hop_ct_v2 {
-                            tracing::error!(target: "stats", "number of next hops mismatched between routing protocols for target {}", &peer_id);
-                        }
-                    }
-                    _default => {}
-                }
-
                 match self.tier2_find_route(&clock, &msg.target) {
                     Ok(peer_id) => {
                         // Remember if we expect a response for this message.
