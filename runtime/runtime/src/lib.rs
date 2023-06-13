@@ -120,6 +120,7 @@ pub struct ApplyResult {
     pub processed_delayed_receipts: Vec<Receipt>,
     pub proof: Option<PartialStorage>,
     pub delayed_receipts_count: u64,
+    pub metrics: Option<metrics::ApplyMetrics>,
 }
 
 #[derive(Debug)]
@@ -1258,6 +1259,7 @@ impl Runtime {
                 processed_delayed_receipts: vec![],
                 proof,
                 delayed_receipts_count: delayed_receipts_indices.len(),
+                metrics: None,
             });
         }
 
@@ -1271,6 +1273,7 @@ impl Runtime {
         // limit
         let mut total_gas_burnt = gas_used_for_migrations;
         let mut total_compute_usage = total_gas_burnt;
+        let mut metrics = metrics::ApplyMetrics::default();
 
         for signed_transaction in transactions {
             let (receipt, outcome_with_id) = self.process_transaction(
@@ -1303,6 +1306,7 @@ impl Runtime {
 
             outcomes.push(outcome_with_id);
         }
+        metrics.tx_processing_done(total_gas_burnt, total_compute_usage);
 
         let mut process_receipt = |receipt: &Receipt,
                                    state_update: &mut TrieUpdate,
@@ -1375,6 +1379,7 @@ impl Runtime {
                 Self::delay_receipt(&mut state_update, &mut delayed_receipts_indices, receipt)?;
             }
         }
+        metrics.local_receipts_done(total_gas_burnt, total_compute_usage);
 
         // Then we process the delayed receipts. It's a backlog of receipts from the past blocks.
         while delayed_receipts_indices.first_index < delayed_receipts_indices.next_available_index {
@@ -1419,6 +1424,7 @@ impl Runtime {
             )?;
             processed_delayed_receipts.push(receipt);
         }
+        metrics.delayed_receipts_done(total_gas_burnt, total_compute_usage);
 
         // And then we process the new incoming receipts. These are receipts from other shards.
         if let Some(prefetcher) = &mut prefetcher {
@@ -1446,6 +1452,7 @@ impl Runtime {
                 Self::delay_receipt(&mut state_update, &mut delayed_receipts_indices, receipt)?;
             }
         }
+        metrics.incoming_receipts_done(total_gas_burnt, total_compute_usage);
 
         // No more receipts are executed on this trie, stop any pending prefetches on it.
         if let Some(prefetcher) = &prefetcher {
@@ -1496,6 +1503,7 @@ impl Runtime {
             processed_delayed_receipts,
             proof,
             delayed_receipts_count: delayed_receipts_indices.len(),
+            metrics: Some(metrics),
         })
     }
 
