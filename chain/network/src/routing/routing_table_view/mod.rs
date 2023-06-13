@@ -24,6 +24,13 @@ struct Inner {
 }
 
 impl Inner {
+    fn count_next_hops_for_peer_id(&self, peer_id: &PeerId) -> usize {
+        match self.next_hops.get(peer_id) {
+            Some(hops) => hops.len(),
+            None => 0,
+        }
+    }
+
     /// Select a connected peer on some shortest path to `peer_id`.
     /// If there are several such peers, pick the least recently used one.
     fn find_next_hop(&mut self, peer_id: &PeerId) -> Result<PeerId, FindRouteError> {
@@ -62,6 +69,10 @@ impl RoutingTableView {
         // To enforce this, we would need to make NextHopTable a newtype rather than an alias,
         // and add appropriate constructors, which would filter out empty entries.
         self.0.lock().next_hops.len()
+    }
+
+    pub(crate) fn count_next_hops_for_peer_id(&self, peer_id: &PeerId) -> usize {
+        self.0.lock().count_next_hops_for_peer_id(peer_id)
     }
 
     // Given a PeerId to which we wish to route a message, returns the first hop on a

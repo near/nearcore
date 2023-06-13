@@ -271,6 +271,27 @@ message RoutingTableUpdate {
   repeated AnnounceAccount accounts = 2;
 }
 
+// Denotes a route to `destination` of length `length`
+message AdvertisedRoute {
+  PublicKey destination = 1;
+  uint32 length = 2;
+}
+
+// Message sent by a peer advertising the routes it has to nodes
+// in the NEAR network.
+//
+// It includes a collection of signed edges forming a spanning tree
+// which verifiably achieves the advertised routing distances.
+message DistanceVector {
+  // PeerId of the node sending the message
+  PublicKey root = 1;
+  // List of routes the root node has available
+  repeated AdvertisedRoute routes = 2;
+  // List of edges which together form a tree
+  // achieving the advertised routing distances
+  repeated Edge edges = 3;
+}
+
 // TODO: document it.
 message UpdateNonceRequest {
   PartialEdgeInfo partial_edge_info = 1;
@@ -428,6 +449,7 @@ message PeerMessage {
     HandshakeFailure handshake_failure = 5;
     LastEdge last_edge = 6;
     RoutingTableUpdate sync_routing_table = 7;
+    DistanceVector distance_vector = 28;
     
     UpdateNonceRequest update_nonce_request = 8;
     UpdateNonceResponse update_nonce_response = 9;
