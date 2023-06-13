@@ -154,12 +154,24 @@ impl EdgeCache {
     }
 
     /// Checks for and frees any assigned ids which have degree 0.
+    /// Id 0 remains assigned to the local node, regardless of degree.
     pub(crate) fn free_unused_ids(&mut self) {
-        // The local node should always have id 0; it's never freed
         assert!(self.get_local_node_id() == 0);
 
+        // Erase entries from the `p2id` map
         self.p2id.retain(|_, id| *id == 0 || self.degree[*id as usize] != 0);
 
+        // Shrink max_id if possible
+        let mut max_id = self.max_id();
+        while max_id >= 2 && self.degree[max_id - 1] == 0 {
+            max_id -= 1;
+        }
+        self.degree.truncate(max_id);
+        if self.degree.capacity() > 2 * self.degree.len() {
+            self.degree.shrink_to_fit();
+        }
+
+        // Reconstruct the list of unused ids
         self.unused.clear();
         for id in 1..self.max_id() {
             if self.degree[id] == 0 {
@@ -186,24 +198,14 @@ impl EdgeCache {
 
     /// Decrements the degree for the given peer.
     /// If the degree reaches 0, frees the peer's id for reuse.
-    ///
-    /// TODO(saketh): Unused ids are simply kept in a list for reuse; `max_id` only ever
-    /// increases. It it is not a completely trivial concern because `max_id` influences
-    /// the amount of storage used by downstream consumers of the mapping (they are typically
-    /// allocating Vecs of length `max_id`).
-    ///
-    /// We should consider doing something like rebuilding the mapping from scratch if more
-    /// than half the allocated ids are freed. The downstream consumers would also need to
-    /// modify their data structures in such a situation, so we would need to think carefully
-    /// about how to implement it.
     fn decrement_degree(&mut self, peer_id: &PeerId) {
         let id = self.get_id(peer_id) as usize;
         assert!(self.degree[id] > 0);
         self.degree[id] -= 1;
 
         // If the degree for the id reaches 0, free it.
-        // Id 0 is always assigned to the local node, so it's never freed.
-        if id != 0 && self.degree[id] == 0 {
+        // The local node is always mapped to 0.
+        if self.degree[id] == 0 && id != 0 {
             self.p2id.remove(peer_id);
             self.unused.push(id as u32);
         }

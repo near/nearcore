@@ -191,6 +191,9 @@ fn free_unused_after_create_for_tree() {
     // Free unused ids
     ec.free_unused_ids();
     ec.check_mapping(vec![node0]);
+
+    // Check memory-efficiency of the internal storage
+    assert!(ec.degree.capacity() == 1);
 }
 
 #[test]

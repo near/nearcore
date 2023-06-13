@@ -437,6 +437,9 @@ impl Inner {
             // calculations because a node incident to an active edge won't be relabelled. However,
             // we may need to resize the distance vector.
             routes.distance.resize(max_id, -1);
+            if routes.distance.capacity() > 2 * routes.distance.len() {
+                routes.distance.shrink_to_fit();
+            }
 
             for id in 0..max_id {
                 if routes.distance[id] != -1 {
