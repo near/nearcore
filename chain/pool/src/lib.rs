@@ -51,6 +51,14 @@ impl TransactionPool {
         total_transaction_size_limit: Option<u64>,
         metrics_label: &str,
     ) -> Self {
+        let transaction_pool_count_metric =
+            metrics::TRANSACTION_POOL_COUNT.with_label_values(&[metrics_label]);
+        let transaction_pool_size_metric =
+            metrics::TRANSACTION_POOL_SIZE.with_label_values(&[metrics_label]);
+        // A `get()` call initializes a metric even if its value is zero.
+        transaction_pool_count_metric.get();
+        transaction_pool_size_metric.get();
+
         Self {
             key_seed,
             transactions: BTreeMap::new(),
@@ -58,17 +66,9 @@ impl TransactionPool {
             last_used_key: CryptoHash::default(),
             total_transaction_size_limit,
             total_transaction_size: 0,
-            transaction_pool_count_metric: metrics::TRANSACTION_POOL_COUNT
-                .with_label_values(&[metrics_label]),
-            transaction_pool_size_metric: metrics::TRANSACTION_POOL_SIZE
-                .with_label_values(&[metrics_label]),
+            transaction_pool_count_metric,
+            transaction_pool_size_metric,
         }
-    }
-
-    pub fn init_metrics(&self) {
-        // A `get()` call initializes a metric even if its value is zero.
-        self.transaction_pool_count_metric.get();
-        self.transaction_pool_size_metric.get();
     }
 
     fn key(&self, account_id: &AccountId, public_key: &PublicKey) -> PoolKey {

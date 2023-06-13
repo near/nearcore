@@ -79,13 +79,11 @@ impl ShardedTransactionPool {
 
     fn pool_for_shard(&mut self, shard_id: ShardId) -> &mut TransactionPool {
         self.tx_pools.entry(shard_id).or_insert_with(|| {
-            let pool = TransactionPool::new(
+            TransactionPool::new(
                 Self::random_seed(&self.rng_seed, shard_id),
                 self.pool_size_limit,
                 &shard_id.to_string(),
-            );
-            pool.init_metrics();
-            pool
+            )
         })
     }
 
