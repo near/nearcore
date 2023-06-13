@@ -38,9 +38,8 @@ use near_primitives::syncing::{get_num_state_parts, STATE_PART_MEMORY_LIMIT};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::ValidatorStakeIter;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, CompiledContractCache, EpochHeight, EpochId,
-    EpochInfoProvider, Gas, MerkleHash, NumShards, ShardId, StateChangeCause,
-    StateChangesForSplitStates, StateRoot, StateRootNode,
+    AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
+    NumShards, ShardId, StateChangeCause, StateChangesForSplitStates, StateRoot, StateRootNode,
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
@@ -55,6 +54,7 @@ use near_store::{
     ApplyStatePartResult, DBCol, PartialStorage, ShardTries, Store, StoreCompiledContractCache,
     StoreUpdate, Trie, TrieConfig, WrappedTrieChanges, COLD_HEAD_KEY,
 };
+use near_vm_errors::CompiledContractCache;
 use near_vm_runner::precompile_contract;
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::config::RuntimeConfig;
@@ -550,6 +550,10 @@ impl NightshadeRuntime {
         metrics::APPLY_CHUNK_DELAY
             .with_label_values(&[&format_total_gas_burnt(total_gas_burnt)])
             .observe(elapsed.as_secs_f64());
+        metrics::DELAYED_RECEIPTS_COUNT
+            .with_label_values(&[&shard_id.to_string()])
+            .set(apply_result.delayed_receipts_count as i64);
+
         let total_balance_burnt = apply_result
             .stats
             .tx_burnt_amount
