@@ -310,15 +310,15 @@ impl EdgeCache {
         self.verified_nonces.retain(|_, nonce| nonce >= &prune_nonces_older_than);
     }
 
-    /// Accepts a mapping from the set of reachable PeerIds in the network
+    /// Accepts a mapping over the set of reachable PeerIds in the network
     /// to the shortest path lengths to those peers.
     ///
     /// Constructs a tree from among the `active_edges` which has the same
     /// reachability and the same distances or better.
     ///
-    /// May error if the input is incorrect (reachability or distances are
-    /// not consistent with the `active_edge` set stored in the cache).
-    pub fn construct_spanning_tree(&self, distance: &HashMap<PeerId, u32>) -> Vec<Edge> {
+    /// Returns None if the input is inconsistent with the state of the cache
+    /// (reachability or distances are not consistent with the `active_edges`).
+    pub fn construct_spanning_tree(&self, distance: &HashMap<PeerId, u32>) -> Option<Vec<Edge>> {
         let mut edges = Vec::<Edge>::new();
         let mut has_edge = HashSet::<PeerId>::new();
 
@@ -341,7 +341,10 @@ impl EdgeCache {
             }
         }
 
-        assert!(has_edge.len() + 1 == distance.len());
-        edges
+        if has_edge.len() + 1 == distance.len() {
+            Some(edges)
+        } else {
+            None
+        }
     }
 }

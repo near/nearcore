@@ -532,7 +532,7 @@ impl Inner {
                 })
                 .collect(),
             // Construct a spanning tree of signed edges achieving the claimed distances
-            edges: self.edge_cache.construct_spanning_tree(&self.my_distances),
+            edges: self.edge_cache.construct_spanning_tree(&self.my_distances).unwrap(),
         }
     }
 

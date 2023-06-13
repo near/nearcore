@@ -259,7 +259,8 @@ fn test_construct_shortest_path_tree() {
             (node1.clone(), 1),
             (node2.clone(), 2),
             (node3.clone(), 3),
-        ])),
+        ]))
+        .unwrap(),
         vec![edge0.clone(), edge1.clone(), edge2.clone()],
     );
 
@@ -270,14 +271,15 @@ fn test_construct_shortest_path_tree() {
     ec.insert_active_edge(&edge02);
     ec.insert_active_edge(&edge03);
 
-    // Construct tree 0--{1,2,3]
+    // Construct tree 0--{1,2,3}
     assert_eq_unordered(
         ec.construct_spanning_tree(&HashMap::from([
             (node0, 0),
             (node1, 1),
             (node2, 1),
             (node3, 1),
-        ])),
+        ]))
+        .unwrap(),
         vec![edge0, edge02, edge03],
     );
 }
