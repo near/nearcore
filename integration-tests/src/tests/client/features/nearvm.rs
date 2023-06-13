@@ -12,7 +12,6 @@ use near_primitives::transaction::{Action, FunctionCallAction, Transaction};
 use nearcore::config::GenesisExt;
 
 #[cfg_attr(all(target_arch = "aarch64", target_vendor = "apple"), ignore)]
-#[cfg(feature = "nightly")]
 #[test]
 fn test_nearvm_upgrade() {
     let mut capture = near_o11y::testonly::TracingCapture::enable();
@@ -37,7 +36,7 @@ fn test_nearvm_upgrade() {
         deploy_test_contract(
             &mut env,
             "test0".parse().unwrap(),
-            near_test_contracts::backwards_compatible_rs_contract(),
+            near_test_contracts::rs_contract(),
             epoch_length,
             1,
         );

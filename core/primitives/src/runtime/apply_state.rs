@@ -2,10 +2,9 @@ use crate::runtime::migration_data::{MigrationData, MigrationFlags};
 use crate::{
     hash::CryptoHash,
     runtime::config::RuntimeConfig,
-    types::{Balance, BlockHeight, EpochHeight, EpochId, Gas},
+    types::{Balance, BlockHeight, CompiledContractCache, EpochHeight, EpochId, Gas},
     version::ProtocolVersion,
 };
-use near_vm_errors::CompiledContractCache;
 use std::sync::Arc;
 
 #[derive(Debug)]

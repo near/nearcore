@@ -94,6 +94,7 @@ impl FlatStorageManager {
 
     pub fn get_flat_storage_status(&self, shard_uid: ShardUId) -> FlatStorageStatus {
         store_helper::get_flat_storage_status(&self.0.store, shard_uid)
+            .expect("failed to read flat storage status")
     }
 
     /// Creates `FlatStorageChunkView` to access state for `shard_uid` and block `block_hash`.

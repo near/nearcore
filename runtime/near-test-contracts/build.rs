@@ -14,6 +14,7 @@ fn main() {
 
 fn try_main() -> Result<(), Error> {
     build_contract("./test-contract-rs", &["--features", "latest_protocol"], "test_contract_rs")?;
+    build_contract("./test-contract-rs", &[], "base_test_contract_rs")?;
     build_contract(
         "./test-contract-rs",
         &["--features", "latest_protocol,nightly"],

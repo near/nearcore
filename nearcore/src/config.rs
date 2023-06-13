@@ -341,7 +341,7 @@ pub struct Config {
     /// Limit of the size of per-shard transaction pool measured in bytes. If not set, the size
     /// will be unbounded.
     /// New transactions that bring the size of the pool over this limit will be rejected. This
-    /// guarantees that the node will use bounded resources to store incoming transactinos.
+    /// guarantees that the node will use bounded resources to store incoming transactions.
     /// Setting this value too low (<1MB) on the validator might lead to production of smaller
     /// chunks and underutilizing the capacity of the network.
     #[serde(default = "default_transaction_pool_size_limit")]

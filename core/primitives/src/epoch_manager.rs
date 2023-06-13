@@ -1,4 +1,5 @@
 use crate::challenge::SlashedValidator;
+use crate::checked_feature;
 use crate::num_rational::Rational32;
 use crate::shard_layout::ShardLayout;
 use crate::types::validator_stake::ValidatorStakeV1;
@@ -8,7 +9,6 @@ use crate::types::{
 };
 use crate::version::PROTOCOL_VERSION;
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_primitives_core::checked_feature;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::BlockHeight;
 use smart_default::SmartDefault;
@@ -438,9 +438,8 @@ pub mod epoch_info {
     use std::collections::{BTreeMap, HashMap};
 
     use crate::types::validator_stake::ValidatorStakeV1;
-    use crate::{epoch_manager::RngSeed, rand::WeightedIndex};
+    use crate::{checked_feature, epoch_manager::RngSeed, rand::WeightedIndex};
     use near_primitives_core::{
-        checked_feature,
         hash::hash,
         types::{BlockHeight, ShardId},
     };

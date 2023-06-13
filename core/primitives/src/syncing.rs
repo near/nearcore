@@ -221,7 +221,7 @@ pub enum EpochSyncResponse {
 pub const STATE_PART_MEMORY_LIMIT: bytesize::ByteSize = bytesize::ByteSize(30 * bytesize::MIB);
 
 pub fn get_num_state_parts(memory_usage: u64) -> u64 {
-    (memory_usage + (STATE_PART_MEMORY_LIMIT.as_u64() - 1)) / STATE_PART_MEMORY_LIMIT.as_u64()
+    (memory_usage + STATE_PART_MEMORY_LIMIT.as_u64() - 1) / STATE_PART_MEMORY_LIMIT.as_u64()
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
@@ -244,4 +244,19 @@ pub enum StateSyncDumpProgress {
         /// The dumped state corresponds to the state before applying this block.
         sync_hash: CryptoHash,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::syncing::{get_num_state_parts, STATE_PART_MEMORY_LIMIT};
+
+    #[test]
+    fn test_get_num_state_parts() {
+        assert_eq!(get_num_state_parts(0), 0);
+        assert_eq!(get_num_state_parts(1), 1);
+        assert_eq!(get_num_state_parts(STATE_PART_MEMORY_LIMIT.as_u64()), 1);
+        assert_eq!(get_num_state_parts(STATE_PART_MEMORY_LIMIT.as_u64() + 1), 2);
+        assert_eq!(get_num_state_parts(STATE_PART_MEMORY_LIMIT.as_u64() * 100), 100);
+        assert_eq!(get_num_state_parts(STATE_PART_MEMORY_LIMIT.as_u64() * 100 + 1), 101);
+    }
 }
