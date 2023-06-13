@@ -272,7 +272,13 @@ impl ShardTries {
             }
         };
 
-        let cache = TrieCache::new(&self.0.trie_config, shard_uid, true);
+        let cache = {
+            let mut caches = self.0.view_caches.write().expect(POISONED_LOCK_ERR);
+            caches
+                .entry(shard_uid)
+                .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, true))
+                .clone()
+        };
         let storage = Rc::new(TrieCachingStorage::new(store, cache, shard_uid, true, None));
         let flat_storage_chunk_view = flat_storage_manager.chunk_view(shard_uid, *block_hash);
 
@@ -474,6 +480,8 @@ impl ShardTries {
                         hot_store_path,
                         state_snapshot_subdir,
                     ),
+                    // TODO: Cleanup Changes and DeltaMetadata to avoid extra memory usage.
+                    // Can't be cleaned up now because these columns are needed to `update_flat_head()`.
                     Some(vec![
                         // Keep DbVersion and BlockMisc, otherwise you'll not be able to open the state snapshot as a Store.
                         DBCol::DbVersion,
@@ -486,6 +494,9 @@ impl ShardTries {
                     ]),
                 )?;
                 let store = storage.get_hot_store();
+                // It is fine to create a separate FlatStorageManager, because
+                // it is used only for reading flat storage in the snapshot a
+                // doesn't introduce memory overhead.
                 let flat_storage_manager = FlatStorageManager::new(store.clone());
                 *state_snapshot_lock = Some(StateSnapshot::new(
                     store,
@@ -551,7 +562,7 @@ impl ShardTries {
     ) -> PathBuf {
         // Assumptions:
         // * RocksDB checkpoints are taken instantly and for free, because the filesystem supports hard links.
-        // * The best place for checkpoints is withing the `hot_store_path`, because that directory is often a separate disk.
+        // * The best place for checkpoints is within the `hot_store_path`, because that directory is often a separate disk.
         home_dir.join(hot_store_path).join(state_snapshot_subdir).join(format!("{prev_block_hash}"))
     }
 
