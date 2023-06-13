@@ -113,7 +113,7 @@ fn print_results(key_sizes: &Vec<(usize, usize)>, value_sizes: &Vec<(usize, usiz
     // Print out distributions
     println!("Key Size Distribution:");
     println!("Maximum size key: {:?}", key_sizes.first().unwrap());
-    println!("Minimum size key: {:?}", key_sizes.first().unwrap());
+    println!("Minimum size key: {:?}", key_sizes.last().unwrap());
     for (size, count) in key_sizes.iter().take(limit) {
         println!("Size: {}, Count: {}", size, count);
     }
@@ -163,8 +163,7 @@ fn main() {
         let mut local_value_sizes: HashMap<usize, usize> = HashMap::new();
 
         let cf_handle = db.cf_handle(col_family).unwrap();
-        let iter = db.iterator_cf(&cf_handle, rocksdb::IteratorMode::Start);
-        for res in iter {
+        for res in db.iterator_cf(&cf_handle, rocksdb::IteratorMode::Start) {
             match res {
                 Ok(tuple) => {
                     // Count key sizes
@@ -174,7 +173,7 @@ fn main() {
                     // Count value sizes
                     let value_len = tuple.1.len();
                     *local_value_sizes.entry(value_len).or_insert(0) += 1;
-                }
+                },
                 Err(_) => {
                     println!("Error occured during iteration");
                 }
