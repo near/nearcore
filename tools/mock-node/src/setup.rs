@@ -181,9 +181,9 @@ pub fn setup_mock_node(
         tracing::info!(target: "mock_node", "Done preparing epoch info");
 
         // copy state for all shards
-        let next_hash = network_chain_store.get_next_block_hash(&hash).unwrap();
-        let next_block = network_chain_store.get_block(&next_hash).unwrap();
-        for (shard_id, chunk_header) in next_block.chunks().iter().enumerate() {
+        let block = network_chain_store.get_block(&hash).unwrap();
+        let prev_hash = *block.header().prev_hash();
+        for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
             tracing::info!(target: "mock_node", "Preparing state for shard {}", shard_id);
             let shard_id = shard_id as u64;
             let state_root = chunk_header.prev_state_root();
@@ -206,7 +206,7 @@ pub fn setup_mock_node(
                     let state_part = mock_network_runtime
                         .obtain_state_part(
                             shard_id,
-                            &hash,
+                            &prev_hash,
                             &state_root,
                             PartId::new(part_id, num_parts),
                         )
@@ -307,7 +307,8 @@ mod tests {
         // first set up a network with only one validator and generate some blocks
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-        genesis.config.epoch_length = 10;
+        let epoch_length = 30;
+        genesis.config.epoch_length = epoch_length;
         let mut near_config =
             load_test_config("test0", tcp::ListenerAddr::reserve_for_test(), genesis.clone());
         near_config.client_config.min_num_peers = 0;
@@ -368,7 +369,7 @@ mod tests {
                                 *nonce.write().unwrap() = next_nonce + 1;
                             }
 
-                            if block.header.height >= 20 {
+                            if block.header.height >= epoch_length * 2 + 2{
                                 System::current().stop()
                             }
                         }
@@ -390,13 +391,13 @@ mod tests {
         near_config1.client_config.tracked_shards =
             (0..near_config1.genesis.config.shard_layout.num_shards()).collect();
         let network_config = MockNetworkConfig::with_delay(Duration::from_millis(10));
-        run_actix(async move {
+        run_actix(async {
             let MockNode { rpc_client, .. } = setup_mock_node(
                 dir1.path(),
-                dir.path(),
+                dir0.path(),
                 near_config1,
                 &network_config,
-                10,
+                epoch_length*2,
                 None,
                 None,
                 false,
@@ -404,7 +405,7 @@ mod tests {
             );
             wait_or_timeout(100, 60000, || async {
                 if let Ok(status) = rpc_client.status().await {
-                    if status.sync_info.latest_block_height >= 20 {
+                    if status.sync_info.latest_block_height >= epoch_length * 2{
                         System::current().stop();
                         return ControlFlow::Break(());
                     }
