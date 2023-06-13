@@ -90,10 +90,8 @@ def on_locust_init(environment, **kwargs):
     funding_account.refresh_nonce(node)
 
     account = base.Account(
-        key.Key.from_seed_testonly(
-            environment.congestion_account_id, environment.congestion_account_id
-        )
-    )
+        key.Key.from_seed_testonly(environment.congestion_account_id,
+                                   environment.congestion_account_id))
     base.send_transaction(
         node,
         base.CreateSubAccount(funding_account, account.key, balance=50000.0),
