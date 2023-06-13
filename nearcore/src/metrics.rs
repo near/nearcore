@@ -28,7 +28,7 @@ pub(crate) static APPLY_CHUNK_DELAY: Lazy<HistogramVec> = Lazy::new(|| {
 pub(crate) static DELAYED_RECEIPTS_COUNT: Lazy<IntGaugeVec> = Lazy::new(|| {
     try_create_int_gauge_vec(
         "near_delayed_receipts_count",
-        "The length of the delayed receipts queue. Indicator of congestion.",
+        "The count of the delayed receipts. Indicator of congestion.",
         &["shard_id"],
     )
     .unwrap()
@@ -37,7 +37,7 @@ pub(crate) static DELAYED_RECEIPTS_COUNT: Lazy<IntGaugeVec> = Lazy::new(|| {
 pub(crate) static POSTPONED_RECEIPTS_COUNT: Lazy<IntGaugeVec> = Lazy::new(|| {
     try_create_int_gauge_vec(
         "near_postponed_receipts_count",
-        "The length of the postponed receipts queue. Indicator of congestion.",
+        "The count of the postponed receipts. Indicator of congestion.",
         &["shard_id"],
     )
     .unwrap()
@@ -240,10 +240,13 @@ pub fn spawn_trie_metrics_loop(
         loop {
             interval.tick().await;
 
+            let start_time = std::time::Instant::now();
             let result = export_postponed_receipt_count(&near_config, &store);
             if let Err(err) = result {
-                tracing::error!("Error when exporting postponed receipts count {err}");
+                tracing::error!(target: "metrics", "Error when exporting postponed receipts count {err}.");
             };
+
+            tracing::trace!(target: "metrics", "exporting postponed receipt count took {:?}.", start_time.elapsed());
         }
     });
 
