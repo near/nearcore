@@ -41,5 +41,14 @@ impl EdgeCache {
             let should_be_used = id == 0 || self.degree[id as usize] != 0;
             assert_eq!(should_be_used, !self.unused.contains(&id));
         }
+
+        // Check exact consistency of the degree counts with the active edges
+        let mut expected_degree = vec![0; self.max_id()];
+        for (key, edge) in &self.active_edges {
+            assert!(edge.refcount > 0);
+            expected_degree[self.get_id(&key.peer0) as usize] += 1;
+            expected_degree[self.get_id(&key.peer1) as usize] += 1;
+        }
+        assert_eq!(expected_degree, self.degree);
     }
 }

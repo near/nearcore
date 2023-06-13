@@ -220,7 +220,8 @@ impl EdgeCache {
         let is_newly_inactive = match self.active_edges.entry(key.clone()) {
             im::hashmap::Entry::Occupied(mut occupied) => {
                 let val: &mut ActiveEdge = occupied.get_mut();
-                if val.refcount <= 1 {
+                assert!(val.refcount > 0);
+                if val.refcount == 1 {
                     occupied.remove_entry();
                     true
                 } else {
@@ -228,7 +229,10 @@ impl EdgeCache {
                     false
                 }
             }
-            im::hashmap::Entry::Vacant(_) => false,
+            im::hashmap::Entry::Vacant(_) => {
+                assert!(false);
+                false
+            }
         };
         if is_newly_inactive {
             self.decrement_degrees_for_key(key);
@@ -293,24 +297,10 @@ impl EdgeCache {
     }
 
     /// Prunes entries with nonces older than `prune_nonces_older_than`
-    /// from both `verified_nonces` and `active_edges`
+    /// from `verified_nonces`
     pub fn prune_old_edges(&mut self, prune_nonces_older_than: u64) {
         // Drop any entries with old nonces from the verified_nonces cache
         self.verified_nonces.retain(|_, nonce| nonce >= &prune_nonces_older_than);
-
-        // Drop edges with old nonces from the active_edges cache
-        let mut pruned_keys = vec![];
-        self.active_edges.retain(|key, e| {
-            if e.edge.nonce() < prune_nonces_older_than {
-                pruned_keys.push(key.clone());
-                return false;
-            }
-            return true;
-        });
-
-        for key in pruned_keys {
-            self.decrement_degrees_for_key(&key);
-        }
     }
 
     /// Accepts a mapping from the set of reachable PeerIds in the network
