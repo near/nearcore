@@ -21,6 +21,7 @@ struct Cli {
 }
 
 // Function to draw a histogram
+// TODO(jbajic) This fails...
 fn draw_histogram(
     data: &Vec<(usize, usize)>,
     title: &str,
@@ -104,48 +105,46 @@ fn get_all_col_familiy_names() -> Vec<String> {
     .collect()
 }
 
-fn print_results(key_sizes: &Vec<(usize, usize)>, value_sizes: &Vec<(usize, usize)>, limit: usize) {
+fn print_results(
+    sizes_count: &Vec<(usize, usize)>,
+    size_count_type: &str,
+    limit: usize,
+    total_num_of_pairs: usize,
+) {
     println!(
         "Total number of pairs read {}",
-        key_sizes.into_iter().map(|(_, count)| count).sum::<usize>()
+        sizes_count.into_iter().map(|(_, count)| count).sum::<usize>()
     );
 
     // Print out distributions
-    println!("Key Size Distribution:");
-    println!("Maximum size key: {:?}", key_sizes.first().unwrap());
-    println!("Minimum size key: {:?}", key_sizes.last().unwrap());
-    for (size, count) in key_sizes.iter().take(limit) {
+    println!("{} Size Distribution:", size_count_type);
+    println!("Maximum size {}: {:?}", size_count_type, sizes_count.first().unwrap());
+    println!("Minimum size {}: {:?}", size_count_type, sizes_count.last().unwrap());
+    let total_sizes_bytes_sum = sizes_count.iter().map(|a| a.0 * a.1).sum::<usize>();
+    println!(
+        "Average size {}: {:?}",
+        size_count_type,
+        total_sizes_bytes_sum as f64 / total_num_of_pairs as f64
+    );
+    let mut size_bytes_median = 0;
+    let mut median_index = total_num_of_pairs / 2;
+    for (size, count) in sizes_count.iter().take(limit) {
+        if median_index < *count {
+            size_bytes_median = *size;
+            break;
+        } else {
+            median_index -= count;
+        }
+    }
+    println!("Median size {} {}", size_count_type, size_bytes_median);
+    for (size, count) in sizes_count.iter().take(limit) {
         println!("Size: {}, Count: {}", size, count);
     }
     println!("");
-
-    println!("Value Size Distribution:");
-    println!("Maximum size value: {:?}", value_sizes.first().unwrap());
-    println!("Minimum size value: {:?}", value_sizes.last().unwrap());
-    for (size, count) in value_sizes.iter().take(limit) {
-        println!("Size: {}, Count: {}", size, count);
-    }
 }
 
-fn main() {
-    let args = Cli::parse();
 
-    // Set db options
-    let mut opts = Options::default();
-    opts.create_if_missing(true);
-    opts.set_max_open_files(10_000);
-    opts.set_wal_recovery_mode(rocksdb::DBRecoveryMode::SkipAnyCorruptedRecord);
-    opts.increase_parallelism(std::cmp::max(1, 32));
-
-    // Define column families
-    let col_families = match args.column {
-        Some(col_name) => vec![col_name],
-        None => get_all_col_familiy_names(),
-    };
-
-    // Open db
-    let db = DB::open_cf_for_read_only(&opts, args.db_path, col_families.clone(), false).unwrap();
-
+fn read_all_pairs(db: &DB, col_families: &Vec<String>) -> (Vec<(usize, usize)>, Vec<(usize, usize)>) {
     // Initialize counters
     let key_sizes: Arc<Mutex<HashMap<usize, usize>>> = Arc::new(Mutex::new(HashMap::new()));
     let value_sizes: Arc<Mutex<HashMap<usize, usize>>> = Arc::new(Mutex::new(HashMap::new()));
@@ -173,7 +172,7 @@ fn main() {
                     // Count value sizes
                     let value_len = tuple.1.len();
                     *local_value_sizes.entry(value_len).or_insert(0) += 1;
-                },
+                }
                 Err(_) => {
                     println!("Error occured during iteration");
                 }
@@ -189,15 +188,39 @@ fn main() {
     let mut value_sizes_sorted: Vec<(usize, usize)> =
         value_sizes.lock().unwrap().clone().into_iter().collect();
     value_sizes_sorted.sort_by(|a, b| b.1.cmp(&a.1));
+    (key_sizes_sorted, value_sizes_sorted)
+}
 
+fn main() {
+    let args = Cli::parse();
+
+    // Set db options
+    let mut opts = Options::default();
+    opts.create_if_missing(true);
+    opts.set_max_open_files(10_000);
+    opts.set_wal_recovery_mode(rocksdb::DBRecoveryMode::SkipAnyCorruptedRecord);
+    opts.increase_parallelism(std::cmp::max(1, 32));
+
+    // Define column families
+    let col_families = match args.column {
+        Some(col_name) => vec![col_name],
+        None => get_all_col_familiy_names(),
+    };
+
+    // Open db
+    let db = DB::open_cf_for_read_only(&opts, args.db_path, col_families.clone(), false).unwrap();
+    let (key_sizes_sorted, value_sizes_sorted) = read_all_pairs(&db, &col_families);
+    let total_num_of_pairs = key_sizes_sorted.iter().map(|(_, count)| count).sum::<usize>();
+    
     let limit = match args.limit {
         Some(limit) => limit,
         None => 100,
     };
-    print_results(&key_sizes_sorted, &value_sizes_sorted, limit);
+    print_results(&key_sizes_sorted, "Key", limit, total_num_of_pairs);
+    print_results(&value_sizes_sorted, "Value", limit, total_num_of_pairs);
 
     // Draw histograms
-    if args.draw_histogram && !key_sizes.lock().unwrap().is_empty() {
+    if args.draw_histogram && !key_sizes_sorted.is_empty() {
         draw_histogram(
             &key_sizes_sorted.into_iter().take(limit).collect(),
             "Key size distribution",
