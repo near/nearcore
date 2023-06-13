@@ -4,11 +4,10 @@ use crate::{imports, prepare};
 use near_primitives::config::VMConfig;
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_primitives::types::CompiledContractCache;
 use near_primitives::version::ProtocolVersion;
 use near_vm_errors::{
-    CompilationError, FunctionCallError, MethodResolveError, PrepareError, VMLogicError,
-    VMRunnerError, WasmTrap,
+    CompilationError, CompiledContractCache, FunctionCallError, MethodResolveError, PrepareError,
+    VMLogicError, VMRunnerError, WasmTrap,
 };
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{External, MemSlice, MemoryLike, VMContext, VMLogic, VMOutcome};
