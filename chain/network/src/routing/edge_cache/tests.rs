@@ -173,6 +173,27 @@ fn reuse_ids() {
 }
 
 #[test]
+fn free_unused_after_create_for_tree() {
+    let node0 = random_peer_id();
+    let node1 = random_peer_id();
+    let node2 = random_peer_id();
+
+    let edge = Edge::make_fake_edge(node1.clone(), node2.clone(), 123);
+
+    // Initialize the edge cache and check that just the local node has an id
+    let mut ec = EdgeCache::new(node0.clone());
+    ec.check_mapping(vec![node0.clone()]);
+
+    // Create and check ids for the tree 1--2
+    ec.create_ids_for_tree(&node1, &vec![edge]);
+    ec.check_mapping_external(&vec![node0.clone(), node1, node2]);
+
+    // Free unused ids
+    ec.free_unused_ids();
+    ec.check_mapping(vec![node0]);
+}
+
+#[test]
 fn overwrite_shortest_path_tree() {
     let node0 = random_peer_id();
     let node1 = random_peer_id();

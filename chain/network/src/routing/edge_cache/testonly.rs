@@ -11,7 +11,7 @@ impl EdgeCache {
         self.active_edges.get(key).map(|val| val.edge.nonce())
     }
 
-    pub(crate) fn check_mapping(&self, mapped_nodes: Vec<PeerId>) {
+    pub(crate) fn check_mapping_external(&self, mapped_nodes: &Vec<PeerId>) {
         // Check the mapped ids for externally visible properties of the mapping
         let mut assigned_ids: Vec<u32> =
             mapped_nodes.iter().map(|peer_id| self.get_id(peer_id)).collect();
@@ -21,10 +21,12 @@ impl EdgeCache {
         for id in assigned_ids {
             assert!(id < (self.max_id() as u32));
         }
+    }
 
+    pub(crate) fn check_mapping_internal(&self, mapped_nodes: &Vec<PeerId>) {
         // Check internally that the set of mapped nodes is exactly those which are expected
         assert_eq!(mapped_nodes.len(), self.p2id.len());
-        for peer_id in &mapped_nodes {
+        for peer_id in mapped_nodes {
             assert!(self.p2id.contains_key(&peer_id));
         }
 
@@ -50,5 +52,10 @@ impl EdgeCache {
             expected_degree[self.get_id(&key.peer1) as usize] += 1;
         }
         assert_eq!(expected_degree, self.degree);
+    }
+
+    pub(crate) fn check_mapping(&self, mapped_nodes: Vec<PeerId>) {
+        self.check_mapping_external(&mapped_nodes);
+        self.check_mapping_internal(&mapped_nodes);
     }
 }

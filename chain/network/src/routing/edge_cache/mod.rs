@@ -141,9 +141,26 @@ impl EdgeCache {
         }
     }
 
-    /// TODO(saketh): this is wrong and creates duplicate entries in `unused`
+    /// Iterates over all peers appearing in the given spanning tree,
+    /// assigning ids to those which don't have one already.
+    pub(crate) fn create_ids_for_tree(&mut self, root: &PeerId, edges: &Vec<Edge>) {
+        self.get_or_create_id(root);
+
+        edges.iter().for_each(|edge| {
+            let (peer0, peer1) = edge.key();
+            self.get_or_create_id(peer0);
+            self.get_or_create_id(peer1);
+        });
+    }
+
+    /// Checks for and frees any assigned ids which have degree 0.
     pub(crate) fn free_unused_ids(&mut self) {
-        // The local node should always have id 0, so it's never freed
+        // The local node should always have id 0; it's never freed
+        assert!(self.get_local_node_id() == 0);
+
+        self.p2id.retain(|_, id| *id == 0 || self.degree[*id as usize] != 0);
+
+        self.unused.clear();
         for id in 1..self.max_id() {
             if self.degree[id] == 0 {
                 self.unused.push(id as u32);
@@ -267,18 +284,6 @@ impl EdgeCache {
                 self.remove_active_edge(e);
             }
         }
-    }
-
-    /// Iterates over all peers appearing in the given spanning tree,
-    /// assigning ids to those which don't have one already.
-    pub(crate) fn create_ids_for_tree(&mut self, root: &PeerId, edges: &Vec<Edge>) {
-        self.get_or_create_id(root);
-
-        edges.iter().for_each(|edge| {
-            let (peer0, peer1) = edge.key();
-            self.get_or_create_id(peer0);
-            self.get_or_create_id(peer1);
-        });
     }
 
     /// Upper bound on mapped u32 ids; not inclusive
