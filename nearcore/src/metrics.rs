@@ -128,16 +128,21 @@ pub(crate) static STATE_SYNC_OBTAIN_PART_DELAY: Lazy<near_o11y::metrics::Histogr
         .unwrap()
     });
 
-fn log_trie_item(
-    item: Result<(Vec<u8>, Vec<u8>), near_store::StorageError>,
-) -> Result<(), anyhow::Error> {
+fn log_trie_item(item: Result<(Vec<u8>, Vec<u8>), near_store::StorageError>) -> () {
     if !tracing::level_enabled!(tracing::Level::TRACE) {
-        return Ok(());
+        return;
     }
-    let (key, value) = item?;
-    let state_record = StateRecord::from_raw_key_value(key, value);
+    let item = match item {
+        Ok(item) => item,
+        Err(err) => {
+            tracing::trace!(target: "metrics", "trie-stats - failed to parse item {err:?}");
+            return;
+        }
+    };
+    let (key, value) = item;
+    let state_record = StateRecord::from_raw_key_value_impl(key, value);
     match state_record {
-        Some(StateRecord::PostponedReceipt(receipt)) => {
+        Ok(Some(StateRecord::PostponedReceipt(receipt))) => {
             tracing::trace!(
                 target: "metrics",
                 "trie-stats - PostponedReceipt(predecessor_id: {:?}, receiver_id: {:?})",
@@ -149,7 +154,6 @@ fn log_trie_item(
             tracing::trace!(target: "metrics", "trie-stats - {state_record:?}" );
         }
     }
-    Ok(())
 }
 
 fn export_postponed_receipt_count(near_config: &NearConfig, store: &Store) -> anyhow::Result<()> {
@@ -207,48 +211,15 @@ fn get_postponed_receipt_count_for_shard(
     let storage = Rc::new(storage);
     let flat_storage_chunk_view = None;
     let trie = Trie::new(storage, *state_root, flat_storage_chunk_view);
-    let seek_count;
-    let prune_count;
-    {
-        tracing::trace!(target: "metrics", "trie stats - seek");
-        let mut iter = trie.iter()?;
-        iter.seek_prefix([trie_key::col::POSTPONED_RECEIPT])?;
-        let mut count = 0;
-        for item in iter {
-            count += 1;
-            log_trie_item(item)?;
-        }
-        seek_count = count;
-        tracing::trace!(target: "metrics", "trie-stats - seek postponed receipt count {count}");
+    let mut iter = trie.iter()?;
+    iter.seek_prefix([trie_key::col::POSTPONED_RECEIPT])?;
+    let mut count = 0;
+    for item in iter {
+        count += 1;
+        log_trie_item(item);
     }
-    {
-        tracing::trace!(target: "metrics", "trie stats - prune");
-        let prune_condition: Box<dyn Fn(&Vec<u8>) -> bool> =
-            Box::new(postponed_receipt_prune_condition);
-        let iter = trie.iter_with_prune_condition(Some(prune_condition))?;
-        let mut count = 0;
-        for item in iter {
-            count += 1;
-            log_trie_item(item)?;
-        }
-        prune_count = count;
-        tracing::trace!(target: "metrics", "trie-stats - prune postponed receipt count {count}");
-    }
-    if seek_count != prune_count {
-        tracing::error!(target: "metrics", "trie-stats - ERROR, the seek count {} != the prune count {}", seek_count, prune_count);
-    }
-    Ok(seek_count)
-}
-
-fn postponed_receipt_prune_condition(key_nibbles: &Vec<u8>) -> bool {
-    if key_nibbles.len() < 2 {
-        return false;
-    }
-    let col = key_nibbles[0] * 16 + key_nibbles[1] * 1;
-    if col == trie_key::col::POSTPONED_RECEIPT {
-        return false;
-    }
-    true
+    tracing::trace!(target: "metrics", "trie-stats - seek postponed receipt count {count}");
+    Ok(count)
 }
 
 /// Spawns a background loop that will periodically log trie related metrics.
