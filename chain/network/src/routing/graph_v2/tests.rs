@@ -520,3 +520,76 @@ async fn receive_distance_vector_without_route_to_local_node() {
         &distance_vector_update,
     );
 }
+
+#[tokio::test]
+async fn inconsistent_peers() {
+    let node0 = random_peer_id();
+    let node1 = random_peer_id();
+    let node2 = random_peer_id();
+    let node3 = random_peer_id();
+    let node4 = random_peer_id();
+
+    let graph =
+        Arc::new(GraphV2::new(GraphConfigV2 { node_id: node0.clone(), prune_edges_after: None }));
+
+    let edge01 = Edge::make_fake_edge(node0.clone(), node1.clone(), 123);
+    let edge02 = Edge::make_fake_edge(node0.clone(), node2.clone(), 123);
+    let edge12 = Edge::make_fake_edge(node1.clone(), node2.clone(), 123);
+    let edge13 = Edge::make_fake_edge(node1.clone(), node3.clone(), 123);
+    let edge24 = Edge::make_fake_edge(node2.clone(), node4.clone(), 123);
+
+    // Receive a DistanceVector from node1 with routes to 2, 3, 4 behind it
+    //    0 -- 1 -- 3
+    //          \
+    //           2 -- 4
+    graph
+        .process_network_event(NetworkTopologyChange::PeerAdvertisedRoutes(
+            network_protocol::DistanceVector {
+                root: node1.clone(),
+                routes: vec![
+                    AdvertisedRoute { destination: node1.clone(), length: 0 },
+                    AdvertisedRoute { destination: node0.clone(), length: 1 },
+                    AdvertisedRoute { destination: node2.clone(), length: 1 },
+                    AdvertisedRoute { destination: node3.clone(), length: 1 },
+                    AdvertisedRoute { destination: node4.clone(), length: 2 },
+                ],
+                edges: vec![edge01.clone(), edge12.clone(), edge13.clone(), edge24.clone()],
+            },
+        ))
+        .await;
+
+    // Receive a DistanceVector from node2 with routes to 1, 3 behind it
+    //           1 -- 3
+    //          /
+    //    0 -- 2
+    //
+    // Notably, node2 does not advertise a route to node 4
+    let distance_vector_update = graph
+        .process_network_event(NetworkTopologyChange::PeerAdvertisedRoutes(
+            network_protocol::DistanceVector {
+                root: node2.clone(),
+                routes: vec![
+                    AdvertisedRoute { destination: node2.clone(), length: 0 },
+                    AdvertisedRoute { destination: node0.clone(), length: 1 },
+                    AdvertisedRoute { destination: node1.clone(), length: 1 },
+                    AdvertisedRoute { destination: node3.clone(), length: 2 },
+                ],
+                edges: vec![edge02.clone(), edge12.clone(), edge13.clone()],
+            },
+        ))
+        .await
+        .unwrap();
+
+    // Best available advertised route to each destination
+    let expected_routes = HashMap::from([
+        (node0.clone(), 0),
+        (node1.clone(), 1),
+        (node2.clone(), 1),
+        (node3.clone(), 2),
+        (node4.clone(), 3),
+    ]);
+
+    // There is no set of edges which produces a tree exactly consistent with `expected_routes`,
+    // but we should be able to construct a valid DistanceVector anyway
+    graph.verify_own_distance_vector(expected_routes, &distance_vector_update);
+}
