@@ -14,5 +14,6 @@ publish = false
 clap.workspace = true
 rocksdb.workspace = true
 near-store.workspace = true
+rayon.workspace = true
 plotters = "0.3"
 

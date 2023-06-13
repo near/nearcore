@@ -1,8 +1,10 @@
 use clap::Parser;
 use near_store::{col_name, DBCol};
 use plotters::prelude::*;
+use rayon::prelude::*;
 use rocksdb::{Options, DB};
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 #[derive(Parser)]
 struct Cli {
@@ -13,14 +15,18 @@ struct Cli {
 
     #[arg(short, long)]
     draw_histogram: bool,
+
+    #[arg(short, long)]
+    limit: Option<usize>,
 }
 
 // Function to draw a histogram
 fn draw_histogram(
-    data: &HashMap<usize, usize>,
+    data: &Arc<Mutex<HashMap<usize, usize>>>,
     title: &str,
     filename: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let data = data.lock().unwrap();
     let root = SVGBackend::new(filename, (640, 480)).into_drawing_area();
     root.fill(&WHITE)?;
 
@@ -99,6 +105,26 @@ fn get_all_col_familiy_names() -> Vec<String> {
     .collect()
 }
 
+fn print_results(
+    key_sizes: &Arc<Mutex<HashMap<usize, usize>>>,
+    value_sizes: &Arc<Mutex<HashMap<usize, usize>>>,
+    limit: usize,
+) {
+    let key_sizes = key_sizes.lock().unwrap();
+    let value_sizes = value_sizes.lock().unwrap();
+    println!("Total number of pairs read {}", key_sizes.values().sum::<usize>());
+    // Print out distributions
+    println!("Key Size Distribution:");
+    for (size, count) in key_sizes.iter().take(limit) {
+        println!("Size: {}, Count: {}", size, count);
+    }
+
+    println!("Value Size Distribution:");
+    for (size, count) in value_sizes.iter().take(limit) {
+        println!("Size: {}, Count: {}", size, count);
+    }
+}
+
 fn main() {
     let args = Cli::parse();
 
@@ -107,6 +133,7 @@ fn main() {
     opts.create_if_missing(true);
     opts.set_max_open_files(10_000);
     opts.set_wal_recovery_mode(rocksdb::DBRecoveryMode::SkipAnyCorruptedRecord);
+    opts.increase_parallelism(std::cmp::max(1, 32));
 
     // Define column families
     let col_families = match args.column {
@@ -118,11 +145,21 @@ fn main() {
     let db = DB::open_cf_for_read_only(&opts, args.db_path, col_families.clone(), false).unwrap();
 
     // Initialize counters
-    let mut key_sizes: HashMap<usize, usize> = HashMap::new();
-    let mut value_sizes: HashMap<usize, usize> = HashMap::new();
+    let key_sizes: Arc<Mutex<HashMap<usize, usize>>> = Arc::new(Mutex::new(HashMap::new()));
+    let value_sizes: Arc<Mutex<HashMap<usize, usize>>> = Arc::new(Mutex::new(HashMap::new()));
 
     // Iterate over key-value pairs
-    for col_family in col_families.iter() {
+    let update_map = |global_map: &Arc<Mutex<HashMap<usize, usize>>>,
+                      local_map: &HashMap<usize, usize>| {
+        let mut key_sizes_guard = global_map.lock().unwrap();
+        for (key, value) in local_map {
+            *key_sizes_guard.entry(*key).or_insert(0) += *value;
+        }
+    };
+    col_families.par_iter().for_each(|col_family| {
+        let mut local_key_sizes: HashMap<usize, usize> = HashMap::new();
+        let mut local_value_sizes: HashMap<usize, usize> = HashMap::new();
+
         let cf_handle = db.cf_handle(col_family).unwrap();
         let iter = db.iterator_cf(&cf_handle, rocksdb::IteratorMode::Start);
         for res in iter {
@@ -130,46 +167,30 @@ fn main() {
                 Ok(tuple) => {
                     // Count key sizes
                     let key_len = tuple.0.len();
-                    *key_sizes.entry(key_len).or_insert(0) += 1;
+                    *local_key_sizes.entry(key_len).or_insert(0) += 1;
 
                     // Count value sizes
                     let value_len = tuple.1.len();
-                    *value_sizes.entry(value_len).or_insert(0) += 1;
+                    *local_value_sizes.entry(value_len).or_insert(0) += 1;
                 }
                 Err(_) => {
                     println!("Error occured during iteration");
                 }
             }
         }
-    }
+        update_map(&key_sizes, &local_key_sizes);
+        update_map(&value_sizes, &local_value_sizes);
+    });
 
-    println!("Total number of pairs read {}", key_sizes.values().sum::<usize>());
-    // Print out distributions
-    println!("Key Size Distribution:");
-    for (size, count) in key_sizes.iter() {
-        println!("Size: {}, Count: {}", size, count);
-    }
-
-    println!("Value Size Distribution:");
-    for (size, count) in value_sizes.iter() {
-        println!("Size: {}, Count: {}", size, count);
-    }
+    let limit = match args.limit {
+        Some(limit) => limit,
+        None => 100,
+    };
+    print_results(&key_sizes, &value_sizes, limit);
 
     // Draw histograms
-    let check_for_draw = |sizes_map: HashMap<usize, usize>, size_type: &str| {
-        if sizes_map.is_empty() {
-            println!("{} have not been read!", size_type);
-        } else {
-            if args.draw_histogram {
-                draw_histogram(
-                    &sizes_map,
-                    &format!("{} Size Distribution", size_type),
-                    &format!("{}_sizes.svg", size_type),
-                )
-                .unwrap();
-            }
-        }
-    };
-    check_for_draw(key_sizes, "key");
-    check_for_draw(value_sizes, "value");
+    if args.draw_histogram && !key_sizes.lock().unwrap().is_empty() {
+        draw_histogram(&key_sizes, "Key size distribution", "key_sizes.svg").unwrap();
+        draw_histogram(&value_sizes, "Value size distribution", "value_sizes.svg").unwrap();
+    }
 }

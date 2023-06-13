@@ -328,6 +328,7 @@ dependencies = [
  "clap 4.2.4",
  "near-store",
  "plotters",
+ "rayon",
  "rocksdb",
 ]
 
