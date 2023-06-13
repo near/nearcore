@@ -44,12 +44,15 @@ enum SubCommand {
     /// Run FlatState value inininig migration
     MigrateValueInlining(MigrateValueInliningCmd),
 
+    /// Construct and store trie in a separate directory from flat storage state for a given shard
     ConstructTrieFromFlat(ConstructTriedFromFlatCmd),
 }
 
 #[derive(Parser)]
 pub struct ConstructTriedFromFlatCmd {
     shard_id: u64,
+    /// Path to directory where the constructed trie would be stored. Note that there shouldn't be an
+    /// existing DB in the path provided.
     write_store_path: PathBuf,
 }
 

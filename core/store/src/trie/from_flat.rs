@@ -16,19 +16,21 @@ pub fn construct_trie_from_flat(store: Store, write_store: Store, shard_uid: Sha
                 }
                 FlatStateValue::Inlined(inline_value) => inline_value,
             };
-            (key, Some(value))
+            (key, value)
         });
 
+    // new ShardTries for write storage location
     let tries = ShardTries::new(
         write_store.clone(),
         TrieConfig::default(),
         &[shard_uid],
-        FlatStorageManager::new(write_store.clone()),
+        FlatStorageManager::new(write_store),
     );
     let mut trie_root = Trie::EMPTY_ROOT;
 
     while let Some(batch) = get_batch(&mut entries) {
         // Apply and commit changes
+        let batch_size = batch.len();
         let new_trie = tries.get_trie_for_shard(shard_uid, trie_root);
         let trie_changes = new_trie.update(batch).unwrap();
         let mut store_update = tries.store_update();
@@ -36,31 +38,24 @@ pub fn construct_trie_from_flat(store: Store, write_store: Store, shard_uid: Sha
         store_update.commit().unwrap();
         trie_root = trie_changes.new_root;
 
-        println!("{:.2?} : Processed batch", timer.elapsed());
+        println!("{:.2?} : Processed {} entries", timer.elapsed(), batch_size);
     }
 
-    println!("{:.2?} : Completed with root {}", timer.elapsed(), trie_root);
+    println!("{:.2?} : Completed building trie with root {}", timer.elapsed(), trie_root);
 }
 
 fn get_batch(
-    entry_itr: &mut impl Iterator<Item = (Vec<u8>, Option<Vec<u8>>)>,
+    entry_itr: &mut impl Iterator<Item = (Vec<u8>, Vec<u8>)>,
 ) -> Option<Vec<(Vec<u8>, Option<Vec<u8>>)>> {
-    let timer = Instant::now();
     let size_limit = 500 * 1000_000; // 500 MB
     let mut size = 0;
     let mut entries = Vec::new();
-    while let Some(entry) = entry_itr.next() {
-        size += entry.0.len() + entry.1.as_ref().unwrap().len();
-        entries.push(entry);
+    while let Some((key, value)) = entry_itr.next() {
+        size += key.len() + value.len();
+        entries.push((key, Some(value)));
         if size > size_limit {
             break;
         }
     }
-    println!("\tBatch len {}, count {}, time {:.2?}", size, entries.len(), timer.elapsed());
-
-    if entries.is_empty() {
-        None
-    } else {
-        Some(entries)
-    }
+    (!entries.is_empty()).then_some(entries)
 }
