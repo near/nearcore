@@ -1417,7 +1417,10 @@ fn paint(s: &str, style: Style, use_style: bool) -> String {
 }
 
 /// Formats the given ShardSyncDownload for logging.
-fn format_shard_sync_phase(shard_sync_download: &ShardSyncDownload, use_colour: bool) -> String {
+pub(crate) fn format_shard_sync_phase(
+    shard_sync_download: &ShardSyncDownload,
+    use_colour: bool,
+) -> String {
     match shard_sync_download.status {
         ShardSyncStatus::StateDownloadHeader => format!(
             "{} requests sent {}, last target {:?}",

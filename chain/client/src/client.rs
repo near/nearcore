@@ -7,7 +7,7 @@ use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
 use crate::sync::block::BlockSync;
 use crate::sync::epoch::EpochSync;
 use crate::sync::header::HeaderSync;
-use crate::sync::state::{StateSync, StateSyncResult};
+use crate::sync::state::{format_shard_sync_phase, StateSync, StateSyncResult};
 use crate::{metrics, SyncStatus};
 use lru::LruCache;
 use near_async::messaging::{CanSend, Sender};
@@ -2121,6 +2121,7 @@ impl Client {
             assert_eq!(sync_hash, state_sync_info.epoch_tail_hash);
             let network_adapter1 = self.network_adapter.clone();
 
+            let use_colour = matches!(self.config.log_summary_style, LogSummaryStyle::Colored);
             let new_shard_sync = {
                 let prev_hash = *self.chain.get_block(&sync_hash)?.header().prev_hash();
                 let need_to_split_states =
@@ -2150,7 +2151,7 @@ impl Client {
                             }
                         })
                         .collect();
-                    debug!(target: "catchup", "need to split states for shards {:?}", new_shard_sync);
+                    debug!(target: "catchup", progress_per_shard = ?format_shard_sync_phase_per_shard(&new_shard_sync, use_colour), "Need to split states for shards");
                     new_shard_sync
                 } else {
                     debug!(target: "catchup", "do not need to split states for shards");
@@ -2173,12 +2174,8 @@ impl Client {
                     )
                 });
 
-            debug!(
-                target: "client",
-                "Catchup me: {:?}: sync_hash: {:?}, sync_info: {:?}", me, sync_hash, new_shard_sync
-            );
+            debug!(target: "catchup", ?me, ?sync_hash, progress_per_shard = ?format_shard_sync_phase_per_shard(&new_shard_sync, use_colour), "Catchup");
 
-            let use_colour = matches!(self.config.log_summary_style, LogSummaryStyle::Colored);
             match state_sync.run(
                 me,
                 sync_hash,
@@ -2193,11 +2190,11 @@ impl Client {
             )? {
                 StateSyncResult::Unchanged => {}
                 StateSyncResult::Changed(fetch_block) => {
-                    debug!(target:"catchup", "state sync finished but waiting to fetch block");
+                    debug!(target: "catchup", "state sync finished but waiting to fetch block");
                     assert!(!fetch_block);
                 }
                 StateSyncResult::Completed => {
-                    debug!(target:"catchup", "state sync completed now catch up blocks");
+                    debug!(target: "catchup", "state sync completed now catch up blocks");
                     self.chain.catchup_blocks_step(
                         me,
                         &sync_hash,
@@ -2285,6 +2282,18 @@ impl Client {
         // storage should do the legacy clear_archive_data.
         self.chain.clear_archive_data(self.config.gc.gc_blocks_limit)
     }
+}
+
+fn format_shard_sync_phase_per_shard(
+    new_shard_sync: &HashMap<ShardId, ShardSyncDownload>,
+    use_colour: bool,
+) -> Vec<(ShardId, String)> {
+    new_shard_sync
+        .iter()
+        .map(|(&shard_id, shard_progress)| {
+            (shard_id, format_shard_sync_phase(shard_progress, use_colour))
+        })
+        .collect::<Vec<(_, _)>>()
 }
 
 /* implements functions used to communicate with network */
