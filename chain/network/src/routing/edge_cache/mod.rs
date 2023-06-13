@@ -95,53 +95,59 @@ impl EdgeCache {
         }
     }
 
+    /// Accepts a verified edge and updates the state of `verified_nonces`.
+    pub fn write_verified_nonce(&mut self, edge: &Edge) {
+        self.verified_nonces.insert(edge.key().into(), edge.nonce());
+    }
+
+    /// Accepts an edge. Returns true iff we already have a verified nonce
+    /// for the edge's key which is at least as new as the edge's nonce.
+    pub fn has_edge_nonce_or_newer(&self, edge: &Edge) -> bool {
+        self.verified_nonces
+            .get(&edge.key().into())
+            .map_or(false, |cached_nonce| cached_nonce >= &edge.nonce())
+    }
+
+    /// Returns the u32 id associated with the given PeerId.
+    /// Expects that an id was already assigned; will error otherwise.
+    pub(crate) fn get_id(&self, peer: &PeerId) -> u32 {
+        *self.p2id.get(peer).unwrap()
+    }
+
     /// Returns the u32 id associated with the given PeerId, assigning one if necessary.
     fn get_or_create_id(&mut self, peer: &PeerId) -> u32 {
         match self.p2id.entry(peer.clone()) {
             Entry::Occupied(occupied) => *occupied.get(),
             Entry::Vacant(vacant) => {
-                let val = if let Some(val) = self.unused.pop() {
-                    assert!(self.degree[val as usize] == 0);
-                    val
+                let id = if let Some(id) = self.unused.pop() {
+                    // If some unused id is available, take it
+                    assert!(self.degree[id as usize] == 0);
+                    id
                 } else {
-                    let val = self.degree.len() as u32;
+                    // Otherwise, create a new one
+                    let id = self.degree.len() as u32;
                     self.degree.push(0);
-                    val
+                    id
                 };
 
-                vacant.insert(val);
-                val
+                vacant.insert(id);
+                id
             }
         }
     }
 
-    fn decrement_degree(&mut self, peer_id: &PeerId) {
-        let id = self.get_or_create_id(peer_id);
-        self.degree[id as usize] -= 1;
-
-        // If this id is no longer incident with any active edges, free it
+    /// TODO(saketh): this is wrong and creates duplicate entries in `unused`
+    pub(crate) fn free_unused_ids(&mut self) {
         // The local node should always have id 0, so it's never freed
-        if self.degree[id as usize] == 0 && id != 0 {
-            self.p2id.remove(peer_id);
-
-            // TODO(saketh): Unused ids are simply kept in a list for reuse; `max_id` only ever
-            // increases. It it is not a completely trivial concern because `max_id` influences
-            // the amount of storage used by downstream consumers of the mapping (they are typically
-            // allocating Vecs of length `max_id`).
-            //
-            // We should consider doing something like rebuilding the mapping from scratch if more
-            // than half the allocated ids are freed. The downstream consumers would also need to
-            // modify their data structures in such a situation, so we would need to think carefully
-            // about how to implement it.
-            self.unused.push(id);
+        for id in 1..self.max_id() {
+            if self.degree[id] == 0 {
+                self.unused.push(id as u32);
+            }
         }
     }
 
-    fn decrement_degrees_for_key(&mut self, key: &EdgeKey) {
-        self.decrement_degree(&key.peer0);
-        self.decrement_degree(&key.peer1);
-    }
-
+    /// Called when storing an active edge.
+    /// Increments the degrees for the connected peers, assigning ids if necessary.
     fn increment_degrees_for_key(&mut self, key: &EdgeKey) {
         let id0 = self.get_or_create_id(&key.peer0) as usize;
         let id1 = self.get_or_create_id(&key.peer1) as usize;
@@ -149,45 +155,39 @@ impl EdgeCache {
         self.degree[id1] += 1;
     }
 
-    /// Returns the u32 id associated with the given PeerId.
-    /// Expects that such a mapping already exists; will error otherwise.
-    pub(crate) fn get_id(&self, peer: &PeerId) -> u32 {
-        *self.p2id.get(peer).unwrap()
+    /// Called when erasing an active edge.
+    /// Decrements the degrees for the connected peers.
+    fn decrement_degrees_for_key(&mut self, key: &EdgeKey) {
+        self.decrement_degree(&key.peer0);
+        self.decrement_degree(&key.peer1);
     }
 
-    /// Iterates over all peers appearing in the given spanning tree,
-    /// assigning ids to those which don't have one already.
-    pub(crate) fn create_ids_for_tree(&mut self, root: &PeerId, edges: &Vec<Edge>) {
-        self.get_or_create_id(root);
+    /// Decrements the degree for the given peer.
+    /// If the degree reaches 0, frees the peer's id for reuse.
+    ///
+    /// TODO(saketh): Unused ids are simply kept in a list for reuse; `max_id` only ever
+    /// increases. It it is not a completely trivial concern because `max_id` influences
+    /// the amount of storage used by downstream consumers of the mapping (they are typically
+    /// allocating Vecs of length `max_id`).
+    ///
+    /// We should consider doing something like rebuilding the mapping from scratch if more
+    /// than half the allocated ids are freed. The downstream consumers would also need to
+    /// modify their data structures in such a situation, so we would need to think carefully
+    /// about how to implement it.
+    fn decrement_degree(&mut self, peer_id: &PeerId) {
+        let id = self.get_id(peer_id) as usize;
+        assert!(self.degree[id] > 0);
+        self.degree[id] -= 1;
 
-        edges.iter().for_each(|edge| {
-            let (peer0, peer1) = edge.key();
-            self.get_or_create_id(peer0);
-            self.get_or_create_id(peer1);
-        });
-    }
-
-    pub(crate) fn free_unused_ids(&mut self) {
-        for id in 0..self.max_id() {
-            if self.degree[id] == 0 {
-                self.unused.push(id as u32);
-            }
+        // If the degree for the id reaches 0, free it.
+        // Id 0 is always assigned to the local node, so it's never freed.
+        if id != 0 && self.degree[id] == 0 {
+            self.p2id.remove(peer_id);
+            self.unused.push(id as u32);
         }
     }
 
-    /// Returns true iff we already verified a nonce for this key
-    /// which is at least as new as the given one
-    pub fn has_edge_nonce_or_newer(&self, edge: &Edge) -> bool {
-        self.verified_nonces
-            .get(&edge.key().into())
-            .map_or(false, |cached_nonce| cached_nonce >= &edge.nonce())
-    }
-
-    pub fn write_verified_nonce(&mut self, edge: &Edge) {
-        self.verified_nonces.insert(edge.key().into(), edge.nonce());
-    }
-
-    /// Inserts a copy of the given edge to the active edge cache.
+    /// Inserts a copy of the given edge to `active_edges`.
     /// If it's the first copy, increments degrees for the incident nodes.
     fn insert_active_edge(&mut self, edge: &Edge) {
         let is_newly_active = match self.active_edges.entry(edge.key().into()) {
@@ -243,8 +243,8 @@ impl EdgeCache {
 
         let edge_keys: Vec<EdgeKey> = tree.iter().map(|edge| edge.key().into()).collect();
 
-        // If a previous tree was present, process removal of its edges
         if let Some(old_edge_keys) = self.active_trees.insert(peer_id.clone(), edge_keys) {
+            // If a previous tree was present, process removal of its edges
             for key in &old_edge_keys {
                 self.remove_active_edge(key);
             }
@@ -258,6 +258,18 @@ impl EdgeCache {
                 self.remove_active_edge(e);
             }
         }
+    }
+
+    /// Iterates over all peers appearing in the given spanning tree,
+    /// assigning ids to those which don't have one already.
+    pub(crate) fn create_ids_for_tree(&mut self, root: &PeerId, edges: &Vec<Edge>) {
+        self.get_or_create_id(root);
+
+        edges.iter().for_each(|edge| {
+            let (peer0, peer1) = edge.key();
+            self.get_or_create_id(peer0);
+            self.get_or_create_id(peer1);
+        });
     }
 
     /// Upper bound on mapped u32 ids; not inclusive
