@@ -6441,6 +6441,7 @@ dependencies = [
  "rust-s3",
  "serde",
  "serde_json",
+ "strum",
  "tempfile",
  "testlib",
  "thiserror",
