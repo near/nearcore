@@ -25,7 +25,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceivedData};
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
-use near_primitives::types::{AccountId, CompiledContract, CompiledContractCache, StateRoot};
+use near_primitives::types::{AccountId, StateRoot};
+use near_vm_errors::{CompiledContract, CompiledContractCache};
 
 use crate::db::{
     refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StoreStatistics,
@@ -1038,7 +1039,7 @@ mod tests {
     /// Check StoreCompiledContractCache implementation.
     #[test]
     fn test_store_compiled_contract_cache() {
-        use near_primitives::types::{CompiledContract, CompiledContractCache};
+        use near_vm_errors::{CompiledContract, CompiledContractCache};
         use std::str::FromStr;
 
         let store = crate::test_utils::create_test_store();

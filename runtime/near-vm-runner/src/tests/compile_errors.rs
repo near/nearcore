@@ -469,21 +469,23 @@ fn extension_saturating_float_to_int() {
 
 #[test]
 fn extension_signext() {
-    let tb = test_builder().wat(
-        r#"
+    let tb = test_builder()
+        .wat(
+            r#"
             (module
                 (func $extend8_s (param $x i32) (result i32) (i32.extend8_s (local.get $x)))
+                (func (export "main"))
             )
             "#,
-    );
-    #[cfg(feature = "nightly")]
-    tb.expect(expect![[r#"
-        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 48017463 used gas 48017463
-        Err: PrepareError: Error happened while deserializing the module.
-    "#]]);
-    #[cfg(not(feature = "nightly"))]
-    tb.expect(expect![[r#"
-        VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
-        Err: PrepareError: Error happened while deserializing the module.
-    "#]]);
+        )
+        .protocol_features(&[ProtocolFeature::PreparationV2]);
+    tb.expects(&[
+        expect![[r#"
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 0 used gas 0
+            Err: PrepareError: Error happened while deserializing the module.
+        "#]],
+        expect![[r#"
+            VMOutcome: balance 4 storage_usage 12 return data None burnt gas 58284261 used gas 58284261
+        "#]],
+    ]);
 }

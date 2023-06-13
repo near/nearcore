@@ -207,7 +207,7 @@ fn assert_compute_limit_reached(
     // setup: deploy the contract
     {
         // This contract has a bunch of methods to invoke storage operations.
-        let code = near_test_contracts::rs_contract().to_vec();
+        let code = near_test_contracts::backwards_compatible_rs_contract().to_vec();
         let actions = vec![Action::DeployContract(DeployContractAction { code })];
 
         let signer = InMemorySigner::from_seed(
