@@ -104,12 +104,11 @@ fn get_all_col_familiy_names() -> Vec<String> {
     .collect()
 }
 
-fn print_results(
-    key_sizes: &Vec<(usize, usize)>,
-    value_sizes: &Vec<(usize, usize)>,
-    limit: usize,
-) {
-    println!("Total number of pairs read {}", key_sizes.into_iter().map(|(_, count)| count).sum::<usize>());
+fn print_results(key_sizes: &Vec<(usize, usize)>, value_sizes: &Vec<(usize, usize)>, limit: usize) {
+    println!(
+        "Total number of pairs read {}",
+        key_sizes.into_iter().map(|(_, count)| count).sum::<usize>()
+    );
 
     // Print out distributions
     println!("Key Size Distribution:");
@@ -185,11 +184,12 @@ fn main() {
         update_map(&value_sizes, &local_value_sizes);
     });
 
-    let mut key_sizes_sorted: Vec<(usize, usize)> = key_sizes.lock().unwrap().clone().into_iter().collect();
-    key_sizes_sorted.sort_by(|a, b| a.1.cmp(&b.1));
-    let mut value_sizes_sorted: Vec<(usize, usize)> = value_sizes.lock().unwrap().clone().into_iter().collect();
-    value_sizes_sorted.sort_by(|a, b| a.1.cmp(&b.1));
-
+    let mut key_sizes_sorted: Vec<(usize, usize)> =
+        key_sizes.lock().unwrap().clone().into_iter().collect();
+    key_sizes_sorted.sort_by(|a, b| b.1.cmp(&a.1));
+    let mut value_sizes_sorted: Vec<(usize, usize)> =
+        value_sizes.lock().unwrap().clone().into_iter().collect();
+    value_sizes_sorted.sort_by(|a, b| b.1.cmp(&a.1));
 
     let limit = match args.limit {
         Some(limit) => limit,
@@ -199,7 +199,17 @@ fn main() {
 
     // Draw histograms
     if args.draw_histogram && !key_sizes.lock().unwrap().is_empty() {
-        draw_histogram(&key_sizes_sorted.into_iter().take(limit).collect(), "Key size distribution", "key_sizes.svg").unwrap();
-        draw_histogram(&value_sizes_sorted.into_iter().take(limit).collect(), "Value size distribution", "value_sizes.svg").unwrap();
+        draw_histogram(
+            &key_sizes_sorted.into_iter().take(limit).collect(),
+            "Key size distribution",
+            "key_sizes.svg",
+        )
+        .unwrap();
+        draw_histogram(
+            &value_sizes_sorted.into_iter().take(limit).collect(),
+            "Value size distribution",
+            "value_sizes.svg",
+        )
+        .unwrap();
     }
 }
