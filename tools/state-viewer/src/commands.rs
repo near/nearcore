@@ -550,6 +550,7 @@ pub(crate) fn print_chain(
     let epoch_manager = EpochManager::new_arc_handle(store, &near_config.genesis.config);
     let mut account_id_to_blocks = HashMap::new();
     let mut cur_epoch_id = None;
+    // TODO: Split into smaller functions.
     for height in start_height..=end_height {
         if let Ok(block_hash) = chain_store.get_block_hash_by_height(height) {
             let header = chain_store.get_block_header(&block_hash).unwrap().clone();
@@ -562,64 +563,72 @@ pub(crate) fn print_chain(
             } else {
                 let parent_header =
                     chain_store.get_block_header(header.prev_hash()).unwrap().clone();
-                let epoch_id =
-                    epoch_manager.get_epoch_id_from_prev_block(header.prev_hash()).unwrap();
-                cur_epoch_id = Some(epoch_id.clone());
-                if epoch_manager.is_next_block_epoch_start(header.prev_hash()).unwrap() {
-                    println!("{:?}", account_id_to_blocks);
-                    account_id_to_blocks = HashMap::new();
-                    println!(
-                        "Epoch {} Validators {:?}",
-                        format_hash(epoch_id.0, show_full_hashes),
-                        epoch_manager
-                            .get_epoch_block_producers_ordered(&epoch_id, header.hash())
-                            .unwrap()
-                    );
-                }
-                let block_producer =
-                    epoch_manager.get_block_producer(&epoch_id, header.height()).unwrap();
-                account_id_to_blocks
-                    .entry(block_producer.clone())
-                    .and_modify(|e| *e += 1)
-                    .or_insert(1);
-
-                let block = chain_store.get_block(&block_hash).unwrap().clone();
-
-                let mut chunk_debug_str: Vec<String> = Vec::new();
-
-                for shard_id in 0..header.chunk_mask().len() {
-                    let chunk_producer = epoch_manager
-                        .get_chunk_producer(&epoch_id, header.height(), shard_id as u64)
-                        .unwrap();
-                    if header.chunk_mask()[shard_id] {
-                        let chunk = chain_store
-                            .get_chunk(&block.chunks()[shard_id].chunk_hash())
-                            .unwrap()
-                            .clone();
-                        chunk_debug_str.push(format!(
-                            "{}: {} {: >3} Tgas {: >10}",
-                            shard_id,
-                            format_hash(chunk.chunk_hash().0, show_full_hashes),
-                            chunk.cloned_header().gas_used() / (1_000_000_000_000),
-                            chunk_producer
-                        ));
-                    } else {
-                        chunk_debug_str
-                            .push(format!("{}: MISSING {: >10}", shard_id, chunk_producer));
+                if let Ok(epoch_id) = epoch_manager.get_epoch_id_from_prev_block(header.prev_hash())
+                {
+                    cur_epoch_id = Some(epoch_id.clone());
+                    if epoch_manager.is_next_block_epoch_start(header.prev_hash()).unwrap() {
+                        println!("{:?}", account_id_to_blocks);
+                        account_id_to_blocks = HashMap::new();
+                        println!(
+                            "Epoch {} Validators {:?}",
+                            format_hash(epoch_id.0, show_full_hashes),
+                            epoch_manager
+                                .get_epoch_block_producers_ordered(&epoch_id, header.hash())
+                                .unwrap()
+                        );
                     }
-                }
+                    let block_producer =
+                        epoch_manager.get_block_producer(&epoch_id, header.height()).unwrap();
+                    account_id_to_blocks
+                        .entry(block_producer.clone())
+                        .and_modify(|e| *e += 1)
+                        .or_insert(1);
 
-                println!(
-                    "{: >3} {} {} | {: >10} | parent: {: >3} {} | {} {}",
-                    header.height(),
-                    header.raw_timestamp(),
-                    format_hash(*header.hash(), show_full_hashes),
-                    block_producer,
-                    parent_header.height(),
-                    format_hash(*parent_header.hash(), show_full_hashes),
-                    chunk_mask_to_str(header.chunk_mask()),
-                    chunk_debug_str.join("|")
-                );
+                    let block = chain_store.get_block(&block_hash).unwrap().clone();
+
+                    let mut chunk_debug_str: Vec<String> = Vec::new();
+
+                    for shard_id in 0..header.chunk_mask().len() {
+                        let chunk_producer = epoch_manager
+                            .get_chunk_producer(&epoch_id, header.height(), shard_id as u64)
+                            .unwrap();
+                        if header.chunk_mask()[shard_id] {
+                            let chunk_hash = &block.chunks()[shard_id].chunk_hash();
+                            if let Ok(chunk) = chain_store.get_chunk(chunk_hash) {
+                                chunk_debug_str.push(format!(
+                                    "{}: {} {: >3} Tgas {: >10}",
+                                    shard_id,
+                                    format_hash(chunk_hash.0, show_full_hashes),
+                                    chunk.cloned_header().gas_used() / (1_000_000_000_000),
+                                    chunk_producer
+                                ));
+                            } else {
+                                chunk_debug_str.push(format!(
+                                    "{}: {} ChunkMissing",
+                                    shard_id,
+                                    format_hash(chunk_hash.0, show_full_hashes),
+                                ));
+                            }
+                        } else {
+                            chunk_debug_str
+                                .push(format!("{}: MISSING {: >10}", shard_id, chunk_producer));
+                        }
+                    }
+
+                    println!(
+                        "{: >3} {} {} | {: >10} | parent: {: >3} {} | {} {}",
+                        header.height(),
+                        header.raw_timestamp(),
+                        format_hash(*header.hash(), show_full_hashes),
+                        block_producer,
+                        parent_header.height(),
+                        format_hash(*parent_header.hash(), show_full_hashes),
+                        chunk_mask_to_str(header.chunk_mask()),
+                        chunk_debug_str.join("|")
+                    );
+                } else {
+                    println!("{height} MISSING {:?}", header.prev_hash());
+                }
             }
         } else if let Some(epoch_id) = &cur_epoch_id {
             let block_producer = epoch_manager.get_block_producer(epoch_id, height).unwrap();
