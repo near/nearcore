@@ -22,16 +22,15 @@ struct Cli {
 
 // Function to draw a histogram
 fn draw_histogram(
-    data: &Arc<Mutex<HashMap<usize, usize>>>,
+    data: &Vec<(usize, usize)>,
     title: &str,
     filename: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let data = data.lock().unwrap();
     let root = SVGBackend::new(filename, (640, 480)).into_drawing_area();
     root.fill(&WHITE)?;
 
-    let max_size = *data.keys().max().unwrap();
-    let max_count = *data.values().max().unwrap();
+    let max_size = *data.into_iter().map(|(size, _)| size).max().unwrap();
+    let max_count = *data.into_iter().map(|(_, count)| count).max().unwrap();
 
     let mut chart = ChartBuilder::on(&root)
         .caption(title, ("Arial", 20).into_font())
@@ -41,7 +40,7 @@ fn draw_histogram(
         .build_cartesian_2d(0..max_size, 0..max_count)?;
 
     chart.configure_mesh().draw()?;
-    let series = data.iter().map(|(&size, &count)| (size, count));
+    let series = data.iter().map(|(size, count)| (*size, *count));
     chart.draw_series(Histogram::vertical(&chart).style(BLUE.filled()).data(series))?;
 
     Ok(())
@@ -106,20 +105,24 @@ fn get_all_col_familiy_names() -> Vec<String> {
 }
 
 fn print_results(
-    key_sizes: &Arc<Mutex<HashMap<usize, usize>>>,
-    value_sizes: &Arc<Mutex<HashMap<usize, usize>>>,
+    key_sizes: &Vec<(usize, usize)>,
+    value_sizes: &Vec<(usize, usize)>,
     limit: usize,
 ) {
-    let key_sizes = key_sizes.lock().unwrap();
-    let value_sizes = value_sizes.lock().unwrap();
-    println!("Total number of pairs read {}", key_sizes.values().sum::<usize>());
+    println!("Total number of pairs read {}", key_sizes.into_iter().map(|(_, count)| count).sum::<usize>());
+
     // Print out distributions
     println!("Key Size Distribution:");
+    println!("Maximum size key: {:?}", key_sizes.first().unwrap());
+    println!("Minimum size key: {:?}", key_sizes.first().unwrap());
     for (size, count) in key_sizes.iter().take(limit) {
         println!("Size: {}, Count: {}", size, count);
     }
+    println!("");
 
     println!("Value Size Distribution:");
+    println!("Maximum size value: {:?}", value_sizes.first().unwrap());
+    println!("Minimum size value: {:?}", value_sizes.last().unwrap());
     for (size, count) in value_sizes.iter().take(limit) {
         println!("Size: {}, Count: {}", size, count);
     }
@@ -182,15 +185,21 @@ fn main() {
         update_map(&value_sizes, &local_value_sizes);
     });
 
+    let mut key_sizes_sorted: Vec<(usize, usize)> = key_sizes.lock().unwrap().clone().into_iter().collect();
+    key_sizes_sorted.sort_by(|a, b| a.1.cmp(&b.1));
+    let mut value_sizes_sorted: Vec<(usize, usize)> = value_sizes.lock().unwrap().clone().into_iter().collect();
+    value_sizes_sorted.sort_by(|a, b| a.1.cmp(&b.1));
+
+
     let limit = match args.limit {
         Some(limit) => limit,
         None => 100,
     };
-    print_results(&key_sizes, &value_sizes, limit);
+    print_results(&key_sizes_sorted, &value_sizes_sorted, limit);
 
     // Draw histograms
     if args.draw_histogram && !key_sizes.lock().unwrap().is_empty() {
-        draw_histogram(&key_sizes, "Key size distribution", "key_sizes.svg").unwrap();
-        draw_histogram(&value_sizes, "Value size distribution", "value_sizes.svg").unwrap();
+        draw_histogram(&key_sizes_sorted.into_iter().take(limit).collect(), "Key size distribution", "key_sizes.svg").unwrap();
+        draw_histogram(&value_sizes_sorted.into_iter().take(limit).collect(), "Value size distribution", "value_sizes.svg").unwrap();
     }
 }
